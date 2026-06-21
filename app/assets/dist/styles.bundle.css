@@ -427,7 +427,7 @@ a { color: inherit; text-decoration: none; }
   overflow: visible;
 }
 .topbar-shell {
-  border-bottom: 1px solid var(--mei-shell-color-focus-ring-subtle);
+  border-bottom: 1px solid var(--mei-chrome-border-top);
   background: var(--mei-chrome-top-bg);
   box-shadow: none;
 }
@@ -488,7 +488,7 @@ a { color: inherit; text-decoration: none; }
   position: relative;
 }
 .statusbar-shell {
-  border-top: 1px solid var(--mei-shell-color-statusbar-accent-line);
+  border-top: 1px solid var(--mei-chrome-border-bottom);
   background: var(--mei-chrome-bottom-bg);
   box-shadow: none;
 }
@@ -5150,6 +5150,7 @@ a.tree-link {
   .sidebar, .main { height: auto; }
 }
 
+/* config/upload 轻量页：消费 shell 轨 token（与 build/manage 顶栏底栏一致） */
 .config-view-shell,
 .upload-view-shell {
   min-height: 100vh;
@@ -5183,7 +5184,7 @@ a.tree-link {
   gap: 8px;
   padding: 0 4px 10px;
   flex: 0 0 auto;
-  border-bottom: 1px solid var(--mei-shell-color-border-muted, rgba(71, 85, 105, 0.28));
+  border-bottom: 1px solid var(--mei-shell-color-border-muted);
 }
 
 .upload-sidebar-title-row {
@@ -5194,15 +5195,15 @@ a.tree-link {
 }
 
 .upload-sidebar-title {
-  font-size: var(--mei-font-1, 12px);
+  font-size: var(--mei-shell-font-1);
   font-weight: 700;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-sidebar-root {
-  font-size: var(--mei-font-1, 10px);
+  font-size: var(--mei-shell-font-1);
   letter-spacing: 0.03em;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-sidebar-stats {
@@ -5218,9 +5219,9 @@ a.tree-link {
   padding: 0 8px;
   border-radius: 6px;
   border: 1px solid rgba(71, 85, 105, 0.35);
-  background: var(--mei-color-surface-bg, rgba(15, 23, 42, 0.42));
-  color: var(--mei-color-text-muted, #94a3b8);
-  font-size: var(--mei-font-1, 10px);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-muted);
+  font-size: var(--mei-shell-font-1);
 }
 
 .upload-browser-controls-mount {
@@ -5229,9 +5230,9 @@ a.tree-link {
 }
 
 .upload-sidebar-note {
-  font-size: var(--mei-font-1, 11px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.55;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-main {
@@ -5247,7 +5248,7 @@ a.tree-link {
   min-height: 0;
   overflow: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--mei-color-text-muted) transparent;
+  scrollbar-color: var(--mei-shell-color-text-muted) transparent;
 }
 
 .upload-workbench-body::-webkit-scrollbar {
@@ -5255,7 +5256,7 @@ a.tree-link {
 }
 
 .upload-workbench-body::-webkit-scrollbar-thumb {
-  background: var(--mei-color-surface-bg, rgba(56, 189, 248, 0.24));
+  background: var(--mei-shell-color-panel-bg);
   border-radius: 999px;
 }
 
@@ -5273,14 +5274,14 @@ a.tree-link {
 }
 
 .upload-browser-controls-title {
-  font-size: var(--mei-font-1, 11px);
+  font-size: var(--mei-shell-font-1);
   font-weight: 700;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-browser-result-meta {
-  font-size: var(--mei-font-1, 10px);
-  color: var(--mei-color-text-primary);
+  font-size: var(--mei-shell-font-1);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-browser-field {
@@ -5294,10 +5295,10 @@ a.tree-link {
 }
 
 .upload-browser-field-label {
-  font-size: var(--mei-font-1, 10px);
+  font-size: var(--mei-shell-font-1);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-browser-input,
@@ -5307,15 +5308,15 @@ a.tree-link {
   padding: 7px 10px;
   border: 1px solid rgba(100, 116, 139, 0.28);
   border-radius: 10px;
-  background: var(--mei-color-surface-bg, rgba(2, 6, 23, 0.55));
-  color: var(--mei-color-text-primary);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
   outline: none;
-  font-size: var(--mei-font-1, 11px);
+  font-size: var(--mei-shell-font-1);
 }
 
 .upload-browser-input:focus,
 .upload-browser-select:focus {
-  border-color: var(--mei-color-surface-bg, rgba(96, 165, 250, 0.58));
+  border-color: var(--mei-shell-color-panel-bg);
   box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18);
 }
 
@@ -5331,18 +5332,18 @@ a.tree-link {
   padding: 0 12px;
   border-radius: 10px;
   border: 1px solid rgba(100, 116, 139, 0.28);
-  background: var(--mei-color-surface-bg, rgba(15, 23, 42, 0.72));
-  color: var(--mei-color-text-primary, #e2e8f0);
-  font-size: var(--mei-font-1, 11px);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
+  font-size: var(--mei-shell-font-1);
   font-weight: 600;
   cursor: pointer;
 }
 
 .upload-browser-sort-btn:hover,
 .upload-browser-sort-btn:focus-visible {
-  border-color: var(--mei-color-surface-bg, rgba(148, 163, 184, 0.56));
-  background: var(--mei-color-surface-bg, rgba(30, 41, 59, 0.92));
-  color: var(--mei-color-text-inverse, #f8fafc);
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-sidebar-scroll {
@@ -5352,7 +5353,7 @@ a.tree-link {
   padding: 4px 0 0;
   margin: 0;
   scrollbar-width: thin;
-  scrollbar-color: var(--mei-color-text-muted) transparent;
+  scrollbar-color: var(--mei-shell-color-text-muted) transparent;
 }
 
 .upload-sidebar-scroll::-webkit-scrollbar {
@@ -5360,7 +5361,7 @@ a.tree-link {
 }
 
 .upload-sidebar-scroll::-webkit-scrollbar-thumb {
-  background: var(--mei-color-surface-bg, rgba(56, 189, 248, 0.24));
+  background: var(--mei-shell-color-panel-bg);
   border-radius: 999px;
 }
 
@@ -5418,10 +5419,10 @@ a.tree-link {
   padding: 12px;
   border: 1px dashed rgba(100, 116, 139, 0.28);
   border-radius: 12px;
-  background: var(--mei-color-surface-bg, rgba(2, 6, 23, 0.28));
-  font-size: var(--mei-font-1, 11px);
+  background: var(--mei-shell-color-panel-bg);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.6;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-file-row {
@@ -5434,24 +5435,24 @@ a.tree-link {
   padding: 7px 8px 7px 6px;
   border-left: 2px solid transparent;
   border-radius: 8px;
-  background: var(--mei-color-surface-bg, rgba(15, 23, 42, 0.22));
-  color: var(--mei-color-text-body, #cbd5e1);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-body);
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .upload-file-row:hover {
-  background: var(--mei-color-surface-bg, rgba(30, 41, 59, 0.55));
-  color: var(--mei-color-text-inverse, #f8fafc);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-file-row--active {
   border-left-color: rgb(56 189 248);
-  background: var(--mei-color-surface-bg, rgba(14, 116, 144, 0.18));
-  color: var(--mei-color-text-primary);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-file-row--dir {
-  background: var(--mei-color-surface-bg, rgba(8, 47, 73, 0.14));
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-file-row--dir .upload-file-name {
@@ -5493,7 +5494,7 @@ a.tree-link {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--mei-font-1, 12px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.35;
   color: inherit;
 }
@@ -5503,13 +5504,13 @@ a.tree-link {
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: var(--mei-font-1, 10px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.3;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-file-row--active .upload-file-meta {
-  color: var(--mei-color-text-primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-file-size,
@@ -5536,20 +5537,20 @@ a.tree-link {
   padding: 0 8px;
   border-radius: 999px;
   border: 1px solid rgba(96, 165, 250, 0.2);
-  background: var(--mei-color-surface-bg, rgba(15, 23, 42, 0.65));
-  color: var(--mei-color-text-muted, #94a3b8);
-  font-size: var(--mei-font-1, 10px);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-muted);
+  font-size: var(--mei-shell-font-1);
   line-height: 1;
   white-space: nowrap;
 }
 
 .upload-file-row--active .upload-file-tag {
   border-color: rgba(56, 189, 248, 0.35);
-  color: var(--mei-color-text-primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-file-tag--link {
-  color: var(--mei-color-text-unit, rgb(125 211 252));
+  color: var(--mei-shell-color-accent);
   text-decoration: none;
   cursor: pointer;
 }
@@ -5557,7 +5558,7 @@ a.tree-link {
 .upload-file-tag--link:hover,
 .upload-file-tag--link:focus-visible {
   border-color: rgba(96, 165, 250, 0.42);
-  color: var(--mei-color-text-highlight, rgb(186 230 253));
+  color: var(--mei-shell-color-accent-muted);
 }
 
 .upload-entry-token {
@@ -5569,57 +5570,57 @@ a.tree-link {
   padding: 0 8px;
   border-radius: 999px;
   border: 1px solid rgba(100, 116, 139, 0.28);
-  background: var(--mei-color-surface-bg, rgba(2, 6, 23, 0.62));
-  color: var(--mei-color-text-primary);
-  font-size: var(--mei-font-2, 9px);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
+  font-size: var(--mei-shell-font-2);
   font-weight: 800;
   letter-spacing: 0.06em;
 }
 
 .upload-entry-token[data-kind="dir"] {
-  border-color: var(--mei-color-surface-bg, rgba(56, 189, 248, 0.38));
-  background: var(--mei-color-surface-bg, rgba(8, 47, 73, 0.74));
-  color: var(--mei-color-text-primary);
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-entry-token[data-kind="image"] {
-  border-color: var(--mei-color-surface-bg, rgba(34, 197, 94, 0.34));
-  background: var(--mei-color-surface-bg, rgba(20, 83, 45, 0.52));
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-entry-token[data-kind="video"] {
-  border-color: var(--mei-color-surface-bg, rgba(168, 85, 247, 0.36));
-  background: var(--mei-color-surface-bg, rgba(76, 29, 149, 0.46));
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-entry-token[data-kind="audio"] {
-  border-color: var(--mei-color-surface-bg, rgba(236, 72, 153, 0.36));
-  background: var(--mei-color-surface-bg, rgba(131, 24, 67, 0.44));
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-entry-token[data-kind="sheet"] {
-  border-color: var(--mei-color-surface-bg, rgba(74, 222, 128, 0.34));
-  background: var(--mei-color-surface-bg, rgba(20, 83, 45, 0.46));
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-entry-token[data-kind="data"] {
-  border-color: var(--mei-color-surface-bg, rgba(14, 165, 233, 0.36));
-  background: var(--mei-color-surface-bg, rgba(12, 74, 110, 0.46));
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-entry-token[data-kind="code"] {
-  border-color: var(--mei-color-surface-bg, rgba(250, 204, 21, 0.34));
-  background: var(--mei-color-surface-bg, rgba(113, 63, 18, 0.44));
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-entry-token[data-kind="doc"] {
-  border-color: var(--mei-color-surface-bg, rgba(148, 163, 184, 0.36));
-  background: var(--mei-color-surface-bg, rgba(30, 41, 59, 0.58));
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-entry-token[data-kind="archive"] {
-  border-color: var(--mei-color-surface-bg, rgba(251, 146, 60, 0.4));
-  background: var(--mei-color-surface-bg, rgba(124, 45, 18, 0.42));
+  border-color: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-panel-root {
@@ -5650,32 +5651,32 @@ a.tree-link {
 
 .upload-panel-hero-title {
   margin: 0;
-  font-size: var(--mei-font-2, 14px);
+  font-size: var(--mei-shell-font-2);
   font-weight: 700;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-panel-hero-path {
-  font-size: var(--mei-font-1, 11px);
-  color: var(--mei-color-text-primary);
-  font-family: var(--mei-font-mono, ui-monospace, monospace);
+  font-size: var(--mei-shell-font-1);
+  color: var(--mei-shell-color-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-all;
 }
 
 .upload-panel-hero-note {
   margin: 0;
-  font-size: var(--mei-font-1, 11px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.55;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-panel-card {
   display: grid;
   gap: 12px;
   padding: 16px;
-  border: 1px solid var(--mei-shell-color-border-muted, rgba(71, 85, 105, 0.32));
+  border: 1px solid var(--mei-shell-color-border-muted);
   border-radius: 12px;
-  background: var(--mei-shell-color-panel-bg, rgba(8, 15, 25, 0.55));
+  background: var(--mei-shell-color-panel-bg);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
@@ -5689,17 +5690,17 @@ a.tree-link {
 }
 
 .upload-panel-section-title {
-  font-size: var(--mei-font-1, 12px);
+  font-size: var(--mei-shell-font-1);
   font-weight: 600;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-panel-selected-path {
-  font-size: var(--mei-font-1, 11px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.45;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
   word-break: break-all;
-  font-family: var(--mei-font-mono, ui-monospace, monospace);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .upload-panel-target-inputs {
@@ -5730,7 +5731,7 @@ a.tree-link {
   align-items: center;
   min-height: 96px;
   padding: 16px;
-  border: 1px dashed var(--mei-shell-color-border-strong, rgba(100, 116, 139, 0.38));
+  border: 1px dashed var(--mei-shell-color-border-strong);
   border-radius: 12px;
   background: linear-gradient(180deg, rgba(8, 15, 25, 0.42), rgba(8, 15, 25, 0.24));
   cursor: pointer;
@@ -5740,8 +5741,8 @@ a.tree-link {
 .upload-dropzone:hover,
 .upload-dropzone:focus-visible,
 .upload-dropzone.is-dragover {
-  border-color: var(--mei-shell-color-border-accent-soft, rgba(125, 211, 252, 0.55));
-  background: var(--mei-color-surface-bg, rgba(14, 165, 233, 0.08));
+  border-color: var(--mei-shell-color-border-accent-soft);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-dropzone:focus-visible {
@@ -5757,7 +5758,7 @@ a.tree-link {
   border-radius: 12px;
   border: 1px solid rgba(56, 189, 248, 0.22);
   background: rgba(8, 47, 73, 0.35);
-  color: var(--mei-color-text-primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-dropzone-copy {
@@ -5767,15 +5768,15 @@ a.tree-link {
 }
 
 .upload-dropzone-label {
-  font-size: var(--mei-font-1, 12px);
+  font-size: var(--mei-shell-font-1);
   font-weight: 600;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-dropzone-hint {
-  font-size: var(--mei-font-1, 10px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.45;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-form-actions,
@@ -5798,31 +5799,31 @@ a.tree-link {
 }
 
 .upload-panel-field-label {
-  font-size: var(--mei-font-1, 10px);
-  color: var(--mei-color-text-muted, #94a3b8);
+  font-size: var(--mei-shell-font-1);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-panel-field-input {
   width: 100%;
   min-height: 32px;
   padding: 6px 10px;
-  border: 1px solid var(--mei-shell-color-border-strong, rgba(100, 116, 139, 0.28));
+  border: 1px solid var(--mei-shell-color-border-strong);
   border-radius: 8px;
-  background: var(--mei-shell-color-panel-bg, rgba(2, 6, 23, 0.55));
-  color: var(--mei-color-text-primary);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
   outline: none;
-  font-size: var(--mei-font-1, 11px);
+  font-size: var(--mei-shell-font-1);
 }
 
 .upload-panel-field-input:focus {
-  border-color: var(--mei-shell-color-border-accent-soft, rgba(96, 165, 250, 0.58));
+  border-color: var(--mei-shell-color-border-accent-soft);
   box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.14);
 }
 
 .upload-panel-field-note {
-  font-size: var(--mei-font-1, 10px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.5;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-panel-inline-actions {
@@ -5850,10 +5851,10 @@ a.tree-link {
   padding: 10px 12px;
   border: 1px dashed rgba(100, 116, 139, 0.26);
   border-radius: 10px;
-  color: var(--mei-color-text-muted, #94a3b8);
-  font-size: var(--mei-font-1, 11px);
+  color: var(--mei-shell-color-text-muted);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.55;
-  background: var(--mei-color-surface-bg, rgba(2, 6, 23, 0.28));
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-panel-folder-bank {
@@ -5874,9 +5875,9 @@ a.tree-link {
   padding: 0 10px;
   border-radius: 999px;
   border: 1px solid rgba(71, 85, 105, 0.38);
-  background: var(--mei-color-surface-bg, rgba(2, 6, 23, 0.35));
-  color: var(--mei-color-text-primary);
-  font-size: var(--mei-font-1, 10px);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
+  font-size: var(--mei-shell-font-1);
   cursor: pointer;
 }
 
@@ -5889,11 +5890,11 @@ a.tree-link {
 .upload-btn {
   min-height: 30px;
   padding: 0 12px;
-  border: 1px solid var(--mei-shell-color-border-strong, rgba(100, 116, 139, 0.28));
+  border: 1px solid var(--mei-shell-color-border-strong);
   border-radius: 8px;
-  background: var(--mei-shell-color-panel-bg, rgba(15, 23, 42, 0.72));
-  color: var(--mei-color-text-primary);
-  font-size: var(--mei-font-1, 11px);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
+  font-size: var(--mei-shell-font-1);
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
@@ -5905,8 +5906,8 @@ a.tree-link {
 
 .upload-btn:hover:not(:disabled),
 .upload-btn:focus-visible:not(:disabled) {
-  border-color: var(--mei-shell-color-border-accent-soft, rgba(148, 163, 184, 0.45));
-  color: var(--mei-color-text-inverse, #f8fafc);
+  border-color: var(--mei-shell-color-border-accent-soft);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-btn:disabled {
@@ -5915,14 +5916,14 @@ a.tree-link {
 }
 
 .upload-btn--primary {
-  border-color: var(--mei-shell-color-border-accent-soft, rgba(56, 189, 248, 0.35));
+  border-color: var(--mei-shell-color-border-accent-soft);
   background: linear-gradient(180deg, rgba(8, 47, 73, 0.82), rgba(8, 47, 73, 0.58));
-  color: var(--mei-color-text-primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-btn--secondary {
-  border-color: var(--mei-shell-color-border-strong, rgba(100, 116, 139, 0.32));
-  background: var(--mei-color-surface-bg, rgba(15, 23, 42, 0.55));
+  border-color: var(--mei-shell-color-border-strong);
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-btn--danger {
@@ -5943,9 +5944,9 @@ a.tree-link {
   min-height: 22px;
   padding: 0 8px;
   border-radius: 6px;
-  background: var(--mei-color-surface-bg, rgba(15, 23, 42, 0.45));
-  color: var(--mei-color-text-muted, #94a3b8);
-  font-size: var(--mei-font-1, 10px);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-muted);
+  font-size: var(--mei-shell-font-1);
 }
 
 .upload-selected-list {
@@ -5955,7 +5956,7 @@ a.tree-link {
   overflow: auto;
   padding-right: 2px;
   scrollbar-width: thin;
-  scrollbar-color: var(--mei-color-text-muted) transparent;
+  scrollbar-color: var(--mei-shell-color-text-muted) transparent;
 }
 
 .upload-selected-list::-webkit-scrollbar {
@@ -5963,7 +5964,7 @@ a.tree-link {
 }
 
 .upload-selected-list::-webkit-scrollbar-thumb {
-  background: var(--mei-color-surface-bg, rgba(56, 189, 248, 0.24));
+  background: var(--mei-shell-color-panel-bg);
   border-radius: 999px;
 }
 
@@ -5971,7 +5972,7 @@ a.tree-link {
   padding: 10px 12px;
   border: 1px solid rgba(71, 85, 105, 0.28);
   border-radius: 10px;
-  background: var(--mei-color-surface-bg, rgba(2, 6, 23, 0.32));
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-queue-item + .upload-queue-item {
@@ -5993,12 +5994,12 @@ a.tree-link {
   height: 1.25rem;
   padding: 0 4px;
   border-radius: 4px;
-  background: var(--mei-color-surface-bg, rgba(15, 23, 42, 0.45));
-  color: var(--mei-color-text-muted, #94a3b8);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-muted);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  font-family: var(--mei-font-mono, ui-monospace, monospace);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .upload-queue-copy {
@@ -6016,38 +6017,38 @@ a.tree-link {
 
 .upload-queue-name {
   min-width: 0;
-  font-size: var(--mei-font-1, 12px);
+  font-size: var(--mei-shell-font-1);
   font-weight: 500;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
   word-break: break-all;
 }
 
 .upload-queue-remove {
   border: none;
   background: transparent;
-  color: var(--mei-color-text-muted, #94a3b8);
-  font-size: var(--mei-font-1, 10px);
+  color: var(--mei-shell-color-text-muted);
+  font-size: var(--mei-shell-font-1);
   cursor: pointer;
 }
 
 .upload-queue-remove:hover:not(:disabled),
 .upload-queue-remove:focus-visible:not(:disabled) {
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-queue-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: var(--mei-font-1, 10px);
-  color: var(--mei-color-text-muted, #94a3b8);
+  font-size: var(--mei-shell-font-1);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-queue-progress {
   height: 3px;
   margin-top: 4px;
   border-radius: 999px;
-  background: var(--mei-color-surface-bg, rgba(30, 41, 59, 0.55));
+  background: var(--mei-shell-color-panel-bg);
   overflow: hidden;
 }
 
@@ -6059,40 +6060,40 @@ a.tree-link {
 }
 
 .upload-queue-note {
-  font-size: var(--mei-font-1, 10px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.5;
-  color: var(--mei-color-text-body, #cbd5e1);
+  color: var(--mei-shell-color-text-body);
 }
 
 .upload-panel-status {
   min-height: 18px;
-  font-size: var(--mei-font-1, 11px);
+  font-size: var(--mei-shell-font-1);
   line-height: 1.5;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .upload-panel-status--info {
-  color: var(--mei-color-text-primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-panel-status--good {
-  color: var(--mei-color-text-primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-panel-status--danger {
-  color: var(--mei-color-text-primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-panel-danger-title {
-  font-size: var(--mei-font-1, 12px);
+  font-size: var(--mei-shell-font-1);
   font-weight: 700;
-  color: var(--mei-color-text-primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .upload-preview-pane {
   border: 1px solid rgba(71, 85, 105, 0.28);
   border-radius: 14px;
-  background: var(--mei-color-surface-bg, rgba(8, 15, 25, 0.76));
+  background: var(--mei-shell-color-panel-bg);
 }
 
 .upload-preview-head {
@@ -6112,14 +6113,14 @@ a.tree-link {
 }
 
 .upload-preview-title {
-  font-size: var(--mei-font-2, 13px);
+  font-size: var(--mei-shell-font-2);
   font-weight: 700;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-preview-path {
-  font-size: var(--mei-font-1, 11px);
-  color: var(--mei-color-text-primary);
+  font-size: var(--mei-shell-font-1);
+  color: var(--mei-shell-color-text-primary);
   word-break: break-all;
 }
 
@@ -6136,9 +6137,9 @@ a.tree-link {
   padding: 0 8px;
   border-radius: 999px;
   border: 1px solid rgba(71, 85, 105, 0.4);
-  background: var(--mei-color-surface-bg, rgba(2, 6, 23, 0.36));
-  color: var(--mei-color-text-primary);
-  font-size: var(--mei-font-1, 10px);
+  background: var(--mei-shell-color-panel-bg);
+  color: var(--mei-shell-color-text-primary);
+  font-size: var(--mei-shell-font-1);
 }
 
 .upload-preview-block {
@@ -6155,9 +6156,9 @@ a.tree-link {
 }
 
 .upload-preview-block-title {
-  font-size: var(--mei-font-1, 12px);
+  font-size: var(--mei-shell-font-1);
   font-weight: 700;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 @media (max-width: 1080px) {
@@ -6201,15 +6202,15 @@ a.tree-link {
 }
 
 .upload-empty-state-title {
-  font-size: var(--mei-font-2, 18px);
+  font-size: var(--mei-shell-font-2);
   font-weight: 700;
-  color: var(--mei-color-text-inverse, #f8fafc);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .upload-empty-state-note {
-  font-size: var(--mei-font-2, 13px);
+  font-size: var(--mei-shell-font-2);
   line-height: 1.7;
-  color: var(--mei-color-text-muted, #94a3b8);
+  color: var(--mei-shell-color-text-muted);
 }
 
 [data-mei-session-patch-hidden="1"] {

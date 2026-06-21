@@ -55,7 +55,7 @@ pub(crate) fn config_shell(
         <div class="shell shell-surface config-view-shell mei-text-primary">
             {topbar}
             <main class="config-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-hidden px-4 py-3">
-                <div class="manage-readonly-note mb-3 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 text-[11px] leading-5 mei-text-body">
+                <div class="manage-readonly-note mb-3 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 mei-font-1 leading-5 mei-text-body">
                     <strong class="mr-2 mei-text-inverse">"应用配置"</strong>
                     <span>"编辑当前应用根目录 `.mei-config.json`；运维写回仅允许 `ops.*` 白名单字段。"</span>
                 </div>
