@@ -41,13 +41,21 @@ fn root_branch(
             >
                 <summary class="build-tree-summary build-tree-summary--root">
                     <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▦"</span>
-                    <span class="build-tree-label">{root.label.clone()}</span>
+                    <span class="build-tree-label">{reachability_root_label(root)}</span>
                 </summary>
                 <ul class="build-tree-list build-tree-list--nested">{children}</ul>
             </details>
         </li>
     }
     .into_any()
+}
+
+fn reachability_root_label(root: &ReachabilityTreeRoot) -> String {
+    if root.group == "templates" {
+        "Components".to_string()
+    } else {
+        root.label.clone()
+    }
 }
 
 fn tree_node(

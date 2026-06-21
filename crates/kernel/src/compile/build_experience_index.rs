@@ -157,7 +157,16 @@ pub fn reachability_roots_from_compiled(compiled: &CompiledApp) -> Vec<Reachabil
         roots
     };
     enrich_reachability_tree_compile_coords(&mut roots, compiled);
+    normalize_reachability_tree_roots(&mut roots);
     roots
+}
+
+fn normalize_reachability_tree_roots(roots: &mut [ReachabilityTreeRoot]) {
+    for root in roots {
+        if root.group == "templates" {
+            root.label = "Components".to_string();
+        }
+    }
 }
 
 pub fn enrich_reachability_tree_compile_coords(roots: &mut [ReachabilityTreeRoot], compiled: &CompiledApp) {
@@ -1128,5 +1137,32 @@ mod tests {
             !templates.children.is_empty(),
             "empty templates snapshot should be rebuilt with component catalog entries"
         );
+    }
+
+    #[test]
+    fn templates_group_renders_as_components_label() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-spbjw");
+        let app_root = source_root.join("zhifa");
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile zhifa");
+        let roots = reachability_roots_from_compiled(&compiled);
+        let components = roots
+            .iter()
+            .find(|root| root.group == "templates")
+            .expect("templates/components group");
+        assert_eq!(components.label, "Components");
     }
 }
