@@ -1,5 +1,49 @@
   const drilldownRowFetchInflight = new Map();
 
+  function resolveDrilldownSharedFilters(queryStateId) {
+    const id = nonEmptyString(queryStateId);
+    if (!id) return {};
+    const runtimeQuery = window.__meiDatasetRuntime;
+    if (runtimeQuery && typeof runtimeQuery.sharedFiltersForQueryStateId === "function") {
+      const shared = runtimeQuery.sharedFiltersForQueryStateId(id);
+      return shared && typeof shared === "object" && !Array.isArray(shared) ? shared : {};
+    }
+    return {};
+  }
+
+  /** query_state 已绑定但尚未写入任何筛选时，构成/趋势图应走服务端 explain 指标而非分页 rowset 重聚合。 */
+  function hasActiveDrilldownQueryFilters(queryStateId) {
+    const id = nonEmptyString(queryStateId);
+    if (!id) return false;
+    const filters = resolveDrilldownSharedFilters(id);
+    if (
+      Object.values(filters).some((value) => String(value ?? "").trim())
+    ) {
+      return true;
+    }
+    const runtimeQuery = window.__meiDatasetRuntime;
+    if (runtimeQuery && typeof runtimeQuery.sharedFilterIntentsForQueryStateId === "function") {
+      const intents = runtimeQuery.sharedFilterIntentsForQueryStateId(id);
+      if (
+        Array.isArray(intents) &&
+        intents.some((entry) => {
+          if (!entry || typeof entry !== "object") return false;
+          const dimension = String(entry.dimension || entry.field || "").trim();
+          const value = String(entry.value ?? "").trim();
+          return Boolean(dimension && value);
+        })
+      ) {
+        return true;
+      }
+    }
+    if (runtimeQuery && typeof runtimeQuery.sharedSearchForQueryStateId === "function") {
+      if (String(runtimeQuery.sharedSearchForQueryStateId(id) || "").trim()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function drilldownFetchCacheKey(detail, config, metricId, popupFetchFilters) {
     const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId, detail?.host_scene_id);
     const datasetId = nonEmptyString(
@@ -12,8 +56,11 @@
     return [sceneId, datasetId, metricId, queryStateId, filterKey].join("|");
   }
 
-  function popupDatasetFetchOptions(config, { metricId = "", previewRow = false } = {}) {
-    const pageSize = resolveDrilldownFetchPageSize(config, { previewRow, clientAggregate: false });
+  function popupDatasetFetchOptions(config, { metricId = "", previewRow = false, clientAggregate = false } = {}) {
+    const pageSize = resolveDrilldownFetchPageSize(config, {
+      previewRow,
+      clientAggregate: clientAggregate || config?.clientAggregate === true,
+    });
     const dedicated = isDedicatedExplainMetricId(metricId, { supportRole: config?.supportRole });
     return {
       page: 1,
@@ -238,6 +285,7 @@
       const fetchOptions = popupDatasetFetchOptions(scopedConfig, {
         metricId: detailRowsetMetricId,
         previewRow: hasRowDrilldownFilters(detail),
+        clientAggregate: scopedConfig.clientAggregate === true,
       });
       const inflightKey = drilldownFetchCacheKey(detail, scopedConfig, detailRowsetMetricId, popupFetchFilters);
       if (drilldownRowFetchInflight.has(inflightKey)) {

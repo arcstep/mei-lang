@@ -12909,6 +12909,50 @@
 /* ===== spa-navigation/drilldown/data-fetch.js ===== */
   const drilldownRowFetchInflight = new Map();
 
+  function resolveDrilldownSharedFilters(queryStateId) {
+    const id = nonEmptyString(queryStateId);
+    if (!id) return {};
+    const runtimeQuery = window.__meiDatasetRuntime;
+    if (runtimeQuery && typeof runtimeQuery.sharedFiltersForQueryStateId === "function") {
+      const shared = runtimeQuery.sharedFiltersForQueryStateId(id);
+      return shared && typeof shared === "object" && !Array.isArray(shared) ? shared : {};
+    }
+    return {};
+  }
+
+  /** query_state 已绑定但尚未写入任何筛选时，构成/趋势图应走服务端 explain 指标而非分页 rowset 重聚合。 */
+  function hasActiveDrilldownQueryFilters(queryStateId) {
+    const id = nonEmptyString(queryStateId);
+    if (!id) return false;
+    const filters = resolveDrilldownSharedFilters(id);
+    if (
+      Object.values(filters).some((value) => String(value ?? "").trim())
+    ) {
+      return true;
+    }
+    const runtimeQuery = window.__meiDatasetRuntime;
+    if (runtimeQuery && typeof runtimeQuery.sharedFilterIntentsForQueryStateId === "function") {
+      const intents = runtimeQuery.sharedFilterIntentsForQueryStateId(id);
+      if (
+        Array.isArray(intents) &&
+        intents.some((entry) => {
+          if (!entry || typeof entry !== "object") return false;
+          const dimension = String(entry.dimension || entry.field || "").trim();
+          const value = String(entry.value ?? "").trim();
+          return Boolean(dimension && value);
+        })
+      ) {
+        return true;
+      }
+    }
+    if (runtimeQuery && typeof runtimeQuery.sharedSearchForQueryStateId === "function") {
+      if (String(runtimeQuery.sharedSearchForQueryStateId(id) || "").trim()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function drilldownFetchCacheKey(detail, config, metricId, popupFetchFilters) {
     const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId, detail?.host_scene_id);
     const datasetId = nonEmptyString(
@@ -12921,8 +12965,11 @@
     return [sceneId, datasetId, metricId, queryStateId, filterKey].join("|");
   }
 
-  function popupDatasetFetchOptions(config, { metricId = "", previewRow = false } = {}) {
-    const pageSize = resolveDrilldownFetchPageSize(config, { previewRow, clientAggregate: false });
+  function popupDatasetFetchOptions(config, { metricId = "", previewRow = false, clientAggregate = false } = {}) {
+    const pageSize = resolveDrilldownFetchPageSize(config, {
+      previewRow,
+      clientAggregate: clientAggregate || config?.clientAggregate === true,
+    });
     const dedicated = isDedicatedExplainMetricId(metricId, { supportRole: config?.supportRole });
     return {
       page: 1,
@@ -13147,6 +13194,7 @@
       const fetchOptions = popupDatasetFetchOptions(scopedConfig, {
         metricId: detailRowsetMetricId,
         previewRow: hasRowDrilldownFilters(detail),
+        clientAggregate: scopedConfig.clientAggregate === true,
       });
       const inflightKey = drilldownFetchCacheKey(detail, scopedConfig, detailRowsetMetricId, popupFetchFilters);
       if (drilldownRowFetchInflight.has(inflightKey)) {
@@ -14070,9 +14118,10 @@
       detail?.queryStateId,
     );
     if (kind === "composition" || supportRole === "composition" || kind === "trend" || supportRole === "trend") {
-      // 过滤条与图表共享 query_state 时，composition/trend 需基于明细 rowset 重聚合，
-      // 服务端已聚合的 explain dataframe 不含全部筛选维度。
-      if (!sharedQueryStateId && dedicatedChartMetric) {
+      // 仅当 query_state 上已有有效筛选时，才基于明细 rowset 客户端重聚合；
+      // 默认无筛选时应走服务端 explain 指标（全量聚合），避免误用分页 rowset 样本。
+      const needsFilterAwareReaggregate = hasActiveDrilldownQueryFilters(sharedQueryStateId);
+      if (!needsFilterAwareReaggregate && dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
           return true;
         }
@@ -14993,6 +15042,33 @@
     if (metricsRoot.childElementCount) panel.appendChild(metricsRoot);
   }
 
+  function applyCaseDetailWarningTone(panel, row) {
+    if (!(panel instanceof HTMLElement)) return;
+    const tone = resolveWarningLevelTone(
+      resolveCaseDetailFieldValue(row, { field: "预警等级" }),
+    );
+    if (tone !== "default") {
+      panel.dataset.warningLevel = tone;
+    } else {
+      panel.removeAttribute("data-warning-level");
+    }
+  }
+
+  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false } = {}) {
+    if (!mappingHasTypicalCaseStats(mapping)) return;
+    const target = (() => {
+      if (!wrapBand) return panel;
+      const band = document.createElement("div");
+      band.className = "access-drilldown-case-detail-stats-band";
+      panel.appendChild(band);
+      return band;
+    })();
+    appendTypicalCaseTagRow(target, row, mapping);
+    appendTypicalCaseFacts(target, row, mapping);
+    appendTypicalCaseStatusRow(target, row, mapping);
+    appendTypicalCaseMetricsRow(target, row, mapping);
+  }
+
   function renderSheetDetailCardPanel(host, row, config, detail) {
     if (isTypicalCaseCardPreview(config)) {
       renderTypicalCaseCardPanel(host, row, config, detail);
@@ -15021,10 +15097,10 @@
     const enrichedRow = enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-typical-case-panel";
+    applyCaseDetailWarningTone(panel, enrichedRow);
     if (mappingShowsHeader(mapping)) {
       appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
     }
-    appendTypicalCaseTagRow(panel, enrichedRow, mapping);
     if (mappingShowsSummary(mapping)) {
       const summary = resolveCaseDetailFieldValue(enrichedRow, {
         field: String(mapping?.summary_field || mapping?.summaryField || "基本情况").trim(),
@@ -15042,9 +15118,7 @@
       summaryBlock.appendChild(summaryText);
       panel.appendChild(summaryBlock);
     }
-    appendTypicalCaseFacts(panel, enrichedRow, mapping);
-    appendTypicalCaseStatusRow(panel, enrichedRow, mapping);
-    appendTypicalCaseMetricsRow(panel, enrichedRow, mapping);
+    appendTypicalCaseStatsSection(panel, enrichedRow, mapping);
     host.appendChild(panel);
   }
 
@@ -15070,9 +15144,11 @@
       : enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-case-detail-panel";
-    if (mappingHasTypicalCaseStats(mapping)) {
+    const hybridStats = mappingHasTypicalCaseStats(mapping);
+    if (hybridStats) {
       host.classList.add("access-drilldown-case-detail-host--hybrid");
     }
+    applyCaseDetailWarningTone(panel, enrichedRow);
     if (mappingShowsHeader(mapping)) {
       appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
     }
@@ -15093,12 +15169,7 @@
       summaryBlock.appendChild(summaryText);
       panel.appendChild(summaryBlock);
     }
-    if (mappingHasTypicalCaseStats(mapping)) {
-      appendTypicalCaseTagRow(panel, enrichedRow, mapping);
-      appendTypicalCaseFacts(panel, enrichedRow, mapping);
-      appendTypicalCaseStatusRow(panel, enrichedRow, mapping);
-      appendTypicalCaseMetricsRow(panel, enrichedRow, mapping);
-    }
+    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, { wrapBand: hybridStats });
     if (mappingShowsMeta(mapping)) {
       appendCaseDetailMetaRow(panel, enrichedRow, mapping);
     }
@@ -15948,10 +16019,16 @@
     const isTrendTab =
       explainMetricKind(config, tabId) === "trend" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "trend";
-    const useFilteredRowset = Boolean(sharedQueryStateId && cardMetricId && (isCompositionTab || isTrendTab));
+    const useFilteredRowset = Boolean(
+      sharedQueryStateId &&
+        cardMetricId &&
+        (isCompositionTab || isTrendTab) &&
+        hasActiveDrilldownQueryFilters(sharedQueryStateId),
+    );
     if (useFilteredRowset) {
       fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
       fetchConfig.supportRole = "";
+      fetchConfig.clientAggregate = true;
     } else if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);

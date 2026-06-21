@@ -30,10 +30,16 @@
     const isTrendTab =
       explainMetricKind(config, tabId) === "trend" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "trend";
-    const useFilteredRowset = Boolean(sharedQueryStateId && cardMetricId && (isCompositionTab || isTrendTab));
+    const useFilteredRowset = Boolean(
+      sharedQueryStateId &&
+        cardMetricId &&
+        (isCompositionTab || isTrendTab) &&
+        hasActiveDrilldownQueryFilters(sharedQueryStateId),
+    );
     if (useFilteredRowset) {
       fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
       fetchConfig.supportRole = "";
+      fetchConfig.clientAggregate = true;
     } else if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);

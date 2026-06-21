@@ -241,9 +241,10 @@
       detail?.queryStateId,
     );
     if (kind === "composition" || supportRole === "composition" || kind === "trend" || supportRole === "trend") {
-      // 过滤条与图表共享 query_state 时，composition/trend 需基于明细 rowset 重聚合，
-      // 服务端已聚合的 explain dataframe 不含全部筛选维度。
-      if (!sharedQueryStateId && dedicatedChartMetric) {
+      // 仅当 query_state 上已有有效筛选时，才基于明细 rowset 客户端重聚合；
+      // 默认无筛选时应走服务端 explain 指标（全量聚合），避免误用分页 rowset 样本。
+      const needsFilterAwareReaggregate = hasActiveDrilldownQueryFilters(sharedQueryStateId);
+      if (!needsFilterAwareReaggregate && dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
           return true;
         }
