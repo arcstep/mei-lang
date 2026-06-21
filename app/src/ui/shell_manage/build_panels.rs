@@ -21,13 +21,13 @@ pub(crate) fn build_overview_view(
     let template_entry = compiled.build_template_index.lookup(ctx.node.key.as_str());
 
     view! {
-        <section class="build-overview grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 text-xs leading-6 mei-text-body">
+        <section class="build-overview build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 mei-text-body">
             <div class="flex flex-wrap items-start justify-between gap-2">
-                <strong class="text-sm mei-text-primary">{business_title.clone()}</strong>
+                <strong class="build-panel-title mei-text-primary">{business_title.clone()}</strong>
                 <div class="flex flex-wrap gap-2">
                     <button
                         type="button"
-                        class="inline-flex items-center rounded-md border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-100"
+                        class="build-toolbar-btn build-toolbar-btn--accent"
                         data-app-path=app_path.to_string()
                         data-node=node_label.clone()
                         data-tab="overview"
@@ -37,7 +37,7 @@ pub(crate) fn build_overview_view(
                     </button>
                     <button
                         type="button"
-                        class="inline-flex items-center rounded-md border mei-border-default px-2.5 py-1 text-[11px] mei-text-body"
+                        class="build-toolbar-btn"
                         data-app-path=app_path.to_string()
                         data-node=node_label.clone()
                         data-tab="overview"
@@ -50,12 +50,12 @@ pub(crate) fn build_overview_view(
             <dl class="grid gap-2">
                 <div class="flex flex-col gap-0.5">
                     <dt class="mei-text-muted">"体验路径"</dt>
-                    <dd class="text-sm mei-text-primary">{experience_line}</dd>
+                    <dd class="mei-font-2 mei-text-primary">{experience_line}</dd>
                 </div>
                 {(!backing.is_empty()).then(|| view! {
                     <div class="flex flex-col gap-0.5">
                         <dt class="mei-text-muted">"Backing"</dt>
-                        <dd class="font-mono text-[11px] leading-5">
+                        <dd class="font-mono mei-font-1 leading-5">
                             {backing.into_iter().map(|item| view! {
                                 <div>{item}</div>
                             }).collect_view()}
@@ -65,7 +65,7 @@ pub(crate) fn build_overview_view(
                 {(!mount_chain.is_empty()).then(|| view! {
                     <div class="flex flex-col gap-0.5">
                         <dt class="mei-text-muted">"挂载链"</dt>
-                        <dd class="font-mono text-[11px] leading-5">
+                        <dd class="font-mono mei-font-1 leading-5">
                             {mount_chain.into_iter().map(|entry| view! {
                                 <div>{format!("{}#{} ({})", entry.file, entry.panel_id, entry.role)}</div>
                             }).collect_view()}
@@ -75,7 +75,7 @@ pub(crate) fn build_overview_view(
                 {layout_hint.clone().map(|hint| view! {
                     <div class="flex flex-col gap-0.5">
                         <dt class="mei-text-muted">"布局"</dt>
-                        <dd class="font-mono text-[11px] break-all">{hint}</dd>
+                        <dd class="font-mono mei-font-1 break-all">{hint}</dd>
                     </div>
                 })}
                 {board_entry.map(|entry| view! {
@@ -89,13 +89,13 @@ pub(crate) fn build_overview_view(
                         {entry.params_summary.clone().map(|params| view! {
                             <div class="flex gap-2">
                                 <dt class="w-16 shrink-0 mei-text-muted">"Params"</dt>
-                                <dd class="font-mono text-[11px]">{params}</dd>
+                                <dd class="font-mono mei-font-1">{params}</dd>
                             </div>
                         })}
                         {(!entry.slots.is_empty()).then(|| view! {
                             <div class="flex flex-col gap-0.5">
                                 <dt class="mei-text-muted">"Slots"</dt>
-                                <dd class="font-mono text-[11px] leading-5">
+                                <dd class="font-mono mei-font-1 leading-5">
                                     {entry.slots.iter().map(|slot| view! {
                                         <div>
                                             {format!(
@@ -118,12 +118,12 @@ pub(crate) fn build_overview_view(
                         </div>
                         <div class="flex gap-2">
                             <dt class="w-16 shrink-0 mei-text-muted">"模板文件"</dt>
-                            <dd class="font-mono text-[11px] break-all">{entry.template_file.clone()}</dd>
+                            <dd class="font-mono mei-font-1 break-all">{entry.template_file.clone()}</dd>
                         </div>
                         {(!entry.props_schema.is_empty()).then(|| view! {
                             <div class="flex flex-col gap-0.5">
                                 <dt class="mei-text-muted">"Props 契约"</dt>
-                                <dd class="font-mono text-[11px] leading-5">
+                                <dd class="font-mono mei-font-1 leading-5">
                                     {entry.props_schema.iter().map(|item| view! { <div>{item.clone()}</div> }).collect_view()}
                                 </dd>
                             </div>
@@ -131,7 +131,7 @@ pub(crate) fn build_overview_view(
                         {(!entry.consumers.is_empty()).then(|| view! {
                             <div class="flex flex-col gap-0.5">
                                 <dt class="mei-text-muted">"Consumers"</dt>
-                                <dd class="font-mono text-[11px] leading-5">
+                                <dd class="font-mono mei-font-1 leading-5">
                                     {entry.consumers.iter().map(|item| view! { <div>{item.clone()}</div> }).collect_view()}
                                 </dd>
                             </div>
@@ -139,18 +139,18 @@ pub(crate) fn build_overview_view(
                         {entry.agent_hint.clone().map(|hint| view! {
                             <div class="flex flex-col gap-0.5">
                                 <dt class="mei-text-muted">"Agent 提示"</dt>
-                                <dd class="text-[11px] leading-5">{hint}</dd>
+                                <dd class="mei-font-1 leading-5">{hint}</dd>
                             </div>
                         })}
                     </>
                 })}
                 <div class="flex gap-2">
                     <dt class="w-16 shrink-0 mei-text-muted">"Node"</dt>
-                    <dd class="font-mono text-[11px] break-all">{node_label.clone()}</dd>
+                    <dd class="font-mono mei-font-1 break-all">{node_label.clone()}</dd>
                 </div>
                 <div class="flex gap-2">
                     <dt class="w-16 shrink-0 mei-text-muted">"Target"</dt>
-                    <dd class="font-mono text-[11px] break-all">{ctx.target_file.clone()}</dd>
+                    <dd class="font-mono mei-font-1 break-all">{ctx.target_file.clone()}</dd>
                 </div>
                 {ctx.scene_id.clone().map(|scene| view! {
                     <div class="flex gap-2">
@@ -164,7 +164,7 @@ pub(crate) fn build_overview_view(
                 ).then(|| view! {
                     <div class="flex gap-2">
                         <dt class="w-16 shrink-0 mei-text-muted">"符号"</dt>
-                        <dd class="font-mono text-[11px]">{ctx.provenance.symbol_id.clone()}</dd>
+                        <dd class="font-mono mei-font-1">{ctx.provenance.symbol_id.clone()}</dd>
                     </div>
                 })}
                 <div class="flex gap-2">
@@ -185,16 +185,16 @@ pub(crate) fn build_overview_view(
 pub(crate) fn build_provenance_view(anchor: &ProvenanceAnchor) -> impl IntoView {
     let encoded = anchor.encode();
     view! {
-        <section class="build-provenance grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 text-xs leading-6">
-            <strong class="text-sm mei-text-primary">"溯源"</strong>
+        <section class="build-provenance build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4">
+            <strong class="build-panel-title mei-text-primary">"溯源"</strong>
             <dl class="grid gap-2">
                 <div class="flex gap-2">
                     <dt class="w-16 shrink-0 mei-text-muted">"文件"</dt>
-                    <dd class="font-mono text-[11px] break-all">{anchor.file.clone()}</dd>
+                    <dd class="font-mono mei-font-1 break-all">{anchor.file.clone()}</dd>
                 </div>
                 <div class="flex gap-2">
                     <dt class="w-16 shrink-0 mei-text-muted">"符号"</dt>
-                    <dd class="font-mono text-[11px]">{anchor.symbol_id.clone()}</dd>
+                    <dd class="font-mono mei-font-1">{anchor.symbol_id.clone()}</dd>
                 </div>
                 <div class="flex gap-2">
                     <dt class="w-16 shrink-0 mei-text-muted">"类型"</dt>
@@ -203,7 +203,7 @@ pub(crate) fn build_provenance_view(anchor: &ProvenanceAnchor) -> impl IntoView 
             </dl>
             <button
                 type="button"
-                class="build-copy-provenance inline-flex w-fit items-center rounded-md border mei-border-default px-2.5 py-1 text-[11px] mei-text-body hover:mei-text-inverse"
+                class="build-toolbar-btn build-copy-provenance"
                 data-copy-text=encoded
             >
                 "复制 file#symbol"
@@ -215,13 +215,13 @@ pub(crate) fn build_provenance_view(anchor: &ProvenanceAnchor) -> impl IntoView 
 
 pub(crate) fn build_agent_view(app_path: &str, node: &str, tab: &str) -> impl IntoView {
     view! {
-        <section class="build-agent-panel grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 text-xs leading-6">
+        <section class="build-agent-panel build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4">
             <div class="flex flex-wrap items-center gap-2">
-                <strong class="text-sm mei-text-primary">"Agent 上下文"</strong>
+                <strong class="build-panel-title mei-text-primary">"Agent 上下文"</strong>
                 <button
                     type="button"
                     id="build-copy-agent-context"
-                    class="inline-flex items-center rounded-md border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-100"
+                    class="build-toolbar-btn build-toolbar-btn--accent"
                     data-app-path=app_path.to_string()
                     data-node=node.to_string()
                     data-tab=tab.to_string()
@@ -232,7 +232,7 @@ pub(crate) fn build_agent_view(app_path: &str, node: &str, tab: &str) -> impl In
             </div>
             <pre
                 id="build-agent-context-preview"
-                class="max-h-96 overflow-auto rounded-lg bg-black/30 p-3 font-mono text-[11px] leading-5 mei-text-muted"
+                class="build-panel-pre max-h-96 overflow-auto p-3 font-mono mei-font-1 leading-5 mei-text-muted"
                 data-app-path=app_path.to_string()
                 data-node=node.to_string()
                 data-tab=tab.to_string()
@@ -245,11 +245,11 @@ pub(crate) fn build_exec_panel_shell(app_path: &str, node: &str) -> impl IntoVie
     view! {
         <section
             id="build-exec-panel"
-            class="build-exec-panel grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 text-xs leading-6"
+            class="build-exec-panel build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4"
             data-app-path=app_path.to_string()
             data-node=node.to_string()
         >
-            <strong class="text-sm mei-text-primary">"执行"</strong>
+            <strong class="build-panel-title mei-text-primary">"执行"</strong>
             <div class="flex flex-wrap gap-2" id="build-exec-scope-buttons">
                 <button type="button" class="build-exec-scope is-active" data-scope="warmup">"warmup"</button>
                 <button type="button" class="build-exec-scope" data-scope="empty">"empty"</button>
@@ -258,11 +258,11 @@ pub(crate) fn build_exec_panel_shell(app_path: &str, node: &str) -> impl IntoVie
             <button
                 type="button"
                 id="build-exec-run"
-                class="inline-flex w-fit items-center rounded-md border mei-border-default px-2.5 py-1 text-[11px]"
+                class="build-toolbar-btn build-exec-run"
             >
                 "运行"
             </button>
-            <pre id="build-exec-output" class="max-h-80 overflow-auto rounded-lg bg-black/30 p-3 font-mono text-[11px]"></pre>
+            <pre id="build-exec-output" class="build-panel-pre max-h-80 overflow-auto p-3 font-mono mei-font-1"></pre>
         </section>
     }
 }
@@ -270,13 +270,13 @@ pub(crate) fn build_exec_panel_shell(app_path: &str, node: &str) -> impl IntoVie
 pub(crate) fn build_graph_panel(title: &'static str, graph_kind: &'static str, node: &str) -> impl IntoView {
     view! {
         <section
-            class="build-graph-panel grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 text-xs leading-6"
+            class="build-graph-panel build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4"
             data-graph-kind=graph_kind
             data-node=node.to_string()
         >
-            <strong class="text-sm mei-text-primary">{title}</strong>
+            <strong class="build-panel-title mei-text-primary">{title}</strong>
             <pre
-                class="build-graph-markdown max-h-96 overflow-auto rounded-lg bg-black/30 p-3 font-mono text-[11px] leading-5 mei-text-muted"
+                class="build-graph-markdown build-panel-pre max-h-96 overflow-auto p-3 font-mono mei-font-1 leading-5 mei-text-muted"
                 data-graph-kind=graph_kind
                 data-node=node.to_string()
             >"加载图摘要…"</pre>
@@ -288,11 +288,11 @@ pub(crate) fn build_artifact_panel(app_path: &str, node: &str) -> impl IntoView 
     view! {
         <section
             id="build-artifact-panel"
-            class="build-artifact-panel grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 text-xs leading-6"
+            class="build-artifact-panel build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4"
             data-app-path=app_path.to_string()
             data-node=node.to_string()
         >
-            <strong class="text-sm mei-text-primary">"产物"</strong>
+            <strong class="build-panel-title mei-text-primary">"产物"</strong>
             <div id="build-artifact-summary" class="mei-text-muted">"扫描 .mei/ 产物…"</div>
         </section>
     }

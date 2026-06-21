@@ -239,7 +239,7 @@ pub(crate) fn topbar_view(
         .collect_view();
     let breadcrumb_aria = format!("当前应用：{workspace_label} / {active_app_label}");
     let active_item_breadcrumb = view! {
-        <div class="app-current-path inline-flex min-w-0 max-w-[min(300px,30vw)] items-center gap-1 border-l border-slate-400/15 pl-2 text-[11px] mei-text-muted" aria-label=breadcrumb_aria>
+        <div class="app-current-path inline-flex min-w-0 max-w-[min(300px,30vw)] items-center gap-1 pl-2 mei-font-1 mei-text-muted" aria-label=breadcrumb_aria>
             <span class="app-current-path-prefix shrink-0 mei-text-muted">"应用："</span>
             <span class="app-current-path-trail inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
                 <span class="app-current-path-workspace shrink-0 mei-text-muted">{workspace_label}</span>
@@ -361,14 +361,14 @@ pub(crate) fn topbar_view(
                 account.role.clone()
             };
             view! {
-                <div class="topbar-account inline-flex items-center gap-1.5 border-l border-slate-400/20 pl-2">
-                    <span class="topbar-account-name text-[11px] mei-text-body" title=account.username.clone()>
+                <div class="topbar-account inline-flex items-center gap-1.5 pl-2">
+                    <span class="topbar-account-name mei-font-1 mei-text-body" title=account.username.clone()>
                         {format!("{display} ({role})")}
                     </span>
-                    <a class="topbar-account-link text-[11px] mei-text-body hover:mei-text-inverse" href="/account/password">
+                    <a class="topbar-account-link mei-font-1 mei-text-body" href="/account/password">
                         "改密"
                     </a>
-                    <a class="topbar-account-link text-[11px] mei-text-body hover:mei-text-inverse" href="/logout?next=%2Flogin">
+                    <a class="topbar-account-link mei-font-1 mei-text-body" href="/logout?next=%2Flogin">
                         "退出"
                     </a>
                 </div>
@@ -376,8 +376,8 @@ pub(crate) fn topbar_view(
             .into_any()
         } else {
             view! {
-                <div class="topbar-account inline-flex items-center gap-1.5 border-l border-slate-400/20 pl-2">
-                    <a class="topbar-account-link text-[11px] mei-text-body hover:mei-text-inverse" href="/login">
+                <div class="topbar-account inline-flex items-center gap-1.5 pl-2">
+                    <a class="topbar-account-link mei-font-1 mei-text-body" href="/login">
                         "登录"
                     </a>
                 </div>
@@ -399,7 +399,7 @@ pub(crate) fn topbar_view(
                         alt=""
                         aria-hidden="true"
                     />
-                    <strong class="text-[13px] font-semibold mei-text-inverse">"MeiLang"</strong>
+                    <strong class="topbar-brand-title mei-font-2 mei-text-inverse">"MeiLang"</strong>
                 </div>
             </div>
             <nav class="app-tabs flex min-w-0 items-center gap-2.5">

@@ -91,7 +91,7 @@ pub(crate) fn statusbar_view(
     let show_visit_history = matches!(route_mode, "app" | "access");
     view! {
         <footer class="statusbar statusbar-shell chrome-inset chrome-safe-x sticky bottom-0 z-10 py-1.5 backdrop-blur-md">
-            <div class="statusbar-layout min-w-0 text-[10px]">
+            <div class="statusbar-layout min-w-0 mei-font-1">
                 <div class="statusbar-track statusbar-track-left min-w-0">
                     {if show_visit_history {
                         view! {

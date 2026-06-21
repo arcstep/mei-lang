@@ -10,7 +10,7 @@
   background: radial-gradient(120% 90% at 50% -10%, var(--mei-shell-color-host-splash-glow), transparent 55%),
     var(--mei-shell-color-host-page-bg);
   color: var(--mei-shell-color-text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--mei-shell-family-ui);
 }
 
 .mei-host-shell__stage {
@@ -164,6 +164,7 @@
   font-size: var(--mei-shell-font-2);
   font-weight: 600;
   text-decoration: none;
+  font-family: inherit;
 }
 
 .mei-host-shell__btn--primary {
@@ -190,6 +191,7 @@
   font-size: var(--mei-shell-font-3);
   line-height: 1.4;
   transition: border-color 120ms ease, box-shadow 120ms ease;
+  font-family: inherit;
 }
 
 .mei-host-shell__form input:focus {
@@ -224,6 +226,7 @@
   cursor: pointer;
   opacity: 0.88;
   transition: color 120ms ease, opacity 120ms ease;
+  font-family: inherit;
 }
 
 .mei-host-shell__password-toggle:hover {
@@ -275,6 +278,7 @@
   font-weight: 600;
   padding: 10px;
   cursor: pointer;
+  font-family: inherit;
 }
 
 .mei-host-shell__form button[type="submit"]:disabled {
@@ -395,6 +399,7 @@
   font-size: var(--mei-shell-font-2);
   line-height: 1;
   padding: 2px 4px;
+  font-family: inherit;
 }
 
 @keyframes mei-host-banner-in {

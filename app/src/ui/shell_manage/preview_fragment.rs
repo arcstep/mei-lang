@@ -77,7 +77,7 @@ pub fn render_build_preview_fragment(
         </div>
         <div
             id="build-inspect-bar"
-            class="build-inspect-bar shrink-0 border-t mei-border-default bg-black/20 px-3 py-2 text-[11px] leading-5 mei-text-muted"
+            class="build-inspect-bar shrink-0 border-t mei-border-default px-3 py-2 mei-font-1 mei-text-muted"
             data-build-inspect-bar="true"
         >
             <span id="build-inspect-bar-label">"在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。"</span>

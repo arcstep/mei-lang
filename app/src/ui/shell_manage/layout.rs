@@ -211,7 +211,7 @@ pub(crate) fn manage_shell(
             view! {
                 <div
                     id="build-projection-preview-host"
-                    class="build-projection-banner mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100"
+                    class="build-projection-banner mb-2 px-3 py-2 mei-font-1"
                     data-scene-id=ctx.scene_id.clone().unwrap_or_default()
                     data-projection-id=projection.clone()
                 >
@@ -267,7 +267,7 @@ pub(crate) fn manage_shell(
                             <button
                                 type="button"
                                 id="build-copy-agent-context-top"
-                                class="build-copy-toolbar-btn shrink-0 rounded-md border mei-border-muted px-2.5 py-1 text-[11px] text-sky-200 hover:text-sky-100"
+                                class="build-toolbar-btn build-toolbar-btn--accent shrink-0"
                                 data-app-path=app_path.to_string()
                                 data-node=node_encoded.clone()
                                 data-tab=tab_slug.clone()
@@ -303,7 +303,7 @@ pub(crate) fn manage_shell(
                             </div>
                             <div
                                 id="build-inspect-bar"
-                                class="build-inspect-bar shrink-0 border-t mei-border-default bg-black/20 px-3 py-2 text-[11px] leading-5 mei-text-muted"
+                                class="build-inspect-bar shrink-0 border-t mei-border-default px-3 py-2 mei-font-1 mei-text-muted"
                                 data-build-inspect-bar="true"
                                 hidden=active_tab_enum != BuildViewTab::Preview
                             >
