@@ -1,0 +1,52 @@
+# Proof: cockpit.data-table public props on top of the shared dataset/runtime contract.
+
+app(
+    id = "author-example-data-table-runtime",
+    title = "Author Example Data Table Runtime",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "Minimal cockpit data-table baseline for the standalone author package.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "sales_data",
+            kind = "dataset",
+            title = "Sales sample",
+            source = ds.csv(path = "../.stock/authoring/examples/data/sales.csv"),
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "runtime_table",
+    area = "auto",
+    blocks = [
+        component(
+            "cockpit.data-table",
+            area = "auto",
+            props = {
+                "dataset": dataset_ref(id = "sales_data"),
+                "embedded": True,
+                "layoutPreset": "warnings",
+                "column_state": {
+                    "order": ["region", "status", "category", "amount"]
+                },
+            },
+        ),
+    ],
+)

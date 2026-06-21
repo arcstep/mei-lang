@@ -1,0 +1,93 @@
+# Proof: chart.* common contract (`data` + `mapping`) on the app + scene mainline.
+
+app(
+    id = "author-example-chart",
+    title = "Author Example Chart",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "chart",
+    summary = "Minimal chart baseline for the standalone author package.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "chart_data",
+            kind = "dataset",
+            title = "Chart sample",
+            source = ds.csv(path = "../.stock/authoring/examples/data/chart-lab.csv"),
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "trend_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.line",
+            area = "auto",
+            props = {
+                "title": "Revenue by month",
+                "data": dataset_ref(id = "chart_data"),
+                "mapping": {
+                    "x": [{"field": "month", "name": "Month"}],
+                    "y": [{"field": "revenue", "name": "Revenue"}],
+                    "group": [{"field": "label", "name": "Series"}],
+                },
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "area_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.area",
+            area = "auto",
+            props = {
+                "title": "Revenue area",
+                "data": dataset_ref(id = "chart_data"),
+                "mapping": {
+                    "x": [{"field": "month", "name": "Month"}],
+                    "y": [{"field": "revenue", "name": "Revenue"}],
+                    "group": [{"field": "label", "name": "Series"}],
+                },
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "ranking_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.ranking",
+            area = "auto",
+            props = {
+                "title": "Orders ranking",
+                "data": dataset_ref(id = "chart_data"),
+                "showBackground": True,
+                "rankingLayout": "side",
+                "mapping": {
+                    "x": [{"field": "label", "name": "Series"}],
+                    "y": [{"field": "orders", "name": "Orders"}],
+                },
+            },
+        ),
+    ],
+)

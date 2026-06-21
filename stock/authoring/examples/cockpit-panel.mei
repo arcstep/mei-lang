@@ -1,0 +1,33 @@
+# Proof: cockpit shell template reuse through `panel(base = panel_ref(...))`.
+
+app(
+    id = "author-example-cockpit-panel",
+    title = "Author Example Cockpit Panel",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "Minimal cockpit shell example for the standalone author package.",
+)
+
+world(id = "home_world", resources = [])
+
+COCKPIT_TPL = "../.stock/templates/cockpit"
+SHELL = COCKPIT_TPL + "/panel/panel-titled-shell.mei"
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "summary_panel",
+    area = "auto",
+    title = "Business Summary",
+)

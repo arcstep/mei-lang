@@ -96,7 +96,11 @@
       .trim()
       .toLowerCase();
     if (!target) return false;
-    return target.includes("templates/") || target.includes(".stock/templates");
+    return (
+      target.includes("templates/") ||
+      target.includes(".stock/templates") ||
+      target.includes("/authoring/examples/")
+    );
   }
 
   function normalizeTemplateFileKey(value) {

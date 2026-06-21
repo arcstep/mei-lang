@@ -299,7 +299,10 @@ fn authoring_template_workspace_path(compiled: &CompiledApp, template_key: &str)
     if file.ends_with(".mei") {
         Some(file.to_string())
     } else {
-        None
+        super::component_authoring_preview::component_authoring_example_workspace_path(
+            compiled,
+            template_key,
+        )
     }
 }
 
@@ -560,6 +563,67 @@ mod tests {
     }
 
     #[test]
+    fn js_component_authoring_preview_targets_stock_example() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind, CompileOptions};
+        use crate::model::BuildNodeId;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-spbjw");
+        let app_root = source_root.join("zhifa");
+        let examples_root = source_root.join(".stock/authoring/examples/chart-baseline.mei");
+        if !app_root.is_dir() || !examples_root.is_file() {
+            return;
+        }
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile zhifa");
+        let node = BuildNodeId::template("chart.area");
+        let target = authoring_preview_target_for_template(&compiled, "chart.area");
+        assert!(
+            target.as_deref().is_some_and(|file| file.contains("chart-baseline.mei")),
+            "expected chart baseline example, got {target:?}"
+        );
+        let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
+        assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
+        assert!(
+            coord.preview_target.contains("chart-baseline.mei"),
+            "coord target should be example mei, got {}",
+            coord.preview_target
+        );
+        let preview_compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions {
+                scene: None,
+                preview_target: coord.preview_target.clone().into(),
+            },
+        )
+        .expect("compile chart.area authoring preview");
+        let errors: Vec<_> = preview_compiled
+            .diagnostics
+            .iter()
+            .filter(|diag| matches!(diag.severity, crate::Severity::Error))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "chart.area authoring preview should compile cleanly: {errors:?}"
+        );
+        assert!(
+            preview_compiled.scene_contract.is_some(),
+            "chart.area authoring preview should yield scene contract"
+        );
+    }
+
+    #[test]
     fn template_preview_targets_primary_consumer_scene() {
         use std::path::Path;
 
@@ -591,7 +655,13 @@ mod tests {
         let scene = preview_scene_id_for_template_consumer(&compiled, "cockpit.header-brand");
         assert_eq!(scene.as_deref(), Some("home"));
         let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
-        assert_eq!(coord.preview_kind, BuildPreviewKind::SceneCapsule);
+        let cockpit_example = source_root.join(".stock/authoring/examples/cockpit-panel.mei");
+        if cockpit_example.is_file() {
+            assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
+            assert!(coord.preview_target.contains("cockpit-panel.mei"));
+        } else {
+            assert_eq!(coord.preview_kind, BuildPreviewKind::SceneCapsule);
+        }
     }
 
     #[test]

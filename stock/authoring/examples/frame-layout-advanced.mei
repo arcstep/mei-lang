@@ -1,0 +1,74 @@
+# Proof: nested `panel.blocks`, cockpit template shells, and multi-layer layout composition.
+
+app(
+    id = "author-example-frame-layout-advanced",
+    title = "Author Example Frame Layout Advanced",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "Advanced frame layout example with nested blocks and cockpit shells.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "layout_doc",
+            kind = "document",
+            title = "Nested layout",
+            content = "## Nested layout\n\nThis example proves nested `panel.blocks` plus cockpit panel and metric-card shells.",
+        ),
+    ],
+)
+
+COCKPIT_TPL = "../.stock/templates/cockpit"
+SHELL = COCKPIT_TPL + "/panel/panel-titled-shell.mei"
+BODY = COCKPIT_TPL + "/panel/metrics-auto-body.mei"
+CARD = COCKPIT_TPL + "/metric-card/metric-card-narrow-stack.mei"
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "outer_shell",
+    area = "auto",
+    title = "Operations Overview",
+    blocks = [
+        panel(
+            base = panel_ref(id = "metrics_auto_body", scene_file = BODY),
+            id = "metrics_body",
+            blocks = [
+                metric_card(
+                    base = metric_card_ref(id = "card_normal", scene_file = CARD),
+                    id = "metric_cases",
+                    source = {"label": "Cases", "value": "128", "unit": "items"},
+                ),
+                metric_card(
+                    base = metric_card_ref(id = "card_normal", scene_file = CARD),
+                    id = "metric_alerts",
+                    source = {"label": "Alerts", "value": "37", "unit": "items"},
+                ),
+                panel(
+                    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+                    id = "notes_panel",
+                    title = "Notes",
+                    blocks = [
+                        doc.markdown(
+                            area = "auto",
+                            resource = resource_ref(id = "layout_doc"),
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    ],
+)

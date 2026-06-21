@@ -1,0 +1,105 @@
+# Proof: metric-first page using `world.add_metric(...)`, `dataset.summary-cards`, and chart/table composition.
+
+app(
+    id = "author-example-metric-page",
+    title = "Author Example Metric Page",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+    summary = "Metric-centric page for standalone authoring.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "sales_data",
+            kind = "dataset",
+            title = "Sales sample",
+            source = ds.csv(path = "../.stock/authoring/examples/data/sales.csv"),
+        ),
+    ],
+)
+
+sales_rows = ds.data_ref("sales_data")
+
+world.add_metric(
+    ds.scalar_map(
+        id = "sales_kpis",
+        label = "Sales KPIs",
+        schema = [
+            ds.column("total_rows", "number"),
+            ds.column("total_amount", "number", unit = "units"),
+        ],
+        values = {
+            "total_rows": ds.count(sales_rows),
+            "total_amount": ds.sum(ds.number(sales_rows, "amount")),
+        },
+    ),
+)
+
+frame(
+    id = "home_frame",
+    layout = grid(
+        columns = ["minmax(0, 1fr)", "minmax(0, 2fr)"],
+        rows = ["auto", "minmax(220px, 1fr)"],
+        areas = [
+            ["summary", "chart"],
+            ["table", "chart"],
+        ],
+        gap = "16px",
+        padding = "20px",
+    ),
+)
+
+frame.add_panel(
+    id = "summary_panel",
+    area = "summary",
+    blocks = [
+        component(
+            "dataset.summary-cards",
+            area = "auto",
+            props = {
+                "value": metric_ref(id = "sales_kpis"),
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "table_panel",
+    area = "table",
+    blocks = [
+        component(
+            "dataset.table",
+            area = "auto",
+            props = {
+                "data": dataset_ref(id = "sales_data"),
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "chart_panel",
+    area = "chart",
+    blocks = [
+        component(
+            "chart.line",
+            area = "auto",
+            props = {
+                "title": "Sales by region",
+                "data": dataset_ref(id = "sales_data"),
+                "mapping": {
+                    "x": [{"field": "region", "name": "Region"}],
+                    "y": [{"field": "amount", "name": "Amount"}],
+                },
+            },
+        ),
+    ],
+)

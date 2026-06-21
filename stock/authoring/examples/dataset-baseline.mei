@@ -1,0 +1,103 @@
+# Proof: app + scene mainline, dataset resource, dataset.table, dataset.summary-cards.
+
+app(
+    id = "author-example-dataset",
+    title = "Author Example Dataset",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+    summary = "Minimal dataset baseline for the standalone author package.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "overview_doc",
+            kind = "document",
+            title = "Dataset baseline",
+            content = "## Dataset baseline\n\nThis example proves the current public path for `dataset.table` and `dataset.summary-cards`.",
+        ),
+        resource(
+            id = "sales_data",
+            kind = "dataset",
+            title = "Sales sample",
+            source = ds.csv(path = "../.stock/authoring/examples/data/sales.csv"),
+        ),
+    ],
+)
+
+sales_rows = ds.data_ref("sales_data")
+
+world.add_metric(
+    ds.scalar_map(
+        id = "sales_overview",
+        label = "Sales overview",
+        schema = [
+            ds.column("total_rows", "number"),
+            ds.column("total_amount", "number", unit = "units"),
+        ],
+        values = {
+            "total_rows": ds.count(sales_rows),
+            "total_amount": ds.sum(ds.number(sales_rows, "amount")),
+        },
+    ),
+)
+
+frame(
+    id = "home_frame",
+    layout = grid(
+        columns = ["minmax(0, 1fr)", "minmax(0, 2fr)"],
+        rows = ["auto", "minmax(240px, 1fr)"],
+        areas = [
+            ["doc", "table"],
+            ["summary", "table"],
+        ],
+        gap = "16px",
+        padding = "20px",
+    ),
+)
+
+frame.add_panel(
+    id = "doc_panel",
+    area = "doc",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            resource = resource_ref(id = "overview_doc"),
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "summary_panel",
+    area = "summary",
+    blocks = [
+        component(
+            "dataset.summary-cards",
+            area = "auto",
+            props = {
+                "value": metric_ref(id = "sales_overview"),
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "table_panel",
+    area = "table",
+    blocks = [
+        component(
+            "dataset.table",
+            area = "auto",
+            props = {
+                "data": dataset_ref(id = "sales_data"),
+            },
+        ),
+    ],
+)

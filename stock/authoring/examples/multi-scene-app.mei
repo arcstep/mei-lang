@@ -1,0 +1,22 @@
+# Proof: app root + `app_add_scene(scene = scene_ref(...))` is the public multi-file app skeleton.
+# Copy this file as `main.mei`, then pair it with `multi-scene-home.mei` and `multi-scene-insights.mei`.
+
+app(
+    id = "author-example-multi-scene",
+    title = "Author Example Multi Scene",
+    default_scene = "home",
+)
+
+app_add_scene(
+    scene = scene_ref(
+        scene_file = "multi-scene-home.mei",
+        scene_id = "home",
+    ),
+)
+
+app_add_scene(
+    scene = scene_ref(
+        scene_file = "multi-scene-insights.mei",
+        scene_id = "insights",
+    ),
+)

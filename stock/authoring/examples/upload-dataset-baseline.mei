@@ -1,0 +1,100 @@
+# Proof: upload-backed dataset source through `source_ref(...)`.
+# Requires an app-local `.mei-config.json` snippet like:
+# {
+#   "ops": {
+#     "sources": {
+#       "uploaded_sales": {
+#         "kind": "xlsx",
+#         "path": "upload/sales.xlsx",
+#         "sheet": "Sheet1",
+#         "header_row": 1
+#       }
+#     }
+#   }
+# }
+# Use `kind = "csv"` and `path = "upload/sales.csv"` for csv uploads.
+
+app(
+    id = "author-example-upload-dataset",
+    title = "Author Example Upload Dataset",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+    summary = "Upload-backed dataset example using `source_ref(...)`.",
+)
+
+world(id = "home_world", resources = [])
+
+world.add_dataset(
+    id = "uploaded_sales",
+    source = source_ref("uploaded_sales"),
+    schema = [
+        ds.column("month", "string"),
+        ds.column("amount", "number"),
+        ds.column("region", "string"),
+    ],
+)
+
+upload_rows = ds.data_ref("uploaded_sales")
+
+world.add_metric(
+    ds.scalar_map(
+        id = "uploaded_sales_overview",
+        label = "Uploaded sales overview",
+        schema = [
+            ds.column("total_rows", "number"),
+            ds.column("total_amount", "number"),
+        ],
+        values = {
+            "total_rows": ds.count(upload_rows),
+            "total_amount": ds.sum(ds.number(upload_rows, "amount")),
+        },
+    ),
+)
+
+frame(
+    id = "home_frame",
+    layout = grid(
+        columns = ["minmax(0, 1fr)", "minmax(0, 2fr)"],
+        rows = ["auto", "minmax(220px, 1fr)"],
+        areas = [
+            ["summary", "table"],
+            ["summary", "table"],
+        ],
+        gap = "16px",
+        padding = "20px",
+    ),
+)
+
+frame.add_panel(
+    id = "summary_panel",
+    area = "summary",
+    blocks = [
+        component(
+            "dataset.summary-cards",
+            area = "auto",
+            props = {
+                "value": metric_ref(id = "uploaded_sales_overview"),
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "table_panel",
+    area = "table",
+    blocks = [
+        component(
+            "dataset.table",
+            area = "auto",
+            props = {
+                "data": dataset_ref(id = "uploaded_sales"),
+            },
+        ),
+    ],
+)

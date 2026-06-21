@@ -26,6 +26,7 @@ mod projection_assembly;
 mod build_experience_index;
 mod build_board_index;
 mod build_template_index;
+mod component_authoring_preview;
 mod reachability_tree;
 mod resources;
 mod route_compile;

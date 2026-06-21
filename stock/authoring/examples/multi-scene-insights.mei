@@ -1,0 +1,34 @@
+# Support file for `multi-scene-app.mei`: secondary scene registered through `app_add_scene(...)`.
+
+scene(
+    id = "insights",
+    world = "insights_world",
+    frame = "insights_frame",
+    profile = "page",
+    summary = "Secondary scene for the multi-scene app skeleton.",
+)
+
+world(
+    id = "insights_world",
+    resources = [
+        resource(
+            id = "insights_doc",
+            kind = "document",
+            title = "Insights scene",
+            content = "## Insights scene\n\nUse `app_add_scene(scene = scene_ref(...))` to register this file into the app root.",
+        ),
+    ],
+)
+
+frame(
+    id = "insights_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "insights_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = resource_ref(id = "insights_doc")),
+    ],
+)

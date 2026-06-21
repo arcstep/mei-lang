@@ -1,0 +1,34 @@
+# Support file for `multi-scene-app.mei`: default home scene.
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+    summary = "Default scene for the multi-scene app skeleton.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "home_doc",
+            kind = "document",
+            title = "Home scene",
+            content = "## Home scene\n\nThis is the default scene registered from `main.mei`.",
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "home_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = resource_ref(id = "home_doc")),
+    ],
+)
