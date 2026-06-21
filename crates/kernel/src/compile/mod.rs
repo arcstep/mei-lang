@@ -64,6 +64,7 @@ pub use build_experience::{
     aggregate_use_key_badges, backing_refs_from_block_props, block_instance_id,
     build_experience_path,
     build_overview_backing, compile_coordinate_for_node, compile_scene_from_build_node,
+    compile_scene_from_build_node_with_app,
     experience_layout_hint,
     experience_mount_chain, format_experience_path,
     preview_target_from_build_node_with_app, BuildCompileCoordinate, BuildPreviewKind,

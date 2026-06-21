@@ -20,7 +20,7 @@ pub use build_node::{
 pub use build_view_index::{
     BoardFileEntry, BoardSlotEntry, BuildBoardIndex, BuildExperienceIndex, BuildTemplateIndex,
     ExperienceNodeManifest, MountChainEntry, ReachabilityTreeNodeSnapshot,
-    ReachabilityTreeRootSnapshot, TemplateCatalogEntry,
+    ReachabilityTreeRootSnapshot, TemplateCatalogEntry, TemplateConsumerAnchor,
 };
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;

@@ -3494,13 +3494,14 @@
 
 /* ===== build-tree-persist.js ===== */
 /**
- * Build view: persist left-tree <details> open state across SPA navigations.
+ * Build view: persist left-tree open state + click/double-click expand shortcuts.
  */
 (function (global) {
   "use strict";
 
   const STORAGE_KEY = "mei-build-tree-open";
   const SCROLL_KEY = "mei-build-tree-scroll";
+  const CLICK_DELAY_MS = 280;
 
   function isBuildRoute() {
     return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
@@ -3576,6 +3577,114 @@
     return String(details?.getAttribute("data-build-tree-branch") || "").trim();
   }
 
+  function branchDetailsFromSummary(summary) {
+    if (!(summary instanceof HTMLElement)) return null;
+    const details = summary.parentElement;
+    if (!(details instanceof HTMLDetailsElement)) return null;
+    if (!details.matches("details.build-tree-details[data-build-tree-branch]")) return null;
+    return details;
+  }
+
+  function isNavigationClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest("a[href]"));
+  }
+
+  function nestedBranchDetails(details) {
+    return Array.from(
+      details.querySelectorAll(":scope > ul .build-tree-details[data-build-tree-branch]"),
+    ).filter((node) => node instanceof HTMLDetailsElement);
+  }
+
+  function allDescendantBranchDetails(details) {
+    return Array.from(
+      details.querySelectorAll(".build-tree-details[data-build-tree-branch]"),
+    ).filter((node) => node instanceof HTMLDetailsElement);
+  }
+
+  function syncOpenSetForDetails(details, openSet, open) {
+    const id = branchId(details);
+    if (!id) return;
+    if (open) {
+      openSet.add(id);
+    } else {
+      openSet.delete(id);
+    }
+  }
+
+  function syncOpenSetForSubtree(details, openSet, open) {
+    syncOpenSetForDetails(details, openSet, open);
+    for (const nested of allDescendantBranchDetails(details)) {
+      syncOpenSetForDetails(nested, openSet, open);
+    }
+  }
+
+  function expandOneLevel(details, openSet) {
+    details.open = true;
+    syncOpenSetForDetails(details, openSet, true);
+  }
+
+  function expandAllDescendants(details, openSet) {
+    details.open = true;
+    for (const nested of allDescendantBranchDetails(details)) {
+      nested.open = true;
+    }
+    syncOpenSetForSubtree(details, openSet, true);
+  }
+
+  function collapseAllDescendants(details, openSet) {
+    for (const nested of allDescendantBranchDetails(details)) {
+      nested.open = false;
+    }
+    details.open = false;
+    syncOpenSetForSubtree(details, openSet, false);
+  }
+
+  function bindTreeExpandBehavior(root) {
+    if (!root || root.__buildTreeExpandBound) return;
+    root.__buildTreeExpandBound = true;
+    const clickTimers = new WeakMap();
+
+    root.addEventListener(
+      "click",
+      (event) => {
+        if (isNavigationClick(event)) return;
+        const summary = event.target.closest("summary.build-tree-summary");
+        const details = branchDetailsFromSummary(summary);
+        if (!details) return;
+        event.preventDefault();
+
+        const existing = clickTimers.get(details);
+        if (existing) {
+          global.clearTimeout(existing);
+          clickTimers.delete(details);
+          const openSet = loadOpenSet();
+          expandAllDescendants(details, openSet);
+          saveOpenSet(openSet);
+          return;
+        }
+
+        const timer = global.setTimeout(() => {
+          clickTimers.delete(details);
+          const openSet = loadOpenSet();
+          if (details.open) {
+            collapseAllDescendants(details, openSet);
+          } else {
+            expandOneLevel(details, openSet);
+            for (const nested of nestedBranchDetails(details)) {
+              nested.open = false;
+              syncOpenSetForDetails(nested, openSet, false);
+            }
+          }
+          saveOpenSet(openSet);
+        }, CLICK_DELAY_MS);
+        clickTimers.set(details, timer);
+      },
+      true,
+    );
+  }
+
   function restoreOpenState(root) {
     const openSet = loadOpenSet();
     root.querySelectorAll("details.build-tree-details[data-build-tree-branch]").forEach((details) => {
@@ -3614,6 +3723,7 @@
     restoreOpenState(root);
     ensureActivePathOpen(root);
     restoreScroll(root);
+    bindTreeExpandBehavior(root);
     root.addEventListener(
       "toggle",
       (event) => {
@@ -3803,6 +3913,20 @@
       const shell = readCompileCoordinateFromShell();
       if (shell?.target && (!shell.scene || !scene || shell.scene === scene)) {
         return { scene: scene || shell.scene, target: shell.target };
+      }
+    }
+    if (/^template:/i.test(id)) {
+      const fromTree = readCompileCoordinateFromReachabilityTree(id);
+      if (fromTree) return fromTree;
+      const payload = id.replace(/^template:/i, "");
+      if (payload.includes("/") || payload.endsWith(".mei")) {
+        const link = document.querySelector(
+          `.build-reachability-tree a[data-build-node="${CSS.escape(id)}"]`,
+        );
+        const target = String(link?.getAttribute("data-compile-target") || "").trim();
+        if (target) {
+          return { scene: String(link?.getAttribute("data-compile-scene") || "").trim(), target };
+        }
       }
     }
     return null;
@@ -4318,9 +4442,13 @@
     });
   }
 
-  function updateInspectBar(node, focus, el) {
+  function updateInspectBar(node, focus, el, message) {
     const bar = inspectBarLabel();
     if (!bar) return;
+    if (message) {
+      bar.textContent = message;
+      return;
+    }
     if (!node && !focus) {
       bar.textContent = "在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。";
       return;
@@ -4345,6 +4473,90 @@
         root.querySelector("[data-chart-slot-index].build-preview-scoped-dim") != null ||
         root.querySelector("[data-build-board-slot].build-preview-scoped-dim") != null);
     document.body.classList.toggle("build-preview-scoped-active", scopedActive);
+  }
+
+  function templateKeyFromNode(node) {
+    const raw = String(node || "").trim();
+    if (!raw.startsWith("template:")) return "";
+    return raw.replace(/^template:/i, "");
+  }
+
+  function isTemplateAuthoringPreview() {
+    const node = activeBuildNode();
+    if (!node.startsWith("template:")) return false;
+    const target = String(activeShell()?.getAttribute("data-compile-target") || "")
+      .trim()
+      .toLowerCase();
+    if (!target) return false;
+    return target.includes("templates/") || target.includes(".stock/templates");
+  }
+
+  function normalizeTemplateFileKey(value) {
+    let raw = String(value || "").trim().replace(/\\/g, "/");
+    while (raw.startsWith("./")) raw = raw.slice(2);
+    while (raw.startsWith("/")) raw = raw.slice(1);
+    if (raw.startsWith(".stock/templates/")) raw = raw.slice(".stock/templates/".length);
+    else if (raw.startsWith("templates/")) raw = raw.slice("templates/".length);
+    return raw;
+  }
+
+  function uniqueStrings(values) {
+    const out = [];
+    const seen = new Set();
+    for (const value of values || []) {
+      const item = String(value || "").trim();
+      if (!item || seen.has(item)) continue;
+      seen.add(item);
+      out.push(item);
+    }
+    return out;
+  }
+
+  function templateUseKeysFromTree(templateNode) {
+    const key = templateKeyFromNode(templateNode);
+    if (!key) return [];
+    const useKeys = [];
+    if (!key.includes("/") && !/\.mei$/i.test(key)) {
+      useKeys.push(key);
+    }
+    const normalizedFile = normalizeTemplateFileKey(key);
+    if (!normalizedFile || (!key.includes("/") && !/\.mei$/i.test(key))) {
+      return uniqueStrings(useKeys);
+    }
+    const roots = readReachabilityTreeRoots();
+    const walk = (nodes) => {
+      for (const node of nodes || []) {
+        const kind = String(node?.kind || "").trim();
+        const nodeId = String(node?.node_id || "").trim();
+        if (kind === "template" && nodeId.startsWith("template:")) {
+          const useKey = nodeId.slice("template:".length).trim();
+          const badges = Array.isArray(node?.badges) ? node.badges : [];
+          const matched = badges.some(
+            (badge) => normalizeTemplateFileKey(badge) === normalizedFile,
+          );
+          if (matched && useKey) {
+            useKeys.push(useKey);
+          }
+        }
+        walk(node?.children);
+      }
+    };
+    for (const root of roots) {
+      walk(root?.children);
+    }
+    return uniqueStrings(useKeys);
+  }
+
+  function applyTemplateScopedPreview(root, useKeys) {
+    if (!Array.isArray(useKeys) || useKeys.length === 0) return;
+    const keySet = new Set(useKeys);
+    root.querySelectorAll("[data-mei-use-key]").forEach((el) => {
+      const key = String(el.getAttribute("data-mei-use-key") || "").trim();
+      if (key && !keySet.has(key)) {
+        el.classList.add("build-preview-scoped-dim");
+      }
+    });
+    syncBuildPreviewScopedChrome(root);
   }
 
   function boardSlotIdFromNode(node) {
@@ -4542,7 +4754,7 @@
 
   function applyScopedPreview(root) {
     const node = activeBuildNode();
-    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id], [data-chart-slot-index], [data-build-board-slot]").forEach((el) => {
+    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id], [data-chart-slot-index], [data-build-board-slot], [data-mei-use-key]").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
     const boardSlot = boardSlotIdFromNode(node);
@@ -4551,6 +4763,15 @@
       return;
     }
     if (node.startsWith("board-file:")) {
+      syncBuildPreviewScopedChrome(root);
+      return;
+    }
+    const templateUseKeys = templateUseKeysFromTree(node);
+    if (templateUseKeys.length > 0 && !isTemplateAuthoringPreview()) {
+      applyTemplateScopedPreview(root, templateUseKeys);
+      return;
+    }
+    if (templateKeyFromNode(node) && isTemplateAuthoringPreview()) {
       syncBuildPreviewScopedChrome(root);
       return;
     }
@@ -4644,6 +4865,30 @@
 
     if (node.startsWith("board-file:")) {
       updateInspectBar(node, focus, null);
+      return;
+    }
+
+    if (node.startsWith("template:")) {
+      if (isTemplateAuthoringPreview()) {
+        updateInspectBar(
+          node,
+          focus,
+          null,
+          "模板独立预览：展示内置示例场景与 props，非应用内使用处高亮。",
+        );
+        return;
+      }
+      const selected = [];
+      for (const useKey of templateUseKeysFromTree(node)) {
+        if (!useKey) continue;
+        root
+          .querySelectorAll(`[data-mei-use-key="${CSS.escape(useKey)}"]`)
+          .forEach((el) => selected.push(el));
+      }
+      const uniqueSelected = Array.from(new Set(selected));
+      uniqueSelected.forEach((el) => el.classList.add("build-inspect-selected"));
+      scrollIntoViewIfOne(uniqueSelected, root);
+      updateInspectBar(node, focus, uniqueSelected[0] || null);
       return;
     }
 

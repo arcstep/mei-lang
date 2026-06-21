@@ -1,3 +1,8 @@
+use super::build_template_index::{
+    authoring_preview_target_for_template, preview_scene_id_for_template_consumer,
+    preview_scene_id_for_template_file_consumer, preview_target_for_template_consumer,
+    preview_target_for_template_file_consumer,
+};
 use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, ProvenanceAnchor};
 
 /// Script path used as `CompileOptions.preview_target` before compile, when the build URL
@@ -132,7 +137,7 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
                 provenance,
             }
         }
-        BuildNodeKind::Component | BuildNodeKind::Template => BuildNodeContext {
+        BuildNodeKind::Component => BuildNodeContext {
             node: node.clone(),
             target_file: template_target_file(compiled, node),
             scene_id: compiled.active_scene.clone(),
@@ -142,6 +147,38 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
             projection_id: None,
             provenance,
         },
+        BuildNodeKind::Template => {
+            let template_key = node.key.as_str();
+            let authoring = authoring_preview_target_for_template(compiled, template_key);
+            let target_file = authoring.clone().unwrap_or_else(|| {
+                if super::build_experience::is_template_file_node_key(template_key) {
+                    preview_target_for_template_file_consumer(compiled, template_key)
+                        .unwrap_or_else(|| template_target_file(compiled, node))
+                } else {
+                    preview_target_for_template_consumer(compiled, template_key)
+                        .unwrap_or_else(|| template_target_file(compiled, node))
+                }
+            });
+            let scene_id = if authoring.is_some() {
+                None
+            } else if super::build_experience::is_template_file_node_key(template_key) {
+                preview_scene_id_for_template_file_consumer(compiled, template_key)
+                    .or_else(|| compiled.active_scene.clone())
+            } else {
+                preview_scene_id_for_template_consumer(compiled, template_key)
+                    .or_else(|| compiled.active_scene.clone())
+            };
+            BuildNodeContext {
+                node: node.clone(),
+                target_file,
+                scene_id,
+                world_metric: None,
+                world_dataset: None,
+                explain: None,
+                projection_id: None,
+                provenance,
+            }
+        }
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
             let (board_file, scene_id) = board_context_from_node(compiled, node);
             BuildNodeContext {
@@ -334,14 +371,29 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
             symbol_id: node.key.clone(),
             symbol_kind: "resource".to_string(),
         },
-        BuildNodeKind::Component | BuildNodeKind::Template => ProvenanceAnchor {
+        BuildNodeKind::Component => ProvenanceAnchor {
             file: template_target_file(compiled, node),
             symbol_id: node.key.clone(),
-            symbol_kind: if node.kind == BuildNodeKind::Template {
-                "template".to_string()
-            } else {
-                "component".to_string()
-            },
+            symbol_kind: "component".to_string(),
+        },
+        BuildNodeKind::Template => ProvenanceAnchor {
+            file: authoring_preview_target_for_template(compiled, node.key.as_str())
+                .or_else(|| {
+                    if super::build_experience::is_template_file_node_key(node.key.as_str()) {
+                        super::build_experience::template_file_preview_target(
+                            compiled,
+                            node.key.as_str(),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| {
+                    preview_target_for_template_consumer(compiled, node.key.as_str())
+                })
+                .unwrap_or_else(|| template_target_file(compiled, node)),
+            symbol_id: node.key.clone(),
+            symbol_kind: "template".to_string(),
         },
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
             let entry = board_entry_for_node(compiled, node);

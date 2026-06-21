@@ -12,7 +12,8 @@ use axum::{
 };
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
-    compile_scene_from_build_node, discover_apps, preview_target_from_build_node,
+    compile_scene_from_build_node, compile_scene_from_build_node_with_app, discover_apps,
+    preview_target_from_build_node,
     preview_target_from_build_node_with_app, resolve_app_root, resolve_default_scene_from_root,
     BuildNodeId, CompileOptions,
 };
@@ -172,24 +173,41 @@ pub async fn app_page(
     } else {
         None
     };
-    let build_node_preview_target = build_node.as_ref().and_then(|node| {
-        preview_target_from_build_node(node).or_else(|| {
-            if route_mode != UiRouteMode::Build {
-                return None;
+    let (build_node_compile_scene, build_node_preview_target) = if route_mode == UiRouteMode::Build
+    {
+        if let Some(node) = build_node.as_ref() {
+            let mut scene_hint = compile_scene_from_build_node(node);
+            let mut preview_target = preview_target_from_build_node(node);
+            if scene_hint.is_none() || preview_target.is_none() {
+                let probe_components_root = resolve_components_root(&state.source_root);
+                if let Some(outcome) = load_compile_artifact_only(
+                    &state,
+                    &app_id,
+                    &CompileOptions {
+                        scene: scene_hint.clone(),
+                        preview_target: None,
+                    },
+                    probe_components_root.as_path(),
+                ) {
+                    if scene_hint.is_none() {
+                        scene_hint = compile_scene_from_build_node_with_app(
+                            node,
+                            Some(&outcome.compiled),
+                        );
+                    }
+                    if preview_target.is_none() {
+                        preview_target =
+                            preview_target_from_build_node_with_app(node, Some(&outcome.compiled));
+                    }
+                }
             }
-            let components_root = resolve_components_root(&state.source_root);
-            load_compile_artifact_only(
-                &state,
-                &app_id,
-                &CompileOptions {
-                    scene: compile_scene_from_build_node(node),
-                    preview_target: None,
-                },
-                components_root.as_path(),
-            )
-            .and_then(|outcome| preview_target_from_build_node_with_app(node, Some(&outcome.compiled)))
-        })
-    });
+            (scene_hint, preview_target)
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
     let normalized_preview_target = if route_mode == UiRouteMode::Build {
         manage_script_file
             .clone()
@@ -201,7 +219,7 @@ pub async fn app_page(
         url_path_scene
             .clone()
             .or_else(|| query.scene.clone())
-            .or_else(|| build_node.as_ref().and_then(compile_scene_from_build_node))
+            .or_else(|| build_node_compile_scene.clone())
     } else {
         query.scene.clone()
     };

@@ -315,7 +315,7 @@ mod tests {
         );
         let roots = build_reachability_tree(&compiled);
         assert_eq!(roots.len(), 5);
-        assert!(roots[0].default_open);
+        assert!(!roots[0].default_open);
         assert_eq!(roots[0].group, "scenes");
         assert_eq!(roots[1].group, "routes");
         assert_eq!(roots[1].children.len(), 1);

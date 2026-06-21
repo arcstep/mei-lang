@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{BuildNodeId, BuildViewTab, ReachabilityTreeRoot};
+use mei_lang_kernel::{BuildNodeId, BuildViewTab, ReachabilityTreeNode, ReachabilityTreeRoot};
 
 use super::manage_routing::build_node_href;
 
@@ -27,6 +27,7 @@ fn root_branch(
     active_node: &BuildNodeId,
     active_tab: BuildViewTab,
 ) -> AnyView {
+    let child_count = root.children.len();
     let children = root
         .children
         .iter()
@@ -37,11 +38,13 @@ fn root_branch(
             <details
                 class="build-tree-details"
                 data-build-tree-branch=format!("root:{}", root.group.clone())
-                open=root.default_open
+                data-build-tree-children-count=child_count.to_string()
             >
                 <summary class="build-tree-summary build-tree-summary--root">
                     <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▦"</span>
-                    <span class="build-tree-label">{reachability_root_label(root)}</span>
+                    <span class="build-tree-label">
+                        {branch_label(reachability_root_label(root), None, child_count)}
+                    </span>
                 </summary>
                 <ul class="build-tree-list build-tree-list--nested">{children}</ul>
             </details>
@@ -51,19 +54,20 @@ fn root_branch(
 }
 
 fn reachability_root_label(root: &ReachabilityTreeRoot) -> String {
-    if root.group == "templates" {
-        "Components".to_string()
-    } else {
-        root.label.clone()
+    match root.group.as_str() {
+        "templates" => "Components".to_string(),
+        "template_files" => "Templates".to_string(),
+        _ => root.label.clone(),
     }
 }
 
 fn tree_node(
-    node: &mei_lang_kernel::ReachabilityTreeNode,
+    node: &ReachabilityTreeNode,
     app_path: &str,
     active_node: &BuildNodeId,
     active_tab: BuildViewTab,
 ) -> AnyView {
+    let child_count = node.children.len();
     if node.node_id.trim().is_empty() && !node.children.is_empty() {
         let children = node
             .children
@@ -73,10 +77,16 @@ fn tree_node(
         let branch_id = format!("group:{}", node.id);
         return view! {
             <li class="build-tree-node build-tree-node--branch">
-                <details class="build-tree-details" data-build-tree-branch=branch_id>
+                <details
+                    class="build-tree-details"
+                    data-build-tree-branch=branch_id
+                    data-build-tree-children-count=child_count.to_string()
+                >
                     <summary class="build-tree-summary build-tree-summary--group">
                         <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▸"</span>
-                        <span class="build-tree-label">{node.label.clone()}</span>
+                        <span class="build-tree-label">
+                            {branch_label(node.label.clone(), None, child_count)}
+                        </span>
                     </summary>
                     <ul class="build-tree-list build-tree-list--nested">{children}</ul>
                 </details>
@@ -113,7 +123,7 @@ fn tree_node(
                 >
                     <span class="build-tree-spacer" aria-hidden="true"></span>
                     <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
-                    <span class="build-tree-label">{label_with_badge(node.label.clone(), badge)}</span>
+                    <span class="build-tree-label">{leaf_label(node.label.clone(), badge)}</span>
                 </a>
             </li>
         }
@@ -131,7 +141,11 @@ fn tree_node(
         };
         view! {
             <li class="build-tree-node build-tree-node--branch">
-                <details class="build-tree-details" data-build-tree-branch=branch_id>
+                <details
+                    class="build-tree-details"
+                    data-build-tree-branch=branch_id
+                    data-build-tree-children-count=child_count.to_string()
+                >
                     <summary class=summary_class>
                         <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
                         <a
@@ -142,7 +156,7 @@ fn tree_node(
                             data-compile-target=node.compile_target.clone()
                             data-board-layout-zone=node.board_layout_zone.clone()
                         >
-                            {label_with_badge(node.label.clone(), badge)}
+                            {branch_label(node.label.clone(), badge, child_count)}
                         </a>
                     </summary>
                     <ul class="build-tree-list build-tree-list--nested">
@@ -159,16 +173,55 @@ fn tree_node(
     }
 }
 
-fn label_with_badge(label: String, badge: Option<String>) -> AnyView {
-    match badge {
+fn leaf_label(label: String, meta_badge: Option<String>) -> AnyView {
+    match meta_badge {
         Some(value) if !value.trim().is_empty() => view! {
             <>
                 {label}
-                <span class="build-tree-badge">{value}</span>
+                <span class="build-tree-badge build-tree-badge--meta">{value}</span>
             </>
         }
         .into_any(),
         _ => view! { {label} }.into_any(),
+    }
+}
+
+fn branch_label(label: String, meta_badge: Option<String>, child_count: usize) -> AnyView {
+    let meta = meta_badge.filter(|value| !value.trim().is_empty());
+    match (meta, child_count > 0) {
+        (Some(meta_value), true) => view! {
+            <>
+                {label}
+                <span class="build-tree-badge build-tree-badge--meta">{meta_value}</span>
+                <span
+                    class="build-tree-badge build-tree-badge--count"
+                    title=format!("{child_count} 个子节点")
+                >
+                    {child_count}
+                </span>
+            </>
+        }
+        .into_any(),
+        (Some(meta_value), false) => view! {
+            <>
+                {label}
+                <span class="build-tree-badge build-tree-badge--meta">{meta_value}</span>
+            </>
+        }
+        .into_any(),
+        (None, true) => view! {
+            <>
+                {label}
+                <span
+                    class="build-tree-badge build-tree-badge--count"
+                    title=format!("{child_count} 个子节点")
+                >
+                    {child_count}
+                </span>
+            </>
+        }
+        .into_any(),
+        (None, false) => view! { {label} }.into_any(),
     }
 }
 
@@ -186,6 +239,7 @@ fn kind_glyph(kind: &str) -> &'static str {
         "board_file" => "B",
         "board_slot" => "S",
         "template" => "T",
+        "template_file" => "F",
         "template_group" => "▸",
         "artifact" => "A",
         _ => "·",
@@ -203,6 +257,10 @@ fn tab_for_node_link(node: &BuildNodeId, current: BuildViewTab) -> BuildViewTab 
         | BuildNodeKind::SceneBlock
         | BuildNodeKind::Route
         | BuildNodeKind::Projection
+        | BuildNodeKind::Template
+        | BuildNodeKind::Component
+        | BuildNodeKind::BoardFile
+        | BuildNodeKind::BoardSlot
         | BuildNodeKind::WorldMetric
         | BuildNodeKind::WorldDataset
         | BuildNodeKind::WorldExplain

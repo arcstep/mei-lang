@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
@@ -108,7 +108,7 @@ pub fn build_experience_index(
         ReachabilityTreeRoot {
             group: "scenes".to_string(),
             label: "Scenes".to_string(),
-            default_open: true,
+            default_open: false,
             children: scene_children,
         },
         routes_root(compiled_for_roots),
@@ -124,6 +124,7 @@ pub fn merge_build_view_tree_roots(
     experience_snapshot: Vec<ReachabilityTreeRootSnapshot>,
     board_root: ReachabilityTreeRoot,
     template_root: ReachabilityTreeRoot,
+    template_files_root: ReachabilityTreeRoot,
 ) -> Vec<ReachabilityTreeRootSnapshot> {
     let mut merged = experience_snapshot;
     if !board_root.children.is_empty() {
@@ -139,6 +140,20 @@ pub fn merge_build_view_tree_roots(
             1
         };
         merged.insert(insert_at, root_to_snapshot(template_root));
+    }
+    if !template_files_root.children.is_empty() {
+        let insert_at = merged
+            .iter()
+            .position(|root| root.group == "templates")
+            .map(|idx| idx + 1)
+            .unwrap_or_else(|| {
+                if merged.len() > 1 && merged[1].group == "boards" {
+                    2
+                } else {
+                    1
+                }
+            });
+        merged.insert(insert_at, root_to_snapshot(template_files_root));
     }
     merged
 }
@@ -165,6 +180,9 @@ fn normalize_reachability_tree_roots(roots: &mut [ReachabilityTreeRoot]) {
     for root in roots {
         if root.group == "templates" {
             root.label = "Components".to_string();
+        }
+        if root.group == "template_files" {
+            root.label = "Templates".to_string();
         }
     }
 }
@@ -242,14 +260,19 @@ fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) -> Vec<Reacha
         &compiled.scene_projection_assembly_by_id,
     );
     let template = crate::compile::build_template_index(
-        &template_catalog_for_tree(compiled),
+        &template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path()),
         &contracts,
         &experience.node_manifest,
     );
+    let template_files =
+        crate::compile::build_template_index::build_stock_template_files_root(
+            &source_root_from_app(compiled),
+        );
     merge_build_view_tree_roots(
         experience.reachability_snapshot,
         board.tree_root,
         template.tree_root,
+        template_files,
     )
     .into_iter()
     .map(|snapshot| snapshot_to_root(&snapshot))
@@ -348,7 +371,7 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
             ))
         } else {
             let contracts = scene_contracts_from_compiled(compiled);
-            let catalog = template_catalog_for_tree(compiled);
+            let catalog = template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
             if catalog.is_empty() {
                 None
             } else {
@@ -386,19 +409,59 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
                 )
             } else {
                 let contracts = scene_contracts_from_compiled(compiled);
-                let catalog = template_catalog_for_tree(compiled);
-                if catalog.is_empty() {
-                    return;
+                let catalog = template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
+                if !catalog.is_empty() {
+                    crate::compile::build_template_index::build_template_index(
+                        &catalog,
+                        &contracts,
+                        &compiled.build_experience_index.node_manifest,
+                    )
+                    .tree_root
+                } else {
+                    ReachabilityTreeRoot {
+                        group: "templates".to_string(),
+                        label: "Components".to_string(),
+                        default_open: false,
+                        children: Vec::new(),
+                    }
                 }
-                crate::compile::build_template_index::build_template_index(
-                    &catalog,
-                    &contracts,
-                    &compiled.build_experience_index.node_manifest,
-                )
-                .tree_root
             };
             if !template_root.children.is_empty() {
                 *existing = template_root;
+            }
+        }
+    }
+    if !roots.iter().any(|root| root.group == "template_files") {
+        let template_files = crate::compile::build_template_index::build_stock_template_files_root(
+            source_root_from_app(compiled).as_path(),
+        );
+        if !template_files.children.is_empty() {
+            let insert_at = roots
+                .iter()
+                .position(|root| root.group == "templates")
+                .map(|idx| idx + 1)
+                .unwrap_or(
+                    roots
+                        .iter()
+                        .position(|root| root.group == "boards")
+                        .map(|idx| idx + 1)
+                        .unwrap_or(
+                            roots
+                                .iter()
+                                .position(|root| root.group == "scenes")
+                                .map(|idx| idx + 1)
+                                .unwrap_or(roots.len()),
+                        ),
+                );
+            roots.insert(insert_at, template_files);
+        }
+    } else if let Some(existing) = roots.iter_mut().find(|root| root.group == "template_files") {
+        if existing.children.is_empty() {
+            let template_files = crate::compile::build_template_index::build_stock_template_files_root(
+                source_root_from_app(compiled).as_path(),
+            );
+            if !template_files.children.is_empty() {
+                *existing = template_files;
             }
         }
     }
@@ -414,16 +477,15 @@ fn workspace_component_catalog_from_app(compiled: &CompiledApp) -> Option<Vec<Co
     Some(map.values().cloned().collect())
 }
 
-fn template_catalog_for_tree(compiled: &CompiledApp) -> Vec<ComponentAsset> {
-    if let Some(workspace_catalog) = workspace_component_catalog_from_app(compiled) {
-        if workspace_catalog.len() >= compiled.component_assets.len() {
-            return workspace_catalog;
-        }
-    }
-    if !compiled.component_assets.is_empty() {
-        return compiled.component_assets.clone();
-    }
-    workspace_component_catalog_from_app(compiled).unwrap_or_default()
+fn source_root_from_app(compiled: &CompiledApp) -> PathBuf {
+    Path::new(compiled.app_root.as_str())
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(compiled.app_root.as_str()))
+}
+
+fn template_catalog_for_tree(compiled: &CompiledApp, source_root: &Path) -> Vec<ComponentAsset> {
+    crate::compile::build_template_index::merged_component_catalog(source_root, compiled)
 }
 
 fn root_to_snapshot(root: ReachabilityTreeRoot) -> ReachabilityTreeRootSnapshot {

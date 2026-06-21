@@ -77,6 +77,15 @@ pub struct BuildBoardIndex {
     pub boards: BTreeMap<String, BoardFileEntry>,
 }
 
+/// One in-app usage site for a component / template use_key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct TemplateConsumerAnchor {
+    pub scene_id: String,
+    pub panel_path: String,
+    pub block_id: String,
+    pub label: String,
+}
+
 /// Template catalog entry for build-view / Agent export.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct TemplateCatalogEntry {
@@ -89,6 +98,8 @@ pub struct TemplateCatalogEntry {
     pub variants: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub consumers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consumer_anchors: Vec<TemplateConsumerAnchor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_hint: Option<String>,
 }

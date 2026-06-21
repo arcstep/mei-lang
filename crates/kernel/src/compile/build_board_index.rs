@@ -25,7 +25,7 @@ pub fn build_board_index(
     let tree_root = ReachabilityTreeRoot {
         group: "boards".to_string(),
         label: "Boards".to_string(),
-        default_open: !tree_children.is_empty(),
+        default_open: false,
         children: tree_children,
     };
     BuildBoardIndexResult { index, tree_root }
@@ -147,7 +147,7 @@ pub fn board_tree_root_from_index(index: &BuildBoardIndex) -> ReachabilityTreeRo
     ReachabilityTreeRoot {
         group: "boards".to_string(),
         label: "Boards".to_string(),
-        default_open: !tree_children.is_empty(),
+        default_open: false,
         children: tree_children,
     }
 }

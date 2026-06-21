@@ -1,14 +1,32 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
+use walkdir::WalkDir;
+
+use crate::compile::block_instance_id;
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
+use crate::mei_config::resolve_templates_root;
 use crate::model::{
-    BuildNodeId, BuildTemplateIndex, ComponentAsset, ExperienceNodeManifest, PanelDecl,
-    SceneContract, TemplateCatalogEntry, UiNodeDecl,
+    BlockDecl, BuildNodeId, BuildTemplateIndex, CompiledApp, ComponentAsset, ExperienceNodeManifest,
+    PanelDecl, SceneContract, TemplateCatalogEntry, TemplateConsumerAnchor, UiNodeDecl,
 };
+use crate::workspace::load_component_assets;
 
 pub struct BuildTemplateIndexResult {
     pub index: BuildTemplateIndex,
     pub tree_root: ReachabilityTreeRoot,
+}
+
+/// Union workspace component manifests with compile-time `component_assets` (deduped by use_key).
+pub fn merged_component_catalog(source_root: &Path, compiled: &CompiledApp) -> Vec<ComponentAsset> {
+    let mut merged = BTreeMap::<String, ComponentAsset>::new();
+    if let Ok(map) = load_component_assets(source_root) {
+        merged.extend(map);
+    }
+    for asset in &compiled.component_assets {
+        merged.insert(asset.key.clone(), asset.clone());
+    }
+    merged.into_values().collect()
 }
 
 pub fn build_template_index(
@@ -18,10 +36,12 @@ pub fn build_template_index(
 ) -> BuildTemplateIndexResult {
     let mut templates = BTreeMap::<String, TemplateCatalogEntry>::new();
     let mut use_key_consumers = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut consumer_anchors = BTreeMap::<String, Vec<TemplateConsumerAnchor>>::new();
 
-    for contract in scene_contracts_by_id.values() {
+    for (scene_id, contract) in scene_contracts_by_id {
         for panel in &contract.panels {
             collect_panel_use_keys(panel, &mut use_key_consumers);
+            collect_panel_template_usage(scene_id.as_str(), panel, panel.id.as_str(), &mut consumer_anchors);
         }
     }
 
@@ -32,6 +52,9 @@ pub fn build_template_index(
             .map(|set| set.iter().cloned().collect())
             .unwrap_or_default();
         consumers.sort();
+        let anchors = consumer_anchors
+            .remove(asset.key.as_str())
+            .unwrap_or_default();
         let variants = related_variant_keys(asset.key.as_str(), component_assets);
         let agent_hint = Some(agent_hint_for(category, asset.key.as_str(), asset.script.as_str()));
         templates.insert(
@@ -43,6 +66,7 @@ pub fn build_template_index(
                 props_schema: default_props_schema(category),
                 variants,
                 consumers,
+                consumer_anchors: anchors,
                 agent_hint,
             },
         );
@@ -88,6 +112,213 @@ pub fn build_template_index(
     BuildTemplateIndexResult { index, tree_root }
 }
 
+/// Workspace `.stock/templates/**/*.mei` as a separate reachability group (authoring file tree).
+pub fn build_stock_template_files_root(source_root: &Path) -> ReachabilityTreeRoot {
+    let templates_root = resolve_templates_root(source_root);
+    let templates_prefix = templates_root
+        .strip_prefix(source_root)
+        .ok()
+        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        .filter(|rel| !rel.is_empty())
+        .unwrap_or_else(|| ".stock/templates".to_string());
+    let mut by_folder = BTreeMap::<String, Vec<ReachabilityTreeNode>>::new();
+    if templates_root.is_dir() {
+        for entry in WalkDir::new(&templates_root)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_file())
+        {
+            let file_name = entry.file_name().to_string_lossy();
+            if !file_name.ends_with(".mei") {
+                continue;
+            }
+            let rel = entry
+                .path()
+                .strip_prefix(&templates_root)
+                .ok()
+                .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|| file_name.to_string());
+            if rel.starts_with("assets/") || rel.contains("/assets/") {
+                continue;
+            }
+            let folder = rel
+                .rsplit_once('/')
+                .map(|(dir, _)| dir.to_string())
+                .unwrap_or_else(|| ".".to_string());
+            let template_path = format!("{templates_prefix}/{rel}");
+            by_folder.entry(folder).or_default().push(ReachabilityTreeNode {
+                id: format!("template-file-{rel}"),
+                node_id: BuildNodeId::template(rel.as_str()).encode(),
+                kind: "template_file".to_string(),
+                label: rel.clone(),
+                badges: vec![template_path.clone()],
+                children: Vec::new(),
+                ..Default::default()
+            });
+        }
+    }
+    let mut children = Vec::new();
+    for (folder, mut nodes) in by_folder {
+        nodes.sort_by(|left, right| left.label.cmp(&right.label));
+        if folder == "." {
+            children.extend(nodes);
+        } else {
+            children.push(ReachabilityTreeNode {
+                id: format!("template-files-group-{folder}"),
+                node_id: String::new(),
+                kind: "template_group".to_string(),
+                label: folder,
+                badges: Vec::new(),
+                children: nodes,
+                ..Default::default()
+            });
+        }
+    }
+    children.sort_by(|left, right| left.label.cmp(&right.label));
+    ReachabilityTreeRoot {
+        group: "template_files".to_string(),
+        label: "Templates".to_string(),
+        default_open: false,
+        children,
+    }
+}
+
+pub fn template_primary_consumer<'a>(
+    compiled: &'a CompiledApp,
+    template_key: &str,
+) -> Option<&'a TemplateConsumerAnchor> {
+    let entry = compiled.build_template_index.lookup(template_key)?;
+    template_primary_consumer_from_entry(entry, compiled.active_scene.as_deref())
+}
+
+pub fn template_primary_consumer_from_entry<'a>(
+    entry: &'a TemplateCatalogEntry,
+    active_scene: Option<&str>,
+) -> Option<&'a TemplateConsumerAnchor> {
+    if entry.consumer_anchors.is_empty() {
+        return None;
+    }
+    if let Some(active) = active_scene.map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(found) = entry
+            .consumer_anchors
+            .iter()
+            .find(|anchor| anchor.scene_id == active)
+        {
+            return Some(found);
+        }
+    }
+    Some(&entry.consumer_anchors[0])
+}
+
+pub fn preview_target_for_template_consumer(
+    compiled: &CompiledApp,
+    template_key: &str,
+) -> Option<String> {
+    let anchor = template_primary_consumer(compiled, template_key)?;
+    super::build_experience::preview_target_for_scene_id(compiled, anchor.scene_id.as_str())
+}
+
+pub fn preview_scene_id_for_template_consumer(
+    compiled: &CompiledApp,
+    template_key: &str,
+) -> Option<String> {
+    template_primary_consumer(compiled, template_key).map(|anchor| anchor.scene_id.clone())
+}
+
+fn normalize_template_file_key(raw: &str) -> String {
+    let mut value = raw.trim().replace('\\', "/");
+    while let Some(rest) = value.strip_prefix("./") {
+        value = rest.to_string();
+    }
+    while let Some(rest) = value.strip_prefix('/') {
+        value = rest.to_string();
+    }
+    for prefix in [".stock/templates/", "templates/"] {
+        if let Some(rest) = value.strip_prefix(prefix) {
+            value = rest.to_string();
+            break;
+        }
+    }
+    value
+}
+
+fn template_entries_for_file<'a>(
+    compiled: &'a CompiledApp,
+    template_file_key: &str,
+) -> Vec<&'a TemplateCatalogEntry> {
+    let wanted = normalize_template_file_key(template_file_key);
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    compiled
+        .build_template_index
+        .templates
+        .values()
+        .filter(|entry| normalize_template_file_key(entry.template_file.as_str()) == wanted)
+        .collect()
+}
+
+fn template_primary_consumer_for_template_file<'a>(
+    compiled: &'a CompiledApp,
+    template_file_key: &str,
+) -> Option<&'a TemplateConsumerAnchor> {
+    let active_scene = compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty());
+    let mut fallback: Option<&TemplateConsumerAnchor> = None;
+    for entry in template_entries_for_file(compiled, template_file_key) {
+        if let Some(anchor) = template_primary_consumer_from_entry(entry, active_scene) {
+            if active_scene.is_some_and(|scene| anchor.scene_id == scene) {
+                return Some(anchor);
+            }
+            if fallback.is_none() {
+                fallback = Some(anchor);
+            }
+        }
+    }
+    fallback
+}
+
+/// Primary build preview: compile the template `.mei` itself (built-in preview scene + sample data).
+pub fn authoring_preview_target_for_template(
+    compiled: &CompiledApp,
+    template_key: &str,
+) -> Option<String> {
+    let workspace_path = authoring_template_workspace_path(compiled, template_key)?;
+    super::build_experience::preview_target_relative_to_app(compiled, workspace_path.as_str())
+}
+
+fn authoring_template_workspace_path(compiled: &CompiledApp, template_key: &str) -> Option<String> {
+    if super::build_experience::is_template_file_node_key(template_key) {
+        return super::build_experience::template_file_preview_target(compiled, template_key);
+    }
+    let entry = compiled.build_template_index.lookup(template_key)?;
+    let file = entry.template_file.as_str();
+    if file.ends_with(".mei") {
+        Some(file.to_string())
+    } else {
+        None
+    }
+}
+
+pub fn preview_target_for_template_file_consumer(
+    compiled: &CompiledApp,
+    template_file_key: &str,
+) -> Option<String> {
+    let anchor = template_primary_consumer_for_template_file(compiled, template_file_key)?;
+    super::build_experience::preview_target_for_scene_id(compiled, anchor.scene_id.as_str())
+}
+
+pub fn preview_scene_id_for_template_file_consumer(
+    compiled: &CompiledApp,
+    template_file_key: &str,
+) -> Option<String> {
+    template_primary_consumer_for_template_file(compiled, template_file_key)
+        .map(|anchor| anchor.scene_id.clone())
+}
+
 /// Rebuild Templates reachability group from compile-time index (e.g. stale snapshot fallback).
 pub fn template_tree_root_from_index(index: &BuildTemplateIndex) -> ReachabilityTreeRoot {
     let mut by_category = BTreeMap::<String, Vec<ReachabilityTreeNode>>::new();
@@ -129,16 +360,7 @@ fn collect_panel_use_keys(panel: &PanelDecl, out: &mut BTreeMap<String, BTreeSet
     for ui_node in &panel.blocks {
         match ui_node {
             UiNodeDecl::Block(block) => {
-                let consumer = block
-                    .title
-                    .clone()
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| {
-                        block
-                            .id
-                            .clone()
-                            .unwrap_or_else(|| block.use_key.clone())
-                    });
+                let consumer = block_consumer_label(block);
                 out.entry(block.use_key.clone())
                     .or_default()
                     .insert(consumer);
@@ -147,6 +369,46 @@ fn collect_panel_use_keys(panel: &PanelDecl, out: &mut BTreeMap<String, BTreeSet
             _ => {}
         }
     }
+}
+
+fn collect_panel_template_usage(
+    scene_id: &str,
+    panel: &PanelDecl,
+    panel_path: &str,
+    out: &mut BTreeMap<String, Vec<TemplateConsumerAnchor>>,
+) {
+    for (ordinal, ui_node) in panel.blocks.iter().enumerate() {
+        match ui_node {
+            UiNodeDecl::Block(block) => {
+                out.entry(block.use_key.clone())
+                    .or_default()
+                    .push(TemplateConsumerAnchor {
+                        scene_id: scene_id.to_string(),
+                        panel_path: panel_path.to_string(),
+                        block_id: block_instance_id(block, ordinal),
+                        label: block_consumer_label(block),
+                    });
+            }
+            UiNodeDecl::Panel(nested) => {
+                let nested_path = format!("{panel_path}/{}", nested.id);
+                collect_panel_template_usage(scene_id, nested, nested_path.as_str(), out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn block_consumer_label(block: &BlockDecl) -> String {
+    block
+        .title
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            block
+                .id
+                .clone()
+                .unwrap_or_else(|| block.use_key.clone())
+        })
 }
 
 fn categorize_template_key(key: &str) -> &'static str {
@@ -226,5 +488,178 @@ mod tests {
         assert_eq!(entry.category, "metric_card");
         assert!(entry.agent_hint.as_deref().is_some_and(|hint| hint.contains("metric-card")));
         assert!(!result.tree_root.children.is_empty());
+    }
+
+    #[test]
+    fn template_index_collects_consumer_anchors() {
+        use crate::model::{SceneDecl, UiNodeDecl};
+        let assets = vec![ComponentAsset {
+            key: "cockpit.header-brand".to_string(),
+            tag: "div".to_string(),
+            script: "templates/cockpit/header-brand.mei".to_string(),
+        }];
+        let mut contracts = BTreeMap::new();
+        contracts.insert(
+            "home".to_string(),
+            SceneContract {
+                scene: SceneDecl {
+                    kind: "scene".to_string(),
+                    id: "home".to_string(),
+                    profile: None,
+                    state: serde_json::Value::Null,
+                    world: None,
+                    flow: None,
+                    frame: None,
+                    theme: None,
+                    summary: None,
+                    goal: None,
+                    shared: serde_json::Value::Null,
+                    local_nav: serde_json::Value::Null,
+                    params: serde_json::Value::Null,
+                    bindings: serde_json::Value::Null,
+                    examples: serde_json::Value::Null,
+                    access_export: true,
+                },
+                themes: Vec::new(),
+                shared: serde_json::Value::Null,
+                world: None,
+                flow: None,
+                frame: None,
+                panels: vec![PanelDecl {
+                    id: "header".to_string(),
+                    blocks: vec![UiNodeDecl::Block(BlockDecl {
+                        kind: "block".to_string(),
+                        use_key: "cockpit.header-brand".to_string(),
+                        id: None,
+                        title: None,
+                        area: None,
+                        props: serde_json::Value::Null,
+                        base: None,
+                        layout: None,
+                        blocks: Vec::new(),
+                        component: None,
+                        placement: None,
+                        interactions: Vec::new(),
+                        lifecycle: None,
+                        constraints: None,
+                        data: None,
+                    })],
+                    ..Default::default()
+                }],
+            },
+        );
+        let result = build_template_index(&assets, &contracts, &BTreeMap::new());
+        let entry = result
+            .index
+            .templates
+            .get("cockpit.header-brand")
+            .expect("template");
+        assert_eq!(entry.consumer_anchors.len(), 1);
+        assert_eq!(entry.consumer_anchors[0].scene_id, "home");
+        assert_eq!(entry.consumer_anchors[0].panel_path, "header");
+    }
+
+    #[test]
+    fn template_preview_targets_primary_consumer_scene() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind, CompileOptions};
+        use crate::model::BuildNodeId;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-spbjw");
+        let app_root = source_root.join("zhifa");
+        if !app_root.is_dir() {
+            return;
+        }
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile zhifa");
+        let node = BuildNodeId::template("cockpit.header-brand");
+        let target = preview_target_for_template_consumer(&compiled, "cockpit.header-brand");
+        assert!(
+            target.as_deref().is_some_and(|file| file.contains("home")),
+            "expected home scene file, got {target:?}"
+        );
+        let scene = preview_scene_id_for_template_consumer(&compiled, "cockpit.header-brand");
+        assert_eq!(scene.as_deref(), Some("home"));
+        let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
+        assert_eq!(coord.preview_kind, BuildPreviewKind::SceneCapsule);
+    }
+
+    #[test]
+    fn template_file_authoring_preview_targets_template_mei() {
+        use std::collections::BTreeMap;
+
+        use crate::model::{BuildTemplateIndex, CompiledApp, CompiledSceneRoute, TemplateCatalogEntry};
+
+        let mut templates = BTreeMap::new();
+        templates.insert(
+            "cockpit.main".to_string(),
+            TemplateCatalogEntry {
+                template_key: "cockpit.main".to_string(),
+                template_file: ".stock/templates/cockpit/main.mei".to_string(),
+                category: "component".to_string(),
+                props_schema: Vec::new(),
+                variants: Vec::new(),
+                consumers: vec!["home/header".to_string()],
+                consumer_anchors: vec![TemplateConsumerAnchor {
+                    scene_id: "home".to_string(),
+                    panel_path: "header".to_string(),
+                    block_id: "cockpit.main~0".to_string(),
+                    label: "Header".to_string(),
+                }],
+                agent_hint: None,
+            },
+        );
+        let compiled = CompiledApp {
+            app_id: "demo".to_string(),
+            title: "demo".to_string(),
+            app_root: "zhifa".to_string(),
+            scene_routes: vec![CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "scenes/home.mei".to_string(),
+                kind: "file_ref".to_string(),
+                title: Some("Home".to_string()),
+                is_default: true,
+                access_export: true,
+            }],
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: Vec::new(),
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: BuildTemplateIndex { templates },
+        };
+        assert_eq!(
+            authoring_preview_target_for_template(&compiled, "cockpit/main.mei").as_deref(),
+            Some("../.stock/templates/cockpit/main.mei")
+        );
+        assert_eq!(
+            preview_scene_id_for_template_file_consumer(&compiled, "cockpit/main.mei").as_deref(),
+            Some("home")
+        );
+        assert_eq!(
+            preview_target_for_template_file_consumer(&compiled, "cockpit/main.mei").as_deref(),
+            Some("scenes/home.mei")
+        );
     }
 }

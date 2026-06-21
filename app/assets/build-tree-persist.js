@@ -1,11 +1,12 @@
 /**
- * Build view: persist left-tree <details> open state across SPA navigations.
+ * Build view: persist left-tree open state + click/double-click expand shortcuts.
  */
 (function (global) {
   "use strict";
 
   const STORAGE_KEY = "mei-build-tree-open";
   const SCROLL_KEY = "mei-build-tree-scroll";
+  const CLICK_DELAY_MS = 280;
 
   function isBuildRoute() {
     return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
@@ -81,6 +82,114 @@
     return String(details?.getAttribute("data-build-tree-branch") || "").trim();
   }
 
+  function branchDetailsFromSummary(summary) {
+    if (!(summary instanceof HTMLElement)) return null;
+    const details = summary.parentElement;
+    if (!(details instanceof HTMLDetailsElement)) return null;
+    if (!details.matches("details.build-tree-details[data-build-tree-branch]")) return null;
+    return details;
+  }
+
+  function isNavigationClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest("a[href]"));
+  }
+
+  function nestedBranchDetails(details) {
+    return Array.from(
+      details.querySelectorAll(":scope > ul .build-tree-details[data-build-tree-branch]"),
+    ).filter((node) => node instanceof HTMLDetailsElement);
+  }
+
+  function allDescendantBranchDetails(details) {
+    return Array.from(
+      details.querySelectorAll(".build-tree-details[data-build-tree-branch]"),
+    ).filter((node) => node instanceof HTMLDetailsElement);
+  }
+
+  function syncOpenSetForDetails(details, openSet, open) {
+    const id = branchId(details);
+    if (!id) return;
+    if (open) {
+      openSet.add(id);
+    } else {
+      openSet.delete(id);
+    }
+  }
+
+  function syncOpenSetForSubtree(details, openSet, open) {
+    syncOpenSetForDetails(details, openSet, open);
+    for (const nested of allDescendantBranchDetails(details)) {
+      syncOpenSetForDetails(nested, openSet, open);
+    }
+  }
+
+  function expandOneLevel(details, openSet) {
+    details.open = true;
+    syncOpenSetForDetails(details, openSet, true);
+  }
+
+  function expandAllDescendants(details, openSet) {
+    details.open = true;
+    for (const nested of allDescendantBranchDetails(details)) {
+      nested.open = true;
+    }
+    syncOpenSetForSubtree(details, openSet, true);
+  }
+
+  function collapseAllDescendants(details, openSet) {
+    for (const nested of allDescendantBranchDetails(details)) {
+      nested.open = false;
+    }
+    details.open = false;
+    syncOpenSetForSubtree(details, openSet, false);
+  }
+
+  function bindTreeExpandBehavior(root) {
+    if (!root || root.__buildTreeExpandBound) return;
+    root.__buildTreeExpandBound = true;
+    const clickTimers = new WeakMap();
+
+    root.addEventListener(
+      "click",
+      (event) => {
+        if (isNavigationClick(event)) return;
+        const summary = event.target.closest("summary.build-tree-summary");
+        const details = branchDetailsFromSummary(summary);
+        if (!details) return;
+        event.preventDefault();
+
+        const existing = clickTimers.get(details);
+        if (existing) {
+          global.clearTimeout(existing);
+          clickTimers.delete(details);
+          const openSet = loadOpenSet();
+          expandAllDescendants(details, openSet);
+          saveOpenSet(openSet);
+          return;
+        }
+
+        const timer = global.setTimeout(() => {
+          clickTimers.delete(details);
+          const openSet = loadOpenSet();
+          if (details.open) {
+            collapseAllDescendants(details, openSet);
+          } else {
+            expandOneLevel(details, openSet);
+            for (const nested of nestedBranchDetails(details)) {
+              nested.open = false;
+              syncOpenSetForDetails(nested, openSet, false);
+            }
+          }
+          saveOpenSet(openSet);
+        }, CLICK_DELAY_MS);
+        clickTimers.set(details, timer);
+      },
+      true,
+    );
+  }
+
   function restoreOpenState(root) {
     const openSet = loadOpenSet();
     root.querySelectorAll("details.build-tree-details[data-build-tree-branch]").forEach((details) => {
@@ -119,6 +228,7 @@
     restoreOpenState(root);
     ensureActivePathOpen(root);
     restoreScroll(root);
+    bindTreeExpandBehavior(root);
     root.addEventListener(
       "toggle",
       (event) => {

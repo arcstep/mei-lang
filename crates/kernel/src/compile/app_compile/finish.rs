@@ -256,18 +256,26 @@ pub(super) fn finish_compiled_app(
         &compiled.scene_projection_assembly_by_id,
     );
     compiled.build_board_index = board.index;
-    let template_catalog: Vec<ComponentAsset> = asset_map.values().cloned().collect();
+    let mut catalog_map = asset_map.clone();
+    for asset in &active_payload.component_assets {
+        catalog_map.insert(asset.key.clone(), asset.clone());
+    }
+    let template_catalog: Vec<ComponentAsset> = catalog_map.values().cloned().collect();
     let template = crate::compile::build_template_index(
         &template_catalog,
         &target_scene_contracts,
         &compiled.build_experience_index.node_manifest,
     );
     compiled.build_template_index = template.index;
+    let workspace_source_root = app_root.parent().unwrap_or(app_root);
+    let template_files =
+        crate::compile::build_template_index::build_stock_template_files_root(workspace_source_root);
     compiled.build_experience_index.reachability_snapshot =
         crate::compile::build_experience_index::merge_build_view_tree_roots(
             compiled.build_experience_index.reachability_snapshot.clone(),
             board.tree_root,
             template.tree_root,
+            template_files,
         );
     Ok(compiled)
 }

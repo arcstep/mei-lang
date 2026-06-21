@@ -55,6 +55,20 @@
         return { scene: scene || shell.scene, target: shell.target };
       }
     }
+    if (/^template:/i.test(id)) {
+      const fromTree = readCompileCoordinateFromReachabilityTree(id);
+      if (fromTree) return fromTree;
+      const payload = id.replace(/^template:/i, "");
+      if (payload.includes("/") || payload.endsWith(".mei")) {
+        const link = document.querySelector(
+          `.build-reachability-tree a[data-build-node="${CSS.escape(id)}"]`,
+        );
+        const target = String(link?.getAttribute("data-compile-target") || "").trim();
+        if (target) {
+          return { scene: String(link?.getAttribute("data-compile-scene") || "").trim(), target };
+        }
+      }
+    }
     return null;
   }
 

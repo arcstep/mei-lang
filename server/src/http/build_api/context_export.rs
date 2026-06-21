@@ -259,6 +259,15 @@ fn append_board_template_sections(
                     md.push_str(&format!("  - {item}\n"));
                 }
             }
+            if !entry.consumer_anchors.is_empty() {
+                md.push_str("- consumer_anchors:\n");
+                for anchor in &entry.consumer_anchors {
+                    md.push_str(&format!(
+                        "  - scene=`{}` panel=`{}` block=`{}` label=`{}`\n",
+                        anchor.scene_id, anchor.panel_path, anchor.block_id, anchor.label
+                    ));
+                }
+            }
             if let Some(hint) = entry.agent_hint.as_deref() {
                 md.push_str(&format!("\n#### Agent 提示\n\n{hint}\n"));
             }

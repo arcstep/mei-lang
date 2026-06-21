@@ -1,12 +1,83 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde_json::Value;
 
+use crate::mei_config::resolve_templates_root;
 use crate::model::{BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest, PanelDecl, UiNodeDecl};
 
 /// First path segment of scene-scoped UI node keys (`home/panel/block`).
 pub fn scene_id_from_ui_node_key(key: &str) -> Option<String> {
     key.split('/').next().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+}
+
+pub fn is_template_file_node_key(key: &str) -> bool {
+    key.contains('/') || key.ends_with(".mei")
+}
+
+pub fn template_file_preview_target(compiled: &CompiledApp, key: &str) -> Option<String> {
+    if key.starts_with("templates/") {
+        return Some(key.to_string());
+    }
+    let app_root = Path::new(compiled.app_root.as_str());
+    let source_root = app_root.parent()?;
+    let templates_root = resolve_templates_root(source_root);
+    let templates_prefix = templates_root
+        .strip_prefix(source_root)
+        .ok()
+        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        .filter(|rel| !rel.is_empty())
+        .unwrap_or_else(|| ".stock/templates".to_string());
+    Some(format!("{templates_prefix}/{key}"))
+}
+
+/// Convert a workspace-relative or catalog template path into an app-root-relative
+/// `CompileOptions.preview_target` (e.g. `../.stock/templates/cockpit/metric-card.mei`).
+pub fn preview_target_relative_to_app(compiled: &CompiledApp, path: &str) -> Option<String> {
+    let normalized = path.trim().replace('\\', "/");
+    if normalized.is_empty() {
+        return None;
+    }
+    if normalized.starts_with("scenes/")
+        || normalized.starts_with("../")
+        || normalized.starts_with("data/")
+    {
+        return Some(normalized);
+    }
+    let app_root = Path::new(compiled.app_root.as_str());
+    if app_root.join(&normalized).is_file() {
+        return Some(normalized);
+    }
+    let source_root = app_root.parent().unwrap_or(app_root);
+    let abs = if let Some(suffix) = normalized.strip_prefix("templates/") {
+        resolve_templates_root(source_root).join(suffix)
+    } else if normalized.starts_with(".stock/") {
+        source_root.join(&normalized)
+    } else {
+        resolve_templates_root(source_root).join(&normalized)
+    };
+    relative_path_from_to(app_root, abs.as_path())
+}
+
+fn relative_path_from_to(from: &Path, to: &Path) -> Option<String> {
+    let mut ups = 0usize;
+    let mut base = from.to_path_buf();
+    loop {
+        if to.starts_with(&base) {
+            let rel = to.strip_prefix(&base).ok()?;
+            let mut parts: Vec<String> = (0..ups).map(|_| "..".to_string()).collect();
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if !rel_str.is_empty() {
+                parts.push(rel_str);
+            }
+            return Some(parts.join("/"));
+        }
+        if !base.pop() {
+            break;
+        }
+        ups += 1;
+    }
+    None
 }
 
 pub fn preview_target_for_scene_id(
@@ -51,7 +122,22 @@ pub fn preview_target_from_build_node_with_app(
             let (file, _) = board_capsule_from_node_key(&node.key);
             non_empty_path(file)
         }
+        BuildNodeKind::Template => compiled.and_then(|app| {
+            super::build_template_index::authoring_preview_target_for_template(app, node.key.as_str())
+                .or_else(|| template_consumer_preview_target(app, node.key.as_str()))
+        }),
         _ => None,
+    }
+}
+
+fn template_consumer_preview_target(compiled: &CompiledApp, template_key: &str) -> Option<String> {
+    if is_template_file_node_key(template_key) {
+        super::build_template_index::preview_target_for_template_file_consumer(
+            compiled,
+            template_key,
+        )
+    } else {
+        super::build_template_index::preview_target_for_template_consumer(compiled, template_key)
     }
 }
 
@@ -81,6 +167,35 @@ pub fn compile_scene_from_build_node(node: &BuildNodeId) -> Option<String> {
     }
 }
 
+pub fn compile_scene_from_build_node_with_app(
+    node: &BuildNodeId,
+    compiled: Option<&CompiledApp>,
+) -> Option<String> {
+    if node.kind == BuildNodeKind::Template {
+        if let Some(app) = compiled {
+            if super::build_template_index::authoring_preview_target_for_template(app, node.key.as_str())
+                .is_some()
+            {
+                return None;
+            }
+            if is_template_file_node_key(node.key.as_str()) {
+                return super::build_template_index::preview_scene_id_for_template_file_consumer(
+                    app,
+                    node.key.as_str(),
+                )
+                .or_else(|| app.active_scene.clone());
+            }
+            return super::build_template_index::preview_scene_id_for_template_consumer(
+                app,
+                node.key.as_str(),
+            )
+            .or_else(|| app.active_scene.clone());
+        }
+        return None;
+    }
+    compile_scene_from_build_node(node)
+}
+
 /// Compile coordinate for fast build navigation (scene + preview target; inspect node is excluded).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -104,7 +219,8 @@ pub fn compile_coordinate_for_node(
     compiled: &CompiledApp,
 ) -> Option<BuildCompileCoordinate> {
     let preview_target = preview_target_from_build_node_with_app(node, Some(compiled))?;
-    let scene_id = compile_scene_from_build_node(node);
+    let scene_id = compile_scene_from_build_node_with_app(node, Some(compiled))
+        .or_else(|| compile_scene_from_build_node(node));
     let preview_kind = match node.kind {
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => BuildPreviewKind::BoardCapsule,
         BuildNodeKind::WorldFile
@@ -122,7 +238,37 @@ pub fn compile_coordinate_for_node(
                 BuildPreviewKind::SceneCapsule
             }
         }
-        BuildNodeKind::Template | BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval => {
+        BuildNodeKind::Template => {
+            if super::build_template_index::authoring_preview_target_for_template(
+                compiled,
+                node.key.as_str(),
+            )
+            .is_some()
+            {
+                BuildPreviewKind::Script
+            } else if is_template_file_node_key(node.key.as_str()) {
+                if super::build_template_index::preview_scene_id_for_template_file_consumer(
+                    compiled,
+                    node.key.as_str(),
+                )
+                .is_some()
+                {
+                    BuildPreviewKind::SceneCapsule
+                } else {
+                    BuildPreviewKind::Other
+                }
+            } else if super::build_template_index::preview_scene_id_for_template_consumer(
+                compiled,
+                node.key.as_str(),
+            )
+            .is_some()
+            {
+                BuildPreviewKind::SceneCapsule
+            } else {
+                BuildPreviewKind::Other
+            }
+        }
+        BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval => {
             BuildPreviewKind::Other
         }
         BuildNodeKind::Dataset | BuildNodeKind::Component => BuildPreviewKind::Script,
@@ -211,10 +357,20 @@ fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> 
         }
         BuildNodeKind::Template => {
             if let Some(entry) = compiled.build_template_index.lookup(node.key.as_str()) {
-                vec![
+                let mut rows = vec![
                     "Template".to_string(),
                     entry.template_key.clone(),
-                ]
+                    entry.template_file.clone(),
+                ];
+                if let Some(anchor) =
+                    super::build_template_index::template_primary_consumer(compiled, entry.template_key.as_str())
+                {
+                    rows.push(format!(
+                        "→ {} / {} / {}",
+                        anchor.scene_id, anchor.panel_path, anchor.label
+                    ));
+                }
+                rows
             } else {
                 vec!["Template".to_string(), node.key.clone()]
             }
@@ -560,7 +716,7 @@ mod tests {
         let compiled = CompiledApp {
             app_id: "demo".to_string(),
             title: "demo".to_string(),
-            app_root: ".".to_string(),
+            app_root: "zhifa".to_string(),
             scene_routes: vec![CompiledSceneRoute {
                 scene_id: "home".to_string(),
                 frame_id: None,
@@ -608,7 +764,7 @@ mod tests {
         let compiled = CompiledApp {
             app_id: "demo".to_string(),
             title: "demo".to_string(),
-            app_root: ".".to_string(),
+            app_root: "zhifa".to_string(),
             scene_routes: vec![CompiledSceneRoute {
                 scene_id: "home".to_string(),
                 frame_id: None,
@@ -643,6 +799,73 @@ mod tests {
         assert_eq!(panel_coord.preview_target, "scenes/home.mei");
         assert_eq!(scene_coord.scene_id.as_deref(), Some("home"));
         assert_eq!(panel_coord.scene_id.as_deref(), Some("home"));
+    }
+
+    #[test]
+    fn compile_coordinate_for_template_file_uses_authoring_preview() {
+        use crate::model::{
+            BuildNodeId, BuildTemplateIndex, CompiledApp, CompiledSceneRoute, TemplateCatalogEntry,
+            TemplateConsumerAnchor,
+        };
+        use std::collections::BTreeMap;
+
+        let mut templates = BTreeMap::new();
+        templates.insert(
+            "cockpit.main".to_string(),
+            TemplateCatalogEntry {
+                template_key: "cockpit.main".to_string(),
+                template_file: ".stock/templates/cockpit/main.mei".to_string(),
+                category: "component".to_string(),
+                props_schema: Vec::new(),
+                variants: Vec::new(),
+                consumers: vec!["home/header".to_string()],
+                consumer_anchors: vec![TemplateConsumerAnchor {
+                    scene_id: "home".to_string(),
+                    panel_path: "header".to_string(),
+                    block_id: "cockpit.main~0".to_string(),
+                    label: "Header".to_string(),
+                }],
+                agent_hint: None,
+            },
+        );
+        let compiled = CompiledApp {
+            app_id: "demo".to_string(),
+            title: "demo".to_string(),
+            app_root: "zhifa".to_string(),
+            scene_routes: vec![CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "scenes/home.mei".to_string(),
+                kind: "file_ref".to_string(),
+                title: Some("Home".to_string()),
+                is_default: true,
+                access_export: true,
+            }],
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: Vec::new(),
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: BuildTemplateIndex { templates },
+        };
+        let node = BuildNodeId::template("cockpit/main.mei");
+        let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
+        assert_eq!(coord.scene_id, None);
+        assert_eq!(
+            coord.preview_target,
+            "../.stock/templates/cockpit/main.mei"
+        );
+        assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
     }
 
     #[test]

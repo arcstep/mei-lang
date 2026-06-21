@@ -215,6 +215,8 @@ impl BuildNodeId {
                 Preview
             }
             ScenePanel | SceneBlock => Overview,
+            BuildNodeKind::Component | BuildNodeKind::Template => Preview,
+            BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => Preview,
             _ => tabs_for_node_kind(self.kind)
                 .first()
                 .copied()

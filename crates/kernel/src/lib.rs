@@ -27,6 +27,7 @@ pub use compile::{
     data_snapshot_import_manifest_path, data_snapshot_store_root, dataset_materialize_cache_epoch,
     build_experience_path, build_experience_index, build_overview_backing, block_instance_id,
     compile_coordinate_for_node, compile_scene_from_build_node,
+    compile_scene_from_build_node_with_app,
     default_build_node_for_compiled, enrich_reachability_tree_compile_coords, evaluate_runtime_metric_defs, experience_layout_hint,
     experience_mount_chain, format_experience_path,
     preview_target_from_build_node, preview_target_from_build_node_with_app,
