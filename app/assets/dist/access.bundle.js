@@ -2556,6 +2556,7 @@
 
   function scan(event) {
     if (event?.detail?.scope === "drilldown") return;
+    if (event?.detail?.scope === "manage-board-preview") return;
     if (!shouldMountBuildPreviewRuntime()) return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
@@ -2579,11 +2580,24 @@
   }
 
   let metricPrefetchTimer = null;
+  let lastMetricPrefetchKey = "";
+  function buildMetricPrefetchKey() {
+    const shell = document.querySelector(".shell[data-compile-target]");
+    const scene = String(shell?.getAttribute("data-compile-scene") || "").trim();
+    const target = String(shell?.getAttribute("data-compile-target") || "").trim();
+    const viewport = document.querySelector("[data-mei-frame-viewport]");
+    const queryStateId = String(viewport?.dataset?.queryStateId || "").trim();
+    return `${scene}::${target}::${queryStateId}`;
+  }
   function scheduleMetricPrefetch(delayMs = 0, options = {}) {
     const opts = options || {};
     if (!shouldMountBuildPreviewRuntime()) return;
     if (!opts.force && !runtimeQueryReady) {
       pendingMetricPrefetch = true;
+      return;
+    }
+    const prefetchKey = buildMetricPrefetchKey();
+    if (!opts.force && prefetchKey && prefetchKey === lastMetricPrefetchKey) {
       return;
     }
     if (metricPrefetchTimer != null && !opts.force) {
@@ -2601,6 +2615,7 @@
       if (document.body?.classList?.contains("access-drilldown-open")) {
         return;
       }
+      lastMetricPrefetchKey = prefetchKey;
       window.dispatchEvent(new CustomEvent("meilang:prefetch-panel-metrics"));
     }, Math.max(0, Number(delayMs) || 0));
   }
@@ -18087,6 +18102,45 @@
 
 /* ===== spa-navigation/spa/manage-preview-board.js ===== */
   const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
+  const MAX_BOARD_MOUNT_POOL = 6;
+  const boardMountPool = new Map();
+
+  function boardMountPoolKey(doc, sceneId, targetFile) {
+    return `${sceneId}::${targetFile}`;
+  }
+
+  function stashBoardMount(mountKey, surface) {
+    if (!(surface instanceof HTMLElement)) return;
+    if (boardMountPool.size >= MAX_BOARD_MOUNT_POOL && !boardMountPool.has(mountKey)) {
+      const firstKey = boardMountPool.keys().next().value;
+      if (firstKey) boardMountPool.delete(firstKey);
+    }
+    boardMountPool.set(mountKey, surface.innerHTML);
+  }
+
+  function restoreBoardMount(mountKey, surface) {
+    if (!(surface instanceof HTMLElement) || !boardMountPool.has(mountKey)) return false;
+    surface.innerHTML = boardMountPool.get(mountKey);
+    surface.dataset.meiPreviewBoardMounted = mountKey;
+    surface.classList.add("preview-board-mounted");
+    refreshManagePreviewBoardCharts(surface);
+    return true;
+  }
+
+  function activateManagePreviewBoardPool(doc = document) {
+    if (!shouldMountManagePreviewBoard(doc)) return;
+    const sceneId = resolveManagePreviewSceneId(doc);
+    const target = boardTargetFromUrl(new URL(window.location.href)) ||
+      nonEmptyString(doc.querySelector("[data-target-file]")?.dataset?.targetFile);
+    if (!sceneId || !target) return;
+    const surface = resolveManagePreviewSurface(doc);
+    if (!surface) return;
+    const mountKey = boardMountPoolKey(doc, sceneId, target);
+    if (surface.dataset.meiPreviewBoardMounted === mountKey) return;
+    if (restoreBoardMount(mountKey, surface)) {
+      dispatchPreviewUpdated("manage-board-preview");
+    }
+  }
 
   function readSceneDrilldownContext(doc = document) {
     const el = doc.getElementById("mei-scene-drilldown-context");
@@ -18273,6 +18327,9 @@
     if (surface.dataset.meiPreviewBoardMounted === mountKey) {
       return true;
     }
+    if (restoreBoardMount(mountKey, surface)) {
+      return true;
+    }
     delete surface.dataset.meiPreviewBoardMounted;
     surface.classList.remove("preview-board-mounted");
 
@@ -18339,6 +18396,7 @@
 
     surface.dataset.meiPreviewBoardMounted = mountKey;
     surface.classList.add("preview-board-mounted");
+    stashBoardMount(mountKey, surface);
     dispatchPreviewUpdated("manage-board-preview");
     return true;
   }
@@ -18355,8 +18413,19 @@
     if (boot.managePreviewBoardInstalled) return;
     boot.managePreviewBoardInstalled = true;
     boot.mountManagePreviewBoard = mountManagePreviewBoard;
-    window.addEventListener(MANAGE_PREVIEW_UPDATED_EVENT, () => {
+    boot.activateManagePreviewBoardPool = activateManagePreviewBoardPool;
+    window.addEventListener(MANAGE_PREVIEW_UPDATED_EVENT, (event) => {
+      const scope = String(event?.detail?.scope || "").trim();
+      if (scope === "manage-board-preview") return;
       scheduleManagePreviewBoardMount(document);
+    });
+    window.addEventListener("popstate", () => {
+      scheduleManagePreviewBoardMount(document);
+    });
+    document.addEventListener("mei:manage-tab-change", (event) => {
+      if (String(event?.detail?.tab || "").trim().toLowerCase() === "preview") {
+        scheduleManagePreviewBoardMount(document);
+      }
     });
     if (isBuildRoute()) {
       scheduleManagePreviewBoardMount(document);
@@ -18372,7 +18441,7 @@
     const currentShell = document.querySelector(".shell");
     const nextShell = doc.querySelector(".shell");
     if (!currentShell || !nextShell) return false;
-    currentShell.className = nextShell.className;
+    syncElementAttributes(currentShell, nextShell, { preserve: [] });
     currentShell.replaceChildren(
       ...Array.from(nextShell.childNodes).map((node) => node.cloneNode(true)),
     );
@@ -18801,6 +18870,7 @@
     }
 
     currentShell.className = nextShell.className;
+    syncElementAttributes(currentShell, nextShell, { preserve: [] });
     syncElementAttributes(currentWorkspace, nextWorkspace, { preserve: ["id"] });
     syncSidebarLinkState(currentLeftSidebar, nextLeftSidebar);
     currentRightSidebar.className = nextRightSidebar.className;
@@ -18878,12 +18948,17 @@
             }
           }
           syncManageTabFromUrl(url);
-          if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
-            globalThis.MeiBuildTreePersist.refresh();
-          }
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
-          publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          const skipWake =
+            typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+            globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
+              currentUrl?.href || window.location.href,
+              nextUrl.href,
+            );
+          if (!skipWake) {
+            publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          }
           installSceneProjectionHost();
           if (typeof boot.mountManagePreviewBoard === "function") {
             void boot.mountManagePreviewBoard(doc);
@@ -18990,6 +19065,22 @@
       currentUrl = new URL(window.location.href);
       nextUrl = new URL(url, window.location.href);
     } catch (_) {}
+    if (
+      currentUrl &&
+      nextUrl &&
+      typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function"
+    ) {
+      const buildResult = await globalThis.MeiBuildNavigation.tryNavigateBuild(
+        currentUrl.href,
+        nextUrl.href,
+        { replaceHistory },
+      );
+      if (buildResult?.handled) {
+        spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);
+        boot._spaInFlight = spaNavigationInFlight;
+        return;
+      }
+    }
     const manageSamePath =
       currentUrl && nextUrl && isManageSamePathNavigation(currentUrl, nextUrl);
     if (manageSamePath) {
@@ -19202,7 +19293,7 @@
 
   document.addEventListener(
     "click",
-    (event) => {
+    async (event) => {
       if (event.defaultPrevented) return;
       if (event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -19222,6 +19313,16 @@
         return;
       }
       event.preventDefault();
+      try {
+        if (
+          typeof globalThis.MeiBuildNavigation?.tryHandleBuildClick === "function" &&
+          (await globalThis.MeiBuildNavigation.tryHandleBuildClick(event, target.url, false))
+        ) {
+          return;
+        }
+      } catch (err) {
+        console.warn("[spa-navigation] build fast-nav failed; fallback to SPA", err);
+      }
       void navigateInternal(target.url, false);
     },
     true,
@@ -19230,6 +19331,24 @@
   window.addEventListener("popstate", () => {
     closeDrilldownOverlay();
     if (shouldHandleUrl(window.location.href)) {
+      const fromUrl =
+        typeof globalThis.MeiBuildNavigation?.getLastUrl === "function"
+          ? globalThis.MeiBuildNavigation.getLastUrl()
+          : window.location.href;
+      if (typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function") {
+        void globalThis.MeiBuildNavigation.tryNavigateBuild(
+          fromUrl,
+          window.location.href,
+          { replaceHistory: true },
+        ).then((result) => {
+          if (result?.handled) {
+            globalThis.MeiBuildNavigation.noteUrl(window.location.href);
+            return;
+          }
+          void navigateInternal(window.location.href, true);
+        });
+        return;
+      }
       void navigateInternal(window.location.href, true);
     }
   });

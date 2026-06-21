@@ -22,6 +22,21 @@ use super::{
 const SLOT_HEAD: &str = "head";
 const SLOT_BODY: &str = "body";
 
+fn panel_in_build_preview_scope(panel_path: &str, scope: &str) -> bool {
+    let scope_tail = scope
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    let normalized_scope = if scope_tail.len() >= 2 {
+        scope_tail[1..].join("/")
+    } else {
+        scope.to_string()
+    };
+    panel_path == normalized_scope
+        || normalized_scope.starts_with(&format!("{panel_path}/"))
+        || panel_path.starts_with(&format!("{normalized_scope}/"))
+}
+
 pub(crate) fn panel_view(
     panel: &mei_lang_kernel::PanelDecl,
     frame_layout: Option<&mei_lang_kernel::LayoutDecl>,
@@ -98,6 +113,12 @@ pub(crate) fn panel_view(
         Some(parent) => format!("{parent}/{}", panel.id),
         None => panel.id.clone(),
     };
+
+    if let Some(scope) = runtime_ctx.build_preview_scope.as_deref() {
+        if !panel_in_build_preview_scope(panel_path.as_str(), scope) {
+            return view! { <></> }.into_any();
+        }
+    }
 
     let build_node_id = if runtime_ctx.build_inspect_enabled {
         Some(

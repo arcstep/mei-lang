@@ -53,6 +53,10 @@ pub fn router() -> Router<AppState> {
             get(build_api::api_build_context_export),
         )
         .route(
+            "/api/build/workspace-fragment",
+            get(build_api::api_build_workspace_fragment),
+        )
+        .route(
             "/api/host/request-trace",
             get(request_trace::api_request_trace),
         )

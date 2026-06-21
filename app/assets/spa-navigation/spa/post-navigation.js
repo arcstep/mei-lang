@@ -47,12 +47,17 @@
             }
           }
           syncManageTabFromUrl(url);
-          if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
-            globalThis.MeiBuildTreePersist.refresh();
-          }
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
-          publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          const skipWake =
+            typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+            globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
+              currentUrl?.href || window.location.href,
+              nextUrl.href,
+            );
+          if (!skipWake) {
+            publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          }
           installSceneProjectionHost();
           if (typeof boot.mountManagePreviewBoard === "function") {
             void boot.mountManagePreviewBoard(doc);

@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    build_reachability_tree, default_build_node_for_compiled, resolve_build_node_context,
-    resolve_build_view_query, tabs_for_node_kind, BuildViewTab,
+    build_reachability_tree, compile_coordinate_for_node, default_build_node_for_compiled,
+    resolve_build_node_context, resolve_build_view_query, tabs_for_node_kind, BuildViewTab,
     CompiledApp, LegacyBuildQuery, WorkspaceAppMeta,
 };
 
@@ -71,12 +71,14 @@ pub(crate) fn manage_shell(
     let show_inspector =
         should_show_world_semantic_inspector(&ctx.node, selected_target.as_str(), semantic);
     let source_panel = source.unwrap_or("").to_string();
+    let build_preview_scope = super::preview_fragment::build_preview_panel_scope(&resolved.node);
     let preview = preview::preview_view(
         compiled,
         app_path,
         selected_target.as_str(),
         UiRouteMode::Build,
         semantic,
+        build_preview_scope.as_deref(),
     );
     let active_scene = ctx.scene_id.as_deref().or(compiled.active_scene.as_deref());
     let scene_for_links = active_scene;
@@ -178,6 +180,14 @@ pub(crate) fn manage_shell(
     let artifact_panel = build_artifact_panel(app_path, node_encoded.as_str());
 
     let preview_scene_id = scene_for_links.or(compiled.active_scene.as_deref());
+    let compile_coord = compile_coordinate_for_node(&resolved.node, compiled);
+    let compile_scene = compile_coord
+        .as_ref()
+        .and_then(|coord| coord.scene_id.clone())
+        .unwrap_or_default();
+    let compile_target = compile_coord
+        .map(|coord| coord.preview_target)
+        .unwrap_or_else(|| selected_target.clone());
     let host_ssr_bootstrap = if stage_enabled || ctx.projection_id.is_some() {
         Some(host_ssr_bootstrap_scripts(
             compiled,
@@ -207,7 +217,7 @@ pub(crate) fn manage_shell(
         .unwrap_or_else(|| view! { <></> }.into_any());
 
     view! {
-        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string()>
+        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone()>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
             <script
                 id="mei-build-reachability-tree"

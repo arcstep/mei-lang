@@ -2,7 +2,7 @@
     const currentShell = document.querySelector(".shell");
     const nextShell = doc.querySelector(".shell");
     if (!currentShell || !nextShell) return false;
-    currentShell.className = nextShell.className;
+    syncElementAttributes(currentShell, nextShell, { preserve: [] });
     currentShell.replaceChildren(
       ...Array.from(nextShell.childNodes).map((node) => node.cloneNode(true)),
     );
@@ -431,6 +431,7 @@
     }
 
     currentShell.className = nextShell.className;
+    syncElementAttributes(currentShell, nextShell, { preserve: [] });
     syncElementAttributes(currentWorkspace, nextWorkspace, { preserve: ["id"] });
     syncSidebarLinkState(currentLeftSidebar, nextLeftSidebar);
     currentRightSidebar.className = nextRightSidebar.className;

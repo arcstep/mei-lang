@@ -179,7 +179,37 @@
     bindTreePersist(root);
     bindTreeTabPersist(root);
     syncTreeLinkTabs(root);
+    syncTreeActiveFromNode(root);
     restoreScroll(root);
+  }
+
+  function syncTreeActiveFromNode(root) {
+    let nodeId = "";
+    try {
+      nodeId = String(new URL(global.location.href).searchParams.get("node") || "").trim();
+    } catch (_) {}
+    if (!nodeId) {
+      nodeId = String(document.querySelector(".shell[data-build-node]")?.getAttribute("data-build-node") || "").trim();
+    }
+    root.querySelectorAll(".build-tree-link--active").forEach((el) => {
+      el.classList.remove("build-tree-link--active");
+    });
+    root.querySelectorAll(".build-tree-summary--active").forEach((el) => {
+      el.classList.remove("build-tree-summary--active");
+    });
+    if (!nodeId) return;
+    const escaped =
+      typeof global.CSS !== "undefined" && typeof global.CSS.escape === "function"
+        ? global.CSS.escape(nodeId)
+        : nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const activeLink = root.querySelector(`a[data-build-node="${escaped}"]`);
+    if (!(activeLink instanceof HTMLElement)) return;
+    activeLink.classList.add("build-tree-link--active");
+    const summary = activeLink.closest("summary");
+    if (summary instanceof HTMLElement) {
+      summary.classList.add("build-tree-summary--active");
+    }
+    ensureActivePathOpen(root);
   }
 
   function bind() {

@@ -2556,6 +2556,7 @@
 
   function scan(event) {
     if (event?.detail?.scope === "drilldown") return;
+    if (event?.detail?.scope === "manage-board-preview") return;
     if (!shouldMountBuildPreviewRuntime()) return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
@@ -2579,11 +2580,24 @@
   }
 
   let metricPrefetchTimer = null;
+  let lastMetricPrefetchKey = "";
+  function buildMetricPrefetchKey() {
+    const shell = document.querySelector(".shell[data-compile-target]");
+    const scene = String(shell?.getAttribute("data-compile-scene") || "").trim();
+    const target = String(shell?.getAttribute("data-compile-target") || "").trim();
+    const viewport = document.querySelector("[data-mei-frame-viewport]");
+    const queryStateId = String(viewport?.dataset?.queryStateId || "").trim();
+    return `${scene}::${target}::${queryStateId}`;
+  }
   function scheduleMetricPrefetch(delayMs = 0, options = {}) {
     const opts = options || {};
     if (!shouldMountBuildPreviewRuntime()) return;
     if (!opts.force && !runtimeQueryReady) {
       pendingMetricPrefetch = true;
+      return;
+    }
+    const prefetchKey = buildMetricPrefetchKey();
+    if (!opts.force && prefetchKey && prefetchKey === lastMetricPrefetchKey) {
       return;
     }
     if (metricPrefetchTimer != null && !opts.force) {
@@ -2601,6 +2615,7 @@
       if (document.body?.classList?.contains("access-drilldown-open")) {
         return;
       }
+      lastMetricPrefetchKey = prefetchKey;
       window.dispatchEvent(new CustomEvent("meilang:prefetch-panel-metrics"));
     }, Math.max(0, Number(delayMs) || 0));
   }
@@ -3659,7 +3674,37 @@
     bindTreePersist(root);
     bindTreeTabPersist(root);
     syncTreeLinkTabs(root);
+    syncTreeActiveFromNode(root);
     restoreScroll(root);
+  }
+
+  function syncTreeActiveFromNode(root) {
+    let nodeId = "";
+    try {
+      nodeId = String(new URL(global.location.href).searchParams.get("node") || "").trim();
+    } catch (_) {}
+    if (!nodeId) {
+      nodeId = String(document.querySelector(".shell[data-build-node]")?.getAttribute("data-build-node") || "").trim();
+    }
+    root.querySelectorAll(".build-tree-link--active").forEach((el) => {
+      el.classList.remove("build-tree-link--active");
+    });
+    root.querySelectorAll(".build-tree-summary--active").forEach((el) => {
+      el.classList.remove("build-tree-summary--active");
+    });
+    if (!nodeId) return;
+    const escaped =
+      typeof global.CSS !== "undefined" && typeof global.CSS.escape === "function"
+        ? global.CSS.escape(nodeId)
+        : nodeId.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const activeLink = root.querySelector(`a[data-build-node="${escaped}"]`);
+    if (!(activeLink instanceof HTMLElement)) return;
+    activeLink.classList.add("build-tree-link--active");
+    const summary = activeLink.closest("summary");
+    if (summary instanceof HTMLElement) {
+      summary.classList.add("build-tree-summary--active");
+    }
+    ensureActivePathOpen(root);
   }
 
   function bind() {
@@ -3676,6 +3721,356 @@
   }
 
   global.MeiBuildTreePersist = { refresh, captureScroll };
+})(window);
+
+;
+
+/* ===== build-navigation.js ===== */
+/**
+ * Build view fast navigation: Tier0 client-only (same compile coordinate),
+ * Tier1 workspace fragment fetch, Tier2 full SPA fallback.
+ */
+(function (global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const stats = { tier0: 0, tier1: 0, tier2: 0 };
+  global.__meiBuildNavStats = stats;
+  let lastBuildNavUrl = global.location.href;
+
+  function isBuildWorkspacePathname(pathname) {
+    return /^\/apps\/(?:build|manage)\//.test(String(pathname || ""));
+  }
+
+  function buildTab(rawUrl) {
+    try {
+      const parsed = new URL(rawUrl, global.location.href);
+      const fromQuery = String(parsed.searchParams.get("tab") || "").trim().toLowerCase();
+      if (fromQuery) return fromQuery;
+      const shell = document.querySelector(".shell[data-build-tab]");
+      return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
+    } catch (_) {
+      return "overview";
+    }
+  }
+
+  function readCompileCoordinateFromReachabilityTree(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return null;
+    const script = document.getElementById("mei-build-reachability-tree");
+    if (!script) return null;
+    try {
+      const roots = JSON.parse(script.textContent || "[]");
+      if (!Array.isArray(roots)) return null;
+      const walk = (nodes) => {
+        for (const node of nodes || []) {
+          if (node?.node_id === id) {
+            const target = String(node.compile_target || "").trim();
+            if (!target) return null;
+            return {
+              scene: String(node.compile_scene || "").trim(),
+              target,
+            };
+          }
+          const nested = walk(node.children);
+          if (nested) return nested;
+        }
+        return null;
+      };
+      for (const root of roots) {
+        const found = walk(root.children);
+        if (found) return found;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function nodeIdFromUrl(rawUrl) {
+    try {
+      return String(new URL(rawUrl, global.location.href).searchParams.get("node") || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function readCompileCoordinateFromLink(el) {
+    if (!(el instanceof HTMLElement)) return null;
+    const anchor =
+      el.matches("a[data-compile-target]") ? el : el.closest("a[data-compile-target]");
+    if (!(anchor instanceof HTMLElement)) return null;
+    const target = String(anchor.getAttribute("data-compile-target") || "").trim();
+    if (!target) return null;
+    return {
+      scene: String(anchor.getAttribute("data-compile-scene") || "").trim(),
+      target,
+    };
+  }
+
+  function readCompileCoordinateFromShell() {
+    const shell = document.querySelector(".shell[data-compile-target]");
+    if (!shell) return null;
+    const target = String(shell.getAttribute("data-compile-target") || "").trim();
+    if (!target) return null;
+    return {
+      scene: String(shell.getAttribute("data-compile-scene") || "").trim(),
+      target,
+    };
+  }
+
+  function readCompileCoordinate(rawUrl, linkEl) {
+    const fromLink = linkEl ? readCompileCoordinateFromLink(linkEl) : null;
+    if (fromLink) return fromLink;
+    const fromTree = readCompileCoordinateFromReachabilityTree(nodeIdFromUrl(rawUrl));
+    if (fromTree) return fromTree;
+    return readCompileCoordinateFromShell();
+  }
+
+  function coordinatesEqual(a, b) {
+    if (!a || !b) return false;
+    return a.scene === b.scene && a.target === b.target;
+  }
+
+  function classifyBuildNavTier(fromUrl, toUrl, linkEl) {
+    try {
+      const from = new URL(fromUrl, global.location.href);
+      const to = new URL(toUrl, global.location.href);
+      if (!isBuildWorkspacePathname(to.pathname)) return "full";
+      if (!isBuildWorkspacePathname(from.pathname)) return "full";
+      if (from.pathname !== to.pathname) return "full";
+      if (buildTab(toUrl) !== "preview") return "full";
+      const toCoord = readCompileCoordinate(toUrl, linkEl);
+      const fromCoord = readCompileCoordinate(fromUrl);
+      if (!toCoord || !fromCoord) return "full";
+      if (coordinatesEqual(fromCoord, toCoord)) return "client";
+      return "fragment";
+    } catch (_) {
+      return "full";
+    }
+  }
+
+  function syncBuildShellUrl(url, replaceHistory, linkEl) {
+    const parsed = new URL(url, global.location.href);
+    const shell = document.querySelector(".shell");
+    if (shell) {
+      const node = String(parsed.searchParams.get("node") || "").trim();
+      const focus = String(parsed.searchParams.get("focus") || "").trim();
+      const tab = String(parsed.searchParams.get("tab") || "").trim();
+      if (node) shell.setAttribute("data-build-node", node);
+      else shell.removeAttribute("data-build-node");
+      if (focus) shell.setAttribute("data-build-focus", focus);
+      else shell.removeAttribute("data-build-focus");
+      if (tab) shell.setAttribute("data-build-tab", tab);
+      const coord = readCompileCoordinate(url, linkEl);
+      if (coord) {
+        shell.setAttribute("data-compile-scene", coord.scene);
+        shell.setAttribute("data-compile-target", coord.target);
+      }
+    }
+    if (replaceHistory) global.history.replaceState({}, "", url);
+    else global.history.pushState({}, "", url);
+    lastBuildNavUrl = url;
+  }
+
+  function ensurePreviewTabVisible(rawUrl) {
+    const tab = buildTab(rawUrl);
+    if (typeof boot.switchManageTab === "function") {
+      boot.switchManageTab(tab, { updateUrl: false, emit: true });
+      return;
+    }
+    document.querySelectorAll("[data-manage-tab-panel]").forEach((panel) => {
+      if (!(panel instanceof HTMLElement)) return;
+      const slug = String(panel.getAttribute("data-manage-tab-panel") || "").trim().toLowerCase();
+      panel.hidden = slug !== tab;
+    });
+  }
+
+  function wakePreviewRuntime(scope) {
+    if (typeof boot.scheduleFrameViewportRelayout === "function") {
+      try {
+        boot.scheduleFrameViewportRelayout();
+      } catch (_) {}
+    }
+    if (typeof publishManagePreviewFromDoc === "function") {
+      publishManagePreviewFromDoc(document, { resetRuntimeQueryCache: false });
+    }
+    if (typeof boot.mountManagePreviewBoard === "function") {
+      void boot.mountManagePreviewBoard(document);
+    }
+    try {
+      global.dispatchEvent(
+        new CustomEvent("meilang:preview-updated", {
+          detail: { scope: scope || "build-nav" },
+        }),
+      );
+    } catch (_) {}
+  }
+
+  function runTier0PostNav() {
+    ensurePreviewTabVisible(global.location.href);
+    document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
+    if (typeof closeDrilldownOverlay === "function") {
+      try {
+        closeDrilldownOverlay();
+      } catch (_) {}
+    }
+    if (typeof boot.clearManageWorkspaceLoadingState === "function") {
+      boot.clearManageWorkspaceLoadingState();
+    }
+    if (typeof global.MeiBuildInspectHighlight?.refresh === "function") {
+      global.MeiBuildInspectHighlight.refresh();
+    }
+    if (typeof global.MeiBuildTreePersist?.refresh === "function") {
+      global.MeiBuildTreePersist.refresh();
+    }
+    if (typeof boot.activateManagePreviewBoardPool === "function") {
+      boot.activateManagePreviewBoardPool(document);
+    }
+  }
+
+  function shouldSkipPreviewRuntimeWake(prevUrl, nextUrl) {
+    return classifyBuildNavTier(prevUrl, nextUrl) === "client";
+  }
+
+  function shouldWakePreviewRuntime(prevUrl, nextUrl) {
+    return !shouldSkipPreviewRuntimeWake(prevUrl, nextUrl);
+  }
+
+  function swapPreviewFragment(previewHtml, drilldownScript) {
+    const panel = document.querySelector('[data-manage-tab-panel="preview"]');
+    if (!panel) return false;
+    const tpl = document.createElement("template");
+    tpl.innerHTML = previewHtml;
+    const nextScroll = tpl.content.querySelector(".preview-pane-scroll");
+    const scroll = panel.querySelector(".preview-pane-scroll");
+    if (nextScroll instanceof HTMLElement && scroll instanceof HTMLElement) {
+      scroll.replaceWith(nextScroll.cloneNode(true));
+    } else if (scroll instanceof HTMLElement) {
+      scroll.innerHTML = previewHtml;
+    } else {
+      panel.innerHTML = previewHtml;
+    }
+    const nextBar = tpl.content.querySelector("#build-inspect-bar");
+    const curBar = panel.querySelector("#build-inspect-bar");
+    if (nextBar instanceof HTMLElement && curBar instanceof HTMLElement) {
+      curBar.replaceWith(nextBar.cloneNode(true));
+    }
+    if (drilldownScript) {
+      const existing = document.getElementById("mei-scene-drilldown-context");
+      if (existing) existing.remove();
+      const tpl = document.createElement("template");
+      tpl.innerHTML = drilldownScript;
+      const script = tpl.content.querySelector("script");
+      if (script) document.body.appendChild(script.cloneNode(true));
+    }
+    return true;
+  }
+
+  async function fetchWorkspaceFragment(url) {
+    const parsed = new URL(url, global.location.href);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const appId = parts[2] || "";
+    const params = new URLSearchParams({
+      app_id: appId,
+      node: String(parsed.searchParams.get("node") || ""),
+      tab: String(parsed.searchParams.get("tab") || "preview"),
+    });
+    const focus = parsed.searchParams.get("focus");
+    if (focus) params.set("focus", focus);
+    const resp = await fetch(`/api/build/workspace-fragment?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
+    });
+    if (!resp.ok) throw new Error(`fragment failed: ${resp.status}`);
+    return { payload: await resp.json(), resp };
+  }
+
+  async function navigateBuildTier1(url, replaceHistory, fromUrl) {
+    const { payload } = await fetchWorkspaceFragment(url);
+    const ok = swapPreviewFragment(
+      String(payload.preview_html || ""),
+      String(payload.drilldown_script || ""),
+    );
+    if (!ok) return false;
+    const shell = document.querySelector(".shell");
+    if (shell) {
+      if (payload.node) shell.setAttribute("data-build-node", String(payload.node));
+      if (payload.focus) shell.setAttribute("data-build-focus", String(payload.focus));
+      const coord = payload.compile_coordinate;
+      if (coord && typeof coord === "object") {
+        shell.setAttribute("data-compile-scene", String(coord.scene_id || ""));
+        shell.setAttribute("data-compile-target", String(coord.preview_target || ""));
+      }
+    }
+    if (replaceHistory) global.history.replaceState({}, "", url);
+    else global.history.pushState({}, "", url);
+    lastBuildNavUrl = url;
+    stats.tier1 += 1;
+    runTier0PostNav();
+    wakePreviewRuntime("build-fragment");
+    return true;
+  }
+
+  async function tryNavigateBuild(fromUrl, toUrl, options) {
+    const opts = options || {};
+    const tier = classifyBuildNavTier(fromUrl, toUrl, opts.linkEl);
+    if (tier === "client") {
+      syncBuildShellUrl(toUrl, !!opts.replaceHistory, opts.linkEl);
+      stats.tier0 += 1;
+      runTier0PostNav();
+      return { handled: true, tier: 0 };
+    }
+    if (tier === "fragment") {
+      try {
+        const ok = await navigateBuildTier1(toUrl, !!opts.replaceHistory, fromUrl);
+        if (ok) return { handled: true, tier: 1 };
+      } catch (err) {
+        console.warn("[build-navigation] tier1 failed; fallback to full SPA", err);
+      }
+    }
+    stats.tier2 += 1;
+    return { handled: false, tier: 2 };
+  }
+
+  async function tryHandleBuildClick(event, targetUrl, replaceHistory) {
+    try {
+      if (!targetUrl || !isBuildWorkspacePathname(new URL(targetUrl, global.location.href).pathname)) {
+        return false;
+      }
+      let linkEl = null;
+      const path = event?.composedPath ? event.composedPath() : [];
+      for (const item of path) {
+        if (item instanceof HTMLAnchorElement && item.hasAttribute("data-build-node")) {
+          linkEl = item;
+          break;
+        }
+      }
+      const result = await tryNavigateBuild(global.location.href, targetUrl, {
+        replaceHistory,
+        linkEl,
+      });
+      return result.handled;
+    } catch (err) {
+      console.warn("[build-navigation] click handler failed; fallback to SPA", err);
+      return false;
+    }
+  }
+
+  global.MeiBuildNavigation = {
+    readCompileCoordinate,
+    coordinatesEqual,
+    classifyBuildNavTier,
+    tryNavigateBuild,
+    tryHandleBuildClick,
+    shouldSkipPreviewRuntimeWake,
+    shouldWakePreviewRuntime,
+    swapPreviewFragment,
+    getLastUrl: () => lastBuildNavUrl,
+    noteUrl: (url) => {
+      lastBuildNavUrl = String(url || global.location.href);
+    },
+    stats,
+  };
+  global.MeiBuildNavigation.noteUrl(global.location.href);
 })(window);
 
 ;
@@ -3700,10 +4095,18 @@
   }
 
   function activeBuildNode() {
+    try {
+      const fromUrl = String(new URL(global.location.href).searchParams.get("node") || "").trim();
+      if (fromUrl) return fromUrl;
+    } catch (_) {}
     return String(activeShell()?.getAttribute("data-build-node") || "").trim();
   }
 
   function activeBuildFocus() {
+    try {
+      const fromUrl = String(new URL(global.location.href).searchParams.get("focus") || "").trim();
+      if (fromUrl) return fromUrl;
+    } catch (_) {}
     return String(activeShell()?.getAttribute("data-build-focus") || "").trim();
   }
 
@@ -3930,25 +4333,59 @@
     );
   }
 
-  function clearBuildPreviewArtifacts(root) {
+  function boardMountKeyForSurface(surface) {
+    if (!(surface instanceof HTMLElement)) return "";
+    try {
+      const url = new URL(global.location.href);
+      const fromNode = String(url.searchParams.get("node") || "")
+        .replace(/^board-(?:file|slot):/i, "")
+        .split("#")[1];
+      const sceneId =
+        String(fromNode || "").trim() ||
+        String(surface.dataset.sceneId || "").trim() ||
+        String(url.searchParams.get("scene") || "").trim();
+      const target = String(
+        surface.dataset.targetFile || surface.dataset.sourcePath || "",
+      ).trim();
+      return sceneId && target ? `${sceneId}::${target}` : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function clearScopedPreviewDim(root) {
     if (!(root instanceof HTMLElement)) return;
     root.querySelectorAll("[data-preview-scope].build-preview-scoped-dim").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
     document.body.classList.remove("build-preview-scoped-active");
-    root.querySelectorAll(".preview-surface, .preview-stage").forEach((surface) => {
-      if (!(surface instanceof HTMLElement)) return;
-      delete surface.dataset.meiPreviewBoardMounted;
-      surface.classList.remove("preview-board-mounted");
-    });
   }
 
-  function refresh() {
+  function clearStaleBoardMount(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    let cleared = false;
+    root.querySelectorAll(".preview-surface, .preview-stage").forEach((surface) => {
+      if (!(surface instanceof HTMLElement)) return;
+      const mounted = surface.dataset.meiPreviewBoardMounted;
+      if (!mounted) return;
+      const expected = boardMountKeyForSurface(surface);
+      if (expected && mounted === expected) return;
+      delete surface.dataset.meiPreviewBoardMounted;
+      surface.classList.remove("preview-board-mounted");
+      cleared = true;
+    });
+    return cleared;
+  }
+  function refresh(event) {
     if (!isBuildRoute()) return;
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     const root = previewRoot();
     if (!root) return;
-    clearBuildPreviewArtifacts(root);
+    clearScopedPreviewDim(root);
+    const scope = String(event?.detail?.scope || "").trim();
+    if (scope !== "manage-board-preview") {
+      clearStaleBoardMount(root);
+    }
     syncShellFocus(readFocusFromUrl());
     bindPreviewInspect(root);
     applyHighlight(root);
@@ -3956,7 +4393,7 @@
 
   function bind() {
     if (!isBuildRoute()) return;
-    refresh();
+    refresh(null);
     global.addEventListener("mei:manage-tab-change", refresh);
     global.addEventListener("meilang:preview-updated", refresh);
     global.addEventListener("popstate", refresh);
@@ -12941,6 +13378,45 @@
 
 /* ===== spa-navigation/spa/manage-preview-board.js ===== */
   const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
+  const MAX_BOARD_MOUNT_POOL = 6;
+  const boardMountPool = new Map();
+
+  function boardMountPoolKey(doc, sceneId, targetFile) {
+    return `${sceneId}::${targetFile}`;
+  }
+
+  function stashBoardMount(mountKey, surface) {
+    if (!(surface instanceof HTMLElement)) return;
+    if (boardMountPool.size >= MAX_BOARD_MOUNT_POOL && !boardMountPool.has(mountKey)) {
+      const firstKey = boardMountPool.keys().next().value;
+      if (firstKey) boardMountPool.delete(firstKey);
+    }
+    boardMountPool.set(mountKey, surface.innerHTML);
+  }
+
+  function restoreBoardMount(mountKey, surface) {
+    if (!(surface instanceof HTMLElement) || !boardMountPool.has(mountKey)) return false;
+    surface.innerHTML = boardMountPool.get(mountKey);
+    surface.dataset.meiPreviewBoardMounted = mountKey;
+    surface.classList.add("preview-board-mounted");
+    refreshManagePreviewBoardCharts(surface);
+    return true;
+  }
+
+  function activateManagePreviewBoardPool(doc = document) {
+    if (!shouldMountManagePreviewBoard(doc)) return;
+    const sceneId = resolveManagePreviewSceneId(doc);
+    const target = boardTargetFromUrl(new URL(window.location.href)) ||
+      nonEmptyString(doc.querySelector("[data-target-file]")?.dataset?.targetFile);
+    if (!sceneId || !target) return;
+    const surface = resolveManagePreviewSurface(doc);
+    if (!surface) return;
+    const mountKey = boardMountPoolKey(doc, sceneId, target);
+    if (surface.dataset.meiPreviewBoardMounted === mountKey) return;
+    if (restoreBoardMount(mountKey, surface)) {
+      dispatchPreviewUpdated("manage-board-preview");
+    }
+  }
 
   function readSceneDrilldownContext(doc = document) {
     const el = doc.getElementById("mei-scene-drilldown-context");
@@ -13127,6 +13603,9 @@
     if (surface.dataset.meiPreviewBoardMounted === mountKey) {
       return true;
     }
+    if (restoreBoardMount(mountKey, surface)) {
+      return true;
+    }
     delete surface.dataset.meiPreviewBoardMounted;
     surface.classList.remove("preview-board-mounted");
 
@@ -13193,6 +13672,7 @@
 
     surface.dataset.meiPreviewBoardMounted = mountKey;
     surface.classList.add("preview-board-mounted");
+    stashBoardMount(mountKey, surface);
     dispatchPreviewUpdated("manage-board-preview");
     return true;
   }
@@ -13209,8 +13689,19 @@
     if (boot.managePreviewBoardInstalled) return;
     boot.managePreviewBoardInstalled = true;
     boot.mountManagePreviewBoard = mountManagePreviewBoard;
-    window.addEventListener(MANAGE_PREVIEW_UPDATED_EVENT, () => {
+    boot.activateManagePreviewBoardPool = activateManagePreviewBoardPool;
+    window.addEventListener(MANAGE_PREVIEW_UPDATED_EVENT, (event) => {
+      const scope = String(event?.detail?.scope || "").trim();
+      if (scope === "manage-board-preview") return;
       scheduleManagePreviewBoardMount(document);
+    });
+    window.addEventListener("popstate", () => {
+      scheduleManagePreviewBoardMount(document);
+    });
+    document.addEventListener("mei:manage-tab-change", (event) => {
+      if (String(event?.detail?.tab || "").trim().toLowerCase() === "preview") {
+        scheduleManagePreviewBoardMount(document);
+      }
     });
     if (isBuildRoute()) {
       scheduleManagePreviewBoardMount(document);
@@ -13286,7 +13777,7 @@
     const currentShell = document.querySelector(".shell");
     const nextShell = doc.querySelector(".shell");
     if (!currentShell || !nextShell) return false;
-    currentShell.className = nextShell.className;
+    syncElementAttributes(currentShell, nextShell, { preserve: [] });
     currentShell.replaceChildren(
       ...Array.from(nextShell.childNodes).map((node) => node.cloneNode(true)),
     );
@@ -13715,6 +14206,7 @@
     }
 
     currentShell.className = nextShell.className;
+    syncElementAttributes(currentShell, nextShell, { preserve: [] });
     syncElementAttributes(currentWorkspace, nextWorkspace, { preserve: ["id"] });
     syncSidebarLinkState(currentLeftSidebar, nextLeftSidebar);
     currentRightSidebar.className = nextRightSidebar.className;
@@ -13792,12 +14284,17 @@
             }
           }
           syncManageTabFromUrl(url);
-          if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
-            globalThis.MeiBuildTreePersist.refresh();
-          }
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
-          publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          const skipWake =
+            typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+            globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
+              currentUrl?.href || window.location.href,
+              nextUrl.href,
+            );
+          if (!skipWake) {
+            publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          }
           installSceneProjectionHost();
           if (typeof boot.mountManagePreviewBoard === "function") {
             void boot.mountManagePreviewBoard(doc);
@@ -13904,6 +14401,22 @@
       currentUrl = new URL(window.location.href);
       nextUrl = new URL(url, window.location.href);
     } catch (_) {}
+    if (
+      currentUrl &&
+      nextUrl &&
+      typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function"
+    ) {
+      const buildResult = await globalThis.MeiBuildNavigation.tryNavigateBuild(
+        currentUrl.href,
+        nextUrl.href,
+        { replaceHistory },
+      );
+      if (buildResult?.handled) {
+        spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);
+        boot._spaInFlight = spaNavigationInFlight;
+        return;
+      }
+    }
     const manageSamePath =
       currentUrl && nextUrl && isManageSamePathNavigation(currentUrl, nextUrl);
     if (manageSamePath) {
@@ -14116,7 +14629,7 @@
 
   document.addEventListener(
     "click",
-    (event) => {
+    async (event) => {
       if (event.defaultPrevented) return;
       if (event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -14136,6 +14649,16 @@
         return;
       }
       event.preventDefault();
+      try {
+        if (
+          typeof globalThis.MeiBuildNavigation?.tryHandleBuildClick === "function" &&
+          (await globalThis.MeiBuildNavigation.tryHandleBuildClick(event, target.url, false))
+        ) {
+          return;
+        }
+      } catch (err) {
+        console.warn("[spa-navigation] build fast-nav failed; fallback to SPA", err);
+      }
       void navigateInternal(target.url, false);
     },
     true,
@@ -14144,6 +14667,24 @@
   window.addEventListener("popstate", () => {
     closeDrilldownOverlay();
     if (shouldHandleUrl(window.location.href)) {
+      const fromUrl =
+        typeof globalThis.MeiBuildNavigation?.getLastUrl === "function"
+          ? globalThis.MeiBuildNavigation.getLastUrl()
+          : window.location.href;
+      if (typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function") {
+        void globalThis.MeiBuildNavigation.tryNavigateBuild(
+          fromUrl,
+          window.location.href,
+          { replaceHistory: true },
+        ).then((result) => {
+          if (result?.handled) {
+            globalThis.MeiBuildNavigation.noteUrl(window.location.href);
+            return;
+          }
+          void navigateInternal(window.location.href, true);
+        });
+        return;
+      }
       void navigateInternal(window.location.href, true);
     }
   });

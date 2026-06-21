@@ -80,6 +80,22 @@
       currentUrl = new URL(window.location.href);
       nextUrl = new URL(url, window.location.href);
     } catch (_) {}
+    if (
+      currentUrl &&
+      nextUrl &&
+      typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function"
+    ) {
+      const buildResult = await globalThis.MeiBuildNavigation.tryNavigateBuild(
+        currentUrl.href,
+        nextUrl.href,
+        { replaceHistory },
+      );
+      if (buildResult?.handled) {
+        spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);
+        boot._spaInFlight = spaNavigationInFlight;
+        return;
+      }
+    }
     const manageSamePath =
       currentUrl && nextUrl && isManageSamePathNavigation(currentUrl, nextUrl);
     if (manageSamePath) {

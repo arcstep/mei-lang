@@ -980,6 +980,12 @@ fn discovered_compile_scopes(
                 requested_target_file: Some(overlay_target),
             });
         }
+        for entry in compiled.build_board_index.boards.values() {
+            push_scope(CompileScope {
+                requested_scene_id: Some(entry.scene_id.clone()),
+                requested_target_file: Some(entry.board_file.clone()),
+            });
+        }
     }
     let native_target = scope
         .requested_target_file

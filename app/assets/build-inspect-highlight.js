@@ -17,10 +17,18 @@
   }
 
   function activeBuildNode() {
+    try {
+      const fromUrl = String(new URL(global.location.href).searchParams.get("node") || "").trim();
+      if (fromUrl) return fromUrl;
+    } catch (_) {}
     return String(activeShell()?.getAttribute("data-build-node") || "").trim();
   }
 
   function activeBuildFocus() {
+    try {
+      const fromUrl = String(new URL(global.location.href).searchParams.get("focus") || "").trim();
+      if (fromUrl) return fromUrl;
+    } catch (_) {}
     return String(activeShell()?.getAttribute("data-build-focus") || "").trim();
   }
 
@@ -247,25 +255,59 @@
     );
   }
 
-  function clearBuildPreviewArtifacts(root) {
+  function boardMountKeyForSurface(surface) {
+    if (!(surface instanceof HTMLElement)) return "";
+    try {
+      const url = new URL(global.location.href);
+      const fromNode = String(url.searchParams.get("node") || "")
+        .replace(/^board-(?:file|slot):/i, "")
+        .split("#")[1];
+      const sceneId =
+        String(fromNode || "").trim() ||
+        String(surface.dataset.sceneId || "").trim() ||
+        String(url.searchParams.get("scene") || "").trim();
+      const target = String(
+        surface.dataset.targetFile || surface.dataset.sourcePath || "",
+      ).trim();
+      return sceneId && target ? `${sceneId}::${target}` : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function clearScopedPreviewDim(root) {
     if (!(root instanceof HTMLElement)) return;
     root.querySelectorAll("[data-preview-scope].build-preview-scoped-dim").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
     document.body.classList.remove("build-preview-scoped-active");
-    root.querySelectorAll(".preview-surface, .preview-stage").forEach((surface) => {
-      if (!(surface instanceof HTMLElement)) return;
-      delete surface.dataset.meiPreviewBoardMounted;
-      surface.classList.remove("preview-board-mounted");
-    });
   }
 
-  function refresh() {
+  function clearStaleBoardMount(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    let cleared = false;
+    root.querySelectorAll(".preview-surface, .preview-stage").forEach((surface) => {
+      if (!(surface instanceof HTMLElement)) return;
+      const mounted = surface.dataset.meiPreviewBoardMounted;
+      if (!mounted) return;
+      const expected = boardMountKeyForSurface(surface);
+      if (expected && mounted === expected) return;
+      delete surface.dataset.meiPreviewBoardMounted;
+      surface.classList.remove("preview-board-mounted");
+      cleared = true;
+    });
+    return cleared;
+  }
+  function refresh(event) {
     if (!isBuildRoute()) return;
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     const root = previewRoot();
     if (!root) return;
-    clearBuildPreviewArtifacts(root);
+    clearScopedPreviewDim(root);
+    const scope = String(event?.detail?.scope || "").trim();
+    if (scope !== "manage-board-preview") {
+      clearStaleBoardMount(root);
+    }
     syncShellFocus(readFocusFromUrl());
     bindPreviewInspect(root);
     applyHighlight(root);
@@ -273,7 +315,7 @@
 
   function bind() {
     if (!isBuildRoute()) return;
-    refresh();
+    refresh(null);
     global.addEventListener("mei:manage-tab-change", refresh);
     global.addEventListener("meilang:preview-updated", refresh);
     global.addEventListener("popstate", refresh);

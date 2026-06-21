@@ -51,6 +51,7 @@
 
   function scan(event) {
     if (event?.detail?.scope === "drilldown") return;
+    if (event?.detail?.scope === "manage-board-preview") return;
     if (!shouldMountBuildPreviewRuntime()) return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
@@ -74,11 +75,24 @@
   }
 
   let metricPrefetchTimer = null;
+  let lastMetricPrefetchKey = "";
+  function buildMetricPrefetchKey() {
+    const shell = document.querySelector(".shell[data-compile-target]");
+    const scene = String(shell?.getAttribute("data-compile-scene") || "").trim();
+    const target = String(shell?.getAttribute("data-compile-target") || "").trim();
+    const viewport = document.querySelector("[data-mei-frame-viewport]");
+    const queryStateId = String(viewport?.dataset?.queryStateId || "").trim();
+    return `${scene}::${target}::${queryStateId}`;
+  }
   function scheduleMetricPrefetch(delayMs = 0, options = {}) {
     const opts = options || {};
     if (!shouldMountBuildPreviewRuntime()) return;
     if (!opts.force && !runtimeQueryReady) {
       pendingMetricPrefetch = true;
+      return;
+    }
+    const prefetchKey = buildMetricPrefetchKey();
+    if (!opts.force && prefetchKey && prefetchKey === lastMetricPrefetchKey) {
       return;
     }
     if (metricPrefetchTimer != null && !opts.force) {
@@ -96,6 +110,7 @@
       if (document.body?.classList?.contains("access-drilldown-open")) {
         return;
       }
+      lastMetricPrefetchKey = prefetchKey;
       window.dispatchEvent(new CustomEvent("meilang:prefetch-panel-metrics"));
     }, Math.max(0, Number(delayMs) || 0));
   }

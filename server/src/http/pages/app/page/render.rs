@@ -172,7 +172,17 @@ pub(super) fn render_compiled_success(
         query.world_metric.as_deref(),
         query.world_dataset.as_deref(),
         query.explain.as_deref(),
-        query.node.as_deref(),
+        if route_mode == UiRouteMode::Build
+            && query
+                .tab
+                .as_deref()
+                .map(|tab| tab.eq_ignore_ascii_case("preview"))
+                .unwrap_or(false)
+        {
+            None
+        } else {
+            query.node.as_deref()
+        },
         query.scope.as_deref(),
         query.focus.as_deref(),
         chrome_hidden,

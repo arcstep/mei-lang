@@ -39,11 +39,14 @@ pub(crate) struct PreviewRuntimeContext {
     pub host_ssr_slim_payload: bool,
     /// Build 视图：为 panel/block 注入 `data-build-node` 供检视高亮。
     pub build_inspect_enabled: bool,
+    /// Build 视图：panel 级 SSR 切片 scope（scene-relative panel path）。
+    pub build_preview_scope: Option<String>,
 }
 
 pub(crate) fn build_preview_runtime_context(
     compiled: &CompiledApp,
     route_mode: UiRouteMode,
+    build_preview_scope: Option<&str>,
 ) -> PreviewRuntimeContext {
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),
@@ -53,6 +56,10 @@ pub(crate) fn build_preview_runtime_context(
             UiRouteMode::App | UiRouteMode::Presentation | UiRouteMode::Build
         ),
         build_inspect_enabled: route_mode == UiRouteMode::Build,
+        build_preview_scope: build_preview_scope
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
     }
 }
 mod view;
@@ -63,6 +70,7 @@ pub(crate) fn preview_view(
     selected_target: &str,
     route_mode: UiRouteMode,
     world_semantic: WorldSemanticQuery<'_>,
+    build_preview_scope: Option<&str>,
 ) -> AnyView {
     view::preview_view(
         compiled,
@@ -70,6 +78,7 @@ pub(crate) fn preview_view(
         selected_target,
         route_mode,
         world_semantic,
+        build_preview_scope,
     )
 }
 

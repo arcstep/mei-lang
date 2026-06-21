@@ -63,12 +63,13 @@ pub use app_compile::{
 pub use build_experience::{
     aggregate_use_key_badges, backing_refs_from_block_props, block_instance_id,
     build_experience_path,
-    build_overview_backing, compile_scene_from_build_node, experience_layout_hint,
+    build_overview_backing, compile_coordinate_for_node, compile_scene_from_build_node,
+    experience_layout_hint,
     experience_mount_chain, format_experience_path,
-    preview_target_from_build_node_with_app,
+    preview_target_from_build_node_with_app, BuildCompileCoordinate, BuildPreviewKind,
 };
 pub use build_board_index::build_board_index;
-pub use build_experience_index::build_experience_index;
+pub use build_experience_index::{build_experience_index, enrich_reachability_tree_compile_coords};
 pub use build_template_index::build_template_index;
 pub use build_node_context::{
     default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,

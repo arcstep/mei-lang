@@ -1657,9 +1657,9 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
         build_board_index: Default::default(),
         build_template_index: Default::default(),
     };
-    assert!(build_preview_runtime_context(&compiled, UiRouteMode::Build).host_ssr_slim_payload);
-    assert!(build_preview_runtime_context(&compiled, UiRouteMode::App).host_ssr_slim_payload);
-    assert!(!build_preview_runtime_context(&compiled, UiRouteMode::Config).host_ssr_slim_payload);
+    assert!(build_preview_runtime_context(&compiled, UiRouteMode::Build, None).host_ssr_slim_payload);
+    assert!(build_preview_runtime_context(&compiled, UiRouteMode::App, None).host_ssr_slim_payload);
+    assert!(!build_preview_runtime_context(&compiled, UiRouteMode::Config, None).host_ssr_slim_payload);
 }
 
 #[test]
@@ -2507,7 +2507,7 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
         .scene_contract
         .as_ref()
         .expect("home scene contract");
-    let runtime_ctx = build_preview_runtime_context(&compiled, UiRouteMode::Build);
+    let runtime_ctx = build_preview_runtime_context(&compiled, UiRouteMode::Build, None);
     assert!(
         runtime_ctx.host_ssr_slim_payload,
         "build mode must enable host SSR slim payload"

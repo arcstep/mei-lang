@@ -33,7 +33,7 @@ pub(crate) fn access_shell(
     let preview = if static_asset {
         asset_preview_body(app_path, current_target, source.unwrap_or(""))
     } else {
-        preview::preview_view(compiled, app_path, current_target, UiRouteMode::App, WorldSemanticQuery::default())
+        preview::preview_view(compiled, app_path, current_target, UiRouteMode::App, WorldSemanticQuery::default(), None)
     };
     let topbar_preview_target = if static_asset { None } else { file_target };
     let panel_tab = active_tab.unwrap_or("preview");

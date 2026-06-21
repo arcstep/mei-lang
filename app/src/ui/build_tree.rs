@@ -94,7 +94,14 @@ fn tree_node(
         };
         view! {
             <li class="build-tree-node">
-                <a class=class href=href title=node.label.clone() data-build-node=node.node_id.clone()>
+                <a
+                    class=class
+                    href=href
+                    title=node.label.clone()
+                    data-build-node=node.node_id.clone()
+                    data-compile-scene=node.compile_scene.clone()
+                    data-compile-target=node.compile_target.clone()
+                >
                     <span class="build-tree-spacer" aria-hidden="true"></span>
                     <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
                     <span class="build-tree-label">{label_with_badge(node.label.clone(), badge)}</span>
@@ -118,7 +125,13 @@ fn tree_node(
                 <details class="build-tree-details" data-build-tree-branch=branch_id>
                     <summary class=summary_class>
                         <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
-                        <a class="build-tree-label build-tree-label--link" href=href data-build-node=node.node_id.clone()>
+                        <a
+                            class="build-tree-label build-tree-label--link"
+                            href=href
+                            data-build-node=node.node_id.clone()
+                            data-compile-scene=node.compile_scene.clone()
+                            data-compile-target=node.compile_target.clone()
+                        >
                             {label_with_badge(node.label.clone(), badge)}
                         </a>
                     </summary>

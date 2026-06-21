@@ -81,6 +81,59 @@ pub fn compile_scene_from_build_node(node: &BuildNodeId) -> Option<String> {
     }
 }
 
+/// Compile coordinate for fast build navigation (scene + preview target; inspect node is excluded).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildPreviewKind {
+    SceneCapsule,
+    BoardCapsule,
+    WorldCapsule,
+    Script,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BuildCompileCoordinate {
+    pub scene_id: Option<String>,
+    pub preview_target: String,
+    pub preview_kind: BuildPreviewKind,
+}
+
+pub fn compile_coordinate_for_node(
+    node: &BuildNodeId,
+    compiled: &CompiledApp,
+) -> Option<BuildCompileCoordinate> {
+    let preview_target = preview_target_from_build_node_with_app(node, Some(compiled))?;
+    let scene_id = compile_scene_from_build_node(node);
+    let preview_kind = match node.kind {
+        BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => BuildPreviewKind::BoardCapsule,
+        BuildNodeKind::WorldFile
+        | BuildNodeKind::WorldDataset
+        | BuildNodeKind::WorldMetric
+        | BuildNodeKind::WorldExplain => BuildPreviewKind::WorldCapsule,
+        BuildNodeKind::Scene
+        | BuildNodeKind::Route
+        | BuildNodeKind::ScenePanel
+        | BuildNodeKind::SceneBlock
+        | BuildNodeKind::Projection => {
+            if preview_target.ends_with(".board.mei") {
+                BuildPreviewKind::BoardCapsule
+            } else {
+                BuildPreviewKind::SceneCapsule
+            }
+        }
+        BuildNodeKind::Template | BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval => {
+            BuildPreviewKind::Other
+        }
+        BuildNodeKind::Dataset | BuildNodeKind::Component => BuildPreviewKind::Script,
+    };
+    Some(BuildCompileCoordinate {
+        scene_id,
+        preview_target,
+        preview_kind,
+    })
+}
+
 /// Human-readable breadcrumb segments for build overview / agent export.
 pub fn build_experience_path(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
     if let Some(manifest) = ExperienceNodeManifest::lookup(compiled, node) {
@@ -497,6 +550,51 @@ mod tests {
     fn compile_scene_from_panel_node() {
         let node = BuildNodeId::scene_panel("home", "kpi_row");
         assert_eq!(compile_scene_from_build_node(&node).as_deref(), Some("home"));
+    }
+
+    #[test]
+    fn compile_coordinate_groups_scene_panels_with_scene_route() {
+        use crate::model::{BuildNodeId, CompiledApp, CompiledSceneRoute};
+        use std::collections::BTreeMap;
+
+        let compiled = CompiledApp {
+            app_id: "demo".to_string(),
+            title: "demo".to_string(),
+            app_root: ".".to_string(),
+            scene_routes: vec![CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "scenes/home.mei".to_string(),
+                kind: "file_ref".to_string(),
+                title: Some("Home".to_string()),
+                is_default: true,
+                access_export: true,
+            }],
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: Vec::new(),
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
+        let scene = BuildNodeId::scene("home");
+        let panel = BuildNodeId::scene_panel("home", "kpi_row");
+        let scene_coord = compile_coordinate_for_node(&scene, &compiled).expect("scene coord");
+        let panel_coord = compile_coordinate_for_node(&panel, &compiled).expect("panel coord");
+        assert_eq!(scene_coord.preview_target, "scenes/home.mei");
+        assert_eq!(panel_coord.preview_target, "scenes/home.mei");
+        assert_eq!(scene_coord.scene_id.as_deref(), Some("home"));
+        assert_eq!(panel_coord.scene_id.as_deref(), Some("home"));
     }
 
     #[test]

@@ -125,6 +125,10 @@ pub struct ReachabilityTreeNodeSnapshot {
     pub label: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub badges: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub compile_scene: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub compile_target: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ReachabilityTreeNodeSnapshot>,
 }

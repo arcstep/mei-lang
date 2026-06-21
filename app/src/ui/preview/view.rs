@@ -15,8 +15,9 @@ pub(crate) fn preview_view(
     selected_target: &str,
     route_mode: UiRouteMode,
     world_semantic: WorldSemanticQuery<'_>,
+    build_preview_scope: Option<&str>,
 ) -> AnyView {
-    let runtime_ctx = build_preview_runtime_context(compiled, route_mode);
+    let runtime_ctx = build_preview_runtime_context(compiled, route_mode, build_preview_scope);
 
     let preview_scene_path = {
         let selected = selected_target.trim();

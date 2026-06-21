@@ -1,4 +1,43 @@
   const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
+  const MAX_BOARD_MOUNT_POOL = 6;
+  const boardMountPool = new Map();
+
+  function boardMountPoolKey(doc, sceneId, targetFile) {
+    return `${sceneId}::${targetFile}`;
+  }
+
+  function stashBoardMount(mountKey, surface) {
+    if (!(surface instanceof HTMLElement)) return;
+    if (boardMountPool.size >= MAX_BOARD_MOUNT_POOL && !boardMountPool.has(mountKey)) {
+      const firstKey = boardMountPool.keys().next().value;
+      if (firstKey) boardMountPool.delete(firstKey);
+    }
+    boardMountPool.set(mountKey, surface.innerHTML);
+  }
+
+  function restoreBoardMount(mountKey, surface) {
+    if (!(surface instanceof HTMLElement) || !boardMountPool.has(mountKey)) return false;
+    surface.innerHTML = boardMountPool.get(mountKey);
+    surface.dataset.meiPreviewBoardMounted = mountKey;
+    surface.classList.add("preview-board-mounted");
+    refreshManagePreviewBoardCharts(surface);
+    return true;
+  }
+
+  function activateManagePreviewBoardPool(doc = document) {
+    if (!shouldMountManagePreviewBoard(doc)) return;
+    const sceneId = resolveManagePreviewSceneId(doc);
+    const target = boardTargetFromUrl(new URL(window.location.href)) ||
+      nonEmptyString(doc.querySelector("[data-target-file]")?.dataset?.targetFile);
+    if (!sceneId || !target) return;
+    const surface = resolveManagePreviewSurface(doc);
+    if (!surface) return;
+    const mountKey = boardMountPoolKey(doc, sceneId, target);
+    if (surface.dataset.meiPreviewBoardMounted === mountKey) return;
+    if (restoreBoardMount(mountKey, surface)) {
+      dispatchPreviewUpdated("manage-board-preview");
+    }
+  }
 
   function readSceneDrilldownContext(doc = document) {
     const el = doc.getElementById("mei-scene-drilldown-context");
@@ -185,6 +224,9 @@
     if (surface.dataset.meiPreviewBoardMounted === mountKey) {
       return true;
     }
+    if (restoreBoardMount(mountKey, surface)) {
+      return true;
+    }
     delete surface.dataset.meiPreviewBoardMounted;
     surface.classList.remove("preview-board-mounted");
 
@@ -251,6 +293,7 @@
 
     surface.dataset.meiPreviewBoardMounted = mountKey;
     surface.classList.add("preview-board-mounted");
+    stashBoardMount(mountKey, surface);
     dispatchPreviewUpdated("manage-board-preview");
     return true;
   }
@@ -267,8 +310,19 @@
     if (boot.managePreviewBoardInstalled) return;
     boot.managePreviewBoardInstalled = true;
     boot.mountManagePreviewBoard = mountManagePreviewBoard;
-    window.addEventListener(MANAGE_PREVIEW_UPDATED_EVENT, () => {
+    boot.activateManagePreviewBoardPool = activateManagePreviewBoardPool;
+    window.addEventListener(MANAGE_PREVIEW_UPDATED_EVENT, (event) => {
+      const scope = String(event?.detail?.scope || "").trim();
+      if (scope === "manage-board-preview") return;
       scheduleManagePreviewBoardMount(document);
+    });
+    window.addEventListener("popstate", () => {
+      scheduleManagePreviewBoardMount(document);
+    });
+    document.addEventListener("mei:manage-tab-change", (event) => {
+      if (String(event?.detail?.tab || "").trim().toLowerCase() === "preview") {
+        scheduleManagePreviewBoardMount(document);
+      }
     });
     if (isBuildRoute()) {
       scheduleManagePreviewBoardMount(document);

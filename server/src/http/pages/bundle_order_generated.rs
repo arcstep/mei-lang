@@ -15,6 +15,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "manage-tabs.js",
     "build-copy-context.js",
     "build-tree-persist.js",
+    "build-navigation.js",
     "build-inspect-highlight.js",
     "build-exec-panel.js",
     "manage-diagnostics.js",
