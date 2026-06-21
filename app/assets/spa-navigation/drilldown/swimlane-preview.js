@@ -439,6 +439,33 @@
     if (metricsRoot.childElementCount) panel.appendChild(metricsRoot);
   }
 
+  function applyCaseDetailWarningTone(panel, row) {
+    if (!(panel instanceof HTMLElement)) return;
+    const tone = resolveWarningLevelTone(
+      resolveCaseDetailFieldValue(row, { field: "预警等级" }),
+    );
+    if (tone !== "default") {
+      panel.dataset.warningLevel = tone;
+    } else {
+      panel.removeAttribute("data-warning-level");
+    }
+  }
+
+  function appendTypicalCaseStatsSection(panel, row, mapping, { wrapBand = false } = {}) {
+    if (!mappingHasTypicalCaseStats(mapping)) return;
+    const target = (() => {
+      if (!wrapBand) return panel;
+      const band = document.createElement("div");
+      band.className = "access-drilldown-case-detail-stats-band";
+      panel.appendChild(band);
+      return band;
+    })();
+    appendTypicalCaseTagRow(target, row, mapping);
+    appendTypicalCaseFacts(target, row, mapping);
+    appendTypicalCaseStatusRow(target, row, mapping);
+    appendTypicalCaseMetricsRow(target, row, mapping);
+  }
+
   function renderSheetDetailCardPanel(host, row, config, detail) {
     if (isTypicalCaseCardPreview(config)) {
       renderTypicalCaseCardPanel(host, row, config, detail);
@@ -467,10 +494,10 @@
     const enrichedRow = enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-typical-case-panel";
+    applyCaseDetailWarningTone(panel, enrichedRow);
     if (mappingShowsHeader(mapping)) {
       appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
     }
-    appendTypicalCaseTagRow(panel, enrichedRow, mapping);
     if (mappingShowsSummary(mapping)) {
       const summary = resolveCaseDetailFieldValue(enrichedRow, {
         field: String(mapping?.summary_field || mapping?.summaryField || "基本情况").trim(),
@@ -488,9 +515,7 @@
       summaryBlock.appendChild(summaryText);
       panel.appendChild(summaryBlock);
     }
-    appendTypicalCaseFacts(panel, enrichedRow, mapping);
-    appendTypicalCaseStatusRow(panel, enrichedRow, mapping);
-    appendTypicalCaseMetricsRow(panel, enrichedRow, mapping);
+    appendTypicalCaseStatsSection(panel, enrichedRow, mapping);
     host.appendChild(panel);
   }
 
@@ -516,9 +541,11 @@
       : enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-case-detail-panel";
-    if (mappingHasTypicalCaseStats(mapping)) {
+    const hybridStats = mappingHasTypicalCaseStats(mapping);
+    if (hybridStats) {
       host.classList.add("access-drilldown-case-detail-host--hybrid");
     }
+    applyCaseDetailWarningTone(panel, enrichedRow);
     if (mappingShowsHeader(mapping)) {
       appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
     }
@@ -539,12 +566,7 @@
       summaryBlock.appendChild(summaryText);
       panel.appendChild(summaryBlock);
     }
-    if (mappingHasTypicalCaseStats(mapping)) {
-      appendTypicalCaseTagRow(panel, enrichedRow, mapping);
-      appendTypicalCaseFacts(panel, enrichedRow, mapping);
-      appendTypicalCaseStatusRow(panel, enrichedRow, mapping);
-      appendTypicalCaseMetricsRow(panel, enrichedRow, mapping);
-    }
+    appendTypicalCaseStatsSection(panel, enrichedRow, mapping, { wrapBand: hybridStats });
     if (mappingShowsMeta(mapping)) {
       appendCaseDetailMetaRow(panel, enrichedRow, mapping);
     }
