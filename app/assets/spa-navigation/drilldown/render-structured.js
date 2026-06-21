@@ -97,6 +97,7 @@
         const slotEl = document.createElement("div");
         slotEl.className = "access-drilldown-shell-slot access-drilldown-shell-slot--chart";
         slotEl.dataset.chartSlotIndex = String(index);
+        if (slot?.id) slotEl.dataset.buildBoardSlot = String(slot.id);
         host.appendChild(slotEl);
       });
       host.style.display = "grid";
@@ -139,10 +140,13 @@
         config?.rowPreviewSourceZoneId && config.rowPreviewSourceZoneId === zone.id ? "single" : "",
     };
     if (primarySlot.component === "data_table") {
+      host.dataset.buildBoardSlot = primarySlot.id;
       return mountDrilldownTable(root, detail, { ...config, ...slotConfig }, host);
     }
     if (primarySlot.component === "summary" || primarySlot.component === "metric_card") {
-      host.appendChild(createDrilldownSummaryNode(slotConfig, primarySlot.id));
+      const summaryNode = createDrilldownSummaryNode(slotConfig, primarySlot.id);
+      summaryNode.dataset.buildBoardSlot = primarySlot.id;
+      host.appendChild(summaryNode);
       return true;
     }
     return false;

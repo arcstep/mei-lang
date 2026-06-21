@@ -1,6 +1,9 @@
   async function mountAnalyticsChartSlots(root, detail, config, chartSlots, chartsHost) {
     const chartMounts = chartSlots.map(async (slot, index) => {
       const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
+      if (slotHost instanceof HTMLElement && slot?.id) {
+        slotHost.dataset.buildBoardSlot = String(slot.id);
+      }
       const slotConfig = resolveDrilldownTabConfig(config, slot.id);
       const boardMetricId = nonEmptyString(config.tableMetricId);
       const chartMapping =

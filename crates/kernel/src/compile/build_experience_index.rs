@@ -186,7 +186,6 @@ fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
         return true;
     }
     let has_boards = snapshot.iter().any(|root| root.group == "boards");
-    let has_templates = snapshot.iter().any(|root| root.group == "templates");
     let expects_boards = file_tree_has_board_capsules(&compiled.file_tree)
         || !compiled.build_board_index.boards.is_empty();
     if expects_boards && !has_boards {
@@ -195,8 +194,13 @@ fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
     let expects_templates = !compiled.component_assets.is_empty()
         || !compiled.build_template_index.templates.is_empty()
         || workspace_component_catalog_from_app(compiled).is_some();
-    if expects_templates && !has_templates {
-        return true;
+    if expects_templates {
+        let templates_ok = snapshot.iter().any(|root| {
+            root.group == "templates" && !root.children.is_empty()
+        });
+        if !templates_ok {
+            return true;
+        }
     }
     false
 }
@@ -365,6 +369,29 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
                 roots.insert(insert_at, template_root);
             }
         }
+    } else if let Some(existing) = roots.iter_mut().find(|root| root.group == "templates") {
+        if existing.children.is_empty() {
+            let template_root = if !compiled.build_template_index.templates.is_empty() {
+                crate::compile::build_template_index::template_tree_root_from_index(
+                    &compiled.build_template_index,
+                )
+            } else {
+                let contracts = scene_contracts_from_compiled(compiled);
+                let catalog = template_catalog_for_tree(compiled);
+                if catalog.is_empty() {
+                    return;
+                }
+                crate::compile::build_template_index::build_template_index(
+                    &catalog,
+                    &contracts,
+                    &compiled.build_experience_index.node_manifest,
+                )
+                .tree_root
+            };
+            if !template_root.children.is_empty() {
+                *existing = template_root;
+            }
+        }
     }
 }
 
@@ -421,6 +448,7 @@ fn node_to_snapshot(node: ReachabilityTreeNode) -> ReachabilityTreeNodeSnapshot 
         badges: node.badges,
         compile_scene: node.compile_scene,
         compile_target: node.compile_target,
+        board_layout_zone: node.board_layout_zone,
         children: node.children.into_iter().map(node_to_snapshot).collect(),
     }
 }
@@ -434,6 +462,7 @@ fn node_snapshot_to_runtime(node: &ReachabilityTreeNodeSnapshot) -> Reachability
         badges: node.badges.clone(),
         compile_scene: node.compile_scene.clone(),
         compile_target: node.compile_target.clone(),
+        board_layout_zone: node.board_layout_zone.clone(),
         children: node.children.iter().map(node_snapshot_to_runtime).collect(),
     }
 }
@@ -1055,6 +1084,49 @@ mod tests {
             roots.iter().any(|root| root.group == "templates"),
             "templates group should be restored from component_assets, groups: {:?}",
             roots.iter().map(|root| root.group.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn empty_templates_snapshot_is_treated_as_stale() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-spbjw");
+        let app_root = source_root.join("zhifa");
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile zhifa");
+        let mut partial = compiled.clone();
+        partial.build_experience_index.reachability_snapshot = partial
+            .build_experience_index
+            .reachability_snapshot
+            .into_iter()
+            .map(|mut root| {
+                if root.group == "templates" {
+                    root.children.clear();
+                }
+                root
+            })
+            .collect();
+
+        let roots = reachability_roots_from_compiled(&partial);
+        let templates = roots
+            .iter()
+            .find(|root| root.group == "templates")
+            .expect("templates group");
+        assert!(
+            !templates.children.is_empty(),
+            "empty templates snapshot should be rebuilt with component catalog entries"
         );
     }
 }

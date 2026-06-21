@@ -101,6 +101,7 @@ fn tree_node(
                     data-build-node=node.node_id.clone()
                     data-compile-scene=node.compile_scene.clone()
                     data-compile-target=node.compile_target.clone()
+                    data-board-layout-zone=node.board_layout_zone.clone()
                 >
                     <span class="build-tree-spacer" aria-hidden="true"></span>
                     <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
@@ -131,6 +132,7 @@ fn tree_node(
                             data-build-node=node.node_id.clone()
                             data-compile-scene=node.compile_scene.clone()
                             data-compile-target=node.compile_target.clone()
+                            data-board-layout-zone=node.board_layout_zone.clone()
                         >
                             {label_with_badge(node.label.clone(), badge)}
                         </a>

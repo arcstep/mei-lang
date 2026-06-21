@@ -553,6 +553,54 @@ mod tests {
     }
 
     #[test]
+    fn compile_coordinate_board_exports_share_preview_target() {
+        use crate::model::{BuildNodeId, CompiledApp, CompiledSceneRoute};
+        use std::collections::BTreeMap;
+
+        let compiled = CompiledApp {
+            app_id: "demo".to_string(),
+            title: "demo".to_string(),
+            app_root: ".".to_string(),
+            scene_routes: vec![CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "scenes/home.mei".to_string(),
+                kind: "file_ref".to_string(),
+                title: Some("Home".to_string()),
+                is_default: true,
+                access_export: true,
+            }],
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: Vec::new(),
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
+        let board_a = BuildNodeId::board_file("scenes/01.board.mei#board_a");
+        let board_b = BuildNodeId::board_file("scenes/01.board.mei#board_b");
+        let slot = BuildNodeId::board_slot("scenes/01.board.mei#board_a", "chart");
+        let coord_a = compile_coordinate_for_node(&board_a, &compiled).expect("board a");
+        let coord_b = compile_coordinate_for_node(&board_b, &compiled).expect("board b");
+        let coord_slot = compile_coordinate_for_node(&slot, &compiled).expect("slot");
+        assert_eq!(coord_a.preview_target, "scenes/01.board.mei");
+        assert_eq!(coord_b.preview_target, coord_a.preview_target);
+        assert_eq!(coord_slot.preview_target, coord_a.preview_target);
+        assert_ne!(coord_a.scene_id, coord_b.scene_id);
+        assert_eq!(coord_slot.scene_id, coord_a.scene_id);
+    }
+
+    #[test]
     fn compile_coordinate_groups_scene_panels_with_scene_route() {
         use crate::model::{BuildNodeId, CompiledApp, CompiledSceneRoute};
         use std::collections::BTreeMap;

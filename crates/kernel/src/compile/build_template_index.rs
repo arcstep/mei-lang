@@ -80,7 +80,7 @@ pub fn build_template_index(
     let index = BuildTemplateIndex { templates };
     let tree_root = ReachabilityTreeRoot {
         group: "templates".to_string(),
-        label: "Templates".to_string(),
+        label: "Components".to_string(),
         default_open: false,
         children: tree_children,
     };
@@ -119,7 +119,7 @@ pub fn template_tree_root_from_index(index: &BuildTemplateIndex) -> Reachability
     }
     ReachabilityTreeRoot {
         group: "templates".to_string(),
-        label: "Templates".to_string(),
+        label: "Components".to_string(),
         default_open: false,
         children: tree_children,
     }

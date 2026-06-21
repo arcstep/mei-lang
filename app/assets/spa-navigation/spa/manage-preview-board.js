@@ -80,8 +80,10 @@
     const node = nonEmptyString(nodeParam);
     if (!/^board-(?:file|slot):/i.test(node)) return "";
     const payload = node.replace(/^board-(?:file|slot):/i, "");
-    const hashAt = payload.indexOf("#");
-    return hashAt >= 0 ? nonEmptyString(payload.slice(hashAt + 1)) : "";
+    const slash = payload.indexOf("/");
+    const boardKey = slash >= 0 ? payload.slice(0, slash) : payload;
+    const hashAt = boardKey.indexOf("#");
+    return hashAt >= 0 ? nonEmptyString(boardKey.slice(hashAt + 1)) : "";
   }
 
   function resolveManagePreviewSceneId(doc = document) {
@@ -242,6 +244,7 @@
     if (filterZone) {
       const host = resolveManagePreviewPanelHost(surface, filterZone.id);
       if (host instanceof HTMLElement) {
+        host.dataset.buildBoardSlot = "filter";
         host.replaceChildren();
         await mountAnalyticsFilterBar(surface, detail, resolved, host);
       }
@@ -259,6 +262,7 @@
           const slotEl = document.createElement("div");
           slotEl.className = "access-drilldown-shell-slot access-drilldown-shell-slot--chart";
           slotEl.dataset.chartSlotIndex = String(index);
+          if (slot?.id) slotEl.dataset.buildBoardSlot = String(slot.id);
           slotEl.style.height = "100%";
           slotEl.style.minHeight = "180px";
           host.appendChild(slotEl);
@@ -295,6 +299,9 @@
     surface.classList.add("preview-board-mounted");
     stashBoardMount(mountKey, surface);
     dispatchPreviewUpdated("manage-board-preview");
+    if (global.MeiBuildInspectHighlight && typeof global.MeiBuildInspectHighlight.refresh === "function") {
+      global.MeiBuildInspectHighlight.refresh({ detail: { scope: "manage-board-preview" } });
+    }
     return true;
   }
 

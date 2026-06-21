@@ -44,10 +44,14 @@
     }
   }
 
-  function restoreScroll(root) {
+  function restoreScroll(root, explicitTop) {
     const scroll = sidebarScrollEl(root);
     if (!scroll) return;
     try {
+      if (typeof explicitTop === "number" && Number.isFinite(explicitTop)) {
+        scroll.scrollTop = explicitTop;
+        return;
+      }
       const raw = global.sessionStorage.getItem(SCROLL_KEY);
       if (raw == null) return;
       const top = Number(raw);
@@ -57,6 +61,20 @@
     } catch {
       /* ignore */
     }
+  }
+
+  function pinSidebarScroll(root, mutate) {
+    const scroll = sidebarScrollEl(root);
+    const pinnedTop = scroll?.scrollTop ?? null;
+    mutate();
+    if (!scroll || pinnedTop == null) return;
+    const apply = () => {
+      scroll.scrollTop = pinnedTop;
+    };
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
   }
 
   function branchId(details) {
@@ -165,21 +183,26 @@
       (event) => {
         const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
         if (!link) return;
-        event.stopPropagation();
+        // Prevent focus scroll-into-view jitter when SPA handles navigation.
+        event.preventDefault();
       },
       true,
     );
   }
 
-  function refresh() {
+  function refresh(options) {
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
     if (!root) return;
     bindTreePersist(root);
     bindTreeTabPersist(root);
     syncTreeLinkTabs(root);
-    syncTreeActiveFromNode(root);
-    restoreScroll(root);
+    pinSidebarScroll(root, () => {
+      syncTreeActiveFromNode(root);
+    });
+    if (options && options.restorePersistedScroll) {
+      restoreScroll(root);
+    }
   }
 
   function syncTreeActiveFromNode(root) {
@@ -213,7 +236,7 @@
 
   function bind() {
     if (!isBuildRoute()) return;
-    refresh();
+    refresh({ restorePersistedScroll: true });
     global.addEventListener("popstate", refresh);
     global.addEventListener("mei:manage-tab-change", refresh);
   }

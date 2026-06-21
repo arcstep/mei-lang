@@ -1,8 +1,8 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_reachability_tree, compile_coordinate_for_node, default_build_node_for_compiled,
-    resolve_build_node_context, resolve_build_view_query, tabs_for_node_kind, BuildViewTab,
-    CompiledApp, LegacyBuildQuery, WorkspaceAppMeta,
+    resolve_build_node_context, resolve_build_view_query, tabs_for_node_kind, BuildNodeKind,
+    BuildViewTab, CompiledApp, LegacyBuildQuery, WorkspaceAppMeta,
 };
 
 use super::super::build_tree::reachability_tree_view;
@@ -188,7 +188,13 @@ pub(crate) fn manage_shell(
     let compile_target = compile_coord
         .map(|coord| coord.preview_target)
         .unwrap_or_else(|| selected_target.clone());
-    let host_ssr_bootstrap = if stage_enabled || ctx.projection_id.is_some() {
+    let host_ssr_bootstrap = if stage_enabled
+        || ctx.projection_id.is_some()
+        || matches!(
+            resolved.node.kind,
+            BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot
+        )
+    {
         Some(host_ssr_bootstrap_scripts(
             compiled,
             app_path,

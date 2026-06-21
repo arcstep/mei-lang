@@ -111,6 +111,7 @@ fn push_board_file_tree_node(
                     .clone()
                     .unwrap_or_else(|| slot.slot_id.clone()),
                 badges: slot.component.clone().into_iter().collect(),
+                board_layout_zone: slot.layout_zone.clone().unwrap_or_default(),
                 children: Vec::new(),
                 ..Default::default()
             }
@@ -193,18 +194,45 @@ fn slots_from_sources(
     contract: Option<&SceneContract>,
     assembly: Option<&Value>,
 ) -> Vec<BoardSlotEntry> {
-    if let Some(slots) = assembly
+    let mut slots = if let Some(slots) = assembly
         .and_then(|value| value.get("projection_slots"))
         .and_then(Value::as_array)
     {
-        return slots
+        slots
             .iter()
             .filter_map(|slot| parse_projection_slot(slot))
-            .collect();
+            .collect()
+    } else {
+        contract
+            .map(|value| zones_from_shell_contract(&value.scene.local_nav, &value.panels))
+            .unwrap_or_default()
+    };
+    if let Some(assembly) = assembly {
+        if assembly_has_filter_schema(assembly)
+            && !slots.iter().any(|slot| slot.slot_id == "filter")
+        {
+            slots.insert(
+                0,
+                BoardSlotEntry {
+                    slot_id: "filter".to_string(),
+                    component: Some("filter".to_string()),
+                    label: Some("过滤面板".to_string()),
+                    layout_zone: Some("filter".to_string()),
+                    ..Default::default()
+                },
+            );
+        }
     }
-    contract
-        .map(|value| zones_from_shell_contract(&value.scene.local_nav, &value.panels))
-        .unwrap_or_default()
+    slots
+}
+
+fn assembly_has_filter_schema(assembly: &Value) -> bool {
+    assembly
+        .get("filter_schema")
+        .and_then(|value| value.get("fields"))
+        .and_then(Value::as_array)
+        .map(|fields| !fields.is_empty())
+        .unwrap_or(false)
 }
 
 fn parse_projection_slot(value: &Value) -> Option<BoardSlotEntry> {
@@ -225,12 +253,20 @@ fn parse_projection_slot(value: &Value) -> Option<BoardSlotEntry> {
         .or_else(|| object.get("label"))
         .and_then(Value::as_str)
         .map(str::to_string);
+    let layout_zone = object
+        .get("layout_zone")
+        .or_else(|| object.get("layoutZone"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let mut backing_refs = Vec::new();
     collect_backing_refs(value, &mut backing_refs);
     Some(BoardSlotEntry {
         slot_id,
         component,
         label,
+        layout_zone,
         backing_refs,
     })
 }
@@ -281,8 +317,16 @@ mod tests {
             "supervision_items_analytics_board".to_string(),
             serde_json::json!({
                 "shell_contract": { "layout_mode": "analytics" },
+                "filter_schema": {
+                    "fields": [{ "key": "dept", "label": "部门", "column": "部门" }]
+                },
                 "projection_slots": [
-                    { "id": "hero", "component": "metric_card", "metric": { "__ref": "metric", "id": "total" } }
+                    {
+                        "id": "hero",
+                        "component": "metric_card",
+                        "layout_zone": "hero",
+                        "metric": { "__ref": "metric", "id": "total" }
+                    }
                 ]
             }),
         );
@@ -295,8 +339,19 @@ mod tests {
             .expect("board entry");
         assert_eq!(entry.scene_id, "supervision_items_analytics_board");
         assert_eq!(entry.layout_mode.as_deref(), Some("analytics"));
-        assert_eq!(entry.slots.len(), 1);
+        assert_eq!(entry.slots.len(), 2);
+        assert_eq!(entry.slots[0].slot_id, "filter");
+        assert_eq!(entry.slots[1].slot_id, "hero");
+        assert_eq!(entry.slots[1].layout_zone.as_deref(), Some("hero"));
         assert_eq!(result.tree_root.children.len(), 1);
-        assert_eq!(result.tree_root.children[0].children.len(), 1);
+        assert_eq!(result.tree_root.children[0].children.len(), 2);
+        assert_eq!(
+            result.tree_root.children[0].children[0].board_layout_zone,
+            "filter"
+        );
+        assert_eq!(
+            result.tree_root.children[0].children[1].board_layout_zone,
+            "hero"
+        );
     }
 }

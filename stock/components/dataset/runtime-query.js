@@ -391,12 +391,32 @@ export function shouldReactToPreviewUpdated(event, element) {
 }
 
 /**
+ * Build 预览 scoped dim：非聚焦 panel 仅降透明度，仍会参与 layout；
+ * runtime prefetch 必须跳过，避免用错误 scene compile 上下文批量打 API。
+ */
+function isBuildPreviewScopedDim(el) {
+  if (!(el instanceof Element)) {
+    return false;
+  }
+  if (typeof window === "undefined") {
+    return false;
+  }
+  if (!/^\/apps\/(?:build|manage)\//.test(String(window.location.pathname || ""))) {
+    return false;
+  }
+  return Boolean(el.closest(".build-preview-scoped-dim"));
+}
+
+/**
  * 判断元素是否参与布局（未被 HTML `hidden` / display:none 等裁掉）。
  * 管理页「应用预览」在 diagnostics/source 标签下会带 `hidden`，子节点仍会被插入 DOM，
  * 但不应触发 dataset / 图表等重活。
  */
 export function elementIsDisplayed(el) {
   if (!el || !(el instanceof Element) || !el.isConnected) {
+    return false;
+  }
+  if (isBuildPreviewScopedDim(el)) {
     return false;
   }
   let node = el;
@@ -1316,7 +1336,7 @@ export function prefetchViewportRuntimeMetrics(root = document) {
       continue;
     }
     viewport.querySelectorAll("[data-props]").forEach((node) => {
-      if (!(node instanceof Element) || !node.isConnected) {
+      if (!(node instanceof Element) || !node.isConnected || isBuildPreviewScopedDim(node)) {
         return;
       }
       const props = parseProps(node);
@@ -1406,7 +1426,11 @@ export function prefetchVisiblePanelMetrics(root = document) {
   }
   const seen = new Set();
   scopeRoot.querySelectorAll("[data-mei-panel-id]").forEach((panel) => {
-    if (!(panel instanceof Element) || !elementIsDisplayed(panel)) {
+    if (
+      !(panel instanceof Element) ||
+      !elementIsDisplayed(panel) ||
+      isBuildPreviewScopedDim(panel)
+    ) {
       return;
     }
     const panelId = String(panel.getAttribute("data-mei-panel-id") || "").trim();

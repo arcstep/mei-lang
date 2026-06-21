@@ -41,9 +41,11 @@
     if (!id) return null;
     if (/^board-(?:file|slot):/i.test(id)) {
       const payload = id.replace(/^board-(?:file|slot):/i, "");
-      const hashAt = payload.indexOf("#");
-      const file = hashAt >= 0 ? payload.slice(0, hashAt) : payload;
-      const scene = hashAt >= 0 ? payload.slice(hashAt + 1) : "";
+      const slash = payload.indexOf("/");
+      const boardKey = slash >= 0 ? payload.slice(0, slash) : payload;
+      const hashAt = boardKey.indexOf("#");
+      const file = hashAt >= 0 ? boardKey.slice(0, hashAt) : boardKey;
+      const scene = hashAt >= 0 ? boardKey.slice(hashAt + 1) : "";
       if (file) return { scene, target: file };
     }
     if (/^(?:scene-panel|scene-block|scene|route):/i.test(id)) {
@@ -132,7 +134,25 @@
 
   function coordinatesEqual(a, b) {
     if (!a || !b) return false;
-    return a.scene === b.scene && a.target === b.target;
+    if (a.target !== b.target) return false;
+    // Board capsule = file + scene_export; slot switches share capsule with board-file.
+    return a.scene === b.scene;
+  }
+
+  function boardCapsuleKeyFromNodeId(nodeId) {
+    const raw = String(nodeId || "").trim();
+    if (!/^board-(?:file|slot):/i.test(raw)) return "";
+    const payload = raw.replace(/^board-(?:file|slot):/i, "");
+    const slash = payload.indexOf("/");
+    return slash >= 0 ? payload.slice(0, slash) : payload;
+  }
+
+  function boardExportChanged(prevNodeId, nextNodeId) {
+    if (!/^board-/i.test(String(nextNodeId || ""))) return false;
+    const prevKey = boardCapsuleKeyFromNodeId(prevNodeId);
+    const nextKey = boardCapsuleKeyFromNodeId(nextNodeId);
+    if (!nextKey) return false;
+    return prevKey !== nextKey;
   }
 
   function cssEscape(value) {
@@ -280,7 +300,7 @@
     } catch (_) {}
   }
 
-  function runTier0PostNav() {
+  function runTier0PostNav(prevUrl) {
     ensurePreviewTabVisible(global.location.href);
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     if (typeof closeDrilldownOverlay === "function") {
@@ -297,10 +317,19 @@
     if (typeof boot.activateManagePreviewBoardPool === "function") {
       boot.activateManagePreviewBoardPool(document);
     }
+    const prevNode = nodeIdFromUrl(prevUrl || global.location.href);
+    const nextNode = nodeIdFromUrl(global.location.href);
+    if (boardExportChanged(prevNode, nextNode)) {
+      wakePreviewRuntime("build-nav-board-export");
+    }
   }
 
   function shouldSkipPreviewRuntimeWake(prevUrl, nextUrl) {
-    return classifyBuildNavTier(prevUrl, nextUrl) === "client";
+    if (classifyBuildNavTier(prevUrl, nextUrl) !== "client") return false;
+    const prevNode = nodeIdFromUrl(prevUrl);
+    const nextNode = nodeIdFromUrl(nextUrl);
+    if (boardExportChanged(prevNode, nextNode)) return false;
+    return true;
   }
 
   function shouldWakePreviewRuntime(prevUrl, nextUrl) {
@@ -420,7 +449,7 @@
       try {
         syncBuildShellUrl(toUrl, !!opts.replaceHistory, opts.linkEl);
         stats.tier0 += 1;
-        runTier0PostNav();
+        runTier0PostNav(fromUrl);
         return { handled: true, tier: 0 };
       } finally {
         buildNavInFlight = false;

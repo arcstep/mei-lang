@@ -3539,10 +3539,14 @@
     }
   }
 
-  function restoreScroll(root) {
+  function restoreScroll(root, explicitTop) {
     const scroll = sidebarScrollEl(root);
     if (!scroll) return;
     try {
+      if (typeof explicitTop === "number" && Number.isFinite(explicitTop)) {
+        scroll.scrollTop = explicitTop;
+        return;
+      }
       const raw = global.sessionStorage.getItem(SCROLL_KEY);
       if (raw == null) return;
       const top = Number(raw);
@@ -3552,6 +3556,20 @@
     } catch {
       /* ignore */
     }
+  }
+
+  function pinSidebarScroll(root, mutate) {
+    const scroll = sidebarScrollEl(root);
+    const pinnedTop = scroll?.scrollTop ?? null;
+    mutate();
+    if (!scroll || pinnedTop == null) return;
+    const apply = () => {
+      scroll.scrollTop = pinnedTop;
+    };
+    requestAnimationFrame(() => {
+      apply();
+      requestAnimationFrame(apply);
+    });
   }
 
   function branchId(details) {
@@ -3660,21 +3678,26 @@
       (event) => {
         const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
         if (!link) return;
-        event.stopPropagation();
+        // Prevent focus scroll-into-view jitter when SPA handles navigation.
+        event.preventDefault();
       },
       true,
     );
   }
 
-  function refresh() {
+  function refresh(options) {
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
     if (!root) return;
     bindTreePersist(root);
     bindTreeTabPersist(root);
     syncTreeLinkTabs(root);
-    syncTreeActiveFromNode(root);
-    restoreScroll(root);
+    pinSidebarScroll(root, () => {
+      syncTreeActiveFromNode(root);
+    });
+    if (options && options.restorePersistedScroll) {
+      restoreScroll(root);
+    }
   }
 
   function syncTreeActiveFromNode(root) {
@@ -3708,7 +3731,7 @@
 
   function bind() {
     if (!isBuildRoute()) return;
-    refresh();
+    refresh({ restorePersistedScroll: true });
     global.addEventListener("popstate", refresh);
     global.addEventListener("mei:manage-tab-change", refresh);
   }
@@ -3768,9 +3791,11 @@
     if (!id) return null;
     if (/^board-(?:file|slot):/i.test(id)) {
       const payload = id.replace(/^board-(?:file|slot):/i, "");
-      const hashAt = payload.indexOf("#");
-      const file = hashAt >= 0 ? payload.slice(0, hashAt) : payload;
-      const scene = hashAt >= 0 ? payload.slice(hashAt + 1) : "";
+      const slash = payload.indexOf("/");
+      const boardKey = slash >= 0 ? payload.slice(0, slash) : payload;
+      const hashAt = boardKey.indexOf("#");
+      const file = hashAt >= 0 ? boardKey.slice(0, hashAt) : boardKey;
+      const scene = hashAt >= 0 ? boardKey.slice(hashAt + 1) : "";
       if (file) return { scene, target: file };
     }
     if (/^(?:scene-panel|scene-block|scene|route):/i.test(id)) {
@@ -3859,7 +3884,25 @@
 
   function coordinatesEqual(a, b) {
     if (!a || !b) return false;
-    return a.scene === b.scene && a.target === b.target;
+    if (a.target !== b.target) return false;
+    // Board capsule = file + scene_export; slot switches share capsule with board-file.
+    return a.scene === b.scene;
+  }
+
+  function boardCapsuleKeyFromNodeId(nodeId) {
+    const raw = String(nodeId || "").trim();
+    if (!/^board-(?:file|slot):/i.test(raw)) return "";
+    const payload = raw.replace(/^board-(?:file|slot):/i, "");
+    const slash = payload.indexOf("/");
+    return slash >= 0 ? payload.slice(0, slash) : payload;
+  }
+
+  function boardExportChanged(prevNodeId, nextNodeId) {
+    if (!/^board-/i.test(String(nextNodeId || ""))) return false;
+    const prevKey = boardCapsuleKeyFromNodeId(prevNodeId);
+    const nextKey = boardCapsuleKeyFromNodeId(nextNodeId);
+    if (!nextKey) return false;
+    return prevKey !== nextKey;
   }
 
   function cssEscape(value) {
@@ -4007,7 +4050,7 @@
     } catch (_) {}
   }
 
-  function runTier0PostNav() {
+  function runTier0PostNav(prevUrl) {
     ensurePreviewTabVisible(global.location.href);
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     if (typeof closeDrilldownOverlay === "function") {
@@ -4024,10 +4067,19 @@
     if (typeof boot.activateManagePreviewBoardPool === "function") {
       boot.activateManagePreviewBoardPool(document);
     }
+    const prevNode = nodeIdFromUrl(prevUrl || global.location.href);
+    const nextNode = nodeIdFromUrl(global.location.href);
+    if (boardExportChanged(prevNode, nextNode)) {
+      wakePreviewRuntime("build-nav-board-export");
+    }
   }
 
   function shouldSkipPreviewRuntimeWake(prevUrl, nextUrl) {
-    return classifyBuildNavTier(prevUrl, nextUrl) === "client";
+    if (classifyBuildNavTier(prevUrl, nextUrl) !== "client") return false;
+    const prevNode = nodeIdFromUrl(prevUrl);
+    const nextNode = nodeIdFromUrl(nextUrl);
+    if (boardExportChanged(prevNode, nextNode)) return false;
+    return true;
   }
 
   function shouldWakePreviewRuntime(prevUrl, nextUrl) {
@@ -4147,7 +4199,7 @@
       try {
         syncBuildShellUrl(toUrl, !!opts.replaceHistory, opts.linkEl);
         stats.tier0 += 1;
-        runTier0PostNav();
+        runTier0PostNav(fromUrl);
         return { handled: true, tier: 0 };
       } finally {
         buildNavInFlight = false;
@@ -4288,15 +4340,220 @@
   function syncBuildPreviewScopedChrome(root) {
     const scopedActive =
       root instanceof HTMLElement &&
-      root.querySelector("[data-preview-scope].build-preview-scoped-dim") != null;
+      (root.querySelector("[data-preview-scope].build-preview-scoped-dim") != null ||
+        root.querySelector("[data-mei-panel-id].build-preview-scoped-dim") != null ||
+        root.querySelector("[data-chart-slot-index].build-preview-scoped-dim") != null ||
+        root.querySelector("[data-build-board-slot].build-preview-scoped-dim") != null);
     document.body.classList.toggle("build-preview-scoped-active", scopedActive);
+  }
+
+  function boardSlotIdFromNode(node) {
+    const raw = String(node || "").trim();
+    if (!raw.startsWith("board-slot:")) return "";
+    const payload = raw.replace(/^board-slot:/i, "");
+    const slash = payload.lastIndexOf("/");
+    return slash >= 0 ? payload.slice(slash + 1) : "";
+  }
+
+  function readReachabilityTreeRoots() {
+    const el = document.getElementById("mei-build-reachability-tree");
+    if (!el) return [];
+    try {
+      const parsed = JSON.parse(el.textContent || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function findReachabilityNodeEntry(nodeId) {
+    const target = String(nodeId || "").trim();
+    if (!target) return null;
+    let found = null;
+    const walk = (nodes, parent) => {
+      for (const node of nodes || []) {
+        if (String(node?.node_id || "").trim() === target) {
+          found = { node, parent };
+          return true;
+        }
+        if (walk(node?.children, node)) return true;
+      }
+      return false;
+    };
+    for (const root of readReachabilityTreeRoots()) {
+      if (walk(root?.children, root)) break;
+    }
+    return found;
+  }
+
+  function boardSlotMetaFromReachabilityTree(node) {
+    const entry = findReachabilityNodeEntry(node);
+    if (!entry) return null;
+    const treeNode = entry.node;
+    const parent = entry.parent;
+    const layoutZone = String(treeNode?.board_layout_zone || "").trim();
+    const component = String(treeNode?.badges?.[0] || "").trim();
+    let chartIndex = -1;
+    if (component === "chart" && layoutZone && parent && Array.isArray(parent.children)) {
+      const chartSiblings = parent.children.filter((child) => {
+        return (
+          String(child?.board_layout_zone || "").trim() === layoutZone &&
+          String(child?.badges?.[0] || "").trim() === "chart"
+        );
+      });
+      chartIndex = chartSiblings.findIndex(
+        (child) => String(child?.node_id || "").trim() === String(node || "").trim(),
+      );
+    }
+    return { layoutZone, component, chartIndex };
+  }
+
+  function readSceneDrilldownContext() {
+    const el = document.getElementById("mei-scene-drilldown-context");
+    if (!el) return null;
+    try {
+      const parsed = JSON.parse(el.textContent || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function boardLayoutZoneFromTreeLink(node) {
+    const raw = String(node || "").trim();
+    if (!raw) return "";
+    const link = document.querySelector(
+      `.build-reachability-tree a[data-build-node="${CSS.escape(raw)}"]`,
+    );
+    return String(link?.getAttribute("data-board-layout-zone") || "").trim();
+  }
+
+  function projectionSlotsForBoardScene(sceneId) {
+    const ctx = readSceneDrilldownContext();
+    const assembly = ctx?.scene_projection_assembly_by_id?.[sceneId];
+    const raw = assembly?.projection_slots;
+    return Array.isArray(raw) ? raw : [];
+  }
+
+  function resolveBoardSlotMeta(node, slotId) {
+    const fromTree = boardSlotMetaFromReachabilityTree(node);
+    const layoutZoneFromTree =
+      String(fromTree?.layoutZone || "").trim() ||
+      boardLayoutZoneFromTreeLink(node);
+    const sceneId = sceneExportIdFromBoardNode(node);
+    const slots = projectionSlotsForBoardScene(sceneId);
+    const matched = slots.find((entry) => {
+      const id = String(entry?.id || entry?.slot_id || "").trim();
+      return id && id === slotId;
+    });
+    const component = String(
+      fromTree?.component ||
+        matched?.component ||
+        matched?.as ||
+        (slotId === "filter" ? "filter" : ""),
+    ).trim();
+    const layoutZone =
+      layoutZoneFromTree ||
+      String(matched?.layout_zone || matched?.layoutZone || "").trim() ||
+      (slotId === "filter" ? "filter" : slotId);
+    const chartIndex =
+      typeof fromTree?.chartIndex === "number" && fromTree.chartIndex >= 0
+        ? fromTree.chartIndex
+        : chartSlotIndexForMeta({ slotId, layoutZone, component, sceneId });
+    return { slotId, layoutZone, component, sceneId, chartIndex };
+  }
+
+  function chartSlotIndexForMeta(meta) {
+    if (typeof meta?.chartIndex === "number" && meta.chartIndex >= 0) {
+      return meta.chartIndex;
+    }
+    if (meta.component !== "chart") return -1;
+    const slots = projectionSlotsForBoardScene(meta.sceneId).filter((entry) => {
+      const zone = String(entry?.layout_zone || entry?.layoutZone || "").trim();
+      const component = String(entry?.component || entry?.as || "").trim();
+      return zone === meta.layoutZone && component === "chart";
+    });
+    return slots.findIndex((entry) => {
+      const id = String(entry?.id || entry?.slot_id || "").trim();
+      return id === meta.slotId;
+    });
+  }
+
+  function resolveBoardSlotHighlightTargets(root, meta) {
+    if (!meta?.slotId) return [];
+    const tagged = root.querySelector(`[data-build-board-slot="${CSS.escape(meta.slotId)}"]`);
+    if (tagged instanceof HTMLElement) return [tagged];
+
+    const panel = root.querySelector(
+      `[data-mei-panel-id="${CSS.escape(meta.layoutZone)}"]`,
+    );
+    if (!(panel instanceof HTMLElement)) return [];
+
+    const isChart =
+      meta.component === "chart" ||
+      (!meta.component && meta.layoutZone === "chart");
+    if (isChart) {
+      const chartIndex = chartSlotIndexForMeta(meta);
+      if (chartIndex >= 0) {
+        const chartSlot = panel.querySelector(
+          `[data-chart-slot-index="${chartIndex}"]`,
+        );
+        if (chartSlot instanceof HTMLElement) return [chartSlot];
+      }
+      const chartSlots = panel.querySelectorAll("[data-chart-slot-index]");
+      if (chartSlots.length === 1) return [chartSlots[0]];
+    }
+    const panelBody = panel.querySelector(
+      "[data-mei-panel-body='true'], .preview-panel-body, .panel-body-cell",
+    );
+    return [panelBody instanceof HTMLElement ? panelBody : panel];
+  }
+
+  const BOARD_SLOT_COMPANION_ZONES = new Set(["filter"]);
+
+  function applyBoardSlotScopedPreview(root, meta) {
+    if (!meta?.layoutZone) return;
+    const keepZones = new Set([meta.layoutZone]);
+    BOARD_SLOT_COMPANION_ZONES.forEach((zoneId) => keepZones.add(zoneId));
+
+    root.querySelectorAll("[data-mei-panel-id]").forEach((el) => {
+      const panelId = String(el.getAttribute("data-mei-panel-id") || "").trim();
+      if (panelId && !keepZones.has(panelId)) {
+        el.classList.add("build-preview-scoped-dim");
+      }
+    });
+
+    if (meta.component === "chart" || meta.layoutZone === "chart") {
+      const panel = root.querySelector(
+        `[data-mei-panel-id="${CSS.escape(meta.layoutZone)}"]`,
+      );
+      const chartIndex = chartSlotIndexForMeta(meta);
+      if (panel instanceof HTMLElement && chartIndex >= 0) {
+        panel.querySelectorAll("[data-chart-slot-index]").forEach((el) => {
+          if (String(el.getAttribute("data-chart-slot-index") || "") !== String(chartIndex)) {
+            el.classList.add("build-preview-scoped-dim");
+          }
+        });
+      }
+    }
+
+    syncBuildPreviewScopedChrome(root);
   }
 
   function applyScopedPreview(root) {
     const node = activeBuildNode();
-    root.querySelectorAll("[data-preview-scope]").forEach((el) => {
+    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id], [data-chart-slot-index], [data-build-board-slot]").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
+    const boardSlot = boardSlotIdFromNode(node);
+    if (boardSlot) {
+      applyBoardSlotScopedPreview(root, resolveBoardSlotMeta(node, boardSlot));
+      return;
+    }
+    if (node.startsWith("board-file:")) {
+      syncBuildPreviewScopedChrome(root);
+      return;
+    }
     if (
       !node.startsWith("scene-panel:") &&
       !node.startsWith("scene-block:")
@@ -4321,9 +4578,21 @@
     syncBuildPreviewScopedChrome(root);
   }
 
-  function scrollIntoViewIfOne(matches) {
-    if (matches.length === 1) {
-      matches[0].scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  function scrollIntoViewIfOne(matches, scrollRoot) {
+    if (matches.length !== 1) return;
+    const el = matches[0];
+    const container =
+      scrollRoot instanceof HTMLElement
+        ? scrollRoot
+        : el?.closest?.(".preview-pane-scroll");
+    if (!(container instanceof HTMLElement) || !(el instanceof HTMLElement)) return;
+    const elRect = el.getBoundingClientRect();
+    const boxRect = container.getBoundingClientRect();
+    const margin = 8;
+    if (elRect.top < boxRect.top + margin) {
+      container.scrollTop -= boxRect.top + margin - elRect.top;
+    } else if (elRect.bottom > boxRect.bottom - margin) {
+      container.scrollTop += elRect.bottom - boxRect.bottom + margin;
     }
   }
 
@@ -4337,7 +4606,7 @@
     if (focus && focus.startsWith("scene-block:")) {
       const focusMatches = root.querySelectorAll(`[data-build-focus="${CSS.escape(focus)}"]`);
       focusMatches.forEach((el) => el.classList.add("build-inspect-focus-selected"));
-      scrollIntoViewIfOne(focusMatches);
+      scrollIntoViewIfOne(focusMatches, root);
       focusEl = focusMatches[0] || null;
     }
 
@@ -4357,9 +4626,24 @@
       }
       selected.forEach((el) => el.classList.add("build-inspect-selected"));
       if (!focusEl) {
-        scrollIntoViewIfOne(selected);
+        scrollIntoViewIfOne(selected, root);
       }
       updateInspectBar(node, focus, focusEl || selected[0] || null);
+      return;
+    }
+
+    if (node.startsWith("board-slot:")) {
+      const slotId = boardSlotIdFromNode(node);
+      const meta = resolveBoardSlotMeta(node, slotId);
+      const selected = resolveBoardSlotHighlightTargets(root, meta);
+      selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      scrollIntoViewIfOne(selected, root);
+      updateInspectBar(node, focus, selected[0] || null);
+      return;
+    }
+
+    if (node.startsWith("board-file:")) {
+      updateInspectBar(node, focus, null);
       return;
     }
 
@@ -4475,11 +4759,9 @@
     if (!(surface instanceof HTMLElement)) return "";
     try {
       const url = new URL(global.location.href);
-      const fromNode = String(url.searchParams.get("node") || "")
-        .replace(/^board-(?:file|slot):/i, "")
-        .split("#")[1];
+      const fromNode = String(url.searchParams.get("node") || "");
       const sceneId =
-        String(fromNode || "").trim() ||
+        sceneExportIdFromBoardNode(fromNode) ||
         String(surface.dataset.sceneId || "").trim() ||
         String(url.searchParams.get("scene") || "").trim();
       const target = String(
@@ -4491,9 +4773,21 @@
     }
   }
 
+  function sceneExportIdFromBoardNode(nodeParam) {
+    const node = String(nodeParam || "").trim();
+    if (!/^board-(?:file|slot):/i.test(node)) return "";
+    const payload = node.replace(/^board-(?:file|slot):/i, "");
+    const slash = payload.indexOf("/");
+    const boardKey = slash >= 0 ? payload.slice(0, slash) : payload;
+    const hashAt = boardKey.indexOf("#");
+    return hashAt >= 0 ? boardKey.slice(hashAt + 1).trim() : "";
+  }
+
   function clearScopedPreviewDim(root) {
     if (!(root instanceof HTMLElement)) return;
-    root.querySelectorAll("[data-preview-scope].build-preview-scoped-dim").forEach((el) => {
+    root.querySelectorAll(
+      "[data-preview-scope].build-preview-scoped-dim, [data-mei-panel-id].build-preview-scoped-dim, [data-chart-slot-index].build-preview-scoped-dim, [data-build-board-slot].build-preview-scoped-dim",
+    ).forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
     document.body.classList.remove("build-preview-scoped-active");
@@ -9775,6 +10069,9 @@
   async function mountAnalyticsChartSlots(root, detail, config, chartSlots, chartsHost) {
     const chartMounts = chartSlots.map(async (slot, index) => {
       const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
+      if (slotHost instanceof HTMLElement && slot?.id) {
+        slotHost.dataset.buildBoardSlot = String(slot.id);
+      }
       const slotConfig = resolveDrilldownTabConfig(config, slot.id);
       const boardMetricId = nonEmptyString(config.tableMetricId);
       const chartMapping =
@@ -11121,6 +11418,7 @@
         const slotEl = document.createElement("div");
         slotEl.className = "access-drilldown-shell-slot access-drilldown-shell-slot--chart";
         slotEl.dataset.chartSlotIndex = String(index);
+        if (slot?.id) slotEl.dataset.buildBoardSlot = String(slot.id);
         host.appendChild(slotEl);
       });
       host.style.display = "grid";
@@ -11163,10 +11461,13 @@
         config?.rowPreviewSourceZoneId && config.rowPreviewSourceZoneId === zone.id ? "single" : "",
     };
     if (primarySlot.component === "data_table") {
+      host.dataset.buildBoardSlot = primarySlot.id;
       return mountDrilldownTable(root, detail, { ...config, ...slotConfig }, host);
     }
     if (primarySlot.component === "summary" || primarySlot.component === "metric_card") {
-      host.appendChild(createDrilldownSummaryNode(slotConfig, primarySlot.id));
+      const summaryNode = createDrilldownSummaryNode(slotConfig, primarySlot.id);
+      summaryNode.dataset.buildBoardSlot = primarySlot.id;
+      host.appendChild(summaryNode);
       return true;
     }
     return false;
@@ -13597,8 +13898,10 @@
     const node = nonEmptyString(nodeParam);
     if (!/^board-(?:file|slot):/i.test(node)) return "";
     const payload = node.replace(/^board-(?:file|slot):/i, "");
-    const hashAt = payload.indexOf("#");
-    return hashAt >= 0 ? nonEmptyString(payload.slice(hashAt + 1)) : "";
+    const slash = payload.indexOf("/");
+    const boardKey = slash >= 0 ? payload.slice(0, slash) : payload;
+    const hashAt = boardKey.indexOf("#");
+    return hashAt >= 0 ? nonEmptyString(boardKey.slice(hashAt + 1)) : "";
   }
 
   function resolveManagePreviewSceneId(doc = document) {
@@ -13759,6 +14062,7 @@
     if (filterZone) {
       const host = resolveManagePreviewPanelHost(surface, filterZone.id);
       if (host instanceof HTMLElement) {
+        host.dataset.buildBoardSlot = "filter";
         host.replaceChildren();
         await mountAnalyticsFilterBar(surface, detail, resolved, host);
       }
@@ -13776,6 +14080,7 @@
           const slotEl = document.createElement("div");
           slotEl.className = "access-drilldown-shell-slot access-drilldown-shell-slot--chart";
           slotEl.dataset.chartSlotIndex = String(index);
+          if (slot?.id) slotEl.dataset.buildBoardSlot = String(slot.id);
           slotEl.style.height = "100%";
           slotEl.style.minHeight = "180px";
           host.appendChild(slotEl);
@@ -13812,6 +14117,9 @@
     surface.classList.add("preview-board-mounted");
     stashBoardMount(mountKey, surface);
     dispatchPreviewUpdated("manage-board-preview");
+    if (global.MeiBuildInspectHighlight && typeof global.MeiBuildInspectHighlight.refresh === "function") {
+      global.MeiBuildInspectHighlight.refresh({ detail: { scope: "manage-board-preview" } });
+    }
     return true;
   }
 

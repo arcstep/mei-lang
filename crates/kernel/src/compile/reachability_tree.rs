@@ -17,6 +17,9 @@ pub struct ReachabilityTreeNode {
     /// Compile preview target file (`scenes/home.mei`, `*.board.mei`, …).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub compile_target: String,
+    /// Board slot layout zone (`filter`, `chart`, `detail`, …) for build preview inspect.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub board_layout_zone: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ReachabilityTreeNode>,
 }
@@ -31,6 +34,7 @@ impl Default for ReachabilityTreeNode {
             badges: Vec::new(),
             compile_scene: String::new(),
             compile_target: String::new(),
+            board_layout_zone: String::new(),
             children: Vec::new(),
         }
     }

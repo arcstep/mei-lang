@@ -49,6 +49,8 @@ pub struct BoardSlotEntry {
     pub component: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_zone: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub backing_refs: Vec<String>,
 }
@@ -129,6 +131,8 @@ pub struct ReachabilityTreeNodeSnapshot {
     pub compile_scene: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub compile_target: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub board_layout_zone: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ReachabilityTreeNodeSnapshot>,
 }
