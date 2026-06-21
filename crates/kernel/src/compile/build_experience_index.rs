@@ -67,6 +67,7 @@ pub fn build_experience_index(
                     label: "Panels".to_string(),
                     badges: Vec::new(),
                     children: panel_nodes,
+                    ..Default::default()
                 });
             }
         } else if !scene_projection_assembly_by_id.contains_key(&route.scene_id) {
@@ -77,6 +78,7 @@ pub fn build_experience_index(
                 label: "Panels".to_string(),
                 badges: vec!["gate:missing".to_string()],
                 children: Vec::new(),
+                ..Default::default()
             });
         }
 
@@ -96,6 +98,7 @@ pub fn build_experience_index(
             label: scene_route_label(route),
             badges: vec![route.target_file.clone()],
             children,
+            ..Default::default()
         });
     }
 
@@ -141,17 +144,40 @@ pub fn merge_build_view_tree_roots(
 }
 
 pub fn reachability_roots_from_compiled(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
-    if build_view_reachability_stale(compiled) {
-        return rebuild_reachability_tree_from_compiled(compiled);
-    }
-    let mut roots = compiled
-        .build_experience_index
-        .reachability_snapshot
-        .iter()
-        .map(snapshot_to_root)
-        .collect();
-    ensure_board_and_template_roots(&mut roots, compiled);
+    let mut roots = if build_view_reachability_stale(compiled) {
+        rebuild_reachability_tree_from_compiled(compiled)
+    } else {
+        let mut roots = compiled
+            .build_experience_index
+            .reachability_snapshot
+            .iter()
+            .map(snapshot_to_root)
+            .collect();
+        ensure_board_and_template_roots(&mut roots, compiled);
+        roots
+    };
+    enrich_reachability_tree_compile_coords(&mut roots, compiled);
     roots
+}
+
+pub fn enrich_reachability_tree_compile_coords(roots: &mut [ReachabilityTreeRoot], compiled: &CompiledApp) {
+    for root in roots {
+        for child in &mut root.children {
+            enrich_node_compile_coords(child, compiled);
+        }
+    }
+}
+
+fn enrich_node_compile_coords(node: &mut ReachabilityTreeNode, compiled: &CompiledApp) {
+    if let Some(parsed) = BuildNodeId::parse(&node.node_id) {
+        if let Some(coord) = super::build_experience::compile_coordinate_for_node(&parsed, compiled) {
+            node.compile_scene = coord.scene_id.unwrap_or_default();
+            node.compile_target = coord.preview_target;
+        }
+    }
+    for child in &mut node.children {
+        enrich_node_compile_coords(child, compiled);
+    }
 }
 
 fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
@@ -393,6 +419,8 @@ fn node_to_snapshot(node: ReachabilityTreeNode) -> ReachabilityTreeNodeSnapshot 
         kind: node.kind,
         label: node.label,
         badges: node.badges,
+        compile_scene: node.compile_scene,
+        compile_target: node.compile_target,
         children: node.children.into_iter().map(node_to_snapshot).collect(),
     }
 }
@@ -404,6 +432,8 @@ fn node_snapshot_to_runtime(node: &ReachabilityTreeNodeSnapshot) -> Reachability
         kind: node.kind.clone(),
         label: node.label.clone(),
         badges: node.badges.clone(),
+        compile_scene: node.compile_scene.clone(),
+        compile_target: node.compile_target.clone(),
         children: node.children.iter().map(node_snapshot_to_runtime).collect(),
     }
 }
@@ -514,6 +544,7 @@ fn collect_panel_subtree(
         label,
         badges: aggregate_use_key_badges(&panel.blocks),
         children: tree_children,
+        ..Default::default()
     }]
 }
 
@@ -559,6 +590,7 @@ fn block_tree_node(
             badges
         },
         children: Vec::new(),
+        ..Default::default()
     })
 }
 
@@ -769,6 +801,7 @@ fn projection_children(
                 label: projection_id.clone(),
                 badges: vec![badge.clone()],
                 children: Vec::new(),
+                ..Default::default()
             }
         })
         .collect();
@@ -779,6 +812,7 @@ fn projection_children(
         label,
         badges: Vec::new(),
         children: nodes,
+        ..Default::default()
     }]
 }
 

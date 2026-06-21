@@ -39,6 +39,7 @@ pub use preview::{
     default_shell_body_theme_style, page_body_theme_style, scene_viewport_theme_style,
     shell_body_theme_style,
 };
+pub use shell_manage::{render_build_preview_fragment, BuildPreviewFragment};
 
 use document::render_document;
 

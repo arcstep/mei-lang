@@ -11,8 +11,29 @@ pub struct ReachabilityTreeNode {
     pub label: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub badges: Vec<String>,
+    /// Compile scene anchor (`home`, board export id, …) for fast client navigation.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub compile_scene: String,
+    /// Compile preview target file (`scenes/home.mei`, `*.board.mei`, …).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub compile_target: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ReachabilityTreeNode>,
+}
+
+impl Default for ReachabilityTreeNode {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            node_id: String::new(),
+            kind: String::new(),
+            label: String::new(),
+            badges: Vec::new(),
+            compile_scene: String::new(),
+            compile_target: String::new(),
+            children: Vec::new(),
+        }
+    }
 }
 
 /// Top-level grouping root in the build-view sidebar.
@@ -58,6 +79,7 @@ pub(crate) fn routes_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
                         .unwrap_or_else(|| route.scene_id.clone()),
                     badges,
                     children: Vec::new(),
+                    ..Default::default()
                 }
             })
             .collect(),
@@ -86,6 +108,7 @@ pub(crate) fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
                             .unwrap_or_else(|| dataset.id.clone()),
                         badges: Vec::new(),
                         children: Vec::new(),
+                        ..Default::default()
                     }
                 })
                 .collect::<Vec<_>>();
@@ -96,6 +119,7 @@ pub(crate) fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
                 label: "数据集".to_string(),
                 badges: Vec::new(),
                 children: dataset_nodes,
+                ..Default::default()
             });
         }
         if !index.metrics.is_empty() {
@@ -127,6 +151,7 @@ pub(crate) fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
                                     .unwrap_or_else(|| explain.id.clone()),
                                 badges: Vec::new(),
                                 children: Vec::new(),
+                                ..Default::default()
                             }
                         })
                         .collect();
@@ -141,6 +166,7 @@ pub(crate) fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
                             .unwrap_or_else(|| metric.id.clone()),
                         badges: Vec::new(),
                         children: explain_children,
+                        ..Default::default()
                     }
                 })
                 .collect::<Vec<_>>();
@@ -151,6 +177,7 @@ pub(crate) fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
                 label: "指标".to_string(),
                 badges: Vec::new(),
                 children: metric_nodes,
+                ..Default::default()
             });
         }
         children.push(ReachabilityTreeNode {
@@ -160,6 +187,7 @@ pub(crate) fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
             label: file_path.clone(),
             badges: Vec::new(),
             children: file_children,
+            ..Default::default()
         });
     }
     ReachabilityTreeRoot {
@@ -196,6 +224,7 @@ pub(crate) fn datasets_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
                         .map(|path| vec![path])
                         .unwrap_or_default(),
                     children: Vec::new(),
+                    ..Default::default()
                 }
             })
             .collect(),
@@ -219,6 +248,7 @@ pub(crate) fn artifacts_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
                     label: format!("compiled_app / {}", route.scene_id),
                     badges: vec!["prebuild".to_string()],
                     children: Vec::new(),
+                    ..Default::default()
                 }
             })
             .collect(),

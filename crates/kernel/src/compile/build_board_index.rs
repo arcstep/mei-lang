@@ -112,6 +112,7 @@ fn push_board_file_tree_node(
                     .unwrap_or_else(|| slot.slot_id.clone()),
                 badges: slot.component.clone().into_iter().collect(),
                 children: Vec::new(),
+                ..Default::default()
             }
         })
         .collect();
@@ -132,6 +133,7 @@ fn push_board_file_tree_node(
         label: display_label,
         badges: vec![file_name.to_string(), scene_id.to_string()],
         children: slot_nodes,
+        ..Default::default()
     });
 }
 

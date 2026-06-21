@@ -60,6 +60,7 @@ pub fn build_template_index(
                 label: entry.template_key.clone(),
                 badges: vec![entry.template_file.clone()],
                 children: Vec::new(),
+                ..Default::default()
             });
     }
 
@@ -72,6 +73,7 @@ pub fn build_template_index(
             label: category,
             badges: Vec::new(),
             children: nodes,
+            ..Default::default()
         });
     }
 
@@ -100,6 +102,7 @@ pub fn template_tree_root_from_index(index: &BuildTemplateIndex) -> Reachability
                 label: entry.template_key.clone(),
                 badges: vec![entry.template_file.clone()],
                 children: Vec::new(),
+                ..Default::default()
             });
     }
     let mut tree_children = Vec::new();
@@ -111,6 +114,7 @@ pub fn template_tree_root_from_index(index: &BuildTemplateIndex) -> Reachability
             label: category,
             badges: Vec::new(),
             children: nodes,
+            ..Default::default()
         });
     }
     ReachabilityTreeRoot {
