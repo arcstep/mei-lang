@@ -150,7 +150,6 @@
       (event) => {
         const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
         if (!link || !link.href) return;
-        event.stopPropagation();
         captureScroll(root);
         try {
           const url = new URL(link.href, global.location.href);

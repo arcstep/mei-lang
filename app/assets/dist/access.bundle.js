@@ -19052,7 +19052,8 @@
     return true;
   }
 
-  async function navigateInternal(url, replaceHistory) {
+  async function navigateInternal(url, replaceHistory, options) {
+    const opts = options || {};
     currentNavigationId += 1;
     const navigationId = currentNavigationId;
     spaNavigationInFlight += 1;
@@ -19066,6 +19067,7 @@
       nextUrl = new URL(url, window.location.href);
     } catch (_) {}
     if (
+      !opts.skipBuildNav &&
       currentUrl &&
       nextUrl &&
       typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function"
@@ -19073,7 +19075,7 @@
       const buildResult = await globalThis.MeiBuildNavigation.tryNavigateBuild(
         currentUrl.href,
         nextUrl.href,
-        { replaceHistory },
+        { replaceHistory, skipFragment: !!opts.skipBuildNav },
       );
       if (buildResult?.handled) {
         spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);
@@ -19323,7 +19325,7 @@
       } catch (err) {
         console.warn("[spa-navigation] build fast-nav failed; fallback to SPA", err);
       }
-      void navigateInternal(target.url, false);
+      void navigateInternal(target.url, false, { skipBuildNav: true });
     },
     true,
   );
@@ -19345,11 +19347,11 @@
             globalThis.MeiBuildNavigation.noteUrl(window.location.href);
             return;
           }
-          void navigateInternal(window.location.href, true);
+          void navigateInternal(window.location.href, true, { skipBuildNav: true });
         });
         return;
       }
-      void navigateInternal(window.location.href, true);
+      void navigateInternal(window.location.href, true, { skipBuildNav: true });
     }
   });
 

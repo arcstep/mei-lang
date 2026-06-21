@@ -67,7 +67,8 @@
     return true;
   }
 
-  async function navigateInternal(url, replaceHistory) {
+  async function navigateInternal(url, replaceHistory, options) {
+    const opts = options || {};
     currentNavigationId += 1;
     const navigationId = currentNavigationId;
     spaNavigationInFlight += 1;
@@ -81,6 +82,7 @@
       nextUrl = new URL(url, window.location.href);
     } catch (_) {}
     if (
+      !opts.skipBuildNav &&
       currentUrl &&
       nextUrl &&
       typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function"
@@ -88,7 +90,7 @@
       const buildResult = await globalThis.MeiBuildNavigation.tryNavigateBuild(
         currentUrl.href,
         nextUrl.href,
-        { replaceHistory },
+        { replaceHistory, skipFragment: !!opts.skipBuildNav },
       );
       if (buildResult?.handled) {
         spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);

@@ -94,18 +94,8 @@ pub fn render_build_preview_fragment(
     })
 }
 
-pub(crate) fn build_preview_panel_scope(node: &mei_lang_kernel::BuildNodeId) -> Option<String> {
-    use mei_lang_kernel::BuildNodeKind;
-    match node.kind {
-        BuildNodeKind::ScenePanel => {
-            let parts: Vec<&str> = node.key.split('/').filter(|part| !part.is_empty()).collect();
-            if parts.len() >= 2 {
-                // panel_path in SSR omits scene_id prefix (see preview/nodes.rs).
-                Some(parts[1..].join("/"))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
+pub(crate) fn build_preview_panel_scope(_node: &mei_lang_kernel::BuildNodeId) -> Option<String> {
+    // Tier0 panel navigation dims/highlight via `data-preview-scope` in the client;
+    // SSR must render the full scene so sibling panels exist in the DOM.
+    None
 }

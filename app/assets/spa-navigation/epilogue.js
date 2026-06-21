@@ -37,7 +37,7 @@
       } catch (err) {
         console.warn("[spa-navigation] build fast-nav failed; fallback to SPA", err);
       }
-      void navigateInternal(target.url, false);
+      void navigateInternal(target.url, false, { skipBuildNav: true });
     },
     true,
   );
@@ -59,11 +59,11 @@
             globalThis.MeiBuildNavigation.noteUrl(window.location.href);
             return;
           }
-          void navigateInternal(window.location.href, true);
+          void navigateInternal(window.location.href, true, { skipBuildNav: true });
         });
         return;
       }
-      void navigateInternal(window.location.href, true);
+      void navigateInternal(window.location.href, true, { skipBuildNav: true });
     }
   });
 
