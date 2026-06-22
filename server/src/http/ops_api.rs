@@ -32,7 +32,6 @@ fn resolve_app_root(state: &AppState, app_id: &str) -> Option<std::path::PathBuf
 #[derive(Debug, Serialize)]
 struct OpsConfigResponse {
     app_id: String,
-    config_path: String,
     config: MeiConfig,
     journal_revision: u64,
 }
@@ -59,14 +58,12 @@ pub async fn ops_config_get(
             .into_response();
     };
     let source_root = state.source_root.as_path();
-    let config_path = resolve_mei_config_path(&app_root, Some(source_root));
     let config = load_mei_config_for_app(&app_root, Some(source_root));
     let journal = OpsJournal::load(&app_root);
     (
         StatusCode::OK,
         Json(OpsConfigResponse {
             app_id,
-            config_path: config_path.display().to_string(),
             config,
             journal_revision: journal.revision,
         }),
@@ -117,7 +114,6 @@ pub async fn ops_config_put(
             Json(json!({
                 "ok": true,
                 "revision": entry.revision,
-                "config_path": config_path.display().to_string(),
                 "config": config,
             })),
         )

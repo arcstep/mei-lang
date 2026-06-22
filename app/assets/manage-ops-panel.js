@@ -5,7 +5,6 @@
 
   const state = {
     appId: "",
-    configPath: "",
     journalRevision: 0,
     boundary: null,
     ops: normalizeOps({}),
@@ -164,10 +163,7 @@
       : null;
     summaryRoot.innerHTML = `
       <div class="manage-ops-summary-head">
-        <div>
-          <div class="manage-ops-summary-title">配置文件</div>
-          <div class="manage-ops-summary-subtitle">${escapeHtml(state.configPath || ".mei-config.json")}</div>
-        </div>
+        <div class="manage-ops-summary-title">配置文件</div>
         <button type="button" class="manage-ops-btn" data-ops-refresh-summary>刷新</button>
       </div>
       <div class="manage-ops-summary-counts">
@@ -508,15 +504,6 @@
     ensureSelectedPanel();
     editorRoot.innerHTML = `
       <div class="manage-config-editor">
-        <div class="manage-config-header">
-          <div>
-            <div class="manage-config-header-title">配置文件 .mei-config.json</div>
-            <div class="manage-config-header-subtitle">${escapeHtml(state.configPath || ".mei-config.json")}</div>
-          </div>
-          <span class="manage-ops-panel-status" data-ops-editor-status data-tone="neutral">${escapeHtml(
-            state.isDirty ? "有未保存更改" : `rev ${state.journalRevision || 0}`,
-          )}</span>
-        </div>
         <div class="manage-config-header-note">配置改动只通过这个页面完成；.mei 和其他资源页统一保持只读查看。</div>
         <div class="manage-config-layout">
           ${renderConfigNav()}
@@ -808,7 +795,6 @@
         fetchJson("/api/ops/boundary"),
         fetchJson(`/api/ops/journal/${encodeURIComponent(state.appId)}`),
       ]);
-      state.configPath = configPayload.config_path || "";
       state.journalRevision = configPayload.journal_revision || 0;
       state.boundary = boundaryPayload;
       state.ops = normalizeOps(configPayload.config?.ops || {});
