@@ -20,17 +20,116 @@ mod tests {
     use std::path::Path;
 
     use mei_lang_kernel::{
-        DatasetView, DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator,
+        CompiledApp, DatasetView, DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator,
         QueryState, QueryTimeRange, RuntimeMetricEvalScope, SourceDecl,
     };
 
+    use crate::types::DatasetQueryOptions;
+
     use super::cache_key::{
-        eval_node_cache_key, metric_request_revision_fingerprint, runtime_metric_eval_scope,
+        eval_node_cache_key, metric_request_revision_fingerprint,
+        metric_response_artifact_lookup_cache_keys, runtime_metric_eval_scope,
     };
     use super::query_normalize::{
         normalize_query_filters, normalize_query_search, query_state_from_request,
     };
     use super::{metric_scope_cache_key, runtime_metric_workset};
+
+    #[test]
+    fn metric_response_lookup_prefers_prebuild_keys_in_default_scope() {
+        let owner_dataset = DatasetView {
+            id: "sample".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: "dataset_view:sample".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let compiled = CompiledApp {
+            app_id: "demo".to_string(),
+            title: "demo".to_string(),
+            app_root: "/tmp/demo".to_string(),
+            scene_routes: Vec::new(),
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: vec![mei_lang_kernel::LoadedResource {
+                id: "sample".to_string(),
+                kind: "dataset".to_string(),
+                title: None,
+                document: None,
+                dataset: Some(owner_dataset.clone()),
+            }],
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
+        let query = DatasetQueryOptions::default();
+        let prebuild_first = metric_response_artifact_lookup_cache_keys(
+            "demo",
+            Path::new("/tmp/demo"),
+            &compiled,
+            "home",
+            Some("scenes/home.mei"),
+            "sample",
+            &owner_dataset,
+            &query,
+            "compile-rev",
+            &[],
+            true,
+        );
+        assert!(
+            prebuild_first[0].starts_with("prebuild|response|"),
+            "expected prebuild key first, got {}",
+            prebuild_first[0]
+        );
+        let scoped_first = metric_response_artifact_lookup_cache_keys(
+            "demo",
+            Path::new("/tmp/demo"),
+            &compiled,
+            "home",
+            Some("scenes/home.mei"),
+            "sample",
+            &owner_dataset,
+            &query,
+            "compile-rev",
+            &[],
+            false,
+        );
+        assert!(
+            scoped_first[0].starts_with("demo|compile="),
+            "expected scoped key first, got {}",
+            scoped_first[0]
+        );
+    }
 
     #[test]
     fn metric_scope_cache_key_sorts_and_dedups() {

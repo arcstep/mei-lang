@@ -329,6 +329,16 @@ async fn serve(args: ServeArgs) -> Result<()> {
             tracing::warn!(%error, "failed to schedule startup background build");
         }
     }
+    let source_root_for_preload = source_root.clone();
+    if let Err(error) = tokio::task::spawn_blocking(move || {
+        crate::http::host_api::preload_metric_response_indices_for_workspace(
+            source_root_for_preload.as_path(),
+        );
+    })
+    .await
+    {
+        tracing::warn!(%error, "metric response index preload worker join failed");
+    }
     axum::serve(listener, app).await?;
     Ok(())
 }

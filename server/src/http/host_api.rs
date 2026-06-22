@@ -15,6 +15,10 @@ use crate::{
     prebuild::{run_prebuild, PrebuildAppReport, PrebuildMode, PrebuildOptions, PrebuildReport},
     AppState,
 };
+use mei_lang_datasets::{
+    preload_prebuild_metric_response_index,
+};
+use mei_lang_kernel::resolve_app_root;
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct HostScopeReadinessResponse {
@@ -444,6 +448,56 @@ fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
         registry.active_job = None;
         sync_registry_phase(registry);
     });
+    refresh_metric_response_indices_after_prebuild(report, app_filter);
+}
+
+fn refresh_metric_response_indices_after_prebuild(report: &PrebuildReport, app_filter: Option<&str>) {
+    let source_root = Path::new(report.source_root.as_str());
+    let app_ids: Vec<String> = if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
+        vec![app_id.to_string()]
+    } else {
+        report.succeeded_apps.clone()
+    };
+    for app_id in app_ids {
+        let app_root = resolve_app_root(source_root, app_id.as_str());
+        match preload_prebuild_metric_response_index(app_root.as_path()) {
+            Ok(stats) => tracing::info!(
+                app_id = %app_id,
+                index_load_ms = stats.load_ms,
+                entry_count = stats.entry_count,
+                rebuilt = stats.rebuilt,
+                "ensured metric response artifact index after prebuild"
+            ),
+            Err(error) => tracing::warn!(
+                app_id = %app_id,
+                %error,
+                "failed to ensure metric response index after prebuild"
+            ),
+        }
+    }
+}
+
+pub(crate) fn preload_metric_response_indices_for_workspace(source_root: &Path) {
+    let Ok(Some(manifest)) = mei_lang_kernel::resolve_runtime_warmup_manifest(source_root) else {
+        return;
+    };
+    for app in manifest.apps {
+        let app_root = resolve_app_root(source_root, app.app_id.as_str());
+        match preload_prebuild_metric_response_index(app_root.as_path()) {
+            Ok(stats) => tracing::info!(
+                app_id = %app.app_id,
+                index_load_ms = stats.load_ms,
+                entry_count = stats.entry_count,
+                rebuilt = stats.rebuilt,
+                "preloaded metric response artifact index"
+            ),
+            Err(error) => tracing::warn!(
+                app_id = %app.app_id,
+                %error,
+                "metric response index preload failed"
+            ),
+        }
+    }
 }
 
 fn mark_job_failed(app_filter: Option<&str>, mode: PrebuildMode, error: &str) {

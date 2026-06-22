@@ -49,10 +49,12 @@ pub use metric_response_cache::{
 };
 pub use query::query_dataset_rows;
 pub use result_artifact::{
-    default_result_artifact_scope, load_metric_dataframe_result_artifact,
-    load_metric_response_result_artifact,
-    load_prebuild_metric_response_artifact_dataset_fallback, store_metric_dataframe_result_artifact,
-    store_metric_response_result_artifact, LoadedMetricResponseArtifact,
+    default_result_artifact_scope, invalidate_prebuild_metric_response_index,
+    load_metric_dataframe_result_artifact, load_metric_response_result_artifact,
+    load_prebuild_metric_response_artifact_dataset_fallback, preload_prebuild_metric_response_index,
+    rebuild_and_install_prebuild_metric_response_index,
+    store_metric_dataframe_result_artifact, store_metric_response_result_artifact,
+    take_metric_response_index_stats, LoadedMetricResponseArtifact, MetricResponseIndexStats,
 };
 pub use table_contract::{
     apply_table_request_fields, enrich_table_result, QueryStateEcho, TableColumnState,
@@ -180,6 +182,7 @@ pub fn metric_response_artifact_lookup_cache_keys(
     query: &DatasetQueryOptions,
     compile_revision: &str,
     filter_intents: &[FilterIntent],
+    prefer_prebuild_keys: bool,
 ) -> Vec<String> {
     metric_cache_key::metric_response_artifact_lookup_cache_keys(
         app_id,
@@ -192,6 +195,7 @@ pub fn metric_response_artifact_lookup_cache_keys(
         query,
         compile_revision,
         filter_intents,
+        prefer_prebuild_keys,
     )
 }
 

@@ -721,6 +721,11 @@ fn run_prebuild_for_app(
         }
     }
     let warmup_requests_ms = warmup_started.elapsed().as_millis() as u64;
+    if let Err(error) =
+        mei_lang_datasets::rebuild_and_install_prebuild_metric_response_index(app_root.as_path())
+    {
+        warnings.push(format!("metric response index rebuild failed: {error}"));
+    }
     Ok(PrebuildAppReport {
         app_id: app.app_id.clone(),
         compile_scopes: compile_reports,

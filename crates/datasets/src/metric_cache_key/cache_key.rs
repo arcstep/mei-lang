@@ -400,6 +400,7 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
     query: &DatasetQueryOptions,
     compile_revision: &str,
     filter_intents: &[FilterIntent],
+    prefer_prebuild_keys: bool,
 ) -> Vec<String> {
     let mut dataset_ids = equivalent_dataset_resource_ids(compiled, owner_dataset);
     if let Some(index) = dataset_ids.iter().position(|id| id == primary_dataset_id) {
@@ -419,7 +420,7 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
             dataset_id.as_str(),
             &owner_dataset.runtime_metric_defs,
         );
-        let key = metric_response_cache_scope_key(
+        let scoped_key = metric_response_cache_scope_key(
             app_id,
             scene_id,
             scene_path,
@@ -429,25 +430,26 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
             &dependency_revision_key,
             filter_intents,
         );
-        if seen.insert(key.clone()) {
-            keys.push(key);
-        }
         let shared_key = metric_response_prebuild_shared_key(
             app_id,
             dataset_id.as_str(),
             query,
             &dependency_revision_key,
         );
-        if seen.insert(shared_key.clone()) {
-            keys.push(shared_key);
-        }
         let dataset_key = metric_response_prebuild_dataset_key(
             app_id,
             dataset_id.as_str(),
             query,
         );
-        if seen.insert(dataset_key.clone()) {
-            keys.push(dataset_key);
+        let ordered_keys = if prefer_prebuild_keys {
+            vec![dataset_key, shared_key, scoped_key]
+        } else {
+            vec![scoped_key, shared_key, dataset_key]
+        };
+        for key in ordered_keys {
+            if seen.insert(key.clone()) {
+                keys.push(key);
+            }
         }
     }
     keys

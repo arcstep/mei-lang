@@ -29,7 +29,7 @@ use mei_lang_datasets::{
     project_requested_metrics, query_state_from_request,
     runtime_metric_workset, store_cached_metric_response,
     store_metric_response_result_artifact, take_cached_metric_response,
-    RuntimeMetricEvalMode,
+    take_metric_response_index_stats, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{resolve_app_root, FilterIntent, QueryState};
 
@@ -531,6 +531,8 @@ fn execute_metric_query_group(
         .into_iter()
         .collect::<BTreeSet<_>>();
     let query = collect_all_query_options(ctx.effective_query_state);
+    let result_artifact_candidate =
+        default_result_artifact_scope(ctx.effective_query_state, ctx.filter_intents);
     let lookup_cache_keys = metric_response_artifact_lookup_cache_keys(
         ctx.app_id,
         ctx.app_root,
@@ -542,6 +544,7 @@ fn execute_metric_query_group(
         &query,
         ctx.compile_revision,
         ctx.filter_intents,
+        result_artifact_candidate,
     );
     let response_cache_key = lookup_cache_keys
         .first()
@@ -559,8 +562,6 @@ fn execute_metric_query_group(
             )
         });
     let response_cache_lookup_started = Instant::now();
-    let result_artifact_candidate =
-        default_result_artifact_scope(ctx.effective_query_state, ctx.filter_intents);
     let mut cached_hit = None;
     for cache_key in &lookup_cache_keys {
         if let Some(cached) = take_cached_metric_response(
@@ -616,6 +617,7 @@ fn execute_metric_query_group(
     }
     if result_artifact_candidate {
         let mut loaded_artifact = None;
+        let mut used_fallback = false;
         for cache_key in &lookup_cache_keys {
             if let Some((artifact, artifact_load_ms)) =
                 load_metric_response_result_artifact(ctx.app_root, cache_key)?
@@ -644,10 +646,12 @@ fn execute_metric_query_group(
                     request_all_metrics,
                 )?
             {
+                used_fallback = true;
                 loaded_artifact = Some((cache_key, artifact, artifact_load_ms));
             }
         }
         if let Some((hit_cache_key, artifact, artifact_load_ms)) = loaded_artifact {
+                let index_stats = take_metric_response_index_stats();
                 store_cached_metric_response(
                     hit_cache_key.clone(),
                     artifact.total_rows,
@@ -665,6 +669,18 @@ fn execute_metric_query_group(
                 perf.insert("response_cache_hit".to_string(), 0);
                 perf.insert("result_artifact_hit".to_string(), 1);
                 perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
+                perf.insert(
+                    "result_artifact_index_load_ms".to_string(),
+                    index_stats.load_ms,
+                );
+                perf.insert(
+                    "result_artifact_index_entry_count".to_string(),
+                    index_stats.entry_count as u64,
+                );
+                perf.insert(
+                    "result_artifact_fallback_hit".to_string(),
+                    u64::from(used_fallback),
+                );
                 let mut eval_observation = EvalObservation::new(false)
                     .with_response_cache_key_hash(hash_metric_response_cache_key(&hit_cache_key));
                 eval_observation.insert_counter("request_dag_observed", 0);
