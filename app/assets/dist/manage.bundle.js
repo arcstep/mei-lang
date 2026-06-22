@@ -5739,7 +5739,8 @@
 /* ===== spa-navigation/visit-history-store.js ===== */
 (function (global) {
   const MAX_ENTRIES = 20;
-  const STORAGE_PREFIX = "mei_visit_perf_v1:";
+  const STORAGE_PREFIX = "mei_visit_perf_v2:";
+  const LEGACY_STORAGE_PREFIX = "mei_visit_perf_v1:";
 
   function readUsername() {
     const meta = document.querySelector('meta[name="mei-auth-user"]');
@@ -5750,13 +5751,71 @@
     return "anonymous";
   }
 
-  function storageKey() {
-    return STORAGE_PREFIX + readUsername();
+  function resolveAppIdFromPathname(pathname) {
+    const path = String(pathname || "");
+    const prefixes = [
+      "/apps/build/",
+      "/apps/manage/",
+      "/apps/app/",
+      "/apps/access/",
+      "/apps/presentation/",
+      "/apps/slides/",
+      "/apps/upload/",
+      "/apps/config/",
+    ];
+    for (const prefix of prefixes) {
+      if (!path.startsWith(prefix)) continue;
+      let rest = path.slice(prefix.length);
+      const sceneSeg = "/scene/";
+      const sceneIdx = rest.indexOf(sceneSeg);
+      if (sceneIdx >= 0) {
+        rest = rest.slice(0, sceneIdx);
+      }
+      const slashQ = rest.indexOf("/?");
+      if (slashQ >= 0) rest = rest.slice(0, slashQ);
+      rest = rest.replace(/\/+$/, "");
+      if (rest) return rest;
+      break;
+    }
+    const parts = path.split("/").filter(Boolean);
+    if (parts[0] !== "apps") return "";
+    const routeSlug = parts[1] || "";
+    const known = new Set([
+      "access",
+      "manage",
+      "build",
+      "presentation",
+      "slides",
+      "upload",
+      "config",
+      "app",
+    ]);
+    if (known.has(routeSlug) && parts[2]) return parts[2];
+    return routeSlug;
   }
 
-  function list() {
+  function currentAppId(hint) {
+    const hinted = String(hint || "").trim();
+    if (hinted) return hinted;
+    const root = document.querySelector("[data-app]");
+    const fromDataset = root ? String(root.dataset.app || "").trim() : "";
+    if (fromDataset) return fromDataset;
+    let pathname = "";
     try {
-      const raw = global.localStorage.getItem(storageKey());
+      pathname =
+        typeof global.location !== "undefined" ? String(global.location.pathname || "") : "";
+    } catch (_) {}
+    return resolveAppIdFromPathname(pathname) || "_global";
+  }
+
+  function storageKey(appIdHint) {
+    const appId = currentAppId(appIdHint);
+    return STORAGE_PREFIX + readUsername() + ":" + appId;
+  }
+
+  function readListForKey(key) {
+    try {
+      const raw = global.localStorage.getItem(key);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       return Array.isArray(parsed) ? parsed : [];
@@ -5765,20 +5824,67 @@
     }
   }
 
+  function migrateLegacyIfNeeded(appIdHint) {
+    const username = readUsername();
+    const legacyKey = LEGACY_STORAGE_PREFIX + username;
+    let legacyItems;
+    try {
+      const raw = global.localStorage.getItem(legacyKey);
+      if (!raw) return;
+      legacyItems = JSON.parse(raw);
+      if (!Array.isArray(legacyItems) || !legacyItems.length) {
+        global.localStorage.removeItem(legacyKey);
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    const buckets = new Map();
+    legacyItems.forEach((item) => {
+      if (!item || typeof item !== "object") return;
+      const appId = String(item.appId || "").trim() || "_global";
+      if (!buckets.has(appId)) buckets.set(appId, []);
+      buckets.get(appId).push(item);
+    });
+    buckets.forEach((items, appId) => {
+      const key = STORAGE_PREFIX + username + ":" + appId;
+      const existing = readListForKey(key);
+      const merged = items.concat(existing).slice(0, MAX_ENTRIES);
+      try {
+        global.localStorage.setItem(key, JSON.stringify(merged));
+      } catch (_) {
+        /* ignore quota */
+      }
+    });
+    try {
+      global.localStorage.removeItem(legacyKey);
+    } catch (_) {}
+  }
+
+  function list(appIdHint) {
+    migrateLegacyIfNeeded(appIdHint);
+    return readListForKey(storageKey(appIdHint));
+  }
+
   function append(record) {
     if (!record || typeof record !== "object") return list();
     const enriched = enrichRecord(record);
-    const items = list();
+    const appId = currentAppId(enriched.appId);
+    enriched.appId = appId === "_global" ? enriched.appId || "" : appId;
+    migrateLegacyIfNeeded(appId);
+    const items = readListForKey(storageKey(appId));
     items.unshift(enriched);
     const trimmed = items.slice(0, MAX_ENTRIES);
     try {
-      global.localStorage.setItem(storageKey(), JSON.stringify(trimmed));
+      global.localStorage.setItem(storageKey(appId), JSON.stringify(trimmed));
     } catch (_) {
       /* ignore quota */
     }
     try {
       global.document?.dispatchEvent(
-        new CustomEvent("mei:visit-history-updated", { detail: { record, items: trimmed } }),
+        new CustomEvent("mei:visit-history-updated", {
+          detail: { record: enriched, items: trimmed, appId },
+        }),
       );
     } catch (_) {}
     return trimmed;
@@ -5797,17 +5903,6 @@
     if (typeof document === "undefined") return "";
     const node = document.querySelector(`meta[name="${name}"]`);
     return node ? String(node.getAttribute("content") || "").trim() : "";
-  }
-
-  function resolveAppIdFromPathname(pathname) {
-    const parts = String(pathname || "")
-      .split("/")
-      .filter(Boolean);
-    if (parts[0] !== "apps") return "";
-    const routeSlug = parts[1] || "";
-    const known = new Set(["access", "manage", "build", "presentation", "slides", "upload", "config"]);
-    if (known.has(routeSlug) && parts[2]) return parts[2];
-    return routeSlug;
   }
 
   function collectVisitContext(urlHint) {
@@ -5905,11 +6000,16 @@
     return lines.join("\n");
   }
 
-  function formatAllForAgent(items) {
-    const listItems = Array.isArray(items) ? items : [];
-    if (!listItems.length) return "# MeiLang 访问历史\n\n（暂无记录）";
+  function formatAllForAgent(items, appIdHint) {
+    const listItems = Array.isArray(items) ? items : list(appIdHint);
+    const appId = currentAppId(appIdHint);
+    const ctx = collectVisitContext();
+    const appLabel = ctx.appTitle || appId;
+    if (!listItems.length) {
+      return `# MeiLang 访问历史 · ${appLabel}\n\n（暂无记录）`;
+    }
     return (
-      `# MeiLang 访问历史（${listItems.length} 条）\n\n` +
+      `# MeiLang 访问历史 · ${appLabel}（${listItems.length} 条）\n\n` +
       listItems.map((item) => formatRecordForAgent(item)).join("\n\n")
     );
   }
@@ -5917,6 +6017,8 @@
   const api = {
     MAX_ENTRIES,
     readUsername,
+    currentAppId,
+    resolveAppIdFromPathname,
     list,
     append,
     kindLabel,

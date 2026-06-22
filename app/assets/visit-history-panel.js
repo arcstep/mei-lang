@@ -105,6 +105,17 @@
     }, 1200);
   }
 
+  function currentAppHeading() {
+    const api = store();
+    if (!api) return "访问历史";
+    const ctx =
+      api.collectVisitContext && typeof api.collectVisitContext === "function"
+        ? api.collectVisitContext()
+        : null;
+    const label = String(ctx?.appTitle || ctx?.appId || "").trim();
+    return label ? `访问历史 · ${label}` : "访问历史";
+  }
+
   function ensurePopover() {
     let popover = document.getElementById(POPOVER_ID);
     if (popover) return popover;
@@ -116,7 +127,7 @@
       '<div class="visit-history-popover-backdrop" data-visit-history-close="mask"></div>' +
       '<section class="visit-history-popover-panel" role="dialog" aria-label="访问历史">' +
       '<header class="visit-history-popover-head">' +
-      "<strong>访问历史</strong>" +
+      '<strong data-visit-history-title="true">访问历史</strong>' +
       '<div class="visit-history-popover-actions">' +
       '<button type="button" class="status-chip visit-history-copy-all" data-visit-history-copy-all="true" data-tone="neutral">复制全部</button>' +
       '<button type="button" class="visit-history-popover-close" data-visit-history-close="button" aria-label="关闭">×</button>' +
@@ -160,6 +171,8 @@
   function renderList() {
     const popover = ensurePopover();
     const listHost = popover.querySelector("[data-visit-history-list]");
+    const titleNode = popover.querySelector("[data-visit-history-title]");
+    if (titleNode) titleNode.textContent = currentAppHeading();
     if (!listHost) return;
     const api = store();
     const items = api && typeof api.list === "function" ? api.list() : [];
@@ -172,7 +185,7 @@
         const hint = item.uiShown ? "" : '<span class="visit-history-muted">未提示</span>';
         const contextBits = [
           item.workspace ? `工作区 ${truncate(item.workspace, 16)}` : "",
-          item.appTitle || item.appId ? `应用 ${truncate(item.appTitle || item.appId, 20)}` : "",
+          item.scene ? `场景 ${truncate(item.scene, 24)}` : "",
           item.file ? `文件 ${truncate(item.file, 24)}` : "",
         ].filter(Boolean);
         const contextLine = contextBits.length
