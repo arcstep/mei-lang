@@ -73,7 +73,7 @@
     const navigationId = currentNavigationId;
     spaNavigationInFlight += 1;
     boot._spaInFlight = spaNavigationInFlight;
-    requestRuntimeAbort("spa_navigation");
+    requestRuntimeAbort("spa_navigation", { clearCaches: false });
     closeDrilldownOverlay();
     let currentUrl = null;
     let nextUrl = null;

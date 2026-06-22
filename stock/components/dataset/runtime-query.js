@@ -1072,7 +1072,25 @@ function abortPendingSceneMetricBatchSchedules() {
   SCENE_METRIC_BATCH_SCHEDULES.clear();
 }
 
-export function abortRuntimeQueries(reason = "") {
+function resolveAbortClearCaches(reason, options = {}) {
+  const explicit = options?.clearCaches;
+  if (explicit === true || explicit === false) {
+    return explicit;
+  }
+  const normalized = String(reason || "").trim();
+  if (normalized === "spa_navigation") {
+    return false;
+  }
+  if (normalized.startsWith("manage_tab:")) {
+    return false;
+  }
+  if (normalized === "pagehide" || normalized === "full_navigation_bypass") {
+    return true;
+  }
+  return true;
+}
+
+export function abortRuntimeQueries(reason = "", options = {}) {
   abortPendingPanelMetricBatches();
   abortPendingSceneMetricBatchSchedules();
   for (const controller of [...ACTIVE_RUNTIME_FETCH_CONTROLLERS]) {
@@ -1082,7 +1100,9 @@ export function abortRuntimeQueries(reason = "") {
       /* ignore */
     }
   }
-  clearRuntimeQueryCaches();
+  if (resolveAbortClearCaches(reason, options)) {
+    clearRuntimeQueryCaches();
+  }
   if (typeof window !== "undefined") {
     window.__meiLastRuntimeAbortReason = String(reason || "").trim();
   }
@@ -1452,20 +1472,45 @@ export function prefetchVisiblePanelMetrics(root = document) {
   });
 }
 
+function readCompileEpochFromPage() {
+  if (typeof document === "undefined") {
+    return "";
+  }
+  const shell = document.querySelector(".shell[data-compile-epoch]");
+  if (shell) {
+    return String(shell.getAttribute("data-compile-epoch") || "").trim();
+  }
+  return "";
+}
+
+function handlePreviewUpdatedRuntimeQueryCache(event) {
+  const scope = previewUpdatedScope(event);
+  if (scope === "page") {
+    scheduleSceneMetricBatchFlush(0);
+  }
+  if (scope === "drilldown") {
+    return;
+  }
+  const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
+  if (detail.resetRuntimeQueryCache === true) {
+    clearRuntimeQueryCaches();
+    return;
+  }
+  if (detail.resetRuntimeQueryCache === false) {
+    return;
+  }
+  const epoch = String(detail.compileEpoch || readCompileEpochFromPage() || "").trim();
+  if (epoch) {
+    maybeInvalidateRuntimeQueryCachesForCompileEpoch(epoch);
+  }
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener(MEI_ABORT_RUNTIME_QUERIES, (event) => {
-    abortRuntimeQueries(event?.detail?.reason || "");
+    const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
+    abortRuntimeQueries(detail.reason || "", { clearCaches: detail.clearCaches });
   });
-  window.addEventListener("meilang:preview-updated", (event) => {
-    const scope = previewUpdatedScope(event);
-    if (scope === "page") {
-      scheduleSceneMetricBatchFlush(0);
-    }
-    if (scope === "drilldown" || event?.detail?.resetRuntimeQueryCache === false) {
-      return;
-    }
-    clearRuntimeQueryCaches();
-  });
+  window.addEventListener("meilang:preview-updated", handlePreviewUpdatedRuntimeQueryCache);
   window.addEventListener("pagehide", () => {
     abortRuntimeQueries("pagehide");
   });
@@ -1828,6 +1873,35 @@ function clearRuntimeQueryCaches() {
   DATASET_QUERY_RESULT_CACHE.clear();
 }
 
+function notifyClientRuntimeQueryCacheHit(kind) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.dispatchEvent(
+      new CustomEvent("mei:runtime-query-client-cache-hit", {
+        detail: { kind: String(kind || "dataset").trim() || "dataset" },
+      }),
+    );
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function withClientResultCachePerf(data, kind = "dataset") {
+  if (!data || typeof data !== "object") {
+    return data;
+  }
+  return {
+    ...data,
+    perf: {
+      ...(data.perf && typeof data.perf === "object" ? data.perf : {}),
+      client_result_cache_hit: 1,
+      client_cache_kind: String(kind || "dataset").trim() || "dataset",
+    },
+  };
+}
+
 function withMetricScopeSharePerf(data, flags = {}) {
   if (!data || typeof data !== "object") {
     return data;
@@ -1837,14 +1911,17 @@ function withMetricScopeSharePerf(data, flags = {}) {
   if (!cacheHit && !inflightHit) {
     return data;
   }
-  return {
-    ...data,
-    perf: {
-      ...(data.perf && typeof data.perf === "object" ? data.perf : {}),
-      client_metric_scope_cache_hit: cacheHit ? 1 : 0,
-      client_metric_scope_inflight_hit: inflightHit ? 1 : 0,
+  return withClientResultCachePerf(
+    {
+      ...data,
+      perf: {
+        ...(data.perf && typeof data.perf === "object" ? data.perf : {}),
+        client_metric_scope_cache_hit: cacheHit ? 1 : 0,
+        client_metric_scope_inflight_hit: inflightHit ? 1 : 0,
+      },
     },
-  };
+    "metric_scope",
+  );
 }
 
 function isPrefetchMetricRequest(meta = {}) {
@@ -2638,7 +2715,11 @@ export async function fetchDatasetRows(
   pruneDatasetQueryCaches(now);
   const cached = DATASET_QUERY_RESULT_CACHE.get(cacheKey);
   if (cached && cached.expiresAt > now) {
-    return waitForSharedPromise(Promise.resolve(cached.data), signal);
+    notifyClientRuntimeQueryCacheHit("dataset");
+    return waitForSharedPromise(
+      Promise.resolve(withClientResultCachePerf(cached.data, "dataset")),
+      signal,
+    );
   }
   let shared = DATASET_QUERY_INFLIGHT.get(cacheKey);
   if (!shared) {
@@ -2801,10 +2882,15 @@ export async function fetchRuntimeMetrics(
   pruneMetricQueryCaches(now);
   const cached = METRIC_QUERY_RESULT_CACHE.get(cacheKey);
   if (cached && cached.expiresAt > now) {
-    return waitForSharedPromise(Promise.resolve(cached.data), signal);
+    notifyClientRuntimeQueryCacheHit("metric");
+    return waitForSharedPromise(
+      Promise.resolve(withClientResultCachePerf(cached.data, "metric")),
+      signal,
+    );
   }
   const scopeCached = findCoveringMetricScopeResult(scopeKey, requestedIds, now);
   if (scopeCached) {
+    notifyClientRuntimeQueryCacheHit("metric_scope");
     return waitForSharedPromise(
       Promise.resolve(
         withMetricScopeSharePerf(

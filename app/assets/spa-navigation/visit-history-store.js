@@ -254,8 +254,9 @@
         const url = call?.url || "—";
         const status = call?.status != null ? String(call.status) : "—";
         const ms = Number.isFinite(Number(call?.ms)) ? `${call.ms}ms` : "—";
+        const clientTag = call?.clientHit ? " · client_cache" : "";
         const ok = call?.ok === false ? " FAIL" : "";
-        lines.push(`  ${index + 1}. [${kind}] ${url} · HTTP ${status} · ${ms}${ok}`);
+        lines.push(`  ${index + 1}. [${kind}] ${url} · HTTP ${status} · ${ms}${clientTag}${ok}`);
       });
     }
     return lines.join("\n");

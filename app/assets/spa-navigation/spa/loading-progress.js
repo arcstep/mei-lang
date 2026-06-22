@@ -149,6 +149,12 @@
     if (!json || typeof json !== "object") return;
     const perf = json.perf && typeof json.perf === "object" ? json.perf : null;
     if (!perf) return;
+    if (
+      Number(perf.client_result_cache_hit) === 1 ||
+      Number(perf.client_metric_scope_cache_hit) === 1
+    ) {
+      return;
+    }
     const candidates = [
       perf.metric_eval_total_ms,
       perf.metric_eval_ms,
@@ -183,9 +189,45 @@
     return typeof boot.loadNowMs === "function" ? boot.loadNowMs() : Date.now();
   }
 
+  function recordClientRuntimeQueryCacheHit(session, kind) {
+    if (!session) return;
+    if (!Array.isArray(session.apiCalls)) session.apiCalls = [];
+    const normalized = String(kind || "dataset").trim() || "dataset";
+    const apiKind =
+      normalized === "dataset" ? "query" : normalized === "metric_scope" ? "metrics" : "metrics";
+    session.apiCalls.push({
+      url: `/client-cache/${normalized}`,
+      kind: apiKind,
+      status: 200,
+      ms: 0,
+      ok: true,
+      clientHit: true,
+    });
+    if (session.apiCalls.length > 20) {
+      session.apiCalls = session.apiCalls.slice(-20);
+    }
+    if (session.phases.eval.status === "pending") {
+      setPhaseStatus(session, "eval", "active");
+    }
+    updateLoadingProgressDom(session);
+  }
+
+  function installClientRuntimeQueryCacheHitListener() {
+    if (typeof window === "undefined" || installClientRuntimeQueryCacheHitListener._installed) {
+      return;
+    }
+    installClientRuntimeQueryCacheHitListener._installed = true;
+    window.addEventListener("mei:runtime-query-client-cache-hit", (event) => {
+      const session = activeSession();
+      if (!session) return;
+      recordClientRuntimeQueryCacheHit(session, event?.detail?.kind);
+    });
+  }
+
   function installLoadingProgressFetchHook() {
     if (fetchHookInstalled || typeof window === "undefined") return;
     fetchHookInstalled = true;
+    installClientRuntimeQueryCacheHitListener();
     const nativeFetch = window.fetch.bind(window);
     window.fetch = async function meiLoadingProgressFetch(input, init) {
       const requestUrl =
@@ -213,13 +255,14 @@
             session.api.bytes += contentLength;
           }
           const kind = resolveApiKind(requestUrl);
+          let parsedJson = null;
           try {
             const clone = response.clone();
-            const json = await clone.json();
+            parsedJson = await clone.json();
             if (!Number.isFinite(contentLength) || contentLength <= 0) {
-              session.api.bytes += new TextEncoder().encode(JSON.stringify(json)).length;
+              session.api.bytes += new TextEncoder().encode(JSON.stringify(parsedJson)).length;
             }
-            recordApiPerfFromJson(session, kind, json);
+            recordApiPerfFromJson(session, kind, parsedJson);
           } catch (_) {
             /* ignore non-json */
           }
@@ -231,12 +274,16 @@
             session.phases.eval.durationMs = Math.round(elapsed);
           }
           if (!Array.isArray(session.apiCalls)) session.apiCalls = [];
+          const clientHit =
+            Number(parsedJson?.perf?.client_result_cache_hit) === 1 ||
+            Number(parsedJson?.perf?.client_metric_scope_cache_hit) === 1;
           session.apiCalls.push({
             url: requestUrl,
             kind: resolveApiKind(requestUrl),
             status: response.status,
             ms: Math.round(elapsed),
             ok: response.ok,
+            clientHit,
           });
           if (session.apiCalls.length > 20) {
             session.apiCalls = session.apiCalls.slice(-20);
@@ -298,6 +345,12 @@
     const cacheHit = headerText(response, "x-mei-compile-cache-hit");
     if (cacheHit === "1" || cacheHit === "true") session.compile.cacheHit = true;
     else if (cacheHit === "0" || cacheHit === "false") session.compile.cacheHit = false;
+    const pageRenderCacheHit = headerText(response, "x-mei-page-render-cache-hit");
+    if (pageRenderCacheHit === "1" || pageRenderCacheHit === "true") {
+      session.compile.pageRenderCacheHit = true;
+    } else if (pageRenderCacheHit === "0" || pageRenderCacheHit === "false") {
+      session.compile.pageRenderCacheHit = false;
+    }
     const htmlBytes = Number(htmlByteLength);
     const headerHtmlBytes = headerMs(response, "x-mei-html-bytes");
     session.compile.htmlBytes = Number.isFinite(htmlBytes)

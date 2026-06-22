@@ -31,11 +31,15 @@
     }
   }
 
-  function requestRuntimeAbort(reason) {
+  function requestRuntimeAbort(reason, options) {
+    const opts = options && typeof options === "object" ? options : {};
     try {
       window.dispatchEvent(
         new CustomEvent("mei:abort-runtime-queries", {
-          detail: { reason: String(reason || "").trim() },
+          detail: {
+            reason: String(reason || "").trim(),
+            clearCaches: opts.clearCaches,
+          },
         }),
       );
     } catch (_) {}
@@ -166,7 +170,7 @@
         emitTabChange(active);
       }
       if (active !== "preview") {
-        requestRuntimeAbort(`manage_tab:${active}`);
+        requestRuntimeAbort(`manage_tab:${active}`, { clearCaches: false });
       }
       if (active === "preview") {
         requestAnimationFrame(() => {
@@ -177,7 +181,9 @@
           }
           requestAnimationFrame(() => {
             window.dispatchEvent(
-              new CustomEvent("meilang:preview-updated", { detail: { scope: "page" } }),
+              new CustomEvent("meilang:preview-updated", {
+                detail: { scope: "page", resetRuntimeQueryCache: false },
+              }),
             );
           });
         });

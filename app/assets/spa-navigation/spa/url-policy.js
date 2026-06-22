@@ -119,11 +119,15 @@
     return false;
   }
 
-  function requestRuntimeAbort(reason) {
+  function requestRuntimeAbort(reason, options) {
+    const opts = options && typeof options === "object" ? options : {};
     try {
       window.dispatchEvent(
         new CustomEvent("mei:abort-runtime-queries", {
-          detail: { reason: String(reason || "").trim() },
+          detail: {
+            reason: String(reason || "").trim(),
+            clearCaches: opts.clearCaches,
+          },
         }),
       );
     } catch (_) {}
