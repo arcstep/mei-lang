@@ -13,6 +13,7 @@ use crate::metric_response_cache::{
     metric_response_prebuild_dataset_key, prebuild_metric_response_key_matches_dataset_query,
 };
 use crate::types::DatasetQueryOptions;
+use crate::util::read_json_artifact_lenient;
 use crate::DatasetQueryResult;
 
 const METRIC_RESPONSE_RESULT_ARTIFACT_SCHEMA_VERSION: &str =
@@ -77,18 +78,6 @@ fn metric_dataframe_result_artifact_path(app_root: &Path, response_cache_key: &s
         .join(format!("{}.json", hash_key(response_cache_key)))
 }
 
-fn read_json_artifact<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Option<T>> {
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let artifact = serde_json::from_str::<T>(
-        &fs::read_to_string(path)
-            .with_context(|| format!("read result artifact {}", path.display()))?,
-    )
-    .with_context(|| format!("parse result artifact {}", path.display()))?;
-    Ok(Some(artifact))
-}
-
 fn write_json_artifact<T: Serialize>(path: &Path, artifact: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -121,7 +110,9 @@ pub fn load_metric_response_result_artifact(
 ) -> Result<Option<(LoadedMetricResponseArtifact, u64)>> {
     let started = Instant::now();
     let path = metric_response_result_artifact_path(app_root, response_cache_key);
-    let Some(artifact) = read_json_artifact::<PersistedMetricResponseResultArtifact>(&path)? else {
+    let Some(artifact) =
+        read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(&path, "metric-response")?
+    else {
         return Ok(None);
     };
     if artifact.schema_version != METRIC_RESPONSE_RESULT_ARTIFACT_SCHEMA_VERSION
@@ -153,7 +144,9 @@ pub fn store_metric_response_result_artifact(
     let mut merged_metrics_map = metrics_map.clone();
     let mut merged_covered_metric_ids = covered_metric_ids.clone();
     let mut merged_complete = complete;
-    if let Some(existing) = read_json_artifact::<PersistedMetricResponseResultArtifact>(&path)? {
+    if let Some(existing) =
+        read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(&path, "metric-response")?
+    {
         if existing.schema_version == METRIC_RESPONSE_RESULT_ARTIFACT_SCHEMA_VERSION
             && existing.response_cache_key == response_cache_key
         {
@@ -263,7 +256,10 @@ fn ensure_prebuild_metric_response_index(app_root: &Path) -> Result<()> {
                 continue;
             }
             let Some(artifact) =
-                read_json_artifact::<PersistedMetricResponseResultArtifact>(&path)?
+                read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(
+                    &path,
+                    "metric-response",
+                )?
             else {
                 continue;
             };
@@ -357,7 +353,9 @@ pub fn load_metric_dataframe_result_artifact(
 ) -> Result<Option<(DatasetQueryResult, u64)>> {
     let started = Instant::now();
     let path = metric_dataframe_result_artifact_path(app_root, response_cache_key);
-    let Some(artifact) = read_json_artifact::<PersistedMetricDataframeResultArtifact>(&path)? else {
+    let Some(artifact) =
+        read_json_artifact_lenient::<PersistedMetricDataframeResultArtifact>(&path, "metric-dataframe")?
+    else {
         return Ok(None);
     };
     if artifact.schema_version != METRIC_DATAFRAME_RESULT_ARTIFACT_SCHEMA_VERSION

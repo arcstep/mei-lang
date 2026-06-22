@@ -9,16 +9,19 @@ use mei_lang_kernel::{build_runtime_eval_plan, DatasetView, EvalPlan, RuntimeMet
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::util::read_json_artifact_lenient;
 use crate::{eval_node_cache_key, metric_scope_cache_key, RuntimeMetricWorkset};
 
-const EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION: &str = "mei-eval-workset-artifact-v1";
-const EVAL_PLAN_ARTIFACT_SCHEMA_VERSION: &str = "mei-eval-plan-artifact-v1";
+const EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION: &str = "mei-eval-workset-artifact-v2";
+const EVAL_PLAN_ARTIFACT_SCHEMA_VERSION: &str = "mei-eval-plan-artifact-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedWorksetArtifact {
     schema_version: String,
     owner_resource_id: String,
     requested_metric_ids: Vec<String>,
+    /// Added in v2; missing in legacy v1 artifacts and treated as stale on read.
+    #[serde(default)]
     semantic_revision_key: String,
     closure_metric_ids: Vec<String>,
     eval_metric_ids: Option<Vec<String>>,
@@ -31,6 +34,7 @@ struct PersistedEvalPlanArtifact {
     schema_version: String,
     owner_resource_id: String,
     requested_metric_ids: Vec<String>,
+    #[serde(default)]
     semantic_revision_key: String,
     scope_key: String,
     dependency_revision_key: String,
@@ -107,15 +111,21 @@ fn eval_plan_artifact_path(
         .join(format!("{}.json", hash_key(&key)))
 }
 
-fn read_json_artifact<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Option<T>> {
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let artifact = serde_json::from_str::<T>(
-        &fs::read_to_string(path).with_context(|| format!("read eval artifact {}", path.display()))?,
-    )
-    .with_context(|| format!("parse eval artifact {}", path.display()))?;
-    Ok(Some(artifact))
+fn workset_artifact_is_current(artifact: &PersistedWorksetArtifact, semantic_revision_key: &str) -> bool {
+    artifact.schema_version == EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION
+        && !artifact.semantic_revision_key.is_empty()
+        && artifact.semantic_revision_key == semantic_revision_key
+}
+
+fn eval_plan_artifact_is_current(
+    artifact: &PersistedEvalPlanArtifact,
+    semantic_revision_key: &str,
+    dependency_revision_key: &str,
+) -> bool {
+    artifact.schema_version == EVAL_PLAN_ARTIFACT_SCHEMA_VERSION
+        && !artifact.semantic_revision_key.is_empty()
+        && artifact.dependency_revision_key == dependency_revision_key
+        && artifact.semantic_revision_key == semantic_revision_key
 }
 
 fn write_json_artifact<T: Serialize>(path: &Path, artifact: &T) -> Result<()> {
@@ -137,10 +147,10 @@ pub(crate) fn load_or_build_runtime_metric_workset_artifact(
     let started = Instant::now();
     let path = workset_artifact_path(app_root, owner_resource_id, requested_metric_ids);
     let semantic_revision_key = dataset_semantic_revision_key(owner_resource_id, dataset);
-    if let Some(artifact) = read_json_artifact::<PersistedWorksetArtifact>(&path)? {
-        if artifact.schema_version == EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION
-            && artifact.semantic_revision_key == semantic_revision_key
-        {
+    if let Some(artifact) =
+        read_json_artifact_lenient::<PersistedWorksetArtifact>(&path, "workset")?
+    {
+        if workset_artifact_is_current(&artifact, &semantic_revision_key) {
             return Ok((
                 RuntimeMetricWorkset {
                     closure_metric_ids: artifact.closure_metric_ids,
@@ -187,11 +197,12 @@ pub(crate) fn load_or_build_eval_plan_artifact(
     let path = eval_plan_artifact_path(app_root, owner_resource_id, requested_metric_ids, scope);
     let semantic_revision_key =
         eval_plan_semantic_revision_key(owner_resource_id, requested_metric_ids, metric_defs);
-    if let Some(artifact) = read_json_artifact::<PersistedEvalPlanArtifact>(&path)? {
-        if artifact.schema_version == EVAL_PLAN_ARTIFACT_SCHEMA_VERSION
-            && artifact.dependency_revision_key == scope.dependency_revision_key
-            && artifact.semantic_revision_key == semantic_revision_key
-        {
+    if let Some(artifact) = read_json_artifact_lenient::<PersistedEvalPlanArtifact>(&path, "plan")? {
+        if eval_plan_artifact_is_current(
+            &artifact,
+            &semantic_revision_key,
+            scope.dependency_revision_key.as_str(),
+        ) {
             return Ok((artifact.eval_plan, started.elapsed().as_millis() as u64, true));
         }
     }
@@ -248,4 +259,122 @@ fn count_files_recursively(path: &Path) -> usize {
             }
         })
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use mei_lang_kernel::SourceDecl;
+
+    use super::*;
+
+    fn minimal_dataset() -> DatasetView {
+        DatasetView {
+            id: "test-dataset".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "inline".to_string(),
+                path: String::new(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: BTreeMap::new(),
+        }
+    }
+
+    fn temp_app_root(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "mei-eval-artifact-{name}-{}-{}",
+            std::process::id(),
+            now_epoch_ms()
+        ))
+    }
+
+    fn workset_artifact_file(app_root: &Path) -> PathBuf {
+        fs::read_dir(app_root.join(".mei/eval-artifacts/workset"))
+            .expect("workset dir")
+            .next()
+            .expect("workset artifact")
+            .expect("workset entry")
+            .path()
+    }
+
+    #[test]
+    fn corrupt_workset_artifact_is_rebuilt_without_error() {
+        let app_root = temp_app_root("corrupt");
+        let _ = fs::remove_dir_all(&app_root);
+        let dataset = minimal_dataset();
+        let owner = "owner::metrics";
+        let metrics = vec!["metric-a".to_string()];
+
+        load_or_build_runtime_metric_workset_artifact(&app_root, owner, &metrics, &dataset)
+            .expect("initial build");
+        let path = workset_artifact_file(&app_root);
+        fs::write(&path, "{not-json").expect("write corrupt artifact");
+
+        let (_, _, hit) =
+            load_or_build_runtime_metric_workset_artifact(&app_root, owner, &metrics, &dataset)
+                .expect("corrupt artifact must not fail request");
+        assert!(!hit);
+
+        let content = fs::read_to_string(&path).expect("rebuilt artifact");
+        assert!(content.contains(EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION));
+        assert!(content.contains("semantic_revision_key"));
+
+        let _ = fs::remove_dir_all(&app_root);
+    }
+
+    #[test]
+    fn legacy_v1_workset_artifact_is_rebuilt_without_error() {
+        let app_root = temp_app_root("legacy-v1");
+        let _ = fs::remove_dir_all(&app_root);
+        let dataset = minimal_dataset();
+        let owner = "owner::metrics";
+        let metrics = vec!["metric-a".to_string()];
+
+        load_or_build_runtime_metric_workset_artifact(&app_root, owner, &metrics, &dataset)
+            .expect("initial build");
+        let path = workset_artifact_file(&app_root);
+        fs::write(
+            &path,
+            r#"{
+  "schema_version": "mei-eval-workset-artifact-v1",
+  "owner_resource_id": "owner::metrics",
+  "requested_metric_ids": ["metric-a"],
+  "closure_metric_ids": ["metric-a"],
+  "eval_metric_ids": ["metric-a"],
+  "defs_for_hydrate": {},
+  "generated_at_ms": 1
+}"#,
+        )
+        .expect("write legacy artifact");
+
+        let (_, _, hit) =
+            load_or_build_runtime_metric_workset_artifact(&app_root, owner, &metrics, &dataset)
+                .expect("legacy artifact must not fail request");
+        assert!(!hit);
+
+        let content = fs::read_to_string(&path).expect("rebuilt artifact");
+        assert!(content.contains(EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION));
+        assert!(content.contains("semantic_revision_key"));
+
+        let _ = fs::remove_dir_all(&app_root);
+    }
 }
