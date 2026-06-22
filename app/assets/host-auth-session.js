@@ -10,6 +10,7 @@
 
   let refreshTimerId = 0;
   let refreshInFlight = false;
+  let redirectInFlight = false;
   let lastSessionPayload = null;
 
   function readMeta(name) {
@@ -53,6 +54,29 @@
     return !isAuthDisabledProfile(readHostCapabilities());
   }
 
+  function isLoginPath(pathname) {
+    const path = String(pathname || window.location.pathname || "");
+    return path === "/login" || path.startsWith("/login/");
+  }
+
+  function redirectToLogin(reason) {
+    if (redirectInFlight || isLoginPath()) return false;
+    redirectInFlight = true;
+    clearRefreshTimer();
+    const next =
+      window.location.pathname + window.location.search + window.location.hash;
+    const target =
+      "/login?next=" +
+      encodeURIComponent(next && next !== "/login" ? next : "/");
+    if (reason) {
+      try {
+        sessionStorage.setItem("mei_auth_redirect_reason", String(reason));
+      } catch (_) {}
+    }
+    window.location.assign(target);
+    return true;
+  }
+
   function clearRefreshTimer() {
     if (refreshTimerId) {
       clearTimeout(refreshTimerId);
@@ -76,6 +100,21 @@
         }),
       );
     } catch (_) {}
+  }
+
+  function dispatchSessionExpired(reason) {
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:auth-session-expired", {
+          detail: { reason: String(reason || "session_expired") },
+        }),
+      );
+    } catch (_) {}
+  }
+
+  function handleSessionLost(reason) {
+    dispatchSessionExpired(reason);
+    redirectToLogin(reason);
   }
 
   function scheduleRefreshFromPayload(payload) {
@@ -114,6 +153,10 @@
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
       });
+      if (response.status === 401) {
+        handleSessionLost("session_expired");
+        throw new Error("session refresh unauthorized");
+      }
       if (!response.ok) {
         throw new Error("session refresh failed: " + response.status);
       }
@@ -135,12 +178,25 @@
     }
   }
 
+  async function recoverSessionForRequest() {
+    if (!shouldStart()) return false;
+    try {
+      const payload = await refreshSession("fetch_recovery");
+      return !!(payload && payload.authenticated);
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function bootstrap() {
     if (!shouldStart()) return;
     try {
       const payload = await fetchSession();
       lastSessionPayload = payload;
-      if (!(payload && payload.authenticated)) return;
+      if (!(payload && payload.authenticated)) {
+        handleSessionLost("session_expired");
+        return;
+      }
       scheduleRefreshFromPayload(payload);
     } catch (_) {}
   }
@@ -153,8 +209,13 @@
       bootstrap().catch(function () {});
       return;
     }
+    const expMs = Number(payload.expiresAt) * 1000;
+    if (Number.isFinite(expMs) && expMs > 0 && Date.now() >= expMs) {
+      handleSessionLost("session_expired");
+      return;
+    }
     const leadMs = refreshLeadMs(payload);
-    const refreshAtMs = Number(payload.expiresAt) * 1000 - leadMs;
+    const refreshAtMs = expMs - leadMs;
     if (Date.now() >= refreshAtMs) {
       refreshSession("visibility").catch(function () {});
     }
@@ -165,6 +226,8 @@
   window.MeiHostAuthSession = {
     bootstrap: bootstrap,
     refreshSession: refreshSession,
+    recoverSessionForRequest: recoverSessionForRequest,
+    redirectToLogin: redirectToLogin,
     scheduleRefreshFromPayload: scheduleRefreshFromPayload,
     getLastSessionPayload: function () {
       return lastSessionPayload;

@@ -28,9 +28,69 @@
     return "HTTP 异常";
   }
 
+  function requestUrlFromInput(input) {
+    if (typeof input === "string") return input;
+    if (input && typeof input.url === "string") return input.url;
+    return "";
+  }
+
+  function isSameOriginApiRequest(url) {
+    if (!url) return false;
+    if (url.startsWith("/")) return url.includes("/api/");
+    try {
+      const parsed = new URL(url, window.location.origin);
+      return (
+        parsed.origin === window.location.origin && parsed.pathname.includes("/api/")
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isAuthFlowRequest(url) {
+    const value = String(url || "");
+    return (
+      value.includes("/api/auth/login") ||
+      value.includes("/api/auth/public-key") ||
+      value.includes("/api/auth/session")
+    );
+  }
+
+  function redirectToLogin(reason) {
+    const auth = window.MeiHostAuthSession;
+    if (auth && typeof auth.redirectToLogin === "function") {
+      return auth.redirectToLogin(reason);
+    }
+    const path = window.location.pathname || "";
+    if (path === "/login" || path.startsWith("/login/")) return false;
+    const next = path + window.location.search + window.location.hash;
+    window.location.assign(
+      "/login?next=" + encodeURIComponent(next && next !== "/login" ? next : "/"),
+    );
+    return true;
+  }
+
+  async function recoverUnauthorizedRequest(input, init, nativeFetch) {
+    const requestUrl = requestUrlFromInput(input);
+    if (!isSameOriginApiRequest(requestUrl)) return null;
+    if (isAuthFlowRequest(requestUrl) || requestUrl.includes("/api/auth/refresh")) {
+      return null;
+    }
+    const auth = window.MeiHostAuthSession;
+    if (!auth || typeof auth.recoverSessionForRequest !== "function") {
+      redirectToLogin("session_expired");
+      return null;
+    }
+    const recovered = await auth.recoverSessionForRequest();
+    if (!recovered) return null;
+    return nativeFetch(input, init);
+  }
+
   function shouldSkipNotify(url, status) {
+    if (Number(status) === 401) return true;
     if (!url || !String(url).includes("/api/")) return true;
     if (String(url).includes("/api/host/heartbeat")) return true;
+    if (String(url).includes("/api/auth/refresh")) return true;
     if (
       Number(status) === 410 &&
       /\/api\/agent\/session\/[^/?]+\/(diff|revert|unrevert)(?:\?|$)/.test(String(url))
@@ -123,14 +183,25 @@
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function meiHostFetch(input, init) {
     const merged = mergeBuildViewFetch(input, init);
-    const response = await nativeFetch(merged.input, merged.init);
+    let response = await nativeFetch(merged.input, merged.init);
+    const requestUrl = requestUrlFromInput(merged.input);
+    if (
+      response.status === 401 &&
+      isSameOriginApiRequest(requestUrl) &&
+      !isAuthFlowRequest(requestUrl)
+    ) {
+      const retried = await recoverUnauthorizedRequest(
+        merged.input,
+        merged.init,
+        nativeFetch,
+      );
+      if (retried) {
+        response = retried;
+      } else {
+        redirectToLogin("session_expired");
+      }
+    }
     try {
-      const requestUrl =
-        typeof input === "string"
-          ? input
-          : input && typeof input.url === "string"
-            ? input.url
-            : "";
       if (
         requestUrl &&
         (requestUrl.startsWith("/") || requestUrl.startsWith(window.location.origin)) &&
