@@ -18,12 +18,12 @@ fn ops_editor_main_view(app_path: &str) -> impl IntoView {
 
 pub(crate) fn config_shell(
     apps: &[WorkspaceAppMeta],
-    app_title: &str,
+    _app_title: &str,
     app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
     upload_enabled: bool,
     access_scene: Option<&str>,
-    source_meta: Option<&SourcePanelMeta>,
+    _source_meta: Option<&SourcePanelMeta>,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
 ) -> AnyView {
@@ -42,13 +42,8 @@ pub(crate) fn config_shell(
     );
     let statusbar = statusbar_view(
         app_path,
-        app_title,
         UiRouteMode::Config.slug(),
         ".mei-config.json",
-        source_meta,
-        None,
-        false,
-        false,
         None,
     );
     view! {

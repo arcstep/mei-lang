@@ -59,13 +59,8 @@ pub(crate) fn access_shell(
     );
     let statusbar = statusbar_view(
         app_path,
-        compiled.title.as_str(),
         UiRouteMode::App.slug(),
         current_target,
-        None,
-        Some(compiled),
-        true,
-        false,
         None,
     );
     let shell_class = if chrome_hidden {

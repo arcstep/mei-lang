@@ -515,7 +515,7 @@ a { color: inherit; text-decoration: none; }
 }
 .statusbar-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto;
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -655,6 +655,10 @@ a { color: inherit; text-decoration: none; }
   height: 10px;
   border-radius: 2px;
   background: var(--mei-shell-color-chip-file-icon-bg);
+}
+.status-chip-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
 }
 .status-chip-mode::before {
   width: 7px;

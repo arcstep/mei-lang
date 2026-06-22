@@ -102,49 +102,6 @@ pub(crate) fn should_display_diagnostic(
     !is_world_capsule_manage_hint(compiled, selected_target, diag)
 }
 
-pub(crate) fn severity_counts(diags: &[&Diagnostic]) -> (usize, usize, usize) {
-    let errors = diags
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Error))
-        .count();
-    let warnings = diags
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Warning))
-        .count();
-    let infos = diags
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Info))
-        .count();
-    (errors, warnings, infos)
-}
-
-pub(crate) fn compile_status_counts_for_target(
-    compiled: &CompiledApp,
-    selected_target: &str,
-) -> (usize, usize, usize) {
-    let diags: Vec<_> = compiled
-        .diagnostics
-        .iter()
-        .filter(|diag| {
-            diagnostic_matches_target(compiled, selected_target, diag)
-                && should_display_diagnostic(compiled, selected_target, diag)
-        })
-        .collect();
-    severity_counts(&diags)
-}
-
-pub(crate) fn compile_status_counts_for_display(
-    compiled: &CompiledApp,
-    selected_target: &str,
-) -> (usize, usize, usize) {
-    let diags: Vec<_> = compiled
-        .diagnostics
-        .iter()
-        .filter(|diag| should_display_diagnostic(compiled, selected_target, diag))
-        .collect();
-    severity_counts(&diags)
-}
-
 /// 预览降级：优先当前文件 Error，不足时再补其它文件 Error。
 pub(crate) fn blocking_errors_for_preview<'a>(
     compiled: &'a CompiledApp,

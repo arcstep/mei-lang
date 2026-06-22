@@ -80,9 +80,8 @@
     } catch (_) {
       url = new URL(hrefBase || "http://localhost");
     }
-    const appChip = document.querySelector(".status-chip-app");
-    const appChipText = appChip ? String(appChip.textContent || "").trim() : "";
-    const appTitle = appChipText.replace(/^应用\s*/, "").trim();
+    const appPathItem = document.querySelector(".app-current-path-item");
+    const appTitle = appPathItem ? String(appPathItem.textContent || "").trim() : "";
     return {
       workspace: readMeta("mei-workspace-label"),
       routeMode: document.body?.dataset?.meiView || readMeta("mei-view") || "",

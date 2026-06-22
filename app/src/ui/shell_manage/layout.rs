@@ -29,7 +29,7 @@ pub(crate) fn manage_shell(
     topbar_menu: Option<&TopbarMenuContext>,
     target: Option<&str>,
     source: Option<&str>,
-    source_meta: Option<&SourcePanelMeta>,
+    _source_meta: Option<&SourcePanelMeta>,
     selected_scene: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
@@ -111,14 +111,9 @@ pub(crate) fn manage_shell(
     );
     let statusbar = statusbar_view(
         app_path,
-        compiled.title.as_str(),
         UiRouteMode::Build.slug(),
         selected_target.as_str(),
-        source_meta,
-        Some(compiled),
-        true,
-        true,
-        scene_for_links,
+        None,
     );
     let workspace_class = if show_inspector {
         "workspace manage-workspace manage-workspace--with-inspector chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"

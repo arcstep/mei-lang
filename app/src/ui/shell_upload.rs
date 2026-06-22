@@ -179,7 +179,7 @@ fn upload_tree_view(
 
 pub(crate) fn upload_shell(
     apps: &[WorkspaceAppMeta],
-    app_title: &str,
+    _app_title: &str,
     app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
     upload_enabled: bool,
@@ -188,7 +188,7 @@ pub(crate) fn upload_shell(
     files: &[UploadFileEntry],
     selected_file: Option<&str>,
     _source: Option<&str>,
-    source_meta: Option<&SourcePanelMeta>,
+    _source_meta: Option<&SourcePanelMeta>,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
 ) -> AnyView {
@@ -218,18 +218,9 @@ pub(crate) fn upload_shell(
     );
     let statusbar = statusbar_view(
         app_path,
-        app_title,
         UiRouteMode::Upload.slug(),
-        if selected.is_empty() {
-            upload_root_label
-        } else {
-            selected
-        },
-        source_meta,
-        None,
-        false,
-        false,
-        None,
+        selected,
+        Some(upload_root_label),
     );
     let file_tree = upload_tree_view(files, "", selected, app_path);
     view! {

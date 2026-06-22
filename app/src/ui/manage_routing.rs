@@ -5,6 +5,7 @@ use mei_lang_kernel::{
 
 use super::UiRouteMode;
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const OPS_CONFIG_TARGET: &str = ".mei-config.json";
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -25,12 +26,6 @@ impl WorldSemanticQuery<'_> {
                 .filter(|value| !value.is_empty())
                 .is_some()
     }
-}
-
-pub(crate) use mei_lang_kernel::BuildViewTab as ManageViewTab;
-
-pub(crate) fn is_ops_config_target(target: &str) -> bool {
-    target.trim() == OPS_CONFIG_TARGET
 }
 
 pub(crate) fn encode_query_value(value: &str) -> String {
@@ -103,7 +98,8 @@ pub(crate) fn build_node_query_parts(
     query
 }
 
-/// Legacy wrapper for statusbar / diagnostics links.
+/// Legacy wrapper for build-view deep links (routing regression tests).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn manage_tab_href(
     app_path: &str,
     file_param: Option<&str>,

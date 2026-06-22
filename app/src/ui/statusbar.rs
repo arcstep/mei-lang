@@ -1,94 +1,19 @@
 use leptos::prelude::*;
-use mei_lang_kernel::CompiledApp;
 
-use super::compile_status::{
-    compile_status_counts_for_display, compile_status_counts_for_target, compile_status_summary,
-    compile_status_title, compile_status_tone,
-};
-use super::manage_routing::{is_ops_config_target, manage_tab_href, ManageViewTab, WorldSemanticQuery};
-use super::SourcePanelMeta;
+use super::manage_routing::OPS_CONFIG_TARGET;
+
 pub(crate) fn statusbar_view(
     app_path: &str,
-    app_title: &str,
     route_mode: &'static str,
     current_target: &str,
-    source_meta: Option<&SourcePanelMeta>,
-    compiled: Option<&CompiledApp>,
-    runtime_enabled: bool,
-    show_compile_center: bool,
-    selected_scene: Option<&str>,
+    upload_root: Option<&str>,
 ) -> AnyView {
-    let app_summary = format!("应用 {app_title}");
-    let app_summary_title = format!("应用：{app_path}");
-    let route_mode_label = match route_mode {
-        "build" | "manage" => "构建",
-        "app" | "access" => "访问",
-        "presentation" | "slides" => "演示",
-        "config" => "配置",
-        "upload" => "上传",
-        _ => route_mode,
-    };
-    let file_label = if is_ops_config_target(current_target) {
-        ".mei-config.json"
-    } else {
-        current_target
-            .rsplit('/')
-            .next()
-            .filter(|value| !value.is_empty())
-            .unwrap_or(current_target)
-    };
-    let file_summary = if let Some(meta) = source_meta {
-        format!("文件 {file_label} · {}行", meta.line_count)
-    } else {
-        format!("文件 {file_label}")
-    };
-    let file_summary_title = if let Some(meta) = source_meta {
-        format!(
-            "当前文件：{} · {}行 · {}字",
-            current_target, meta.line_count, meta.char_count
-        )
-    } else {
-        format!("当前文件：{current_target}")
-    };
-    let (errors, warnings, infos) = compiled
-        .map(|compiled| compile_status_counts_for_display(compiled, current_target))
-        .unwrap_or((0, 0, 0));
-    let error_tone = if errors > 0 { "danger" } else { "neutral" };
-    let warning_tone = if warnings > 0 { "warn" } else { "neutral" };
-    let info_tone = if infos > 0 { "info" } else { "neutral" };
-    let compile_summary = compiled
-        .map(|compiled| compile_status_summary(compiled, current_target))
-        .unwrap_or_else(|| "未触发编译".to_string());
-    let compile_summary_title = compiled
-        .map(|compiled| compile_status_title(compiled, current_target))
-        .unwrap_or_else(|| "当前页面未依赖编译结果".to_string());
-    let compile_tone = compiled
-        .map(|compiled| compile_status_tone(compiled, current_target))
-        .unwrap_or("neutral");
-    let (cur_errors, _, _) = compiled
-        .map(|compiled| compile_status_counts_for_target(compiled, current_target))
-        .unwrap_or((0, 0, 0));
-    let diagnostics_tab_href =
-        if show_compile_center && compiled.is_some() && (errors > 0 || warnings > 0) {
-            Some(manage_tab_href(
-                app_path,
-                Some(current_target),
-                current_target,
-                current_target.ends_with(".mei"),
-                ManageViewTab::Overview,
-                None,
-                selected_scene,
-                WorldSemanticQuery::default(),
-            ))
-        } else {
-            None
-        };
-    let model_service_summary = if runtime_enabled {
-        "模型服务检测中"
-    } else {
-        "模型服务 --"
-    };
     let show_visit_history = matches!(route_mode, "app" | "access");
+    let left_path = if show_visit_history {
+        None
+    } else {
+        statusbar_left_path(app_path, route_mode, current_target, upload_root)
+    };
     view! {
         <footer class="statusbar statusbar-shell chrome-inset chrome-safe-x sticky bottom-0 z-10 py-1.5 backdrop-blur-md">
             <div class="statusbar-layout min-w-0 mei-font-1">
@@ -106,56 +31,115 @@ pub(crate) fn statusbar_view(
                             </button>
                         }
                         .into_any()
-                    } else {
-                        view! { <></> }.into_any()
-                    }}
-                    <span class="status-chip status-chip-app max-w-[18vw]" title=app_summary_title>{app_summary}</span>
-                    <span class="status-chip status-chip-file max-w-[26vw]" title=file_summary_title>{file_summary}</span>
-                    <span class="status-chip status-chip-mode" data-tone="info">{route_mode_label}</span>
-                </div>
-                <div class="statusbar-track statusbar-track-center min-w-0" aria-hidden=(!show_compile_center).then_some("true")>
-                    {if show_compile_center {
+                    } else if let Some(path) = left_path.as_deref() {
                         view! {
-                            <div class="statusbar-track-scroll">
-                                <span class="status-chip status-chip-compile" data-tone=compile_tone title=compile_summary_title.clone()>{compile_summary}</span>
-                                {diagnostics_tab_href
-                                    .map(|href| {
-                                        view! {
-                                            <a
-                                                class="status-chip status-chip-diagnostic status-chip-link"
-                                                data-tone=error_tone
-                                                href=href
-                                                title=format!("当前文件 {current_target}：{cur_errors} 个错误；点击查看调试页")
-                                            >
-                                                {format!("Error {} (文件 {})", errors, cur_errors)}
-                                            </a>
-                                        }
-                                        .into_any()
-                                    })
-                                    .unwrap_or_else(|| {
-                                        view! {
-                                            <span class="status-chip status-chip-diagnostic" data-tone=error_tone title=compile_summary_title>
-                                                {format!("Error {}", errors)}
-                                            </span>
-                                        }
-                                        .into_any()
-                                    })}
-                                <span class="status-chip status-chip-diagnostic" data-tone=warning_tone>{format!("Warning {}", warnings)}</span>
-                                <span class="status-chip status-chip-diagnostic" data-tone=info_tone>{format!("Info {}", infos)}</span>
-                            </div>
+                            <span
+                                class="status-chip status-chip-file status-chip-path max-w-[40vw]"
+                                title=path
+                            >
+                                {path}
+                            </span>
                         }
-                            .into_any()
+                        .into_any()
                     } else {
                         view! { <></> }.into_any()
                     }}
                 </div>
-                <div class="statusbar-track-scroll statusbar-right-aux min-w-0">
-                    <span class="status-chip status-chip-compliance max-w-[280px]" id="mei-status-compliance" data-tone="neutral" hidden></span>
-                    <span class="status-chip status-chip-runtime max-w-[300px]" id="mei-status-model-service" data-tone="neutral">{model_service_summary}</span>
+                <div class="statusbar-track statusbar-track-center min-w-0">
+                    <span
+                        class="status-chip status-chip-compliance max-w-[min(52vw,560px)]"
+                        id="mei-status-compliance"
+                        data-tone="neutral"
+                        hidden
+                    ></span>
                 </div>
-                <span class="status-chip status-chip-host statusbar-right-anchor" id="mei-status-host-version" data-tone="neutral" title="__MEI_HOST_VERSION_LABEL__">"__MEI_HOST_VERSION_LABEL__"</span>
+                <span
+                    class="status-chip status-chip-host statusbar-right-anchor"
+                    id="mei-status-host-version"
+                    data-tone="neutral"
+                    title="__MEI_HOST_VERSION_LABEL__"
+                >
+                    "__MEI_HOST_VERSION_LABEL__"
+                </span>
             </div>
         </footer>
     }
     .into_any()
+}
+
+fn workspace_relative_path(app_path: &str, target: &str) -> String {
+    let app = app_path.trim().trim_matches('/');
+    let target = target.trim().trim_start_matches("./");
+    if app.is_empty() {
+        target.to_string()
+    } else if target.is_empty() {
+        app.to_string()
+    } else {
+        format!("{app}/{target}")
+    }
+}
+
+fn statusbar_left_path(
+    app_path: &str,
+    route_mode: &str,
+    current_target: &str,
+    upload_root: Option<&str>,
+) -> Option<String> {
+    match route_mode {
+        "build" | "manage" => {
+            let target = current_target.trim();
+            if target.is_empty() {
+                None
+            } else {
+                Some(workspace_relative_path(app_path, target))
+            }
+        }
+        "config" => Some(workspace_relative_path(app_path, OPS_CONFIG_TARGET)),
+        "upload" => {
+            let root = upload_root.unwrap_or("upload").trim();
+            let selected = current_target.trim();
+            let suffix = if selected.is_empty() || selected == root {
+                root.to_string()
+            } else if selected.starts_with(&format!("{root}/")) {
+                selected.to_string()
+            } else {
+                format!("{root}/{selected}")
+            };
+            Some(workspace_relative_path(app_path, &suffix))
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_left_path_joins_app_and_target() {
+        assert_eq!(
+            statusbar_left_path("zhifa", "build", "scenes/home.mei", None).as_deref(),
+            Some("zhifa/scenes/home.mei")
+        );
+    }
+
+    #[test]
+    fn config_left_path_points_at_mei_config() {
+        assert_eq!(
+            statusbar_left_path("zhifa", "config", "", None).as_deref(),
+            Some("zhifa/.mei-config.json")
+        );
+    }
+
+    #[test]
+    fn upload_left_path_prefixes_upload_root() {
+        assert_eq!(
+            statusbar_left_path("zhifa", "upload", "1.xlsx", Some("upload")).as_deref(),
+            Some("zhifa/upload/1.xlsx")
+        );
+        assert_eq!(
+            statusbar_left_path("zhifa", "upload", "", Some("upload")).as_deref(),
+            Some("zhifa/upload")
+        );
+    }
 }

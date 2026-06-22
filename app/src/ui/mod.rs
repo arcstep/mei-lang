@@ -321,8 +321,9 @@ pub fn render_upload_page(
 mod tests {
     use super::manage_routing::{
         access_scene_query, build_preview_href, encode_query_value, manage_tab_href,
-        resolve_build_query, route_query, ManageViewTab, OPS_CONFIG_TARGET, WorldSemanticQuery,
+        resolve_build_query, route_query, OPS_CONFIG_TARGET, WorldSemanticQuery,
     };
+    use mei_lang_kernel::BuildViewTab;
     use super::view_routing::{build_href, config_href};
     use super::UiRouteMode;
 
@@ -340,7 +341,7 @@ mod tests {
                 None,
             )
             .map(|resolved| resolved.tab),
-            Some(ManageViewTab::Overview)
+            Some(BuildViewTab::Overview)
         ));
     }
 
@@ -360,7 +361,7 @@ mod tests {
             Some(OPS_CONFIG_TARGET),
             OPS_CONFIG_TARGET,
             false,
-            ManageViewTab::Overview,
+            BuildViewTab::Overview,
             Some("all"),
             None,
             WorldSemanticQuery::default(),
@@ -418,7 +419,7 @@ mod tests {
             Some("docs/README #1.md"),
             "docs/README #1.md",
             false,
-            ManageViewTab::Overview,
+            BuildViewTab::Overview,
             None,
             None,
             WorldSemanticQuery::default(),
