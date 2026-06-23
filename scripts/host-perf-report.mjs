@@ -518,6 +518,10 @@ function compareStartupEntry(prev, curr) {
   const yellow = [];
   const prevPerf = prev.perf || {};
   const currPerf = curr.perf || {};
+  const correctnessRed = compareStartupCorrectness(prev, curr);
+  if (correctnessRed.length > 0) {
+    return { red: correctnessRed, yellow };
+  }
   pushRatioRegression(
     red,
     "startup_run_wall_ms",
@@ -584,6 +588,51 @@ function compareStartupEntry(prev, curr) {
   return { red, yellow };
 }
 
+function compareStartupCorrectness(prev, curr) {
+  const red = [];
+  const prevPerf = prev?.perf || {};
+  const currPerf = curr?.perf || {};
+  const prevCategories = startupWarningCategories(prev);
+  const currCategories = startupWarningCategories(curr);
+  const currFailingDatasets = startupFailingDatasets(curr);
+  if (toFinite(currPerf.startup_outcome_ready) === 0) {
+    red.push("correctness startup_outcome_ready=0");
+  }
+  if (toFinite(currPerf.startup_access_artifacts_ready) === 0) {
+    red.push("correctness access_artifacts_ready=0");
+  }
+  if (toFinite(currPerf.startup_correctness_failed) === 1) {
+    red.push("correctness startup_correctness_failed=1");
+  }
+  if (toFinite(currPerf.startup_last_failed_app_count) > 0) {
+    red.push(`correctness startup_last_failed_app_count=${toFinite(currPerf.startup_last_failed_app_count)}`);
+  }
+  for (const [field, label] of [
+    ["startup_warmup_dataset_locate_failed_count", "warmup_dataset_locate_failed"],
+    ["startup_metric_response_eval_failed_count", "metric_response_eval_failed"],
+    ["startup_metric_dataframe_eval_failed_count", "metric_dataframe_eval_failed"],
+    ["startup_artifact_coverage_miss_count", "artifact_coverage_miss"],
+    ["startup_artifact_index_miss_count", "artifact_index_miss"],
+  ]) {
+    const value = toFinite(currPerf[field]);
+    if (Number.isFinite(value) && value > 0) {
+      red.push(`correctness ${label}=${value}`);
+    }
+  }
+  if (currCategories.length > 0) {
+    red.push(`correctness warning_categories=${currCategories.join(",")}`);
+  }
+  if (prevCategories.join(",") !== currCategories.join(",")) {
+    red.push(
+      `correctness warning_categories_changed ${prevCategories.join(",") || "-"} -> ${currCategories.join(",") || "-"}`
+    );
+  }
+  if (currFailingDatasets.length > 0) {
+    red.push(`correctness failing_datasets=${currFailingDatasets.join(",")}`);
+  }
+  return red;
+}
+
 function pushRatioRegression(bucket, field, prev, curr, threshold) {
   const base = toFinite(prev);
   const now = toFinite(curr);
@@ -615,6 +664,24 @@ function buildStartupContextDetails(prev, curr) {
   const prevPerf = prev?.perf || {};
   const currPerf = curr?.perf || {};
   const parts = [];
+  const correctness = [];
+  const currCategories = startupWarningCategories(curr);
+  const currFailingDatasets = startupFailingDatasets(curr);
+  if (Number.isFinite(toFinite(currPerf.startup_correctness_failed))) {
+    correctness.push(`correctness_failed=${toFinite(currPerf.startup_correctness_failed)}`);
+  }
+  if (Number.isFinite(toFinite(currPerf.startup_warning_category_count))) {
+    correctness.push(`warning_category_count=${toFinite(currPerf.startup_warning_category_count)}`);
+  }
+  if (currCategories.length > 0) {
+    correctness.push(`warning_categories=${currCategories.join(",")}`);
+  }
+  if (currFailingDatasets.length > 0) {
+    correctness.push(`failing_datasets=${currFailingDatasets.join(",")}`);
+  }
+  if (correctness.length > 0) {
+    parts.push(`correctness ${correctness.join(" ")}`);
+  }
   for (const field of [
     "startup_hot_total_ms",
     "startup_full_total_ms",
@@ -634,6 +701,18 @@ function buildStartupContextDetails(prev, curr) {
     parts.push(`run=${curr.host_run_id}`);
   }
   return parts.length > 0 ? parts : [];
+}
+
+function startupWarningCategories(row) {
+  return ensureStringList(row?.startup_run_summary?.run?.warningCategories);
+}
+
+function startupFailingDatasets(row) {
+  return ensureStringList(row?.startup_run_summary?.run?.failingDatasets);
+}
+
+function ensureStringList(value) {
+  return Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : [];
 }
 
 function formatStageComparison(prevPerf, currPerf, fields) {

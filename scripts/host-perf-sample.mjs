@@ -1582,17 +1582,43 @@ async function collectHostReadinessSnapshot(baseUrl, extraHeaders = {}) {
           : null,
     },
     perf: {
-    host_access_ready: Number(payload?.accessReady === true),
-    host_full_warmup_ready: Number(payload?.fullWarmupReady === true),
-    host_deferred_warmup_pending: Number(payload?.deferredWarmupPending === true),
-    host_last_build_total_ms: toFinite(payload?.lastBuildTotalMs),
-    host_last_build_compile_ms: toFinite(payload?.lastBuildCompileMs),
-    host_last_build_warmup_ms: toFinite(payload?.lastBuildWarmupMs),
-    host_last_critical_warmup_ms: toFinite(payload?.lastCriticalWarmupMs),
-    host_last_deferred_warmup_ms: toFinite(payload?.lastDeferredWarmupMs),
-    host_last_critical_warmup_request_count: toFinite(payload?.lastCriticalWarmupRequestCount),
-    host_last_deferred_warmup_request_count: toFinite(payload?.lastDeferredWarmupRequestCount),
-    ...buildHostDiagnosticsPerf(payload?.lastBuildDiagnostics),
+      host_access_ready: Number(payload?.accessReady === true),
+      host_full_warmup_ready: Number(payload?.fullWarmupReady === true),
+      host_deferred_warmup_pending: Number(payload?.deferredWarmupPending === true),
+      host_last_build_total_ms: toFinite(payload?.lastBuildTotalMs),
+      host_last_build_compile_ms: toFinite(payload?.lastBuildCompileMs),
+      host_last_build_warmup_ms: toFinite(payload?.lastBuildWarmupMs),
+      host_last_critical_warmup_ms: toFinite(payload?.lastCriticalWarmupMs),
+      host_last_deferred_warmup_ms: toFinite(payload?.lastDeferredWarmupMs),
+      host_last_critical_warmup_request_count: toFinite(payload?.lastCriticalWarmupRequestCount),
+      host_last_deferred_warmup_request_count: toFinite(payload?.lastDeferredWarmupRequestCount),
+      host_correctness_failed: toFinite(
+        payload?.correctnessFailed === true ? 1 : payload?.correctnessFailed === false ? 0 : NaN
+      ),
+      host_warning_category_count: toFinite(
+        Array.isArray(payload?.warningCategories) ? payload.warningCategories.length : NaN
+      ),
+      host_warmup_dataset_locate_failed_count: warningCategoryCount(
+        payload?.warningCategoryCounts,
+        "warmup_dataset_locate_failed"
+      ),
+      host_metric_response_eval_failed_count: warningCategoryCount(
+        payload?.warningCategoryCounts,
+        "metric_response_eval_failed"
+      ),
+      host_metric_dataframe_eval_failed_count: warningCategoryCount(
+        payload?.warningCategoryCounts,
+        "metric_dataframe_eval_failed"
+      ),
+      host_artifact_coverage_miss_count: warningCategoryCount(
+        payload?.warningCategoryCounts,
+        "artifact_coverage_miss"
+      ),
+      host_artifact_index_miss_count: warningCategoryCount(
+        payload?.warningCategoryCounts,
+        "artifact_index_miss"
+      ),
+      ...buildHostDiagnosticsPerf(payload?.lastBuildDiagnostics),
     },
   };
 }
@@ -1673,10 +1699,22 @@ async function readStartupRunArtifactSummary(artifactDir) {
   };
 }
 
+function warningCategoryCount(counts, category) {
+  if (!counts || typeof counts !== "object") {
+    return NaN;
+  }
+  return toFinite(counts[category]);
+}
+
 function buildStartupArtifactPerf(summary) {
   const hot = summary?.prebuild_hot || {};
   const full = summary?.prebuild_full || {};
   const run = summary?.run || {};
+  const warningCategoryCounts =
+    run.warningCategoryCounts && typeof run.warningCategoryCounts === "object"
+      ? run.warningCategoryCounts
+      : {};
+  const warningCategories = Array.isArray(run.warningCategories) ? run.warningCategories : [];
   const hotDiagnostics = hot.diagnostics || {};
   const fullDiagnostics = full.diagnostics || {};
   const preferredDiagnostics =
@@ -1699,6 +1737,30 @@ function buildStartupArtifactPerf(summary) {
     startup_warmup_kind_incremental: toFinite(run.startupWarmupKind === "incremental_cache" ? 1 : run.startupWarmupKind === "cold_or_rebuild" ? 0 : NaN),
     startup_last_warning_count: toFinite(run.lastWarningCount),
     startup_last_failed_app_count: toFinite(run.lastFailedAppCount),
+    startup_correctness_failed: toFinite(
+      run.correctnessFailed === true ? 1 : run.correctnessFailed === false ? 0 : NaN
+    ),
+    startup_warning_category_count: toFinite(warningCategories.length),
+    startup_warmup_dataset_locate_failed_count: warningCategoryCount(
+      warningCategoryCounts,
+      "warmup_dataset_locate_failed"
+    ),
+    startup_metric_response_eval_failed_count: warningCategoryCount(
+      warningCategoryCounts,
+      "metric_response_eval_failed"
+    ),
+    startup_metric_dataframe_eval_failed_count: warningCategoryCount(
+      warningCategoryCounts,
+      "metric_dataframe_eval_failed"
+    ),
+    startup_artifact_coverage_miss_count: warningCategoryCount(
+      warningCategoryCounts,
+      "artifact_coverage_miss"
+    ),
+    startup_artifact_index_miss_count: warningCategoryCount(
+      warningCategoryCounts,
+      "artifact_index_miss"
+    ),
     startup_full_total_ms: toFinite(full.total_wall_ms),
     startup_full_compile_ms: toFinite(
       Array.isArray(full.apps) ? full.apps.reduce((sum, app) => sum + (Number(app?.timings?.compile_scopes_ms) || 0), 0) : NaN
@@ -1760,6 +1822,10 @@ async function collectStartupRunRecord(context) {
   if (run.startupWarmupKind) notes.push(`startup_warmup_kind=${run.startupWarmupKind}`);
   if (run.startupOutcome) notes.push(`startup_outcome=${run.startupOutcome}`);
   if (run.accessArtifactsReady === false) notes.push("access_artifacts_not_ready=1");
+  if (run.correctnessFailed === true) notes.push("startup_correctness_failed=1");
+  if (Array.isArray(run.warningCategories) && run.warningCategories.length > 0) {
+    notes.push(`startup_warning_categories=${run.warningCategories.join(",")}`);
+  }
   return {
     schema_version: "mei-host-perf-sample-v2",
     record_kind: "startup_run",
