@@ -172,6 +172,23 @@ fn compiled_app_artifact_scope(options: &CompileOptions) -> WorldScope {
     }
 }
 
+fn artifact_matches_compile_scene_request(options: &CompileOptions, compiled: &CompiledApp) -> bool {
+    let Some(requested_scene) = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty())
+    else {
+        return true;
+    };
+    compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty())
+        == Some(requested_scene)
+}
+
 fn compiled_app_artifact_context(
     app_id: &str,
     options: &CompileOptions,
@@ -394,7 +411,6 @@ fn compiled_app_artifact_lookup_scopes(
     app_root: &Path,
     options: &CompileOptions,
 ) -> Vec<WorldScope> {
-    let mut scopes = vec![compiled_app_artifact_scope(options)];
     let scene_id = options
         .scene
         .as_deref()
@@ -406,13 +422,23 @@ fn compiled_app_artifact_lookup_scopes(
         .map(str::trim)
         .is_some_and(|target| !target.is_empty());
     if scene_id.is_none() || has_target {
-        return scopes;
+        return vec![compiled_app_artifact_scope(options)];
     }
-    scopes.push(WorldScope {
-        scene_id: None,
-        target_file: None,
-    });
-    let Ok(Some((_, default_artifact))) = read_json_artifact::<CompiledAppDiskArtifact>(
+    let scene_id = scene_id.expect("scene-only lookup requires scene id");
+    let mut scopes = Vec::new();
+    let mut seen = BTreeMap::<String, ()>::new();
+    let mut push_scope = |scope: WorldScope| {
+        let key = format!(
+            "{}|{}",
+            scope.scene_id.as_deref().unwrap_or(""),
+            scope.target_file.as_deref().unwrap_or("")
+        );
+        if seen.insert(key, ()).is_some() {
+            return;
+        }
+        scopes.push(scope);
+    };
+    if let Ok(Some((_, default_artifact))) = read_json_artifact::<CompiledAppDiskArtifact>(
         app_root,
         COMPILED_APP_ARTIFACT_KIND,
         COMPILED_APP_ARTIFACT_NAME,
@@ -420,38 +446,41 @@ fn compiled_app_artifact_lookup_scopes(
             scene_id: None,
             target_file: None,
         },
-    ) else {
-        return scopes;
-    };
-    let scene_id = scene_id.expect("scene-only lookup requires scene id");
-    if default_artifact
-        .compiled
-        .active_scene
-        .as_deref()
-        .map(str::trim)
-        == Some(scene_id)
-    {
-        let target = default_artifact.compiled.active_target_file.trim();
-        if !target.is_empty() {
-            scopes.push(WorldScope {
+    ) {
+        for route in &default_artifact.compiled.scene_routes {
+            if route.scene_id.trim() != scene_id {
+                continue;
+            }
+            let target = route.target_file.trim();
+            if target.is_empty() {
+                continue;
+            }
+            push_scope(WorldScope {
                 scene_id: Some(scene_id.to_string()),
                 target_file: Some(target.to_string()),
             });
         }
-    }
-    for route in &default_artifact.compiled.scene_routes {
-        if route.scene_id.trim() != scene_id {
-            continue;
+        if default_artifact
+            .compiled
+            .active_scene
+            .as_deref()
+            .map(str::trim)
+            == Some(scene_id)
+        {
+            let target = default_artifact.compiled.active_target_file.trim();
+            if !target.is_empty() {
+                push_scope(WorldScope {
+                    scene_id: Some(scene_id.to_string()),
+                    target_file: Some(target.to_string()),
+                });
+            }
         }
-        let target = route.target_file.trim();
-        if target.is_empty() {
-            continue;
-        }
-        scopes.push(WorldScope {
-            scene_id: Some(scene_id.to_string()),
-            target_file: Some(target.to_string()),
-        });
     }
+    push_scope(compiled_app_artifact_scope(options));
+    push_scope(WorldScope {
+        scene_id: None,
+        target_file: None,
+    });
     scopes
 }
 
@@ -495,6 +524,9 @@ fn load_compiled_app_artifact_at_scope(
         components_revision: manifest.components_revision,
         compiled: Arc::new(artifact.compiled),
     };
+    if !artifact_matches_compile_scene_request(options, &cached.compiled) {
+        return None;
+    }
     let hit = validate_cached_entry(source_root, app_id, &cached, components_root, options)?;
     let artifact_load_ms = elapsed_ms(artifact_started);
     store_compile_cache_entry(
@@ -912,6 +944,9 @@ fn validate_cached_entry(
     components_root: &Path,
     options: &CompileOptions,
 ) -> Option<PeekCompileCacheHitShared> {
+    if !artifact_matches_compile_scene_request(options, entry.compiled.as_ref()) {
+        return None;
+    }
     if watched_files_are_fresh(source_root, app_id, entry, components_root) {
         return Some(PeekCompileCacheHitShared {
             compiled: entry.compiled.clone(),
@@ -1100,4 +1135,64 @@ pub fn clear_compiled_app_artifacts_for_app(source_root: &Path, app_id: &str) ->
 
 pub fn resolve_components_root(source_root: &Path) -> PathBuf {
     kernel_resolve_components_root(source_root)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mei_lang_kernel::CompiledApp;
+
+    fn compiled_with_scene(active_scene: Option<&str>) -> CompiledApp {
+        CompiledApp {
+            app_id: "zhifa".to_string(),
+            title: "zhifa".to_string(),
+            app_root: "/tmp/zhifa".to_string(),
+            scene_routes: Vec::new(),
+            active_scene: active_scene.map(str::to_string),
+            active_target_file: "scenes/home.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: Vec::new(),
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        }
+    }
+
+    #[test]
+    fn artifact_matches_compile_scene_request_requires_bound_scene() {
+        let options = CompileOptions {
+            scene: Some("home".to_string()),
+            preview_target: None,
+        };
+        assert!(artifact_matches_compile_scene_request(
+            &options,
+            &compiled_with_scene(Some("home"))
+        ));
+        assert!(!artifact_matches_compile_scene_request(
+            &options,
+            &compiled_with_scene(None)
+        ));
+        assert!(!artifact_matches_compile_scene_request(
+            &options,
+            &compiled_with_scene(Some("other"))
+        ));
+    }
+
+    #[test]
+    fn artifact_matches_compile_scene_request_allows_full_app_lookup() {
+        let options = CompileOptions::default();
+        assert!(artifact_matches_compile_scene_request(
+            &options,
+            &compiled_with_scene(None)
+        ));
+    }
 }

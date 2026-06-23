@@ -7863,10 +7863,11 @@
               : null;
         if (!base) return null;
         if (!nonEmptyString(base.sceneId)) {
-          base.sceneId = nonEmptyString(config.hostSceneId, config.sceneId);
+          base.sceneId = nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId);
         }
         if (!nonEmptyString(base.scenePath)) {
           base.scenePath = nonEmptyString(
+            config.runtimeSceneFile,
             config.hostSceneFile,
             resolveMetricOwnerScenePath(
               config?.slotByTab ? Object.values(config.slotByTab) : [],
@@ -8519,6 +8520,12 @@
     const tabBarZoneId = sceneShellZonesByRole(sceneShell, "tab_bar")[0]?.id || "";
     const tabContentZoneId = sceneShellZonesByRole(sceneShell, "tab_content")[0]?.id || "";
     const genericSceneShell = sceneShell?.layoutMode === "generic_tabs";
+    const runtimeSceneId = structuredBoard
+      ? nonEmptyString(boardSceneId, hostSceneId)
+      : nonEmptyString(hostSceneId, boardSceneId);
+    const runtimeSceneFile = structuredBoard
+      ? nonEmptyString(boardSceneFile, ownerScenePath, detail?.host_scene_file)
+      : nonEmptyString(ownerScenePath, detail?.host_scene_file, boardSceneFile);
     return {
       enabled: Boolean(boardSceneId),
       genericDrilldown: !structuredBoard || genericSceneShell,
@@ -8540,6 +8547,8 @@
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
+      runtimeSceneId,
+      runtimeSceneFile,
       boardSceneId,
       boardSceneFile: nonEmptyString(
         boardSceneFile,
@@ -9158,7 +9167,12 @@
   }
 
   function drilldownFetchCacheKey(detail, config, metricId, popupFetchFilters) {
-    const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId, detail?.host_scene_id);
+    const sceneId = nonEmptyString(
+      config?.runtimeSceneId,
+      config?.hostSceneId,
+      config?.sceneId,
+      detail?.host_scene_id,
+    );
     const datasetId = nonEmptyString(
       config?.datasetId,
       config?.rowsetDatasetId,
@@ -9188,6 +9202,7 @@
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
+      config?.runtimeSceneId,
       config?.hostSceneId,
       config?.sceneId,
       detail?.host_scene_id,
@@ -9195,6 +9210,7 @@
     );
     const target = nonEmptyString(
       runtimeRefConfig.scenePath,
+      config?.runtimeSceneFile,
       config?.hostSceneFile,
       resolveMetricOwnerScenePath(
         config?.slotByTab ? Object.values(config.slotByTab) : [],
@@ -9890,8 +9906,11 @@
       return null;
     }
     const metricId = resolveDrilldownTableMetricId(detail, config);
-    const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId);
+    const sceneId = config?.structuredBoard
+      ? nonEmptyString(config?.runtimeSceneId, config?.hostSceneId, config?.sceneId)
+      : nonEmptyString(config?.hostSceneId, config?.sceneId, config?.runtimeSceneId);
     const scenePath = nonEmptyString(
+      config?.structuredBoard ? config?.runtimeSceneFile : "",
       config?.detailSlot?.runtimeRef?.scenePath,
       config?.detailSlot?.runtimeRef?.scene_path,
       importedCapsuleScenePathFromMetricId(metricId),
@@ -9947,8 +9966,12 @@
   function buildDrilldownTableProps(detail, config) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    const preferredSceneId = config?.structuredBoard
+      ? nonEmptyString(config?.runtimeSceneId, runtimeRefConfig.sceneId)
+      : runtimeRefConfig.sceneId;
     const sceneId = nonEmptyString(
-      runtimeRefConfig.sceneId,
+      preferredSceneId,
+      config?.runtimeSceneId,
       config?.hostSceneId,
       config?.sceneId,
       detail?.host_scene_id,
@@ -9967,8 +9990,12 @@
       normalizeMetricLocalId(metricId),
       metricId,
     );
+    const preferredScenePath = config?.structuredBoard
+      ? nonEmptyString(config?.runtimeSceneFile, runtimeRefConfig.scenePath)
+      : runtimeRefConfig.scenePath;
     const ownerScenePath = nonEmptyString(
-      runtimeRefConfig.scenePath,
+      preferredScenePath,
+      config?.runtimeSceneFile,
       importedCapsuleScenePathFromMetricId(scenePathMetricId),
       importedCapsuleScenePathFromWorldMetricsDatasetId(datasetId),
       importedCapsuleScenePathFromMetricId(detail?.metric_id),
@@ -10267,17 +10294,24 @@
     });
     const runtimeRefConfig =
       config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const dedicatedDatasetId = config?.structuredBoard
+      ? nonEmptyString(
+          tableProps.dataset?.__mei_runtime_ref?.dataset_id,
+          runtimeRefConfig.datasetId,
+          runtimeRefConfig.dataset_id,
+        )
+      : nonEmptyString(
+          runtimeRefConfig.datasetId,
+          runtimeRefConfig.dataset_id,
+          tableProps.dataset?.__mei_runtime_ref?.dataset_id,
+        );
     const chartDataset =
       dedicatedChartMetric && chartMetricId
         ? {
             __mei_runtime_ref: {
               kind: "metric",
               metric_id: chartMetricId,
-              dataset_id: nonEmptyString(
-                runtimeRefConfig.datasetId,
-                runtimeRefConfig.dataset_id,
-                tableProps.dataset?.__mei_runtime_ref?.dataset_id,
-              ),
+              dataset_id: dedicatedDatasetId,
               scene_id: nonEmptyString(
                 runtimeRefConfig.sceneId,
                 runtimeRefConfig.scene_id,
@@ -10502,7 +10536,7 @@
             shape: "table",
             __mei_runtime_ref: {
               dataset_id: rowsetDatasetId,
-              scene_id: nonEmptyString(config?.hostSceneId, config?.sceneId),
+              scene_id: nonEmptyString(config?.runtimeSceneId, config?.hostSceneId, config?.sceneId),
             },
           }
         : tableProps.dataset,
@@ -10666,6 +10700,8 @@
         rowsetDatasetId: config.rowsetDatasetId,
         hostSceneId: config.hostSceneId,
         hostSceneFile: config.hostSceneFile,
+        runtimeSceneId: config.runtimeSceneId,
+        runtimeSceneFile: config.runtimeSceneFile,
         queryStateId: config.queryStateId,
         supportRole: nonEmptyString(slot.supportRole, slotConfig.supportRole, "composition"),
         tableMetricId: resolvedChartMetricId,
@@ -10689,10 +10725,20 @@
           metric_id: resolvedChartMetricId,
           datasetId: nonEmptyString(slot.datasetId, slotConfig?.runtimeRef?.datasetId),
           dataset_id: nonEmptyString(slot.datasetId, slotConfig?.runtimeRef?.dataset_id),
-          sceneId: nonEmptyString(config.hostSceneId, config.sceneId),
-          scene_id: nonEmptyString(config.hostSceneId, config.sceneId),
-          scenePath: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
-          scene_path: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
+          sceneId: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+          scene_id: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+          scenePath: nonEmptyString(
+            config.runtimeSceneFile,
+            config.hostSceneFile,
+            detail?.host_scene_file,
+            detail?.scene_path,
+          ),
+          scene_path: nonEmptyString(
+            config.runtimeSceneFile,
+            config.hostSceneFile,
+            detail?.host_scene_file,
+            detail?.scene_path,
+          ),
         },
       };
       if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
@@ -10747,6 +10793,8 @@
         ? {
             ...detailTabConfig,
             detailSlot,
+            runtimeSceneId: config.runtimeSceneId,
+            runtimeSceneFile: config.runtimeSceneFile,
             tableMetricId: nonEmptyString(
               detailSlot.metricId,
               detailTabConfig.tableMetricId,
@@ -10754,6 +10802,25 @@
               resolveDrilldownTableMetricId(detail, config),
             ),
             queryStateId: config.queryStateId,
+            runtimeRef: {
+              ...(detailTabConfig?.runtimeRef && typeof detailTabConfig.runtimeRef === "object"
+                ? detailTabConfig.runtimeRef
+                : {}),
+              sceneId: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+              scene_id: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+              scenePath: nonEmptyString(
+                config.runtimeSceneFile,
+                config.hostSceneFile,
+                detail?.host_scene_file,
+                detail?.scene_path,
+              ),
+              scene_path: nonEmptyString(
+                config.runtimeSceneFile,
+                config.hostSceneFile,
+                detail?.host_scene_file,
+                detail?.scene_path,
+              ),
+            },
             pageSize: positiveInt(
               detailSlot.pageSize,
               detailSlot.page_size,
@@ -13445,7 +13512,7 @@
     return "api";
   }
 
-  function ensureApiKindSummary(session, kind) {
+  function lookupApiKindSummary(session, kind) {
     return typeof boot.ensureApiKindSummary === "function"
       ? boot.ensureApiKindSummary(session, kind)
       : null;
@@ -13484,7 +13551,7 @@
   function recordApiPerfFromJson(session, kind, json) {
     if (!json || typeof json !== "object") return;
     const perf = json.perf && typeof json.perf === "object" ? json.perf : null;
-    const kindSummary = ensureApiKindSummary(session, kind);
+    const kindSummary = lookupApiKindSummary(session, kind);
     const itemCount = estimateResponseItemCount(json);
     if (itemCount > 0) {
       session.api.items += itemCount;
@@ -13538,7 +13605,7 @@
     const normalized = String(kind || "dataset").trim() || "dataset";
     const apiKind =
       normalized === "dataset" ? "query" : normalized === "metric_scope" ? "metrics" : "metrics";
-    const kindSummary = ensureApiKindSummary(session, apiKind);
+    const kindSummary = lookupApiKindSummary(session, apiKind);
     if (kindSummary) {
       kindSummary.total += 1;
       kindSummary.completed += 1;
@@ -13592,7 +13659,7 @@
         }
         session.api.total += 1;
         session.api.inflight += 1;
-        const kindSummary = ensureApiKindSummary(session, resolveApiKind(requestUrl));
+        const kindSummary = lookupApiKindSummary(session, resolveApiKind(requestUrl));
         if (kindSummary) kindSummary.total += 1;
         updateLoadingProgressDom(session);
       }
@@ -13601,7 +13668,7 @@
         const response = await nativeFetch(input, init);
         if (track) {
           const kind = resolveApiKind(requestUrl);
-          const kindSummary = ensureApiKindSummary(session, kind);
+          const kindSummary = lookupApiKindSummary(session, kind);
           const contentLength = Number(response.headers?.get?.("content-length"));
           if (Number.isFinite(contentLength) && contentLength > 0) {
             session.api.bytes += contentLength;
@@ -13655,7 +13722,7 @@
           session.api.failed += 1;
           session.api.completed += 1;
           session.api.inflight = Math.max(0, session.api.inflight - 1);
-          const kindSummary = ensureApiKindSummary(session, resolveApiKind(requestUrl));
+          const kindSummary = lookupApiKindSummary(session, resolveApiKind(requestUrl));
           if (kindSummary) {
             kindSummary.failed += 1;
             kindSummary.completed += 1;

@@ -163,10 +163,11 @@
               : null;
         if (!base) return null;
         if (!nonEmptyString(base.sceneId)) {
-          base.sceneId = nonEmptyString(config.hostSceneId, config.sceneId);
+          base.sceneId = nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId);
         }
         if (!nonEmptyString(base.scenePath)) {
           base.scenePath = nonEmptyString(
+            config.runtimeSceneFile,
             config.hostSceneFile,
             resolveMetricOwnerScenePath(
               config?.slotByTab ? Object.values(config.slotByTab) : [],

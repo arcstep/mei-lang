@@ -45,7 +45,12 @@
   }
 
   function drilldownFetchCacheKey(detail, config, metricId, popupFetchFilters) {
-    const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId, detail?.host_scene_id);
+    const sceneId = nonEmptyString(
+      config?.runtimeSceneId,
+      config?.hostSceneId,
+      config?.sceneId,
+      detail?.host_scene_id,
+    );
     const datasetId = nonEmptyString(
       config?.datasetId,
       config?.rowsetDatasetId,
@@ -75,6 +80,7 @@
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
+      config?.runtimeSceneId,
       config?.hostSceneId,
       config?.sceneId,
       detail?.host_scene_id,
@@ -82,6 +88,7 @@
     );
     const target = nonEmptyString(
       runtimeRefConfig.scenePath,
+      config?.runtimeSceneFile,
       config?.hostSceneFile,
       resolveMetricOwnerScenePath(
         config?.slotByTab ? Object.values(config.slotByTab) : [],

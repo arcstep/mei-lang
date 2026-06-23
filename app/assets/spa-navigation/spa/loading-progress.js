@@ -145,7 +145,7 @@
     return "api";
   }
 
-  function ensureApiKindSummary(session, kind) {
+  function lookupApiKindSummary(session, kind) {
     return typeof boot.ensureApiKindSummary === "function"
       ? boot.ensureApiKindSummary(session, kind)
       : null;
@@ -184,7 +184,7 @@
   function recordApiPerfFromJson(session, kind, json) {
     if (!json || typeof json !== "object") return;
     const perf = json.perf && typeof json.perf === "object" ? json.perf : null;
-    const kindSummary = ensureApiKindSummary(session, kind);
+    const kindSummary = lookupApiKindSummary(session, kind);
     const itemCount = estimateResponseItemCount(json);
     if (itemCount > 0) {
       session.api.items += itemCount;
@@ -238,7 +238,7 @@
     const normalized = String(kind || "dataset").trim() || "dataset";
     const apiKind =
       normalized === "dataset" ? "query" : normalized === "metric_scope" ? "metrics" : "metrics";
-    const kindSummary = ensureApiKindSummary(session, apiKind);
+    const kindSummary = lookupApiKindSummary(session, apiKind);
     if (kindSummary) {
       kindSummary.total += 1;
       kindSummary.completed += 1;
@@ -292,7 +292,7 @@
         }
         session.api.total += 1;
         session.api.inflight += 1;
-        const kindSummary = ensureApiKindSummary(session, resolveApiKind(requestUrl));
+        const kindSummary = lookupApiKindSummary(session, resolveApiKind(requestUrl));
         if (kindSummary) kindSummary.total += 1;
         updateLoadingProgressDom(session);
       }
@@ -301,7 +301,7 @@
         const response = await nativeFetch(input, init);
         if (track) {
           const kind = resolveApiKind(requestUrl);
-          const kindSummary = ensureApiKindSummary(session, kind);
+          const kindSummary = lookupApiKindSummary(session, kind);
           const contentLength = Number(response.headers?.get?.("content-length"));
           if (Number.isFinite(contentLength) && contentLength > 0) {
             session.api.bytes += contentLength;
@@ -355,7 +355,7 @@
           session.api.failed += 1;
           session.api.completed += 1;
           session.api.inflight = Math.max(0, session.api.inflight - 1);
-          const kindSummary = ensureApiKindSummary(session, resolveApiKind(requestUrl));
+          const kindSummary = lookupApiKindSummary(session, resolveApiKind(requestUrl));
           if (kindSummary) {
             kindSummary.failed += 1;
             kindSummary.completed += 1;

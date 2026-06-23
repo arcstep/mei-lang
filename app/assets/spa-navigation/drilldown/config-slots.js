@@ -315,6 +315,12 @@
     const tabBarZoneId = sceneShellZonesByRole(sceneShell, "tab_bar")[0]?.id || "";
     const tabContentZoneId = sceneShellZonesByRole(sceneShell, "tab_content")[0]?.id || "";
     const genericSceneShell = sceneShell?.layoutMode === "generic_tabs";
+    const runtimeSceneId = structuredBoard
+      ? nonEmptyString(boardSceneId, hostSceneId)
+      : nonEmptyString(hostSceneId, boardSceneId);
+    const runtimeSceneFile = structuredBoard
+      ? nonEmptyString(boardSceneFile, ownerScenePath, detail?.host_scene_file)
+      : nonEmptyString(ownerScenePath, detail?.host_scene_file, boardSceneFile);
     return {
       enabled: Boolean(boardSceneId),
       genericDrilldown: !structuredBoard || genericSceneShell,
@@ -336,6 +342,8 @@
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
+      runtimeSceneId,
+      runtimeSceneFile,
       boardSceneId,
       boardSceneFile: nonEmptyString(
         boardSceneFile,

@@ -35,6 +35,8 @@
         rowsetDatasetId: config.rowsetDatasetId,
         hostSceneId: config.hostSceneId,
         hostSceneFile: config.hostSceneFile,
+        runtimeSceneId: config.runtimeSceneId,
+        runtimeSceneFile: config.runtimeSceneFile,
         queryStateId: config.queryStateId,
         supportRole: nonEmptyString(slot.supportRole, slotConfig.supportRole, "composition"),
         tableMetricId: resolvedChartMetricId,
@@ -58,10 +60,20 @@
           metric_id: resolvedChartMetricId,
           datasetId: nonEmptyString(slot.datasetId, slotConfig?.runtimeRef?.datasetId),
           dataset_id: nonEmptyString(slot.datasetId, slotConfig?.runtimeRef?.dataset_id),
-          sceneId: nonEmptyString(config.hostSceneId, config.sceneId),
-          scene_id: nonEmptyString(config.hostSceneId, config.sceneId),
-          scenePath: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
-          scene_path: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
+          sceneId: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+          scene_id: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+          scenePath: nonEmptyString(
+            config.runtimeSceneFile,
+            config.hostSceneFile,
+            detail?.host_scene_file,
+            detail?.scene_path,
+          ),
+          scene_path: nonEmptyString(
+            config.runtimeSceneFile,
+            config.hostSceneFile,
+            detail?.host_scene_file,
+            detail?.scene_path,
+          ),
         },
       };
       if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
@@ -116,6 +128,8 @@
         ? {
             ...detailTabConfig,
             detailSlot,
+            runtimeSceneId: config.runtimeSceneId,
+            runtimeSceneFile: config.runtimeSceneFile,
             tableMetricId: nonEmptyString(
               detailSlot.metricId,
               detailTabConfig.tableMetricId,
@@ -123,6 +137,25 @@
               resolveDrilldownTableMetricId(detail, config),
             ),
             queryStateId: config.queryStateId,
+            runtimeRef: {
+              ...(detailTabConfig?.runtimeRef && typeof detailTabConfig.runtimeRef === "object"
+                ? detailTabConfig.runtimeRef
+                : {}),
+              sceneId: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+              scene_id: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+              scenePath: nonEmptyString(
+                config.runtimeSceneFile,
+                config.hostSceneFile,
+                detail?.host_scene_file,
+                detail?.scene_path,
+              ),
+              scene_path: nonEmptyString(
+                config.runtimeSceneFile,
+                config.hostSceneFile,
+                detail?.host_scene_file,
+                detail?.scene_path,
+              ),
+            },
             pageSize: positiveInt(
               detailSlot.pageSize,
               detailSlot.page_size,

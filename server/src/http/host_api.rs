@@ -1327,21 +1327,19 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
         return None;
     }
     let snapshot = registry_snapshot();
-    snapshot
-        .apps
+    let app = snapshot.apps.iter().find(|app| app.app_id == app_id)?;
+    let mut candidates = app
+        .scopes
         .iter()
-        .find(|app| app.app_id == app_id)
-        .and_then(|app| {
-            app.scopes.iter().find(|scope| {
-                scope
-                    .scene_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    == Some(normalized_scene)
-            })
+        .filter(|scope| {
+            scope
+                .scene_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                == Some(normalized_scene)
         })
-        .and_then(|scope| {
+        .filter_map(|scope| {
             scope
                 .target_file
                 .as_deref()
@@ -1349,6 +1347,26 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         })
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return None;
+    }
+    candidates.sort();
+    candidates.dedup();
+    let canonical = format!("scenes/{normalized_scene}.mei");
+    if let Some(hit) = candidates.iter().find(|target| target.as_str() == canonical) {
+        return Some(hit.clone());
+    }
+    candidates.into_iter().min_by_key(|target| {
+        let cross_capsule_penalty = usize::from(
+            target.starts_with("scenes/")
+                && target
+                    .strip_prefix("scenes/")
+                    .and_then(|rest| rest.chars().next())
+                    .is_some_and(|ch| ch.is_ascii_digit()),
+        );
+        (cross_capsule_penalty, target.len())
+    })
 }
 
 fn normalized_optional_scope(value: Option<String>) -> Option<String> {

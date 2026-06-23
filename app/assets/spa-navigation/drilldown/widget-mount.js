@@ -168,17 +168,24 @@
     });
     const runtimeRefConfig =
       config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const dedicatedDatasetId = config?.structuredBoard
+      ? nonEmptyString(
+          tableProps.dataset?.__mei_runtime_ref?.dataset_id,
+          runtimeRefConfig.datasetId,
+          runtimeRefConfig.dataset_id,
+        )
+      : nonEmptyString(
+          runtimeRefConfig.datasetId,
+          runtimeRefConfig.dataset_id,
+          tableProps.dataset?.__mei_runtime_ref?.dataset_id,
+        );
     const chartDataset =
       dedicatedChartMetric && chartMetricId
         ? {
             __mei_runtime_ref: {
               kind: "metric",
               metric_id: chartMetricId,
-              dataset_id: nonEmptyString(
-                runtimeRefConfig.datasetId,
-                runtimeRefConfig.dataset_id,
-                tableProps.dataset?.__mei_runtime_ref?.dataset_id,
-              ),
+              dataset_id: dedicatedDatasetId,
               scene_id: nonEmptyString(
                 runtimeRefConfig.sceneId,
                 runtimeRefConfig.scene_id,
@@ -403,7 +410,7 @@
             shape: "table",
             __mei_runtime_ref: {
               dataset_id: rowsetDatasetId,
-              scene_id: nonEmptyString(config?.hostSceneId, config?.sceneId),
+              scene_id: nonEmptyString(config?.runtimeSceneId, config?.hostSceneId, config?.sceneId),
             },
           }
         : tableProps.dataset,

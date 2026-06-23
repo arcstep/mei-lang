@@ -148,8 +148,11 @@
       return null;
     }
     const metricId = resolveDrilldownTableMetricId(detail, config);
-    const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId);
+    const sceneId = config?.structuredBoard
+      ? nonEmptyString(config?.runtimeSceneId, config?.hostSceneId, config?.sceneId)
+      : nonEmptyString(config?.hostSceneId, config?.sceneId, config?.runtimeSceneId);
     const scenePath = nonEmptyString(
+      config?.structuredBoard ? config?.runtimeSceneFile : "",
       config?.detailSlot?.runtimeRef?.scenePath,
       config?.detailSlot?.runtimeRef?.scene_path,
       importedCapsuleScenePathFromMetricId(metricId),
@@ -205,8 +208,12 @@
   function buildDrilldownTableProps(detail, config) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    const preferredSceneId = config?.structuredBoard
+      ? nonEmptyString(config?.runtimeSceneId, runtimeRefConfig.sceneId)
+      : runtimeRefConfig.sceneId;
     const sceneId = nonEmptyString(
-      runtimeRefConfig.sceneId,
+      preferredSceneId,
+      config?.runtimeSceneId,
       config?.hostSceneId,
       config?.sceneId,
       detail?.host_scene_id,
@@ -225,8 +232,12 @@
       normalizeMetricLocalId(metricId),
       metricId,
     );
+    const preferredScenePath = config?.structuredBoard
+      ? nonEmptyString(config?.runtimeSceneFile, runtimeRefConfig.scenePath)
+      : runtimeRefConfig.scenePath;
     const ownerScenePath = nonEmptyString(
-      runtimeRefConfig.scenePath,
+      preferredScenePath,
+      config?.runtimeSceneFile,
       importedCapsuleScenePathFromMetricId(scenePathMetricId),
       importedCapsuleScenePathFromWorldMetricsDatasetId(datasetId),
       importedCapsuleScenePathFromMetricId(detail?.metric_id),
