@@ -894,7 +894,11 @@ pub(crate) fn scene_shell_contract_from_scene_contract(
     if let Some(ref layout) = layout {
         retain_shell_zones_matching_layout(layout, &mut zones);
     }
-    dedupe_shell_zones_by_id(&mut zones);
+    let top_level_areas = layout
+        .as_ref()
+        .map(collect_top_level_layout_areas)
+        .unwrap_or_default();
+    dedupe_shell_zones_by_id(&mut zones, &top_level_areas);
     let layout_mode = infer_scene_shell_layout_mode(&zones);
     let mut payload = Map::new();
     payload.insert(
@@ -980,6 +984,55 @@ fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
             let Some(map) = zone.as_object() else {
                 continue;
             };
+            let Some(container_id) = map
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty() && kept_ids.contains(*id))
+            else {
+                continue;
+            };
+            if map.get("role").and_then(Value::as_str) != Some("container") {
+                continue;
+            }
+            let Some(nested_layout) = map.get("layout") else {
+                continue;
+            };
+            let nested_areas = collect_top_level_layout_areas(nested_layout);
+            for candidate in zones.iter() {
+                let Some(candidate_map) = candidate.as_object() else {
+                    continue;
+                };
+                let Some(area) = candidate_map
+                    .get("area")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                else {
+                    continue;
+                };
+                if !nested_areas.contains(area) {
+                    continue;
+                }
+                if let Some(id) = candidate_map
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                {
+                    if kept_ids.insert(id.to_string()) {
+                        changed = true;
+                    }
+                }
+            }
+            let _ = container_id;
+        }
+    }
+    changed = true;
+    while changed {
+        changed = false;
+        for zone in zones.iter() {
+            let Some(map) = zone.as_object() else {
+                continue;
+            };
             let Some(id) = map
                 .get("id")
                 .and_then(Value::as_str)
@@ -1011,9 +1064,56 @@ fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
     });
 }
 
+fn collect_top_level_layout_areas(layout: &Value) -> BTreeSet<String> {
+    let mut allowed = BTreeSet::new();
+    let Some(areas) = layout.get("areas").and_then(Value::as_array) else {
+        return allowed;
+    };
+    for row in areas {
+        let Some(cells) = row.as_array() else {
+            continue;
+        };
+        for cell in cells {
+            let Some(area) = cell
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && *value != ".")
+            else {
+                continue;
+            };
+            allowed.insert(area.to_string());
+        }
+    }
+    allowed
+}
+
+fn shell_zone_dedupe_rank(zone: &Map<String, Value>, top_level_areas: &BTreeSet<String>) -> (i32, i32) {
+    let parent = zone
+        .get("parent")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    let area = zone
+        .get("area")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("");
+    let area_in_top = !area.is_empty() && top_level_areas.contains(area);
+    let is_nested = !parent.is_empty();
+    let primary = if area_in_top {
+        if is_nested { 0 } else { 1 }
+    } else if is_nested {
+        1
+    } else {
+        0
+    };
+    (primary, if is_nested { 1 } else { 0 })
+}
+
 /// Cockpit profile wraps board frame in nested panels; retain may keep duplicate zone ids
-/// (e.g. chart under `left` and chart at frame root). Prefer root-level zones for assembly.
-fn dedupe_shell_zones_by_id(zones: &mut Vec<Value>) {
+/// (e.g. chart under `left` and chart at frame root). Prefer the variant that matches
+/// whether the zone `area` is a top-level frame cell or nested-only.
+fn dedupe_shell_zones_by_id(zones: &mut Vec<Value>, top_level_areas: &BTreeSet<String>) {
     let mut best_by_id: BTreeMap<String, Value> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
     for zone in zones.drain(..) {
@@ -1028,22 +1128,12 @@ fn dedupe_shell_zones_by_id(zones: &mut Vec<Value>) {
         else {
             continue;
         };
-        let parent = map
-            .get("parent")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or("");
-        let is_root = parent.is_empty();
         let replace = match best_by_id.get(id) {
             None => true,
             Some(existing) => {
-                let existing_parent = existing
-                    .as_object()
-                    .and_then(|entry| entry.get("parent"))
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .unwrap_or("");
-                is_root && !existing_parent.is_empty()
+                let existing_map = existing.as_object().expect("zone object");
+                shell_zone_dedupe_rank(map, top_level_areas)
+                    > shell_zone_dedupe_rank(existing_map, top_level_areas)
             }
         };
         if replace {

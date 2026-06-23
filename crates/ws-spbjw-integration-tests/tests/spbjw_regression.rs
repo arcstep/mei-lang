@@ -1625,6 +1625,161 @@ fn compile_spbjw_inspection_board_export_preview_projection_slots_in_assembly() 
 }
 
 #[test]
+fn compile_spbjw_ai_warning_cockpit_board_export_preview_projection_slots_in_assembly() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/02-行政检查.board.mei";
+    let scene_id = "ai_warning_cockpit_board";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some(scene_id.to_string()),
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let assembly = compiled
+        .scene_projection_assembly_by_id
+        .get(scene_id)
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| {
+            panic!(
+                "expected assembly for `{scene_id}`, got keys: {:?}",
+                compiled
+                    .scene_projection_assembly_by_id
+                    .keys()
+                    .collect::<Vec<_>>()
+            )
+        });
+    let slots = assembly
+        .get("projection_slots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        slots.len() >= 4,
+        "ai_warning list_preview board should lower chart+detail+preview projection_slots, assembly keys: {:?}, diagnostics: {:?}",
+        assembly.keys().collect::<Vec<_>>(),
+        compiled
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
+            .collect::<Vec<_>>()
+    );
+    let components: Vec<&str> = slots
+        .iter()
+        .filter_map(|slot| {
+            slot.as_object()
+                .and_then(|map| map.get("component"))
+                .and_then(Value::as_str)
+        })
+        .collect();
+    assert!(
+        components.iter().filter(|c| **c == "chart").count() >= 2,
+        "expected at least 2 chart slots, got components: {components:?}"
+    );
+    assert!(
+        components.iter().any(|c| *c == "data_table"),
+        "expected detail table slot, got components: {components:?}"
+    );
+    assert!(
+        components.iter().any(|c| *c == "summary"),
+        "expected preview summary slot, got components: {components:?}"
+    );
+    assert!(
+        assembly.get("preview_params").is_some(),
+        "expected preview_params in assembly, got: {assembly:?}"
+    );
+    let shell = assembly
+        .get("shell_contract")
+        .and_then(Value::as_object)
+        .expect("shell_contract");
+    let zones = shell
+        .get("zones")
+        .and_then(Value::as_array)
+        .expect("shell zones");
+    let chart_zone = zones
+        .iter()
+        .find(|zone| {
+            zone.as_object()
+                .and_then(|map| map.get("id"))
+                .and_then(Value::as_str)
+                == Some("chart")
+        })
+        .and_then(Value::as_object)
+        .expect("chart zone");
+    assert_eq!(
+        chart_zone.get("parent").and_then(Value::as_str),
+        Some("left"),
+        "chart zone should stay nested under left container, zones: {zones:?}"
+    );
+}
+
+#[test]
+fn compile_spbjw_home_ai_warning_cockpit_hydrated_assembly_includes_chart_slots() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("home".to_string()),
+            preview_target: None,
+        },
+    )
+    .expect("compile spbjw home scene");
+    let assembly = compiled
+        .scene_projection_assembly_by_id
+        .get("ai_warning_cockpit_board")
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| {
+            panic!(
+                "expected hydrated ai_warning_cockpit_board assembly on home compile, keys: {:?}",
+                compiled
+                    .scene_projection_assembly_by_id
+                    .keys()
+                    .collect::<Vec<_>>()
+            )
+        });
+    let slots = assembly
+        .get("projection_slots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        slots.len() >= 4,
+        "home hydrated ai_warning board should include chart+detail+preview slots, got: {slots:?}"
+    );
+    let components: Vec<&str> = slots
+        .iter()
+        .filter_map(|slot| {
+            slot.as_object()
+                .and_then(|map| map.get("component"))
+                .and_then(Value::as_str)
+        })
+        .collect();
+    assert!(
+        components.iter().filter(|c| **c == "chart").count() >= 2,
+        "expected chart slots on home hydrated assembly, got components: {components:?}"
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("home scene contract");
+    let encoded = serde_json::to_string(contract).expect("encode home contract");
+    assert!(
+        encoded.contains("ai_warning_cockpit_board"),
+        "home contract should lower ai_warning popup"
+    );
+    assert!(
+        encoded.contains("\"composition_by_source_unit\"")
+            && encoded.contains("\"composition_by_warning_type\""),
+        "home popup should lower chart projection slots in scene contract"
+    );
+}
+
+#[test]
 fn compile_spbjw_enforcement_personnel_board_preview_precompiles_single_route() {
     let source_root = source_root();
     let app_root = zhifa_app_root();

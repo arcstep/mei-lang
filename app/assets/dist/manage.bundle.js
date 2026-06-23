@@ -14695,12 +14695,60 @@
     return surface instanceof HTMLElement ? surface : null;
   }
 
-  function resolveManagePreviewPanelHost(surface, panelId) {
-    if (!(surface instanceof HTMLElement) || !panelId) return null;
-    const panel = surface.querySelector(`[data-mei-panel-id="${panelId}"]`);
-    if (!(panel instanceof HTMLElement)) return null;
-    const body = panel.querySelector("[data-mei-panel-body='true'], .preview-panel-body, .panel-body-cell");
-    return body instanceof HTMLElement ? body : panel;
+  function scopedManagePreviewPanelId(zone) {
+    if (!zone || typeof zone !== "object" || Array.isArray(zone)) return "";
+    const id = nonEmptyString(zone.id);
+    if (!id) return "";
+    const parent = nonEmptyString(zone.parent);
+    return parent ? `${parent}/${id}` : id;
+  }
+
+  function managePreviewPanelIdCandidates(zoneOrPanelId, sceneShell = null) {
+    const zone =
+      zoneOrPanelId && typeof zoneOrPanelId === "object" && !Array.isArray(zoneOrPanelId)
+        ? zoneOrPanelId
+        : null;
+    const candidates = [];
+    if (zone) {
+      const scoped = scopedManagePreviewPanelId(zone);
+      if (scoped) candidates.push(scoped);
+      const id = nonEmptyString(zone.id);
+      if (id) candidates.push(id);
+      return [...new Set(candidates)];
+    }
+    const panelId = nonEmptyString(zoneOrPanelId);
+    if (!panelId) return [];
+    const shellZone = (Array.isArray(sceneShell?.zones) ? sceneShell.zones : []).find(
+      (entry) => nonEmptyString(entry?.id) === panelId,
+    );
+    const scoped = scopedManagePreviewPanelId(shellZone || { id: panelId });
+    if (scoped) candidates.push(scoped);
+    candidates.push(panelId);
+    return [...new Set(candidates)];
+  }
+
+  function resolveManagePreviewPanelHost(surface, zoneOrPanelId, sceneShell = null) {
+    if (!(surface instanceof HTMLElement)) return null;
+    for (const panelId of managePreviewPanelIdCandidates(zoneOrPanelId, sceneShell)) {
+      const panel = surface.querySelector(`[data-mei-panel-id="${panelId}"]`);
+      if (!(panel instanceof HTMLElement)) continue;
+      const body = panel.querySelector(
+        "[data-mei-panel-body='true'], .preview-panel-body, .panel-body-cell",
+      );
+      return body instanceof HTMLElement ? body : panel;
+    }
+    return null;
+  }
+
+  function buildManagePreviewZoneHosts(surface, sceneShell) {
+    const zoneHosts = {};
+    (Array.isArray(sceneShell?.zones) ? sceneShell.zones : []).forEach((zone) => {
+      const host = resolveManagePreviewPanelHost(surface, zone, sceneShell);
+      if (host instanceof HTMLElement && nonEmptyString(zone?.id)) {
+        zoneHosts[zone.id] = host;
+      }
+    });
+    return zoneHosts;
   }
 
   function shouldMountManagePreviewBoard(doc = document) {
@@ -14764,16 +14812,15 @@
           })
         : ["minmax(240px, auto)", "minmax(0, 1fr)"];
     surface.style.gridTemplateRows = rows.join(" ");
-    const chartPanel = surface.querySelector('[data-mei-panel-id="chart"]');
-    if (chartPanel instanceof HTMLElement) {
-      const body = chartPanel.querySelector(
-        "[data-mei-panel-body='true'], .preview-panel-body, .panel-body-cell",
-      );
-      if (body instanceof HTMLElement) {
-        body.style.display = "grid";
-        body.style.minHeight = "220px";
-        body.style.height = "100%";
-      }
+    const chartZone =
+      (Array.isArray(sceneShell?.zones) ? sceneShell.zones : []).find(
+        (zone) => nonEmptyString(zone?.role) === "slots" && zone?.accepts?.includes?.("chart"),
+      ) || { id: "chart" };
+    const chartHost = resolveManagePreviewPanelHost(surface, chartZone, sceneShell);
+    if (chartHost instanceof HTMLElement) {
+      chartHost.style.display = "grid";
+      chartHost.style.minHeight = "220px";
+      chartHost.style.height = "100%";
     }
   }
 
@@ -14846,7 +14893,14 @@
     }
 
     if (!surface) return false;
-    const mountKey = `${sceneId}::${nonEmptyString(surface.dataset.targetFile, surface.dataset.sourcePath)}`;
+    const previewTargetFile =
+      boardTargetFromUrl(new URL(window.location.href)) ||
+      nonEmptyString(
+        doc.querySelector("[data-mei-frame-viewport]")?.dataset?.targetFile,
+        surface.dataset.targetFile,
+        surface.dataset.sourcePath,
+      );
+    const mountKey = `${sceneId}::${previewTargetFile}`;
     if (surface.dataset.meiPreviewBoardMounted === mountKey) {
       return true;
     }
@@ -14856,11 +14910,12 @@
     delete surface.dataset.meiPreviewBoardMounted;
     surface.classList.remove("preview-board-mounted");
 
+    const zoneHosts = buildManagePreviewZoneHosts(surface, resolved.sceneShell);
     const filterZone = sceneShellZonesByRole(resolved.sceneShell, "filter")[0] || null;
     const slotZones = sceneShellZonesByRole(resolved.sceneShell, "slots");
     const hostsReady =
-      (!filterZone || resolveManagePreviewPanelHost(surface, filterZone.id)) &&
-      slotZones.every((zone) => resolveManagePreviewPanelHost(surface, zone.id));
+      (!filterZone || zoneHosts[filterZone.id] instanceof HTMLElement) &&
+      slotZones.every((zone) => zoneHosts[zone.id] instanceof HTMLElement);
     if (!hostsReady) {
       if (surface instanceof HTMLElement) {
         showManagePreviewBoardError(surface, "看板预览区缺少 filter/chart/detail 挂载点。", detail);
@@ -14869,7 +14924,7 @@
     }
 
     if (filterZone) {
-      const host = resolveManagePreviewPanelHost(surface, filterZone.id);
+      const host = zoneHosts[filterZone.id];
       if (host instanceof HTMLElement) {
         host.dataset.buildBoardSlot = "filter";
         host.replaceChildren();
@@ -14879,7 +14934,7 @@
 
     let mountOk = true;
     for (const zone of slotZones) {
-      const host = resolveManagePreviewPanelHost(surface, zone.id);
+      const host = zoneHosts[zone.id];
       if (!(host instanceof HTMLElement)) continue;
       host.replaceChildren();
       const zoneSlots = Array.isArray(resolved?.slotsByZone?.[zone.id]) ? resolved.slotsByZone[zone.id] : [];
@@ -14916,14 +14971,16 @@
       return false;
     }
 
+    if (resolved.hasRowPreviewZone) {
+      mountStructuredRowPreviewZone(surface, zoneHosts, resolved);
+    }
+
     surface.querySelector("[data-manage-preview-board-error]")?.remove();
 
     repairManagePreviewBoardGrid(surface, resolved.sceneShell);
     refreshManagePreviewBoardCharts(surface);
 
-    bindAnalyticsChartsQueryStateRefresh(surface, detail, resolved, (zoneId) =>
-      resolveManagePreviewPanelHost(surface, zoneId),
-    );
+    bindAnalyticsChartsQueryStateRefresh(surface, detail, resolved, (zoneId) => zoneHosts?.[zoneId]);
 
     surface.dataset.meiPreviewBoardMounted = mountKey;
     surface.classList.add("preview-board-mounted");
