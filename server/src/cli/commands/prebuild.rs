@@ -96,7 +96,7 @@ fn print_prebuild_human_summary(report: &PrebuildReport) {
         if !app.warnings.is_empty() {
             println!("    warnings: {}", app.warnings.len());
             for warning in app.warnings.iter().take(5) {
-                println!("      - {warning}");
+                println!("      - {}", warning.display_message());
             }
             if app.warnings.len() > 5 {
                 println!("      - ... +{}", app.warnings.len() - 5);

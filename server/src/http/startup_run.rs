@@ -49,6 +49,18 @@ pub(crate) struct StartupRunSnapshot {
     pub last_warning_count: Option<usize>,
     #[serde(rename = "lastFailedAppCount", skip_serializing_if = "Option::is_none")]
     pub last_failed_app_count: Option<usize>,
+    #[serde(rename = "correctnessFailed", skip_serializing_if = "Option::is_none")]
+    pub correctness_failed: Option<bool>,
+    #[serde(rename = "warningCategories", skip_serializing_if = "Vec::is_empty", default)]
+    pub warning_categories: Vec<String>,
+    #[serde(
+        rename = "warningCategoryCounts",
+        skip_serializing_if = "serde_json::Map::is_empty",
+        default
+    )]
+    pub warning_category_counts: serde_json::Map<String, Value>,
+    #[serde(rename = "failingDatasets", skip_serializing_if = "Vec::is_empty", default)]
+    pub failing_datasets: Vec<String>,
     pub finished: bool,
 }
 
@@ -156,6 +168,10 @@ pub(crate) fn initialize(source_root: &Path, startup_policy: &str) {
         startup_warmup_kind: None,
         last_warning_count: None,
         last_failed_app_count: None,
+        correctness_failed: None,
+        warning_categories: Vec::new(),
+        warning_category_counts: serde_json::Map::new(),
+        failing_datasets: Vec::new(),
         finished: false,
     };
     let mut guard = match startup_run_state().lock() {
@@ -224,6 +240,27 @@ pub(crate) fn record_phase(event: &str, detail: Option<Value>) {
                 if let Some(count) = detail.get("failedAppCount").and_then(Value::as_u64) {
                     state.summary.last_failed_app_count = Some(count as usize);
                 }
+                if let Some(failed) = detail.get("correctnessFailed").and_then(Value::as_bool) {
+                    state.summary.correctness_failed = Some(failed);
+                }
+                if let Some(categories) = detail.get("warningCategories").and_then(Value::as_array) {
+                    state.summary.warning_categories = categories
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect();
+                }
+                if let Some(counts) = detail.get("warningCategoryCounts").and_then(Value::as_object)
+                {
+                    state.summary.warning_category_counts = counts.clone();
+                }
+                if let Some(datasets) = detail.get("failingDatasets").and_then(Value::as_array) {
+                    state.summary.failing_datasets = datasets
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect();
+                }
             }
         }
         persist_run_json(state);
@@ -289,6 +326,13 @@ pub(crate) fn record_startup_prebuild_outcome(
     startup_sequence_complete: bool,
 ) {
     let warmup_kind = infer_startup_warmup_kind(report);
+    let warning_categories = report.warning_categories();
+    let warning_category_counts = serde_json::to_value(report.warning_category_counts())
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    let failing_datasets = report.failing_datasets();
+    let correctness_failed = report.correctness_failed();
     record_phase(
         "startup_prebuild_finished",
         Some(json!({
@@ -306,6 +350,10 @@ pub(crate) fn record_startup_prebuild_outcome(
             "cacheHitCount": report.diagnostics.cache_hit_count,
             "compileIndexHits": report.diagnostics.compile_index.hits,
             "compileIndexMisses": report.diagnostics.compile_index.misses,
+            "correctnessFailed": correctness_failed,
+            "warningCategories": warning_categories,
+            "warningCategoryCounts": warning_category_counts,
+            "failingDatasets": failing_datasets,
         })),
     );
     if !access_artifacts_ready {
@@ -316,6 +364,7 @@ pub(crate) fn record_startup_prebuild_outcome(
                 "failedAppCount": failed_app_count,
                 "warningCount": warning_count,
                 "ok": report.ok,
+                "correctnessFailed": correctness_failed,
             })),
         );
     } else if startup_sequence_complete {
@@ -342,6 +391,13 @@ pub(crate) fn record_startup_prebuild_outcome(
         state.summary.access_artifacts_ready = Some(access_artifacts_ready);
         state.summary.last_warning_count = Some(warning_count);
         state.summary.last_failed_app_count = Some(failed_app_count);
+        state.summary.correctness_failed = Some(correctness_failed);
+        state.summary.warning_categories = report.warning_categories();
+        state.summary.warning_category_counts = serde_json::to_value(report.warning_category_counts())
+            .ok()
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        state.summary.failing_datasets = report.failing_datasets();
     });
     if report.ok && access_artifacts_ready {
         record_phase(
@@ -362,6 +418,10 @@ pub(crate) fn record_startup_prebuild_outcome(
             "failedAppCount": failed_app_count,
             "warningCount": warning_count,
             "totalWallMs": report.total_wall_ms,
+            "correctnessFailed": correctness_failed,
+            "warningCategories": report.warning_categories(),
+            "warningCategoryCounts": report.warning_category_counts(),
+            "failingDatasets": report.failing_datasets(),
         })),
     );
 }

@@ -1240,6 +1240,32 @@ pub struct PrebuildDiagnosticsReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct PrebuildWarningReport {
+    pub phase: String,
+    pub category: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset_selector: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metric_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compile_revision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_key: Option<String>,
+    pub error: String,
+}
+
+impl PrebuildWarningReport {
+    pub fn display_message(&self) -> &str {
+        self.message.as_str()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct PrebuildAppReport {
     pub app_id: String,
     pub compile_scopes: Vec<PrebuildScopeReport>,
@@ -1247,7 +1273,7 @@ pub struct PrebuildAppReport {
     pub timings: PrebuildTimingReport,
     pub data_snapshots: Option<PublishDataSnapshotsReport>,
     pub diagnostics: PrebuildDiagnosticsReport,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<PrebuildWarningReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1289,7 +1315,7 @@ pub struct PrebuildAppSummary {
     pub coverage: PrebuildCoverageReport,
     pub timings: PrebuildTimingReport,
     pub diagnostics: PrebuildDiagnosticsReport,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<PrebuildWarningReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1312,6 +1338,51 @@ pub struct PrebuildReportSummary {
 }
 
 impl PrebuildReport {
+    pub fn warning_categories(&self) -> Vec<String> {
+        let mut categories = self
+            .apps
+            .iter()
+            .flat_map(|app| app.warnings.iter().map(|warning| warning.category.clone()))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        categories.sort();
+        categories
+    }
+
+    pub fn warning_category_counts(&self) -> BTreeMap<String, usize> {
+        let mut counts = BTreeMap::<String, usize>::new();
+        for warning in self.apps.iter().flat_map(|app| app.warnings.iter()) {
+            *counts.entry(warning.category.clone()).or_insert(0) += 1;
+        }
+        counts
+    }
+
+    pub fn failing_datasets(&self) -> Vec<String> {
+        let mut datasets = self
+            .apps
+            .iter()
+            .flat_map(|app| {
+                app.warnings
+                    .iter()
+                    .filter_map(|warning| warning.dataset_selector.clone())
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        datasets.sort();
+        datasets
+    }
+
+    pub fn correctness_failed(&self) -> bool {
+        !self.ok
+            || self
+                .apps
+                .iter()
+                .any(|app| !app.warnings.is_empty())
+            || !self.failed_apps.is_empty()
+    }
+
     pub fn summary(&self) -> PrebuildReportSummary {
         PrebuildReportSummary {
             schema_version: self.schema_version.clone(),
@@ -1376,6 +1447,123 @@ struct AggregatedWarmupRequest {
 enum WarmupRequestPriority {
     Critical,
     Deferred,
+}
+
+fn warning_quoted_value(error: &str, marker: &str) -> Option<String> {
+    let start = error.find(marker)? + marker.len();
+    let rest = error.get(start..)?;
+    let end = rest.find('`')?;
+    let value = rest.get(..end)?.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn warning_category_from_error(error: &str) -> (&'static str, Option<String>, Option<String>) {
+    if error.contains("locate warmup dataset `") {
+        return (
+            "warmup_dataset_locate_failed",
+            warning_quoted_value(error, "locate warmup dataset `"),
+            None,
+        );
+    }
+    if error.contains("build metric response artifact for dataset `") {
+        return (
+            "metric_response_eval_failed",
+            warning_quoted_value(error, "build metric response artifact for dataset `"),
+            None,
+        );
+    }
+    if error.contains("build metric dataframe artifact for dataset `") {
+        return (
+            "metric_dataframe_eval_failed",
+            warning_quoted_value(error, "build metric dataframe artifact for dataset `"),
+            warning_quoted_value(error, "metric `"),
+        );
+    }
+    if error.contains("does not cover all declared metrics") {
+        return (
+            "artifact_coverage_miss",
+            warning_quoted_value(error, "dataset `"),
+            None,
+        );
+    }
+    if error.contains("missing metric response artifact")
+        || error.contains("missing metric dataframe artifact")
+    {
+        return ("artifact_index_miss", warning_quoted_value(error, "dataset `"), None);
+    }
+    if error.contains("metric response index preload failed") {
+        return ("metric_response_index_preload_failed", None, None);
+    }
+    ("prebuild_warning", None, None)
+}
+
+fn build_prebuild_warning(
+    phase: &str,
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
+    dataset_selector: Option<&str>,
+    metric_id: Option<&str>,
+    compile_revision: Option<&str>,
+    cache_key: Option<&str>,
+    error: impl Into<String>,
+) -> PrebuildWarningReport {
+    let error = error.into();
+    let (category, inferred_dataset, inferred_metric) = warning_category_from_error(error.as_str());
+    let scene_id = scene_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let target_file = target_file
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let dataset_selector = dataset_selector
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or(inferred_dataset);
+    let metric_id = metric_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or(inferred_metric);
+    let compile_revision = compile_revision
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let cache_key = cache_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let message = match (scene_id.as_deref(), target_file.as_deref(), dataset_selector.as_deref()) {
+        (Some(scene), Some(target), Some(dataset)) => {
+            format!("{phase} scene=`{scene}` target=`{target}` dataset=`{dataset}` failed: {error}")
+        }
+        (Some(scene), Some(target), None) => {
+            format!("{phase} scene=`{scene}` target=`{target}` failed: {error}")
+        }
+        (Some(scene), None, Some(dataset)) => {
+            format!("{phase} scene=`{scene}` dataset=`{dataset}` failed: {error}")
+        }
+        (None, None, Some(dataset)) => format!("{phase} dataset=`{dataset}` failed: {error}"),
+        _ => format!("{phase} failed: {error}"),
+    };
+    PrebuildWarningReport {
+        phase: phase.to_string(),
+        category: category.to_string(),
+        message,
+        scene_id,
+        target_file,
+        dataset_selector,
+        metric_id,
+        compile_revision,
+        cache_key,
+        error,
+    }
 }
 
 impl CompileScope {
@@ -1909,10 +2097,15 @@ fn run_prebuild_for_app(
                 if mode == PrebuildMode::Verify {
                     return Err(error);
                 }
-                warnings.push(format!(
-                    "compile scope scene=`{}` target=`{}` failed: {error}",
-                    scope.requested_scene_id.as_deref().unwrap_or(""),
-                    scope.requested_target_file.as_deref().unwrap_or(""),
+                warnings.push(build_prebuild_warning(
+                    "compile_scope",
+                    scope.requested_scene_id.as_deref(),
+                    scope.requested_target_file.as_deref(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    error.to_string(),
                 ));
             }
         }
@@ -2038,10 +2231,15 @@ fn run_prebuild_for_app(
                     if mode == PrebuildMode::Verify {
                         return Err(error);
                     }
-                    warnings.push(format!(
-                        "compile scope scene=`{}` target=`{}` failed: {error}",
-                        scope.requested_scene_id.as_deref().unwrap_or(""),
-                        scope.requested_target_file.as_deref().unwrap_or(""),
+                    warnings.push(build_prebuild_warning(
+                        "compile_scope",
+                        scope.requested_scene_id.as_deref(),
+                        scope.requested_target_file.as_deref(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        error.to_string(),
                     ));
                     continue;
                 }
@@ -2233,10 +2431,15 @@ fn run_prebuild_for_app(
             if mode == PrebuildMode::Verify {
                 return Err(error);
             }
-            warnings.push(format!(
-                "scope artifacts scene=`{}` target=`{}` failed: {error}",
-                scope.requested_scene_id.as_deref().unwrap_or(""),
-                scope.requested_target_file.as_deref().unwrap_or(""),
+            warnings.push(build_prebuild_warning(
+                "scope_artifacts",
+                scope.requested_scene_id.as_deref(),
+                scope.requested_target_file.as_deref(),
+                None,
+                None,
+                None,
+                None,
+                error.to_string(),
             ));
         } else {
             merge_coverage(&mut coverage, &local_coverage);
@@ -2307,7 +2510,7 @@ fn run_prebuild_for_app(
     let run_and_merge_warmup = |label: &str,
                                 requests: &[&AggregatedWarmupRequest],
                                 ok_flag: &mut bool,
-                                warnings: &mut Vec<String>,
+                                warnings: &mut Vec<PrebuildWarningReport>,
                                 coverage: &mut PrebuildCoverageReport|
      -> Result<u64> {
         if requests.is_empty() {
@@ -2339,11 +2542,15 @@ fn run_prebuild_for_app(
                 if mode == PrebuildMode::Verify {
                     return Err(error);
                 }
-                warnings.push(format!(
-                    "warmup {label} scene=`{}` target=`{}` dataset=`{}` failed: {error}",
-                    scope.requested_scene_id.as_deref().unwrap_or(""),
-                    scope.requested_target_file.as_deref().unwrap_or(""),
-                    dataset_id,
+                warnings.push(build_prebuild_warning(
+                    &format!("warmup_{label}"),
+                    scope.requested_scene_id.as_deref(),
+                    scope.requested_target_file.as_deref(),
+                    Some(dataset_id.as_str()),
+                    None,
+                    None,
+                    None,
+                    error.to_string(),
                 ));
             } else {
                 merge_coverage(coverage, &local_coverage);
@@ -2372,7 +2579,16 @@ fn run_prebuild_for_app(
     if let Err(error) =
         mei_lang_datasets::preload_prebuild_metric_response_index(app_root.as_path())
     {
-        warnings.push(format!("metric response index preload failed: {error}"));
+        warnings.push(build_prebuild_warning(
+            "post_prebuild",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            format!("metric response index preload failed: {error}"),
+        ));
     }
     let diagnostics_report = build_prebuild_diagnostics_report(
         app_root.as_path(),
@@ -2470,10 +2686,7 @@ fn compile_scopes_for_app(
         .iter()
         .filter(|request| warmup_dataset_request_in_profile(app, request, scope_profile))
     {
-        push_scope(CompileScope {
-            requested_scene_id: request.scene_id.clone(),
-            requested_target_file: request.focus.clone(),
-        });
+        push_scope(warmup_request_scope(request));
     }
     scopes
 }
@@ -2543,16 +2756,37 @@ fn focus_targets_from_warmup_datasets(app: &RuntimeWarmupApp) -> Vec<String> {
         targets.push(target.to_string());
     };
     for request in &app.datasets {
-        if let Some(focus) = request.focus.as_deref() {
-            push(focus);
-        }
-        for segment in request.dataset_id.split("::") {
-            if segment.starts_with("scenes/") && segment.ends_with(".mei") {
-                push(segment);
-            }
+        if let Some(target) = warmup_request_target_file(request) {
+            push(target.as_str());
         }
     }
     targets
+}
+
+fn warmup_dataset_selector_target_file(dataset_selector: &str) -> Option<String> {
+    dataset_selector
+        .split("::")
+        .map(str::trim)
+        .find(|segment| segment.starts_with("scenes/") && segment.ends_with(".mei"))
+        .map(str::to_string)
+}
+
+fn warmup_request_target_file(request: &RuntimeWarmupDatasetRequest) -> Option<String> {
+    request
+        .focus
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| warmup_dataset_selector_target_file(request.dataset_id.as_str()))
+}
+
+fn warmup_request_scope(request: &RuntimeWarmupDatasetRequest) -> CompileScope {
+    CompileScope {
+        requested_scene_id: request.scene_id.clone(),
+        requested_target_file: warmup_request_target_file(request),
+    }
+    .canonicalized()
 }
 
 fn all_focus_targets(app: &RuntimeWarmupApp) -> Vec<String> {
@@ -2635,11 +2869,7 @@ fn aggregate_warmup_requests(
         .iter()
         .filter(|request| warmup_dataset_request_in_profile(app, request, scope_profile))
     {
-        let scope = CompileScope {
-            requested_scene_id: request.scene_id.clone(),
-            requested_target_file: request.focus.clone(),
-        }
-        .canonicalized();
+        let scope = warmup_request_scope(request);
         let priority = warmup_request_priority(app, request);
         let metric_ids = requested_metric_ids(request);
         let request_all_metrics = metric_ids.is_empty();
@@ -2699,13 +2929,8 @@ fn warmup_request_priority(
             WarmupRequestPriority::Deferred
         };
     }
-    let request_focus = request
-        .focus
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(focus) = request_focus {
-        return if explicit_focuses.iter().any(|value| value == focus) {
+    if let Some(focus) = warmup_request_target_file(request) {
+        return if explicit_focuses.iter().any(|value| value == &focus) {
             WarmupRequestPriority::Critical
         } else {
             WarmupRequestPriority::Deferred
@@ -2764,7 +2989,7 @@ fn warmup_request_matches_outcome(
             return false;
         }
     }
-    true
+    mei_lang_kernel::locate_dataset_resource(&outcome.compiled, request.dataset_id.as_str()).is_ok()
 }
 
 fn matching_warmup_requests_for_outcome<'a>(
@@ -4936,7 +5161,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mei_lang_kernel::CompiledApp;
+    use mei_lang_kernel::{CompiledApp, DatasetView, LoadedResource, SourceDecl};
+    use serde_json::json;
 
     fn test_outcome(active_scene: &str, active_target_file: &str) -> SharedCompileOutcome {
         SharedCompileOutcome {
@@ -4968,6 +5194,42 @@ mod tests {
             cache_lookup_ms: 0,
             artifact_load_ms: 0,
             compile_ms: 0,
+        }
+    }
+
+    fn test_dataset_resource(id: &str) -> LoadedResource {
+        LoadedResource {
+            id: id.to_string(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: Some(DatasetView {
+                id: id.to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: vec!["value".to_string()],
+                rows: vec![json!({"value": 1})],
+                source: SourceDecl {
+                    kind: "csv".to_string(),
+                    path: "data/demo.csv".to_string(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: Default::default(),
+                runtime_metric_defs: Default::default(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
+            }),
         }
     }
 
@@ -5146,6 +5408,68 @@ mod tests {
             focus_targets_from_warmup_datasets(&app),
             vec!["scenes/05-监督预警.mei".to_string()]
         );
+    }
+
+    #[test]
+    fn warmup_request_scope_uses_dataset_selector_target_when_focus_missing() {
+        let request = RuntimeWarmupDatasetRequest {
+            scene_id: Some("home".to_string()),
+            focus: None,
+            dataset_id: "__world_metrics__::scenes/10-地图.mei::metrics".to_string(),
+            priority: None,
+            metric_id: None,
+            metric_ids: Vec::new(),
+        };
+        let scope = warmup_request_scope(&request);
+        assert_eq!(scope.requested_scene_id.as_deref(), Some("home"));
+        assert_eq!(
+            scope.requested_target_file.as_deref(),
+            Some("scenes/10-地图.mei")
+        );
+    }
+
+    #[test]
+    fn aggregate_warmup_requests_derive_target_file_from_dataset_selector() {
+        let app = RuntimeWarmupApp {
+            app_id: "demo".to_string(),
+            default_scene: Some("home".to_string()),
+            hot_scenes: vec!["home".to_string()],
+            scenes: Vec::new(),
+            focuses: vec!["main.mei".to_string()],
+            datasets: vec![RuntimeWarmupDatasetRequest {
+                scene_id: Some("home".to_string()),
+                focus: None,
+                dataset_id: "__world_metrics__::scenes/10-地图.mei::metrics".to_string(),
+                priority: None,
+                metric_id: None,
+                metric_ids: Vec::new(),
+            }],
+            xlsx_sources: Vec::new(),
+        };
+        let requests = aggregate_warmup_requests(&app, PrebuildScopeProfile::Full);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].scope.key(), "home|scenes/10-地图.mei");
+    }
+
+    #[test]
+    fn prebuild_warning_classifies_dataset_locate_failure() {
+        let warning = build_prebuild_warning(
+            "warmup_critical",
+            Some("home"),
+            Some("scenes/10-地图.mei"),
+            None,
+            None,
+            None,
+            None,
+            "locate warmup dataset `__world_metrics__::scenes/10-地图.mei::metrics`".to_string(),
+        );
+        assert_eq!(warning.category, "warmup_dataset_locate_failed");
+        assert_eq!(
+            warning.dataset_selector.as_deref(),
+            Some("__world_metrics__::scenes/10-地图.mei::metrics")
+        );
+        assert_eq!(warning.scene_id.as_deref(), Some("home"));
+        assert_eq!(warning.target_file.as_deref(), Some("scenes/10-地图.mei"));
     }
 
     #[test]
@@ -5354,11 +5678,32 @@ mod tests {
             priority: WarmupRequestPriority::Critical,
             metric_ids: vec!["penalties_total_count::__scalar_rowset__".to_string()],
         };
-        let outcome = test_outcome("home", "scenes/home.mei");
+        let mut outcome = test_outcome("home", "scenes/home.mei");
+        Arc::make_mut(&mut outcome.compiled)
+            .resources
+            .push(test_dataset_resource("penalty_result_dashboard_ds"));
         assert!(warmup_request_matches_outcome(&request, &outcome));
         assert_eq!(
             matching_warmup_requests_for_outcome(&[request], &outcome).len(),
             1
+        );
+    }
+
+    #[test]
+    fn warmup_request_does_not_match_outcome_without_dataset_resource() {
+        let request = AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: Some("scenes/10-地图.mei".to_string()),
+            },
+            dataset_id: "__world_metrics__::scenes/10-地图.mei::metrics".to_string(),
+            priority: WarmupRequestPriority::Critical,
+            metric_ids: Vec::new(),
+        };
+        let outcome = test_outcome("home", "scenes/10-地图.mei");
+        assert!(!warmup_request_matches_outcome(&request, &outcome));
+        assert!(
+            matching_warmup_requests_for_outcome(&[request], &outcome).is_empty()
         );
     }
 

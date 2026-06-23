@@ -16,6 +16,7 @@ use crate::{
     prebuild::{
         app_has_deferred_warmup_work, run_prebuild, PrebuildAppReport, PrebuildDiagnosticsReport,
         PrebuildMode, PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
+        PrebuildWarningReport,
     },
     AppState,
 };
@@ -65,6 +66,10 @@ pub(crate) struct HostAppReadinessResponse {
     #[serde(rename = "lastError")]
     pub last_error: Option<String>,
     pub warnings: Vec<String>,
+    #[serde(rename = "warningDetails")]
+    pub warning_details: Vec<PrebuildWarningReport>,
+    #[serde(rename = "warningCategories")]
+    pub warning_categories: Vec<String>,
     #[serde(rename = "compileScopeCount")]
     pub compile_scope_count: usize,
     #[serde(rename = "readyScopeCount")]
@@ -126,6 +131,14 @@ pub(crate) struct HostReadyResponse {
     pub last_warning_count: usize,
     #[serde(rename = "lastBuildDiagnostics")]
     pub last_build_diagnostics: Option<PrebuildDiagnosticsReport>,
+    #[serde(rename = "correctnessFailed")]
+    pub correctness_failed: bool,
+    #[serde(rename = "warningCategories")]
+    pub warning_categories: Vec<String>,
+    #[serde(rename = "warningCategoryCounts")]
+    pub warning_category_counts: BTreeMap<String, usize>,
+    #[serde(rename = "failingDatasets")]
+    pub failing_datasets: Vec<String>,
     #[serde(rename = "readyAppCount")]
     pub ready_app_count: usize,
     #[serde(rename = "degradedAppCount")]
@@ -182,6 +195,14 @@ pub(crate) struct HostHeartbeatResponse {
     pub last_warning_count: usize,
     #[serde(rename = "lastBuildDiagnostics")]
     pub last_build_diagnostics: Option<PrebuildDiagnosticsReport>,
+    #[serde(rename = "correctnessFailed")]
+    pub correctness_failed: bool,
+    #[serde(rename = "warningCategories")]
+    pub warning_categories: Vec<String>,
+    #[serde(rename = "warningCategoryCounts")]
+    pub warning_category_counts: BTreeMap<String, usize>,
+    #[serde(rename = "failingDatasets")]
+    pub failing_datasets: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -303,6 +324,10 @@ pub(crate) struct HostReadinessRegistry {
     last_deferred_warmup_request_count: usize,
     last_warning_count: usize,
     last_build_diagnostics: Option<PrebuildDiagnosticsReport>,
+    correctness_failed: bool,
+    warning_categories: Vec<String>,
+    warning_category_counts: BTreeMap<String, usize>,
+    failing_datasets: Vec<String>,
     apps: BTreeMap<String, HostAppReadinessState>,
 }
 
@@ -311,6 +336,8 @@ struct HostAppReadinessState {
     phase: String,
     last_error: Option<String>,
     warnings: Vec<String>,
+    warning_details: Vec<PrebuildWarningReport>,
+    warning_categories: Vec<String>,
     scopes: BTreeMap<String, HostScopeReadinessState>,
 }
 
@@ -407,6 +434,8 @@ fn app_response(app_id: String, state: HostAppReadinessState) -> HostAppReadines
         },
         last_error: state.last_error,
         warnings: state.warnings,
+        warning_details: state.warning_details,
+        warning_categories: state.warning_categories,
         compile_scope_count: scopes.len(),
         ready_scope_count,
         failed_scope_count,
@@ -464,6 +493,10 @@ fn registry_snapshot() -> HostReadyResponse {
         last_deferred_warmup_request_count: snapshot.last_deferred_warmup_request_count,
         last_warning_count: snapshot.last_warning_count,
         last_build_diagnostics: snapshot.last_build_diagnostics.clone(),
+        correctness_failed: snapshot.correctness_failed,
+        warning_categories: snapshot.warning_categories,
+        warning_category_counts: snapshot.warning_category_counts,
+        failing_datasets: snapshot.failing_datasets,
         ready_app_count,
         degraded_app_count,
         failed_app_count,
@@ -514,6 +547,10 @@ fn reset_registry_for_source_root(source_root: &Path) {
             last_deferred_warmup_request_count: 0,
             last_warning_count: 0,
             last_build_diagnostics: None,
+            correctness_failed: false,
+            warning_categories: Vec::new(),
+            warning_category_counts: BTreeMap::new(),
+            failing_datasets: Vec::new(),
             apps,
         };
     });
@@ -623,7 +660,19 @@ fn apply_success_app_report(app_report: &PrebuildAppReport, app_state: &mut Host
         "degraded".to_string()
     };
     app_state.last_error = None;
-    app_state.warnings = app_report.warnings.clone();
+    app_state.warnings = app_report
+        .warnings
+        .iter()
+        .map(|warning| warning.display_message().to_string())
+        .collect();
+    app_state.warning_details = app_report.warnings.clone();
+    app_state.warning_categories = app_report
+        .warnings
+        .iter()
+        .map(|warning| warning.category.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let mut seen = BTreeSet::new();
     for scope in &app_report.compile_scopes {
         let key = normalize_scope_key(
@@ -697,6 +746,10 @@ fn status_from_report(
         .iter()
         .map(|app| app.timings.deferred_warmup_request_count)
         .sum();
+    let warning_categories = report.warning_categories();
+    let warning_category_counts = report.warning_category_counts();
+    let failing_datasets = report.failing_datasets();
+    let correctness_failed = report.correctness_failed();
     let registry_update = with_registry(|registry| {
         let active_job = registry.active_job.clone();
         registry.manifest_path = report.manifest_path.clone();
@@ -712,6 +765,10 @@ fn status_from_report(
         registry.last_deferred_warmup_request_count = deferred_warmup_request_count;
         registry.last_warning_count = warning_count;
         registry.last_build_diagnostics = Some(report.diagnostics.clone());
+        registry.correctness_failed = correctness_failed;
+        registry.warning_categories = warning_categories.clone();
+        registry.warning_category_counts = warning_category_counts.clone();
+        registry.failing_datasets = failing_datasets.clone();
         registry.access_ready = report.ok && access_artifacts_ready;
         registry.full_warmup_ready = report.ok && access_artifacts_ready && !deferred_warmup_pending;
         registry.deferred_warmup_pending = report.ok && access_artifacts_ready && deferred_warmup_pending;
@@ -909,6 +966,10 @@ fn mark_job_failed(
         registry.last_critical_warmup_request_count = 0;
         registry.last_deferred_warmup_request_count = 0;
         registry.last_build_diagnostics = None;
+        registry.correctness_failed = true;
+        registry.warning_categories.clear();
+        registry.warning_category_counts.clear();
+        registry.failing_datasets.clear();
         if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
             let app_state = registry.apps.entry(app_id.to_string()).or_default();
             app_state.phase = "failed".to_string();
@@ -1570,6 +1631,10 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
         last_deferred_warmup_request_count: ready.last_deferred_warmup_request_count,
         last_warning_count: ready.last_warning_count,
         last_build_diagnostics: ready.last_build_diagnostics,
+        correctness_failed: ready.correctness_failed,
+        warning_categories: ready.warning_categories,
+        warning_category_counts: ready.warning_category_counts,
+        failing_datasets: ready.failing_datasets,
     })
 }
 
@@ -1742,6 +1807,10 @@ mod tests {
             last_deferred_warmup_request_count: ready.last_deferred_warmup_request_count,
             last_warning_count: ready.last_warning_count,
             last_build_diagnostics: ready.last_build_diagnostics,
+            correctness_failed: ready.correctness_failed,
+            warning_categories: ready.warning_categories,
+            warning_category_counts: ready.warning_category_counts,
+            failing_datasets: ready.failing_datasets,
         };
         assert!(!heartbeat.build_version.is_empty());
         assert_eq!(heartbeat.build_version, crate::build_info::BUILD_VERSION);

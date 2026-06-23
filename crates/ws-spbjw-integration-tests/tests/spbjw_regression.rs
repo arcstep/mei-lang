@@ -2589,6 +2589,137 @@ fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_
 }
 
 #[test]
+fn spbjw_enforcement_items_count_rowset_matches_metric_value() {
+    use mei_lang_datasets::{evaluate_runtime_metrics, query_metric_dataframe, DatasetQueryOptions};
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/01-执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let scene_id = compiled
+        .active_scene
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("default");
+    let rowset = query_metric_dataframe(
+        &compiled,
+        app_root.as_path(),
+        "__world_metrics__",
+        "enforcement_items_count::__scalar_rowset__",
+        Some(scene_id),
+        Some(target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 16,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("enforcement_items_count rowset");
+    let metric = evaluate_runtime_metrics(
+        &compiled,
+        app_root.as_path(),
+        "__world_metrics__",
+        &["enforcement_items_count".to_string()],
+        scene_id,
+        Some(target),
+        &Default::default(),
+        &[],
+        mei_lang_datasets::RuntimeMetricEvalMode::WithDag,
+    )
+    .expect("enforcement_items_count metric");
+    let value = metric
+        .metrics
+        .iter()
+        .find(|metric| metric.id == "enforcement_items_count")
+        .and_then(|metric| metric.value.get("value").and_then(|value| value.as_f64()))
+        .unwrap_or(0.0);
+    assert_eq!(
+        rowset.total as f64, value,
+        "enforcement_items_count rowset total should match metric value"
+    );
+}
+
+#[test]
+fn spbjw_map_scene_world_metrics_can_evaluate() {
+    use mei_lang_datasets::evaluate_runtime_metrics;
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/10-地图.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let dataset = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__")
+        .and_then(|resource| resource.dataset.as_ref())
+        .unwrap_or_else(|| panic!("10-地图 preview should expose __world_metrics__"));
+    let metric_id = dataset
+        .runtime_metric_defs
+        .keys()
+        .find(|metric_id| metric_id == &&"map_park_penalty_count_2025".to_string())
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "10-地图 runtime_metric_defs should include map_park_penalty_count_2025, got: {:?}",
+                dataset.runtime_metric_defs.keys().collect::<Vec<_>>()
+            )
+        });
+    let scene_id = compiled
+        .active_scene
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("default");
+    let metric = evaluate_runtime_metrics(
+        &compiled,
+        app_root.as_path(),
+        "__world_metrics__",
+        std::slice::from_ref(&metric_id),
+        scene_id,
+        Some(target),
+        &Default::default(),
+        &[],
+        mei_lang_datasets::RuntimeMetricEvalMode::WithDag,
+    )
+    .expect("imported map world metric");
+    let resolved = metric
+        .metrics
+        .iter()
+        .find(|entry| entry.id == metric_id)
+        .unwrap_or_else(|| panic!("expected metric `{metric_id}` in response"));
+    assert!(
+        resolved.value.get("value").is_some()
+            || resolved.value.is_number()
+            || resolved
+                .value
+                .as_array()
+                .map(|rows| !rows.is_empty())
+                .unwrap_or(false),
+        "map world metric should resolve to scalar or non-empty grouped rows, got {:?}",
+        resolved.value
+    );
+}
+
+#[test]
 fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materializes_enforcement_units(
 ) {
     let source_root = source_root();
