@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
+use mei_lang_datasets::serde_lenient;
 use mei_lang_kernel::{
     runtime_eval_node_cache_enabled, EvalPlanNodeKind, FilterIntent, MetricContract, QueryState,
     RuntimeMetricEvalReport, RuntimeMetricEvalScope,
@@ -125,7 +126,7 @@ pub struct MetricQueryRequest {
     pub metric_groups: Vec<MetricQueryGroupRequest>,
     #[serde(default)]
     pub search: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_lenient::string_map")]
     pub filters: BTreeMap<String, String>,
     #[serde(default)]
     pub query_state: Option<QueryState>,

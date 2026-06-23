@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::CompileWatchedFile;
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::types::WorldScope;

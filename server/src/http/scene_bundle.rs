@@ -6,13 +6,13 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 
+use crate::http::pages::clear_page_render_cache;
 use anyhow::{Context, Result};
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
     load_mei_config_for_app, resolve_app_root, resolve_components_root, ComponentAsset, MeiConfig,
 };
 use tracing::{info, warn};
-use crate::http::pages::clear_page_render_cache;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SceneComponentBundle {
@@ -131,7 +131,9 @@ fn scene_bundle_cache_dir(app_root: &Path) -> PathBuf {
 }
 
 fn build_script_path(package_root: &Path) -> PathBuf {
-    package_root.join("scripts").join("build-scene-component-bundle.mjs")
+    package_root
+        .join("scripts")
+        .join("build-scene-component-bundle.mjs")
 }
 
 fn collect_entry_scripts(component_assets: &[ComponentAsset]) -> Vec<String> {
@@ -194,12 +196,7 @@ pub(crate) fn compute_scene_bundle_revision(
     if entries.is_empty() {
         anyhow::bail!("scene bundle requires at least one entry script");
     }
-    let revision = run_node_script(
-        package_root,
-        components_root,
-        entries,
-        &["--revision-only"],
-    )?;
+    let revision = run_node_script(package_root, components_root, entries, &["--revision-only"])?;
     if revision.len() != 16 || !revision.chars().all(|ch| ch.is_ascii_hexdigit()) {
         anyhow::bail!("invalid scene bundle revision: {revision}");
     }
@@ -218,7 +215,8 @@ fn compute_scene_bundle_revision_cached(
     let entries_signature = entries_signature(entries);
     if let Ok(cache) = revision_cache().lock() {
         if let Some(entry) = cache.get(&cache_key) {
-            if entry.compile_revision == compile_revision && entry.entries_signature == entries_signature
+            if entry.compile_revision == compile_revision
+                && entry.entries_signature == entries_signature
             {
                 return Ok(entry.revision.clone());
             }
@@ -261,10 +259,17 @@ pub(crate) fn parse_scene_bundle_request_path(
     }
     let file_name = file_name.strip_suffix(".js")?;
     let (scene_id, revision) = file_name.rsplit_once('.')?;
-    if scene_id.is_empty() || revision.len() != 16 || !revision.chars().all(|ch| ch.is_ascii_hexdigit()) {
+    if scene_id.is_empty()
+        || revision.len() != 16
+        || !revision.chars().all(|ch| ch.is_ascii_hexdigit())
+    {
         return None;
     }
-    Some((app_id.to_string(), scene_id.to_string(), revision.to_string()))
+    Some((
+        app_id.to_string(),
+        scene_id.to_string(),
+        revision.to_string(),
+    ))
 }
 
 pub(crate) fn probe_scene_component_bundle(
@@ -308,7 +313,8 @@ pub(crate) fn probe_scene_component_bundle(
             };
         }
     };
-    let cache_path = resolve_scene_bundle_cache_path(app_root.as_path(), scene_id, revision.as_str());
+    let cache_path =
+        resolve_scene_bundle_cache_path(app_root.as_path(), scene_id, revision.as_str());
     if cache_path.is_file() {
         return SceneBundleProbe {
             bundle: Some(SceneComponentBundle {

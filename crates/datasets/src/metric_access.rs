@@ -9,8 +9,7 @@ use mei_lang_kernel::{
 };
 
 use super::eval_artifact::{
-    eval_artifact_hydrate_dataset_ids,
-    load_or_build_runtime_metric_workset_artifact,
+    eval_artifact_hydrate_dataset_ids, load_or_build_runtime_metric_workset_artifact,
 };
 use super::eval_execute::execute_runtime_eval_plan_artifacts;
 use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
@@ -72,7 +71,7 @@ pub fn build_compiled_datasets_map(
             resource
                 .dataset
                 .clone()
-                    .map(|dataset| (resource.id.clone(), dataset))
+                .map(|dataset| (resource.id.clone(), dataset))
         })
         .filter(|(resource_id, dataset)| {
             resource_id == primary_resource_id

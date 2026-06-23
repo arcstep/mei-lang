@@ -1,12 +1,15 @@
-use mei_lang_kernel::{decode_theme_ref_token, resolve_workspace_shell_theme, CompiledApp, SceneContract, WorkspaceConfig};
+use mei_lang_kernel::{
+    decode_theme_ref_token, resolve_workspace_shell_theme, CompiledApp, SceneContract,
+    WorkspaceConfig,
+};
 use serde_json::Value;
 
-use super::{deep_merge_value, resolve_shared_refs};
 use super::parse_builtin::builtin_theme;
 use super::parse_tokens::{
     collect_scene_css_vars, collect_shell_css_vars, scene_css_vars_style, shell_css_vars_style,
     theme_decl_value,
 };
+use super::{deep_merge_value, resolve_shared_refs};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ThemeResolved {
@@ -112,7 +115,10 @@ pub fn shell_body_theme_style(workspace: &WorkspaceConfig) -> String {
 }
 
 /// Shell vars on `<body>` plus scene vars for body-mounted cockpit/access overlays.
-pub fn page_body_theme_style(workspace: &WorkspaceConfig, compiled: Option<&CompiledApp>) -> String {
+pub fn page_body_theme_style(
+    workspace: &WorkspaceConfig,
+    compiled: Option<&CompiledApp>,
+) -> String {
     let mut style = shell_body_theme_style(workspace);
     if let Some(compiled) = compiled {
         style.push_str(&scene_viewport_theme_style(compiled));
@@ -241,7 +247,9 @@ mod tests {
         let vars = collect_shell_css_vars(&theme);
         assert!(vars.iter().any(|(k, _)| k == "--mei-shell-font-2"));
         assert!(vars.iter().any(|(k, _)| k == "--mei-shell-bg"));
-        assert!(vars.iter().any(|(k, _)| k == "--mei-shell-color-text-primary"));
+        assert!(vars
+            .iter()
+            .any(|(k, _)| k == "--mei-shell-color-text-primary"));
         assert!(!vars.iter().any(|(k, _)| k.starts_with("--mei-color-")));
         assert!(!vars.iter().any(|(k, _)| k.starts_with("--mei-font-")));
     }
@@ -264,7 +272,9 @@ mod tests {
     fn shell_body_and_scene_viewport_styles_use_separate_var_tracks() {
         use std::path::Path;
 
-        use mei_lang_kernel::{compile_app_from_root_with_options, load_workspace_config, CompileOptions};
+        use mei_lang_kernel::{
+            compile_app_from_root_with_options, load_workspace_config, CompileOptions,
+        };
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../workspaces/ws-hello")
@@ -272,12 +282,9 @@ mod tests {
             .expect("ws-hello");
         let app_root = source_root.join("hello");
         let workspace = load_workspace_config(&source_root);
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile ws-hello");
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile ws-hello");
         let shell_style = shell_body_theme_style(&workspace);
         assert!(
             shell_style.contains("--mei-shell-color-"),

@@ -79,7 +79,8 @@ const HOST_EXTENSION_REGISTRY: [HostExtensionDescriptor; 6] = [
     HostExtensionDescriptor {
         id: "browser_context_binding",
         kind: HostExtensionKind::Callback,
-        description: "Merge browser query_state / tab hints into bounded eval scope before answering.",
+        description:
+            "Merge browser query_state / tab hints into bounded eval scope before answering.",
         consumer: "mei-host-web",
         requires_auth: None,
         requires_browser_context: Some(true),
@@ -95,7 +96,8 @@ const HOST_EXTENSION_REGISTRY: [HostExtensionDescriptor; 6] = [
     HostExtensionDescriptor {
         id: "presentation_projection",
         kind: HostExtensionKind::Projection,
-        description: "Access-like presentation shell over exported scene routes inside mei-host-web.",
+        description:
+            "Access-like presentation shell over exported scene routes inside mei-host-web.",
         consumer: "mei-host-web",
         requires_auth: Some(true),
         requires_browser_context: None,
@@ -246,7 +248,9 @@ mod tests {
     #[test]
     fn host_requirements_for_web_consumer_lists_projections() {
         let requirements = host_requirements_for_consumer("mei-host-web").expect("requirements");
-        assert!(requirements.projections.contains(&"presentation_shell".to_string()));
+        assert!(requirements
+            .projections
+            .contains(&"presentation_shell".to_string()));
         assert!(!requirements.registered_extensions.is_empty());
     }
 

@@ -130,8 +130,7 @@ fn append_access_eval_preview_lines(
     if !query_state.filters.is_empty() {
         lines.push(format!(
             "filters: {}",
-            serde_json::to_string(&query_state.filters)
-                .unwrap_or_else(|_| "{}".to_string())
+            serde_json::to_string(&query_state.filters).unwrap_or_else(|_| "{}".to_string())
         ));
     }
     if let Some(search) = query_state.search.as_deref() {

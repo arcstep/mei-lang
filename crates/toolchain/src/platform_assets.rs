@@ -94,10 +94,17 @@ fn readme_for_pack(pack_dir: &Path, boundary: &Path) -> Option<String> {
     None
 }
 
-fn authoring_support(summary: &str, knowledge_asset_ids: &[&str], example_ids: &[&str]) -> AuthoringSupportDescriptor {
+fn authoring_support(
+    summary: &str,
+    knowledge_asset_ids: &[&str],
+    example_ids: &[&str],
+) -> AuthoringSupportDescriptor {
     AuthoringSupportDescriptor {
         summary: summary.to_string(),
-        knowledge_asset_ids: knowledge_asset_ids.iter().map(|item| (*item).to_string()).collect(),
+        knowledge_asset_ids: knowledge_asset_ids
+            .iter()
+            .map(|item| (*item).to_string())
+            .collect(),
         recommended_example_ids: example_ids.iter().map(|item| (*item).to_string()).collect(),
     }
 }
@@ -147,8 +154,18 @@ fn template_pack_authoring_support(pack_id: &str) -> Option<AuthoringSupportDesc
     match pack_id {
         "cockpit" => Some(authoring_support(
             "Public cockpit shell and metric-card template pack for standalone workspaces.",
-            &["cockpit_template_index", "template_contracts", "cockpit_components_guide", "dsl_contracts"],
-            &["example_cockpit_panel", "example_template_clone", "example_map_baseline", "example_frame_layout_advanced"],
+            &[
+                "cockpit_template_index",
+                "template_contracts",
+                "cockpit_components_guide",
+                "dsl_contracts",
+            ],
+            &[
+                "example_cockpit_panel",
+                "example_template_clone",
+                "example_map_baseline",
+                "example_frame_layout_advanced",
+            ],
         )),
         _ => None,
     }

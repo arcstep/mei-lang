@@ -202,8 +202,8 @@ async fn app_bundle_returns_merged_javascript() {
         HeaderMap::new(),
         AxumPath("manage.js".to_string()),
     )
-        .await
-        .expect("build manage bundle");
+    .await
+    .expect("build manage bundle");
 
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
@@ -243,8 +243,8 @@ async fn app_bundle_supports_shoelace_mode() {
         HeaderMap::new(),
         AxumPath("shoelace.js".to_string()),
     )
-        .await
-        .expect("build shoelace bundle");
+    .await
+    .expect("build shoelace bundle");
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
@@ -273,8 +273,8 @@ async fn app_bundle_supports_styles_mode() {
         HeaderMap::new(),
         AxumPath("styles.css".to_string()),
     )
-        .await
-        .expect("build styles bundle");
+    .await
+    .expect("build styles bundle");
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await

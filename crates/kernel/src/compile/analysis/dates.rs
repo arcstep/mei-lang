@@ -29,11 +29,7 @@ fn parse_date_text(raw: &str) -> Option<(i32, u32, u32)> {
         return None;
     }
     // `YYYY-MM-DD HH:MM:SS` / ISO datetime：只取日历日部分。
-    let date_token = text
-        .split(['T', 't', ' '])
-        .next()
-        .unwrap_or(text)
-        .trim();
+    let date_token = text.split(['T', 't', ' ']).next().unwrap_or(text).trim();
     let normalized = date_token
         .replace('年', "-")
         .replace('月', "-")
@@ -394,10 +390,7 @@ mod tests {
             parse_date_value(&json!("2024年6月15日")),
             Some((2024, 6, 15))
         );
-        assert_eq!(
-            parse_date_text("2025-06-06 00:00:00"),
-            Some((2025, 6, 6))
-        );
+        assert_eq!(parse_date_text("2025-06-06 00:00:00"), Some((2025, 6, 6)));
         assert_eq!(
             parse_date_value(&json!("2025-06-06T08:30:00")),
             Some((2025, 6, 6))

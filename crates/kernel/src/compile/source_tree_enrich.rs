@@ -34,10 +34,7 @@ fn scene_example_title(examples: &Value) -> Option<String> {
     None
 }
 
-pub(crate) fn enrich_source_tree_with_scene_exports(
-    app_root: &Path,
-    nodes: &mut [WorkspaceNode],
-) {
+pub(crate) fn enrich_source_tree_with_scene_exports(app_root: &Path, nodes: &mut [WorkspaceNode]) {
     for node in nodes.iter_mut() {
         if node.kind == "dir" {
             enrich_source_tree_with_scene_exports(app_root, &mut node.children);

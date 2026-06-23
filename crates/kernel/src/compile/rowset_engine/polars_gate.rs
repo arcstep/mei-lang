@@ -7,11 +7,7 @@ pub fn polars_engine_available() -> bool {
 }
 
 /// 预留 Polars 后端；当前始终回退 JSON/columnar 路径。
-pub fn try_polars_group_by(
-    _rows: &[Value],
-    _group_field: &str,
-    _agg: &str,
-) -> Option<Vec<Value>> {
+pub fn try_polars_group_by(_rows: &[Value], _group_field: &str, _agg: &str) -> Option<Vec<Value>> {
     if !polars_engine_available() {
         return None;
     }

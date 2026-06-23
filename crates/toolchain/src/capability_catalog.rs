@@ -68,7 +68,9 @@ pub fn meilang_access_skill_package() -> SkillPackageDescriptor {
     SkillPackageDescriptor {
         id: "meilang-access".to_string(),
         name: "MeiLang Access".to_string(),
-        description: "Canonical MeiLang access skill package exported from the toolchain capability catalog.".to_string(),
+        description:
+            "Canonical MeiLang access skill package exported from the toolchain capability catalog."
+                .to_string(),
         source_dir_rel: "guides/access-skills".to_string(),
         install_dir_rel: ".mei/skills/meilang-access".to_string(),
         entry_file: "SKILL.md".to_string(),
@@ -195,12 +197,15 @@ fn humanize_flow_step(step: &str) -> String {
         "read_author_docs_and_examples" => {
             "Read author docs, examples, and component references.".to_string()
         }
-        "run_mei_check_or_mei_lsp" => "Run `mei-toolchain check` or `mei-lsp` for diagnostics.".to_string(),
+        "run_mei_check_or_mei_lsp" => {
+            "Run `mei-toolchain check` or `mei-lsp` for diagnostics.".to_string()
+        }
         "use_inspect_or_query_only_when_runtime_facts_are_needed" => {
             "Use inspect/query only when runtime facts are needed.".to_string()
         }
         "read_access_profile" => {
-            "Read the canonical access profile and companion workflow before runtime questions.".to_string()
+            "Read the canonical access profile and companion workflow before runtime questions."
+                .to_string()
         }
         "read_world_catalog_and_runtime_summary" => {
             "Read world catalog and runtime summary for the active app/scene scope.".to_string()
@@ -209,7 +214,8 @@ fn humanize_flow_step(step: &str) -> String {
             "Merge browser `query_state` into bounded eval scope before answering.".to_string()
         }
         "prefer_preinjected_metric_preview_then_dataset_metric" => {
-            "Prefer injected metric previews, then call `dataset_metric` / `dataset_query`.".to_string()
+            "Prefer injected metric previews, then call `dataset_metric` / `dataset_query`."
+                .to_string()
         }
         "use_read_file_only_for_small_verbatim_evidence" => {
             "Use `read_file` only for small verbatim DSL evidence.".to_string()
@@ -220,7 +226,9 @@ fn humanize_flow_step(step: &str) -> String {
 
 pub fn capability_catalog_descriptor() -> Value {
     json!(capability_catalog_descriptor_for_package_root(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path()
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .as_path()
     ))
 }
 
@@ -798,7 +806,9 @@ fn mcp_surface_descriptor_for_roots(
 pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
     mcp_surface_descriptor_for_roots(
         surface,
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path(),
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .as_path(),
         None,
     )
 }
@@ -827,11 +837,7 @@ pub fn access_host_bound_tool_descriptors() -> Vec<Value> {
 pub fn access_host_bound_tool_names() -> Vec<String> {
     access_host_bound_tool_descriptors()
         .into_iter()
-        .filter_map(|tool| {
-            tool.get("name")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_string))
         .collect()
 }
 
@@ -845,9 +851,8 @@ pub fn access_host_bound_query_tools() -> Vec<ResourceQueryToolSpec> {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string();
-            let input = format_host_bound_input_summary(
-                tool.get("input_schema").unwrap_or(&Value::Null),
-            );
+            let input =
+                format_host_bound_input_summary(tool.get("input_schema").unwrap_or(&Value::Null));
             Some(ResourceQueryToolSpec {
                 id: name.clone(),
                 status: access_query_tool_status(&name).to_string(),

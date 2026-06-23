@@ -137,10 +137,7 @@ impl AuthRuntime {
         let Some(user) = self.users.get(key) else {
             return Ok(None);
         };
-        Ok(Some(claims_for_user_record(
-            user,
-            self.jwt_ttl_seconds,
-        )))
+        Ok(Some(claims_for_user_record(user, self.jwt_ttl_seconds)))
     }
 
     pub fn authenticate(&self, username: &str, password: &str) -> Result<Option<AuthClaims>> {
@@ -154,10 +151,7 @@ impl AuthRuntime {
         if !verify_password_hash(password, &user.password_hash)? {
             return Ok(None);
         }
-        Ok(Some(claims_for_user_record(
-            user,
-            self.jwt_ttl_seconds,
-        )))
+        Ok(Some(claims_for_user_record(user, self.jwt_ttl_seconds)))
     }
 
     pub fn issue_jwt(&self, claims: &AuthClaims) -> Result<String> {

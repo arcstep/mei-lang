@@ -91,8 +91,7 @@ fn main() {
         git_commit_short.clone()
     };
     let build_version = format!("{cargo_package_version}+{internal_version}");
-    let build_timestamp_utc =
-        env_override("MEI_BUILD_TIMESTAMP_UTC").unwrap_or_else(utc_timestamp);
+    let build_timestamp_utc = env_override("MEI_BUILD_TIMESTAMP_UTC").unwrap_or_else(utc_timestamp);
 
     emit_rustc_env("MEI_MAJOR_VERSION", &major_version);
     emit_rustc_env("MEI_INTERNAL_VERSION", &internal_version);

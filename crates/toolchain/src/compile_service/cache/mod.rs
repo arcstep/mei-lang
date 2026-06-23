@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use mei_lang_kernel::{
     compile_app_with_options, compile_app_with_options_and_revision, resolve_app_root,
     AnalysisGraph, CompileOptions, CompileWatchedFile, CompiledApp, COMPILE_SEMANTICS_GENERATION,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
 
@@ -200,7 +200,9 @@ fn compiled_app_artifact_root(app_root: &Path) -> PathBuf {
     app_root.join(".mei")
 }
 
-fn extract_dataset_runtime_payloads(compiled: &CompiledApp) -> BTreeMap<String, DatasetRuntimePayload> {
+fn extract_dataset_runtime_payloads(
+    compiled: &CompiledApp,
+) -> BTreeMap<String, DatasetRuntimePayload> {
     let mut payloads = BTreeMap::new();
     for resource in &compiled.resources {
         let Some(dataset) = resource.dataset.as_ref() else {
@@ -592,7 +594,8 @@ pub fn load_compile_artifact_only_shared(
     components_root: &Path,
 ) -> Option<CompileWithCacheOutcomeShared> {
     let cache_lookup_started = Instant::now();
-    if let Some(hit) = peek_compile_cache_hit_shared(source_root, app_id, options, components_root) {
+    if let Some(hit) = peek_compile_cache_hit_shared(source_root, app_id, options, components_root)
+    {
         return Some(CompileWithCacheOutcomeShared {
             compiled: hit.compiled,
             cache_hit: true,
@@ -830,7 +833,13 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
         compiled.clone(),
     );
     compile_cache_lock_wait_ms += elapsed_ms(write_lock_started);
-    maybe_write_compiled_app_artifact(source_root, app_id, &alias_options, &revision_stamp, &compiled);
+    maybe_write_compiled_app_artifact(
+        source_root,
+        app_id,
+        &alias_options,
+        &revision_stamp,
+        &compiled,
+    );
     Ok(CompileWithCacheOutcomeShared {
         compiled,
         cache_hit: false,
@@ -919,11 +928,7 @@ fn validate_cached_entry(
     })
 }
 
-pub fn compile_cache_key(
-    source_root: &Path,
-    app_id: &str,
-    options: &CompileOptions,
-) -> String {
+pub fn compile_cache_key(source_root: &Path, app_id: &str, options: &CompileOptions) -> String {
     format!(
         "{}#{app_id}|v5|gen={COMPILE_SEMANTICS_GENERATION}|scene={}|focus={}",
         normalize_path(source_root),
@@ -1029,7 +1034,8 @@ pub fn peek_compile_cache_shared(
     options: &CompileOptions,
     components_root: &Path,
 ) -> Option<Arc<CompiledApp>> {
-    peek_compile_cache_hit_shared(source_root, app_id, options, components_root).map(|hit| hit.compiled)
+    peek_compile_cache_hit_shared(source_root, app_id, options, components_root)
+        .map(|hit| hit.compiled)
 }
 
 pub fn peek_compile_cache_hit(

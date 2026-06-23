@@ -133,12 +133,12 @@ pub(crate) fn presentation_shell(
         .filter(|value| !value.is_empty())
         .unwrap_or(current_scene_id);
     let total = deck.len();
-    let prev_href = current_index.checked_sub(1).map(|index| {
-        presentation_scene_href(app_path, Some(deck[index].scene_id.as_str()))
-    });
-    let next_href = deck.get(current_index + 1).map(|route| {
-        presentation_scene_href(app_path, Some(route.scene_id.as_str()))
-    });
+    let prev_href = current_index
+        .checked_sub(1)
+        .map(|index| presentation_scene_href(app_path, Some(deck[index].scene_id.as_str())));
+    let next_href = deck
+        .get(current_index + 1)
+        .map(|route| presentation_scene_href(app_path, Some(route.scene_id.as_str())));
     let exit_href = app_scene_href(app_path, Some(current_scene_id), None, None);
     let preview = preview::preview_view(
         compiled,

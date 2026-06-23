@@ -80,7 +80,9 @@ impl NativeAgent {
         )
         .context("insert session")?;
         drop(db);
-        match WorkspaceSnapshotGit::new(self.inner.source_root.clone()).and_then(|snap_git| snap_git.track()) {
+        match WorkspaceSnapshotGit::new(self.inner.source_root.clone())
+            .and_then(|snap_git| snap_git.track())
+        {
             Ok(hash) => {
                 if let Ok(db) = self.inner.db.lock() {
                     if let Err(e) =

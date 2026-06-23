@@ -2,9 +2,7 @@ use anyhow::Result;
 use mei_lang_toolchain;
 use serde_json::json;
 
-use super::super::args::{
-    WorkspaceArgs, WorkspaceCommand, WorkspaceRuntimeCommand,
-};
+use super::super::args::{WorkspaceArgs, WorkspaceCommand, WorkspaceRuntimeCommand};
 use super::super::util::{print_json_output, resolve_cli_source_root, resolve_package_root};
 
 pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
@@ -39,8 +37,10 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                 args.force,
             )?;
             let app_root = bootstrap_optional_app(&source_root, args.app_id.as_deref())?;
-            let status =
-                mei_lang_toolchain::workspace_runtime_status_for_workspace_root(&package_root, &source_root);
+            let status = mei_lang_toolchain::workspace_runtime_status_for_workspace_root(
+                &package_root,
+                &source_root,
+            );
             let output = json!({
                 "schema_version": "mei-cli-v1",
                 "command": "workspace.bootstrap",

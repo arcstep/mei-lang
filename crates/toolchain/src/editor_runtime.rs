@@ -217,8 +217,9 @@ fn declared_layout() -> Vec<EditorRuntimePathDescriptor> {
         EditorRuntimePathDescriptor {
             id: "mei_toolchain_bin".to_string(),
             rel_path: "bin/mei-toolchain".to_string(),
-            purpose: "Headless toolchain entrypoint for check, inspect, query, and workspace setup."
-                .to_string(),
+            purpose:
+                "Headless toolchain entrypoint for check, inspect, query, and workspace setup."
+                    .to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "mei_lsp_bin".to_string(),
@@ -544,7 +545,9 @@ pub fn workspace_runtime_version_descriptor() -> WorkspaceRuntimeVersionDescript
     }
 }
 
-pub fn workspace_runtime_manifest_for_package_root(package_root: &Path) -> WorkspaceRuntimeManifest {
+pub fn workspace_runtime_manifest_for_package_root(
+    package_root: &Path,
+) -> WorkspaceRuntimeManifest {
     WorkspaceRuntimeManifest {
         schema_version: WORKSPACE_RUNTIME_MANIFEST_SCHEMA_VERSION.to_string(),
         bundle_id: runtime_bundle_id(),
@@ -578,7 +581,8 @@ pub fn workspace_runtime_manifest_for_package_root(package_root: &Path) -> Works
 
 pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> EditorRuntimeDescriptor {
     let editor_knowledge_bundle =
-        knowledge_bundle_descriptor_for_package_root(package_root, "author").expect("author bundle");
+        knowledge_bundle_descriptor_for_package_root(package_root, "author")
+            .expect("author bundle");
     EditorRuntimeDescriptor {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
         package_root: package_root_hint(package_root),
@@ -625,24 +629,25 @@ pub fn doctor_editor_runtime_for_package_root(package_root: &Path) -> EditorRunt
             }
         })
         .collect::<Vec<_>>();
-    checks.extend(
-        editor_knowledge_bundle
-            .assets
-            .into_iter()
-            .map(|asset| {
-                let path = package_root.join(&asset.relative_path);
-                EditorRuntimeCheck {
-                    id: format!("knowledge_asset:{}", asset.id),
-                    ok: path.exists(),
-                    path: path.display().to_string(),
-                    message: if path.exists() {
-                        format!("packaged knowledge asset present for topic `{}`", asset.topic)
-                    } else {
-                        format!("missing packaged knowledge asset for topic `{}`", asset.topic)
-                    },
-                }
-            }),
-    );
+    checks.extend(editor_knowledge_bundle.assets.into_iter().map(|asset| {
+        let path = package_root.join(&asset.relative_path);
+        EditorRuntimeCheck {
+            id: format!("knowledge_asset:{}", asset.id),
+            ok: path.exists(),
+            path: path.display().to_string(),
+            message: if path.exists() {
+                format!(
+                    "packaged knowledge asset present for topic `{}`",
+                    asset.topic
+                )
+            } else {
+                format!(
+                    "missing packaged knowledge asset for topic `{}`",
+                    asset.topic
+                )
+            },
+        }
+    }));
     let ok = checks.iter().all(|check| check.ok);
     EditorRuntimeDoctorReport {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
@@ -670,7 +675,9 @@ fn json_value_matches(
                     message: if ok {
                         format!("{message_prefix}: metadata matches expected toolchain identity")
                     } else {
-                        format!("{message_prefix}: metadata does not match expected toolchain identity")
+                        format!(
+                            "{message_prefix}: metadata does not match expected toolchain identity"
+                        )
                     },
                 }
             }
@@ -705,11 +712,15 @@ pub fn doctor_editor_runtime_for_workspace_root(
     let access_profile_path = workspace_profiles_dir(workspace_root).join("access.md");
     let author_skill_entry = workspace_author_skill_dir(workspace_root).join("SKILL.md");
     let access_skill_entry = workspace_access_skill_dir(workspace_root).join("SKILL.md");
-    let toolchain_bin = workspace_runtime_bin_dir(workspace_root).join(binary_file_name("mei-toolchain"));
+    let toolchain_bin =
+        workspace_runtime_bin_dir(workspace_root).join(binary_file_name("mei-toolchain"));
     let lsp_bin = workspace_runtime_bin_dir(workspace_root).join(binary_file_name("mei-lsp"));
-    let host_web_bin = workspace_runtime_bin_dir(workspace_root).join(binary_file_name("mei-host-web"));
-    let author_runtime_adapter = workspace_runtime_bin_dir(workspace_root).join("author-mcp-adapter");
-    let access_runtime_adapter = workspace_runtime_bin_dir(workspace_root).join("access-mcp-adapter");
+    let host_web_bin =
+        workspace_runtime_bin_dir(workspace_root).join(binary_file_name("mei-host-web"));
+    let author_runtime_adapter =
+        workspace_runtime_bin_dir(workspace_root).join("author-mcp-adapter");
+    let access_runtime_adapter =
+        workspace_runtime_bin_dir(workspace_root).join("access-mcp-adapter");
     let expected_version = workspace_runtime_version_descriptor();
     let expected_manifest = workspace_runtime_manifest_for_package_root(package_root);
     let checks = vec![
@@ -877,9 +888,11 @@ pub fn doctor_editor_runtime_for_workspace_root(
                     && value["toolchain_version"] == expected_manifest.toolchain_version
                     && value["compatibility_line"] == expected_manifest.compatibility_line
                     && value["target_triple"] == expected_manifest.target_triple
-                    && value["artifacts"]["mei_toolchain"] == expected_manifest.artifacts.mei_toolchain
+                    && value["artifacts"]["mei_toolchain"]
+                        == expected_manifest.artifacts.mei_toolchain
                     && value["artifacts"]["mei_lsp"] == expected_manifest.artifacts.mei_lsp
-                    && value["artifacts"]["mei_host_web"] == expected_manifest.artifacts.mei_host_web
+                    && value["artifacts"]["mei_host_web"]
+                        == expected_manifest.artifacts.mei_host_web
             },
         ),
     ];
@@ -910,9 +923,13 @@ pub fn workspace_runtime_status_for_workspace_root(
         && catalog_path.is_file()
         && author_skill_dir.join("SKILL.md").is_file()
         && access_skill_dir.join("SKILL.md").is_file()
-        && runtime_bin_dir.join(binary_file_name("mei-toolchain")).is_file()
+        && runtime_bin_dir
+            .join(binary_file_name("mei-toolchain"))
+            .is_file()
         && runtime_bin_dir.join(binary_file_name("mei-lsp")).is_file()
-        && runtime_bin_dir.join(binary_file_name("mei-host-web")).is_file()
+        && runtime_bin_dir
+            .join(binary_file_name("mei-host-web"))
+            .is_file()
         && runtime_bin_dir.join("author-mcp-adapter").is_file()
         && runtime_bin_dir.join("access-mcp-adapter").is_file();
     let fallback_to_source_tree = false;
@@ -951,7 +968,11 @@ fn write_file(path: &Path, content: &str, force: bool) -> Result<EditorRuntimeSc
     })
 }
 
-fn write_executable_file(path: &Path, content: &str, force: bool) -> Result<EditorRuntimeScaffoldFile> {
+fn write_executable_file(
+    path: &Path,
+    content: &str,
+    force: bool,
+) -> Result<EditorRuntimeScaffoldFile> {
     let report = write_file(path, content, force)?;
     set_executable_permissions(path)?;
     Ok(report)
@@ -1104,13 +1125,12 @@ fn render_workspace_surface_json(
     package_root: &Path,
     surface: &str,
 ) -> Result<String> {
-    let descriptor =
-        crate::capability_catalog::mcp_surface_descriptor_for_workspace_root(
-            workspace_root,
-            package_root,
-            surface,
-        )
-        .ok_or_else(|| anyhow::anyhow!("unsupported mcp surface `{surface}`"))?;
+    let descriptor = crate::capability_catalog::mcp_surface_descriptor_for_workspace_root(
+        workspace_root,
+        package_root,
+        surface,
+    )
+    .ok_or_else(|| anyhow::anyhow!("unsupported mcp surface `{surface}`"))?;
     serde_json::to_string_pretty(&descriptor).map_err(Into::into)
 }
 
@@ -1165,7 +1185,9 @@ fn write_runtime_projection_files(
     force: bool,
 ) -> Result<Vec<EditorRuntimeScaffoldFile>> {
     let mut files = Vec::new();
-    for (_, source_path, destination_path) in build_runtime_binary_set_for_package_root(package_root)? {
+    for (_, source_path, destination_path) in
+        build_runtime_binary_set_for_package_root(package_root)?
+    {
         files.push(copy_runtime_binary(
             target_root,
             &source_path,
@@ -1244,7 +1266,8 @@ fn normalize_scaffold_files(
     target_root: &Path,
     files: Vec<EditorRuntimeScaffoldFile>,
 ) -> Vec<EditorRuntimeScaffoldFile> {
-    files.into_iter()
+    files
+        .into_iter()
         .map(|mut item| {
             if let Ok(rel) = PathBuf::from(&item.rel_path).strip_prefix(target_root) {
                 item.rel_path = rel.to_string_lossy().replace('\\', "/");
@@ -1290,7 +1313,11 @@ fn write_common_runtime_files(
         &render_workspace_runtime_warmup_manifest_json(target_root)?,
         force,
     )?);
-    files.extend(write_runtime_projection_files(target_root, package_root, force)?);
+    files.extend(write_runtime_projection_files(
+        target_root,
+        package_root,
+        force,
+    )?);
     files.push(write_executable_file(
         &target_root.join("start.sh"),
         render_workspace_start_script(),
@@ -1306,7 +1333,10 @@ pub fn install_editor_runtime_support_files(
 ) -> Result<EditorRuntimeInstallReport> {
     fs::create_dir_all(target_root)
         .with_context(|| format!("create target root {}", target_root.display()))?;
-    let files = normalize_scaffold_files(target_root, write_common_runtime_files(target_root, package_root, force)?);
+    let files = normalize_scaffold_files(
+        target_root,
+        write_common_runtime_files(target_root, package_root, force)?,
+    );
     Ok(EditorRuntimeInstallReport {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
         target_root: target_root.display().to_string(),
@@ -1326,8 +1356,10 @@ fn build_workspace_runtime_warmup_manifest(target_root: &Path) -> Result<Runtime
 fn render_mcp_json(target_root: &Path) -> Result<String> {
     let author_adapter = workspace_runtime_bin_dir(target_root).join("author-mcp-adapter");
     let access_adapter = workspace_runtime_bin_dir(target_root).join("access-mcp-adapter");
-    let toolchain_bin = workspace_runtime_bin_dir(target_root).join(binary_file_name("mei-toolchain"));
-    let host_web_bin = workspace_runtime_bin_dir(target_root).join(binary_file_name("mei-host-web"));
+    let toolchain_bin =
+        workspace_runtime_bin_dir(target_root).join(binary_file_name("mei-toolchain"));
+    let host_web_bin =
+        workspace_runtime_bin_dir(target_root).join(binary_file_name("mei-host-web"));
     serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
             "meilang-author": {
@@ -1440,7 +1472,8 @@ pub fn scaffold_editor_runtime_tooling(
     let tools = if tools.is_empty() {
         vec!["cursor".to_string()]
     } else {
-        tools.iter()
+        tools
+            .iter()
             .map(|tool| tool.trim().to_ascii_lowercase())
             .filter(|tool| !tool.is_empty())
             .collect::<Vec<_>>()
@@ -1604,7 +1637,10 @@ mod tests {
         assert!(manifest.enabled);
         assert_eq!(manifest.apps.len(), 1);
         assert_eq!(manifest.apps[0].app_id, "demo");
-        assert_eq!(manifest.apps[0].hot_scenes, vec!["command-center".to_string()]);
+        assert_eq!(
+            manifest.apps[0].hot_scenes,
+            vec!["command-center".to_string()]
+        );
         assert!(
             manifest.apps[0]
                 .scenes
@@ -1613,7 +1649,10 @@ mod tests {
         );
         assert_eq!(manifest.apps[0].datasets.len(), 1);
         assert_eq!(manifest.apps[0].datasets[0].dataset_id, "warning_list");
-        assert_eq!(manifest.apps[0].datasets[0].metric_id.as_deref(), Some("case_total"));
+        assert_eq!(
+            manifest.apps[0].datasets[0].metric_id.as_deref(),
+            Some("case_total")
+        );
         assert_eq!(manifest.apps[0].focuses, vec!["main.mei".to_string()]);
         assert!(manifest.apps[0].datasets[0].focus.is_none());
 

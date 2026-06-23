@@ -9,15 +9,14 @@ use mei_lang_kernel::RuntimeIntent;
 use mei_lang_kernel::{set_mei_package_root, CompileOptions};
 use mei_lang_toolchain::{
     build_world_context_snapshot, capability_catalog_descriptor_for_package_root,
-    capability_catalog_descriptor_for_workspace_root,
-    clear_compile_cache_for_app, compile_app_with_cache, compile_report, create_app_skeleton,
-    query_world_dataset, query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
-    init_workspace_profile, scaffold_editor_runtime_tooling,
-    doctor_editor_runtime_for_package_root,
-    doctor_editor_runtime_for_workspace_root, editor_runtime_descriptor_for_package_root,
-    export_knowledge_bundle_for_package_root, export_knowledge_bundle_for_workspace_root,
-    install_editor_runtime_support_files, workspace_runtime_status_for_workspace_root,
-    RESOURCE_QUERY_SCHEMA_VERSION,
+    capability_catalog_descriptor_for_workspace_root, clear_compile_cache_for_app,
+    compile_app_with_cache, compile_report, create_app_skeleton,
+    doctor_editor_runtime_for_package_root, doctor_editor_runtime_for_workspace_root,
+    editor_runtime_descriptor_for_package_root, export_knowledge_bundle_for_package_root,
+    export_knowledge_bundle_for_workspace_root, init_workspace_profile,
+    install_editor_runtime_support_files, query_world_dataset, query_world_dataset_metrics,
+    resolve_components_root, runtime_sim_step, scaffold_editor_runtime_tooling,
+    workspace_runtime_status_for_workspace_root, RESOURCE_QUERY_SCHEMA_VERSION,
 };
 
 fn package_root() -> PathBuf {
@@ -263,72 +262,65 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
     assert_eq!(descriptor["schema_version"], "mei-capability-catalog-v1");
     assert!(descriptor["ai_profiles"].is_array());
     assert_eq!(descriptor["ai_profiles"].as_array().unwrap().len(), 2);
-    assert!(
-        descriptor["ai_profiles"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["id"] == "author" && item["guidance_file_rel"] == "guides/author-profile.md")
-    );
-    assert!(
-        descriptor["skill_packages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| {
-                item["id"] == "meilang-author"
-                    && item["companion_priority"]
-                        .as_array()
-                        .is_some_and(|companions| companions.iter().any(|entry| entry == "dsl-reference.md"))
-                    && item["companion_priority"]
-                        .as_array()
-                        .is_some_and(|companions| companions.iter().any(|entry| entry == "namespace-reference.md"))
-            })
-    );
-    assert!(
-        descriptor["skill_packages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| {
-                item["id"] == "meilang-access"
-                    && item["entry_file"] == "SKILL.md"
-                    && item["companion_priority"]
-                        .as_array()
-                        .is_some_and(|companions| companions.iter().any(|entry| entry == "workflow.md"))
-            })
-    );
+    assert!(descriptor["ai_profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["id"] == "author"
+            && item["guidance_file_rel"] == "guides/author-profile.md"));
+    assert!(descriptor["skill_packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| {
+            item["id"] == "meilang-author"
+                && item["companion_priority"]
+                    .as_array()
+                    .is_some_and(|companions| {
+                        companions.iter().any(|entry| entry == "dsl-reference.md")
+                    })
+                && item["companion_priority"]
+                    .as_array()
+                    .is_some_and(|companions| {
+                        companions
+                            .iter()
+                            .any(|entry| entry == "namespace-reference.md")
+                    })
+        }));
+    assert!(descriptor["skill_packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| {
+            item["id"] == "meilang-access"
+                && item["entry_file"] == "SKILL.md"
+                && item["companion_priority"]
+                    .as_array()
+                    .is_some_and(|companions| companions.iter().any(|entry| entry == "workflow.md"))
+        }));
     assert!(descriptor["platform_assets"]["component_packs"].is_array());
-    assert!(
-        !descriptor["platform_assets"]["component_packs"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(!descriptor["platform_assets"]["component_packs"]
+        .as_array()
+        .unwrap()
+        .is_empty());
     let chart_pack = descriptor["platform_assets"]["component_packs"]
         .as_array()
         .unwrap()
         .iter()
         .find(|item| item["id"] == "chart/echarts")
         .expect("chart component pack");
-    assert!(
-        chart_pack["authoring_support"]["knowledge_asset_ids"]
-            .as_array()
-            .is_some_and(|items| items.iter().any(|item| item == "component_contracts"))
-    );
-    assert!(
-        chart_pack["authoring_support"]["recommended_example_ids"]
-            .as_array()
-            .is_some_and(|items| items.iter().any(|item| item == "example_chart_baseline"))
-    );
+    assert!(chart_pack["authoring_support"]["knowledge_asset_ids"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item == "component_contracts")));
+    assert!(chart_pack["authoring_support"]["recommended_example_ids"]
+        .as_array()
+        .is_some_and(|items| items.iter().any(|item| item == "example_chart_baseline")));
     assert!(descriptor["platform_assets"]["template_packs"].is_array());
-    assert!(
-        descriptor["platform_assets"]["template_packs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["id"] == "cockpit")
-    );
+    assert!(descriptor["platform_assets"]["template_packs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["id"] == "cockpit"));
     let cockpit_template_pack = descriptor["platform_assets"]["template_packs"]
         .as_array()
         .unwrap()
@@ -353,18 +345,16 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
         author_surface.get("surface_aliases").is_none(),
         "author surface must not expose compatibility aliases"
     );
-    assert!(
-        descriptor["mcp_surfaces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| {
-                item["surface"] == "access"
-                    && item["host_overlay"]["host_only_tools"]
-                        .as_array()
-                        .is_some_and(|tools| tools.iter().any(|tool| tool == "propose_session_patch"))
-            })
-    );
+    assert!(descriptor["mcp_surfaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| {
+            item["surface"] == "access"
+                && item["host_overlay"]["host_only_tools"]
+                    .as_array()
+                    .is_some_and(|tools| tools.iter().any(|tool| tool == "propose_session_patch"))
+        }));
     let access_profile = descriptor["ai_profiles"]
         .as_array()
         .unwrap()
@@ -378,11 +368,9 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
         .iter()
         .find(|item| item["surface"] == "access")
         .expect("access mcp surface");
-    assert!(
-        access_surface["tools"]
-            .as_array()
-            .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == "mei_access_knowledge"))
-    );
+    assert!(access_surface["tools"].as_array().is_some_and(|tools| tools
+        .iter()
+        .any(|tool| tool["name"] == "mei_access_knowledge")));
     assert_eq!(
         descriptor["host_requirements"][0]["consumer_id"],
         "mei-host-web"
@@ -393,30 +381,24 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
 fn editor_runtime_descriptor_exposes_tooling_templates() {
     let descriptor = editor_runtime_descriptor_for_package_root(&package_root());
     assert_eq!(descriptor.schema_version, "mei-editor-runtime-v1");
-    assert!(
-        descriptor
-            .tooling_templates
-            .iter()
-            .any(|item| item.tool == "cursor")
-    );
+    assert!(descriptor
+        .tooling_templates
+        .iter()
+        .any(|item| item.tool == "cursor"));
 }
 
 #[test]
 fn editor_runtime_doctor_passes_for_source_tree_package_root() {
     let report = doctor_editor_runtime_for_package_root(&package_root());
     assert!(report.ok, "doctor should pass for source-tree package root");
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|item| item.id == "author_profile" && item.ok)
-    );
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|item| item.id == "knowledge_asset:author_profile" && item.ok)
-    );
+    assert!(report
+        .checks
+        .iter()
+        .any(|item| item.id == "author_profile" && item.ok));
+    assert!(report
+        .checks
+        .iter()
+        .any(|item| item.id == "knowledge_asset:author_profile" && item.ok));
 }
 
 #[test]
@@ -424,104 +406,76 @@ fn knowledge_bundle_exports_author_assets() {
     let payload = export_knowledge_bundle_for_package_root(&package_root(), "author", None, false)
         .expect("knowledge bundle");
     assert_eq!(payload["descriptor"]["surface"], "author");
-    assert!(
-        payload["descriptor"]["available_topics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item == "profile")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "syntax_rules")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "author_profile")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "dsl_reference")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "workspace_config_reference")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "template_contracts")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "dsl_contracts")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "component_contracts")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "cockpit_template_index")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "example_dataset_baseline")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "example_multi_scene_app")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "example_upload_dataset_baseline")
-    );
-    assert!(
-        payload["descriptor"]["available_topics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item == "templates")
-    );
-    assert!(
-        payload["descriptor"]["available_topics"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item == "config")
-    );
+    assert!(payload["descriptor"]["available_topics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item == "profile"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "syntax_rules"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "author_profile"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "dsl_reference"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "workspace_config_reference"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "template_contracts"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "dsl_contracts"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "component_contracts"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "cockpit_template_index"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "example_dataset_baseline"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "example_multi_scene_app"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "example_upload_dataset_baseline"));
+    assert!(payload["descriptor"]["available_topics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item == "templates"));
+    assert!(payload["descriptor"]["available_topics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item == "config"));
     let overview = export_knowledge_bundle_for_package_root(
         &package_root(),
         "author",
@@ -545,27 +499,21 @@ fn knowledge_bundle_exports_access_assets() {
     let payload = export_knowledge_bundle_for_package_root(&package_root(), "access", None, false)
         .expect("access knowledge bundle");
     assert_eq!(payload["descriptor"]["surface"], "access");
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "meilang_access_skill")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "access_profile")
-    );
-    assert!(
-        payload["assets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["descriptor"]["id"] == "access_workflow")
-    );
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "meilang_access_skill"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "access_profile"));
+    assert!(payload["assets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["descriptor"]["id"] == "access_workflow"));
 }
 
 #[test]
@@ -593,7 +541,10 @@ fn scaffold_editor_runtime_tooling_writes_cursor_files() {
         false,
     )
     .expect("scaffold");
-    assert!(report.files.iter().any(|item| item.rel_path == ".cursor/mcp.json"));
+    assert!(report
+        .files
+        .iter()
+        .any(|item| item.rel_path == ".cursor/mcp.json"));
     assert!(
         !root.join(".mei/version.json").exists(),
         "scaffold must not install runtime metadata"
@@ -703,50 +654,44 @@ fn editor_runtime_doctor_checks_workspace_runtime_metadata() {
     let report = doctor_editor_runtime_for_workspace_root(&package_root(), &root);
     assert!(report.ok, "workspace doctor should pass after install");
     assert_eq!(report.workspace_root, Some(root.display().to_string()));
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|item| item.id == "workspace_version_descriptor" && item.ok)
-    );
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|item| item.id == "workspace_runtime_manifest" && item.ok)
-    );
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|item| item.id == "workspace_author_skill" && item.ok)
-    );
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|item| item.id == "workspace_capability_catalog" && item.ok)
-    );
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|item| item.id == "workspace_access_skill" && item.ok)
-    );
-    assert!(
-        report
-            .checks
-            .iter()
-            .any(|item| item.id == "workspace_access_mcp_adapter" && item.ok)
-    );
+    assert!(report
+        .checks
+        .iter()
+        .any(|item| item.id == "workspace_version_descriptor" && item.ok));
+    assert!(report
+        .checks
+        .iter()
+        .any(|item| item.id == "workspace_runtime_manifest" && item.ok));
+    assert!(report
+        .checks
+        .iter()
+        .any(|item| item.id == "workspace_author_skill" && item.ok));
+    assert!(report
+        .checks
+        .iter()
+        .any(|item| item.id == "workspace_capability_catalog" && item.ok));
+    assert!(report
+        .checks
+        .iter()
+        .any(|item| item.id == "workspace_access_skill" && item.ok));
+    assert!(report
+        .checks
+        .iter()
+        .any(|item| item.id == "workspace_access_mcp_adapter" && item.ok));
     let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
     assert!(status.installed, "runtime status should report installed");
     assert!(
         !status.fallback_to_source_tree,
         "workspace-local assets should avoid source-tree fallback"
     );
-    let bundle = export_knowledge_bundle_for_workspace_root(&root, &package_root(), "author", Some("author_profile"), true)
-        .expect("workspace knowledge bundle");
+    let bundle = export_knowledge_bundle_for_workspace_root(
+        &root,
+        &package_root(),
+        "author",
+        Some("author_profile"),
+        true,
+    )
+    .expect("workspace knowledge bundle");
     let author_profile = bundle["assets"]
         .as_array()
         .and_then(|items| items.first())
@@ -833,12 +778,10 @@ fn workspace_runtime_status_fails_when_core_binary_is_missing() {
         !doctor.ok,
         "doctor must fail when a required workspace-local binary is missing"
     );
-    assert!(
-        doctor
-            .checks
-            .iter()
-            .any(|item| item.id == "workspace_mei_host_web_bin" && !item.ok)
-    );
+    assert!(doctor
+        .checks
+        .iter()
+        .any(|item| item.id == "workspace_mei_host_web_bin" && !item.ok));
     let _ = fs::remove_dir_all(root);
 }
 
@@ -896,14 +839,9 @@ fn workspace_init_does_not_install_runtime_assets() {
             .as_millis()
     ));
     fs::create_dir_all(&root).expect("create init root");
-    let profile_root = init_workspace_profile(
-        &root,
-        "profile-a",
-        Some("test"),
-        &package_root(),
-        false,
-    )
-    .expect("init profile");
+    let profile_root =
+        init_workspace_profile(&root, "profile-a", Some("test"), &package_root(), false)
+            .expect("init profile");
     assert!(
         !profile_root.join(".mei/version.json").exists(),
         "workspace init must not install runtime metadata"

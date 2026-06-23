@@ -6,14 +6,15 @@ use serde_json::Value;
 use crate::compile::{
     aggregate_use_key_badges, backing_refs_from_block_props, block_instance_id,
     reachability_tree::{
-        artifacts_root, datasets_root, routes_root, world_root,
-        ReachabilityTreeNode, ReachabilityTreeRoot,
+        artifacts_root, datasets_root, routes_root, world_root, ReachabilityTreeNode,
+        ReachabilityTreeRoot,
     },
 };
 use crate::model::{
     BlockDecl, BuildExperienceIndex, BuildNodeId, BuildNodeKind, CompiledApp, CompiledSceneRoute,
-    ComponentAsset, ExperienceNodeManifest, MountChainEntry, PanelDecl, ReachabilityTreeNodeSnapshot,
-    ReachabilityTreeRootSnapshot, SceneContract, SceneDecl, UiNodeDecl,
+    ComponentAsset, ExperienceNodeManifest, MountChainEntry, PanelDecl,
+    ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, SceneContract, SceneDecl,
+    UiNodeDecl,
 };
 
 const MAX_BLOCK_CHILDREN_IN_TREE: usize = 8;
@@ -83,7 +84,11 @@ pub fn build_experience_index(
         }
 
         if let Some(assembly) = scene_projection_assembly_by_id.get(&route.scene_id) {
-            children.extend(projection_children(route.scene_id.as_str(), assembly, "board"));
+            children.extend(projection_children(
+                route.scene_id.as_str(),
+                assembly,
+                "board",
+            ));
             children.extend(projection_children(
                 route.scene_id.as_str(),
                 assembly,
@@ -187,7 +192,10 @@ fn normalize_reachability_tree_roots(roots: &mut [ReachabilityTreeRoot]) {
     }
 }
 
-pub fn enrich_reachability_tree_compile_coords(roots: &mut [ReachabilityTreeRoot], compiled: &CompiledApp) {
+pub fn enrich_reachability_tree_compile_coords(
+    roots: &mut [ReachabilityTreeRoot],
+    compiled: &CompiledApp,
+) {
     for root in roots {
         for child in &mut root.children {
             enrich_node_compile_coords(child, compiled);
@@ -197,7 +205,8 @@ pub fn enrich_reachability_tree_compile_coords(roots: &mut [ReachabilityTreeRoot
 
 fn enrich_node_compile_coords(node: &mut ReachabilityTreeNode, compiled: &CompiledApp) {
     if let Some(parsed) = BuildNodeId::parse(&node.node_id) {
-        if let Some(coord) = super::build_experience::compile_coordinate_for_node(&parsed, compiled) {
+        if let Some(coord) = super::build_experience::compile_coordinate_for_node(&parsed, compiled)
+        {
             node.compile_scene = coord.scene_id.unwrap_or_default();
             node.compile_target = coord.preview_target;
         }
@@ -222,9 +231,9 @@ fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
         || !compiled.build_template_index.templates.is_empty()
         || workspace_component_catalog_from_app(compiled).is_some();
     if expects_templates {
-        let templates_ok = snapshot.iter().any(|root| {
-            root.group == "templates" && !root.children.is_empty()
-        });
+        let templates_ok = snapshot
+            .iter()
+            .any(|root| root.group == "templates" && !root.children.is_empty());
         if !templates_ok {
             return true;
         }
@@ -246,7 +255,10 @@ fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) -> Vec<Reacha
     let mut file_tree = compiled.file_tree.clone();
     let app_root = Path::new(compiled.app_root.as_str());
     if app_root.is_dir() {
-        let _ = super::source_tree_enrich::enrich_source_tree_with_scene_exports(app_root, &mut file_tree);
+        let _ = super::source_tree_enrich::enrich_source_tree_with_scene_exports(
+            app_root,
+            &mut file_tree,
+        );
     }
     let experience = build_experience_index(
         &compiled.scene_routes,
@@ -264,10 +276,9 @@ fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) -> Vec<Reacha
         &contracts,
         &experience.node_manifest,
     );
-    let template_files =
-        crate::compile::build_template_index::build_stock_template_files_root(
-            &source_root_from_app(compiled),
-        );
+    let template_files = crate::compile::build_template_index::build_stock_template_files_root(
+        &source_root_from_app(compiled),
+    );
     merge_build_view_tree_roots(
         experience.reachability_snapshot,
         board.tree_root,
@@ -337,9 +348,11 @@ fn scene_contracts_from_compiled(compiled: &CompiledApp) -> BTreeMap<String, Sce
 fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp) {
     if !roots.iter().any(|root| root.group == "boards") {
         let board_root = if !compiled.build_board_index.boards.is_empty() {
-            Some(crate::compile::build_board_index::board_tree_root_from_index(
-                &compiled.build_board_index,
-            ))
+            Some(
+                crate::compile::build_board_index::board_tree_root_from_index(
+                    &compiled.build_board_index,
+                ),
+            )
         } else if file_tree_has_board_capsules(&compiled.file_tree) {
             let contracts = scene_contracts_from_compiled(compiled);
             Some(
@@ -366,12 +379,15 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
     }
     if !roots.iter().any(|root| root.group == "templates") {
         let template_root = if !compiled.build_template_index.templates.is_empty() {
-            Some(crate::compile::build_template_index::template_tree_root_from_index(
-                &compiled.build_template_index,
-            ))
+            Some(
+                crate::compile::build_template_index::template_tree_root_from_index(
+                    &compiled.build_template_index,
+                ),
+            )
         } else {
             let contracts = scene_contracts_from_compiled(compiled);
-            let catalog = template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
+            let catalog =
+                template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
             if catalog.is_empty() {
                 None
             } else {
@@ -409,7 +425,8 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
                 )
             } else {
                 let contracts = scene_contracts_from_compiled(compiled);
-                let catalog = template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
+                let catalog =
+                    template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
                 if !catalog.is_empty() {
                     crate::compile::build_template_index::build_template_index(
                         &catalog,
@@ -457,9 +474,10 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
         }
     } else if let Some(existing) = roots.iter_mut().find(|root| root.group == "template_files") {
         if existing.children.is_empty() {
-            let template_files = crate::compile::build_template_index::build_stock_template_files_root(
-                source_root_from_app(compiled).as_path(),
-            );
+            let template_files =
+                crate::compile::build_template_index::build_stock_template_files_root(
+                    source_root_from_app(compiled).as_path(),
+                );
             if !template_files.children.is_empty() {
                 *existing = template_files;
             }
@@ -594,8 +612,7 @@ fn collect_panel_subtree(
             manifest,
             scene_label,
         ));
-        let nested_node =
-            BuildNodeId::scene_panel(scene_id, nested_path.as_str()).encode();
+        let nested_node = BuildNodeId::scene_panel(scene_id, nested_path.as_str()).encode();
         child_ids.push(nested_node);
     }
 
@@ -745,7 +762,9 @@ fn layout_hint_for_panel(panel: &PanelDecl) -> Option<String> {
         parts.push(format!("area={area}"));
     }
     if let Some(object) = panel.props.as_object() {
-        for key in ["position", "top", "right", "bottom", "left", "width", "height", "z_index"] {
+        for key in [
+            "position", "top", "right", "bottom", "left", "width", "height", "z_index",
+        ] {
             if let Some(value) = object.get(key) {
                 if let Some(text) = value.as_str() {
                     if !text.trim().is_empty() {
@@ -845,7 +864,11 @@ fn tree_label_hint(node: &ReachabilityTreeNode) -> Option<String> {
         BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock => {
             let segments: Vec<&str> = parsed.key.split('/').filter(|s| !s.is_empty()).collect();
             if segments.len() >= 2 {
-                Some(format!("{}/{}", segments[segments.len() - 2], segments[segments.len() - 1]))
+                Some(format!(
+                    "{}/{}",
+                    segments[segments.len() - 2],
+                    segments[segments.len() - 1]
+                ))
             } else {
                 segments.last().map(|s| (*s).to_string())
             }
@@ -864,11 +887,7 @@ fn tree_label_hint(node: &ReachabilityTreeNode) -> Option<String> {
     }
 }
 
-fn projection_children(
-    scene_id: &str,
-    assembly: &Value,
-    kind: &str,
-) -> Vec<ReachabilityTreeNode> {
+fn projection_children(scene_id: &str, assembly: &Value, kind: &str) -> Vec<ReachabilityTreeNode> {
     let key = if kind == "board" {
         "boards"
     } else {
@@ -1035,12 +1054,7 @@ mod tests {
             build_board_index: Default::default(),
             build_template_index: Default::default(),
         };
-        let index = build_experience_index(
-            &routes,
-            &BTreeMap::new(),
-            &contracts,
-            &compiled_stub,
-        );
+        let index = build_experience_index(&routes, &BTreeMap::new(), &contracts, &compiled_stub);
         let nested_id =
             BuildNodeId::scene_panel("home", "right_rail_float/supervision_warning_stats").encode();
         let nested = index
@@ -1086,12 +1100,9 @@ mod tests {
             .join("workspaces")
             .join("ws-spbjw");
         let app_root = source_root.join("zhifa");
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile zhifa");
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile zhifa");
         let mut stale = compiled;
         stale.build_experience_index = BuildExperienceIndex::default();
         stale.build_board_index = Default::default();
@@ -1134,27 +1145,28 @@ mod tests {
             .join("workspaces")
             .join("ws-spbjw");
         let app_root = source_root.join("zhifa");
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile zhifa");
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile zhifa");
         assert!(
             !compiled.component_assets.is_empty(),
             "fixture should expose component assets"
         );
         let mut partial = compiled.clone();
         partial.build_template_index = Default::default();
-        partial.build_experience_index.reachability_snapshot.retain(|root| {
-            root.group != "templates"
-        });
+        partial
+            .build_experience_index
+            .reachability_snapshot
+            .retain(|root| root.group != "templates");
 
         let roots = reachability_roots_from_compiled(&partial);
         assert!(
             roots.iter().any(|root| root.group == "templates"),
             "templates group should be restored from component_assets, groups: {:?}",
-            roots.iter().map(|root| root.group.as_str()).collect::<Vec<_>>()
+            roots
+                .iter()
+                .map(|root| root.group.as_str())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1171,12 +1183,9 @@ mod tests {
             .join("workspaces")
             .join("ws-spbjw");
         let app_root = source_root.join("zhifa");
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile zhifa");
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile zhifa");
         let mut partial = compiled.clone();
         partial.build_experience_index.reachability_snapshot = partial
             .build_experience_index
@@ -1214,12 +1223,9 @@ mod tests {
             .join("workspaces")
             .join("ws-spbjw");
         let app_root = source_root.join("zhifa");
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile zhifa");
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile zhifa");
         let roots = reachability_roots_from_compiled(&compiled);
         let components = roots
             .iter()

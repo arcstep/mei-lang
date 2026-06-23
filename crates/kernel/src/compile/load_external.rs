@@ -37,7 +37,9 @@ fn load_scene_decl_values(
     if let Some(values) = decls.as_array() {
         for value in values {
             match value.get("kind").and_then(Value::as_str) {
-                Some("scene") => scenes.push(decode_scene_decl(app_root, value, relative_path, None)?),
+                Some("scene") => {
+                    scenes.push(decode_scene_decl(app_root, value, relative_path, None)?)
+                }
                 Some("scene_export") => {
                     let export = serde_json::from_value::<SceneExportDecl>(value.clone())?;
                     let mut scene_value = export.scene;

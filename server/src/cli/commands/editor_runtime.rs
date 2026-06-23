@@ -24,7 +24,9 @@ pub fn editor_runtime_command(args: EditorRuntimeArgs) -> Result<()> {
 
 fn editor_runtime_describe_command(args: EditorRuntimeDescribeArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
-    if let Some(source_root) = resolve_optional_cli_source_root(&package_root, args.source_root.as_ref())? {
+    if let Some(source_root) =
+        resolve_optional_cli_source_root(&package_root, args.source_root.as_ref())?
+    {
         let status = workspace_runtime_status_for_workspace_root(&package_root, &source_root);
         print_json_output(&status, args.json)
     } else {

@@ -227,13 +227,13 @@ pub fn build_workspace_summary(source_root: &Path) -> Result<WorkspaceSummary> {
     narrative.push(format!(
         "compile_ready_apps: {compile_ready_count}/{app_count}"
     ));
-    let semantic_app_counts = apps.iter().filter_map(|item| item.app_kind.as_deref()).fold(
-        BTreeMap::<String, usize>::new(),
-        |mut acc, kind| {
+    let semantic_app_counts = apps
+        .iter()
+        .filter_map(|item| item.app_kind.as_deref())
+        .fold(BTreeMap::<String, usize>::new(), |mut acc, kind| {
             *acc.entry(kind.to_string()).or_insert(0) += 1;
             acc
-        },
-    );
+        });
     if !semantic_app_counts.is_empty() {
         let kinds = semantic_app_counts
             .iter()

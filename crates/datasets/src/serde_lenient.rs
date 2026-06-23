@@ -1,6 +1,28 @@
 //! Lenient JSON deserializers for browser-originated dataset query payloads.
 
+use std::collections::BTreeMap;
+
 use serde::{de::Error, Deserialize, Deserializer};
+
+fn json_value_to_string(value: serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(text) => {
+            let trimmed = text.trim().to_string();
+            (!trimmed.is_empty()).then_some(trimmed)
+        }
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Bool(flag) => Some(flag.to_string()),
+        serde_json::Value::Array(items) => {
+            let values = items
+                .into_iter()
+                .filter_map(json_value_to_string)
+                .collect::<Vec<_>>();
+            (!values.is_empty()).then(|| values.join(","))
+        }
+        serde_json::Value::Object(object) => serde_json::to_string(&object).ok(),
+    }
+}
 
 fn parse_usize_text(text: &str) -> Option<usize> {
     let trimmed = text.trim();
@@ -8,6 +30,26 @@ fn parse_usize_text(text: &str) -> Option<usize> {
         return None;
     }
     trimmed.parse::<usize>().ok()
+}
+
+pub fn string_map<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    let Some(serde_json::Value::Object(object)) = value else {
+        return Ok(BTreeMap::new());
+    };
+    Ok(object
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let normalized_key = key.trim().to_string();
+            if normalized_key.is_empty() {
+                return None;
+            }
+            json_value_to_string(value).map(|value| (normalized_key, value))
+        })
+        .collect())
 }
 
 fn parse_i64_text(text: &str) -> Option<i64> {
@@ -112,5 +154,30 @@ mod tests {
         .expect("probe");
         assert_eq!(parsed.page, Some(2));
         assert!(parsed.full);
+    }
+
+    #[test]
+    fn deserializes_scalar_filter_map_values() {
+        #[derive(Debug, Deserialize)]
+        struct FilterProbe {
+            #[serde(default, deserialize_with = "string_map")]
+            filters: BTreeMap<String, String>,
+        }
+
+        let parsed: FilterProbe = serde_json::from_value(serde_json::json!({
+            "filters": {
+                "year": 2025,
+                "active": true,
+                "district": ["沙坪坝区", 500106]
+            }
+        }))
+        .expect("filters");
+
+        assert_eq!(parsed.filters.get("year"), Some(&"2025".to_string()));
+        assert_eq!(parsed.filters.get("active"), Some(&"true".to_string()));
+        assert_eq!(
+            parsed.filters.get("district"),
+            Some(&"沙坪坝区,500106".to_string())
+        );
     }
 }

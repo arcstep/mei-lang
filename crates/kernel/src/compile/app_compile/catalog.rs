@@ -73,13 +73,11 @@ pub(super) fn compile_catalog_and_merge_resources(
     } else {
         let l2_before_catalog = scene_payload_cache_metrics_snapshot();
         let catalog_started = Instant::now();
-        let compile_rels = super::super::catalog::resolve_dataset_catalog_compile_rels(
-            app_root,
-            &catalog_filter,
-        )
-        .into_iter()
-        .filter(|rel| rel != active_target_file)
-        .collect::<Vec<_>>();
+        let compile_rels =
+            super::super::catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter)
+                .into_iter()
+                .filter(|rel| rel != active_target_file)
+                .collect::<Vec<_>>();
         catalog_compile_rels = compile_rels.len();
         catalog_parallelism = catalog_compile_parallelism(catalog_compile_rels);
         let out = compile_dataset_catalog_resources_for_rels(

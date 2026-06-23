@@ -99,10 +99,7 @@ fn title_block_typography_from_head_props(head_props: &Value) -> Value {
     ];
     let mut out = serde_json::Map::new();
     let has_font = map.get("font").is_some_and(|value| {
-        value
-            .as_str()
-            .is_some_and(|raw| !raw.trim().is_empty())
-            || value.as_i64().is_some()
+        value.as_str().is_some_and(|raw| !raw.trim().is_empty()) || value.as_i64().is_some()
     });
     for key in KEYS {
         if has_font && matches!(*key, "font_size" | "fontSize") {

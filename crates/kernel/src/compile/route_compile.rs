@@ -8,9 +8,7 @@ use serde_json::Value;
 use crate::model::{CompiledSceneRoute, ComponentAsset};
 use crate::typed_refs::SceneRegistry;
 
-use super::authoring_eval::{
-    install_shared_authoring_guard, shared_authoring_helpers_for_compile,
-};
+use super::authoring_eval::{install_shared_authoring_guard, shared_authoring_helpers_for_compile};
 use super::dependency_graph::DependencyGraph;
 use super::entry_payload::CompiledScenePayload;
 use super::scene::find_scene_route;
@@ -152,41 +150,41 @@ pub(super) fn precompile_route_payloads(
             let output = Arc::clone(&output);
             let authoring_helpers = Arc::clone(&authoring_helpers);
             scope.spawn(move || {
-                let _authoring_guard =
-                    install_shared_authoring_guard(authoring_helpers.as_ref());
+                let _authoring_guard = install_shared_authoring_guard(authoring_helpers.as_ref());
                 loop {
-                let route = match queue.lock() {
-                    Ok(mut guard) => guard.pop_front(),
-                    Err(_) => None,
-                };
-                let Some(route) = route else {
-                    break;
-                };
-                let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
-                    app_root,
-                    app_decls,
-                    route.target_file.as_str(),
-                );
-                let cache_hit = scene_payload_cache_has_entry(
-                    app_root,
-                    source_root,
-                    route.target_file.as_str(),
-                    Some(route.scene_id.as_str()),
-                    dependency_fingerprint.as_deref(),
-                );
-                let payload = compile_scene_payload_for_target(
-                    app_root,
-                    source_root,
-                    app_decls,
-                    asset_map,
-                    route.target_file.as_str(),
-                    Some(&route),
-                    scene_registry,
-                    dependency_fingerprint.as_deref(),
-                );
-                if let Ok(mut guard) = output.lock() {
-                    guard.push((route, payload, cache_hit));
-                }
+                    let route = match queue.lock() {
+                        Ok(mut guard) => guard.pop_front(),
+                        Err(_) => None,
+                    };
+                    let Some(route) = route else {
+                        break;
+                    };
+                    let dependency_fingerprint = dependency_graph
+                        .dependency_fingerprint_for_target(
+                            app_root,
+                            app_decls,
+                            route.target_file.as_str(),
+                        );
+                    let cache_hit = scene_payload_cache_has_entry(
+                        app_root,
+                        source_root,
+                        route.target_file.as_str(),
+                        Some(route.scene_id.as_str()),
+                        dependency_fingerprint.as_deref(),
+                    );
+                    let payload = compile_scene_payload_for_target(
+                        app_root,
+                        source_root,
+                        app_decls,
+                        asset_map,
+                        route.target_file.as_str(),
+                        Some(&route),
+                        scene_registry,
+                        dependency_fingerprint.as_deref(),
+                    );
+                    if let Ok(mut guard) = output.lock() {
+                        guard.push((route, payload, cache_hit));
+                    }
                 }
             });
         }

@@ -155,8 +155,8 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
         );
         let output = match tool_name {
             "dataset_query" => {
-                let dataset_id = Self::first_non_empty_arg(&args, &["dataset_id", "id"])
-                    .unwrap_or("");
+                let dataset_id =
+                    Self::first_non_empty_arg(&args, &["dataset_id", "id"]).unwrap_or("");
                 if dataset_id.is_empty() {
                     return "error: dataset_query requires non-empty dataset_id".to_string();
                 }
@@ -194,8 +194,8 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                 ))
             }
             "dataset_metric" => {
-                let dataset_id = Self::first_non_empty_arg(&args, &["dataset_id", "id"])
-                    .unwrap_or("");
+                let dataset_id =
+                    Self::first_non_empty_arg(&args, &["dataset_id", "id"]).unwrap_or("");
                 if dataset_id.is_empty() {
                     return "error: dataset_metric requires non-empty dataset_id".to_string();
                 }
@@ -222,10 +222,8 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     &filters,
                     search,
                 );
-                let effective_filter_intents = effective_filter_intents(
-                    &scope.browser_filter_intents,
-                    &effective_query_state,
-                );
+                let effective_filter_intents =
+                    effective_filter_intents(&scope.browser_filter_intents, &effective_query_state);
                 Self::json_result(query_resource_dataset_metric(
                     source_root,
                     app,
@@ -272,8 +270,8 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     .world_injection_allowed_ids
                     .as_ref()
                     .expect("precheck ensures Some");
-                let resource_id = Self::first_non_empty_arg(&args, &["resource_id", "id"])
-                    .unwrap_or("");
+                let resource_id =
+                    Self::first_non_empty_arg(&args, &["resource_id", "id"]).unwrap_or("");
                 if resource_id.is_empty() {
                     return "error: resource_get requires non-empty resource_id".to_string();
                 }
@@ -321,13 +319,9 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     toolchain::HeadlessExportOptions::default(),
                 ))
             }
-            "resource_business_summary" => {
-                Self::json_result(toolchain::build_world_business_summary(
-                    source_root,
-                    app,
-                    scope_ref,
-                ))
-            }
+            "resource_business_summary" => Self::json_result(
+                toolchain::build_world_business_summary(source_root, app, scope_ref),
+            ),
             other => format!("error: unknown resource tool `{other}`"),
         };
         tracing::info!(

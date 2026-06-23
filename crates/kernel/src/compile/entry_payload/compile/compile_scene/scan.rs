@@ -119,8 +119,7 @@ pub(super) fn scan_declarations(
                     {
                         frame_value["id"] = Value::String(export.id.clone());
                     }
-                    let mut frame_decl =
-                        serde_json::from_value::<FrameDecl>(frame_value.clone())?;
+                    let mut frame_decl = serde_json::from_value::<FrameDecl>(frame_value.clone())?;
                     if frame_decl.base.is_some() || frame_value.get("base").is_some() {
                         match normalize_frame_decl(
                             app_root,
@@ -207,8 +206,12 @@ pub(super) fn scan_declarations(
                     {
                         scene_value["id"] = Value::String(export.id.clone());
                     }
-                    let mut scene_decl =
-                        decode_scene_decl(app_root, &scene_value, target_file, Some(scene_registry))?;
+                    let mut scene_decl = decode_scene_decl(
+                        app_root,
+                        &scene_value,
+                        target_file,
+                        Some(scene_registry),
+                    )?;
                     normalize_shared_context(
                         &mut scene_decl.shared,
                         "scene_export.shared",

@@ -52,11 +52,7 @@ fn row_key(row: &Value, field: &str) -> Option<String> {
     }
 }
 
-pub fn try_where_eq_columnar(
-    rows: &[Value],
-    field: &str,
-    expected: &str,
-) -> Option<Vec<Value>> {
+pub fn try_where_eq_columnar(rows: &[Value], field: &str, expected: &str) -> Option<Vec<Value>> {
     if !columnar_engine_enabled() {
         return None;
     }

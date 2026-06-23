@@ -401,8 +401,14 @@ pub fn evaluate_runtime_metric_defs_with_plan_and_dag(
     plan: &EvalPlan,
     cached_metrics: &BTreeMap<String, MetricContract>,
 ) -> Result<(BTreeMap<String, MetricContract>, RuntimeMetricEvalReport)> {
-    let (metrics, request_dag_metrics) =
-        execute_eval_plan(metric_defs, base_rows, datasets, scope, plan, cached_metrics)?;
+    let (metrics, request_dag_metrics) = execute_eval_plan(
+        metric_defs,
+        base_rows,
+        datasets,
+        scope,
+        plan,
+        cached_metrics,
+    )?;
     Ok((
         metrics,
         RuntimeMetricEvalReport {
@@ -475,7 +481,10 @@ mod resolve_key_tests {
         let resource_id = "__world_metrics__::scenes/03-指标体系.mei::metrics";
         let parent = "scenes/03-指标体系.mei::inspection_frequency_reduction_rate";
         let mut defs = BTreeMap::new();
-        defs.insert(parent.to_string(), json!({"id": parent, "shape": "scalar_map"}));
+        defs.insert(
+            parent.to_string(),
+            json!({"id": parent, "shape": "scalar_map"}),
+        );
         assert_eq!(
             resolve_runtime_metric_def_key(
                 resource_id,

@@ -48,15 +48,35 @@ pub struct TableColumnState {
 #[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
 pub struct TableColumnStateItem {
     pub key: String,
-    #[serde(default, deserialize_with = "serde_lenient::bool_default_false", skip_serializing_if = "is_false")]
+    #[serde(
+        default,
+        deserialize_with = "serde_lenient::bool_default_false",
+        skip_serializing_if = "is_false"
+    )]
     pub hidden: bool,
-    #[serde(default, deserialize_with = "serde_lenient::opt_i64", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "serde_lenient::opt_i64",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub order: Option<i64>,
-    #[serde(default, deserialize_with = "serde_lenient::opt_usize", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "serde_lenient::opt_usize",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub width: Option<usize>,
-    #[serde(default, deserialize_with = "serde_lenient::opt_usize", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "serde_lenient::opt_usize",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub min_width: Option<usize>,
-    #[serde(default, deserialize_with = "serde_lenient::opt_usize", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "serde_lenient::opt_usize",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_width: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub align: Option<String>,
@@ -66,9 +86,17 @@ pub struct TableColumnStateItem {
     pub header_align: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub header_valign: Option<String>,
-    #[serde(default, deserialize_with = "serde_lenient::opt_bool", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "serde_lenient::opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub wrap: Option<bool>,
-    #[serde(default, deserialize_with = "serde_lenient::opt_bool", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "serde_lenient::opt_bool",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub header_wrap: Option<bool>,
 }
 
@@ -140,10 +168,8 @@ pub fn resolve_row_schema_for_columns(
     let Some(schema) = best_schema else {
         return Vec::new();
     };
-    let name_map: BTreeMap<&str, &ColumnSchema> = schema
-        .iter()
-        .map(|col| (col.name.as_str(), col))
-        .collect();
+    let name_map: BTreeMap<&str, &ColumnSchema> =
+        schema.iter().map(|col| (col.name.as_str(), col)).collect();
     columns
         .iter()
         .filter_map(|name| name_map.get(name.as_str()).map(|col| (*col).clone()))
@@ -307,13 +333,16 @@ mod tests {
             ),
             (
                 "metrics".to_string(),
-                sample_dataset("metrics", vec![ColumnSchema {
-                    name: "value".to_string(),
-                    type_name: "number".to_string(),
-                    source: None,
-                    optional: false,
-                    unit: None,
-                }]),
+                sample_dataset(
+                    "metrics",
+                    vec![ColumnSchema {
+                        name: "value".to_string(),
+                        type_name: "number".to_string(),
+                        source: None,
+                        optional: false,
+                        unit: None,
+                    }],
+                ),
             ),
         ]);
         let columns = vec![

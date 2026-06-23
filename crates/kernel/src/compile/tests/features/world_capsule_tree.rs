@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
+use crate::compile::source_tree_enrich::enrich_source_tree_with_scene_exports;
 use crate::compile::source_tree_world::{
     build_world_semantic_index, enrich_source_tree_with_world_capsules,
 };
-use crate::compile::source_tree_enrich::enrich_source_tree_with_scene_exports;
 use crate::compile::{compile_app_from_root_with_options, CompileOptions};
-use crate::MetricShape;
 use crate::workspace::source_tree;
+use crate::MetricShape;
 use crate::WorkspaceNode;
 
 use super::super::harness::workspace_root;
@@ -87,8 +87,7 @@ fn enrich_source_tree_world_capsule_children() {
         .find(|child| child.world_dataset_id.as_deref() == Some("warning_list"))
         .expect("warning_list dataset node");
     assert_eq!(
-        warning_list_node.name,
-        "待办",
+        warning_list_node.name, "待办",
         "warning_list dataset should inherit label from metric referencing data_ref"
     );
     let metrics_group = file_node
@@ -102,24 +101,18 @@ fn enrich_source_tree_world_capsule_children() {
         .find(|child| child.world_metric_id.as_deref() == Some("warnings_pending_count"))
         .expect("warnings_pending_count metric node");
     assert_eq!(pending_metric.children.len(), 3);
-    assert!(
-        pending_metric
-            .children
-            .iter()
-            .any(|child| child.explain_block_id.as_deref() == Some("composition_by_category"))
-    );
-    assert!(
-        pending_metric
-            .children
-            .iter()
-            .any(|child| child.explain_block_id.as_deref() == Some("composition_by_agency"))
-    );
-    assert!(
-        pending_metric
-            .children
-            .iter()
-            .any(|child| child.kind == "explain_block" && child.explain_block_id.is_some())
-    );
+    assert!(pending_metric
+        .children
+        .iter()
+        .any(|child| child.explain_block_id.as_deref() == Some("composition_by_category")));
+    assert!(pending_metric
+        .children
+        .iter()
+        .any(|child| child.explain_block_id.as_deref() == Some("composition_by_agency")));
+    assert!(pending_metric
+        .children
+        .iter()
+        .any(|child| child.kind == "explain_block" && child.explain_block_id.is_some()));
 }
 
 #[test]
@@ -131,7 +124,10 @@ fn build_world_semantic_index_explain_blocks() {
     let index = build_world_semantic_index(app_root.as_path(), target)
         .unwrap_or_else(|| panic!("index for `{target}`"));
     assert!(
-        index.datasets.iter().any(|dataset| dataset.id == "warning_list"),
+        index
+            .datasets
+            .iter()
+            .any(|dataset| dataset.id == "warning_list"),
         "expected warning_list dataset, got: {:?}",
         index
             .datasets
@@ -152,7 +148,10 @@ fn build_world_semantic_index_explain_blocks() {
         .expect("warnings_pending_count");
     assert_eq!(pending.label.as_deref(), Some("待办"));
     assert_eq!(pending.unit.as_deref(), Some("件"));
-    assert!(pending.note.as_ref().is_some_and(|note| note.contains("承办部门")));
+    assert!(pending
+        .note
+        .as_ref()
+        .is_some_and(|note| note.contains("承办部门")));
     let composition = pending
         .explain
         .iter()
@@ -259,9 +258,7 @@ fn compile_world_capsule_preview_materializes_explain_dataframe_metrics() {
     let enterprise_key = "enterprise_map_rows_2025";
     assert!(
         owner.metrics.contains_key(dataframe_key)
-            || owner
-                .runtime_metric_defs
-                .contains_key(dataframe_key)
+            || owner.runtime_metric_defs.contains_key(dataframe_key)
             || owner
                 .metrics
                 .keys()
@@ -346,7 +343,11 @@ fn build_world_semantic_index_01_enforcement_explain_ids() {
         .iter()
         .find(|metric| metric.id == "enforcement_objects_count")
         .expect("enforcement_objects_count");
-    let explain_ids: Vec<_> = metric.explain.iter().map(|block| block.id.as_str()).collect();
+    let explain_ids: Vec<_> = metric
+        .explain
+        .iter()
+        .map(|block| block.id.as_str())
+        .collect();
     assert_eq!(
         explain_ids,
         vec![

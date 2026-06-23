@@ -33,11 +33,7 @@ pub(crate) fn query_xlsx_rows(
     if can_return_snapshot_directly(meta, options, schema) {
         let row_count = snapshot.rows.len();
         let rows = if schema.is_empty() {
-            coerce_calendar_columns_in_rows(
-                snapshot.rows.clone(),
-                &snapshot.columns,
-                &[],
-            )
+            coerce_calendar_columns_in_rows(snapshot.rows.clone(), &snapshot.columns, &[])
         } else {
             snapshot
                 .rows
@@ -95,11 +91,7 @@ pub(crate) fn query_xlsx_rows(
     }
     let paginate_started = Instant::now();
     let coerced_rows = if schema.is_empty() {
-        coerce_calendar_columns_in_rows(
-            snapshot.rows.clone(),
-            &snapshot.columns,
-            &[],
-        )
+        coerce_calendar_columns_in_rows(snapshot.rows.clone(), &snapshot.columns, &[])
     } else {
         snapshot
             .rows

@@ -99,7 +99,14 @@ fn tree_node(
     let is_active = parsed.as_ref() == Some(active_node);
     let href = parsed
         .as_ref()
-        .map(|id| build_node_href(app_path, id, tab_for_node_link(id, active_tab), Default::default()))
+        .map(|id| {
+            build_node_href(
+                app_path,
+                id,
+                tab_for_node_link(id, active_tab),
+                Default::default(),
+            )
+        })
         .unwrap_or_else(|| "#".to_string());
     let kind_glyph = kind_glyph(&node.kind);
     let badge = node.badges.first().cloned();

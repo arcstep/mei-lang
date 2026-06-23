@@ -25,7 +25,7 @@ fn flags_analysis_expr_rows_in_block_props() {
         flow: None,
         frame: None,
         panels: vec![PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
             title: None,
@@ -80,7 +80,7 @@ fn flags_imported_catalog_resource_ref_as_warning() {
         flow: None,
         frame: None,
         panels: vec![PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
             title: None,
@@ -153,7 +153,7 @@ fn flags_misused_world_ref_in_props() {
         flow: None,
         frame: None,
         panels: vec![PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
             title: None,
@@ -215,7 +215,7 @@ fn allows_resource_ref_in_props_when_authorized() {
         flow: None,
         frame: None,
         panels: vec![PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
             title: None,
@@ -276,7 +276,7 @@ fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
         flow: None,
         frame: None,
         panels: vec![PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
             title: None,

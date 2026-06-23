@@ -392,7 +392,10 @@ mod tests {
         let parent = "scenes/03-指标体系.mei::inspection_frequency_reduction_rate";
         let resource_id = "__world_metrics__::scenes/03-指标体系.mei::metrics";
         let mut runtime_metric_defs = BTreeMap::new();
-        runtime_metric_defs.insert(parent.to_string(), json!({"id": parent, "shape": "scalar_map"}));
+        runtime_metric_defs.insert(
+            parent.to_string(),
+            json!({"id": parent, "shape": "scalar_map"}),
+        );
         let compiled = CompiledApp {
             app_id: "test".to_string(),
             title: String::new(),

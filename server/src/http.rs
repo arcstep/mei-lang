@@ -1,16 +1,16 @@
-pub(crate) mod build_api;
 pub(crate) mod agent_api;
 pub mod auth_api;
+pub(crate) mod build_api;
 mod compile_cache;
 mod datasets;
 pub(crate) mod host_api;
 pub(crate) mod host_error_page;
 pub(crate) mod observation;
-pub(crate) mod request_trace;
 pub mod ops_api;
 pub mod pages;
-mod runtime_cache;
 pub mod projection_api;
+pub(crate) mod request_trace;
+mod runtime_cache;
 pub mod scene_api;
 pub(crate) mod scene_bundle;
 pub mod upload_api;
@@ -103,8 +103,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/ops/journal/*app_id", get(ops_api::ops_journal_get))
         .route(
             "/api/upload/init/*app_id",
-            post(upload_api::upload_chunk_init_post)
-                .layer(DefaultBodyLimit::max(256 * 1024)),
+            post(upload_api::upload_chunk_init_post).layer(DefaultBodyLimit::max(256 * 1024)),
         )
         .route(
             "/api/upload/status/*app_id",
@@ -112,28 +111,23 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/upload/chunk/*app_id",
-            put(upload_api::upload_chunk_put)
-                .layer(DefaultBodyLimit::max(9 * 1024 * 1024)),
+            put(upload_api::upload_chunk_put).layer(DefaultBodyLimit::max(9 * 1024 * 1024)),
         )
         .route(
             "/api/upload/complete/*app_id",
-            post(upload_api::upload_chunk_complete_post)
-                .layer(DefaultBodyLimit::max(128 * 1024)),
+            post(upload_api::upload_chunk_complete_post).layer(DefaultBodyLimit::max(128 * 1024)),
         )
         .route(
             "/api/upload/move/*app_id",
-            post(upload_api::upload_file_move_post)
-                .layer(DefaultBodyLimit::max(128 * 1024)),
+            post(upload_api::upload_file_move_post).layer(DefaultBodyLimit::max(128 * 1024)),
         )
         .route(
             "/api/upload/dir/*app_id",
-            post(upload_api::upload_dir_create_post)
-                .layer(DefaultBodyLimit::max(128 * 1024)),
+            post(upload_api::upload_dir_create_post).layer(DefaultBodyLimit::max(128 * 1024)),
         )
         .route(
             "/api/upload/rename/*app_id",
-            post(upload_api::upload_entry_rename_post)
-                .layer(DefaultBodyLimit::max(128 * 1024)),
+            post(upload_api::upload_entry_rename_post).layer(DefaultBodyLimit::max(128 * 1024)),
         )
         .route(
             "/api/upload/download/*app_id",

@@ -44,9 +44,9 @@ fn source_root_from_env() -> Option<PathBuf> {
 
 pub fn resolve_package_root() -> Result<PathBuf> {
     if let Some(path) = package_root_from_env().filter(|path| path.exists()) {
-        return path
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize MEI_PACKAGE_ROOT {}", path.display()));
+        return path.canonicalize().with_context(|| {
+            format!("failed to canonicalize MEI_PACKAGE_ROOT {}", path.display())
+        });
     }
     if let Some(path) = package_root_from_current_exe() {
         return Ok(path);

@@ -15,14 +15,14 @@ fn profile_policy_block(profile_id: &str, heading: &str) -> String {
                 .filter_map(|item| item.get("name").and_then(|name| name.as_str()))
                 .collect::<Vec<_>>();
             if !tool_names.is_empty() {
-                blocks.push(format!(
-                    "Catalog surface tools: {}.",
-                    tool_names.join(", ")
-                ));
+                blocks.push(format!("Catalog surface tools: {}.", tool_names.join(", ")));
             }
         }
         if let Some(overlay) = surface.get("host_overlay") {
-            if let Some(bound_args) = overlay.get("bound_arguments").and_then(|value| value.as_array()) {
+            if let Some(bound_args) = overlay
+                .get("bound_arguments")
+                .and_then(|value| value.as_array())
+            {
                 let bound_args = bound_args
                     .iter()
                     .filter_map(|item| item.as_str())
@@ -202,7 +202,9 @@ mod tests {
             Some("compact-session-ctx"),
         )
         .expect("system");
-        assert!(sys.contains("External authoring guidance (legacy non-ask mode, from capability catalog)"));
+        assert!(sys.contains(
+            "External authoring guidance (legacy non-ask mode, from capability catalog)"
+        ));
         assert!(sys.contains("Catalog surface tools:"));
         assert!(sys.contains("[MeiLang Session Context]"));
         assert!(sys.contains("compact-session-ctx"));
@@ -264,7 +266,9 @@ mod tests {
         assert!(sys.contains("Tool-first information policy (ask mode, from capability catalog)"));
         assert!(sys.contains("dataset_query"));
         assert!(sys.contains("dataset_metric"));
-        assert!(sys.contains("Host overlay binds these arguments before tool execution: app, source_root."));
+        assert!(sys.contains(
+            "Host overlay binds these arguments before tool execution: app, source_root."
+        ));
         assert!(sys.contains("Host-only overlay tools outside the canonical catalog: read_file, propose_session_patch."));
     }
 }

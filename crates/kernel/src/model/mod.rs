@@ -13,7 +13,7 @@ mod world;
 mod world_semantic;
 
 pub use build_node::{
-    tab_visible_for_node, tabs_for_node_kind, resolve_build_view_query, BuildExecScope,
+    resolve_build_view_query, tab_visible_for_node, tabs_for_node_kind, BuildExecScope,
     BuildNodeId, BuildNodeKind, BuildViewTab, LegacyBuildQuery, ProvenanceAnchor,
     ResolvedBuildViewQuery,
 };
@@ -35,16 +35,16 @@ pub use layout::{AppDecl, FrameDecl, LayoutDecl};
 pub use panel::{PanelDecl, PanelSlotDecl};
 pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
 pub use ui::{
-    deserialize_ui_node_value, BlockDecl, ComponentExportDecl, FrameExportDecl,
-    PanelExportDecl, PanelRefEmbedDecl, SceneExportDecl, ThemeDecl, UiNodeDecl,
+    deserialize_ui_node_value, BlockDecl, ComponentExportDecl, FrameExportDecl, PanelExportDecl,
+    PanelRefEmbedDecl, SceneExportDecl, ThemeDecl, UiNodeDecl,
 };
 pub use workspace::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
-pub use world_semantic::{
-    WorldSemanticDataset, WorldSemanticExplainBlock, WorldSemanticFileIndex, WorldSemanticMetric,
-};
 pub use world::{
     EntityDecl, FlowDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl,
     RuleStartDecl, RuleSubjectTimerDecl, RuleTimerDecl, WorldCellDecl, WorldDecl, WorldGridDecl,
+};
+pub use world_semantic::{
+    WorldSemanticDataset, WorldSemanticExplainBlock, WorldSemanticFileIndex, WorldSemanticMetric,
 };
 
 pub use ui::SceneDecl;

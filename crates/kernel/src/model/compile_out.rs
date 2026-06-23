@@ -7,8 +7,8 @@ use super::contract::SceneContract;
 use super::dataset::WorldMetricLedgerEntry;
 use super::diagnostic::Diagnostic;
 use super::resource::LoadedResource;
-use super::world_semantic::WorldSemanticFileIndex;
 use super::workspace::{ComponentAsset, WorkspaceNode};
+use super::world_semantic::WorldSemanticFileIndex;
 
 fn default_access_export() -> bool {
     true

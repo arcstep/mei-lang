@@ -52,8 +52,8 @@ pub(crate) fn manage_shell(
         explain: explain.map(str::to_string),
         tab: active_tab.map(str::to_string),
     };
-    let resolved = resolve_build_view_query(node, scope, active_tab, &legacy)
-        .unwrap_or_else(|| {
+    let resolved =
+        resolve_build_view_query(node, scope, active_tab, &legacy).unwrap_or_else(|| {
             let default_node = default_build_node_for_compiled(compiled);
             mei_lang_kernel::ResolvedBuildViewQuery {
                 node: default_node.clone(),
@@ -164,7 +164,10 @@ pub(crate) fn manage_shell(
         .collect_view();
 
     let node_encoded = resolved.node.encode();
-    let focus_encoded = focus.map(str::trim).filter(|value| !value.is_empty()).unwrap_or("");
+    let focus_encoded = focus
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
     let tab_slug = active_tab_enum.slug().to_string();
     let overview_panel = build_overview_view(compiled, &ctx, app_path);
     let provenance_panel = build_provenance_view(&ctx.provenance);
@@ -188,8 +191,7 @@ pub(crate) fn manage_shell(
         || matches!(
             resolved.node.kind,
             BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot
-        )
-    {
+        ) {
         Some(host_ssr_bootstrap_scripts(
             compiled,
             app_path,

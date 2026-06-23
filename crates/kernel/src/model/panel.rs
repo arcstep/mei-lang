@@ -17,7 +17,11 @@ pub struct PanelSlotDecl {
     pub max: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    #[serde(default, rename = "selection_from", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "selection_from",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub selection_from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active: Option<Value>,

@@ -68,11 +68,7 @@ fn workspace_warmup_deserializes_from_json() {
             }
         }"#;
     let cfg: WorkspaceConfig = serde_json::from_str(raw).expect("parse warmup");
-    let zhifa = cfg
-        .warmup
-        .apps
-        .get("zhifa")
-        .expect("zhifa warmup config");
+    let zhifa = cfg.warmup.apps.get("zhifa").expect("zhifa warmup config");
     assert_eq!(zhifa.hot_scenes.len(), 2);
     assert_eq!(
         zhifa.datasets,
@@ -235,8 +231,12 @@ fn workspace_auth_bundle_prefers_host_state_over_workspace_json() {
         },
     };
     let raw = serde_json::to_string_pretty(&state).expect("serialize state");
-    std::fs::create_dir_all(workspace_auth_config_path(&dir).parent().expect("state parent"))
-        .expect("state dir");
+    std::fs::create_dir_all(
+        workspace_auth_config_path(&dir)
+            .parent()
+            .expect("state parent"),
+    )
+    .expect("state dir");
     std::fs::write(workspace_auth_config_path(&dir), raw).expect("write state");
     let bundle = load_workspace_auth_bundle(&dir);
     assert_eq!(bundle.loaded_from, "workspace_host_state");
@@ -263,10 +263,7 @@ fn workspace_auth_path_uses_deploy_host_when_present() {
     };
     write_workspace_config(&workspace_config_path(&dir), &workspace).expect("write workspace");
     assert_eq!(workspace_auth_host_id(&dir), "zw-spbjw");
-    assert!(
-        workspace_auth_config_path(&dir)
-            .ends_with(".mei/local/hosts/zw-spbjw.state.json")
-    );
+    assert!(workspace_auth_config_path(&dir).ends_with(".mei/local/hosts/zw-spbjw.state.json"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -287,7 +284,9 @@ fn resolve_authoring_helpers_loads_workspace_star_files() {
     )
     .expect("write helper");
     let helpers = resolve_authoring_helpers(&dir).expect("resolve helpers");
-    assert!(helpers.public_functions.contains(&"demo_helper".to_string()));
+    assert!(helpers
+        .public_functions
+        .contains(&"demo_helper".to_string()));
     assert!(!helpers.fingerprint.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }

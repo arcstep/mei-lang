@@ -376,10 +376,8 @@ mod tests {
                 runtime_analysis_contracts: BTreeMap::new(),
             },
         );
-        let mut ctx = EvalContext::with_scope_and_metric_defs(
-            RuntimeMetricEvalScope::default(),
-            metric_defs,
-        );
+        let mut ctx =
+            EvalContext::with_scope_and_metric_defs(RuntimeMetricEvalScope::default(), metric_defs);
         let rows = eval_rowset_with_ctx(&composition_expr, &datasets, &mut ctx).expect("group_by");
         assert_eq!(rows.len(), 2);
         assert_eq!(row_string(&rows[0], "agency"), "A");

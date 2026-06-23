@@ -198,10 +198,7 @@ fn build_query_suffix(query: &AppQuery) -> String {
         ("explain", query.explain.as_deref()),
     ] {
         if let Some(value) = value.map(str::trim).filter(|s| !s.is_empty()) {
-            parts.push(format!(
-                "{key}={}",
-                percent_encode_query_component(value)
-            ));
+            parts.push(format!("{key}={}", percent_encode_query_component(value)));
         }
     }
     if parts.is_empty() {

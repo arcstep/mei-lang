@@ -1436,17 +1436,20 @@ world(resources = [])
 frame()
 "#,
     );
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile link params passthrough");
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile link params passthrough");
     let contract = compiled.scene_contract.expect("contract");
     let popup = contract.panels[0].props.get("popup").expect("popup");
     assert_eq!(
-        popup.get("params")
+        popup
+            .get("params")
             .and_then(|value| value.get("entry"))
             .and_then(|value| value.as_str()),
         Some("overview")
     );
     assert_eq!(
-        popup.get("params")
+        popup
+            .get("params")
             .and_then(|value| value.get("tab"))
             .and_then(|value| value.as_str()),
         Some("chart")
@@ -1527,7 +1530,8 @@ frame.add_panel(
 )
 "#,
     );
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile generic drilldown rowset");
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile generic drilldown rowset");
     let contract = compiled.scene_contract.expect("contract");
     let popup = contract.panels[0].props.get("popup").expect("popup");
     assert_eq!(
@@ -1545,7 +1549,10 @@ frame.add_panel(
         Some("sales_metrics")
     );
     assert!(
-        popup.get("projection_slots").and_then(|value| value.as_array()).is_some_and(|slots| !slots.is_empty()),
+        popup
+            .get("projection_slots")
+            .and_then(|value| value.as_array())
+            .is_some_and(|slots| !slots.is_empty()),
         "expected lowered projection_slots, got {:?}",
         popup
     );
@@ -1637,7 +1644,8 @@ frame.add_panel(
         Some("generic_tabs")
     );
     assert_eq!(
-        popup.get("filter_schema")
+        popup
+            .get("filter_schema")
             .and_then(|value| value.get("rowset_dataset_id"))
             .and_then(|value| value.as_str()),
         Some("sales_metrics")
@@ -1834,7 +1842,8 @@ frame.add_panel(
     let contract = compiled.scene_contract.expect("contract");
     let popup = contract.panels[0].props.get("popup").expect("popup");
     assert_eq!(
-        popup.get("filter_schema")
+        popup
+            .get("filter_schema")
             .and_then(|value| value.get("rowset_dataset_id"))
             .and_then(|value| value.as_str()),
         Some("sales_metrics")
@@ -1845,18 +1854,14 @@ frame.add_panel(
         .expect("projection slots");
     assert!(
         slots.iter().any(|slot| {
-            slot.get("layout_zone")
-                .and_then(|value| value.as_str())
-                == Some("chart")
+            slot.get("layout_zone").and_then(|value| value.as_str()) == Some("chart")
         }),
         "expected chart zone slot, got {:?}",
         slots
     );
     assert!(
         slots.iter().any(|slot| {
-            slot.get("layout_zone")
-                .and_then(|value| value.as_str())
-                == Some("detail")
+            slot.get("layout_zone").and_then(|value| value.as_str()) == Some("detail")
         }),
         "expected detail zone slot, got {:?}",
         slots
@@ -1973,7 +1978,8 @@ frame.add_panel(
     let contract = compiled.scene_contract.expect("contract");
     let popup = contract.panels[0].props.get("popup").expect("popup");
     assert_eq!(
-        popup.get("filter_schema")
+        popup
+            .get("filter_schema")
             .and_then(|value| value.get("rowset_dataset_id"))
             .and_then(|value| value.as_str()),
         Some("warning_list")
@@ -1984,18 +1990,14 @@ frame.add_panel(
         .expect("projection slots");
     assert!(
         slots.iter().any(|slot| {
-            slot.get("layout_zone")
-                .and_then(|value| value.as_str())
-                == Some("list")
+            slot.get("layout_zone").and_then(|value| value.as_str()) == Some("list")
         }),
         "expected list zone slot, got {:?}",
         slots
     );
     assert!(
         slots.iter().any(|slot| {
-            slot.get("layout_zone")
-                .and_then(|value| value.as_str())
-                == Some("preview")
+            slot.get("layout_zone").and_then(|value| value.as_str()) == Some("preview")
         }),
         "expected preview zone slot, got {:?}",
         slots

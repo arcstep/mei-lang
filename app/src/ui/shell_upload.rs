@@ -40,20 +40,24 @@ fn upload_entry_size_label(entry: &UploadFileEntry) -> String {
     if entry.is_dir {
         "目录".to_string()
     } else {
-        entry.size_bytes
+        entry
+            .size_bytes
             .map(format_upload_bytes)
             .unwrap_or_else(|| "--".to_string())
     }
 }
 
 fn upload_entry_time_label(entry: &UploadFileEntry) -> String {
-    entry.modified_label
+    entry
+        .modified_label
         .clone()
         .unwrap_or_else(|| "时间未知".to_string())
 }
 
 fn upload_parent_rel(path: &str) -> &str {
-    path.rsplit_once('/').map(|(parent, _)| parent).unwrap_or("")
+    path.rsplit_once('/')
+        .map(|(parent, _)| parent)
+        .unwrap_or("")
 }
 
 fn upload_branch_should_open(entry_path: &str, selected: &str) -> bool {
@@ -174,7 +178,8 @@ fn upload_tree_view(
             }
         })
         .collect_view();
-    view! { <ul class="tree upload-file-list upload-file-tree m-0 grid list-none p-0">{items}</ul> }.into_any()
+    view! { <ul class="tree upload-file-list upload-file-tree m-0 grid list-none p-0">{items}</ul> }
+        .into_any()
 }
 
 pub(crate) fn upload_shell(
@@ -202,7 +207,10 @@ pub(crate) fn upload_shell(
     };
     let file_count = files.iter().filter(|entry| !entry.is_dir).count();
     let dir_count = files.iter().filter(|entry| entry.is_dir).count();
-    let total_bytes = files.iter().filter_map(|entry| entry.size_bytes).sum::<u64>();
+    let total_bytes = files
+        .iter()
+        .filter_map(|entry| entry.size_bytes)
+        .sum::<u64>();
     let topbar = topbar_view(
         apps,
         app_path,

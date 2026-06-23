@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
-use super::io::load_workspace_config;
 use super::authoring_policy::validate_authoring_policy;
+use super::io::load_workspace_config;
 use super::types::DEFAULT_STOCK_AUTHORING_REL;
 use super::workspace_paths::resolve_workspace_path;
 

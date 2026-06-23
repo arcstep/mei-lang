@@ -26,15 +26,11 @@ pub fn install_authoring_eval_context(source_root: &Path) -> Result<AuthoringEva
 pub fn shared_authoring_helpers_for_compile(source_root: &Path) -> Arc<AuthoringHelpers> {
     active_authoring_helpers()
         .map(Arc::new)
-        .unwrap_or_else(|| {
-            Arc::new(resolve_authoring_helpers(source_root).unwrap_or_default())
-        })
+        .unwrap_or_else(|| Arc::new(resolve_authoring_helpers(source_root).unwrap_or_default()))
 }
 
 /// Install helpers on a worker thread when fingerprint is non-empty.
-pub fn install_shared_authoring_guard(
-    helpers: &AuthoringHelpers,
-) -> Option<AuthoringEvalGuard> {
+pub fn install_shared_authoring_guard(helpers: &AuthoringHelpers) -> Option<AuthoringEvalGuard> {
     if helpers.fingerprint.is_empty() {
         None
     } else {

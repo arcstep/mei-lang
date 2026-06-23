@@ -150,8 +150,9 @@ fn move_file(source: &Path, destination: &Path) -> Result<()> {
                     destination.display()
                 )
             })?;
-            fs::remove_file(source)
-                .with_context(|| format!("failed to remove legacy auth journal {}", source.display()))
+            fs::remove_file(source).with_context(|| {
+                format!("failed to remove legacy auth journal {}", source.display())
+            })
         }
     }
 }

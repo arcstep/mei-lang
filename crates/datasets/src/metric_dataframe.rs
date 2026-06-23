@@ -18,8 +18,8 @@ use super::eval_artifact::{
     eval_artifact_hydrate_dataset_ids, load_or_build_runtime_metric_workset_artifact,
 };
 use super::eval_execute::execute_runtime_eval_plan_artifacts;
-use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
+use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_locate::locate_runtime_metric_resource;
 use super::paginate::{infer_columns, paginate_rows};
 use super::query::query_dataset_rows;
@@ -27,9 +27,7 @@ use super::result_artifact::{
     default_result_artifact_scope, load_metric_dataframe_result_artifact,
     store_metric_dataframe_result_artifact,
 };
-use super::table_contract::{
-    column_meta_for_row_schema, format_rows_with_dataset_schema,
-};
+use super::table_contract::{column_meta_for_row_schema, format_rows_with_dataset_schema};
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult};
 use super::util::elapsed_ms;
 use super::{
@@ -213,7 +211,10 @@ fn take_cached_metric_dataframe_materialized(key: &str) -> Option<MaterializedMe
     cache.entries.get(key).cloned()
 }
 
-fn store_cached_metric_dataframe_materialized(key: String, materialized: MaterializedMetricDataframe) {
+fn store_cached_metric_dataframe_materialized(
+    key: String,
+    materialized: MaterializedMetricDataframe,
+) {
     if materialized.rows.len() < MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
         return;
     }
@@ -344,8 +345,8 @@ pub fn query_metric_dataframe(
         .dataset
         .as_ref()
         .ok_or_else(|| anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
-    let primary_resource = locate_dataset_resource(compiled, dataset_id)
-        .map_err(|error| anyhow!("{error}"))?;
+    let primary_resource =
+        locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
     let primary_dataset = primary_resource
         .dataset
         .as_ref()
@@ -383,22 +384,19 @@ pub fn query_metric_dataframe(
         &filter_intents,
         &defs_for_hydrate,
     );
-    let response_cache_key = lookup_cache_keys
-        .first()
-        .cloned()
-        .unwrap_or_else(|| {
-            metric_dataframe_result_cache_key(
-                app_root,
-                scene_id,
-                target,
-                owner_resource.id.as_str(),
-                &metric_scope_cache_key(&effective_metric_ids),
-                &options,
-                compile_revision,
-                "",
-                &filter_intents,
-            )
-        });
+    let response_cache_key = lookup_cache_keys.first().cloned().unwrap_or_else(|| {
+        metric_dataframe_result_cache_key(
+            app_root,
+            scene_id,
+            target,
+            owner_resource.id.as_str(),
+            &metric_scope_cache_key(&effective_metric_ids),
+            &options,
+            compile_revision,
+            "",
+            &filter_intents,
+        )
+    });
     let materialized_cache_key = metric_dataframe_scope_cache_key(
         app_root,
         scene_id,
@@ -517,11 +515,9 @@ pub fn query_metric_dataframe(
         },
     );
     let eval_started = Instant::now();
-    let primary_filters = resolve_dataset_query_bindings_from_state(
-        &effective_query_state,
-        primary_dataset,
-    )
-    .mapped_filters;
+    let primary_filters =
+        resolve_dataset_query_bindings_from_state(&effective_query_state, primary_dataset)
+            .mapped_filters;
     let base_query = DatasetQueryOptions {
         page: 1,
         page_size: 0,
@@ -679,10 +675,7 @@ pub fn query_metric_dataframe(
                 base_rowset_materialize_ms,
             ),
             ("metric_eval_ms".to_string(), metric_eval_ms),
-            (
-                "eval_artifact_load_ms".to_string(),
-                eval_artifact_load_ms,
-            ),
+            ("eval_artifact_load_ms".to_string(), eval_artifact_load_ms),
             (
                 "eval_artifact_hit".to_string(),
                 u64::from(eval_artifact_hit),
@@ -711,14 +704,8 @@ pub fn query_metric_dataframe(
                 "eval_plan_targets".to_string(),
                 eval_plan.targets.len() as u64,
             ),
-            (
-                "eval_plan_nodes".to_string(),
-                eval_plan.nodes.len() as u64,
-            ),
-            (
-                "eval_plan_edges".to_string(),
-                eval_plan.edges.len() as u64,
-            ),
+            ("eval_plan_nodes".to_string(), eval_plan.nodes.len() as u64),
+            ("eval_plan_edges".to_string(), eval_plan.edges.len() as u64),
             (
                 "eval_plan_metric_nodes".to_string(),
                 eval_plan.node_count_by_kind(EvalPlanNodeKind::MetricEval) as u64,
@@ -768,10 +755,7 @@ pub fn query_metric_dataframe(
                 "request_dag_eval_node_cache_misses".to_string(),
                 dag_metrics.eval_node_cache_misses,
             ),
-            (
-                "eval_memo_hits".to_string(),
-                dag_metrics.request_cache_hits,
-            ),
+            ("eval_memo_hits".to_string(), dag_metrics.request_cache_hits),
             (
                 "eval_memo_eval_node_cache_hits".to_string(),
                 dag_metrics.eval_node_cache_hits,
@@ -865,8 +849,7 @@ fn paginate_materialized_metric_dataframe(
         &materialized.row_schema,
     );
     if !materialized.row_schema.is_empty() {
-        result.column_meta =
-            column_meta_for_row_schema(&materialized.row_schema, &result.columns);
+        result.column_meta = column_meta_for_row_schema(&materialized.row_schema, &result.columns);
     }
     result.perf.extend(materialized.base_perf.clone());
     result.perf.insert("response_cache_hit".to_string(), 0);

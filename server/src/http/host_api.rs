@@ -5,21 +5,14 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     prebuild::{run_prebuild, PrebuildAppReport, PrebuildMode, PrebuildOptions, PrebuildReport},
     AppState,
 };
-use mei_lang_datasets::{
-    preload_prebuild_metric_response_index,
-};
+use mei_lang_datasets::preload_prebuild_metric_response_index;
 use mei_lang_kernel::resolve_app_root;
 
 fn supports_ansi_stderr() -> bool {
@@ -210,7 +203,10 @@ fn host_readiness_registry() -> &'static Mutex<HostReadinessRegistry> {
 }
 
 fn with_registry<T>(f: impl FnOnce(&mut HostReadinessRegistry) -> T) -> Option<T> {
-    host_readiness_registry().lock().ok().map(|mut guard| f(&mut guard))
+    host_readiness_registry()
+        .lock()
+        .ok()
+        .map(|mut guard| f(&mut guard))
 }
 
 fn manifest_path_for(source_root: &Path) -> PathBuf {
@@ -306,7 +302,10 @@ fn registry_snapshot() -> HostReadyResponse {
     let active_job_elapsed_ms = snapshot
         .active_job_started_at
         .map(|started| started.elapsed().as_millis() as u64);
-    let ready_app_count = apps.iter().filter(|app| phase_access_ready(app.phase.as_str())).count();
+    let ready_app_count = apps
+        .iter()
+        .filter(|app| phase_access_ready(app.phase.as_str()))
+        .count();
     let degraded_app_count = apps.iter().filter(|app| app.phase == "degraded").count();
     let failed_app_count = apps.iter().filter(|app| app.phase == "failed").count();
     HostReadyResponse {
@@ -433,7 +432,9 @@ fn sync_registry_phase(registry: &mut HostReadinessRegistry) {
     registry.warmed_apps = registry
         .apps
         .iter()
-        .filter_map(|(app_id, app)| phase_access_ready(app.phase.as_str()).then_some(app_id.clone()))
+        .filter_map(|(app_id, app)| {
+            phase_access_ready(app.phase.as_str()).then_some(app_id.clone())
+        })
         .collect();
     registry.failed_apps = registry
         .apps
@@ -483,8 +484,7 @@ fn apply_success_app_report(app_report: &PrebuildAppReport, app_state: &mut Host
                 .requested_scene_id
                 .as_deref()
                 .or(scope.active_scene_id.as_deref()),
-            Some(scope.active_target_file.as_str())
-                .or(scope.requested_target_file.as_deref()),
+            Some(scope.active_target_file.as_str()).or(scope.requested_target_file.as_deref()),
         );
         if !seen.insert(key.clone()) {
             continue;
@@ -509,7 +509,11 @@ fn apply_success_app_report(app_report: &PrebuildAppReport, app_state: &mut Host
 }
 
 fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
-    let warning_count = report.apps.iter().map(|app| app.warnings.len()).sum::<usize>();
+    let warning_count = report
+        .apps
+        .iter()
+        .map(|app| app.warnings.len())
+        .sum::<usize>();
     let failed_app_count = report.failed_apps.len();
     let compile_ms: u64 = report
         .apps
@@ -540,7 +544,10 @@ fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
             app_state.last_error = report
                 .error_summary
                 .iter()
-                .find_map(|line| line.strip_prefix(&format!("{app_id}: ")).map(str::to_string))
+                .find_map(|line| {
+                    line.strip_prefix(&format!("{app_id}: "))
+                        .map(str::to_string)
+                })
                 .or_else(|| Some("prebuild failed".to_string()));
         }
         if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
@@ -549,7 +556,8 @@ fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
             {
                 let app_state = registry.apps.entry(app_id.to_string()).or_default();
                 app_state.phase = "failed".to_string();
-                app_state.last_error = Some("requested app missing from prebuild report".to_string());
+                app_state.last_error =
+                    Some("requested app missing from prebuild report".to_string());
             }
         }
         registry.active_job = None;
@@ -609,13 +617,17 @@ fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
     refresh_metric_response_indices_after_prebuild(report, app_filter);
 }
 
-fn refresh_metric_response_indices_after_prebuild(report: &PrebuildReport, app_filter: Option<&str>) {
+fn refresh_metric_response_indices_after_prebuild(
+    report: &PrebuildReport,
+    app_filter: Option<&str>,
+) {
     let source_root = Path::new(report.source_root.as_str());
-    let app_ids: Vec<String> = if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
-        vec![app_id.to_string()]
-    } else {
-        report.succeeded_apps.clone()
-    };
+    let app_ids: Vec<String> =
+        if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
+            vec![app_id.to_string()]
+        } else {
+            report.succeeded_apps.clone()
+        };
     for app_id in app_ids {
         let app_root = resolve_app_root(source_root, app_id.as_str());
         match preload_prebuild_metric_response_index(app_root.as_path()) {
@@ -691,7 +703,8 @@ fn begin_job(mode: PrebuildMode, app_filter: Option<&str>, origin: &str) -> Resu
             PrebuildMode::Build => "build",
             PrebuildMode::Verify => "verify",
         };
-        let job = if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
+        let job = if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty())
+        {
             format!("{origin}:{mode_label}:{app_id}")
         } else {
             format!("{origin}:{mode_label}:workspace")
@@ -802,7 +815,11 @@ pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn spawn_manual_job(source_root: PathBuf, mode: PrebuildMode, app_filter: Option<String>) -> Result<String> {
+fn spawn_manual_job(
+    source_root: PathBuf,
+    mode: PrebuildMode,
+    app_filter: Option<String>,
+) -> Result<String> {
     let app_filter_text = app_filter
         .as_deref()
         .map(str::trim)
@@ -845,7 +862,8 @@ pub(crate) fn artifact_gate_status(
     let scope_key = normalize_scope_key(scene_id, target_file);
     let scope = app.and_then(|app| {
         app.scopes.iter().find(|scope| {
-            normalize_scope_key(scope.scene_id.as_deref(), scope.target_file.as_deref()) == scope_key
+            normalize_scope_key(scope.scene_id.as_deref(), scope.target_file.as_deref())
+                == scope_key
                 || scope
                     .scene_id
                     .as_deref()
@@ -916,14 +934,16 @@ pub(crate) fn mark_access_artifact_degraded(
     let _ = with_registry(|registry| {
         let app_state = registry.apps.entry(app_id.to_string()).or_default();
         app_state.last_error = Some(normalized_error.to_string());
-        if !app_state.warnings.iter().any(|warning| warning == normalized_error) {
+        if !app_state
+            .warnings
+            .iter()
+            .any(|warning| warning == normalized_error)
+        {
             app_state.warnings.push(normalized_error.to_string());
         }
         if normalized_scene.is_some() || normalized_target.is_some() {
-            let key = normalize_scope_key(
-                normalized_scene.as_deref(),
-                normalized_target.as_deref(),
-            );
+            let key =
+                normalize_scope_key(normalized_scene.as_deref(), normalized_target.as_deref());
             let scope = app_state.scopes.entry(key).or_default();
             scope.scene_id = normalized_scene.clone().or(scope.scene_id.clone());
             scope.target_file = normalized_target.clone().or(scope.target_file.clone());
@@ -988,7 +1008,11 @@ pub async fn api_host_build(
                 .into_response();
         }
     };
-    match spawn_manual_job(state.source_root.as_ref().clone(), mode, request.app_id.clone()) {
+    match spawn_manual_job(
+        state.source_root.as_ref().clone(),
+        mode,
+        request.app_id.clone(),
+    ) {
         Ok(job) => (
             StatusCode::ACCEPTED,
             Json(HostBuildJobResponse {

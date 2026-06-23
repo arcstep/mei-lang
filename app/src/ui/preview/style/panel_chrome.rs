@@ -27,10 +27,7 @@ fn append_background_inline(style: &mut String, background: &Value) {
         }
         Value::Object(bg) => {
             if let Some(value) = bg.get("color").and_then(Value::as_str) {
-                style.push_str(&format!(
-                    "background-color:{};",
-                    resolve_color_token(value)
-                ));
+                style.push_str(&format!("background-color:{};", resolve_color_token(value)));
             }
             if let Some(value) = bg.get("image").and_then(Value::as_str) {
                 style.push_str(&format!(
@@ -106,9 +103,7 @@ fn append_background_css_vars(style: &mut String, prefix: &str, background: &Val
 pub(crate) fn frame_background_color(props: &Value) -> Option<String> {
     let background = props.as_object()?.get("background")?;
     match background {
-        Value::String(value) if !value.trim().is_empty() => {
-            Some(resolve_color_token(value.trim()))
-        }
+        Value::String(value) if !value.trim().is_empty() => Some(resolve_color_token(value.trim())),
         Value::Object(bg) => bg
             .get("color")
             .and_then(Value::as_str)
@@ -188,8 +183,7 @@ pub(crate) fn container_visual_style_without_background(props: &Value) -> String
     append_string_style(&mut style, map.get("box_sizing"), "box-sizing");
     append_string_style(
         &mut style,
-        map
-            .get("pointer_events")
+        map.get("pointer_events")
             .or_else(|| map.get("pointer-events")),
         "pointer-events",
     );

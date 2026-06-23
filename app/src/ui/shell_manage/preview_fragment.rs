@@ -65,11 +65,12 @@ pub fn render_build_preview_fragment(
         semantic,
         build_preview_scope.as_deref(),
     );
-    let preview_body = if selected_target.ends_with(".mei") || selected_target.ends_with(".world.mei") {
-        preview.into_any()
-    } else {
-        asset_preview_body(app_path, selected_target.as_str(), "").into_any()
-    };
+    let preview_body =
+        if selected_target.ends_with(".mei") || selected_target.ends_with(".world.mei") {
+            preview.into_any()
+        } else {
+            asset_preview_body(app_path, selected_target.as_str(), "").into_any()
+        };
     let preview_scroll_class = "preview-pane-scroll min-h-0 min-w-0 flex-1 overflow-auto";
     let fragment = view! {
         <div class=preview_scroll_class>

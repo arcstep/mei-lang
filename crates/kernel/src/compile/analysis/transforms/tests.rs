@@ -281,10 +281,7 @@ fn extract_match_supports_regex_capture_on_row_text() {
         String::from("基本情况"),
         json!("2025年1月，区文旅委对部分旅行社检查频次过高"),
     )]);
-    assert_eq!(
-        eval_row_value(&expr, &row).as_str(),
-        Some("2025年1月")
-    );
+    assert_eq!(eval_row_value(&expr, &row).as_str(), Some("2025年1月"));
 }
 
 #[test]

@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 
-mod build_tree;
 mod agent_panel;
+mod build_tree;
 mod capabilities;
 mod compile_status;
 mod document;
@@ -321,26 +321,17 @@ pub fn render_upload_page(
 mod tests {
     use super::manage_routing::{
         access_scene_query, build_preview_href, encode_query_value, manage_tab_href,
-        resolve_build_query, route_query, OPS_CONFIG_TARGET, WorldSemanticQuery,
+        resolve_build_query, route_query, WorldSemanticQuery, OPS_CONFIG_TARGET,
     };
-    use mei_lang_kernel::BuildViewTab;
     use super::view_routing::{build_href, config_href};
     use super::UiRouteMode;
+    use mei_lang_kernel::BuildViewTab;
 
     #[test]
     fn build_view_defaults_to_overview_for_scene_node() {
         assert!(matches!(
-            resolve_build_query(
-                Some("scene:home"),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .map(|resolved| resolved.tab),
+            resolve_build_query(Some("scene:home"), None, None, None, None, None, None, None,)
+                .map(|resolved| resolved.tab),
             Some(BuildViewTab::Overview)
         ));
     }

@@ -4,10 +4,10 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use mei_lang_kernel::{
-    build_experience_path, build_overview_backing, build_reachability_tree,
-    experience_layout_hint, experience_mount_chain, format_experience_path,
-    resolve_build_node_context, resolve_build_view_query, tab_visible_for_node, BuildViewTab,
-    LegacyBuildQuery, ProvenanceAnchor,
+    build_experience_path, build_overview_backing, build_reachability_tree, experience_layout_hint,
+    experience_mount_chain, format_experience_path, resolve_build_node_context,
+    resolve_build_view_query, tab_visible_for_node, BuildViewTab, LegacyBuildQuery,
+    ProvenanceAnchor,
 };
 use mei_lang_toolchain::{format_semantic_graph_markdown, load_world_runtime_bundle};
 
@@ -96,8 +96,16 @@ pub async fn api_build_context_export(
         .unwrap_or(true);
 
     let build_url = {
-        let mut url = format!("/apps/build/{app_id}?node={}", percent_encode_component(node_raw));
-        if let Some(focus) = query.focus.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        let mut url = format!(
+            "/apps/build/{app_id}?node={}",
+            percent_encode_component(node_raw)
+        );
+        if let Some(focus) = query
+            .focus
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             url.push_str("&focus=");
             url.push_str(&percent_encode_component(focus));
         }
@@ -127,7 +135,13 @@ pub async fn api_build_context_export(
     }
     md.push('\n');
 
-    append_ux_sections(&mut md, compiled, &ctx, &resolved.node, query.focus.as_deref());
+    append_ux_sections(
+        &mut md,
+        compiled,
+        &ctx,
+        &resolved.node,
+        query.focus.as_deref(),
+    );
     append_board_template_sections(&mut md, compiled, &resolved.node);
     append_runtime_snapshot(&mut md, compiled, &ctx, &intent);
 
@@ -136,7 +150,10 @@ pub async fn api_build_context_export(
     if let Some(scene) = ctx.scene_id.as_deref() {
         md.push_str(&format!("- scene_id: `{scene}`\n"));
     }
-    md.push_str(&format!("- scene_routes: {}\n", compiled.scene_routes.len()));
+    md.push_str(&format!(
+        "- scene_routes: {}\n",
+        compiled.scene_routes.len()
+    ));
     md.push_str(&format!("- resources: {}\n", compiled.resources.len()));
     md.push_str(&format!("- diagnostics: {}\n", compiled.diagnostics.len()));
     md.push_str(&format!(
@@ -286,11 +303,17 @@ fn append_runtime_snapshot(
         return;
     }
     md.push_str("### 运行时快照\n\n");
-    md.push_str(&format!("- compile_resources: {}\n", compiled.resources.len()));
+    md.push_str(&format!(
+        "- compile_resources: {}\n",
+        compiled.resources.len()
+    ));
     if let Some(dataset_id) = ctx.world_dataset.as_deref() {
         if let Some(resource) = compiled.resources.iter().find(|r| r.id == dataset_id) {
             if let Some(dataset) = resource.dataset.as_ref() {
-                md.push_str(&format!("- dataset `{dataset_id}` rows: {}\n", dataset.rows.len()));
+                md.push_str(&format!(
+                    "- dataset `{dataset_id}` rows: {}\n",
+                    dataset.rows.len()
+                ));
             }
         }
     }
@@ -298,11 +321,7 @@ fn append_runtime_snapshot(
     for item in backing {
         if let Some(stripped) = item.strip_prefix("→ ") {
             let dataset_id = stripped.split("::").next().unwrap_or(stripped).trim();
-            if let Some(resource) = compiled
-                .resources
-                .iter()
-                .find(|r| r.id == dataset_id)
-            {
+            if let Some(resource) = compiled.resources.iter().find(|r| r.id == dataset_id) {
                 if let Some(dataset) = resource.dataset.as_ref() {
                     md.push_str(&format!(
                         "- backing `{dataset_id}` rows: {}\n",

@@ -229,7 +229,10 @@ fn build_symbol(
         selection_range,
         range: Range::new(
             Position::new(start_line as u32, 0),
-            Position::new(end_line as u32, block.lines().last().map(|line| line.len()).unwrap_or(0) as u32),
+            Position::new(
+                end_line as u32,
+                block.lines().last().map(|line| line.len()).unwrap_or(0) as u32,
+            ),
         ),
     })
 }
@@ -305,11 +308,7 @@ fn find_named_reference(
     })
 }
 
-fn find_named_string_arg(
-    block: &str,
-    key: &str,
-    start_line: usize,
-) -> Option<(String, Range)> {
+fn find_named_string_arg(block: &str, key: &str, start_line: usize) -> Option<(String, Range)> {
     let needle = format!("{key} = ");
     for (offset, line) in block.lines().enumerate() {
         let Some(pos) = line.find(&needle) else {
@@ -335,11 +334,7 @@ fn find_named_string_arg(
     None
 }
 
-fn find_first_string_arg(
-    block: &str,
-    token: &str,
-    start_line: usize,
-) -> Option<(String, Range)> {
+fn find_first_string_arg(block: &str, token: &str, start_line: usize) -> Option<(String, Range)> {
     for (offset, line) in block.lines().enumerate() {
         let Some(pos) = line.find(token) else {
             continue;

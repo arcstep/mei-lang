@@ -35,12 +35,14 @@ pub fn publish_data_snapshots(
     }
     let discovered_sources = owned_sources
         .iter()
-        .map(|(path, sheet, header_row)| format!(
-            "{}|sheet={}|header_row={}",
-            path,
-            sheet.as_deref().unwrap_or(""),
-            header_row
-        ))
+        .map(|(path, sheet, header_row)| {
+            format!(
+                "{}|sheet={}|header_row={}",
+                path,
+                sheet.as_deref().unwrap_or(""),
+                header_row
+            )
+        })
         .collect::<Vec<_>>();
     let sources = owned_sources
         .iter()

@@ -13,9 +13,8 @@ use axum::{
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
     compile_scene_from_build_node, compile_scene_from_build_node_with_app, discover_apps,
-    preview_target_from_build_node,
-    preview_target_from_build_node_with_app, resolve_app_root, resolve_default_scene_from_root,
-    BuildNodeId, CompileOptions,
+    preview_target_from_build_node, preview_target_from_build_node_with_app, resolve_app_root,
+    resolve_default_scene_from_root, BuildNodeId, CompileOptions,
 };
 
 use crate::{
@@ -33,12 +32,12 @@ use super::page_render::{
 };
 use super::query::{
     access_canonical_location, access_sanitized_redirect_location, legacy_access_redirect_location,
-    legacy_manage_redirect_location, parse_access_scene_path, presentation_sanitized_redirect_location,
-    scene_projection_canonical_location, AppQuery,
+    legacy_manage_redirect_location, parse_access_scene_path,
+    presentation_sanitized_redirect_location, scene_projection_canonical_location, AppQuery,
 };
 
-use crate::http::compile_cache::CompileWithCacheOutcome;
 use crate::http::compile_cache::load_compile_artifact_only;
+use crate::http::compile_cache::CompileWithCacheOutcome;
 
 use access_gate::check_access_scene_gate;
 use compile::{maybe_handle_compile_bootstrap_probe, resolve_compile_outcome, CompileResolution};
@@ -166,10 +165,7 @@ pub async fn app_page(
         .filter(|t| is_script_target(t))
         .map(ToString::to_string);
     let build_node = if route_mode == UiRouteMode::Build {
-        query
-            .node
-            .as_deref()
-            .and_then(BuildNodeId::parse)
+        query.node.as_deref().and_then(BuildNodeId::parse)
     } else {
         None
     };
@@ -190,10 +186,8 @@ pub async fn app_page(
                     probe_components_root.as_path(),
                 ) {
                     if scene_hint.is_none() {
-                        scene_hint = compile_scene_from_build_node_with_app(
-                            node,
-                            Some(&outcome.compiled),
-                        );
+                        scene_hint =
+                            compile_scene_from_build_node_with_app(node, Some(&outcome.compiled));
                     }
                     if preview_target.is_none() {
                         preview_target =
@@ -209,9 +203,7 @@ pub async fn app_page(
         (None, None)
     };
     let normalized_preview_target = if route_mode == UiRouteMode::Build {
-        manage_script_file
-            .clone()
-            .or(build_node_preview_target)
+        manage_script_file.clone().or(build_node_preview_target)
     } else {
         None
     };
@@ -291,42 +283,36 @@ pub async fn app_page(
         if let Some(ref ps) = access_path_scene {
             if let Some(qs) = q_scene {
                 if qs != ps {
-                    return Ok(
-                        Redirect::temporary(&scene_projection_canonical_location(
-                            route_mode,
-                            &app_id,
-                            ps,
-                            query.tab.as_deref(),
-                            query.chrome.as_deref(),
-                        ))
-                        .into_response(),
-                    );
+                    return Ok(Redirect::temporary(&scene_projection_canonical_location(
+                        route_mode,
+                        &app_id,
+                        ps,
+                        query.tab.as_deref(),
+                        query.chrome.as_deref(),
+                    ))
+                    .into_response());
                 }
             }
         } else if let Some(qs) = q_scene {
-            return Ok(
-                Redirect::temporary(&scene_projection_canonical_location(
-                    route_mode,
-                    &app_id,
-                    qs,
-                    query.tab.as_deref(),
-                    query.chrome.as_deref(),
-                ))
-                .into_response(),
-            );
+            return Ok(Redirect::temporary(&scene_projection_canonical_location(
+                route_mode,
+                &app_id,
+                qs,
+                query.tab.as_deref(),
+                query.chrome.as_deref(),
+            ))
+            .into_response());
         } else if let Ok(Some(default_scene)) =
             resolve_default_scene_from_root(&resolve_app_root(state.source_root.as_path(), &app_id))
         {
-            return Ok(
-                Redirect::temporary(&scene_projection_canonical_location(
-                    route_mode,
-                    &app_id,
-                    &default_scene,
-                    query.tab.as_deref(),
-                    query.chrome.as_deref(),
-                ))
-                .into_response(),
-            );
+            return Ok(Redirect::temporary(&scene_projection_canonical_location(
+                route_mode,
+                &app_id,
+                &default_scene,
+                query.tab.as_deref(),
+                query.chrome.as_deref(),
+            ))
+            .into_response());
         }
     }
     let discover_started = Instant::now();

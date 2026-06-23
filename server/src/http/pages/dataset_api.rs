@@ -1,24 +1,22 @@
 use std::time::Instant;
 
 use axum::{
+    body::Bytes,
     extract::{Path as AxumPath, State},
     http::StatusCode,
     Json,
 };
-use mei_lang_kernel::{deserialize_string_map, resolve_app_root, FilterIntent, QueryState};
+use mei_lang_kernel::{resolve_app_root, FilterIntent, QueryState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-use crate::{AppError, AppState};
 use crate::http::observation::CompileObservation;
+use crate::{AppError, AppState};
 
-use super::super::compile_cache::{
-    load_compile_artifact_only_shared,
-};
+use super::super::compile_cache::load_compile_artifact_only_shared;
 use super::super::datasets::{
     map_dataset_query_filters, query_dataset_rows, query_metric_dataframe,
-    query_state_from_request,
-    serde_lenient,
+    query_state_from_request, serde_lenient,
     table_contract::{
         apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec,
     },
@@ -46,7 +44,7 @@ pub struct DatasetQueryRequest {
     pub page_size: Option<usize>,
     #[serde(default)]
     pub search: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_string_map")]
+    #[serde(default, deserialize_with = "serde_lenient::string_map")]
     pub filters: BTreeMap<String, String>,
     #[serde(default)]
     pub query_state: Option<QueryState>,
@@ -122,6 +120,45 @@ pub struct DatasetRecomputeResponse {
     pub perf: BTreeMap<String, u64>,
 }
 
+fn dataset_query_body_preview(body: &[u8]) -> String {
+    const MAX_PREVIEW_BYTES: usize = 4096;
+    let len = body.len().min(MAX_PREVIEW_BYTES);
+    let mut preview = String::from_utf8_lossy(&body[..len]).to_string();
+    if body.len() > MAX_PREVIEW_BYTES {
+        preview.push_str("...<truncated>");
+    }
+    preview
+}
+
+fn parse_dataset_query_request(
+    app_id: &str,
+    body: &Bytes,
+) -> Result<DatasetQueryRequest, AppError> {
+    let mut deserializer = serde_json::Deserializer::from_slice(body);
+    serde_path_to_error::deserialize::<_, DatasetQueryRequest>(&mut deserializer).map_err(|error| {
+        let path = error.path().to_string();
+        let inner = error.inner().to_string();
+        let preview = dataset_query_body_preview(body);
+        tracing::warn!(
+            app_id = %app_id,
+            path = %path,
+            error = %inner,
+            body = %preview,
+            "dataset query JSON rejected"
+        );
+        if preview.contains("\"method\"") && preview.contains("\"headers\"") && !preview.contains("\"dataset_id\"") {
+            tracing::error!(
+                app_id = %app_id,
+                "dataset query received fetch RequestInit object instead of payload; check frontend fetch wrapper"
+            );
+        }
+        AppError::status(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("invalid dataset query JSON at `{path}`: {inner}"),
+        )
+    })
+}
+
 fn access_artifact_unavailable_error(
     request_kind: &str,
     app_id: &str,
@@ -150,7 +187,7 @@ pub async fn dataset_query_api(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     AxumPath(app_id_raw): AxumPath<String>,
-    Json(request): Json<DatasetQueryRequest>,
+    body: Bytes,
 ) -> Result<Json<DatasetQueryResponse>, AppError> {
     let request_started = Instant::now();
     let app_id = app_id_raw.trim_start_matches('/').to_string();
@@ -160,6 +197,7 @@ pub async fn dataset_query_api(
             "missing app id in route",
         ));
     }
+    let request = parse_dataset_query_request(&app_id, &body)?;
     strict_runtime_query_contract(
         &request.filters,
         request.search.as_deref(),
@@ -249,12 +287,8 @@ pub async fn dataset_query_api(
         );
         error
     })?;
-    let compile_observation = CompileObservation::from_compile_outcome_shared(
-        &app_id,
-        "-",
-        None,
-        &compile_outcome,
-    );
+    let compile_observation =
+        CompileObservation::from_compile_outcome_shared(&app_id, "-", None, &compile_outcome);
     let compiled = compile_outcome.compiled;
     let scene_ctx = resolved_scene_context(&compiled);
     let requested_dataset_id = request.dataset_id.trim();
@@ -550,4 +584,24 @@ pub async fn dataset_recompute_api(
         warmed,
         perf,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dataset_query_request_deserializes_chart_runtime_payload() {
+        let body = Bytes::from(
+            r#"{"scene_id":"home","target":"scenes/home.mei","dataset_id":"scenes/02-行政检查.mei::administrative_inspection_dashboard_ds","metric_id":"scenes/02-行政检查.mei::inspections_6m_count_trend","page":1,"page_size":20,"filters":{},"query_state":{"filters":{}},"full":false,"summary":false}"#,
+        );
+        let request = parse_dataset_query_request("zhifa", &body).expect("parse request");
+        assert_eq!(request.scene_id.as_deref(), Some("home"));
+        assert_eq!(request.page, Some(1));
+        assert_eq!(request.page_size, Some(20));
+        assert_eq!(
+            request.metric_id.as_deref(),
+            Some("scenes/02-行政检查.mei::inspections_6m_count_trend")
+        );
+    }
 }

@@ -7,9 +7,9 @@ use crate::compile::analysis::eval_context::{RequestDagMetrics, RuntimeMetricEva
 use crate::model::{DatasetView, MetricContract};
 
 use super::super::metric_packs::materialize_legacy_metric_map_with_scope_and_dag;
+use super::build_eval_plan;
 use super::EvalPlan;
 use super::EvalPlanNodeKind;
-use super::build_eval_plan;
 
 pub(crate) fn execute_eval_plan(
     metric_defs: &BTreeMap<String, Value>,

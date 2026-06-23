@@ -35,7 +35,8 @@ struct RevisionFingerprintCacheEntry {
 }
 
 fn revision_fingerprint_cache() -> &'static Mutex<BTreeMap<String, RevisionFingerprintCacheEntry>> {
-    static CACHE: OnceLock<Mutex<BTreeMap<String, RevisionFingerprintCacheEntry>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<BTreeMap<String, RevisionFingerprintCacheEntry>>> =
+        OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
@@ -461,11 +462,7 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
             query,
             &dependency_revision_key,
         );
-        let dataset_key = metric_response_prebuild_dataset_key(
-            app_id,
-            dataset_id.as_str(),
-            query,
-        );
+        let dataset_key = metric_response_prebuild_dataset_key(app_id, dataset_id.as_str(), query);
         let ordered_keys = if prefer_prebuild_keys {
             vec![dataset_key, shared_key, scoped_key]
         } else {
@@ -567,9 +564,7 @@ pub(crate) fn equivalent_dataframe_metric_scope_tokens(
                     locate_runtime_metric_resource(compiled, dataset_id, def_key)
                 {
                     if candidate == canonical {
-                        tokens.insert(metric_scope_cache_key(std::slice::from_ref(
-                            &candidate,
-                        )));
+                        tokens.insert(metric_scope_cache_key(std::slice::from_ref(&candidate)));
                     }
                 }
             }
@@ -618,9 +613,7 @@ pub(crate) fn metric_dataframe_artifact_lookup_cache_keys(
     } else {
         dataset_ids.insert(0, owner_resource_id.to_string());
     }
-    if !primary_dataset_id.is_empty()
-        && !dataset_ids.iter().any(|id| id == primary_dataset_id)
-    {
+    if !primary_dataset_id.is_empty() && !dataset_ids.iter().any(|id| id == primary_dataset_id) {
         dataset_ids.push(primary_dataset_id.to_string());
     }
     let metric_tokens = equivalent_dataframe_metric_scope_tokens(

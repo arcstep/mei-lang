@@ -64,7 +64,8 @@ pub fn query_dataset_rows(
     let use_external_query_path = file_backed;
     if use_external_query_path {
         let cache_lookup_started = Instant::now();
-        if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, &meta, &normalized_options)
+        if let Some(scope_key) =
+            dataset_rows_scope_cache_key(app_root, dataset, &meta, &normalized_options)
         {
             if let Some(materialized) = take_materialized_dataset_rows(&scope_key) {
                 let mut result = paginate_materialized_dataset_rows(

@@ -572,8 +572,8 @@ fn xlsx_table_snapshot_singleflight_deduplicates_parallel_cold_loads() {
     use std::thread;
 
     clear_materialize_cache_for_tests();
-    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces/ws-spbjw/zhifa");
+    let source =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-spbjw/zhifa");
     if !source.join("upload/8.行政处罚结果清单.xlsx").is_file() {
         eprintln!("skip xlsx singleflight test: zhifa fixture missing");
         return;

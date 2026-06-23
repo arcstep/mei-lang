@@ -213,10 +213,7 @@ pub fn pivot_long_rows(
             continue;
         }
         let value = row_number(row, value_field).unwrap_or(0.0);
-        values
-            .entry(row_key)
-            .or_default()
-            .insert(column_key, value);
+        values.entry(row_key).or_default().insert(column_key, value);
     }
 
     let row_keys: Vec<String> = if let Some(labels) = row_universe {

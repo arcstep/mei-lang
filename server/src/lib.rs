@@ -9,7 +9,7 @@ pub(crate) mod prebuild;
 pub(crate) mod resource_tool_bridge;
 mod runtime_entry;
 
-pub use runtime_entry::{run_cli_for_flavor, BinaryFlavor};
-pub(crate) use runtime_entry::{AppError, AppState, SessionContextSnapshot};
 #[cfg(test)]
 pub(crate) use runtime_entry::test_support;
+pub use runtime_entry::{run_cli_for_flavor, BinaryFlavor};
+pub(crate) use runtime_entry::{AppError, AppState, SessionContextSnapshot};

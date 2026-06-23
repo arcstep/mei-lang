@@ -717,7 +717,7 @@ fn normalize_injects_metrics_auto_layout_for_compound_wide_card() {
             metric_card_panel("a"),
             metric_card_panel("b"),
             UiNodeDecl::Panel(PanelDecl {
-        slot: None,
+                slot: None,
                 kind: "panel".to_string(),
                 id: "compound".to_string(),
                 title: None,
@@ -784,7 +784,7 @@ fn normalize_emits_metric_inline_baseline_risk_when_row_card_is_not_bottom_align
             justify: Some("center".to_string()),
         }),
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
@@ -1047,7 +1047,7 @@ fn normalize_emits_body_clip_risk_for_head_body_metrics_conflict() {
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "body".to_string(),
             title: None,
@@ -1230,7 +1230,7 @@ fn normalize_emits_stack_desc_overlap_risk_for_short_metric_card() {
             justify: Some("stretch".to_string()),
         }),
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
@@ -1272,7 +1272,7 @@ fn normalize_metric_card_stack_applies_fractional_vertical_bands() {
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
@@ -1341,7 +1341,7 @@ fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
-        slot: None,
+            slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,

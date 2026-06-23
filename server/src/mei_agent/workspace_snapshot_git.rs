@@ -227,10 +227,7 @@ mod tests {
 
         let snapshot = WorkspaceSnapshotGit::new(temp.path.clone()).expect("create snapshot git");
 
-        assert_eq!(
-            snapshot.git_dir,
-            temp.path.join(WORKSPACE_SNAPSHOT_GIT_REL)
-        );
+        assert_eq!(snapshot.git_dir, temp.path.join(WORKSPACE_SNAPSHOT_GIT_REL));
         assert!(temp.path.join(WORKSPACE_SNAPSHOT_GIT_REL).is_dir());
         assert!(!temp.path.join(LEGACY_WORKSPACE_SNAPSHOT_DIR_REL).exists());
     }

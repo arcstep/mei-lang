@@ -81,7 +81,10 @@ pub(crate) fn summarize_compiled_app_semantics(compiled: &CompiledApp) -> Semant
     let has_chart_components = has_component_prefix(compiled, "chart");
     let has_map_components = has_component_prefix(compiled, "map");
 
-    let app_kind = if world_has_topology || flow_interaction_count > 0 || flow_subject_timer_count > 0 || has_timer
+    let app_kind = if world_has_topology
+        || flow_interaction_count > 0
+        || flow_subject_timer_count > 0
+        || has_timer
     {
         "simulation_app"
     } else if has_map_components {

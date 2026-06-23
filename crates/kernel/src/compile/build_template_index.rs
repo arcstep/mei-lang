@@ -7,8 +7,9 @@ use crate::compile::block_instance_id;
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
 use crate::mei_config::resolve_templates_root;
 use crate::model::{
-    BlockDecl, BuildNodeId, BuildTemplateIndex, CompiledApp, ComponentAsset, ExperienceNodeManifest,
-    PanelDecl, SceneContract, TemplateCatalogEntry, TemplateConsumerAnchor, UiNodeDecl,
+    BlockDecl, BuildNodeId, BuildTemplateIndex, CompiledApp, ComponentAsset,
+    ExperienceNodeManifest, PanelDecl, SceneContract, TemplateCatalogEntry, TemplateConsumerAnchor,
+    UiNodeDecl,
 };
 use crate::workspace::load_component_assets;
 
@@ -41,7 +42,12 @@ pub fn build_template_index(
     for (scene_id, contract) in scene_contracts_by_id {
         for panel in &contract.panels {
             collect_panel_use_keys(panel, &mut use_key_consumers);
-            collect_panel_template_usage(scene_id.as_str(), panel, panel.id.as_str(), &mut consumer_anchors);
+            collect_panel_template_usage(
+                scene_id.as_str(),
+                panel,
+                panel.id.as_str(),
+                &mut consumer_anchors,
+            );
         }
     }
 
@@ -56,7 +62,11 @@ pub fn build_template_index(
             .remove(asset.key.as_str())
             .unwrap_or_default();
         let variants = related_variant_keys(asset.key.as_str(), component_assets);
-        let agent_hint = Some(agent_hint_for(category, asset.key.as_str(), asset.script.as_str()));
+        let agent_hint = Some(agent_hint_for(
+            category,
+            asset.key.as_str(),
+            asset.script.as_str(),
+        ));
         templates.insert(
             asset.key.clone(),
             TemplateCatalogEntry {
@@ -146,15 +156,18 @@ pub fn build_stock_template_files_root(source_root: &Path) -> ReachabilityTreeRo
                 .map(|(dir, _)| dir.to_string())
                 .unwrap_or_else(|| ".".to_string());
             let template_path = format!("{templates_prefix}/{rel}");
-            by_folder.entry(folder).or_default().push(ReachabilityTreeNode {
-                id: format!("template-file-{rel}"),
-                node_id: BuildNodeId::template(rel.as_str()).encode(),
-                kind: "template_file".to_string(),
-                label: rel.clone(),
-                badges: vec![template_path.clone()],
-                children: Vec::new(),
-                ..Default::default()
-            });
+            by_folder
+                .entry(folder)
+                .or_default()
+                .push(ReachabilityTreeNode {
+                    id: format!("template-file-{rel}"),
+                    node_id: BuildNodeId::template(rel.as_str()).encode(),
+                    kind: "template_file".to_string(),
+                    label: rel.clone(),
+                    badges: vec![template_path.clone()],
+                    children: Vec::new(),
+                    ..Default::default()
+                });
         }
     }
     let mut children = Vec::new();
@@ -198,7 +211,10 @@ pub fn template_primary_consumer_from_entry<'a>(
     if entry.consumer_anchors.is_empty() {
         return None;
     }
-    if let Some(active) = active_scene.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(active) = active_scene
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         if let Some(found) = entry
             .consumer_anchors
             .iter()
@@ -406,12 +422,7 @@ fn block_consumer_label(block: &BlockDecl) -> String {
         .title
         .clone()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| {
-            block
-                .id
-                .clone()
-                .unwrap_or_else(|| block.use_key.clone())
-        })
+        .unwrap_or_else(|| block.id.clone().unwrap_or_else(|| block.use_key.clone()))
 }
 
 fn categorize_template_key(key: &str) -> &'static str {
@@ -447,14 +458,8 @@ fn default_props_schema(category: &str) -> Vec<String> {
             "title (optional)".to_string(),
             "value / unit overrides".to_string(),
         ],
-        "panel_shell" => vec![
-            "title".to_string(),
-            "body blocks".to_string(),
-        ],
-        "table" => vec![
-            "dataset / rowset".to_string(),
-            "columns".to_string(),
-        ],
+        "panel_shell" => vec!["title".to_string(), "body blocks".to_string()],
+        "table" => vec!["dataset / rowset".to_string(), "columns".to_string()],
         _ => vec!["props (component-specific)".to_string()],
     }
 }
@@ -489,7 +494,10 @@ mod tests {
             .get("cockpit.metric-card")
             .expect("template");
         assert_eq!(entry.category, "metric_card");
-        assert!(entry.agent_hint.as_deref().is_some_and(|hint| hint.contains("metric-card")));
+        assert!(entry
+            .agent_hint
+            .as_deref()
+            .is_some_and(|hint| hint.contains("metric-card")));
         assert!(!result.tree_root.children.is_empty());
     }
 
@@ -566,7 +574,10 @@ mod tests {
     fn js_component_authoring_preview_targets_stock_example() {
         use std::path::Path;
 
-        use crate::compile::{compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind, CompileOptions};
+        use crate::compile::{
+            compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind,
+            CompileOptions,
+        };
         use crate::model::BuildNodeId;
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -580,16 +591,15 @@ mod tests {
         if !app_root.is_dir() || !examples_root.is_file() {
             return;
         }
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile zhifa");
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile zhifa");
         let node = BuildNodeId::template("chart.area");
         let target = authoring_preview_target_for_template(&compiled, "chart.area");
         assert!(
-            target.as_deref().is_some_and(|file| file.contains("chart-baseline.mei")),
+            target
+                .as_deref()
+                .is_some_and(|file| file.contains("chart-baseline.mei")),
             "expected chart baseline example, got {target:?}"
         );
         let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
@@ -627,7 +637,10 @@ mod tests {
     fn template_preview_targets_primary_consumer_scene() {
         use std::path::Path;
 
-        use crate::compile::{compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind, CompileOptions};
+        use crate::compile::{
+            compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind,
+            CompileOptions,
+        };
         use crate::model::BuildNodeId;
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -640,12 +653,9 @@ mod tests {
         if !app_root.is_dir() {
             return;
         }
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile zhifa");
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile zhifa");
         let node = BuildNodeId::template("cockpit.header-brand");
         let target = preview_target_for_template_consumer(&compiled, "cockpit.header-brand");
         assert!(
@@ -668,7 +678,9 @@ mod tests {
     fn template_file_authoring_preview_targets_template_mei() {
         use std::collections::BTreeMap;
 
-        use crate::model::{BuildTemplateIndex, CompiledApp, CompiledSceneRoute, TemplateCatalogEntry};
+        use crate::model::{
+            BuildTemplateIndex, CompiledApp, CompiledSceneRoute, TemplateCatalogEntry,
+        };
 
         let mut templates = BTreeMap::new();
         templates.insert(

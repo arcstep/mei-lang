@@ -1,6 +1,6 @@
+use axum::http::HeaderMap;
 use mei_lang_kernel::CompileOptions;
 use mei_lang_toolchain as toolchain;
-use axum::http::HeaderMap;
 
 use crate::AppState;
 
@@ -10,12 +10,7 @@ pub(crate) fn is_build_view_request(headers: &HeaderMap) -> bool {
     if headers
         .get("x-mei-build-view")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| {
-            matches!(
-                value.trim(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
+        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "yes" | "on"))
     {
         return true;
     }

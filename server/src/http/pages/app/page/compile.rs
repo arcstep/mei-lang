@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use axum::{
-    http::{HeaderName, HeaderValue},
     http::StatusCode,
+    http::{HeaderName, HeaderValue},
     response::{Html, IntoResponse, Redirect, Response},
 };
 use mei_lang_app::{HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry};
@@ -41,13 +41,8 @@ pub(super) fn maybe_handle_compile_bootstrap_probe(
     if !compile_bootstrap_probe_requested(query) {
         return None;
     }
-    let ready = load_compile_artifact_only(
-        state,
-        app_id,
-        compile_options,
-        components_root,
-    )
-    .is_some();
+    let ready =
+        load_compile_artifact_only(state, app_id, compile_options, components_root).is_some();
     Some(compile_bootstrap_probe_response(
         ready,
         if ready {
@@ -100,57 +95,52 @@ pub(super) fn resolve_compile_outcome(
     _discover_ms: u64,
     _app_started: Instant,
 ) -> CompileResolution {
-    let compile_outcome = load_compile_artifact_only(state, app_id, &compile_options, components_root.as_path())
-        .or_else(|| {
-            let scene_hint = compile_options
-                .scene
-                .as_deref()
-                .or(access_path_scene)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())?;
-            if compile_options
-                .preview_target
-                .as_deref()
-                .map(str::trim)
-                .is_some_and(|value| !value.is_empty())
-            {
-                return None;
-            }
-            let target_hint = host_api::access_scene_target_hint(app_id, scene_hint)?;
-            let fallback_options = CompileOptions {
-                scene: Some(scene_hint.to_string()),
-                preview_target: Some(target_hint),
-            };
-            load_compile_artifact_only(
-                state,
-                app_id,
-                &fallback_options,
-                components_root.as_path(),
-            )
-        });
+    let compile_outcome =
+        load_compile_artifact_only(state, app_id, &compile_options, components_root.as_path())
+            .or_else(|| {
+                let scene_hint = compile_options
+                    .scene
+                    .as_deref()
+                    .or(access_path_scene)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())?;
+                if compile_options
+                    .preview_target
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|value| !value.is_empty())
+                {
+                    return None;
+                }
+                let target_hint = host_api::access_scene_target_hint(app_id, scene_hint)?;
+                let fallback_options = CompileOptions {
+                    scene: Some(scene_hint.to_string()),
+                    preview_target: Some(target_hint),
+                };
+                load_compile_artifact_only(
+                    state,
+                    app_id,
+                    &fallback_options,
+                    components_root.as_path(),
+                )
+            });
     match compile_outcome {
         Some(outcome) => CompileResolution::Outcome(outcome),
         None if route_mode == UiRouteMode::Build => {
-            match compile_app_with_cache(
-                state,
-                app_id,
-                &compile_options,
-                components_root.as_path(),
-            ) {
+            match compile_app_with_cache(state, app_id, &compile_options, components_root.as_path())
+            {
                 Ok(outcome) => CompileResolution::Outcome(outcome),
                 Err(_) => CompileResolution::EarlyResponse(
                     Redirect::temporary(&build_source_fallback_location(app_id)).into_response(),
                 ),
             }
         }
-        None => {
-            CompileResolution::EarlyResponse(render_access_artifact_unavailable(
-                route_mode,
-                app_id,
-                compile_options.scene.as_deref().or(access_path_scene),
-                manage_file,
-            ))
-        }
+        None => CompileResolution::EarlyResponse(render_access_artifact_unavailable(
+            route_mode,
+            app_id,
+            compile_options.scene.as_deref().or(access_path_scene),
+            manage_file,
+        )),
     }
 }
 

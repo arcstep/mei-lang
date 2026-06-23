@@ -6,12 +6,12 @@ use serde_json::Value;
 use crate::eval::active_authoring_helpers;
 use crate::mei_config::MEI_WORKSPACE_CONFIG_FILENAME;
 use crate::model::{
-    ResourceDecl, WorldSemanticDataset, WorldSemanticExplainBlock, WorldSemanticFileIndex,
-    WorldSemanticMetric, WorkspaceNode,
+    ResourceDecl, WorkspaceNode, WorldSemanticDataset, WorldSemanticExplainBlock,
+    WorldSemanticFileIndex, WorldSemanticMetric,
 };
 
-use super::load_external::load_world_from_file;
 use super::authoring_eval::with_authoring_eval_context;
+use super::load_external::load_world_from_file;
 use super::materialize::WORLD_METRICS_RESOURCE_ID;
 
 fn is_world_capsule_path(path: &str) -> bool {
@@ -46,26 +46,20 @@ fn load_world_for_semantic_index(
 }
 
 fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| {
-            value
-                .get(*key)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|text| !text.is_empty())
-                .map(|text| text.to_string())
-        })
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(|text| text.to_string())
+    })
 }
 
 fn explain_block_id(block: &Value, kind: &str, index: usize) -> String {
     string_field(
         block,
-        &[
-            "id",
-            "key",
-            "analysis_scoped_id",
-            "analysis_node_id",
-        ],
+        &["id", "key", "analysis_scoped_id", "analysis_node_id"],
     )
     .unwrap_or_else(|| format!("{kind}_{index}"))
 }
@@ -157,10 +151,7 @@ fn collect_dataset_refs(value: &Value, out: &mut Vec<String>) {
         Value::Object(map) => {
             for key in ["dataset", "data_ref", "rowset_dataset_id"] {
                 if let Some(raw) = map.get(key).and_then(Value::as_str) {
-                    let token = raw
-                        .trim()
-                        .strip_prefix("dataset.")
-                        .unwrap_or(raw.trim());
+                    let token = raw.trim().strip_prefix("dataset.").unwrap_or(raw.trim());
                     if !token.is_empty() {
                         out.push(token.to_string());
                     }
@@ -281,7 +272,10 @@ fn workspace_child_node(
     }
 }
 
-fn build_world_capsule_children(file_path: &str, index: &WorldSemanticFileIndex) -> Vec<WorkspaceNode> {
+fn build_world_capsule_children(
+    file_path: &str,
+    index: &WorldSemanticFileIndex,
+) -> Vec<WorkspaceNode> {
     let mut children = Vec::new();
     if !index.datasets.is_empty() {
         let dataset_nodes = index

@@ -9,10 +9,10 @@ use std::sync::Mutex;
 use anyhow::Result;
 use serde_json::Value;
 
-use super::decls::LegacySourceDecl;
 use super::data_snapshot::{
     source_file_content_signature, try_load_xlsx_parquet_snapshot, write_xlsx_parquet_snapshot,
 };
+use super::decls::LegacySourceDecl;
 use super::loaders::{load_xlsx_table_snapshot, XlsxTableSnapshot};
 use super::scene_payload_cache::file_mtime_ms;
 use super::xlsx_singleflight::{
@@ -220,11 +220,7 @@ fn store_xlsx_table_snapshot_cache(key: &str, snapshot: Arc<XlsxTableSnapshot>) 
             lru.retain(|value| value != key);
             cache.insert(key.to_string(), snapshot);
             touch_lru(&mut lru, key);
-            evict_lru(
-                &mut cache,
-                &mut lru,
-                MAX_XLSX_TABLE_SNAPSHOT_CACHE_ENTRIES,
-            );
+            evict_lru(&mut cache, &mut lru, MAX_XLSX_TABLE_SNAPSHOT_CACHE_ENTRIES);
         }
     }
 }
@@ -262,13 +258,8 @@ fn load_xlsx_table_snapshot_arc(
     {
         return Ok(Arc::new(snapshot));
     }
-    let snapshot = load_xlsx_table_snapshot(
-        absolute_path,
-        source_path,
-        sheet,
-        header_row.max(1),
-        None,
-    )?;
+    let snapshot =
+        load_xlsx_table_snapshot(absolute_path, source_path, sheet, header_row.max(1), None)?;
     if parquet_sidecar_write_enabled() {
         let _ = write_xlsx_parquet_snapshot(app_root, source_path, sheet, header_row);
     }

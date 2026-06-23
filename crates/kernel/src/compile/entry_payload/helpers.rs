@@ -99,7 +99,11 @@ fn parse_world_filter_dimensions(filters: Option<&Value>) -> BTreeMap<String, St
         return out;
     };
     for (key, expr_val) in map {
-        let Some(expr) = expr_val.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+        let Some(expr) = expr_val
+            .as_str()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
             continue;
         };
         if let Some(field) = parse_world_filter_expression_column(expr) {

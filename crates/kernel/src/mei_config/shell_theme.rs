@@ -20,8 +20,9 @@ pub fn validate_workspace_shell_theme(
         diagnostics.push(Diagnostic {
             severity: Severity::Warning,
             code: "missing_shell_theme".to_string(),
-            message: "workspace is missing ops.shellTheme; host chrome uses builtin page shell fallback"
-                .to_string(),
+            message:
+                "workspace is missing ops.shellTheme; host chrome uses builtin page shell fallback"
+                    .to_string(),
             source_path: Some(target_file.to_string()),
         });
         return;

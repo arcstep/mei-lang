@@ -6,8 +6,7 @@ mod view;
 mod tests;
 
 pub use query::{
-    deserialize_string_map, DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator,
-    QueryState, QueryTimeRange,
+    DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator, QueryState, QueryTimeRange,
 };
 pub use schema::{
     ColumnSchema, DataRef, DataTransform, DatasetSourceRef, MetricContract, MetricPackContract,

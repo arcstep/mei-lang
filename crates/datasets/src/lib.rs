@@ -53,10 +53,12 @@ pub use query::query_dataset_rows;
 pub use result_artifact::{
     default_result_artifact_scope, invalidate_prebuild_metric_response_index,
     load_metric_dataframe_result_artifact, load_metric_response_result_artifact,
-    load_prebuild_metric_response_artifact_dataset_fallback, preload_prebuild_metric_response_index,
-    rebuild_and_install_prebuild_metric_response_index,
-    store_metric_dataframe_result_artifact, store_metric_response_result_artifact,
-    take_metric_response_index_stats, LoadedMetricResponseArtifact, MetricResponseIndexStats,
+    load_prebuild_metric_response_artifact_dataset_fallback,
+    metric_dataframe_result_artifact_exists, metric_response_result_artifact_exists,
+    prebuild_metric_response_index_covers_key, preload_prebuild_metric_response_index,
+    rebuild_and_install_prebuild_metric_response_index, store_metric_dataframe_result_artifact,
+    store_metric_response_result_artifact, take_metric_response_index_stats,
+    LoadedMetricResponseArtifact, MetricResponseIndexStats,
 };
 pub use table_contract::{
     apply_table_request_fields, enrich_table_result, QueryStateEcho, TableColumnState,

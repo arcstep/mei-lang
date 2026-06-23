@@ -16,8 +16,8 @@ use crate::{
     workspace::load_component_assets,
 };
 
-use crate::compile::authoring_eval::install_authoring_eval_context;
 use crate::compile::app_decl::decode_app_decl;
+use crate::compile::authoring_eval::install_authoring_eval_context;
 use crate::compile::catalog::{
     build_dataset_catalog_filter, resolve_dataset_catalog_compile_rels, DatasetCatalogFilter,
 };
@@ -174,13 +174,21 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
         dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, app_entry_main)
     {
         token_parts.insert("main".to_string(), main_token);
-        watched_paths.extend(dependency_graph.closure_for_target(app_root, app_decls, app_entry_main));
+        watched_paths.extend(dependency_graph.closure_for_target(
+            app_root,
+            app_decls,
+            app_entry_main,
+        ));
     }
     if let Some(primary_token) =
         dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, primary_target)
     {
         token_parts.insert(format!("target:{primary_target}"), primary_token);
-        watched_paths.extend(dependency_graph.closure_for_target(app_root, app_decls, primary_target));
+        watched_paths.extend(dependency_graph.closure_for_target(
+            app_root,
+            app_decls,
+            primary_target,
+        ));
     }
     if !dataset_manage_preview {
         for rel in resolve_dataset_catalog_compile_rels(app_root, catalog_filter)
@@ -191,7 +199,8 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
                 dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, &rel)
             {
                 token_parts.insert(format!("catalog:{rel}"), token);
-                watched_paths.extend(dependency_graph.closure_for_target(app_root, app_decls, &rel));
+                watched_paths
+                    .extend(dependency_graph.closure_for_target(app_root, app_decls, &rel));
             }
         }
     }

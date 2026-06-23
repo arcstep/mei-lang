@@ -26,7 +26,10 @@ fn normalize_dataframe_metric_value(value: &Value, schema: &[ColumnSchema]) -> V
         return value.clone();
     }
     let columns = if !schema.is_empty() {
-        schema.iter().map(|column| column.name.clone()).collect::<Vec<_>>()
+        schema
+            .iter()
+            .map(|column| column.name.clone())
+            .collect::<Vec<_>>()
     } else {
         rows.first()
             .and_then(Value::as_object)
@@ -115,14 +118,10 @@ pub(crate) fn materialize_legacy_metric_map_with_scope(
     datasets: &BTreeMap<String, DatasetView>,
     scope: &RuntimeMetricEvalScope,
 ) -> Result<BTreeMap<String, MetricContract>> {
-    Ok(materialize_legacy_metric_map_with_scope_and_dag(
-        decls,
-        base_rows,
-        datasets,
-        scope,
-        None,
-    )?
-    .0)
+    Ok(
+        materialize_legacy_metric_map_with_scope_and_dag(decls, base_rows, datasets, scope, None)?
+            .0,
+    )
 }
 
 pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(

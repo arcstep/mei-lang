@@ -8,8 +8,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{FilterIntent, MetricContract, QueryState};
-use serde::{Deserialize, Serialize};
 use serde::de::IgnoredAny;
+use serde::{Deserialize, Serialize};
 
 use crate::metric_response_cache::{
     metric_response_prebuild_dataset_key, prebuild_metric_response_key_matches_dataset_query,
@@ -123,8 +123,7 @@ fn write_json_artifact_atomic<T: Serialize>(path: &Path, artifact: &T) -> Result
     let tmp_path = path.with_extension("json.tmp");
     fs::write(&tmp_path, serde_json::to_string_pretty(artifact)?)
         .with_context(|| format!("write temp artifact {}", tmp_path.display()))?;
-    fs::rename(&tmp_path, path)
-        .with_context(|| format!("rename artifact {}", path.display()))?;
+    fs::rename(&tmp_path, path).with_context(|| format!("rename artifact {}", path.display()))?;
     Ok(())
 }
 
@@ -150,8 +149,10 @@ pub fn load_metric_response_result_artifact(
 ) -> Result<Option<(LoadedMetricResponseArtifact, u64)>> {
     let started = Instant::now();
     let path = metric_response_result_artifact_path(app_root, response_cache_key);
-    let Some(artifact) =
-        read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(&path, "metric-response")?
+    let Some(artifact) = read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(
+        &path,
+        "metric-response",
+    )?
     else {
         return Ok(None);
     };
@@ -171,6 +172,13 @@ pub fn load_metric_response_result_artifact(
     )))
 }
 
+pub fn metric_response_result_artifact_exists(app_root: &Path, response_cache_key: &str) -> bool {
+    let path = metric_response_result_artifact_path(app_root, response_cache_key);
+    fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
+}
+
 pub fn store_metric_response_result_artifact(
     app_root: &Path,
     response_cache_key: &str,
@@ -184,9 +192,10 @@ pub fn store_metric_response_result_artifact(
     let mut merged_metrics_map = metrics_map.clone();
     let mut merged_covered_metric_ids = covered_metric_ids.clone();
     let mut merged_complete = complete;
-    if let Some(existing) =
-        read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(&path, "metric-response")?
-    {
+    if let Some(existing) = read_json_artifact_lenient::<PersistedMetricResponseResultArtifact>(
+        &path,
+        "metric-response",
+    )? {
         if existing.schema_version == METRIC_RESPONSE_RESULT_ARTIFACT_SCHEMA_VERSION
             && existing.response_cache_key == response_cache_key
         {
@@ -330,7 +339,10 @@ fn metric_response_artifact_dir(app_root: &Path) -> PathBuf {
     eval_result_artifact_root(app_root).join("metric-response")
 }
 
-fn hash_file_metadata(path: &Path, hasher: &mut std::collections::hash_map::DefaultHasher) -> Result<()> {
+fn hash_file_metadata(
+    path: &Path,
+    hasher: &mut std::collections::hash_map::DefaultHasher,
+) -> Result<()> {
     let meta = fs::metadata(path)?;
     meta.len().hash(hasher);
     if let Ok(modified) = meta.modified() {
@@ -351,13 +363,7 @@ fn compute_metric_response_dir_fingerprint(dir: &Path) -> Result<String> {
     let mut files = fs::read_dir(dir)
         .with_context(|| format!("read {}", dir.display()))?
         .flatten()
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                == Some("json")
-        })
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
         .collect::<Vec<_>>();
     files.sort_by_key(|entry| entry.file_name());
     files.len().hash(&mut hasher);
@@ -367,7 +373,9 @@ fn compute_metric_response_dir_fingerprint(dir: &Path) -> Result<String> {
     Ok(format!("{:016x}", hasher.finish()))
 }
 
-fn sidecar_entry_from_memory(entry: &PrebuildMetricResponseIndexEntry) -> PersistedMetricResponseIndexSidecarEntry {
+fn sidecar_entry_from_memory(
+    entry: &PrebuildMetricResponseIndexEntry,
+) -> PersistedMetricResponseIndexSidecarEntry {
     PersistedMetricResponseIndexSidecarEntry {
         response_cache_key: entry.response_cache_key.clone(),
         artifact_basename: format!("{}.json", hash_key(entry.response_cache_key.as_str())),
@@ -590,10 +598,7 @@ pub fn invalidate_prebuild_metric_response_index(app_root: Option<&Path>) {
     };
     match app_root {
         Some(root) => {
-            if guard
-                .as_ref()
-                .is_some_and(|index| index.app_root == root)
-            {
+            if guard.as_ref().is_some_and(|index| index.app_root == root) {
                 *guard = None;
             }
         }
@@ -694,6 +699,34 @@ fn ensure_prebuild_metric_response_index(app_root: &Path) -> Result<MetricRespon
     Ok(stats)
 }
 
+pub fn prebuild_metric_response_index_covers_key(
+    app_root: &Path,
+    response_cache_key: &str,
+    requested_metric_ids: &BTreeSet<String>,
+    request_all_metrics: bool,
+) -> Result<bool> {
+    ensure_prebuild_metric_response_index(app_root)?;
+    let Ok(guard) = prebuild_metric_response_index().lock() else {
+        return Ok(false);
+    };
+    let Some(index) = guard.as_ref() else {
+        return Ok(false);
+    };
+    Ok(index
+        .entries
+        .iter()
+        .find(|entry| entry.response_cache_key == response_cache_key)
+        .is_some_and(|entry| {
+            if request_all_metrics {
+                entry.complete
+            } else {
+                requested_metric_ids
+                    .iter()
+                    .all(|metric_id| entry.covered_metric_ids.contains(metric_id))
+            }
+        }))
+}
+
 pub fn load_prebuild_metric_response_artifact_dataset_fallback(
     app_root: &Path,
     app_id: &str,
@@ -766,8 +799,10 @@ pub fn load_metric_dataframe_result_artifact(
 ) -> Result<Option<(DatasetQueryResult, u64)>> {
     let started = Instant::now();
     let path = metric_dataframe_result_artifact_path(app_root, response_cache_key);
-    let Some(artifact) =
-        read_json_artifact_lenient::<PersistedMetricDataframeResultArtifact>(&path, "metric-dataframe")?
+    let Some(artifact) = read_json_artifact_lenient::<PersistedMetricDataframeResultArtifact>(
+        &path,
+        "metric-dataframe",
+    )?
     else {
         return Ok(None);
     };
@@ -776,7 +811,17 @@ pub fn load_metric_dataframe_result_artifact(
     {
         return Ok(None);
     }
-    Ok(Some((artifact.result, started.elapsed().as_millis() as u64)))
+    Ok(Some((
+        artifact.result,
+        started.elapsed().as_millis() as u64,
+    )))
+}
+
+pub fn metric_dataframe_result_artifact_exists(app_root: &Path, response_cache_key: &str) -> bool {
+    let path = metric_dataframe_result_artifact_path(app_root, response_cache_key);
+    fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false)
 }
 
 pub fn store_metric_dataframe_result_artifact(
@@ -821,7 +866,8 @@ mod fallback_tests {
         let first = preload_prebuild_metric_response_index(app_root.as_path()).expect("preload");
         assert!(first.entry_count >= 1);
         assert!(metric_response_index_path(app_root.as_path()).is_file());
-        let second = preload_prebuild_metric_response_index(app_root.as_path()).expect("preload again");
+        let second =
+            preload_prebuild_metric_response_index(app_root.as_path()).expect("preload again");
         assert_eq!(second.load_ms, 0);
         let _ = fs::remove_dir_all(&app_root);
     }
@@ -850,7 +896,8 @@ mod fallback_tests {
             "{}",
         )
         .expect("add orphan artifact without updating sidecar");
-        let stats = preload_prebuild_metric_response_index(app_root.as_path()).expect("lenient preload");
+        let stats =
+            preload_prebuild_metric_response_index(app_root.as_path()).expect("lenient preload");
         assert!(
             stats.load_ms < 200,
             "fingerprint mismatch must not trigger full rebuild on preload, got {}ms",
@@ -863,12 +910,13 @@ mod fallback_tests {
 
     #[test]
     fn zhifa_sidecar_preload_is_fast_after_warm_sidecar() {
-        let app_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../workspaces/ws-spbjw/zhifa");
+        let app_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-spbjw/zhifa");
         if !app_root.is_dir() {
             return;
         }
-        let _ = preload_prebuild_metric_response_index(app_root.as_path()).expect("initial preload");
+        let _ =
+            preload_prebuild_metric_response_index(app_root.as_path()).expect("initial preload");
         invalidate_prebuild_metric_response_index(Some(app_root.as_path()));
         let stats =
             preload_prebuild_metric_response_index(app_root.as_path()).expect("sidecar preload");
@@ -882,8 +930,8 @@ mod fallback_tests {
 
     #[test]
     fn dataset_fallback_finds_zhifa_supervision_world_metrics() {
-        let app_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../workspaces/ws-spbjw/zhifa");
+        let app_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-spbjw/zhifa");
         if !app_root.is_dir() {
             return;
         }

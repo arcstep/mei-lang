@@ -71,7 +71,12 @@ pub fn validate_scene_theme_value_from_ops(
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    validate_theme_value_refs(value, &format!("ops.themes.`{id}`"), target_file, diagnostics);
+    validate_theme_value_refs(
+        value,
+        &format!("ops.themes.`{id}`"),
+        target_file,
+        diagnostics,
+    );
     validate_required_scene_theme_tokens(value, id, target_file, diagnostics);
 }
 
@@ -153,11 +158,16 @@ fn validate_theme_value_refs(
     if let Some(map) = value.as_object() {
         for (key, entry) in map {
             let child_context = format!("{context}.{key}");
-            let in_definition = TOKEN_DEFINITION_ROOTS.contains(&key.as_str())
-                || key.starts_with("tokens.");
+            let in_definition =
+                TOKEN_DEFINITION_ROOTS.contains(&key.as_str()) || key.starts_with("tokens.");
             if in_definition {
                 if key == "font" {
-                    validate_font_definition(entry, child_context.as_str(), target_file, diagnostics);
+                    validate_font_definition(
+                        entry,
+                        child_context.as_str(),
+                        target_file,
+                        diagnostics,
+                    );
                 }
                 continue;
             }
@@ -182,7 +192,13 @@ fn validate_theme_value_refs(
                     | "panel_bare"
                     | "panel_body"
             ) {
-                walk_value_for_token_refs(entry, child_context.as_str(), false, target_file, diagnostics);
+                walk_value_for_token_refs(
+                    entry,
+                    child_context.as_str(),
+                    false,
+                    target_file,
+                    diagnostics,
+                );
             }
         }
     }
@@ -294,7 +310,9 @@ fn validate_background_ref(
 ) {
     match value {
         Value::String(raw) => {
-            if is_literal_color(raw) || is_literal_gradient(raw) || raw.eq_ignore_ascii_case("transparent")
+            if is_literal_color(raw)
+                || is_literal_gradient(raw)
+                || raw.eq_ignore_ascii_case("transparent")
             {
                 if !raw.eq_ignore_ascii_case("transparent") {
                     push_diagnostic(
@@ -343,7 +361,12 @@ fn validate_background_ref(
     }
 }
 
-fn validate_color_ref(value: &Value, path: &str, target_file: &str, diagnostics: &mut Vec<Diagnostic>) {
+fn validate_color_ref(
+    value: &Value,
+    path: &str,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     let Some(raw) = value.as_str() else {
         return;
     };
@@ -358,7 +381,12 @@ fn validate_color_ref(value: &Value, path: &str, target_file: &str, diagnostics:
     }
 }
 
-fn validate_font_ref(value: &Value, path: &str, target_file: &str, diagnostics: &mut Vec<Diagnostic>) {
+fn validate_font_ref(
+    value: &Value,
+    path: &str,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     let raw = match value {
         Value::String(raw) => raw.as_str(),
         Value::Number(raw) => {
@@ -623,7 +651,9 @@ mod tests {
         };
         let mut diagnostics = Vec::new();
         validate_panel_token_refs(&panel, "test.mei", &mut diagnostics);
-        assert!(diagnostics.iter().any(|d| d.code == "literal_color_forbidden"));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.code == "literal_color_forbidden"));
     }
 
     #[test]
@@ -656,7 +686,9 @@ mod tests {
         };
         let mut diagnostics = Vec::new();
         validate_theme_decl(&theme, "test.mei", &mut diagnostics);
-        assert!(!diagnostics.iter().any(|d| d.code == "literal_color_forbidden"));
+        assert!(!diagnostics
+            .iter()
+            .any(|d| d.code == "literal_color_forbidden"));
     }
 
     #[test]
@@ -719,6 +751,8 @@ mod tests {
         });
         let mut diagnostics = Vec::new();
         validate_shell_theme_value("host", &theme, ".mei-workspace.json", &mut diagnostics);
-        assert!(diagnostics.iter().any(|d| d.code == "shell_theme_hash_key_forbidden"));
+        assert!(diagnostics
+            .iter()
+            .any(|d| d.code == "shell_theme_hash_key_forbidden"));
     }
 }

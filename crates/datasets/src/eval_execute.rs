@@ -3,8 +3,8 @@ use std::path::Path;
 
 use anyhow::Result;
 use mei_lang_kernel::{
-    evaluate_runtime_metric_defs_with_plan_and_dag, DatasetView, EvalPlanNodeKind,
-    MetricContract, RuntimeMetricEvalReport, RuntimeMetricEvalScope,
+    evaluate_runtime_metric_defs_with_plan_and_dag, DatasetView, EvalPlanNodeKind, MetricContract,
+    RuntimeMetricEvalReport, RuntimeMetricEvalScope,
 };
 use serde_json::Value;
 

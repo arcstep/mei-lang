@@ -53,7 +53,10 @@ pub(crate) fn component_scripts(
     compiled: &CompiledApp,
     scene_bundle_url: Option<&str>,
 ) -> impl IntoView {
-    if let Some(bundle_url) = scene_bundle_url.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(bundle_url) = scene_bundle_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         return view! {
             <script
                 type="module"
@@ -79,7 +82,10 @@ pub(crate) fn component_script_preloads(
     compiled: &CompiledApp,
     scene_bundle_url: Option<&str>,
 ) -> AnyView {
-    if let Some(bundle_url) = scene_bundle_url.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(bundle_url) = scene_bundle_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         return view! {
             <link rel="modulepreload" href=bundle_url/>
         }

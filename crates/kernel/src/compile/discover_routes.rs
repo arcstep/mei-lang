@@ -17,8 +17,8 @@ use crate::model::{
 };
 use crate::typed_refs::SceneRegistry;
 
-use super::materialize::materialize_world_metrics;
 use super::load_external::load_scene_decls_from_file;
+use super::materialize::materialize_world_metrics;
 use super::scene::find_scene_route;
 use super::scene_payload_cache::compile_scene_payload_for_target;
 
@@ -306,9 +306,7 @@ pub(super) fn build_world_metric_ledger(
     Ok(ledger)
 }
 
-fn prune_flat_imported_world_metric_aliases(
-    ledger: &mut BTreeMap<String, WorldMetricLedgerEntry>,
-) {
+fn prune_flat_imported_world_metric_aliases(ledger: &mut BTreeMap<String, WorldMetricLedgerEntry>) {
     let flat_ids = ledger
         .keys()
         .filter(|id| !id.contains("::"))
@@ -316,9 +314,9 @@ fn prune_flat_imported_world_metric_aliases(
         .collect::<Vec<_>>();
     for flat_id in flat_ids {
         let suffix = format!("::{flat_id}");
-        let superseded = ledger.keys().any(|namespaced| {
-            namespaced.contains(".mei::") && namespaced.ends_with(&suffix)
-        });
+        let superseded = ledger
+            .keys()
+            .any(|namespaced| namespaced.contains(".mei::") && namespaced.ends_with(&suffix));
         if superseded {
             ledger.remove(&flat_id);
         }

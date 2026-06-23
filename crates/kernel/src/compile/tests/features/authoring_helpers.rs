@@ -30,7 +30,9 @@ def demo_detail_fields():
     );
     let helpers = resolve_authoring_helpers(&source_root).expect("resolve helpers");
     assert!(
-        helpers.public_functions.contains(&"demo_filter_fields".to_string()),
+        helpers
+            .public_functions
+            .contains(&"demo_filter_fields".to_string()),
         "expected demo_filter_fields, got {:?}",
         helpers.public_functions
     );
@@ -116,11 +118,7 @@ world()
 frame()
 "#,
     );
-    compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .unwrap_or_else(|error| panic!("compile with authoring helpers failed: {error}"));
+    compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("compile with authoring helpers failed: {error}"));
     let _ = fs::remove_dir_all(&source_root);
 }

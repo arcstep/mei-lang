@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use mei_lang_kernel::{build_runtime_eval_plan, DatasetView, EvalPlan, MetricContract, RuntimeMetricEvalScope};
+use mei_lang_kernel::{
+    build_runtime_eval_plan, DatasetView, EvalPlan, MetricContract, RuntimeMetricEvalScope,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -114,7 +116,11 @@ fn eval_metric_node_artifact_path(
         .join(format!("{}.json", hash_key(&key)))
 }
 
-fn workset_artifact_path(app_root: &Path, owner_resource_id: &str, requested_metric_ids: &[String]) -> PathBuf {
+fn workset_artifact_path(
+    app_root: &Path,
+    owner_resource_id: &str,
+    requested_metric_ids: &[String],
+) -> PathBuf {
     let key = format!(
         "workset|owner={}|metrics={}",
         owner_resource_id.trim(),
@@ -142,7 +148,10 @@ fn eval_plan_artifact_path(
         .join(format!("{}.json", hash_key(&key)))
 }
 
-fn workset_artifact_is_current(artifact: &PersistedWorksetArtifact, semantic_revision_key: &str) -> bool {
+fn workset_artifact_is_current(
+    artifact: &PersistedWorksetArtifact,
+    semantic_revision_key: &str,
+) -> bool {
     artifact.schema_version == EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION
         && !artifact.semantic_revision_key.is_empty()
         && artifact.semantic_revision_key == semantic_revision_key
@@ -193,8 +202,11 @@ pub(crate) fn load_or_build_runtime_metric_workset_artifact(
             ));
         }
     }
-    let inner =
-        crate::metric_cache_key::runtime_metric_workset(owner_resource_id, requested_metric_ids, dataset);
+    let inner = crate::metric_cache_key::runtime_metric_workset(
+        owner_resource_id,
+        requested_metric_ids,
+        dataset,
+    );
     let workset = RuntimeMetricWorkset {
         closure_metric_ids: inner.closure_metric_ids,
         eval_metric_ids: inner.eval_metric_ids,
@@ -228,13 +240,18 @@ pub(crate) fn load_or_build_eval_plan_artifact(
     let path = eval_plan_artifact_path(app_root, owner_resource_id, requested_metric_ids, scope);
     let semantic_revision_key =
         eval_plan_semantic_revision_key(owner_resource_id, requested_metric_ids, metric_defs);
-    if let Some(artifact) = read_json_artifact_lenient::<PersistedEvalPlanArtifact>(&path, "plan")? {
+    if let Some(artifact) = read_json_artifact_lenient::<PersistedEvalPlanArtifact>(&path, "plan")?
+    {
         if eval_plan_artifact_is_current(
             &artifact,
             &semantic_revision_key,
             scope.dependency_revision_key.as_str(),
         ) {
-            return Ok((artifact.eval_plan, started.elapsed().as_millis() as u64, true));
+            return Ok((
+                artifact.eval_plan,
+                started.elapsed().as_millis() as u64,
+                true,
+            ));
         }
     }
     let selected_metric_ids = if requested_metric_ids.is_empty() {
@@ -284,7 +301,10 @@ pub(crate) fn load_eval_metric_node_artifact(
     {
         return Ok(None);
     }
-    Ok(Some((artifact.metric, started.elapsed().as_millis() as u64)))
+    Ok(Some((
+        artifact.metric,
+        started.elapsed().as_millis() as u64,
+    )))
 }
 
 pub(crate) fn store_eval_metric_node_artifact(
@@ -323,7 +343,9 @@ pub(crate) fn clear_eval_artifact_store(app_root: &Path) -> usize {
     count
 }
 
-pub(crate) fn eval_artifact_hydrate_dataset_ids(metric_defs: &BTreeMap<String, Value>) -> BTreeSet<String> {
+pub(crate) fn eval_artifact_hydrate_dataset_ids(
+    metric_defs: &BTreeMap<String, Value>,
+) -> BTreeSet<String> {
     crate::metric_hydrate::collect_dataset_ids_from_metric_defs(metric_defs)
 }
 

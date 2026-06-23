@@ -33,7 +33,14 @@ pub(crate) fn access_shell(
     let preview = if static_asset {
         asset_preview_body(app_path, current_target, source.unwrap_or(""))
     } else {
-        preview::preview_view(compiled, app_path, current_target, UiRouteMode::App, WorldSemanticQuery::default(), None)
+        preview::preview_view(
+            compiled,
+            app_path,
+            current_target,
+            UiRouteMode::App,
+            WorldSemanticQuery::default(),
+            None,
+        )
     };
     let topbar_preview_target = if static_asset { None } else { file_target };
     let panel_tab = active_tab.unwrap_or("preview");
@@ -57,12 +64,7 @@ pub(crate) fn access_shell(
         auth_enabled,
         auth_account,
     );
-    let statusbar = statusbar_view(
-        app_path,
-        UiRouteMode::App.slug(),
-        current_target,
-        None,
-    );
+    let statusbar = statusbar_view(app_path, UiRouteMode::App.slug(), current_target, None);
     let shell_class = if chrome_hidden {
         "shell shell-surface min-h-screen h-screen overflow-hidden max-[1200px]:h-auto max-[1200px]:overflow-visible"
     } else if stage_enabled {

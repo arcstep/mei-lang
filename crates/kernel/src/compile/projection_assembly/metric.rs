@@ -132,7 +132,8 @@ fn resolve_scene_shell_contract(payload: &Map<String, Value>) -> Option<Map<Stri
 }
 
 fn scene_shell_layout_mode(shell: &Map<String, Value>) -> Option<String> {
-    shell.get("layout_mode")
+    shell
+        .get("layout_mode")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -140,10 +141,12 @@ fn scene_shell_layout_mode(shell: &Map<String, Value>) -> Option<String> {
 }
 
 fn scene_shell_zones<'a>(shell: &'a Map<String, Value>) -> Vec<&'a Map<String, Value>> {
-    shell.get("zones")
+    shell
+        .get("zones")
         .and_then(Value::as_array)
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .filter_map(Value::as_object)
                 .collect::<Vec<_>>()
         })
@@ -187,8 +190,10 @@ fn first_slot_zone_for_component(shell: &Map<String, Value>, component: &str) ->
     scene_shell_zones(shell)
         .into_iter()
         .find(|zone| {
-            matches!(scene_zone_role(zone), Some("slots") | Some("row_preview") | Some("tab_content"))
-                && scene_zone_accepts_component(zone, component)
+            matches!(
+                scene_zone_role(zone),
+                Some("slots") | Some("row_preview") | Some("tab_content")
+            ) && scene_zone_accepts_component(zone, component)
         })
         .and_then(scene_zone_id)
         .map(str::to_string)
@@ -273,7 +278,11 @@ fn validate_scene_shell_slots(
             });
             return None;
         }
-        if let Some(max) = zone.get("max").and_then(Value::as_u64).map(|value| value as usize) {
+        if let Some(max) = zone
+            .get("max")
+            .and_then(Value::as_u64)
+            .map(|value| value as usize)
+        {
             if count > max {
                 diagnostics.push(Diagnostic {
                     severity: Severity::Error,
@@ -386,12 +395,8 @@ fn expand_board_zoned_slots(
             });
             return None;
         };
-        let mut hero = build_root_metric_slot(
-            root_metric_id,
-            root_dataset_id,
-            contract,
-            "metric_card",
-        );
+        let mut hero =
+            build_root_metric_slot(root_metric_id, root_dataset_id, contract, "metric_card");
         hero.insert("layout_zone".to_string(), Value::String(hero_zone_id));
         slots.push(hero);
     }
@@ -492,10 +497,7 @@ fn expand_board_zoned_slots(
             });
             return None;
         }
-        detail_slot.insert(
-            "layout_zone".to_string(),
-            Value::String(detail_zone_id),
-        );
+        detail_slot.insert("layout_zone".to_string(), Value::String(detail_zone_id));
         detail_slot.insert("default".to_string(), Value::Bool(true));
         slots.push(detail_slot);
     }
@@ -536,10 +538,7 @@ fn expand_board_zoned_slots(
             });
             return None;
         }
-        preview_slot.insert(
-            "layout_zone".to_string(),
-            Value::String(preview_zone_id),
-        );
+        preview_slot.insert("layout_zone".to_string(), Value::String(preview_zone_id));
         slots.push(preview_slot);
     }
 
@@ -659,8 +658,16 @@ fn slot_from_board_view(
         target_file,
         zone,
     )?;
-    slot.insert("component".to_string(), Value::String(component.to_string()));
-    if let Some(label) = map.get("label").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()) {
+    slot.insert(
+        "component".to_string(),
+        Value::String(component.to_string()),
+    );
+    if let Some(label) = map
+        .get("label")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         slot.insert("label".to_string(), Value::String(label.to_string()));
     }
     if let Some(chart_kind) = map.get("chart_kind") {
@@ -720,7 +727,11 @@ fn resolve_view_source_to_slot(
     if let Some(source_map) = source.as_object() {
         let source_ref = source_map.get("__ref").and_then(Value::as_str);
         if matches!(source_ref, Some("explain_block") | Some("explain_metric")) {
-            let block_id = source_map.get("id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())?;
+            let block_id = source_map
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())?;
             let Some(block) = find_explain_block(contract, block_id) else {
                 diagnostics.push(Diagnostic {
                     severity: Severity::Error,
@@ -751,7 +762,13 @@ fn resolve_view_source_to_slot(
             ));
         }
         if source_map.get("__kind").and_then(Value::as_str) == Some("projection_slot") {
-            return lower_projection_slot(source_map, resources, world_hint, diagnostics, target_file);
+            return lower_projection_slot(
+                source_map,
+                resources,
+                world_hint,
+                diagnostics,
+                target_file,
+            );
         }
     }
     if let Some(block_ref) = source.as_str().map(str::trim).filter(|s| !s.is_empty()) {
@@ -789,9 +806,10 @@ fn validate_analytics_slots(
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
 ) -> Option<()> {
-    if slots.iter().all(|slot| {
-        slot.get("layout_zone").and_then(Value::as_str) != Some("detail")
-    }) {
+    if slots
+        .iter()
+        .all(|slot| slot.get("layout_zone").and_then(Value::as_str) != Some("detail"))
+    {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "analytics_projection_missing_detail".to_string(),
@@ -815,9 +833,7 @@ fn validate_analytics_slots(
 }
 
 fn default_detail_entry(contract: Option<&Map<String, Value>>) -> Option<Value> {
-    let blocks = contract?
-        .get("blocks")
-        .and_then(Value::as_array)?;
+    let blocks = contract?.get("blocks").and_then(Value::as_array)?;
     for block in blocks {
         let block_map = block.as_object()?;
         let support_role = block_map
@@ -1266,10 +1282,7 @@ fn build_analytics_filter_schema(
     if let Some(explicit) = board_filters_explicit_fields(board_filters) {
         let mut payload = serde_json::Map::new();
         payload.insert("fields".to_string(), Value::Array(explicit));
-        if let Some(dataset_id) = rowset_dataset_id
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
+        if let Some(dataset_id) = rowset_dataset_id.map(str::trim).filter(|s| !s.is_empty()) {
             payload.insert(
                 "rowset_dataset_id".to_string(),
                 Value::String(dataset_id.to_string()),
@@ -1291,10 +1304,8 @@ fn build_analytics_filter_schema(
         let Some(column) = by else {
             continue;
         };
-        let (key, label) = analytics_filter_key_for_column(
-            column,
-            slot.get("label").and_then(Value::as_str),
-        );
+        let (key, label) =
+            analytics_filter_key_for_column(column, slot.get("label").and_then(Value::as_str));
         if seen.insert(key.clone()) {
             fields.push(serde_json::json!({
                 "key": key,
@@ -1323,8 +1334,7 @@ fn build_analytics_filter_schema(
                         else {
                             continue;
                         };
-                        let (key, label) =
-                            analytics_filter_key_for_column(column, Some(column));
+                        let (key, label) = analytics_filter_key_for_column(column, Some(column));
                         if seen.insert(key.clone()) {
                             fields.push(serde_json::json!({
                                 "key": key,
@@ -1339,17 +1349,15 @@ fn build_analytics_filter_schema(
     }
     let mut payload = serde_json::Map::new();
     payload.insert("fields".to_string(), Value::Array(fields));
-    if let Some(dataset_id) = rowset_dataset_id
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(dataset_id) = rowset_dataset_id.map(str::trim).filter(|s| !s.is_empty()) {
         payload.insert(
             "rowset_dataset_id".to_string(),
             Value::String(dataset_id.to_string()),
         );
-    } else if let Some(detail_slot) = slots.iter().find(|slot| {
-        slot.get("layout_zone").and_then(Value::as_str) == Some("detail")
-    }) {
+    } else if let Some(detail_slot) = slots
+        .iter()
+        .find(|slot| slot.get("layout_zone").and_then(Value::as_str) == Some("detail"))
+    {
         if let Some(dataset_id) = detail_slot
             .get("dataset_id")
             .and_then(Value::as_str)

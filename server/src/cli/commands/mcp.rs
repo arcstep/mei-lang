@@ -1,7 +1,8 @@
 use anyhow::Result;
 use mei_lang_toolchain::{
-    capability_catalog_descriptor_for_package_root, capability_catalog_descriptor_for_workspace_root,
-    mcp_surface_descriptor, mcp_surface_descriptor_for_workspace_root,
+    capability_catalog_descriptor_for_package_root,
+    capability_catalog_descriptor_for_workspace_root, mcp_surface_descriptor,
+    mcp_surface_descriptor_for_workspace_root,
 };
 
 use super::super::args::{McpArgs, McpCatalogArgs, McpCommand, McpDescribeArgs};

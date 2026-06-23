@@ -221,15 +221,13 @@ pub(super) fn scene_payload_cache_has_entry(
     scene_selector: Option<&str>,
     dependency_fingerprint: Option<&str>,
 ) -> bool {
-    let Some(key) =
-        scene_payload_cache_key(
-            app_root,
-            source_root,
-            target_file,
-            scene_selector,
-            dependency_fingerprint,
-        )
-    else {
+    let Some(key) = scene_payload_cache_key(
+        app_root,
+        source_root,
+        target_file,
+        scene_selector,
+        dependency_fingerprint,
+    ) else {
         return false;
     };
     SCENE_PAYLOAD_CACHE
@@ -250,15 +248,13 @@ pub(super) fn compile_scene_payload_for_target(
     dependency_fingerprint: Option<&str>,
 ) -> CompiledScenePayload {
     let scene_selector = route_meta.map(|route| route.scene_id.as_str());
-    if let Some(key) =
-        scene_payload_cache_key(
-            app_root,
-            source_root,
-            target_file,
-            scene_selector,
-            dependency_fingerprint,
-        )
-    {
+    if let Some(key) = scene_payload_cache_key(
+        app_root,
+        source_root,
+        target_file,
+        scene_selector,
+        dependency_fingerprint,
+    ) {
         if let Some(payload) = take_scene_payload_cache(&key) {
             SCENE_PAYLOAD_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
             return payload;

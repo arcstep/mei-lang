@@ -30,9 +30,9 @@ use crate::cli::util::{
     resolve_source_root_arg,
 };
 use crate::cli::{
-    agent_command, compile_or_check_command, editor_runtime_command, export_command,
-    host_command, inspect_command, knowledge_command, mcp_command, prebuild_command,
-    query_command, runtime_command, workspace_command,
+    agent_command, compile_or_check_command, editor_runtime_command, export_command, host_command,
+    inspect_command, knowledge_command, mcp_command, prebuild_command, query_command,
+    runtime_command, workspace_command,
 };
 
 static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -310,8 +310,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
     crate::http::host_api::initialize_startup_readiness(source_root.as_path());
     let startup_policy = args.startup_policy.trim().to_ascii_lowercase();
     if startup_policy == "fail-fast-verify" {
-        let verify_report =
-            crate::http::host_api::verify_startup_artifacts(source_root.as_path())?;
+        let verify_report = crate::http::host_api::verify_startup_artifacts(source_root.as_path())?;
         if !verify_report.ok {
             let summary = if verify_report.error_summary.is_empty() {
                 "artifact verification failed before serve".to_string()

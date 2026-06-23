@@ -13,9 +13,9 @@ use serde_json::Value;
 
 use crate::paginate::paginate_rows;
 use crate::paths::resolve_source_path;
+use crate::serialize_cache_value;
 use crate::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
 use crate::util::elapsed_ms;
-use crate::serialize_cache_value;
 
 const DATASET_ROWS_CACHE_TTL_MS: u64 = 300_000;
 const DATASET_ROWS_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
@@ -103,9 +103,7 @@ fn prune_if_due(state: &mut DatasetRowsCacheState, now: Instant) {
     if state.next_prune_at.is_some_and(|next| now < next) {
         return;
     }
-    state
-        .entries
-        .retain(|_, entry| entry.expires_at > now);
+    state.entries.retain(|_, entry| entry.expires_at > now);
     state.lru.retain(|key| state.entries.contains_key(key));
     state.next_prune_at = Some(now + Duration::from_millis(DATASET_ROWS_CACHE_PRUNE_INTERVAL_MS));
 }
@@ -133,7 +131,11 @@ pub(crate) fn take_materialized_dataset_rows(key: &str) -> Option<MaterializedDa
     if !cache.entries.contains_key(key) {
         return None;
     }
-    if cache.entries.get(key).is_some_and(|entry| entry.expires_at <= now) {
+    if cache
+        .entries
+        .get(key)
+        .is_some_and(|entry| entry.expires_at <= now)
+    {
         cache.entries.remove(key);
         cache.lru.retain(|value| value != key);
         return None;
@@ -210,9 +212,7 @@ mod tests {
             collect_all: false,
             ..Default::default()
         };
-        let rows = (1..=150)
-            .map(|id| json!({"id": id}))
-            .collect::<Vec<_>>();
+        let rows = (1..=150).map(|id| json!({"id": id})).collect::<Vec<_>>();
         store_materialized_dataset_rows(key.clone(), vec!["id".to_string()], rows, true);
         let materialized = take_materialized_dataset_rows(&key).expect("cached rows");
         let result = paginate_materialized_dataset_rows(
@@ -229,9 +229,7 @@ mod tests {
 
     #[test]
     fn paginate_rows_eager_materialize_collects_full_scope() {
-        let rows = (1..=200)
-            .map(|id| json!({"id": id}))
-            .collect::<Vec<_>>();
+        let rows = (1..=200).map(|id| json!({"id": id})).collect::<Vec<_>>();
         let options = DatasetQueryOptions {
             page: 1,
             page_size: 20,

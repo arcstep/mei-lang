@@ -20,7 +20,10 @@ pub fn format_semantic_graph_markdown(graph: &AnalysisGraph, focus_metric: Optio
             md.push_str(&format!("  - {item}\n"));
         }
     }
-    if let Some(focus) = focus_metric.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(focus) = focus_metric
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         md.push_str(&format!("- focus: `{focus}`\n"));
         let closure = closure_neighbors(graph, focus);
         if !closure.is_empty() {
@@ -42,11 +45,7 @@ pub fn format_eval_plan_markdown(plan: &EvalPlan) -> String {
     ));
     md.push_str(&format!("- targets: `{}`\n", plan.targets.join("`, `")));
     for (id, node) in plan.nodes.iter().take(12) {
-        let inbound = plan
-            .edges
-            .iter()
-            .filter(|edge| edge.to == *id)
-            .count();
+        let inbound = plan.edges.iter().filter(|edge| edge.to == *id).count();
         md.push_str(&format!(
             "  - `{id}` kind={:?} inbound_edges={inbound}\n",
             node.kind,
@@ -61,12 +60,8 @@ pub fn build_eval_plan_markdown(
     datasets: &BTreeMap<String, DatasetView>,
     scope: &RuntimeMetricEvalScope,
 ) -> String {
-    let plan = build_runtime_eval_plan(
-        metric_defs,
-        Some(&[metric_id.to_string()]),
-        datasets,
-        scope,
-    );
+    let plan =
+        build_runtime_eval_plan(metric_defs, Some(&[metric_id.to_string()]), datasets, scope);
     format_eval_plan_markdown(&plan)
 }
 

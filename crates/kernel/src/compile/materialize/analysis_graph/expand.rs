@@ -148,10 +148,7 @@ pub(super) fn maybe_hoist_composition_dataframes(
             Value::String("data_product".to_string()),
         );
         child_metric.insert("id".to_string(), Value::String(local_id.to_string()));
-        child_metric.insert(
-            "shape".to_string(),
-            Value::String("dataframe".to_string()),
-        );
+        child_metric.insert("shape".to_string(), Value::String("dataframe".to_string()));
         child_metric.insert("value".to_string(), Value::Object(group_expr));
         child_metric.insert(
             "schema".to_string(),
@@ -238,7 +235,10 @@ pub(super) fn maybe_hoist_trend_dataframes(
         );
         trend_expr.insert("type".to_string(), Value::String("trend".to_string()));
         trend_expr.insert("rowset".to_string(), rowset_ref.clone());
-        trend_expr.insert("date_field".to_string(), Value::String(date_field.to_string()));
+        trend_expr.insert(
+            "date_field".to_string(),
+            Value::String(date_field.to_string()),
+        );
         trend_expr.insert("by".to_string(), Value::String(by.to_string()));
         trend_expr.insert(
             "agg".to_string(),
@@ -273,10 +273,7 @@ pub(super) fn maybe_hoist_trend_dataframes(
             Value::String("data_product".to_string()),
         );
         child_metric.insert("id".to_string(), Value::String(local_id.to_string()));
-        child_metric.insert(
-            "shape".to_string(),
-            Value::String("dataframe".to_string()),
-        );
+        child_metric.insert("shape".to_string(), Value::String("dataframe".to_string()));
         child_metric.insert("value".to_string(), Value::Object(trend_expr));
         child_metric.insert(
             "schema".to_string(),

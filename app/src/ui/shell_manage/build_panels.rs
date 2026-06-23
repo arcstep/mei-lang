@@ -16,7 +16,10 @@ pub(crate) fn build_overview_view(
     let layout_hint = experience_layout_hint(compiled, &ctx.node);
     let node_label = ctx.node.encode();
     let diag_count = compiled.diagnostics.len();
-    let business_title = experience.last().cloned().unwrap_or_else(|| node_label.clone());
+    let business_title = experience
+        .last()
+        .cloned()
+        .unwrap_or_else(|| node_label.clone());
     let board_entry = compiled.build_board_index.lookup(&ctx.node);
     let template_entry = compiled.build_template_index.lookup(ctx.node.key.as_str());
 
@@ -267,7 +270,11 @@ pub(crate) fn build_exec_panel_shell(app_path: &str, node: &str) -> impl IntoVie
     }
 }
 
-pub(crate) fn build_graph_panel(title: &'static str, graph_kind: &'static str, node: &str) -> impl IntoView {
+pub(crate) fn build_graph_panel(
+    title: &'static str,
+    graph_kind: &'static str,
+    node: &str,
+) -> impl IntoView {
     view! {
         <section
             class="build-graph-panel build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4"

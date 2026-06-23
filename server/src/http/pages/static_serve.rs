@@ -35,11 +35,13 @@ pub(crate) fn serve_static_asset_with_cache(
             .expect("empty not-modified response");
         response.headers_mut().insert(
             ETAG,
-            HeaderValue::from_str(etag.as_str()).unwrap_or_else(|_| HeaderValue::from_static("\"0\"")),
+            HeaderValue::from_str(etag.as_str())
+                .unwrap_or_else(|_| HeaderValue::from_static("\"0\"")),
         );
         response.headers_mut().insert(
             HeaderName::from_static("cache-control"),
-            HeaderValue::from_str(cache_control).unwrap_or_else(|_| HeaderValue::from_static("private, no-cache")),
+            HeaderValue::from_str(cache_control)
+                .unwrap_or_else(|_| HeaderValue::from_static("private, no-cache")),
         );
         return Ok(response);
     }
@@ -75,7 +77,10 @@ fn etag_for_metadata(metadata: &fs::Metadata) -> String {
 }
 
 fn request_matches_etag(request_headers: &HeaderMap, etag: &str) -> bool {
-    let Some(raw) = request_headers.get(IF_NONE_MATCH).and_then(|value| value.to_str().ok()) else {
+    let Some(raw) = request_headers
+        .get(IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+    else {
         return false;
     };
     raw.split(',')

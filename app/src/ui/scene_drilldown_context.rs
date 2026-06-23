@@ -9,7 +9,10 @@ pub(crate) fn scene_drilldown_context_json_for_host_ssr(
     preview_scene_id: Option<&str>,
 ) -> String {
     let mut assembly = compiled.scene_projection_assembly_by_id.clone();
-    if let Some(scene_id) = preview_scene_id.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(scene_id) = preview_scene_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         if let Some(Value::Object(entry)) = assembly.get_mut(scene_id) {
             entry.remove("panels");
         }
@@ -53,8 +56,8 @@ pub(crate) fn host_ssr_bootstrap_scripts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeMap;
     use serde_json::Value;
+    use std::collections::BTreeMap;
 
     fn sample_assembly() -> BTreeMap<String, Value> {
         BTreeMap::from([
@@ -100,9 +103,11 @@ mod tests {
             build_board_index: Default::default(),
             build_template_index: Default::default(),
         };
-        let payload: Value =
-            serde_json::from_str(&scene_drilldown_context_json_for_host_ssr(&compiled, Some("home")))
-                .expect("valid json");
+        let payload: Value = serde_json::from_str(&scene_drilldown_context_json_for_host_ssr(
+            &compiled,
+            Some("home"),
+        ))
+        .expect("valid json");
         let assembly = payload
             .get("scene_projection_assembly_by_id")
             .and_then(Value::as_object)

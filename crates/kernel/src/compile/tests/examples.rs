@@ -3,9 +3,7 @@ use std::fs;
 use serde_json::Value;
 
 use super::super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
-use super::harness::{
-    build_regression_workspace_root, dev_examples_root, dev_workspace_root,
-};
+use super::harness::{build_regression_workspace_root, dev_examples_root, dev_workspace_root};
 use crate::evaluate_mei_file;
 
 #[test]
@@ -184,22 +182,28 @@ fn compile_scene_export_preview_enriches_file_tree_children() {
     let exports_node = nodes
         .into_iter()
         .find(|node| node.path == "exports.mei" && node.kind == "file")
-        .unwrap_or_else(|| panic!("exports.mei missing from file_tree: {:?}", compiled.file_tree));
+        .unwrap_or_else(|| {
+            panic!(
+                "exports.mei missing from file_tree: {:?}",
+                compiled.file_tree
+            )
+        });
     assert_eq!(exports_node.children.len(), 2);
     let overview = exports_node
         .children
         .iter()
-        .find(|child| child.kind == "scene_export" && child.scene_export_id.as_deref() == Some("overview"))
+        .find(|child| {
+            child.kind == "scene_export" && child.scene_export_id.as_deref() == Some("overview")
+        })
         .unwrap_or_else(|| panic!("overview scene_export missing"));
     assert_eq!(overview.name, "scene_export 概览场景");
     assert_eq!(overview.semantic_label.as_deref(), Some("overview"));
     assert_eq!(overview.mei_kind.as_deref(), Some("scene"));
-    assert!(
-        exports_node
-            .children
-            .iter()
-            .any(|child| child.kind == "scene_export" && child.scene_export_id.as_deref() == Some("detail"))
-    );
+    assert!(exports_node
+        .children
+        .iter()
+        .any(|child| child.kind == "scene_export"
+            && child.scene_export_id.as_deref() == Some("detail")));
 }
 
 fn walk_file_tree<'a>(nodes: &'a [crate::WorkspaceNode], out: &mut Vec<&'a crate::WorkspaceNode>) {

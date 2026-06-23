@@ -154,7 +154,12 @@ pub(crate) fn access_browser_state(browser_context: Option<&Value>) -> AccessBro
     } else {
         active_query_state_ids
             .iter()
-            .filter_map(|id| parsed_states.iter().find(|(entry_id, _, _)| entry_id == id).cloned())
+            .filter_map(|id| {
+                parsed_states
+                    .iter()
+                    .find(|(entry_id, _, _)| entry_id == id)
+                    .cloned()
+            })
             .collect::<Vec<_>>()
     };
     let mut merged_query_state = QueryState::default();
@@ -190,7 +195,8 @@ pub(crate) fn access_browser_state(browser_context: Option<&Value>) -> AccessBro
     };
     AccessBrowserState {
         active_query_state_ids,
-        merged_query_state: query_state_has_content(&merged_query_state).then_some(merged_query_state),
+        merged_query_state: query_state_has_content(&merged_query_state)
+            .then_some(merged_query_state),
         filter_intents: merged_filter_intents,
     }
 }
@@ -264,8 +270,14 @@ mod tests {
         });
         let state = access_browser_state(Some(&browser));
         let merged = state.merged_query_state.expect("merged query state");
-        assert_eq!(merged.filters.get("region").map(String::as_str), Some("华东"));
-        assert_eq!(merged.filters.get("status").map(String::as_str), Some("处理中"));
+        assert_eq!(
+            merged.filters.get("region").map(String::as_str),
+            Some("华东")
+        );
+        assert_eq!(
+            merged.filters.get("status").map(String::as_str),
+            Some("处理中")
+        );
         assert_eq!(merged.search.as_deref(), Some("火灾"));
         assert_eq!(state.filter_intents.len(), 1);
     }
@@ -290,7 +302,10 @@ mod tests {
             &filters,
             Some("新值"),
         );
-        assert_eq!(merged.filters.get("region").map(String::as_str), Some("华北"));
+        assert_eq!(
+            merged.filters.get("region").map(String::as_str),
+            Some("华北")
+        );
         assert_eq!(merged.search.as_deref(), Some("新值"));
     }
 

@@ -11,8 +11,8 @@ use super::super::predicate::predicate_matches_with_ctx;
 use super::super::transforms::{
     aggregate_group_rows, aggregate_group_rows_pivot, bucket_rows_by_month,
     distinct_rows_by_fields, first_rows_by_field, mutate_row, party_year_aggregate_rows,
-    rename_fields, reorder_fields, select_fields, sort_rows_by_field, summarize_rows,
-    trend_rows_by_month, trend_year_compare_rows, unpivot_columns_rows, pivot_long_rows,
+    pivot_long_rows, rename_fields, reorder_fields, select_fields, sort_rows_by_field,
+    summarize_rows, trend_rows_by_month, trend_year_compare_rows, unpivot_columns_rows,
 };
 use super::build::{
     apply_universe, eval_lookup_value_rowset, eval_rowset_with_ctx, eval_split_text_rowset,
@@ -233,18 +233,15 @@ pub(super) fn eval_analysis_rowset(
             let value_field = map.get("value").and_then(Value::as_str);
             let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
             let limit = map.get("limit").and_then(Value::as_u64).map(|n| n as usize);
-            let mut grouped = if value_field.is_none() && agg == "count" && group_fields.len() == 1 {
+            let mut grouped = if value_field.is_none() && agg == "count" && group_fields.len() == 1
+            {
                 crate::compile::rowset_engine::try_group_by_count_columnar(
                     &rows,
                     group_field,
                     limit,
                 )
                 .or_else(|| {
-                    crate::compile::rowset_engine::try_polars_group_by(
-                        &rows,
-                        group_field,
-                        agg,
-                    )
+                    crate::compile::rowset_engine::try_polars_group_by(&rows, group_field, agg)
                 })
                 .unwrap_or_else(|| {
                     aggregate_group_rows(&rows, group_field, value_field, agg, limit)

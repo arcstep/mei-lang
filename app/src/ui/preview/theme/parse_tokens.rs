@@ -207,10 +207,7 @@ fn push_typography_vars(
         return;
     };
     let has_font_token = map.get("font").is_some_and(|value| {
-        value
-            .as_str()
-            .is_some_and(|raw| !raw.trim().is_empty())
-            || value.as_i64().is_some()
+        value.as_str().is_some_and(|raw| !raw.trim().is_empty()) || value.as_i64().is_some()
     });
     for (key, value) in map {
         if has_font_token && matches!(key.as_str(), "font_size" | "fontSize") {

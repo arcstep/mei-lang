@@ -292,8 +292,8 @@ fn forge_js_rsa_oaep_sha256_compat() {
         String::from_utf8_lossy(&output.stderr)
     );
     let encrypted_b64 = String::from_utf8(output.stdout).expect("utf8 stdout");
-    let decrypted =
-        decrypt_base64_with_private_key(private_pem.as_str(), encrypted_b64.trim()).expect("decrypt");
+    let decrypted = decrypt_base64_with_private_key(private_pem.as_str(), encrypted_b64.trim())
+        .expect("decrypt");
     assert_eq!(decrypted, "Hello#Sensitive1");
 }
 
@@ -654,7 +654,11 @@ async fn middleware_allows_unauthenticated_maplibre_vendor_assets() {
         .uri("/workspace-components/vendor/maplibre/fonts/Open%20Sans%20Regular,Arial%20Unicode%20MS%20Regular/0-255.pbf")
         .body(Body::empty())
         .expect("glyph request");
-    let unauth_resp = app.clone().oneshot(unauth_req).await.expect("glyph response");
+    let unauth_resp = app
+        .clone()
+        .oneshot(unauth_req)
+        .await
+        .expect("glyph response");
     assert_eq!(unauth_resp.status(), StatusCode::OK);
 
     let cookie = format!("{}={}", runtime.cookie_name, token);
@@ -713,7 +717,10 @@ async fn auth_refresh_extends_session_exp() {
         .and_then(serde_json::Value::as_u64)
         .expect("expiresAt");
     assert!(new_exp >= old_claims.exp as u64);
-    assert_eq!(json.get("ok").and_then(serde_json::Value::as_bool), Some(true));
+    assert_eq!(
+        json.get("ok").and_then(serde_json::Value::as_bool),
+        Some(true)
+    );
 }
 
 #[tokio::test]

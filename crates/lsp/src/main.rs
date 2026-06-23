@@ -24,11 +24,11 @@ use tower_lsp::{
         CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
         CompletionResponse, Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams,
         DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-        DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-        GotoDefinitionResponse, Hover, HoverContents, HoverProviderCapability, HoverParams,
-        InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent,
-        MarkupKind, MessageType, NumberOrString, OneOf, Position, Range, ServerCapabilities,
-        ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
+        DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+        Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
+        InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind, MessageType,
+        NumberOrString, OneOf, Position, Range, ServerCapabilities, ServerInfo,
+        TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
         TextDocumentSyncSaveOptions, Url,
     },
     Client, LanguageServer, LspService, Server,
@@ -157,7 +157,10 @@ impl Backend {
             .or_else(|| fs::read_to_string(path).ok())
     }
 
-    async fn source_index_for_uri(&self, uri: &Url) -> Option<(PathBuf, PathBuf, PathBuf, source_index::SourceIndex, String)> {
+    async fn source_index_for_uri(
+        &self,
+        uri: &Url,
+    ) -> Option<(PathBuf, PathBuf, PathBuf, source_index::SourceIndex, String)> {
         let path = uri.to_file_path().ok()?;
         let app_root = find_app_root(&path)?;
         let source_root = resolve_source_root_for_assets(&app_root);
@@ -192,7 +195,11 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec!["\"".to_string(), ".".to_string(), "_".to_string()]),
+                    trigger_characters: Some(vec![
+                        "\"".to_string(),
+                        ".".to_string(),
+                        "_".to_string(),
+                    ]),
                     ..CompletionOptions::default()
                 }),
                 ..ServerCapabilities::default()
@@ -231,7 +238,8 @@ impl LanguageServer for Backend {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         if let Some(text) = params.text {
-            self.upsert_document(params.text_document.uri.clone(), text).await;
+            self.upsert_document(params.text_document.uri.clone(), text)
+                .await;
         }
         self.validate_uri(params.text_document.uri, ValidationTrigger::Save)
             .await;
@@ -248,7 +256,8 @@ impl LanguageServer for Backend {
         &self,
         params: DocumentSymbolParams,
     ) -> tower_lsp::jsonrpc::Result<Option<DocumentSymbolResponse>> {
-        let Some((_, _, _, index, _)) = self.source_index_for_uri(&params.text_document.uri).await else {
+        let Some((_, _, _, index, _)) = self.source_index_for_uri(&params.text_document.uri).await
+        else {
             return Ok(None);
         };
         Ok(Some(DocumentSymbolResponse::Nested(
@@ -262,7 +271,9 @@ impl LanguageServer for Backend {
     ) -> tower_lsp::jsonrpc::Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-        let Some((path, app_root, source_root, index, source)) = self.source_index_for_uri(&uri).await else {
+        let Some((path, app_root, source_root, index, source)) =
+            self.source_index_for_uri(&uri).await
+        else {
             return Ok(None);
         };
         let Some(reference) = source_index::reference_at_position(&index, position) else {
@@ -296,10 +307,7 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
-    async fn hover(
-        &self,
-        params: HoverParams,
-    ) -> tower_lsp::jsonrpc::Result<Option<Hover>> {
+    async fn hover(&self, params: HoverParams) -> tower_lsp::jsonrpc::Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         let Some((_, _, source_root, index, source)) = self.source_index_for_uri(&uri).await else {
@@ -308,13 +316,16 @@ impl LanguageServer for Backend {
         if let Some(reference) = source_index::reference_at_position(&index, position) {
             let contents = if reference.kind == "component" {
                 if let Ok(assets) = load_component_assets(&source_root) {
-                    assets.get(&reference.value).map(|asset| format!(
-                        "### component `{}`\n\n- pack: `{}`\n- tag: `{}`\n- script: `{}`",
-                        asset.key,
-                        component_pack_id(&reference.value).unwrap_or_else(|| "unknown".to_string()),
-                        asset.tag,
-                        asset.script
-                    ))
+                    assets.get(&reference.value).map(|asset| {
+                        format!(
+                            "### component `{}`\n\n- pack: `{}`\n- tag: `{}`\n- script: `{}`",
+                            asset.key,
+                            component_pack_id(&reference.value)
+                                .unwrap_or_else(|| "unknown".to_string()),
+                            asset.tag,
+                            asset.script
+                        )
+                    })
                 } else {
                     None
                 }
@@ -377,11 +388,15 @@ impl LanguageServer for Backend {
         if prefix.contains("component(") && prefix.matches('"').count() % 2 == 1 {
             if let Ok(assets) = load_component_assets(&source_root) {
                 for asset in assets.values() {
-                    let pack_id = component_pack_id(&asset.key).unwrap_or_else(|| "unknown".to_string());
+                    let pack_id =
+                        component_pack_id(&asset.key).unwrap_or_else(|| "unknown".to_string());
                     items.push(CompletionItem {
                         label: asset.key.clone(),
                         kind: Some(CompletionItemKind::CLASS),
-                        detail: Some(format!("pack={} tag={} script={}", pack_id, asset.tag, asset.script)),
+                        detail: Some(format!(
+                            "pack={} tag={} script={}",
+                            pack_id, asset.tag, asset.script
+                        )),
                         documentation: Some(tower_lsp::lsp_types::Documentation::MarkupContent(
                             MarkupContent {
                                 kind: MarkupKind::Markdown,
@@ -505,13 +520,27 @@ fn compile_grouped(
         preview_target: to_preview_target(app_root, current_file),
     };
     let components_root = resolve_components_root(source_root);
-    match compile_app_with_cache(source_root, app_id.as_str(), options, components_root.as_path()) {
-        Ok(outcome) => group_diagnostics(outcome.compiled.diagnostics, source_root, app_root, fallback_uri),
+    match compile_app_with_cache(
+        source_root,
+        app_id.as_str(),
+        options,
+        components_root.as_path(),
+    ) {
+        Ok(outcome) => group_diagnostics(
+            outcome.compiled.diagnostics,
+            source_root,
+            app_root,
+            fallback_uri,
+        ),
         Err(error) => {
             let mut map = HashMap::new();
             map.insert(
                 fallback_uri.clone(),
-                vec![compile_failure_diagnostic("compile_error", error.error.to_string(), None)],
+                vec![compile_failure_diagnostic(
+                    "compile_error",
+                    error.error.to_string(),
+                    None,
+                )],
             );
             map
         }
@@ -585,7 +614,11 @@ fn compile_failure_diagnostic(code: &str, message: String, range: Option<Range>)
 
 fn syntax_only_diagnostics(uri: Url, path: &Path, source: &str) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    match AstModule::parse(path.to_string_lossy().as_ref(), source.to_string(), &Dialect::Standard) {
+    match AstModule::parse(
+        path.to_string_lossy().as_ref(),
+        source.to_string(),
+        &Dialect::Standard,
+    ) {
         Ok(_) => {}
         Err(error) => diagnostics.push(compile_failure_diagnostic(
             "parse_error",
@@ -637,7 +670,11 @@ fn diagnostic_range_from_message(source: &str, message: &str) -> Option<Range> {
         if let Some(symbol) = index.symbols.iter().find(|symbol| symbol.name == token) {
             return Some(symbol.selection_range);
         }
-        if let Some(reference) = index.references.iter().find(|reference| reference.value == token) {
+        if let Some(reference) = index
+            .references
+            .iter()
+            .find(|reference| reference.value == token)
+        {
             return Some(reference.range);
         }
         if let Some(range) = find_word_range_in_source(source, &token) {
@@ -660,7 +697,11 @@ fn extract_message_tokens(message: &str) -> Vec<String> {
                 end += 1;
             }
             if end < chars.len() {
-                let token = chars[start..end].iter().collect::<String>().trim().to_string();
+                let token = chars[start..end]
+                    .iter()
+                    .collect::<String>()
+                    .trim()
+                    .to_string();
                 if token.len() >= 2 && !tokens.contains(&token) {
                     tokens.push(token);
                 }

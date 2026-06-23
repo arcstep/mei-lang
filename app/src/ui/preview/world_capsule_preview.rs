@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 
 use super::nodes::component_html;
 use super::resolve::{
-    attach_host_meta, dataset_for_host_ssr, metric_for_host_ssr, with_runtime_ref,
-    HostMetaOptions, RuntimeSceneAnchor,
+    attach_host_meta, dataset_for_host_ssr, metric_for_host_ssr, with_runtime_ref, HostMetaOptions,
+    RuntimeSceneAnchor,
 };
 use super::PreviewRuntimeContext;
 use crate::ui::compile_status::{
@@ -73,12 +73,7 @@ fn runtime_scene_anchor(compiled: &CompiledApp, file_path: &str) -> RuntimeScene
     }
 }
 
-fn table_host_html(
-    compiled: &CompiledApp,
-    app_path: &str,
-    file_path: &str,
-    data: Value,
-) -> String {
+fn table_host_html(compiled: &CompiledApp, app_path: &str, file_path: &str, data: Value) -> String {
     let props = attach_host_meta(
         json!({
             "data": data,
@@ -176,11 +171,17 @@ fn tabular_metric_lookup_candidates(
     resource_id: &str,
 ) -> Vec<String> {
     let mut candidates = Vec::new();
-    if let Some(block_id) = explain_block_id.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(block_id) = explain_block_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         if let Some(dataset) = dataset {
-            if let Some(node_id) =
-                tabular_node_id_from_analysis_contract(dataset, resource_id, parent_metric_id, block_id)
-            {
+            if let Some(node_id) = tabular_node_id_from_analysis_contract(
+                dataset,
+                resource_id,
+                parent_metric_id,
+                block_id,
+            ) {
                 candidates.push(node_id);
             }
         }
@@ -217,16 +218,15 @@ fn resolve_explain_block_id<'a>(
     if raw.is_empty() {
         return None;
     }
-    if metric_meta
-        .explain
-        .iter()
-        .any(|block| block.id == raw)
-    {
+    if metric_meta.explain.iter().any(|block| block.id == raw) {
         return Some(raw);
     }
     if let Some(suffix) = raw.strip_prefix("data_product_") {
         if let Ok(index) = suffix.parse::<usize>() {
-            return metric_meta.explain.get(index).map(|block| block.id.as_str());
+            return metric_meta
+                .explain
+                .get(index)
+                .map(|block| block.id.as_str());
         }
     }
     Some(raw)
@@ -247,9 +247,11 @@ fn lookup_metric_contract<'a>(
         }
     }
     for candidate in lookup_candidates {
-        if let Some(canonical) =
-            resolve_runtime_metric_def_key(resource_id, candidate.as_str(), &dataset.runtime_metric_defs)
-        {
+        if let Some(canonical) = resolve_runtime_metric_def_key(
+            resource_id,
+            candidate.as_str(),
+            &dataset.runtime_metric_defs,
+        ) {
             if let Some(metric) = dataset.metrics.get(&canonical) {
                 return Some(metric);
             }
@@ -258,7 +260,9 @@ fn lookup_metric_contract<'a>(
             return Some(metric);
         }
     }
-    let parent = parent_metric_id.map(str::trim).filter(|value| !value.is_empty())?;
+    let parent = parent_metric_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
     for candidate in lookup_candidates {
         let metric_id = candidate.as_str();
         if metric_id == parent {
@@ -404,7 +408,8 @@ fn scalar_metric_form_preview(
         .map(|value| {
             scalar_form_field(
                 "指标值".to_string(),
-                view! { <span class="text-lg font-semibold text-sky-100">{value}</span> }.into_any(),
+                view! { <span class="text-lg font-semibold text-sky-100">{value}</span> }
+                    .into_any(),
             )
         })
         .unwrap_or_else(|| {
@@ -415,7 +420,10 @@ fn scalar_metric_form_preview(
         });
     let mut fields = vec![
         scalar_form_field("标识".to_string(), view! { {metric.id.clone()} }.into_any()),
-        scalar_form_field("标签".to_string(), view! { {display_label.clone()} }.into_any()),
+        scalar_form_field(
+            "标签".to_string(),
+            view! { {display_label.clone()} }.into_any(),
+        ),
         scalar_form_field("形状".to_string(), view! { {shape_label} }.into_any()),
     ];
     if !unit.is_empty() {
@@ -425,11 +433,7 @@ fn scalar_metric_form_preview(
         ));
     }
     fields.push(value_field);
-    if let Some(note) = metric
-        .note
-        .as_ref()
-        .filter(|note| !note.trim().is_empty())
-    {
+    if let Some(note) = metric.note.as_ref().filter(|note| !note.trim().is_empty()) {
         fields.push(scalar_form_field(
             "口径".to_string(),
             view! { {note.clone()} }.into_any(),
@@ -539,7 +543,10 @@ pub(crate) fn world_capsule_semantic_preview(
         ));
     }
 
-    let parent_metric_id = semantic.world_metric.map(str::trim).filter(|value| !value.is_empty())?;
+    let parent_metric_id = semantic
+        .world_metric
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
     let metric_meta = index
         .metrics
         .iter()
@@ -627,7 +634,9 @@ mod tests {
             "__world_metrics__",
         );
         assert!(
-            candidates.iter().any(|key| key == "enforcement_units_count::__scalar_rowset__"),
+            candidates
+                .iter()
+                .any(|key| key == "enforcement_units_count::__scalar_rowset__"),
             "detail explain should fall back to scalar rowset: {candidates:?}"
         );
     }

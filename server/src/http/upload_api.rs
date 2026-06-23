@@ -489,8 +489,11 @@ pub async fn upload_chunk_put(
         ));
     }
 
-    fs::write(upload_chunk_part_path(&session_dir, query.index), body.as_ref())
-        .map_err(|error| AppError::msg(format!("failed to write upload chunk: {error}")))?;
+    fs::write(
+        upload_chunk_part_path(&session_dir, query.index),
+        body.as_ref(),
+    )
+    .map_err(|error| AppError::msg(format!("failed to write upload chunk: {error}")))?;
 
     Ok(Json(json!({
         "ok": true,
@@ -648,7 +651,10 @@ fn content_disposition_inline(file_name: &str) -> Result<HeaderValue, AppError> 
 
 fn upload_supports_inline_preview(path: &Path) -> bool {
     matches!(
-        path.extension().and_then(|value| value.to_str()).map(str::to_ascii_lowercase).as_deref(),
+        path.extension()
+            .and_then(|value| value.to_str())
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
         Some("pdf")
     )
 }
@@ -657,13 +663,9 @@ fn download_content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|value| value.to_str()) {
         Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         Some("xls") => "application/vnd.ms-excel",
-        Some("docx") => {
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        }
+        Some("docx") => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         Some("doc") => "application/msword",
-        Some("pptx") => {
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        }
+        Some("pptx") => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         Some("ppt") => "application/vnd.ms-powerpoint",
         Some("zip") | Some("rar") | Some("7z") | Some("gz") | Some("tar") => {
             "application/octet-stream"
@@ -717,25 +719,22 @@ pub async fn upload_file_download_get(
     };
 
     let mut response = Response::new(Body::from_stream(stream));
-    response.headers_mut().insert(
-        CONTENT_TYPE,
-        HeaderValue::from_static(content_type),
-    );
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
     response.headers_mut().insert(
         CONTENT_LENGTH,
         HeaderValue::from_str(&file_len.to_string())
             .map_err(|error| AppError::msg(format!("invalid content length: {error}")))?,
     );
-    response
-        .headers_mut()
-        .insert(
-            CONTENT_DISPOSITION,
-            if query.inline && upload_supports_inline_preview(&target) {
-                content_disposition_inline(&file_name)?
-            } else {
-                content_disposition_attachment(&file_name)?
-            },
-        );
+    response.headers_mut().insert(
+        CONTENT_DISPOSITION,
+        if query.inline && upload_supports_inline_preview(&target) {
+            content_disposition_inline(&file_name)?
+        } else {
+            content_disposition_attachment(&file_name)?
+        },
+    );
     Ok(response)
 }
 
@@ -871,8 +870,12 @@ mod tests {
 
     #[test]
     fn upload_supports_inline_preview_only_for_pdf() {
-        assert!(upload_supports_inline_preview(Path::new("文件附件/demo.pdf")));
-        assert!(!upload_supports_inline_preview(Path::new("文件附件/demo.xlsx")));
+        assert!(upload_supports_inline_preview(Path::new(
+            "文件附件/demo.pdf"
+        )));
+        assert!(!upload_supports_inline_preview(Path::new(
+            "文件附件/demo.xlsx"
+        )));
     }
 
     #[test]

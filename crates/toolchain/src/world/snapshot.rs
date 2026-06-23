@@ -342,7 +342,9 @@ pub fn build_world_business_summary(
     if semantic.world_has_topology {
         narrative.push("world_topology: grid".to_string());
     }
-    if semantic.flow_interaction_count > 0 || semantic.flow_subject_timer_count > 0 || semantic.has_timer
+    if semantic.flow_interaction_count > 0
+        || semantic.flow_subject_timer_count > 0
+        || semantic.has_timer
     {
         narrative.push(format!(
             "flow: interactions={} subject_timers={} timer={}",

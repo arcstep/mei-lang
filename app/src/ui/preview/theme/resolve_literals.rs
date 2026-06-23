@@ -1,4 +1,4 @@
-use mei_lang_kernel::{is_literal_color, is_literal_gradient, is_font_scale_key};
+use mei_lang_kernel::{is_font_scale_key, is_literal_color, is_literal_gradient};
 
 /// Resolve a color token name or pass through transparent / existing var().
 pub(crate) fn resolve_color_token(raw: &str) -> String {
@@ -53,7 +53,10 @@ mod tests {
 
     #[test]
     fn color_token_to_var() {
-        assert_eq!(resolve_color_token("text_primary"), "var(--mei-color-text-primary)");
+        assert_eq!(
+            resolve_color_token("text_primary"),
+            "var(--mei-color-text-primary)"
+        );
     }
 
     #[test]

@@ -178,7 +178,10 @@ impl BuildNodeId {
     }
 
     pub fn artifact(kind: impl Into<String>, scope_key: impl Into<String>) -> Self {
-        Self::new(BuildNodeKind::Artifact, format!("{}/{}", kind.into(), scope_key.into()))
+        Self::new(
+            BuildNodeKind::Artifact,
+            format!("{}/{}", kind.into(), scope_key.into()),
+        )
     }
 
     pub fn encode(&self) -> String {
@@ -383,9 +386,7 @@ pub fn resolve_build_view_query(
     tab: Option<&str>,
     legacy: &LegacyBuildQuery,
 ) -> Option<ResolvedBuildViewQuery> {
-    let exec_scope = scope
-        .map(BuildExecScope::parse_slug)
-        .unwrap_or_default();
+    let exec_scope = scope.map(BuildExecScope::parse_slug).unwrap_or_default();
 
     if let Some(raw_node) = node.map(str::trim).filter(|value| !value.is_empty()) {
         let parsed = BuildNodeId::parse(raw_node)?;
@@ -532,10 +533,7 @@ mod tests {
     #[test]
     fn build_node_id_roundtrip() {
         let id = BuildNodeId::world_metric("metrics.world.mei", "total_amount");
-        assert_eq!(
-            id.encode(),
-            "world-metric:metrics.world.mei#total_amount"
-        );
+        assert_eq!(id.encode(), "world-metric:metrics.world.mei#total_amount");
         assert_eq!(BuildNodeId::parse(&id.encode()), Some(id));
     }
 

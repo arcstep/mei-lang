@@ -82,7 +82,9 @@ pub(crate) fn invalidate_app_runtime_caches(
     }
 }
 
-pub(crate) fn invalidate_report_perf(report: &RuntimeCacheInvalidateReport) -> BTreeMap<String, u64> {
+pub(crate) fn invalidate_report_perf(
+    report: &RuntimeCacheInvalidateReport,
+) -> BTreeMap<String, u64> {
     let mut perf = BTreeMap::new();
     perf.insert("clear_ms".to_string(), report.clear_ms);
     perf.insert(

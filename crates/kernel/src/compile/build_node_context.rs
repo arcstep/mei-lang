@@ -388,9 +388,7 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
                         None
                     }
                 })
-                .or_else(|| {
-                    preview_target_for_template_consumer(compiled, node.key.as_str())
-                })
+                .or_else(|| preview_target_for_template_consumer(compiled, node.key.as_str()))
                 .unwrap_or_else(|| template_target_file(compiled, node)),
             symbol_id: node.key.clone(),
             symbol_kind: "template".to_string(),
@@ -508,10 +506,7 @@ mod tests {
 
     #[test]
     fn preview_target_from_world_dataset_node() {
-        let node = BuildNodeId::world_dataset(
-            "scenes/01-执法要素.world.mei",
-            "agency_objects",
-        );
+        let node = BuildNodeId::world_dataset("scenes/01-执法要素.world.mei", "agency_objects");
         assert_eq!(
             preview_target_from_build_node(&node).as_deref(),
             Some("scenes/01-执法要素.world.mei")

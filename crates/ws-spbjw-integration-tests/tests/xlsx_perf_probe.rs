@@ -29,10 +29,7 @@ fn xlsx_perf_probe_zhifa_hot_files() {
             "upload/5.行政检查结果清单.xlsx",
             "行政检查主表（~42k 行热点）",
         ),
-        (
-            "upload/8.行政处罚结果清单.xlsx",
-            "行政处罚主表",
-        ),
+        ("upload/8.行政处罚结果清单.xlsx", "行政处罚主表"),
     ];
 
     for (rel_path, label) in cases {
@@ -48,11 +45,15 @@ fn xlsx_perf_probe_zhifa_hot_files() {
         let cold_ms = elapsed_ms(cold);
         let row_count = snapshot.rows.len();
         let col_count = snapshot.columns.len();
-        print_phase("cold calamine+serde_json", cold_ms, &format!("rows={row_count} cols={col_count}"));
+        print_phase(
+            "cold calamine+serde_json",
+            cold_ms,
+            &format!("rows={row_count} cols={col_count}"),
+        );
 
         let warm1 = Instant::now();
-        let (cached1, hit1) =
-            cached_load_xlsx_table_snapshot(&app_root, rel_path, None, 1).expect("warm1 cached load");
+        let (cached1, hit1) = cached_load_xlsx_table_snapshot(&app_root, rel_path, None, 1)
+            .expect("warm1 cached load");
         let warm1_ms = elapsed_ms(warm1);
         print_phase(
             "cached_load miss (1st)",
@@ -61,8 +62,8 @@ fn xlsx_perf_probe_zhifa_hot_files() {
         );
 
         let warm2 = Instant::now();
-        let (cached2, hit2) =
-            cached_load_xlsx_table_snapshot(&app_root, rel_path, None, 1).expect("warm2 cached load");
+        let (cached2, hit2) = cached_load_xlsx_table_snapshot(&app_root, rel_path, None, 1)
+            .expect("warm2 cached load");
         let warm2_ms = elapsed_ms(warm2);
         print_phase(
             "cached_load hit (2nd)",
@@ -130,8 +131,16 @@ fn xlsx_perf_probe_zhifa_hot_files() {
         for (tid, ms, hit, rows) in &per_thread {
             eprintln!("  thread {tid}: {ms} ms hit={hit} rows={rows}");
         }
-        let max_thread_ms = per_thread.iter().map(|(_, ms, _, _)| *ms).max().unwrap_or(0);
-        let min_thread_ms = per_thread.iter().map(|(_, ms, _, _)| *ms).min().unwrap_or(0);
+        let max_thread_ms = per_thread
+            .iter()
+            .map(|(_, ms, _, _)| *ms)
+            .max()
+            .unwrap_or(0);
+        let min_thread_ms = per_thread
+            .iter()
+            .map(|(_, ms, _, _)| *ms)
+            .min()
+            .unwrap_or(0);
         eprintln!(
             "  thread spread: min={min_thread_ms}ms max={max_thread_ms}ms (lock convoy indicator)"
         );

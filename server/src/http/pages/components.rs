@@ -11,8 +11,8 @@ use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
 
 use mei_lang_kernel::resolve_app_root;
 
-use crate::{AppError, AppState};
 use crate::http::scene_bundle::parse_scene_bundle_request_path;
+use crate::{AppError, AppState};
 
 use super::static_serve::serve_static_asset_with_cache;
 

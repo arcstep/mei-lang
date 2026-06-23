@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::time::Instant;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::super::components::resolve_components_root;
 use super::super::scene_qualified::{
@@ -21,15 +21,13 @@ use axum::{
     Json,
 };
 use mei_lang_datasets::{
-    collect_all_query_options, evaluate_runtime_metrics_from_plan,
-    default_result_artifact_scope, load_metric_response_result_artifact,
-    load_prebuild_metric_response_artifact_dataset_fallback,
+    collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics_from_plan,
+    load_metric_response_result_artifact, load_prebuild_metric_response_artifact_dataset_fallback,
     metric_response_artifact_lookup_cache_keys, metric_response_cache_scope_key,
     normalize_query_filters, normalize_query_search, plan_access_metric_eval_for_ids,
-    project_requested_metrics, query_state_from_request,
-    runtime_metric_workset, store_cached_metric_response,
-    store_metric_response_result_artifact, take_cached_metric_response,
-    take_metric_response_index_stats, RuntimeMetricEvalMode,
+    project_requested_metrics, query_state_from_request, runtime_metric_workset,
+    store_cached_metric_response, store_metric_response_result_artifact,
+    take_cached_metric_response, take_metric_response_index_stats, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{resolve_app_root, FilterIntent, QueryState};
 
@@ -171,7 +169,10 @@ pub async fn dataset_metric_api(
         metric_ids = %requested_metric_ids
     );
     let _request_span_guard = request_span.enter();
-    tracing::info!(metric_group_count = request_group_count, "metric query started");
+    tracing::info!(
+        metric_group_count = request_group_count,
+        "metric query started"
+    );
 
     let coords = strict_scene_query_coords(
         request.scene_id.clone(),
@@ -293,8 +294,9 @@ pub async fn dataset_metric_api(
     }
     let mut merged_responses = Vec::new();
     while let Some(task) = tasks.join_next().await {
-        let (merged, group) = task
-            .map_err(|error| AppError::msg(format!("metric batch worker join failed: {error}")))??;
+        let (merged, group) = task.map_err(|error| {
+            AppError::msg(format!("metric batch worker join failed: {error}"))
+        })??;
         tracing::info!(
             dataset_id = %group.dataset_id,
             metric_count = group.metrics.len(),
@@ -318,7 +320,8 @@ pub async fn dataset_metric_api(
     for (merged, group) in merged_responses {
         let bundle_hit = merged.original_indexes.len() > 1;
         for original_index in merged.original_indexes {
-            let mut response = project_metric_group_response(&group, &request_groups[original_index]);
+            let mut response =
+                project_metric_group_response(&group, &request_groups[original_index]);
             response.perf.insert(
                 "default_board_bundle_hit".to_string(),
                 u64::from(bundle_hit),
@@ -337,7 +340,10 @@ pub async fn dataset_metric_api(
         u64::from(access_artifact_only),
     );
     perf.insert("metric_group_count".to_string(), groups.len() as u64);
-    perf.insert("metric_group_dataset_count".to_string(), merged_groups.len() as u64);
+    perf.insert(
+        "metric_group_dataset_count".to_string(),
+        merged_groups.len() as u64,
+    );
     perf.insert("response_group_count".to_string(), groups.len() as u64);
     perf.insert(
         "default_board_bundle_hit".to_string(),
@@ -365,7 +371,11 @@ pub async fn dataset_metric_api(
         );
         perf.insert(
             "slowest_group_metric_eval_ms".to_string(),
-            slowest_group.perf.get("metric_eval_ms").copied().unwrap_or(0),
+            slowest_group
+                .perf
+                .get("metric_eval_ms")
+                .copied()
+                .unwrap_or(0),
         );
         perf.insert(
             "slowest_group_metric_count".to_string(),
@@ -378,7 +388,11 @@ pub async fn dataset_metric_api(
         scene_id: scene_ctx.scene_id,
         scene_path: scene_ctx.scene_path,
         dataset_id: "__scene_batch__".to_string(),
-        total_rows: groups.iter().map(|group| group.total_rows).max().unwrap_or(0),
+        total_rows: groups
+            .iter()
+            .map(|group| group.total_rows)
+            .max()
+            .unwrap_or(0),
         metrics: Vec::new(),
         perf,
         groups,
@@ -434,15 +448,16 @@ fn requested_metric_ids_label(metric_ids: &[String]) -> String {
 fn merge_metric_query_groups(groups: &[MetricQueryGroupRequest]) -> Vec<MergedMetricGroupRequest> {
     let mut merged = BTreeMap::<String, MergedMetricGroupRequest>::new();
     for (index, group) in groups.iter().enumerate() {
-        let entry = merged
-            .entry(group.dataset_id.clone())
-            .or_insert_with(|| MergedMetricGroupRequest {
-                request: MetricQueryGroupRequest {
-                    dataset_id: group.dataset_id.clone(),
-                    metric_ids: group.metric_ids.clone(),
-                },
-                original_indexes: Vec::new(),
-            });
+        let entry =
+            merged
+                .entry(group.dataset_id.clone())
+                .or_insert_with(|| MergedMetricGroupRequest {
+                    request: MetricQueryGroupRequest {
+                        dataset_id: group.dataset_id.clone(),
+                        metric_ids: group.metric_ids.clone(),
+                    },
+                    original_indexes: Vec::new(),
+                });
         entry.original_indexes.push(index);
         if group.metric_ids.is_empty() {
             entry.request.metric_ids.clear();
@@ -451,7 +466,10 @@ fn merge_metric_query_groups(groups: &[MetricQueryGroupRequest]) -> Vec<MergedMe
         if entry.request.metric_ids.is_empty() {
             continue;
         }
-        entry.request.metric_ids.extend(group.metric_ids.iter().cloned());
+        entry
+            .request
+            .metric_ids
+            .extend(group.metric_ids.iter().cloned());
         entry.request.metric_ids.sort();
         entry.request.metric_ids.dedup();
     }
@@ -491,20 +509,21 @@ fn execute_metric_query_group(
     let request_started = Instant::now();
     let requested_metric_ids = requested_metric_ids_label(&request.metric_ids);
     let locate_started = Instant::now();
-    let resource = locate_dataset_resource(ctx.compiled, request.dataset_id.trim(), Some(ctx.coords))
-        .map_err(|error| {
-            tracing::warn!(
-                app_id = %ctx.app_id,
-                scene_id = %ctx.scene_id,
-                target = %ctx.scene_path.unwrap_or("-"),
-                dataset_id = %request.dataset_id,
-                metric_ids = %requested_metric_ids,
-                phase = "locate_dataset",
-                error = ?error,
-                "metric query locate failed"
-            );
-            AppError::from(error)
-        })?;
+    let resource =
+        locate_dataset_resource(ctx.compiled, request.dataset_id.trim(), Some(ctx.coords))
+            .map_err(|error| {
+                tracing::warn!(
+                    app_id = %ctx.app_id,
+                    scene_id = %ctx.scene_id,
+                    target = %ctx.scene_path.unwrap_or("-"),
+                    dataset_id = %request.dataset_id,
+                    metric_ids = %requested_metric_ids,
+                    phase = "locate_dataset",
+                    error = ?error,
+                    "metric query locate failed"
+                );
+                AppError::from(error)
+            })?;
     let locate_dataset_ms = elapsed_ms(locate_started);
     let dataset = resource.dataset.as_ref().ok_or_else(|| {
         AppError::status(
@@ -566,29 +585,24 @@ fn execute_metric_query_group(
         ctx.filter_intents,
         result_artifact_candidate,
     );
-    let response_cache_key = lookup_cache_keys
-        .first()
-        .cloned()
-        .unwrap_or_else(|| {
-            metric_response_cache_scope_key(
-                ctx.app_id,
-                ctx.scene_id,
-                ctx.scene_path,
-                access_plan.owner.id.as_str(),
-                &query,
-                ctx.compile_revision,
-                "",
-                ctx.filter_intents,
-            )
-        });
+    let response_cache_key = lookup_cache_keys.first().cloned().unwrap_or_else(|| {
+        metric_response_cache_scope_key(
+            ctx.app_id,
+            ctx.scene_id,
+            ctx.scene_path,
+            access_plan.owner.id.as_str(),
+            &query,
+            ctx.compile_revision,
+            "",
+            ctx.filter_intents,
+        )
+    });
     let response_cache_lookup_started = Instant::now();
     let mut cached_hit = None;
     for cache_key in &lookup_cache_keys {
-        if let Some(cached) = take_cached_metric_response(
-            cache_key,
-            &requested_eval_metric_ids,
-            request_all_metrics,
-        ) {
+        if let Some(cached) =
+            take_cached_metric_response(cache_key, &requested_eval_metric_ids, request_all_metrics)
+        {
             cached_hit = Some((cache_key.clone(), cached));
             break;
         }
@@ -596,10 +610,7 @@ fn execute_metric_query_group(
     if let Some((hit_cache_key, cached)) = cached_hit {
         let mut perf = BTreeMap::new();
         ctx.compile_observation.write_perf(&mut perf);
-        perf.insert(
-            "access_artifact_only_mode".to_string(),
-            1,
-        );
+        perf.insert("access_artifact_only_mode".to_string(), 1);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         perf.insert("result_artifact_hit".to_string(), 0);
         let mut eval_observation = EvalObservation::new(true)
@@ -671,86 +682,83 @@ fn execute_metric_query_group(
             }
         }
         if let Some((hit_cache_key, artifact, artifact_load_ms)) = loaded_artifact {
-                let index_stats = take_metric_response_index_stats();
-                store_cached_metric_response(
-                    hit_cache_key.clone(),
-                    artifact.total_rows,
-                    &artifact.metrics_map,
-                    &artifact.covered_metric_ids,
-                    artifact.complete,
-                );
-                let mut perf = BTreeMap::new();
-                ctx.compile_observation.write_perf(&mut perf);
-                perf.insert(
-                    "access_artifact_only_mode".to_string(),
-                    1,
-                );
-                perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
-                perf.insert("response_cache_hit".to_string(), 0);
-                perf.insert("result_artifact_hit".to_string(), 1);
-                perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
-                perf.insert(
-                    "result_artifact_index_load_ms".to_string(),
-                    index_stats.load_ms,
-                );
-                perf.insert(
-                    "result_artifact_index_entry_count".to_string(),
-                    index_stats.entry_count as u64,
-                );
-                perf.insert(
-                    "result_artifact_fallback_hit".to_string(),
-                    u64::from(used_fallback),
-                );
-                let mut eval_observation = EvalObservation::new(false)
-                    .with_response_cache_key_hash(hash_metric_response_cache_key(&hit_cache_key));
-                eval_observation.insert_counter("request_dag_observed", 0);
-                eval_observation.insert_counter("eval_memo_hits", 0);
-                eval_observation.insert_counter("eval_memo_eval_node_cache_hits", 0);
-                eval_observation.insert_counter("eval_memo_eval_node_cache_misses", 0);
-                perf.insert(
-                    "response_cache_lookup_ms".to_string(),
-                    elapsed_ms(response_cache_lookup_started),
-                );
-                eval_observation.insert_counter(
-                    "response_cache_metric_coverage".to_string(),
-                    artifact.covered_metric_ids.len() as u64,
-                );
-                eval_observation.insert_counter(
-                    "response_cache_complete".to_string(),
-                    u64::from(artifact.complete),
-                );
-                perf.insert("total_ms".to_string(), elapsed_ms(request_started));
-                eval_observation.write_perf(&mut perf);
-                let metrics = project_requested_metrics(
-                    &access_plan.owner.id,
-                    &access_plan.request_metric_ids,
-                    &owner_dataset.runtime_metric_defs,
-                    &artifact.metrics_map,
-                );
-                return Ok(MetricQueryGroupResponse {
-                    dataset_id: resource.id.clone(),
-                    total_rows: artifact.total_rows,
-                    metrics,
-                    perf,
-                });
+            let index_stats = take_metric_response_index_stats();
+            store_cached_metric_response(
+                hit_cache_key.clone(),
+                artifact.total_rows,
+                &artifact.metrics_map,
+                &artifact.covered_metric_ids,
+                artifact.complete,
+            );
+            let mut perf = BTreeMap::new();
+            ctx.compile_observation.write_perf(&mut perf);
+            perf.insert("access_artifact_only_mode".to_string(), 1);
+            perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
+            perf.insert("response_cache_hit".to_string(), 0);
+            perf.insert("result_artifact_hit".to_string(), 1);
+            perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
+            perf.insert(
+                "result_artifact_index_load_ms".to_string(),
+                index_stats.load_ms,
+            );
+            perf.insert(
+                "result_artifact_index_entry_count".to_string(),
+                index_stats.entry_count as u64,
+            );
+            perf.insert(
+                "result_artifact_fallback_hit".to_string(),
+                u64::from(used_fallback),
+            );
+            let mut eval_observation = EvalObservation::new(false)
+                .with_response_cache_key_hash(hash_metric_response_cache_key(&hit_cache_key));
+            eval_observation.insert_counter("request_dag_observed", 0);
+            eval_observation.insert_counter("eval_memo_hits", 0);
+            eval_observation.insert_counter("eval_memo_eval_node_cache_hits", 0);
+            eval_observation.insert_counter("eval_memo_eval_node_cache_misses", 0);
+            perf.insert(
+                "response_cache_lookup_ms".to_string(),
+                elapsed_ms(response_cache_lookup_started),
+            );
+            eval_observation.insert_counter(
+                "response_cache_metric_coverage".to_string(),
+                artifact.covered_metric_ids.len() as u64,
+            );
+            eval_observation.insert_counter(
+                "response_cache_complete".to_string(),
+                u64::from(artifact.complete),
+            );
+            perf.insert("total_ms".to_string(), elapsed_ms(request_started));
+            eval_observation.write_perf(&mut perf);
+            let metrics = project_requested_metrics(
+                &access_plan.owner.id,
+                &access_plan.request_metric_ids,
+                &owner_dataset.runtime_metric_defs,
+                &artifact.metrics_map,
+            );
+            return Ok(MetricQueryGroupResponse {
+                dataset_id: resource.id.clone(),
+                total_rows: artifact.total_rows,
+                metrics,
+                perf,
+            });
         }
         if !ctx.access_artifact_only {
             // Build view may JIT-evaluate metrics when prebuild artifacts are absent.
         } else {
-        // Access strict AOT must keep the "prebuild first, then use" contract.
-        // Once access_artifact_only is enabled, missing artifacts must surface as
-        // not-ready / unavailable rather than silently falling back to runtime JIT.
-        let error = format!(
+            // Access strict AOT must keep the "prebuild first, then use" contract.
+            // Once access_artifact_only is enabled, missing artifacts must surface as
+            // not-ready / unavailable rather than silently falling back to runtime JIT.
+            let error = format!(
             "missing strict AOT metric result artifact for dataset `{}` scene `{}`; run `mei-toolchain prebuild` first",
             resource.id, ctx.scene_id
         );
-        crate::http::host_api::mark_access_artifact_degraded(
-            ctx.app_id,
-            Some(ctx.scene_id),
-            ctx.scene_path,
-            &error,
-        );
-        return Err(AppError::status(StatusCode::SERVICE_UNAVAILABLE, error));
+            crate::http::host_api::mark_access_artifact_degraded(
+                ctx.app_id,
+                Some(ctx.scene_id),
+                ctx.scene_path,
+                &error,
+            );
+            return Err(AppError::status(StatusCode::SERVICE_UNAVAILABLE, error));
         }
     }
 
@@ -785,10 +793,7 @@ fn execute_metric_query_group(
     let metrics_map = eval_outcome.metrics_map;
     let mut perf = eval_outcome.query_perf;
     ctx.compile_observation.write_perf(&mut perf);
-    perf.insert(
-        "access_artifact_only_mode".to_string(),
-        1,
-    );
+    perf.insert("access_artifact_only_mode".to_string(), 1);
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("result_artifact_hit".to_string(), 0);
     let mut eval_observation = EvalObservation::new(false)

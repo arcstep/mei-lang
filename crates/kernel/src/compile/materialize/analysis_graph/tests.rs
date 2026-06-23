@@ -1,4 +1,7 @@
-use super::{analysis_closure_metric_ids, build_analysis_contracts, build_analysis_graph, expand_runtime_metric_defs};
+use super::{
+    analysis_closure_metric_ids, build_analysis_contracts, build_analysis_graph,
+    expand_runtime_metric_defs,
+};
 use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;

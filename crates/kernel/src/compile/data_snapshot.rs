@@ -21,8 +21,7 @@ use super::scene_payload_cache::file_mtime_ms;
 use crate::resolve_versioned_source_identifier;
 
 pub const DATA_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
-pub const DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION: &str =
-    "mei-dataset-import-manifest-v1";
+pub const DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION: &str = "mei-dataset-import-manifest-v1";
 const PARQUET_META_COLUMNS: &str = "mei_columns_json";
 const PARQUET_META_SOURCE_PATH: &str = "mei_source_path";
 const PARQUET_META_SHEET: &str = "mei_sheet";
@@ -109,8 +108,11 @@ pub fn parquet_snapshot_path(
     let content_sig = source_file_content_signature(absolute.as_path(), resolved.as_str());
     let sheet = sheet.unwrap_or("").trim();
     Some(
-        data_snapshot_store_root(app_root)
-            .join(parquet_snapshot_filename(content_sig.as_str(), sheet, header_row.max(1))),
+        data_snapshot_store_root(app_root).join(parquet_snapshot_filename(
+            content_sig.as_str(),
+            sheet,
+            header_row.max(1),
+        )),
     )
 }
 
@@ -159,7 +161,9 @@ pub fn resolve_data_snapshot_import_entry(
         return None;
     }
     let expected_sig = source_file_content_signature(absolute.as_path(), resolved.as_str());
-    let manifest = read_data_snapshot_import_manifest(app_root).ok().flatten()?;
+    let manifest = read_data_snapshot_import_manifest(app_root)
+        .ok()
+        .flatten()?;
     manifest.entries.into_iter().find(|entry| {
         entry.resolved_source_path == resolved
             && entry.header_row == header_row.max(1)
@@ -168,13 +172,15 @@ pub fn resolve_data_snapshot_import_entry(
     })
 }
 
-fn upsert_data_snapshot_import_entry(app_root: &Path, entry: DataSnapshotImportEntry) -> Result<()> {
-    let mut manifest = read_data_snapshot_import_manifest(app_root)?.unwrap_or(
-        DataSnapshotImportManifest {
+fn upsert_data_snapshot_import_entry(
+    app_root: &Path,
+    entry: DataSnapshotImportEntry,
+) -> Result<()> {
+    let mut manifest =
+        read_data_snapshot_import_manifest(app_root)?.unwrap_or(DataSnapshotImportManifest {
             schema_version: DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION.to_string(),
             entries: Vec::new(),
-        },
-    );
+        });
     manifest.schema_version = DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION.to_string();
     manifest.entries.retain(|existing| {
         !(existing.resolved_source_path == entry.resolved_source_path
@@ -276,8 +282,8 @@ pub fn write_xlsx_parquet_snapshot(
             ),
         ]))
         .build();
-    let mut writer = ArrowWriter::try_new(file, batch.schema(), Some(props))
-        .context("open parquet writer")?;
+    let mut writer =
+        ArrowWriter::try_new(file, batch.schema(), Some(props)).context("open parquet writer")?;
     writer.write(&batch).context("write parquet batch")?;
     writer.close().context("close parquet writer")?;
     upsert_data_snapshot_import_entry(
@@ -398,7 +404,8 @@ mod tests {
 
     #[test]
     fn parquet_roundtrip_matches_calamine_snapshot() {
-        let app_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-spbjw/zhifa");
+        let app_root =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-spbjw/zhifa");
         let rel = "upload/8.行政处罚结果清单.xlsx";
         if !app_root.join(rel).is_file() {
             return;
@@ -407,8 +414,8 @@ mod tests {
         assert!(written.is_file());
         let from_parquet =
             try_load_xlsx_parquet_snapshot(app_root.as_path(), rel, None, 1).expect("read parquet");
-        let from_xlsx =
-            load_xlsx_table_snapshot(app_root.join(rel).as_path(), rel, None, 1, None).expect("xlsx");
+        let from_xlsx = load_xlsx_table_snapshot(app_root.join(rel).as_path(), rel, None, 1, None)
+            .expect("xlsx");
         assert_eq!(from_parquet.columns, from_xlsx.columns);
         assert_eq!(from_parquet.rows.len(), from_xlsx.rows.len());
         let _ = fs::remove_file(written);

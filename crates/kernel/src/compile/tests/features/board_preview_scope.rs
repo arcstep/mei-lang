@@ -1,8 +1,8 @@
+use crate::build_runtime_resource_index;
 use crate::compile::{
     compile_app_from_root_with_options, compile_scene_from_build_node,
     preview_target_from_build_node_with_app, CompileOptions,
 };
-use crate::build_runtime_resource_index;
 use crate::Severity;
 
 use super::super::harness::workspace_root;
@@ -49,14 +49,20 @@ fn board_preview_scope_compiles_single_export_when_scene_set() {
             .scene_projection_assembly_by_id
             .contains_key(scene_id),
         "expected assembly for `{scene_id}`, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     assert!(
         compiled
             .scene_projection_assembly_by_id
             .contains_key("enforcement_units_analytics_board"),
         "finish should hydrate sibling board assemblies for build-view Boards tree, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     assert!(
         !compiled.build_board_index.boards.is_empty(),
@@ -92,14 +98,21 @@ fn board_build_node_compile_options_produce_board_resources() {
     assert!(
         !compiled.resources.is_empty(),
         "board preview should materialize scene resources, got {:?}",
-        compiled.resources.iter().map(|r| r.id.as_str()).collect::<Vec<_>>()
+        compiled
+            .resources
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>()
     );
     let index = build_runtime_resource_index(&compiled);
     assert!(
         index
             .canonical_id("__world_metrics__::scenes/01-执法要素.mei::metrics")
             .is_some()
-            || compiled.resources.iter().any(|r| r.id.contains("world_metrics")),
+            || compiled
+                .resources
+                .iter()
+                .any(|r| r.id.contains("world_metrics")),
         "board preview should expose world metrics dataset aliases"
     );
 }
@@ -121,8 +134,7 @@ fn board_preview_scope_requires_scene_for_multi_export_file() {
     .expect("compile multi-export board without scene should return diagnostics");
     assert!(
         compiled.diagnostics.iter().any(|diag| {
-            diag.code == "missing_scene_export_selector"
-                && matches!(diag.severity, Severity::Error)
+            diag.code == "missing_scene_export_selector" && matches!(diag.severity, Severity::Error)
         }),
         "expected missing_scene_export_selector error, got: {:?}",
         compiled.diagnostics
@@ -184,7 +196,10 @@ fn board_scoped_compile_materializes_metric_defs_for_penalty_and_mechanism_board
     assert!(
         penalty_dataset.has_runtime_metric_defs(),
         "penalty board preview should materialize runtime_metric_defs, keys: {:?}",
-        penalty_dataset.runtime_metric_defs.keys().collect::<Vec<_>>()
+        penalty_dataset
+            .runtime_metric_defs
+            .keys()
+            .collect::<Vec<_>>()
     );
 
     let mechanism_node = crate::model::BuildNodeId::board_file(
@@ -217,17 +232,16 @@ fn board_scoped_compile_materializes_metric_defs_for_penalty_and_mechanism_board
         world_metrics
             .dataset
             .as_ref()
-            .and_then(|dataset| dataset.runtime_metric_defs.get("effectiveness_mechanism_item_count"))
+            .and_then(|dataset| dataset
+                .runtime_metric_defs
+                .get("effectiveness_mechanism_item_count"))
             .is_some()
-            || world_metrics
-                .dataset
-                .as_ref()
-                .is_some_and(|dataset| {
-                    dataset
-                        .runtime_metric_defs
-                        .keys()
-                        .any(|key| key.contains("mechanism"))
-                }),
+            || world_metrics.dataset.as_ref().is_some_and(|dataset| {
+                dataset
+                    .runtime_metric_defs
+                    .keys()
+                    .any(|key| key.contains("mechanism"))
+            }),
         "world metrics should include mechanism effectiveness metric, keys: {:?}",
         world_metrics
             .dataset
@@ -337,7 +351,10 @@ fn parent_scene_preview_still_hydrates_referenced_board_assemblies() {
             .scene_projection_assembly_by_id
             .contains_key("enforcement_units_analytics_board"),
         "parent scene preview should still hydrate linked board assemblies, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
 }
 
@@ -346,12 +363,9 @@ fn zhifa_compile_includes_boards_group_with_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile zhifa");
+    let compiled =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile zhifa");
     let boards = compiled
         .build_experience_index
         .reachability_snapshot
@@ -372,8 +386,7 @@ fn zhifa_compile_includes_boards_group_with_slots() {
         .children
         .iter()
         .find(|node| {
-            node.label.contains("监督")
-                || node.badges.iter().any(|badge| badge.contains("05"))
+            node.label.contains("监督") || node.badges.iter().any(|badge| badge.contains("05"))
         })
         .expect("supervision warning board entry");
     assert!(
@@ -392,12 +405,9 @@ fn single_export_board_mei_is_listed_in_boards_group() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile zhifa");
+    let compiled =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile zhifa");
     assert!(
         compiled
             .build_board_index
@@ -412,10 +422,10 @@ fn single_export_board_mei_is_listed_in_boards_group() {
         .find(|group| group.group == "boards")
         .expect("boards group");
     assert!(
-        boards
-            .children
+        boards.children.iter().any(|node| node
+            .badges
             .iter()
-            .any(|node| node.badges.iter().any(|badge| badge.contains("mechanism-documents"))),
+            .any(|badge| badge.contains("mechanism-documents"))),
         "boards tree should list single-export capsule: {:?}",
         boards.children
     );

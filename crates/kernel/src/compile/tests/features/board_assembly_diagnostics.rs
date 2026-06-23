@@ -183,7 +183,10 @@ frame()
     );
 
     let result = compile_app_from_root(&source_root, &app_root);
-    assert!(result.is_err(), "expected compile to fail for explain chart_kind ban");
+    assert!(
+        result.is_err(),
+        "expected compile to fail for explain chart_kind ban"
+    );
     let message = result
         .err()
         .map(|error| error.to_string())

@@ -7,9 +7,13 @@ mod analysis;
 mod app_compile;
 mod app_decl;
 mod authoring_eval;
+mod build_board_index;
 mod build_experience;
+mod build_experience_index;
 mod build_node_context;
+mod build_template_index;
 mod catalog;
+mod component_authoring_preview;
 mod data_snapshot;
 mod decl_file_cache;
 mod decls;
@@ -23,10 +27,6 @@ mod materialize_cache;
 mod mutations;
 mod panel_normalize;
 mod projection_assembly;
-mod build_experience_index;
-mod build_board_index;
-mod build_template_index;
-mod component_authoring_preview;
 mod reachability_tree;
 mod resources;
 mod route_compile;
@@ -34,9 +34,9 @@ mod rowset_engine;
 mod scene;
 mod scene_binding;
 mod scene_payload_cache;
+mod shards;
 mod source_tree_enrich;
 mod source_tree_world;
-mod shards;
 mod ui_data_policy;
 mod xlsx_singleflight;
 
@@ -61,26 +61,22 @@ pub use app_compile::{
     compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
     CompileAppArtifacts,
 };
+pub use build_board_index::build_board_index;
 pub use build_experience::{
     aggregate_use_key_badges, backing_refs_from_block_props, block_instance_id,
-    build_experience_path,
-    build_overview_backing, compile_coordinate_for_node, compile_scene_from_build_node,
-    compile_scene_from_build_node_with_app,
-    experience_layout_hint,
-    experience_mount_chain, format_experience_path,
-    preview_target_from_build_node_with_app, BuildCompileCoordinate, BuildPreviewKind,
+    build_experience_path, build_overview_backing, compile_coordinate_for_node,
+    compile_scene_from_build_node, compile_scene_from_build_node_with_app, experience_layout_hint,
+    experience_mount_chain, format_experience_path, preview_target_from_build_node_with_app,
+    BuildCompileCoordinate, BuildPreviewKind,
 };
-pub use build_board_index::build_board_index;
 pub use build_experience_index::{build_experience_index, enrich_reachability_tree_compile_coords};
-pub use build_template_index::build_template_index;
 pub use build_node_context::{
     default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,
     BuildNodeContext,
 };
-pub use reachability_tree::{
-    build_reachability_tree, ReachabilityTreeNode, ReachabilityTreeRoot,
-};
+pub use build_template_index::build_template_index;
 pub use discover_routes::{CompileOptions, CompileRevisionPlan, CompileWatchedFile};
+pub use reachability_tree::{build_reachability_tree, ReachabilityTreeNode, ReachabilityTreeRoot};
 
 pub use materialize_cache::cached_load_xlsx_table_snapshot;
 pub use materialize_cache::dataset_materialize_cache_epoch;
@@ -191,10 +187,10 @@ pub use analysis::eval_context::{
     runtime_eval_node_cache_enabled, RequestDagMetrics, RuntimeMetricEvalScope,
 };
 pub use materialize::{
-    capsule_path_from_namespaced_resource_id, imported_capsule_path_from_world_metrics_resource_id,
-    local_dataset_id_from_namespaced_token, resolve_runtime_metric_def_key,
-    evaluate_runtime_metric_defs_with_plan_and_dag, EvalPlan, EvalPlanEdge, EvalPlanEdgeKind,
-    EvalPlanNode, EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
+    capsule_path_from_namespaced_resource_id, evaluate_runtime_metric_defs_with_plan_and_dag,
+    imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
+    resolve_runtime_metric_def_key, EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode,
+    EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
 };
 
 #[cfg(test)]

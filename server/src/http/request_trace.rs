@@ -91,7 +91,10 @@ pub(crate) fn classify_route(method: &Method, uri: &Uri) -> (String, String) {
             .to_string()
     };
     if *method == Method::GET && path.starts_with("/apps/presentation/") {
-        return ("presentation_page".to_string(), app_tail("/apps/presentation/"));
+        return (
+            "presentation_page".to_string(),
+            app_tail("/apps/presentation/"),
+        );
     }
     if *method == Method::GET && path.starts_with("/apps/build/") {
         return ("build_page".to_string(), app_tail("/apps/build/"));
@@ -112,13 +115,22 @@ pub(crate) fn classify_route(method: &Method, uri: &Uri) -> (String, String) {
         return ("access_page_legacy".to_string(), app_tail("/apps/access/"));
     }
     if *method == Method::POST && path.starts_with("/api/datasets/query/") {
-        return ("dataset_query".to_string(), app_tail("/api/datasets/query/"));
+        return (
+            "dataset_query".to_string(),
+            app_tail("/api/datasets/query/"),
+        );
     }
     if *method == Method::POST && path.starts_with("/api/datasets/metrics/") {
-        return ("metric_query".to_string(), app_tail("/api/datasets/metrics/"));
+        return (
+            "metric_query".to_string(),
+            app_tail("/api/datasets/metrics/"),
+        );
     }
     if *method == Method::POST && path.starts_with("/api/datasets/recompute/") {
-        return ("dataset_recompute".to_string(), app_tail("/api/datasets/recompute/"));
+        return (
+            "dataset_recompute".to_string(),
+            app_tail("/api/datasets/recompute/"),
+        );
     }
     if path.starts_with("/api/") {
         return ("api".to_string(), path.trim_start_matches('/').to_string());
@@ -266,7 +278,11 @@ fn filter_records(
         .collect()
 }
 
-fn build_summary(records: Vec<RequestTraceRecord>, capacity: usize, total_recorded: u64) -> RequestTraceSummaryResponse {
+fn build_summary(
+    records: Vec<RequestTraceRecord>,
+    capacity: usize,
+    total_recorded: u64,
+) -> RequestTraceSummaryResponse {
     let count = records.len();
     let mut latency_ms_total = 0_u128;
     let mut latency_ms_max = 0_u128;
@@ -396,8 +412,14 @@ mod tests {
             });
         }
         assert_eq!(store.records.len(), 3);
-        assert_eq!(store.records.front().map(|r| r.request_id.as_str()), Some("req-2"));
-        assert_eq!(store.records.back().map(|r| r.request_id.as_str()), Some("req-4"));
+        assert_eq!(
+            store.records.front().map(|r| r.request_id.as_str()),
+            Some("req-2")
+        );
+        assert_eq!(
+            store.records.back().map(|r| r.request_id.as_str()),
+            Some("req-4")
+        );
         assert_eq!(store.total_recorded, 5);
     }
 }

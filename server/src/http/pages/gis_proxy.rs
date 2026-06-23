@@ -182,10 +182,9 @@ pub async fn gis_proxy(
     copy_proxy_header(&headers, response.headers_mut(), header::ETAG);
     copy_proxy_header(&headers, response.headers_mut(), header::LAST_MODIFIED);
     if !response.headers().contains_key(header::CACHE_CONTROL) {
-        response.headers_mut().insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("no-store"),
-        );
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     }
     Ok(response)
 }
@@ -222,16 +221,19 @@ mod tests {
         let body = rewrite_tilejson_body(raw, Some("http://127.0.0.1:9527"))
             .expect("must rewrite tilejson");
         let text = String::from_utf8(body).expect("utf8 json");
-        assert!(text.contains(
-            r#""tiles":["http://127.0.0.1:9527/gis/shapingba-z10-16/{z}/{x}/{y}"]"#
-        ));
+        assert!(
+            text.contains(r#""tiles":["http://127.0.0.1:9527/gis/shapingba-z10-16/{z}/{x}/{y}"]"#)
+        );
     }
 
     #[test]
     fn request_origin_prefers_forwarded_host_and_proto() {
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
-        headers.insert("x-forwarded-host", HeaderValue::from_static("demo.example.com"));
+        headers.insert(
+            "x-forwarded-host",
+            HeaderValue::from_static("demo.example.com"),
+        );
         let uri: Uri = "/gis/shapingba-z10-16".parse().expect("uri");
         assert_eq!(
             request_origin(&headers, &uri).as_deref(),

@@ -21,7 +21,8 @@ impl WorldSemanticQuery<'_> {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .is_some()
-            || self.world_dataset
+            || self
+                .world_dataset
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .is_some()

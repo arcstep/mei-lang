@@ -2,9 +2,7 @@ use std::path::Path;
 
 use chrono::{DateTime, Local};
 use mei_lang_app::SourcePanelMeta;
-use mei_lang_kernel::{
-    compile_app_with_options, CompileOptions, WorkspaceAppMeta,
-};
+use mei_lang_kernel::{compile_app_with_options, CompileOptions, WorkspaceAppMeta};
 use std::fs;
 
 pub(crate) fn source_panel_meta(source_path: &Path, source: &str) -> SourcePanelMeta {

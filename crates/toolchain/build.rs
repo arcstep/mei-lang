@@ -78,7 +78,9 @@ fn main() {
     };
     let build_version = format!("{cargo_package_version}+{internal_version}");
     let build_timestamp_utc = env_override("MEI_BUILD_TIMESTAMP_UTC")
-        .or_else(|| run_git(&repo_root, &["log", "-1", "--format=%cI"]).filter(|value| !value.is_empty()))
+        .or_else(|| {
+            run_git(&repo_root, &["log", "-1", "--format=%cI"]).filter(|value| !value.is_empty())
+        })
         .unwrap_or_else(|| "unknown".to_string());
 
     emit_rustc_env("MEI_CARGO_PACKAGE_VERSION", &cargo_package_version);

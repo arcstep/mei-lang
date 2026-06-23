@@ -4,11 +4,18 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::mei_config::resolve_templates_root;
-use crate::model::{BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest, PanelDecl, UiNodeDecl};
+use crate::model::{
+    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest, PanelDecl,
+    UiNodeDecl,
+};
 
 /// First path segment of scene-scoped UI node keys (`home/panel/block`).
 pub fn scene_id_from_ui_node_key(key: &str) -> Option<String> {
-    key.split('/').next().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    key.split('/')
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub fn is_template_file_node_key(key: &str) -> bool {
@@ -80,10 +87,7 @@ fn relative_path_from_to(from: &Path, to: &Path) -> Option<String> {
     None
 }
 
-pub fn preview_target_for_scene_id(
-    compiled: &CompiledApp,
-    scene_id: &str,
-) -> Option<String> {
+pub fn preview_target_for_scene_id(compiled: &CompiledApp, scene_id: &str) -> Option<String> {
     compiled
         .scene_routes
         .iter()
@@ -105,8 +109,9 @@ pub fn preview_target_from_build_node_with_app(
             let (file, _, _) = split_world_explain_key(&node.key);
             non_empty_path(file)
         }
-        BuildNodeKind::Scene | BuildNodeKind::Route => compiled
-            .and_then(|app| preview_target_for_scene_id(app, node.key.as_str())),
+        BuildNodeKind::Scene | BuildNodeKind::Route => {
+            compiled.and_then(|app| preview_target_for_scene_id(app, node.key.as_str()))
+        }
         BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock => {
             let scene_id = scene_id_from_ui_node_key(&node.key)?;
             compiled.and_then(|app| preview_target_for_scene_id(app, scene_id.as_str()))
@@ -123,8 +128,11 @@ pub fn preview_target_from_build_node_with_app(
             non_empty_path(file)
         }
         BuildNodeKind::Template => compiled.and_then(|app| {
-            super::build_template_index::authoring_preview_target_for_template(app, node.key.as_str())
-                .or_else(|| template_consumer_preview_target(app, node.key.as_str()))
+            super::build_template_index::authoring_preview_target_for_template(
+                app,
+                node.key.as_str(),
+            )
+            .or_else(|| template_consumer_preview_target(app, node.key.as_str()))
         }),
         _ => None,
     }
@@ -173,8 +181,11 @@ pub fn compile_scene_from_build_node_with_app(
 ) -> Option<String> {
     if node.kind == BuildNodeKind::Template {
         if let Some(app) = compiled {
-            if super::build_template_index::authoring_preview_target_for_template(app, node.key.as_str())
-                .is_some()
+            if super::build_template_index::authoring_preview_target_for_template(
+                app,
+                node.key.as_str(),
+            )
+            .is_some()
             {
                 return None;
             }
@@ -328,20 +339,11 @@ fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> 
         BuildNodeKind::WorldFile => vec!["Backing · World".to_string(), node.key.clone()],
         BuildNodeKind::WorldDataset | BuildNodeKind::WorldMetric => {
             let (file, symbol) = split_file_symbol(&node.key);
-            vec![
-                "Backing · World".to_string(),
-                file,
-                symbol,
-            ]
+            vec!["Backing · World".to_string(), file, symbol]
         }
         BuildNodeKind::WorldExplain => {
             let (file, metric, explain) = split_world_explain_key(&node.key);
-            vec![
-                "Backing · World".to_string(),
-                file,
-                metric,
-                explain,
-            ]
+            vec!["Backing · World".to_string(), file, metric, explain]
         }
         BuildNodeKind::Dataset => vec!["Backing · Datasets".to_string(), node.key.clone()],
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
@@ -362,9 +364,10 @@ fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> 
                     entry.template_key.clone(),
                     entry.template_file.clone(),
                 ];
-                if let Some(anchor) =
-                    super::build_template_index::template_primary_consumer(compiled, entry.template_key.as_str())
-                {
+                if let Some(anchor) = super::build_template_index::template_primary_consumer(
+                    compiled,
+                    entry.template_key.as_str(),
+                ) {
                     rows.push(format!(
                         "→ {} / {} / {}",
                         anchor.scene_id, anchor.panel_path, anchor.label
@@ -598,15 +601,17 @@ pub fn build_overview_backing(compiled: &CompiledApp, node: &BuildNodeId) -> Vec
     build_overview_backing_runtime(compiled, node)
 }
 
-pub fn experience_mount_chain(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<crate::model::MountChainEntry> {
+pub fn experience_mount_chain(
+    compiled: &CompiledApp,
+    node: &BuildNodeId,
+) -> Vec<crate::model::MountChainEntry> {
     ExperienceNodeManifest::lookup(compiled, node)
         .map(|manifest| manifest.mount_chain.clone())
         .unwrap_or_default()
 }
 
 pub fn experience_layout_hint(compiled: &CompiledApp, node: &BuildNodeId) -> Option<String> {
-    ExperienceNodeManifest::lookup(compiled, node)
-        .and_then(|manifest| manifest.layout_hint.clone())
+    ExperienceNodeManifest::lookup(compiled, node).and_then(|manifest| manifest.layout_hint.clone())
 }
 
 fn build_overview_backing_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
@@ -705,7 +710,10 @@ mod tests {
     #[test]
     fn compile_scene_from_panel_node() {
         let node = BuildNodeId::scene_panel("home", "kpi_row");
-        assert_eq!(compile_scene_from_build_node(&node).as_deref(), Some("home"));
+        assert_eq!(
+            compile_scene_from_build_node(&node).as_deref(),
+            Some("home")
+        );
     }
 
     #[test]
@@ -861,10 +869,7 @@ mod tests {
         let node = BuildNodeId::template("cockpit/main.mei");
         let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
         assert_eq!(coord.scene_id, None);
-        assert_eq!(
-            coord.preview_target,
-            "../.stock/templates/cockpit/main.mei"
-        );
+        assert_eq!(coord.preview_target, "../.stock/templates/cockpit/main.mei");
         assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
     }
 

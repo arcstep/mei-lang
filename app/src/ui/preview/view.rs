@@ -27,125 +27,126 @@ pub(crate) fn preview_view(
             compiled.active_target_file.clone()
         }
     };
-    let skip_scene_contract_for_build_world = route_mode == UiRouteMode::Build
-        && is_world_capsule_target(selected_target);
+    let skip_scene_contract_for_build_world =
+        route_mode == UiRouteMode::Build && is_world_capsule_target(selected_target);
     if let Some(scene_contract) = &compiled.scene_contract {
         if skip_scene_contract_for_build_world {
             // Build view may compile a cached home artifact while the selected node targets a
             // world capsule; do not render the home scene frame (it embeds unrelated metric refs).
         } else {
-        let resolved_theme = theme::resolve_theme(scene_contract);
-        if let Some(frame) = &scene_contract.frame {
-            let frame_props = theme::resolve_shared_refs(
-                &theme::deep_merge_value(&resolved_theme.frame, &frame.props),
-                &resolved_theme.shared,
-            );
-            let panels = scene_contract
-                .panels
-                .iter()
-                .map(|panel| {
-                    nodes::panel_view(
-                        panel,
-                        frame.layout.as_ref(),
-                        compiled,
-                        app_path,
-                        scene_contract,
-                        &runtime_ctx,
-                        &resolved_theme,
-                        0,
-                        preview_scene_path.as_str(),
-                        None,
-                    )
-                })
-                .collect_view();
-            let vp = viewport::resolve_frame_viewport(
-                &frame_props,
-                scene_contract.scene.profile.as_deref(),
-            );
-            if let Some(vp) = vp {
-                let viewport_explicit = viewport::frame_viewport_is_explicit(&frame_props);
-                let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
-                let is_manage = route_mode == UiRouteMode::Build;
-                let content_bounds =
-                    viewport::frame_stage_content_bounds_for_viewport(&frame_props, &vp);
-                let fluid_height = vp.fluid_height;
-                let fluid_width = content_bounds.max_width.is_some() && !fluid_height;
-                let mut viewport_style = if fluid_width {
-                    viewport::frame_viewport_style_fluid_width_for_route(
-                        &vp,
-                        overflow_mode.as_str(),
-                        route_mode,
-                    )
-                } else {
-                    viewport::frame_viewport_style_for_route(
-                        &vp,
-                        overflow_mode.as_str(),
-                        route_mode,
-                    )
-                };
-                viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
-                viewport_style.push_str(&theme::scene_viewport_theme_style(compiled));
-                let content_max_width = content_bounds.max_width.unwrap_or(0.0).to_string();
-                let content_height = if fluid_width {
-                    "0".to_string()
-                } else {
-                    content_bounds.height.to_string()
-                };
-                let content_fluid_height = if fluid_height { "true" } else { "false" };
-                let viewport_class = if is_manage {
-                    if fluid_width {
-                        "preview-viewport preview-viewport-edit-debug preview-viewport-fluid-width"
-                    } else if fluid_height {
-                        "preview-viewport preview-viewport-edit-debug preview-viewport-fluid-height"
-                    } else {
-                        "preview-viewport preview-viewport-edit-debug"
-                    }
-                } else if fluid_width {
-                    "preview-viewport preview-viewport-access-clip preview-viewport-fluid-width"
-                } else if fluid_height {
-                    "preview-viewport preview-viewport-access-clip preview-viewport-fluid-height"
-                } else {
-                    "preview-viewport preview-viewport-access-clip"
-                };
-                let stage_class = if style::has_frame_backdrop(&frame_props) {
-                    "preview-surface preview-stage preview-stage-has-backdrop"
-                } else {
-                    "preview-surface preview-stage"
-                };
-                // 构建视图：始终展示视窗缩放条；访问态仍依赖显式 viewport 配置
-                let show_viewport_chrome = is_manage;
-                let viewport_explicit_attr = if is_manage || viewport_explicit {
-                    "true"
-                } else {
-                    "false"
-                };
-                let chrome_height = if fluid_height {
-                    content_bounds.height
-                } else {
-                    vp.design_height
-                };
-                let chrome_height_suffix = if fluid_height { " (内容高)" } else { "" };
-                let chrome_aspect = vp
-                    .aspect_ratio
-                    .as_ref()
-                    .filter(|value| !value.trim().is_empty())
-                    .map(|value| format!(" · {value}"))
-                    .unwrap_or_default();
-                let effective_canvas_width = viewport::effective_canvas_width(&frame_props, &vp);
-                let canvas_width = effective_canvas_width.round() as i64;
-                let canvas_width_attr = effective_canvas_width.to_string();
-                let chrome_label = format!(
-                    "{} × {}{}{}",
-                    canvas_width,
-                    chrome_height.round() as i64,
-                    chrome_height_suffix,
-                    chrome_aspect
+            let resolved_theme = theme::resolve_theme(scene_contract);
+            if let Some(frame) = &scene_contract.frame {
+                let frame_props = theme::resolve_shared_refs(
+                    &theme::deep_merge_value(&resolved_theme.frame, &frame.props),
+                    &resolved_theme.shared,
                 );
-                if is_manage && effective_canvas_width + 0.5 < vp.design_width {
-                    viewport_style =
-                        viewport_style.replace("justify-items:center", "justify-items:start");
-                }
-                return view! {
+                let panels = scene_contract
+                    .panels
+                    .iter()
+                    .map(|panel| {
+                        nodes::panel_view(
+                            panel,
+                            frame.layout.as_ref(),
+                            compiled,
+                            app_path,
+                            scene_contract,
+                            &runtime_ctx,
+                            &resolved_theme,
+                            0,
+                            preview_scene_path.as_str(),
+                            None,
+                        )
+                    })
+                    .collect_view();
+                let vp = viewport::resolve_frame_viewport(
+                    &frame_props,
+                    scene_contract.scene.profile.as_deref(),
+                );
+                if let Some(vp) = vp {
+                    let viewport_explicit = viewport::frame_viewport_is_explicit(&frame_props);
+                    let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
+                    let is_manage = route_mode == UiRouteMode::Build;
+                    let content_bounds =
+                        viewport::frame_stage_content_bounds_for_viewport(&frame_props, &vp);
+                    let fluid_height = vp.fluid_height;
+                    let fluid_width = content_bounds.max_width.is_some() && !fluid_height;
+                    let mut viewport_style = if fluid_width {
+                        viewport::frame_viewport_style_fluid_width_for_route(
+                            &vp,
+                            overflow_mode.as_str(),
+                            route_mode,
+                        )
+                    } else {
+                        viewport::frame_viewport_style_for_route(
+                            &vp,
+                            overflow_mode.as_str(),
+                            route_mode,
+                        )
+                    };
+                    viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
+                    viewport_style.push_str(&theme::scene_viewport_theme_style(compiled));
+                    let content_max_width = content_bounds.max_width.unwrap_or(0.0).to_string();
+                    let content_height = if fluid_width {
+                        "0".to_string()
+                    } else {
+                        content_bounds.height.to_string()
+                    };
+                    let content_fluid_height = if fluid_height { "true" } else { "false" };
+                    let viewport_class = if is_manage {
+                        if fluid_width {
+                            "preview-viewport preview-viewport-edit-debug preview-viewport-fluid-width"
+                        } else if fluid_height {
+                            "preview-viewport preview-viewport-edit-debug preview-viewport-fluid-height"
+                        } else {
+                            "preview-viewport preview-viewport-edit-debug"
+                        }
+                    } else if fluid_width {
+                        "preview-viewport preview-viewport-access-clip preview-viewport-fluid-width"
+                    } else if fluid_height {
+                        "preview-viewport preview-viewport-access-clip preview-viewport-fluid-height"
+                    } else {
+                        "preview-viewport preview-viewport-access-clip"
+                    };
+                    let stage_class = if style::has_frame_backdrop(&frame_props) {
+                        "preview-surface preview-stage preview-stage-has-backdrop"
+                    } else {
+                        "preview-surface preview-stage"
+                    };
+                    // 构建视图：始终展示视窗缩放条；访问态仍依赖显式 viewport 配置
+                    let show_viewport_chrome = is_manage;
+                    let viewport_explicit_attr = if is_manage || viewport_explicit {
+                        "true"
+                    } else {
+                        "false"
+                    };
+                    let chrome_height = if fluid_height {
+                        content_bounds.height
+                    } else {
+                        vp.design_height
+                    };
+                    let chrome_height_suffix = if fluid_height { " (内容高)" } else { "" };
+                    let chrome_aspect = vp
+                        .aspect_ratio
+                        .as_ref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(|value| format!(" · {value}"))
+                        .unwrap_or_default();
+                    let effective_canvas_width =
+                        viewport::effective_canvas_width(&frame_props, &vp);
+                    let canvas_width = effective_canvas_width.round() as i64;
+                    let canvas_width_attr = effective_canvas_width.to_string();
+                    let chrome_label = format!(
+                        "{} × {}{}{}",
+                        canvas_width,
+                        chrome_height.round() as i64,
+                        chrome_height_suffix,
+                        chrome_aspect
+                    );
+                    if is_manage && effective_canvas_width + 0.5 < vp.design_width {
+                        viewport_style =
+                            viewport_style.replace("justify-items:center", "justify-items:start");
+                    }
+                    return view! {
                     <section
                         class=viewport_class
                         style=viewport_style
@@ -198,8 +199,8 @@ pub(crate) fn preview_view(
                     </section>
                 }
                 .into_any();
-            }
-            return view! {
+                }
+                return view! {
                 <section
                     class="preview-surface"
                     style=viewport::frame_style(frame.layout.as_ref(), &frame_props, &resolved_theme)
@@ -213,9 +214,9 @@ pub(crate) fn preview_view(
                 </section>
             }
             .into_any();
-        }
+            }
 
-        return view! {
+            return view! {
             <section class="scene-placeholder rounded-[14px] border mei-border-default mei-surface-panel-muted p-4">
                 <h3 class="mb-2 text-base font-semibold mei-text-inverse">{scene_contract.scene.id.clone()}</h3>
                 <p class="mei-text-body">{scene_contract.scene.summary.clone().unwrap_or_else(|| "已生成 scene contract，运行态将在后续阶段接入。".to_string())}</p>

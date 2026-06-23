@@ -8,30 +8,22 @@ use crate::compile::resolve_default_scene_from_root;
 use crate::mei_config::{
     load_workspace_config, resolve_app_entry_main, resolve_app_root, RuntimeWarmupApp,
     RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
-    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig,
-    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use crate::workspace::discover_apps;
 
-pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION: &str =
-    "mei-runtime-warmup-manifest-v2";
+pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION: &str = "mei-runtime-warmup-manifest-v2";
 
 /// Load `.mei/runtime/warmup-manifest.json`, or synthesize from `.mei-workspace.json` when missing.
-pub fn resolve_runtime_warmup_manifest(source_root: &Path) -> Result<Option<RuntimeWarmupManifest>> {
+pub fn resolve_runtime_warmup_manifest(
+    source_root: &Path,
+) -> Result<Option<RuntimeWarmupManifest>> {
     let manifest_path = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
     if manifest_path.is_file() {
-        let raw = fs::read_to_string(&manifest_path).with_context(|| {
-            format!(
-                "read warmup manifest {}",
-                manifest_path.display()
-            )
-        })?;
-        let manifest = serde_json::from_str::<RuntimeWarmupManifest>(&raw).with_context(|| {
-            format!(
-                "parse warmup manifest {}",
-                manifest_path.display()
-            )
-        })?;
+        let raw = fs::read_to_string(&manifest_path)
+            .with_context(|| format!("read warmup manifest {}", manifest_path.display()))?;
+        let manifest = serde_json::from_str::<RuntimeWarmupManifest>(&raw)
+            .with_context(|| format!("parse warmup manifest {}", manifest_path.display()))?;
         return Ok(Some(manifest));
     }
 
@@ -133,7 +125,10 @@ fn normalize_focuses(focuses: &[String]) -> Vec<String> {
 fn merge_warmup_scenes(default_scene: Option<&str>, hot_scenes: &[String]) -> Vec<String> {
     let mut merged = Vec::new();
     let mut seen = BTreeSet::new();
-    if let Some(default_scene) = default_scene.map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(default_scene) = default_scene
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         if seen.insert(default_scene.to_string()) {
             merged.push(default_scene.to_string());
         }
@@ -227,11 +222,7 @@ fn normalize_warmup_xlsx_sources(
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         let header_row = source.header_row.unwrap_or(1).max(1);
-        let dedupe_key = format!(
-            "{}|{}|{header_row}",
-            path,
-            sheet.as_deref().unwrap_or("")
-        );
+        let dedupe_key = format!("{}|{}|{header_row}", path, sheet.as_deref().unwrap_or(""));
         if !seen.insert(dedupe_key) {
             continue;
         }
@@ -302,8 +293,7 @@ mod tests {
         )
         .expect("write workspace config");
 
-        let manifest =
-            resolve_runtime_warmup_manifest(&workspace_root).expect("resolve manifest");
+        let manifest = resolve_runtime_warmup_manifest(&workspace_root).expect("resolve manifest");
         assert!(manifest.expect("manifest").enabled);
 
         let _ = fs::remove_dir_all(workspace_root);

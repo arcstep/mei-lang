@@ -76,7 +76,10 @@ mod tests {
 
     #[test]
     fn presentation_aliases_map_to_presentation_mode() {
-        assert_eq!(UiRouteMode::from_slug("presentation"), UiRouteMode::Presentation);
+        assert_eq!(
+            UiRouteMode::from_slug("presentation"),
+            UiRouteMode::Presentation
+        );
         assert_eq!(UiRouteMode::from_slug("slides"), UiRouteMode::Presentation);
     }
 }

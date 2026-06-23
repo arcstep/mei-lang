@@ -135,7 +135,8 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
             > 0.0,
         "capsule preview warnings_pending_count should be > 0"
     );
-    let rate_rowset_key = "scenes/07-问题办理.mei::effectiveness_issue_verification_rate::__scalar_rowset__";
+    let rate_rowset_key =
+        "scenes/07-问题办理.mei::effectiveness_issue_verification_rate::__scalar_rowset__";
     assert!(
         owner_dataset
             .runtime_metric_defs
@@ -331,7 +332,13 @@ fn query_realtime_warning_detail_rowset_with_warning_id_filter() {
         None,
         Vec::new(),
     );
-    eprintln!("detail result: {:?}", detail.as_ref().map(|d| d.rows.len()).ok());
+    eprintln!(
+        "detail result: {:?}",
+        detail.as_ref().map(|d| d.rows.len()).ok()
+    );
     let detail = detail.expect("realtime_warning_detail rowset with warningId filter");
-    assert!(!detail.rows.is_empty(), "filtered detail should return rows");
+    assert!(
+        !detail.rows.is_empty(),
+        "filtered detail should return rows"
+    );
 }

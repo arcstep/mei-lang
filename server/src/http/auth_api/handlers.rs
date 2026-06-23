@@ -10,8 +10,8 @@ use serde_json::json;
 use crate::{
     auth::{
         authorize_next_path, clear_cookie_header_value, cookie_header_value, hash_password,
-        load_auth_runtime, sanitize_next_path, SESSION_REFRESH_LEAD_SECONDS,
-        update_workspace_user_password, AuthEnforcement, AuthPrincipal,
+        load_auth_runtime, sanitize_next_path, update_workspace_user_password, AuthEnforcement,
+        AuthPrincipal, SESSION_REFRESH_LEAD_SECONDS,
     },
     http::host_error_page,
     AppState,
@@ -130,8 +130,7 @@ pub async fn login_page(
     }
     let footer_html =
         host_error_page::render_host_shell_footer_for_source_root(state.source_root.as_path());
-    let shell_theme =
-        host_error_page::host_shell_body_theme_style(state.source_root.as_path());
+    let shell_theme = host_error_page::host_shell_body_theme_style(state.source_root.as_path());
     Html(login_page_html(
         sanitize_next_path(query.next.as_deref()).as_str(),
         auth_login_ready(&state, &runtime),
@@ -176,8 +175,7 @@ pub async fn account_change_password_page(
     };
     let footer_html =
         host_error_page::render_host_shell_footer_for_source_root(state.source_root.as_path());
-    let shell_theme =
-        host_error_page::host_shell_body_theme_style(state.source_root.as_path());
+    let shell_theme = host_error_page::host_shell_body_theme_style(state.source_root.as_path());
     Html(change_password_page_html(
         principal.username.as_str(),
         principal.role_slug(),

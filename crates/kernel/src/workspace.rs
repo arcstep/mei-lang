@@ -215,7 +215,8 @@ fn source_tree_node_cmp(left: &WorkspaceNode, right: &WorkspaceNode) -> std::cmp
         ("dir", "file") => std::cmp::Ordering::Less,
         ("file", "dir") => std::cmp::Ordering::Greater,
         _ => {
-            let stem_cmp = mei_sort_stem(left.name.as_str()).cmp(mei_sort_stem(right.name.as_str()));
+            let stem_cmp =
+                mei_sort_stem(left.name.as_str()).cmp(mei_sort_stem(right.name.as_str()));
             if stem_cmp != std::cmp::Ordering::Equal {
                 return stem_cmp;
             }

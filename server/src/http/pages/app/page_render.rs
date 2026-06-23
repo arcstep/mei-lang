@@ -92,7 +92,10 @@ pub(super) fn insert_manage_compile_request_headers(
             outcome.cache_validation.clone(),
         ),
         ("x-mei-compile-ms", outcome.compile_ms.to_string()),
-        ("x-mei-artifact-load-ms", outcome.artifact_load_ms.to_string()),
+        (
+            "x-mei-artifact-load-ms",
+            outcome.artifact_load_ms.to_string(),
+        ),
         (
             "x-mei-compile-cache-lookup-ms",
             outcome.cache_lookup_ms.to_string(),
@@ -177,9 +180,10 @@ fn push_upload_entries(upload_root: &Path, rel_dir: &str, out: &mut Vec<UploadFi
                     Some(meta.len())
                 }
             }),
-            modified_ms: entry.metadata().ok().and_then(|meta| {
-                meta.modified().ok().and_then(system_time_to_epoch_ms)
-            }),
+            modified_ms: entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok().and_then(system_time_to_epoch_ms)),
             modified_label: entry.metadata().ok().and_then(|meta| {
                 format_upload_modified_label(meta.modified().ok().and_then(system_time_to_epoch_ms))
             }),

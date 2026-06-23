@@ -20,8 +20,8 @@ mod tests {
     use std::path::Path;
 
     use mei_lang_kernel::{
-        CompiledApp, DatasetView, DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator,
-        QueryState, QueryTimeRange, RuntimeMetricEvalScope, SourceDecl,
+        CompiledApp, DatasetView, DimensionBinding, FilterIntent, FilterIntentSource,
+        FilterOperator, QueryState, QueryTimeRange, RuntimeMetricEvalScope, SourceDecl,
     };
     use serde_json::Value;
 
@@ -157,10 +157,7 @@ mod tests {
             },
             sources: Vec::new(),
             metrics: BTreeMap::new(),
-            runtime_metric_defs: BTreeMap::from([(
-                "case_count".to_string(),
-                Value::Null,
-            )]),
+            runtime_metric_defs: BTreeMap::from([("case_count".to_string(), Value::Null)]),
             runtime_analysis_graph: Default::default(),
             runtime_analysis_contracts: Default::default(),
         };

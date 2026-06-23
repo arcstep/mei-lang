@@ -485,7 +485,8 @@ fn access_assets() -> Vec<AssetSeed> {
 }
 
 fn build_assets(surface: &str, seeds: Vec<AssetSeed>) -> Vec<KnowledgeAssetDescriptor> {
-    seeds.into_iter()
+    seeds
+        .into_iter()
         .map(|seed| KnowledgeAssetDescriptor {
             id: seed.id.to_string(),
             surface: surface.to_string(),
@@ -495,7 +496,11 @@ fn build_assets(surface: &str, seeds: Vec<AssetSeed>) -> Vec<KnowledgeAssetDescr
             relative_path: seed.rel_path.to_string(),
             install_relative_path: seed.install_rel_path.to_string(),
             summary: seed.summary.to_string(),
-            injection_roles: seed.injection_roles.iter().map(|item| (*item).to_string()).collect(),
+            injection_roles: seed
+                .injection_roles
+                .iter()
+                .map(|item| (*item).to_string())
+                .collect(),
         })
         .collect()
 }

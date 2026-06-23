@@ -85,8 +85,9 @@ fn lookup_metric_contract<'a>(
     if let Some(entry) = compiled.world_metrics.get(metric_id) {
         return Some(&entry.metric);
     }
-    let canonical = resolve_runtime_metric_def_key(resource_id, metric_id, &dataset.runtime_metric_defs)
-        .unwrap_or_else(|| metric_id.to_string());
+    let canonical =
+        resolve_runtime_metric_def_key(resource_id, metric_id, &dataset.runtime_metric_defs)
+            .unwrap_or_else(|| metric_id.to_string());
     dataset.metrics.get(&canonical).or_else(|| {
         dataset
             .metrics
@@ -101,8 +102,9 @@ fn lookup_analysis_contract(
     resource_id: &str,
     metric_id: &str,
 ) -> Option<Value> {
-    let canonical = resolve_runtime_metric_def_key(resource_id, metric_id, &dataset.runtime_metric_defs)
-        .unwrap_or_else(|| metric_id.to_string());
+    let canonical =
+        resolve_runtime_metric_def_key(resource_id, metric_id, &dataset.runtime_metric_defs)
+            .unwrap_or_else(|| metric_id.to_string());
     dataset.runtime_analysis_contracts.get(&canonical).cloned()
 }
 
@@ -114,8 +116,9 @@ fn metric_inspector_body(
     resource_id: &str,
 ) -> AnyView {
     let dataset = find_world_metrics_dataset(compiled, file_path);
-    let metric_contract = dataset
-        .and_then(|dataset| lookup_metric_contract(compiled, dataset, resource_id, metric.id.as_str()));
+    let metric_contract = dataset.and_then(|dataset| {
+        lookup_metric_contract(compiled, dataset, resource_id, metric.id.as_str())
+    });
     let scalar = metric_contract
         .map(metric_scalar_display)
         .filter(|value| !value.is_empty());
@@ -125,12 +128,8 @@ fn metric_inspector_body(
         .as_ref()
         .map(contract_summary_lines)
         .unwrap_or_default();
-    let explain_block = explain.or_else(|| {
-        metric
-            .explain
-            .first()
-            .filter(|_| metric.explain.len() == 1)
-    });
+    let explain_block =
+        explain.or_else(|| metric.explain.first().filter(|_| metric.explain.len() == 1));
     view! {
         <div class="world-semantic-inspector-body build-panel-shell grid gap-3 mei-text-body">
             <header class="build-section-divider grid gap-1 border-b pb-2">
@@ -300,7 +299,12 @@ pub(crate) fn world_semantic_inspector_view(
         .filter(|value| !value.is_empty())
     {
         index
-            .and_then(|index| index.datasets.iter().find(|dataset| dataset.id == dataset_id))
+            .and_then(|index| {
+                index
+                    .datasets
+                    .iter()
+                    .find(|dataset| dataset.id == dataset_id)
+            })
             .map(dataset_inspector_body)
             .unwrap_or_else(|| {
                 view! {

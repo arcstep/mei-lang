@@ -209,7 +209,10 @@ pub(crate) fn measure_page_html_payload(html: &str) -> PageHtmlPayloadStats {
         let (attr, payload_start) = if let Some(rel) = tail.find(DATA_PROPS_ATTR) {
             (DATA_PROPS_ATTR, search_from + rel + DATA_PROPS_ATTR.len())
         } else if let Some(rel) = tail.find(DATA_PROPS_ATTR_LEGACY) {
-            (DATA_PROPS_ATTR_LEGACY, search_from + rel + DATA_PROPS_ATTR_LEGACY.len())
+            (
+                DATA_PROPS_ATTR_LEGACY,
+                search_from + rel + DATA_PROPS_ATTR_LEGACY.len(),
+            )
         } else {
             break;
         };

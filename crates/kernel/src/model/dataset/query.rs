@@ -22,9 +22,7 @@ fn json_value_to_string(value: serde_json::Value) -> Option<String> {
     }
 }
 
-pub fn deserialize_string_map<'de, D>(
-    deserializer: D,
-) -> Result<BTreeMap<String, String>, D::Error>
+pub fn deserialize_string_map<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -212,4 +210,60 @@ pub struct DimensionBinding {
     pub dimension: String,
     /// Concrete dataset field selected for the current evaluation pass.
     pub field: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn query_state_deserializes_browser_scalar_filter_values() {
+        let state: QueryState = serde_json::from_value(serde_json::json!({
+            "filters": {
+                "year": 2025,
+                "enabled": true,
+                "districts": ["沙坪坝区", 500106]
+            },
+            "search": 123,
+            "group": "street",
+            "time_range": {
+                "dimension": "date",
+                "start": 202401,
+                "end": 202412
+            }
+        }))
+        .expect("query state");
+
+        assert_eq!(state.filters.get("year"), Some(&"2025".to_string()));
+        assert_eq!(state.filters.get("enabled"), Some(&"true".to_string()));
+        assert_eq!(
+            state.filters.get("districts"),
+            Some(&"沙坪坝区,500106".to_string())
+        );
+        assert_eq!(state.search.as_deref(), Some("123"));
+        assert_eq!(state.group, vec!["street".to_string()]);
+        assert_eq!(
+            state
+                .time_range
+                .as_ref()
+                .and_then(|range| range.start.as_deref()),
+            Some("202401")
+        );
+    }
+
+    #[test]
+    fn filter_intent_deserializes_browser_scalar_value_and_unknown_source() {
+        let intent: FilterIntent = serde_json::from_value(serde_json::json!({
+            "dimension": "year",
+            "operator": "eq",
+            "value": 2025,
+            "source": "custom-widget"
+        }))
+        .expect("filter intent");
+
+        assert_eq!(intent.dimension, "year");
+        assert_eq!(intent.operator, FilterOperator::Eq);
+        assert_eq!(intent.value, "2025");
+        assert_eq!(intent.source, FilterIntentSource::Unknown);
+    }
 }

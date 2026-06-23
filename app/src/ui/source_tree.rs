@@ -52,11 +52,7 @@ fn folder_icon_svg(title: &'static str, span_class: &'static str) -> AnyView {
 
 fn tree_file_icon_for_path(path: &str) -> AnyView {
     let span_class = "inline-flex h-4 w-4 items-center justify-center";
-    let ext = path
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {
         "md" | "markdown" => tree_sprite_icon("i-md", "Markdown", span_class),
         "json" | "jsonc" => tree_sprite_icon("i-json", "JSON", span_class),

@@ -1497,8 +1497,8 @@ fn resolve_value_supports_data_and_metric_refs() {
 #[test]
 fn resolve_value_host_ssr_slim_strips_dataset_rows() {
     use mei_lang_kernel::{
-        build_runtime_resource_index, CompiledApp, DatasetView, LoadedResource,
-        MetricContract, MetricShape, SceneContract, SceneDecl, SourceDecl,
+        build_runtime_resource_index, CompiledApp, DatasetView, LoadedResource, MetricContract,
+        MetricShape, SceneContract, SceneDecl, SourceDecl,
     };
 
     let scene_contract = SceneContract {
@@ -1616,7 +1616,10 @@ fn resolve_value_host_ssr_slim_strips_dataset_rows() {
         &compiled,
         true,
     );
-    assert_eq!(slim.get("rows").and_then(Value::as_array).map(Vec::len), Some(0));
+    assert_eq!(
+        slim.get("rows").and_then(Value::as_array).map(Vec::len),
+        Some(0)
+    );
     let metric_ref = json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
     let slim_metric = resolve_value(
         &metric_ref,
@@ -1657,9 +1660,13 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
         build_board_index: Default::default(),
         build_template_index: Default::default(),
     };
-    assert!(build_preview_runtime_context(&compiled, UiRouteMode::Build, None).host_ssr_slim_payload);
+    assert!(
+        build_preview_runtime_context(&compiled, UiRouteMode::Build, None).host_ssr_slim_payload
+    );
     assert!(build_preview_runtime_context(&compiled, UiRouteMode::App, None).host_ssr_slim_payload);
-    assert!(!build_preview_runtime_context(&compiled, UiRouteMode::Config, None).host_ssr_slim_payload);
+    assert!(
+        !build_preview_runtime_context(&compiled, UiRouteMode::Config, None).host_ssr_slim_payload
+    );
 }
 
 #[test]
@@ -2472,9 +2479,9 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
     };
 
     use super::{
-        build_preview_runtime_context, nodes::component_html, resolve::{
-            attach_host_meta, resolve_value, HostMetaOptions, RuntimeSceneAnchor,
-        },
+        build_preview_runtime_context,
+        nodes::component_html,
+        resolve::{attach_host_meta, resolve_value, HostMetaOptions, RuntimeSceneAnchor},
         theme,
     };
     use crate::ui::route::UiRouteMode;
@@ -2577,10 +2584,12 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
 fn zhifa_home_full_render_page_data_props_under_5mb() {
     use std::path::Path;
 
-    use mei_lang_kernel::{compile_app_from_root_with_options, load_workspace_config, CompileOptions};
+    use mei_lang_kernel::{
+        compile_app_from_root_with_options, load_workspace_config, CompileOptions,
+    };
 
-    use crate::ui::{page_body_theme_style, render_page};
     use crate::ui::route::UiRouteMode;
+    use crate::ui::{page_body_theme_style, render_page};
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../workspaces/ws-spbjw")

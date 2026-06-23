@@ -71,7 +71,10 @@ pub async fn api_build_workspace_fragment(
         .and_then(BuildViewTab::parse_slug)
         .unwrap_or(resolved.tab);
     if tab != BuildViewTab::Preview {
-        return json_error(StatusCode::BAD_REQUEST, "workspace fragment requires preview tab");
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "workspace fragment requires preview tab",
+        );
     }
 
     let preview_target = preview_target_from_build_node(&resolved.node);
@@ -80,13 +83,13 @@ pub async fn api_build_workspace_fragment(
         preview_target: preview_target.clone(),
     };
     let components_root = resolve_components_root(&state.source_root);
-    let Some(outcome) = load_compile_artifact_only(
-        &state,
-        app_id,
-        &compile_options,
-        components_root.as_path(),
-    ) else {
-        return json_error(StatusCode::NOT_FOUND, "compile artifact missing for node scope");
+    let Some(outcome) =
+        load_compile_artifact_only(&state, app_id, &compile_options, components_root.as_path())
+    else {
+        return json_error(
+            StatusCode::NOT_FOUND,
+            "compile artifact missing for node scope",
+        );
     };
     let compile_cache_hit = outcome.cache_hit;
     let preview_target = preview_target.or_else(|| {
@@ -103,7 +106,10 @@ pub async fn api_build_workspace_fragment(
         query.focus.as_deref(),
         Some("preview"),
     ) else {
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to render preview fragment");
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to render preview fragment",
+        );
     };
     let body = BuildWorkspaceFragmentResponse {
         compile_revision: outcome.compile_revision.clone(),
@@ -120,10 +126,9 @@ pub async fn api_build_workspace_fragment(
         HeaderValue::from_static("application/json; charset=utf-8"),
     );
     if let Ok(value) = HeaderValue::from_str(if compile_cache_hit { "hit" } else { "miss" }) {
-        response.headers_mut().insert(
-            HeaderName::from_static("x-mei-compile-cache"),
-            value,
-        );
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-mei-compile-cache"), value);
     }
     response.headers_mut().insert(
         HeaderName::from_static("x-mei-nav-tier"),
@@ -133,9 +138,5 @@ pub async fn api_build_workspace_fragment(
 }
 
 fn json_error(status: StatusCode, message: &str) -> Response {
-    (
-        status,
-        Json(json!({ "error": message })),
-    )
-        .into_response()
+    (status, Json(json!({ "error": message }))).into_response()
 }

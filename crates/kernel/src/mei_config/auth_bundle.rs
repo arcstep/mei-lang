@@ -6,7 +6,7 @@ use anyhow::Result;
 use super::io::{write_string_atomically, write_workspace_config};
 use super::types::{
     MeiConfig, WorkspaceAuthConfig, WorkspaceConfig, WorkspaceHostState, DEFAULT_HOST_STATE_ID,
-    MEI_CONFIG_FILENAME, WORKSPACE_HOST_STATE_SCHEMA_VERSION, WORKSPACE_HOSTS_DIR_REL,
+    MEI_CONFIG_FILENAME, WORKSPACE_HOSTS_DIR_REL, WORKSPACE_HOST_STATE_SCHEMA_VERSION,
 };
 use super::workspace_paths::workspace_config_path;
 
@@ -50,8 +50,10 @@ pub fn workspace_auth_state_dir(segment_root: &Path) -> PathBuf {
 
 /// 工作区 segment 根目录的 host-state auth 文件。
 pub fn workspace_auth_config_path(segment_root: &Path) -> PathBuf {
-    workspace_auth_state_dir(segment_root)
-        .join(format!("{}.state.json", workspace_auth_host_id(segment_root)))
+    workspace_auth_state_dir(segment_root).join(format!(
+        "{}.state.json",
+        workspace_auth_host_id(segment_root)
+    ))
 }
 
 #[derive(Debug, Clone)]

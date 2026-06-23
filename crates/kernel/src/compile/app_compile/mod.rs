@@ -28,14 +28,15 @@ use super::dependency_graph::{
     DependencyGraph,
 };
 use super::discover_routes::{
-    inject_discovered_entry_scene_routes, is_dataset_manage_preview, is_manage_preview_only_compile,
-    push_app_config_diagnostics, CompileOptions, CompileRevisionPlan,
+    inject_discovered_entry_scene_routes, is_dataset_manage_preview,
+    is_manage_preview_only_compile, push_app_config_diagnostics, CompileOptions,
+    CompileRevisionPlan,
 };
+use super::entry_payload::compile_scene_payload_for_target_uncached;
 use super::materialize_cache::dataset_materialize_cache_metrics_snapshot;
 use super::route_compile::{elapsed_ms, resolve_active_route_meta};
 use super::scene::resolve_scene_routes;
 use super::scene_payload_cache::scene_payload_cache_metrics_snapshot;
-use super::entry_payload::compile_scene_payload_for_target_uncached;
 
 use active::precompile_and_pick_active;
 use app_compile_revision::{
@@ -63,10 +64,7 @@ pub fn compile_app_with_options(
     app_id: &str,
     options: CompileOptions,
 ) -> Result<CompiledApp> {
-    Ok(
-        compile_app_with_options_and_revision(source_root, app_id, options)?
-            .compiled,
-    )
+    Ok(compile_app_with_options_and_revision(source_root, app_id, options)?.compiled)
 }
 
 pub fn compile_app_with_options_and_revision(
@@ -87,10 +85,7 @@ pub fn compile_app_from_root_with_options(
     app_root: &Path,
     options: CompileOptions,
 ) -> Result<CompiledApp> {
-    Ok(
-        compile_app_from_root_with_options_and_revision(source_root, app_root, options)?
-            .compiled,
-    )
+    Ok(compile_app_from_root_with_options_and_revision(source_root, app_root, options)?.compiled)
 }
 
 pub fn compile_app_from_root_with_options_and_revision(
@@ -143,8 +138,11 @@ pub fn compile_app_from_root_with_options_and_revision(
         options.scene.as_deref(),
         options.preview_target.as_deref(),
     );
-    let dependency_graph_routes =
-        scoped_dependency_graph_routes(&route_registry.routes, active_route_meta.as_ref(), &options);
+    let dependency_graph_routes = scoped_dependency_graph_routes(
+        &route_registry.routes,
+        active_route_meta.as_ref(),
+        &options,
+    );
     let dependency_graph_started = Instant::now();
     let dependency_graph =
         DependencyGraph::build_cached(app_root, &app_decls, &dependency_graph_routes);
@@ -254,7 +252,8 @@ fn hydrate_scene_links(
     active_payload: &mut super::entry_payload::CompiledScenePayload,
     active_target_file: &str,
 ) -> BTreeMap<String, (String, super::entry_payload::CompiledScenePayload)> {
-    let mut hydrated = BTreeMap::<String, (String, super::entry_payload::CompiledScenePayload)>::new();
+    let mut hydrated =
+        BTreeMap::<String, (String, super::entry_payload::CompiledScenePayload)>::new();
     let Some(contract) = active_payload.scene_contract.as_ref() else {
         return hydrated;
     };
@@ -288,7 +287,9 @@ fn hydrate_scene_links(
             scene_registry,
         );
         if let Some(contract) = payload.scene_contract.as_ref() {
-            let scene_ids = target_scene_ids_by_file.entry(target_file.clone()).or_default();
+            let scene_ids = target_scene_ids_by_file
+                .entry(target_file.clone())
+                .or_default();
             if !scene_ids.iter().any(|existing| existing == &scene_id) {
                 scene_ids.push(scene_id.clone());
                 scene_ids.sort();
@@ -311,9 +312,7 @@ fn hydrate_scene_links(
     hydrated
 }
 
-fn collect_scene_first_target_refs(
-    panels: &[crate::model::PanelDecl],
-) -> BTreeMap<String, String> {
+fn collect_scene_first_target_refs(panels: &[crate::model::PanelDecl]) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for panel in panels {
         collect_scene_first_target_refs_from_value(&panel.props, &mut out);
@@ -346,10 +345,7 @@ fn collect_scene_first_target_refs_from_nodes(
     }
 }
 
-fn collect_scene_first_target_refs_from_value(
-    value: &Value,
-    out: &mut BTreeMap<String, String>,
-) {
+fn collect_scene_first_target_refs_from_value(value: &Value, out: &mut BTreeMap<String, String>) {
     match value {
         Value::Object(map) => {
             let is_board_link = map.get("__kind").and_then(Value::as_str) == Some("board_link")

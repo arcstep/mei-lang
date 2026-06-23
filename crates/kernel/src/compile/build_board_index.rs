@@ -20,7 +20,13 @@ pub fn build_board_index(
 ) -> BuildBoardIndexResult {
     let mut boards = BTreeMap::new();
     let mut tree_children = Vec::new();
-    collect_board_files(file_tree, &mut boards, &mut tree_children, scene_contracts_by_id, scene_projection_assembly_by_id);
+    collect_board_files(
+        file_tree,
+        &mut boards,
+        &mut tree_children,
+        scene_contracts_by_id,
+        scene_projection_assembly_by_id,
+    );
     let index = BuildBoardIndex { boards };
     let tree_root = ReachabilityTreeRoot {
         group: "boards".to_string(),
@@ -106,10 +112,7 @@ fn push_board_file_tree_node(
                 id: format!("board-slot-{}-{}", board_file, slot.slot_id),
                 node_id: node.encode(),
                 kind: "board_slot".to_string(),
-                label: slot
-                    .label
-                    .clone()
-                    .unwrap_or_else(|| slot.slot_id.clone()),
+                label: slot.label.clone().unwrap_or_else(|| slot.slot_id.clone()),
                 badges: slot.component.clone().into_iter().collect(),
                 board_layout_zone: slot.layout_zone.clone().unwrap_or_default(),
                 children: Vec::new(),
@@ -181,13 +184,7 @@ fn params_summary_from_contract(contract: Option<&SceneContract>) -> Option<Stri
     if params.is_empty() {
         return None;
     }
-    Some(
-        params
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(", "),
-    )
+    Some(params.keys().cloned().collect::<Vec<_>>().join(", "))
 }
 
 fn slots_from_sources(
@@ -271,16 +268,21 @@ fn parse_projection_slot(value: &Value) -> Option<BoardSlotEntry> {
     })
 }
 
-fn zones_from_shell_contract(_local_nav: &Value, _panels: &[crate::model::PanelDecl]) -> Vec<BoardSlotEntry> {
+fn zones_from_shell_contract(
+    _local_nav: &Value,
+    _panels: &[crate::model::PanelDecl],
+) -> Vec<BoardSlotEntry> {
     Vec::new()
 }
 
 fn collect_backing_refs(value: &Value, out: &mut Vec<String>) {
-    backing_refs_from_block_props(value).into_iter().for_each(|item| {
-        if !out.contains(&item) {
-            out.push(item);
-        }
-    });
+    backing_refs_from_block_props(value)
+        .into_iter()
+        .for_each(|item| {
+            if !out.contains(&item) {
+                out.push(item);
+            }
+        });
 }
 
 #[cfg(test)]
