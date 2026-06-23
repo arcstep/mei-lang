@@ -16843,6 +16843,38 @@
     // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免关联表格整页重查。
   }
 
+  function installOverlayCloseDelegation() {
+    if (boot.overlayCloseDelegationInstalled) return;
+    boot.overlayCloseDelegationInstalled = true;
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const sceneBoardRoot = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
+        if (
+          sceneBoardRoot instanceof HTMLElement &&
+          !sceneBoardRoot.hidden &&
+          sceneBoardRoot.classList.contains("is-open") &&
+          target.closest(`#${SCENE_BOARD_OVERLAY_ROOT_ID} [data-scene-board-close]`)
+        ) {
+          closeSceneBoardOverlay();
+          return;
+        }
+        const drilldownRoot = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
+        if (
+          drilldownRoot instanceof HTMLElement &&
+          !drilldownRoot.hidden &&
+          drilldownRoot.classList.contains("is-open") &&
+          target.closest(`#${DRILLDOWN_OVERLAY_ROOT_ID} [data-drilldown-close]`)
+        ) {
+          closeDrilldownOverlay();
+        }
+      },
+      true,
+    );
+  }
+
   function closeSceneBoardOverlay() {
     const root = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
     if (!root) return;
@@ -17071,6 +17103,9 @@
     if (boot.metricDrilldownHostMounted) return;
     boot.metricDrilldownHostMounted = true;
     boot.sceneProjectionHostMounted = true;
+    if (typeof installOverlayCloseDelegation === "function") {
+      installOverlayCloseDelegation();
+    }
     const openByEvent = async (event) => {
       if (!shouldMountDrilldownHost()) return;
       if (typeof isBuildRoute === "function" && isBuildRoute()) return;
@@ -18776,15 +18811,52 @@
     });
   }
 
+  function showManagePreviewBoardError(surface, message, detail = null) {
+    if (!(surface instanceof HTMLElement)) return;
+    let banner = surface.querySelector("[data-manage-preview-board-error]");
+    if (!(banner instanceof HTMLElement)) {
+      banner = document.createElement("div");
+      banner.className = "access-drilldown-overlay-status manage-preview-board-error";
+      banner.dataset.managePreviewBoardError = "true";
+      banner.style.margin = "12px";
+      surface.prepend(banner);
+    }
+    banner.hidden = false;
+    banner.textContent = String(message || "看板预览加载失败，请稍后重试。");
+    if (typeof recordPopupDebugIssue === "function") {
+      recordPopupDebugIssue({
+        level: "error",
+        phase: "manage_preview_board_mount",
+        message: String(message || "manage preview board mount failed"),
+        detail: detail || {},
+        config: detail?.popup || {},
+        metricId: nonEmptyString(detail?.metric_id),
+      });
+    }
+  }
+
   async function mountManagePreviewBoard(doc = document) {
     if (!shouldMountManagePreviewBoard(doc)) return false;
     const sceneId = resolveManagePreviewSceneId(doc);
     const context = readSceneDrilldownContext(doc);
     const detail = context ? buildManagePreviewDetail(context, sceneId) : null;
-    if (!detail) return false;
+    const surface = resolveManagePreviewSurface(doc);
+    if (!detail) {
+      if (surface instanceof HTMLElement) {
+        showManagePreviewBoardError(
+          surface,
+          "看板预览配置不完整：缺少 projection_slots 或示例 metric 参数。",
+          { scene_id: sceneId, board_scene_id: sceneId },
+        );
+      }
+      return false;
+    }
 
     const resolved = resolveSceneOpenRequest(detail);
     if (!resolved.enabled || !resolved.structuredBoard || !resolved.sceneShell) {
+      if (surface instanceof HTMLElement) {
+        showManagePreviewBoardError(surface, "看板预览无法解析结构化壳配置。", detail);
+      }
       return false;
     }
     if (!nonEmptyString(resolved.queryStateId)) {
@@ -18798,7 +18870,6 @@
       resolved.hostSceneFile = nonEmptyString(detail.host_scene_file, detail.board_scene_file);
     }
 
-    const surface = resolveManagePreviewSurface(doc);
     if (!surface) return false;
     const mountKey = `${sceneId}::${nonEmptyString(surface.dataset.targetFile, surface.dataset.sourcePath)}`;
     if (surface.dataset.meiPreviewBoardMounted === mountKey) {
@@ -18816,6 +18887,9 @@
       (!filterZone || resolveManagePreviewPanelHost(surface, filterZone.id)) &&
       slotZones.every((zone) => resolveManagePreviewPanelHost(surface, zone.id));
     if (!hostsReady) {
+      if (surface instanceof HTMLElement) {
+        showManagePreviewBoardError(surface, "看板预览区缺少 filter/chart/detail 挂载点。", detail);
+      }
       return false;
     }
 
@@ -18863,8 +18937,11 @@
     if (!mountOk) {
       delete surface.dataset.meiPreviewBoardMounted;
       surface.classList.remove("preview-board-mounted");
+      showManagePreviewBoardError(surface, "看板图表或明细区挂载失败，请查看控制台 [mei][popup-panel] 日志。", detail);
       return false;
     }
+
+    surface.querySelector("[data-manage-preview-board-error]")?.remove();
 
     repairManagePreviewBoardGrid(surface, resolved.sceneShell);
     refreshManagePreviewBoardCharts(surface);

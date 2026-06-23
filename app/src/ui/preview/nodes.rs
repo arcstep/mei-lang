@@ -1,5 +1,8 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{block_instance_id, BlockDecl, BuildNodeId, CompiledApp, PanelDecl, PanelRefEmbedDecl, SceneContract, UiNodeDecl};
+use mei_lang_kernel::{
+    block_instance_id, BlockDecl, BuildNodeId, CompiledApp, PanelDecl, PanelRefEmbedDecl,
+    SceneContract, UiNodeDecl,
+};
 use serde_json::Value;
 
 use super::style::container_visual_style;
@@ -226,8 +229,9 @@ pub(crate) fn panel_view(
                 <section
                     class=card_class
                     style=scaled_section_style
-                    data-mei-panel-id=panel.id.clone()
+                    data-mei-panel-id=panel_path.clone()
                     data-build-node=build_node_id.clone().unwrap_or_default()
+                    data-preview-scope=panel_path.clone()
                 >
                     {if has_head {
                         let head_carets_attr = head_carets.then_some("true");
@@ -491,12 +495,8 @@ fn block_view(
         });
     let build_node_id = if runtime_ctx.build_inspect_enabled {
         parent_panel_id.map(|panel_id| {
-            BuildNodeId::scene_block(
-                scene_contract.scene.id.clone(),
-                panel_id,
-                block_id.as_str(),
-            )
-            .encode()
+            BuildNodeId::scene_block(scene_contract.scene.id.clone(), panel_id, block_id.as_str())
+                .encode()
         })
     } else {
         None

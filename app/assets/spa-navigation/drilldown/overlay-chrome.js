@@ -151,6 +151,38 @@
     // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免关联表格整页重查。
   }
 
+  function installOverlayCloseDelegation() {
+    if (boot.overlayCloseDelegationInstalled) return;
+    boot.overlayCloseDelegationInstalled = true;
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const sceneBoardRoot = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
+        if (
+          sceneBoardRoot instanceof HTMLElement &&
+          !sceneBoardRoot.hidden &&
+          sceneBoardRoot.classList.contains("is-open") &&
+          target.closest(`#${SCENE_BOARD_OVERLAY_ROOT_ID} [data-scene-board-close]`)
+        ) {
+          closeSceneBoardOverlay();
+          return;
+        }
+        const drilldownRoot = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
+        if (
+          drilldownRoot instanceof HTMLElement &&
+          !drilldownRoot.hidden &&
+          drilldownRoot.classList.contains("is-open") &&
+          target.closest(`#${DRILLDOWN_OVERLAY_ROOT_ID} [data-drilldown-close]`)
+        ) {
+          closeDrilldownOverlay();
+        }
+      },
+      true,
+    );
+  }
+
   function closeSceneBoardOverlay() {
     const root = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
     if (!root) return;

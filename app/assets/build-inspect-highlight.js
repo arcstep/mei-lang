@@ -398,12 +398,16 @@
     const slash = encoded.indexOf("/");
     const scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
     if (!scopePath) return;
+    const focusedScopeSelector = `[data-preview-scope="${CSS.escape(scopePath)}"], [data-preview-scope^="${CSS.escape(scopePath)}/"]`;
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {
       const elScope = String(el.getAttribute("data-preview-scope") || "");
       if (elScope === scopePath || elScope.startsWith(`${scopePath}/`)) {
         return;
       }
       if (scopePath.startsWith(`${elScope}/`)) {
+        return;
+      }
+      if (el.matches?.(focusedScopeSelector) || el.querySelector?.(focusedScopeSelector)) {
         return;
       }
       el.classList.add("build-preview-scoped-dim");
@@ -429,7 +433,23 @@
     }
   }
 
+  function schedulePreviewRuntimeWake() {
+    if (!isBuildRoute()) return;
+    const tab = currentManageTab() || "overview";
+    if (tab !== "preview") return;
+    requestAnimationFrame(() => {
+      try {
+        global.dispatchEvent(
+          new CustomEvent("meilang:preview-updated", {
+            detail: { scope: "build-inspect" },
+          }),
+        );
+      } catch (_) {}
+    });
+  }
+
   function applyHighlight(root) {
+    try {
     const node = activeBuildNode();
     const focus = activeBuildFocus();
     clearHighlights(root);
@@ -505,6 +525,9 @@
     }
 
     updateInspectBar(node, focus, focusEl);
+    } finally {
+      schedulePreviewRuntimeWake();
+    }
   }
 
   function currentManageTab() {
@@ -667,6 +690,8 @@
   }
   function refresh(event) {
     if (!isBuildRoute()) return;
+    const eventScope = String(event?.detail?.scope || "").trim();
+    if (eventScope === "build-inspect") return;
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     const root = previewRoot();
     if (!root) return;

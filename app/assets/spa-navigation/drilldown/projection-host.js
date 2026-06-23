@@ -102,6 +102,9 @@
     if (boot.metricDrilldownHostMounted) return;
     boot.metricDrilldownHostMounted = true;
     boot.sceneProjectionHostMounted = true;
+    if (typeof installOverlayCloseDelegation === "function") {
+      installOverlayCloseDelegation();
+    }
     const openByEvent = async (event) => {
       if (!shouldMountDrilldownHost()) return;
       if (typeof isBuildRoute === "function" && isBuildRoute()) return;

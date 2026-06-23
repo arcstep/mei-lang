@@ -2048,6 +2048,7 @@ function waitForHostAccessReady(signal) {
   return waitForSharedPromise(hostAccessReadyWaitPromise, signal);
 }
 
+/** @param payload dataset/metric query JSON — not fetch RequestInit */
 async function fetchJsonWithStartupArtifactRetry(api, payload, signal) {
   let result = await fetchJsonWithClientPerf(api, {
     method: "POST",
@@ -2784,6 +2785,15 @@ export async function fetchDatasetRows(
   if (!capability.enabled) {
     return null;
   }
+  if (!datasetId) {
+    console.warn('[runtime-query] fetchDatasetRows skipped: missing dataset_id in props', {
+      metricRef,
+      dataRef,
+      dataset: dataset?.id,
+      meta,
+    });
+    return null;
+  }
   const runtimeRef = metricRef || dataRef;
   const baseCoords = sceneQueryCoords(props, runtimeRef);
   const coords = capability.requiresSceneId
@@ -2893,12 +2903,7 @@ async function fetchDatasetRowsUncached(
   let clientPerf = {};
   let errorText = "";
   try {
-    ({ response, data, clientPerf, errorText } = await fetchJsonWithStartupArtifactRetry(api, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-      signal,
-    }));
+    ({ response, data, clientPerf, errorText } = await fetchJsonWithStartupArtifactRetry(api, payload, signal));
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
@@ -3352,6 +3357,7 @@ if (typeof window !== "undefined") {
   window.__meiDatasetRuntime = Object.assign(window.__meiDatasetRuntime || {}, {
     fetchDatasetRows,
     fetchPanelRuntimeMetrics,
+    prefetchVisiblePanelMetrics,
     mergeFilters,
     resolveDatasetQueryCapability,
     sharedFiltersForQueryStateId,

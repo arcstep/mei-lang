@@ -1,4 +1,5 @@
 import { COCKPIT_Z_INDEX } from "../cockpit/tokens.js";
+import { color } from "./theme-style.js";
 
 /** 高于二级看板（1620）与 GIS tooltip（1550） */
 export const FLOATING_TEXT_POPOVER_Z = COCKPIT_Z_INDEX.textPopover;

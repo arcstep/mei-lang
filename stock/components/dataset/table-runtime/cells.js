@@ -1,4 +1,5 @@
 import { escapeHtml, escapeHtmlAttr } from "../runtime-query.js";
+import { color } from "../../mei/theme-style.js";
 import {
   bindFloatingPopoverDrag,
   buildTextPopoverShellHtml,

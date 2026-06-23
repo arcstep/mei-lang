@@ -52,6 +52,7 @@ import {
   sumDescriptorColumnWidths,
 } from "./table-runtime/format.js";
 import { formatTableRowCountLabel } from "./table-runtime/footer.js";
+import { color } from "../mei/theme-style.js";
 
 class MeiDatasetTable extends HTMLElement {
   connectedCallback() {
