@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
@@ -145,11 +145,57 @@ fn prebuild_progress_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+fn prebuild_progress_origin() -> &'static Mutex<Option<Instant>> {
+    static ORIGIN: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    ORIGIN.get_or_init(|| Mutex::new(None))
+}
+
+struct PrebuildProgressSession;
+
+impl PrebuildProgressSession {
+    fn begin() -> Self {
+        if let Ok(mut guard) = prebuild_progress_origin().lock() {
+            *guard = Some(Instant::now());
+        }
+        Self
+    }
+}
+
+impl Drop for PrebuildProgressSession {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = prebuild_progress_origin().lock() {
+            *guard = None;
+        }
+    }
+}
+
+fn supports_ansi_stderr() -> bool {
+    std::io::stderr().is_terminal()
+}
+
+fn ansi_wrap(text: &str, code: &str) -> String {
+    if supports_ansi_stderr() {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
+
 fn prebuild_emit_progress(message: impl AsRef<str>) {
     let _guard = prebuild_progress_lock()
         .lock()
         .expect("prebuild progress lock");
-    eprintln!("{}", message.as_ref());
+    let elapsed = prebuild_progress_origin()
+        .lock()
+        .ok()
+        .and_then(|guard| *guard)
+        .map(|started| started.elapsed().as_millis() as u64);
+    let prefix = match elapsed {
+        Some(ms) if ms < 1000 => format!("[PREBUILD +{ms}ms]"),
+        Some(ms) => format!("[PREBUILD +{:.1}s]", ms as f64 / 1000.0),
+        None => "[PREBUILD]".to_string(),
+    };
+    eprintln!("{} {}", ansi_wrap(&prefix, "1;36"), message.as_ref());
     let _ = std::io::stderr().flush();
 }
 
@@ -1147,6 +1193,7 @@ impl CoverageState {
 }
 
 pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<PrebuildReport> {
+    let _progress_session = PrebuildProgressSession::begin();
     let started = Instant::now();
     let manifest_path = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
     let manifest_source = if manifest_path.is_file() {
@@ -1213,11 +1260,17 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         return Ok(report);
     }
     prebuild_emit_progress(&format!(
-        "prebuild {} | workspace={} | apps={}",
-        match options.mode {
-            PrebuildMode::Build => "构建",
-            PrebuildMode::Verify => "校验",
-        },
+        "{} | workspace={} | apps={}",
+        ansi_wrap(
+            &format!(
+                "START {}",
+                match options.mode {
+                    PrebuildMode::Build => "构建",
+                    PrebuildMode::Verify => "校验",
+                }
+            ),
+            "1;34"
+        ),
         source_root.display(),
         manifest
             .apps
@@ -3621,6 +3674,29 @@ fn dataframe_scope_metric_token(
     Some(metric_scope_cache_key(std::slice::from_ref(&resolved_metric_id)))
 }
 
+fn prebuild_dataframe_metric_selector(
+    metric_defs: &BTreeMap<String, Value>,
+    resolved_metric_id: &str,
+) -> String {
+    let resolved_metric_id = resolved_metric_id.trim();
+    if resolved_metric_id.is_empty() || resolved_metric_id.ends_with("::__scalar_rowset__") {
+        return resolved_metric_id.to_string();
+    }
+    let scalar_rowset_id = format!("{resolved_metric_id}::__scalar_rowset__");
+    if metric_defs.contains_key(&scalar_rowset_id) {
+        return scalar_rowset_id;
+    }
+    let shape = metric_defs
+        .get(resolved_metric_id)
+        .and_then(Value::as_object)
+        .and_then(|map| map.get("shape"))
+        .and_then(Value::as_str);
+    if matches!(shape, Some("scalar") | Some("scalar_map")) {
+        return scalar_rowset_id;
+    }
+    resolved_metric_id.to_string()
+}
+
 fn ensure_metric_dataframe_artifact(
     app_root: &Path,
     outcome: &SharedCompileOutcome,
@@ -3640,9 +3716,11 @@ fn ensure_metric_dataframe_artifact(
         .dataset
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
+    let dataframe_metric_id =
+        prebuild_dataframe_metric_selector(&owner_dataset.runtime_metric_defs, &resolved_metric_id);
     let runtime_workset = runtime_metric_workset(
         &owner_resource.id,
-        &[resolved_metric_id.clone()],
+        std::slice::from_ref(&dataframe_metric_id),
         owner_dataset,
     );
     let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
@@ -3661,9 +3739,9 @@ fn ensure_metric_dataframe_artifact(
     let scope_metric_token = dataframe_scope_metric_token(
         &outcome.compiled,
         resource.id.as_str(),
-        resolved_metric_id.as_str(),
+        dataframe_metric_id.as_str(),
     )
-    .unwrap_or_else(|| metric_scope_cache_key(std::slice::from_ref(&resolved_metric_id)));
+    .unwrap_or_else(|| metric_scope_cache_key(std::slice::from_ref(&dataframe_metric_id)));
     let response_cache_key = metric_dataframe_result_cache_key(
         app_root,
         Some(scene_id.as_str()),
@@ -3677,7 +3755,7 @@ fn ensure_metric_dataframe_artifact(
     );
     let shared_cache_key = prebuild_metric_dataframe_shared_key(
         owner_resource.id.as_str(),
-        resolved_metric_id.as_str(),
+        dataframe_metric_id.as_str(),
         &query_options,
         &dependency_revision_key,
     );
@@ -3687,7 +3765,7 @@ fn ensure_metric_dataframe_artifact(
                 app_root,
                 outcome,
                 owner_resource,
-                resolved_metric_id.as_str(),
+                dataframe_metric_id.as_str(),
                 &query_options,
                 &runtime_workset.defs_for_hydrate,
                 &result,
@@ -3697,7 +3775,7 @@ fn ensure_metric_dataframe_artifact(
                 app_root,
                 outcome,
                 resource.id.as_str(),
-                resolved_metric_id.as_str(),
+                dataframe_metric_id.as_str(),
                 &query_options,
                 &runtime_workset.defs_for_hydrate,
                 &result,
@@ -3714,7 +3792,7 @@ fn ensure_metric_dataframe_artifact(
             app_root,
             outcome,
             owner_resource,
-            resolved_metric_id.as_str(),
+            dataframe_metric_id.as_str(),
             &query_options,
             &runtime_workset.defs_for_hydrate,
             &result,
@@ -3724,7 +3802,7 @@ fn ensure_metric_dataframe_artifact(
             app_root,
             outcome,
             resource.id.as_str(),
-            resolved_metric_id.as_str(),
+            dataframe_metric_id.as_str(),
             &query_options,
             &runtime_workset.defs_for_hydrate,
             &result,
@@ -3768,14 +3846,14 @@ fn ensure_metric_dataframe_artifact(
         "[{}] 指标求值开始 | dataframe | {} | metric={} | scene={scene_id}",
         app_root.file_name().and_then(|s| s.to_str()).unwrap_or(""),
         short_dataset_id(resource.id.as_str()),
-        short_metric_id(resolved_metric_id.as_str())
+        short_metric_id(dataframe_metric_id.as_str())
     ));
     let metric_started = Instant::now();
     let result = query_metric_dataframe(
         &outcome.compiled,
         app_root,
         owner_resource.id.as_str(),
-        resolved_metric_id.as_str(),
+        dataframe_metric_id.as_str(),
         Some(scene_id.as_str()),
         scene_path.as_deref(),
         &outcome.compile_revision,
@@ -3786,7 +3864,7 @@ fn ensure_metric_dataframe_artifact(
     .with_context(|| {
         format!(
             "build metric dataframe artifact for dataset `{}` metric `{}`",
-            resource.id, resolved_metric_id
+            resource.id, dataframe_metric_id
         )
     });
     let result = match result {
@@ -3801,13 +3879,13 @@ fn ensure_metric_dataframe_artifact(
         app_root.file_name().and_then(|s| s.to_str()).unwrap_or(""),
         metric_started.elapsed().as_secs_f64(),
         short_dataset_id(resource.id.as_str()),
-        short_metric_id(resolved_metric_id.as_str()),
+        short_metric_id(dataframe_metric_id.as_str()),
         result.total
     ));
     state.diagnostics.record_metric_build(
         "dataframe",
         resource.id.as_str(),
-        resolved_metric_id.as_str(),
+        dataframe_metric_id.as_str(),
         scene_id.as_str(),
         metric_started.elapsed().as_millis() as u64,
     );
@@ -3830,7 +3908,7 @@ fn ensure_metric_dataframe_artifact(
         app_root,
         outcome,
         owner_resource,
-        resolved_metric_id.as_str(),
+        dataframe_metric_id.as_str(),
         &query_options,
         &runtime_workset.defs_for_hydrate,
         &result,
@@ -3840,7 +3918,7 @@ fn ensure_metric_dataframe_artifact(
         app_root,
         outcome,
         resource.id.as_str(),
-        resolved_metric_id.as_str(),
+        dataframe_metric_id.as_str(),
         &query_options,
         &runtime_workset.defs_for_hydrate,
         &result,
@@ -4323,6 +4401,39 @@ mod tests {
         assert_eq!(
             requested_metric_ids(&request),
             vec!["delta".to_string(), "total".to_string()]
+        );
+    }
+
+    #[test]
+    fn prebuild_dataframe_metric_selector_rewrites_scalar_metric_to_rowset() {
+        let metric_defs = BTreeMap::from([(
+            "scenes/01-执法要素.mei::enforcement_items_count".to_string(),
+            serde_json::json!({
+                "id": "scenes/01-执法要素.mei::enforcement_items_count",
+                "shape": "scalar_map"
+            }),
+        )]);
+        assert_eq!(
+            prebuild_dataframe_metric_selector(
+                &metric_defs,
+                "scenes/01-执法要素.mei::enforcement_items_count"
+            ),
+            "scenes/01-执法要素.mei::enforcement_items_count::__scalar_rowset__"
+        );
+    }
+
+    #[test]
+    fn prebuild_dataframe_metric_selector_keeps_dataframe_metric() {
+        let metric_defs = BTreeMap::from([(
+            "warnings_realtime_cockpit_table".to_string(),
+            serde_json::json!({
+                "id": "warnings_realtime_cockpit_table",
+                "shape": "dataframe"
+            }),
+        )]);
+        assert_eq!(
+            prebuild_dataframe_metric_selector(&metric_defs, "warnings_realtime_cockpit_table"),
+            "warnings_realtime_cockpit_table"
         );
     }
 

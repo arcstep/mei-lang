@@ -46,6 +46,7 @@ mod tests {
             explain: None,
             node: None,
             scope: None,
+            focus: None,
             chrome: None,
         };
         assert!(compile_bootstrap_probe_requested(&probe));

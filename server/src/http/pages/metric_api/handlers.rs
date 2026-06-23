@@ -190,6 +190,31 @@ pub async fn dataset_metric_api(
         build_view_dev,
     )
     .ok_or_else(|| {
+        let scene_label = if requested_scene_id.trim().is_empty() || requested_scene_id == "-" {
+            "scene=<unspecified>".to_string()
+        } else {
+            requested_scene_id.to_string()
+        };
+        let target_label = if requested_target.trim().is_empty() || requested_target == "-" {
+            "target=<unspecified>".to_string()
+        } else {
+            requested_target.to_string()
+        };
+        let error_message = format!(
+            "metric query requires prebuilt access artifacts on access-only host: app={app_id} {scene_label} {target_label}; wait for startup warmup or prebuild artifacts before serving access traffic"
+        );
+        let error = access_artifact_unavailable_error(
+            "metric query",
+            &app_id,
+            requested_scene_id,
+            requested_target,
+        );
+        crate::http::host_api::mark_access_artifact_degraded(
+            &app_id,
+            Some(requested_scene_id),
+            Some(requested_target),
+            &error_message,
+        );
         tracing::warn!(
             app_id = %app_id,
             scene_id = %requested_scene_id,
@@ -199,12 +224,7 @@ pub async fn dataset_metric_api(
             phase = "artifact_only_miss",
             "metric query rejected because host requires prebuilt artifacts"
         );
-        access_artifact_unavailable_error(
-            "metric query",
-            &app_id,
-            requested_scene_id,
-            requested_target,
-        )
+        error
     })?;
     let scene_ctx = resolved_scene_context(&compile_outcome.compiled);
     let compile_observation = CompileObservation::from_compile_outcome_shared(
@@ -720,13 +740,17 @@ fn execute_metric_query_group(
         // Access strict AOT must keep the "prebuild first, then use" contract.
         // Once access_artifact_only is enabled, missing artifacts must surface as
         // not-ready / unavailable rather than silently falling back to runtime JIT.
-        return Err(AppError::status(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!(
-                "missing strict AOT metric result artifact for dataset `{}` scene `{}`; run `mei-toolchain prebuild` first",
-                resource.id, ctx.scene_id
-            ),
-        ));
+        let error = format!(
+            "missing strict AOT metric result artifact for dataset `{}` scene `{}`; run `mei-toolchain prebuild` first",
+            resource.id, ctx.scene_id
+        );
+        crate::http::host_api::mark_access_artifact_degraded(
+            ctx.app_id,
+            Some(ctx.scene_id),
+            ctx.scene_path,
+            &error,
+        );
+        return Err(AppError::status(StatusCode::SERVICE_UNAVAILABLE, error));
         }
     }
 

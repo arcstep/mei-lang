@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use axum::{
@@ -19,6 +21,24 @@ use mei_lang_datasets::{
     preload_prebuild_metric_response_index,
 };
 use mei_lang_kernel::resolve_app_root;
+
+fn supports_ansi_stderr() -> bool {
+    std::io::stderr().is_terminal()
+}
+
+fn ansi_wrap(text: &str, code: &str) -> String {
+    if supports_ansi_stderr() {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
+
+fn emit_prebuild_status_line(status: &str, color_code: &str, detail: &str) {
+    let prefix = ansi_wrap(status, color_code);
+    eprintln!("{prefix} {detail}");
+    let _ = std::io::stderr().flush();
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct HostScopeReadinessResponse {
@@ -71,6 +91,22 @@ pub(crate) struct HostReadyResponse {
     pub building_apps: Vec<String>,
     #[serde(rename = "activeJob")]
     pub active_job: Option<String>,
+    #[serde(rename = "activeJobElapsedMs")]
+    pub active_job_elapsed_ms: Option<u64>,
+    #[serde(rename = "lastBuildTotalMs")]
+    pub last_build_total_ms: Option<u64>,
+    #[serde(rename = "lastBuildCompileMs")]
+    pub last_build_compile_ms: Option<u64>,
+    #[serde(rename = "lastBuildWarmupMs")]
+    pub last_build_warmup_ms: Option<u64>,
+    #[serde(rename = "lastWarningCount")]
+    pub last_warning_count: usize,
+    #[serde(rename = "readyAppCount")]
+    pub ready_app_count: usize,
+    #[serde(rename = "degradedAppCount")]
+    pub degraded_app_count: usize,
+    #[serde(rename = "failedAppCount")]
+    pub failed_app_count: usize,
     #[serde(rename = "errorSummary")]
     pub error_summary: Vec<String>,
     pub apps: Vec<HostAppReadinessResponse>,
@@ -80,10 +116,25 @@ pub(crate) struct HostReadyResponse {
 pub(crate) struct HostHeartbeatResponse {
     #[serde(rename = "buildVersion")]
     pub build_version: String,
+    /// Host service is bound and core APIs are reachable.
     pub ready: bool,
     #[serde(rename = "hostReady")]
     pub host_ready: bool,
+    #[serde(rename = "accessReady")]
+    pub access_ready: bool,
     pub phase: String,
+    #[serde(rename = "activeJob")]
+    pub active_job: Option<String>,
+    #[serde(rename = "activeJobElapsedMs")]
+    pub active_job_elapsed_ms: Option<u64>,
+    #[serde(rename = "lastBuildTotalMs")]
+    pub last_build_total_ms: Option<u64>,
+    #[serde(rename = "lastBuildCompileMs")]
+    pub last_build_compile_ms: Option<u64>,
+    #[serde(rename = "lastBuildWarmupMs")]
+    pub last_build_warmup_ms: Option<u64>,
+    #[serde(rename = "lastWarningCount")]
+    pub last_warning_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,6 +179,11 @@ pub(crate) struct HostReadinessRegistry {
     building_apps: Vec<String>,
     error_summary: Vec<String>,
     active_job: Option<String>,
+    active_job_started_at: Option<Instant>,
+    last_build_total_ms: Option<u64>,
+    last_build_compile_ms: Option<u64>,
+    last_build_warmup_ms: Option<u64>,
+    last_warning_count: usize,
     apps: BTreeMap<String, HostAppReadinessState>,
 }
 
@@ -171,6 +227,10 @@ fn manifest_source_label(source_root: &Path) -> &'static str {
 
 fn phase_ready(phase: &str) -> bool {
     matches!(phase, "ready" | "degraded" | "skipped")
+}
+
+fn phase_access_ready(phase: &str) -> bool {
+    matches!(phase, "ready" | "skipped")
 }
 
 fn normalize_scope_key(scene_id: Option<&str>, target_file: Option<&str>) -> String {
@@ -217,7 +277,7 @@ fn app_response(app_id: String, state: HostAppReadinessState) -> HostAppReadines
         .count();
     HostAppReadinessResponse {
         app_id,
-        ready: phase_ready(state.phase.as_str()),
+        ready: phase_access_ready(state.phase.as_str()),
         phase: if state.phase.trim().is_empty() {
             "pending".to_string()
         } else {
@@ -242,9 +302,15 @@ fn registry_snapshot() -> HostReadyResponse {
         .into_iter()
         .map(|(app_id, state)| app_response(app_id, state))
         .collect::<Vec<_>>();
-    let access_ready = matches!(snapshot.phase.as_str(), "ready" | "skipped");
+    let access_ready = phase_access_ready(snapshot.phase.as_str());
+    let active_job_elapsed_ms = snapshot
+        .active_job_started_at
+        .map(|started| started.elapsed().as_millis() as u64);
+    let ready_app_count = apps.iter().filter(|app| phase_access_ready(app.phase.as_str())).count();
+    let degraded_app_count = apps.iter().filter(|app| app.phase == "degraded").count();
+    let failed_app_count = apps.iter().filter(|app| app.phase == "failed").count();
     HostReadyResponse {
-        ready: access_ready,
+        ready: snapshot.host_bound,
         host_ready: snapshot.host_bound,
         access_ready,
         phase: if snapshot.phase.trim().is_empty() {
@@ -258,6 +324,14 @@ fn registry_snapshot() -> HostReadyResponse {
         failed_apps: snapshot.failed_apps,
         building_apps: snapshot.building_apps,
         active_job: snapshot.active_job,
+        active_job_elapsed_ms,
+        last_build_total_ms: snapshot.last_build_total_ms,
+        last_build_compile_ms: snapshot.last_build_compile_ms,
+        last_build_warmup_ms: snapshot.last_build_warmup_ms,
+        last_warning_count: snapshot.last_warning_count,
+        ready_app_count,
+        degraded_app_count,
+        failed_app_count,
         error_summary: snapshot.error_summary,
         apps,
     }
@@ -289,6 +363,11 @@ fn reset_registry_for_source_root(source_root: &Path) {
             building_apps: Vec::new(),
             error_summary: Vec::new(),
             active_job: None,
+            active_job_started_at: None,
+            last_build_total_ms: None,
+            last_build_compile_ms: None,
+            last_build_warmup_ms: None,
+            last_warning_count: 0,
             apps,
         };
     });
@@ -334,7 +413,12 @@ fn sync_registry_phase(registry: &mut HostReadinessRegistry) {
     let ready_count = registry
         .apps
         .values()
-        .filter(|app| phase_ready(app.phase.as_str()))
+        .filter(|app| phase_access_ready(app.phase.as_str()))
+        .count();
+    let degraded_count = registry
+        .apps
+        .values()
+        .filter(|app| app.phase == "degraded")
         .count();
     let failed_count = registry
         .apps
@@ -349,7 +433,7 @@ fn sync_registry_phase(registry: &mut HostReadinessRegistry) {
     registry.warmed_apps = registry
         .apps
         .iter()
-        .filter_map(|(app_id, app)| phase_ready(app.phase.as_str()).then_some(app_id.clone()))
+        .filter_map(|(app_id, app)| phase_access_ready(app.phase.as_str()).then_some(app_id.clone()))
         .collect();
     registry.failed_apps = registry
         .apps
@@ -363,12 +447,18 @@ fn sync_registry_phase(registry: &mut HostReadinessRegistry) {
             matches!(app.phase.as_str(), "pending" | "building").then_some(app_id.clone())
         })
         .collect();
-    registry.phase = if failed_count > 0 && ready_count > 0 {
+    registry.phase = if failed_count > 0 && (ready_count > 0 || degraded_count > 0) {
         "degraded".to_string()
     } else if failed_count > 0 && building_count == 0 {
         "failed".to_string()
     } else if building_count > 0 {
-        "building".to_string()
+        if registry.phase == "verifying" {
+            "verifying".to_string()
+        } else {
+            "building".to_string()
+        }
+    } else if degraded_count > 0 {
+        "degraded".to_string()
     } else if ready_count == registry.apps.len() {
         "ready".to_string()
     } else if registry.host_bound {
@@ -419,10 +509,27 @@ fn apply_success_app_report(app_report: &PrebuildAppReport, app_state: &mut Host
 }
 
 fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
+    let warning_count = report.apps.iter().map(|app| app.warnings.len()).sum::<usize>();
+    let failed_app_count = report.failed_apps.len();
+    let compile_ms: u64 = report
+        .apps
+        .iter()
+        .map(|app| app.timings.compile_scopes_ms)
+        .sum();
+    let warmup_ms: u64 = report
+        .apps
+        .iter()
+        .map(|app| app.timings.warmup_requests_ms)
+        .sum();
     let _ = with_registry(|registry| {
         registry.manifest_path = report.manifest_path.clone();
         registry.manifest_source = report.manifest_source.clone();
         registry.error_summary = report.error_summary.clone();
+        registry.active_job_started_at = None;
+        registry.last_build_total_ms = Some(report.total_wall_ms);
+        registry.last_build_compile_ms = Some(compile_ms);
+        registry.last_build_warmup_ms = Some(warmup_ms);
+        registry.last_warning_count = warning_count;
         for app_report in &report.apps {
             let app_state = registry.apps.entry(app_report.app_id.clone()).or_default();
             apply_success_app_report(app_report, app_state);
@@ -448,6 +555,57 @@ fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
         registry.active_job = None;
         sync_registry_phase(registry);
     });
+    tracing::info!(
+        mode = ?report.mode,
+        total_wall_ms = report.total_wall_ms,
+        succeeded_app_count = report.succeeded_apps.len(),
+        failed_app_count,
+        warning_count,
+        "startup prebuild report applied"
+    );
+    if failed_app_count == 0 && warning_count == 0 {
+        emit_prebuild_status_line(
+            "READY!",
+            "1;32",
+            &format!(
+                "[PREBUILD +{:.1}s] access artifacts ready | apps={} | compile={}ms | warmup={}ms",
+                report.total_wall_ms as f64 / 1000.0,
+                report.succeeded_apps.len(),
+                compile_ms,
+                warmup_ms
+            ),
+        );
+        tracing::info!(
+            total_wall_ms = report.total_wall_ms,
+            compile_ms,
+            warmup_ms,
+            app_count = report.succeeded_apps.len(),
+            "READY! access artifacts ready"
+        );
+    } else {
+        emit_prebuild_status_line(
+            "NOT READY!",
+            "1;31",
+            &format!(
+                "[PREBUILD +{:.1}s] access artifacts incomplete | apps={} | failed_apps={} | warnings={} | compile={}ms | warmup={}ms",
+                report.total_wall_ms as f64 / 1000.0,
+                report.apps.len(),
+                failed_app_count,
+                warning_count,
+                compile_ms,
+                warmup_ms
+            ),
+        );
+        tracing::warn!(
+            total_wall_ms = report.total_wall_ms,
+            compile_ms,
+            warmup_ms,
+            app_count = report.apps.len(),
+            failed_app_count,
+            warning_count,
+            "NOT READY! access artifacts incomplete"
+        );
+    }
     refresh_metric_response_indices_after_prebuild(report, app_filter);
 }
 
@@ -503,6 +661,7 @@ pub(crate) fn preload_metric_response_indices_for_workspace(source_root: &Path) 
 fn mark_job_failed(app_filter: Option<&str>, mode: PrebuildMode, error: &str) {
     let _ = with_registry(|registry| {
         registry.error_summary = vec![error.to_string()];
+        registry.active_job_started_at = None;
         if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
             let app_state = registry.apps.entry(app_id.to_string()).or_default();
             app_state.phase = "failed".to_string();
@@ -520,6 +679,7 @@ fn mark_job_failed(app_filter: Option<&str>, mode: PrebuildMode, error: &str) {
         };
         sync_registry_phase(registry);
     });
+    tracing::warn!(mode = ?mode, %error, "host build job failed");
 }
 
 fn begin_job(mode: PrebuildMode, app_filter: Option<&str>, origin: &str) -> Result<String> {
@@ -537,6 +697,7 @@ fn begin_job(mode: PrebuildMode, app_filter: Option<&str>, origin: &str) -> Resu
             format!("{origin}:{mode_label}:workspace")
         };
         registry.active_job = Some(job.clone());
+        registry.active_job_started_at = Some(Instant::now());
         let selected = set_selected_apps_phase(registry, app_filter, "building");
         if selected.is_empty() && app_filter.is_none() {
             registry.phase = "skipped".to_string();
@@ -621,6 +782,7 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
 
 pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
     begin_job(PrebuildMode::Build, None, "startup")?;
+    tracing::info!("startup background prebuild scheduled");
     tokio::spawn(async move {
         let source_root_for_job = source_root.clone();
         let report_result = tokio::task::spawn_blocking(move || {
@@ -703,9 +865,78 @@ pub(crate) fn artifact_gate_status(
     }
 }
 
+pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<String> {
+    let normalized_scene = scene_id.trim();
+    if normalized_scene.is_empty() {
+        return None;
+    }
+    let snapshot = registry_snapshot();
+    snapshot
+        .apps
+        .iter()
+        .find(|app| app.app_id == app_id)
+        .and_then(|app| {
+            app.scopes.iter().find(|scope| {
+                scope
+                    .scene_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    == Some(normalized_scene)
+            })
+        })
+        .and_then(|scope| {
+            scope
+                .target_file
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+}
+
+pub(crate) fn mark_access_artifact_degraded(
+    app_id: &str,
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
+    error: &str,
+) {
+    let normalized_scene = scene_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let normalized_target = target_file
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let normalized_error = error.trim();
+    if normalized_error.is_empty() {
+        return;
+    }
+    let _ = with_registry(|registry| {
+        let app_state = registry.apps.entry(app_id.to_string()).or_default();
+        app_state.last_error = Some(normalized_error.to_string());
+        if !app_state.warnings.iter().any(|warning| warning == normalized_error) {
+            app_state.warnings.push(normalized_error.to_string());
+        }
+        if normalized_scene.is_some() || normalized_target.is_some() {
+            let key = normalize_scope_key(
+                normalized_scene.as_deref(),
+                normalized_target.as_deref(),
+            );
+            let scope = app_state.scopes.entry(key).or_default();
+            scope.scene_id = normalized_scene.clone().or(scope.scene_id.clone());
+            scope.target_file = normalized_target.clone().or(scope.target_file.clone());
+            scope.phase = "degraded".to_string();
+            scope.last_error = Some(normalized_error.to_string());
+        }
+        sync_registry_phase(registry);
+    });
+}
+
 pub async fn api_host_ready() -> impl IntoResponse {
     let response = registry_snapshot();
-    let status = if response.access_ready {
+    let status = if response.host_ready {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE
@@ -721,9 +952,16 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
     let ready = registry_snapshot();
     Json(HostHeartbeatResponse {
         build_version: crate::build_info::BUILD_VERSION.to_string(),
-        ready: ready.access_ready,
+        ready: ready.host_ready,
         host_ready: ready.host_ready,
+        access_ready: ready.access_ready,
         phase: ready.phase,
+        active_job: ready.active_job,
+        active_job_elapsed_ms: ready.active_job_elapsed_ms,
+        last_build_total_ms: ready.last_build_total_ms,
+        last_build_compile_ms: ready.last_build_compile_ms,
+        last_build_warmup_ms: ready.last_build_warmup_ms,
+        last_warning_count: ready.last_warning_count,
     })
 }
 
@@ -790,7 +1028,14 @@ mod tests {
             build_version: crate::build_info::BUILD_VERSION.to_string(),
             ready: ready.ready,
             host_ready: ready.host_ready,
+            access_ready: ready.access_ready,
             phase: ready.phase,
+            active_job: ready.active_job,
+            active_job_elapsed_ms: ready.active_job_elapsed_ms,
+            last_build_total_ms: ready.last_build_total_ms,
+            last_build_compile_ms: ready.last_build_compile_ms,
+            last_build_warmup_ms: ready.last_build_warmup_ms,
+            last_warning_count: ready.last_warning_count,
         };
         assert!(!heartbeat.build_version.is_empty());
         assert_eq!(heartbeat.build_version, crate::build_info::BUILD_VERSION);
