@@ -11,9 +11,7 @@ use mei_lang_kernel::{CompileOptions, WorkspaceAppMeta};
 
 use crate::AppState;
 
-use crate::http::compile_cache::{
-    compile_app_with_cache, CompileWithCacheOutcome,
-};
+use crate::http::compile_cache::{compile_app_with_cache, CompileWithCacheOutcome};
 use crate::http::host_api;
 use crate::http::host_error_page::{self, HostShellAction};
 use crate::http::pages::app::compiling_shell::{
@@ -265,7 +263,8 @@ pub(super) fn resolve_compile_outcome(
     _discover_ms: u64,
     _app_started: Instant,
 ) -> CompileResolution {
-    if let Some(outcome) = resolved_artifact_feedback(state, app_id, &compile_options, "artifact_only")
+    if let Some(outcome) =
+        resolved_artifact_feedback(state, app_id, &compile_options, "artifact_only")
     {
         return CompileResolution::Outcome(outcome);
     }
@@ -454,6 +453,9 @@ mod tests {
             }),
             "target_only"
         );
-        assert_eq!(compile_feedback_scope_kind(&CompileOptions::default()), "full_app");
+        assert_eq!(
+            compile_feedback_scope_kind(&CompileOptions::default()),
+            "full_app"
+        );
     }
 }

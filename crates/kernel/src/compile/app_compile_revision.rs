@@ -231,9 +231,9 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
             let path = app_root.join(&rel_path);
             let metadata = std::fs::metadata(&path).ok();
             CompileWatchedFile {
-                content_signature: path
-                    .is_file()
-                    .then(|| crate::compile::source_file_content_signature(path.as_path(), &rel_path)),
+                content_signature: path.is_file().then(|| {
+                    crate::compile::source_file_content_signature(path.as_path(), &rel_path)
+                }),
                 rel_path,
                 modified_ms: crate::compile::scene_payload_cache::file_mtime_ms(&path),
                 size_bytes: metadata.map(|meta| meta.len()).unwrap_or(0),

@@ -116,10 +116,7 @@ pub(super) fn insert_compile_feedback_headers(
     for (header, value) in [
         ("x-mei-compile-feedback-path", feedback.path),
         ("x-mei-compile-feedback-reason", feedback.reason),
-        (
-            "x-mei-compile-feedback-scope-kind",
-            feedback.scope_kind,
-        ),
+        ("x-mei-compile-feedback-scope-kind", feedback.scope_kind),
     ] {
         if let Ok(header_value) = HeaderValue::from_str(value) {
             res.headers_mut()

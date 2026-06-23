@@ -1087,7 +1087,10 @@ fn collect_top_level_layout_areas(layout: &Value) -> BTreeSet<String> {
     allowed
 }
 
-fn shell_zone_dedupe_rank(zone: &Map<String, Value>, top_level_areas: &BTreeSet<String>) -> (i32, i32) {
+fn shell_zone_dedupe_rank(
+    zone: &Map<String, Value>,
+    top_level_areas: &BTreeSet<String>,
+) -> (i32, i32) {
     let parent = zone
         .get("parent")
         .and_then(Value::as_str)
@@ -1101,7 +1104,11 @@ fn shell_zone_dedupe_rank(zone: &Map<String, Value>, top_level_areas: &BTreeSet<
     let area_in_top = !area.is_empty() && top_level_areas.contains(area);
     let is_nested = !parent.is_empty();
     let primary = if area_in_top {
-        if is_nested { 0 } else { 1 }
+        if is_nested {
+            0
+        } else {
+            1
+        }
     } else if is_nested {
         1
     } else {
