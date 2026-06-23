@@ -2,6 +2,7 @@ mod revision;
 mod singleflight;
 
 use std::collections::{BTreeMap, HashMap};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -16,7 +17,8 @@ use serde_json::Value;
 use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
 
 use crate::artifact_store::{
-    read_json_artifact, write_json_artifact, ArtifactWatchedFile, ArtifactWriteContext,
+    read_json_artifact, write_json_artifact, ArtifactStoreManifest, ArtifactWatchedFile,
+    ArtifactWriteContext,
 };
 use crate::types::WorldScope;
 pub use singleflight::env_flag_enabled;
@@ -172,7 +174,25 @@ fn compiled_app_artifact_scope(options: &CompileOptions) -> WorldScope {
     }
 }
 
+fn compiled_app_embeds_export_scene(compiled: &CompiledApp, requested_scene: &str) -> bool {
+    compiled
+        .scene_projection_assembly_by_id
+        .contains_key(requested_scene)
+        || compiled.scene_bindings_by_id.contains_key(requested_scene)
+}
+
 fn artifact_matches_compile_scene_request(options: &CompileOptions, compiled: &CompiledApp) -> bool {
+    if let Some(requested_target) = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+    {
+        let active_target = compiled.active_target_file.trim();
+        if active_target != requested_target {
+            return false;
+        }
+    }
     let Some(requested_scene) = options
         .scene
         .as_deref()
@@ -181,12 +201,72 @@ fn artifact_matches_compile_scene_request(options: &CompileOptions, compiled: &C
     else {
         return true;
     };
-    compiled
+    if compiled
         .active_scene
         .as_deref()
         .map(str::trim)
         .filter(|scene| !scene.is_empty())
         == Some(requested_scene)
+    {
+        return true;
+    }
+    compiled_app_embeds_export_scene(compiled, requested_scene)
+}
+
+fn normalized_scope_target(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .map(str::to_string)
+}
+
+fn list_compiled_app_scopes_for_target(app_root: &Path, target_file: &str) -> Vec<WorldScope> {
+    let target_file = target_file.trim();
+    if target_file.is_empty() {
+        return Vec::new();
+    }
+    let manifests_dir = compiled_app_artifact_root(app_root)
+        .join("manifests")
+        .join(COMPILED_APP_ARTIFACT_KIND);
+    let Ok(entries) = fs::read_dir(&manifests_dir) else {
+        return Vec::new();
+    };
+    let mut scopes = Vec::new();
+    let mut seen = BTreeMap::<String, ()>::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_str::<ArtifactStoreManifest>(&text) else {
+            continue;
+        };
+        if manifest.artifact_kind != COMPILED_APP_ARTIFACT_KIND
+            || manifest.artifact_name != COMPILED_APP_ARTIFACT_NAME
+        {
+            continue;
+        }
+        let Some(scope_target) = normalized_scope_target(manifest.scope.target_file.as_deref())
+        else {
+            continue;
+        };
+        if scope_target != target_file {
+            continue;
+        }
+        let key = format!(
+            "{}|{}",
+            manifest.scope.scene_id.as_deref().unwrap_or(""),
+            scope_target
+        );
+        if seen.insert(key, ()).is_some() {
+            continue;
+        }
+        scopes.push(manifest.scope);
+    }
+    scopes
 }
 
 fn compiled_app_artifact_context(
@@ -416,13 +496,62 @@ fn compiled_app_artifact_lookup_scopes(
         .as_deref()
         .map(str::trim)
         .filter(|scene| !scene.is_empty());
-    let has_target = options
-        .preview_target
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|target| !target.is_empty());
+    let preview_target = normalized_scope_target(options.preview_target.as_deref());
+    let has_target = preview_target.is_some();
     if scene_id.is_none() || has_target {
-        return vec![compiled_app_artifact_scope(options)];
+        let mut scopes = Vec::new();
+        let mut seen = BTreeMap::<String, ()>::new();
+        let mut push_scope = |scope: WorldScope| {
+            let key = format!(
+                "{}|{}",
+                scope.scene_id.as_deref().unwrap_or(""),
+                scope.target_file.as_deref().unwrap_or("")
+            );
+            if seen.insert(key, ()).is_some() {
+                return;
+            }
+            scopes.push(scope);
+        };
+        push_scope(compiled_app_artifact_scope(options));
+        if let Some(target_file) = preview_target.as_deref() {
+            for scope in list_compiled_app_scopes_for_target(app_root, target_file) {
+                push_scope(scope);
+            }
+        }
+        if scene_id.is_none() {
+            return scopes;
+        }
+        if let Ok(Some((_, default_artifact))) = read_json_artifact::<CompiledAppDiskArtifact>(
+            app_root,
+            COMPILED_APP_ARTIFACT_KIND,
+            COMPILED_APP_ARTIFACT_NAME,
+            &WorldScope {
+                scene_id: None,
+                target_file: None,
+            },
+        ) {
+            for route in &default_artifact.compiled.scene_routes {
+                if route.scene_id.trim() != scene_id.expect("scene id checked above") {
+                    continue;
+                }
+                let target = route.target_file.trim();
+                if target.is_empty() {
+                    continue;
+                }
+                if preview_target.as_deref().is_some_and(|requested| requested != target) {
+                    continue;
+                }
+                push_scope(WorldScope {
+                    scene_id: Some(scene_id.expect("scene id checked above").to_string()),
+                    target_file: Some(target.to_string()),
+                });
+            }
+        }
+        push_scope(WorldScope {
+            scene_id: None,
+            target_file: None,
+        });
+        return scopes;
     }
     let scene_id = scene_id.expect("scene-only lookup requires scene id");
     let mut scopes = Vec::new();
@@ -1194,5 +1323,35 @@ mod tests {
             &options,
             &compiled_with_scene(None)
         ));
+    }
+
+    #[test]
+    fn artifact_matches_compile_scene_request_allows_hydrated_export_board() {
+        let options = CompileOptions {
+            scene: Some("ai_warning_cockpit_board".to_string()),
+            preview_target: Some("scenes/02-行政检查.board.mei".to_string()),
+        };
+        let mut compiled = compiled_with_scene(Some("home"));
+        compiled.active_target_file = "scenes/02-行政检查.board.mei".to_string();
+        compiled
+            .scene_projection_assembly_by_id
+            .insert("ai_warning_cockpit_board".to_string(), Value::Object(Default::default()));
+        assert!(artifact_matches_compile_scene_request(&options, &compiled));
+    }
+
+    #[test]
+    fn artifact_matches_compile_scene_request_rejects_wrong_active_target() {
+        let options = CompileOptions {
+            scene: Some("enforcement_units_analytics_board".to_string()),
+            preview_target: Some("scenes/01-执法要素.board.mei".to_string()),
+        };
+        let mut compiled = compiled_with_scene(Some("home"));
+        compiled.active_target_file = "scenes/home.mei".to_string();
+        compiled.scene_projection_assembly_by_id.insert(
+            "enforcement_units_analytics_board".to_string(),
+            Value::Object(Default::default()),
+        );
+
+        assert!(!artifact_matches_compile_scene_request(&options, &compiled));
     }
 }
