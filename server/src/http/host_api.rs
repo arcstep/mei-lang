@@ -666,6 +666,7 @@ fn status_from_report(
         .map(|app| app.warnings.len())
         .sum::<usize>();
     let failed_app_count = report.failed_apps.len();
+    let access_artifacts_ready = failed_app_count == 0 && warning_count == 0;
     let compile_ms: u64 = report
         .apps
         .iter()
@@ -697,8 +698,6 @@ fn status_from_report(
         .map(|app| app.timings.deferred_warmup_request_count)
         .sum();
     let registry_update = with_registry(|registry| {
-        let previous_access_ready = registry.access_ready;
-        let previous_full_warmup_ready = registry.full_warmup_ready;
         let active_job = registry.active_job.clone();
         registry.manifest_path = report.manifest_path.clone();
         registry.manifest_source = report.manifest_source.clone();
@@ -713,9 +712,9 @@ fn status_from_report(
         registry.last_deferred_warmup_request_count = deferred_warmup_request_count;
         registry.last_warning_count = warning_count;
         registry.last_build_diagnostics = Some(report.diagnostics.clone());
-        registry.access_ready = report.ok;
-        registry.full_warmup_ready = report.ok && !deferred_warmup_pending;
-        registry.deferred_warmup_pending = report.ok && deferred_warmup_pending;
+        registry.access_ready = report.ok && access_artifacts_ready;
+        registry.full_warmup_ready = report.ok && access_artifacts_ready && !deferred_warmup_pending;
+        registry.deferred_warmup_pending = report.ok && access_artifacts_ready && deferred_warmup_pending;
         for app_report in &report.apps {
             let app_state = registry.apps.entry(app_report.app_id.clone()).or_default();
             apply_success_app_report(app_report, app_state);
@@ -744,14 +743,7 @@ fn status_from_report(
         }
         registry.active_job = None;
         sync_registry_phase(registry);
-        (
-            previous_access_ready,
-            previous_full_warmup_ready,
-            active_job,
-            registry.access_ready,
-            registry.full_warmup_ready,
-            registry.deferred_warmup_pending,
-        )
+        active_job
     });
     let snapshot = registry_snapshot();
     startup_run::update_readiness_snapshot(
@@ -761,15 +753,7 @@ fn status_from_report(
         snapshot.deferred_warmup_pending,
         &snapshot,
     );
-    if let Some((
-        previous_access_ready,
-        previous_full_warmup_ready,
-        active_job,
-        access_ready,
-        full_warmup_ready,
-        deferred_pending,
-    )) = registry_update
-    {
+    if let Some(active_job) = registry_update {
         if active_job
             .as_deref()
             .map(|job| job.starts_with("startup:") || job.starts_with("startup_deferred:"))
@@ -786,31 +770,15 @@ fn status_from_report(
                 "hot"
             };
             startup_run::write_prebuild_report(slot, report);
-        }
-        if access_ready && !previous_access_ready {
-            startup_run::record_phase(
-                "access_ready",
-                Some(serde_json::json!({
-                    "phase": snapshot.phase,
-                    "totalWallMs": report.total_wall_ms,
-                })),
-            );
-        }
-        if full_warmup_ready && !previous_full_warmup_ready {
-            startup_run::record_phase(
-                "full_warmup_ready",
-                Some(serde_json::json!({
-                    "phase": snapshot.phase,
-                    "totalWallMs": report.total_wall_ms,
-                })),
-            );
-            startup_run::record_phase(
-                "startup_finished",
-                Some(serde_json::json!({
-                    "phase": snapshot.phase,
-                    "deferredWarmupPending": deferred_pending,
-                    "ok": report.ok,
-                })),
+            startup_run::record_startup_prebuild_outcome(
+                slot,
+                report,
+                access_artifacts_ready,
+                warning_count,
+                failed_app_count,
+                compile_ms,
+                warmup_ms,
+                !deferred_warmup_pending,
             );
         }
     }
@@ -988,10 +956,18 @@ fn mark_job_failed(
         }
         if job.starts_with("startup:") || job.starts_with("startup_deferred:") {
             startup_run::record_phase(
+                "access_not_ready",
+                Some(serde_json::json!({
+                    "error": error,
+                    "job": job,
+                })),
+            );
+            startup_run::record_phase(
                 "startup_finished",
                 Some(serde_json::json!({
                     "phase": snapshot.phase,
                     "ok": false,
+                    "startupOutcome": "failed",
                     "error": error,
                 })),
             );

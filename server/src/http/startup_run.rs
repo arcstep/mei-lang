@@ -7,6 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::prebuild::PrebuildReport;
+
 const STARTUP_RUN_SCHEMA_VERSION: &str = "mei-startup-run-v1";
 
 #[derive(Debug, Clone, Serialize)]
@@ -37,6 +39,16 @@ pub(crate) struct StartupRunSnapshot {
     pub full_warmup_ready: bool,
     #[serde(rename = "deferredWarmupPending")]
     pub deferred_warmup_pending: bool,
+    #[serde(rename = "accessArtifactsReady", skip_serializing_if = "Option::is_none")]
+    pub access_artifacts_ready: Option<bool>,
+    #[serde(rename = "startupOutcome", skip_serializing_if = "Option::is_none")]
+    pub startup_outcome: Option<String>,
+    #[serde(rename = "startupWarmupKind", skip_serializing_if = "Option::is_none")]
+    pub startup_warmup_kind: Option<String>,
+    #[serde(rename = "lastWarningCount", skip_serializing_if = "Option::is_none")]
+    pub last_warning_count: Option<usize>,
+    #[serde(rename = "lastFailedAppCount", skip_serializing_if = "Option::is_none")]
+    pub last_failed_app_count: Option<usize>,
     pub finished: bool,
 }
 
@@ -139,6 +151,11 @@ pub(crate) fn initialize(source_root: &Path, startup_policy: &str) {
         access_ready: false,
         full_warmup_ready: false,
         deferred_warmup_pending: false,
+        access_artifacts_ready: None,
+        startup_outcome: None,
+        startup_warmup_kind: None,
+        last_warning_count: None,
+        last_failed_app_count: None,
         finished: false,
     };
     let mut guard = match startup_run_state().lock() {
@@ -191,6 +208,23 @@ pub(crate) fn record_phase(event: &str, detail: Option<Value>) {
         if event_text == "startup_finished" {
             state.summary.finished = true;
             state.summary.finished_at_ms = Some(at_ms);
+            if let Some(detail) = detail.as_ref() {
+                if let Some(outcome) = detail.get("startupOutcome").and_then(Value::as_str) {
+                    state.summary.startup_outcome = Some(outcome.to_string());
+                }
+                if let Some(access) = detail.get("accessArtifactsReady").and_then(Value::as_bool) {
+                    state.summary.access_artifacts_ready = Some(access);
+                }
+                if let Some(kind) = detail.get("warmupKind").and_then(Value::as_str) {
+                    state.summary.startup_warmup_kind = Some(kind.to_string());
+                }
+                if let Some(count) = detail.get("warningCount").and_then(Value::as_u64) {
+                    state.summary.last_warning_count = Some(count as usize);
+                }
+                if let Some(count) = detail.get("failedAppCount").and_then(Value::as_u64) {
+                    state.summary.last_failed_app_count = Some(count as usize);
+                }
+            }
         }
         persist_run_json(state);
         let record = StartupRunTimelineEvent {
@@ -226,6 +260,110 @@ pub(crate) fn update_readiness_snapshot(
             tracing::warn!(%error, path = %readiness_path.display(), "failed to persist readiness snapshot");
         }
     });
+}
+
+fn infer_startup_warmup_kind(report: &PrebuildReport) -> &'static str {
+    let diagnostics = &report.diagnostics;
+    if diagnostics.real_compile_count == 0 {
+        if diagnostics.cache_hit_count > 0
+            || diagnostics.compile_index.hits > 0
+            || diagnostics.warmup_reuse_hits > 0
+        {
+            "incremental_cache"
+        } else {
+            "verify_only"
+        }
+    } else {
+        "cold_or_rebuild"
+    }
+}
+
+pub(crate) fn record_startup_prebuild_outcome(
+    prebuild_slot: &str,
+    report: &PrebuildReport,
+    access_artifacts_ready: bool,
+    warning_count: usize,
+    failed_app_count: usize,
+    compile_ms: u64,
+    warmup_ms: u64,
+    startup_sequence_complete: bool,
+) {
+    let warmup_kind = infer_startup_warmup_kind(report);
+    record_phase(
+        "startup_prebuild_finished",
+        Some(json!({
+            "slot": prebuild_slot,
+            "scopeProfile": format!("{:?}", report.scope_profile),
+            "accessArtifactsReady": access_artifacts_ready,
+            "ok": report.ok,
+            "warmupKind": warmup_kind,
+            "failedAppCount": failed_app_count,
+            "warningCount": warning_count,
+            "totalWallMs": report.total_wall_ms,
+            "compileMs": compile_ms,
+            "warmupMs": warmup_ms,
+            "realCompileCount": report.diagnostics.real_compile_count,
+            "cacheHitCount": report.diagnostics.cache_hit_count,
+            "compileIndexHits": report.diagnostics.compile_index.hits,
+            "compileIndexMisses": report.diagnostics.compile_index.misses,
+        })),
+    );
+    if !access_artifacts_ready {
+        record_phase(
+            "access_not_ready",
+            Some(json!({
+                "slot": prebuild_slot,
+                "failedAppCount": failed_app_count,
+                "warningCount": warning_count,
+                "ok": report.ok,
+            })),
+        );
+    } else if startup_sequence_complete {
+        record_phase(
+            "access_ready",
+            Some(json!({
+                "slot": prebuild_slot,
+                "totalWallMs": report.total_wall_ms,
+            })),
+        );
+    }
+    if !startup_sequence_complete {
+        return;
+    }
+    let startup_ok = report.ok && access_artifacts_ready;
+    let startup_outcome = if startup_ok {
+        "ready"
+    } else {
+        "not_ready"
+    };
+    let _ = with_state(|state| {
+        state.summary.startup_warmup_kind = Some(warmup_kind.to_string());
+        state.summary.startup_outcome = Some(startup_outcome.to_string());
+        state.summary.access_artifacts_ready = Some(access_artifacts_ready);
+        state.summary.last_warning_count = Some(warning_count);
+        state.summary.last_failed_app_count = Some(failed_app_count);
+    });
+    if report.ok && access_artifacts_ready {
+        record_phase(
+            "full_warmup_ready",
+            Some(json!({
+                "slot": prebuild_slot,
+                "totalWallMs": report.total_wall_ms,
+            })),
+        );
+    }
+    record_phase(
+        "startup_finished",
+        Some(json!({
+            "ok": startup_ok,
+            "startupOutcome": startup_outcome,
+            "warmupKind": warmup_kind,
+            "accessArtifactsReady": access_artifacts_ready,
+            "failedAppCount": failed_app_count,
+            "warningCount": warning_count,
+            "totalWallMs": report.total_wall_ms,
+        })),
+    );
 }
 
 pub(crate) fn write_prebuild_report(slot: &str, report: &impl Serialize) {

@@ -1694,6 +1694,11 @@ function buildStartupArtifactPerf(summary) {
     startup_hot_warmup_ms: toFinite(
       Array.isArray(hot.apps) ? hot.apps.reduce((sum, app) => sum + (Number(app?.timings?.warmup_requests_ms) || 0), 0) : NaN
     ),
+    startup_access_artifacts_ready: toFinite(run.accessArtifactsReady === true ? 1 : run.accessArtifactsReady === false ? 0 : NaN),
+    startup_outcome_ready: toFinite(run.startupOutcome === "ready" ? 1 : run.startupOutcome === "not_ready" || run.startupOutcome === "failed" ? 0 : NaN),
+    startup_warmup_kind_incremental: toFinite(run.startupWarmupKind === "incremental_cache" ? 1 : run.startupWarmupKind === "cold_or_rebuild" ? 0 : NaN),
+    startup_last_warning_count: toFinite(run.lastWarningCount),
+    startup_last_failed_app_count: toFinite(run.lastFailedAppCount),
     startup_full_total_ms: toFinite(full.total_wall_ms),
     startup_full_compile_ms: toFinite(
       Array.isArray(full.apps) ? full.apps.reduce((sum, app) => sum + (Number(app?.timings?.compile_scopes_ms) || 0), 0) : NaN
@@ -1750,6 +1755,11 @@ async function collectStartupRunRecord(context) {
   const perf = {};
   mergePerf(perf, hostContext.perf);
   mergePerf(perf, buildStartupArtifactPerf(startupRunSummary));
+  const run = startupRunSummary?.run || {};
+  const notes = [];
+  if (run.startupWarmupKind) notes.push(`startup_warmup_kind=${run.startupWarmupKind}`);
+  if (run.startupOutcome) notes.push(`startup_outcome=${run.startupOutcome}`);
+  if (run.accessArtifactsReady === false) notes.push("access_artifacts_not_ready=1");
   return {
     schema_version: "mei-host-perf-sample-v2",
     record_kind: "startup_run",
@@ -1771,7 +1781,7 @@ async function collectStartupRunRecord(context) {
     startup_artifact_dir: hostMetadata.startup_artifact_dir || undefined,
     startup_run_summary: startupRunSummary || undefined,
     perf,
-    notes: [],
+    notes,
   };
 }
 
