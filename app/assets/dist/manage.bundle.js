@@ -6736,11 +6736,11 @@
     };
   }
 
-  function retainZonesMatchingLayout(layout, zones) {
-    if (!layout || !Array.isArray(layout.areas) || !layout.areas.length) {
-      return zones;
-    }
+  function collectTopLevelLayoutAreas(layout) {
     const allowed = new Set();
+    if (!layout || !Array.isArray(layout.areas)) {
+      return allowed;
+    }
     layout.areas.forEach((row) => {
       (Array.isArray(row) ? row : []).forEach((area) => {
         const name = String(area || "").trim();
@@ -6749,13 +6749,65 @@
         }
       });
     });
+    return allowed;
+  }
+
+  /** Align with Rust retain_shell_zones_matching_layout: keep nested slot zones under containers. */
+  function retainZonesMatchingLayout(layout, zones) {
+    if (!layout || !Array.isArray(layout.areas) || !layout.areas.length) {
+      return zones;
+    }
+    const allowed = collectTopLevelLayoutAreas(layout);
     if (!allowed.size) {
       return zones;
     }
-    return zones.filter((zone) => {
+    const keptIds = new Set();
+    (Array.isArray(zones) ? zones : []).forEach((zone) => {
       const area = nonEmptyString(zone?.area);
-      return area && allowed.has(area);
+      const id = nonEmptyString(zone?.id);
+      if (area && allowed.has(area) && id) {
+        keptIds.add(id);
+      }
     });
+    let changed = true;
+    while (changed) {
+      changed = false;
+      (Array.isArray(zones) ? zones : []).forEach((zone) => {
+        const id = nonEmptyString(zone?.id);
+        if (!id || !keptIds.has(id) || zone?.role !== "container") {
+          return;
+        }
+        const nestedAreas = collectTopLevelLayoutAreas(zone?.layout);
+        if (!nestedAreas.size) {
+          return;
+        }
+        (Array.isArray(zones) ? zones : []).forEach((candidate) => {
+          const candidateArea = nonEmptyString(candidate?.area);
+          const candidateId = nonEmptyString(candidate?.id);
+          if (!candidateId || !candidateArea || !nestedAreas.has(candidateArea)) {
+            return;
+          }
+          if (!keptIds.has(candidateId)) {
+            keptIds.add(candidateId);
+            changed = true;
+          }
+        });
+      });
+    }
+    changed = true;
+    while (changed) {
+      changed = false;
+      (Array.isArray(zones) ? zones : []).forEach((zone) => {
+        const id = nonEmptyString(zone?.id);
+        const parent = nonEmptyString(zone?.parent);
+        if (!id || keptIds.has(id) || !parent || !keptIds.has(parent)) {
+          return;
+        }
+        keptIds.add(id);
+        changed = true;
+      });
+    }
+    return (Array.isArray(zones) ? zones : []).filter((zone) => keptIds.has(nonEmptyString(zone?.id)));
   }
 
   function normalizeSceneShellContract(rawFrame, rawPanels, rawContract = null) {
@@ -9380,6 +9432,28 @@
       config?.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
     );
+    const previewOnlyFetch =
+      isPreviewOnlyMapping(config) ||
+      isSheetDetailCardPreview(config) ||
+      isTypicalCaseCardPreview(config);
+    const metricFetchConfig =
+      previewOnlyFetch &&
+      nonEmptyString(config?.hostSceneId, detail?.host_scene_id, config?.hostSceneFile, detail?.host_scene_file)
+        ? {
+            ...config,
+            structuredBoard: false,
+            runtimeSceneId: nonEmptyString(
+              config?.hostSceneId,
+              detail?.host_scene_id,
+              detail?.__mei_runtime_ref?.scene_id,
+            ),
+            runtimeSceneFile: nonEmptyString(
+              config?.hostSceneFile,
+              detail?.host_scene_file,
+              detail?.__mei_runtime_ref?.scene_path,
+            ),
+          }
+        : config;
     const passedMetricId = resolvePopupPassedMetricId(detail, config);
     const cardMetricId = nonEmptyString(
       passedMetricId,
@@ -9405,7 +9479,7 @@
           ? tableMetricId
           : resolveCardMetricRowsetId(tableMetricId)
         : tableMetricId;
-    const scopedConfig = detailRowsetMetricId ? { ...config, tableMetricId: detailRowsetMetricId } : config;
+    const scopedConfig = detailRowsetMetricId ? { ...metricFetchConfig, tableMetricId: detailRowsetMetricId } : metricFetchConfig;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
     const popupFetchFilters = mergePopupFetchFilters(detail, scopedConfig, tableProps);
     const runtimeQuery = window.__meiDatasetRuntime;
@@ -9842,6 +9916,7 @@
   }
 
   const SPBJW_WARNING_DETAIL_BOARD_FILE = "scenes/_shared/warning-detail.card.board.mei";
+  const SPBJW_TYPICAL_CASES_BOARD_FILE = "scenes/09-监督典型案例.board.mei";
   const SPBJW_ISSUE_CLUE_DETAIL_BOARD_FILE = "scenes/_shared/issue-clue-detail.card.board.mei";
   const SPBJW_ISSUE_RESULT_DETAIL_BOARD_FILE = "scenes/_shared/issue-result-detail.card.board.mei";
   const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
@@ -9875,7 +9950,7 @@
     if (id === "typical_cases") {
       return {
         sceneId: "typical_cases_detail_board",
-        sceneFile: "",
+        sceneFile: SPBJW_TYPICAL_CASES_BOARD_FILE,
       };
     }
     if (SPBJW_WARNING_ROWSET_IDS.has(id)) {
@@ -15113,6 +15188,26 @@
     const zoneHosts = buildManagePreviewZoneHosts(surface, resolved.sceneShell);
     const filterZone = sceneShellZonesByRole(resolved.sceneShell, "filter")[0] || null;
     const slotZones = sceneShellZonesByRole(resolved.sceneShell, "slots");
+    const projectionSlots = Array.isArray(resolved?.popup?.projection_slots)
+      ? resolved.popup.projection_slots
+      : Array.isArray(resolved?.projectionSlots)
+        ? resolved.projectionSlots
+        : [];
+    const expectsSlotZones = projectionSlots.some(
+      (slot) =>
+        String(slot?.component || "").trim() === "chart" ||
+        String(slot?.component || "").trim() === "data_table",
+    );
+    if (expectsSlotZones && !slotZones.length) {
+      if (surface instanceof HTMLElement) {
+        showManagePreviewBoardError(
+          surface,
+          "看板预览 shell 缺少 chart/detail 挂载区（嵌套 zone 解析不完整）。",
+          detail,
+        );
+      }
+      return false;
+    }
     const hostsReady =
       (!filterZone || zoneHosts[filterZone.id] instanceof HTMLElement) &&
       slotZones.every((zone) => zoneHosts[zone.id] instanceof HTMLElement);

@@ -86,11 +86,11 @@
     };
   }
 
-  function retainZonesMatchingLayout(layout, zones) {
-    if (!layout || !Array.isArray(layout.areas) || !layout.areas.length) {
-      return zones;
-    }
+  function collectTopLevelLayoutAreas(layout) {
     const allowed = new Set();
+    if (!layout || !Array.isArray(layout.areas)) {
+      return allowed;
+    }
     layout.areas.forEach((row) => {
       (Array.isArray(row) ? row : []).forEach((area) => {
         const name = String(area || "").trim();
@@ -99,13 +99,65 @@
         }
       });
     });
+    return allowed;
+  }
+
+  /** Align with Rust retain_shell_zones_matching_layout: keep nested slot zones under containers. */
+  function retainZonesMatchingLayout(layout, zones) {
+    if (!layout || !Array.isArray(layout.areas) || !layout.areas.length) {
+      return zones;
+    }
+    const allowed = collectTopLevelLayoutAreas(layout);
     if (!allowed.size) {
       return zones;
     }
-    return zones.filter((zone) => {
+    const keptIds = new Set();
+    (Array.isArray(zones) ? zones : []).forEach((zone) => {
       const area = nonEmptyString(zone?.area);
-      return area && allowed.has(area);
+      const id = nonEmptyString(zone?.id);
+      if (area && allowed.has(area) && id) {
+        keptIds.add(id);
+      }
     });
+    let changed = true;
+    while (changed) {
+      changed = false;
+      (Array.isArray(zones) ? zones : []).forEach((zone) => {
+        const id = nonEmptyString(zone?.id);
+        if (!id || !keptIds.has(id) || zone?.role !== "container") {
+          return;
+        }
+        const nestedAreas = collectTopLevelLayoutAreas(zone?.layout);
+        if (!nestedAreas.size) {
+          return;
+        }
+        (Array.isArray(zones) ? zones : []).forEach((candidate) => {
+          const candidateArea = nonEmptyString(candidate?.area);
+          const candidateId = nonEmptyString(candidate?.id);
+          if (!candidateId || !candidateArea || !nestedAreas.has(candidateArea)) {
+            return;
+          }
+          if (!keptIds.has(candidateId)) {
+            keptIds.add(candidateId);
+            changed = true;
+          }
+        });
+      });
+    }
+    changed = true;
+    while (changed) {
+      changed = false;
+      (Array.isArray(zones) ? zones : []).forEach((zone) => {
+        const id = nonEmptyString(zone?.id);
+        const parent = nonEmptyString(zone?.parent);
+        if (!id || keptIds.has(id) || !parent || !keptIds.has(parent)) {
+          return;
+        }
+        keptIds.add(id);
+        changed = true;
+      });
+    }
+    return (Array.isArray(zones) ? zones : []).filter((zone) => keptIds.has(nonEmptyString(zone?.id)));
   }
 
   function normalizeSceneShellContract(rawFrame, rawPanels, rawContract = null) {

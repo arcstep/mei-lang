@@ -325,6 +325,26 @@
     const zoneHosts = buildManagePreviewZoneHosts(surface, resolved.sceneShell);
     const filterZone = sceneShellZonesByRole(resolved.sceneShell, "filter")[0] || null;
     const slotZones = sceneShellZonesByRole(resolved.sceneShell, "slots");
+    const projectionSlots = Array.isArray(resolved?.popup?.projection_slots)
+      ? resolved.popup.projection_slots
+      : Array.isArray(resolved?.projectionSlots)
+        ? resolved.projectionSlots
+        : [];
+    const expectsSlotZones = projectionSlots.some(
+      (slot) =>
+        String(slot?.component || "").trim() === "chart" ||
+        String(slot?.component || "").trim() === "data_table",
+    );
+    if (expectsSlotZones && !slotZones.length) {
+      if (surface instanceof HTMLElement) {
+        showManagePreviewBoardError(
+          surface,
+          "看板预览 shell 缺少 chart/detail 挂载区（嵌套 zone 解析不完整）。",
+          detail,
+        );
+      }
+      return false;
+    }
     const hostsReady =
       (!filterZone || zoneHosts[filterZone.id] instanceof HTMLElement) &&
       slotZones.every((zone) => zoneHosts[zone.id] instanceof HTMLElement);

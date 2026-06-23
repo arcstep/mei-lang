@@ -16,7 +16,7 @@
     "assets:list-large": "node ./scripts/list-large-files.mjs",
     "test:runtime-metric-perf": "node ./scripts/runtime-metric-perf.mjs",
     "test:scope": "node ./scripts/test-scope-params.mjs",
-    "test:spa-static": "node ./scripts/test-spa-navigation-static.mjs",
+    "test:spa-static": "node ./scripts/test-spa-navigation-static.mjs && node ./scripts/test-scene-shell-nested-zones.mjs",
     "test:spa-e2e": "playwright test",
     "test:spa": "npm run test:spa-static && npm run assets:build && npm run test:spa-static",
     "test:theme-tokens": "node ./scripts/check-theme-tokens.mjs"
