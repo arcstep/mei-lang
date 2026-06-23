@@ -6,6 +6,52 @@ use crate::AppState;
 
 pub(crate) use toolchain::CompileWithCacheOutcome;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeArtifactPolicy {
+    SealedStrict,
+    ArtifactFirstFallback,
+    BuildViewJit,
+}
+
+impl RuntimeArtifactPolicy {
+    pub(crate) fn from_headers(headers: &HeaderMap) -> Self {
+        if is_build_view_request(headers) {
+            return Self::BuildViewJit;
+        }
+        match std::env::var("MEI_RUNTIME_ARTIFACT_POLICY")
+            .or_else(|_| std::env::var("MEI_ACCESS_ARTIFACT_POLICY"))
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("sealed" | "sealed_strict" | "strict" | "aot_strict") => Self::SealedStrict,
+            _ => Self::ArtifactFirstFallback,
+        }
+    }
+
+    pub(crate) fn allows_runtime_compile(self) -> bool {
+        matches!(self, Self::ArtifactFirstFallback | Self::BuildViewJit)
+    }
+
+    pub(crate) fn is_artifact_first_fallback(self) -> bool {
+        matches!(self, Self::ArtifactFirstFallback)
+    }
+
+    pub(crate) fn is_sealed_strict(self) -> bool {
+        matches!(self, Self::SealedStrict)
+    }
+
+}
+
+pub(crate) struct RuntimeCompileResolution {
+    pub(crate) outcome: toolchain::CompileWithCacheOutcomeShared,
+    pub(crate) policy: RuntimeArtifactPolicy,
+    pub(crate) correctness_fallback: bool,
+    pub(crate) artifact_backfilled: bool,
+}
+
 pub(crate) fn is_build_view_request(headers: &HeaderMap) -> bool {
     if headers
         .get("x-mei-build-view")
@@ -71,25 +117,32 @@ pub(crate) fn resolve_runtime_compile_shared(
     app_id: &str,
     options: &CompileOptions,
     components_root: &std::path::Path,
-    allow_build_runtime_compile: bool,
-) -> Option<toolchain::CompileWithCacheOutcomeShared> {
+    policy: RuntimeArtifactPolicy,
+) -> Result<Option<RuntimeCompileResolution>, toolchain::CompileWithCacheFailure> {
     if let Some(outcome) =
         load_compile_artifact_only_shared(state, app_id, options, components_root)
     {
-        return Some(outcome);
+        return Ok(Some(RuntimeCompileResolution {
+            outcome,
+            policy,
+            correctness_fallback: false,
+            artifact_backfilled: false,
+        }));
     }
-    if !allow_build_runtime_compile {
-        return None;
+    if !policy.allows_runtime_compile() {
+        return Ok(None);
     }
-    compile_app_with_cache_shared(state, app_id, options, components_root).ok()
+    let outcome = compile_app_with_cache_shared(state, app_id, options, components_root)?;
+    Ok(Some(RuntimeCompileResolution {
+        artifact_backfilled: policy.is_artifact_first_fallback(),
+        correctness_fallback: policy.is_artifact_first_fallback(),
+        outcome,
+        policy,
+    }))
 }
 
 pub(crate) fn clear_compile_cache_for_app(state: &AppState, app_id: &str) -> usize {
     toolchain::clear_compile_cache_for_app(&state.source_root, app_id)
-}
-
-pub(crate) fn clear_compiled_app_artifacts_for_app(state: &AppState, app_id: &str) -> usize {
-    toolchain::clear_compiled_app_artifacts_for_app(&state.source_root, app_id)
 }
 
 #[cfg(test)]
@@ -122,5 +175,31 @@ mod tests {
             HeaderValue::from_static("http://localhost/apps/zhifa/home"),
         );
         assert!(!is_build_view_request(&headers));
+    }
+
+    #[test]
+    fn runtime_policy_defaults_access_to_artifact_first_fallback() {
+        let headers = HeaderMap::new();
+        assert_eq!(
+            RuntimeArtifactPolicy::from_headers(&headers),
+            RuntimeArtifactPolicy::ArtifactFirstFallback
+        );
+    }
+
+    #[test]
+    fn runtime_policy_keeps_build_view_jit() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-mei-build-view", HeaderValue::from_static("1"));
+        assert_eq!(
+            RuntimeArtifactPolicy::from_headers(&headers),
+            RuntimeArtifactPolicy::BuildViewJit
+        );
+    }
+
+    #[test]
+    fn runtime_policy_compile_fallback_is_explicitly_gated() {
+        assert!(!RuntimeArtifactPolicy::SealedStrict.allows_runtime_compile());
+        assert!(RuntimeArtifactPolicy::ArtifactFirstFallback.allows_runtime_compile());
+        assert!(RuntimeArtifactPolicy::BuildViewJit.allows_runtime_compile());
     }
 }

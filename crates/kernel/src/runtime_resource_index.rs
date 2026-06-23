@@ -196,6 +196,30 @@ fn resolve_dataset_resource_id_with_index(
                 {
                     return Ok(local_id.to_string());
                 }
+                let local_matches: Vec<_> = compiled
+                    .resources
+                    .iter()
+                    .filter(|resource| resource.id == local_id && resource.dataset.is_some())
+                    .collect();
+                if local_matches.len() == 1 {
+                    return Ok(local_id.to_string());
+                }
+                let capsule_prefix = format!("{capsule_path}::");
+                let namespaced_matches: Vec<_> = compiled
+                    .resources
+                    .iter()
+                    .filter(|resource| {
+                        resource.id.starts_with(&capsule_prefix)
+                            && resource
+                                .id
+                                .strip_prefix(&capsule_prefix)
+                                .is_some_and(|suffix| suffix == local_id)
+                            && resource.dataset.is_some()
+                    })
+                    .collect();
+                if namespaced_matches.len() == 1 {
+                    return Ok(namespaced_matches[0].id.clone());
+                }
             }
 
             Err(RuntimeResourceResolveError::NotFound {
@@ -458,5 +482,17 @@ mod tests {
         });
         let id = resolve_dataset_resource_id(&compiled, &namespaced, None).expect("resolve");
         assert_eq!(id, "__world_metrics__");
+    }
+
+    #[test]
+    fn resolves_namespaced_dataset_selector_to_local_id_on_board_capsule_compile() {
+        let capsule = "scenes/09-监督典型案例.mei";
+        let local_id = "typical_cases";
+        let namespaced = format!("{capsule}::{local_id}");
+        let mut compiled = sample_compiled();
+        compiled.active_target_file = "scenes/09-监督典型案例.board.mei".to_string();
+        compiled.resources = vec![sample_dataset_resource(local_id)];
+        let id = resolve_dataset_resource_id(&compiled, &namespaced, None).expect("resolve");
+        assert_eq!(id, local_id);
     }
 }

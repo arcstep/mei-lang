@@ -13,6 +13,7 @@ use super::assembly::{
     hash_metric_response_cache_key, metric_eval_diagnostic_code, write_dag_perf,
     MetricQueryGroupRequest, MetricQueryGroupResponse, MetricQueryRequest, MetricQueryResponse,
 };
+use crate::http::compile_cache::RuntimeArtifactPolicy;
 use crate::http::observation::{CompileObservation, EvalObservation};
 use crate::{AppError, AppState};
 use axum::{
@@ -44,6 +45,9 @@ struct MetricQueryExecutionContext<'a> {
     effective_query_state: &'a QueryState,
     filter_intents: &'a [FilterIntent],
     access_artifact_only: bool,
+    runtime_policy: RuntimeArtifactPolicy,
+    compile_correctness_fallback: bool,
+    compile_artifact_backfilled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +63,9 @@ struct MetricQueryExecutionShared {
     effective_query_state: QueryState,
     filter_intents: Vec<FilterIntent>,
     access_artifact_only: bool,
+    runtime_policy: RuntimeArtifactPolicy,
+    compile_correctness_fallback: bool,
+    compile_artifact_backfilled: bool,
 }
 
 impl MetricQueryExecutionShared {
@@ -75,6 +82,9 @@ impl MetricQueryExecutionShared {
             effective_query_state: &self.effective_query_state,
             filter_intents: &self.filter_intents,
             access_artifact_only: self.access_artifact_only,
+            runtime_policy: self.runtime_policy,
+            compile_correctness_fallback: self.compile_correctness_fallback,
+            compile_artifact_backfilled: self.compile_artifact_backfilled,
         }
     }
 }
@@ -181,15 +191,16 @@ pub async fn dataset_metric_api(
     )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
-    let build_view_dev = crate::http::compile_cache::is_build_view_request(&headers);
-    let access_artifact_only = !build_view_dev;
-    let compile_outcome = crate::http::compile_cache::resolve_runtime_compile_shared(
+    let runtime_policy = RuntimeArtifactPolicy::from_headers(&headers);
+    let access_artifact_only = !matches!(runtime_policy, RuntimeArtifactPolicy::BuildViewJit);
+    let compile_resolution = crate::http::compile_cache::resolve_runtime_compile_shared(
         &state,
         &app_id,
         &compile_options,
         components_root.as_path(),
-        build_view_dev,
+        runtime_policy,
     )
+    .map_err(|failure| AppError::from(failure.error))?
     .ok_or_else(|| {
         let scene_label = if requested_scene_id.trim().is_empty() || requested_scene_id == "-" {
             "scene=<unspecified>".to_string()
@@ -227,6 +238,9 @@ pub async fn dataset_metric_api(
         );
         error
     })?;
+    let compile_correctness_fallback = compile_resolution.correctness_fallback;
+    let compile_artifact_backfilled = compile_resolution.artifact_backfilled;
+    let compile_outcome = compile_resolution.outcome;
     let scene_ctx = resolved_scene_context(&compile_outcome.compiled);
     let compile_observation = CompileObservation::from_compile_outcome_shared(
         &app_id,
@@ -254,6 +268,9 @@ pub async fn dataset_metric_api(
         effective_query_state: &effective_query_state,
         filter_intents: &request.filter_intents,
         access_artifact_only,
+        runtime_policy,
+        compile_correctness_fallback,
+        compile_artifact_backfilled,
     };
 
     if request_group_count == 1 {
@@ -282,6 +299,9 @@ pub async fn dataset_metric_api(
         effective_query_state: effective_query_state.clone(),
         filter_intents: request.filter_intents.clone(),
         access_artifact_only,
+        runtime_policy,
+        compile_correctness_fallback,
+        compile_artifact_backfilled,
     };
     let merged_groups = merge_metric_query_groups(&request_groups);
     let mut tasks = tokio::task::JoinSet::new();
@@ -338,6 +358,25 @@ pub async fn dataset_metric_api(
     perf.insert(
         "access_artifact_only_mode".to_string(),
         u64::from(access_artifact_only),
+    );
+    perf.insert(
+        "runtime_artifact_policy_sealed_strict".to_string(),
+        u64::from(runtime_policy.is_sealed_strict()),
+    );
+    perf.insert(
+        "runtime_artifact_policy_artifact_first_fallback".to_string(),
+        u64::from(matches!(
+            runtime_policy,
+            RuntimeArtifactPolicy::ArtifactFirstFallback
+        )),
+    );
+    perf.insert(
+        "correctness_fallback".to_string(),
+        u64::from(compile_correctness_fallback),
+    );
+    perf.insert(
+        "artifact_backfilled".to_string(),
+        u64::from(compile_artifact_backfilled),
     );
     perf.insert("metric_group_count".to_string(), groups.len() as u64);
     perf.insert(
@@ -502,6 +541,38 @@ fn project_metric_group_response(
     }
 }
 
+fn write_runtime_policy_perf(
+    ctx: &MetricQueryExecutionContext<'_>,
+    perf: &mut BTreeMap<String, u64>,
+    result_artifact_backfilled: bool,
+) {
+    let correctness_fallback = ctx.compile_correctness_fallback
+        || (ctx.runtime_policy.is_artifact_first_fallback() && result_artifact_backfilled);
+    perf.insert(
+        "runtime_artifact_policy_sealed_strict".to_string(),
+        u64::from(ctx.runtime_policy.is_sealed_strict()),
+    );
+    perf.insert(
+        "runtime_artifact_policy_artifact_first_fallback".to_string(),
+        u64::from(matches!(
+            ctx.runtime_policy,
+            RuntimeArtifactPolicy::ArtifactFirstFallback
+        )),
+    );
+    perf.insert(
+        "correctness_fallback".to_string(),
+        u64::from(correctness_fallback),
+    );
+    perf.insert(
+        "artifact_backfilled".to_string(),
+        u64::from(ctx.compile_artifact_backfilled || result_artifact_backfilled),
+    );
+    perf.insert(
+        "metric_result_artifact_backfilled".to_string(),
+        u64::from(result_artifact_backfilled),
+    );
+}
+
 fn execute_metric_query_group(
     ctx: &MetricQueryExecutionContext<'_>,
     request: &MetricQueryGroupRequest,
@@ -610,7 +681,11 @@ fn execute_metric_query_group(
     if let Some((hit_cache_key, cached)) = cached_hit {
         let mut perf = BTreeMap::new();
         ctx.compile_observation.write_perf(&mut perf);
-        perf.insert("access_artifact_only_mode".to_string(), 1);
+        perf.insert(
+            "access_artifact_only_mode".to_string(),
+            u64::from(ctx.access_artifact_only),
+        );
+        write_runtime_policy_perf(ctx, &mut perf, false);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         perf.insert("result_artifact_hit".to_string(), 0);
         let mut eval_observation = EvalObservation::new(true)
@@ -692,7 +767,11 @@ fn execute_metric_query_group(
             );
             let mut perf = BTreeMap::new();
             ctx.compile_observation.write_perf(&mut perf);
-            perf.insert("access_artifact_only_mode".to_string(), 1);
+            perf.insert(
+                "access_artifact_only_mode".to_string(),
+                u64::from(ctx.access_artifact_only),
+            );
+            write_runtime_policy_perf(ctx, &mut perf, false);
             perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
             perf.insert("response_cache_hit".to_string(), 0);
             perf.insert("result_artifact_hit".to_string(), 1);
@@ -742,7 +821,7 @@ fn execute_metric_query_group(
                 perf,
             });
         }
-        if !ctx.access_artifact_only {
+        if !ctx.runtime_policy.is_sealed_strict() {
             // Build view may JIT-evaluate metrics when prebuild artifacts are absent.
         } else {
             // Access strict AOT must keep the "prebuild first, then use" contract.
@@ -793,7 +872,11 @@ fn execute_metric_query_group(
     let metrics_map = eval_outcome.metrics_map;
     let mut perf = eval_outcome.query_perf;
     ctx.compile_observation.write_perf(&mut perf);
-    perf.insert("access_artifact_only_mode".to_string(), 1);
+    perf.insert(
+        "access_artifact_only_mode".to_string(),
+        u64::from(ctx.access_artifact_only),
+    );
+    write_runtime_policy_perf(ctx, &mut perf, result_artifact_candidate);
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("result_artifact_hit".to_string(), 0);
     let mut eval_observation = EvalObservation::new(false)

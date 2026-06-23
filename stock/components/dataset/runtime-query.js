@@ -112,19 +112,31 @@ function datasetCompileTarget(props) {
   return s || undefined;
 }
 
+/** 从 imported world metrics owner id 提取 capsule compile target（如 scenes/10-地图.mei）。 */
+function importedWorldMetricsCompileTarget(datasetId) {
+  const id = String(datasetId || "").trim();
+  const match = /^__world_metrics__::(.+)::metrics$/.exec(id);
+  return match ? String(match[1] || "").trim() : "";
+}
+
 /** scene-first 寻址：优先 runtime ref，其次 SSR 注入的 active_scene_id */
 function sceneQueryCoords(props, runtimeRef) {
   const sceneId = String(
     runtimeRef?.scene_id ?? props?._mei?.active_scene_id ?? ""
   ).trim();
-  const scenePath = String(
-    runtimeRef?.scene_path ?? props?._mei?.active_target_file ?? ""
-  ).trim();
-  const target = datasetCompileTarget(props);
+  const importedTarget = importedWorldMetricsCompileTarget(runtimeRef?.dataset_id);
+  const pageTarget = datasetCompileTarget(props);
+  const metricScenePath = String(runtimeRef?.scene_path ?? "").trim();
   const coords = {};
   if (sceneId) coords.scene_id = sceneId;
-  if (target) coords.target = target;
-  if (scenePath && !coords.target) coords.target = scenePath;
+  // 嵌入 capsule 的 world metrics 在独立 scene 文件下 compile；须对齐 prebuild scope。
+  if (importedTarget) {
+    coords.target = importedTarget;
+  } else if (pageTarget) {
+    coords.target = pageTarget;
+  } else if (metricScenePath) {
+    coords.target = metricScenePath;
+  }
   return coords;
 }
 
@@ -2048,8 +2060,25 @@ function waitForHostAccessReady(signal) {
   return waitForSharedPromise(hostAccessReadyWaitPromise, signal);
 }
 
+async function waitForHostAccessReadyBeforeRuntimeFetch(signal) {
+  let readyState = null;
+  try {
+    readyState = await readHostAccessReadyState(signal);
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    return false;
+  }
+  if (readyState.ready) {
+    return true;
+  }
+  return waitForHostAccessReady(signal);
+}
+
 /** @param payload dataset/metric query JSON — not fetch RequestInit */
 async function fetchJsonWithStartupArtifactRetry(api, payload, signal) {
+  await waitForHostAccessReadyBeforeRuntimeFetch(signal);
   let result = await fetchJsonWithClientPerf(api, {
     method: "POST",
     headers: { "content-type": "application/json" },

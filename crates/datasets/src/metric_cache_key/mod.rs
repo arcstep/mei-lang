@@ -211,6 +211,99 @@ mod tests {
     }
 
     #[test]
+    fn metric_response_lookup_keys_include_imported_world_metrics_aliases() {
+        use super::cache_key::dataset_resource_lookup_aliases;
+
+        let aliases = dataset_resource_lookup_aliases(
+            "__world_metrics__::scenes/10-地图.mei::metrics",
+        );
+        assert!(
+            aliases.iter().any(|id| id == "__world_metrics__"),
+            "expected native world metrics alias, got {aliases:?}"
+        );
+
+        let owner_dataset = DatasetView {
+            id: "__world_metrics__::scenes/10-地图.mei::metrics".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "world_metrics".to_string(),
+                path: String::new(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::from([(
+                "map_street_inspection_count_2025".to_string(),
+                Value::Null,
+            )]),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let compiled = CompiledApp {
+            app_id: "zhifa".to_string(),
+            title: "zhifa".to_string(),
+            app_root: "/tmp/zhifa".to_string(),
+            scene_routes: Vec::new(),
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: vec![mei_lang_kernel::LoadedResource {
+                id: "__world_metrics__::scenes/10-地图.mei::metrics".to_string(),
+                kind: "dataset".to_string(),
+                title: None,
+                document: None,
+                dataset: Some(owner_dataset.clone()),
+            }],
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
+        let keys = metric_response_artifact_lookup_cache_keys(
+            "zhifa",
+            Path::new("/tmp/zhifa"),
+            &compiled,
+            "home",
+            Some("scenes/home.mei"),
+            "__world_metrics__::scenes/10-地图.mei::metrics",
+            &owner_dataset,
+            &DatasetQueryOptions::default(),
+            "compile-rev",
+            &[],
+            false,
+        );
+        assert!(
+            keys.iter().any(|key| key.contains("target=scenes/10-地图.mei")),
+            "expected capsule compile target fallback key, got {keys:?}"
+        );
+        assert!(
+            keys.iter().any(|key| key.contains("dataset=__world_metrics__")),
+            "expected native world metrics dataset alias key, got {keys:?}"
+        );
+    }
+
+    #[test]
     fn metric_scope_cache_key_sorts_and_dedups() {
         let value = metric_scope_cache_key(&["b".to_string(), "a".to_string(), "b".to_string()]);
         assert_eq!(value, "[\"a\",\"b\"]");

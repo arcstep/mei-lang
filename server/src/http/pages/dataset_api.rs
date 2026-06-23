@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use crate::http::observation::CompileObservation;
 use crate::{AppError, AppState};
 
-use super::super::compile_cache::load_compile_artifact_only_shared;
+use super::super::compile_cache::RuntimeArtifactPolicy;
 use super::super::datasets::{
     map_dataset_query_filters, query_dataset_rows, query_metric_dataframe,
     query_state_from_request, serde_lenient,
@@ -241,15 +241,16 @@ pub async fn dataset_query_api(
     )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
-    let build_view_dev = crate::http::compile_cache::is_build_view_request(&headers);
-    let access_artifact_only = !build_view_dev;
-    let compile_outcome = crate::http::compile_cache::resolve_runtime_compile_shared(
+    let runtime_policy = RuntimeArtifactPolicy::from_headers(&headers);
+    let access_artifact_only = !matches!(runtime_policy, RuntimeArtifactPolicy::BuildViewJit);
+    let compile_resolution = crate::http::compile_cache::resolve_runtime_compile_shared(
         &state,
         &app_id,
         &compile_options,
         components_root.as_path(),
-        build_view_dev,
+        runtime_policy,
     )
+    .map_err(|failure| AppError::from(failure.error))?
     .ok_or_else(|| {
         let scene_label = if requested_scene_id.trim().is_empty() || requested_scene_id == "-" {
             "scene=<unspecified>".to_string()
@@ -287,6 +288,7 @@ pub async fn dataset_query_api(
         );
         error
     })?;
+    let compile_outcome = compile_resolution.outcome;
     let compile_observation =
         CompileObservation::from_compile_outcome_shared(&app_id, "-", None, &compile_outcome);
     let compiled = compile_outcome.compiled;
@@ -394,6 +396,25 @@ pub async fn dataset_query_api(
         "access_artifact_only_mode".to_string(),
         u64::from(access_artifact_only),
     );
+    perf.insert(
+        "runtime_artifact_policy_sealed_strict".to_string(),
+        u64::from(compile_resolution.policy.is_sealed_strict()),
+    );
+    perf.insert(
+        "runtime_artifact_policy_artifact_first_fallback".to_string(),
+        u64::from(matches!(
+            compile_resolution.policy,
+            RuntimeArtifactPolicy::ArtifactFirstFallback
+        )),
+    );
+    perf.insert(
+        "correctness_fallback".to_string(),
+        u64::from(compile_resolution.correctness_fallback),
+    );
+    perf.insert(
+        "artifact_backfilled".to_string(),
+        u64::from(compile_resolution.artifact_backfilled),
+    );
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("query_api_ms".to_string(), query_ms);
     let total_ms = elapsed_ms(request_started);
@@ -492,12 +513,14 @@ pub async fn dataset_recompute_api(
         let compile_options = compile_options_from_coords(&coords);
         let components_root = resolve_components_root(&state.source_root);
         let compile_started = Instant::now();
-        let compile_outcome = load_compile_artifact_only_shared(
+        let compile_resolution = crate::http::compile_cache::resolve_runtime_compile_shared(
             &state,
             &app_id,
             &compile_options,
             components_root.as_path(),
+            RuntimeArtifactPolicy::ArtifactFirstFallback,
         )
+        .map_err(|failure| AppError::from(failure.error))?
         .ok_or_else(|| {
             access_artifact_unavailable_error(
                 "dataset recompute warmup",
@@ -506,6 +529,7 @@ pub async fn dataset_recompute_api(
                 response_scene_path.as_deref().unwrap_or("-"),
             )
         })?;
+        let compile_outcome = compile_resolution.outcome;
         let compile_ms = elapsed_ms(compile_started);
         perf.insert("compile_ms".to_string(), compile_ms);
         perf.insert(
@@ -515,6 +539,14 @@ pub async fn dataset_recompute_api(
         perf.insert(
             "compile_cache_lookup_ms".to_string(),
             compile_outcome.cache_lookup_ms,
+        );
+        perf.insert(
+            "correctness_fallback".to_string(),
+            u64::from(compile_resolution.correctness_fallback),
+        );
+        perf.insert(
+            "artifact_backfilled".to_string(),
+            u64::from(compile_resolution.artifact_backfilled),
         );
         let compiled = compile_outcome.compiled;
         let scene_ctx = resolved_scene_context(&compiled);

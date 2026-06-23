@@ -1530,6 +1530,8 @@ function buildHostDiagnosticsPerf(diagnostics) {
   const deferredWarmup = payload.deferred_warmup || {};
   const compileIndex = payload.compile_index || {};
   const evalArtifactsDisk = payload.eval_artifacts_disk || {};
+  const planNodes = payload.plan_nodes || {};
+  const nodeBudget = planNodes.budget || {};
   return {
     host_last_build_peak_rss_bytes: toFinite(payload.peak_rss_bytes),
     host_last_build_current_rss_bytes: toFinite(payload.current_rss_bytes),
@@ -1547,6 +1549,20 @@ function buildHostDiagnosticsPerf(diagnostics) {
     host_last_build_compile_index_stale_entries: toFinite(compileIndex.stale_entries),
     host_last_build_compile_fallback_loads: toFinite(compileIndex.fallback_loads),
     host_last_build_warmup_reuse_hits: toFinite(payload.warmup_reuse_hits),
+    host_last_build_manifest_compile_scope_nodes: toFinite(planNodes.manifest_compile_scope_nodes),
+    host_last_build_warmup_request_nodes: toFinite(planNodes.planned_warmup_request_nodes),
+    host_last_build_metric_workset_nodes: toFinite(planNodes.planned_metric_workset_nodes),
+    host_last_build_response_artifact_nodes: toFinite(planNodes.planned_response_artifact_nodes),
+    host_last_build_dataframe_artifact_nodes: toFinite(planNodes.planned_dataframe_artifact_nodes),
+    host_last_build_canonical_prebuild_nodes: toFinite(planNodes.canonical_prebuild_nodes),
+    host_last_build_node_budget_limit: toFinite(nodeBudget.canonical_node_limit),
+    host_last_build_node_budget_overflow: toFinite(
+      nodeBudget.over_canonical_node_limit === true
+        ? 1
+        : nodeBudget.over_canonical_node_limit === false
+          ? 0
+          : NaN
+    ),
     host_last_critical_warmup_cache_hits: toFinite(criticalWarmup.cache_hit_count),
     host_last_deferred_warmup_cache_hits: toFinite(deferredWarmup.cache_hit_count),
   };
@@ -1719,6 +1735,8 @@ function buildStartupArtifactPerf(summary) {
   const fullDiagnostics = full.diagnostics || {};
   const preferredDiagnostics =
     fullDiagnostics && Object.keys(fullDiagnostics).length > 0 ? fullDiagnostics : hotDiagnostics;
+  const planNodes = preferredDiagnostics?.plan_nodes || {};
+  const nodeBudget = planNodes.budget || {};
   return {
     startup_run_wall_ms: toFinite(
       Number(run.finishedAtMs) > 0 && Number(run.startedAtMs) > 0
@@ -1779,6 +1797,20 @@ function buildStartupArtifactPerf(summary) {
     startup_compile_index_misses: toFinite(preferredDiagnostics?.compile_index?.misses),
     startup_compile_index_stale_entries: toFinite(preferredDiagnostics?.compile_index?.stale_entries),
     startup_compile_fallback_loads: toFinite(preferredDiagnostics?.compile_index?.fallback_loads),
+    startup_manifest_compile_scope_nodes: toFinite(planNodes.manifest_compile_scope_nodes),
+    startup_warmup_request_nodes: toFinite(planNodes.planned_warmup_request_nodes),
+    startup_metric_workset_nodes: toFinite(planNodes.planned_metric_workset_nodes),
+    startup_response_artifact_nodes: toFinite(planNodes.planned_response_artifact_nodes),
+    startup_dataframe_artifact_nodes: toFinite(planNodes.planned_dataframe_artifact_nodes),
+    startup_canonical_prebuild_nodes: toFinite(planNodes.canonical_prebuild_nodes),
+    startup_node_budget_limit: toFinite(nodeBudget.canonical_node_limit),
+    startup_node_budget_overflow: toFinite(
+      nodeBudget.over_canonical_node_limit === true
+        ? 1
+        : nodeBudget.over_canonical_node_limit === false
+          ? 0
+          : NaN
+    ),
     startup_critical_warmup_request_count: toFinite(preferredDiagnostics?.critical_warmup?.total_request_count),
     startup_critical_warmup_cache_hits: toFinite(preferredDiagnostics?.critical_warmup?.cache_hit_count),
     startup_critical_warmup_total_ms: toFinite(preferredDiagnostics?.critical_warmup?.total_ms),
@@ -1823,6 +1855,11 @@ async function collectStartupRunRecord(context) {
   if (run.startupOutcome) notes.push(`startup_outcome=${run.startupOutcome}`);
   if (run.accessArtifactsReady === false) notes.push("access_artifacts_not_ready=1");
   if (run.correctnessFailed === true) notes.push("startup_correctness_failed=1");
+  if (toFinite(perf.startup_node_budget_overflow) === 1) {
+    notes.push(
+      `startup_canonical_prebuild_nodes=${toFinite(perf.startup_canonical_prebuild_nodes)}/${toFinite(perf.startup_node_budget_limit)}`
+    );
+  }
   if (Array.isArray(run.warningCategories) && run.warningCategories.length > 0) {
     notes.push(`startup_warning_categories=${run.warningCategories.join(",")}`);
   }

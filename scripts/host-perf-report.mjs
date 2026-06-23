@@ -566,6 +566,13 @@ function compareStartupEntry(prev, curr) {
   );
   pushRatioRegression(
     yellow,
+    "startup_canonical_prebuild_nodes",
+    prevPerf.startup_canonical_prebuild_nodes,
+    currPerf.startup_canonical_prebuild_nodes,
+    YELLOW_THRESHOLDS.metric_request_total_ratio
+  );
+  pushRatioRegression(
+    yellow,
     "startup_expansion_ratio",
     prevPerf.startup_expansion_ratio,
     currPerf.startup_expansion_ratio,
@@ -595,6 +602,10 @@ function compareStartupCorrectness(prev, curr) {
   const prevCategories = startupWarningCategories(prev);
   const currCategories = startupWarningCategories(curr);
   const currFailingDatasets = startupFailingDatasets(curr);
+  const startupNodeBudgetOverflow = toFinite(currPerf.startup_node_budget_overflow);
+  const startupNodeBudgetLimit = toFinite(currPerf.startup_node_budget_limit);
+  const startupCanonicalNodes = toFinite(currPerf.startup_canonical_prebuild_nodes);
+  const startupFullTotalMs = toFinite(currPerf.startup_full_total_ms);
   if (toFinite(currPerf.startup_outcome_ready) === 0) {
     red.push("correctness startup_outcome_ready=0");
   }
@@ -629,6 +640,14 @@ function compareStartupCorrectness(prev, curr) {
   }
   if (currFailingDatasets.length > 0) {
     red.push(`correctness failing_datasets=${currFailingDatasets.join(",")}`);
+  }
+  if (startupNodeBudgetOverflow === 1) {
+    red.push(
+      `budget canonical_prebuild_nodes=${startupCanonicalNodes} exceeds limit=${startupNodeBudgetLimit}`
+    );
+  }
+  if (Number.isFinite(startupFullTotalMs) && startupFullTotalMs > 60000) {
+    red.push(`budget startup_full_total_ms=${startupFullTotalMs} exceeds limit=60000`);
   }
   return red;
 }
@@ -688,6 +707,7 @@ function buildStartupContextDetails(prev, curr) {
     "startup_peak_rss_bytes",
     "startup_eval_artifact_bytes",
     "startup_real_compile_count",
+    "startup_canonical_prebuild_nodes",
   ]) {
     const before = toFinite(prevPerf[field]);
     const after = toFinite(currPerf[field]);

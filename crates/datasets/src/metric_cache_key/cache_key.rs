@@ -378,6 +378,13 @@ pub(crate) fn dataset_resource_lookup_aliases(dataset_id: &str) -> Vec<String> {
         return Vec::new();
     }
     let mut aliases = vec![trimmed.to_string()];
+    if let Some(_capsule_path) =
+        mei_lang_kernel::imported_capsule_path_from_world_metrics_resource_id(trimmed)
+    {
+        if !aliases.iter().any(|id| id == "__world_metrics__") {
+            aliases.push("__world_metrics__".to_string());
+        }
+    }
     if let Some((_, bare)) = trimmed.rsplit_once("::") {
         let bare = bare.trim();
         if !bare.is_empty() && !aliases.iter().any(|id| id == bare) {
@@ -437,6 +444,20 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
     } else {
         dataset_ids.insert(0, primary_dataset_id.to_string());
     }
+    let mut scene_paths = Vec::new();
+    if let Some(path) = scene_path.map(str::trim).filter(|value| !value.is_empty()) {
+        scene_paths.push(path.to_string());
+    }
+    if let Some(capsule_path) =
+        mei_lang_kernel::imported_capsule_path_from_world_metrics_resource_id(primary_dataset_id)
+    {
+        if !scene_paths.iter().any(|path| path == &capsule_path) {
+            scene_paths.push(capsule_path);
+        }
+    }
+    if scene_paths.is_empty() {
+        scene_paths.push(String::new());
+    }
     let mut keys = Vec::new();
     let mut seen = BTreeSet::new();
     for dataset_id in dataset_ids {
@@ -446,31 +467,38 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
             dataset_id.as_str(),
             &owner_dataset.runtime_metric_defs,
         );
-        let scoped_key = metric_response_cache_scope_key(
-            app_id,
-            scene_id,
-            scene_path,
-            dataset_id.as_str(),
-            query,
-            compile_revision,
-            &dependency_revision_key,
-            filter_intents,
-        );
-        let shared_key = metric_response_prebuild_shared_key(
-            app_id,
-            dataset_id.as_str(),
-            query,
-            &dependency_revision_key,
-        );
-        let dataset_key = metric_response_prebuild_dataset_key(app_id, dataset_id.as_str(), query);
-        let ordered_keys = if prefer_prebuild_keys {
-            vec![dataset_key, shared_key, scoped_key]
-        } else {
-            vec![scoped_key, shared_key, dataset_key]
-        };
-        for key in ordered_keys {
-            if seen.insert(key.clone()) {
-                keys.push(key);
+        for scene_path in &scene_paths {
+            let scoped_scene_path = if scene_path.is_empty() {
+                None
+            } else {
+                Some(scene_path.as_str())
+            };
+            let scoped_key = metric_response_cache_scope_key(
+                app_id,
+                scene_id,
+                scoped_scene_path,
+                dataset_id.as_str(),
+                query,
+                compile_revision,
+                &dependency_revision_key,
+                filter_intents,
+            );
+            let shared_key = metric_response_prebuild_shared_key(
+                app_id,
+                dataset_id.as_str(),
+                query,
+                &dependency_revision_key,
+            );
+            let dataset_key = metric_response_prebuild_dataset_key(app_id, dataset_id.as_str(), query);
+            let ordered_keys = if prefer_prebuild_keys {
+                vec![dataset_key, shared_key, scoped_key]
+            } else {
+                vec![scoped_key, shared_key, dataset_key]
+            };
+            for key in ordered_keys {
+                if seen.insert(key.clone()) {
+                    keys.push(key);
+                }
             }
         }
     }

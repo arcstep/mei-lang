@@ -19,7 +19,7 @@ use mei_lang_datasets::{
     query_metric_dataframe, query_state_from_request, runtime_metric_workset,
     store_cached_metric_response, store_metric_dataframe_result_artifact,
     store_metric_response_result_artifact, DatasetQueryOptions, DatasetQueryResult,
-    LoadedMetricResponseArtifact, RuntimeMetricEvalMode,
+    AccessMetricEvalPlan, LoadedMetricResponseArtifact, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{
     data_snapshot_import_manifest_path, data_snapshot_store_root, resolve_app_root,
@@ -34,6 +34,8 @@ use walkdir::WalkDir;
 
 const PREBUILD_REPORT_SCHEMA_VERSION: &str = "mei-prebuild-report-v1";
 const PREBUILD_MAX_PARALLELISM: usize = 16;
+const CANONICAL_PREBUILD_NODE_BUDGET: usize = 90;
+const STARTUP_PREBUILD_WALL_MS_BUDGET_MS: u64 = 60_000;
 
 fn prebuild_max_parallelism_cap() -> usize {
     static CAP: OnceLock<usize> = OnceLock::new();
@@ -318,7 +320,7 @@ impl PrebuildDiagnostics {
     }
 }
 
-const PREBUILD_COMPILE_INDEX_SCHEMA_VERSION: &str = "mei-prebuild-compile-index-v4";
+const PREBUILD_COMPILE_INDEX_SCHEMA_VERSION: &str = "mei-prebuild-compile-index-v6";
 
 fn default_observed_count() -> usize {
     1
@@ -527,6 +529,7 @@ fn build_prebuild_diagnostics_report(
     app_root: &Path,
     reports: &[PrebuildScopeReport],
     diagnostics: &PrebuildDiagnostics,
+    plan_nodes: PrebuildPlanNodeStatsReport,
     canonical_identity_count: usize,
     session_entries_before_clear: (usize, usize, usize),
     session_entries_after_clear: (usize, usize, usize),
@@ -659,6 +662,7 @@ fn build_prebuild_diagnostics_report(
             identity_entries: session_entries_after_clear.2,
         },
         warmup_reuse_hits,
+        plan_nodes,
         critical_warmup: PrebuildWarmupDiagnosticReport {
             total_request_count: critical_warmup_total_count,
             executed_request_count: critical_warmup_executed_count,
@@ -734,6 +738,32 @@ fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> PrebuildDiagnos
         aggregate.session_after_clear.identity_entries +=
             diagnostics.session_after_clear.identity_entries;
         aggregate.warmup_reuse_hits += diagnostics.warmup_reuse_hits;
+        aggregate.plan_nodes.manifest_compile_scope_nodes +=
+            diagnostics.plan_nodes.manifest_compile_scope_nodes;
+        aggregate.plan_nodes.hot_compile_scope_nodes +=
+            diagnostics.plan_nodes.hot_compile_scope_nodes;
+        aggregate.plan_nodes.deferred_compile_scope_nodes +=
+            diagnostics.plan_nodes.deferred_compile_scope_nodes;
+        aggregate.plan_nodes.planned_warmup_request_nodes +=
+            diagnostics.plan_nodes.planned_warmup_request_nodes;
+        aggregate.plan_nodes.planned_warmup_scope_nodes +=
+            diagnostics.plan_nodes.planned_warmup_scope_nodes;
+        aggregate.plan_nodes.planned_metric_workset_nodes +=
+            diagnostics.plan_nodes.planned_metric_workset_nodes;
+        aggregate.plan_nodes.planned_response_artifact_nodes +=
+            diagnostics.plan_nodes.planned_response_artifact_nodes;
+        aggregate.plan_nodes.planned_dataframe_artifact_nodes +=
+            diagnostics.plan_nodes.planned_dataframe_artifact_nodes;
+        aggregate.plan_nodes.planned_total_nodes += diagnostics.plan_nodes.planned_total_nodes;
+        aggregate.plan_nodes.canonical_prebuild_nodes +=
+            diagnostics.plan_nodes.canonical_prebuild_nodes;
+        aggregate.plan_nodes.budget.canonical_node_limit =
+            diagnostics.plan_nodes.budget.canonical_node_limit;
+        aggregate.plan_nodes.budget.startup_wall_ms_limit =
+            diagnostics.plan_nodes.budget.startup_wall_ms_limit;
+        aggregate.plan_nodes.budget.over_canonical_node_limit =
+            aggregate.plan_nodes.budget.over_canonical_node_limit
+                || diagnostics.plan_nodes.budget.over_canonical_node_limit;
         aggregate.critical_warmup.total_request_count +=
             diagnostics.critical_warmup.total_request_count;
         aggregate.critical_warmup.executed_request_count +=
@@ -773,6 +803,7 @@ fn emit_prebuild_optimization_report(
     reports: &[PrebuildScopeReport],
     coverage: &PrebuildCoverageReport,
     diagnostics: &PrebuildDiagnostics,
+    plan_nodes: &PrebuildPlanNodeStatsReport,
     compile_phase_ms: u64,
     artifacts_phase_ms: u64,
     max_parallelism: usize,
@@ -857,6 +888,26 @@ fn emit_prebuild_optimization_report(
         session_entries_after_clear.2,
         warmup_reuse_hits
     ));
+    prebuild_emit_progress(format!(
+        "  DAG 计划 | manifest scope {} (hot {} / deferred {}) | warmup req {} / scope {} | workset {} | response {} | dataframe {} | canonical nodes {} / budget {}",
+        plan_nodes.manifest_compile_scope_nodes,
+        plan_nodes.hot_compile_scope_nodes,
+        plan_nodes.deferred_compile_scope_nodes,
+        plan_nodes.planned_warmup_request_nodes,
+        plan_nodes.planned_warmup_scope_nodes,
+        plan_nodes.planned_metric_workset_nodes,
+        plan_nodes.planned_response_artifact_nodes,
+        plan_nodes.planned_dataframe_artifact_nodes,
+        plan_nodes.canonical_prebuild_nodes,
+        plan_nodes.budget.canonical_node_limit
+    ));
+    if plan_nodes.budget.over_canonical_node_limit {
+        prebuild_emit_progress(format!(
+            "  预算告警 | canonical prebuild nodes {} 超过预算 {}，请继续收缩 manifest/fanout/workset",
+            plan_nodes.canonical_prebuild_nodes,
+            plan_nodes.budget.canonical_node_limit
+        ));
+    }
     let preload_reuse_hits = diagnostics
         .compile_preload_reuse_hits
         .load(Ordering::Relaxed);
@@ -889,10 +940,16 @@ fn emit_prebuild_optimization_report(
         ));
     }
     prebuild_emit_progress(format!(
-        "  逻辑产物 | 数据集导入 {} | metric response {} | metric dataframe {}",
+        "  逻辑产物 | compile {}/{} | 数据集导入 {}/{} | metric response {}/{} | metric dataframe {}/{} | missing {}",
+        coverage.compile_artifacts_ready,
+        coverage.compile_artifacts_planned,
         coverage.dataset_import_artifacts_ready,
+        coverage.dataset_import_artifacts_planned,
         coverage.metric_response_artifacts_ready,
+        coverage.metric_response_artifacts_planned,
         coverage.metric_dataframe_artifacts_ready,
+        coverage.metric_dataframe_artifacts_planned,
+        coverage.total_missing_artifacts,
     ));
 
     if prebuild_disk_diagnostics_enabled() {
@@ -1153,11 +1210,21 @@ pub struct PrebuildTimingReport {
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct PrebuildCoverageReport {
+    pub compile_artifacts_planned: usize,
+    pub compile_artifacts_ready: usize,
+    pub compile_artifacts_missing: usize,
+    pub dataset_import_artifacts_planned: usize,
     pub dataset_import_artifacts_ready: usize,
+    pub dataset_import_artifacts_missing: usize,
+    pub metric_response_artifacts_planned: usize,
     pub metric_response_artifacts_ready: usize,
     pub metric_response_artifacts_built: usize,
+    pub metric_response_artifacts_missing: usize,
+    pub metric_dataframe_artifacts_planned: usize,
     pub metric_dataframe_artifacts_ready: usize,
     pub metric_dataframe_artifacts_built: usize,
+    pub metric_dataframe_artifacts_missing: usize,
+    pub total_missing_artifacts: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -1188,6 +1255,28 @@ pub struct PrebuildSessionEntryStatsReport {
     pub scope_entries: usize,
     pub cache_entries: usize,
     pub identity_entries: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildNodeBudgetReport {
+    pub canonical_node_limit: usize,
+    pub startup_wall_ms_limit: u64,
+    pub over_canonical_node_limit: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildPlanNodeStatsReport {
+    pub manifest_compile_scope_nodes: usize,
+    pub hot_compile_scope_nodes: usize,
+    pub deferred_compile_scope_nodes: usize,
+    pub planned_warmup_request_nodes: usize,
+    pub planned_warmup_scope_nodes: usize,
+    pub planned_metric_workset_nodes: usize,
+    pub planned_response_artifact_nodes: usize,
+    pub planned_dataframe_artifact_nodes: usize,
+    pub planned_total_nodes: usize,
+    pub canonical_prebuild_nodes: usize,
+    pub budget: PrebuildNodeBudgetReport,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -1233,6 +1322,7 @@ pub struct PrebuildDiagnosticsReport {
     pub session_before_clear: PrebuildSessionEntryStatsReport,
     pub session_after_clear: PrebuildSessionEntryStatsReport,
     pub warmup_reuse_hits: usize,
+    pub plan_nodes: PrebuildPlanNodeStatsReport,
     pub critical_warmup: PrebuildWarmupDiagnosticReport,
     pub deferred_warmup: PrebuildWarmupDiagnosticReport,
     pub slow_scopes: Vec<PrebuildSlowScopeDiagnostic>,
@@ -1441,6 +1531,63 @@ struct AggregatedWarmupRequest {
     dataset_id: String,
     priority: WarmupRequestPriority,
     metric_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PrebuildManifestPlan {
+    initial_scope_count: usize,
+    hot_scopes: Vec<CompileScope>,
+    deferred_scopes: Vec<CompileScope>,
+    warmup_requests: Vec<AggregatedWarmupRequest>,
+}
+
+#[derive(Debug, Clone)]
+struct PlannedMetricWorkset {
+    logical_node_id: String,
+    scope_id: String,
+    materialization_key: String,
+    dataset_selector: String,
+    owner_resource_id: String,
+    requested_metric_ids: Vec<String>,
+    request_all_metrics: bool,
+    scene_id: String,
+    scene_path: Option<String>,
+    dependency_revision_key: String,
+    response_cache_key: String,
+    shared_cache_key: String,
+    covered_metric_ids: BTreeSet<String>,
+    defs_for_hydrate: Arc<BTreeMap<String, Value>>,
+}
+
+#[derive(Debug, Clone)]
+struct PlannedDataframeArtifact {
+    logical_node_id: String,
+    scope_id: String,
+    materialization_key: String,
+    artifact_key: String,
+    shared_artifact_key: String,
+    owner_resource_id: String,
+    resource_selector_id: String,
+    dataframe_metric_id: String,
+    resolved_metric_id: String,
+    page_size: usize,
+    scene_id: String,
+    scene_path: Option<String>,
+    dependency_revision_key: String,
+    scope_metric_token: String,
+    defs_for_hydrate: Arc<BTreeMap<String, Value>>,
+}
+
+#[derive(Debug, Clone)]
+struct ScopeArtifactPlan {
+    metric_worksets: Vec<PlannedMetricWorkset>,
+    dataframe_artifacts: Vec<PlannedDataframeArtifact>,
+}
+
+#[derive(Debug, Clone)]
+struct WarmupScopeBatch<'a> {
+    scope: CompileScope,
+    requests: Vec<&'a AggregatedWarmupRequest>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1876,7 +2023,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             Err(error) => {
                 report.ok = false;
                 report.failed_apps.push(app_id.clone());
-                report.error_summary.push(format!("{app_id}: {error}"));
+                report.error_summary.push(format!("{app_id}: {error:#}"));
             }
         }
     }
@@ -1921,11 +2068,41 @@ fn scope_report_from_outcome(
 }
 
 fn merge_coverage(target: &mut PrebuildCoverageReport, delta: &PrebuildCoverageReport) {
+    target.compile_artifacts_planned += delta.compile_artifacts_planned;
+    target.compile_artifacts_ready += delta.compile_artifacts_ready;
+    target.compile_artifacts_missing += delta.compile_artifacts_missing;
+    target.dataset_import_artifacts_planned += delta.dataset_import_artifacts_planned;
     target.dataset_import_artifacts_ready += delta.dataset_import_artifacts_ready;
+    target.dataset_import_artifacts_missing += delta.dataset_import_artifacts_missing;
+    target.metric_response_artifacts_planned += delta.metric_response_artifacts_planned;
     target.metric_response_artifacts_ready += delta.metric_response_artifacts_ready;
     target.metric_response_artifacts_built += delta.metric_response_artifacts_built;
+    target.metric_response_artifacts_missing += delta.metric_response_artifacts_missing;
+    target.metric_dataframe_artifacts_planned += delta.metric_dataframe_artifacts_planned;
     target.metric_dataframe_artifacts_ready += delta.metric_dataframe_artifacts_ready;
     target.metric_dataframe_artifacts_built += delta.metric_dataframe_artifacts_built;
+    target.metric_dataframe_artifacts_missing += delta.metric_dataframe_artifacts_missing;
+    target.total_missing_artifacts += delta.total_missing_artifacts;
+}
+
+fn finalize_coverage_report(coverage: &mut PrebuildCoverageReport) {
+    coverage.compile_artifacts_missing = coverage
+        .compile_artifacts_planned
+        .saturating_sub(coverage.compile_artifacts_ready);
+    coverage.dataset_import_artifacts_missing = coverage
+        .dataset_import_artifacts_planned
+        .saturating_sub(coverage.dataset_import_artifacts_ready);
+    coverage.metric_response_artifacts_missing = coverage
+        .metric_response_artifacts_planned
+        .saturating_sub(coverage.metric_response_artifacts_ready);
+    coverage.metric_dataframe_artifacts_missing = coverage
+        .metric_dataframe_artifacts_planned
+        .saturating_sub(coverage.metric_dataframe_artifacts_ready);
+    coverage.total_missing_artifacts = coverage
+        .compile_artifacts_missing
+        .saturating_add(coverage.dataset_import_artifacts_missing)
+        .saturating_add(coverage.metric_response_artifacts_missing)
+        .saturating_add(coverage.metric_dataframe_artifacts_missing);
 }
 
 fn run_prebuild_for_app(
@@ -1947,31 +2124,23 @@ fn run_prebuild_for_app(
     });
     let diagnostics = Arc::new(PrebuildDiagnostics::default());
     let compile_session = Arc::new(Mutex::new(PrebuildCompileSession::default()));
-    let warmup_requests = aggregate_warmup_requests(app, scope_profile);
+    let manifest_plan = build_prebuild_manifest_plan(app, scope_profile);
+    let warmup_requests = manifest_plan.warmup_requests.clone();
     let max_parallelism = prebuild_parallelism(
-        compile_scopes_for_app(app, scope_profile)
-            .len()
+        manifest_plan
+            .initial_scope_count
             .max(warmup_requests.len())
             .max(1),
     );
     let default_scope = CompileScope::default_scope();
     let compile_started = Instant::now();
-    let initial_scope_count = compile_scopes_for_app(app, scope_profile).len();
+    let initial_scope_count = manifest_plan.initial_scope_count;
     prebuild_emit_progress(&format!(
         "[{}] ── 1/3 编译 .mei ── 约 {initial_scope_count} 个 manifest scope（request-scope 闭包 + 结果复用）",
         app.app_id
     ));
-    let mut scopes = compile_scopes_for_app(app, scope_profile);
-    scopes.retain(|scope| scope.key() != default_scope.key());
-    let hot_scope_keys = app
-        .hot_scenes
-        .iter()
-        .map(|scene| format!("{}|", scene.trim()))
-        .filter(|key| key != "|")
-        .collect::<BTreeSet<_>>();
-    let (hot_scopes, deferred_scopes): (Vec<_>, Vec<_>) = scopes
-        .into_iter()
-        .partition(|scope| hot_scope_keys.contains(&scope.key()));
+    let hot_scopes = manifest_plan.hot_scopes.clone();
+    let deferred_scopes = manifest_plan.deferred_scopes.clone();
     let default_started = Instant::now();
     let default_reuse = try_reuse_compile_scope_before_load(
         compile_session.as_ref(),
@@ -2327,6 +2496,7 @@ fn run_prebuild_for_app(
     let data_snapshots_ms = snapshot_started.elapsed().as_millis() as u64;
     verify_required_xlsx_sources(app_root.as_path(), &required_xlsx_sources)?;
     let mut coverage = PrebuildCoverageReport::default();
+    coverage.dataset_import_artifacts_planned = required_xlsx_sources.len();
     coverage.dataset_import_artifacts_ready = required_xlsx_sources.len();
     let _ = mei_lang_kernel::clear_runtime_eval_node_cache();
     let coverage_state = CoverageState {
@@ -2357,6 +2527,26 @@ fn run_prebuild_for_app(
     drop(compile_session);
     drop(prepared_outcomes);
     let artifact_outcomes_for_warmup = artifact_outcomes.clone();
+    let mut scope_artifact_plans = Vec::with_capacity(artifact_outcomes_for_warmup.len());
+    for prepared in &artifact_outcomes_for_warmup {
+        let matching_requests = matching_warmup_requests_for_outcome(&warmup_requests, &prepared.outcome);
+        scope_artifact_plans.push(build_scope_artifact_plan(
+            app.app_id.as_str(),
+            app_root.as_path(),
+            &prepared.scope,
+            &prepared.outcome,
+            matching_requests.as_slice(),
+        )?);
+    }
+    let plan_nodes = build_plan_node_stats(
+        &manifest_plan,
+        canonical_identity_count,
+        scope_artifact_plans.as_slice(),
+    );
+    coverage.compile_artifacts_planned = initial_scope_count;
+    coverage.compile_artifacts_ready = compile_reports.len();
+    coverage.metric_response_artifacts_planned = plan_nodes.planned_response_artifact_nodes;
+    coverage.metric_dataframe_artifacts_planned = plan_nodes.planned_dataframe_artifact_nodes;
     let scope_artifacts_started = Instant::now();
     prebuild_emit_progress(&format!(
         "[{}] ── 2/3 生成 metric 产物 ── {} 个编译结果待处理（response + dataframe 落盘）",
@@ -2366,19 +2556,19 @@ fn run_prebuild_for_app(
     let artifact_total = artifact_outcomes.len();
     let artifacts_started = Arc::new(Instant::now());
     let scope_results = run_limited_parallel_ordered_with_hook(
-        artifact_outcomes,
+        artifact_outcomes
+            .into_iter()
+            .zip(scope_artifact_plans.clone())
+            .collect(),
         max_parallelism,
-        |prepared| {
+        |(prepared, scope_plan)| {
             let mut local_coverage = PrebuildCoverageReport::default();
-            let matching_requests =
-                matching_warmup_requests_for_outcome(&warmup_requests, &prepared.outcome);
             let started = Instant::now();
             let result = ensure_scope_artifacts(
                 app.app_id.as_str(),
                 app_root.as_path(),
-                &prepared.scope,
                 &prepared.outcome,
-                matching_requests.as_slice(),
+                &scope_plan,
                 mode,
                 &mut local_coverage,
                 &coverage_state,
@@ -2532,29 +2722,30 @@ fn run_prebuild_for_app(
             requests,
             max_parallelism,
         );
-        for (scope, dataset_id, result, local_coverage) in results {
+        for (scope, dataset_results, local_coverage) in results {
             let scope = CompileScope {
                 requested_scene_id: scope.requested_scene_id.clone(),
                 requested_target_file: scope.requested_target_file.clone(),
             };
-            if let Err(error) = result {
-                *ok_flag = false;
-                if mode == PrebuildMode::Verify {
-                    return Err(error);
+            for (dataset_id, result) in dataset_results {
+                if let Err(error) = result {
+                    *ok_flag = false;
+                    if mode == PrebuildMode::Verify {
+                        return Err(error);
+                    }
+                    warnings.push(build_prebuild_warning(
+                        &format!("warmup_{label}"),
+                        scope.requested_scene_id.as_deref(),
+                        scope.requested_target_file.as_deref(),
+                        Some(dataset_id.as_str()),
+                        None,
+                        None,
+                        None,
+                        error.to_string(),
+                    ));
                 }
-                warnings.push(build_prebuild_warning(
-                    &format!("warmup_{label}"),
-                    scope.requested_scene_id.as_deref(),
-                    scope.requested_target_file.as_deref(),
-                    Some(dataset_id.as_str()),
-                    None,
-                    None,
-                    None,
-                    error.to_string(),
-                ));
-            } else {
-                merge_coverage(coverage, &local_coverage);
             }
+            merge_coverage(coverage, &local_coverage);
         }
         Ok(started.elapsed().as_millis() as u64)
     };
@@ -2575,6 +2766,17 @@ fn run_prebuild_for_app(
     coverage_state.clear();
     let _ = mei_lang_datasets::clear_all_metric_caches();
     let _ = mei_lang_kernel::clear_runtime_eval_node_cache();
+    finalize_coverage_report(&mut coverage);
+    if mode == PrebuildMode::Verify && coverage.total_missing_artifacts > 0 {
+        anyhow::bail!(
+            "prebuild coverage verify failed: missing artifacts total={} compile={} dataset_import={} metric_response={} metric_dataframe={}",
+            coverage.total_missing_artifacts,
+            coverage.compile_artifacts_missing,
+            coverage.dataset_import_artifacts_missing,
+            coverage.metric_response_artifacts_missing,
+            coverage.metric_dataframe_artifacts_missing
+        );
+    }
     let warmup_requests_ms = critical_warmup_requests_ms + deferred_warmup_requests_ms;
     if let Err(error) =
         mei_lang_datasets::preload_prebuild_metric_response_index(app_root.as_path())
@@ -2594,6 +2796,7 @@ fn run_prebuild_for_app(
         app_root.as_path(),
         compile_reports.as_slice(),
         diagnostics.as_ref(),
+        plan_nodes.clone(),
         canonical_identity_count,
         session_entries_before_clear,
         session_entries_after_clear,
@@ -2615,6 +2818,7 @@ fn run_prebuild_for_app(
         compile_reports.as_slice(),
         &coverage,
         diagnostics.as_ref(),
+        &plan_nodes,
         compile_scopes_ms,
         scope_artifacts_ms,
         max_parallelism,
@@ -2673,7 +2877,7 @@ fn compile_scopes_for_app(
             requested_target_file: Some(focus.clone()),
         });
     }
-    for scene_id in &scene_ids {
+    for scene_id in hot_scene_ids(app) {
         for focus in &focus_targets {
             push_scope(CompileScope {
                 requested_scene_id: Some(scene_id.clone()),
@@ -2689,6 +2893,31 @@ fn compile_scopes_for_app(
         push_scope(warmup_request_scope(request));
     }
     scopes
+}
+
+fn build_prebuild_manifest_plan(
+    app: &RuntimeWarmupApp,
+    scope_profile: PrebuildScopeProfile,
+) -> PrebuildManifestPlan {
+    let warmup_requests = aggregate_warmup_requests(app, scope_profile);
+    let default_scope = CompileScope::default_scope();
+    let all_scopes = compile_scopes_for_app(app, scope_profile);
+    let initial_scope_count = all_scopes.len();
+    let hot_scope_keys = hot_scene_ids(app)
+        .into_iter()
+        .map(|scene| format!("{}|", scene.trim()))
+        .filter(|key| key != "|")
+        .collect::<BTreeSet<_>>();
+    let (hot_scopes, deferred_scopes): (Vec<_>, Vec<_>) = all_scopes
+        .into_iter()
+        .filter(|scope| scope.key() != default_scope.key())
+        .partition(|scope| hot_scope_keys.contains(&scope.key()));
+    PrebuildManifestPlan {
+        initial_scope_count,
+        hot_scopes,
+        deferred_scopes,
+        warmup_requests,
+    }
 }
 
 fn hot_scene_ids(app: &RuntimeWarmupApp) -> Vec<String> {
@@ -2811,54 +3040,6 @@ fn focus_targets_for_profile(
     }
 }
 
-fn collect_scene_file_refs(value: &Value, out: &mut BTreeSet<String>) {
-    match value {
-        Value::Object(map) => {
-            if let Some(Value::String(scene_file)) = map.get("scene_file") {
-                if is_script_target(scene_file) {
-                    out.insert(scene_file.clone());
-                }
-            }
-            for child in map.values() {
-                collect_scene_file_refs(child, out);
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_scene_file_refs(item, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn discover_overlay_preview_targets(compiled: &mei_lang_kernel::CompiledApp) -> Vec<String> {
-    let mut seen = BTreeSet::new();
-    let mut push = |target: &str| {
-        let target = target.trim();
-        if target.is_empty() || !is_script_target(target) {
-            return;
-        }
-        seen.insert(target.to_string());
-    };
-    for target in compiled.scene_local_nav_by_target.keys() {
-        push(target.as_str());
-    }
-    for assembly in compiled.scene_projection_assembly_by_id.values() {
-        if let Some(target) = assembly.get("target_file").and_then(Value::as_str) {
-            push(target);
-        }
-    }
-    if let Some(contract) = compiled.scene_contract.as_ref() {
-        if let Ok(value) = serde_json::to_value(contract) {
-            collect_scene_file_refs(&value, &mut seen);
-        }
-    }
-    let mut targets = seen.into_iter().collect::<Vec<_>>();
-    targets.sort();
-    targets
-}
-
 fn aggregate_warmup_requests(
     app: &RuntimeWarmupApp,
     scope_profile: PrebuildScopeProfile,
@@ -2951,10 +3132,11 @@ fn warmup_dataset_request_in_profile(
 }
 
 pub(crate) fn app_has_deferred_warmup_work(app: &RuntimeWarmupApp) -> bool {
-    compile_scopes_for_app(app, PrebuildScopeProfile::Full).len()
-        > compile_scopes_for_app(app, PrebuildScopeProfile::HotOnly).len()
-        || aggregate_warmup_requests(app, PrebuildScopeProfile::Full).len()
-            > aggregate_warmup_requests(app, PrebuildScopeProfile::HotOnly).len()
+    let full = build_prebuild_manifest_plan(app, PrebuildScopeProfile::Full);
+    let hot = build_prebuild_manifest_plan(app, PrebuildScopeProfile::HotOnly);
+    (full.hot_scopes.len() + full.deferred_scopes.len())
+        > (hot.hot_scopes.len() + hot.deferred_scopes.len())
+        || full.warmup_requests.len() > hot.warmup_requests.len()
 }
 
 fn warmup_request_matches_outcome(
@@ -3002,6 +3184,22 @@ fn matching_warmup_requests_for_outcome<'a>(
         .collect()
 }
 
+fn group_warmup_requests_by_scope<'a>(
+    requests: &[&'a AggregatedWarmupRequest],
+) -> Vec<WarmupScopeBatch<'a>> {
+    let mut grouped = BTreeMap::<String, WarmupScopeBatch<'a>>::new();
+    for request in requests {
+        grouped
+            .entry(request.scope.key())
+            .and_modify(|batch| batch.requests.push(*request))
+            .or_insert_with(|| WarmupScopeBatch {
+                scope: request.scope.clone(),
+                requests: vec![*request],
+            });
+    }
+    grouped.into_values().collect()
+}
+
 fn run_warmup_request_batch(
     source_root: &Path,
     app_id: &str,
@@ -3011,21 +3209,40 @@ fn run_warmup_request_batch(
     coverage_state: &CoverageState,
     requests: &[&AggregatedWarmupRequest],
     max_parallelism: usize,
-) -> Vec<(CompileScope, String, Result<()>, PrebuildCoverageReport)> {
-    run_limited_parallel_ordered(requests.to_vec(), max_parallelism, |request| {
-        let scope = request.scope.clone();
+) -> Vec<(CompileScope, Vec<(String, Result<()>)>, PrebuildCoverageReport)> {
+    let grouped_requests = group_warmup_requests_by_scope(requests);
+    run_limited_parallel_ordered(grouped_requests, max_parallelism, |batch| {
+        let scope = batch.scope.clone();
         let mut local_coverage = PrebuildCoverageReport::default();
-        let result = ensure_warmup_dataset_request_artifacts(
-            source_root,
-            app_id,
-            app_root,
-            request,
-            mode,
-            components_root,
-            &mut local_coverage,
-            coverage_state,
-        );
-        (scope, request.dataset_id.clone(), result, local_coverage)
+        let mut results = Vec::with_capacity(batch.requests.len());
+        let compiled = ensure_compile_scope(source_root, app_id, &scope, mode, components_root);
+        match compiled {
+            Ok(outcome) => {
+                for request in batch.requests {
+                    let result = ensure_request_artifacts_for_compiled(
+                        app_id,
+                        app_root,
+                        &outcome,
+                        request.dataset_id.as_str(),
+                        request.metric_ids.as_slice(),
+                        mode,
+                        &mut local_coverage,
+                        coverage_state,
+                    );
+                    results.push((request.dataset_id.clone(), result));
+                }
+            }
+            Err(error) => {
+                let error_text = error.to_string();
+                for request in batch.requests {
+                    results.push((
+                        request.dataset_id.clone(),
+                        Err(anyhow::anyhow!(error_text.clone())),
+                    ));
+                }
+            }
+        }
+        (scope, results, local_coverage)
     })
 }
 
@@ -3076,42 +3293,22 @@ fn discovered_compile_scopes(
                 requested_scene_id: Some(active_scene.clone()),
                 requested_target_file: Some(target.to_string()),
             });
-        }
-        for overlay_target in discover_overlay_preview_targets(compiled) {
-            if overlay_target == active_target {
-                continue;
+            if target.ends_with(".board.mei") {
+                for export_scene_id in compiled
+                    .scene_projection_assembly_by_id
+                    .keys()
+                    .chain(compiled.scene_bindings_by_id.keys())
+                {
+                    let export_scene_id = export_scene_id.trim();
+                    if export_scene_id.is_empty() || export_scene_id == active_scene {
+                        continue;
+                    }
+                    push_scope(CompileScope {
+                        requested_scene_id: Some(export_scene_id.to_string()),
+                        requested_target_file: Some(target.to_string()),
+                    });
+                }
             }
-            push_scope(CompileScope {
-                requested_scene_id: Some(active_scene.clone()),
-                requested_target_file: Some(overlay_target),
-            });
-        }
-        for entry in compiled.build_board_index.boards.values() {
-            push_scope(CompileScope {
-                requested_scene_id: Some(entry.scene_id.clone()),
-                requested_target_file: Some(entry.board_file.clone()),
-            });
-        }
-    }
-    let native_target = scope
-        .requested_target_file
-        .as_deref()
-        .map(str::trim)
-        .filter(|target| !target.is_empty())
-        .unwrap_or(active_target);
-    if is_script_target(native_target) {
-        for route in &compiled.scene_routes {
-            if route.target_file != native_target {
-                continue;
-            }
-            let scene_id = route.scene_id.trim();
-            if scene_id.is_empty() || scene_id == "home" {
-                continue;
-            }
-            push_scope(CompileScope {
-                requested_scene_id: Some(scene_id.to_string()),
-                requested_target_file: Some(native_target.to_string()),
-            });
         }
     }
     scopes
@@ -3157,6 +3354,52 @@ fn compiled_scope_identity(outcome: &SharedCompileOutcome) -> String {
     )
 }
 
+fn compiled_default_target_file(compiled: &CompiledApp) -> Option<&str> {
+    compiled
+        .scene_routes
+        .iter()
+        .find(|route| route.is_default)
+        .or_else(|| compiled.scene_routes.iter().find(|route| route.scene_id.trim() == "home"))
+        .map(|route| route.target_file.trim())
+        .filter(|target| !target.is_empty())
+}
+
+fn compile_outcome_matches_scope(scope: &CompileScope, compiled: &CompiledApp) -> bool {
+    let requested = scope.canonicalized();
+    let active_scene = compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let active_target = compiled.active_target_file.trim();
+    if let Some(scene_id) = requested
+        .requested_scene_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if active_scene != Some(scene_id) {
+            return false;
+        }
+    }
+    if let Some(target_file) = requested
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if active_target != target_file {
+            return false;
+        }
+    }
+    if requested.requested_scene_id.is_none() && requested.requested_target_file.is_none() {
+        if let Some(default_target) = compiled_default_target_file(compiled) {
+            return active_target == default_target;
+        }
+    }
+    true
+}
+
 #[derive(Default)]
 struct PrebuildCompileSession {
     by_scope_key: BTreeMap<String, SharedCompileOutcome>,
@@ -3192,10 +3435,14 @@ impl PrebuildCompileSession {
     ) -> Option<SharedCompileOutcome> {
         let cache_key = toolchain::compile_cache_key(source_root, app_id, &scope.to_options());
         if let Some(outcome) = self.by_compile_cache_key.get(&cache_key) {
-            return Some(mark_prebuild_session_reuse(outcome));
+            if compile_outcome_matches_scope(scope, &outcome.compiled) {
+                return Some(mark_prebuild_session_reuse(outcome));
+            }
         }
         if let Some(outcome) = self.by_scope_key.get(&scope.key()) {
-            return Some(mark_prebuild_session_reuse(outcome));
+            if compile_outcome_matches_scope(scope, &outcome.compiled) {
+                return Some(mark_prebuild_session_reuse(outcome));
+            }
         }
         None
     }
@@ -3310,7 +3557,9 @@ fn try_reuse_persisted_compile_index(
         return None;
     };
     let outcome = SharedCompileOutcome::from_shared(outcome);
-    if compiled_scope_identity(&outcome) != entry.identity {
+    if compiled_scope_identity(&outcome) != entry.identity
+        || !compile_outcome_matches_scope(&canonical_scope, &outcome.compiled)
+    {
         diagnostics
             .compile_index_stale_entries
             .fetch_add(1, Ordering::Relaxed);
@@ -3428,7 +3677,17 @@ fn ensure_compile_scope_for_prebuild(
         ),
     };
     let outcome = match outcome {
-        Some(outcome) => SharedCompileOutcome::from_shared(outcome),
+        Some(outcome) => {
+            let outcome = SharedCompileOutcome::from_shared(outcome);
+            if compile_outcome_matches_scope(scope, &outcome.compiled) {
+                outcome
+            } else {
+                diagnostics
+                    .compile_index_stale_entries
+                    .fetch_add(1, Ordering::Relaxed);
+                ensure_compile_scope(source_root, app_id, scope, mode, components_root)?
+            }
+        }
         None => ensure_compile_scope(source_root, app_id, scope, mode, components_root)?,
     };
     let identity = compiled_scope_identity(&outcome);
@@ -3677,149 +3936,34 @@ fn verify_required_xlsx_sources(
 fn ensure_scope_artifacts(
     app_id: &str,
     app_root: &Path,
-    scope: &CompileScope,
     outcome: &SharedCompileOutcome,
-    requests: &[&AggregatedWarmupRequest],
+    plan: &ScopeArtifactPlan,
     mode: PrebuildMode,
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    for request in requests {
-        ensure_request_artifacts_for_compiled(
+    for workset in &plan.metric_worksets {
+        ensure_metric_response_artifact_for_plan(
             app_id,
             app_root,
             outcome,
-            request.dataset_id.as_str(),
-            request.metric_ids.as_slice(),
+            workset,
             mode,
             coverage,
             state,
         )?;
     }
-    if scope.key() == CompileScope::default_scope().key() {
-        ensure_root_world_metrics_artifact(app_id, app_root, outcome, mode, coverage, state)?;
-    }
-    ensure_discovered_scope_metric_artifacts(
-        app_id, app_root, scope, outcome, mode, coverage, state,
-    )?;
-    if should_auto_discover_scope_artifacts(scope, outcome) {
-        ensure_scope_world_metrics_artifacts(app_id, app_root, outcome, mode, coverage, state)?;
-    }
-    Ok(())
-}
-
-fn ensure_scope_world_metrics_artifacts(
-    app_id: &str,
-    app_root: &Path,
-    outcome: &SharedCompileOutcome,
-    mode: PrebuildMode,
-    coverage: &mut PrebuildCoverageReport,
-    state: &CoverageState,
-) -> Result<()> {
-    for resource in &outcome.compiled.resources {
-        if !is_world_metrics_resource(resource.id.as_str()) {
-            continue;
-        }
-        let Some(dataset) = resource.dataset.as_ref() else {
-            continue;
-        };
-        if !dataset.has_runtime_metric_defs() {
-            continue;
-        }
-        ensure_metric_response_artifact_for_request(
-            app_id,
+    for dataframe in &plan.dataframe_artifacts {
+        ensure_metric_dataframe_artifact_for_plan(
             app_root,
             outcome,
-            resource.id.as_str(),
-            &[],
+            dataframe,
             mode,
             coverage,
             state,
         )?;
-        let mut dataframe_metrics = dataframe_metric_ids(dataset);
-        for metric_id in dataset.runtime_metric_defs.keys() {
-            if metric_id.contains("__scalar_rowset__") {
-                dataframe_metrics.push(metric_id.clone());
-            }
-        }
-        dataframe_metrics.sort();
-        dataframe_metrics.dedup();
-        for metric_id in dataframe_metrics {
-            for page_size in widget_dataframe_page_sizes() {
-                ensure_metric_dataframe_artifact(
-                    app_root,
-                    outcome,
-                    resource,
-                    metric_id.as_str(),
-                    *page_size,
-                    mode,
-                    coverage,
-                    state,
-                )?;
-            }
-        }
     }
     Ok(())
-}
-
-fn ensure_warmup_dataset_request_artifacts(
-    source_root: &Path,
-    app_id: &str,
-    app_root: &Path,
-    request: &AggregatedWarmupRequest,
-    mode: PrebuildMode,
-    components_root: &Path,
-    coverage: &mut PrebuildCoverageReport,
-    state: &CoverageState,
-) -> Result<()> {
-    let scope = request.scope.clone();
-    let outcome = ensure_compile_scope(source_root, app_id, &scope, mode, components_root)?;
-    ensure_request_artifacts_for_compiled(
-        app_id,
-        app_root,
-        &outcome,
-        request.dataset_id.as_str(),
-        request.metric_ids.as_slice(),
-        mode,
-        coverage,
-        state,
-    )
-}
-
-fn ensure_root_world_metrics_artifact(
-    app_id: &str,
-    app_root: &Path,
-    outcome: &SharedCompileOutcome,
-    mode: PrebuildMode,
-    coverage: &mut PrebuildCoverageReport,
-    state: &CoverageState,
-) -> Result<()> {
-    let Some(root_world_metrics) = outcome.compiled.resources.iter().find(|resource| {
-        resource.id == "__world_metrics__"
-            && resource
-                .dataset
-                .as_ref()
-                .is_some_and(|dataset| dataset.has_runtime_metric_defs())
-    }) else {
-        return Ok(());
-    };
-    let Some(dataset) = root_world_metrics.dataset.as_ref() else {
-        return Ok(());
-    };
-    let metric_ids = response_metric_ids(&outcome.compiled, dataset);
-    if metric_ids.is_empty() {
-        return Ok(());
-    }
-    ensure_metric_response_artifact_for_request(
-        app_id,
-        app_root,
-        outcome,
-        "__world_metrics__",
-        metric_ids.as_slice(),
-        mode,
-        coverage,
-        state,
-    )
 }
 
 fn ensure_request_artifacts_for_compiled(
@@ -3983,9 +4127,13 @@ fn dataframe_metric_ids(dataset: &DatasetView) -> Vec<String> {
 }
 
 fn requested_dataframe_metric_ids(dataset: &DatasetView, metric_ids: &[String]) -> Vec<String> {
-    let mut ids = dataframe_metric_ids(dataset)
-        .into_iter()
-        .collect::<BTreeSet<_>>();
+    let mut ids = if metric_ids.is_empty() {
+        dataframe_metric_ids(dataset)
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+    } else {
+        BTreeSet::new()
+    };
     for metric_id in metric_ids {
         let metric_id = metric_id.trim();
         if metric_id.is_empty() {
@@ -4112,26 +4260,227 @@ fn artifact_scene_context_for_resource(
     (scene_id, Some(target_file))
 }
 
-fn should_auto_discover_scope_artifacts(
-    scope: &CompileScope,
-    outcome: &SharedCompileOutcome,
-) -> bool {
-    let canonical = scope.canonicalized();
-    if canonical
-        .requested_scene_id
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|scene_id| scene_id == "home")
-    {
-        return true;
+fn scope_identity_key(scene_id: &str, scene_path: Option<&str>) -> String {
+    compile_scope_key_from_parts(
+        Some(scene_id),
+        scene_path.map(str::trim).filter(|value| !value.is_empty()),
+    )
+}
+
+fn request_metric_scope_token(metric_ids: &[String]) -> String {
+    if metric_ids.is_empty() {
+        "*".to_string()
+    } else {
+        metric_scope_cache_key(metric_ids)
     }
-    let (scene_id, _) = artifact_scene_context(&outcome.compiled);
-    canonical
-        .requested_target_file
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|target| !target.is_empty())
-        && scene_id != "home"
+}
+
+fn logical_metric_workset_id(app_id: &str, owner_resource_id: &str, metric_ids: &[String]) -> String {
+    format!(
+        "workset|app={app_id}|owner={owner_resource_id}|metrics={}",
+        request_metric_scope_token(metric_ids)
+    )
+}
+
+fn summarize_metric_ids(metric_ids: &[String]) -> String {
+    if metric_ids.is_empty() {
+        return "*".to_string();
+    }
+    let mut preview = metric_ids
+        .iter()
+        .take(6)
+        .map(|metric_id| short_metric_id(metric_id).to_string())
+        .collect::<Vec<_>>();
+    if metric_ids.len() > 6 {
+        preview.push(format!("+{} more", metric_ids.len() - 6));
+    }
+    preview.join(", ")
+}
+
+fn materialization_identity(
+    logical_node_id: &str,
+    scope_id: &str,
+    dependency_revision_key: &str,
+    compile_revision: &str,
+) -> String {
+    format!(
+        "{logical_node_id}|scope={scope_id}|dependency={dependency_revision_key}|compile={compile_revision}"
+    )
+}
+
+fn logical_dataframe_artifact_id(owner_resource_id: &str, metric_id: &str, page_size: usize) -> String {
+    format!("dataframe|owner={owner_resource_id}|metric={metric_id}|page_size={page_size}")
+}
+
+fn plan_metric_workset(
+    app_id: &str,
+    app_root: &Path,
+    outcome: &SharedCompileOutcome,
+    dataset_selector: &str,
+    metric_ids: &[String],
+) -> Result<PlannedMetricWorkset> {
+    let request_all_metrics = metric_ids.is_empty();
+    let access_plan = plan_access_metric_eval_for_ids(&outcome.compiled, dataset_selector, metric_ids)
+        .with_context(|| {
+            format!(
+                "plan metric response artifact for dataset `{dataset_selector}` metrics [{}]",
+                summarize_metric_ids(metric_ids)
+            )
+        })?;
+    let runtime_workset = runtime_metric_workset(
+        &access_plan.owner.id,
+        &access_plan.request_metric_ids,
+        access_plan.owner_dataset,
+    );
+    let covered_metric_ids = runtime_workset
+        .eval_metric_ids
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let defs_for_hydrate = Arc::new(runtime_workset.defs_for_hydrate);
+    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+        app_root,
+        &outcome.compiled,
+        &access_plan.owner.id,
+        defs_for_hydrate.as_ref(),
+    );
+    let query_state = empty_query_state();
+    let query = collect_all_query_options(&query_state);
+    let (scene_id, scene_path) =
+        artifact_scene_context_for_resource(&outcome.compiled, access_plan.owner.id.as_str());
+    let scope_id = scope_identity_key(scene_id.as_str(), scene_path.as_deref());
+    let logical_node_id =
+        logical_metric_workset_id(app_id, access_plan.owner.id.as_str(), &access_plan.request_metric_ids);
+    let materialization_key = materialization_identity(
+        logical_node_id.as_str(),
+        scope_id.as_str(),
+        dependency_revision_key.as_str(),
+        outcome.compile_revision.as_str(),
+    );
+    let response_cache_key = metric_response_cache_scope_key(
+        app_id,
+        scene_id.as_str(),
+        scene_path.as_deref(),
+        &access_plan.owner.id,
+        &query,
+        &outcome.compile_revision,
+        &dependency_revision_key,
+        &[],
+    );
+    let shared_cache_key = metric_response_prebuild_shared_key(
+        app_id,
+        &access_plan.owner.id,
+        &query,
+        &dependency_revision_key,
+    );
+    Ok(PlannedMetricWorkset {
+        logical_node_id,
+        scope_id,
+        materialization_key,
+        dataset_selector: dataset_selector.to_string(),
+        owner_resource_id: access_plan.owner.id.clone(),
+        requested_metric_ids: access_plan.request_metric_ids,
+        request_all_metrics,
+        scene_id,
+        scene_path,
+        dependency_revision_key,
+        response_cache_key,
+        shared_cache_key,
+        covered_metric_ids,
+        defs_for_hydrate,
+    })
+}
+
+fn plan_dataframe_artifact(
+    app_root: &Path,
+    outcome: &SharedCompileOutcome,
+    resource: &LoadedResource,
+    metric_id: &str,
+    page_size: usize,
+) -> Result<Option<PlannedDataframeArtifact>> {
+    let Ok((owner_resource, resolved_metric_id)) =
+        locate_runtime_metric_resource(&outcome.compiled, resource.id.as_str(), metric_id)
+    else {
+        return Ok(None);
+    };
+    let owner_dataset = owner_resource
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
+    let dataframe_metric_id =
+        prebuild_dataframe_metric_selector(&owner_dataset.runtime_metric_defs, &resolved_metric_id);
+    let runtime_workset = runtime_metric_workset(
+        &owner_resource.id,
+        std::slice::from_ref(&dataframe_metric_id),
+        owner_dataset,
+    );
+    let defs_for_hydrate = Arc::new(runtime_workset.defs_for_hydrate);
+    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+        app_root,
+        &outcome.compiled,
+        &owner_resource.id,
+        if owner_dataset.runtime_metric_defs.is_empty() {
+            defs_for_hydrate.as_ref()
+        } else {
+            &owner_dataset.runtime_metric_defs
+        },
+    );
+    let query_options = widget_dataframe_query_options(page_size);
+    let (scene_id, scene_path) =
+        artifact_scene_context_for_resource(&outcome.compiled, owner_resource.id.as_str());
+    let scope_metric_token = dataframe_scope_metric_token(
+        &outcome.compiled,
+        resource.id.as_str(),
+        dataframe_metric_id.as_str(),
+    )
+    .unwrap_or_else(|| metric_scope_cache_key(std::slice::from_ref(&dataframe_metric_id)));
+    let artifact_key = metric_dataframe_result_cache_key(
+        app_root,
+        Some(scene_id.as_str()),
+        scene_path.as_deref(),
+        owner_resource.id.as_str(),
+        scope_metric_token.as_str(),
+        &query_options,
+        &outcome.compile_revision,
+        &dependency_revision_key,
+        &[],
+    );
+    let shared_artifact_key = prebuild_metric_dataframe_shared_key(
+        owner_resource.id.as_str(),
+        dataframe_metric_id.as_str(),
+        &query_options,
+        &dependency_revision_key,
+    );
+    let scope_id = scope_identity_key(scene_id.as_str(), scene_path.as_deref());
+    let logical_node_id = logical_dataframe_artifact_id(
+        owner_resource.id.as_str(),
+        dataframe_metric_id.as_str(),
+        page_size,
+    );
+    let materialization_key = materialization_identity(
+        logical_node_id.as_str(),
+        scope_id.as_str(),
+        dependency_revision_key.as_str(),
+        outcome.compile_revision.as_str(),
+    );
+    Ok(Some(PlannedDataframeArtifact {
+        logical_node_id,
+        scope_id,
+        materialization_key,
+        artifact_key,
+        shared_artifact_key,
+        owner_resource_id: owner_resource.id.clone(),
+        resource_selector_id: resource.id.clone(),
+        dataframe_metric_id,
+        resolved_metric_id,
+        page_size,
+        scene_id,
+        scene_path,
+        dependency_revision_key,
+        scope_metric_token,
+        defs_for_hydrate,
+    }))
 }
 
 fn widget_dataframe_page_sizes() -> &'static [usize] {
@@ -4198,66 +4547,481 @@ fn dataset_metric_identity_key(dataset: &DatasetView) -> String {
     format!("{}|{}", source_path, metric_keys.join(","))
 }
 
-fn ensure_discovered_scope_metric_artifacts(
+fn collect_request_artifact_plans(
     app_id: &str,
     app_root: &Path,
-    scope: &CompileScope,
     outcome: &SharedCompileOutcome,
-    mode: PrebuildMode,
-    coverage: &mut PrebuildCoverageReport,
-    state: &CoverageState,
+    dataset_selector: &str,
+    metric_ids: &[String],
+    metric_worksets: &mut BTreeMap<String, PlannedMetricWorkset>,
+    dataframe_tasks: &mut BTreeMap<String, PlannedDataframeArtifact>,
 ) -> Result<()> {
-    if !should_auto_discover_scope_artifacts(scope, outcome) {
-        return Ok(());
-    }
-    let mut seen_identities = BTreeSet::<String>::new();
-    for resource in &outcome.compiled.resources {
-        let Some(dataset) = resource.dataset.as_ref() else {
-            continue;
-        };
-        if !dataset.has_runtime_metric_defs() || is_world_metrics_resource(resource.id.as_str()) {
-            continue;
+    let resource = mei_lang_kernel::locate_dataset_resource(&outcome.compiled, dataset_selector)
+        .with_context(|| format!("locate warmup dataset `{dataset_selector}`"))?;
+    let dataset = resource
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", resource.id))?;
+    if metric_ids.is_empty() {
+        let response_ids = response_metric_ids(&outcome.compiled, dataset);
+        if !response_ids.is_empty() {
+            let metric_groups =
+                group_metric_ids_by_owner(&outcome.compiled, resource.id.as_str(), &response_ids)?;
+            for metric_ids in metric_groups.into_values() {
+                let plan = plan_metric_workset(
+                    app_id,
+                    app_root,
+                    outcome,
+                    resource.id.as_str(),
+                    metric_ids.as_slice(),
+                )?;
+                metric_worksets
+                    .entry(plan.materialization_key.clone())
+                    .or_insert(plan);
+            }
+        } else {
+            let plan = plan_metric_workset(app_id, app_root, outcome, resource.id.as_str(), &[])?;
+            metric_worksets
+                .entry(plan.materialization_key.clone())
+                .or_insert(plan);
         }
-        let identity = dataset_metric_identity_key(dataset);
-        if !seen_identities.insert(identity) {
-            continue;
-        }
-        let response_metric_ids = response_metric_ids(&outcome.compiled, dataset);
-        if !response_metric_ids.is_empty() {
-            ensure_metric_response_artifact_for_request(
+    } else {
+        let metric_groups =
+            group_metric_ids_by_owner(&outcome.compiled, resource.id.as_str(), metric_ids)?;
+        for metric_ids in metric_groups.into_values() {
+            let plan = plan_metric_workset(
                 app_id,
                 app_root,
                 outcome,
                 resource.id.as_str(),
-                &[],
-                mode,
-                coverage,
-                state,
+                metric_ids.as_slice(),
             )?;
+            metric_worksets
+                .entry(plan.materialization_key.clone())
+                .or_insert(plan);
         }
-        let mut dataframe_metric_ids = dataframe_metric_ids(dataset);
-        for metric_id in dataset.runtime_metric_defs.keys() {
-            if metric_id.contains("__scalar_rowset__") {
-                dataframe_metric_ids.push(metric_id.clone());
-            }
-        }
-        dataframe_metric_ids.sort();
-        dataframe_metric_ids.dedup();
-        for metric_id in dataframe_metric_ids {
+    }
+
+    if is_world_metrics_resource(resource.id.as_str()) {
+        let mut requested = requested_dataframe_metric_ids(dataset, metric_ids);
+        requested.sort();
+        requested.dedup();
+        for metric_id in requested {
             for page_size in widget_dataframe_page_sizes() {
-                ensure_metric_dataframe_artifact(
+                if let Some(plan) = plan_dataframe_artifact(
                     app_root,
                     outcome,
-                    resource,
+                    &resource,
                     metric_id.as_str(),
                     *page_size,
-                    mode,
-                    coverage,
-                    state,
-                )?;
+                )? {
+                    dataframe_tasks
+                        .entry(plan.materialization_key.clone())
+                        .or_insert(plan);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    for metric_id in dataframe_metric_ids(dataset) {
+        for page_size in widget_dataframe_page_sizes() {
+            if let Some(plan) = plan_dataframe_artifact(
+                app_root,
+                outcome,
+                &resource,
+                metric_id.as_str(),
+                *page_size,
+            )? {
+                dataframe_tasks
+                    .entry(plan.materialization_key.clone())
+                    .or_insert(plan);
             }
         }
     }
+    Ok(())
+}
+
+fn build_scope_artifact_plan(
+    app_id: &str,
+    app_root: &Path,
+    scope: &CompileScope,
+    outcome: &SharedCompileOutcome,
+    requests: &[&AggregatedWarmupRequest],
+) -> Result<ScopeArtifactPlan> {
+    let mut metric_worksets = BTreeMap::<String, PlannedMetricWorkset>::new();
+    let mut dataframe_tasks = BTreeMap::<String, PlannedDataframeArtifact>::new();
+    for request in requests {
+        collect_request_artifact_plans(
+            app_id,
+            app_root,
+            outcome,
+            request.dataset_id.as_str(),
+            request.metric_ids.as_slice(),
+            &mut metric_worksets,
+            &mut dataframe_tasks,
+        )?;
+    }
+    if scope.key() == CompileScope::default_scope().key() {
+        collect_request_artifact_plans(
+            app_id,
+            app_root,
+            outcome,
+            "__world_metrics__",
+            &[],
+            &mut metric_worksets,
+            &mut dataframe_tasks,
+        )?;
+    }
+    Ok(ScopeArtifactPlan {
+        metric_worksets: metric_worksets.into_values().collect(),
+        dataframe_artifacts: dataframe_tasks.into_values().collect(),
+    })
+}
+
+fn build_plan_node_stats(
+    manifest_plan: &PrebuildManifestPlan,
+    canonical_identity_count: usize,
+    scope_plans: &[ScopeArtifactPlan],
+) -> PrebuildPlanNodeStatsReport {
+    let mut metric_workset_nodes = BTreeSet::new();
+    let mut response_nodes = BTreeSet::new();
+    let mut dataframe_nodes = BTreeSet::new();
+    let mut warmup_scope_nodes = BTreeSet::new();
+    let mut logical_workset_nodes = BTreeSet::new();
+    let mut logical_dataframe_nodes = BTreeSet::new();
+    let mut scope_ids = BTreeSet::new();
+    let mut dependency_keys = BTreeSet::new();
+    for request in &manifest_plan.warmup_requests {
+        warmup_scope_nodes.insert(request.scope.key());
+    }
+    for plan in scope_plans {
+        for workset in &plan.metric_worksets {
+            logical_workset_nodes.insert(workset.logical_node_id.clone());
+            scope_ids.insert(workset.scope_id.clone());
+            dependency_keys.insert(workset.dependency_revision_key.clone());
+            metric_workset_nodes.insert(workset.materialization_key.clone());
+            response_nodes.insert(workset.response_cache_key.clone());
+        }
+        for dataframe in &plan.dataframe_artifacts {
+            logical_dataframe_nodes.insert(dataframe.logical_node_id.clone());
+            scope_ids.insert(dataframe.scope_id.clone());
+            dependency_keys.insert(dataframe.dependency_revision_key.clone());
+            let _ = dataframe.scope_metric_token.as_str();
+            dataframe_nodes.insert(dataframe.artifact_key.clone());
+        }
+    }
+    let _ = (logical_workset_nodes.len(), logical_dataframe_nodes.len(), scope_ids.len(), dependency_keys.len());
+    let canonical_prebuild_nodes = canonical_identity_count + metric_workset_nodes.len();
+    let budget = PrebuildNodeBudgetReport {
+        canonical_node_limit: CANONICAL_PREBUILD_NODE_BUDGET,
+        startup_wall_ms_limit: STARTUP_PREBUILD_WALL_MS_BUDGET_MS,
+        over_canonical_node_limit: canonical_prebuild_nodes > CANONICAL_PREBUILD_NODE_BUDGET,
+    };
+    let planned_total_nodes = canonical_prebuild_nodes
+        + manifest_plan.warmup_requests.len()
+        + dataframe_nodes.len();
+    PrebuildPlanNodeStatsReport {
+        manifest_compile_scope_nodes: 1
+            + manifest_plan.hot_scopes.len()
+            + manifest_plan.deferred_scopes.len(),
+        hot_compile_scope_nodes: manifest_plan.hot_scopes.len(),
+        deferred_compile_scope_nodes: manifest_plan.deferred_scopes.len(),
+        planned_warmup_request_nodes: manifest_plan.warmup_requests.len(),
+        planned_warmup_scope_nodes: warmup_scope_nodes.len(),
+        planned_metric_workset_nodes: metric_workset_nodes.len(),
+        planned_response_artifact_nodes: response_nodes.len(),
+        planned_dataframe_artifact_nodes: dataframe_nodes.len(),
+        planned_total_nodes,
+        canonical_prebuild_nodes,
+        budget,
+    }
+}
+
+fn ensure_metric_response_artifact_for_plan(
+    app_id: &str,
+    app_root: &Path,
+    outcome: &SharedCompileOutcome,
+    plan: &PlannedMetricWorkset,
+    mode: PrebuildMode,
+    coverage: &mut PrebuildCoverageReport,
+    state: &CoverageState,
+) -> Result<()> {
+    let owner_resource = mei_lang_kernel::locate_dataset_resource(
+        &outcome.compiled,
+        plan.owner_resource_id.as_str(),
+    )
+    .with_context(|| format!("locate warmup dataset `{}`", plan.dataset_selector))?;
+    let owner_dataset = owner_resource
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
+    let query_state = empty_query_state();
+    let query = collect_all_query_options(&query_state);
+    if let Some(artifact) = state.metric_response_exact(&plan.response_cache_key) {
+        let artifact_covers_request = metric_response_artifact_covers_request(
+            &artifact,
+            &plan.covered_metric_ids,
+            plan.request_all_metrics,
+        );
+        if artifact_covers_request {
+            materialize_metric_response_sibling_aliases(
+                app_id,
+                app_root,
+                outcome,
+                &owner_resource,
+                &artifact,
+                &query,
+                plan.defs_for_hydrate.as_ref(),
+                state,
+            )?;
+            coverage.metric_response_artifacts_ready += 1;
+            return Ok(());
+        }
+    }
+    if let Some(artifact) = state.metric_response_shared(&plan.shared_cache_key) {
+        let artifact_covers_request = metric_response_artifact_covers_request(
+            &artifact,
+            &plan.covered_metric_ids,
+            plan.request_all_metrics,
+        );
+        if artifact_covers_request {
+            materialize_metric_response_alias(app_root, &plan.response_cache_key, &artifact)?;
+            state.store_metric_response_exact(&plan.response_cache_key, &artifact);
+            materialize_metric_response_sibling_aliases(
+                app_id,
+                app_root,
+                outcome,
+                &owner_resource,
+                &artifact,
+                &query,
+                plan.defs_for_hydrate.as_ref(),
+                state,
+            )?;
+            coverage.metric_response_artifacts_ready += 1;
+            return Ok(());
+        }
+    }
+    if prebuild_metric_response_index_covers_key(
+        app_root,
+        &plan.shared_cache_key,
+        &plan.covered_metric_ids,
+        plan.request_all_metrics,
+    )? {
+        coverage.metric_response_artifacts_ready += 1;
+        return Ok(());
+    }
+    if let Some((artifact, _)) =
+        load_metric_response_result_artifact(app_root, &plan.response_cache_key)?
+    {
+        let artifact_covers_request = metric_response_artifact_covers_request(
+            &artifact,
+            &plan.covered_metric_ids,
+            plan.request_all_metrics,
+        );
+        if artifact_covers_request {
+            state.store_metric_response_exact(&plan.response_cache_key, &artifact);
+            state.store_metric_response_shared(&plan.shared_cache_key, &artifact);
+            materialize_metric_response_sibling_aliases(
+                app_id,
+                app_root,
+                outcome,
+                &owner_resource,
+                &artifact,
+                &query,
+                plan.defs_for_hydrate.as_ref(),
+                state,
+            )?;
+            coverage.metric_response_artifacts_ready += 1;
+            return Ok(());
+        }
+        if mode == PrebuildMode::Verify {
+            anyhow::bail!(
+                "metric response artifact for dataset `{}` scope scene=`{}` target=`{}` does not cover all declared metrics",
+                plan.dataset_selector,
+                plan.scene_id,
+                plan.scene_path.as_deref().unwrap_or("")
+            );
+        }
+    } else if mode == PrebuildMode::Verify {
+        anyhow::bail!(
+            "missing metric response artifact for dataset `{}` scope scene=`{}` target=`{}`",
+            plan.dataset_selector,
+            plan.scene_id,
+            plan.scene_path.as_deref().unwrap_or("")
+        );
+    }
+    if let Some((artifact, _)) = load_metric_response_result_artifact(app_root, &plan.shared_cache_key)?
+    {
+        let artifact_covers_request = metric_response_artifact_covers_request(
+            &artifact,
+            &plan.covered_metric_ids,
+            plan.request_all_metrics,
+        );
+        if artifact_covers_request {
+            materialize_metric_response_alias(app_root, &plan.response_cache_key, &artifact)?;
+            state.store_metric_response_shared(&plan.shared_cache_key, &artifact);
+            state.store_metric_response_exact(&plan.response_cache_key, &artifact);
+            materialize_metric_response_sibling_aliases(
+                app_id,
+                app_root,
+                outcome,
+                &owner_resource,
+                &artifact,
+                &query,
+                plan.defs_for_hydrate.as_ref(),
+                state,
+            )?;
+            coverage.metric_response_artifacts_ready += 1;
+            return Ok(());
+        }
+    }
+    let reservation = state
+        .metric_response_jobs
+        .wait_or_reserve(&plan.shared_cache_key);
+    if let ArtifactReservation::Completed = reservation {
+        if let Some(artifact) = state.metric_response_shared(&plan.shared_cache_key) {
+            let artifact_covers_request = metric_response_artifact_covers_request(
+                &artifact,
+                &plan.covered_metric_ids,
+                plan.request_all_metrics,
+            );
+            if artifact_covers_request {
+                materialize_metric_response_alias(app_root, &plan.response_cache_key, &artifact)?;
+                state.store_metric_response_exact(&plan.response_cache_key, &artifact);
+                materialize_metric_response_sibling_aliases(
+                    app_id,
+                    app_root,
+                    outcome,
+                    &owner_resource,
+                    &artifact,
+                    &query,
+                    plan.defs_for_hydrate.as_ref(),
+                    state,
+                )?;
+                coverage.metric_response_artifacts_ready += 1;
+                return Ok(());
+            }
+        }
+    }
+    prebuild_emit_progress(format!(
+        "[{app_id}] 指标求值开始 | response | dataset={} | scene={}",
+        short_dataset_id(plan.dataset_selector.as_str()),
+        plan.scene_id
+    ));
+    let metric_started = Instant::now();
+    let primary_resource = mei_lang_kernel::locate_dataset_resource(
+        &outcome.compiled,
+        plan.dataset_selector.as_str(),
+    )
+    .with_context(|| format!("locate warmup dataset `{}`", plan.dataset_selector))?;
+    let primary_dataset = primary_resource
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", primary_resource.id))?;
+    let access_plan = AccessMetricEvalPlan {
+        primary: primary_resource,
+        primary_dataset,
+        owner: owner_resource,
+        owner_dataset,
+        request_metric_ids: plan.requested_metric_ids.clone(),
+    };
+    let eval_outcome = evaluate_runtime_metrics_from_plan(
+        &outcome.compiled,
+        app_root,
+        &access_plan,
+        plan.scene_id.as_str(),
+        plan.scene_path.as_deref(),
+        &query_state,
+        &[],
+        RuntimeMetricEvalMode::WithDag,
+        plan.request_all_metrics,
+    )
+    .with_context(|| format!("build metric response artifact for dataset `{}`", plan.dataset_selector));
+    let eval_outcome = match eval_outcome {
+        Ok(eval_outcome) => eval_outcome,
+        Err(error) => {
+            state.metric_response_jobs.finish(&plan.shared_cache_key, false);
+            return Err(error);
+        }
+    };
+    prebuild_emit_progress(format!(
+        "[{app_id}] 指标求值 {:.1}s | response | dataset={} | scene={} | rows={}",
+        metric_started.elapsed().as_secs_f64(),
+        short_dataset_id(plan.dataset_selector.as_str()),
+        plan.scene_id,
+        eval_outcome.total_rows
+    ));
+    state.diagnostics.record_metric_build(
+        "response",
+        plan.dataset_selector.as_str(),
+        "(bundle)",
+        plan.scene_id.as_str(),
+        metric_started.elapsed().as_millis() as u64,
+    );
+    let declared_metric_ids = owner_dataset
+        .runtime_metric_defs
+        .keys()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
+    let complete = plan.request_all_metrics
+        && !declared_metric_ids.is_empty()
+        && declared_metric_ids
+            .iter()
+            .all(|metric_id| plan.covered_metric_ids.contains(metric_id));
+    let built_artifact = LoadedMetricResponseArtifact {
+        total_rows: eval_outcome.total_rows,
+        metrics_map: eval_outcome.metrics_map.clone(),
+        covered_metric_ids: plan.covered_metric_ids.clone(),
+        complete,
+    };
+    let store_result = (|| -> Result<()> {
+        store_cached_metric_response(
+            plan.shared_cache_key.clone(),
+            eval_outcome.total_rows,
+            &eval_outcome.metrics_map,
+            &plan.covered_metric_ids,
+            complete,
+        );
+        store_metric_response_result_artifact(
+            app_root,
+            &plan.shared_cache_key,
+            eval_outcome.total_rows,
+            &eval_outcome.metrics_map,
+            &plan.covered_metric_ids,
+            complete,
+        )?;
+        materialize_metric_response_alias_parts(
+            app_root,
+            &plan.response_cache_key,
+            eval_outcome.total_rows,
+            &eval_outcome.metrics_map,
+            &plan.covered_metric_ids,
+            complete,
+        )?;
+        Ok(())
+    })();
+    state
+        .metric_response_jobs
+        .finish(&plan.shared_cache_key, store_result.is_ok());
+    if store_result.is_ok() {
+        state.store_metric_response_shared(&plan.shared_cache_key, &built_artifact);
+        state.store_metric_response_exact(&plan.response_cache_key, &built_artifact);
+    }
+    store_result?;
+    materialize_metric_response_sibling_aliases(
+        app_id,
+        app_root,
+        outcome,
+        &owner_resource,
+        &built_artifact,
+        &query,
+        plan.defs_for_hydrate.as_ref(),
+        state,
+    )?;
+    coverage.metric_response_artifacts_built += 1;
     Ok(())
 }
 
@@ -4271,297 +5035,8 @@ fn ensure_metric_response_artifact_for_request(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    let request_all_metrics = metric_ids.is_empty();
-    let access_plan =
-        plan_access_metric_eval_for_ids(&outcome.compiled, dataset_selector, metric_ids)
-            .with_context(|| {
-                format!("plan metric response artifact for dataset `{dataset_selector}`")
-            })?;
-    let runtime_workset = runtime_metric_workset(
-        &access_plan.owner.id,
-        &access_plan.request_metric_ids,
-        access_plan.owner_dataset,
-    );
-    let covered_metric_ids = runtime_workset
-        .eval_metric_ids
-        .clone()
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<BTreeSet<_>>();
-    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
-        app_root,
-        &outcome.compiled,
-        &access_plan.owner.id,
-        &runtime_workset.defs_for_hydrate,
-    );
-    let query_state = empty_query_state();
-    let query = collect_all_query_options(&query_state);
-    let (scene_id, scene_path) =
-        artifact_scene_context_for_resource(&outcome.compiled, access_plan.owner.id.as_str());
-    let response_cache_key = metric_response_cache_scope_key(
-        app_id,
-        scene_id.as_str(),
-        scene_path.as_deref(),
-        &access_plan.owner.id,
-        &query,
-        &outcome.compile_revision,
-        &dependency_revision_key,
-        &[],
-    );
-    let shared_cache_key = metric_response_prebuild_shared_key(
-        app_id,
-        &access_plan.owner.id,
-        &query,
-        &dependency_revision_key,
-    );
-    if let Some(artifact) = state.metric_response_exact(&response_cache_key) {
-        let artifact_covers_request = metric_response_artifact_covers_request(
-            &artifact,
-            &covered_metric_ids,
-            request_all_metrics,
-        );
-        if artifact_covers_request {
-            materialize_metric_response_sibling_aliases(
-                app_id,
-                app_root,
-                outcome,
-                access_plan.owner,
-                &artifact,
-                &query,
-                &runtime_workset.defs_for_hydrate,
-                state,
-            )?;
-            coverage.metric_response_artifacts_ready += 1;
-            return Ok(());
-        }
-    }
-    if let Some(artifact) = state.metric_response_shared(&shared_cache_key) {
-        let artifact_covers_request = metric_response_artifact_covers_request(
-            &artifact,
-            &covered_metric_ids,
-            request_all_metrics,
-        );
-        if artifact_covers_request {
-            materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
-            state.store_metric_response_exact(&response_cache_key, &artifact);
-            materialize_metric_response_sibling_aliases(
-                app_id,
-                app_root,
-                outcome,
-                access_plan.owner,
-                &artifact,
-                &query,
-                &runtime_workset.defs_for_hydrate,
-                state,
-            )?;
-            coverage.metric_response_artifacts_ready += 1;
-            return Ok(());
-        }
-    }
-    if prebuild_metric_response_index_covers_key(
-        app_root,
-        &shared_cache_key,
-        &covered_metric_ids,
-        request_all_metrics,
-    )? {
-        coverage.metric_response_artifacts_ready += 1;
-        return Ok(());
-    }
-    if let Some((artifact, _)) =
-        load_metric_response_result_artifact(app_root, &response_cache_key)?
-    {
-        let artifact_covers_request = metric_response_artifact_covers_request(
-            &artifact,
-            &covered_metric_ids,
-            request_all_metrics,
-        );
-        if artifact_covers_request {
-            state.store_metric_response_exact(&response_cache_key, &artifact);
-            state.store_metric_response_shared(&shared_cache_key, &artifact);
-            materialize_metric_response_sibling_aliases(
-                app_id,
-                app_root,
-                outcome,
-                access_plan.owner,
-                &artifact,
-                &query,
-                &runtime_workset.defs_for_hydrate,
-                state,
-            )?;
-            coverage.metric_response_artifacts_ready += 1;
-            return Ok(());
-        }
-        if mode == PrebuildMode::Verify {
-            anyhow::bail!(
-                "metric response artifact for dataset `{}` scope scene=`{}` target=`{}` does not cover all declared metrics",
-                dataset_selector,
-                scene_id,
-                scene_path.as_deref().unwrap_or("")
-            );
-        }
-    } else if mode == PrebuildMode::Verify {
-        anyhow::bail!(
-            "missing metric response artifact for dataset `{}` scope scene=`{}` target=`{}`",
-            dataset_selector,
-            scene_id,
-            scene_path.as_deref().unwrap_or("")
-        );
-    }
-    if let Some((artifact, _)) = load_metric_response_result_artifact(app_root, &shared_cache_key)?
-    {
-        let artifact_covers_request = metric_response_artifact_covers_request(
-            &artifact,
-            &covered_metric_ids,
-            request_all_metrics,
-        );
-        if artifact_covers_request {
-            materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
-            state.store_metric_response_shared(&shared_cache_key, &artifact);
-            state.store_metric_response_exact(&response_cache_key, &artifact);
-            materialize_metric_response_sibling_aliases(
-                app_id,
-                app_root,
-                outcome,
-                access_plan.owner,
-                &artifact,
-                &query,
-                &runtime_workset.defs_for_hydrate,
-                state,
-            )?;
-            coverage.metric_response_artifacts_ready += 1;
-            return Ok(());
-        }
-    }
-    let reservation = state
-        .metric_response_jobs
-        .wait_or_reserve(&shared_cache_key);
-    if let ArtifactReservation::Completed = reservation {
-        if let Some(artifact) = state.metric_response_shared(&shared_cache_key) {
-            let artifact_covers_request = metric_response_artifact_covers_request(
-                &artifact,
-                &covered_metric_ids,
-                request_all_metrics,
-            );
-            if artifact_covers_request {
-                materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
-                state.store_metric_response_exact(&response_cache_key, &artifact);
-                materialize_metric_response_sibling_aliases(
-                    app_id,
-                    app_root,
-                    outcome,
-                    access_plan.owner,
-                    &artifact,
-                    &query,
-                    &runtime_workset.defs_for_hydrate,
-                    state,
-                )?;
-                coverage.metric_response_artifacts_ready += 1;
-                return Ok(());
-            }
-        }
-    }
-    prebuild_emit_progress(format!(
-        "[{app_id}] 指标求值开始 | response | dataset={} | scene={scene_id}",
-        short_dataset_id(dataset_selector)
-    ));
-    let metric_started = Instant::now();
-    let eval_outcome = evaluate_runtime_metrics_from_plan(
-        &outcome.compiled,
-        app_root,
-        &access_plan,
-        scene_id.as_str(),
-        scene_path.as_deref(),
-        &query_state,
-        &[],
-        RuntimeMetricEvalMode::WithDag,
-        request_all_metrics,
-    )
-    .with_context(|| format!("build metric response artifact for dataset `{dataset_selector}`"));
-    let eval_outcome = match eval_outcome {
-        Ok(eval_outcome) => eval_outcome,
-        Err(error) => {
-            state.metric_response_jobs.finish(&shared_cache_key, false);
-            return Err(error);
-        }
-    };
-    prebuild_emit_progress(format!(
-        "[{app_id}] 指标求值 {:.1}s | response | dataset={} | scene={scene_id} | rows={}",
-        metric_started.elapsed().as_secs_f64(),
-        short_dataset_id(dataset_selector),
-        eval_outcome.total_rows
-    ));
-    state.diagnostics.record_metric_build(
-        "response",
-        dataset_selector,
-        "(bundle)",
-        &scene_id,
-        metric_started.elapsed().as_millis() as u64,
-    );
-    let declared_metric_ids = access_plan
-        .owner_dataset
-        .runtime_metric_defs
-        .keys()
-        .map(|id| id.trim())
-        .filter(|id| !id.is_empty())
-        .map(str::to_string)
-        .collect::<BTreeSet<_>>();
-    let complete = request_all_metrics
-        && !declared_metric_ids.is_empty()
-        && declared_metric_ids
-            .iter()
-            .all(|metric_id| covered_metric_ids.contains(metric_id));
-    let built_artifact = LoadedMetricResponseArtifact {
-        total_rows: eval_outcome.total_rows,
-        metrics_map: eval_outcome.metrics_map.clone(),
-        covered_metric_ids: covered_metric_ids.clone(),
-        complete,
-    };
-    let store_result = (|| -> Result<()> {
-        store_cached_metric_response(
-            shared_cache_key.clone(),
-            eval_outcome.total_rows,
-            &eval_outcome.metrics_map,
-            &covered_metric_ids,
-            complete,
-        );
-        store_metric_response_result_artifact(
-            app_root,
-            &shared_cache_key,
-            eval_outcome.total_rows,
-            &eval_outcome.metrics_map,
-            &covered_metric_ids,
-            complete,
-        )?;
-        materialize_metric_response_alias_parts(
-            app_root,
-            &response_cache_key,
-            eval_outcome.total_rows,
-            &eval_outcome.metrics_map,
-            &covered_metric_ids,
-            complete,
-        )?;
-        Ok(())
-    })();
-    state
-        .metric_response_jobs
-        .finish(&shared_cache_key, store_result.is_ok());
-    if store_result.is_ok() {
-        state.store_metric_response_shared(&shared_cache_key, &built_artifact);
-        state.store_metric_response_exact(&response_cache_key, &built_artifact);
-    }
-    store_result?;
-    materialize_metric_response_sibling_aliases(
-        app_id,
-        app_root,
-        outcome,
-        access_plan.owner,
-        &built_artifact,
-        &query,
-        &runtime_workset.defs_for_hydrate,
-        state,
-    )?;
-    coverage.metric_response_artifacts_built += 1;
-    Ok(())
+    let plan = plan_metric_workset(app_id, app_root, outcome, dataset_selector, metric_ids)?;
+    ensure_metric_response_artifact_for_plan(app_id, app_root, outcome, &plan, mode, coverage, state)
 }
 
 fn dataframe_scope_metric_token(
@@ -4599,6 +5074,264 @@ fn prebuild_dataframe_metric_selector(
     resolved_metric_id.to_string()
 }
 
+fn ensure_metric_dataframe_artifact_for_plan(
+    app_root: &Path,
+    outcome: &SharedCompileOutcome,
+    plan: &PlannedDataframeArtifact,
+    mode: PrebuildMode,
+    coverage: &mut PrebuildCoverageReport,
+    state: &CoverageState,
+) -> Result<()> {
+    let owner_resource = mei_lang_kernel::locate_dataset_resource(
+        &outcome.compiled,
+        plan.owner_resource_id.as_str(),
+    )
+    .with_context(|| {
+        format!(
+            "locate warmup dataset `{}` for dataframe metric `{}`",
+            plan.resource_selector_id, plan.dataframe_metric_id
+        )
+    })?;
+    let query_options = widget_dataframe_query_options(plan.page_size);
+    if state.metric_dataframe_exact(&plan.artifact_key).is_some() {
+        if let Some(result) = state.metric_dataframe_exact(&plan.artifact_key) {
+            materialize_metric_dataframe_sibling_aliases(
+                app_root,
+                outcome,
+                &owner_resource,
+                plan.resolved_metric_id.as_str(),
+                &query_options,
+                plan.defs_for_hydrate.as_ref(),
+                &result,
+                state,
+            )?;
+            materialize_metric_dataframe_metric_aliases(
+                app_root,
+                outcome,
+                plan.resource_selector_id.as_str(),
+                plan.resolved_metric_id.as_str(),
+                &query_options,
+                plan.defs_for_hydrate.as_ref(),
+                &result,
+                state,
+            )?;
+        }
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
+    if metric_dataframe_result_artifact_exists(app_root, &plan.artifact_key) {
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
+    if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &plan.artifact_key)? {
+        state.store_metric_dataframe_exact(&plan.artifact_key, &result);
+        state.store_metric_dataframe_shared(&plan.shared_artifact_key, &result);
+        materialize_metric_dataframe_sibling_aliases(
+            app_root,
+            outcome,
+            &owner_resource,
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        materialize_metric_dataframe_metric_aliases(
+            app_root,
+            outcome,
+            plan.resource_selector_id.as_str(),
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
+    if mode == PrebuildMode::Verify {
+        anyhow::bail!(
+            "missing metric dataframe artifact for dataset `{}` metric `{}` scope scene=`{}` target=`{}`",
+            plan.resource_selector_id,
+            plan.dataframe_metric_id,
+            plan.scene_id,
+            plan.scene_path.as_deref().unwrap_or("")
+        );
+    }
+    if let Some(result) = state.metric_dataframe_shared(&plan.shared_artifact_key) {
+        store_metric_dataframe_result_artifact(app_root, &plan.artifact_key, &result)?;
+        state.store_metric_dataframe_exact(&plan.artifact_key, &result);
+        materialize_metric_dataframe_sibling_aliases(
+            app_root,
+            outcome,
+            &owner_resource,
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        materialize_metric_dataframe_metric_aliases(
+            app_root,
+            outcome,
+            plan.resource_selector_id.as_str(),
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
+    if let Some((result, _)) =
+        load_metric_dataframe_result_artifact(app_root, &plan.shared_artifact_key)?
+    {
+        store_metric_dataframe_result_artifact(app_root, &plan.artifact_key, &result)?;
+        state.store_metric_dataframe_shared(&plan.shared_artifact_key, &result);
+        state.store_metric_dataframe_exact(&plan.artifact_key, &result);
+        materialize_metric_dataframe_sibling_aliases(
+            app_root,
+            outcome,
+            &owner_resource,
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        materialize_metric_dataframe_metric_aliases(
+            app_root,
+            outcome,
+            plan.resource_selector_id.as_str(),
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
+    let reservation = state
+        .metric_dataframe_jobs
+        .wait_or_reserve(&plan.shared_artifact_key);
+    if let ArtifactReservation::Completed = reservation {
+        if let Some(result) = state.metric_dataframe_shared(&plan.shared_artifact_key) {
+            store_metric_dataframe_result_artifact(app_root, &plan.artifact_key, &result)?;
+            state.store_metric_dataframe_exact(&plan.artifact_key, &result);
+            materialize_metric_dataframe_sibling_aliases(
+                app_root,
+                outcome,
+                &owner_resource,
+                plan.resolved_metric_id.as_str(),
+                &query_options,
+                plan.defs_for_hydrate.as_ref(),
+                &result,
+                state,
+            )?;
+            materialize_metric_dataframe_metric_aliases(
+                app_root,
+                outcome,
+                plan.resource_selector_id.as_str(),
+                plan.resolved_metric_id.as_str(),
+                &query_options,
+                plan.defs_for_hydrate.as_ref(),
+                &result,
+                state,
+            )?;
+            coverage.metric_dataframe_artifacts_ready += 1;
+            return Ok(());
+        }
+    }
+    prebuild_emit_progress(format!(
+        "[{}] 指标求值开始 | dataframe | {} | metric={} | scene={}",
+        app_root.file_name().and_then(|s| s.to_str()).unwrap_or(""),
+        short_dataset_id(plan.resource_selector_id.as_str()),
+        short_metric_id(plan.dataframe_metric_id.as_str()),
+        plan.scene_id
+    ));
+    let metric_started = Instant::now();
+    let result = query_metric_dataframe(
+        &outcome.compiled,
+        app_root,
+        owner_resource.id.as_str(),
+        plan.dataframe_metric_id.as_str(),
+        Some(plan.scene_id.as_str()),
+        plan.scene_path.as_deref(),
+        &outcome.compile_revision,
+        query_options.clone(),
+        None,
+        Vec::new(),
+    )
+    .with_context(|| {
+        format!(
+            "build metric dataframe artifact for dataset `{}` metric `{}`",
+            plan.resource_selector_id, plan.dataframe_metric_id
+        )
+    });
+    let result = match result {
+        Ok(result) => result,
+        Err(error) => {
+            state.metric_dataframe_jobs.finish(&plan.shared_artifact_key, false);
+            return Err(error);
+        }
+    };
+    prebuild_emit_progress(format!(
+        "[{}] 指标求值 {:.1}s | dataframe | {} | metric={} | scene={} | rows={}",
+        app_root.file_name().and_then(|s| s.to_str()).unwrap_or(""),
+        metric_started.elapsed().as_secs_f64(),
+        short_dataset_id(plan.resource_selector_id.as_str()),
+        short_metric_id(plan.dataframe_metric_id.as_str()),
+        plan.scene_id,
+        result.total
+    ));
+    state.diagnostics.record_metric_build(
+        "dataframe",
+        plan.resource_selector_id.as_str(),
+        plan.dataframe_metric_id.as_str(),
+        plan.scene_id.as_str(),
+        metric_started.elapsed().as_millis() as u64,
+    );
+    let store_result = (|| -> Result<()> {
+        store_metric_dataframe_result_artifact(app_root, &plan.shared_artifact_key, &result)?;
+        if plan.shared_artifact_key != plan.artifact_key {
+            store_metric_dataframe_result_artifact(app_root, &plan.artifact_key, &result)?;
+        }
+        Ok(())
+    })();
+    state
+        .metric_dataframe_jobs
+        .finish(&plan.shared_artifact_key, store_result.is_ok());
+    if store_result.is_ok() {
+        state.store_metric_dataframe_shared(&plan.shared_artifact_key, &result);
+        state.store_metric_dataframe_exact(&plan.artifact_key, &result);
+    }
+    store_result?;
+    materialize_metric_dataframe_sibling_aliases(
+        app_root,
+        outcome,
+        &owner_resource,
+        plan.resolved_metric_id.as_str(),
+        &query_options,
+        plan.defs_for_hydrate.as_ref(),
+        &result,
+        state,
+    )?;
+    materialize_metric_dataframe_metric_aliases(
+        app_root,
+        outcome,
+        plan.resource_selector_id.as_str(),
+        plan.resolved_metric_id.as_str(),
+        &query_options,
+        plan.defs_for_hydrate.as_ref(),
+        &result,
+        state,
+    )?;
+    coverage.metric_dataframe_artifacts_built += 1;
+    Ok(())
+}
+
 fn ensure_metric_dataframe_artifact(
     app_root: &Path,
     outcome: &SharedCompileOutcome,
@@ -4609,232 +5342,10 @@ fn ensure_metric_dataframe_artifact(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    let Ok((owner_resource, resolved_metric_id)) =
-        locate_runtime_metric_resource(&outcome.compiled, resource.id.as_str(), metric_id)
-    else {
+    let Some(plan) = plan_dataframe_artifact(app_root, outcome, resource, metric_id, page_size)? else {
         return Ok(());
     };
-    let owner_dataset = owner_resource
-        .dataset
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
-    let dataframe_metric_id =
-        prebuild_dataframe_metric_selector(&owner_dataset.runtime_metric_defs, &resolved_metric_id);
-    let runtime_workset = runtime_metric_workset(
-        &owner_resource.id,
-        std::slice::from_ref(&dataframe_metric_id),
-        owner_dataset,
-    );
-    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
-        app_root,
-        &outcome.compiled,
-        &owner_resource.id,
-        if owner_dataset.runtime_metric_defs.is_empty() {
-            &runtime_workset.defs_for_hydrate
-        } else {
-            &owner_dataset.runtime_metric_defs
-        },
-    );
-    let query_options = widget_dataframe_query_options(page_size);
-    let (scene_id, scene_path) =
-        artifact_scene_context_for_resource(&outcome.compiled, owner_resource.id.as_str());
-    let scope_metric_token = dataframe_scope_metric_token(
-        &outcome.compiled,
-        resource.id.as_str(),
-        dataframe_metric_id.as_str(),
-    )
-    .unwrap_or_else(|| metric_scope_cache_key(std::slice::from_ref(&dataframe_metric_id)));
-    let response_cache_key = metric_dataframe_result_cache_key(
-        app_root,
-        Some(scene_id.as_str()),
-        scene_path.as_deref(),
-        owner_resource.id.as_str(),
-        scope_metric_token.as_str(),
-        &query_options,
-        &outcome.compile_revision,
-        &dependency_revision_key,
-        &[],
-    );
-    let shared_cache_key = prebuild_metric_dataframe_shared_key(
-        owner_resource.id.as_str(),
-        dataframe_metric_id.as_str(),
-        &query_options,
-        &dependency_revision_key,
-    );
-    if state.metric_dataframe_exact(&response_cache_key).is_some() {
-        if let Some(result) = state.metric_dataframe_exact(&response_cache_key) {
-            materialize_metric_dataframe_sibling_aliases(
-                app_root,
-                outcome,
-                owner_resource,
-                dataframe_metric_id.as_str(),
-                &query_options,
-                &runtime_workset.defs_for_hydrate,
-                &result,
-                state,
-            )?;
-            materialize_metric_dataframe_metric_aliases(
-                app_root,
-                outcome,
-                resource.id.as_str(),
-                dataframe_metric_id.as_str(),
-                &query_options,
-                &runtime_workset.defs_for_hydrate,
-                &result,
-                state,
-            )?;
-        }
-        coverage.metric_dataframe_artifacts_ready += 1;
-        return Ok(());
-    }
-    if metric_dataframe_result_artifact_exists(app_root, &response_cache_key) {
-        coverage.metric_dataframe_artifacts_ready += 1;
-        return Ok(());
-    }
-    if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &response_cache_key)?
-    {
-        state.store_metric_dataframe_exact(&response_cache_key, &result);
-        state.store_metric_dataframe_shared(&shared_cache_key, &result);
-        materialize_metric_dataframe_sibling_aliases(
-            app_root,
-            outcome,
-            owner_resource,
-            dataframe_metric_id.as_str(),
-            &query_options,
-            &runtime_workset.defs_for_hydrate,
-            &result,
-            state,
-        )?;
-        materialize_metric_dataframe_metric_aliases(
-            app_root,
-            outcome,
-            resource.id.as_str(),
-            dataframe_metric_id.as_str(),
-            &query_options,
-            &runtime_workset.defs_for_hydrate,
-            &result,
-            state,
-        )?;
-        coverage.metric_dataframe_artifacts_ready += 1;
-        return Ok(());
-    }
-    if mode == PrebuildMode::Verify {
-        anyhow::bail!(
-            "missing metric dataframe artifact for dataset `{}` metric `{}` scope scene=`{}` target=`{}`",
-            resource.id,
-            resolved_metric_id,
-            scene_id,
-            scene_path.as_deref().unwrap_or("")
-        );
-    }
-    if let Some(result) = state.metric_dataframe_shared(&shared_cache_key) {
-        store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
-        state.store_metric_dataframe_exact(&response_cache_key, &result);
-        coverage.metric_dataframe_artifacts_ready += 1;
-        return Ok(());
-    }
-    if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &shared_cache_key)? {
-        store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
-        state.store_metric_dataframe_shared(&shared_cache_key, &result);
-        state.store_metric_dataframe_exact(&response_cache_key, &result);
-        coverage.metric_dataframe_artifacts_ready += 1;
-        return Ok(());
-    }
-    let reservation = state
-        .metric_dataframe_jobs
-        .wait_or_reserve(&shared_cache_key);
-    if let ArtifactReservation::Completed = reservation {
-        if let Some(result) = state.metric_dataframe_shared(&shared_cache_key) {
-            store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
-            state.store_metric_dataframe_exact(&response_cache_key, &result);
-            coverage.metric_dataframe_artifacts_ready += 1;
-            return Ok(());
-        }
-    }
-    prebuild_emit_progress(format!(
-        "[{}] 指标求值开始 | dataframe | {} | metric={} | scene={scene_id}",
-        app_root.file_name().and_then(|s| s.to_str()).unwrap_or(""),
-        short_dataset_id(resource.id.as_str()),
-        short_metric_id(dataframe_metric_id.as_str())
-    ));
-    let metric_started = Instant::now();
-    let result = query_metric_dataframe(
-        &outcome.compiled,
-        app_root,
-        owner_resource.id.as_str(),
-        dataframe_metric_id.as_str(),
-        Some(scene_id.as_str()),
-        scene_path.as_deref(),
-        &outcome.compile_revision,
-        query_options.clone(),
-        None,
-        Vec::new(),
-    )
-    .with_context(|| {
-        format!(
-            "build metric dataframe artifact for dataset `{}` metric `{}`",
-            resource.id, dataframe_metric_id
-        )
-    });
-    let result = match result {
-        Ok(result) => result,
-        Err(error) => {
-            state.metric_dataframe_jobs.finish(&shared_cache_key, false);
-            return Err(error);
-        }
-    };
-    prebuild_emit_progress(format!(
-        "[{}] 指标求值 {:.1}s | dataframe | {} | metric={} | scene={scene_id} | rows={}",
-        app_root.file_name().and_then(|s| s.to_str()).unwrap_or(""),
-        metric_started.elapsed().as_secs_f64(),
-        short_dataset_id(resource.id.as_str()),
-        short_metric_id(dataframe_metric_id.as_str()),
-        result.total
-    ));
-    state.diagnostics.record_metric_build(
-        "dataframe",
-        resource.id.as_str(),
-        dataframe_metric_id.as_str(),
-        scene_id.as_str(),
-        metric_started.elapsed().as_millis() as u64,
-    );
-    let store_result = (|| -> Result<()> {
-        store_metric_dataframe_result_artifact(app_root, &shared_cache_key, &result)?;
-        if shared_cache_key != response_cache_key {
-            store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
-        }
-        Ok(())
-    })();
-    state
-        .metric_dataframe_jobs
-        .finish(&shared_cache_key, store_result.is_ok());
-    if store_result.is_ok() {
-        state.store_metric_dataframe_shared(&shared_cache_key, &result);
-        state.store_metric_dataframe_exact(&response_cache_key, &result);
-    }
-    store_result?;
-    materialize_metric_dataframe_sibling_aliases(
-        app_root,
-        outcome,
-        owner_resource,
-        dataframe_metric_id.as_str(),
-        &query_options,
-        &runtime_workset.defs_for_hydrate,
-        &result,
-        state,
-    )?;
-    materialize_metric_dataframe_metric_aliases(
-        app_root,
-        outcome,
-        resource.id.as_str(),
-        dataframe_metric_id.as_str(),
-        &query_options,
-        &runtime_workset.defs_for_hydrate,
-        &result,
-        state,
-    )?;
-    coverage.metric_dataframe_artifacts_built += 1;
-    Ok(())
+    ensure_metric_dataframe_artifact_for_plan(app_root, outcome, &plan, mode, coverage, state)
 }
 
 fn prebuild_metric_dataframe_shared_key(
@@ -5161,7 +5672,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mei_lang_kernel::{CompiledApp, DatasetView, LoadedResource, SourceDecl};
+    use mei_lang_kernel::{CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl};
     use serde_json::json;
 
     fn test_outcome(active_scene: &str, active_target_file: &str) -> SharedCompileOutcome {
@@ -5172,7 +5683,15 @@ mod tests {
                 app_root: "/tmp/demo".to_string(),
                 active_scene: Some(active_scene.to_string()),
                 active_target_file: active_target_file.to_string(),
-                scene_routes: Vec::new(),
+                scene_routes: vec![CompiledSceneRoute {
+                    scene_id: "home".to_string(),
+                    frame_id: None,
+                    target_file: "scenes/home.mei".to_string(),
+                    kind: "page".to_string(),
+                    title: None,
+                    is_default: true,
+                    access_export: true,
+                }],
                 file_tree: Vec::new(),
                 resources: Vec::new(),
                 world_metrics: BTreeMap::new(),
@@ -5195,6 +5714,38 @@ mod tests {
             artifact_load_ms: 0,
             compile_ms: 0,
         }
+    }
+
+    #[test]
+    fn default_scope_rejects_non_default_active_target() {
+        let outcome = test_outcome("home", "scenes/07-问题办理.board.mei");
+        assert!(!compile_outcome_matches_scope(
+            &CompileScope::default_scope(),
+            &outcome.compiled
+        ));
+    }
+
+    #[test]
+    fn finalize_coverage_report_computes_missing_artifacts() {
+        let mut coverage = PrebuildCoverageReport {
+            compile_artifacts_planned: 3,
+            compile_artifacts_ready: 2,
+            dataset_import_artifacts_planned: 2,
+            dataset_import_artifacts_ready: 2,
+            metric_response_artifacts_planned: 5,
+            metric_response_artifacts_ready: 3,
+            metric_dataframe_artifacts_planned: 4,
+            metric_dataframe_artifacts_ready: 1,
+            ..PrebuildCoverageReport::default()
+        };
+
+        finalize_coverage_report(&mut coverage);
+
+        assert_eq!(coverage.compile_artifacts_missing, 1);
+        assert_eq!(coverage.dataset_import_artifacts_missing, 0);
+        assert_eq!(coverage.metric_response_artifacts_missing, 2);
+        assert_eq!(coverage.metric_dataframe_artifacts_missing, 3);
+        assert_eq!(coverage.total_missing_artifacts, 6);
     }
 
     fn test_dataset_resource(id: &str) -> LoadedResource {
@@ -5307,6 +5858,7 @@ mod tests {
         assert!(scope_keys.contains("details|scenes/details.mei"));
         assert!(scope_keys.contains("home|scenes/02-inspection.mei"));
         assert!(scope_keys.contains("dashboard|scenes/02-inspection.mei"));
+        assert!(!scope_keys.contains("details|scenes/02-inspection.mei"));
     }
 
     #[test]
@@ -5387,6 +5939,143 @@ mod tests {
     }
 
     #[test]
+    fn warmup_scope_batches_group_multiple_requests_by_scope() {
+        let request_a = AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: Some("scenes/home.mei".to_string()),
+            },
+            dataset_id: "ds_a".to_string(),
+            priority: WarmupRequestPriority::Critical,
+            metric_ids: vec!["metric_a".to_string()],
+        };
+        let request_b = AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: Some("scenes/home.mei".to_string()),
+            },
+            dataset_id: "ds_b".to_string(),
+            priority: WarmupRequestPriority::Critical,
+            metric_ids: vec!["metric_b".to_string()],
+        };
+        let request_c = AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("details".to_string()),
+                requested_target_file: Some("scenes/details.mei".to_string()),
+            },
+            dataset_id: "ds_c".to_string(),
+            priority: WarmupRequestPriority::Deferred,
+            metric_ids: vec!["metric_c".to_string()],
+        };
+
+        let grouped = group_warmup_requests_by_scope(&[&request_a, &request_b, &request_c])
+            .into_iter()
+            .map(|batch| (batch.scope.key(), batch.requests.len()))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped.get("home|scenes/home.mei"), Some(&2));
+        assert_eq!(grouped.get("details|scenes/details.mei"), Some(&1));
+    }
+
+    #[test]
+    fn discovered_compile_scopes_do_not_cross_bind_target_specific_scope_with_overlays() {
+        let scope = CompileScope {
+            requested_scene_id: Some("home".to_string()),
+            requested_target_file: Some("scenes/home.mei".to_string()),
+        };
+        let mut outcome = test_outcome("home", "scenes/home.mei");
+        let compiled = Arc::make_mut(&mut outcome.compiled);
+        compiled.scene_local_nav_by_target.insert(
+            "scenes/popup.board.mei".to_string(),
+            json!({"scene_file":"scenes/popup.board.mei"}),
+        );
+        compiled.scene_routes.push(CompiledSceneRoute {
+            scene_id: "popup_scene".to_string(),
+            frame_id: None,
+            target_file: "scenes/popup.board.mei".to_string(),
+            kind: "board".to_string(),
+            title: None,
+            is_default: false,
+            access_export: true,
+        });
+
+        let discovered = discovered_compile_scopes(&scope, &outcome.compiled)
+            .into_iter()
+            .map(|scope| scope.key())
+            .collect::<BTreeSet<_>>();
+        assert!(discovered.contains("home|"));
+        assert!(discovered.contains("home|scenes/home.mei"));
+        assert!(!discovered.contains("home|scenes/popup.board.mei"));
+        assert!(!discovered.contains("popup_scene|scenes/popup.board.mei"));
+    }
+
+    #[test]
+    fn discovered_compile_scopes_keep_default_scope_explicit_only() {
+        let scope = CompileScope::default_scope();
+        let mut outcome = test_outcome("home", "scenes/home.mei");
+        let compiled = Arc::make_mut(&mut outcome.compiled);
+        compiled.scene_local_nav_by_target.insert(
+            "scenes/popup.board.mei".to_string(),
+            json!({"scene_file":"scenes/popup.board.mei"}),
+        );
+        compiled.scene_routes.push(CompiledSceneRoute {
+            scene_id: "popup_scene".to_string(),
+            frame_id: None,
+            target_file: "scenes/popup.board.mei".to_string(),
+            kind: "board".to_string(),
+            title: None,
+            is_default: false,
+            access_export: true,
+        });
+
+        let discovered = discovered_compile_scopes(&scope, &outcome.compiled)
+            .into_iter()
+            .map(|scope| scope.key())
+            .collect::<BTreeSet<_>>();
+        assert!(discovered.contains("home|"));
+        assert!(discovered.contains("home|scenes/home.mei"));
+        assert_eq!(discovered.len(), 2);
+        assert!(!discovered.contains("home|scenes/popup.board.mei"));
+        assert!(!discovered.contains("popup_scene|scenes/popup.board.mei"));
+    }
+
+    #[test]
+    fn discovered_compile_scopes_do_not_expand_target_only_scope_into_route_aliases() {
+        let scope = CompileScope {
+            requested_scene_id: None,
+            requested_target_file: Some("scenes/popup.board.mei".to_string()),
+        };
+        let mut outcome = test_outcome("popup_scene", "scenes/popup.board.mei");
+        let compiled = Arc::make_mut(&mut outcome.compiled);
+        compiled.scene_routes.push(CompiledSceneRoute {
+            scene_id: "popup_scene".to_string(),
+            frame_id: None,
+            target_file: "scenes/popup.board.mei".to_string(),
+            kind: "board".to_string(),
+            title: None,
+            is_default: false,
+            access_export: true,
+        });
+        compiled.scene_routes.push(CompiledSceneRoute {
+            scene_id: "popup_scene_duplicate".to_string(),
+            frame_id: None,
+            target_file: "scenes/popup.board.mei".to_string(),
+            kind: "board".to_string(),
+            title: None,
+            is_default: false,
+            access_export: true,
+        });
+
+        let discovered = discovered_compile_scopes(&scope, &outcome.compiled)
+            .into_iter()
+            .map(|scope| scope.key())
+            .collect::<BTreeSet<_>>();
+        assert!(discovered.contains("popup_scene|"));
+        assert!(discovered.contains("popup_scene|scenes/popup.board.mei"));
+        assert!(!discovered.contains("popup_scene_duplicate|scenes/popup.board.mei"));
+    }
+
+    #[test]
     fn focus_targets_from_warmup_datasets_extracts_scene_paths() {
         let app = RuntimeWarmupApp {
             app_id: "demo".to_string(),
@@ -5408,6 +6097,33 @@ mod tests {
             focus_targets_from_warmup_datasets(&app),
             vec!["scenes/05-监督预警.mei".to_string()]
         );
+    }
+
+    #[test]
+    fn requested_dataframe_metric_ids_respects_explicit_metric_list() {
+        let mut resource = test_dataset_resource("demo_ds");
+        let dataset = resource.dataset.as_mut().expect("dataset");
+        dataset
+            .runtime_metric_defs
+            .insert("table_a".to_string(), json!({"shape":"dataframe"}));
+        dataset
+            .runtime_metric_defs
+            .insert("table_b".to_string(), json!({"shape":"dataframe"}));
+        dataset.runtime_analysis_contracts.insert(
+            "demo".to_string(),
+            json!({
+                "table_metric_id": "table_a",
+                "detail_table_metric_id": "table_b"
+            }),
+        );
+
+        let requested =
+            requested_dataframe_metric_ids(dataset, &[String::from("table_a::__scalar_rowset__")]);
+        assert_eq!(requested, vec!["table_a::__scalar_rowset__".to_string()]);
+
+        let all_requested = requested_dataframe_metric_ids(dataset, &[]);
+        assert!(all_requested.contains(&"table_a".to_string()));
+        assert!(all_requested.contains(&"table_b".to_string()));
     }
 
     #[test]

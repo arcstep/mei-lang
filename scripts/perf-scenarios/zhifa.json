@@ -331,6 +331,68 @@
       "clear_before_sample": true,
       "clear_mode": "clear_only",
       "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.correctness.metric.enforcement_items_count.cold_clear",
+      "scenario_family": "correctness_probe",
+      "route_mode": "metric_probe",
+      "scene_id": "enforcement_elements",
+      "target_file": "scenes/01-执法要素.mei",
+      "dataset_id": "__world_metrics__",
+      "metric_ids": ["enforcement_items_count"],
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.correctness.metric.inspection_frequency_reduction_rate.cold_clear",
+      "scenario_family": "correctness_probe",
+      "route_mode": "metric_probe",
+      "scene_id": "home",
+      "target_file": "scenes/03-指标体系.mei",
+      "dataset_id": "__world_metrics__",
+      "metric_ids": ["inspection_frequency_reduction_rate"],
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.correctness.metric.map_park_penalty_count_2025.cold_clear",
+      "scenario_family": "correctness_probe",
+      "route_mode": "metric_probe",
+      "scene_id": "home",
+      "target_file": "scenes/10-地图.mei",
+      "dataset_id": "__world_metrics__",
+      "metric_ids": ["map_park_penalty_count_2025"],
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.correctness.metric.realtime_warning_detail_rowset.cold_clear",
+      "scenario_family": "correctness_probe",
+      "route_mode": "metric_probe",
+      "scene_id": "home",
+      "target_file": "scenes/06-实时预警.mei",
+      "dataset_id": "warning_list",
+      "metric_ids": ["realtime_warning_detail::__scalar_rowset__"],
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.correctness.dataframe.inspection_total_detail.cold_clear",
+      "scenario_family": "correctness_probe",
+      "route_mode": "access",
+      "scene_id": "inspection_total_analytics_board",
+      "target_file": "scenes/02-行政检查.board.mei",
+      "dataset_id": "administrative_inspection_dashboard_ds",
+      "sample_dataset_query": true,
+      "dataset_query_metric_id": "scenes/02-行政检查.mei::inspections_total_count::__scalar_rowset__",
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold",
+      "browser_window_ms": 0
     }
   ]
 }

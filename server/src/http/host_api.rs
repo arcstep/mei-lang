@@ -848,11 +848,21 @@ fn status_from_report(
         "startup prebuild report applied"
     );
     if failed_app_count == 0 && warning_count == 0 {
+        let ready_title = if deferred_warmup_pending {
+            "ACCESS READY!"
+        } else {
+            "FULL READY!"
+        };
+        let ready_detail = if deferred_warmup_pending {
+            "access artifacts ready; deferred warmup still running"
+        } else {
+            "full warmup artifacts ready"
+        };
         emit_prebuild_status_line(
-            "READY!",
+            ready_title,
             "1;32",
             &format!(
-                "[PREBUILD +{:.1}s] access artifacts ready | apps={} | compile={}ms | warmup={}ms",
+                "[PREBUILD +{:.1}s] {ready_detail} | apps={} | compile={}ms | warmup={}ms",
                 report.total_wall_ms as f64 / 1000.0,
                 report.succeeded_apps.len(),
                 compile_ms,
@@ -864,7 +874,8 @@ fn status_from_report(
             compile_ms,
             warmup_ms,
             app_count = report.succeeded_apps.len(),
-            "READY! access artifacts ready"
+            deferred_warmup_pending,
+            "{ready_title} {ready_detail}"
         );
     } else {
         emit_prebuild_status_line(

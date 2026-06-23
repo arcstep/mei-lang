@@ -93,8 +93,11 @@
     const lastTotal = formatDurationMs(payload?.lastBuildTotalMs);
     const lastCompile = formatDurationMs(payload?.lastBuildCompileMs);
     const lastWarmup = formatDurationMs(payload?.lastBuildWarmupMs);
+    const fullWarmupReady = payload?.fullWarmupReady === true;
     const message = [
-      "OK! 访问态产物已就绪，现在可以正常访问页面。",
+      fullWarmupReady
+        ? "OK! 全量访问态产物已就绪，现在可以正常访问页面。"
+        : "OK! 关键访问态产物已就绪，后台仍在生成 deferred 产物。",
       lastTotal
         ? `最近一次构建：总计 ${lastTotal}${
             lastCompile ? `，编译 ${lastCompile}` : ""
@@ -104,7 +107,7 @@
       .filter(Boolean)
       .join(" ");
     return {
-      title: "READY! 访问态已就绪",
+      title: fullWarmupReady ? "FULL READY! 全量预热完成" : "ACCESS READY! 访问态已就绪",
       message,
     };
   }
