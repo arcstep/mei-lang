@@ -145,9 +145,51 @@
     return "api";
   }
 
+  function ensureApiKindSummary(session, kind) {
+    return typeof boot.ensureApiKindSummary === "function"
+      ? boot.ensureApiKindSummary(session, kind)
+      : null;
+  }
+
+  function estimateResponseItemCount(json) {
+    if (!json || typeof json !== "object") return 0;
+    const arrayCandidates = [
+      json.items,
+      json.rows,
+      json.records,
+      json.results,
+      json.data,
+      json.list,
+      json.values,
+    ];
+    for (const candidate of arrayCandidates) {
+      if (Array.isArray(candidate)) return candidate.length;
+    }
+    const perf = json.perf && typeof json.perf === "object" ? json.perf : null;
+    const numericCandidates = [
+      json.row_count,
+      json.total_count,
+      json.count,
+      perf?.row_count,
+      perf?.result_count,
+      perf?.rows,
+    ];
+    for (const candidate of numericCandidates) {
+      const value = Number(candidate);
+      if (Number.isFinite(value) && value >= 0) return Math.round(value);
+    }
+    return 0;
+  }
+
   function recordApiPerfFromJson(session, kind, json) {
     if (!json || typeof json !== "object") return;
     const perf = json.perf && typeof json.perf === "object" ? json.perf : null;
+    const kindSummary = ensureApiKindSummary(session, kind);
+    const itemCount = estimateResponseItemCount(json);
+    if (itemCount > 0) {
+      session.api.items += itemCount;
+      if (kindSummary) kindSummary.items += itemCount;
+    }
     if (!perf) return;
     if (
       Number(perf.client_result_cache_hit) === 1 ||
@@ -167,6 +209,7 @@
       const ms = Number(value);
       if (Number.isFinite(ms) && ms > 0) {
         session.api.evalMs += ms;
+        if (kindSummary) kindSummary.evalMs += ms;
         break;
       }
     }
@@ -195,6 +238,11 @@
     const normalized = String(kind || "dataset").trim() || "dataset";
     const apiKind =
       normalized === "dataset" ? "query" : normalized === "metric_scope" ? "metrics" : "metrics";
+    const kindSummary = ensureApiKindSummary(session, apiKind);
+    if (kindSummary) {
+      kindSummary.total += 1;
+      kindSummary.completed += 1;
+    }
     session.apiCalls.push({
       url: `/client-cache/${normalized}`,
       kind: apiKind,
@@ -244,34 +292,45 @@
         }
         session.api.total += 1;
         session.api.inflight += 1;
+        const kindSummary = ensureApiKindSummary(session, resolveApiKind(requestUrl));
+        if (kindSummary) kindSummary.total += 1;
         updateLoadingProgressDom(session);
       }
       const started = nowMs();
       try {
         const response = await nativeFetch(input, init);
         if (track) {
+          const kind = resolveApiKind(requestUrl);
+          const kindSummary = ensureApiKindSummary(session, kind);
           const contentLength = Number(response.headers?.get?.("content-length"));
           if (Number.isFinite(contentLength) && contentLength > 0) {
             session.api.bytes += contentLength;
+            if (kindSummary) kindSummary.bytes += contentLength;
           }
-          const kind = resolveApiKind(requestUrl);
           let parsedJson = null;
           try {
             const clone = response.clone();
             parsedJson = await clone.json();
             if (!Number.isFinite(contentLength) || contentLength <= 0) {
-              session.api.bytes += new TextEncoder().encode(JSON.stringify(parsedJson)).length;
+              const payloadBytes = new TextEncoder().encode(JSON.stringify(parsedJson)).length;
+              session.api.bytes += payloadBytes;
+              if (kindSummary) kindSummary.bytes += payloadBytes;
             }
             recordApiPerfFromJson(session, kind, parsedJson);
           } catch (_) {
             /* ignore non-json */
           }
           session.api.completed += 1;
+          if (kindSummary) kindSummary.completed += 1;
           if (!response.ok) session.api.failed += 1;
+          if (!response.ok && kindSummary) kindSummary.failed += 1;
           session.api.inflight = Math.max(0, session.api.inflight - 1);
           const elapsed = nowMs() - started;
           if (!Number.isFinite(session.phases.eval.durationMs) || session.phases.eval.durationMs < elapsed) {
             session.phases.eval.durationMs = Math.round(elapsed);
+          }
+          if (kindSummary) {
+            kindSummary.maxMs = Math.max(Number(kindSummary.maxMs) || 0, Math.round(elapsed));
           }
           if (!Array.isArray(session.apiCalls)) session.apiCalls = [];
           const clientHit =
@@ -296,6 +355,12 @@
           session.api.failed += 1;
           session.api.completed += 1;
           session.api.inflight = Math.max(0, session.api.inflight - 1);
+          const kindSummary = ensureApiKindSummary(session, resolveApiKind(requestUrl));
+          if (kindSummary) {
+            kindSummary.failed += 1;
+            kindSummary.completed += 1;
+            kindSummary.maxMs = Math.max(Number(kindSummary.maxMs) || 0, Math.round(nowMs() - started));
+          }
           if (!Array.isArray(session.apiCalls)) session.apiCalls = [];
           session.apiCalls.push({
             url: requestUrl,

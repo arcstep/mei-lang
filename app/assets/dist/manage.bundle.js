@@ -6303,8 +6303,10 @@
         completed: 0,
         failed: 0,
         bytes: 0,
+        items: 0,
         evalMs: 0,
         lastKind: "",
+        byKind: {},
       },
       apiCalls: [],
       renderTraceCount: 0,
@@ -6366,6 +6368,47 @@
     const evalMs =
       session.api.evalMs > 0 ? session.api.evalMs : session.phases.eval.durationMs;
     return Math.max(0, Math.round(evalMs));
+  }
+
+  function ensureApiKindSummary(session, kind) {
+    if (!session) return null;
+    if (!session.api || typeof session.api !== "object") session.api = {};
+    if (!session.api.byKind || typeof session.api.byKind !== "object") {
+      session.api.byKind = {};
+    }
+    const normalized = String(kind || "api").trim() || "api";
+    if (!session.api.byKind[normalized]) {
+      session.api.byKind[normalized] = {
+        total: 0,
+        completed: 0,
+        failed: 0,
+        bytes: 0,
+        items: 0,
+        evalMs: 0,
+        maxMs: 0,
+      };
+    }
+    return session.api.byKind[normalized];
+  }
+
+  function cloneApiSummary(session) {
+    const source = session?.api?.byKind;
+    if (!source || typeof source !== "object") return {};
+    const summary = {};
+    Object.keys(source).forEach((key) => {
+      const entry = source[key];
+      if (!entry || typeof entry !== "object") return;
+      summary[key] = {
+        total: Number(entry.total) || 0,
+        completed: Number(entry.completed) || 0,
+        failed: Number(entry.failed) || 0,
+        bytes: Number(entry.bytes) || 0,
+        items: Number(entry.items) || 0,
+        evalMs: Number(entry.evalMs) || 0,
+        maxMs: Number(entry.maxMs) || 0,
+      };
+    });
+    return summary;
   }
 
   function buildLoadDetailLines(session) {
@@ -6449,7 +6492,13 @@
       totalMs: Math.max(0, Date.now() - session.wallStartedAt),
       apiTotal: session.api.total,
       apiFailed: session.api.failed,
+      apiBytes: Number(session.api.bytes) || 0,
+      apiItems: Number(session.api.items) || 0,
+      apiByKind: cloneApiSummary(session),
       apiCalls: Array.isArray(session.apiCalls) ? session.apiCalls.slice(0, 20) : [],
+      htmlBytes: Number(session.compile.htmlBytes) || 0,
+      dataPropsBytes: Number(session.compile.dataPropsBytes) || 0,
+      dataPropsCount: Number(session.compile.dataPropsCount) || 0,
       handlerReadyMs: Number.isFinite(session.compile.handlerReadyMs)
         ? session.compile.handlerReadyMs
         : 0,
@@ -6495,6 +6544,7 @@
   boot.resolveActiveLoadPhase = resolveActiveLoadPhase;
   boot.computeRenderMs = computeRenderMs;
   boot.computeEvalMs = computeEvalMs;
+  boot.ensureApiKindSummary = ensureApiKindSummary;
   boot.loadNowMs = loadNowMs;
   boot.loadPhaseProgress = loadPhaseProgress;
 
@@ -13395,9 +13445,51 @@
     return "api";
   }
 
+  function ensureApiKindSummary(session, kind) {
+    return typeof boot.ensureApiKindSummary === "function"
+      ? boot.ensureApiKindSummary(session, kind)
+      : null;
+  }
+
+  function estimateResponseItemCount(json) {
+    if (!json || typeof json !== "object") return 0;
+    const arrayCandidates = [
+      json.items,
+      json.rows,
+      json.records,
+      json.results,
+      json.data,
+      json.list,
+      json.values,
+    ];
+    for (const candidate of arrayCandidates) {
+      if (Array.isArray(candidate)) return candidate.length;
+    }
+    const perf = json.perf && typeof json.perf === "object" ? json.perf : null;
+    const numericCandidates = [
+      json.row_count,
+      json.total_count,
+      json.count,
+      perf?.row_count,
+      perf?.result_count,
+      perf?.rows,
+    ];
+    for (const candidate of numericCandidates) {
+      const value = Number(candidate);
+      if (Number.isFinite(value) && value >= 0) return Math.round(value);
+    }
+    return 0;
+  }
+
   function recordApiPerfFromJson(session, kind, json) {
     if (!json || typeof json !== "object") return;
     const perf = json.perf && typeof json.perf === "object" ? json.perf : null;
+    const kindSummary = ensureApiKindSummary(session, kind);
+    const itemCount = estimateResponseItemCount(json);
+    if (itemCount > 0) {
+      session.api.items += itemCount;
+      if (kindSummary) kindSummary.items += itemCount;
+    }
     if (!perf) return;
     if (
       Number(perf.client_result_cache_hit) === 1 ||
@@ -13417,6 +13509,7 @@
       const ms = Number(value);
       if (Number.isFinite(ms) && ms > 0) {
         session.api.evalMs += ms;
+        if (kindSummary) kindSummary.evalMs += ms;
         break;
       }
     }
@@ -13445,6 +13538,11 @@
     const normalized = String(kind || "dataset").trim() || "dataset";
     const apiKind =
       normalized === "dataset" ? "query" : normalized === "metric_scope" ? "metrics" : "metrics";
+    const kindSummary = ensureApiKindSummary(session, apiKind);
+    if (kindSummary) {
+      kindSummary.total += 1;
+      kindSummary.completed += 1;
+    }
     session.apiCalls.push({
       url: `/client-cache/${normalized}`,
       kind: apiKind,
@@ -13494,34 +13592,45 @@
         }
         session.api.total += 1;
         session.api.inflight += 1;
+        const kindSummary = ensureApiKindSummary(session, resolveApiKind(requestUrl));
+        if (kindSummary) kindSummary.total += 1;
         updateLoadingProgressDom(session);
       }
       const started = nowMs();
       try {
         const response = await nativeFetch(input, init);
         if (track) {
+          const kind = resolveApiKind(requestUrl);
+          const kindSummary = ensureApiKindSummary(session, kind);
           const contentLength = Number(response.headers?.get?.("content-length"));
           if (Number.isFinite(contentLength) && contentLength > 0) {
             session.api.bytes += contentLength;
+            if (kindSummary) kindSummary.bytes += contentLength;
           }
-          const kind = resolveApiKind(requestUrl);
           let parsedJson = null;
           try {
             const clone = response.clone();
             parsedJson = await clone.json();
             if (!Number.isFinite(contentLength) || contentLength <= 0) {
-              session.api.bytes += new TextEncoder().encode(JSON.stringify(parsedJson)).length;
+              const payloadBytes = new TextEncoder().encode(JSON.stringify(parsedJson)).length;
+              session.api.bytes += payloadBytes;
+              if (kindSummary) kindSummary.bytes += payloadBytes;
             }
             recordApiPerfFromJson(session, kind, parsedJson);
           } catch (_) {
             /* ignore non-json */
           }
           session.api.completed += 1;
+          if (kindSummary) kindSummary.completed += 1;
           if (!response.ok) session.api.failed += 1;
+          if (!response.ok && kindSummary) kindSummary.failed += 1;
           session.api.inflight = Math.max(0, session.api.inflight - 1);
           const elapsed = nowMs() - started;
           if (!Number.isFinite(session.phases.eval.durationMs) || session.phases.eval.durationMs < elapsed) {
             session.phases.eval.durationMs = Math.round(elapsed);
+          }
+          if (kindSummary) {
+            kindSummary.maxMs = Math.max(Number(kindSummary.maxMs) || 0, Math.round(elapsed));
           }
           if (!Array.isArray(session.apiCalls)) session.apiCalls = [];
           const clientHit =
@@ -13546,6 +13655,12 @@
           session.api.failed += 1;
           session.api.completed += 1;
           session.api.inflight = Math.max(0, session.api.inflight - 1);
+          const kindSummary = ensureApiKindSummary(session, resolveApiKind(requestUrl));
+          if (kindSummary) {
+            kindSummary.failed += 1;
+            kindSummary.completed += 1;
+            kindSummary.maxMs = Math.max(Number(kindSummary.maxMs) || 0, Math.round(nowMs() - started));
+          }
           if (!Array.isArray(session.apiCalls)) session.apiCalls = [];
           session.apiCalls.push({
             url: requestUrl,

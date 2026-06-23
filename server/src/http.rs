@@ -13,6 +13,7 @@ pub(crate) mod request_trace;
 mod runtime_cache;
 pub mod scene_api;
 pub(crate) mod scene_bundle;
+pub(crate) mod startup_run;
 pub mod upload_api;
 
 use axum::{

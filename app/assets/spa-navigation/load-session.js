@@ -72,8 +72,10 @@
         completed: 0,
         failed: 0,
         bytes: 0,
+        items: 0,
         evalMs: 0,
         lastKind: "",
+        byKind: {},
       },
       apiCalls: [],
       renderTraceCount: 0,
@@ -135,6 +137,47 @@
     const evalMs =
       session.api.evalMs > 0 ? session.api.evalMs : session.phases.eval.durationMs;
     return Math.max(0, Math.round(evalMs));
+  }
+
+  function ensureApiKindSummary(session, kind) {
+    if (!session) return null;
+    if (!session.api || typeof session.api !== "object") session.api = {};
+    if (!session.api.byKind || typeof session.api.byKind !== "object") {
+      session.api.byKind = {};
+    }
+    const normalized = String(kind || "api").trim() || "api";
+    if (!session.api.byKind[normalized]) {
+      session.api.byKind[normalized] = {
+        total: 0,
+        completed: 0,
+        failed: 0,
+        bytes: 0,
+        items: 0,
+        evalMs: 0,
+        maxMs: 0,
+      };
+    }
+    return session.api.byKind[normalized];
+  }
+
+  function cloneApiSummary(session) {
+    const source = session?.api?.byKind;
+    if (!source || typeof source !== "object") return {};
+    const summary = {};
+    Object.keys(source).forEach((key) => {
+      const entry = source[key];
+      if (!entry || typeof entry !== "object") return;
+      summary[key] = {
+        total: Number(entry.total) || 0,
+        completed: Number(entry.completed) || 0,
+        failed: Number(entry.failed) || 0,
+        bytes: Number(entry.bytes) || 0,
+        items: Number(entry.items) || 0,
+        evalMs: Number(entry.evalMs) || 0,
+        maxMs: Number(entry.maxMs) || 0,
+      };
+    });
+    return summary;
   }
 
   function buildLoadDetailLines(session) {
@@ -218,7 +261,13 @@
       totalMs: Math.max(0, Date.now() - session.wallStartedAt),
       apiTotal: session.api.total,
       apiFailed: session.api.failed,
+      apiBytes: Number(session.api.bytes) || 0,
+      apiItems: Number(session.api.items) || 0,
+      apiByKind: cloneApiSummary(session),
       apiCalls: Array.isArray(session.apiCalls) ? session.apiCalls.slice(0, 20) : [],
+      htmlBytes: Number(session.compile.htmlBytes) || 0,
+      dataPropsBytes: Number(session.compile.dataPropsBytes) || 0,
+      dataPropsCount: Number(session.compile.dataPropsCount) || 0,
       handlerReadyMs: Number.isFinite(session.compile.handlerReadyMs)
         ? session.compile.handlerReadyMs
         : 0,
@@ -264,5 +313,6 @@
   boot.resolveActiveLoadPhase = resolveActiveLoadPhase;
   boot.computeRenderMs = computeRenderMs;
   boot.computeEvalMs = computeEvalMs;
+  boot.ensureApiKindSummary = ensureApiKindSummary;
   boot.loadNowMs = loadNowMs;
   boot.loadPhaseProgress = loadPhaseProgress;

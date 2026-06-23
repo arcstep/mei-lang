@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
@@ -59,6 +60,7 @@ const repeatCount = Math.max(
 const requestHeaders = buildRequestHeaders({ authBearer, cookieHeader });
 const revision = currentRevision();
 const measuredAt = new Date().toISOString();
+const sampleMachine = detectSampleMachine();
 let playwrightChromiumPromise = null;
 
 const workspaceId = String(
@@ -104,6 +106,19 @@ for (const scenario of scenarios) {
   }
 }
 
+const startupRecord = await collectStartupRunRecord({
+  serverUrl,
+  requestHeaders,
+  workspaceId,
+  appId,
+  environmentName,
+  revision,
+  measuredAt,
+});
+if (startupRecord) {
+  records.unshift(startupRecord);
+}
+
 await writeJsonl(outputPath, records, append);
 printSummary({ outputPath, append, records });
 
@@ -122,6 +137,11 @@ async function sampleScenario(context) {
   } = context;
   const perf = {};
   const notes = [];
+  let browserSessionSummary = null;
+  let initialHostContext = null;
+  let finalHostContext = null;
+  let requestTraceCursor = null;
+  let requestTraceSummary = null;
   const browserWindowMs = Number.isFinite(scenario.browser_window_ms)
     ? scenario.browser_window_ms
     : browserWindowMsDefault;
@@ -131,6 +151,17 @@ async function sampleScenario(context) {
     scenario.sample_metric_api ||
     scenario.sample_dataset_query;
   let datasetId = scenario.dataset_id;
+
+  try {
+    initialHostContext = await collectHostReadinessSnapshot(baseUrl, headers);
+    mergePerf(perf, initialHostContext.perf);
+    requestTraceCursor = await collectRequestTraceCursor(baseUrl, headers, {
+      appId: targetAppId,
+      runId: initialHostContext.metadata.host_run_id,
+    });
+  } catch (error) {
+    notes.push(`host_context_before_error=${sanitizeNote(error)}`);
+  }
 
   if (!datasetId && needsDataset && scenario.scene_id) {
     datasetId = await discoverDatasetId(baseUrl, targetAppId, scenario, headers);
@@ -190,10 +221,11 @@ async function sampleScenario(context) {
     const pageUrl = buildPageUrl(baseUrl, targetAppId, scenario);
     if (browserWindowMs > 0) {
       try {
-        const browserPerf = await captureBrowserWindowMetrics(pageUrl, headers, browserWindowMs, {
+        const browserCapture = await captureBrowserWindowMetrics(pageUrl, headers, browserWindowMs, {
           browserWarmup: scenario.run_kind === "warm",
         });
-        mergePerf(perf, browserPerf);
+        mergePerf(perf, browserCapture.perf);
+        browserSessionSummary = browserCapture.session_summary || null;
       } catch (error) {
         notes.push(`browser_window_error=${sanitizeNote(error)}`);
       }
@@ -265,13 +297,30 @@ async function sampleScenario(context) {
   }
 
   try {
-    mergePerf(perf, await collectHostReadinessSnapshot(baseUrl, headers));
+    finalHostContext = await collectHostReadinessSnapshot(baseUrl, headers);
+    mergePerf(perf, finalHostContext.perf);
   } catch (error) {
     notes.push(`host_readiness_error=${sanitizeNote(error)}`);
   }
+  try {
+    requestTraceSummary = await collectRequestTraceSummary(baseUrl, headers, {
+      appId: targetAppId,
+      runId:
+        finalHostContext?.metadata.host_run_id || initialHostContext?.metadata.host_run_id || "",
+      minSeq: requestTraceCursor?.next_min_seq || 1,
+    });
+    mergePerf(perf, buildRequestTracePerf(requestTraceSummary));
+  } catch (error) {
+    notes.push(`request_trace_error=${sanitizeNote(error)}`);
+  }
   applyAcceptancePerf(perf, scenario);
 
+  const hostMetadata =
+    finalHostContext?.metadata || initialHostContext?.metadata || defaultHostMetadata();
+
   return {
+    schema_version: "mei-host-perf-sample-v2",
+    record_kind: "scenario_sample",
     workspace_id: targetWorkspaceId,
     app_id: targetAppId,
     scenario_id: scenario.scenario_id,
@@ -282,6 +331,14 @@ async function sampleScenario(context) {
     environment: envName,
     revision: currentRev,
     measured_at: now,
+    sample_machine: sampleMachine,
+    host_build_version: hostMetadata.host_build_version || "",
+    host_run_id: hostMetadata.host_run_id || "",
+    host_startup_policy: hostMetadata.host_startup_policy || "",
+    host_build_descriptor: hostMetadata.host_build_descriptor || undefined,
+    startup_artifact_dir: hostMetadata.startup_artifact_dir || undefined,
+    request_trace_summary: requestTraceSummary || undefined,
+    browser_session_summary: browserSessionSummary || undefined,
     sample_repeat_index: repeatIndex,
     sample_repeat_total: totalRepeats,
     perf,
@@ -372,6 +429,25 @@ Scenario extensions:
   bootstrap_max_wait_ms     Max shell follow-up wait before timeout
   query_params              Extra URL query params for A/B experiments
 `);
+}
+
+function detectSampleMachine() {
+  return {
+    hostname: os.hostname(),
+    platform: os.platform(),
+    release: os.release(),
+    arch: os.arch(),
+  };
+}
+
+function defaultHostMetadata() {
+  return {
+    host_build_version: "",
+    host_run_id: "",
+    host_startup_policy: "",
+    host_build_descriptor: null,
+    startup_artifact_dir: "",
+  };
 }
 
 function currentRevision() {
@@ -660,6 +736,7 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
     load_ms: NaN,
   };
   let readinessSummary = {};
+  let browserSessionSummary = null;
 
   const onRequest = (request) => {
     const kind = requestKindForUrl(request.url());
@@ -769,6 +846,26 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
         longtask_max_ms: Number(snapshot.longtask_max_ms),
       };
     });
+    browserSessionSummary = await page.evaluate(() => {
+      const list =
+        window.__meiLangBoot?.listVisitHistory?.() ||
+        window.MeiVisitHistoryStore?.list?.() ||
+        [];
+      const record = Array.isArray(list) && list.length > 0 ? list[0] : null;
+      if (!record || typeof record !== "object") return null;
+      return {
+        kind: String(record.kind || ""),
+        api_total: Number(record.apiTotal) || 0,
+        api_failed: Number(record.apiFailed) || 0,
+        api_bytes: Number(record.apiBytes) || 0,
+        api_items: Number(record.apiItems) || 0,
+        html_bytes: Number(record.htmlBytes) || 0,
+        data_props_bytes: Number(record.dataPropsBytes) || 0,
+        data_props_count: Number(record.dataPropsCount) || 0,
+        api_by_kind:
+          record.apiByKind && typeof record.apiByKind === "object" ? record.apiByKind : {},
+      };
+    });
   } finally {
     const cutoff = Date.now();
     for (const [request, state] of requestStates.entries()) {
@@ -782,7 +879,7 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
     await browser.close();
   }
 
-  return {
+  const perf = {
     browser_window_ms: windowMs,
     browser_domcontentloaded_ms: toFinite(navigationSummary.domcontentloaded_ms),
     browser_load_event_ms: toFinite(navigationSummary.load_ms),
@@ -829,6 +926,31 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
     longtask_count: toFinite(readinessSummary.longtask_count),
     longtask_total_ms: toFinite(readinessSummary.longtask_total_ms),
     longtask_max_ms: toFinite(readinessSummary.longtask_max_ms),
+  };
+  if (browserSessionSummary) {
+    const metricsSummary = browserSessionSummary.api_by_kind?.metrics || {};
+    const querySummary = browserSessionSummary.api_by_kind?.query || {};
+    mergePerf(perf, {
+      browser_api_total: toFinite(browserSessionSummary.api_total),
+      browser_api_failed: toFinite(browserSessionSummary.api_failed),
+      browser_api_bytes_total: toFinite(browserSessionSummary.api_bytes),
+      browser_api_items_total: toFinite(browserSessionSummary.api_items),
+      browser_metrics_api_count: toFinite(metricsSummary.total),
+      browser_metrics_api_bytes_total: toFinite(metricsSummary.bytes),
+      browser_metrics_api_items_total: toFinite(metricsSummary.items),
+      browser_metrics_api_eval_ms: toFinite(metricsSummary.evalMs),
+      browser_query_api_count: toFinite(querySummary.total),
+      browser_query_api_bytes_total: toFinite(querySummary.bytes),
+      browser_query_api_items_total: toFinite(querySummary.items),
+      browser_query_api_eval_ms: toFinite(querySummary.evalMs),
+      browser_html_bytes: toFinite(browserSessionSummary.html_bytes),
+      browser_data_props_bytes: toFinite(browserSessionSummary.data_props_bytes),
+      browser_data_props_count: toFinite(browserSessionSummary.data_props_count),
+    });
+  }
+  return {
+    perf,
+    session_summary: browserSessionSummary,
   };
 }
 
@@ -1402,7 +1524,35 @@ async function collectDatasetPerf(
   };
 }
 
-async function collectHostReadinessSnapshot(baseUrl, extraHeaders = {}) {
+function buildHostDiagnosticsPerf(diagnostics) {
+  const payload = diagnostics && typeof diagnostics === "object" ? diagnostics : {};
+  const criticalWarmup = payload.critical_warmup || {};
+  const deferredWarmup = payload.deferred_warmup || {};
+  const compileIndex = payload.compile_index || {};
+  const evalArtifactsDisk = payload.eval_artifacts_disk || {};
+  return {
+    host_last_build_peak_rss_bytes: toFinite(payload.peak_rss_bytes),
+    host_last_build_current_rss_bytes: toFinite(payload.current_rss_bytes),
+    host_last_build_scope_checks: toFinite(payload.total_scope_checks),
+    host_last_build_real_compile_count: toFinite(payload.real_compile_count),
+    host_last_build_cache_hit_count: toFinite(payload.cache_hit_count),
+    host_last_build_unique_compile_result_count: toFinite(payload.unique_compile_result_count),
+    host_last_build_expansion_ratio: toFinite(payload.expansion_ratio),
+    host_last_build_eval_artifact_bytes: toFinite(evalArtifactsDisk?.total?.bytes),
+    host_last_build_eval_artifact_files: toFinite(evalArtifactsDisk?.total?.files),
+    host_last_build_metric_response_bytes: toFinite(evalArtifactsDisk?.metric_response?.bytes),
+    host_last_build_metric_dataframe_bytes: toFinite(evalArtifactsDisk?.metric_dataframe?.bytes),
+    host_last_build_compile_index_hits: toFinite(compileIndex.hits),
+    host_last_build_compile_index_misses: toFinite(compileIndex.misses),
+    host_last_build_compile_index_stale_entries: toFinite(compileIndex.stale_entries),
+    host_last_build_compile_fallback_loads: toFinite(compileIndex.fallback_loads),
+    host_last_build_warmup_reuse_hits: toFinite(payload.warmup_reuse_hits),
+    host_last_critical_warmup_cache_hits: toFinite(criticalWarmup.cache_hit_count),
+    host_last_deferred_warmup_cache_hits: toFinite(deferredWarmup.cache_hit_count),
+  };
+}
+
+async function fetchHostHeartbeat(baseUrl, extraHeaders = {}) {
   const response = await fetch(`${baseUrl}/api/host/heartbeat`, {
     method: "GET",
     headers: extraHeaders,
@@ -1411,8 +1561,27 @@ async function collectHostReadinessSnapshot(baseUrl, extraHeaders = {}) {
   if (!response.ok) {
     throw new Error(`/api/host/heartbeat failed: ${response.status}\n${text}`);
   }
-  const payload = text ? JSON.parse(text) : {};
+  return text ? JSON.parse(text) : {};
+}
+
+async function collectHostReadinessSnapshot(baseUrl, extraHeaders = {}) {
+  const payload = await fetchHostHeartbeat(baseUrl, extraHeaders);
   return {
+    metadata: {
+      host_build_version: String(payload?.buildVersion || "").trim(),
+      host_run_id: String(payload?.runId || "").trim(),
+      host_startup_policy: String(payload?.startupPolicy || "").trim(),
+      host_build_descriptor:
+        payload?.buildDescriptor && typeof payload.buildDescriptor === "object"
+          ? payload.buildDescriptor
+          : null,
+      startup_artifact_dir: String(payload?.startupArtifactDir || "").trim(),
+      last_build_diagnostics:
+        payload?.lastBuildDiagnostics && typeof payload.lastBuildDiagnostics === "object"
+          ? payload.lastBuildDiagnostics
+          : null,
+    },
+    perf: {
     host_access_ready: Number(payload?.accessReady === true),
     host_full_warmup_ready: Number(payload?.fullWarmupReady === true),
     host_deferred_warmup_pending: Number(payload?.deferredWarmupPending === true),
@@ -1423,6 +1592,186 @@ async function collectHostReadinessSnapshot(baseUrl, extraHeaders = {}) {
     host_last_deferred_warmup_ms: toFinite(payload?.lastDeferredWarmupMs),
     host_last_critical_warmup_request_count: toFinite(payload?.lastCriticalWarmupRequestCount),
     host_last_deferred_warmup_request_count: toFinite(payload?.lastDeferredWarmupRequestCount),
+    ...buildHostDiagnosticsPerf(payload?.lastBuildDiagnostics),
+    },
+  };
+}
+
+function buildRequestTracePerf(summary) {
+  const payload = summary && typeof summary === "object" ? summary : {};
+  const byRouteKind = payload.byRouteKind && typeof payload.byRouteKind === "object" ? payload.byRouteKind : {};
+  const metricRoute = byRouteKind.metric_query || {};
+  const queryRoute = byRouteKind.dataset_query || {};
+  const appRoute = byRouteKind.app_page || byRouteKind.access_page_legacy || byRouteKind.manage_page_legacy || {};
+  return {
+    server_request_count: toFinite(payload.count),
+    server_request_latency_ms_total: toFinite(payload.latencyMsTotal),
+    server_request_latency_ms_max: toFinite(payload.latencyMsMax),
+    server_response_bytes_total: toFinite(payload.responseBytesTotal),
+    server_response_bytes_max: toFinite(payload.responseBytesMax),
+    server_request_first_seq: toFinite(payload.firstSeq),
+    server_request_last_seq: toFinite(payload.lastSeq),
+    server_metric_query_count: toFinite(metricRoute.count),
+    server_metric_query_bytes_total: toFinite(metricRoute.responseBytesTotal),
+    server_metric_query_latency_ms_total: toFinite(metricRoute.latencyMsTotal),
+    server_dataset_query_count: toFinite(queryRoute.count),
+    server_dataset_query_bytes_total: toFinite(queryRoute.responseBytesTotal),
+    server_dataset_query_latency_ms_total: toFinite(queryRoute.latencyMsTotal),
+    server_app_page_count: toFinite(appRoute.count),
+    server_app_page_bytes_total: toFinite(appRoute.responseBytesTotal),
+  };
+}
+
+async function collectRequestTraceSummary(baseUrl, extraHeaders = {}, options = {}) {
+  const search = new URLSearchParams();
+  search.set("summary", "1");
+  if (options.appId) search.set("appId", String(options.appId));
+  if (options.runId) search.set("runId", String(options.runId));
+  if (Number.isFinite(Number(options.minSeq)) && Number(options.minSeq) > 0) {
+    search.set("minSeq", String(Math.round(Number(options.minSeq))));
+  }
+  const response = await fetch(`${baseUrl}/api/host/request-trace?${search.toString()}`, {
+    method: "GET",
+    headers: extraHeaders,
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`/api/host/request-trace failed: ${response.status}\n${text}`);
+  }
+  return text ? JSON.parse(text) : {};
+}
+
+async function collectRequestTraceCursor(baseUrl, extraHeaders = {}, options = {}) {
+  const summary = await collectRequestTraceSummary(baseUrl, extraHeaders, options);
+  return {
+    summary,
+    next_min_seq: Number.isFinite(Number(summary?.lastSeq)) ? Number(summary.lastSeq) + 1 : 1,
+  };
+}
+
+async function readJsonIfExists(filePath) {
+  if (!filePath) return null;
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function readStartupRunArtifactSummary(artifactDir) {
+  const root = String(artifactDir || "").trim();
+  if (!root) return null;
+  return {
+    run: await readJsonIfExists(path.join(root, "run.json")),
+    readiness: await readJsonIfExists(path.join(root, "readiness-final.json")),
+    prebuild_hot: await readJsonIfExists(path.join(root, "prebuild-hot.json")),
+    prebuild_full: await readJsonIfExists(path.join(root, "prebuild-full.json")),
+    request_trace_summary: await readJsonIfExists(path.join(root, "request-trace-summary.json")),
+  };
+}
+
+function buildStartupArtifactPerf(summary) {
+  const hot = summary?.prebuild_hot || {};
+  const full = summary?.prebuild_full || {};
+  const run = summary?.run || {};
+  const hotDiagnostics = hot.diagnostics || {};
+  const fullDiagnostics = full.diagnostics || {};
+  const preferredDiagnostics =
+    fullDiagnostics && Object.keys(fullDiagnostics).length > 0 ? fullDiagnostics : hotDiagnostics;
+  return {
+    startup_run_wall_ms: toFinite(
+      Number(run.finishedAtMs) > 0 && Number(run.startedAtMs) > 0
+        ? Number(run.finishedAtMs) - Number(run.startedAtMs)
+        : NaN
+    ),
+    startup_hot_total_ms: toFinite(hot.total_wall_ms),
+    startup_hot_compile_ms: toFinite(
+      Array.isArray(hot.apps) ? hot.apps.reduce((sum, app) => sum + (Number(app?.timings?.compile_scopes_ms) || 0), 0) : NaN
+    ),
+    startup_hot_warmup_ms: toFinite(
+      Array.isArray(hot.apps) ? hot.apps.reduce((sum, app) => sum + (Number(app?.timings?.warmup_requests_ms) || 0), 0) : NaN
+    ),
+    startup_full_total_ms: toFinite(full.total_wall_ms),
+    startup_full_compile_ms: toFinite(
+      Array.isArray(full.apps) ? full.apps.reduce((sum, app) => sum + (Number(app?.timings?.compile_scopes_ms) || 0), 0) : NaN
+    ),
+    startup_full_warmup_ms: toFinite(
+      Array.isArray(full.apps) ? full.apps.reduce((sum, app) => sum + (Number(app?.timings?.warmup_requests_ms) || 0), 0) : NaN
+    ),
+    startup_peak_rss_bytes: toFinite(preferredDiagnostics.peak_rss_bytes),
+    startup_scope_checks: toFinite(preferredDiagnostics.total_scope_checks),
+    startup_real_compile_count: toFinite(preferredDiagnostics.real_compile_count),
+    startup_unique_compile_result_count: toFinite(preferredDiagnostics.unique_compile_result_count),
+    startup_expansion_ratio: toFinite(preferredDiagnostics.expansion_ratio),
+    startup_eval_artifact_bytes: toFinite(preferredDiagnostics?.eval_artifacts_disk?.total?.bytes),
+    startup_eval_artifact_files: toFinite(preferredDiagnostics?.eval_artifacts_disk?.total?.files),
+    startup_compile_index_hits: toFinite(preferredDiagnostics?.compile_index?.hits),
+    startup_compile_index_misses: toFinite(preferredDiagnostics?.compile_index?.misses),
+    startup_compile_index_stale_entries: toFinite(preferredDiagnostics?.compile_index?.stale_entries),
+    startup_compile_fallback_loads: toFinite(preferredDiagnostics?.compile_index?.fallback_loads),
+    startup_critical_warmup_request_count: toFinite(preferredDiagnostics?.critical_warmup?.total_request_count),
+    startup_critical_warmup_cache_hits: toFinite(preferredDiagnostics?.critical_warmup?.cache_hit_count),
+    startup_critical_warmup_total_ms: toFinite(preferredDiagnostics?.critical_warmup?.total_ms),
+    startup_deferred_warmup_request_count: toFinite(preferredDiagnostics?.deferred_warmup?.total_request_count),
+    startup_deferred_warmup_cache_hits: toFinite(preferredDiagnostics?.deferred_warmup?.cache_hit_count),
+    startup_deferred_warmup_total_ms: toFinite(preferredDiagnostics?.deferred_warmup?.total_ms),
+  };
+}
+
+async function collectStartupRunRecord(context) {
+  const {
+    serverUrl: baseUrl,
+    requestHeaders: headers,
+    workspaceId: targetWorkspaceId,
+    appId: targetAppId,
+    environmentName: envName,
+    revision: currentRev,
+    measuredAt: now,
+  } = context;
+  let hostContext;
+  try {
+    hostContext = await collectHostReadinessSnapshot(baseUrl, headers);
+  } catch {
+    return null;
+  }
+  const hostMetadata = hostContext.metadata || defaultHostMetadata();
+  if (!hostMetadata.host_run_id) {
+    return null;
+  }
+  let startupRunSummary = null;
+  try {
+    startupRunSummary = await readStartupRunArtifactSummary(hostMetadata.startup_artifact_dir);
+  } catch {
+    startupRunSummary = null;
+  }
+  const perf = {};
+  mergePerf(perf, hostContext.perf);
+  mergePerf(perf, buildStartupArtifactPerf(startupRunSummary));
+  return {
+    schema_version: "mei-host-perf-sample-v2",
+    record_kind: "startup_run",
+    workspace_id: targetWorkspaceId,
+    app_id: targetAppId,
+    scenario_id: "__startup_run__",
+    scenario_family: "startup",
+    route_mode: "startup",
+    entry_url_or_locator: `run:${hostMetadata.host_run_id}`,
+    run_kind: "startup",
+    environment: envName,
+    revision: currentRev,
+    measured_at: now,
+    sample_machine: sampleMachine,
+    host_build_version: hostMetadata.host_build_version || "",
+    host_run_id: hostMetadata.host_run_id || "",
+    host_startup_policy: hostMetadata.host_startup_policy || "",
+    host_build_descriptor: hostMetadata.host_build_descriptor || undefined,
+    startup_artifact_dir: hostMetadata.startup_artifact_dir || undefined,
+    startup_run_summary: startupRunSummary || undefined,
+    perf,
+    notes: [],
   };
 }
 

@@ -9,10 +9,13 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    http::compile_cache::{compile_app_with_cache, load_compile_artifact_only, CompileWithCacheOutcome},
+    http::compile_cache::{
+        compile_app_with_cache, load_compile_artifact_only, CompileWithCacheOutcome,
+    },
+    http::startup_run,
     prebuild::{
-        app_has_deferred_warmup_work, run_prebuild, PrebuildAppReport, PrebuildMode,
-        PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
+        app_has_deferred_warmup_work, run_prebuild, PrebuildAppReport, PrebuildDiagnosticsReport,
+        PrebuildMode, PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
     },
     AppState,
 };
@@ -74,6 +77,14 @@ pub(crate) struct HostAppReadinessResponse {
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct HostReadyResponse {
     pub ready: bool,
+    #[serde(rename = "runId")]
+    pub run_id: Option<String>,
+    #[serde(rename = "startupPolicy")]
+    pub startup_policy: Option<String>,
+    #[serde(rename = "buildDescriptor")]
+    pub build_descriptor: serde_json::Value,
+    #[serde(rename = "startupArtifactDir")]
+    pub startup_artifact_dir: Option<String>,
     #[serde(rename = "hostReady")]
     pub host_ready: bool,
     #[serde(rename = "accessReady")]
@@ -113,6 +124,8 @@ pub(crate) struct HostReadyResponse {
     pub last_deferred_warmup_request_count: usize,
     #[serde(rename = "lastWarningCount")]
     pub last_warning_count: usize,
+    #[serde(rename = "lastBuildDiagnostics")]
+    pub last_build_diagnostics: Option<PrebuildDiagnosticsReport>,
     #[serde(rename = "readyAppCount")]
     pub ready_app_count: usize,
     #[serde(rename = "degradedAppCount")]
@@ -128,6 +141,14 @@ pub(crate) struct HostReadyResponse {
 pub(crate) struct HostHeartbeatResponse {
     #[serde(rename = "buildVersion")]
     pub build_version: String,
+    #[serde(rename = "runId")]
+    pub run_id: Option<String>,
+    #[serde(rename = "startupPolicy")]
+    pub startup_policy: Option<String>,
+    #[serde(rename = "buildDescriptor")]
+    pub build_descriptor: serde_json::Value,
+    #[serde(rename = "startupArtifactDir")]
+    pub startup_artifact_dir: Option<String>,
     /// Host service is bound and core APIs are reachable.
     pub ready: bool,
     #[serde(rename = "hostReady")]
@@ -159,6 +180,8 @@ pub(crate) struct HostHeartbeatResponse {
     pub last_deferred_warmup_request_count: usize,
     #[serde(rename = "lastWarningCount")]
     pub last_warning_count: usize,
+    #[serde(rename = "lastBuildDiagnostics")]
+    pub last_build_diagnostics: Option<PrebuildDiagnosticsReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -259,6 +282,9 @@ pub(crate) struct HostReadinessRegistry {
     access_ready: bool,
     full_warmup_ready: bool,
     deferred_warmup_pending: bool,
+    run_id: Option<String>,
+    startup_policy: Option<String>,
+    startup_artifact_dir: Option<String>,
     phase: String,
     manifest_path: String,
     manifest_source: String,
@@ -276,6 +302,7 @@ pub(crate) struct HostReadinessRegistry {
     last_critical_warmup_request_count: usize,
     last_deferred_warmup_request_count: usize,
     last_warning_count: usize,
+    last_build_diagnostics: Option<PrebuildDiagnosticsReport>,
     apps: BTreeMap<String, HostAppReadinessState>,
 }
 
@@ -408,6 +435,10 @@ fn registry_snapshot() -> HostReadyResponse {
     let failed_app_count = apps.iter().filter(|app| app.phase == "failed").count();
     HostReadyResponse {
         ready: snapshot.host_bound,
+        run_id: snapshot.run_id.clone(),
+        startup_policy: snapshot.startup_policy.clone(),
+        build_descriptor: crate::build_info::descriptor(),
+        startup_artifact_dir: snapshot.startup_artifact_dir.clone(),
         host_ready: snapshot.host_bound,
         access_ready: snapshot.access_ready,
         full_warmup_ready: snapshot.full_warmup_ready,
@@ -432,6 +463,7 @@ fn registry_snapshot() -> HostReadyResponse {
         last_critical_warmup_request_count: snapshot.last_critical_warmup_request_count,
         last_deferred_warmup_request_count: snapshot.last_deferred_warmup_request_count,
         last_warning_count: snapshot.last_warning_count,
+        last_build_diagnostics: snapshot.last_build_diagnostics.clone(),
         ready_app_count,
         degraded_app_count,
         failed_app_count,
@@ -461,6 +493,9 @@ fn reset_registry_for_source_root(source_root: &Path) {
             access_ready: false,
             full_warmup_ready: false,
             deferred_warmup_pending: false,
+            run_id: startup_run::current_run_id(),
+            startup_policy: startup_run::current_startup_policy(),
+            startup_artifact_dir: startup_run::current_artifact_dir(),
             phase: "starting".to_string(),
             manifest_path: manifest_path.display().to_string(),
             manifest_source,
@@ -478,6 +513,7 @@ fn reset_registry_for_source_root(source_root: &Path) {
             last_critical_warmup_request_count: 0,
             last_deferred_warmup_request_count: 0,
             last_warning_count: 0,
+            last_build_diagnostics: None,
             apps,
         };
     });
@@ -660,7 +696,10 @@ fn status_from_report(
         .iter()
         .map(|app| app.timings.deferred_warmup_request_count)
         .sum();
-    let _ = with_registry(|registry| {
+    let registry_update = with_registry(|registry| {
+        let previous_access_ready = registry.access_ready;
+        let previous_full_warmup_ready = registry.full_warmup_ready;
+        let active_job = registry.active_job.clone();
         registry.manifest_path = report.manifest_path.clone();
         registry.manifest_source = report.manifest_source.clone();
         registry.error_summary = report.error_summary.clone();
@@ -673,6 +712,7 @@ fn status_from_report(
         registry.last_critical_warmup_request_count = critical_warmup_request_count;
         registry.last_deferred_warmup_request_count = deferred_warmup_request_count;
         registry.last_warning_count = warning_count;
+        registry.last_build_diagnostics = Some(report.diagnostics.clone());
         registry.access_ready = report.ok;
         registry.full_warmup_ready = report.ok && !deferred_warmup_pending;
         registry.deferred_warmup_pending = report.ok && deferred_warmup_pending;
@@ -704,7 +744,76 @@ fn status_from_report(
         }
         registry.active_job = None;
         sync_registry_phase(registry);
+        (
+            previous_access_ready,
+            previous_full_warmup_ready,
+            active_job,
+            registry.access_ready,
+            registry.full_warmup_ready,
+            registry.deferred_warmup_pending,
+        )
     });
+    let snapshot = registry_snapshot();
+    startup_run::update_readiness_snapshot(
+        snapshot.phase.as_str(),
+        snapshot.access_ready,
+        snapshot.full_warmup_ready,
+        snapshot.deferred_warmup_pending,
+        &snapshot,
+    );
+    if let Some((
+        previous_access_ready,
+        previous_full_warmup_ready,
+        active_job,
+        access_ready,
+        full_warmup_ready,
+        deferred_pending,
+    )) = registry_update
+    {
+        if active_job
+            .as_deref()
+            .map(|job| job.starts_with("startup:") || job.starts_with("startup_deferred:"))
+            .unwrap_or(false)
+        {
+            let slot = if active_job
+                .as_deref()
+                .map(|job| job.starts_with("startup_deferred:"))
+                .unwrap_or(false)
+                || report.scope_profile == PrebuildScopeProfile::Full
+            {
+                "full"
+            } else {
+                "hot"
+            };
+            startup_run::write_prebuild_report(slot, report);
+        }
+        if access_ready && !previous_access_ready {
+            startup_run::record_phase(
+                "access_ready",
+                Some(serde_json::json!({
+                    "phase": snapshot.phase,
+                    "totalWallMs": report.total_wall_ms,
+                })),
+            );
+        }
+        if full_warmup_ready && !previous_full_warmup_ready {
+            startup_run::record_phase(
+                "full_warmup_ready",
+                Some(serde_json::json!({
+                    "phase": snapshot.phase,
+                    "totalWallMs": report.total_wall_ms,
+                })),
+            );
+            startup_run::record_phase(
+                "startup_finished",
+                Some(serde_json::json!({
+                    "phase": snapshot.phase,
+                    "deferredWarmupPending": deferred_pending,
+                    "ok": report.ok,
+                })),
+            );
+        }
+    }
     tracing::info!(
         mode = ?report.mode,
         total_wall_ms = report.total_wall_ms,
@@ -818,7 +927,8 @@ fn mark_job_failed(
     error: &str,
     preserve_access_ready: bool,
 ) {
-    let _ = with_registry(|registry| {
+    let active_job = with_registry(|registry| {
+        let active_job = registry.active_job.clone();
         registry.error_summary = vec![error.to_string()];
         registry.active_job_started_at = None;
         if !preserve_access_ready {
@@ -830,6 +940,7 @@ fn mark_job_failed(
         registry.last_deferred_warmup_ms = None;
         registry.last_critical_warmup_request_count = 0;
         registry.last_deferred_warmup_request_count = 0;
+        registry.last_build_diagnostics = None;
         if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
             let app_state = registry.apps.entry(app_id.to_string()).or_default();
             app_state.phase = "failed".to_string();
@@ -846,7 +957,46 @@ fn mark_job_failed(
             PrebuildMode::Verify => "failed".to_string(),
         };
         sync_registry_phase(registry);
+        active_job
     });
+    let snapshot = registry_snapshot();
+    startup_run::update_readiness_snapshot(
+        snapshot.phase.as_str(),
+        snapshot.access_ready,
+        snapshot.full_warmup_ready,
+        snapshot.deferred_warmup_pending,
+        &snapshot,
+    );
+    if let Some(job) = active_job.flatten() {
+        if job.starts_with("startup_deferred:") {
+            startup_run::write_prebuild_error(
+                "full",
+                error,
+                Some(serde_json::json!({ "job": job, "mode": format!("{mode:?}") })),
+            );
+        } else if job.starts_with("startup:") {
+            let slot = if preserve_access_ready || mode == PrebuildMode::Verify {
+                "full"
+            } else {
+                "hot"
+            };
+            startup_run::write_prebuild_error(
+                slot,
+                error,
+                Some(serde_json::json!({ "job": job, "mode": format!("{mode:?}") })),
+            );
+        }
+        if job.starts_with("startup:") || job.starts_with("startup_deferred:") {
+            startup_run::record_phase(
+                "startup_finished",
+                Some(serde_json::json!({
+                    "phase": snapshot.phase,
+                    "ok": false,
+                    "error": error,
+                })),
+            );
+        }
+    }
     tracing::warn!(mode = ?mode, %error, "host build job failed");
 }
 
@@ -909,7 +1059,8 @@ fn startup_deferred_warmup_pending(source_root: &Path) -> bool {
     manifest.apps.iter().any(app_has_deferred_warmup_work)
 }
 
-pub(crate) fn initialize_startup_readiness(source_root: &Path) {
+pub(crate) fn initialize_startup_readiness(source_root: &Path, startup_policy: &str) {
+    startup_run::initialize(source_root, startup_policy);
     reset_registry_for_source_root(source_root);
 }
 
@@ -918,6 +1069,12 @@ pub(crate) fn mark_host_bound() {
         registry.host_bound = true;
         sync_registry_phase(registry);
     });
+    startup_run::record_phase(
+        "host_bound",
+        Some(serde_json::json!({
+            "phase": registry_snapshot().phase,
+        })),
+    );
 }
 
 pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildReport> {
@@ -936,6 +1093,7 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
             succeeded_apps: Vec::new(),
             failed_apps: Vec::new(),
             error_summary: Vec::new(),
+            diagnostics: PrebuildDiagnosticsReport::default(),
             apps: Vec::new(),
         };
         reset_registry_for_source_root(source_root);
@@ -946,6 +1104,14 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
         return Ok(report);
     }
     begin_job(PrebuildMode::Verify, None, "startup")?;
+    startup_run::record_phase(
+        "startup_prebuild_started",
+        Some(serde_json::json!({
+            "job": "startup:verify:workspace",
+            "scopeProfile": "full",
+            "mode": "verify",
+        })),
+    );
     match run_prebuild_job_sync_inner(
         source_root,
         PrebuildMode::Verify,
@@ -966,6 +1132,18 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
 
 pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
     begin_job(PrebuildMode::Build, None, "startup")?;
+    startup_run::record_phase(
+        "startup_prebuild_started",
+        Some(serde_json::json!({
+            "job": "startup:build:workspace",
+            "scopeProfile": if startup_deferred_warmup_pending(source_root.as_path()) {
+                "hot_only"
+            } else {
+                "full"
+            },
+            "mode": "build",
+        })),
+    );
     tracing::info!("startup background prebuild scheduled");
     tokio::spawn(async move {
         let source_root_for_job = source_root.clone();
@@ -991,6 +1169,14 @@ pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
                         mark_job_failed(None, PrebuildMode::Build, &error.to_string(), true);
                         return;
                     }
+                    startup_run::record_phase(
+                        "startup_prebuild_started",
+                        Some(serde_json::json!({
+                            "job": "startup_deferred:build:workspace",
+                            "scopeProfile": "full",
+                            "mode": "build",
+                        })),
+                    );
                     let source_root_for_deferred = source_root.clone();
                     let deferred_result = tokio::task::spawn_blocking(move || {
                         run_prebuild_job_sync_inner(
@@ -1387,6 +1573,10 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
     let ready = registry_snapshot();
     Json(HostHeartbeatResponse {
         build_version: crate::build_info::BUILD_VERSION.to_string(),
+        run_id: ready.run_id,
+        startup_policy: ready.startup_policy,
+        build_descriptor: ready.build_descriptor,
+        startup_artifact_dir: ready.startup_artifact_dir,
         ready: ready.host_ready,
         host_ready: ready.host_ready,
         access_ready: ready.access_ready,
@@ -1403,6 +1593,7 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
         last_critical_warmup_request_count: ready.last_critical_warmup_request_count,
         last_deferred_warmup_request_count: ready.last_deferred_warmup_request_count,
         last_warning_count: ready.last_warning_count,
+        last_build_diagnostics: ready.last_build_diagnostics,
     })
 }
 
@@ -1554,6 +1745,10 @@ mod tests {
         let ready = registry_snapshot();
         let heartbeat = HostHeartbeatResponse {
             build_version: crate::build_info::BUILD_VERSION.to_string(),
+            run_id: ready.run_id,
+            startup_policy: ready.startup_policy,
+            build_descriptor: ready.build_descriptor,
+            startup_artifact_dir: ready.startup_artifact_dir,
             ready: ready.ready,
             host_ready: ready.host_ready,
             access_ready: ready.access_ready,
@@ -1570,6 +1765,7 @@ mod tests {
             last_critical_warmup_request_count: ready.last_critical_warmup_request_count,
             last_deferred_warmup_request_count: ready.last_deferred_warmup_request_count,
             last_warning_count: ready.last_warning_count,
+            last_build_diagnostics: ready.last_build_diagnostics,
         };
         assert!(!heartbeat.build_version.is_empty());
         assert_eq!(heartbeat.build_version, crate::build_info::BUILD_VERSION);

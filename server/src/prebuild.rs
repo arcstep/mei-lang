@@ -516,6 +516,257 @@ fn compile_active_identity(report: &PrebuildScopeReport) -> String {
     )
 }
 
+fn disk_usage_report(summary: DirSizeSummary) -> PrebuildDiskUsageReport {
+    PrebuildDiskUsageReport {
+        files: summary.files,
+        bytes: summary.bytes,
+    }
+}
+
+fn build_prebuild_diagnostics_report(
+    app_root: &Path,
+    reports: &[PrebuildScopeReport],
+    diagnostics: &PrebuildDiagnostics,
+    canonical_identity_count: usize,
+    session_entries_before_clear: (usize, usize, usize),
+    session_entries_after_clear: (usize, usize, usize),
+    warmup_reuse_hits: usize,
+    critical_warmup_total_count: usize,
+    critical_warmup_executed_count: usize,
+    critical_warmup_cache_hit_count: usize,
+    critical_warmup_ms: u64,
+    critical_warmup_ok: bool,
+    deferred_warmup_total_count: usize,
+    deferred_warmup_executed_count: usize,
+    deferred_warmup_cache_hit_count: usize,
+    deferred_warmup_ms: u64,
+    deferred_warmup_ok: bool,
+) -> PrebuildDiagnosticsReport {
+    let total_scope_checks = reports.len();
+    let real_compile_count = reports.iter().filter(|report| !report.cache_hit).count();
+    let cache_hit_count = reports.iter().filter(|report| report.cache_hit).count();
+    let cache_probe_ms: u64 = reports
+        .iter()
+        .filter(|report| report.cache_hit)
+        .map(|report| {
+            report
+                .cache_lookup_ms
+                .saturating_add(report.artifact_load_ms)
+        })
+        .sum();
+    let compile_miss_ms: u64 = reports
+        .iter()
+        .filter(|report| !report.cache_hit)
+        .map(|report| report.compile_ms)
+        .sum();
+    let unique_compile_result_count = reports
+        .iter()
+        .map(compile_active_identity)
+        .collect::<BTreeSet<_>>()
+        .len();
+    let redundant_scope_checks = total_scope_checks.saturating_sub(unique_compile_result_count);
+    let expansion_ratio = if unique_compile_result_count > 0 {
+        total_scope_checks as f64 / unique_compile_result_count as f64
+    } else {
+        1.0
+    };
+    let preload_reuse_hits = diagnostics
+        .compile_preload_reuse_hits
+        .load(Ordering::Relaxed);
+    let postload_identity_collapses = diagnostics
+        .compile_postload_identity_collapses
+        .load(Ordering::Relaxed);
+    let compile_index_hits = diagnostics.compile_index_hits.load(Ordering::Relaxed);
+    let compile_index_misses = diagnostics.compile_index_misses.load(Ordering::Relaxed);
+    let compile_index_stale_entries = diagnostics
+        .compile_index_stale_entries
+        .load(Ordering::Relaxed);
+    let compile_fallback_loads = diagnostics.compile_fallback_loads.load(Ordering::Relaxed);
+    let eval_root = app_root.join(".mei").join("eval-artifacts");
+    let response_dir = eval_root.join("results").join("metric-response");
+    let dataframe_dir = eval_root.join("results").join("metric-dataframe");
+    let current_rss_bytes = current_process_rss_bytes();
+    let peak_rss_bytes = diagnostics.peak_rss_bytes.load(Ordering::Relaxed) as u64;
+
+    let mut slow_scopes = reports
+        .iter()
+        .filter(|report| !report.cache_hit && report.compile_ms > 0)
+        .map(|report| PrebuildSlowScopeDiagnostic {
+            scene_id: report
+                .requested_scene_id
+                .clone()
+                .or(report.active_scene_id.clone()),
+            target_file: report
+                .requested_target_file
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| report.active_target_file.clone()),
+            compile_ms: report.compile_ms,
+        })
+        .collect::<Vec<_>>();
+    slow_scopes.sort_by_key(|entry| std::cmp::Reverse(entry.compile_ms));
+    slow_scopes.truncate(8);
+
+    let mut slow_metrics = diagnostics
+        .metric_builds
+        .lock()
+        .expect("lock prebuild diagnostics")
+        .iter()
+        .map(|entry| PrebuildSlowMetricDiagnostic {
+            kind: entry.kind.to_string(),
+            dataset: entry.dataset.clone(),
+            metric: entry.metric.clone(),
+            scene: entry.scene.clone(),
+            ms: entry.ms,
+        })
+        .collect::<Vec<_>>();
+    slow_metrics.sort_by_key(|entry| std::cmp::Reverse(entry.ms));
+    slow_metrics.truncate(8);
+
+    PrebuildDiagnosticsReport {
+        total_scope_checks,
+        real_compile_count,
+        cache_hit_count,
+        unique_compile_result_count,
+        canonical_identity_count,
+        redundant_scope_checks,
+        expansion_ratio,
+        cache_probe_ms,
+        compile_miss_ms,
+        current_rss_bytes,
+        peak_rss_bytes,
+        eval_artifacts_disk: PrebuildEvalArtifactDiskReport {
+            total: disk_usage_report(dir_size_summary(eval_root.as_path())),
+            metric_response: disk_usage_report(dir_size_summary(response_dir.as_path())),
+            metric_dataframe: disk_usage_report(dir_size_summary(dataframe_dir.as_path())),
+        },
+        compile_index: PrebuildCompileIndexStatsReport {
+            preload_reuse_hits,
+            postload_identity_collapses,
+            hits: compile_index_hits,
+            misses: compile_index_misses,
+            stale_entries: compile_index_stale_entries,
+            fallback_loads: compile_fallback_loads,
+        },
+        session_before_clear: PrebuildSessionEntryStatsReport {
+            scope_entries: session_entries_before_clear.0,
+            cache_entries: session_entries_before_clear.1,
+            identity_entries: session_entries_before_clear.2,
+        },
+        session_after_clear: PrebuildSessionEntryStatsReport {
+            scope_entries: session_entries_after_clear.0,
+            cache_entries: session_entries_after_clear.1,
+            identity_entries: session_entries_after_clear.2,
+        },
+        warmup_reuse_hits,
+        critical_warmup: PrebuildWarmupDiagnosticReport {
+            total_request_count: critical_warmup_total_count,
+            executed_request_count: critical_warmup_executed_count,
+            cache_hit_count: critical_warmup_cache_hit_count,
+            total_ms: critical_warmup_ms,
+            ok: critical_warmup_ok,
+        },
+        deferred_warmup: PrebuildWarmupDiagnosticReport {
+            total_request_count: deferred_warmup_total_count,
+            executed_request_count: deferred_warmup_executed_count,
+            cache_hit_count: deferred_warmup_cache_hit_count,
+            total_ms: deferred_warmup_ms,
+            ok: deferred_warmup_ok,
+        },
+        slow_scopes,
+        slow_metrics,
+    }
+}
+
+fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> PrebuildDiagnosticsReport {
+    let mut aggregate = PrebuildDiagnosticsReport::default();
+    let mut slow_scopes = Vec::new();
+    let mut slow_metrics = Vec::new();
+    for app in apps {
+        let diagnostics = &app.diagnostics;
+        aggregate.total_scope_checks += diagnostics.total_scope_checks;
+        aggregate.real_compile_count += diagnostics.real_compile_count;
+        aggregate.cache_hit_count += diagnostics.cache_hit_count;
+        aggregate.unique_compile_result_count += diagnostics.unique_compile_result_count;
+        aggregate.canonical_identity_count += diagnostics.canonical_identity_count;
+        aggregate.redundant_scope_checks += diagnostics.redundant_scope_checks;
+        aggregate.cache_probe_ms = aggregate
+            .cache_probe_ms
+            .saturating_add(diagnostics.cache_probe_ms);
+        aggregate.compile_miss_ms = aggregate
+            .compile_miss_ms
+            .saturating_add(diagnostics.compile_miss_ms);
+        aggregate.current_rss_bytes =
+            match (aggregate.current_rss_bytes, diagnostics.current_rss_bytes) {
+                (Some(left), Some(right)) => Some(left.max(right)),
+                (Some(left), None) => Some(left),
+                (None, Some(right)) => Some(right),
+                (None, None) => None,
+            };
+        aggregate.peak_rss_bytes = aggregate.peak_rss_bytes.max(diagnostics.peak_rss_bytes);
+        aggregate.eval_artifacts_disk.total.files += diagnostics.eval_artifacts_disk.total.files;
+        aggregate.eval_artifacts_disk.total.bytes += diagnostics.eval_artifacts_disk.total.bytes;
+        aggregate.eval_artifacts_disk.metric_response.files +=
+            diagnostics.eval_artifacts_disk.metric_response.files;
+        aggregate.eval_artifacts_disk.metric_response.bytes +=
+            diagnostics.eval_artifacts_disk.metric_response.bytes;
+        aggregate.eval_artifacts_disk.metric_dataframe.files +=
+            diagnostics.eval_artifacts_disk.metric_dataframe.files;
+        aggregate.eval_artifacts_disk.metric_dataframe.bytes +=
+            diagnostics.eval_artifacts_disk.metric_dataframe.bytes;
+        aggregate.compile_index.preload_reuse_hits += diagnostics.compile_index.preload_reuse_hits;
+        aggregate.compile_index.postload_identity_collapses +=
+            diagnostics.compile_index.postload_identity_collapses;
+        aggregate.compile_index.hits += diagnostics.compile_index.hits;
+        aggregate.compile_index.misses += diagnostics.compile_index.misses;
+        aggregate.compile_index.stale_entries += diagnostics.compile_index.stale_entries;
+        aggregate.compile_index.fallback_loads += diagnostics.compile_index.fallback_loads;
+        aggregate.session_before_clear.scope_entries +=
+            diagnostics.session_before_clear.scope_entries;
+        aggregate.session_before_clear.cache_entries +=
+            diagnostics.session_before_clear.cache_entries;
+        aggregate.session_before_clear.identity_entries +=
+            diagnostics.session_before_clear.identity_entries;
+        aggregate.session_after_clear.scope_entries +=
+            diagnostics.session_after_clear.scope_entries;
+        aggregate.session_after_clear.cache_entries +=
+            diagnostics.session_after_clear.cache_entries;
+        aggregate.session_after_clear.identity_entries +=
+            diagnostics.session_after_clear.identity_entries;
+        aggregate.warmup_reuse_hits += diagnostics.warmup_reuse_hits;
+        aggregate.critical_warmup.total_request_count +=
+            diagnostics.critical_warmup.total_request_count;
+        aggregate.critical_warmup.executed_request_count +=
+            diagnostics.critical_warmup.executed_request_count;
+        aggregate.critical_warmup.cache_hit_count += diagnostics.critical_warmup.cache_hit_count;
+        aggregate.critical_warmup.total_ms += diagnostics.critical_warmup.total_ms;
+        aggregate.critical_warmup.ok =
+            aggregate.critical_warmup.ok || diagnostics.critical_warmup.ok;
+        aggregate.deferred_warmup.total_request_count +=
+            diagnostics.deferred_warmup.total_request_count;
+        aggregate.deferred_warmup.executed_request_count +=
+            diagnostics.deferred_warmup.executed_request_count;
+        aggregate.deferred_warmup.cache_hit_count += diagnostics.deferred_warmup.cache_hit_count;
+        aggregate.deferred_warmup.total_ms += diagnostics.deferred_warmup.total_ms;
+        aggregate.deferred_warmup.ok =
+            aggregate.deferred_warmup.ok || diagnostics.deferred_warmup.ok;
+        slow_scopes.extend(diagnostics.slow_scopes.clone());
+        slow_metrics.extend(diagnostics.slow_metrics.clone());
+    }
+    aggregate.expansion_ratio = if aggregate.unique_compile_result_count > 0 {
+        aggregate.total_scope_checks as f64 / aggregate.unique_compile_result_count as f64
+    } else {
+        1.0
+    };
+    slow_scopes.sort_by_key(|entry| std::cmp::Reverse(entry.compile_ms));
+    slow_scopes.truncate(8);
+    slow_metrics.sort_by_key(|entry| std::cmp::Reverse(entry.ms));
+    slow_metrics.truncate(8);
+    aggregate.slow_scopes = slow_scopes;
+    aggregate.slow_metrics = slow_metrics;
+    aggregate
+}
+
 fn emit_prebuild_optimization_report(
     app_id: &str,
     app_root: &Path,
@@ -909,6 +1160,85 @@ pub struct PrebuildCoverageReport {
     pub metric_dataframe_artifacts_built: usize,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildDiskUsageReport {
+    pub files: usize,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildEvalArtifactDiskReport {
+    pub total: PrebuildDiskUsageReport,
+    pub metric_response: PrebuildDiskUsageReport,
+    pub metric_dataframe: PrebuildDiskUsageReport,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildCompileIndexStatsReport {
+    pub preload_reuse_hits: usize,
+    pub postload_identity_collapses: usize,
+    pub hits: usize,
+    pub misses: usize,
+    pub stale_entries: usize,
+    pub fallback_loads: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildSessionEntryStatsReport {
+    pub scope_entries: usize,
+    pub cache_entries: usize,
+    pub identity_entries: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildSlowScopeDiagnostic {
+    pub scene_id: Option<String>,
+    pub target_file: String,
+    pub compile_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildSlowMetricDiagnostic {
+    pub kind: String,
+    pub dataset: String,
+    pub metric: String,
+    pub scene: String,
+    pub ms: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildWarmupDiagnosticReport {
+    pub total_request_count: usize,
+    pub executed_request_count: usize,
+    pub cache_hit_count: usize,
+    pub total_ms: u64,
+    pub ok: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct PrebuildDiagnosticsReport {
+    pub total_scope_checks: usize,
+    pub real_compile_count: usize,
+    pub cache_hit_count: usize,
+    pub unique_compile_result_count: usize,
+    pub canonical_identity_count: usize,
+    pub redundant_scope_checks: usize,
+    pub expansion_ratio: f64,
+    pub cache_probe_ms: u64,
+    pub compile_miss_ms: u64,
+    pub current_rss_bytes: Option<u64>,
+    pub peak_rss_bytes: u64,
+    pub eval_artifacts_disk: PrebuildEvalArtifactDiskReport,
+    pub compile_index: PrebuildCompileIndexStatsReport,
+    pub session_before_clear: PrebuildSessionEntryStatsReport,
+    pub session_after_clear: PrebuildSessionEntryStatsReport,
+    pub warmup_reuse_hits: usize,
+    pub critical_warmup: PrebuildWarmupDiagnosticReport,
+    pub deferred_warmup: PrebuildWarmupDiagnosticReport,
+    pub slow_scopes: Vec<PrebuildSlowScopeDiagnostic>,
+    pub slow_metrics: Vec<PrebuildSlowMetricDiagnostic>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PrebuildAppReport {
     pub app_id: String,
@@ -916,6 +1246,7 @@ pub struct PrebuildAppReport {
     pub coverage: PrebuildCoverageReport,
     pub timings: PrebuildTimingReport,
     pub data_snapshots: Option<PublishDataSnapshotsReport>,
+    pub diagnostics: PrebuildDiagnosticsReport,
     pub warnings: Vec<String>,
 }
 
@@ -934,6 +1265,7 @@ pub struct PrebuildReport {
     pub succeeded_apps: Vec<String>,
     pub failed_apps: Vec<String>,
     pub error_summary: Vec<String>,
+    pub diagnostics: PrebuildDiagnosticsReport,
     pub apps: Vec<PrebuildAppReport>,
 }
 
@@ -956,6 +1288,7 @@ pub struct PrebuildAppSummary {
     pub compile_scopes: Vec<PrebuildScopeSummary>,
     pub coverage: PrebuildCoverageReport,
     pub timings: PrebuildTimingReport,
+    pub diagnostics: PrebuildDiagnosticsReport,
     pub warnings: Vec<String>,
 }
 
@@ -974,6 +1307,7 @@ pub struct PrebuildReportSummary {
     pub succeeded_apps: Vec<String>,
     pub failed_apps: Vec<String>,
     pub error_summary: Vec<String>,
+    pub diagnostics: PrebuildDiagnosticsReport,
     pub apps: Vec<PrebuildAppSummary>,
 }
 
@@ -993,6 +1327,7 @@ impl PrebuildReport {
             succeeded_apps: self.succeeded_apps.clone(),
             failed_apps: self.failed_apps.clone(),
             error_summary: self.error_summary.clone(),
+            diagnostics: self.diagnostics.clone(),
             apps: self
                 .apps
                 .iter()
@@ -1015,6 +1350,7 @@ impl PrebuildReport {
                         .collect(),
                     coverage: app.coverage.clone(),
                     timings: app.timings.clone(),
+                    diagnostics: app.diagnostics.clone(),
                     warnings: app.warnings.clone(),
                 })
                 .collect(),
@@ -1266,6 +1602,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             succeeded_apps: Vec::new(),
             failed_apps: Vec::new(),
             error_summary: Vec::new(),
+            diagnostics: PrebuildDiagnosticsReport::default(),
             apps: Vec::new(),
         });
     };
@@ -1305,6 +1642,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         succeeded_apps: Vec::new(),
         failed_apps: Vec::new(),
         error_summary: Vec::new(),
+        diagnostics: PrebuildDiagnosticsReport::default(),
         apps: Vec::new(),
     };
     if !manifest.enabled {
@@ -1336,7 +1674,8 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         prebuild_parallelism(manifest.apps.len()),
         |app| {
             let app_id = app.app_id.clone();
-            let result = run_prebuild_for_app(source_root, &app, options.mode, options.scope_profile);
+            let result =
+                run_prebuild_for_app(source_root, &app, options.mode, options.scope_profile);
             (app_id, result)
         },
     );
@@ -1353,6 +1692,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             }
         }
     }
+    report.diagnostics = aggregate_prebuild_diagnostics(report.apps.as_slice());
     report.total_wall_ms = started.elapsed().as_millis() as u64;
     Ok(report)
 }
@@ -1932,6 +2272,24 @@ fn run_prebuild_for_app(
         .collect::<Vec<_>>();
     let mut critical_warmup_requests = Vec::new();
     let mut deferred_warmup_requests = Vec::new();
+    let critical_warmup_cache_hit_count = warmup_requests
+        .iter()
+        .filter(|request| {
+            request.priority == WarmupRequestPriority::Critical
+                && artifact_outcomes_for_warmup
+                    .iter()
+                    .any(|prepared| warmup_request_matches_outcome(request, &prepared.outcome))
+        })
+        .count();
+    let deferred_warmup_cache_hit_count = warmup_requests
+        .iter()
+        .filter(|request| {
+            request.priority == WarmupRequestPriority::Deferred
+                && artifact_outcomes_for_warmup
+                    .iter()
+                    .any(|prepared| warmup_request_matches_outcome(request, &prepared.outcome))
+        })
+        .count();
     for request in warmup_requests_to_run {
         match request.priority {
             WarmupRequestPriority::Critical => critical_warmup_requests.push(request),
@@ -1940,8 +2298,15 @@ fn run_prebuild_for_app(
     }
     let critical_warmup_request_count = critical_warmup_requests.len();
     let deferred_warmup_request_count = deferred_warmup_requests.len();
+    let critical_warmup_total_count =
+        critical_warmup_request_count + critical_warmup_cache_hit_count;
+    let deferred_warmup_total_count =
+        deferred_warmup_request_count + deferred_warmup_cache_hit_count;
+    let mut critical_warmup_ok = true;
+    let mut deferred_warmup_ok = true;
     let run_and_merge_warmup = |label: &str,
                                 requests: &[&AggregatedWarmupRequest],
+                                ok_flag: &mut bool,
                                 warnings: &mut Vec<String>,
                                 coverage: &mut PrebuildCoverageReport|
      -> Result<u64> {
@@ -1970,6 +2335,7 @@ fn run_prebuild_for_app(
                 requested_target_file: scope.requested_target_file.clone(),
             };
             if let Err(error) = result {
+                *ok_flag = false;
                 if mode == PrebuildMode::Verify {
                     return Err(error);
                 }
@@ -1988,12 +2354,14 @@ fn run_prebuild_for_app(
     let critical_warmup_requests_ms = run_and_merge_warmup(
         "critical",
         critical_warmup_requests.as_slice(),
+        &mut critical_warmup_ok,
         &mut warnings,
         &mut coverage,
     )?;
     let deferred_warmup_requests_ms = run_and_merge_warmup(
         "deferred",
         deferred_warmup_requests.as_slice(),
+        &mut deferred_warmup_ok,
         &mut warnings,
         &mut coverage,
     )?;
@@ -2006,6 +2374,25 @@ fn run_prebuild_for_app(
     {
         warnings.push(format!("metric response index preload failed: {error}"));
     }
+    let diagnostics_report = build_prebuild_diagnostics_report(
+        app_root.as_path(),
+        compile_reports.as_slice(),
+        diagnostics.as_ref(),
+        canonical_identity_count,
+        session_entries_before_clear,
+        session_entries_after_clear,
+        warmup_reuse_hits,
+        critical_warmup_total_count,
+        critical_warmup_request_count,
+        critical_warmup_cache_hit_count,
+        critical_warmup_requests_ms,
+        critical_warmup_ok,
+        deferred_warmup_total_count,
+        deferred_warmup_request_count,
+        deferred_warmup_cache_hit_count,
+        deferred_warmup_requests_ms,
+        deferred_warmup_ok,
+    );
     emit_prebuild_optimization_report(
         app.app_id.as_str(),
         app_root.as_path(),
@@ -2038,6 +2425,7 @@ fn run_prebuild_for_app(
             max_parallelism,
         },
         data_snapshots,
+        diagnostics: diagnostics_report,
         warnings,
     })
 }
@@ -2121,7 +2509,10 @@ fn explicit_scene_ids(app: &RuntimeWarmupApp) -> Vec<String> {
     scene_ids
 }
 
-fn scene_ids_for_profile(app: &RuntimeWarmupApp, scope_profile: PrebuildScopeProfile) -> Vec<String> {
+fn scene_ids_for_profile(
+    app: &RuntimeWarmupApp,
+    scope_profile: PrebuildScopeProfile,
+) -> Vec<String> {
     match scope_profile {
         PrebuildScopeProfile::Full => explicit_scene_ids(app),
         PrebuildScopeProfile::HotOnly => hot_scene_ids(app),
@@ -4596,6 +4987,7 @@ mod tests {
             succeeded_apps: vec!["zhifa".to_string()],
             failed_apps: Vec::new(),
             error_summary: Vec::new(),
+            diagnostics: PrebuildDiagnosticsReport::default(),
             apps: vec![PrebuildAppReport {
                 app_id: "zhifa".to_string(),
                 compile_scopes: vec![PrebuildScopeReport {
@@ -4613,6 +5005,7 @@ mod tests {
                 coverage: PrebuildCoverageReport::default(),
                 timings: PrebuildTimingReport::default(),
                 data_snapshots: None,
+                diagnostics: PrebuildDiagnosticsReport::default(),
                 warnings: Vec::new(),
             }],
         };

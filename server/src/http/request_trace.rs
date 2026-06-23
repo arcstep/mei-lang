@@ -10,6 +10,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::http::startup_run;
+
 const DEFAULT_CAPACITY: usize = 10_000;
 
 #[derive(Debug, Clone, Serialize)]
@@ -19,6 +21,8 @@ pub(crate) struct RequestTraceRecord {
     pub recorded_at_ms: u128,
     #[serde(rename = "requestId")]
     pub request_id: String,
+    #[serde(rename = "runId", skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     pub method: String,
     pub uri: String,
     #[serde(rename = "routeKind")]
@@ -54,14 +58,15 @@ impl RequestTraceStore {
         })
     }
 
-    fn push(&mut self, mut record: RequestTraceRecord) {
+    fn push(&mut self, mut record: RequestTraceRecord) -> RequestTraceRecord {
         self.next_seq = self.next_seq.saturating_add(1);
         record.seq = self.next_seq;
         if self.records.len() >= self.capacity {
             self.records.pop_front();
         }
-        self.records.push_back(record);
+        self.records.push_back(record.clone());
         self.total_recorded = self.total_recorded.saturating_add(1);
+        record
     }
 }
 
@@ -182,6 +187,7 @@ pub(crate) fn record_request(
         seq: 0,
         recorded_at_ms: now_ms(),
         request_id: request_id.to_string(),
+        run_id: startup_run::current_run_id(),
         method: method.to_string(),
         uri: uri.to_string(),
         route_kind: route_kind.to_string(),
@@ -192,7 +198,9 @@ pub(crate) fn record_request(
         response_bytes,
     };
     if let Ok(mut guard) = store().lock() {
-        guard.push(record);
+        let persisted = guard.push(record);
+        drop(guard);
+        startup_run::write_request_trace_record(&persisted);
     }
 }
 
@@ -200,10 +208,14 @@ pub(crate) fn record_request(
 pub(crate) struct RequestTraceQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+    #[serde(rename = "minSeq")]
+    pub min_seq: Option<u64>,
     #[serde(rename = "routeKind")]
     pub route_kind: Option<String>,
     #[serde(rename = "appId")]
     pub app_id: Option<String>,
+    #[serde(rename = "runId")]
+    pub run_id: Option<String>,
     #[serde(rename = "minLatencyMs")]
     pub min_latency_ms: Option<u128>,
     pub summary: Option<String>,
@@ -215,6 +227,10 @@ pub(crate) struct RequestTraceListResponse {
     pub count: usize,
     #[serde(rename = "totalRecorded")]
     pub total_recorded: u64,
+    #[serde(rename = "firstSeq")]
+    pub first_seq: Option<u64>,
+    #[serde(rename = "lastSeq")]
+    pub last_seq: Option<u64>,
     pub records: Vec<RequestTraceRecord>,
 }
 
@@ -237,6 +253,10 @@ pub(crate) struct RequestTraceSummaryResponse {
     pub count: usize,
     #[serde(rename = "totalRecorded")]
     pub total_recorded: u64,
+    #[serde(rename = "firstSeq")]
+    pub first_seq: Option<u64>,
+    #[serde(rename = "lastSeq")]
+    pub last_seq: Option<u64>,
     #[serde(rename = "latencyMsTotal")]
     pub latency_ms_total: u128,
     #[serde(rename = "latencyMsMax")]
@@ -257,6 +277,11 @@ fn filter_records(
         .iter()
         .rev()
         .filter(|record| {
+            if let Some(min_seq) = query.min_seq {
+                if record.seq < min_seq {
+                    return false;
+                }
+            }
             if let Some(route_kind) = query.route_kind.as_deref() {
                 if !record.route_kind.eq_ignore_ascii_case(route_kind) {
                     return false;
@@ -264,6 +289,11 @@ fn filter_records(
             }
             if let Some(app_id) = query.app_id.as_deref() {
                 if !record.app_id.eq_ignore_ascii_case(app_id) {
+                    return false;
+                }
+            }
+            if let Some(run_id) = query.run_id.as_deref() {
+                if record.run_id.as_deref() != Some(run_id) {
                     return false;
                 }
             }
@@ -284,6 +314,8 @@ fn build_summary(
     total_recorded: u64,
 ) -> RequestTraceSummaryResponse {
     let count = records.len();
+    let first_seq = records.iter().map(|record| record.seq).min();
+    let last_seq = records.iter().map(|record| record.seq).max();
     let mut latency_ms_total = 0_u128;
     let mut latency_ms_max = 0_u128;
     let mut response_bytes_total = 0_u64;
@@ -317,6 +349,8 @@ fn build_summary(
         capacity,
         count,
         total_recorded,
+        first_seq,
+        last_seq,
         latency_ms_total,
         latency_ms_max,
         response_bytes_total,
@@ -348,11 +382,15 @@ pub async fn api_request_trace(Query(query): Query<RequestTraceQuery>) -> Respon
     let filtered = filter_records(&all_records, &query);
 
     if summary_mode {
-        return (
-            StatusCode::OK,
-            Json(build_summary(filtered, capacity, total_recorded)),
-        )
-            .into_response();
+        let summary = build_summary(filtered, capacity, total_recorded);
+        if let (Some(requested_run_id), Some(active_run_id)) =
+            (query.run_id.as_deref(), startup_run::current_run_id())
+        {
+            if requested_run_id == active_run_id {
+                startup_run::write_request_trace_summary(&summary);
+            }
+        }
+        return (StatusCode::OK, Json(summary)).into_response();
     }
 
     let records = filtered
@@ -361,17 +399,18 @@ pub async fn api_request_trace(Query(query): Query<RequestTraceQuery>) -> Respon
         .take(limit)
         .collect::<Vec<_>>();
     let count = records.len();
+    let first_seq = records.iter().map(|record| record.seq).min();
+    let last_seq = records.iter().map(|record| record.seq).max();
 
-    (
-        StatusCode::OK,
-        Json(RequestTraceListResponse {
-            capacity,
-            count,
-            total_recorded,
-            records,
-        }),
-    )
-        .into_response()
+    let response = RequestTraceListResponse {
+        capacity,
+        count,
+        total_recorded,
+        first_seq,
+        last_seq,
+        records,
+    };
+    (StatusCode::OK, Json(response)).into_response()
 }
 
 #[cfg(test)]
@@ -401,6 +440,7 @@ mod tests {
                 seq: 0,
                 recorded_at_ms: index,
                 request_id: format!("req-{index}"),
+                run_id: None,
                 method: "GET".into(),
                 uri: "/api/host/ready".into(),
                 route_kind: "api".into(),

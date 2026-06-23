@@ -229,6 +229,8 @@ function resolveOptionalPath(rawPath, baseDir) {
 
 function baselineKey(entry) {
   return [
+    entry.record_kind || "scenario_sample",
+    entry.app_id || "",
     entry.scenario_id,
     entry.run_kind || "",
     String(entry.environment || ""),
@@ -265,6 +267,7 @@ function aggregateRecordGroup(group) {
   }
   return {
     ...first,
+    record_kind: first.record_kind || "scenario_sample",
     revision: first.revision,
     measured_at: first.measured_at,
     perf,
@@ -299,6 +302,8 @@ function resolveBaseline({ compareMode, entry, pinnedBaselineMap, pinnedBaseline
 function findPinnedAnyEnv(entries, currentEntry) {
   for (const entry of entries) {
     if (
+      (entry.record_kind || "scenario_sample") === (currentEntry.record_kind || "scenario_sample") &&
+      String(entry.app_id || "") === String(currentEntry.app_id || "") &&
       entry.scenario_id === currentEntry.scenario_id &&
       entry.run_kind === currentEntry.run_kind
     ) {
@@ -312,6 +317,8 @@ function findLastHistory(list, currentEntry) {
   for (let index = list.length - 1; index >= 0; index -= 1) {
     const row = list[index];
     if (
+      (row.record_kind || "scenario_sample") === (currentEntry.record_kind || "scenario_sample") &&
+      String(row.app_id || "") === String(currentEntry.app_id || "") &&
       row.scenario_id === currentEntry.scenario_id &&
       row.run_kind === currentEntry.run_kind &&
       String(row.environment || "") === String(currentEntry.environment || "")
@@ -321,7 +328,12 @@ function findLastHistory(list, currentEntry) {
   }
   for (let index = list.length - 1; index >= 0; index -= 1) {
     const row = list[index];
-    if (row.scenario_id === currentEntry.scenario_id && row.run_kind === currentEntry.run_kind) {
+    if (
+      (row.record_kind || "scenario_sample") === (currentEntry.record_kind || "scenario_sample") &&
+      String(row.app_id || "") === String(currentEntry.app_id || "") &&
+      row.scenario_id === currentEntry.scenario_id &&
+      row.run_kind === currentEntry.run_kind
+    ) {
       return { source: "latest:any-env", entry: row };
     }
   }
@@ -329,6 +341,13 @@ function findLastHistory(list, currentEntry) {
 }
 
 function compareEntry(prev, curr) {
+  if ((curr.record_kind || "scenario_sample") === "startup_run") {
+    return compareStartupEntry(prev, curr);
+  }
+  return compareScenarioEntry(prev, curr);
+}
+
+function compareScenarioEntry(prev, curr) {
   const red = [];
   const yellow = [];
   const prevPerf = prev.perf || {};
@@ -382,6 +401,27 @@ function compareEntry(prev, curr) {
     "metrics_request_count",
     prevPerf.metrics_request_count,
     currPerf.metrics_request_count,
+    RED_THRESHOLDS.request_count_ratio
+  );
+  pushRatioRegression(
+    red,
+    "server_request_count",
+    prevPerf.server_request_count,
+    currPerf.server_request_count,
+    RED_THRESHOLDS.request_count_ratio
+  );
+  pushRatioRegression(
+    red,
+    "server_response_bytes_total",
+    prevPerf.server_response_bytes_total,
+    currPerf.server_response_bytes_total,
+    RED_THRESHOLDS.request_count_ratio
+  );
+  pushRatioRegression(
+    red,
+    "browser_api_bytes_total",
+    prevPerf.browser_api_bytes_total,
+    currPerf.browser_api_bytes_total,
     RED_THRESHOLDS.request_count_ratio
   );
 
@@ -473,6 +513,77 @@ function compareEntry(prev, curr) {
   return { red, yellow };
 }
 
+function compareStartupEntry(prev, curr) {
+  const red = [];
+  const yellow = [];
+  const prevPerf = prev.perf || {};
+  const currPerf = curr.perf || {};
+  pushRatioRegression(
+    red,
+    "startup_run_wall_ms",
+    prevPerf.startup_run_wall_ms,
+    currPerf.startup_run_wall_ms,
+    RED_THRESHOLDS.local_feedback_ratio
+  );
+  pushRatioRegression(
+    red,
+    "startup_hot_total_ms",
+    prevPerf.startup_hot_total_ms,
+    currPerf.startup_hot_total_ms,
+    RED_THRESHOLDS.compile_ratio
+  );
+  pushRatioRegression(
+    red,
+    "startup_full_total_ms",
+    prevPerf.startup_full_total_ms,
+    currPerf.startup_full_total_ms,
+    RED_THRESHOLDS.compile_ratio
+  );
+  pushRatioRegression(
+    red,
+    "startup_peak_rss_bytes",
+    prevPerf.startup_peak_rss_bytes,
+    currPerf.startup_peak_rss_bytes,
+    RED_THRESHOLDS.compile_ratio
+  );
+  pushRatioRegression(
+    red,
+    "startup_eval_artifact_bytes",
+    prevPerf.startup_eval_artifact_bytes,
+    currPerf.startup_eval_artifact_bytes,
+    RED_THRESHOLDS.request_count_ratio
+  );
+  pushRatioRegression(
+    red,
+    "startup_real_compile_count",
+    prevPerf.startup_real_compile_count,
+    currPerf.startup_real_compile_count,
+    RED_THRESHOLDS.request_count_ratio
+  );
+  pushRatioRegression(
+    yellow,
+    "startup_expansion_ratio",
+    prevPerf.startup_expansion_ratio,
+    currPerf.startup_expansion_ratio,
+    YELLOW_THRESHOLDS.metric_request_total_ratio
+  );
+  pushRatioRegression(
+    yellow,
+    "startup_compile_index_stale_entries",
+    prevPerf.startup_compile_index_stale_entries,
+    currPerf.startup_compile_index_stale_entries,
+    YELLOW_THRESHOLDS.metric_request_total_ratio
+  );
+  pushRatioRegression(
+    yellow,
+    "startup_deferred_warmup_total_ms",
+    prevPerf.startup_deferred_warmup_total_ms,
+    currPerf.startup_deferred_warmup_total_ms,
+    YELLOW_THRESHOLDS.metric_request_total_ratio
+  );
+  return { red, yellow };
+}
+
 function pushRatioRegression(bucket, field, prev, curr, threshold) {
   const base = toFinite(prev);
   const now = toFinite(curr);
@@ -486,6 +597,9 @@ function pushRatioRegression(bucket, field, prev, curr, threshold) {
 }
 
 function buildContextDetails(prev, curr) {
+  if ((curr.record_kind || "scenario_sample") === "startup_run") {
+    return buildStartupContextDetails(prev, curr);
+  }
   const compileStage = formatStageComparison(prev?.perf || {}, curr?.perf || {}, [
     "dependency_graph_build_ms",
     "active_payload_pick_or_compile_ms",
@@ -493,7 +607,33 @@ function buildContextDetails(prev, curr) {
     "world_finalize_ms",
   ]);
   const warmupPhase = formatWarmupComparison(prev?.perf || {}, curr?.perf || {});
-  return [compileStage, warmupPhase].filter(Boolean);
+  const requestPhase = formatRequestComparison(prev?.perf || {}, curr?.perf || {});
+  return [compileStage, warmupPhase, requestPhase].filter(Boolean);
+}
+
+function buildStartupContextDetails(prev, curr) {
+  const prevPerf = prev?.perf || {};
+  const currPerf = curr?.perf || {};
+  const parts = [];
+  for (const field of [
+    "startup_hot_total_ms",
+    "startup_full_total_ms",
+    "startup_peak_rss_bytes",
+    "startup_eval_artifact_bytes",
+    "startup_real_compile_count",
+  ]) {
+    const before = toFinite(prevPerf[field]);
+    const after = toFinite(currPerf[field]);
+    if (!Number.isFinite(before) && !Number.isFinite(after)) continue;
+    parts.push(Number.isFinite(before) ? `${field}=${before}->${after}` : `${field}=${after}`);
+  }
+  if (curr.host_build_version || prev.host_build_version) {
+    parts.push(`build=${prev.host_build_version || "-"}->${curr.host_build_version || "-"}`);
+  }
+  if (curr.host_run_id) {
+    parts.push(`run=${curr.host_run_id}`);
+  }
+  return parts.length > 0 ? parts : [];
 }
 
 function formatStageComparison(prevPerf, currPerf, fields) {
@@ -540,6 +680,27 @@ function formatWarmupComparison(prevPerf, currPerf) {
   return `warmup_state ${parts.join(" ")}`;
 }
 
+function formatRequestComparison(prevPerf, currPerf) {
+  const parts = [];
+  for (const field of [
+    "server_request_count",
+    "server_response_bytes_total",
+    "browser_api_total",
+    "browser_api_bytes_total",
+  ]) {
+    const prev = toFinite(prevPerf?.[field]);
+    const curr = toFinite(currPerf?.[field]);
+    if (!Number.isFinite(prev) && !Number.isFinite(curr)) {
+      continue;
+    }
+    parts.push(Number.isFinite(prev) ? `${field}=${prev}->${curr}` : `${field}=${curr}`);
+  }
+  if (parts.length === 0) {
+    return "";
+  }
+  return `request_profile ${parts.join(" ")}`;
+}
+
 function shortStageField(field) {
   switch (field) {
     case "dependency_graph_build_ms":
@@ -555,12 +716,35 @@ function shortStageField(field) {
   }
 }
 
+function rowLabel(row) {
+  if ((row.record_kind || "scenario_sample") === "startup_run") {
+    return `startup:${row.app_id || "-"}`;
+  }
+  return row.scenario_id;
+}
+
+function groupRowsByRecordKind(rows) {
+  return {
+    startup: rows.filter((row) => (row.record_kind || "scenario_sample") === "startup_run"),
+    scenarios: rows.filter((row) => (row.record_kind || "scenario_sample") !== "startup_run"),
+  };
+}
+
 function renderTextReport(rows, summary) {
   const lines = ["==> host perf report", ""];
-  for (const row of rows) {
-    lines.push(
-      `- ${row.scenario_id}: ${row.status} [${row.baseline_source}] ${row.details.join("; ")}`
-    );
+  const groups = groupRowsByRecordKind(rows);
+  if (groups.startup.length > 0) {
+    lines.push("startup:");
+    for (const row of groups.startup) {
+      lines.push(`- ${rowLabel(row)}: ${row.status} [${row.baseline_source}] ${row.details.join("; ")}`);
+    }
+    lines.push("");
+  }
+  if (groups.scenarios.length > 0) {
+    lines.push("scenarios:");
+    for (const row of groups.scenarios) {
+      lines.push(`- ${rowLabel(row)}: ${row.status} [${row.baseline_source}] ${row.details.join("; ")}`);
+    }
   }
   lines.push("");
   lines.push(
@@ -573,12 +757,25 @@ function renderMarkdownReport(rows, summary) {
   const lines = [
     "## Host Perf Report",
     "",
-    "| Scenario | Status | Baseline | Details |",
+    "### Startup Runs",
+    "",
+    "| Startup | Status | Baseline | Details |",
     "|---|---|---|---|",
   ];
-  for (const row of rows) {
+  const groups = groupRowsByRecordKind(rows);
+  for (const row of groups.startup) {
     lines.push(
-      `| ${row.scenario_id} | ${row.status} | ${row.baseline_source} | ${row.details.join("<br>")} |`
+      `| ${rowLabel(row)} | ${row.status} | ${row.baseline_source} | ${row.details.join("<br>")} |`
+    );
+  }
+  lines.push("");
+  lines.push("### Scenarios");
+  lines.push("");
+  lines.push("| Scenario | Status | Baseline | Details |");
+  lines.push("|---|---|---|---|");
+  for (const row of groups.scenarios) {
+    lines.push(
+      `| ${rowLabel(row)} | ${row.status} | ${row.baseline_source} | ${row.details.join("<br>")} |`
     );
   }
   lines.push("");

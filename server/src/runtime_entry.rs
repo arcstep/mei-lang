@@ -307,7 +307,6 @@ async fn serve(args: ServeArgs) -> Result<()> {
         .with_state(state)
         .layer(middleware::from_fn(log_request));
     let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
-    crate::http::host_api::initialize_startup_readiness(source_root.as_path());
     let startup_policy = args.startup_policy.trim().to_ascii_lowercase();
     if startup_policy == "fail-fast-verify" {
         let verify_report = crate::http::host_api::verify_startup_artifacts(source_root.as_path())?;
@@ -320,6 +319,10 @@ async fn serve(args: ServeArgs) -> Result<()> {
             anyhow::bail!("host prebuild verify failed before bind:\n{summary}");
         }
     }
+    crate::http::host_api::initialize_startup_readiness(
+        source_root.as_path(),
+        startup_policy.as_str(),
+    );
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("serving MeiLang skeleton at http://{}", addr);
     crate::http::host_api::mark_host_bound();
