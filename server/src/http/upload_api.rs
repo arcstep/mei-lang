@@ -36,6 +36,9 @@ pub struct UploadDownloadQuery {
     pub path: String,
     #[serde(default)]
     pub inline: bool,
+    #[serde(default)]
+    pub match_basename: bool,
+    pub basename: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -655,8 +658,101 @@ fn upload_supports_inline_preview(path: &Path) -> bool {
             .and_then(|value| value.to_str())
             .map(str::to_ascii_lowercase)
             .as_deref(),
-        Some("pdf")
+        Some("pdf") | Some("mp4") | Some("webm") | Some("mov") | Some("m4v") | Some("png")
+            | Some("jpg") | Some("jpeg") | Some("webp") | Some("gif")
     )
+}
+
+fn upload_file_stem_matches_basename(file_name: &str, basename: &str) -> bool {
+    let stem = Path::new(file_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .trim();
+    let base = basename.trim();
+    if stem.is_empty() || base.is_empty() {
+        return false;
+    }
+    if stem == base {
+        return true;
+    }
+    stem.starts_with(&format!("{base}-")) || stem.starts_with(&format!("{base}."))
+}
+
+fn resolve_upload_file_by_basename(
+    upload_root: &Path,
+    dir_rel: &str,
+    basename: &str,
+) -> Result<PathBuf, AppError> {
+    let dir_rel = sanitize_upload_rel(dir_rel)?;
+    let canonical_root = canonical_upload_root(upload_root)?;
+    let dir_path = canonical_root.join(&dir_rel);
+    if !dir_path.is_dir() {
+        return Err(AppError::msg(format!(
+            "upload directory not found: {dir_rel}"
+        )));
+    }
+    let mut matches = Vec::new();
+    for entry in fs::read_dir(&dir_path)
+        .map_err(|error| AppError::msg(format!("failed to read upload directory: {error}")))?
+    {
+        let entry = entry
+            .map_err(|error| AppError::msg(format!("failed to read upload entry: {error}")))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if upload_file_stem_matches_basename(&file_name, basename) {
+            matches.push(path);
+        }
+    }
+    matches.sort();
+    matches.into_iter().next().ok_or_else(|| {
+        AppError::msg(format!(
+            "upload file not found for basename `{basename}` in `{dir_rel}`"
+        ))
+    })
+}
+
+fn resolve_upload_download_target(
+    upload_root: &Path,
+    query: &UploadDownloadQuery,
+) -> Result<PathBuf, AppError> {
+    let rel = sanitize_upload_rel(&query.path)?;
+    if !query.match_basename {
+        return resolve_existing_upload_file(upload_root, &rel);
+    }
+    if let Ok(path) = resolve_existing_upload_file(upload_root, &rel) {
+        return Ok(path);
+    }
+    let basename = query
+        .basename
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            Path::new(&rel)
+                .file_name()
+                .and_then(|value| value.to_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .ok_or_else(|| AppError::status(StatusCode::BAD_REQUEST, "basename required"))?;
+    let dir_rel = if query.basename.is_some() {
+        rel.trim_end_matches('/').to_string()
+    } else {
+        Path::new(&rel)
+            .parent()
+            .and_then(|value| value.to_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("")
+            .to_string()
+    };
+    resolve_upload_file_by_basename(upload_root, &dir_rel, &basename)
 }
 
 fn download_content_type(path: &Path) -> &'static str {
@@ -681,7 +777,7 @@ pub async fn upload_file_download_get(
 ) -> Result<Response, AppError> {
     let upload_root = resolve_upload_root(&state, &app_id)?;
     let rel = sanitize_upload_rel(&query.path)?;
-    let target = resolve_existing_upload_file(&upload_root, &rel)?;
+    let target = resolve_upload_download_target(&upload_root, &query)?;
     if target.is_dir() {
         return Err(AppError::status(
             StatusCode::BAD_REQUEST,
@@ -845,7 +941,8 @@ mod tests {
     use super::{
         ascii_content_disposition_filename, build_rename_target_rel,
         content_disposition_attachment, content_disposition_inline,
-        percent_encode_for_content_disposition, upload_supports_inline_preview,
+        percent_encode_for_content_disposition, upload_file_stem_matches_basename,
+        upload_supports_inline_preview,
     };
 
     #[test]
@@ -869,13 +966,39 @@ mod tests {
     }
 
     #[test]
-    fn upload_supports_inline_preview_only_for_pdf() {
+    fn upload_supports_inline_preview_for_media_and_pdf() {
         assert!(upload_supports_inline_preview(Path::new(
             "文件附件/demo.pdf"
+        )));
+        assert!(upload_supports_inline_preview(Path::new(
+            "videos/demo.mp4"
+        )));
+        assert!(upload_supports_inline_preview(Path::new(
+            "预警摘要图片/demo.png"
         )));
         assert!(!upload_supports_inline_preview(Path::new(
             "文件附件/demo.xlsx"
         )));
+    }
+
+    #[test]
+    fn upload_file_stem_matches_basename_ignores_suffix_variants() {
+        assert!(upload_file_stem_matches_basename(
+            "xzzf20251105_cgj_143859.mp4",
+            "xzzf20251105_cgj_143859"
+        ));
+        assert!(upload_file_stem_matches_basename(
+            "xzzf20251105_cgj_143859-1.png",
+            "xzzf20251105_cgj_143859"
+        ));
+        assert!(upload_file_stem_matches_basename(
+            "xzzf20251105_cgj_143859.jpg",
+            "xzzf20251105_cgj_143859"
+        ));
+        assert!(!upload_file_stem_matches_basename(
+            "other.mp4",
+            "xzzf20251105_cgj_143859"
+        ));
     }
 
     #[test]

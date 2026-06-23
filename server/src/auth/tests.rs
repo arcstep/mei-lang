@@ -220,6 +220,11 @@ fn host_capability_matrix_matches_role_and_authorize_path() {
             caps.authoring_agent,
         );
         assert_authorize_path("/api/ops/config/demo", &principal, caps.config_upload);
+        assert_authorize_path(
+            "/api/upload/download/demo",
+            &principal,
+            caps.access_view,
+        );
         assert_authorize_path("/api/upload/demo", &principal, caps.config_upload);
     }
 }

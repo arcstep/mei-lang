@@ -12624,6 +12624,8 @@
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
+      pageSceneId: nonEmptyString(detail?.page_scene_id),
+      pageSceneFile: nonEmptyString(detail?.page_scene_file),
       runtimeSceneId,
       runtimeSceneFile,
       boardSceneId,
@@ -13461,22 +13463,17 @@
       isPreviewOnlyMapping(config) ||
       isSheetDetailCardPreview(config) ||
       isTypicalCaseCardPreview(config);
+    const pageScenePath = nonEmptyString(detail?.page_scene_file, config?.pageSceneFile);
+    const pageSceneId = nonEmptyString(detail?.page_scene_id, config?.pageSceneId);
     const metricFetchConfig =
-      previewOnlyFetch &&
-      nonEmptyString(config?.hostSceneId, detail?.host_scene_id, config?.hostSceneFile, detail?.host_scene_file)
+      previewOnlyFetch && pageScenePath && pageSceneId
         ? {
             ...config,
             structuredBoard: false,
-            runtimeSceneId: nonEmptyString(
-              config?.hostSceneId,
-              detail?.host_scene_id,
-              detail?.__mei_runtime_ref?.scene_id,
-            ),
-            runtimeSceneFile: nonEmptyString(
-              config?.hostSceneFile,
-              detail?.host_scene_file,
-              detail?.__mei_runtime_ref?.scene_path,
-            ),
+            previewCompileAnchor: {
+              sceneId: pageSceneId,
+              scenePath: pageScenePath,
+            },
           }
         : config;
     const passedMetricId = resolvePopupPassedMetricId(detail, config);
@@ -14108,18 +14105,27 @@
       detail?.scene_path,
       config?.hostSceneFile,
     );
+    const previewAnchor = config?.previewCompileAnchor;
+    const resolvedSceneId = nonEmptyString(
+      previewAnchor?.sceneId,
+      sceneId,
+    );
+    const resolvedScenePath = nonEmptyString(
+      previewAnchor?.scenePath,
+      ownerScenePath,
+    );
     const runtimeRef = metricId
       ? {
           kind: "metric",
-          scene_id: sceneId,
-          scene_path: ownerScenePath,
+          scene_id: resolvedSceneId,
+          scene_path: resolvedScenePath,
           dataset_id: datasetId,
           metric_id: metricId,
         }
       : {
           kind: "data",
-          scene_id: sceneId,
-          scene_path: ownerScenePath,
+          scene_id: resolvedSceneId,
+          scene_path: resolvedScenePath,
           dataset_id: datasetId,
         };
     const columns = Array.isArray(config?.columns) ? config.columns : [];
@@ -14212,9 +14218,9 @@
             scene_qualified: true,
           },
         },
-        active_scene_id: sceneId,
-        active_target_file: ownerScenePath,
-        entry_target: ownerScenePath,
+        active_scene_id: resolvedSceneId,
+        active_target_file: resolvedScenePath,
+        entry_target: resolvedScenePath,
       },
       query_state: queryStateId || undefined,
     };
@@ -15800,6 +15806,13 @@
     if (options.inline) {
       params.set("inline", "true");
     }
+    if (options.matchBasename) {
+      params.set("match_basename", "true");
+      const basename = String(options.basename || "").trim();
+      if (basename) {
+        params.set("basename", basename);
+      }
+    }
     return `/api/upload/download/${encodeURIComponent(app)}?${params.toString()}`;
   }
 
@@ -15905,6 +15918,37 @@
     host.appendChild(panel);
   }
 
+  function resolveVideoPreviewSectionTitle(mapping, fallback = "视频预览") {
+    const text = String(
+      mapping?.video_section_title || mapping?.videoSectionTitle || fallback,
+    ).trim();
+    return text || fallback;
+  }
+
+  function resolveSummaryImageSectionTitle(mapping, fallback = "预警列表") {
+    const text = String(
+      mapping?.summary_image_section_title || mapping?.summaryImageSectionTitle || fallback,
+    ).trim();
+    return text || fallback;
+  }
+
+  function resolveSummaryImagePreviewUrl(row, mapping) {
+    if (!row || typeof row !== "object" || !mapping || typeof mapping !== "object") return "";
+    const dir = String(
+      mapping?.summary_image_dir || mapping?.summaryImageDir || "预警摘要图片",
+    ).trim();
+    const idField = String(
+      mapping?.summary_image_id_field || mapping?.summaryImageIdField || "视频编号",
+    ).trim();
+    const videoId = resolveCaseDetailFieldValue(row, { field: idField });
+    if (!dir || !videoId) return "";
+    return resolveUploadDownloadUrl(
+      mapping?.upload_app_id || mapping?.uploadAppId,
+      dir,
+      { inline: true, matchBasename: true, basename: videoId },
+    );
+  }
+
   function resolveVideoPreviewPath(row, mapping) {
     if (!row || typeof row !== "object" || !mapping || typeof mapping !== "object") return "";
     const pathField = String(mapping?.video_path_field || mapping?.videoPathField || "视频路径").trim();
@@ -15918,14 +15962,12 @@
     return `${prefix}${videoId}${suffix}`;
   }
 
-  function resolveVideoSubtitlePlaceholder(mapping) {
-    const text = String(
-      mapping?.subtitle_placeholder || mapping?.subtitlePlaceholder || "暂无字幕",
-    ).trim();
-    return text || "暂无字幕";
-  }
 
-  function createVideoSubtitleCockpitShell({ title = "视频预览", idle = false } = {}) {
+  function createVideoSubtitleCockpitShell({
+    title = "视频预览",
+    summaryTitle = "预警列表",
+    idle = false,
+  } = {}) {
     const panel = document.createElement("div");
     panel.className = "access-drilldown-video-cockpit-panel";
     if (idle) {
@@ -15941,17 +15983,17 @@
     videoFrame.className = "access-drilldown-video-cockpit-video-frame";
     videoSection.appendChild(videoFrame);
     const subtitleSection = document.createElement("section");
-    subtitleSection.className = "access-drilldown-video-cockpit-subtitle";
+    subtitleSection.className = "access-drilldown-video-cockpit-subtitle access-drilldown-video-cockpit-summary-image";
     const subtitleTitle = document.createElement("div");
     subtitleTitle.className = "access-drilldown-video-cockpit-section-title";
-    subtitleTitle.textContent = "音频文字内容";
+    subtitleTitle.textContent = summaryTitle;
     subtitleSection.appendChild(subtitleTitle);
     const subtitleBody = document.createElement("div");
-    subtitleBody.className = "access-drilldown-video-cockpit-subtitle-body";
+    subtitleBody.className = "access-drilldown-video-cockpit-subtitle-body access-drilldown-video-cockpit-summary-image-body";
     subtitleSection.appendChild(subtitleBody);
     panel.appendChild(videoSection);
     panel.appendChild(subtitleSection);
-    return { panel, videoFrame, subtitleBody, videoTitle };
+    return { panel, videoFrame, subtitleBody, videoTitle, subtitleTitle };
   }
 
   function appendVideoCockpitPlaceholder(frame, text, { hint = false } = {}) {
@@ -15965,6 +16007,27 @@
     return placeholder;
   }
 
+  function renderSummaryImagePreview(subtitleBody, row, mapping) {
+    if (!(subtitleBody instanceof HTMLElement)) return;
+    subtitleBody.replaceChildren();
+    const src = resolveSummaryImagePreviewUrl(row, mapping);
+    if (!src) {
+      subtitleBody.textContent = "暂无预警摘要图片";
+      return;
+    }
+    const image = document.createElement("img");
+    image.className = "access-drilldown-video-cockpit-summary-image-img";
+    image.alt = "预警摘要图片";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.src = src;
+    image.addEventListener("error", () => {
+      subtitleBody.replaceChildren();
+      appendVideoCockpitPlaceholder(subtitleBody, "预警摘要图片加载失败");
+    });
+    subtitleBody.appendChild(image);
+  }
+
   function renderVideoSubtitleCockpitPanel(host, row, config) {
     if (!(host instanceof HTMLElement)) return;
     host.replaceChildren();
@@ -15976,9 +16039,12 @@
       host.appendChild(empty);
       return;
     }
+    const videoSectionTitle = resolveVideoPreviewSectionTitle(mapping);
+    const summarySectionTitle = resolveSummaryImageSectionTitle(mapping);
     if (!row || typeof row !== "object") {
       const { panel, videoFrame, subtitleBody } = createVideoSubtitleCockpitShell({
-        title: "视频预览",
+        title: videoSectionTitle,
+        summaryTitle: summarySectionTitle,
         idle: true,
       });
       appendVideoCockpitPlaceholder(
@@ -15986,7 +16052,7 @@
         "请选择预警记录或上传视频",
         { hint: true },
       );
-      subtitleBody.textContent = resolveVideoSubtitlePlaceholder(mapping);
+      subtitleBody.textContent = "请选择预警记录查看摘要图片";
       host.appendChild(panel);
       return;
     }
@@ -15994,11 +16060,17 @@
       field: mapping?.title_field || mapping?.titleField || "视频编号",
       fallback_fields: mapping?.title_fallback_fields || mapping?.titleFallbackFields,
     });
-    const { panel, videoFrame, subtitleBody, videoTitle } = createVideoSubtitleCockpitShell({
-      title: titleText || "视频预览",
+    const { panel, videoFrame, subtitleBody, videoTitle, subtitleTitle } = createVideoSubtitleCockpitShell({
+      title: videoSectionTitle,
+      summaryTitle: summarySectionTitle,
     });
-    if (videoTitle instanceof HTMLElement && titleText) {
-      videoTitle.textContent = titleText;
+    if (videoTitle instanceof HTMLElement) {
+      videoTitle.textContent = titleText
+        ? `${videoSectionTitle} · ${titleText}`
+        : videoSectionTitle;
+    }
+    if (subtitleTitle instanceof HTMLElement) {
+      subtitleTitle.textContent = summarySectionTitle;
     }
     const relPath = resolveVideoPreviewPath(row, mapping);
     const src = resolveUploadDownloadUrl(
@@ -16016,9 +16088,13 @@
       video.playsInline = true;
       video.src = src;
       video.title = titleText || "执法视频预览";
+      video.addEventListener("error", () => {
+        videoFrame.replaceChildren();
+        appendVideoCockpitPlaceholder(videoFrame, "视频加载失败，请确认已登录且有访问权限");
+      });
       videoFrame.appendChild(video);
     }
-    subtitleBody.textContent = resolveVideoSubtitlePlaceholder(mapping);
+    renderSummaryImagePreview(subtitleBody, row, mapping);
     host.appendChild(panel);
   }
 

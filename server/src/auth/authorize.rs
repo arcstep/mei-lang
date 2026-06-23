@@ -230,6 +230,12 @@ pub(crate) fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()
             anyhow::bail!("app `{app_id}` is not in guest allowlist");
         }
     }
+    if path.starts_with("/api/upload/download/") {
+        if !caps.access_view {
+            anyhow::bail!("current role cannot access upload media");
+        }
+        return Ok(());
+    }
     if path.starts_with("/api/ops/") || path.starts_with("/api/upload/") {
         if !caps.config_upload {
             anyhow::bail!("current role cannot access write api");

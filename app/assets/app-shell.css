@@ -2187,6 +2187,22 @@ body > .mei-floating-text-pop-backdrop {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.access-drilldown-video-cockpit-summary-image-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  white-space: normal;
+}
+.access-drilldown-video-cockpit-summary-image-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+}
 .access-drilldown-video-cockpit-empty {
   display: flex;
   align-items: center;

@@ -104,6 +104,10 @@ pub(crate) fn content_type_for_path(path: &Path) -> &'static str {
         Some("webp") => "image/webp",
         Some("gif") => "image/gif",
         Some("ico") => "image/x-icon",
+        Some("mp4") => "video/mp4",
+        Some("webm") => "video/webm",
+        Some("mov") => "video/quicktime",
+        Some("m4v") => "video/x-m4v",
         _ => "text/plain; charset=utf-8",
     }
 }

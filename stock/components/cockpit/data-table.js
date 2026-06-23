@@ -393,6 +393,16 @@ function resolveColumnTemplate(props, keys, descriptors) {
 }
 
 function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displayOverride, toneClass = "") {
+  const format = descriptor?.format || {};
+  const formatType = String(format?.type || descriptor?.type || "").trim().toLowerCase();
+  if (formatType === "action") {
+    const label = String(format.label || descriptor.label || descriptor.key || "操作").trim();
+    const disabled = format.disabled !== false && format.interactive !== true;
+    const disabledAttr = disabled ? ' disabled aria-disabled="true"' : "";
+    return `<button type="button" class="cell-action-link${disabled ? " is-disabled" : ""}" data-action-column="${escapeAttr(
+      descriptor.key,
+    )}"${disabledAttr}>${escapeHtml(label)}</button>`;
+  }
   const cell = renderFormattedCellHtml(raw, descriptor, rowIndex, textMap, props, displayOverride);
   const previewKey = `${rowIndex}::${descriptor.key}`;
   const previewAttrs = ` data-cell-preview-key="${escapeAttr(previewKey)}" data-r="${rowIndex}" data-c="${escapeAttr(
@@ -1225,6 +1235,25 @@ export class MeiCockpitDataTable extends HTMLElement {
           text-overflow: ellipsis;
           white-space: nowrap;
           vertical-align: middle;
+        }
+        .cell-action-link {
+          display: inline-flex;
+          align-items: center;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: ${color("text_accent")};
+          font: inherit;
+          line-height: 1.35;
+          cursor: pointer;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+        .cell-action-link.is-disabled,
+        .cell-action-link:disabled {
+          opacity: 0.72;
+          cursor: default;
+          text-decoration: none;
         }
         .empty {
           padding: 24px 10px;
