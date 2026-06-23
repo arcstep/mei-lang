@@ -893,6 +893,10 @@ pub struct PrebuildTimingReport {
     pub data_snapshots_ms: u64,
     pub scope_artifacts_ms: u64,
     pub warmup_requests_ms: u64,
+    pub critical_warmup_requests_ms: u64,
+    pub deferred_warmup_requests_ms: u64,
+    pub critical_warmup_request_count: usize,
+    pub deferred_warmup_request_count: usize,
     pub max_parallelism: usize,
 }
 
@@ -1028,7 +1032,14 @@ struct CompileScope {
 struct AggregatedWarmupRequest {
     scope: CompileScope,
     dataset_id: String,
+    priority: WarmupRequestPriority,
     metric_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum WarmupRequestPriority {
+    Critical,
+    Deferred,
 }
 
 impl CompileScope {
@@ -1919,46 +1930,77 @@ fn run_prebuild_for_app(
                 .any(|prepared| warmup_request_matches_outcome(request, &prepared.outcome))
         })
         .collect::<Vec<_>>();
-    let warmup_started = Instant::now();
-    let warmup_results =
-        run_limited_parallel_ordered(warmup_requests_to_run, max_parallelism, |request| {
-            let scope = request.scope.clone();
-            let mut local_coverage = PrebuildCoverageReport::default();
-            let result = ensure_warmup_dataset_request_artifacts(
-                source_root,
-                app.app_id.as_str(),
-                app_root.as_path(),
-                request,
-                mode,
-                components_root.as_path(),
-                &mut local_coverage,
-                &coverage_state,
-            );
-            (scope, request.dataset_id.clone(), result, local_coverage)
-        });
-    for (scope, dataset_id, result, local_coverage) in warmup_results {
-        let scope = CompileScope {
-            requested_scene_id: scope.requested_scene_id.clone(),
-            requested_target_file: scope.requested_target_file.clone(),
-        };
-        if let Err(error) = result {
-            if mode == PrebuildMode::Verify {
-                return Err(error);
-            }
-            warnings.push(format!(
-                "warmup request scene=`{}` target=`{}` dataset=`{}` failed: {error}",
-                scope.requested_scene_id.as_deref().unwrap_or(""),
-                scope.requested_target_file.as_deref().unwrap_or(""),
-                dataset_id,
-            ));
-        } else {
-            merge_coverage(&mut coverage, &local_coverage);
+    let mut critical_warmup_requests = Vec::new();
+    let mut deferred_warmup_requests = Vec::new();
+    for request in warmup_requests_to_run {
+        match request.priority {
+            WarmupRequestPriority::Critical => critical_warmup_requests.push(request),
+            WarmupRequestPriority::Deferred => deferred_warmup_requests.push(request),
         }
     }
+    let critical_warmup_request_count = critical_warmup_requests.len();
+    let deferred_warmup_request_count = deferred_warmup_requests.len();
+    let run_and_merge_warmup = |label: &str,
+                                requests: &[&AggregatedWarmupRequest],
+                                warnings: &mut Vec<String>,
+                                coverage: &mut PrebuildCoverageReport|
+     -> Result<u64> {
+        if requests.is_empty() {
+            return Ok(0);
+        }
+        prebuild_emit_progress(&format!(
+            "[{}] ── 3/3 warmup {label} ── {} requests ──",
+            app.app_id,
+            requests.len()
+        ));
+        let started = Instant::now();
+        let results = run_warmup_request_batch(
+            source_root,
+            app.app_id.as_str(),
+            app_root.as_path(),
+            mode,
+            components_root.as_path(),
+            &coverage_state,
+            requests,
+            max_parallelism,
+        );
+        for (scope, dataset_id, result, local_coverage) in results {
+            let scope = CompileScope {
+                requested_scene_id: scope.requested_scene_id.clone(),
+                requested_target_file: scope.requested_target_file.clone(),
+            };
+            if let Err(error) = result {
+                if mode == PrebuildMode::Verify {
+                    return Err(error);
+                }
+                warnings.push(format!(
+                    "warmup {label} scene=`{}` target=`{}` dataset=`{}` failed: {error}",
+                    scope.requested_scene_id.as_deref().unwrap_or(""),
+                    scope.requested_target_file.as_deref().unwrap_or(""),
+                    dataset_id,
+                ));
+            } else {
+                merge_coverage(coverage, &local_coverage);
+            }
+        }
+        Ok(started.elapsed().as_millis() as u64)
+    };
+    let critical_warmup_requests_ms = run_and_merge_warmup(
+        "critical",
+        critical_warmup_requests.as_slice(),
+        &mut warnings,
+        &mut coverage,
+    )?;
+    let deferred_warmup_requests_ms = run_and_merge_warmup(
+        "deferred",
+        deferred_warmup_requests.as_slice(),
+        &mut warnings,
+        &mut coverage,
+    )?;
     coverage_state.clear();
     let _ = mei_lang_datasets::clear_all_metric_caches();
     let _ = mei_lang_kernel::clear_runtime_eval_node_cache();
-    let warmup_requests_ms = warmup_started.elapsed().as_millis() as u64;
+    let warmup_requests_ms = critical_warmup_requests_ms + deferred_warmup_requests_ms;
     if let Err(error) =
         mei_lang_datasets::preload_prebuild_metric_response_index(app_root.as_path())
     {
@@ -1989,6 +2031,10 @@ fn run_prebuild_for_app(
             data_snapshots_ms,
             scope_artifacts_ms,
             warmup_requests_ms,
+            critical_warmup_requests_ms,
+            deferred_warmup_requests_ms,
+            critical_warmup_request_count,
+            deferred_warmup_request_count,
             max_parallelism,
         },
         data_snapshots,
@@ -2203,10 +2249,12 @@ fn aggregate_warmup_requests(
             requested_target_file: request.focus.clone(),
         }
         .canonicalized();
+        let priority = warmup_request_priority(app, request);
         let metric_ids = requested_metric_ids(request);
         let request_all_metrics = metric_ids.is_empty();
         let key = format!("{}|{}", scope.key(), request.dataset_id.trim());
         if let Some(entry) = aggregated.get_mut(&key) {
+            entry.priority = entry.priority.min(priority);
             if request_all_metrics || entry.metric_ids.is_empty() {
                 entry.metric_ids.clear();
             } else {
@@ -2221,11 +2269,58 @@ fn aggregate_warmup_requests(
             AggregatedWarmupRequest {
                 scope,
                 dataset_id: request.dataset_id.trim().to_string(),
+                priority,
                 metric_ids,
             },
         );
     }
     aggregated.into_values().collect()
+}
+
+fn explicit_warmup_request_priority(
+    request: &RuntimeWarmupDatasetRequest,
+) -> Option<WarmupRequestPriority> {
+    match request.priority.as_deref().map(str::trim) {
+        Some("critical" | "hot") => Some(WarmupRequestPriority::Critical),
+        Some("deferred" | "heavy" | "full") => Some(WarmupRequestPriority::Deferred),
+        _ => None,
+    }
+}
+
+fn warmup_request_priority(
+    app: &RuntimeWarmupApp,
+    request: &RuntimeWarmupDatasetRequest,
+) -> WarmupRequestPriority {
+    if let Some(priority) = explicit_warmup_request_priority(request) {
+        return priority;
+    }
+    let hot_scenes = hot_scene_ids(app);
+    let explicit_focuses = explicit_focus_targets(app);
+    let request_scene = request
+        .scene_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(scene_id) = request_scene {
+        return if hot_scenes.iter().any(|value| value == scene_id) {
+            WarmupRequestPriority::Critical
+        } else {
+            WarmupRequestPriority::Deferred
+        };
+    }
+    let request_focus = request
+        .focus
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(focus) = request_focus {
+        return if explicit_focuses.iter().any(|value| value == focus) {
+            WarmupRequestPriority::Critical
+        } else {
+            WarmupRequestPriority::Deferred
+        };
+    }
+    WarmupRequestPriority::Critical
 }
 
 fn warmup_dataset_request_in_profile(
@@ -2236,25 +2331,7 @@ fn warmup_dataset_request_in_profile(
     if scope_profile == PrebuildScopeProfile::Full {
         return true;
     }
-    let hot_scenes = hot_scene_ids(app);
-    let explicit_focuses = explicit_focus_targets(app);
-    let request_scene = request
-        .scene_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(scene_id) = request_scene {
-        return hot_scenes.iter().any(|value| value == scene_id);
-    }
-    let request_focus = request
-        .focus
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(focus) = request_focus {
-        return explicit_focuses.iter().any(|value| value == focus);
-    }
-    true
+    warmup_request_priority(app, request) == WarmupRequestPriority::Critical
 }
 
 pub(crate) fn app_has_deferred_warmup_work(app: &RuntimeWarmupApp) -> bool {
@@ -2307,6 +2384,33 @@ fn matching_warmup_requests_for_outcome<'a>(
         .iter()
         .filter(|request| warmup_request_matches_outcome(request, outcome))
         .collect()
+}
+
+fn run_warmup_request_batch(
+    source_root: &Path,
+    app_id: &str,
+    app_root: &Path,
+    mode: PrebuildMode,
+    components_root: &Path,
+    coverage_state: &CoverageState,
+    requests: &[&AggregatedWarmupRequest],
+    max_parallelism: usize,
+) -> Vec<(CompileScope, String, Result<()>, PrebuildCoverageReport)> {
+    run_limited_parallel_ordered(requests.to_vec(), max_parallelism, |request| {
+        let scope = request.scope.clone();
+        let mut local_coverage = PrebuildCoverageReport::default();
+        let result = ensure_warmup_dataset_request_artifacts(
+            source_root,
+            app_id,
+            app_root,
+            request,
+            mode,
+            components_root,
+            &mut local_coverage,
+            coverage_state,
+        );
+        (scope, request.dataset_id.clone(), result, local_coverage)
+    })
 }
 
 fn compile_scope_specificity(scope: &CompileScope) -> u8 {
@@ -4530,6 +4634,7 @@ mod tests {
                 scene_id: Some("details".to_string()),
                 focus: Some("scenes/details.mei".to_string()),
                 dataset_id: "demo_ds".to_string(),
+                priority: None,
                 metric_id: None,
                 metric_ids: Vec::new(),
             }],
@@ -4562,6 +4667,7 @@ mod tests {
                     scene_id: Some("dashboard".to_string()),
                     focus: Some("main.mei".to_string()),
                     dataset_id: "hot_ds".to_string(),
+                    priority: None,
                     metric_id: None,
                     metric_ids: Vec::new(),
                 },
@@ -4569,6 +4675,7 @@ mod tests {
                     scene_id: Some("details".to_string()),
                     focus: Some("scenes/details.mei".to_string()),
                     dataset_id: "deferred_ds".to_string(),
+                    priority: None,
                     metric_id: None,
                     metric_ids: Vec::new(),
                 },
@@ -4602,6 +4709,7 @@ mod tests {
                     scene_id: Some("dashboard".to_string()),
                     focus: Some("main.mei".to_string()),
                     dataset_id: "hot_ds".to_string(),
+                    priority: None,
                     metric_id: Some("metric_a".to_string()),
                     metric_ids: Vec::new(),
                 },
@@ -4609,6 +4717,7 @@ mod tests {
                     scene_id: Some("details".to_string()),
                     focus: Some("scenes/details.mei".to_string()),
                     dataset_id: "deferred_ds".to_string(),
+                    priority: None,
                     metric_id: Some("metric_b".to_string()),
                     metric_ids: Vec::new(),
                 },
@@ -4634,6 +4743,7 @@ mod tests {
                 scene_id: Some("home".to_string()),
                 focus: None,
                 dataset_id: "__world_metrics__::scenes/05-监督预警.mei::metrics".to_string(),
+                priority: None,
                 metric_id: None,
                 metric_ids: Vec::new(),
             }],
@@ -4651,6 +4761,7 @@ mod tests {
             scene_id: Some("home".to_string()),
             focus: None,
             dataset_id: "demo_ds".to_string(),
+            priority: None,
             metric_id: Some("total".to_string()),
             metric_ids: vec!["delta".to_string(), "total".to_string()],
         };
@@ -4659,6 +4770,40 @@ mod tests {
             requested_metric_ids(&request),
             vec!["delta".to_string(), "total".to_string()]
         );
+    }
+
+    #[test]
+    fn hot_only_warmup_requests_respect_explicit_deferred_priority() {
+        let app = RuntimeWarmupApp {
+            app_id: "demo".to_string(),
+            default_scene: Some("home".to_string()),
+            hot_scenes: vec!["home".to_string()],
+            scenes: vec!["home".to_string()],
+            focuses: vec!["main.mei".to_string()],
+            datasets: vec![
+                RuntimeWarmupDatasetRequest {
+                    scene_id: Some("home".to_string()),
+                    focus: Some("main.mei".to_string()),
+                    dataset_id: "critical_ds".to_string(),
+                    priority: Some("critical".to_string()),
+                    metric_id: Some("metric_a".to_string()),
+                    metric_ids: Vec::new(),
+                },
+                RuntimeWarmupDatasetRequest {
+                    scene_id: Some("home".to_string()),
+                    focus: Some("main.mei".to_string()),
+                    dataset_id: "heavy_ds".to_string(),
+                    priority: Some("deferred".to_string()),
+                    metric_id: Some("metric_b".to_string()),
+                    metric_ids: Vec::new(),
+                },
+            ],
+            xlsx_sources: Vec::new(),
+        };
+        let requests = aggregate_warmup_requests(&app, PrebuildScopeProfile::HotOnly);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].dataset_id, "critical_ds");
+        assert_eq!(requests[0].priority, WarmupRequestPriority::Critical);
     }
 
     #[test]
@@ -4813,6 +4958,7 @@ mod tests {
                 requested_target_file: None,
             },
             dataset_id: "penalty_result_dashboard_ds".to_string(),
+            priority: WarmupRequestPriority::Critical,
             metric_ids: vec!["penalties_total_count::__scalar_rowset__".to_string()],
         };
         let outcome = test_outcome("home", "scenes/home.mei");

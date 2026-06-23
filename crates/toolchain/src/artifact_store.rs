@@ -59,6 +59,8 @@ pub struct ArtifactWatchedFile {
     pub rel_path: String,
     pub modified_ms: u128,
     pub size_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_signature: Option<String>,
 }
 
 impl From<&CompileWatchedFile> for ArtifactWatchedFile {
@@ -67,6 +69,7 @@ impl From<&CompileWatchedFile> for ArtifactWatchedFile {
             rel_path: value.rel_path.clone(),
             modified_ms: value.modified_ms,
             size_bytes: value.size_bytes,
+            content_signature: value.content_signature.clone(),
         }
     }
 }

@@ -1,5 +1,5 @@
 mod access_gate;
-mod compile;
+pub(super) mod compile;
 mod light_pages;
 mod render;
 
@@ -381,10 +381,14 @@ pub async fn app_page(
         discover_ms,
         app_started,
     );
-    let compile_outcome = match compile_resolution {
+    let resolved_compile = match compile_resolution {
         CompileResolution::EarlyResponse(response) => return Ok(response),
         CompileResolution::Outcome(outcome) => outcome,
     };
+    let compile::ResolvedCompileOutcome {
+        outcome: compile_outcome,
+        feedback: compile_feedback,
+    } = resolved_compile;
     if let Some(response) = check_access_scene_gate(
         route_mode,
         &app_id,
@@ -424,6 +428,7 @@ pub async fn app_page(
         &cache_validation,
         cache_lookup_ms,
         compile_ms,
+        &compile_feedback,
         access_static_file.as_deref(),
         access_path_scene.as_deref(),
         manage_file.as_deref(),

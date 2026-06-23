@@ -183,11 +183,22 @@ fn normalize_warmup_dataset_requests(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+        let priority = request
+            .priority
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| match value.to_ascii_lowercase().as_str() {
+                "hot" => "critical".to_string(),
+                "full" => "deferred".to_string(),
+                other => other.to_string(),
+            });
         let dedupe_key = format!(
-            "{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}",
             scene_id.as_deref().unwrap_or(""),
             focus.as_deref().unwrap_or(""),
             dataset_id,
+            priority.as_deref().unwrap_or(""),
             metric_id.as_deref().unwrap_or(""),
             serde_json::to_string(&metric_ids).unwrap_or_default()
         );
@@ -197,6 +208,7 @@ fn normalize_warmup_dataset_requests(
         normalized.push(RuntimeWarmupDatasetRequest {
             scene_id,
             dataset_id: dataset_id.to_string(),
+            priority,
             metric_id,
             metric_ids,
             focus,
@@ -304,6 +316,7 @@ mod tests {
         let requests = normalize_warmup_dataset_requests(&[WorkspaceWarmupDatasetConfig {
             scene_id: Some("home".to_string()),
             dataset_id: "warning_list".to_string(),
+            priority: None,
             metric_id: Some("case_total".to_string()),
             metric_ids: vec!["case_delta".to_string(), "case_total".to_string()],
             focus: Some("main.mei".to_string()),
@@ -321,12 +334,37 @@ mod tests {
         let requests = normalize_warmup_dataset_requests(&[WorkspaceWarmupDatasetConfig {
             scene_id: Some("home".to_string()),
             dataset_id: "warning_list".to_string(),
+            priority: None,
             metric_id: Some("case_total".to_string()),
             metric_ids: Vec::new(),
             focus: None,
         }]);
         assert_eq!(requests.len(), 1);
         assert!(requests[0].focus.is_none());
+    }
+
+    #[test]
+    fn dataset_requests_normalize_priority_aliases() {
+        let requests = normalize_warmup_dataset_requests(&[
+            WorkspaceWarmupDatasetConfig {
+                scene_id: Some("home".to_string()),
+                dataset_id: "warning_list".to_string(),
+                priority: Some("hot".to_string()),
+                metric_id: None,
+                metric_ids: Vec::new(),
+                focus: None,
+            },
+            WorkspaceWarmupDatasetConfig {
+                scene_id: Some("home".to_string()),
+                dataset_id: "warning_detail".to_string(),
+                priority: Some("full".to_string()),
+                metric_id: None,
+                metric_ids: Vec::new(),
+                focus: None,
+            },
+        ]);
+        assert_eq!(requests[0].priority.as_deref(), Some("critical"));
+        assert_eq!(requests[1].priority.as_deref(), Some("deferred"));
     }
 
     #[test]

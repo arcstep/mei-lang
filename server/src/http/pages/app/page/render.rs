@@ -21,8 +21,8 @@ use crate::AppState;
 
 use crate::http::pages::app::page_cache::{page_render_cache_key, render_page_template_with_cache};
 use crate::http::pages::app::page_render::{
-    insert_manage_compile_observability_headers, insert_manage_compile_request_headers,
-    insert_page_render_cache_hit_header,
+    insert_compile_feedback_headers, insert_manage_compile_observability_headers,
+    insert_manage_compile_request_headers, insert_page_render_cache_hit_header,
 };
 use crate::http::pages::app::query::AppQuery;
 use crate::http::pages::app::scene::{
@@ -50,6 +50,7 @@ pub(super) fn render_compiled_success(
     compile_cache_validation: &str,
     compile_cache_lookup_ms: u64,
     compile_ms: u64,
+    compile_feedback: &super::compile::CompileFeedbackMetadata,
     access_static_file: Option<&str>,
     access_path_scene: Option<&str>,
     manage_file: Option<&str>,
@@ -370,6 +371,7 @@ pub(super) fn render_compiled_success(
             compile_ms,
         },
     );
+    insert_compile_feedback_headers(&mut res, compile_feedback);
     tracing::info!(
         app_id = %app_id,
         route_mode = route_mode.slug(),

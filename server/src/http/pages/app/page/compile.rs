@@ -12,7 +12,7 @@ use mei_lang_kernel::{CompileOptions, WorkspaceAppMeta};
 use crate::AppState;
 
 use crate::http::compile_cache::{
-    compile_app_with_cache, load_compile_artifact_only, CompileWithCacheOutcome,
+    compile_app_with_cache, CompileWithCacheOutcome,
 };
 use crate::http::host_api;
 use crate::http::host_error_page::{self, HostShellAction};
@@ -22,8 +22,156 @@ use crate::http::pages::app::compiling_shell::{
 use crate::http::pages::app::query::AppQuery;
 
 pub(super) enum CompileResolution {
-    Outcome(CompileWithCacheOutcome),
+    Outcome(ResolvedCompileOutcome),
     EarlyResponse(Response),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CompileFeedbackMetadata {
+    pub path: &'static str,
+    pub reason: &'static str,
+    pub scope_kind: &'static str,
+    pub diagnostic_error_count: usize,
+}
+
+pub(super) struct ResolvedCompileOutcome {
+    pub outcome: CompileWithCacheOutcome,
+    pub feedback: CompileFeedbackMetadata,
+}
+
+fn compile_feedback_scope_kind(options: &CompileOptions) -> &'static str {
+    let has_scene = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    let has_target = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty());
+    match (has_scene, has_target) {
+        (true, true) => "scene_target",
+        (true, false) => "scene_only",
+        (false, true) => "target_only",
+        (false, false) => "full_app",
+    }
+}
+
+fn compile_options_equal(left: &CompileOptions, right: &CompileOptions) -> bool {
+    left.scene.as_deref().map(str::trim) == right.scene.as_deref().map(str::trim)
+        && left.preview_target.as_deref().map(str::trim)
+            == right.preview_target.as_deref().map(str::trim)
+}
+
+fn compile_feedback(
+    path: &'static str,
+    reason: &'static str,
+    options: &CompileOptions,
+    diagnostic_error_count: usize,
+) -> CompileFeedbackMetadata {
+    CompileFeedbackMetadata {
+        path,
+        reason,
+        scope_kind: compile_feedback_scope_kind(options),
+        diagnostic_error_count,
+    }
+}
+
+fn resolve_artifact_scene_hint_options(
+    app_id: &str,
+    compile_options: &CompileOptions,
+    access_path_scene: Option<&str>,
+) -> Option<CompileOptions> {
+    if compile_options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return None;
+    }
+    let scene_hint = compile_options
+        .scene
+        .as_deref()
+        .or(access_path_scene)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let target_hint = host_api::access_scene_target_hint(app_id, scene_hint)?;
+    Some(CompileOptions {
+        scene: Some(scene_hint.to_string()),
+        preview_target: Some(target_hint),
+    })
+}
+
+fn preferred_build_options(
+    app_id: &str,
+    compile_options: &CompileOptions,
+    access_path_scene: Option<&str>,
+) -> (CompileOptions, &'static str) {
+    if let Some(options) =
+        resolve_artifact_scene_hint_options(app_id, compile_options, access_path_scene)
+    {
+        return (options, "scene_target_hint");
+    }
+    let reason = match compile_feedback_scope_kind(compile_options) {
+        "scene_target" => "requested_scope",
+        "scene_only" => "scene_only",
+        "target_only" => "target_only",
+        _ => "full_app",
+    };
+    (compile_options.clone(), reason)
+}
+
+fn resolved_artifact_feedback(
+    state: &AppState,
+    app_id: &str,
+    options: &CompileOptions,
+    path: &'static str,
+) -> Option<ResolvedCompileOutcome> {
+    let feedback = host_api::inspect_scoped_artifact(
+        state,
+        app_id,
+        options.scene.clone(),
+        options.preview_target.clone(),
+    );
+    let diagnostic_error_count = feedback.diagnostic_error_count;
+    let reason = feedback.status.as_str();
+    host_api::record_scoped_compile_feedback(
+        app_id,
+        options.scene.as_deref(),
+        options.preview_target.as_deref(),
+        &feedback,
+    );
+    let outcome = feedback.outcome?;
+    Some(ResolvedCompileOutcome {
+        outcome,
+        feedback: compile_feedback(path, reason, options, diagnostic_error_count),
+    })
+}
+
+fn resolved_build_feedback(
+    app_id: &str,
+    options: &CompileOptions,
+    path: &'static str,
+    reason: &'static str,
+    outcome: CompileWithCacheOutcome,
+) -> ResolvedCompileOutcome {
+    let feedback = host_api::summarize_scoped_compile_feedback(outcome);
+    let diagnostic_error_count = feedback.diagnostic_error_count;
+    host_api::record_scoped_compile_feedback(
+        app_id,
+        options.scene.as_deref(),
+        options.preview_target.as_deref(),
+        &feedback,
+    );
+    let outcome = feedback
+        .outcome
+        .expect("scoped compile feedback must keep compile outcome");
+    ResolvedCompileOutcome {
+        outcome,
+        feedback: compile_feedback(path, reason, options, diagnostic_error_count),
+    }
 }
 
 pub(super) fn maybe_handle_compile_bootstrap_probe(
@@ -32,8 +180,8 @@ pub(super) fn maybe_handle_compile_bootstrap_probe(
     app_id: &str,
     query: &AppQuery,
     compile_options: &CompileOptions,
-    components_root: &std::path::Path,
-    _access_path_scene: Option<&str>,
+    _components_root: &std::path::Path,
+    access_path_scene: Option<&str>,
 ) -> Option<Response> {
     if !compile_bootstrap_route_supported(route_mode) {
         return None;
@@ -41,11 +189,33 @@ pub(super) fn maybe_handle_compile_bootstrap_probe(
     if !compile_bootstrap_probe_requested(query) {
         return None;
     }
-    let ready =
-        load_compile_artifact_only(state, app_id, compile_options, components_root).is_some();
+    let feedback = host_api::inspect_scoped_artifact(
+        state,
+        app_id,
+        compile_options.scene.clone(),
+        compile_options.preview_target.clone(),
+    );
+    if feedback.status != host_api::ScopedFeedbackStatus::ArtifactMissing {
+        return Some(compile_bootstrap_probe_response(
+            true,
+            feedback.status.as_str(),
+        ));
+    }
+    let hinted = resolve_artifact_scene_hint_options(app_id, compile_options, access_path_scene)
+        .and_then(|options| {
+            host_api::inspect_scoped_artifact(
+                state,
+                app_id,
+                options.scene.clone(),
+                options.preview_target.clone(),
+            )
+            .status
+            .artifact_ready()
+            .then_some(options)
+        });
     Some(compile_bootstrap_probe_response(
-        ready,
-        if ready {
+        hinted.is_some(),
+        if hinted.is_some() {
             "artifact_ready"
         } else {
             "artifact_missing"
@@ -95,53 +265,74 @@ pub(super) fn resolve_compile_outcome(
     _discover_ms: u64,
     _app_started: Instant,
 ) -> CompileResolution {
-    let compile_outcome =
-        load_compile_artifact_only(state, app_id, &compile_options, components_root.as_path())
-            .or_else(|| {
-                let scene_hint = compile_options
-                    .scene
-                    .as_deref()
-                    .or(access_path_scene)
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())?;
-                if compile_options
-                    .preview_target
-                    .as_deref()
-                    .map(str::trim)
-                    .is_some_and(|value| !value.is_empty())
-                {
-                    return None;
-                }
-                let target_hint = host_api::access_scene_target_hint(app_id, scene_hint)?;
-                let fallback_options = CompileOptions {
-                    scene: Some(scene_hint.to_string()),
-                    preview_target: Some(target_hint),
-                };
-                load_compile_artifact_only(
+    if let Some(outcome) = resolved_artifact_feedback(state, app_id, &compile_options, "artifact_only")
+    {
+        return CompileResolution::Outcome(outcome);
+    }
+    if let Some(hinted_options) =
+        resolve_artifact_scene_hint_options(app_id, &compile_options, access_path_scene)
+    {
+        if let Some(outcome) =
+            resolved_artifact_feedback(state, app_id, &hinted_options, "artifact_hint")
+        {
+            return CompileResolution::Outcome(outcome);
+        }
+    }
+    if route_mode == UiRouteMode::Build {
+        let (preferred_options, preferred_reason) =
+            preferred_build_options(app_id, &compile_options, access_path_scene);
+        let preferred_path = if compile_feedback_scope_kind(&preferred_options) == "full_app" {
+            "full_build"
+        } else {
+            "scoped_build"
+        };
+        match compile_app_with_cache(state, app_id, &preferred_options, components_root.as_path()) {
+            Ok(outcome) => {
+                return CompileResolution::Outcome(resolved_build_feedback(
+                    app_id,
+                    &preferred_options,
+                    preferred_path,
+                    preferred_reason,
+                    outcome,
+                ));
+            }
+            Err(_) if !compile_options_equal(&preferred_options, &compile_options) => {
+                match compile_app_with_cache(
                     state,
                     app_id,
-                    &fallback_options,
+                    &compile_options,
                     components_root.as_path(),
-                )
-            });
-    match compile_outcome {
-        Some(outcome) => CompileResolution::Outcome(outcome),
-        None if route_mode == UiRouteMode::Build => {
-            match compile_app_with_cache(state, app_id, &compile_options, components_root.as_path())
-            {
-                Ok(outcome) => CompileResolution::Outcome(outcome),
-                Err(_) => CompileResolution::EarlyResponse(
+                ) {
+                    Ok(outcome) => {
+                        return CompileResolution::Outcome(resolved_build_feedback(
+                            app_id,
+                            &compile_options,
+                            "build_fallback",
+                            "preferred_scope_failed",
+                            outcome,
+                        ));
+                    }
+                    Err(_) => {
+                        return CompileResolution::EarlyResponse(
+                            Redirect::temporary(&build_source_fallback_location(app_id))
+                                .into_response(),
+                        );
+                    }
+                }
+            }
+            Err(_) => {
+                return CompileResolution::EarlyResponse(
                     Redirect::temporary(&build_source_fallback_location(app_id)).into_response(),
-                ),
+                );
             }
         }
-        None => CompileResolution::EarlyResponse(render_access_artifact_unavailable(
-            route_mode,
-            app_id,
-            compile_options.scene.as_deref().or(access_path_scene),
-            manage_file,
-        )),
     }
+    CompileResolution::EarlyResponse(render_access_artifact_unavailable(
+        route_mode,
+        app_id,
+        compile_options.scene.as_deref().or(access_path_scene),
+        manage_file,
+    ))
 }
 
 fn build_source_fallback_location(app_id: &str) -> String {
@@ -229,7 +420,8 @@ fn render_access_artifact_unavailable(
 
 #[cfg(test)]
 mod tests {
-    use super::build_source_fallback_location;
+    use super::{build_source_fallback_location, compile_feedback_scope_kind};
+    use mei_lang_kernel::CompileOptions;
 
     #[test]
     fn build_source_fallback_uses_overview_tab() {
@@ -237,5 +429,31 @@ mod tests {
             build_source_fallback_location("zhifa"),
             "/apps/build/zhifa?tab=overview"
         );
+    }
+
+    #[test]
+    fn compile_feedback_scope_kind_distinguishes_requested_scope() {
+        assert_eq!(
+            compile_feedback_scope_kind(&CompileOptions {
+                scene: Some("home".to_string()),
+                preview_target: Some("main.mei".to_string()),
+            }),
+            "scene_target"
+        );
+        assert_eq!(
+            compile_feedback_scope_kind(&CompileOptions {
+                scene: Some("home".to_string()),
+                preview_target: None,
+            }),
+            "scene_only"
+        );
+        assert_eq!(
+            compile_feedback_scope_kind(&CompileOptions {
+                scene: None,
+                preview_target: Some("main.mei".to_string()),
+            }),
+            "target_only"
+        );
+        assert_eq!(compile_feedback_scope_kind(&CompileOptions::default()), "full_app");
     }
 }

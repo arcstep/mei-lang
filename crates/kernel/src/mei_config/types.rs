@@ -176,6 +176,9 @@ pub struct WorkspaceWarmupDatasetConfig {
     pub focus: Option<String>,
     #[serde(default, rename = "datasetId")]
     pub dataset_id: String,
+    /// Optional warmup tier. `critical` joins hot phase; `deferred`/`heavy` stays in background.
+    #[serde(default)]
+    pub priority: Option<String>,
     #[serde(default, rename = "metricId")]
     pub metric_id: Option<String>,
     #[serde(default, rename = "metricIds")]
@@ -227,6 +230,8 @@ pub struct RuntimeWarmupDatasetRequest {
     pub focus: Option<String>,
     #[serde(rename = "datasetId")]
     pub dataset_id: String,
+    #[serde(default)]
+    pub priority: Option<String>,
     #[serde(default, rename = "metricId")]
     pub metric_id: Option<String>,
     #[serde(default, rename = "metricIds")]

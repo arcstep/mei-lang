@@ -1170,6 +1170,26 @@ function applyPagePerf(target, headers) {
   if (cacheValidation) {
     target.compile_cache_validation = cacheValidation;
   }
+  const feedbackPath = String(headers.get("x-mei-compile-feedback-path") || "").trim();
+  if (feedbackPath) {
+    target.compile_feedback_path = feedbackPath;
+  }
+  const feedbackReason = String(headers.get("x-mei-compile-feedback-reason") || "").trim();
+  if (feedbackReason) {
+    target.compile_feedback_reason = feedbackReason;
+  }
+  const feedbackScopeKind = String(headers.get("x-mei-compile-feedback-scope-kind") || "").trim();
+  if (feedbackScopeKind) {
+    target.compile_feedback_scope_kind = feedbackScopeKind;
+    target.compile_feedback_scoped = Number(feedbackScopeKind !== "full_app");
+    target.compile_feedback_full_app = Number(feedbackScopeKind === "full_app");
+    target.compile_feedback_scene_target = Number(feedbackScopeKind === "scene_target");
+  }
+  setNumeric(
+    target,
+    "compile_feedback_diagnostic_errors",
+    headers.get("x-mei-compile-feedback-diagnostic-errors")
+  );
 }
 
 function applyKeyValueHeaderPerf(target, raw) {
@@ -1399,6 +1419,10 @@ async function collectHostReadinessSnapshot(baseUrl, extraHeaders = {}) {
     host_last_build_total_ms: toFinite(payload?.lastBuildTotalMs),
     host_last_build_compile_ms: toFinite(payload?.lastBuildCompileMs),
     host_last_build_warmup_ms: toFinite(payload?.lastBuildWarmupMs),
+    host_last_critical_warmup_ms: toFinite(payload?.lastCriticalWarmupMs),
+    host_last_deferred_warmup_ms: toFinite(payload?.lastDeferredWarmupMs),
+    host_last_critical_warmup_request_count: toFinite(payload?.lastCriticalWarmupRequestCount),
+    host_last_deferred_warmup_request_count: toFinite(payload?.lastDeferredWarmupRequestCount),
   };
 }
 

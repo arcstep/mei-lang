@@ -489,6 +489,7 @@ fn load_compiled_app_artifact_at_scope(
                 rel_path: watched.rel_path.clone(),
                 modified_ms: watched.modified_ms,
                 size_bytes: watched.size_bytes,
+                content_signature: watched.content_signature.clone(),
             })
             .collect(),
         components_revision: manifest.components_revision,
@@ -959,6 +960,11 @@ pub(super) fn watched_files_are_fresh(
         let Ok(metadata) = std::fs::metadata(&path) else {
             return false;
         };
+        if let Some(expected_signature) = watched.content_signature.as_deref() {
+            let current_signature =
+                mei_lang_kernel::source_file_content_signature(path.as_path(), &watched.rel_path);
+            return current_signature == expected_signature;
+        }
         let modified_ms = metadata
             .modified()
             .ok()

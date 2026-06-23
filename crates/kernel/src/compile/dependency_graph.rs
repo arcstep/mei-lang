@@ -1,5 +1,4 @@
-use std::collections::{hash_map::DefaultHasher, BTreeMap, BTreeSet};
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -346,15 +345,7 @@ fn file_content_signature(path: &Path, rel: &str) -> String {
     }
 
     FILE_CONTENT_HASH_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
-    let signature = std::fs::read(path)
-        .ok()
-        .map(|bytes| {
-            let mut hasher = DefaultHasher::new();
-            rel.hash(&mut hasher);
-            bytes.hash(&mut hasher);
-            format!("{:016x}", hasher.finish())
-        })
-        .unwrap_or_else(|| format!("mtime:{mtime}"));
+    let signature = crate::compile::source_file_content_signature(path, rel);
 
     if let Ok(mut cache) = FILE_CONTENT_HASH_CACHE.lock() {
         if cache.len() >= MAX_FILE_CONTENT_HASH_CACHE_ENTRIES {

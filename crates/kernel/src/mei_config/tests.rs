@@ -77,6 +77,7 @@ fn workspace_warmup_deserializes_from_json() {
                 scene_id: Some("home".to_string()),
                 focus: None,
                 dataset_id: "warning_list".to_string(),
+                priority: None,
                 metric_id: None,
                 metric_ids: Vec::new(),
             },
@@ -84,6 +85,7 @@ fn workspace_warmup_deserializes_from_json() {
                 scene_id: Some("home".to_string()),
                 focus: None,
                 dataset_id: "warning_metric".to_string(),
+                priority: None,
                 metric_id: Some("case_total".to_string()),
                 metric_ids: Vec::new(),
             },
@@ -91,6 +93,7 @@ fn workspace_warmup_deserializes_from_json() {
                 scene_id: Some("home".to_string()),
                 focus: None,
                 dataset_id: "warning_batch".to_string(),
+                priority: None,
                 metric_id: None,
                 metric_ids: vec!["case_total".to_string(), "case_delta".to_string()],
             }

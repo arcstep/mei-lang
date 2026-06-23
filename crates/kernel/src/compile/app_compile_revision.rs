@@ -231,6 +231,9 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
             let path = app_root.join(&rel_path);
             let metadata = std::fs::metadata(&path).ok();
             CompileWatchedFile {
+                content_signature: path
+                    .is_file()
+                    .then(|| crate::compile::source_file_content_signature(path.as_path(), &rel_path)),
                 rel_path,
                 modified_ms: crate::compile::scene_payload_cache::file_mtime_ms(&path),
                 size_bytes: metadata.map(|meta| meta.len()).unwrap_or(0),
@@ -258,14 +261,14 @@ fn append_ops_source_revision_tokens(
         if rel.is_empty() {
             continue;
         }
-        watched_paths.insert(rel.clone());
-        let absolute = app_root.join(&rel);
-        let metadata = std::fs::metadata(&absolute).ok();
-        let modified_ms = crate::compile::scene_payload_cache::file_mtime_ms(&absolute);
-        let size_bytes = metadata.map(|meta| meta.len()).unwrap_or(0);
+        let resolved = crate::resolve_versioned_source_identifier(app_root, rel.as_str());
+        watched_paths.insert(resolved.clone());
+        let absolute = app_root.join(&resolved);
+        let content_signature =
+            crate::compile::source_file_content_signature(absolute.as_path(), resolved.as_str());
         token_parts.insert(
             format!("source:{source_id}"),
-            format!("{modified_ms}:{size_bytes}"),
+            format!("content:{content_signature}"),
         );
     }
 }
@@ -325,4 +328,62 @@ fn infer_source_root_from_app(app_root: &Path) -> std::path::PathBuf {
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| app_root.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_ops_source_revision_tokens;
+    use crate::compile::source_file_content_signature;
+    use serde_json::json;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn temp_app_root(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "mei-app-compile-revision-{name}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("epoch")
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn ops_sources_revision_token_uses_content_signature() {
+        let app_root = temp_app_root("ops-source");
+        fs::create_dir_all(app_root.join("upload")).expect("create upload dir");
+        fs::write(app_root.join("upload/test.xlsx"), b"hello world").expect("write source");
+        fs::write(
+            app_root.join(".mei-config.json"),
+            serde_json::to_string_pretty(&json!({
+                "ops": {
+                    "sources": {
+                        "ledger": {
+                            "kind": "xlsx",
+                            "path": "upload/test.xlsx"
+                        }
+                    }
+                }
+            }))
+            .expect("serialize config"),
+        )
+        .expect("write config");
+
+        let mut token_parts = BTreeMap::new();
+        let mut watched_paths = BTreeSet::new();
+        append_ops_source_revision_tokens(app_root.as_path(), &mut token_parts, &mut watched_paths);
+
+        let expected_rel = "upload/test.xlsx";
+        let expected_sig =
+            source_file_content_signature(&app_root.join(expected_rel), expected_rel);
+        let expected_token = format!("content:{expected_sig}");
+        assert_eq!(
+            token_parts.get("source:ledger").map(String::as_str),
+            Some(expected_token.as_str())
+        );
+        assert!(watched_paths.contains(expected_rel));
+
+        let _ = fs::remove_dir_all(app_root);
+    }
 }

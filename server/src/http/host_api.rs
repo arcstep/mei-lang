@@ -9,7 +9,7 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    http::compile_cache::{compile_app_with_cache, load_compile_artifact_only},
+    http::compile_cache::{compile_app_with_cache, load_compile_artifact_only, CompileWithCacheOutcome},
     prebuild::{
         app_has_deferred_warmup_work, run_prebuild, PrebuildAppReport, PrebuildMode,
         PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
@@ -17,7 +17,9 @@ use crate::{
     AppState,
 };
 use mei_lang_datasets::preload_prebuild_metric_response_index;
-use mei_lang_kernel::{resolve_app_root, resolve_runtime_warmup_manifest, CompileOptions};
+use mei_lang_kernel::{
+    resolve_app_root, resolve_runtime_warmup_manifest, CompileOptions, CompiledApp, Severity,
+};
 use mei_lang_toolchain::resolve_components_root;
 
 fn supports_ansi_stderr() -> bool {
@@ -101,6 +103,14 @@ pub(crate) struct HostReadyResponse {
     pub last_build_compile_ms: Option<u64>,
     #[serde(rename = "lastBuildWarmupMs")]
     pub last_build_warmup_ms: Option<u64>,
+    #[serde(rename = "lastCriticalWarmupMs")]
+    pub last_critical_warmup_ms: Option<u64>,
+    #[serde(rename = "lastDeferredWarmupMs")]
+    pub last_deferred_warmup_ms: Option<u64>,
+    #[serde(rename = "lastCriticalWarmupRequestCount")]
+    pub last_critical_warmup_request_count: usize,
+    #[serde(rename = "lastDeferredWarmupRequestCount")]
+    pub last_deferred_warmup_request_count: usize,
     #[serde(rename = "lastWarningCount")]
     pub last_warning_count: usize,
     #[serde(rename = "readyAppCount")]
@@ -139,6 +149,14 @@ pub(crate) struct HostHeartbeatResponse {
     pub last_build_compile_ms: Option<u64>,
     #[serde(rename = "lastBuildWarmupMs")]
     pub last_build_warmup_ms: Option<u64>,
+    #[serde(rename = "lastCriticalWarmupMs")]
+    pub last_critical_warmup_ms: Option<u64>,
+    #[serde(rename = "lastDeferredWarmupMs")]
+    pub last_deferred_warmup_ms: Option<u64>,
+    #[serde(rename = "lastCriticalWarmupRequestCount")]
+    pub last_critical_warmup_request_count: usize,
+    #[serde(rename = "lastDeferredWarmupRequestCount")]
+    pub last_deferred_warmup_request_count: usize,
     #[serde(rename = "lastWarningCount")]
     pub last_warning_count: usize,
 }
@@ -169,6 +187,36 @@ pub(crate) struct HostBuildRequest {
     pub hot_only: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScopedFeedbackStatus {
+    Ready,
+    ArtifactMissing,
+    DiagnosticError,
+}
+
+impl ScopedFeedbackStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::ArtifactMissing => "artifact_missing",
+            Self::DiagnosticError => "diagnostic_error",
+        }
+    }
+
+    pub(crate) fn artifact_ready(self) -> bool {
+        !matches!(self, Self::ArtifactMissing)
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ScopedCompileFeedback {
+    pub status: ScopedFeedbackStatus,
+    pub outcome: Option<CompileWithCacheOutcome>,
+    pub diagnostic_error_count: usize,
+    pub warning_count: usize,
+    pub diagnostic_summary: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct HostBuildJobResponse {
     pub accepted: bool,
@@ -180,6 +228,15 @@ pub(crate) struct HostBuildJobResponse {
     pub mode: String,
     #[serde(rename = "scopeProfile")]
     pub scope_profile: String,
+    pub status: String,
+    #[serde(rename = "artifactReady")]
+    pub artifact_ready: bool,
+    #[serde(rename = "diagnosticErrorCount")]
+    pub diagnostic_error_count: usize,
+    #[serde(rename = "warningCount")]
+    pub warning_count: usize,
+    #[serde(rename = "diagnosticSummary")]
+    pub diagnostic_summary: Option<String>,
     #[serde(rename = "scopedBuild")]
     pub scoped_build: bool,
     #[serde(rename = "sceneId")]
@@ -214,6 +271,10 @@ pub(crate) struct HostReadinessRegistry {
     last_build_total_ms: Option<u64>,
     last_build_compile_ms: Option<u64>,
     last_build_warmup_ms: Option<u64>,
+    last_critical_warmup_ms: Option<u64>,
+    last_deferred_warmup_ms: Option<u64>,
+    last_critical_warmup_request_count: usize,
+    last_deferred_warmup_request_count: usize,
     last_warning_count: usize,
     apps: BTreeMap<String, HostAppReadinessState>,
 }
@@ -366,6 +427,10 @@ fn registry_snapshot() -> HostReadyResponse {
         last_build_total_ms: snapshot.last_build_total_ms,
         last_build_compile_ms: snapshot.last_build_compile_ms,
         last_build_warmup_ms: snapshot.last_build_warmup_ms,
+        last_critical_warmup_ms: snapshot.last_critical_warmup_ms,
+        last_deferred_warmup_ms: snapshot.last_deferred_warmup_ms,
+        last_critical_warmup_request_count: snapshot.last_critical_warmup_request_count,
+        last_deferred_warmup_request_count: snapshot.last_deferred_warmup_request_count,
         last_warning_count: snapshot.last_warning_count,
         ready_app_count,
         degraded_app_count,
@@ -408,6 +473,10 @@ fn reset_registry_for_source_root(source_root: &Path) {
             last_build_total_ms: None,
             last_build_compile_ms: None,
             last_build_warmup_ms: None,
+            last_critical_warmup_ms: None,
+            last_deferred_warmup_ms: None,
+            last_critical_warmup_request_count: 0,
+            last_deferred_warmup_request_count: 0,
             last_warning_count: 0,
             apps,
         };
@@ -571,6 +640,26 @@ fn status_from_report(
         .iter()
         .map(|app| app.timings.warmup_requests_ms)
         .sum();
+    let critical_warmup_ms: u64 = report
+        .apps
+        .iter()
+        .map(|app| app.timings.critical_warmup_requests_ms)
+        .sum();
+    let deferred_warmup_ms: u64 = report
+        .apps
+        .iter()
+        .map(|app| app.timings.deferred_warmup_requests_ms)
+        .sum();
+    let critical_warmup_request_count: usize = report
+        .apps
+        .iter()
+        .map(|app| app.timings.critical_warmup_request_count)
+        .sum();
+    let deferred_warmup_request_count: usize = report
+        .apps
+        .iter()
+        .map(|app| app.timings.deferred_warmup_request_count)
+        .sum();
     let _ = with_registry(|registry| {
         registry.manifest_path = report.manifest_path.clone();
         registry.manifest_source = report.manifest_source.clone();
@@ -579,6 +668,10 @@ fn status_from_report(
         registry.last_build_total_ms = Some(report.total_wall_ms);
         registry.last_build_compile_ms = Some(compile_ms);
         registry.last_build_warmup_ms = Some(warmup_ms);
+        registry.last_critical_warmup_ms = Some(critical_warmup_ms);
+        registry.last_deferred_warmup_ms = Some(deferred_warmup_ms);
+        registry.last_critical_warmup_request_count = critical_warmup_request_count;
+        registry.last_deferred_warmup_request_count = deferred_warmup_request_count;
         registry.last_warning_count = warning_count;
         registry.access_ready = report.ok;
         registry.full_warmup_ready = report.ok && !deferred_warmup_pending;
@@ -733,6 +826,10 @@ fn mark_job_failed(
         }
         registry.full_warmup_ready = false;
         registry.deferred_warmup_pending = false;
+        registry.last_critical_warmup_ms = None;
+        registry.last_deferred_warmup_ms = None;
+        registry.last_critical_warmup_request_count = 0;
+        registry.last_deferred_warmup_request_count = 0;
         if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
             let app_state = registry.apps.entry(app_id.to_string()).or_default();
             app_state.phase = "failed".to_string();
@@ -1039,6 +1136,167 @@ fn normalized_optional_scope(value: Option<String>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn compile_feedback_from_compiled(compiled: &CompiledApp) -> (usize, usize, Option<String>) {
+    let diagnostic_error_count = compiled
+        .diagnostics
+        .iter()
+        .filter(|diag| matches!(diag.severity, Severity::Error))
+        .count();
+    let warning_count = compiled
+        .diagnostics
+        .iter()
+        .filter(|diag| matches!(diag.severity, Severity::Warning))
+        .count();
+    let diagnostic_summary = compiled
+        .diagnostics
+        .iter()
+        .find(|diag| matches!(diag.severity, Severity::Error))
+        .map(|diag| {
+            let source = diag
+                .source_path
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unknown");
+            format!("{} @ {}: {}", diag.code, source, diag.message)
+        });
+    (diagnostic_error_count, warning_count, diagnostic_summary)
+}
+
+pub(crate) fn summarize_scoped_compile_feedback(
+    outcome: CompileWithCacheOutcome,
+) -> ScopedCompileFeedback {
+    let (diagnostic_error_count, warning_count, diagnostic_summary) =
+        compile_feedback_from_compiled(&outcome.compiled);
+    ScopedCompileFeedback {
+        status: if diagnostic_error_count > 0 {
+            ScopedFeedbackStatus::DiagnosticError
+        } else {
+            ScopedFeedbackStatus::Ready
+        },
+        outcome: Some(outcome),
+        diagnostic_error_count,
+        warning_count,
+        diagnostic_summary,
+    }
+}
+
+pub(crate) fn inspect_scoped_artifact(
+    state: &AppState,
+    app_id: &str,
+    scene_id: Option<String>,
+    target_file: Option<String>,
+) -> ScopedCompileFeedback {
+    let components_root = resolve_components_root(state.source_root.as_ref().as_path());
+    let options = CompileOptions {
+        scene: normalized_optional_scope(scene_id),
+        preview_target: normalized_optional_scope(target_file),
+    };
+    load_compile_artifact_only(state, app_id, &options, components_root.as_path())
+        .map(summarize_scoped_compile_feedback)
+        .unwrap_or(ScopedCompileFeedback {
+            status: ScopedFeedbackStatus::ArtifactMissing,
+            outcome: None,
+            diagnostic_error_count: 0,
+            warning_count: 0,
+            diagnostic_summary: None,
+        })
+}
+
+pub(crate) fn record_scoped_compile_feedback(
+    app_id: &str,
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
+    feedback: &ScopedCompileFeedback,
+) {
+    let normalized_scene = scene_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let normalized_target = target_file
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if normalized_scene.is_none() && normalized_target.is_none() {
+        return;
+    }
+    let phase = match feedback.status {
+        ScopedFeedbackStatus::Ready => "ready",
+        ScopedFeedbackStatus::ArtifactMissing => "missing",
+        ScopedFeedbackStatus::DiagnosticError => "degraded",
+    };
+    let _ = with_registry(|registry| {
+        let app_state = registry.apps.entry(app_id.to_string()).or_default();
+        let key = normalize_scope_key(normalized_scene.as_deref(), normalized_target.as_deref());
+        let scope = app_state.scopes.entry(key).or_default();
+        scope.scene_id = normalized_scene.clone();
+        scope.target_file = normalized_target.clone();
+        scope.phase = phase.to_string();
+        scope.compile_revision = feedback
+            .outcome
+            .as_ref()
+            .map(|outcome| outcome.compile_revision.clone());
+        scope.last_error = match feedback.status {
+            ScopedFeedbackStatus::Ready => None,
+            ScopedFeedbackStatus::ArtifactMissing => Some("artifact missing".to_string()),
+            ScopedFeedbackStatus::DiagnosticError => feedback.diagnostic_summary.clone(),
+        };
+        if matches!(feedback.status, ScopedFeedbackStatus::DiagnosticError) {
+            app_state.last_error = feedback.diagnostic_summary.clone();
+        } else if matches!(feedback.status, ScopedFeedbackStatus::Ready) {
+            app_state.last_error = None;
+        }
+        sync_registry_phase(registry);
+    });
+}
+
+fn scoped_response_status(status: ScopedFeedbackStatus) -> StatusCode {
+    match status {
+        ScopedFeedbackStatus::Ready => StatusCode::OK,
+        ScopedFeedbackStatus::ArtifactMissing => StatusCode::NOT_FOUND,
+        ScopedFeedbackStatus::DiagnosticError => StatusCode::CONFLICT,
+    }
+}
+
+fn host_build_response_from_scoped_feedback(
+    app_id: &str,
+    mode: &str,
+    scene_id: Option<String>,
+    target_file: Option<String>,
+    feedback: ScopedCompileFeedback,
+) -> HostBuildJobResponse {
+    let compile_revision = feedback
+        .outcome
+        .as_ref()
+        .map(|outcome| outcome.compile_revision.clone());
+    let compile_ms = feedback.outcome.as_ref().map(|outcome| outcome.compile_ms);
+    let cache_hit = feedback.outcome.as_ref().map(|outcome| outcome.cache_hit);
+    let artifact_cache_hit = feedback
+        .outcome
+        .as_ref()
+        .map(|outcome| outcome.artifact_cache_hit);
+    HostBuildJobResponse {
+        accepted: feedback.status.artifact_ready(),
+        phase: registry_snapshot().phase,
+        active_job: None,
+        app_id: Some(app_id.to_string()),
+        mode: mode.to_string(),
+        scope_profile: "scoped_dev_jit".to_string(),
+        status: feedback.status.as_str().to_string(),
+        artifact_ready: feedback.status.artifact_ready(),
+        diagnostic_error_count: feedback.diagnostic_error_count,
+        warning_count: feedback.warning_count,
+        diagnostic_summary: feedback.diagnostic_summary.clone(),
+        scoped_build: true,
+        scene_id,
+        target_file,
+        compile_revision,
+        compile_ms,
+        cache_hit,
+        artifact_cache_hit,
+    }
+}
+
 fn run_scoped_build(
     state: &AppState,
     app_id: &str,
@@ -1054,21 +1312,20 @@ fn run_scoped_build(
     };
     let outcome = compile_app_with_cache(state, app_id, &options, components_root.as_path())
         .map_err(|failure| failure.error)?;
-    Ok(HostBuildJobResponse {
-        accepted: true,
-        phase: registry_snapshot().phase,
-        active_job: None,
-        app_id: Some(app_id.to_string()),
-        mode: "scope-build".to_string(),
-        scope_profile: "scoped_dev_jit".to_string(),
-        scoped_build: true,
+    let feedback = summarize_scoped_compile_feedback(outcome);
+    record_scoped_compile_feedback(
+        app_id,
+        scene_id.as_deref(),
+        target_file.as_deref(),
+        &feedback,
+    );
+    Ok(host_build_response_from_scoped_feedback(
+        app_id,
+        "scope-build",
         scene_id,
         target_file,
-        compile_revision: Some(outcome.compile_revision),
-        compile_ms: Some(outcome.compile_ms),
-        cache_hit: Some(outcome.cache_hit),
-        artifact_cache_hit: Some(outcome.artifact_cache_hit),
-    })
+        feedback,
+    ))
 }
 
 pub(crate) fn mark_access_artifact_degraded(
@@ -1141,6 +1398,10 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
         last_build_total_ms: ready.last_build_total_ms,
         last_build_compile_ms: ready.last_build_compile_ms,
         last_build_warmup_ms: ready.last_build_warmup_ms,
+        last_critical_warmup_ms: ready.last_critical_warmup_ms,
+        last_deferred_warmup_ms: ready.last_deferred_warmup_ms,
+        last_critical_warmup_request_count: ready.last_critical_warmup_request_count,
+        last_deferred_warmup_request_count: ready.last_deferred_warmup_request_count,
         last_warning_count: ready.last_warning_count,
     })
 }
@@ -1188,43 +1449,37 @@ pub async fn api_host_build(
                 .into_response();
         };
         if mode == PrebuildMode::Verify {
-            let components_root = resolve_components_root(state.source_root.as_ref().as_path());
-            let ready = load_compile_artifact_only(
-                &state,
+            let feedback =
+                inspect_scoped_artifact(&state, app_id, scene_id.clone(), target_file.clone());
+            record_scoped_compile_feedback(
                 app_id,
-                &CompileOptions {
-                    scene: scene_id.clone(),
-                    preview_target: target_file.clone(),
-                },
-                components_root.as_path(),
-            )
-            .is_some();
+                scene_id.as_deref(),
+                target_file.as_deref(),
+                &feedback,
+            );
+            let status = scoped_response_status(feedback.status);
             return (
-                if ready {
-                    StatusCode::OK
-                } else {
-                    StatusCode::NOT_FOUND
-                },
-                Json(HostBuildJobResponse {
-                    accepted: ready,
-                    phase: registry_snapshot().phase,
-                    active_job: None,
-                    app_id: Some(app_id.to_string()),
-                    mode: "scope-verify".to_string(),
-                    scope_profile: "scoped_dev_jit".to_string(),
-                    scoped_build: true,
+                status,
+                Json(host_build_response_from_scoped_feedback(
+                    app_id,
+                    "scope-verify",
                     scene_id,
                     target_file,
-                    compile_revision: None,
-                    compile_ms: None,
-                    cache_hit: None,
-                    artifact_cache_hit: None,
-                }),
+                    feedback,
+                )),
             )
                 .into_response();
         }
         return match run_scoped_build(&state, app_id, scene_id, target_file) {
-            Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+            Ok(response) => (
+                if response.status == ScopedFeedbackStatus::DiagnosticError.as_str() {
+                    StatusCode::CONFLICT
+                } else {
+                    StatusCode::OK
+                },
+                Json(response),
+            )
+                .into_response(),
             Err(error) => (
                 StatusCode::BAD_REQUEST,
                 Json(serde_json::json!({
@@ -1261,6 +1516,11 @@ pub async fn api_host_build(
                     PrebuildScopeProfile::Full => "full".to_string(),
                     PrebuildScopeProfile::HotOnly => "hot_only".to_string(),
                 },
+                status: "accepted".to_string(),
+                artifact_ready: false,
+                diagnostic_error_count: 0,
+                warning_count: 0,
+                diagnostic_summary: None,
                 scoped_build: false,
                 scene_id: None,
                 target_file: None,
@@ -1305,6 +1565,10 @@ mod tests {
             last_build_total_ms: ready.last_build_total_ms,
             last_build_compile_ms: ready.last_build_compile_ms,
             last_build_warmup_ms: ready.last_build_warmup_ms,
+            last_critical_warmup_ms: ready.last_critical_warmup_ms,
+            last_deferred_warmup_ms: ready.last_deferred_warmup_ms,
+            last_critical_warmup_request_count: ready.last_critical_warmup_request_count,
+            last_deferred_warmup_request_count: ready.last_deferred_warmup_request_count,
             last_warning_count: ready.last_warning_count,
         };
         assert!(!heartbeat.build_version.is_empty());

@@ -33,6 +33,7 @@ pub struct CompileWatchedFile {
     pub rel_path: String,
     pub modified_ms: u128,
     pub size_bytes: u64,
+    pub content_signature: Option<String>,
 }
 
 #[derive(Debug, Clone)]

@@ -16,6 +16,7 @@ use mei_lang_kernel::{
 };
 
 use super::super::super::compile_cache::CompileWithCacheOutcome;
+use super::page::compile::CompileFeedbackMetadata;
 use crate::auth::AuthPrincipal;
 
 pub(super) fn html_escape_min(s: &str) -> String {
@@ -105,6 +106,32 @@ pub(super) fn insert_manage_compile_request_headers(
             res.headers_mut()
                 .insert(HeaderName::from_static(header), header_value);
         }
+    }
+}
+
+pub(super) fn insert_compile_feedback_headers(
+    res: &mut Response,
+    feedback: &CompileFeedbackMetadata,
+) {
+    for (header, value) in [
+        ("x-mei-compile-feedback-path", feedback.path),
+        ("x-mei-compile-feedback-reason", feedback.reason),
+        (
+            "x-mei-compile-feedback-scope-kind",
+            feedback.scope_kind,
+        ),
+    ] {
+        if let Ok(header_value) = HeaderValue::from_str(value) {
+            res.headers_mut()
+                .insert(HeaderName::from_static(header), header_value);
+        }
+    }
+    let diagnostic_errors = feedback.diagnostic_error_count.to_string();
+    if let Ok(header_value) = HeaderValue::from_str(&diagnostic_errors) {
+        res.headers_mut().insert(
+            HeaderName::from_static("x-mei-compile-feedback-diagnostic-errors"),
+            header_value,
+        );
     }
 }
 
