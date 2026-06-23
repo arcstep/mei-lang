@@ -1,3 +1,4 @@
+mod executor;
 mod fingerprint;
 mod graph;
 mod types;
@@ -15,6 +16,7 @@ use crate::model::DatasetView;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+pub(crate) use executor::execute_eval_plan;
 pub(crate) use graph::build_eval_plan;
 
 pub fn build_runtime_eval_plan(

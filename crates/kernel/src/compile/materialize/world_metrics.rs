@@ -8,7 +8,7 @@ use crate::model::{DatasetView, LoadedResource, MetricContract, SourceDecl};
 use crate::compile::entry_payload::import_scope::rewrite_imported_binding_refs;
 
 use super::analysis_graph::{build_analysis_artifacts, expand_runtime_metric_defs};
-use super::eval_plan::{build_eval_plan, RuntimeMetricEvalReport};
+use super::eval_plan::{build_eval_plan, execute_eval_plan, EvalPlan, RuntimeMetricEvalReport};
 use super::metric_packs::{
     materialize_legacy_metric_map, materialize_legacy_metric_map_with_scope_and_dag,
 };
@@ -388,6 +388,25 @@ pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
         metrics,
         RuntimeMetricEvalReport {
             eval_plan,
+            request_dag_metrics,
+        },
+    ))
+}
+
+pub fn evaluate_runtime_metric_defs_with_plan_and_dag(
+    metric_defs: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, DatasetView>,
+    scope: &RuntimeMetricEvalScope,
+    plan: &EvalPlan,
+    cached_metrics: &BTreeMap<String, MetricContract>,
+) -> Result<(BTreeMap<String, MetricContract>, RuntimeMetricEvalReport)> {
+    let (metrics, request_dag_metrics) =
+        execute_eval_plan(metric_defs, base_rows, datasets, scope, plan, cached_metrics)?;
+    Ok((
+        metrics,
+        RuntimeMetricEvalReport {
+            eval_plan: plan.clone(),
             request_dag_metrics,
         },
     ))

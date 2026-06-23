@@ -2,6 +2,7 @@ mod csv_dataset;
 mod dataset_rows_cache;
 mod db_dataset;
 mod eval_artifact;
+mod eval_execute;
 mod file_cache;
 mod geojson_dataset;
 mod json_dataset;

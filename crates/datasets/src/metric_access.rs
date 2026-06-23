@@ -4,17 +4,18 @@ use std::time::Instant;
 
 use anyhow::Result;
 use mei_lang_kernel::{
-    evaluate_runtime_metric_defs_with_scope, evaluate_runtime_metric_defs_with_scope_and_dag,
-    CompiledApp, DatasetView, FilterIntent, MetricContract, QueryState, RuntimeMetricEvalReport,
-    RuntimeMetricEvalScope,
+    evaluate_runtime_metric_defs_with_scope, CompiledApp, DatasetView, FilterIntent,
+    MetricContract, QueryState, RuntimeMetricEvalReport, RuntimeMetricEvalScope,
 };
 
 use super::eval_artifact::{
-    eval_artifact_hydrate_dataset_ids, load_or_build_eval_plan_artifact,
+    eval_artifact_hydrate_dataset_ids,
     load_or_build_runtime_metric_workset_artifact,
 };
+use super::eval_execute::execute_runtime_eval_plan_artifacts;
 use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_locate::{plan_access_metric_eval_for_ids, AccessMetricEvalPlan};
+use super::result_artifact::default_result_artifact_scope;
 use super::types::DatasetQueryOptions;
 use super::util::elapsed_ms;
 use super::{
@@ -49,6 +50,9 @@ pub struct RuntimeMetricEvalOutcome {
     pub eval_scope_ms: u64,
     pub workset_artifact_load_ms: u64,
     pub eval_artifact_load_ms: u64,
+    pub eval_node_artifact_load_ms: u64,
+    pub eval_node_artifact_hits: u64,
+    pub eval_node_artifact_stores: u64,
     pub metric_eval_ms: u64,
     pub eval_scope: RuntimeMetricEvalScope,
     pub eval_report: Option<RuntimeMetricEvalReport>,
@@ -231,27 +235,36 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         &supplementary_binding_datasets,
     )?;
     let eval_scope_ms = elapsed_ms(eval_scope_started);
-    let (persisted_eval_plan, eval_artifact_load_ms, eval_artifact_hit) =
-        load_or_build_eval_plan_artifact(
-            app_root,
-            &eval_plan.owner.id,
-            &covered_eval_metric_ids,
-            &owner_dataset.runtime_metric_defs,
-            &datasets,
-            &eval_scope,
-        )?;
-
     let metric_eval_started = Instant::now();
-    let (metrics_map, mut eval_report) = match mode {
+    let (
+        metrics_map,
+        eval_report,
+        eval_artifact_load_ms,
+        eval_artifact_hit,
+        eval_node_artifact_load_ms,
+        eval_node_artifact_hits,
+        eval_node_artifact_stores,
+    ) = match mode {
         RuntimeMetricEvalMode::WithDag => {
-            let (map, report) = evaluate_runtime_metric_defs_with_scope_and_dag(
+            let eval_outcome = execute_runtime_eval_plan_artifacts(
+                app_root,
+                &eval_plan.owner.id,
+                &covered_eval_metric_ids,
                 &owner_dataset.runtime_metric_defs,
-                &runtime_dataset.rows,
                 &datasets,
-                metric_filter,
+                &runtime_dataset.rows,
                 &eval_scope,
+                default_result_artifact_scope(query_state, filter_intents),
             )?;
-            (map, Some(report))
+            (
+                eval_outcome.metrics_map,
+                Some(eval_outcome.eval_report),
+                eval_outcome.eval_artifact_load_ms,
+                eval_outcome.eval_artifact_hit,
+                eval_outcome.eval_node_artifact_load_ms,
+                eval_outcome.eval_node_artifact_hits,
+                eval_outcome.eval_node_artifact_stores,
+            )
         }
         RuntimeMetricEvalMode::WithoutDag => {
             let map = evaluate_runtime_metric_defs_with_scope(
@@ -261,12 +274,9 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
                 metric_filter,
                 &eval_scope,
             )?;
-            (map, None)
+            (map, None, 0, false, 0, 0, 0)
         }
     };
-    if let Some(report) = eval_report.as_mut() {
-        report.eval_plan = persisted_eval_plan;
-    }
     let metric_eval_ms = elapsed_ms(metric_eval_started);
 
     let metrics = if request_all_metrics {
@@ -300,6 +310,9 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         eval_scope_ms,
         workset_artifact_load_ms,
         eval_artifact_load_ms,
+        eval_node_artifact_load_ms,
+        eval_node_artifact_hits,
+        eval_node_artifact_stores,
         metric_eval_ms,
         eval_scope,
         eval_report,

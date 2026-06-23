@@ -8,17 +8,16 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
-    coerce_calendar_columns_in_rows, evaluate_runtime_metric_defs_with_scope_and_dag,
-    locate_dataset_resource, resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled,
-    ColumnSchema, CompiledApp, DatasetView, EvalPlanNodeKind, FilterIntent, MetricContract,
-    MetricShape, QueryState,
+    coerce_calendar_columns_in_rows, locate_dataset_resource, resolve_runtime_metric_def_key,
+    runtime_eval_node_cache_enabled, ColumnSchema, CompiledApp, DatasetView, EvalPlanNodeKind,
+    FilterIntent, MetricContract, MetricShape, QueryState,
 };
 use serde_json::Value;
 
 use super::eval_artifact::{
-    eval_artifact_hydrate_dataset_ids, load_or_build_eval_plan_artifact,
-    load_or_build_runtime_metric_workset_artifact,
+    eval_artifact_hydrate_dataset_ids, load_or_build_runtime_metric_workset_artifact,
 };
+use super::eval_execute::execute_runtime_eval_plan_artifacts;
 use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
 use super::metric_locate::locate_runtime_metric_resource;
@@ -590,21 +589,15 @@ pub fn query_metric_dataframe(
             owner_resource.id, resolved_metric_id
         )
     })?;
-    let (persisted_eval_plan, eval_artifact_load_ms, eval_artifact_hit) =
-        load_or_build_eval_plan_artifact(
-            app_root,
-            &owner_resource.id,
-            &effective_metric_ids,
-            &owner_dataset.runtime_metric_defs,
-            &datasets,
-            &eval_scope,
-        )?;
-    let (metrics_map, eval_report) = evaluate_runtime_metric_defs_with_scope_and_dag(
+    let eval_execution = execute_runtime_eval_plan_artifacts(
+        app_root,
+        &owner_resource.id,
+        &effective_metric_ids,
         &owner_dataset.runtime_metric_defs,
-        &runtime_dataset.rows,
         &datasets,
-        Some(effective_metric_ids.as_slice()),
+        &runtime_dataset.rows,
         &eval_scope,
+        default_result_artifact_scope(&effective_query_state, &filter_intents),
     )
     .with_context(|| {
         format!(
@@ -612,8 +605,10 @@ pub fn query_metric_dataframe(
             owner_resource.id, resolved_metric_id
         )
     })?;
-    let mut eval_report = eval_report;
-    eval_report.eval_plan = persisted_eval_plan;
+    let metrics_map = eval_execution.metrics_map;
+    let eval_report = eval_execution.eval_report;
+    let eval_artifact_load_ms = eval_execution.eval_artifact_load_ms;
+    let eval_artifact_hit = eval_execution.eval_artifact_hit;
     let metric_eval_ms = elapsed_ms(metric_started);
     let dag_metrics = &eval_report.request_dag_metrics;
     let eval_plan = &eval_report.eval_plan;
@@ -691,6 +686,18 @@ pub fn query_metric_dataframe(
             (
                 "eval_artifact_hit".to_string(),
                 u64::from(eval_artifact_hit),
+            ),
+            (
+                "eval_node_artifact_load_ms".to_string(),
+                eval_execution.eval_node_artifact_load_ms,
+            ),
+            (
+                "eval_node_artifact_hits".to_string(),
+                eval_execution.eval_node_artifact_hits,
+            ),
+            (
+                "eval_node_artifact_stores".to_string(),
+                eval_execution.eval_node_artifact_stores,
             ),
             (
                 "workset_artifact_load_ms".to_string(),
