@@ -10,6 +10,7 @@ pub(crate) use mei_lang_datasets::map_dataset_query_filters;
 pub(crate) use mei_lang_datasets::query_dataset_rows;
 pub(crate) use mei_lang_datasets::query_metric_dataframe;
 pub(crate) use mei_lang_datasets::query_state_from_request;
+pub(crate) use mei_lang_datasets::serde_lenient;
 pub use mei_lang_datasets::table_contract;
 pub(crate) use mei_lang_datasets::DatasetQueryOptions;
 pub use mei_lang_datasets::TableColumnMeta;

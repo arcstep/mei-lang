@@ -8,6 +8,7 @@ use mei_lang_kernel::{
 };
 use serde::{Deserialize, Serialize};
 
+use super::serde_lenient;
 use super::types::{DatasetQueryOptions, DatasetQueryResult, TableColumnMeta, TableSummary};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -47,15 +48,15 @@ pub struct TableColumnState {
 #[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
 pub struct TableColumnStateItem {
     pub key: String,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, deserialize_with = "serde_lenient::bool_default_false", skip_serializing_if = "is_false")]
     pub hidden: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "serde_lenient::opt_i64", skip_serializing_if = "Option::is_none")]
     pub order: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "serde_lenient::opt_usize", skip_serializing_if = "Option::is_none")]
     pub width: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "serde_lenient::opt_usize", skip_serializing_if = "Option::is_none")]
     pub min_width: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "serde_lenient::opt_usize", skip_serializing_if = "Option::is_none")]
     pub max_width: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub align: Option<String>,
@@ -65,9 +66,9 @@ pub struct TableColumnStateItem {
     pub header_align: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub header_valign: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "serde_lenient::opt_bool", skip_serializing_if = "Option::is_none")]
     pub wrap: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, deserialize_with = "serde_lenient::opt_bool", skip_serializing_if = "Option::is_none")]
     pub header_wrap: Option<bool>,
 }
 

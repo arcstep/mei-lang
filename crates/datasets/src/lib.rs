@@ -16,6 +16,7 @@ mod paginate;
 mod paths;
 mod query;
 mod result_artifact;
+pub mod serde_lenient;
 pub mod table_contract;
 mod types;
 mod util;

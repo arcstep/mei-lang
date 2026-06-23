@@ -18,6 +18,7 @@ use super::super::compile_cache::{
 use super::super::datasets::{
     map_dataset_query_filters, query_dataset_rows, query_metric_dataframe,
     query_state_from_request,
+    serde_lenient,
     table_contract::{
         apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec,
     },
@@ -39,9 +40,9 @@ pub struct DatasetQueryRequest {
     #[serde(default)]
     pub target: Option<String>,
     pub dataset_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_lenient::opt_usize")]
     pub page: Option<usize>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_lenient::opt_usize")]
     pub page_size: Option<usize>,
     #[serde(default)]
     pub search: Option<String>,
@@ -51,7 +52,7 @@ pub struct DatasetQueryRequest {
     pub query_state: Option<QueryState>,
     #[serde(default)]
     pub filter_intents: Vec<FilterIntent>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_lenient::bool_default_false")]
     pub full: bool,
     /// 非空时对 runtime metric（dataframe）求值后分页，与 dataset 行集共用过滤/分页语义。
     #[serde(default)]
@@ -60,7 +61,7 @@ pub struct DatasetQueryRequest {
     pub sort: Vec<TableSortSpec>,
     #[serde(default)]
     pub column_state: Option<TableColumnState>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "serde_lenient::bool_default_false")]
     pub summary: bool,
 }
 
@@ -212,6 +213,31 @@ pub async fn dataset_query_api(
         build_view_dev,
     )
     .ok_or_else(|| {
+        let scene_label = if requested_scene_id.trim().is_empty() || requested_scene_id == "-" {
+            "scene=<unspecified>".to_string()
+        } else {
+            requested_scene_id.to_string()
+        };
+        let target_label = if requested_target.trim().is_empty() || requested_target == "-" {
+            "target=<unspecified>".to_string()
+        } else {
+            requested_target.to_string()
+        };
+        let error_message = format!(
+            "dataset query requires prebuilt access artifacts on access-only host: app={app_id} {scene_label} {target_label}; wait for startup warmup or prebuild artifacts before serving access traffic"
+        );
+        let error = access_artifact_unavailable_error(
+            "dataset query",
+            &app_id,
+            requested_scene_id,
+            requested_target,
+        );
+        crate::http::host_api::mark_access_artifact_degraded(
+            &app_id,
+            Some(requested_scene_id),
+            Some(requested_target),
+            &error_message,
+        );
         tracing::warn!(
             app_id = %app_id,
             scene_id = %requested_scene_id,
@@ -221,12 +247,7 @@ pub async fn dataset_query_api(
             phase = "artifact_only_miss",
             "dataset query rejected because host requires prebuilt artifacts"
         );
-        access_artifact_unavailable_error(
-            "dataset query",
-            &app_id,
-            requested_scene_id,
-            requested_target,
-        )
+        error
     })?;
     let compile_observation = CompileObservation::from_compile_outcome_shared(
         &app_id,
