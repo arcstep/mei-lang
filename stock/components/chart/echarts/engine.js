@@ -1,4 +1,3 @@
-import { color } from "../../mei/theme-style.js";
 import {
   deferUntilDisplayed,
   shouldReactToPreviewUpdated,
@@ -14,7 +13,12 @@ import {
   subscribeQueryState,
 } from "../../dataset/runtime-query.js";
 import { createComponentTracer } from "../../perf/render-trace.js";
-import { cockpitCssVars, COCKPIT_Z_INDEX, readThemeTypography } from "../../cockpit/tokens.js";
+import {
+  cockpitCssVars,
+  COCKPIT_Z_INDEX,
+  readThemeColor,
+  readThemeTypography,
+} from "../../cockpit/tokens.js";
 import {
   bindFloatingPopoverDrag,
   buildTextPopoverShellHtml,
@@ -978,11 +982,12 @@ const ECHARTS_TOOLTIP_CHROME = {
   padding: [8, 12],
 };
 
-const ECHARTS_TOOLTIP_TEXT = {
-  primary: "#f0f9ff",
-  secondary: color("text_highlight"),
-  muted: color("text_body"),
-};
+const ECHARTS_TOOLTIP_TEXT_PRIMARY = "#f0f9ff";
+
+/** ECharts/canvas 无法解析 CSS var，须从宿主 computed style 取实色。 */
+function canvasThemeColor(host, token) {
+  return readThemeColor(host, token);
+}
 
 /** 驾驶舱紧凑柱/线图：浅灰绘图区底 + 低对比网格线（避免默认白线抢眼） */
 const COCKPIT_CARTESIAN_GRID_BG = "rgba(148, 163, 184, 0.12)";
@@ -994,7 +999,7 @@ const COCKPIT_CARTESIAN_SPLIT_LINE = {
   },
 };
 
-function echartsTooltipTextStyle(typography, role = "label") {
+function echartsTooltipTextStyle(typography, role = "label", host) {
   const fontSize =
     role === "value"
       ? typography.value
@@ -1003,18 +1008,22 @@ function echartsTooltipTextStyle(typography, role = "label") {
         : role === "body"
           ? typography.body
           : typography.label;
+  const secondaryColor =
+    role === "body" || role === "muted"
+      ? canvasThemeColor(host, "text_body")
+      : canvasThemeColor(host, "text_highlight");
   return {
     fontSize,
     color:
       role === "unit" || role === "muted"
-        ? ECHARTS_TOOLTIP_TEXT.secondary
-        : ECHARTS_TOOLTIP_TEXT.primary,
+        ? secondaryColor
+        : ECHARTS_TOOLTIP_TEXT_PRIMARY,
     lineHeight: Math.round(fontSize * 1.45),
   };
 }
 
 /** ECharts 飘窗：深色底 + 主题字号 + 二级看板内 z-index */
-function echartsTooltip(typography, trigger, extra = {}) {
+function echartsTooltip(typography, trigger, extra = {}, host) {
   const { textRole = "label", ...rest } = extra;
   const z = COCKPIT_Z_INDEX.tooltipInBoard;
   return {
@@ -1024,7 +1033,7 @@ function echartsTooltip(typography, trigger, extra = {}) {
     appendTo: typeof document !== "undefined" ? document.body : undefined,
     confine: false,
     extraCssText: `z-index:${z} !important;box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:6px;`,
-    textStyle: echartsTooltipTextStyle(typography, textRole),
+    textStyle: echartsTooltipTextStyle(typography, textRole, host),
     ...rest,
   };
 }
@@ -1138,7 +1147,7 @@ function buildCategoryAxisLabel(chartProps, typography) {
   const rotate = resolveCategoryAxisLabelRotate(chartProps);
   const label = {
     fontSize: typography.unit,
-    color: color("text_muted"),
+    color: canvasThemeColor(chartProps?.__host, "text_muted"),
     interval: 0,
   };
   if (formatter) {
@@ -1195,6 +1204,7 @@ function buildOption(kind, rows, mapping, legacy, diagnostics) {
 }
 
 function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
+  const host = legacy.__host;
   const xField = mapping.x[0]?.field;
   if (!xField) {
     diagnostics.push("缺少 mapping.x");
@@ -1252,8 +1262,12 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           smooth: true,
           symbol: "circle",
           symbolSize: compact ? 4 : 6,
-          itemStyle: { color: color("text_inverse"), borderColor: color("text_unit"), borderWidth: 1 },
-          lineStyle: { color: color("text_unit"), width: 1.5 },
+          itemStyle: {
+            color: canvasThemeColor(host, "text_inverse"),
+            borderColor: canvasThemeColor(host, "text_unit"),
+            borderWidth: 1,
+          },
+          lineStyle: { color: canvasThemeColor(host, "text_unit"), width: 1.5 },
           data,
           z: 3,
         });
@@ -1310,7 +1324,8 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     applyPercentTransform(series);
   }
   const chartProps = legacy.chartProps || {};
-  const themeTypography = readThemeTypography(legacy.__host);
+  const themeTypography = readThemeTypography(host);
+  const mutedColor = canvasThemeColor(host, "text_muted");
   const categoryAxisRotate = resolveCategoryAxisLabelRotate(chartProps);
   const compactGrid = metricSpark
     ? { left: 2, right: 2, top: 4, bottom: 4, containLabel: false }
@@ -1318,7 +1333,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
   const categoryAxisLabel = buildCategoryAxisLabel(chartProps, themeTypography);
   const option = {
     backgroundColor: legacy.compact ? "transparent" : undefined,
-    tooltip: echartsTooltip(themeTypography, "axis"),
+    tooltip: echartsTooltip(themeTypography, "axis", {}, host),
     legend: legacy.showLegend
       ? {
           show: true,
@@ -1329,7 +1344,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           itemWidth: 10,
           itemHeight: 8,
           itemGap: 6,
-          textStyle: { fontSize: themeTypography.unit, color: color("text_muted") },
+          textStyle: { fontSize: themeTypography.unit, color: mutedColor },
         }
       : { show: false },
     toolbox: legacy.compact ? undefined : { feature: { saveAsImage: {} } },
@@ -1349,7 +1364,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
         ...option.xAxis,
         axisLabel: {
           fontSize: themeTypography.unit,
-          color: color("text_muted"),
+          color: mutedColor,
           formatter: compactAxisValueLabel,
         },
         splitLine: COCKPIT_CARTESIAN_SPLIT_LINE,
@@ -1367,7 +1382,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
         ...option.yAxis,
         axisLabel: {
           fontSize: themeTypography.unit,
-          color: color("text_muted"),
+          color: mutedColor,
           formatter: compactAxisValueLabel,
         },
         splitLine: COCKPIT_CARTESIAN_SPLIT_LINE,
@@ -1417,6 +1432,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
   const compact = legacy.compact === true || legacy.compact === "true";
   const chartHeight = Number(legacy.chartHeight) > 0 ? Number(legacy.chartHeight) : 0;
   const themeTypography = readThemeTypography(legacy.__host);
+  const host = legacy.__host;
   const tight = compact && chartHeight > 0 && chartHeight <= 56;
   const donutRadius = tight
     ? ["58%", "82%"]
@@ -1424,12 +1440,15 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
       ? ["52%", "78%"]
       : ["45%", "72%"];
   const option = {
-    tooltip: echartsTooltip(themeTypography, "item"),
+    tooltip: echartsTooltip(themeTypography, "item", {}, host),
     legend: compact
       ? { show: false }
       : {
           top: 0,
-          textStyle: { fontSize: themeTypography.label, color: color("text_muted") },
+          textStyle: {
+            fontSize: themeTypography.label,
+            color: canvasThemeColor(host, "text_muted"),
+          },
         },
     toolbox: compact ? undefined : { feature: { saveAsImage: {} } },
     series: [
@@ -1440,7 +1459,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
         label: {
           show: !compact,
           fontSize: themeTypography.label,
-          color: color("text_body"),
+          color: canvasThemeColor(host, "text_body"),
         },
         labelLine: { show: !compact },
         roseType: kind === "rose" ? "radius" : undefined,
@@ -1455,7 +1474,8 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
 }
 
 function buildScatterOption(rows, mapping, diagnostics, legacy = {}) {
-  const themeTypography = readThemeTypography(legacy.__host);
+  const host = legacy.__host;
+  const themeTypography = readThemeTypography(host);
   const xField = mapping.x[0]?.field;
   const yField = mapping.y[0]?.field;
   const sizeField = mapping.size[0]?.field;
@@ -1488,7 +1508,7 @@ function buildScatterOption(rows, mapping, diagnostics, legacy = {}) {
     };
   });
   return {
-    tooltip: echartsTooltip(themeTypography, "item"),
+    tooltip: echartsTooltip(themeTypography, "item", {}, host),
     legend: { top: 0, show: !!colorField },
     toolbox: { feature: { saveAsImage: {} } },
     xAxis: { type: "value" },
@@ -1498,7 +1518,8 @@ function buildScatterOption(rows, mapping, diagnostics, legacy = {}) {
 }
 
 function buildRadarOption(rows, mapping, legacy, diagnostics) {
-  const themeTypography = readThemeTypography(legacy.__host);
+  const host = legacy.__host;
+  const themeTypography = readThemeTypography(host);
   const dimensions = mapping.radarDimensions.length > 0
     ? mapping.radarDimensions
     : mapping.y;
@@ -1518,7 +1539,7 @@ function buildRadarOption(rows, mapping, legacy, diagnostics) {
     normalizeRadarData(data);
   }
   return {
-    tooltip: echartsTooltip(themeTypography, "item"),
+    tooltip: echartsTooltip(themeTypography, "item", {}, host),
     legend: { top: 0 },
     toolbox: { feature: { saveAsImage: {} } },
     radar: { indicator: indicators },
@@ -1527,7 +1548,8 @@ function buildRadarOption(rows, mapping, legacy, diagnostics) {
 }
 
 function buildBoxplotOption(rows, mapping, legacy, diagnostics) {
-  const themeTypography = readThemeTypography(legacy.__host);
+  const host = legacy.__host;
+  const themeTypography = readThemeTypography(host);
   const labelField = mapping.x[0]?.field || "label";
   const def = mapping.boxplot;
   if (def.length >= 5) {
@@ -1541,7 +1563,7 @@ function buildBoxplotOption(rows, mapping, legacy, diagnostics) {
       toNumber(row?.[maxField]),
     ]);
     return {
-      tooltip: echartsTooltip(themeTypography, "item"),
+      tooltip: echartsTooltip(themeTypography, "item", {}, host),
       xAxis: { type: "category", data: labels },
       yAxis: { type: "value" },
       series: [{ type: "boxplot", data }],
@@ -1555,7 +1577,7 @@ function buildBoxplotOption(rows, mapping, legacy, diagnostics) {
   const labels = Object.keys(grouped);
   const data = labels.map((label) => toBoxStats(grouped[label]));
   return {
-    tooltip: echartsTooltip(themeTypography, "item"),
+    tooltip: echartsTooltip(themeTypography, "item", {}, host),
     xAxis: { type: "category", data: labels },
     yAxis: { type: "value" },
     series: [{ type: "boxplot", data }],
@@ -1649,7 +1671,7 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
   if (chartEl.parentElement) {
     chartEl.parentElement.style.overflow = pullUp > 0 ? "visible" : "hidden";
   }
-  const barColor = theme.barColor || color("chart_2");
+  const barColor = theme.barColor || canvasThemeColor(props.__host, "chart_2");
   const trackBg = theme.barBackground || "rgba(148, 163, 184, 0.14)";
   const trackBorder = theme.barBackgroundBorder || "rgba(100, 116, 139, 0.35)";
   const rowsHtml = items
@@ -1684,8 +1706,11 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
 }
 
 function resolveRankingTheme(props) {
+  const host = props.__host;
   return {
-    barColor: String(props.barColor || props.bar_color || "").trim() || color("chart_2"),
+    barColor:
+      String(props.barColor || props.bar_color || "").trim() ||
+      canvasThemeColor(host, "chart_2"),
     barBackground:
       String(props.barBackground || props.bar_background || "").trim() ||
       "rgba(148, 163, 184, 0.14)",
@@ -1820,11 +1845,12 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
     estimateRankingMaxChars(labelWidthPx, typography.axisLabelFontSize),
   );
   const borderRadius = [0, 4, 4, 0];
+  const host = props.__host;
   const option = {
     tooltip: echartsTooltip(themeTypography, "axis", {
       axisPointer: { type: "shadow" },
       formatter: rankingTooltipFormatter(items, valueName, themeTypography),
-    }),
+    }, host),
     grid: {
       left: gridLeft,
       right: compact ? 28 : 36,
@@ -1846,7 +1872,7 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
       data: categories,
       inverse: true,
       axisLabel: {
-        color: color("text_body"),
+        color: canvasThemeColor(host, "text_body"),
         fontSize: typography.axisLabelFontSize,
         fontWeight: 500,
         width: labelWidthPx,
@@ -1915,11 +1941,12 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
     estimateRankingMaxChars(labelWidth, typography.labelFontSize),
   );
   const borderRadius = [0, 3, 3, 0];
+  const host = props.__host;
   const option = {
     tooltip: echartsTooltip(themeTypography, "axis", {
       axisPointer: { type: "shadow" },
       formatter: rankingTooltipFormatter(items, valueName, themeTypography),
-    }),
+    }, host),
     grid: {
       left: gridLeft,
       right: gridRight,
@@ -1962,7 +1989,7 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
           width: labelWidth,
           overflow: "truncate",
           ellipsis: "…",
-          color: color("text_body"),
+          color: canvasThemeColor(host, "text_body"),
           formatter: (params) => {
             const item = items[params.dataIndex];
             if (!item) return "";
@@ -1973,7 +2000,7 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
             name: {
               fontSize: typography.labelFontSize,
               fontWeight: 500,
-              color: color("text_body"),
+              color: canvasThemeColor(host, "text_body"),
               align: "left",
               lineHeight: typography.labelLineHeight,
               width: labelWidth,
@@ -1982,7 +2009,7 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
             val: {
               fontSize: typography.valueFontSize,
               fontWeight: 600,
-              color: color("text_unit"),
+              color: canvasThemeColor(host, "text_unit"),
               align: "right",
               lineHeight: Math.round(typography.valueFontSize * 1.25),
             },

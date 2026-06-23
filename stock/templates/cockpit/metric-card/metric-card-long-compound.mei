@@ -21,7 +21,7 @@ frame.add_panel(
     layout_gap = "2px",
     props = {
         "background": {
-            "color": "rgba(4,16,30,0.90)",
+            "color": "rgba(98,190,235,0.10)",
             "image": "url(" + BG_LONG + ")",
             "size": "100% 100%",
             "position": "center",
