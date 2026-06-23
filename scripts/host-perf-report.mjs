@@ -7,6 +7,8 @@ const RED_THRESHOLDS = {
   html_ready_ratio: 0.15,
   stable_render_ratio: 0.15,
   interactive_ratio: 0.15,
+  critical_ready_ratio: 0.2,
+  local_feedback_ratio: 0.2,
   compile_ratio: 0.2,
   metric_total_ratio: 0.2,
   request_count_ratio: 0.3,
@@ -353,6 +355,20 @@ function compareEntry(prev, curr) {
     currPerf.first_interactive_ms,
     RED_THRESHOLDS.interactive_ratio
   );
+  pushRatioRegression(
+    red,
+    "access_critical_metrics_ready_ms",
+    prevPerf.access_critical_metrics_ready_ms,
+    currPerf.access_critical_metrics_ready_ms,
+    RED_THRESHOLDS.critical_ready_ratio
+  );
+  pushRatioRegression(
+    red,
+    "local_edit_feedback_ms",
+    prevPerf.local_edit_feedback_ms,
+    currPerf.local_edit_feedback_ms,
+    RED_THRESHOLDS.local_feedback_ratio
+  );
   pushRatioRegression(red, "compile_ms", prevPerf.compile_ms, currPerf.compile_ms, RED_THRESHOLDS.compile_ratio);
   pushRatioRegression(
     red,
@@ -476,7 +492,8 @@ function buildContextDetails(prev, curr) {
     "catalog_compile_ms",
     "world_finalize_ms",
   ]);
-  return [compileStage].filter(Boolean);
+  const warmupPhase = formatWarmupComparison(prev?.perf || {}, curr?.perf || {});
+  return [compileStage, warmupPhase].filter(Boolean);
 }
 
 function formatStageComparison(prevPerf, currPerf, fields) {
@@ -497,6 +514,30 @@ function formatStageComparison(prevPerf, currPerf, fields) {
     return "";
   }
   return `compile_stage ${parts.join(" ")}`;
+}
+
+function formatWarmupComparison(prevPerf, currPerf) {
+  const parts = [];
+  for (const field of [
+    "host_full_warmup_ready",
+    "host_deferred_warmup_pending",
+    "host_last_build_total_ms",
+    "host_last_build_compile_ms",
+    "host_last_build_warmup_ms",
+  ]) {
+    const prev = toFinite(prevPerf?.[field]);
+    const curr = toFinite(currPerf?.[field]);
+    if (!Number.isFinite(prev) && !Number.isFinite(curr)) {
+      continue;
+    }
+    parts.push(
+      Number.isFinite(prev) ? `${field}=${prev}->${curr}` : `${field}=${curr}`
+    );
+  }
+  if (parts.length === 0) {
+    return "";
+  }
+  return `warmup_state ${parts.join(" ")}`;
 }
 
 function shortStageField(field) {

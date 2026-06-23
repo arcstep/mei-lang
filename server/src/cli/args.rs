@@ -329,6 +329,9 @@ pub struct PrebuildArgs {
     pub verify: bool,
     #[arg(long)]
     pub clean: bool,
+    /// 仅构建 defaultScene + hotScenes 对应的首条热路径，不等待完整 warmup。
+    #[arg(long, default_value_t = false)]
+    pub hot_only: bool,
     /// 输出可读的摘要 JSON（不含 compile_revision 等冗长字段）。
     #[arg(long)]
     pub json: bool,

@@ -857,11 +857,19 @@ pub enum PrebuildMode {
     Verify,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrebuildScopeProfile {
+    Full,
+    HotOnly,
+}
+
 #[derive(Debug, Clone)]
 pub struct PrebuildOptions {
     pub app_filter: Option<String>,
     pub mode: PrebuildMode,
     pub clean: bool,
+    pub scope_profile: PrebuildScopeProfile,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -911,6 +919,7 @@ pub struct PrebuildAppReport {
 pub struct PrebuildReport {
     pub schema_version: String,
     pub mode: PrebuildMode,
+    pub scope_profile: PrebuildScopeProfile,
     pub clean: bool,
     pub clean_wall_ms: u64,
     pub total_wall_ms: u64,
@@ -950,6 +959,7 @@ pub struct PrebuildAppSummary {
 pub struct PrebuildReportSummary {
     pub schema_version: String,
     pub mode: PrebuildMode,
+    pub scope_profile: PrebuildScopeProfile,
     pub clean: bool,
     pub clean_wall_ms: u64,
     pub total_wall_ms: u64,
@@ -968,6 +978,7 @@ impl PrebuildReport {
         PrebuildReportSummary {
             schema_version: self.schema_version.clone(),
             mode: self.mode,
+            scope_profile: self.scope_profile,
             clean: self.clean,
             clean_wall_ms: self.clean_wall_ms,
             total_wall_ms: self.total_wall_ms,
@@ -1233,6 +1244,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         return Ok(PrebuildReport {
             schema_version: PREBUILD_REPORT_SCHEMA_VERSION.to_string(),
             mode: options.mode,
+            scope_profile: options.scope_profile,
             clean: options.clean,
             clean_wall_ms: 0,
             total_wall_ms: started.elapsed().as_millis() as u64,
@@ -1271,6 +1283,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
     let mut report = PrebuildReport {
         schema_version: PREBUILD_REPORT_SCHEMA_VERSION.to_string(),
         mode: options.mode,
+        scope_profile: options.scope_profile,
         clean: options.clean,
         clean_wall_ms,
         total_wall_ms: 0,
@@ -1312,7 +1325,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         prebuild_parallelism(manifest.apps.len()),
         |app| {
             let app_id = app.app_id.clone();
-            let result = run_prebuild_for_app(source_root, &app, options.mode);
+            let result = run_prebuild_for_app(source_root, &app, options.mode, options.scope_profile);
             (app_id, result)
         },
     );
@@ -1380,6 +1393,7 @@ fn run_prebuild_for_app(
     source_root: &Path,
     app: &RuntimeWarmupApp,
     mode: PrebuildMode,
+    scope_profile: PrebuildScopeProfile,
 ) -> Result<PrebuildAppReport> {
     let app_started = Instant::now();
     let components_root = toolchain::resolve_components_root(source_root);
@@ -1394,21 +1408,21 @@ fn run_prebuild_for_app(
     });
     let diagnostics = Arc::new(PrebuildDiagnostics::default());
     let compile_session = Arc::new(Mutex::new(PrebuildCompileSession::default()));
-    let warmup_requests = aggregate_warmup_requests(app);
+    let warmup_requests = aggregate_warmup_requests(app, scope_profile);
     let max_parallelism = prebuild_parallelism(
-        compile_scopes_for_app(app)
+        compile_scopes_for_app(app, scope_profile)
             .len()
             .max(warmup_requests.len())
             .max(1),
     );
     let default_scope = CompileScope::default_scope();
     let compile_started = Instant::now();
-    let initial_scope_count = compile_scopes_for_app(app).len();
+    let initial_scope_count = compile_scopes_for_app(app, scope_profile).len();
     prebuild_emit_progress(&format!(
         "[{}] ── 1/3 编译 .mei ── 约 {initial_scope_count} 个 manifest scope（request-scope 闭包 + 结果复用）",
         app.app_id
     ));
-    let mut scopes = compile_scopes_for_app(app);
+    let mut scopes = compile_scopes_for_app(app, scope_profile);
     scopes.retain(|scope| scope.key() != default_scope.key());
     let hot_scope_keys = app
         .hot_scenes
@@ -1982,7 +1996,10 @@ fn run_prebuild_for_app(
     })
 }
 
-fn compile_scopes_for_app(app: &RuntimeWarmupApp) -> Vec<CompileScope> {
+fn compile_scopes_for_app(
+    app: &RuntimeWarmupApp,
+    scope_profile: PrebuildScopeProfile,
+) -> Vec<CompileScope> {
     let mut scopes = Vec::new();
     let mut seen = BTreeSet::new();
     let mut push_scope = |scope: CompileScope| {
@@ -1992,8 +2009,8 @@ fn compile_scopes_for_app(app: &RuntimeWarmupApp) -> Vec<CompileScope> {
         }
     };
     push_scope(CompileScope::default_scope());
-    let scene_ids = explicit_scene_ids(app);
-    let focus_targets = all_focus_targets(app);
+    let scene_ids = scene_ids_for_profile(app, scope_profile);
+    let focus_targets = focus_targets_for_profile(app, scope_profile);
     for scene_id in &scene_ids {
         push_scope(CompileScope {
             requested_scene_id: Some(scene_id.clone()),
@@ -2014,13 +2031,30 @@ fn compile_scopes_for_app(app: &RuntimeWarmupApp) -> Vec<CompileScope> {
             });
         }
     }
-    for request in &app.datasets {
+    for request in app
+        .datasets
+        .iter()
+        .filter(|request| warmup_dataset_request_in_profile(app, request, scope_profile))
+    {
         push_scope(CompileScope {
             requested_scene_id: request.scene_id.clone(),
             requested_target_file: request.focus.clone(),
         });
     }
     scopes
+}
+
+fn hot_scene_ids(app: &RuntimeWarmupApp) -> Vec<String> {
+    let mut scene_ids = Vec::new();
+    let mut seen = BTreeSet::new();
+    for scene_id in app.default_scene.iter().chain(app.hot_scenes.iter()) {
+        let scene_id = scene_id.trim();
+        if scene_id.is_empty() || !seen.insert(scene_id.to_string()) {
+            continue;
+        }
+        scene_ids.push(scene_id.to_string());
+    }
+    scene_ids
 }
 
 fn explicit_scene_ids(app: &RuntimeWarmupApp) -> Vec<String> {
@@ -2039,6 +2073,13 @@ fn explicit_scene_ids(app: &RuntimeWarmupApp) -> Vec<String> {
         scene_ids.push(scene_id.to_string());
     }
     scene_ids
+}
+
+fn scene_ids_for_profile(app: &RuntimeWarmupApp, scope_profile: PrebuildScopeProfile) -> Vec<String> {
+    match scope_profile {
+        PrebuildScopeProfile::Full => explicit_scene_ids(app),
+        PrebuildScopeProfile::HotOnly => hot_scene_ids(app),
+    }
 }
 
 fn explicit_focus_targets(app: &RuntimeWarmupApp) -> Vec<String> {
@@ -2086,6 +2127,17 @@ fn all_focus_targets(app: &RuntimeWarmupApp) -> Vec<String> {
         }
     }
     targets
+}
+
+fn focus_targets_for_profile(
+    app: &RuntimeWarmupApp,
+    scope_profile: PrebuildScopeProfile,
+) -> Vec<String> {
+    match scope_profile {
+        PrebuildScopeProfile::Full => all_focus_targets(app),
+        // Hot path should keep the explicit entry/main focus, but skip dataset-derived expansions.
+        PrebuildScopeProfile::HotOnly => explicit_focus_targets(app),
+    }
 }
 
 fn collect_scene_file_refs(value: &Value, out: &mut BTreeSet<String>) {
@@ -2136,9 +2188,16 @@ fn discover_overlay_preview_targets(compiled: &mei_lang_kernel::CompiledApp) -> 
     targets
 }
 
-fn aggregate_warmup_requests(app: &RuntimeWarmupApp) -> Vec<AggregatedWarmupRequest> {
+fn aggregate_warmup_requests(
+    app: &RuntimeWarmupApp,
+    scope_profile: PrebuildScopeProfile,
+) -> Vec<AggregatedWarmupRequest> {
     let mut aggregated = BTreeMap::<String, AggregatedWarmupRequest>::new();
-    for request in &app.datasets {
+    for request in app
+        .datasets
+        .iter()
+        .filter(|request| warmup_dataset_request_in_profile(app, request, scope_profile))
+    {
         let scope = CompileScope {
             requested_scene_id: request.scene_id.clone(),
             requested_target_file: request.focus.clone(),
@@ -2167,6 +2226,42 @@ fn aggregate_warmup_requests(app: &RuntimeWarmupApp) -> Vec<AggregatedWarmupRequ
         );
     }
     aggregated.into_values().collect()
+}
+
+fn warmup_dataset_request_in_profile(
+    app: &RuntimeWarmupApp,
+    request: &RuntimeWarmupDatasetRequest,
+    scope_profile: PrebuildScopeProfile,
+) -> bool {
+    if scope_profile == PrebuildScopeProfile::Full {
+        return true;
+    }
+    let hot_scenes = hot_scene_ids(app);
+    let explicit_focuses = explicit_focus_targets(app);
+    let request_scene = request
+        .scene_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(scene_id) = request_scene {
+        return hot_scenes.iter().any(|value| value == scene_id);
+    }
+    let request_focus = request
+        .focus
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(focus) = request_focus {
+        return explicit_focuses.iter().any(|value| value == focus);
+    }
+    true
+}
+
+pub(crate) fn app_has_deferred_warmup_work(app: &RuntimeWarmupApp) -> bool {
+    compile_scopes_for_app(app, PrebuildScopeProfile::Full).len()
+        > compile_scopes_for_app(app, PrebuildScopeProfile::HotOnly).len()
+        || aggregate_warmup_requests(app, PrebuildScopeProfile::Full).len()
+            > aggregate_warmup_requests(app, PrebuildScopeProfile::HotOnly).len()
 }
 
 fn warmup_request_matches_outcome(
@@ -4386,6 +4481,7 @@ mod tests {
         let report = PrebuildReport {
             schema_version: "mei-prebuild-report-v1".to_string(),
             mode: PrebuildMode::Verify,
+            scope_profile: PrebuildScopeProfile::Full,
             clean: false,
             clean_wall_ms: 0,
             total_wall_ms: 1200,
@@ -4439,7 +4535,7 @@ mod tests {
             }],
             xlsx_sources: Vec::new(),
         };
-        let scope_keys = compile_scopes_for_app(&app)
+        let scope_keys = compile_scopes_for_app(&app, PrebuildScopeProfile::Full)
             .into_iter()
             .map(|scope| scope.key())
             .collect::<BTreeSet<_>>();
@@ -4451,6 +4547,79 @@ mod tests {
         assert!(scope_keys.contains("details|scenes/details.mei"));
         assert!(scope_keys.contains("home|scenes/02-inspection.mei"));
         assert!(scope_keys.contains("dashboard|scenes/02-inspection.mei"));
+    }
+
+    #[test]
+    fn hot_only_compile_scopes_skip_deferred_dataset_closure() {
+        let app = RuntimeWarmupApp {
+            app_id: "demo".to_string(),
+            default_scene: Some("home".to_string()),
+            hot_scenes: vec!["dashboard".to_string()],
+            scenes: vec!["details".to_string()],
+            focuses: vec!["main.mei".to_string()],
+            datasets: vec![
+                RuntimeWarmupDatasetRequest {
+                    scene_id: Some("dashboard".to_string()),
+                    focus: Some("main.mei".to_string()),
+                    dataset_id: "hot_ds".to_string(),
+                    metric_id: None,
+                    metric_ids: Vec::new(),
+                },
+                RuntimeWarmupDatasetRequest {
+                    scene_id: Some("details".to_string()),
+                    focus: Some("scenes/details.mei".to_string()),
+                    dataset_id: "deferred_ds".to_string(),
+                    metric_id: None,
+                    metric_ids: Vec::new(),
+                },
+            ],
+            xlsx_sources: Vec::new(),
+        };
+        let scope_keys = compile_scopes_for_app(&app, PrebuildScopeProfile::HotOnly)
+            .into_iter()
+            .map(|scope| scope.key())
+            .collect::<BTreeSet<_>>();
+
+        assert!(scope_keys.contains("|"));
+        assert!(scope_keys.contains("home|"));
+        assert!(scope_keys.contains("dashboard|"));
+        assert!(scope_keys.contains("|main.mei"));
+        assert!(scope_keys.contains("dashboard|main.mei"));
+        assert!(!scope_keys.contains("details|"));
+        assert!(!scope_keys.contains("details|scenes/details.mei"));
+    }
+
+    #[test]
+    fn hot_only_warmup_requests_keep_hot_scoped_datasets() {
+        let app = RuntimeWarmupApp {
+            app_id: "demo".to_string(),
+            default_scene: Some("home".to_string()),
+            hot_scenes: vec!["dashboard".to_string()],
+            scenes: vec!["details".to_string()],
+            focuses: vec!["main.mei".to_string()],
+            datasets: vec![
+                RuntimeWarmupDatasetRequest {
+                    scene_id: Some("dashboard".to_string()),
+                    focus: Some("main.mei".to_string()),
+                    dataset_id: "hot_ds".to_string(),
+                    metric_id: Some("metric_a".to_string()),
+                    metric_ids: Vec::new(),
+                },
+                RuntimeWarmupDatasetRequest {
+                    scene_id: Some("details".to_string()),
+                    focus: Some("scenes/details.mei".to_string()),
+                    dataset_id: "deferred_ds".to_string(),
+                    metric_id: Some("metric_b".to_string()),
+                    metric_ids: Vec::new(),
+                },
+            ],
+            xlsx_sources: Vec::new(),
+        };
+        let requests = aggregate_warmup_requests(&app, PrebuildScopeProfile::HotOnly);
+
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].dataset_id, "hot_ds");
+        assert_eq!(requests[0].scope.key(), "dashboard|main.mei");
     }
 
     #[test]

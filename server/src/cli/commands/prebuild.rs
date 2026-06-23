@@ -5,7 +5,9 @@ use super::super::util::{
     print_json_output, resolve_cli_source_root, resolve_package_root, resolve_source_root_arg,
 };
 use crate::agent_runtime;
-use crate::prebuild::{run_prebuild, PrebuildMode, PrebuildOptions, PrebuildReport};
+use crate::prebuild::{
+    run_prebuild, PrebuildMode, PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
+};
 
 pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
     if args.verify && args.clean {
@@ -34,6 +36,11 @@ pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
                 PrebuildMode::Build
             },
             clean: args.clean,
+            scope_profile: if args.hot_only {
+                PrebuildScopeProfile::HotOnly
+            } else {
+                PrebuildScopeProfile::Full
+            },
         },
     )?;
     if args.json_full {
@@ -52,8 +59,12 @@ fn print_prebuild_human_summary(report: &PrebuildReport) {
         PrebuildMode::Verify => "verify",
     };
     let status = if report.ok { "ok" } else { "FAILED" };
+    let scope_profile = match report.scope_profile {
+        PrebuildScopeProfile::Full => "full",
+        PrebuildScopeProfile::HotOnly => "hot_only",
+    };
     println!(
-        "prebuild {status} ({mode}) in {:.1}s",
+        "prebuild {status} ({mode}, {scope_profile}) in {:.1}s",
         report.total_wall_ms as f64 / 1000.0
     );
     if !report.succeeded_apps.is_empty() {

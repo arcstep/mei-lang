@@ -9,11 +9,16 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    prebuild::{run_prebuild, PrebuildAppReport, PrebuildMode, PrebuildOptions, PrebuildReport},
+    http::compile_cache::{compile_app_with_cache, load_compile_artifact_only},
+    prebuild::{
+        app_has_deferred_warmup_work, run_prebuild, PrebuildAppReport, PrebuildMode,
+        PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
+    },
     AppState,
 };
 use mei_lang_datasets::preload_prebuild_metric_response_index;
-use mei_lang_kernel::resolve_app_root;
+use mei_lang_kernel::{resolve_app_root, resolve_runtime_warmup_manifest, CompileOptions};
+use mei_lang_toolchain::resolve_components_root;
 
 fn supports_ansi_stderr() -> bool {
     std::io::stderr().is_terminal()
@@ -71,6 +76,10 @@ pub(crate) struct HostReadyResponse {
     pub host_ready: bool,
     #[serde(rename = "accessReady")]
     pub access_ready: bool,
+    #[serde(rename = "fullWarmupReady")]
+    pub full_warmup_ready: bool,
+    #[serde(rename = "deferredWarmupPending")]
+    pub deferred_warmup_pending: bool,
     pub phase: String,
     #[serde(rename = "manifestPath")]
     pub manifest_path: String,
@@ -115,6 +124,10 @@ pub(crate) struct HostHeartbeatResponse {
     pub host_ready: bool,
     #[serde(rename = "accessReady")]
     pub access_ready: bool,
+    #[serde(rename = "fullWarmupReady")]
+    pub full_warmup_ready: bool,
+    #[serde(rename = "deferredWarmupPending")]
+    pub deferred_warmup_pending: bool,
     pub phase: String,
     #[serde(rename = "activeJob")]
     pub active_job: Option<String>,
@@ -148,6 +161,12 @@ pub(crate) struct HostBuildRequest {
     pub app_id: Option<String>,
     #[serde(default)]
     pub mode: Option<String>,
+    #[serde(default, rename = "sceneId")]
+    pub scene_id: Option<String>,
+    #[serde(default, rename = "targetFile")]
+    pub target_file: Option<String>,
+    #[serde(default, rename = "hotOnly")]
+    pub hot_only: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,15 +174,34 @@ pub(crate) struct HostBuildJobResponse {
     pub accepted: bool,
     pub phase: String,
     #[serde(rename = "activeJob")]
-    pub active_job: String,
+    pub active_job: Option<String>,
     #[serde(rename = "appId")]
     pub app_id: Option<String>,
     pub mode: String,
+    #[serde(rename = "scopeProfile")]
+    pub scope_profile: String,
+    #[serde(rename = "scopedBuild")]
+    pub scoped_build: bool,
+    #[serde(rename = "sceneId")]
+    pub scene_id: Option<String>,
+    #[serde(rename = "targetFile")]
+    pub target_file: Option<String>,
+    #[serde(rename = "compileRevision")]
+    pub compile_revision: Option<String>,
+    #[serde(rename = "compileMs")]
+    pub compile_ms: Option<u64>,
+    #[serde(rename = "cacheHit")]
+    pub cache_hit: Option<bool>,
+    #[serde(rename = "artifactCacheHit")]
+    pub artifact_cache_hit: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct HostReadinessRegistry {
     host_bound: bool,
+    access_ready: bool,
+    full_warmup_ready: bool,
+    deferred_warmup_pending: bool,
     phase: String,
     manifest_path: String,
     manifest_source: String,
@@ -298,7 +336,6 @@ fn registry_snapshot() -> HostReadyResponse {
         .into_iter()
         .map(|(app_id, state)| app_response(app_id, state))
         .collect::<Vec<_>>();
-    let access_ready = phase_access_ready(snapshot.phase.as_str());
     let active_job_elapsed_ms = snapshot
         .active_job_started_at
         .map(|started| started.elapsed().as_millis() as u64);
@@ -311,7 +348,9 @@ fn registry_snapshot() -> HostReadyResponse {
     HostReadyResponse {
         ready: snapshot.host_bound,
         host_ready: snapshot.host_bound,
-        access_ready,
+        access_ready: snapshot.access_ready,
+        full_warmup_ready: snapshot.full_warmup_ready,
+        deferred_warmup_pending: snapshot.deferred_warmup_pending,
         phase: if snapshot.phase.trim().is_empty() {
             "starting".to_string()
         } else {
@@ -354,6 +393,9 @@ fn reset_registry_for_source_root(source_root: &Path) {
     let _ = with_registry(|registry| {
         *registry = HostReadinessRegistry {
             host_bound: false,
+            access_ready: false,
+            full_warmup_ready: false,
+            deferred_warmup_pending: false,
             phase: "starting".to_string(),
             manifest_path: manifest_path.display().to_string(),
             manifest_source,
@@ -508,7 +550,11 @@ fn apply_success_app_report(app_report: &PrebuildAppReport, app_state: &mut Host
     }
 }
 
-fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
+fn status_from_report(
+    report: &PrebuildReport,
+    app_filter: Option<&str>,
+    deferred_warmup_pending: bool,
+) {
     let warning_count = report
         .apps
         .iter()
@@ -534,6 +580,9 @@ fn status_from_report(report: &PrebuildReport, app_filter: Option<&str>) {
         registry.last_build_compile_ms = Some(compile_ms);
         registry.last_build_warmup_ms = Some(warmup_ms);
         registry.last_warning_count = warning_count;
+        registry.access_ready = report.ok;
+        registry.full_warmup_ready = report.ok && !deferred_warmup_pending;
+        registry.deferred_warmup_pending = report.ok && deferred_warmup_pending;
         for app_report in &report.apps {
             let app_state = registry.apps.entry(app_report.app_id.clone()).or_default();
             apply_success_app_report(app_report, app_state);
@@ -670,10 +719,20 @@ pub(crate) fn preload_metric_response_indices_for_workspace(source_root: &Path) 
     }
 }
 
-fn mark_job_failed(app_filter: Option<&str>, mode: PrebuildMode, error: &str) {
+fn mark_job_failed(
+    app_filter: Option<&str>,
+    mode: PrebuildMode,
+    error: &str,
+    preserve_access_ready: bool,
+) {
     let _ = with_registry(|registry| {
         registry.error_summary = vec![error.to_string()];
         registry.active_job_started_at = None;
+        if !preserve_access_ready {
+            registry.access_ready = false;
+        }
+        registry.full_warmup_ready = false;
+        registry.deferred_warmup_pending = false;
         if let Some(app_id) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
             let app_state = registry.apps.entry(app_id.to_string()).or_default();
             app_state.phase = "failed".to_string();
@@ -730,6 +789,7 @@ fn run_prebuild_job_sync_inner(
     source_root: &Path,
     mode: PrebuildMode,
     app_filter: Option<&str>,
+    scope_profile: PrebuildScopeProfile,
 ) -> Result<PrebuildReport> {
     run_prebuild(
         source_root,
@@ -740,8 +800,16 @@ fn run_prebuild_job_sync_inner(
                 .map(str::to_string),
             mode,
             clean: false,
+            scope_profile,
         },
     )
+}
+
+fn startup_deferred_warmup_pending(source_root: &Path) -> bool {
+    let Ok(Some(manifest)) = resolve_runtime_warmup_manifest(source_root) else {
+        return false;
+    };
+    manifest.apps.iter().any(app_has_deferred_warmup_work)
 }
 
 pub(crate) fn initialize_startup_readiness(source_root: &Path) {
@@ -760,6 +828,7 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
         let report = PrebuildReport {
             schema_version: "mei-prebuild-report-v1".to_string(),
             mode: PrebuildMode::Verify,
+            scope_profile: PrebuildScopeProfile::Full,
             clean: false,
             clean_wall_ms: 0,
             total_wall_ms: 0,
@@ -780,14 +849,19 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
         return Ok(report);
     }
     begin_job(PrebuildMode::Verify, None, "startup")?;
-    match run_prebuild_job_sync_inner(source_root, PrebuildMode::Verify, None) {
+    match run_prebuild_job_sync_inner(
+        source_root,
+        PrebuildMode::Verify,
+        None,
+        PrebuildScopeProfile::Full,
+    ) {
         Ok(report) => {
-            status_from_report(&report, None);
+            status_from_report(&report, None, false);
             Ok(report)
         }
         Err(error) => {
             let error_text = error.to_string();
-            mark_job_failed(None, PrebuildMode::Verify, &error_text);
+            mark_job_failed(None, PrebuildMode::Verify, &error_text, false);
             Err(error)
         }
     }
@@ -798,17 +872,58 @@ pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
     tracing::info!("startup background prebuild scheduled");
     tokio::spawn(async move {
         let source_root_for_job = source_root.clone();
+        let deferred_pending = startup_deferred_warmup_pending(source_root.as_path());
         let report_result = tokio::task::spawn_blocking(move || {
-            run_prebuild_job_sync_inner(source_root_for_job.as_path(), PrebuildMode::Build, None)
+            run_prebuild_job_sync_inner(
+                source_root_for_job.as_path(),
+                PrebuildMode::Build,
+                None,
+                if deferred_pending {
+                    PrebuildScopeProfile::HotOnly
+                } else {
+                    PrebuildScopeProfile::Full
+                },
+            )
         })
         .await;
         match report_result {
-            Ok(Ok(report)) => status_from_report(&report, None),
-            Ok(Err(error)) => mark_job_failed(None, PrebuildMode::Build, &error.to_string()),
+            Ok(Ok(report)) => {
+                status_from_report(&report, None, deferred_pending);
+                if deferred_pending && report.ok {
+                    if let Err(error) = begin_job(PrebuildMode::Build, None, "startup_deferred") {
+                        mark_job_failed(None, PrebuildMode::Build, &error.to_string(), true);
+                        return;
+                    }
+                    let source_root_for_deferred = source_root.clone();
+                    let deferred_result = tokio::task::spawn_blocking(move || {
+                        run_prebuild_job_sync_inner(
+                            source_root_for_deferred.as_path(),
+                            PrebuildMode::Build,
+                            None,
+                            PrebuildScopeProfile::Full,
+                        )
+                    })
+                    .await;
+                    match deferred_result {
+                        Ok(Ok(report)) => status_from_report(&report, None, false),
+                        Ok(Err(error)) => {
+                            mark_job_failed(None, PrebuildMode::Build, &error.to_string(), true)
+                        }
+                        Err(error) => mark_job_failed(
+                            None,
+                            PrebuildMode::Build,
+                            &format!("startup deferred build worker join failed: {error}"),
+                            true,
+                        ),
+                    }
+                }
+            }
+            Ok(Err(error)) => mark_job_failed(None, PrebuildMode::Build, &error.to_string(), false),
             Err(error) => mark_job_failed(
                 None,
                 PrebuildMode::Build,
                 &format!("startup build worker join failed: {error}"),
+                false,
             ),
         }
     });
@@ -819,6 +934,7 @@ fn spawn_manual_job(
     source_root: PathBuf,
     mode: PrebuildMode,
     app_filter: Option<String>,
+    scope_profile: PrebuildScopeProfile,
 ) -> Result<String> {
     let app_filter_text = app_filter
         .as_deref()
@@ -834,18 +950,20 @@ fn spawn_manual_job(
                 source_root_for_job.as_path(),
                 mode,
                 app_filter_for_job.as_deref(),
+                scope_profile,
             )
         })
         .await;
         match report_result {
-            Ok(Ok(report)) => status_from_report(&report, app_filter_owned.as_deref()),
+            Ok(Ok(report)) => status_from_report(&report, app_filter_owned.as_deref(), false),
             Ok(Err(error)) => {
-                mark_job_failed(app_filter_owned.as_deref(), mode, &error.to_string())
+                mark_job_failed(app_filter_owned.as_deref(), mode, &error.to_string(), false)
             }
             Err(error) => mark_job_failed(
                 app_filter_owned.as_deref(),
                 mode,
                 &format!("manual host build worker join failed: {error}"),
+                false,
             ),
         }
     });
@@ -913,6 +1031,46 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
         })
 }
 
+fn normalized_optional_scope(value: Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn run_scoped_build(
+    state: &AppState,
+    app_id: &str,
+    scene_id: Option<String>,
+    target_file: Option<String>,
+) -> Result<HostBuildJobResponse> {
+    let scene_id = normalized_optional_scope(scene_id);
+    let target_file = normalized_optional_scope(target_file);
+    let components_root = resolve_components_root(state.source_root.as_ref().as_path());
+    let options = CompileOptions {
+        scene: scene_id.clone(),
+        preview_target: target_file.clone(),
+    };
+    let outcome = compile_app_with_cache(state, app_id, &options, components_root.as_path())
+        .map_err(|failure| failure.error)?;
+    Ok(HostBuildJobResponse {
+        accepted: true,
+        phase: registry_snapshot().phase,
+        active_job: None,
+        app_id: Some(app_id.to_string()),
+        mode: "scope-build".to_string(),
+        scope_profile: "scoped_dev_jit".to_string(),
+        scoped_build: true,
+        scene_id,
+        target_file,
+        compile_revision: Some(outcome.compile_revision),
+        compile_ms: Some(outcome.compile_ms),
+        cache_hit: Some(outcome.cache_hit),
+        artifact_cache_hit: Some(outcome.artifact_cache_hit),
+    })
+}
+
 pub(crate) fn mark_access_artifact_degraded(
     app_id: &str,
     scene_id: Option<&str>,
@@ -975,6 +1133,8 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
         ready: ready.host_ready,
         host_ready: ready.host_ready,
         access_ready: ready.access_ready,
+        full_warmup_ready: ready.full_warmup_ready,
+        deferred_warmup_pending: ready.deferred_warmup_pending,
         phase: ready.phase,
         active_job: ready.active_job,
         active_job_elapsed_ms: ready.active_job_elapsed_ms,
@@ -989,13 +1149,13 @@ pub async fn api_host_build(
     State(state): State<AppState>,
     Json(request): Json<HostBuildRequest>,
 ) -> impl IntoResponse {
-    let mode = match request
+    let mode_text = request
         .mode
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("build")
-    {
+        .unwrap_or("build");
+    let mode = match mode_text {
         "build" => PrebuildMode::Build,
         "verify" => PrebuildMode::Verify,
         other => {
@@ -1008,22 +1168,106 @@ pub async fn api_host_build(
                 .into_response();
         }
     };
+    let scene_id = normalized_optional_scope(request.scene_id.clone());
+    let target_file = normalized_optional_scope(request.target_file.clone());
+    let scope_requested = scene_id.is_some() || target_file.is_some();
+    if scope_requested {
+        let Some(app_id) = request
+            .app_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "accepted": false,
+                    "error": "scoped host build requires `appId`",
+                })),
+            )
+                .into_response();
+        };
+        if mode == PrebuildMode::Verify {
+            let components_root = resolve_components_root(state.source_root.as_ref().as_path());
+            let ready = load_compile_artifact_only(
+                &state,
+                app_id,
+                &CompileOptions {
+                    scene: scene_id.clone(),
+                    preview_target: target_file.clone(),
+                },
+                components_root.as_path(),
+            )
+            .is_some();
+            return (
+                if ready {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                },
+                Json(HostBuildJobResponse {
+                    accepted: ready,
+                    phase: registry_snapshot().phase,
+                    active_job: None,
+                    app_id: Some(app_id.to_string()),
+                    mode: "scope-verify".to_string(),
+                    scope_profile: "scoped_dev_jit".to_string(),
+                    scoped_build: true,
+                    scene_id,
+                    target_file,
+                    compile_revision: None,
+                    compile_ms: None,
+                    cache_hit: None,
+                    artifact_cache_hit: None,
+                }),
+            )
+                .into_response();
+        }
+        return match run_scoped_build(&state, app_id, scene_id, target_file) {
+            Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+            Err(error) => (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "accepted": false,
+                    "error": error.to_string(),
+                })),
+            )
+                .into_response(),
+        };
+    }
+    let scope_profile = if request.hot_only {
+        PrebuildScopeProfile::HotOnly
+    } else {
+        PrebuildScopeProfile::Full
+    };
     match spawn_manual_job(
         state.source_root.as_ref().clone(),
         mode,
         request.app_id.clone(),
+        scope_profile,
     ) {
         Ok(job) => (
             StatusCode::ACCEPTED,
             Json(HostBuildJobResponse {
                 accepted: true,
                 phase: registry_snapshot().phase,
-                active_job: job,
+                active_job: Some(job),
                 app_id: request.app_id,
                 mode: match mode {
                     PrebuildMode::Build => "build".to_string(),
                     PrebuildMode::Verify => "verify".to_string(),
                 },
+                scope_profile: match scope_profile {
+                    PrebuildScopeProfile::Full => "full".to_string(),
+                    PrebuildScopeProfile::HotOnly => "hot_only".to_string(),
+                },
+                scoped_build: false,
+                scene_id: None,
+                target_file: None,
+                compile_revision: None,
+                compile_ms: None,
+                cache_hit: None,
+                artifact_cache_hit: None,
             }),
         )
             .into_response(),
@@ -1053,6 +1297,8 @@ mod tests {
             ready: ready.ready,
             host_ready: ready.host_ready,
             access_ready: ready.access_ready,
+            full_warmup_ready: ready.full_warmup_ready,
+            deferred_warmup_pending: ready.deferred_warmup_pending,
             phase: ready.phase,
             active_job: ready.active_job,
             active_job_elapsed_ms: ready.active_job_elapsed_ms,
@@ -1094,6 +1340,7 @@ mod tests {
     fn registry_phase_becomes_degraded_when_apps_partially_fail() {
         let mut registry = HostReadinessRegistry {
             host_bound: true,
+            access_ready: true,
             apps: BTreeMap::from([
                 (
                     "ready-app".to_string(),

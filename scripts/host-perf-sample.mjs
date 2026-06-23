@@ -264,6 +264,13 @@ async function sampleScenario(context) {
     }
   }
 
+  try {
+    mergePerf(perf, await collectHostReadinessSnapshot(baseUrl, headers));
+  } catch (error) {
+    notes.push(`host_readiness_error=${sanitizeNote(error)}`);
+  }
+  applyAcceptancePerf(perf, scenario);
+
   return {
     workspace_id: targetWorkspaceId,
     app_id: targetAppId,
@@ -280,6 +287,36 @@ async function sampleScenario(context) {
     perf,
     notes,
   };
+}
+
+function applyAcceptancePerf(perf, scenario) {
+  const accessFirstVisible = bestFinite(perf.first_stable_render_ms, perf.handler_html_ready_ms);
+  const accessFirstInteractive = bestFinite(perf.first_interactive_ms, accessFirstVisible);
+  const accessCriticalMetricsReady = bestFinite(
+    perf.critical_metrics_ready_ms,
+    perf.first_metric_ready_ms,
+    perf.metric_total_ms
+  );
+  const localEditFeedback = bestFinite(
+    perf.bootstrap_total_wall_ms,
+    perf.page_http_elapsed_ms,
+    perf.handler_html_ready_ms,
+    perf.compile_ms
+  );
+  const metricProbeReady = bestFinite(perf.metric_total_ms, perf.total_ms, perf.metric_elapsed_ms);
+
+  if (scenario.route_mode === "access") {
+    setNumeric(perf, "access_first_visible_ms", accessFirstVisible);
+    setNumeric(perf, "access_first_interactive_ms", accessFirstInteractive);
+    setNumeric(perf, "access_critical_metrics_ready_ms", accessCriticalMetricsReady);
+    setNumeric(perf, "hot_start_ready_ms", accessFirstInteractive);
+  }
+  if (scenario.route_mode === "manage") {
+    setNumeric(perf, "local_edit_feedback_ms", localEditFeedback);
+  }
+  if (scenario.route_mode === "metric_probe") {
+    setNumeric(perf, "metric_probe_ready_ms", metricProbeReady);
+  }
 }
 
 function parseArgs(argv) {
@@ -1087,6 +1124,16 @@ function totalNumber(values) {
   return values.reduce((sum, value) => sum + Math.max(toFinite(value), 0), 0);
 }
 
+function bestFinite(...values) {
+  for (const value of values) {
+    const parsed = toFinite(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return NaN;
+}
+
 function applyPagePerf(target, headers) {
   setNumeric(target, "handler_html_ready_ms", headers.get("x-mei-handler-html-ready-ms"));
   setNumeric(target, "ssr_http_response_body_ms", headers.get("x-mei-ssr-http-response-body-ms"));
@@ -1335,6 +1382,26 @@ async function collectDatasetPerf(
   };
 }
 
+async function collectHostReadinessSnapshot(baseUrl, extraHeaders = {}) {
+  const response = await fetch(`${baseUrl}/api/host/heartbeat`, {
+    method: "GET",
+    headers: extraHeaders,
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`/api/host/heartbeat failed: ${response.status}\n${text}`);
+  }
+  const payload = text ? JSON.parse(text) : {};
+  return {
+    host_access_ready: Number(payload?.accessReady === true),
+    host_full_warmup_ready: Number(payload?.fullWarmupReady === true),
+    host_deferred_warmup_pending: Number(payload?.deferredWarmupPending === true),
+    host_last_build_total_ms: toFinite(payload?.lastBuildTotalMs),
+    host_last_build_compile_ms: toFinite(payload?.lastBuildCompileMs),
+    host_last_build_warmup_ms: toFinite(payload?.lastBuildWarmupMs),
+  };
+}
+
 function buildMetricPerfObject(payload, perf, elapsedMs) {
   const metricPerf = {
     metric_elapsed_ms: elapsedMs,
@@ -1513,6 +1580,14 @@ function printSummary({ outputPath, append: appendMode, records }) {
   for (const row of records) {
     const perf = row.perf || {};
     const preview = {
+      access_first_visible_ms: perf.access_first_visible_ms,
+      access_first_interactive_ms: perf.access_first_interactive_ms,
+      access_critical_metrics_ready_ms: perf.access_critical_metrics_ready_ms,
+      hot_start_ready_ms: perf.hot_start_ready_ms,
+      local_edit_feedback_ms: perf.local_edit_feedback_ms,
+      metric_probe_ready_ms: perf.metric_probe_ready_ms,
+      host_full_warmup_ready: perf.host_full_warmup_ready,
+      host_deferred_warmup_pending: perf.host_deferred_warmup_pending,
       handler_html_ready_ms: perf.handler_html_ready_ms,
       bootstrap_total_wall_ms: perf.bootstrap_total_wall_ms,
       bootstrap_shell_roundtrips: perf.bootstrap_shell_roundtrips,
