@@ -13800,7 +13800,9 @@
     );
   }
 
-  const SPBJW_CASE_DETAIL_BOARD_FILE = "scenes/_shared/case-detail.board.mei";
+  const SPBJW_WARNING_DETAIL_BOARD_FILE = "scenes/_shared/warning-detail.card.board.mei";
+  const SPBJW_ISSUE_CLUE_DETAIL_BOARD_FILE = "scenes/_shared/issue-clue-detail.card.board.mei";
+  const SPBJW_ISSUE_RESULT_DETAIL_BOARD_FILE = "scenes/_shared/issue-result-detail.card.board.mei";
   const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
   const SPBJW_ISSUE_CLUE_METRIC_IDS = new Set([
     "effectiveness_transfer_clue_count",
@@ -13820,21 +13822,37 @@
     );
   }
 
-  function resolveCaseDetailBoardSceneId(rowsetId, detail = null, config = null) {
+  function resolveCaseDetailBoardTarget(rowsetId, detail = null, config = null) {
     const id = String(rowsetId || "").trim();
-    if (!id) return "";
-    if (id === "issue_result_list") return "issue_result_detail_card_board";
-    if (id === "typical_cases") return "typical_cases_detail_board";
+    if (!id) return null;
+    if (id === "issue_result_list") {
+      return {
+        sceneId: "issue_result_detail_card_board",
+        sceneFile: SPBJW_ISSUE_RESULT_DETAIL_BOARD_FILE,
+      };
+    }
+    if (id === "typical_cases") {
+      return {
+        sceneId: "typical_cases_detail_board",
+        sceneFile: "",
+      };
+    }
     if (SPBJW_WARNING_ROWSET_IDS.has(id)) {
       const metricId = normalizeMetricLocalId(
         resolveDrilldownTableMetricId(detail, config),
       );
       if (SPBJW_ISSUE_CLUE_METRIC_IDS.has(metricId)) {
-        return "issue_clue_detail_card_board";
+        return {
+          sceneId: "issue_clue_detail_card_board",
+          sceneFile: SPBJW_ISSUE_CLUE_DETAIL_BOARD_FILE,
+        };
       }
-      return "warning_detail_card_board";
+      return {
+        sceneId: "warning_detail_card_board",
+        sceneFile: SPBJW_WARNING_DETAIL_BOARD_FILE,
+      };
     }
-    return "";
+    return null;
   }
 
   function resolveAnalyticsTableRowDrilldown(config = null, detail = null) {
@@ -13842,8 +13860,8 @@
       return null;
     }
     const rowsetId = resolveAnalyticsRowsetDatasetId(config);
-    const boardSceneId = resolveCaseDetailBoardSceneId(rowsetId, detail, config);
-    if (!boardSceneId) {
+    const boardTarget = resolveCaseDetailBoardTarget(rowsetId, detail, config);
+    if (!boardTarget?.sceneId) {
       return null;
     }
     const metricId = resolveDrilldownTableMetricId(detail, config);
@@ -13875,8 +13893,8 @@
         type: "popup",
         projection: "overlay",
         overlay_size: "fullscreen",
-        scene_id: boardSceneId,
-        scene_file: SPBJW_CASE_DETAIL_BOARD_FILE,
+        scene_id: boardTarget.sceneId,
+        scene_file: boardTarget.sceneFile || undefined,
         params: {
           metric: { __mei_runtime_ref: runtimeRef },
           rowset_dataset_id: rowsetId,
