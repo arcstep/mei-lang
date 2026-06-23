@@ -567,7 +567,10 @@ fn compile_spbjw_layout_right_supervision_popup_has_analytics_projection_slots()
     assert!(
         encoded.contains("projection_slots"),
         "embedded supervision warning popups should lower projection_slots, assembly keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     assert!(
         encoded.contains("layout_mode") && encoded.contains("analytics"),
@@ -578,7 +581,10 @@ fn compile_spbjw_layout_right_supervision_popup_has_analytics_projection_slots()
             .scene_projection_assembly_by_id
             .contains_key("supervision_items_analytics_board"),
         "drilldown context should include board export assembly, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
 }
 
@@ -621,14 +627,20 @@ fn compile_spbjw_typical_cases_popup_lowers_list_preview_projection_slots() {
     assert!(
         encoded.contains("typical_case_card") && encoded.contains("preview_mode"),
         "preview mapping should include typical_case_card config, snippet: {}",
-        &encoded[encoded.find("preview_mode").unwrap_or(0)..encoded.len().min(encoded.find("preview_mode").unwrap_or(0) + 240)]
+        &encoded[encoded.find("preview_mode").unwrap_or(0)
+            ..encoded
+                .len()
+                .min(encoded.find("preview_mode").unwrap_or(0) + 240)]
     );
     assert!(
         compiled
             .scene_projection_assembly_by_id
             .contains_key("typical_cases_detail_board"),
         "typical_cases_detail_board assembly should be hydrated, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     let popup = contract
         .panels
@@ -712,9 +724,7 @@ fn compile_spbjw_typical_cases_popup_lowers_list_preview_projection_slots() {
         .and_then(Value::as_object)
         .expect("case_count detail tab metric");
     assert_eq!(
-        detail_contract
-            .get("metric_id")
-            .and_then(Value::as_str),
+        detail_contract.get("metric_id").and_then(Value::as_str),
         Some("case_count::__scalar_rowset__"),
         "detail tab should target scalar rowset metric"
     );
@@ -790,10 +800,7 @@ fn spbjw_typical_cases_swimlane_metric_dataframe_respects_result_id_filter() {
     );
     assert!(
         detail.rows.iter().all(|row| {
-            row.get("处理结果ID")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                == Some(sample_id)
+            row.get("处理结果ID").and_then(Value::as_str).map(str::trim) == Some(sample_id)
         }),
         "detail rows should match selected 处理结果ID"
     );
@@ -817,7 +824,10 @@ fn compile_spbjw_layout_right_typical_cases_popup_lowers_list_preview() {
     assert!(
         encoded.contains("typical_cases") && encoded.contains("typical_cases_detail_board"),
         "layout right should reference typical_cases detail card board, assembly keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
 }
 
@@ -1225,7 +1235,10 @@ fn compile_spbjw_enforcement_elements_analytics_projection_slots() {
             .scene_projection_assembly_by_id
             .contains_key("enforcement_units_analytics_board"),
         "drilldown context should hydrate enforcement units analytics assembly, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     let dataset = compiled
         .resources
@@ -1270,7 +1283,10 @@ fn compile_spbjw_enforcement_units_shell_contract_zones_match_layout() {
         .unwrap_or_else(|| {
             panic!(
                 "expected assembly for `{board_id}`, keys: {:?}",
-                compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+                compiled
+                    .scene_projection_assembly_by_id
+                    .keys()
+                    .collect::<Vec<_>>()
             )
         });
     let shell = assembly
@@ -1389,7 +1405,9 @@ fn compile_spbjw_analytics_drilldown_board_template_is_previewable() {
             preview_target: Some(target.to_string()),
         },
     )
-    .unwrap_or_else(|error| panic!("compile analytics drilldown preview `{target}` failed: {error}"));
+    .unwrap_or_else(|error| {
+        panic!("compile analytics drilldown preview `{target}` failed: {error}")
+    });
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -1510,7 +1528,10 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
         .unwrap_or_else(|| {
             panic!(
                 "expected assembly for `{scene_id}`, got keys: {:?}",
-                compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+                compiled
+                    .scene_projection_assembly_by_id
+                    .keys()
+                    .collect::<Vec<_>>()
             )
         });
     let slots = assembly
@@ -1538,8 +1559,7 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
             .is_some_and(|id| id == "detail")
     });
     assert_eq!(
-        detail_slot
-            .and_then(|slot| slot.get("dataset_id").and_then(Value::as_str)),
+        detail_slot.and_then(|slot| slot.get("dataset_id").and_then(Value::as_str)),
         Some("supervision_matters"),
         "analytics board detail slot should use rowset dataset, slots: {slots:?}"
     );
@@ -1549,10 +1569,58 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
             .is_some_and(|id| id == "composition_by_category")
     });
     assert_eq!(
-        chart_slot
-            .and_then(|slot| slot.get("dataset_id").and_then(Value::as_str)),
+        chart_slot.and_then(|slot| slot.get("dataset_id").and_then(Value::as_str)),
         Some("supervision_matters"),
         "analytics board chart slot should use rowset dataset, slots: {slots:?}"
+    );
+}
+
+#[test]
+fn compile_spbjw_inspection_board_export_preview_projection_slots_in_assembly() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/02-行政检查.board.mei";
+    let scene_id = "inspection_total_analytics_board";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some(scene_id.to_string()),
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let assembly = compiled
+        .scene_projection_assembly_by_id
+        .get(scene_id)
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| {
+            panic!(
+                "expected assembly for `{scene_id}`, got keys: {:?}",
+                compiled
+                    .scene_projection_assembly_by_id
+                    .keys()
+                    .collect::<Vec<_>>()
+            )
+        });
+    let slots = assembly
+        .get("projection_slots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        slots.len() >= 3,
+        "cockpit-wrapped inspection board should lower projection_slots, assembly keys: {:?}, diagnostics: {:?}",
+        assembly.keys().collect::<Vec<_>>(),
+        compiled
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        assembly.get("preview_params").is_some(),
+        "expected preview_params in assembly, got: {assembly:?}"
     );
 }
 
@@ -1601,14 +1669,20 @@ fn compile_spbjw_enforcement_personnel_board_preview_precompiles_single_route() 
             .scene_projection_assembly_by_id
             .contains_key(scene_id),
         "expected assembly for `{scene_id}`, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     assert!(
         !compiled
             .scene_projection_assembly_by_id
             .contains_key("enforcement_units_analytics_board"),
         "sibling board should not be pre-warmed, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
 }
 
@@ -1634,7 +1708,10 @@ fn compile_spbjw_issue_handling_board_export_preview_projection_slots_in_assembl
         .unwrap_or_else(|| {
             panic!(
                 "expected assembly for `{scene_id}`, got keys: {:?}",
-                compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+                compiled
+                    .scene_projection_assembly_by_id
+                    .keys()
+                    .collect::<Vec<_>>()
             )
         });
     let slots = assembly
@@ -1714,7 +1791,10 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
             .scene_projection_assembly_by_id
             .contains_key("issue_rate_analytics_board"),
         "drilldown context should hydrate rate analytics board assembly, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     let pending_assembly = compiled
         .scene_projection_assembly_by_id
@@ -1739,7 +1819,8 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
         "issue analytics charts should lower configured chart kinds, got: {encoded}"
     );
     assert!(
-        pending_encoded.contains("supervisionDomain") && pending_encoded.contains("month_multi_select"),
+        pending_encoded.contains("supervisionDomain")
+            && pending_encoded.contains("month_multi_select"),
         "issue analytics boards should include warning_list filter fields, got: {pending_encoded}"
     );
     assert!(
@@ -1800,7 +1881,10 @@ fn compile_spbjw_enterprise_complaints_analytics_board_projection_slots() {
         .unwrap_or_else(|| {
             panic!(
                 "missing enterprise_complaints_analytics_board assembly, keys: {:?}",
-                compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+                compiled
+                    .scene_projection_assembly_by_id
+                    .keys()
+                    .collect::<Vec<_>>()
             )
         });
     let slots = assembly
@@ -1847,9 +1931,15 @@ fn compile_spbjw_left_rail_analytics_projection_slots() {
     let source_root = source_root();
     let app_root = zhifa_app_root();
     for (target, board_id) in [
-        ("scenes/01-执法要素.mei", "enforcement_units_analytics_board"),
+        (
+            "scenes/01-执法要素.mei",
+            "enforcement_units_analytics_board",
+        ),
         ("scenes/02-行政检查.mei", "inspection_total_analytics_board"),
-        ("scenes/03-指标体系.mei", "indicator_inspection_frequency_analytics_board"),
+        (
+            "scenes/03-指标体系.mei",
+            "indicator_inspection_frequency_analytics_board",
+        ),
         ("scenes/04-行政处罚.mei", "penalty_total_analytics_board"),
     ] {
         let compiled = compile_app_from_root_with_options(
@@ -1871,14 +1961,18 @@ fn compile_spbjw_left_rail_analytics_projection_slots() {
             "`{target}` should reference analytics board `{board_id}`, got: {encoded}"
         );
         assert!(
-            !encoded.contains("generic_drilldown_board")
-                || target == "scenes/01-执法要素.mei",
+            !encoded.contains("generic_drilldown_board") || target == "scenes/01-执法要素.mei",
             "`{target}` should not use generic drilldown except 执法对象，got: {encoded}"
         );
         assert!(
-            compiled.scene_projection_assembly_by_id.contains_key(board_id),
+            compiled
+                .scene_projection_assembly_by_id
+                .contains_key(board_id),
             "`{target}` should hydrate assembly for `{board_id}`, keys: {:?}",
-            compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+            compiled
+                .scene_projection_assembly_by_id
+                .keys()
+                .collect::<Vec<_>>()
         );
     }
 }
@@ -1928,7 +2022,10 @@ fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
             .scene_projection_assembly_by_id
             .contains_key("effect_transfer_clue_analytics_board"),
         "drilldown context should hydrate transfer clue analytics board assembly, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     let clue_assembly = compiled
         .scene_projection_assembly_by_id
@@ -1960,7 +2057,10 @@ fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
             .scene_projection_assembly_by_id
             .contains_key("effect_mechanism_documents_board"),
         "drilldown context should hydrate mechanism documents board assembly, keys: {:?}",
-        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        compiled
+            .scene_projection_assembly_by_id
+            .keys()
+            .collect::<Vec<_>>()
     );
     let mechanism_assembly = compiled
         .scene_projection_assembly_by_id
@@ -2606,8 +2706,8 @@ fn spbjw_effectiveness_transfer_clue_and_filing_count_from_alert_tracking() {
 fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date() {
     use std::collections::BTreeMap;
 
-    use ws_spbjw_integration_tests::{coerce_rows_to_schema, load_xlsx_table_snapshot};
     use ws_spbjw_integration_tests::MetricShape;
+    use ws_spbjw_integration_tests::{coerce_rows_to_schema, load_xlsx_table_snapshot};
 
     let source_root = source_root();
     let app_root = zhifa_app_root();
@@ -2853,9 +2953,9 @@ fn spbjw_home_scene_compile_includes_administrative_inspection_dataset() {
 fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
     use std::collections::BTreeMap;
 
-    use ws_spbjw_integration_tests::{coerce_rows_to_schema, load_xlsx_table_snapshot};
     use ws_spbjw_integration_tests::resolve_runtime_metric_def_key;
     use ws_spbjw_integration_tests::MetricShape;
+    use ws_spbjw_integration_tests::{coerce_rows_to_schema, load_xlsx_table_snapshot};
 
     let source_root = source_root();
     let app_root = zhifa_app_root();
@@ -3328,7 +3428,8 @@ fn assert_calendar_field_is_date_only(row: &Value, field: &str) {
         .map(str::to_string)
         .unwrap_or_else(|| value.to_string());
     let trimmed = text.trim();
-    if trimmed.is_empty() || trimmed == "？" || trimmed == "?" || trimmed == "——" || trimmed == "--" {
+    if trimmed.is_empty() || trimmed == "？" || trimmed == "?" || trimmed == "——" || trimmed == "--"
+    {
         return;
     }
     assert!(
@@ -3422,10 +3523,7 @@ fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
         "mechanism documents list should expose 10 mapped mechanism rows"
     );
     for row in &issue_metric.rows {
-        let name = row
-            .get("机制名称")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let name = row.get("机制名称").and_then(Value::as_str).unwrap_or("");
         assert!(
             !name.trim().is_empty(),
             "mechanism document row should include 机制名称, got: {row:?}"
@@ -3738,8 +3836,7 @@ fn spbjw_penalty_filter_prefetch_does_not_cap_rowset_materialization() {
         .and_then(|metric| metric.value.get("value").and_then(|v| v.as_f64()))
         .unwrap_or(0.0);
     assert_eq!(
-        week_rowset.total as f64,
-        week_count,
+        week_rowset.total as f64, week_count,
         "week detail rowset total should match card metric value"
     );
 }

@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Map, Value};
 
-use crate::model::{Diagnostic, LayoutDecl, PanelDecl, PanelSlotDecl, SceneContract, Severity, UiNodeDecl};
+use crate::model::{
+    Diagnostic, LayoutDecl, PanelDecl, PanelSlotDecl, SceneContract, Severity, UiNodeDecl,
+};
 use crate::typed_refs::{decode_ref_value, RefKind};
 
 use super::metric::{
@@ -240,7 +242,10 @@ fn apply_lowered_slots(
     if let Some(layout_mode) = board_layout_mode {
         link.insert("layout_mode".to_string(), Value::String(layout_mode));
     } else if analytics_layout {
-        link.insert("layout_mode".to_string(), Value::String("analytics".to_string()));
+        link.insert(
+            "layout_mode".to_string(),
+            Value::String("analytics".to_string()),
+        );
     }
     if let Some(schema) = analytics_filter_schema {
         link.insert("filter_schema".to_string(), schema);
@@ -249,10 +254,7 @@ fn apply_lowered_slots(
         link.insert("title".to_string(), Value::String(title));
     }
     if let Some(shell_contract) = shell_contract {
-        link.insert(
-            "shell_contract".to_string(),
-            Value::Object(shell_contract),
-        );
+        link.insert("shell_contract".to_string(), Value::Object(shell_contract));
     }
     if let Some(local_nav) = local_nav.filter(|value| !value.is_null()) {
         let include = match local_nav.as_object() {
@@ -281,7 +283,8 @@ fn lower_scene_link(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "scene_link_board_removed".to_string(),
-            message: "link(board=...) 已移除；请改用 link(scene=..., params=..., projection=...)".to_string(),
+            message: "link(board=...) 已移除；请改用 link(scene=..., params=..., projection=...)"
+                .to_string(),
             source_path: Some(target_file.to_string()),
         });
         return;
@@ -301,9 +304,7 @@ fn lower_scene_link(
     let Some(scene_ref) = link.get("scene").and_then(Value::as_object) else {
         return;
     };
-    let Some(target_scene_id) =
-        resolve_target_scene_id(scene_ref, target_scene_ids_by_file)
-    else {
+    let Some(target_scene_id) = resolve_target_scene_id(scene_ref, target_scene_ids_by_file) else {
         return;
     };
     let Some(target_scene_contract) = target_scene_contracts.get(&target_scene_id) else {
@@ -314,7 +315,8 @@ fn lower_scene_link(
     else {
         return;
     };
-    let Some(shell_contract) = scene_shell_contract_from_scene_contract(target_scene_contract) else {
+    let Some(shell_contract) = scene_shell_contract_from_scene_contract(target_scene_contract)
+    else {
         return;
     };
     let layout_mode = shell_contract
@@ -380,12 +382,11 @@ fn lower_scene_link(
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
             });
-        let has_preferred_entry = preferred_entry
-            .is_some_and(|entry| {
-                slots
-                    .iter()
-                    .any(|slot| slot.get("id").and_then(Value::as_str) == Some(entry))
-            });
+        let has_preferred_entry = preferred_entry.is_some_and(|entry| {
+            slots
+                .iter()
+                .any(|slot| slot.get("id").and_then(Value::as_str) == Some(entry))
+        });
         for slot in slots.iter_mut() {
             slot.insert(
                 "layout_zone".to_string(),
@@ -608,10 +609,9 @@ fn synthesize_scene_first_board_payload(
     shell_contract: &Map<String, Value>,
     params: &Map<String, Value>,
 ) -> Option<Map<String, Value>> {
-    let context = params
-        .get("metric")
-        .cloned()
-        .filter(|value| matches!(decode_ref_value(value), Some(expr) if expr.kind == RefKind::Metric))?;
+    let context = params.get("metric").cloned().filter(
+        |value| matches!(decode_ref_value(value), Some(expr) if expr.kind == RefKind::Metric),
+    )?;
     let resolved_bindings = resolve_scene_bindings(target_scene_contract, &params);
     let Some(bindings_map) = resolved_bindings.as_object() else {
         return None;
@@ -656,7 +656,9 @@ fn synthesize_scene_first_board_payload(
         let has_data_table = accepts
             .iter()
             .any(|value| value.as_str() == Some("data_table"));
-        let has_summary = accepts.iter().any(|value| value.as_str() == Some("summary"));
+        let has_summary = accepts
+            .iter()
+            .any(|value| value.as_str() == Some("summary"));
         let aliases = if role == "filter" {
             vec!["filter_schema", "filters"]
         } else if role == "row_preview" || has_summary {
@@ -892,6 +894,7 @@ pub(crate) fn scene_shell_contract_from_scene_contract(
     if let Some(ref layout) = layout {
         retain_shell_zones_matching_layout(layout, &mut zones);
     }
+    dedupe_shell_zones_by_id(&mut zones);
     let layout_mode = infer_scene_shell_layout_mode(&zones);
     let mut payload = Map::new();
     payload.insert(
@@ -932,7 +935,11 @@ fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
             continue;
         };
         for cell in cells {
-            let Some(area) = cell.as_str().map(str::trim).filter(|value| !value.is_empty()) else {
+            let Some(area) = cell
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
                 continue;
             };
             if area != "." {
@@ -957,7 +964,11 @@ fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
             continue;
         };
         if allowed.contains(area) {
-            if let Some(id) = map.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+            if let Some(id) = map
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+            {
                 kept_ids.insert(id.to_string());
             }
         }
@@ -969,7 +980,11 @@ fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
             let Some(map) = zone.as_object() else {
                 continue;
             };
-            let Some(id) = map.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
+            let Some(id) = map
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+            else {
                 continue;
             };
             if kept_ids.contains(id) {
@@ -994,6 +1009,51 @@ fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
             .and_then(Value::as_str)
             .is_some_and(|id| kept_ids.contains(id))
     });
+}
+
+/// Cockpit profile wraps board frame in nested panels; retain may keep duplicate zone ids
+/// (e.g. chart under `left` and chart at frame root). Prefer root-level zones for assembly.
+fn dedupe_shell_zones_by_id(zones: &mut Vec<Value>) {
+    let mut best_by_id: BTreeMap<String, Value> = BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for zone in zones.drain(..) {
+        let Some(map) = zone.as_object() else {
+            continue;
+        };
+        let Some(id) = map
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let parent = map
+            .get("parent")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        let is_root = parent.is_empty();
+        let replace = match best_by_id.get(id) {
+            None => true,
+            Some(existing) => {
+                let existing_parent = existing
+                    .as_object()
+                    .and_then(|entry| entry.get("parent"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                is_root && !existing_parent.is_empty()
+            }
+        };
+        if replace {
+            if !best_by_id.contains_key(id) {
+                order.push(id.to_string());
+            }
+            best_by_id.insert(id.to_string(), zone);
+        }
+    }
+    zones.extend(order.into_iter().filter_map(|id| best_by_id.remove(&id)));
 }
 
 fn infer_scene_shell_layout_mode(zones: &[Value]) -> String {
@@ -1047,9 +1107,9 @@ fn zone_implies_analytics_content(zone: &Value) -> bool {
         .get("accepts")
         .and_then(Value::as_array)
         .is_some_and(|items| {
-            items.iter().any(|value| {
-                matches!(value.as_str(), Some("chart") | Some("data_table"))
-            })
+            items
+                .iter()
+                .any(|value| matches!(value.as_str(), Some("chart") | Some("data_table")))
         })
     {
         return true;
@@ -1060,19 +1120,15 @@ fn zone_implies_analytics_content(zone: &Value) -> bool {
         .is_some_and(|rows| {
             rows.iter().any(|row| {
                 row.as_array().is_some_and(|cells| {
-                    cells.iter().any(|cell| {
-                        matches!(cell.as_str(), Some("chart") | Some("detail"))
-                    })
+                    cells
+                        .iter()
+                        .any(|cell| matches!(cell.as_str(), Some("chart") | Some("detail")))
                 })
             })
         })
 }
 
-fn collect_scene_shell_zones(
-    panels: &[PanelDecl],
-    parent: &str,
-    out: &mut Vec<Value>,
-) {
+fn collect_scene_shell_zones(panels: &[PanelDecl], parent: &str, out: &mut Vec<Value>) {
     for panel in panels {
         if let Some(zone) = panel_zone_to_value(panel, parent) {
             out.push(Value::Object(zone));
@@ -1101,11 +1157,19 @@ fn panel_zone_to_value(panel: &PanelDecl, parent: &str) -> Option<Map<String, Va
     let mut zone = Map::new();
     zone.insert("id".to_string(), Value::String(panel.id.clone()));
     zone.insert("role".to_string(), Value::String(role.to_string()));
-    if let Some(area) = panel.area.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    if let Some(area) = panel
+        .area
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         zone.insert("area".to_string(), Value::String(area.to_string()));
     }
     if !parent.trim().is_empty() {
-        zone.insert("parent".to_string(), Value::String(parent.trim().to_string()));
+        zone.insert(
+            "parent".to_string(),
+            Value::String(parent.trim().to_string()),
+        );
     }
     if let Some(source) = slot_map
         .get("source")
@@ -1143,7 +1207,11 @@ fn panel_zone_to_value(panel: &PanelDecl, parent: &str) -> Option<Map<String, Va
 }
 
 fn panel_slot_as_map(panel: &PanelDecl) -> Option<Map<String, Value>> {
-    if let Some(slot) = panel.slot.as_ref().filter(|slot| panel_slot_decl_is_meaningful(slot)) {
+    if let Some(slot) = panel
+        .slot
+        .as_ref()
+        .filter(|slot| panel_slot_decl_is_meaningful(slot))
+    {
         return Some(panel_slot_decl_to_map(slot));
     }
     let props = panel.props.as_object()?;
@@ -1249,7 +1317,9 @@ pub(crate) fn enrich_scene_projection_assembly_preview(
     contract: &SceneContract,
     resources: &[crate::model::LoadedResource],
     target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let scene_id = contract.scene.id.clone();
     let Some(shell_contract) = scene_shell_contract_from_scene_contract(contract) else {
         return;
     };
@@ -1261,27 +1331,64 @@ pub(crate) fn enrich_scene_projection_assembly_preview(
         return;
     }
     let Some(params) = resolve_preview_example_params(contract) else {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Warning,
+            code: "board_preview_params_missing".to_string(),
+            message: format!(
+                "scene `{scene_id}` analytics preview assembly skipped: examples[0].params.metric is required"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
         return;
     };
     let link = Map::new();
     let Some(board_payload) =
         synthesize_scene_first_board_payload(&link, contract, &shell_contract, &params)
     else {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Warning,
+            code: "board_preview_payload_missing".to_string(),
+            message: format!(
+                "scene `{scene_id}` analytics preview assembly skipped: could not synthesize board payload from bindings"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
         return;
     };
     let world_hint = contract.scene.world.clone();
-    let mut diagnostics = Vec::new();
+    let mut expand_diagnostics = Vec::new();
     let Some(expanded) = expand_board_assembly(
         &board_payload,
         resources,
         world_hint.as_ref(),
-        &mut diagnostics,
+        &mut expand_diagnostics,
         target_file,
     ) else {
+        let had_expand_diagnostics = !expand_diagnostics.is_empty();
+        diagnostics.extend(expand_diagnostics);
+        if !had_expand_diagnostics {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "board_preview_expand_failed".to_string(),
+                message: format!(
+                    "scene `{scene_id}` analytics preview assembly skipped: expand_board_assembly returned no slots"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+        }
         return;
     };
+    diagnostics.extend(expand_diagnostics);
     let (slots, filter_schema, _) = expanded;
     if slots.is_empty() {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Warning,
+            code: "board_preview_slots_empty".to_string(),
+            message: format!(
+                "scene `{scene_id}` analytics preview assembly skipped: projection slots expanded to an empty list"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
         return;
     }
     assembly.insert(
@@ -1304,8 +1411,10 @@ fn resolve_preview_example_params(contract: &SceneContract) -> Option<Map<String
         .and_then(|example| example.get("params"))
         .and_then(|value| value.as_object())
         .cloned()?;
-    params.get("metric").is_some_and(|metric| {
-        matches!(decode_ref_value(metric), Some(expr) if expr.kind == RefKind::Metric)
-    })
-    .then_some(params)
+    params
+        .get("metric")
+        .is_some_and(
+            |metric| matches!(decode_ref_value(metric), Some(expr) if expr.kind == RefKind::Metric),
+        )
+        .then_some(params)
 }

@@ -4,16 +4,20 @@ use axum::{
     http::{HeaderName, HeaderValue},
     response::{Html, IntoResponse, Response},
 };
-use mei_lang_app::{render_page, page_body_theme_style, HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry};
+use mei_lang_app::{
+    page_body_theme_style, render_page, HostAccountView, TopbarMenuContext, UiRouteMode,
+    UploadFileEntry,
+};
 use mei_lang_kernel::{
-    load_workspace_config, read_source_file, resolve_app_root, CompiledApp, Severity, WorkspaceAppMeta,
+    load_workspace_config, read_source_file, resolve_app_root, CompiledApp, Severity,
+    WorkspaceAppMeta,
 };
 
-use crate::AppState;
 use crate::http::scene_bundle::{
     probe_scene_component_bundle, scene_bundle_cache_marker, scene_bundle_status,
     schedule_scene_component_bundle_build, should_build_scene_bundle,
 };
+use crate::AppState;
 
 use crate::http::pages::app::page_cache::{page_render_cache_key, render_page_template_with_cache};
 use crate::http::pages::app::page_render::{
@@ -122,6 +126,23 @@ pub(super) fn render_compiled_success(
             omitted_count,
             phase = "compile_diagnostics_summary",
             "compile completed with error diagnostics"
+        );
+    }
+    for diag in compiled
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Warning && d.code.starts_with("board_preview_"))
+        .take(10)
+    {
+        tracing::warn!(
+            app_id = %app_id,
+            route_mode = route_mode.slug(),
+            target = %target,
+            diagnostic_code = %diag.code,
+            diagnostic_source = %diag.source_path.as_deref().unwrap_or("(unknown)"),
+            diagnostic_message = %diag.message,
+            phase = "board_preview_assembly",
+            "board preview projection_slots assembly issue"
         );
     }
     let app_root = resolve_app_root(state.source_root.as_path(), app_id);
@@ -233,8 +254,10 @@ pub(super) fn render_compiled_success(
                 scene_bundle_build_scheduled = true;
                 schedule_scene_component_bundle_build(state.package_root.as_path(), build);
             }
-            let scene_bundle_for_render =
-                scene_bundle_probe.bundle.as_ref().map(|bundle| bundle.url.as_str());
+            let scene_bundle_for_render = scene_bundle_probe
+                .bundle
+                .as_ref()
+                .map(|bundle| bundle.url.as_str());
             let workspace = load_workspace_config(state.source_root.as_path());
             let body_theme_style = page_body_theme_style(&workspace, Some(compiled));
             let rendered = render_page(
@@ -302,7 +325,11 @@ pub(super) fn render_compiled_success(
         res.headers_mut()
             .insert(HeaderName::from_static("x-mei-scene-bundle-probe-ms"), v);
     }
-    if let Ok(v) = HeaderValue::from_str(if scene_bundle_build_scheduled { "1" } else { "0" }) {
+    if let Ok(v) = HeaderValue::from_str(if scene_bundle_build_scheduled {
+        "1"
+    } else {
+        "0"
+    }) {
         res.headers_mut().insert(
             HeaderName::from_static("x-mei-scene-bundle-build-scheduled"),
             v,

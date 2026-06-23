@@ -7,13 +7,15 @@ use std::{
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::compile::entry_payload::{compile_scene_payload_for_target_uncached, CompiledScenePayload};
+use crate::compile::entry_payload::{
+    compile_scene_payload_for_target_uncached, CompiledScenePayload,
+};
+use crate::evaluate_mei_file;
 use crate::model::{
     CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, SceneContract,
     Severity, WorkspaceNode, WorldSemanticFileIndex,
 };
 use crate::typed_refs::SceneRegistry;
-use crate::evaluate_mei_file;
 use crate::workspace::source_tree;
 
 use super::super::catalog::DatasetCatalogFilter;
@@ -28,9 +30,7 @@ use super::super::{
     dependency_graph::{
         dependency_graph_cache_metrics_snapshot, file_content_hash_cache_metrics_snapshot,
     },
-    scene_payload_cache::{
-        compile_scene_payload_for_target, scene_payload_cache_metrics_snapshot,
-    },
+    scene_payload_cache::{compile_scene_payload_for_target, scene_payload_cache_metrics_snapshot},
 };
 use super::active::ActiveCompileResult;
 use super::catalog::CatalogCompileResult;
@@ -91,18 +91,19 @@ pub(super) fn finish_compiled_app(
         ..
     } = catalog;
 
-    let mut target_scene_contracts = build_target_scene_contracts(&official_results, &active_payload);
-    let target_scene_ids_by_file = route_registry
-        .routes
-        .iter()
-        .fold(BTreeMap::<String, Vec<String>>::new(), |mut acc, route| {
+    let mut target_scene_contracts =
+        build_target_scene_contracts(&official_results, &active_payload);
+    let target_scene_ids_by_file = route_registry.routes.iter().fold(
+        BTreeMap::<String, Vec<String>>::new(),
+        |mut acc, route| {
             let scene_ids = acc.entry(route.target_file.clone()).or_default();
             if !scene_ids.iter().any(|scene_id| scene_id == &route.scene_id) {
                 scene_ids.push(route.scene_id.clone());
                 scene_ids.sort();
             }
             acc
-        });
+        },
+    );
     if let Some(contract) = active_payload.scene_contract.as_mut() {
         crate::compile::projection_assembly::lower_scene_links_in_panels(
             &mut contract.panels,
@@ -128,11 +129,15 @@ pub(super) fn finish_compiled_app(
         &active_target_file,
         &active_payload,
         &hydrated_link_targets,
+        diagnostics,
     );
     let scene_projection_assembly_ms = elapsed_ms(scene_projection_started);
     let source_tree_started = Instant::now();
     let mut file_tree = source_tree(app_root)?;
-    super::super::source_tree_enrich::enrich_source_tree_with_scene_exports(app_root, &mut file_tree);
+    super::super::source_tree_enrich::enrich_source_tree_with_scene_exports(
+        app_root,
+        &mut file_tree,
+    );
     let mut world_semantic_by_file = BTreeMap::new();
     super::super::source_tree_world::enrich_source_tree_with_world_capsules(
         app_root,
@@ -163,6 +168,7 @@ pub(super) fn finish_compiled_app(
         &mut scene_bindings_by_id,
         &mut scene_examples_by_id,
         &mut scene_local_nav_by_target,
+        diagnostics,
     );
     if active_target_file.ends_with(".world.mei") {
         world_semantic_by_file
@@ -179,10 +185,7 @@ pub(super) fn finish_compiled_app(
                     resource_id: "__world_metrics__".to_string(),
                 })
             });
-        ensure_world_capsule_preview_components(
-            &mut active_payload.component_assets,
-            asset_map,
-        );
+        ensure_world_capsule_preview_components(&mut active_payload.component_assets, asset_map);
     }
     let source_tree_ms = elapsed_ms(source_tree_started);
     let world_finalize_ms = elapsed_ms(world_finalize_started);
@@ -244,12 +247,13 @@ pub(super) fn finish_compiled_app(
         build_board_index: Default::default(),
         build_template_index: Default::default(),
     };
-    compiled.build_experience_index = crate::compile::build_experience_index::build_experience_index(
-        &compiled.scene_routes,
-        &compiled.scene_projection_assembly_by_id,
-        &target_scene_contracts,
-        &compiled,
-    );
+    compiled.build_experience_index =
+        crate::compile::build_experience_index::build_experience_index(
+            &compiled.scene_routes,
+            &compiled.scene_projection_assembly_by_id,
+            &target_scene_contracts,
+            &compiled,
+        );
     let board = crate::compile::build_board_index(
         &compiled.file_tree,
         &target_scene_contracts,
@@ -268,11 +272,15 @@ pub(super) fn finish_compiled_app(
     );
     compiled.build_template_index = template.index;
     let workspace_source_root = app_root.parent().unwrap_or(app_root);
-    let template_files =
-        crate::compile::build_template_index::build_stock_template_files_root(workspace_source_root);
+    let template_files = crate::compile::build_template_index::build_stock_template_files_root(
+        workspace_source_root,
+    );
     compiled.build_experience_index.reachability_snapshot =
         crate::compile::build_experience_index::merge_build_view_tree_roots(
-            compiled.build_experience_index.reachability_snapshot.clone(),
+            compiled
+                .build_experience_index
+                .reachability_snapshot
+                .clone(),
             board.tree_root,
             template.tree_root,
             template_files,
@@ -480,12 +488,10 @@ fn insert_scene_projection_assembly_entry(
     title: Option<&str>,
     contract: &SceneContract,
     resources: &[LoadedResource],
+    diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut assembly = serde_json::Map::new();
-    assembly.insert(
-        "scene_id".to_string(),
-        Value::String(scene_id.to_string()),
-    );
+    assembly.insert("scene_id".to_string(), Value::String(scene_id.to_string()));
     assembly.insert(
         "target_file".to_string(),
         Value::String(target_file.to_string()),
@@ -533,6 +539,7 @@ fn insert_scene_projection_assembly_entry(
         contract,
         resources,
         target_file,
+        diagnostics,
     );
     scene_projection_assembly_by_id.insert(scene_id.to_string(), Value::Object(assembly));
 }
@@ -547,6 +554,7 @@ fn insert_hydrated_link_projection_assembly_entry(
     target_file: &str,
     contract: &SceneContract,
     resources: &[LoadedResource],
+    diagnostics: &mut Vec<Diagnostic>,
 ) {
     if !contract.scene.bindings.is_null() {
         scene_bindings_by_id.insert(scene_id.to_string(), contract.scene.bindings.clone());
@@ -558,10 +566,7 @@ fn insert_hydrated_link_projection_assembly_entry(
         scene_local_nav_by_target.insert(target_file.to_string(), contract.scene.local_nav.clone());
     }
     let mut assembly = serde_json::Map::new();
-    assembly.insert(
-        "scene_id".to_string(),
-        Value::String(scene_id.to_string()),
-    );
+    assembly.insert("scene_id".to_string(), Value::String(scene_id.to_string()));
     assembly.insert(
         "target_file".to_string(),
         Value::String(target_file.to_string()),
@@ -583,6 +588,7 @@ fn insert_hydrated_link_projection_assembly_entry(
         contract,
         resources,
         target_file,
+        diagnostics,
     );
     scene_projection_assembly_by_id.insert(scene_id.to_string(), Value::Object(assembly));
 }
@@ -594,6 +600,7 @@ fn build_scene_projection_maps(
     active_target_file: &str,
     active_payload: &CompiledScenePayload,
     hydrated_link_targets: &BTreeMap<String, (String, CompiledScenePayload)>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) -> (
     BTreeMap<String, Value>,
     BTreeMap<String, Value>,
@@ -622,6 +629,7 @@ fn build_scene_projection_maps(
             route.title.as_deref(),
             contract,
             &payload.resources,
+            diagnostics,
         );
     }
     for (scene_id, (target_file, payload)) in hydrated_link_targets {
@@ -640,6 +648,7 @@ fn build_scene_projection_maps(
             target_file,
             contract,
             &payload.resources,
+            diagnostics,
         );
     }
     if let Some(contract) = active_payload.scene_contract.as_ref() {
@@ -687,14 +696,20 @@ fn build_scene_projection_maps(
                         serde_json::to_value(&contract.panels).unwrap_or(Value::Null),
                     );
                 }
-                if let Some(shell_contract) = crate::compile::projection_assembly::scene_shell_contract_from_scene_contract(contract) {
-                    assembly_map.insert("shell_contract".to_string(), Value::Object(shell_contract));
+                if let Some(shell_contract) =
+                    crate::compile::projection_assembly::scene_shell_contract_from_scene_contract(
+                        contract,
+                    )
+                {
+                    assembly_map
+                        .insert("shell_contract".to_string(), Value::Object(shell_contract));
                 }
                 crate::compile::projection_assembly::enrich_scene_projection_assembly_preview(
                     assembly_map,
                     contract,
                     &active_payload.resources,
                     active_target_file,
+                    diagnostics,
                 );
             }
             if !contract.scene.bindings.is_null() {
@@ -739,6 +754,7 @@ fn ensure_build_tree_entry_scene_assemblies(
     scene_bindings_by_id: &mut BTreeMap<String, Value>,
     scene_examples_by_id: &mut BTreeMap<String, Value>,
     scene_local_nav_by_target: &mut BTreeMap<String, Value>,
+    diagnostics: &mut Vec<Diagnostic>,
 ) {
     if !active_target_file.ends_with(".board.mei") {
         return;
@@ -784,6 +800,7 @@ fn ensure_build_tree_entry_scene_assemblies(
             route.title.as_deref(),
             contract,
             &payload.resources,
+            diagnostics,
         );
     }
 }
@@ -901,6 +918,7 @@ fn walk_hydrate_board_nodes(
                 node.path.as_str(),
                 contract,
                 &payload.resources,
+                diagnostics,
             );
         }
     }
