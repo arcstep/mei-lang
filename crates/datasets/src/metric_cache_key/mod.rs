@@ -7,10 +7,10 @@ pub(crate) use query_normalize::{
 };
 
 pub(crate) use cache_key::{
-    eval_node_cache_key, metric_dataframe_artifact_lookup_cache_keys,
-    metric_request_revision_fingerprint, metric_request_revision_fingerprint_for_compiled,
-    metric_response_artifact_lookup_cache_keys, metric_scope_cache_key, runtime_metric_eval_scope,
-    serialize_cache_value,
+    dataset_resource_lookup_aliases, eval_node_cache_key,
+    metric_dataframe_artifact_lookup_cache_keys, metric_request_revision_fingerprint,
+    metric_request_revision_fingerprint_for_compiled, metric_response_artifact_lookup_cache_keys,
+    metric_scope_cache_key, runtime_metric_eval_scope, serialize_cache_value,
 };
 pub(crate) use workset::runtime_metric_workset;
 
@@ -23,6 +23,7 @@ mod tests {
         CompiledApp, DatasetView, DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator,
         QueryState, QueryTimeRange, RuntimeMetricEvalScope, SourceDecl,
     };
+    use serde_json::Value;
 
     use crate::types::DatasetQueryOptions;
 
@@ -128,6 +129,87 @@ mod tests {
             scoped_first[0].starts_with("demo|compile="),
             "expected scoped key first, got {}",
             scoped_first[0]
+        );
+    }
+
+    #[test]
+    fn metric_response_lookup_keys_include_bare_dataset_alias() {
+        let owner_dataset = DatasetView {
+            id: "scenes/09-监督典型案例.mei::typical_cases".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "xlsx".to_string(),
+                path: "upload/13.典型案例清单.xlsx".to_string(),
+                sheet: None,
+                header_row: Some(1),
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::from([(
+                "case_count".to_string(),
+                Value::Null,
+            )]),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let compiled = CompiledApp {
+            app_id: "zhifa".to_string(),
+            title: "zhifa".to_string(),
+            app_root: "/tmp/zhifa".to_string(),
+            scene_routes: Vec::new(),
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: vec![mei_lang_kernel::LoadedResource {
+                id: "scenes/09-监督典型案例.mei::typical_cases".to_string(),
+                kind: "dataset".to_string(),
+                title: None,
+                document: None,
+                dataset: Some(owner_dataset.clone()),
+            }],
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
+        let keys = metric_response_artifact_lookup_cache_keys(
+            "zhifa",
+            Path::new("/tmp/zhifa"),
+            &compiled,
+            "home",
+            Some("scenes/home.mei"),
+            "scenes/09-监督典型案例.mei::typical_cases",
+            &owner_dataset,
+            &DatasetQueryOptions::default(),
+            "compile-rev",
+            &[],
+            true,
+        );
+        assert!(
+            keys.iter().any(|key| {
+                key == "prebuild|response|app=zhifa|dataset=typical_cases|search=|filters={}|group=[]|time_range=null"
+            }),
+            "expected bare dataset prebuild key, got {keys:?}"
         );
     }
 

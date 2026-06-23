@@ -709,14 +709,18 @@ pub fn load_prebuild_metric_response_artifact_dataset_fallback(
     let Some(index) = guard.as_ref() else {
         return Ok(None);
     };
+    let dataset_candidates = crate::metric_cache_key::dataset_resource_lookup_aliases(dataset_id);
     let mut best: Option<(String, u64, bool, usize)> = None;
     for entry in &index.entries {
-        if !prebuild_metric_response_key_matches_dataset_query(
-            entry.response_cache_key.as_str(),
-            app_id,
-            dataset_id,
-            query,
-        ) {
+        let dataset_matches = dataset_candidates.iter().any(|candidate| {
+            prebuild_metric_response_key_matches_dataset_query(
+                entry.response_cache_key.as_str(),
+                app_id,
+                candidate.as_str(),
+                query,
+            )
+        });
+        if !dataset_matches {
             continue;
         }
         let covers = if request_all_metrics {

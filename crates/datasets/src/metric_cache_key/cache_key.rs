@@ -371,6 +371,21 @@ pub(crate) fn dataset_metric_identity_key(dataset: &DatasetView) -> String {
     format!("{source_path}|{}", metric_keys.join(","))
 }
 
+pub(crate) fn dataset_resource_lookup_aliases(dataset_id: &str) -> Vec<String> {
+    let trimmed = dataset_id.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+    let mut aliases = vec![trimmed.to_string()];
+    if let Some((_, bare)) = trimmed.rsplit_once("::") {
+        let bare = bare.trim();
+        if !bare.is_empty() && !aliases.iter().any(|id| id == bare) {
+            aliases.push(bare.to_string());
+        }
+    }
+    aliases
+}
+
 pub(crate) fn equivalent_dataset_resource_ids(
     compiled: &CompiledApp,
     owner_dataset: &DatasetView,
@@ -384,6 +399,11 @@ pub(crate) fn equivalent_dataset_resource_ids(
             (dataset_metric_identity_key(dataset) == identity).then(|| resource.id.clone())
         })
         .collect::<Vec<_>>();
+    for alias in dataset_resource_lookup_aliases(owner_dataset.id.as_str()) {
+        if !ids.iter().any(|id| id == &alias) {
+            ids.push(alias);
+        }
+    }
     ids.sort();
     ids.dedup();
     ids
@@ -403,6 +423,11 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
     prefer_prebuild_keys: bool,
 ) -> Vec<String> {
     let mut dataset_ids = equivalent_dataset_resource_ids(compiled, owner_dataset);
+    for alias in dataset_resource_lookup_aliases(primary_dataset_id) {
+        if !dataset_ids.iter().any(|id| id == &alias) {
+            dataset_ids.push(alias);
+        }
+    }
     if let Some(index) = dataset_ids.iter().position(|id| id == primary_dataset_id) {
         if index > 0 {
             let primary = dataset_ids.remove(index);

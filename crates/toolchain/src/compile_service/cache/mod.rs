@@ -61,6 +61,7 @@ const COMPILED_APP_ARTIFACT_SCHEMA_VERSION: &str = "mei-compiled-app-artifact-v3
 const COMPILED_APP_ARTIFACT_KIND: &str = "compiled_app";
 const COMPILED_APP_ARTIFACT_NAME: &str = "compiled_app";
 
+#[derive(Clone)]
 pub struct CompileWithCacheOutcome {
     pub compiled: CompiledApp,
     pub cache_hit: bool,
@@ -149,7 +150,16 @@ pub(super) fn compile_failure_latch() -> &'static StdMutex<HashMap<String, Insta
 }
 
 const COMPILE_FAILURE_LATCH_TTL: Duration = Duration::from_secs(45);
-const COMPILE_CACHE_MAX_ENTRIES: usize = 128;
+
+fn compile_cache_max_entries() -> usize {
+    static MAX_ENTRIES: OnceLock<usize> = OnceLock::new();
+    *MAX_ENTRIES.get_or_init(|| {
+        std::env::var("MEI_COMPILE_CACHE_MAX_ENTRIES")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(10240)
+    })
+}
 
 fn compiled_app_artifact_enabled() -> bool {
     !env_flag_enabled("MEI_DISABLE_COMPILED_APP_ARTIFACTS")
@@ -263,7 +273,7 @@ fn store_compile_cache_entry(
     let write_lock_started = Instant::now();
     if let Ok(mut cache) = compile_cache().write() {
         let _ = elapsed_ms(write_lock_started);
-        if cache.len() >= COMPILE_CACHE_MAX_ENTRIES {
+        if cache.len() >= compile_cache_max_entries() {
             evict_compile_cache_entries_for_write(&mut cache, source_root, app_id);
         }
         let cache_entry = CachedCompiledApp {
@@ -842,7 +852,7 @@ fn evict_compile_cache_entries_for_write(
 ) {
     let app_prefix = format!("{}#{app_id}|", normalize_path(source_root));
     let before = cache.len();
-    let target_len = COMPILE_CACHE_MAX_ENTRIES.saturating_sub(16).max(1);
+    let target_len = compile_cache_max_entries().saturating_sub(16).max(1);
     let mut overflow = cache.len().saturating_sub(target_len);
     if overflow > 0 {
         let app_keys = cache
@@ -909,7 +919,7 @@ fn validate_cached_entry(
     })
 }
 
-pub(super) fn compile_cache_key(
+pub fn compile_cache_key(
     source_root: &Path,
     app_id: &str,
     options: &CompileOptions,
