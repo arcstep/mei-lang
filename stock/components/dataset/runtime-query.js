@@ -1952,13 +1952,21 @@ function sharedAbortError() {
 
 const STRICT_AOT_METRIC_ARTIFACT_MISSING =
   "missing strict AOT metric result artifact";
+const ACCESS_ARTIFACT_GATE_MESSAGE =
+  "requires prebuilt access artifacts on access-only host";
+const HOST_ACCESS_READY_POLL_URL = "/api/host/heartbeat";
 const HOST_READY_POLL_MS = 400;
 const HOST_READY_TIMEOUT_MS = 45_000;
+let hostAccessReadyWaitPromise = null;
 
-function shouldRetryStrictAotMetricFetch(response, errorText) {
+function shouldRetryStartupArtifactFetch(response, errorText) {
+  if (Number(response?.status) !== 503) {
+    return false;
+  }
+  const text = String(errorText || "");
   return (
-    Number(response?.status) === 503 &&
-    String(errorText || "").includes(STRICT_AOT_METRIC_ARTIFACT_MISSING)
+    text.includes(STRICT_AOT_METRIC_ARTIFACT_MISSING) ||
+    text.includes(ACCESS_ARTIFACT_GATE_MESSAGE)
   );
 }
 
@@ -1985,10 +1993,15 @@ function waitMsWithAbort(ms, signal) {
   });
 }
 
-async function readHostReadyState(signal) {
-  const response = await fetch("/api/host/ready", {
+function hostAccessReadyFromPayload(payload) {
+  return payload?.access_ready === true || payload?.accessReady === true;
+}
+
+async function readHostAccessReadyState(signal) {
+  const response = await fetch(HOST_ACCESS_READY_POLL_URL, {
     method: "GET",
     cache: "no-store",
+    credentials: "same-origin",
     headers: { accept: "application/json" },
     signal,
   });
@@ -1999,25 +2012,21 @@ async function readHostReadyState(signal) {
     payload = null;
   }
   return {
-    status: response.status,
-    ok: response.ok,
+    response,
     payload,
+    ready: response.ok && hostAccessReadyFromPayload(payload),
   };
 }
 
-async function waitForHostAccessReady(signal) {
+async function pollHostAccessReadyUntilDeadline(signal) {
   const deadline = Date.now() + HOST_READY_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (signal?.aborted) {
       throw sharedAbortError();
     }
     try {
-      const state = await readHostReadyState(signal);
-      const ready =
-        state.ok ||
-        state?.payload?.access_ready === true ||
-        state?.payload?.ready === true;
-      if (ready) {
+      const state = await readHostAccessReadyState(signal);
+      if (state.ready) {
         return true;
       }
     } catch (error) {
@@ -2030,7 +2039,16 @@ async function waitForHostAccessReady(signal) {
   return false;
 }
 
-async function fetchMetricJsonWithStartupRetry(api, payload, signal) {
+function waitForHostAccessReady(signal) {
+  if (!hostAccessReadyWaitPromise) {
+    hostAccessReadyWaitPromise = pollHostAccessReadyUntilDeadline().finally(() => {
+      hostAccessReadyWaitPromise = null;
+    });
+  }
+  return waitForSharedPromise(hostAccessReadyWaitPromise, signal);
+}
+
+async function fetchJsonWithStartupArtifactRetry(api, payload, signal) {
   let result = await fetchJsonWithClientPerf(api, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -2040,26 +2058,22 @@ async function fetchMetricJsonWithStartupRetry(api, payload, signal) {
   if (result.response.ok) {
     return result;
   }
-  if (!shouldRetryStrictAotMetricFetch(result.response, result.errorText)) {
+  if (!shouldRetryStartupArtifactFetch(result.response, result.errorText)) {
     return result;
   }
   // background-build allows the host to bind before prebuild completes, but
   // access strict AOT still follows "prebuild first, then use". During startup
-  // we therefore wait for /api/host/ready and retry once, instead of exposing
-  // a transient strict-AOT 503 directly to the first access-page render.
+  // we poll /api/host/heartbeat (always 200) and retry once, instead of
+  // hammering /api/host/ready 503s or exposing transient strict-AOT errors.
   let readyState = null;
   try {
-    readyState = await readHostReadyState(signal);
+    readyState = await readHostAccessReadyState(signal);
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
     }
   }
-  const alreadyReady =
-    readyState?.ok ||
-    readyState?.payload?.access_ready === true ||
-    readyState?.payload?.ready === true;
-  if (alreadyReady) {
+  if (readyState?.ready) {
     return result;
   }
   const becameReady = await waitForHostAccessReady(signal);
@@ -2135,7 +2149,7 @@ async function fetchRuntimeMetricsUncached(api, payload, errorContext = {}, sign
   let clientPerf = {};
   let errorText = "";
   try {
-    ({ response, data, clientPerf, errorText } = await fetchMetricJsonWithStartupRetry(
+    ({ response, data, clientPerf, errorText } = await fetchJsonWithStartupArtifactRetry(
       api,
       payload,
       signal,
@@ -2263,7 +2277,7 @@ async function fetchSceneRuntimeMetricBatchUncached(
   let clientPerf = {};
   let errorText = "";
   try {
-    ({ response, data, clientPerf, errorText } = await fetchMetricJsonWithStartupRetry(
+    ({ response, data, clientPerf, errorText } = await fetchJsonWithStartupArtifactRetry(
       api,
       payload,
       signal,
@@ -2775,6 +2789,8 @@ export async function fetchDatasetRows(
   const coords = capability.requiresSceneId
     ? requireSceneQualifiedRequest(baseCoords, "dataset query", meta)
     : baseCoords;
+  const normalizedPage = normalizePositiveInt(page, 1, { min: 1 });
+  const normalizedPageSize = normalizePositiveInt(pageSize, 0, { min: 0 });
   const normalizedSort = Array.isArray(sort)
     ? sort
         .map((item) => ({
@@ -2783,6 +2799,7 @@ export async function fetchDatasetRows(
         }))
         .filter((item) => item.field)
     : [];
+  const normalizedColumnState = normalizeColumnStateForRequest(columnState);
   const queryStatePayload = mergedQueryStatePayload(effectiveQueryStateId, filters, {
     search,
     filterIntentSource: meta?.filter_intent_source ?? meta?.filterIntentSource,
@@ -2791,8 +2808,8 @@ export async function fetchDatasetRows(
     ...coords,
     dataset_id: datasetId,
     metric_id: metricId || undefined,
-    page,
-    page_size: pageSize,
+    page: normalizedPage,
+    page_size: normalizedPageSize,
     search: queryStatePayload.search || undefined,
     filters: queryStatePayload.filters,
     query_state: {
@@ -2807,10 +2824,7 @@ export async function fetchDatasetRows(
         : undefined,
     full: !!full,
     sort: normalizedSort.length > 0 ? normalizedSort : undefined,
-    column_state:
-      columnState && typeof columnState === "object" && !Array.isArray(columnState)
-        ? columnState
-        : undefined,
+    column_state: normalizedColumnState,
     summary: summary === true,
   };
   const errorContext = {
@@ -2879,7 +2893,7 @@ async function fetchDatasetRowsUncached(
   let clientPerf = {};
   let errorText = "";
   try {
-    ({ response, data, clientPerf, errorText } = await fetchJsonWithClientPerf(api, {
+    ({ response, data, clientPerf, errorText } = await fetchJsonWithStartupArtifactRetry(api, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -3525,6 +3539,84 @@ function normalizeQueryState(raw) {
     filter_intents,
     last_transition,
   };
+}
+
+function normalizePositiveInt(value, fallback = 0, { min = 0 } = {}) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.max(min, Math.round(num));
+}
+
+function normalizeColumnStateForRequest(rawColumnState) {
+  const parsedColumnState =
+    typeof rawColumnState === "string"
+      ? (() => {
+          try {
+            return JSON.parse(rawColumnState);
+          } catch (_) {
+            return null;
+          }
+        })()
+      : rawColumnState;
+  if (!parsedColumnState || typeof parsedColumnState !== "object") {
+    return undefined;
+  }
+  const columns = Array.isArray(parsedColumnState?.columns)
+    ? parsedColumnState.columns
+    : Array.isArray(parsedColumnState)
+      ? parsedColumnState
+      : [];
+  const normalizedColumns = columns
+    .map((entry, index) => {
+      const key = String(entry?.key || entry?.field || entry?.name || "").trim();
+      if (!key) return null;
+      const order = normalizePositiveInt(entry?.order, index, { min: 0 });
+      const width = normalizePositiveInt(entry?.width, 0, { min: 0 });
+      const minWidth = normalizePositiveInt(entry?.min_width ?? entry?.minWidth, 0, { min: 0 });
+      const maxWidth = normalizePositiveInt(entry?.max_width ?? entry?.maxWidth, 0, { min: 0 });
+      const align = String(entry?.align || "").trim().toLowerCase();
+      const valign = String(entry?.valign || entry?.verticalAlign || "").trim().toLowerCase();
+      const headerAlign = String(entry?.header_align || entry?.headerAlign || "").trim().toLowerCase();
+      const headerValign = String(entry?.header_valign || entry?.headerValign || "").trim().toLowerCase();
+      const wrapRaw = String(entry?.wrap ?? "").trim().toLowerCase();
+      const headerWrapRaw = String(entry?.header_wrap ?? entry?.headerWrap ?? "").trim().toLowerCase();
+      return {
+        key,
+        hidden: entry?.hidden === true || entry?.hidden === "true",
+        order,
+        width: width > 0 ? width : null,
+        min_width: minWidth > 0 ? minWidth : null,
+        max_width: maxWidth > 0 ? maxWidth : null,
+        align: ["left", "center", "right", "justify"].includes(align) ? align : null,
+        valign: ["top", "middle", "bottom"].includes(valign) ? valign : null,
+        header_align: ["left", "center", "right", "justify"].includes(headerAlign)
+          ? headerAlign
+          : null,
+        header_valign: ["top", "middle", "bottom"].includes(headerValign)
+          ? headerValign
+          : null,
+        wrap:
+          entry?.wrap === true || entry?.wrap === false
+            ? entry.wrap
+            : wrapRaw === "true"
+              ? true
+              : wrapRaw === "false"
+                ? false
+                : null,
+        header_wrap:
+          entry?.header_wrap === true || entry?.header_wrap === false
+            ? entry.header_wrap
+            : entry?.headerWrap === true || entry?.headerWrap === false
+              ? entry.headerWrap
+              : headerWrapRaw === "true"
+                ? true
+                : headerWrapRaw === "false"
+                  ? false
+                  : null,
+      };
+    })
+    .filter(Boolean);
+  return normalizedColumns.length > 0 ? { columns: normalizedColumns } : undefined;
 }
 
 function normalizeFilterIntentSource(value, fallback = "unknown") {

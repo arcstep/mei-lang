@@ -50,6 +50,10 @@
       renderDocumentPreviewPanel(host, row, config);
       return;
     }
+    if (isVideoSubtitleCockpitPreview(config)) {
+      renderVideoSubtitleCockpitPanel(host, row, config);
+      return;
+    }
     host.replaceChildren();
     if (!row || typeof row !== "object") {
       const empty = document.createElement("div");

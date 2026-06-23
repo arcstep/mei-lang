@@ -2115,6 +2115,105 @@ body > .mei-floating-text-pop-backdrop {
   border: 0;
   background: #fff;
 }
+.access-drilldown-video-cockpit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+  padding: 16px 18px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid var(--mei-color-drilldown-panel-border, rgba(56, 160, 240, 0.22));
+  background:
+    radial-gradient(900px 320px at 8% -10%, rgba(56, 189, 248, 0.12), transparent 62%),
+    linear-gradient(
+      180deg,
+      var(--mei-color-drilldown-panel-top, rgba(18, 62, 112, 0.88)),
+      var(--mei-color-drilldown-panel-bottom, rgba(10, 40, 78, 0.94))
+    );
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08);
+}
+.access-drilldown-video-cockpit-panel--idle .access-drilldown-video-cockpit-section-title {
+  color: var(--mei-color-text-muted, #94a3b8);
+}
+.access-drilldown-video-cockpit-video,
+.access-drilldown-video-cockpit-subtitle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+.access-drilldown-video-cockpit-video {
+  flex: 1.4;
+}
+.access-drilldown-video-cockpit-subtitle {
+  flex: 1;
+}
+.access-drilldown-video-cockpit-section-title {
+  font-size: var(--mei-font-2);
+  font-weight: 700;
+  color: var(--mei-color-text-primary);
+  line-height: 1.45;
+}
+.access-drilldown-video-cockpit-video-frame {
+  flex: 1;
+  min-height: 220px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--mei-color-drilldown-shell-border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.72);
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.05);
+}
+.access-drilldown-video-cockpit-player {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.access-drilldown-video-cockpit-subtitle-body {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--mei-color-drilldown-shell-border);
+  background: rgba(10, 36, 68, 0.55);
+  color: var(--mei-color-text-secondary, #cbd5e1);
+  font-size: var(--mei-font-1);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.access-drilldown-video-cockpit-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  padding: 24px;
+  box-sizing: border-box;
+  text-align: center;
+  color: var(--mei-color-text-muted, #94a3b8);
+  font-size: var(--mei-font-1);
+  line-height: 1.6;
+}
+.access-drilldown-video-cockpit-empty--hint::before {
+  content: "▶";
+  display: block;
+  margin-bottom: 8px;
+  font-size: 28px;
+  color: rgba(125, 211, 252, 0.45);
+}
+.access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] .access-drilldown-video-cockpit-panel {
+  min-height: 0;
+}
 .access-drilldown-document-preview-empty {
   display: grid;
   place-items: center;
@@ -6664,6 +6763,10 @@ a.tree-link {
   border-color: rgba(56, 189, 248, 0.45);
 }
 
+.mei-host-heartbeat-banner--success {
+  border-color: rgba(74, 222, 128, 0.5);
+}
+
 .mei-host-heartbeat-banner__icon {
   font-size: 20px;
   font-weight: 800;
@@ -6674,6 +6777,12 @@ a.tree-link {
 
 .mei-host-heartbeat-banner--version .mei-host-heartbeat-banner__icon {
   color: #7dd3fc;
+}
+
+.mei-host-heartbeat-banner--success .mei-host-heartbeat-banner__icon {
+  color: #86efac;
+  font-size: 14px;
+  min-width: 28px;
 }
 
 .mei-host-heartbeat-banner__title {

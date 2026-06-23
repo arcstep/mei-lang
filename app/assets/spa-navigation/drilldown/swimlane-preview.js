@@ -31,6 +31,13 @@
     return String(mapping?.preview_mode || mapping?.previewMode || "").trim() === "document_preview";
   }
 
+  function isVideoSubtitleCockpitPreview(config) {
+    const mapping = resolveListPreviewMapping(config);
+    return (
+      String(mapping?.preview_mode || mapping?.previewMode || "").trim() === "video_subtitle_cockpit"
+    );
+  }
+
   function isSheetDetailCardPreview(config) {
     return isCaseDetailCardPreview(config) || isTypicalCaseCardPreview(config);
   }
@@ -903,5 +910,122 @@
     iframe.title = titleText || "PDF 预览";
     frame.appendChild(iframe);
     panel.appendChild(frame);
+    host.appendChild(panel);
+  }
+
+  function resolveVideoPreviewPath(row, mapping) {
+    if (!row || typeof row !== "object" || !mapping || typeof mapping !== "object") return "";
+    const pathField = String(mapping?.video_path_field || mapping?.videoPathField || "视频路径").trim();
+    let path = resolveCaseDetailFieldValue(row, { field: pathField });
+    if (path) return path;
+    const idField = String(mapping?.video_id_field || mapping?.videoIdField || "视频编号").trim();
+    const videoId = resolveCaseDetailFieldValue(row, { field: idField });
+    if (!videoId) return "";
+    const prefix = String(mapping?.video_path_prefix || mapping?.videoPathPrefix || "videos/").trim();
+    const suffix = String(mapping?.video_path_suffix || mapping?.videoPathSuffix || ".mp4").trim();
+    return `${prefix}${videoId}${suffix}`;
+  }
+
+  function resolveVideoSubtitlePlaceholder(mapping) {
+    const text = String(
+      mapping?.subtitle_placeholder || mapping?.subtitlePlaceholder || "暂无字幕",
+    ).trim();
+    return text || "暂无字幕";
+  }
+
+  function createVideoSubtitleCockpitShell({ title = "视频预览", idle = false } = {}) {
+    const panel = document.createElement("div");
+    panel.className = "access-drilldown-video-cockpit-panel";
+    if (idle) {
+      panel.classList.add("access-drilldown-video-cockpit-panel--idle");
+    }
+    const videoSection = document.createElement("section");
+    videoSection.className = "access-drilldown-video-cockpit-video";
+    const videoTitle = document.createElement("div");
+    videoTitle.className = "access-drilldown-video-cockpit-section-title";
+    videoTitle.textContent = title;
+    videoSection.appendChild(videoTitle);
+    const videoFrame = document.createElement("div");
+    videoFrame.className = "access-drilldown-video-cockpit-video-frame";
+    videoSection.appendChild(videoFrame);
+    const subtitleSection = document.createElement("section");
+    subtitleSection.className = "access-drilldown-video-cockpit-subtitle";
+    const subtitleTitle = document.createElement("div");
+    subtitleTitle.className = "access-drilldown-video-cockpit-section-title";
+    subtitleTitle.textContent = "音频文字内容";
+    subtitleSection.appendChild(subtitleTitle);
+    const subtitleBody = document.createElement("div");
+    subtitleBody.className = "access-drilldown-video-cockpit-subtitle-body";
+    subtitleSection.appendChild(subtitleBody);
+    panel.appendChild(videoSection);
+    panel.appendChild(subtitleSection);
+    return { panel, videoFrame, subtitleBody, videoTitle };
+  }
+
+  function appendVideoCockpitPlaceholder(frame, text, { hint = false } = {}) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "access-drilldown-video-cockpit-empty";
+    if (hint) {
+      placeholder.classList.add("access-drilldown-video-cockpit-empty--hint");
+    }
+    placeholder.textContent = text;
+    frame.appendChild(placeholder);
+    return placeholder;
+  }
+
+  function renderVideoSubtitleCockpitPanel(host, row, config) {
+    if (!(host instanceof HTMLElement)) return;
+    host.replaceChildren();
+    const mapping = resolveListPreviewMapping(config);
+    if (!mapping) {
+      const empty = document.createElement("div");
+      empty.className = "access-drilldown-list-preview-empty";
+      empty.textContent = "点击清单中的条目查看详情";
+      host.appendChild(empty);
+      return;
+    }
+    if (!row || typeof row !== "object") {
+      const { panel, videoFrame, subtitleBody } = createVideoSubtitleCockpitShell({
+        title: "视频预览",
+        idle: true,
+      });
+      appendVideoCockpitPlaceholder(
+        videoFrame,
+        "请选择预警记录或上传视频",
+        { hint: true },
+      );
+      subtitleBody.textContent = resolveVideoSubtitlePlaceholder(mapping);
+      host.appendChild(panel);
+      return;
+    }
+    const titleText = resolveCaseDetailFieldValue(row, {
+      field: mapping?.title_field || mapping?.titleField || "视频编号",
+      fallback_fields: mapping?.title_fallback_fields || mapping?.titleFallbackFields,
+    });
+    const { panel, videoFrame, subtitleBody, videoTitle } = createVideoSubtitleCockpitShell({
+      title: titleText || "视频预览",
+    });
+    if (videoTitle instanceof HTMLElement && titleText) {
+      videoTitle.textContent = titleText;
+    }
+    const relPath = resolveVideoPreviewPath(row, mapping);
+    const src = resolveUploadDownloadUrl(
+      mapping?.upload_app_id || mapping?.uploadAppId,
+      relPath,
+      { inline: true },
+    );
+    if (!src) {
+      appendVideoCockpitPlaceholder(videoFrame, "暂无可预览的视频");
+    } else {
+      const video = document.createElement("video");
+      video.className = "access-drilldown-video-cockpit-player";
+      video.controls = true;
+      video.preload = "metadata";
+      video.playsInline = true;
+      video.src = src;
+      video.title = titleText || "执法视频预览";
+      videoFrame.appendChild(video);
+    }
+    subtitleBody.textContent = resolveVideoSubtitlePlaceholder(mapping);
     host.appendChild(panel);
   }

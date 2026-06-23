@@ -1,5 +1,7 @@
-/**
 import { color } from "../mei/theme-style.js";
+import { resolveRuntimeColor } from "../cockpit/tokens.js";
+
+/**
  * GIS layerSpec / joinSpec 共享工具（chart.geo 与 map.maplibre 共用）
  */
 
@@ -7,6 +9,20 @@ export const MEI_MAP_SELECTION = "mei:map-selection";
 
 const JOIN_KEY_CANDIDATES = ["code", "id", "parkId", "enterpriseId", "name"];
 const GEOJSON_CACHE = new Map();
+
+function mapLibrePaintColor(value, tokenName, fallback = "#cbd5e1") {
+  const host = typeof document !== "undefined" ? document.documentElement : null;
+  const resolved = resolveRuntimeColor(host, value, tokenName);
+  if (resolved && !String(resolved).startsWith("var(")) {
+    return String(resolved);
+  }
+  const text = String(value || "");
+  const match = text.match(/,\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))\s*\)/i);
+  if (match) {
+    return match[1];
+  }
+  return fallback;
+}
 
 export function resolveFeatureJoinKey(properties, preferredKey) {
   const props = properties && typeof properties === "object" ? properties : {};
@@ -454,8 +470,16 @@ export function resolveLayerDataLabels(layerSpec = {}, options = {}) {
     minZoom: Number((raw && typeof raw === "object" ? raw.minZoom ?? raw.min_zoom : null) ?? 10),
     maxZoom: Number((raw && typeof raw === "object" ? raw.maxZoom ?? raw.max_zoom : null) ?? 22),
     textSize: Number(style.labelTextSize ?? style.label_text_size ?? 11),
-    textColor: String(style.labelColor || style.label_color || color("text_body")),
-    textHaloColor: String(style.labelHaloColor || style.label_halo_color || "#0f172a"),
+    textColor: mapLibrePaintColor(
+      style.labelColor || style.label_color || color("text_body"),
+      "text_body",
+      "#cbd5e1",
+    ),
+    textHaloColor: mapLibrePaintColor(
+      style.labelHaloColor || style.label_halo_color || "#0f172a",
+      "text_body",
+      "#0f172a",
+    ),
     textHaloWidth: Number(style.labelHaloWidth ?? style.label_halo_width ?? 1.2),
     valueLabel: String(
       (raw && typeof raw === "object" ? raw.valueLabel || raw.value_label : null) ||
@@ -717,15 +741,27 @@ export function basemapLabelLayers(basemap = {}) {
   const textField = textFieldForBasemap(basemap);
   const roadClasses = resolveBasemapRoadClasses(basemap);
   const roadClassFilter = filterByRoadClasses(roadClasses);
-  const waterLabelColor = basemapValue(basemap, "waterLabelColor", "water_label_color", color("text_unit"));
+  const waterLabelColor = mapLibrePaintColor(
+    basemapValue(basemap, "waterLabelColor", "water_label_color", color("text_unit")),
+    "text_unit",
+    "#94a3b8",
+  );
   const waterLabelOpacity = basemapValue(basemap, "waterLabelOpacity", "water_label_opacity", 1);
   const waterLabelHaloColor = basemapValue(basemap, "waterLabelHaloColor", "water_label_halo_color", "#0f172a");
   const waterLabelHaloWidth = basemapValue(basemap, "waterLabelHaloWidth", "water_label_halo_width", 1.2);
-  const roadLabelColor = basemapValue(basemap, "roadLabelColor", "road_label_color", color("text_body"));
+  const roadLabelColor = mapLibrePaintColor(
+    basemapValue(basemap, "roadLabelColor", "road_label_color", color("text_body")),
+    "text_body",
+    "#cbd5e1",
+  );
   const roadLabelOpacity = basemapValue(basemap, "roadLabelOpacity", "road_label_opacity", 1);
   const roadLabelHaloColor = basemapValue(basemap, "roadLabelHaloColor", "road_label_halo_color", "#0f172a");
   const roadLabelHaloWidth = basemapValue(basemap, "roadLabelHaloWidth", "road_label_halo_width", 1);
-  const placeLabelColor = basemapValue(basemap, "placeLabelColor", "place_label_color", color("text_inverse"));
+  const placeLabelColor = mapLibrePaintColor(
+    basemapValue(basemap, "placeLabelColor", "place_label_color", color("text_inverse")),
+    "text_inverse",
+    "#f8fafc",
+  );
   const placeLabelOpacity = basemapValue(basemap, "placeLabelOpacity", "place_label_opacity", 1);
   const placeLabelHaloColor = basemapValue(basemap, "placeLabelHaloColor", "place_label_halo_color", "#0f172a");
   const placeLabelHaloWidth = basemapValue(basemap, "placeLabelHaloWidth", "place_label_halo_width", 1.2);

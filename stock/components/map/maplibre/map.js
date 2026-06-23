@@ -1,5 +1,5 @@
+import { color } from "../../mei/theme-style.js";
 import {
-import { color } from "../mei/theme-style.js";
   deferUntilDisplayed,
   fetchRuntimeMetrics,
   findRuntimeMetricInResults,

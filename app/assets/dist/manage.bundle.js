@@ -492,12 +492,15 @@
   const POLL_MS = 30000;
   const POLL_FAST_MS = 8000;
   const DISCONNECT_AFTER_STREAK = 2;
+  const SUCCESS_VISIBLE_MS = 5000;
 
   let timerId = 0;
   let failureStreak = 0;
   let alertKind = "";
   let remoteVersion = "";
   let probeInFlight = false;
+  let lastHeartbeat = null;
+  let successTimerId = 0;
 
   function readMeta(name) {
     const node = document.querySelector('meta[name="' + name + '"]');
@@ -506,6 +509,85 @@
 
   function pageBuildVersion() {
     return readMeta("mei-host-version");
+  }
+
+  function formatDurationMs(value) {
+    if (value == null || value === "") return "";
+    const ms = Number(value);
+    if (!Number.isFinite(ms) || ms < 0) return "";
+    if (ms < 1000) return Math.round(ms) + "ms";
+    if (ms < 60000) return (ms / 1000).toFixed(1) + "s";
+    const minutes = Math.floor(ms / 60000);
+    const seconds = ((ms % 60000) / 1000).toFixed(1);
+    return `${minutes}m ${seconds}s`;
+  }
+
+  function heartbeatPhaseLabel(phase) {
+    const normalized = String(phase || "").trim().toLowerCase();
+    const map = {
+      starting: "启动中",
+      bound: "已绑定，等待后台构建",
+      building: "后台构建中",
+      verifying: "校验中",
+      degraded: "部分产物未就绪",
+      failed: "后台构建失败",
+      ready: "已就绪",
+      skipped: "已跳过",
+    };
+    return map[normalized] || normalized || "未知状态";
+  }
+
+  function buildAlertCopy(payload) {
+    const phase = String(payload?.phase || "").trim().toLowerCase();
+    const activeJob = String(payload?.activeJob || "").trim();
+    const activeElapsed = formatDurationMs(payload?.activeJobElapsedMs);
+    const lastTotal = formatDurationMs(payload?.lastBuildTotalMs);
+    const lastCompile = formatDurationMs(payload?.lastBuildCompileMs);
+    const lastWarmup = formatDurationMs(payload?.lastBuildWarmupMs);
+    const warningCount = Number(payload?.lastWarningCount || 0);
+    const title =
+      phase === "failed"
+        ? "访问态构建失败"
+        : phase === "degraded"
+          ? "部分访问能力降级"
+          : "访问态构建中";
+    const lines = [
+      `当前状态：${heartbeatPhaseLabel(phase)}`,
+      activeJob ? `后台任务：${activeJob}` : "",
+      activeElapsed ? `已耗时：${activeElapsed}` : "",
+      lastTotal
+        ? `最近一次构建：总计 ${lastTotal}${
+            lastCompile ? `，编译 ${lastCompile}` : ""
+          }${lastWarmup ? `，warmup ${lastWarmup}` : ""}`
+        : "",
+      warningCount > 0 ? `最近一次构建含 ${warningCount} 条 warning / 降级项。` : "",
+      phase === "failed"
+        ? "宿主已启动，但部分访问态产物构建失败；请到构建视图检查失败项。"
+        : phase === "degraded"
+          ? "宿主服务可用；部分页面或指标可能局部降级，未命中缺失产物的功能仍可正常访问。"
+          : "宿主已启动，后台正在生成访问态产物；完成前部分页面或指标可能暂时不可用。",
+    ].filter(Boolean);
+    return { title, message: lines.join(" ") };
+  }
+
+  function buildSuccessCopy(payload) {
+    const lastTotal = formatDurationMs(payload?.lastBuildTotalMs);
+    const lastCompile = formatDurationMs(payload?.lastBuildCompileMs);
+    const lastWarmup = formatDurationMs(payload?.lastBuildWarmupMs);
+    const message = [
+      "OK! 访问态产物已就绪，现在可以正常访问页面。",
+      lastTotal
+        ? `最近一次构建：总计 ${lastTotal}${
+            lastCompile ? `，编译 ${lastCompile}` : ""
+          }${lastWarmup ? `，warmup ${lastWarmup}` : ""}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return {
+      title: "READY! 访问态已就绪",
+      message,
+    };
   }
 
   function shouldRun() {
@@ -532,20 +614,41 @@
     if (root) root.innerHTML = "";
   }
 
-  function renderBanner(kind) {
+  function cancelSuccessTimer() {
+    if (successTimerId) {
+      clearTimeout(successTimerId);
+      successTimerId = 0;
+    }
+  }
+
+  function renderBanner(kind, payload) {
     const root = ensureRoot();
     const pageVersion = pageBuildVersion();
     const isVersion = kind === "version";
-    const title = isVersion ? "服务端已更新" : "服务端失联";
+    const isBuild = kind === "build";
+    const isSuccess = kind === "success";
+    const title = isVersion
+      ? "服务端已更新"
+      : isSuccess
+        ? buildSuccessCopy(payload).title
+      : isBuild
+        ? buildAlertCopy(payload).title
+        : "服务端失联";
     const message = isVersion
       ? "当前页面版本为 " +
         (pageVersion || "未知") +
         "，服务端版本为 " +
         (remoteVersion || "未知") +
         "。请刷新页面以加载新版本。"
-      : "无法连接宿主服务，请检查网络或联系管理员后刷新页面。";
+      : isSuccess
+        ? buildSuccessCopy(payload).message
+      : isBuild
+        ? buildAlertCopy(payload).message
+        : "无法连接宿主服务，请检查网络或联系管理员后刷新页面。";
     const toneClass = isVersion
       ? " mei-host-heartbeat-banner--version"
+      : isSuccess
+        ? " mei-host-heartbeat-banner--success"
       : " mei-host-heartbeat-banner--offline";
 
     root.innerHTML =
@@ -553,13 +656,13 @@
       toneClass +
       '" role="alert">' +
       '<div class="mei-host-heartbeat-banner__icon" aria-hidden="true">' +
-      (isVersion ? "↑" : "!") +
+      (isVersion ? "↑" : isSuccess ? "OK" : "!") +
       '</div><div class="mei-host-heartbeat-banner__body">' +
       '<div class="mei-host-heartbeat-banner__title"></div>' +
       '<div class="mei-host-heartbeat-banner__message"></div>' +
       '<div class="mei-host-heartbeat-banner__actions">' +
       '<button type="button" class="mei-host-heartbeat-banner__btn mei-host-heartbeat-banner__btn--primary" data-action="reload">刷新页面</button>' +
-      (isVersion
+      (isVersion || isSuccess
         ? ""
         : '<button type="button" class="mei-host-heartbeat-banner__btn" data-action="retry">重试连接</button>') +
       "</div></div></div>";
@@ -580,16 +683,25 @@
 
   function setAlert(kind) {
     if (alertKind === kind) return;
+    cancelSuccessTimer();
     alertKind = kind;
     if (!kind) {
       clearBanner();
       return;
     }
-    renderBanner(kind);
+    renderBanner(kind, lastHeartbeat);
+    if (kind === "success") {
+      successTimerId = window.setTimeout(() => {
+        successTimerId = 0;
+        if (alertKind === "success") {
+          setAlert("");
+        }
+      }, SUCCESS_VISIBLE_MS);
+    }
     try {
       document.dispatchEvent(
         new CustomEvent("mei:host-heartbeat-alert", {
-          detail: { kind, remoteVersion, pageVersion: pageBuildVersion() },
+          detail: { kind, remoteVersion, pageVersion: pageBuildVersion(), payload: lastHeartbeat },
         }),
       );
     } catch (_) {}
@@ -597,8 +709,25 @@
 
   function scheduleNext() {
     if (timerId) clearTimeout(timerId);
-    const delay = alertKind === "offline" ? POLL_FAST_MS : POLL_MS;
+    const delay = alertKind === "offline" || alertKind === "build" ? POLL_FAST_MS : POLL_MS;
     timerId = window.setTimeout(tick, delay);
+  }
+
+  function isActivelyBuilding(payload) {
+    const phase = String(payload?.phase || "").trim().toLowerCase();
+    const activeJob = String(payload?.activeJob || "").trim();
+    return (
+      activeJob &&
+      (phase === "building" || phase === "verifying" || phase === "starting")
+    );
+  }
+
+  function isHostServiceable(payload) {
+    return payload?.hostReady === true || payload?.ready === true;
+  }
+
+  function isAccessFullyReady(payload) {
+    return payload?.accessReady === true;
   }
 
   async function tick() {
@@ -615,6 +744,7 @@
         throw new Error("heartbeat status " + String(response.status));
       }
       const payload = await response.json();
+      lastHeartbeat = payload && typeof payload === "object" ? payload : null;
       const nextVersion = String((payload && payload.buildVersion) || "").trim();
       remoteVersion = nextVersion;
       failureStreak = 0;
@@ -622,6 +752,30 @@
       const pageVersion = pageBuildVersion();
       if (pageVersion && nextVersion && pageVersion !== nextVersion) {
         setAlert("version");
+        return;
+      }
+      if (!isHostServiceable(payload)) {
+        if (alertKind === "build") {
+          renderBanner("build", lastHeartbeat);
+        } else {
+          setAlert("build");
+        }
+        return;
+      }
+      if (!isAccessFullyReady(payload) && isActivelyBuilding(payload)) {
+        if (alertKind === "build") {
+          renderBanner("build", lastHeartbeat);
+        } else {
+          setAlert("build");
+        }
+        return;
+      }
+      if (isAccessFullyReady(payload) && alertKind === "build") {
+        setAlert("success");
+        return;
+      }
+      if (alertKind === "build") {
+        setAlert("");
         return;
       }
       if (alertKind === "offline") {
@@ -10609,6 +10763,13 @@
     return String(mapping?.preview_mode || mapping?.previewMode || "").trim() === "document_preview";
   }
 
+  function isVideoSubtitleCockpitPreview(config) {
+    const mapping = resolveListPreviewMapping(config);
+    return (
+      String(mapping?.preview_mode || mapping?.previewMode || "").trim() === "video_subtitle_cockpit"
+    );
+  }
+
   function isSheetDetailCardPreview(config) {
     return isCaseDetailCardPreview(config) || isTypicalCaseCardPreview(config);
   }
@@ -11484,6 +11645,123 @@
     host.appendChild(panel);
   }
 
+  function resolveVideoPreviewPath(row, mapping) {
+    if (!row || typeof row !== "object" || !mapping || typeof mapping !== "object") return "";
+    const pathField = String(mapping?.video_path_field || mapping?.videoPathField || "视频路径").trim();
+    let path = resolveCaseDetailFieldValue(row, { field: pathField });
+    if (path) return path;
+    const idField = String(mapping?.video_id_field || mapping?.videoIdField || "视频编号").trim();
+    const videoId = resolveCaseDetailFieldValue(row, { field: idField });
+    if (!videoId) return "";
+    const prefix = String(mapping?.video_path_prefix || mapping?.videoPathPrefix || "videos/").trim();
+    const suffix = String(mapping?.video_path_suffix || mapping?.videoPathSuffix || ".mp4").trim();
+    return `${prefix}${videoId}${suffix}`;
+  }
+
+  function resolveVideoSubtitlePlaceholder(mapping) {
+    const text = String(
+      mapping?.subtitle_placeholder || mapping?.subtitlePlaceholder || "暂无字幕",
+    ).trim();
+    return text || "暂无字幕";
+  }
+
+  function createVideoSubtitleCockpitShell({ title = "视频预览", idle = false } = {}) {
+    const panel = document.createElement("div");
+    panel.className = "access-drilldown-video-cockpit-panel";
+    if (idle) {
+      panel.classList.add("access-drilldown-video-cockpit-panel--idle");
+    }
+    const videoSection = document.createElement("section");
+    videoSection.className = "access-drilldown-video-cockpit-video";
+    const videoTitle = document.createElement("div");
+    videoTitle.className = "access-drilldown-video-cockpit-section-title";
+    videoTitle.textContent = title;
+    videoSection.appendChild(videoTitle);
+    const videoFrame = document.createElement("div");
+    videoFrame.className = "access-drilldown-video-cockpit-video-frame";
+    videoSection.appendChild(videoFrame);
+    const subtitleSection = document.createElement("section");
+    subtitleSection.className = "access-drilldown-video-cockpit-subtitle";
+    const subtitleTitle = document.createElement("div");
+    subtitleTitle.className = "access-drilldown-video-cockpit-section-title";
+    subtitleTitle.textContent = "音频文字内容";
+    subtitleSection.appendChild(subtitleTitle);
+    const subtitleBody = document.createElement("div");
+    subtitleBody.className = "access-drilldown-video-cockpit-subtitle-body";
+    subtitleSection.appendChild(subtitleBody);
+    panel.appendChild(videoSection);
+    panel.appendChild(subtitleSection);
+    return { panel, videoFrame, subtitleBody, videoTitle };
+  }
+
+  function appendVideoCockpitPlaceholder(frame, text, { hint = false } = {}) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "access-drilldown-video-cockpit-empty";
+    if (hint) {
+      placeholder.classList.add("access-drilldown-video-cockpit-empty--hint");
+    }
+    placeholder.textContent = text;
+    frame.appendChild(placeholder);
+    return placeholder;
+  }
+
+  function renderVideoSubtitleCockpitPanel(host, row, config) {
+    if (!(host instanceof HTMLElement)) return;
+    host.replaceChildren();
+    const mapping = resolveListPreviewMapping(config);
+    if (!mapping) {
+      const empty = document.createElement("div");
+      empty.className = "access-drilldown-list-preview-empty";
+      empty.textContent = "点击清单中的条目查看详情";
+      host.appendChild(empty);
+      return;
+    }
+    if (!row || typeof row !== "object") {
+      const { panel, videoFrame, subtitleBody } = createVideoSubtitleCockpitShell({
+        title: "视频预览",
+        idle: true,
+      });
+      appendVideoCockpitPlaceholder(
+        videoFrame,
+        "请选择预警记录或上传视频",
+        { hint: true },
+      );
+      subtitleBody.textContent = resolveVideoSubtitlePlaceholder(mapping);
+      host.appendChild(panel);
+      return;
+    }
+    const titleText = resolveCaseDetailFieldValue(row, {
+      field: mapping?.title_field || mapping?.titleField || "视频编号",
+      fallback_fields: mapping?.title_fallback_fields || mapping?.titleFallbackFields,
+    });
+    const { panel, videoFrame, subtitleBody, videoTitle } = createVideoSubtitleCockpitShell({
+      title: titleText || "视频预览",
+    });
+    if (videoTitle instanceof HTMLElement && titleText) {
+      videoTitle.textContent = titleText;
+    }
+    const relPath = resolveVideoPreviewPath(row, mapping);
+    const src = resolveUploadDownloadUrl(
+      mapping?.upload_app_id || mapping?.uploadAppId,
+      relPath,
+      { inline: true },
+    );
+    if (!src) {
+      appendVideoCockpitPlaceholder(videoFrame, "暂无可预览的视频");
+    } else {
+      const video = document.createElement("video");
+      video.className = "access-drilldown-video-cockpit-player";
+      video.controls = true;
+      video.preload = "metadata";
+      video.playsInline = true;
+      video.src = src;
+      video.title = titleText || "执法视频预览";
+      videoFrame.appendChild(video);
+    }
+    subtitleBody.textContent = resolveVideoSubtitlePlaceholder(mapping);
+    host.appendChild(panel);
+  }
+
 ;
 
 /* ===== spa-navigation/drilldown/render-list-preview.js ===== */
@@ -11537,6 +11815,10 @@
     }
     if (isDocumentPreview(config)) {
       renderDocumentPreviewPanel(host, row, config);
+      return;
+    }
+    if (isVideoSubtitleCockpitPreview(config)) {
+      renderVideoSubtitleCockpitPanel(host, row, config);
       return;
     }
     host.replaceChildren();
