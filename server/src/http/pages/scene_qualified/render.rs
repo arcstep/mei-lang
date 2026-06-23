@@ -90,6 +90,17 @@ pub fn expected_scene_id_for_runtime_lookup(
     scene_ctx.scene_id
 }
 
+fn compiled_serves_runtime_scene(compiled: &CompiledApp, expected_scene: &str) -> bool {
+    let active = resolved_scene_context(compiled).scene_id;
+    if active == expected_scene {
+        return true;
+    }
+    compiled
+        .scene_projection_assembly_by_id
+        .contains_key(expected_scene)
+        || compiled.scene_bindings_by_id.contains_key(expected_scene)
+}
+
 /// Locate a dataset resource within the compiled active scene resource table.
 pub fn locate_dataset_resource<'a>(
     compiled: &'a CompiledApp,
@@ -100,8 +111,8 @@ pub fn locate_dataset_resource<'a>(
         kernel_locate_dataset_resource(compiled, dataset_id).map_err(map_resolve_error)?;
 
     let expected = expected_scene_id_for_runtime_lookup(compiled, coords);
-    let active = resolved_scene_context(compiled).scene_id;
-    if active != expected {
+    if !compiled_serves_runtime_scene(compiled, expected.as_str()) {
+        let active = resolved_scene_context(compiled).scene_id;
         return Err(AppError::status(
             StatusCode::BAD_REQUEST,
             format!(

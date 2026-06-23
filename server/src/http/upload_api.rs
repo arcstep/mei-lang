@@ -724,6 +724,15 @@ fn resolve_upload_download_target(
         return resolve_existing_upload_file(upload_root, &rel);
     }
     if let Ok(path) = resolve_existing_upload_file(upload_root, &rel) {
+        if path.is_dir() {
+            let basename = query
+                .basename
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| AppError::status(StatusCode::BAD_REQUEST, "basename required"))?;
+            return resolve_upload_file_by_basename(upload_root, &rel, basename);
+        }
         return Ok(path);
     }
     let basename = query
@@ -941,8 +950,8 @@ mod tests {
     use super::{
         ascii_content_disposition_filename, build_rename_target_rel,
         content_disposition_attachment, content_disposition_inline,
-        percent_encode_for_content_disposition, upload_file_stem_matches_basename,
-        upload_supports_inline_preview,
+        percent_encode_for_content_disposition, resolve_upload_download_target,
+        upload_file_stem_matches_basename, upload_supports_inline_preview, UploadDownloadQuery,
     };
 
     #[test]
@@ -999,6 +1008,37 @@ mod tests {
             "other.mp4",
             "xzzf20251105_cgj_143859"
         ));
+    }
+
+    #[test]
+    fn upload_download_match_basename_searches_directory_path() {
+        let upload_root = std::env::temp_dir().join(format!(
+            "mei-upload-download-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&upload_root);
+        let image_dir = upload_root.join("预警摘要图片");
+        std::fs::create_dir_all(&image_dir).expect("image dir");
+        let image_path = image_dir.join("xzzf20251105_cgj_143859-1.png");
+        std::fs::write(&image_path, b"png").expect("image");
+
+        let target = resolve_upload_download_target(
+            upload_root.as_path(),
+            &UploadDownloadQuery {
+                path: "预警摘要图片".to_string(),
+                inline: true,
+                match_basename: true,
+                basename: Some("xzzf20251105_cgj_143859".to_string()),
+            },
+        )
+        .expect("resolved basename");
+
+        assert!(target.is_file());
+        assert_eq!(
+            target.file_name().and_then(|value| value.to_str()),
+            Some("xzzf20251105_cgj_143859-1.png")
+        );
+        let _ = std::fs::remove_dir_all(upload_root);
     }
 
     #[test]

@@ -342,3 +342,83 @@ fn query_realtime_warning_detail_rowset_with_warning_id_filter() {
         "filtered detail should return rows"
     );
 }
+
+#[test]
+fn query_realtime_warning_detail_rowset_via_warning_detail_card_board() {
+    use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
+    use std::collections::BTreeMap;
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let host_target = "scenes/06-实时预警.mei";
+    let board_target = "scenes/_shared/warning-detail.card.board.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(board_target.to_string()),
+        },
+    )
+    .expect("compile warning detail card board");
+    let table = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(host_target.to_string()),
+        },
+    )
+    .expect("compile realtime warnings preview");
+    let table = query_metric_dataframe(
+        &table,
+        app_root.as_path(),
+        "__world_metrics__",
+        "warnings_realtime_cockpit_table",
+        Some("realtime_warnings"),
+        Some(host_target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 5,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("cockpit table");
+    let warning_id = table
+        .rows
+        .first()
+    .and_then(|row| row.get("warning_id"))
+    .and_then(|v| v.as_str())
+    .map(str::trim)
+    .filter(|v| !v.is_empty())
+    .expect("warning_id sample");
+    let mut filters = BTreeMap::new();
+    filters.insert("预警ID".to_string(), warning_id.to_string());
+    let detail = query_metric_dataframe(
+        &compiled,
+        app_root.as_path(),
+        "warning_list",
+        "realtime_warning_detail::__scalar_rowset__",
+        Some("warning_detail_card_board"),
+        Some(board_target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 20,
+            filters,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("realtime_warning_detail rowset via warning detail card board");
+    assert!(
+        !detail.rows.is_empty(),
+        "board overlay should resolve realtime_warning_detail rowset"
+    );
+}

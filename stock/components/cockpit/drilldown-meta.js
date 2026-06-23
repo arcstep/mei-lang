@@ -343,6 +343,10 @@ export function tableDrilldownMeta(props) {
     dataset_id: datasetId,
     host_scene_id: String(ref.scene_id || props?._mei?.active_scene_id || "").trim(),
     host_scene_file: String(ref.scene_path || props?._mei?.active_target_file || "").trim(),
+    page_scene_id: String(props?._mei?.active_scene_id || "").trim(),
+    page_scene_file: String(
+      props?._mei?.active_target_file || props?._mei?.entry_target || "",
+    ).trim(),
     scene_id: String(ref.scene_id || props?._mei?.active_scene_id || "").trim(),
     scene_path: String(ref.scene_path || props?._mei?.active_target_file || "").trim(),
     query_state_id: queryStateId,

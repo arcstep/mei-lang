@@ -1,6 +1,6 @@
 ---
 name: meilang-author
-description: 创建、修改、审查或修复 MeiLang `.mei` 时使用。编辑侧主线是“文档 + mei-toolchain CLI + mei-lsp + 外部开发工具”，而不是宿主内置 agent tool。
+description: 创建、修改、审查、修复、编译、预构建、发布前校验或性能比较 MeiLang `.mei` / board / dataset / metric 时使用。作者态主线是“源码 + knowledge + mei-toolchain CLI + mei-lsp + 外部开发工具”，默认优先 scoped build / 增量 prebuild，而不是提示重启宿主。
 ---
 
 # MeiLang Author（短入口）
@@ -49,6 +49,18 @@ MeiLang 当前作者态的主线是：
 7. 只有当源码与 packaged knowledge 仍不足时，再读 `.stock/**/README.md` 或实现文件作为最后兜底。
 8. 只有当仍需要 runtime/world 真值时，再跑 `inspect/query/runtime`。
 
+## 运行中宿主的默认处理原则
+
+涉及“改完后怎么让运行中的 MeiLang 生效”时，默认按下面顺序决策：
+
+1. 先区分变更是否只落在单个 `sceneId + targetFile`
+2. 单 scope 修改优先走 scoped build
+3. 多 scope / 数据输入变化优先走单 app 增量 `prebuild`
+4. 发布前优先 `prebuild --verify` 或 `fail-fast-verify`
+5. 只有改了 Rust 宿主、前端 bundle、启动参数或运行时二进制时，才建议重启服务
+
+不要把“重启宿主”当作 `.mei` 作者态修改的默认建议。
+
 ## 当前作者态主线
 
 - 单文件主线：`main.mei` 中的 `app(...)` + inline `scene(...)`
@@ -80,6 +92,21 @@ MeiLang 当前作者态的主线是：
 - `mei-toolchain query dataset --app <app> --source-root <workspace> --id <dataset_id> --json`
 - `mei-toolchain query metric --app <app> --source-root <workspace> --id <dataset_id> --json`
 - `mei-toolchain runtime peek --app <app> --source-root <workspace> --json`
+- `curl -X POST http://127.0.0.1:9527/api/host/build -H 'Content-Type: application/json' -d '{"appId":"<app>","mode":"build","sceneId":"<scene>","targetFile":"<target>"}'`
+- `mei-toolchain prebuild --workspace <workspace> --app <app> --json`
+- `mei-toolchain prebuild --workspace <workspace> --app <app> --verify --json`
+- `mei-toolchain prebuild --workspace <workspace> --app <app> --hot-only --json`
+- `node ./scripts/host-perf-sample.mjs --scenario-file ./scripts/perf-scenarios/<app>.json`
+- `node ./scripts/host-perf-report.mjs --sample <sample.jsonl> --scenario-file ./scripts/perf-scenarios/<app>.json --mode auto`
+
+## 性能与发布判断
+
+- 讨论“局部修改反馈为什么慢”时，先看 `local_edit_feedback_ms`、`compile_ms`、`dependency_graph_build_ms`
+- 讨论“访问态什么时候 ready”时，先看 `host_access_ready`、`host_full_warmup_ready`、`/api/host/ready`
+- 讨论“是否发布前可接受”时，先做 `prebuild --verify` 或 `fail-fast-verify`
+- 讨论“这次优化是否真的长期有效”时，先用 `host-perf-sample` + `host-perf-report` 与 ledger / pinned baseline 比较
+
+细节操作优先补读同目录 `authoring.md`，以及 `.mei/knowledge/author/build-debug-ops.md`。
 
 ## 禁止
 

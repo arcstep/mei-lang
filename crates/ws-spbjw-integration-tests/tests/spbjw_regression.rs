@@ -807,6 +807,78 @@ fn spbjw_typical_cases_swimlane_metric_dataframe_respects_result_id_filter() {
 }
 
 #[test]
+fn spbjw_home_resolves_imported_typical_cases_dataset_selector() {
+    use mei_lang_kernel::locate_dataset_resource;
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw home preview");
+    let namespaced = "scenes/09-监督典型案例.mei::typical_cases";
+    let resource_ids: Vec<_> = compiled
+        .resources
+        .iter()
+        .filter(|resource| {
+            resource
+                .id
+                .contains("typical_cases")
+                || resource
+                    .dataset
+                    .as_ref()
+                    .is_some_and(|dataset| dataset.id.contains("typical_cases"))
+        })
+        .map(|resource| resource.id.as_str())
+        .collect();
+    assert!(
+        !resource_ids.is_empty(),
+        "home preview should materialize imported typical_cases resources, got {resource_ids:?}"
+    );
+    let resource = locate_dataset_resource(&compiled, namespaced)
+        .unwrap_or_else(|error| panic!("locate {namespaced}: {error}; resources={resource_ids:?}"));
+    assert!(
+        resource.dataset.is_some(),
+        "typical_cases resource should expose dataset view"
+    );
+}
+
+#[test]
+fn spbjw_typical_cases_board_resolves_namespaced_dataset_selector() {
+    use mei_lang_kernel::locate_dataset_resource;
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let board_target = "scenes/09-监督典型案例.board.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(board_target.to_string()),
+        },
+    )
+    .expect("compile typical cases board preview");
+    let namespaced = "scenes/09-监督典型案例.mei::typical_cases";
+    let resource = locate_dataset_resource(&compiled, namespaced)
+        .unwrap_or_else(|error| {
+            let resource_ids: Vec<_> = compiled
+                .resources
+                .iter()
+                .filter(|resource| resource.dataset.is_some())
+                .map(|resource| resource.id.as_str())
+                .collect();
+            panic!("locate {namespaced}: {error}; resources={resource_ids:?}")
+        });
+    assert_eq!(resource.id, "typical_cases");
+}
+
+#[test]
 fn compile_spbjw_layout_right_typical_cases_popup_lowers_list_preview() {
     let source_root = source_root();
     let app_root = zhifa_app_root();
@@ -2488,6 +2560,52 @@ fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_key
                 .contains_key(&metric_key),
             "expected runtime_analysis_contracts key `{metric_key}` on `{resource_id}`, got keys: {:?}",
             dataset.runtime_analysis_contracts.keys().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn compile_spbjw_home_embedded_map_world_metrics_materialized() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .expect("compile home preview");
+    let resource_id = "__world_metrics__::scenes/10-地图.mei::metrics";
+    let dataset = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == resource_id)
+        .and_then(|resource| resource.dataset.as_ref())
+        .unwrap_or_else(|| {
+            panic!(
+                "home preview should include imported map world metrics `{resource_id}`, got: {:?}",
+                compiled
+                    .resources
+                    .iter()
+                    .filter(|r| r.id.contains("10-地图") || r.id.contains("__world_metrics__"))
+                    .map(|r| r.id.as_str())
+                    .collect::<Vec<_>>()
+            )
+        });
+    for metric_id in [
+        "scenes/10-地图.mei::map_street_inspection_count_2025",
+        "scenes/10-地图.mei::map_enterprise_poi_in_park_2025",
+    ] {
+        assert!(
+            dataset.runtime_metric_defs.contains_key(metric_id),
+            "expected `{metric_id}` on home map world metrics, keys: {:?}",
+            dataset
+                .runtime_metric_defs
+                .keys()
+                .filter(|k| k.contains("map_"))
+                .collect::<Vec<_>>()
         );
     }
 }

@@ -1,9 +1,48 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
-    resolve_dataset_resource_id, CompiledApp, LoadedResource, RuntimeResourceIndex,
+    resolve_dataset_resource_id, CompiledApp, LoadedResource, MetricContract, RuntimeResourceIndex,
+    WorldMetricLedgerEntry,
 };
 use serde_json::Value;
+
+fn lookup_world_metric_ledger_entry<'a>(
+    compiled: &'a CompiledApp,
+    metric_id: &str,
+) -> Option<&'a WorldMetricLedgerEntry> {
+    let metric_id = metric_id.trim();
+    if metric_id.is_empty() {
+        return None;
+    }
+    if let Some(entry) = compiled.world_metrics.get(metric_id) {
+        return Some(entry);
+    }
+    let suffix = format!("::{metric_id}");
+    compiled
+        .world_metrics
+        .iter()
+        .find(|(key, _)| key.as_str() == metric_id || key.ends_with(&suffix))
+        .map(|(_, entry)| entry)
+}
+
+fn lookup_dataset_metric(
+    dataset: &mei_lang_kernel::DatasetView,
+    metric_id: &str,
+) -> Option<MetricContract> {
+    let metric_id = metric_id.trim();
+    if metric_id.is_empty() {
+        return None;
+    }
+    if let Some(metric) = dataset.metrics.get(metric_id) {
+        return Some(metric.clone());
+    }
+    let suffix = format!("::{metric_id}");
+    dataset
+        .metrics
+        .iter()
+        .find(|(key, _)| key.as_str() == metric_id || key.ends_with(&suffix))
+        .map(|(_, metric)| metric.clone())
+}
 
 pub(crate) fn resolve_data_ref(
     map: &serde_json::Map<String, Value>,
@@ -31,7 +70,7 @@ pub(crate) fn resolve_metric_ref(
     resource_index: &RuntimeResourceIndex,
 ) -> Option<(mei_lang_kernel::MetricContract, String)> {
     let metric_id = map.get("id").and_then(Value::as_str)?;
-    if let Some(entry) = compiled.world_metrics.get(metric_id) {
+    if let Some(entry) = lookup_world_metric_ledger_entry(compiled, metric_id) {
         if let Some(from_dataset) = map.get("from_dataset").and_then(Value::as_str) {
             match resolve_dataset_resource_id(compiled, from_dataset, Some(resource_index)) {
                 Ok(dataset_id) => {
@@ -53,16 +92,13 @@ pub(crate) fn resolve_metric_ref(
         let dataset_id =
             resolve_dataset_resource_id(compiled, from_dataset, Some(resource_index)).ok()?;
         let resource = resources.get(&dataset_id)?;
-        let metric = resource.dataset.as_ref()?.metrics.get(metric_id).cloned()?;
+        let metric = lookup_dataset_metric(resource.dataset.as_ref()?, metric_id)?;
         return Some((metric, dataset_id));
     }
     resources
         .iter()
         .filter_map(|(dataset_id, resource)| {
-            resource
-                .dataset
-                .as_ref()
-                .and_then(|dataset| dataset.metrics.get(metric_id).cloned())
+            lookup_dataset_metric(resource.dataset.as_ref()?, metric_id)
                 .map(|metric| (metric, dataset_id.clone()))
         })
         .next()

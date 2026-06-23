@@ -574,8 +574,11 @@
     const lastTotal = formatDurationMs(payload?.lastBuildTotalMs);
     const lastCompile = formatDurationMs(payload?.lastBuildCompileMs);
     const lastWarmup = formatDurationMs(payload?.lastBuildWarmupMs);
+    const fullWarmupReady = payload?.fullWarmupReady === true;
     const message = [
-      "OK! 访问态产物已就绪，现在可以正常访问页面。",
+      fullWarmupReady
+        ? "OK! 全量访问态产物已就绪，现在可以正常访问页面。"
+        : "OK! 关键访问态产物已就绪，后台仍在生成 deferred 产物。",
       lastTotal
         ? `最近一次构建：总计 ${lastTotal}${
             lastCompile ? `，编译 ${lastCompile}` : ""
@@ -585,7 +588,7 @@
       .filter(Boolean)
       .join(" ");
     return {
-      title: "READY! 访问态已就绪",
+      title: fullWarmupReady ? "FULL READY! 全量预热完成" : "ACCESS READY! 访问态已就绪",
       message,
     };
   }
@@ -9918,6 +9921,9 @@
   const SPBJW_ISSUE_RESULT_DETAIL_BOARD_FILE = "scenes/_shared/issue-result-detail.card.board.mei";
   const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
   const SPBJW_ISSUE_CLUE_METRIC_IDS = new Set([
+    "warnings_pending_count",
+    "effectiveness_in_progress_count",
+    "effectiveness_completed_count",
     "effectiveness_transfer_clue_count",
     "effectiveness_filing_count",
   ]);
@@ -11998,7 +12004,7 @@
     image.src = src;
     image.addEventListener("error", () => {
       subtitleBody.replaceChildren();
-      appendVideoCockpitPlaceholder(subtitleBody, "预警摘要图片加载失败");
+      appendVideoCockpitPlaceholder(subtitleBody, "未找到匹配的预警摘要图片，请确认已上传");
     });
     subtitleBody.appendChild(image);
   }
@@ -12065,7 +12071,7 @@
       video.title = titleText || "执法视频预览";
       video.addEventListener("error", () => {
         videoFrame.replaceChildren();
-        appendVideoCockpitPlaceholder(videoFrame, "视频加载失败，请确认已登录且有访问权限");
+        appendVideoCockpitPlaceholder(videoFrame, "未找到可播放的视频文件，请确认视频路径已上传");
       });
       videoFrame.appendChild(video);
     }

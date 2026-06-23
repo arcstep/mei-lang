@@ -342,6 +342,8 @@
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
+      pageSceneId: nonEmptyString(detail?.page_scene_id),
+      pageSceneFile: nonEmptyString(detail?.page_scene_file),
       runtimeSceneId,
       runtimeSceneFile,
       boardSceneId,

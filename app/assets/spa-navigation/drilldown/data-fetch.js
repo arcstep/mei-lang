@@ -258,6 +258,23 @@
       config?.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
     );
+    const previewOnlyFetch =
+      isPreviewOnlyMapping(config) ||
+      isSheetDetailCardPreview(config) ||
+      isTypicalCaseCardPreview(config);
+    const pageScenePath = nonEmptyString(detail?.page_scene_file, config?.pageSceneFile);
+    const pageSceneId = nonEmptyString(detail?.page_scene_id, config?.pageSceneId);
+    const metricFetchConfig =
+      previewOnlyFetch && pageScenePath && pageSceneId
+        ? {
+            ...config,
+            structuredBoard: false,
+            previewCompileAnchor: {
+              sceneId: pageSceneId,
+              scenePath: pageScenePath,
+            },
+          }
+        : config;
     const passedMetricId = resolvePopupPassedMetricId(detail, config);
     const cardMetricId = nonEmptyString(
       passedMetricId,
@@ -283,7 +300,7 @@
           ? tableMetricId
           : resolveCardMetricRowsetId(tableMetricId)
         : tableMetricId;
-    const scopedConfig = detailRowsetMetricId ? { ...config, tableMetricId: detailRowsetMetricId } : config;
+    const scopedConfig = detailRowsetMetricId ? { ...metricFetchConfig, tableMetricId: detailRowsetMetricId } : metricFetchConfig;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
     const popupFetchFilters = mergePopupFetchFilters(detail, scopedConfig, tableProps);
     const runtimeQuery = window.__meiDatasetRuntime;

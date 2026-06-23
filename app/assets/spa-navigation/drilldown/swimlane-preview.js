@@ -1025,7 +1025,7 @@
     image.src = src;
     image.addEventListener("error", () => {
       subtitleBody.replaceChildren();
-      appendVideoCockpitPlaceholder(subtitleBody, "预警摘要图片加载失败");
+      appendVideoCockpitPlaceholder(subtitleBody, "未找到匹配的预警摘要图片，请确认已上传");
     });
     subtitleBody.appendChild(image);
   }
@@ -1092,7 +1092,7 @@
       video.title = titleText || "执法视频预览";
       video.addEventListener("error", () => {
         videoFrame.replaceChildren();
-        appendVideoCockpitPlaceholder(videoFrame, "视频加载失败，请确认已登录且有访问权限");
+        appendVideoCockpitPlaceholder(videoFrame, "未找到可播放的视频文件，请确认视频路径已上传");
       });
       videoFrame.appendChild(video);
     }

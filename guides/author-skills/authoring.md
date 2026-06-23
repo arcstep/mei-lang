@@ -60,6 +60,111 @@
 
 - `mei-toolchain check --app <app> --source-root <workspace> --json`
 
+### 3.1 改完后如何让运行中的宿主生效
+
+默认不要先说“重启服务”。更稳妥的顺序是：
+
+1. **单个 scene / board / drilldown target 修改**
+   - 优先对运行中的宿主发 scoped build
+   - 示例：
+
+```bash
+curl -X POST http://127.0.0.1:9527/api/host/build \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "appId": "zhifa",
+    "mode": "build",
+    "sceneId": "inspection_week_analytics_board",
+    "targetFile": "scenes/02-行政检查.board.mei"
+  }'
+```
+
+2. **多个相关 target、dataset/metric 绑定、upload source 或数据输入变化**
+   - 优先跑单 app 增量 `prebuild`
+
+```bash
+mei-toolchain prebuild --workspace <workspace> --app <app> --json
+```
+
+3. **只想先把热点访问链恢复 ready**
+   - 优先 `--hot-only`
+
+```bash
+mei-toolchain prebuild --workspace <workspace> --app <app> --hot-only --json
+```
+
+4. **发布前 / access-only 校验**
+   - 优先 `--verify`，或用 `fail-fast-verify` 启动
+
+```bash
+mei-toolchain prebuild --workspace <workspace> --app <app> --verify --json
+```
+
+只有当你改的是：
+
+- `mei-host-web` / `mei-toolchain` Rust 实现
+- `app/assets/**` bundle
+- 启动参数、端口、鉴权、startup policy
+
+时，才把“重启宿主”当成默认动作。
+
+### 3.2 不要误判 access-only 的运行方式
+
+当前 access strict AOT / artifact-first 的边界是：
+
+- 页面请求不会现场触发 compile
+- 缺 artifact 时应先补 build / prebuild
+- `/api/host/ready` 才是访问态是否 ready 的正式锚点
+
+因此：
+
+- “改了 `.mei` 后页面没立刻生效”不应直接归因为“服务该重启了”
+- 先检查 scoped build / prebuild 是否成功、artifact 是否已更新、ready 是否恢复
+
+### 3.3 性能优化要回到长期台账比较
+
+若任务涉及：
+
+- “为什么局部修改反馈还是慢”
+- “这次 scoped build 是否真的缩了范围”
+- “这次整改是否值得保留到长期主线”
+
+不要只看单次体感，优先回到长期采样与比较：
+
+```bash
+node ./scripts/host-perf-sample.mjs \
+  --scenario-file ./scripts/perf-scenarios/zhifa.json
+```
+
+```bash
+node ./scripts/host-perf-report.mjs \
+  --sample <sample.jsonl> \
+  --scenario-file ./scripts/perf-scenarios/zhifa.json \
+  --mode auto
+```
+
+比较模式含义固定为：
+
+- `auto`：先比 pinned baseline；无 pinned 时回退到 ledger 最近历史
+- `latest`：只比最近历史
+- `pinned`：只比固定基线；适合发布前和 compile 专项
+
+读报告时优先回答四个问题：
+
+1. 退化落在 `compile_ms` 还是 `metric_total_ms`
+2. `local_edit_feedback_ms` 是否真的下降
+3. `dependency_graph_build_ms` / `catalog_compile_ms` 是否仍是主矛盾
+4. scoped build / hot-only prebuild 是真的缩了 scope，还是只是缓存碰巧命中
+
+### 3.4 发布前的最小动作
+
+若任务已经进入“准备交付 / 发布 / smoke”：
+
+1. 跑 `mei-toolchain check`
+2. 跑 `prebuild --verify`
+3. 需要严格准入时，用 `serve --startup-policy fail-fast-verify`
+4. 涉及性能整改时，补一轮 `host-perf-sample` + `host-perf-report`
+
 ## 当前主线
 
 当前最稳定的应用入口与场景组织方式是：

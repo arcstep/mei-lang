@@ -84,10 +84,14 @@
   }
 
   const SPBJW_WARNING_DETAIL_BOARD_FILE = "scenes/_shared/warning-detail.card.board.mei";
+  const SPBJW_TYPICAL_CASES_BOARD_FILE = "scenes/09-监督典型案例.board.mei";
   const SPBJW_ISSUE_CLUE_DETAIL_BOARD_FILE = "scenes/_shared/issue-clue-detail.card.board.mei";
   const SPBJW_ISSUE_RESULT_DETAIL_BOARD_FILE = "scenes/_shared/issue-result-detail.card.board.mei";
   const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
   const SPBJW_ISSUE_CLUE_METRIC_IDS = new Set([
+    "warnings_pending_count",
+    "effectiveness_in_progress_count",
+    "effectiveness_completed_count",
     "effectiveness_transfer_clue_count",
     "effectiveness_filing_count",
   ]);
@@ -117,7 +121,7 @@
     if (id === "typical_cases") {
       return {
         sceneId: "typical_cases_detail_board",
-        sceneFile: "",
+        sceneFile: SPBJW_TYPICAL_CASES_BOARD_FILE,
       };
     }
     if (SPBJW_WARNING_ROWSET_IDS.has(id)) {
@@ -250,18 +254,27 @@
       detail?.scene_path,
       config?.hostSceneFile,
     );
+    const previewAnchor = config?.previewCompileAnchor;
+    const resolvedSceneId = nonEmptyString(
+      previewAnchor?.sceneId,
+      sceneId,
+    );
+    const resolvedScenePath = nonEmptyString(
+      previewAnchor?.scenePath,
+      ownerScenePath,
+    );
     const runtimeRef = metricId
       ? {
           kind: "metric",
-          scene_id: sceneId,
-          scene_path: ownerScenePath,
+          scene_id: resolvedSceneId,
+          scene_path: resolvedScenePath,
           dataset_id: datasetId,
           metric_id: metricId,
         }
       : {
           kind: "data",
-          scene_id: sceneId,
-          scene_path: ownerScenePath,
+          scene_id: resolvedSceneId,
+          scene_path: resolvedScenePath,
           dataset_id: datasetId,
         };
     const columns = Array.isArray(config?.columns) ? config.columns : [];
@@ -354,9 +367,9 @@
             scene_qualified: true,
           },
         },
-        active_scene_id: sceneId,
-        active_target_file: ownerScenePath,
-        entry_target: ownerScenePath,
+        active_scene_id: resolvedSceneId,
+        active_target_file: resolvedScenePath,
+        entry_target: resolvedScenePath,
       },
       query_state: queryStateId || undefined,
     };

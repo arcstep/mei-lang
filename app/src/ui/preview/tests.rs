@@ -2011,6 +2011,119 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
 }
 
 #[test]
+fn resolve_metric_ref_resolves_namespaced_imported_world_metric_by_local_id() {
+    use mei_lang_kernel::{MetricContract, MetricShape, SceneDecl, WorldMetricLedgerEntry};
+
+    let scene_contract = SceneContract {
+        scene: SceneDecl {
+            kind: "scene".to_string(),
+            id: "home".to_string(),
+            world: None,
+            flow: None,
+            frame: None,
+            profile: None,
+            theme: None,
+            summary: None,
+            goal: None,
+            state: json!({}),
+            shared: json!({}),
+            local_nav: serde_json::json!({}),
+            params: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
+            access_export: true,
+        },
+        themes: vec![],
+        shared: json!({}),
+        world: None,
+        flow: None,
+        frame: None,
+        panels: vec![],
+    };
+
+    let dataframe_metric = MetricContract {
+        id: "scenes/10-地图.mei::map_street_inspection_count_2025".to_string(),
+        label: Some("2025分街镇检查次数".to_string()),
+        unit: Some("次".to_string()),
+        value_format: None,
+        purpose: None,
+        shape: MetricShape::Dataframe,
+        schema: Vec::new(),
+        dataset: None,
+        transforms: Vec::new(),
+        value: json!([{"街镇名称": "磁器口街道", "value": 12}]),
+    };
+    let owner_resource_id = "__world_metrics__::scenes/10-地图.mei::metrics".to_string();
+    let compiled = CompiledApp {
+        app_id: "preview-imported-map".to_string(),
+        active_scene: Some("home".to_string()),
+        active_target_file: "scenes/home.mei".to_string(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::from([(
+            "scenes/10-地图.mei::map_street_inspection_count_2025".to_string(),
+            WorldMetricLedgerEntry {
+                id: "scenes/10-地图.mei::map_street_inspection_count_2025".to_string(),
+                owner_resource_id: owner_resource_id.clone(),
+                order: 1,
+                metric: dataframe_metric,
+            },
+        )]),
+        world_semantic_by_file: BTreeMap::new(),
+        scene_routes: Vec::new(),
+        app_root: ".".to_string(),
+        title: "preview-imported-map".to_string(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+    };
+    let resource_index = build_runtime_resource_index(&compiled);
+    let scene_anchor = super::resolve::RuntimeSceneAnchor {
+        scene_id: "home".to_string(),
+        scene_path: Some("scenes/home.mei".to_string()),
+    };
+    let metric_ref = json!({
+        "__ref": "metric",
+        "id": "map_street_inspection_count_2025"
+    });
+    let resolved = resolve_value(
+        &metric_ref,
+        &json!({}),
+        &scene_contract,
+        &BTreeMap::new(),
+        &scene_anchor,
+        &resource_index,
+        &compiled,
+        true,
+    );
+    assert_eq!(
+        resolved
+            .get("__mei_runtime_ref")
+            .and_then(|value| value.get("dataset_id"))
+            .and_then(|value| value.as_str()),
+        Some(owner_resource_id.as_str())
+    );
+    assert_eq!(
+        resolved
+            .get("__mei_runtime_ref")
+            .and_then(|value| value.get("metric_id"))
+            .and_then(|value| value.as_str()),
+        Some("map_street_inspection_count_2025")
+    );
+    assert!(
+        !resolved.is_null(),
+        "embedded map metric_ref should resolve via namespaced ledger suffix"
+    );
+}
+
+#[test]
 fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics() {
     use mei_lang_kernel::{MetricContract, MetricShape, SceneDecl};
 
