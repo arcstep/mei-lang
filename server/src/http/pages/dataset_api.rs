@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use mei_lang_kernel::{resolve_app_root, FilterIntent, QueryState};
+use mei_lang_kernel::{deserialize_string_map, resolve_app_root, FilterIntent, QueryState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -46,7 +46,7 @@ pub struct DatasetQueryRequest {
     pub page_size: Option<usize>,
     #[serde(default)]
     pub search: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_string_map")]
     pub filters: BTreeMap<String, String>,
     #[serde(default)]
     pub query_state: Option<QueryState>,
