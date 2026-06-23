@@ -4352,6 +4352,90 @@ mod tests {
     }
 
     #[test]
+    fn observed_count_replays_reports_without_dup_prepared_outcomes() {
+        let scope = CompileScope {
+            requested_scene_id: Some("home".to_string()),
+            requested_target_file: Some("scenes/home.mei".to_string()),
+        };
+        let outcome = test_outcome("home", "scenes/home.mei");
+        let session = Mutex::new(PrebuildCompileSession::default());
+        let mut seen_scopes = BTreeSet::new();
+        let mut pending = std::collections::VecDeque::new();
+        let mut prepared_outcomes = Vec::new();
+        let mut compile_reports = Vec::new();
+
+        record_prebuild_scope_compile_with_discovered(
+            &session,
+            &scope,
+            &outcome,
+            Some(&[]),
+            3,
+            &mut seen_scopes,
+            &mut pending,
+            &mut prepared_outcomes,
+            &mut compile_reports,
+        );
+
+        assert_eq!(compile_reports.len(), 3);
+        assert_eq!(prepared_outcomes.len(), 1);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn compile_index_observed_count_comes_from_reports_not_prepared_duplicates() {
+        let scope = CompileScope {
+            requested_scene_id: Some("home".to_string()),
+            requested_target_file: Some("scenes/home.mei".to_string()),
+        };
+        let prepared_outcomes = vec![PreparedCompileOutcome {
+            scope: scope.clone(),
+            outcome: test_outcome("home", "scenes/home.mei"),
+        }];
+        let compile_reports = vec![
+            scope_report_from_outcome(&scope, &test_outcome("home", "scenes/home.mei")),
+            scope_report_from_outcome(&scope, &test_outcome("home", "scenes/home.mei")),
+            scope_report_from_outcome(&scope, &test_outcome("home", "scenes/home.mei")),
+        ];
+
+        let index = build_prebuild_compile_index(
+            Path::new("/tmp/ws"),
+            "demo",
+            &prepared_outcomes,
+            &compile_reports,
+        );
+        let entry = index
+            .entries_by_scope_key
+            .get(&scope.key())
+            .expect("compile index entry");
+
+        assert_eq!(entry.observed_count, 3);
+    }
+
+    #[test]
+    fn clear_runtime_maps_drops_compile_session_indexes() {
+        let mut session = PrebuildCompileSession::default();
+        let default_scope = CompileScope::default_scope();
+        let home_scope = CompileScope {
+            requested_scene_id: Some("home".to_string()),
+            requested_target_file: Some("scenes/home.mei".to_string()),
+        };
+        let outcome = test_outcome("home", "scenes/home.mei");
+
+        session.register(Path::new("/tmp/ws"), "demo", &default_scope, outcome.clone());
+        session.note_scope_alias(&home_scope, &outcome);
+
+        assert!(!session.by_scope_key.is_empty());
+        assert!(!session.by_compile_cache_key.is_empty());
+        assert!(!session.by_identity.is_empty());
+
+        session.clear_runtime_maps();
+
+        assert!(session.by_scope_key.is_empty());
+        assert!(session.by_compile_cache_key.is_empty());
+        assert!(session.by_identity.is_empty());
+    }
+
+    #[test]
     fn warmup_request_matches_active_scene_without_exact_scope_key() {
         let request = AggregatedWarmupRequest {
             scope: CompileScope {
