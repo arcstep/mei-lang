@@ -717,6 +717,9 @@ fn execute_metric_query_group(
         if !ctx.access_artifact_only {
             // Build view may JIT-evaluate metrics when prebuild artifacts are absent.
         } else {
+        // Access strict AOT must keep the "prebuild first, then use" contract.
+        // Once access_artifact_only is enabled, missing artifacts must surface as
+        // not-ready / unavailable rather than silently falling back to runtime JIT.
         return Err(AppError::status(
             StatusCode::SERVICE_UNAVAILABLE,
             format!(

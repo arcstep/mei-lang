@@ -1950,6 +1950,130 @@ function sharedAbortError() {
   }
 }
 
+const STRICT_AOT_METRIC_ARTIFACT_MISSING =
+  "missing strict AOT metric result artifact";
+const HOST_READY_POLL_MS = 400;
+const HOST_READY_TIMEOUT_MS = 45_000;
+
+function shouldRetryStrictAotMetricFetch(response, errorText) {
+  return (
+    Number(response?.status) === 503 &&
+    String(errorText || "").includes(STRICT_AOT_METRIC_ARTIFACT_MISSING)
+  );
+}
+
+function waitMsWithAbort(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (!signal) {
+      window.setTimeout(resolve, ms);
+      return;
+    }
+    if (signal.aborted) {
+      reject(sharedAbortError());
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      window.clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(sharedAbortError());
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function readHostReadyState(signal) {
+  const response = await fetch("/api/host/ready", {
+    method: "GET",
+    cache: "no-store",
+    headers: { accept: "application/json" },
+    signal,
+  });
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_) {
+    payload = null;
+  }
+  return {
+    status: response.status,
+    ok: response.ok,
+    payload,
+  };
+}
+
+async function waitForHostAccessReady(signal) {
+  const deadline = Date.now() + HOST_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) {
+      throw sharedAbortError();
+    }
+    try {
+      const state = await readHostReadyState(signal);
+      const ready =
+        state.ok ||
+        state?.payload?.access_ready === true ||
+        state?.payload?.ready === true;
+      if (ready) {
+        return true;
+      }
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+    }
+    await waitMsWithAbort(HOST_READY_POLL_MS, signal);
+  }
+  return false;
+}
+
+async function fetchMetricJsonWithStartupRetry(api, payload, signal) {
+  let result = await fetchJsonWithClientPerf(api, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (result.response.ok) {
+    return result;
+  }
+  if (!shouldRetryStrictAotMetricFetch(result.response, result.errorText)) {
+    return result;
+  }
+  // background-build allows the host to bind before prebuild completes, but
+  // access strict AOT still follows "prebuild first, then use". During startup
+  // we therefore wait for /api/host/ready and retry once, instead of exposing
+  // a transient strict-AOT 503 directly to the first access-page render.
+  let readyState = null;
+  try {
+    readyState = await readHostReadyState(signal);
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+  }
+  const alreadyReady =
+    readyState?.ok ||
+    readyState?.payload?.access_ready === true ||
+    readyState?.payload?.ready === true;
+  if (alreadyReady) {
+    return result;
+  }
+  const becameReady = await waitForHostAccessReady(signal);
+  if (!becameReady) {
+    return result;
+  }
+  return fetchJsonWithClientPerf(api, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+    signal,
+  });
+}
+
 function waitForMetricScopeInflight(scopeInflight, requestedIds, signal) {
   return waitForSharedPromise(
     scopeInflight.promise.then((data) => {
@@ -2011,12 +2135,11 @@ async function fetchRuntimeMetricsUncached(api, payload, errorContext = {}, sign
   let clientPerf = {};
   let errorText = "";
   try {
-    ({ response, data, clientPerf, errorText } = await fetchJsonWithClientPerf(api, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+    ({ response, data, clientPerf, errorText } = await fetchMetricJsonWithStartupRetry(
+      api,
+      payload,
       signal,
-    }));
+    ));
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
@@ -2140,12 +2263,11 @@ async function fetchSceneRuntimeMetricBatchUncached(
   let clientPerf = {};
   let errorText = "";
   try {
-    ({ response, data, clientPerf, errorText } = await fetchJsonWithClientPerf(api, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+    ({ response, data, clientPerf, errorText } = await fetchMetricJsonWithStartupRetry(
+      api,
+      payload,
       signal,
-    }));
+    ));
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
