@@ -181,11 +181,11 @@ fn env_flag(name: &str) -> Option<String> {
 
 /// Access host with sealed assembly must not cold-read xlsx via calamine at serve time.
 pub fn access_parquet_import_required() -> bool {
-    !matches!(
+    matches!(
         env_flag("MEI_ACCESS_ASSEMBLY_POLICY")
             .or_else(|| env_flag("MEI_RUNTIME_ASSEMBLY_POLICY"))
             .as_deref(),
-        Some("jit" | "build_view" | "compile")
+        None | Some("sealed")
     )
 }
 

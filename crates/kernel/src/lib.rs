@@ -1,4 +1,5 @@
 mod auth_journal;
+mod cache_generation;
 mod compile;
 mod compile_semantics;
 mod config_refs;
@@ -17,6 +18,12 @@ mod warmup_board_autogen;
 mod warmup_manifest;
 mod workspace;
 
+pub use cache_generation::{
+    bump_cache_generation, cache_generation_path, is_file_source_dataset,
+    load_cache_generation, resolve_app_data_generation, save_cache_generation,
+    CacheGenerationRecord, SourceGenerationRecord, CACHE_GENERATION_REL,
+    CACHE_GENERATION_SCHEMA_VERSION, DEFAULT_DATABASE_TTL_MS,
+};
 pub use compile::{
     block_instance_id, build_experience_index, build_experience_path, build_overview_backing,
     build_reachability_tree, build_runtime_analysis_contracts, build_runtime_analysis_graph,
@@ -76,9 +83,11 @@ pub use host_contract::{
 };
 pub use mei_config::{
     app_mei_config_path, load_mei_config_for_app, load_workspace_auth_bundle,
-    load_workspace_config, merge_ops_section, resolve_app_entry_main, resolve_app_main_path,
+    load_workspace_config, mei_config_compile_revision_digest, merge_ops_section, ops_themes_revision_digest,
+    resolve_app_entry_main, resolve_app_main_path,
     resolve_app_root, resolve_authoring_helpers, resolve_authoring_root, resolve_components_root,
-    resolve_mei_config_path, resolve_templates_root, resolve_workspace_shell_theme,
+    resolve_mei_config_path, resolve_templates_root, resolve_live_ops_theme_value,
+    resolve_workspace_shell_theme,
     set_mei_package_root, stock_components_source, stock_templates_source,
     validate_workspace_shell_theme, workspace_auth_config_path, workspace_auth_host_id,
     workspace_auth_state_dir, workspace_config_path, write_mei_config, write_workspace_auth_bundle,

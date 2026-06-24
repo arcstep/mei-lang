@@ -473,6 +473,29 @@ pub fn resolve_build_view_query(
         });
     }
 
+    if file.ends_with(".board.mei") {
+        let node = if let Some(scene) = legacy
+            .scene
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            BuildNodeId::board_file(format!("{file}#{scene}"))
+        } else {
+            BuildNodeId::board_file(file)
+        };
+        let tab = if tab_visible_for_node(&node, tab) {
+            tab
+        } else {
+            node.default_tab()
+        };
+        return Some(ResolvedBuildViewQuery {
+            node,
+            tab,
+            scope: exec_scope,
+        });
+    }
+
     if file.ends_with(".mei") && !file.ends_with(".board.mei") {
         if let Some(scene_id) = file
             .rsplit('/')
@@ -575,6 +598,54 @@ mod tests {
         .expect("resolved");
         assert_eq!(resolved.node.encode(), "scene:details");
         assert_eq!(resolved.tab, BuildViewTab::Preview);
+    }
+
+    #[test]
+    fn legacy_board_file_with_scene_maps_to_board_file_node() {
+        let resolved = resolve_build_view_query(
+            None,
+            None,
+            Some("preview"),
+            &LegacyBuildQuery {
+                file: Some("scenes/01-执法要素.board.mei".to_string()),
+                scene: Some("enforcement_units_analytics_board".to_string()),
+                world_metric: None,
+                world_dataset: None,
+                explain: None,
+                tab: Some("preview".to_string()),
+            },
+        )
+        .expect("resolved");
+        assert_eq!(resolved.node.kind, BuildNodeKind::BoardFile);
+        assert_eq!(
+            resolved.node.encode(),
+            "board-file:scenes/01-执法要素.board.mei#enforcement_units_analytics_board"
+        );
+        assert_eq!(resolved.tab, BuildViewTab::Preview);
+    }
+
+    #[test]
+    fn legacy_board_file_without_scene_maps_to_board_file_node() {
+        let resolved = resolve_build_view_query(
+            None,
+            None,
+            Some("preview"),
+            &LegacyBuildQuery {
+                file: Some("scenes/01-执法要素.board.mei".to_string()),
+                scene: None,
+                world_metric: None,
+                world_dataset: None,
+                explain: None,
+                tab: Some("preview".to_string()),
+            },
+        )
+        .expect("resolved");
+        assert_eq!(resolved.node.kind, BuildNodeKind::BoardFile);
+        assert_eq!(
+            resolved.node.encode(),
+            "board-file:scenes/01-执法要素.board.mei"
+        );
+        assert_ne!(resolved.node.kind, BuildNodeKind::WorldFile);
     }
 
     #[test]

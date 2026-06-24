@@ -208,13 +208,12 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
     let config_path = app_mei_config_path(app_root);
     if config_path.is_file() {
         watched_paths.insert(MEI_CONFIG_FILENAME.to_string());
-        let metadata = std::fs::metadata(&config_path).ok();
-        let modified_ms = crate::compile::scene_payload_cache::file_mtime_ms(&config_path);
-        let size_bytes = metadata.map(|meta| meta.len()).unwrap_or(0);
-        token_parts.insert(
-            "mei-config".to_string(),
-            format!("{modified_ms}:{size_bytes}"),
-        );
+        if let Ok(config) = MeiConfig::load_from_path(&config_path) {
+            token_parts.insert(
+                "mei-config".to_string(),
+                crate::mei_config::mei_config_compile_revision_digest(&config),
+            );
+        }
         append_ops_source_revision_tokens(app_root, &mut token_parts, &mut watched_paths);
     }
 

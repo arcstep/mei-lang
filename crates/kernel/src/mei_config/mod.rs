@@ -8,6 +8,7 @@ mod authoring_policy;
 mod io;
 mod ops;
 mod shell_theme;
+mod theme_overlay;
 mod types;
 mod workspace_paths;
 
@@ -26,6 +27,9 @@ pub use io::{
 };
 pub use ops::{merge_ops_section, OpsConfigPatch};
 pub use shell_theme::{resolve_workspace_shell_theme, validate_workspace_shell_theme};
+pub use theme_overlay::{
+    mei_config_compile_revision_digest, ops_themes_revision_digest, resolve_live_ops_theme_value,
+};
 pub use types::{
     AccessAiExternalConfig, AppEntryConfig, AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig,
     AuthUserConfig,

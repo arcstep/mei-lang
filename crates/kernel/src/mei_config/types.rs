@@ -420,6 +420,101 @@ pub struct DiscoverConfig {
 pub struct RuntimeConfig {
     #[serde(default)]
     pub file_cache: FileCacheConfig,
+    #[serde(default, rename = "cacheGeneration")]
+    pub cache_generation: CacheGenerationConfig,
+    #[serde(default, rename = "clientQueryCache")]
+    pub client_query_cache: ClientQueryCacheConfig,
+    #[serde(default, rename = "serverEvalCache")]
+    pub server_eval_cache: ServerEvalCacheConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CacheGenerationConfig {
+    #[serde(default)]
+    pub sources: CacheGenerationSourcesConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CacheGenerationSourcesConfig {
+    #[serde(default)]
+    pub file: CacheGenerationSourceModeConfig,
+    #[serde(default)]
+    pub database: CacheGenerationSourceModeConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CacheGenerationSourceModeConfig {
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default, rename = "ttlMs")]
+    pub ttl_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientQueryCacheConfig {
+    #[serde(default = "default_client_query_cache_persist")]
+    pub persist: String,
+    #[serde(default = "default_client_query_cache_ttl_ms", rename = "ttlMs")]
+    pub ttl_ms: u64,
+    #[serde(default = "default_client_query_cache_max_entries", rename = "maxEntries")]
+    pub max_entries: usize,
+}
+
+fn default_client_query_cache_persist() -> String {
+    "sessionStorage".to_string()
+}
+
+fn default_client_query_cache_ttl_ms() -> u64 {
+    300_000
+}
+
+fn default_client_query_cache_max_entries() -> usize {
+    512
+}
+
+impl Default for ClientQueryCacheConfig {
+    fn default() -> Self {
+        Self {
+            persist: default_client_query_cache_persist(),
+            ttl_ms: default_client_query_cache_ttl_ms(),
+            max_entries: default_client_query_cache_max_entries(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerEvalCacheConfig {
+    #[serde(default = "default_server_eval_cache_ttl_ms", rename = "ttlMs")]
+    pub ttl_ms: u64,
+}
+
+fn default_server_eval_cache_ttl_ms() -> u64 {
+    300_000
+}
+
+impl Default for ServerEvalCacheConfig {
+    fn default() -> Self {
+        Self {
+            ttl_ms: default_server_eval_cache_ttl_ms(),
+        }
+    }
+}
+
+impl CacheGenerationSourcesConfig {
+    pub fn file_mode(&self) -> &str {
+        let trimmed = self.file.mode.trim();
+        if trimmed.is_empty() {
+            "manual_reload"
+        } else {
+            trimmed
+        }
+    }
+
+    pub fn database_ttl_ms(&self) -> u64 {
+        self.database
+            .ttl_ms
+            .unwrap_or(crate::cache_generation::DEFAULT_DATABASE_TTL_MS)
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
