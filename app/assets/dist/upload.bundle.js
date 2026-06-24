@@ -150,52 +150,18 @@
     }, 12000);
   }
 
-  function isBuildViewPage() {
-    try {
-      return window.location.pathname.startsWith("/apps/build/");
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function mergeBuildViewFetch(input, init) {
-    if (!isBuildViewPage()) return { input, init };
-    let requestUrl = "";
-    if (typeof input === "string") {
-      requestUrl = input;
-    } else if (input && typeof input.url === "string") {
-      requestUrl = input.url;
-    }
-    if (!requestUrl.includes("/api/")) return { input, init };
-    if (typeof Request !== "undefined" && input instanceof Request) {
-      const headers = new Headers(input.headers);
-      if (!headers.has("X-Mei-Build-View")) {
-        headers.set("X-Mei-Build-View", "1");
-      }
-      return { input: new Request(input, { headers }), init: undefined };
-    }
-    const nextInit = { ...(init || {}) };
-    const headers = new Headers(nextInit.headers);
-    if (!headers.has("X-Mei-Build-View")) {
-      headers.set("X-Mei-Build-View", "1");
-    }
-    nextInit.headers = headers;
-    return { input, init: nextInit };
-  }
-
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function meiHostFetch(input, init) {
-    const merged = mergeBuildViewFetch(input, init);
-    let response = await nativeFetch(merged.input, merged.init);
-    const requestUrl = requestUrlFromInput(merged.input);
+    let response = await nativeFetch(input, init);
+    const requestUrl = requestUrlFromInput(input);
     if (
       response.status === 401 &&
       isSameOriginApiRequest(requestUrl) &&
       !isAuthFlowRequest(requestUrl)
     ) {
       const retried = await recoverUnauthorizedRequest(
-        merged.input,
-        merged.init,
+        input,
+        init,
         nativeFetch,
       );
       if (retried) {

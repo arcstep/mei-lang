@@ -110,6 +110,10 @@ pub fn router() -> Router<AppState> {
             "/api/ops/config/*app_id",
             get(ops_api::ops_config_get).put(ops_api::ops_config_put),
         )
+        .route(
+            "/api/ops/theme/style/*app_id",
+            get(ops_api::ops_theme_style_get),
+        )
         .route("/api/ops/journal/*app_id", get(ops_api::ops_journal_get))
         .route(
             "/api/upload/init/*app_id",

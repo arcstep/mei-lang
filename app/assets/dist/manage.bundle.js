@@ -150,52 +150,18 @@
     }, 12000);
   }
 
-  function isBuildViewPage() {
-    try {
-      return window.location.pathname.startsWith("/apps/build/");
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function mergeBuildViewFetch(input, init) {
-    if (!isBuildViewPage()) return { input, init };
-    let requestUrl = "";
-    if (typeof input === "string") {
-      requestUrl = input;
-    } else if (input && typeof input.url === "string") {
-      requestUrl = input.url;
-    }
-    if (!requestUrl.includes("/api/")) return { input, init };
-    if (typeof Request !== "undefined" && input instanceof Request) {
-      const headers = new Headers(input.headers);
-      if (!headers.has("X-Mei-Build-View")) {
-        headers.set("X-Mei-Build-View", "1");
-      }
-      return { input: new Request(input, { headers }), init: undefined };
-    }
-    const nextInit = { ...(init || {}) };
-    const headers = new Headers(nextInit.headers);
-    if (!headers.has("X-Mei-Build-View")) {
-      headers.set("X-Mei-Build-View", "1");
-    }
-    nextInit.headers = headers;
-    return { input, init: nextInit };
-  }
-
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function meiHostFetch(input, init) {
-    const merged = mergeBuildViewFetch(input, init);
-    let response = await nativeFetch(merged.input, merged.init);
-    const requestUrl = requestUrlFromInput(merged.input);
+    let response = await nativeFetch(input, init);
+    const requestUrl = requestUrlFromInput(input);
     if (
       response.status === 401 &&
       isSameOriginApiRequest(requestUrl) &&
       !isAuthFlowRequest(requestUrl)
     ) {
       const retried = await recoverUnauthorizedRequest(
-        merged.input,
-        merged.init,
+        input,
+        init,
         nativeFetch,
       );
       if (retried) {
@@ -3789,6 +3755,123 @@
 
 ;
 
+/* ===== build-scoped-rebuild.js ===== */
+/**
+ * Build view scoped AOT rebuild (POST /api/host/build).
+ */
+(function (global) {
+  "use strict";
+
+  function shellCompileContext() {
+    const shell = document.querySelector(".shell[data-compile-target], .shell[data-app-path]");
+    if (!shell) return null;
+    return {
+      appId: String(
+        shell.getAttribute("data-app-path") ||
+          shell.getAttribute("data-app-id") ||
+          "",
+      ).trim(),
+      sceneId: String(shell.getAttribute("data-compile-scene") || "").trim(),
+      targetFile: String(shell.getAttribute("data-compile-target") || "").trim(),
+    };
+  }
+
+  async function runScopedRebuild(ctx, trigger) {
+    const appId = String((ctx && ctx.appId) || "").trim();
+    if (!appId) {
+      throw new Error("缺少 appId，无法重建 scope");
+    }
+    const body = { appId, mode: "build" };
+    const sceneId = String((ctx && ctx.sceneId) || "").trim();
+    const targetFile = String((ctx && ctx.targetFile) || "").trim();
+    if (sceneId) body.sceneId = sceneId;
+    if (targetFile) body.targetFile = targetFile;
+
+    if (trigger) {
+      trigger.disabled = true;
+      trigger.dataset.meiRebuildPrev = trigger.textContent || "";
+      trigger.textContent = "重建中…";
+    }
+
+    try {
+      const res = await fetch("/api/host/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || res.statusText || "scoped rebuild failed");
+      }
+      global.dispatchEvent(new CustomEvent("meilang:scoped-rebuild-complete"));
+      global.location.reload();
+    } finally {
+      if (trigger) {
+        trigger.disabled = false;
+        if (trigger.dataset.meiRebuildPrev) {
+          trigger.textContent = trigger.dataset.meiRebuildPrev;
+        }
+      }
+    }
+  }
+
+  function bindScopedRebuildControls(root) {
+    const scope = root || document;
+    scope.querySelectorAll("[data-mei-scoped-rebuild]").forEach((btn) => {
+      if (btn.__meiScopedRebuildBound) return;
+      btn.__meiScopedRebuildBound = true;
+      btn.addEventListener("click", () => {
+        const ctx = {
+          appId: btn.getAttribute("data-app-id") || shellCompileContext()?.appId,
+          sceneId: btn.getAttribute("data-scene-id") || shellCompileContext()?.sceneId,
+          targetFile:
+            btn.getAttribute("data-target-file") || shellCompileContext()?.targetFile,
+        };
+        runScopedRebuild(ctx, btn).catch((err) => {
+          global.alert(String(err && err.message ? err.message : err));
+        });
+      });
+    });
+  }
+
+  function bindOverviewGate() {
+    const gateHost = document.getElementById("build-overview-gate");
+    if (!gateHost || gateHost.querySelector("[data-mei-scoped-rebuild]")) return;
+    const ctx = shellCompileContext();
+    if (!ctx || !ctx.appId) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "mei-btn mei-btn--sm mt-2";
+    btn.setAttribute("data-mei-scoped-rebuild", "1");
+    btn.setAttribute("data-app-id", ctx.appId);
+    if (ctx.sceneId) btn.setAttribute("data-scene-id", ctx.sceneId);
+    if (ctx.targetFile) btn.setAttribute("data-target-file", ctx.targetFile);
+    btn.textContent = "重建此 scope";
+    gateHost.appendChild(btn);
+    bindScopedRebuildControls(gateHost);
+  }
+
+  function initBuildScopedRebuild() {
+    bindScopedRebuildControls(document);
+    bindOverviewGate();
+  }
+
+  global.MeiBuildScopedRebuild = {
+    runScopedRebuild,
+    initBuildScopedRebuild,
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initBuildScopedRebuild);
+  } else {
+    initBuildScopedRebuild();
+  }
+
+  global.addEventListener("meilang:preview-updated", initBuildScopedRebuild);
+})(typeof window !== "undefined" ? window : globalThis);
+
+;
+
 /* ===== build-tree-persist.js ===== */
 /**
  * Build view: persist left-tree open state + click/double-click expand shortcuts.
@@ -6181,9 +6264,19 @@
         const url = call?.url || "—";
         const status = call?.status != null ? String(call.status) : "—";
         const ms = Number.isFinite(Number(call?.ms)) ? `${call.ms}ms` : "—";
-        const clientTag = call?.clientHit ? " · client_cache" : "";
+        const clientTag = call?.clientHit
+          ? call?.url?.includes("/client-cache/metric_session")
+            ? " · session_cache"
+            : " · client_cache"
+          : "";
+        const serverCacheTag =
+          Number(call?.responseCacheHit) === 1
+            ? " · L1"
+            : Number(call?.resultArtifactHit) === 1
+              ? " · artifact"
+              : "";
         const ok = call?.ok === false ? " FAIL" : "";
-        lines.push(`  ${index + 1}. [${kind}] ${url} · HTTP ${status} · ${ms}${clientTag}${ok}`);
+        lines.push(`  ${index + 1}. [${kind}] ${url} · HTTP ${status} · ${ms}${clientTag}${serverCacheTag}${ok}`);
       });
     }
     return lines.join("\n");
@@ -13234,18 +13327,19 @@
     const appId = resolvePreviewAppId();
     if (!appId) return "";
     const boardFile = nonEmptyString(config.boardSceneFile);
-    if (!boardFile) return "";
+    const boardSceneId = nonEmptyString(config.boardSceneId);
+    if (!boardFile || !boardSceneId) return "";
     let url;
     try {
       url = new URL(window.location.href);
     } catch (_) {
       return "";
     }
-    url.pathname = `/apps/manage/${appId}`;
-    url.searchParams.set("file", boardFile);
-    if (config.boardSceneId) {
-      url.searchParams.set("scene", config.boardSceneId);
-    }
+    url.pathname = `/apps/build/${appId}`;
+    url.searchParams.set("node", `board-file:${boardFile}#${boardSceneId}`);
+    url.searchParams.set("tab", "preview");
+    url.searchParams.delete("file");
+    url.searchParams.delete("scene");
     url.searchParams.set("mei_projection", "route");
     const entry = nonEmptyString(config.popup?.entry, config.popup?.focus);
     if (entry) {

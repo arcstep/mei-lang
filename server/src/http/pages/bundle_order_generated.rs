@@ -14,6 +14,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "workspace-splitters.js",
     "manage-tabs.js",
     "build-copy-context.js",
+    "build-scoped-rebuild.js",
     "build-tree-persist.js",
     "build-navigation.js",
     "build-inspect-highlight.js",

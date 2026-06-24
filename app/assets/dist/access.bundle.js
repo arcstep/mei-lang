@@ -150,52 +150,18 @@
     }, 12000);
   }
 
-  function isBuildViewPage() {
-    try {
-      return window.location.pathname.startsWith("/apps/build/");
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function mergeBuildViewFetch(input, init) {
-    if (!isBuildViewPage()) return { input, init };
-    let requestUrl = "";
-    if (typeof input === "string") {
-      requestUrl = input;
-    } else if (input && typeof input.url === "string") {
-      requestUrl = input.url;
-    }
-    if (!requestUrl.includes("/api/")) return { input, init };
-    if (typeof Request !== "undefined" && input instanceof Request) {
-      const headers = new Headers(input.headers);
-      if (!headers.has("X-Mei-Build-View")) {
-        headers.set("X-Mei-Build-View", "1");
-      }
-      return { input: new Request(input, { headers }), init: undefined };
-    }
-    const nextInit = { ...(init || {}) };
-    const headers = new Headers(nextInit.headers);
-    if (!headers.has("X-Mei-Build-View")) {
-      headers.set("X-Mei-Build-View", "1");
-    }
-    nextInit.headers = headers;
-    return { input, init: nextInit };
-  }
-
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function meiHostFetch(input, init) {
-    const merged = mergeBuildViewFetch(input, init);
-    let response = await nativeFetch(merged.input, merged.init);
-    const requestUrl = requestUrlFromInput(merged.input);
+    let response = await nativeFetch(input, init);
+    const requestUrl = requestUrlFromInput(input);
     if (
       response.status === 401 &&
       isSameOriginApiRequest(requestUrl) &&
       !isAuthFlowRequest(requestUrl)
     ) {
       const retried = await recoverUnauthorizedRequest(
-        merged.input,
-        merged.init,
+        input,
+        init,
         nativeFetch,
       );
       if (retried) {
@@ -10416,9 +10382,19 @@
         const url = call?.url || "—";
         const status = call?.status != null ? String(call.status) : "—";
         const ms = Number.isFinite(Number(call?.ms)) ? `${call.ms}ms` : "—";
-        const clientTag = call?.clientHit ? " · client_cache" : "";
+        const clientTag = call?.clientHit
+          ? call?.url?.includes("/client-cache/metric_session")
+            ? " · session_cache"
+            : " · client_cache"
+          : "";
+        const serverCacheTag =
+          Number(call?.responseCacheHit) === 1
+            ? " · L1"
+            : Number(call?.resultArtifactHit) === 1
+              ? " · artifact"
+              : "";
         const ok = call?.ok === false ? " FAIL" : "";
-        lines.push(`  ${index + 1}. [${kind}] ${url} · HTTP ${status} · ${ms}${clientTag}${ok}`);
+        lines.push(`  ${index + 1}. [${kind}] ${url} · HTTP ${status} · ${ms}${clientTag}${serverCacheTag}${ok}`);
       });
     }
     return lines.join("\n");
@@ -17469,18 +17445,19 @@
     const appId = resolvePreviewAppId();
     if (!appId) return "";
     const boardFile = nonEmptyString(config.boardSceneFile);
-    if (!boardFile) return "";
+    const boardSceneId = nonEmptyString(config.boardSceneId);
+    if (!boardFile || !boardSceneId) return "";
     let url;
     try {
       url = new URL(window.location.href);
     } catch (_) {
       return "";
     }
-    url.pathname = `/apps/manage/${appId}`;
-    url.searchParams.set("file", boardFile);
-    if (config.boardSceneId) {
-      url.searchParams.set("scene", config.boardSceneId);
-    }
+    url.pathname = `/apps/build/${appId}`;
+    url.searchParams.set("node", `board-file:${boardFile}#${boardSceneId}`);
+    url.searchParams.set("tab", "preview");
+    url.searchParams.delete("file");
+    url.searchParams.delete("scene");
     url.searchParams.set("mei_projection", "route");
     const entry = nonEmptyString(config.popup?.entry, config.popup?.focus);
     if (entry) {

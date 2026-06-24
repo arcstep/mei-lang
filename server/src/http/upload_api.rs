@@ -21,7 +21,7 @@ use serde_json::json;
 use crate::{AppError, AppState};
 
 use super::pages::content_type_for_path;
-use super::runtime_cache::invalidate_app_runtime_caches;
+use super::runtime_cache::{invalidate_after_data_reload, invalidate_app_runtime_caches};
 
 const MIN_UPLOAD_CHUNK_BYTES: usize = 1024 * 1024;
 const MAX_UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024;
@@ -368,7 +368,9 @@ pub async fn upload_file_post(
     }
     fs::write(&target, file_bytes)
         .map_err(|error| AppError::msg(format!("failed to write upload file: {error}")))?;
-    let cache_report = invalidate_app_runtime_caches(&state, &app_id);
+    let cache_report = invalidate_after_data_reload(&state, &app_id, None)
+        .map(|(report, _)| report)
+        .unwrap_or_else(|_| invalidate_app_runtime_caches(&state, &app_id));
     Ok(Json(json!({
         "ok": true,
         "path": rel,
@@ -569,7 +571,9 @@ pub async fn upload_chunk_complete_post(
     fs::rename(&temp_target, &target)
         .map_err(|error| AppError::msg(format!("failed to finalize upload file: {error}")))?;
     let _ = fs::remove_dir_all(&session_dir);
-    let cache_report = invalidate_app_runtime_caches(&state, &app_id);
+    let cache_report = invalidate_after_data_reload(&state, &app_id, None)
+        .map(|(report, _)| report)
+        .unwrap_or_else(|_| invalidate_app_runtime_caches(&state, &app_id));
 
     Ok(Json(json!({
         "ok": true,
