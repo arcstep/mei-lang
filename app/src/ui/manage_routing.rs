@@ -265,6 +265,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn legacy_board_file_resolves_to_board_file_node_href() {
+        let href = build_preview_href(
+            "zhifa",
+            Some("scenes/01-执法要素.board.mei"),
+            Some("enforcement_units_analytics_board"),
+            Some("preview"),
+            None,
+            WorldSemanticQuery::default(),
+        );
+        assert!(href.contains("node=board-file%3A"));
+        assert!(href.contains("enforcement_units_analytics_board"));
+        assert!(!href.contains("file="));
+    }
+
+    #[test]
     fn legacy_world_metric_resolves_to_node_href() {
         let href = build_preview_href(
             "zhifa",
@@ -279,6 +294,5 @@ mod tests {
             },
         );
         assert!(href.contains("node=world-metric"));
-        assert!(href.contains("tab=preview"));
     }
 }

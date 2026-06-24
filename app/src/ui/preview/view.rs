@@ -6,7 +6,7 @@ use crate::ui::compile_status::{
 };
 use crate::ui::manage_routing::WorldSemanticQuery;
 use crate::ui::route::UiRouteMode;
-use mei_lang_kernel::CompiledApp;
+use mei_lang_kernel::{CompiledApp, MeiConfig};
 
 use super::world_capsule_preview;
 pub(crate) fn preview_view(
@@ -17,6 +17,9 @@ pub(crate) fn preview_view(
     world_semantic: WorldSemanticQuery<'_>,
     build_preview_scope: Option<&str>,
 ) -> AnyView {
+    let mut live_config_loaded = MeiConfig::default();
+    let scene_live_config =
+        theme::scene_live_config_for_compiled(compiled, None, &mut live_config_loaded);
     let runtime_ctx = build_preview_runtime_context(compiled, route_mode, build_preview_scope);
 
     let preview_scene_path = {
@@ -34,7 +37,7 @@ pub(crate) fn preview_view(
             // Build view may compile a cached home artifact while the selected node targets a
             // world capsule; do not render the home scene frame (it embeds unrelated metric refs).
         } else {
-            let resolved_theme = theme::resolve_theme(scene_contract);
+            let resolved_theme = theme::resolve_theme(scene_contract, scene_live_config);
             if let Some(frame) = &scene_contract.frame {
                 let frame_props = theme::resolve_shared_refs(
                     &theme::deep_merge_value(&resolved_theme.frame, &frame.props),
@@ -84,7 +87,7 @@ pub(crate) fn preview_view(
                         )
                     };
                     viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
-                    viewport_style.push_str(&theme::scene_viewport_theme_style(compiled));
+                    viewport_style.push_str(&theme::scene_viewport_theme_style(compiled, scene_live_config));
                     let content_max_width = content_bounds.max_width.unwrap_or(0.0).to_string();
                     let content_height = if fluid_width {
                         "0".to_string()

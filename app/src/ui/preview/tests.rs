@@ -921,7 +921,7 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
         panels: vec![],
     };
 
-    let resolved = resolve_theme(&scene_contract);
+    let resolved = resolve_theme(&scene_contract, None);
     assert_eq!(
         resolved
             .shared
@@ -2632,7 +2632,7 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
         runtime_ctx.host_ssr_slim_payload,
         "build mode must enable host SSR slim payload"
     );
-    let resolved_theme = theme::resolve_theme(scene_contract);
+    let resolved_theme = theme::resolve_theme(scene_contract, None);
     let scene_anchor = RuntimeSceneAnchor {
         scene_id: scene_contract.scene.id.clone(),
         scene_path: Some("scenes/home.mei".to_string()),
@@ -2719,7 +2719,7 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
     )
     .unwrap_or_else(|e| panic!("compile zhifa home failed: {e}"));
     let workspace = load_workspace_config(&source_root);
-    let shell_theme = page_body_theme_style(&workspace, Some(&compiled));
+    let shell_theme = page_body_theme_style(&workspace, Some(&compiled), None);
     let html = render_page(
         &[],
         &compiled,

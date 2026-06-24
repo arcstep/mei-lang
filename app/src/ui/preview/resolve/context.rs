@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
     dataset_materialize_cache_epoch, host_runtime_capabilities_catalog,
-    host_runtime_contract_descriptor, resolve_dataset_selector_value, scene_payload_cache_epoch,
-    CompiledApp, LoadedResource, RuntimeResourceIndex, SceneContract,
+    host_runtime_contract_descriptor, load_cache_generation, load_mei_config_for_app,
+    resolve_dataset_selector_value, scene_payload_cache_epoch, CompiledApp, LoadedResource,
+    RuntimeResourceIndex, SceneContract,
 };
 use serde_json::{json, Value};
 
@@ -173,6 +174,28 @@ pub(crate) fn attach_host_meta(
                 dataset_materialize_cache_epoch(),
                 active_target_file
             )),
+        );
+        host_meta.insert(
+            "data_generation".to_string(),
+            Value::String(
+                load_cache_generation(
+                    std::path::Path::new(compiled.app_root.as_str()),
+                    compiled.app_id.as_str(),
+                )
+                .data_generation,
+            ),
+        );
+        let config = load_mei_config_for_app(
+            std::path::Path::new(compiled.app_root.as_str()),
+            None,
+        );
+        host_meta.insert(
+            "client_query_cache".to_string(),
+            json!({
+                "persist": config.runtime.client_query_cache.persist,
+                "ttl_ms": config.runtime.client_query_cache.ttl_ms,
+                "max_entries": config.runtime.client_query_cache.max_entries,
+            }),
         );
         host_meta.insert(
             "step_api".to_string(),

@@ -1,5 +1,8 @@
+use std::path::Path;
+
 use mei_lang_kernel::{
-    decode_theme_ref_token, resolve_workspace_shell_theme, CompiledApp, SceneContract,
+    decode_theme_ref_token, load_mei_config_for_app, resolve_live_ops_theme_value,
+    resolve_workspace_shell_theme, CompiledApp, MeiConfig, SceneContract, SceneDecl,
     WorkspaceConfig,
 };
 use serde_json::Value;
@@ -29,7 +32,10 @@ pub(crate) struct ThemeResolved {
     pub(crate) css_vars: Vec<(String, String)>,
 }
 
-pub(crate) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
+pub(crate) fn resolve_theme(
+    scene_contract: &SceneContract,
+    live_config: Option<&MeiConfig>,
+) -> ThemeResolved {
     let mut theme_id = scene_contract
         .scene
         .theme
@@ -53,6 +59,11 @@ pub(crate) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
         theme = deep_merge_value(&theme, &theme_decl_value(custom));
         if theme_id != custom.id {
             theme_id = custom.id.clone();
+        }
+    }
+    if let Some(config) = live_config {
+        if let Some(live_theme) = resolve_live_ops_theme_value(config, theme_id.as_str()) {
+            theme = deep_merge_value(&theme, &live_theme);
         }
     }
     let mut shared = theme_field(&theme, "shared");
@@ -114,22 +125,87 @@ pub fn shell_body_theme_style(workspace: &WorkspaceConfig) -> String {
     shell_css_vars_style(theme_id.as_str(), &vars)
 }
 
+/// Scene CSS variables for a theme id using live `ops.themes` overlay (no compile artifact).
+pub fn scene_theme_style_for_theme_id(
+    theme_id: &str,
+    live_config: Option<&MeiConfig>,
+) -> String {
+    let theme_id = theme_id.trim();
+    let contract = SceneContract {
+        scene: SceneDecl {
+            kind: "scene".to_string(),
+            id: "_theme".to_string(),
+            world: None,
+            flow: None,
+            frame: None,
+            profile: Some(theme_id.to_string()),
+            theme: Some(format!("@theme:{theme_id}")),
+            summary: None,
+            goal: None,
+            state: serde_json::json!({}),
+            shared: serde_json::json!({}),
+            local_nav: serde_json::json!({}),
+            params: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!({}),
+            access_export: true,
+        },
+        themes: vec![],
+        shared: serde_json::json!({}),
+        world: None,
+        flow: None,
+        frame: None,
+        panels: vec![],
+    };
+    scene_css_vars_style(&resolve_theme(&contract, live_config))
+}
+
 /// Shell vars on `<body>` plus scene vars for body-mounted cockpit/access overlays.
 pub fn page_body_theme_style(
     workspace: &WorkspaceConfig,
     compiled: Option<&CompiledApp>,
+    live_config: Option<&MeiConfig>,
 ) -> String {
     let mut style = shell_body_theme_style(workspace);
     if let Some(compiled) = compiled {
-        style.push_str(&scene_viewport_theme_style(compiled));
+        style.push_str(&scene_viewport_theme_style(compiled, live_config));
     }
     style
 }
 
+fn live_config_for_compiled<'a>(
+    compiled: &CompiledApp,
+    live_config: Option<&'a MeiConfig>,
+    loaded: &'a mut MeiConfig,
+) -> Option<&'a MeiConfig> {
+    if live_config.is_some() {
+        return live_config;
+    }
+    if compiled.app_root.trim().is_empty() {
+        return None;
+    }
+    *loaded = load_mei_config_for_app(Path::new(compiled.app_root.as_str()), None);
+    Some(&*loaded)
+}
+
+/// Resolve live app config for scene theme overlay (explicit param or `compiled.app_root` auto-load).
+pub fn scene_live_config_for_compiled<'a>(
+    compiled: &CompiledApp,
+    live_config: Option<&'a MeiConfig>,
+    loaded: &'a mut MeiConfig,
+) -> Option<&'a MeiConfig> {
+    live_config_for_compiled(compiled, live_config, loaded)
+}
+
 /// Scene viewport theme CSS variables.
-pub fn scene_viewport_theme_style(compiled: &CompiledApp) -> String {
+pub fn scene_viewport_theme_style(
+    compiled: &CompiledApp,
+    live_config: Option<&MeiConfig>,
+) -> String {
+    let mut loaded = MeiConfig::default();
+    let config = live_config_for_compiled(compiled, live_config, &mut loaded);
     if let Some(contract) = compiled.scene_contract.as_ref() {
-        return scene_css_vars_style(&resolve_theme(contract));
+        return scene_css_vars_style(&resolve_theme(contract, config));
     }
     scene_css_vars_style(&resolve_builtin_only("page"))
 }
@@ -269,6 +345,76 @@ mod tests {
     }
 
     #[test]
+    fn live_ops_theme_overlay_overrides_artifact_theme_tokens() {
+        use mei_lang_kernel::{MeiConfig, SceneContract, SceneDecl, ThemeDecl};
+
+        let scene_contract = SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: Some("cockpit".to_string()),
+                theme: Some("@theme:cockpit".to_string()),
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![ThemeDecl {
+                kind: "theme".to_string(),
+                id: "cockpit".to_string(),
+                font: json!({"4": "20px"}),
+                tokens: json!({"color": {"panel_title": "#aaaaaa"}}),
+                frame: json!({}),
+                panel: json!({}),
+                panel_bare: json!({}),
+                panel_head: json!({}),
+                panel_body: json!({}),
+                heading: json!({}),
+                metric_label: json!({}),
+                metric_value: json!({}),
+                metric_unit: json!({}),
+                metric_desc: json!({}),
+                metric_sub_label: json!({}),
+                metric_sub_value: json!({}),
+                metric_sub_unit: json!({}),
+                chart_title: json!({}),
+                chart_label: json!({}),
+                table_head: json!({}),
+                table_body: json!({}),
+                filter_panel: json!({}),
+                shared: json!({}),
+                components: json!({}),
+            }],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![],
+        };
+        let mut live = MeiConfig::default();
+        live.ops.themes.insert(
+            "cockpit".to_string(),
+            json!({"tokens": {"color": {"panel_title": "#010203"}}}),
+        );
+        let resolved = resolve_theme(&scene_contract, Some(&live));
+        let panel_title = resolved
+            .css_vars
+            .iter()
+            .find(|(name, _)| name == "--mei-color-panel-title")
+            .map(|(_, value)| value.as_str())
+            .unwrap_or("");
+        assert_eq!(panel_title, "#010203");
+    }
+
+    #[test]
     fn shell_body_and_scene_viewport_styles_use_separate_var_tracks() {
         use std::path::Path;
 
@@ -294,12 +440,12 @@ mod tests {
             !shell_style.contains("--mei-color-surface"),
             "shell-only style must not inject scene surface vars"
         );
-        let page_style = page_body_theme_style(&workspace, Some(&compiled));
+        let page_style = page_body_theme_style(&workspace, Some(&compiled), None);
         assert!(
             page_style.contains("--mei-color-"),
             "page body should also inject scene vars for body-mounted overlays"
         );
-        let scene_style = scene_viewport_theme_style(&compiled);
+        let scene_style = scene_viewport_theme_style(&compiled, None);
         assert!(
             scene_style.contains("--mei-color-"),
             "viewport should inject scene color vars"
