@@ -2344,7 +2344,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "mei-lang-app"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "csv",
  "leptos",
@@ -2355,7 +2355,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-datasets"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2369,7 +2369,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-kernel"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -2388,7 +2388,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-lsp"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "anyhow",
  "mei-lang-kernel",
@@ -2402,7 +2402,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-server"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2439,7 +2439,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-toolchain"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5115,7 +5115,7 @@ checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
 
 [[package]]
 name = "ws-spbjw-integration-tests"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "mei-lang-app",
  "mei-lang-datasets",
