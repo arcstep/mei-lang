@@ -422,3 +422,43 @@ fn query_realtime_warning_detail_rowset_via_warning_detail_card_board() {
         "board overlay should resolve realtime_warning_detail rowset"
     );
 }
+
+#[test]
+fn query_issue_handling_detail_rowset_via_issue_handling_detail_card_board() {
+    use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let board_target = "scenes/_shared/issue-clue-detail.card.board.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("issue_handling_detail_card_board".to_string()),
+            preview_target: Some(board_target.to_string()),
+        },
+    )
+    .expect("compile issue handling detail card board");
+    let detail = query_metric_dataframe(
+        &compiled,
+        app_root.as_path(),
+        "scenes/07-问题办理.mei::warning_list",
+        "scenes/07-问题办理.mei::effectiveness_completed_count::__scalar_rowset__",
+        Some("issue_handling_detail_card_board"),
+        Some(board_target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 5,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("issue handling completed rowset via detail card board");
+    assert!(
+        !detail.rows.is_empty(),
+        "issue handling detail card should resolve 07 warning_list metric rowset"
+    );
+}

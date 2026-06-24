@@ -182,23 +182,35 @@ fn compiled_app_embeds_export_scene(compiled: &CompiledApp, requested_scene: &st
 }
 
 fn artifact_matches_compile_scene_request(options: &CompileOptions, compiled: &CompiledApp) -> bool {
-    if let Some(requested_target) = options
+    let requested_target = options
         .preview_target
         .as_deref()
         .map(str::trim)
-        .filter(|target| !target.is_empty())
-    {
+        .filter(|target| !target.is_empty());
+    let requested_scene = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty());
+    if let Some(requested_target) = requested_target {
         let active_target = compiled.active_target_file.trim();
         if active_target != requested_target {
             return false;
         }
+        // Board overlay requests carry both export scene id and board target file.
+        // Parent-scene artifacts (e.g. home + board.mei warmup scope) may embed board
+        // assembly metadata but still expose the parent resource table; do not reuse them.
+        if let Some(requested_scene) = requested_scene {
+            return compiled
+                .active_scene
+                .as_deref()
+                .map(str::trim)
+                .filter(|scene| !scene.is_empty())
+                == Some(requested_scene);
+        }
+        return true;
     }
-    let Some(requested_scene) = options
-        .scene
-        .as_deref()
-        .map(str::trim)
-        .filter(|scene| !scene.is_empty())
-    else {
+    let Some(requested_scene) = requested_scene else {
         return true;
     };
     if compiled
@@ -1326,7 +1338,7 @@ mod tests {
     }
 
     #[test]
-    fn artifact_matches_compile_scene_request_allows_hydrated_export_board() {
+    fn artifact_matches_compile_scene_request_rejects_hydrated_export_board_from_parent_scene() {
         let options = CompileOptions {
             scene: Some("ai_warning_cockpit_board".to_string()),
             preview_target: Some("scenes/02-行政检查.board.mei".to_string()),
@@ -1336,6 +1348,17 @@ mod tests {
         compiled
             .scene_projection_assembly_by_id
             .insert("ai_warning_cockpit_board".to_string(), Value::Object(Default::default()));
+        assert!(!artifact_matches_compile_scene_request(&options, &compiled));
+    }
+
+    #[test]
+    fn artifact_matches_compile_scene_request_accepts_dedicated_export_board_compile() {
+        let options = CompileOptions {
+            scene: Some("ai_warning_cockpit_board".to_string()),
+            preview_target: Some("scenes/02-行政检查.board.mei".to_string()),
+        };
+        let mut compiled = compiled_with_scene(Some("ai_warning_cockpit_board"));
+        compiled.active_target_file = "scenes/02-行政检查.board.mei".to_string();
         assert!(artifact_matches_compile_scene_request(&options, &compiled));
     }
 

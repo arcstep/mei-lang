@@ -1789,6 +1789,93 @@ fn compile_spbjw_ai_warning_cockpit_board_export_preview_projection_slots_in_ass
 }
 
 #[test]
+fn query_spbjw_ai_warning_cockpit_rowset_with_local_board_dataset() {
+    use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/02-行政检查.board.mei";
+    let scene_id = "ai_warning_cockpit_board";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some(scene_id.to_string()),
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    mei_lang_kernel::locate_dataset_resource(&compiled, "ai_recognition_warnings")
+        .expect("board compile should expose ai_recognition_warnings");
+    let detail = query_metric_dataframe(
+        &compiled,
+        app_root.as_path(),
+        "ai_recognition_warnings",
+        "ai_recognition_warnings_count::__scalar_rowset__",
+        Some(scene_id),
+        Some(target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 5,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("ai warning cockpit rowset should resolve board-local dataset");
+    assert!(
+        !detail.rows.is_empty(),
+        "AI warning cockpit should resolve ai_recognition_warnings in board scene resources"
+    );
+}
+
+#[test]
+fn query_spbjw_inspection_total_analytics_board_resolves_local_dataset() {
+    use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
+    use mei_lang_kernel::locate_dataset_resource;
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/02-行政检查.board.mei";
+    let scene_id = "inspection_total_analytics_board";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some(scene_id.to_string()),
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    locate_dataset_resource(&compiled, "administrative_inspection_dashboard_ds")
+        .expect("inspection board compile should expose dashboard dataset");
+    let detail = query_metric_dataframe(
+        &compiled,
+        app_root.as_path(),
+        "administrative_inspection_dashboard_ds",
+        "inspections_total_count::__scalar_rowset__",
+        Some(scene_id),
+        Some(target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 5,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("inspection total board rowset should resolve local dashboard dataset");
+    assert!(
+        !detail.rows.is_empty(),
+        "inspection total analytics board should resolve dashboard rowset"
+    );
+}
+
+#[test]
 fn compile_spbjw_home_ai_warning_cockpit_hydrated_assembly_includes_chart_slots() {
     let source_root = source_root();
     let app_root = zhifa_app_root();
