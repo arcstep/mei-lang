@@ -3,9 +3,11 @@ pub(crate) mod auth;
 pub(crate) mod build_info;
 pub(crate) mod cli;
 pub(crate) mod gis_config;
+pub(crate) mod graph;
 pub(crate) mod http;
 pub(crate) mod mei_agent;
 pub(crate) mod prebuild;
+pub(crate) mod prebuild_fingerprint;
 pub(crate) mod resource_tool_bridge;
 mod runtime_entry;
 

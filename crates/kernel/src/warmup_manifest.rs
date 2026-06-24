@@ -68,11 +68,13 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
                 focuses.push(entry_main);
             }
         }
-        let datasets = normalize_warmup_dataset_requests(
+        let merged_datasets = crate::warmup_board_autogen::merge_workspace_and_board_warmup_requests(
             app_config
                 .map(|config| config.datasets.as_slice())
                 .unwrap_or(&[]),
-        );
+            app_root.as_path(),
+        )?;
+        let datasets = normalize_warmup_dataset_requests(merged_datasets.as_slice());
         let xlsx_sources = normalize_warmup_xlsx_sources(
             app_config
                 .map(|config| config.xlsx_sources.as_slice())

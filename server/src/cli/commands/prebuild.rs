@@ -36,6 +36,7 @@ pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
                 PrebuildMode::Build
             },
             clean: args.clean,
+            force_rebuild: args.force_rebuild,
             scope_profile: if args.hot_only {
                 PrebuildScopeProfile::HotOnly
             } else {

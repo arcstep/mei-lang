@@ -383,65 +383,73 @@ export function tableDrilldownMeta(props) {
   };
 }
 
-function buildRowDrilldownFilters(meta, row = {}) {
-  const datasetId = String(meta?.dataset_id || "").trim();
-  const filters = {};
-
-  if (datasetId === "typical_cases" || row?.value != null || row?.处理结果ID != null) {
-    const resultId = String(row?.value ?? row?.处理结果ID ?? "").trim();
-    if (resultId) {
-      filters["处理结果ID"] = resultId;
-    }
-    return filters;
-  }
-
-  const warningId = String(row?.预警ID ?? row?.warning_id ?? "").trim();
-  if (datasetId === "warning_list" || datasetId === "warning_detail" || warningId) {
-    if (warningId) {
-      filters["预警ID"] = warningId;
-    }
-    return filters;
-  }
-
-  const resultId = String(row?.处理结果ID ?? row?.value ?? "").trim();
-  if (datasetId === "issue_result_list" || resultId) {
-    if (resultId) {
-      filters["处理结果ID"] = resultId;
-    }
-    return filters;
-  }
-
-  if (resultId) {
-    filters["处理结果ID"] = resultId;
-  }
-  return filters;
+function rowDrilldownBinding(props) {
+  const raw = props?.row_drilldown ?? props?.rowDrilldown;
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
 }
 
-function buildRowDrilldownLabel(meta, row = {}, filters = {}) {
-  const datasetId = String(meta?.dataset_id || "").trim();
-  if (datasetId === "typical_cases") {
-    return String(row?.label ?? row?.案例名称 ?? "").trim();
+function firstNonEmptyRowValue(row, fields) {
+  if (!row || typeof row !== "object") {
+    return "";
   }
-  if (datasetId === "warning_list" || datasetId === "warning_detail" || filters["预警ID"]) {
-    const parts = [
-      filters["预警ID"] || row?.预警ID,
-      row?.问题分类名称,
-    ]
-      .map((entry) => String(entry ?? "").trim())
+  for (const field of fields) {
+    const key = String(field || "").trim();
+    if (!key) continue;
+    const value = String(row[key] ?? "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
+function buildRowDrilldownFilters(meta, row = {}, props = {}) {
+  const binding = rowDrilldownBinding(props);
+  if (binding) {
+    const filterKey = String(binding.filter_key ?? binding.filterKey ?? "").trim();
+    const filterFields = Array.isArray(binding.filter_fields ?? binding.filterFields)
+      ? binding.filter_fields ?? binding.filterFields
+      : filterKey
+        ? [filterKey]
+        : [];
+    const value = firstNonEmptyRowValue(row, filterFields);
+    if (value) {
+      return { [filterKey || filterFields[0]]: value };
+    }
+    return {};
+  }
+
+  const genericValue = String(row?.value ?? "").trim();
+  if (genericValue) {
+    const idKey = Object.keys(row).find((key) => {
+      const value = String(row[key] ?? "").trim();
+      return value && /(^id$|_id$|ID$)/.test(key);
+    });
+    if (idKey) {
+      return { [idKey]: genericValue };
+    }
+  }
+  return {};
+}
+
+function buildRowDrilldownLabel(meta, row = {}, filters = {}, props = {}) {
+  const binding = rowDrilldownBinding(props);
+  if (binding) {
+    const labelFields = Array.isArray(binding.label_fields ?? binding.labelFields)
+      ? binding.label_fields ?? binding.labelFields
+      : [];
+    const parts = labelFields
+      .map((field) => {
+        const key = String(field || "").trim();
+        if (!key) return "";
+        return String(filters[key] ?? row?.[key] ?? "").trim();
+      })
       .filter(Boolean);
-    return parts.length ? parts.join(" · ") : "预警明细";
+    if (parts.length) {
+      return parts.join(" · ");
+    }
+    const fallback = String(binding.label_fallback ?? binding.labelFallback ?? "").trim();
+    if (fallback) return fallback;
   }
-  if (datasetId === "issue_result_list" || filters["处理结果ID"]) {
-    const parts = [
-      filters["处理结果ID"] || row?.处理结果ID,
-      row?.["姓名/单位"],
-      row?.问题分类名称,
-    ]
-      .map((entry) => String(entry ?? "").trim())
-      .filter(Boolean);
-    return parts.length ? parts.join(" · ") : "办理明细";
-  }
-  return String(row?.label ?? row?.案例名称 ?? row?.处理结果ID ?? "").trim();
+  return String(row?.label ?? row?.value ?? "").trim();
 }
 
 export function buildTableRowDrilldownDetail(meta, row = {}, props = {}) {
@@ -452,11 +460,16 @@ export function buildTableRowDrilldownDetail(meta, row = {}, props = {}) {
     props?._mei?.panel_id ||
     props?.panel_id ||
     "";
-  const filters = buildRowDrilldownFilters(meta, row);
-  const label = buildRowDrilldownLabel(meta, row, filters);
+  const filters = buildRowDrilldownFilters(meta, row, props);
+  const label = buildRowDrilldownLabel(meta, row, filters, props);
+  const filterKey = String(
+    Object.keys(filters)[0] ||
+      rowDrilldownBinding(props)?.filter_key ||
+      rowDrilldownBinding(props)?.filterKey ||
+      "",
+  ).trim();
   const value = String(
-    filters["处理结果ID"] ||
-      filters["预警ID"] ||
+    (filterKey && filters[filterKey]) ||
       row?.value ||
       "",
   ).trim();

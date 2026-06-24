@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
+use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
     cached_load_xlsx_table_snapshot, clear_runtime_compile_caches, coerce_rows_to_schema,
@@ -156,5 +157,60 @@ fn xlsx_perf_probe_zhifa_hot_files() {
             "parallel wall {parallel_total_ms}ms should stay near single load {}ms",
             warm1_ms
         );
+
+        if mei_lang_kernel::resolve_data_snapshot_import_entry(&app_root, rel_path, None, 1)
+            .is_some()
+        {
+            use mei_lang_datasets::{query_dataset_rows, DatasetQueryOptions};
+            use mei_lang_kernel::DatasetView;
+            let dataset = DatasetView {
+                id: rel_path.replace('/', "_"),
+                title: Some(rel_path.to_string()),
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                source: mei_lang_kernel::SourceDecl {
+                    kind: "file".to_string(),
+                    path: rel_path.to_string(),
+                    sheet: None,
+                    header_row: Some(1),
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: BTreeMap::new(),
+                runtime_metric_defs: BTreeMap::new(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: BTreeMap::new(),
+            };
+            let options = DatasetQueryOptions {
+                collect_all: true,
+                ..Default::default()
+            };
+            let handle_started = Instant::now();
+            let result =
+                query_dataset_rows(&app_root, &dataset, options).expect("table handle query");
+            let handle_ms = elapsed_ms(handle_started);
+            let table_handle_hit = result.perf.get("table_handle_hit").copied().unwrap_or(0);
+            print_phase(
+                "table_handle query (import path)",
+                handle_ms,
+                &format!(
+                    "table_handle_hit={table_handle_hit} import_hit={}",
+                    result
+                        .perf
+                        .get("dataset_import_artifact_hit")
+                        .copied()
+                        .unwrap_or(0)
+                ),
+            );
+        }
     }
 }

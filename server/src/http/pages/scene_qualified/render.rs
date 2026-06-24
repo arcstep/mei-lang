@@ -4,6 +4,7 @@ use mei_lang_kernel::{
     RuntimeResourceResolveError,
 };
 
+use crate::http::host_api::{host_warmup_in_progress, is_warmup_transient_runtime_error, warmup_pending_user_message};
 use crate::AppError;
 
 use super::route_parse::SceneQueryCoords;
@@ -50,7 +51,11 @@ fn map_resolve_error(error: RuntimeResourceResolveError) -> AppError {
             AppError::status(StatusCode::BAD_REQUEST, error.to_string())
         }
         RuntimeResourceResolveError::NotFound { .. } => {
-            AppError::status(StatusCode::NOT_FOUND, error.to_string())
+            if host_warmup_in_progress() && is_warmup_transient_runtime_error(&error.to_string()) {
+                AppError::status(StatusCode::SERVICE_UNAVAILABLE, warmup_pending_user_message())
+            } else {
+                AppError::status(StatusCode::NOT_FOUND, error.to_string())
+            }
         }
         RuntimeResourceResolveError::Ambiguous { .. } => {
             AppError::status(StatusCode::BAD_REQUEST, error.to_string())

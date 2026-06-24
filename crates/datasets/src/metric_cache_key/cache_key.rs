@@ -40,6 +40,41 @@ fn revision_fingerprint_cache() -> &'static Mutex<BTreeMap<String, RevisionFinge
     CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+fn graph_slot_revision_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("MEI_GRAPH_REGISTRY")
+            .map(|value| {
+                let trimmed = value.trim();
+                trimmed == "1" || trimmed.eq_ignore_ascii_case("true")
+            })
+            .unwrap_or(false)
+    })
+}
+
+fn stable_slot_hash(text: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+pub(crate) fn effective_compile_revision_for_slot(
+    compile_revision: &str,
+    metric_def_bundle_revision: &str,
+    data_source_revision: &str,
+    scope_key: &str,
+) -> String {
+    if !graph_slot_revision_enabled() {
+        return compile_revision.to_string();
+    }
+    let body = format!(
+        "mdb={metric_def_bundle_revision}\nds={data_source_revision}\nscope={scope_key}\nengine=json_walk"
+    );
+    format!("sr:{}", stable_slot_hash(&body))
+}
+
 pub(crate) fn metric_scope_cache_key(resolved_metric_ids: &[String]) -> String {
     if resolved_metric_ids.is_empty() {
         return "*".to_string();
@@ -467,6 +502,18 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
             dataset_id.as_str(),
             &owner_dataset.runtime_metric_defs,
         );
+        let bundle_revision = format!(
+            "mdb:{}",
+            stable_slot_hash(
+                &serde_json::to_string(&owner_dataset.runtime_metric_defs).unwrap_or_default()
+            )
+        );
+        let effective_compile_revision = effective_compile_revision_for_slot(
+            compile_revision,
+            bundle_revision.as_str(),
+            dependency_revision_key.as_str(),
+            scene_id,
+        );
         for scene_path in &scene_paths {
             let scoped_scene_path = if scene_path.is_empty() {
                 None
@@ -479,7 +526,7 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
                 scoped_scene_path,
                 dataset_id.as_str(),
                 query,
-                compile_revision,
+                effective_compile_revision.as_str(),
                 &dependency_revision_key,
                 filter_intents,
             );

@@ -8,6 +8,7 @@ import {
   deferUntilDisplayed,
   shouldReactToPreviewUpdated,
   fetchDatasetRows,
+  formatRuntimeQueryUserMessage,
   getQueryState,
   mergeFilters,
   queryStateIdOf,
@@ -793,7 +794,9 @@ export class MeiCockpitDataTable extends HTMLElement {
       if (error?.name === "AbortError") {
         return;
       }
-      this._state.error = String(error?.message || error || "runtime query failed");
+      this._state.error = formatRuntimeQueryUserMessage(
+        error?.message || error || "runtime query failed"
+      );
       this._allRows = rowsFromMetricShape(this._props.dataset);
       if (this._paging) {
         this.applyPagedRows(this._allRows);

@@ -96,6 +96,10 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+pub(crate) fn now_ms_for_host_message() -> u64 {
+    now_ms()
+}
+
 fn next_run_id() -> String {
     format!("run-{}-{}", now_ms(), std::process::id())
 }
@@ -140,6 +144,13 @@ fn persist_run_json(state: &StartupRunState) {
     if let Err(error) = write_json(run_json_path.as_path(), &state.summary) {
         tracing::warn!(%error, path = %run_json_path.display(), "failed to persist startup run summary");
     }
+}
+
+pub(crate) fn current_started_at_ms() -> Option<u64> {
+    startup_run_state()
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|state| state.summary.started_at_ms))
 }
 
 pub(crate) fn initialize(source_root: &Path, startup_policy: &str) {

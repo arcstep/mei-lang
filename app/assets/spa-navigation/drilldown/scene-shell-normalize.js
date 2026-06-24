@@ -244,6 +244,8 @@
     const kind = nonEmptyString(raw.kind);
     const sceneId = nonEmptyString(raw.scene_id, raw.sceneId);
     if (!items.length && !kindOrder.length && !overlaySize && !kind && !sceneId) return null;
+    const rowDrilldownPopup = raw.row_drilldown_popup ?? raw.rowDrilldownPopup ?? null;
+    const rowDrilldown = raw.row_drilldown ?? raw.rowDrilldown ?? null;
     return {
       kind,
       sceneId,
@@ -253,6 +255,12 @@
       overlaySize,
       items,
       kindOrder,
+      ...(rowDrilldownPopup && typeof rowDrilldownPopup === "object" && !Array.isArray(rowDrilldownPopup)
+        ? { rowDrilldownPopup, row_drilldown_popup: rowDrilldownPopup }
+        : {}),
+      ...(rowDrilldown && typeof rowDrilldown === "object" && !Array.isArray(rowDrilldown)
+        ? { rowDrilldown, row_drilldown: rowDrilldown }
+        : {}),
     };
   }
 

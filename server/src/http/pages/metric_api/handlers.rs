@@ -13,7 +13,9 @@ use super::assembly::{
     hash_metric_response_cache_key, metric_eval_diagnostic_code, write_dag_perf,
     MetricQueryGroupRequest, MetricQueryGroupResponse, MetricQueryRequest, MetricQueryResponse,
 };
-use crate::http::compile_cache::RuntimeArtifactPolicy;
+use crate::http::compile_cache::{
+    RuntimeAccessPolicies, RuntimeArtifactPolicy, RuntimeAssemblyPolicy, RuntimeEvalPolicy,
+};
 use crate::http::observation::{CompileObservation, EvalObservation};
 use crate::{AppError, AppState};
 use axum::{
@@ -46,6 +48,7 @@ struct MetricQueryExecutionContext<'a> {
     filter_intents: &'a [FilterIntent],
     access_artifact_only: bool,
     runtime_policy: RuntimeArtifactPolicy,
+    access_policies: RuntimeAccessPolicies,
     compile_correctness_fallback: bool,
     compile_artifact_backfilled: bool,
 }
@@ -64,6 +67,7 @@ struct MetricQueryExecutionShared {
     filter_intents: Vec<FilterIntent>,
     access_artifact_only: bool,
     runtime_policy: RuntimeArtifactPolicy,
+    access_policies: RuntimeAccessPolicies,
     compile_correctness_fallback: bool,
     compile_artifact_backfilled: bool,
 }
@@ -83,6 +87,7 @@ impl MetricQueryExecutionShared {
             filter_intents: &self.filter_intents,
             access_artifact_only: self.access_artifact_only,
             runtime_policy: self.runtime_policy,
+            access_policies: self.access_policies,
             compile_correctness_fallback: self.compile_correctness_fallback,
             compile_artifact_backfilled: self.compile_artifact_backfilled,
         }
@@ -192,13 +197,14 @@ pub async fn dataset_metric_api(
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
     let runtime_policy = RuntimeArtifactPolicy::from_headers(&headers);
+    let access_policies = RuntimeAccessPolicies::from_headers(&headers);
     let access_artifact_only = !matches!(runtime_policy, RuntimeArtifactPolicy::BuildViewJit);
     let compile_resolution = crate::http::compile_cache::resolve_runtime_compile_shared(
         &state,
         &app_id,
         &compile_options,
         components_root.as_path(),
-        runtime_policy,
+        access_policies,
     )
     .map_err(|failure| AppError::from(failure.error))?
     .ok_or_else(|| {
@@ -240,6 +246,7 @@ pub async fn dataset_metric_api(
     })?;
     let compile_correctness_fallback = compile_resolution.correctness_fallback;
     let compile_artifact_backfilled = compile_resolution.artifact_backfilled;
+    let resolved_access_policies = compile_resolution.access_policies;
     let compile_outcome = compile_resolution.outcome;
     let scene_ctx = resolved_scene_context(&compile_outcome.compiled);
     let compile_observation = CompileObservation::from_compile_outcome_shared(
@@ -269,6 +276,7 @@ pub async fn dataset_metric_api(
         filter_intents: &request.filter_intents,
         access_artifact_only,
         runtime_policy,
+        access_policies: resolved_access_policies,
         compile_correctness_fallback,
         compile_artifact_backfilled,
     };
@@ -300,6 +308,7 @@ pub async fn dataset_metric_api(
         filter_intents: request.filter_intents.clone(),
         access_artifact_only,
         runtime_policy,
+        access_policies: resolved_access_policies,
         compile_correctness_fallback,
         compile_artifact_backfilled,
     };
@@ -571,6 +580,20 @@ fn write_runtime_policy_perf(
         "metric_result_artifact_backfilled".to_string(),
         u64::from(result_artifact_backfilled),
     );
+    perf.insert(
+        "runtime_assembly_policy_sealed".to_string(),
+        u64::from(matches!(
+            ctx.access_policies.assembly,
+            RuntimeAssemblyPolicy::Sealed
+        )),
+    );
+    perf.insert(
+        "runtime_eval_policy_artifact_first_thin".to_string(),
+        u64::from(matches!(
+            ctx.access_policies.eval,
+            RuntimeEvalPolicy::ArtifactFirstThin
+        )),
+    );
 }
 
 fn execute_metric_query_group(
@@ -821,16 +844,15 @@ fn execute_metric_query_group(
                 perf,
             });
         }
-        if !ctx.runtime_policy.is_sealed_strict() {
-            // Build view may JIT-evaluate metrics when prebuild artifacts are absent.
-        } else {
-            // Access strict AOT must keep the "prebuild first, then use" contract.
-            // Once access_artifact_only is enabled, missing artifacts must surface as
-            // not-ready / unavailable rather than silently falling back to runtime JIT.
-            let error = format!(
-            "missing strict AOT metric result artifact for dataset `{}` scene `{}`; run `mei-toolchain prebuild` first",
-            resource.id, ctx.scene_id
-        );
+        if !ctx.access_policies.allows_thin_eval() {
+            let error = if crate::http::host_api::host_warmup_in_progress() {
+                crate::http::host_api::warmup_pending_user_message()
+            } else {
+                format!(
+                    "missing strict AOT metric result artifact for dataset `{}` scene `{}`; run `mei-toolchain prebuild` first",
+                    resource.id, ctx.scene_id
+                )
+            };
             crate::http::host_api::mark_access_artifact_degraded(
                 ctx.app_id,
                 Some(ctx.scene_id),
@@ -839,6 +861,7 @@ fn execute_metric_query_group(
             );
             return Err(AppError::status(StatusCode::SERVICE_UNAVAILABLE, error));
         }
+        // Structural artifacts are ready; fall through to thin eval below.
     }
 
     let eval_outcome = evaluate_runtime_metrics_from_plan(
@@ -877,6 +900,7 @@ fn execute_metric_query_group(
         u64::from(ctx.access_artifact_only),
     );
     write_runtime_policy_perf(ctx, &mut perf, result_artifact_candidate);
+    perf.insert("eval_thin".to_string(), 1);
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("result_artifact_hit".to_string(), 0);
     let mut eval_observation = EvalObservation::new(false)

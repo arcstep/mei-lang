@@ -90,6 +90,8 @@ pub(crate) struct HostReadyResponse {
     pub build_descriptor: serde_json::Value,
     #[serde(rename = "startupArtifactDir")]
     pub startup_artifact_dir: Option<String>,
+    #[serde(rename = "hostStartedAtMs")]
+    pub host_started_at_ms: Option<u64>,
     #[serde(rename = "hostReady")]
     pub host_ready: bool,
     #[serde(rename = "accessReady")]
@@ -162,6 +164,8 @@ pub(crate) struct HostHeartbeatResponse {
     pub build_descriptor: serde_json::Value,
     #[serde(rename = "startupArtifactDir")]
     pub startup_artifact_dir: Option<String>,
+    #[serde(rename = "hostStartedAtMs")]
+    pub host_started_at_ms: Option<u64>,
     /// Host service is bound and core APIs are reachable.
     pub ready: bool,
     #[serde(rename = "hostReady")]
@@ -300,6 +304,7 @@ pub(crate) struct HostBuildJobResponse {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct HostReadinessRegistry {
     host_bound: bool,
+    host_started_at_ms: Option<u64>,
     access_ready: bool,
     full_warmup_ready: bool,
     deferred_warmup_pending: bool,
@@ -378,6 +383,94 @@ fn phase_ready(phase: &str) -> bool {
     matches!(phase, "ready" | "degraded" | "skipped")
 }
 
+fn host_started_at_ms_from_registry(snapshot: &HostReadinessRegistry) -> Option<u64> {
+    snapshot
+        .host_started_at_ms
+        .or_else(startup_run::current_started_at_ms)
+}
+
+fn format_elapsed_zh(elapsed_ms: u64) -> String {
+    if elapsed_ms < 1000 {
+        return format!("{} 秒", elapsed_ms.max(1));
+    }
+    if elapsed_ms < 60_000 {
+        let seconds = (elapsed_ms as f64 / 1000.0).round() as u64;
+        return format!("{} 秒", seconds.max(1));
+    }
+    if elapsed_ms < 3_600_000 {
+        let minutes = elapsed_ms / 60_000;
+        let seconds = (elapsed_ms % 60_000) / 1000;
+        if seconds == 0 {
+            return format!("{} 分", minutes);
+        }
+        return format!("{} 分 {} 秒", minutes, seconds);
+    }
+    let hours = elapsed_ms / 3_600_000;
+    let minutes = (elapsed_ms % 3_600_000) / 60_000;
+    if minutes == 0 {
+        return format!("{} 小时", hours);
+    }
+    format!("{} 小时 {} 分", hours, minutes)
+}
+
+pub(crate) fn host_warmup_in_progress() -> bool {
+    let snapshot = host_readiness_registry()
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    if !snapshot.host_bound {
+        return true;
+    }
+    if !snapshot.access_ready {
+        return true;
+    }
+    if snapshot.deferred_warmup_pending {
+        return true;
+    }
+    matches!(
+        snapshot.phase.as_str(),
+        "starting" | "bound" | "building" | "verifying"
+    )
+}
+
+pub(crate) fn warmup_pending_user_message() -> String {
+    let snapshot = host_readiness_registry()
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default();
+    let started_at_ms = host_started_at_ms_from_registry(&snapshot);
+    let elapsed_ms = started_at_ms.map(|started| {
+        startup_run::now_ms_for_host_message()
+            .saturating_sub(started)
+    });
+    let ago = elapsed_ms
+        .map(format_elapsed_zh)
+        .unwrap_or_else(|| "刚刚".to_string());
+    let detail = if snapshot.deferred_warmup_pending {
+        "后台仍在装载 deferred 指标"
+    } else if matches!(
+        snapshot.phase.as_str(),
+        "building" | "verifying" | "bound"
+    ) {
+        "后台正在编译与预热"
+    } else if !snapshot.access_ready {
+        "启动预热尚未完成"
+    } else {
+        "访问态产物仍在装载"
+    };
+    format!(
+        "系统于 {ago} 前刚刚启动，{detail}，该指标尚未装载，请稍候刷新页面。"
+    )
+}
+
+pub(crate) fn is_warmup_transient_runtime_error(message: &str) -> bool {
+    let text = message.trim();
+    text.contains("not found in active scene resources")
+        || text.contains("missing strict AOT metric result artifact")
+        || text.contains("requires prebuilt access artifacts on access-only host")
+        || text.contains("该指标尚未装载")
+}
+
 fn phase_access_ready(phase: &str) -> bool {
     matches!(phase, "ready" | "skipped")
 }
@@ -448,6 +541,7 @@ fn registry_snapshot() -> HostReadyResponse {
         .lock()
         .map(|guard| guard.clone())
         .unwrap_or_default();
+    let host_started_at_ms = host_started_at_ms_from_registry(&snapshot);
     let apps = snapshot
         .apps
         .into_iter()
@@ -468,6 +562,7 @@ fn registry_snapshot() -> HostReadyResponse {
         startup_policy: snapshot.startup_policy.clone(),
         build_descriptor: crate::build_info::descriptor(),
         startup_artifact_dir: snapshot.startup_artifact_dir.clone(),
+        host_started_at_ms,
         host_ready: snapshot.host_bound,
         access_ready: snapshot.access_ready,
         full_warmup_ready: snapshot.full_warmup_ready,
@@ -523,6 +618,7 @@ fn reset_registry_for_source_root(source_root: &Path) {
     let _ = with_registry(|registry| {
         *registry = HostReadinessRegistry {
             host_bound: false,
+            host_started_at_ms: startup_run::current_started_at_ms(),
             access_ready: false,
             full_warmup_ready: false,
             deferred_warmup_pending: false,
@@ -1095,6 +1191,7 @@ fn run_prebuild_job_sync_inner(
                 .map(str::to_string),
             mode,
             clean: false,
+            force_rebuild: false,
             scope_profile,
         },
     )
@@ -1113,8 +1210,12 @@ pub(crate) fn initialize_startup_readiness(source_root: &Path, startup_policy: &
 }
 
 pub(crate) fn mark_host_bound() {
+    let started_at_ms = startup_run::current_started_at_ms().or_else(|| Some(startup_run::now_ms_for_host_message()));
     let _ = with_registry(|registry| {
         registry.host_bound = true;
+        if registry.host_started_at_ms.is_none() {
+            registry.host_started_at_ms = started_at_ms;
+        }
         sync_registry_phase(registry);
     });
     startup_run::record_phase(
@@ -1643,6 +1744,7 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
         startup_policy: ready.startup_policy,
         build_descriptor: ready.build_descriptor,
         startup_artifact_dir: ready.startup_artifact_dir,
+        host_started_at_ms: ready.host_started_at_ms,
         ready: ready.host_ready,
         host_ready: ready.host_ready,
         access_ready: ready.access_ready,
@@ -1819,6 +1921,7 @@ mod tests {
             startup_policy: ready.startup_policy,
             build_descriptor: ready.build_descriptor,
             startup_artifact_dir: ready.startup_artifact_dir,
+            host_started_at_ms: ready.host_started_at_ms,
             ready: ready.ready,
             host_ready: ready.host_ready,
             access_ready: ready.access_ready,

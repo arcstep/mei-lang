@@ -1,3 +1,4 @@
+mod agg_result_cache;
 mod csv_dataset;
 mod dataset_rows_cache;
 mod db_dataset;
@@ -18,6 +19,7 @@ mod query;
 mod result_artifact;
 pub mod serde_lenient;
 pub mod table_contract;
+mod table_handle;
 mod types;
 mod util;
 mod xlsx_dataset;

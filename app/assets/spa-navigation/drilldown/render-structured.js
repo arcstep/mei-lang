@@ -196,9 +196,6 @@
           ),
           ownerScenePath: nonEmptyString(
             config?.previewCompileAnchor?.ownerScenePath,
-            resolveDetailCardOwnerSceneFile(
-              nonEmptyString(config?.boardSceneId, detail?.board_scene_id, detail?.popup?.scene_id),
-            ),
             importedCapsuleScenePathFromMetricId(
               resolvePopupPassedMetricId(detail, config) || config?.tableMetricId,
             ),

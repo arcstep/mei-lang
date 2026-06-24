@@ -73,6 +73,19 @@
       .map((entry) => (entry.startsWith("《") ? entry : `《${entry}》`));
   }
 
+  function applyExternalCaseDetailRowEnricher(row, detail) {
+    if (!row || typeof row !== "object") {
+      return row;
+    }
+    const enricher =
+      typeof window !== "undefined" ? window.__meiCaseDetailRowEnricher : null;
+    if (typeof enricher !== "function") {
+      return row;
+    }
+    const enriched = enricher(row, detail);
+    return enriched && typeof enriched === "object" ? enriched : row;
+  }
+
   function enrichCaseDetailRow(row, detail) {
     if (!row || typeof row !== "object") return row;
     const enriched = { ...row };
@@ -83,99 +96,16 @@
           ? detail.default_filters
           : {};
     const title = String(detail?.label ?? detail?.desc ?? "").trim();
-    if (title && !String(enriched.案例名称 ?? "").trim()) {
-      const datasetId = String(detail?.dataset_id ?? "").trim();
-      const isLongNarrative = title.length > 80 || title.includes("\n");
-      if (!((datasetId === "warning_list" || datasetId === "warning_detail") && isLongNarrative)) {
-        enriched.案例名称 = title;
+    if (title && !String(enriched.title ?? enriched.label ?? "").trim()) {
+      enriched.title = title;
+    }
+    Object.entries(filters).forEach(([key, value]) => {
+      const text = String(value ?? "").trim();
+      if (text) {
+        enriched[key] = text;
       }
-    }
-    const filterResultId = String(filters["处理结果ID"] ?? "").trim();
-    const rowResultId = String(enriched.处理结果ID ?? "").trim();
-    if (filterResultId) {
-      enriched.处理结果ID = filterResultId;
-    } else if (rowResultId) {
-      enriched.处理结果ID = rowResultId;
-    } else {
-      delete enriched.处理结果ID;
-    }
-    return enriched;
-  }
-
-  function resolveSpbjwYesFlag(row, field, fallbackFields = []) {
-    const value = resolveCaseDetailFieldValue(row, {
-      field: String(field || "").trim(),
-      fallback_fields: fallbackFields,
     });
-    const text = String(value ?? "").trim();
-    if (!text || text === "—" || text === "-" || text === "否" || text === "0") {
-      return "";
-    }
-    if (text.includes("否") && !text.includes("是")) {
-      return "";
-    }
-    return text.includes("是") ? "是" : "";
-  }
-
-  function resolvePartyGovSanctionFlag(row) {
-    const explicit = resolveSpbjwYesFlag(row, "是否给予党纪政务处分");
-    if (explicit) return explicit;
-    const sanction = String(row?.处理处分 ?? "").trim();
-    if (sanction.includes("第二种")) return "是";
-    const result = String(row?.处理结果 ?? "").trim();
-    if (/第二种形态/.test(result)) return "是";
-    return "";
-  }
-
-  function enrichHybridCaseDetailRow(row, detail) {
-    const enriched = enrichCaseDetailRow(row, detail);
-    if (!String(enriched.涉及单位 ?? "").trim() && String(enriched.主责单位 ?? "").trim()) {
-      enriched.涉及单位 = enriched.主责单位;
-    }
-    if (!String(enriched.监督模型 ?? "").trim()) {
-      const model = String(enriched.预警类型 ?? enriched.问题分类名称 ?? "").trim();
-      if (model) enriched.监督模型 = model;
-    }
-    const tracking = String(enriched.问题跟踪ID ?? "").trim();
-    const dept = String(enriched.承办部门 ?? "").trim();
-    const close = String(enriched.办结时间 ?? "").trim();
-    enriched.是否待办 = tracking && !dept ? "是" : "";
-    enriched.是否在办 = tracking && dept && !close ? "是" : "";
-    enriched.是否已办 = tracking && dept && close ? "是" : "";
-    enriched.是否查实 = resolveSpbjwYesFlag(enriched, "是否查实");
-    const transferred = resolveSpbjwYesFlag(enriched, "是否转问题线索");
-    enriched.是否转问题线索 = transferred;
-    const datasetId = String(detail?.dataset_id ?? "").trim();
-    const filing = resolveSpbjwYesFlag(enriched, "是否立案");
-    enriched.是否立案 =
-      filing ||
-      (datasetId === "warning_list" || datasetId === "warning_detail" || enriched.预警ID
-        ? transferred
-        : "");
-    enriched.是否给予党纪政务处分 = resolvePartyGovSanctionFlag(enriched);
-    if (!String(enriched.处置方式 ?? "").trim()) {
-      const fallback = String(enriched.处理结果 ?? "").trim();
-      if (fallback && !/第[一二]种形态/.test(fallback)) {
-        enriched.处置方式 = fallback;
-      }
-    }
-    if (!String(enriched.涉及人员 ?? "").trim()) {
-      const person = String(enriched["姓名/单位"] ?? enriched.姓名 ?? "").trim();
-      if (person) enriched.涉及人员 = person;
-    }
-    if (!String(enriched.处理人数 ?? "").trim()) {
-      const person = String(enriched["姓名/单位"] ?? "").trim();
-      if (person) enriched.处理人数 = "1";
-    }
-    if (!String(enriched.挽回资金万 ?? "").trim()) {
-      const funds = String(enriched.挽回资金 ?? "").trim();
-      if (funds) enriched.挽回资金万 = funds;
-    }
-    if (!String(enriched.健全机制数 ?? "").trim()) {
-      const mechanismCount = splitMechanismDocuments(String(enriched.健全机制 ?? "").trim()).length;
-      if (mechanismCount > 0) enriched.健全机制数 = String(mechanismCount);
-    }
-    return enriched;
+    return applyExternalCaseDetailRowEnricher(enriched, detail);
   }
 
   function mappingShowsHeader(mapping) {
@@ -543,9 +473,7 @@
       renderListPreviewItemPanel(host, row, config);
       return;
     }
-    const enrichedRow = mappingHasTypicalCaseStats(mapping)
-      ? enrichHybridCaseDetailRow(row, detail)
-      : enrichCaseDetailRow(row, detail);
+    const enrichedRow = enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-case-detail-panel";
     const hybridStats = mappingHasTypicalCaseStats(mapping);

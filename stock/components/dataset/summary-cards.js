@@ -4,6 +4,7 @@ import {
   escapeHtml,
   fetchDatasetRows,
   fetchPanelRuntimeMetrics,
+  formatRuntimeQueryUserMessage,
   parseProps,
   queryStateIdOf,
   resolveRuntimeDataRef,
@@ -112,7 +113,9 @@ class MeiDatasetSummaryCards extends HTMLElement {
       if (error?.name === "AbortError") {
         return;
       }
-      this._state.error = String(error?.message || error || "runtime query failed");
+      this._state.error = formatRuntimeQueryUserMessage(
+        error?.message || error || "runtime query failed"
+      );
       this._state.metrics = resolveInitialMetrics(this._props);
     } finally {
       this._state.loading = false;

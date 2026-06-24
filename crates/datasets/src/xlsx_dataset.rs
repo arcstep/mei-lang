@@ -10,6 +10,7 @@ use super::dataset_rows_cache::{
     dataset_rows_scope_cache_key, paginate_rows_eager_materialize, store_materialized_dataset_rows,
 };
 use super::file_cache::ExternalFileCacheSettings;
+use super::table_handle::{load_table_handle, materialize_rows_from_handle};
 use super::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
 use super::util::elapsed_ms;
 
@@ -27,27 +28,36 @@ pub(crate) fn query_xlsx_rows(
     let import_entry =
         resolve_data_snapshot_import_entry(app_root, source.path.as_str(), sheet, header_row);
     let snapshot_started = Instant::now();
-    let (snapshot, cache_hit) =
-        cached_load_xlsx_table_snapshot(app_root, source.path.as_str(), sheet, header_row)?;
+    let (columns, coerced_source_rows, cache_hit, table_handle_hit) =
+        if import_entry.is_some() {
+            let (handle, handle_cache_hit) =
+                load_table_handle(app_root, source.path.as_str(), sheet, header_row)?;
+            let (columns, rows) = materialize_rows_from_handle(handle.as_ref(), schema);
+            (columns, rows, handle_cache_hit, true)
+        } else {
+            let (snapshot, cache_hit) =
+                cached_load_xlsx_table_snapshot(app_root, source.path.as_str(), sheet, header_row)?;
+            let rows = if schema.is_empty() {
+                coerce_calendar_columns_in_rows(snapshot.rows.clone(), &snapshot.columns, &[])
+            } else {
+                snapshot
+                    .rows
+                    .iter()
+                    .map(|row| coerce_row_to_schema(row, schema))
+                    .collect()
+            };
+            (snapshot.columns.clone(), rows, cache_hit, false)
+        };
     let snapshot_ms = elapsed_ms(snapshot_started);
     if can_return_snapshot_directly(meta, options, schema) {
-        let row_count = snapshot.rows.len();
-        let rows = if schema.is_empty() {
-            coerce_calendar_columns_in_rows(snapshot.rows.clone(), &snapshot.columns, &[])
-        } else {
-            snapshot
-                .rows
-                .iter()
-                .map(|row| coerce_row_to_schema(row, schema))
-                .collect()
-        };
+        let row_count = coerced_source_rows.len();
         let mut result = DatasetQueryResult {
             page: 1,
             page_size: row_count,
             total: row_count,
             has_more: false,
-            columns: snapshot.columns.clone(),
-            rows,
+            columns,
+            rows: coerced_source_rows,
             lazy: true,
             perf: Default::default(),
             column_meta: Vec::new(),
@@ -57,6 +67,9 @@ pub(crate) fn query_xlsx_rows(
         result
             .perf
             .insert("file_cache_hit".to_string(), u64::from(cache_hit));
+        result
+            .perf
+            .insert("table_handle_hit".to_string(), u64::from(table_handle_hit));
         if cache_hit {
             result
                 .perf
@@ -90,18 +103,9 @@ pub(crate) fn query_xlsx_rows(
         return Ok(result);
     }
     let paginate_started = Instant::now();
-    let coerced_rows = if schema.is_empty() {
-        coerce_calendar_columns_in_rows(snapshot.rows.clone(), &snapshot.columns, &[])
-    } else {
-        snapshot
-            .rows
-            .iter()
-            .map(|row| coerce_row_to_schema(row, schema))
-            .collect()
-    };
     let (mut result, materialized) = paginate_rows_eager_materialize(
-        coerced_rows,
-        &snapshot.columns,
+        coerced_source_rows,
+        &columns,
         &meta.normalize,
         options,
         true,
@@ -114,6 +118,9 @@ pub(crate) fn query_xlsx_rows(
     result
         .perf
         .insert("file_cache_hit".to_string(), u64::from(cache_hit));
+    result
+        .perf
+        .insert("table_handle_hit".to_string(), u64::from(table_handle_hit));
     if cache_hit {
         result
             .perf

@@ -48,6 +48,13 @@ struct DatasetRuntimePayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct AssemblyInputDiskRecord {
+    kind: String,
+    key: String,
+    revision: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct CompiledAppDiskArtifact {
     schema_version: String,
     compile_revision: String,
@@ -57,6 +64,9 @@ struct CompiledAppDiskArtifact {
     /// stored alongside the compiled app for artifact reload to support runtime metric eval.
     #[serde(default)]
     dataset_runtime_payloads: BTreeMap<String, DatasetRuntimePayload>,
+    /// MCG input node revisions for AssemblyView derivation (see doc 80).
+    #[serde(default, rename = "assemblyInputs")]
+    assembly_inputs: Vec<AssemblyInputDiskRecord>,
 }
 
 const COMPILED_APP_ARTIFACT_SCHEMA_VERSION: &str = "mei-compiled-app-artifact-v3";
@@ -335,6 +345,44 @@ fn extract_dataset_runtime_payloads(
     payloads
 }
 
+fn build_assembly_inputs(
+    compiled: &CompiledApp,
+    payloads: &BTreeMap<String, DatasetRuntimePayload>,
+    revision_stamp: &revision::CompileRevisionStamp,
+) -> Vec<AssemblyInputDiskRecord> {
+    let mut inputs = Vec::new();
+    inputs.push(AssemblyInputDiskRecord {
+        kind: "scene_payload".to_string(),
+        key: compiled.active_target_file.clone(),
+        revision: format!(
+            "nr:{}:{}",
+            mei_lang_kernel::scene_payload_cache_epoch(),
+            revision_stamp.token
+        ),
+    });
+    for (owner_id, payload) in payloads {
+        if payload.runtime_metric_defs.is_empty() {
+            continue;
+        }
+        let serialized = serde_json::to_string(&payload.runtime_metric_defs).unwrap_or_default();
+        let fingerprint = stable_assembly_hash(&serialized);
+        inputs.push(AssemblyInputDiskRecord {
+            kind: "metric_def_bundle".to_string(),
+            key: owner_id.clone(),
+            revision: format!("mdb:{fingerprint}"),
+        });
+    }
+    inputs
+}
+
+fn stable_assembly_hash(text: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 fn hydrate_compiled_app_runtime_payloads(
     compiled: &mut CompiledApp,
     payloads: &BTreeMap<String, DatasetRuntimePayload>,
@@ -442,12 +490,14 @@ fn maybe_write_compiled_app_artifact(
         return;
     }
     let app_root = resolve_app_root(source_root, app_id);
+    let payloads = extract_dataset_runtime_payloads(compiled);
     let artifact = CompiledAppDiskArtifact {
         schema_version: COMPILED_APP_ARTIFACT_SCHEMA_VERSION.to_string(),
         compile_revision: revision_stamp.token.clone(),
         revision_scope: revision_stamp.scope.to_string(),
         compiled: compiled.clone(),
-        dataset_runtime_payloads: extract_dataset_runtime_payloads(compiled),
+        dataset_runtime_payloads: payloads.clone(),
+        assembly_inputs: build_assembly_inputs(compiled, &payloads, revision_stamp),
     };
     if let Ok(value) = serde_json::to_value(&artifact) {
         write_compiled_app_artifact_value(

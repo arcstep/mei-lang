@@ -20,7 +20,7 @@ use crate::util::elapsed_ms;
 const DATASET_ROWS_CACHE_TTL_MS: u64 = 300_000;
 const DATASET_ROWS_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
 const MAX_DATASET_ROWS_CACHE_ENTRIES: usize = 48;
-const MIN_ROWS_TO_CACHE: usize = 128;
+const MIN_ROWS_TO_CACHE: usize = 1;
 
 #[derive(Clone)]
 pub(crate) struct MaterializedDatasetRows {

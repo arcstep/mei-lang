@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use crate::http::observation::CompileObservation;
 use crate::{AppError, AppState};
 
-use super::super::compile_cache::RuntimeArtifactPolicy;
+use super::super::compile_cache::{RuntimeAccessPolicies, RuntimeArtifactPolicy, access_import_required};
 use super::super::datasets::{
     map_dataset_query_filters, query_dataset_rows, query_metric_dataframe,
     query_state_from_request, serde_lenient,
@@ -242,13 +242,14 @@ pub async fn dataset_query_api(
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
     let runtime_policy = RuntimeArtifactPolicy::from_headers(&headers);
+    let access_policies = RuntimeAccessPolicies::from_headers(&headers);
     let access_artifact_only = !matches!(runtime_policy, RuntimeArtifactPolicy::BuildViewJit);
     let compile_resolution = crate::http::compile_cache::resolve_runtime_compile_shared(
         &state,
         &app_id,
         &compile_options,
         components_root.as_path(),
-        runtime_policy,
+        access_policies,
     )
     .map_err(|failure| AppError::from(failure.error))?
     .ok_or_else(|| {
@@ -415,6 +416,10 @@ pub async fn dataset_query_api(
         "artifact_backfilled".to_string(),
         u64::from(compile_resolution.artifact_backfilled),
     );
+    perf.insert(
+        "access_parquet_import_required".to_string(),
+        u64::from(access_import_required()),
+    );
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("query_api_ms".to_string(), query_ms);
     let total_ms = elapsed_ms(request_started);
@@ -513,12 +518,13 @@ pub async fn dataset_recompute_api(
         let compile_options = compile_options_from_coords(&coords);
         let components_root = resolve_components_root(&state.source_root);
         let compile_started = Instant::now();
+        let access_policies = RuntimeAccessPolicies::default_for_access_host();
         let compile_resolution = crate::http::compile_cache::resolve_runtime_compile_shared(
             &state,
             &app_id,
             &compile_options,
             components_root.as_path(),
-            RuntimeArtifactPolicy::ArtifactFirstFallback,
+            access_policies,
         )
         .map_err(|failure| AppError::from(failure.error))?
         .ok_or_else(|| {

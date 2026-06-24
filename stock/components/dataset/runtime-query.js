@@ -1966,20 +1966,128 @@ const STRICT_AOT_METRIC_ARTIFACT_MISSING =
   "missing strict AOT metric result artifact";
 const ACCESS_ARTIFACT_GATE_MESSAGE =
   "requires prebuilt access artifacts on access-only host";
+const WARMUP_TRANSIENT_ERROR_MARKERS = [
+  "not found in active scene resources",
+  STRICT_AOT_METRIC_ARTIFACT_MISSING,
+  ACCESS_ARTIFACT_GATE_MESSAGE,
+  "该指标尚未装载",
+];
 const HOST_ACCESS_READY_POLL_URL = "/api/host/heartbeat";
 const HOST_READY_POLL_MS = 400;
 const HOST_READY_TIMEOUT_MS = 45_000;
 let hostAccessReadyWaitPromise = null;
+let cachedHostHeartbeatPayload = null;
 
-function shouldRetryStartupArtifactFetch(response, errorText) {
-  if (Number(response?.status) !== 503) {
+export function getCachedHostHeartbeatPayload() {
+  return cachedHostHeartbeatPayload;
+}
+
+function formatElapsedZh(elapsedMs) {
+  const ms = Number(elapsedMs);
+  if (!Number.isFinite(ms) || ms < 0) {
+    return "刚刚";
+  }
+  if (ms < 1000) {
+    return `${Math.max(1, Math.round(ms))} 秒`;
+  }
+  if (ms < 60_000) {
+    return `${Math.max(1, Math.round(ms / 1000))} 秒`;
+  }
+  if (ms < 3_600_000) {
+    const minutes = Math.floor(ms / 60_000);
+    const seconds = Math.floor((ms % 60_000) / 1000);
+    return seconds > 0 ? `${minutes} 分 ${seconds} 秒` : `${minutes} 分`;
+  }
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.floor((ms % 3_600_000) / 60_000);
+  return minutes > 0 ? `${hours} 小时 ${minutes} 分` : `${hours} 小时`;
+}
+
+export function isHostWarmupInProgress(payload) {
+  if (!payload || typeof payload !== "object") {
     return false;
   }
+  if (payload.accessReady === false || payload.access_ready === false) {
+    return true;
+  }
+  if (payload.deferredWarmupPending === true || payload.deferred_warmup_pending === true) {
+    return true;
+  }
+  const phase = String(payload.phase || "").trim().toLowerCase();
+  return phase === "starting" || phase === "bound" || phase === "building" || phase === "verifying";
+}
+
+export function isWarmupTransientRuntimeError(message) {
+  const text = String(message || "");
+  return WARMUP_TRANSIENT_ERROR_MARKERS.some((marker) => text.includes(marker));
+}
+
+export function formatWarmupPendingUserMessage(payload) {
+  const startedAt = Number(payload?.hostStartedAtMs ?? payload?.host_started_at_ms ?? 0);
+  const elapsedMs = startedAt > 0 ? Date.now() - startedAt : null;
+  const ago =
+    elapsedMs != null && Number.isFinite(elapsedMs) && elapsedMs >= 0
+      ? formatElapsedZh(elapsedMs)
+      : "刚刚";
+  const detail =
+    payload?.deferredWarmupPending === true || payload?.deferred_warmup_pending === true
+      ? "后台仍在装载 deferred 指标"
+      : ["building", "verifying", "bound"].includes(String(payload?.phase || "").trim().toLowerCase())
+        ? "后台正在编译与预热"
+        : payload?.accessReady === false || payload?.access_ready === false
+          ? "启动预热尚未完成"
+          : "访问态产物仍在装载";
+  return `系统于 ${ago} 前刚刚启动，${detail}，该指标尚未装载，请稍候刷新页面。`;
+}
+
+export function formatRuntimeQueryUserMessage(rawMessage, hostPayload = null) {
+  const text = String(rawMessage || "").trim();
+  if (!text) {
+    return text;
+  }
+  if (text.includes("该指标尚未装载")) {
+    return text;
+  }
+  const payload = hostPayload || cachedHostHeartbeatPayload;
+  if (payload && isHostWarmupInProgress(payload) && isWarmupTransientRuntimeError(text)) {
+    return formatWarmupPendingUserMessage(payload);
+  }
+  return text;
+}
+
+export function formatRuntimeQueryDisplayMessage(rawMessage, hostPayload = null) {
+  const message = formatRuntimeQueryUserMessage(rawMessage, hostPayload);
+  if (message.includes("该指标尚未装载")) {
+    return message;
+  }
+  return message ? `运行时查询失败: ${message}` : "运行时查询失败";
+}
+
+function runtimeQueryHttpError(rawMessage, hostPayload = null) {
+  return new Error(formatRuntimeQueryUserMessage(rawMessage, hostPayload));
+}
+
+function shouldRetryStartupArtifactFetch(response, errorText, hostPayload = null) {
   const text = String(errorText || "");
-  return (
-    text.includes(STRICT_AOT_METRIC_ARTIFACT_MISSING) ||
-    text.includes(ACCESS_ARTIFACT_GATE_MESSAGE)
-  );
+  const status = Number(response?.status);
+  const payload = hostPayload || cachedHostHeartbeatPayload;
+  if (status === 503) {
+    if (
+      text.includes(STRICT_AOT_METRIC_ARTIFACT_MISSING) ||
+      text.includes(ACCESS_ARTIFACT_GATE_MESSAGE) ||
+      text.includes("该指标尚未装载")
+    ) {
+      return true;
+    }
+  }
+  if (
+    (status === 404 || status === 503) &&
+    isWarmupTransientRuntimeError(text) &&
+    isHostWarmupInProgress(payload)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function waitMsWithAbort(ms, signal) {
@@ -2023,6 +2131,7 @@ async function readHostAccessReadyState(signal) {
   } catch (_) {
     payload = null;
   }
+  cachedHostHeartbeatPayload = payload && typeof payload === "object" ? payload : null;
   return {
     response,
     payload,
@@ -2088,7 +2197,11 @@ async function fetchJsonWithStartupArtifactRetry(api, payload, signal) {
   if (result.response.ok) {
     return result;
   }
-  if (!shouldRetryStartupArtifactFetch(result.response, result.errorText)) {
+  if (!shouldRetryStartupArtifactFetch(
+    result.response,
+    result.errorText,
+    cachedHostHeartbeatPayload
+  )) {
     return result;
   }
   // background-build allows the host to bind before prebuild completes, but
@@ -2226,7 +2339,7 @@ async function fetchRuntimeMetricsUncached(api, payload, errorContext = {}, sign
       requestId: safeTrim(clientPerf.request_id) || context.request_id,
       phase: "metric_fetch",
     });
-    throw new Error(text);
+    throw runtimeQueryHttpError(text, cachedHostHeartbeatPayload);
   }
   const serverPerf = data && typeof data.perf === "object" ? data.perf : {};
   data.perf = mergeServerAndClientPerf(serverPerf, clientPerf);
@@ -2346,7 +2459,7 @@ async function fetchSceneRuntimeMetricBatchUncached(
       requestId: safeTrim(clientPerf.request_id) || context.request_id,
       phase: "metric_batch_fetch",
     });
-    throw new Error(text);
+    throw runtimeQueryHttpError(text, cachedHostHeartbeatPayload);
   }
   return { data, clientPerf };
 }
@@ -2969,7 +3082,7 @@ async function fetchDatasetRowsUncached(
       requestId: safeTrim(clientPerf.request_id) || errorContext.request_id,
       phase: metricId ? "metric_dataframe_fetch" : "dataset_fetch",
     });
-    throw new Error(text);
+    throw runtimeQueryHttpError(text, cachedHostHeartbeatPayload);
   }
   const serverPerf = data && typeof data.perf === "object" ? data.perf : {};
   data.perf = mergeServerAndClientPerf(serverPerf, clientPerf);

@@ -18,6 +18,7 @@ pub enum Command {
     Knowledge(KnowledgeArgs),
     EditorRuntime(EditorRuntimeArgs),
     Prebuild(PrebuildArgs),
+    Warmup(WarmupArgs),
     Compile(CheckArgs),
     Check(CheckArgs),
     Inspect(InspectArgs),
@@ -311,6 +312,30 @@ pub struct CliAppSelectorArgs {
 }
 
 #[derive(Args, Clone)]
+pub struct WarmupArgs {
+    #[command(subcommand)]
+    pub command: WarmupCommand,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum WarmupCommand {
+    /// 从 board.mei 推导 deferred warmup 条目 diff（不写盘）
+    Suggest(WarmupSuggestArgs),
+}
+
+#[derive(Args, Clone)]
+pub struct WarmupSuggestArgs {
+    #[arg(long, conflicts_with = "source_root")]
+    pub workspace: Option<String>,
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long = "app")]
+    pub app_id: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Clone)]
 pub struct CheckArgs {
     #[command(flatten)]
     pub app: CliAppSelectorArgs,
@@ -329,6 +354,9 @@ pub struct PrebuildArgs {
     pub verify: bool,
     #[arg(long)]
     pub clean: bool,
+    /// 忽略 prebuild 输入指纹，强制执行完整 prebuild（不删盘）。
+    #[arg(long)]
+    pub force_rebuild: bool,
     /// 仅构建 defaultScene + hotScenes 对应的首条热路径，不等待完整 warmup。
     #[arg(long, default_value_t = false)]
     pub hot_only: bool,

@@ -10,6 +10,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::data_snapshot::{
+    access_parquet_import_required, parquet_sidecar_write_allowed,
     source_file_content_signature, try_load_xlsx_parquet_snapshot, write_xlsx_parquet_snapshot,
 };
 use super::decls::LegacySourceDecl;
@@ -237,14 +238,7 @@ fn take_xlsx_table_snapshot_cache(key: &str) -> Option<Arc<XlsxTableSnapshot>> {
 }
 
 fn parquet_sidecar_write_enabled() -> bool {
-    !std::env::var("MEI_DISABLE_PARQUET_SIDECAR_WRITE")
-        .ok()
-        .is_some_and(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
+    parquet_sidecar_write_allowed()
 }
 
 fn load_xlsx_table_snapshot_arc(
@@ -257,6 +251,12 @@ fn load_xlsx_table_snapshot_arc(
     if let Some(snapshot) = try_load_xlsx_parquet_snapshot(app_root, source_path, sheet, header_row)
     {
         return Ok(Arc::new(snapshot));
+    }
+    if access_parquet_import_required() {
+        anyhow::bail!(
+            "missing parquet data snapshot import for `{source_path}` (sheet={:?}, header_row={header_row}); run `mei-toolchain prebuild` or publish data snapshots before serving access traffic",
+            sheet
+        );
     }
     let snapshot =
         load_xlsx_table_snapshot(absolute_path, source_path, sheet, header_row.max(1), None)?;

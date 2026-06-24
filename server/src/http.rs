@@ -57,6 +57,12 @@ pub fn router() -> Router<AppState> {
             "/api/build/workspace-fragment",
             get(build_api::api_build_workspace_fragment),
         )
+        .route("/api/build/graph/mcg", get(build_api::api_build_graph_mcg))
+        .route("/api/build/graph/mrg", get(build_api::api_build_graph_mrg))
+        .route(
+            "/api/build/graph/bridge",
+            get(build_api::api_build_graph_bridge),
+        )
         .route(
             "/api/host/request-trace",
             get(request_trace::api_request_trace),

@@ -679,6 +679,8 @@ fn build_prebuild_diagnostics_report(
         },
         slow_scopes,
         slow_metrics,
+        fingerprint_skip: false,
+        inputs_fingerprint: None,
     }
 }
 
@@ -1177,6 +1179,7 @@ pub struct PrebuildOptions {
     pub app_filter: Option<String>,
     pub mode: PrebuildMode,
     pub clean: bool,
+    pub force_rebuild: bool,
     pub scope_profile: PrebuildScopeProfile,
 }
 
@@ -1219,6 +1222,8 @@ pub struct PrebuildCoverageReport {
     pub metric_response_artifacts_planned: usize,
     pub metric_response_artifacts_ready: usize,
     pub metric_response_artifacts_built: usize,
+    #[serde(default)]
+    pub metric_response_artifacts_skipped_bundle_unchanged: usize,
     pub metric_response_artifacts_missing: usize,
     pub metric_dataframe_artifacts_planned: usize,
     pub metric_dataframe_artifacts_ready: usize,
@@ -1327,6 +1332,10 @@ pub struct PrebuildDiagnosticsReport {
     pub deferred_warmup: PrebuildWarmupDiagnosticReport,
     pub slow_scopes: Vec<PrebuildSlowScopeDiagnostic>,
     pub slow_metrics: Vec<PrebuildSlowMetricDiagnostic>,
+    #[serde(default)]
+    pub fingerprint_skip: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inputs_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1767,6 +1776,8 @@ struct CoverageState {
     metric_dataframe_exact: Arc<Mutex<BTreeMap<String, DatasetQueryResult>>>,
     metric_dataframe_shared: Arc<Mutex<BTreeMap<String, DatasetQueryResult>>>,
     diagnostics: Arc<PrebuildDiagnostics>,
+    /// MetricDefBundle revisions captured before compile (MCG P1 skip).
+    pre_mcg_bundle_revisions: BTreeMap<String, String>,
 }
 
 impl Default for CoverageState {
@@ -1779,6 +1790,7 @@ impl Default for CoverageState {
             metric_dataframe_exact: Arc::new(Mutex::new(BTreeMap::new())),
             metric_dataframe_shared: Arc::new(Mutex::new(BTreeMap::new())),
             diagnostics: Arc::new(PrebuildDiagnostics::default()),
+            pre_mcg_bundle_revisions: BTreeMap::new(),
         }
     }
 }
@@ -1915,6 +1927,7 @@ impl CoverageState {
 
 pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<PrebuildReport> {
     let _progress_session = PrebuildProgressSession::begin();
+    std::env::set_var("MEI_PREBUILD_ACTIVE", "1");
     let started = Instant::now();
     let manifest_path = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
     let manifest_source = if manifest_path.is_file() {
@@ -1984,6 +1997,27 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         report.total_wall_ms = started.elapsed().as_millis() as u64;
         return Ok(report);
     }
+    if options.mode == PrebuildMode::Build
+        && !options.clean
+        && !options.force_rebuild
+        && options.app_filter.is_none()
+    {
+        if let Some(fingerprint_match) =
+            crate::prebuild_fingerprint::try_match_prebuild_fingerprint(source_root)?
+        {
+            prebuild_emit_progress(format!(
+                "{} | fingerprint={} | 跳过完整 prebuild（输入未变）",
+                ansi_wrap("SKIP", "1;32"),
+                fingerprint_match.stored.inputs_fingerprint
+            ));
+            report.succeeded_apps = fingerprint_match.stored.succeeded_apps.clone();
+            report.diagnostics.fingerprint_skip = true;
+            report.diagnostics.inputs_fingerprint =
+                Some(fingerprint_match.stored.inputs_fingerprint.clone());
+            report.total_wall_ms = started.elapsed().as_millis() as u64;
+            return Ok(report);
+        }
+    }
     prebuild_emit_progress(&format!(
         "{} | workspace={} | apps={}",
         ansi_wrap(
@@ -2029,6 +2063,41 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
     }
     report.diagnostics = aggregate_prebuild_diagnostics(report.apps.as_slice());
     report.total_wall_ms = started.elapsed().as_millis() as u64;
+    if report.ok
+        && options.mode == PrebuildMode::Build
+        && !options.clean
+        && options.app_filter.is_none()
+    {
+        let total_missing = report
+            .apps
+            .iter()
+            .map(|app| app.coverage.total_missing_artifacts)
+            .sum::<usize>();
+        if total_missing == 0 {
+            if let Ok(fingerprint) =
+                crate::prebuild_fingerprint::compute_prebuild_inputs_fingerprint(source_root)
+            {
+                report.diagnostics.inputs_fingerprint = Some(fingerprint.clone());
+                let state = crate::prebuild_fingerprint::PersistedPrebuildState {
+                    schema_version: crate::prebuild_fingerprint::PREBUILD_STATE_SCHEMA_VERSION
+                        .to_string(),
+                    inputs_fingerprint: fingerprint,
+                    last_ok_at_ms: now_epoch_ms(),
+                    last_mode: "build".to_string(),
+                    last_scope_profile: match options.scope_profile {
+                        PrebuildScopeProfile::Full => "full".to_string(),
+                        PrebuildScopeProfile::HotOnly => "hot_only".to_string(),
+                    },
+                    succeeded_apps: report.succeeded_apps.clone(),
+                    artifact_coverage_summary:
+                        crate::prebuild_fingerprint::PrebuildArtifactCoverageSummary {
+                            total_missing_artifacts: 0,
+                        },
+                };
+                let _ = crate::prebuild_fingerprint::persist_prebuild_state(source_root, &state);
+            }
+        }
+    }
     Ok(report)
 }
 
@@ -2077,6 +2146,8 @@ fn merge_coverage(target: &mut PrebuildCoverageReport, delta: &PrebuildCoverageR
     target.metric_response_artifacts_planned += delta.metric_response_artifacts_planned;
     target.metric_response_artifacts_ready += delta.metric_response_artifacts_ready;
     target.metric_response_artifacts_built += delta.metric_response_artifacts_built;
+    target.metric_response_artifacts_skipped_bundle_unchanged += delta
+        .metric_response_artifacts_skipped_bundle_unchanged;
     target.metric_response_artifacts_missing += delta.metric_response_artifacts_missing;
     target.metric_dataframe_artifacts_planned += delta.metric_dataframe_artifacts_planned;
     target.metric_dataframe_artifacts_ready += delta.metric_dataframe_artifacts_ready;
@@ -2133,6 +2204,11 @@ fn run_prebuild_for_app(
             .max(1),
     );
     let default_scope = CompileScope::default_scope();
+    let pre_mcg_bundle_revisions = if crate::graph::feature::graph_registry_enabled() {
+        crate::graph::bundle_unchanged_owners(source_root, app.app_id.as_str())
+    } else {
+        BTreeMap::new()
+    };
     let compile_started = Instant::now();
     let initial_scope_count = manifest_plan.initial_scope_count;
     prebuild_emit_progress(&format!(
@@ -2501,6 +2577,7 @@ fn run_prebuild_for_app(
     let _ = mei_lang_kernel::clear_runtime_eval_node_cache();
     let coverage_state = CoverageState {
         diagnostics: Arc::clone(&diagnostics),
+        pre_mcg_bundle_revisions,
         ..CoverageState::default()
     };
     let artifact_outcomes = unique_prepared_outcomes_for_artifacts(&prepared_outcomes);
@@ -4738,6 +4815,18 @@ fn build_plan_node_stats(
     }
 }
 
+fn current_bundle_revision_for_plan(plan: &PlannedMetricWorkset) -> Option<String> {
+    let defs = plan.defs_for_hydrate.as_ref();
+    if defs.is_empty() {
+        return None;
+    }
+    let serialized = serde_json::to_string(defs).ok()?;
+    Some(format!(
+        "mdb:{}",
+        crate::graph::types::stable_hash(&serialized)
+    ))
+}
+
 fn ensure_metric_response_artifact_for_plan(
     app_id: &str,
     app_root: &Path,
@@ -4747,6 +4836,26 @@ fn ensure_metric_response_artifact_for_plan(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
+    if crate::graph::feature::graph_registry_enabled() {
+        if let Some(current_rev) = current_bundle_revision_for_plan(plan) {
+            if state
+                .pre_mcg_bundle_revisions
+                .get(plan.owner_resource_id.as_str())
+                .is_some_and(|prev| prev == &current_rev)
+            {
+                if prebuild_metric_response_index_covers_key(
+                    app_root,
+                    &plan.shared_cache_key,
+                    &plan.covered_metric_ids,
+                    plan.request_all_metrics,
+                )? {
+                    coverage.metric_response_artifacts_skipped_bundle_unchanged += 1;
+                    coverage.metric_response_artifacts_ready += 1;
+                    return Ok(());
+                }
+            }
+        }
+    }
     let owner_resource = mei_lang_kernel::locate_dataset_resource(
         &outcome.compiled,
         plan.owner_resource_id.as_str(),

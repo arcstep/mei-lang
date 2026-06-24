@@ -172,6 +172,39 @@ pub fn resolve_data_snapshot_import_entry(
     })
 }
 
+fn env_flag(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty())
+}
+
+/// Access host with sealed assembly must not cold-read xlsx via calamine at serve time.
+pub fn access_parquet_import_required() -> bool {
+    !matches!(
+        env_flag("MEI_ACCESS_ASSEMBLY_POLICY")
+            .or_else(|| env_flag("MEI_RUNTIME_ASSEMBLY_POLICY"))
+            .as_deref(),
+        Some("jit" | "build_view" | "compile")
+    )
+}
+
+/// Runtime serve must not silently write parquet sidecars; prebuild/build may.
+pub fn parquet_sidecar_write_allowed() -> bool {
+    if matches!(
+        env_flag("MEI_DISABLE_PARQUET_SIDECAR_WRITE").as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    ) {
+        return false;
+    }
+    matches!(
+        env_flag("MEI_ALLOW_PARQUET_SIDECAR_WRITE")
+            .or_else(|| env_flag("MEI_PREBUILD_ACTIVE"))
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
 fn upsert_data_snapshot_import_entry(
     app_root: &Path,
     entry: DataSnapshotImportEntry,

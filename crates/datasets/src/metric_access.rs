@@ -8,6 +8,7 @@ use mei_lang_kernel::{
     MetricContract, QueryState, RuntimeMetricEvalReport, RuntimeMetricEvalScope,
 };
 
+use super::agg_result_cache::{agg_result_cache_key, lookup_agg_result_cache, store_agg_result_cache};
 use super::eval_artifact::{
     eval_artifact_hydrate_dataset_ids, load_or_build_runtime_metric_workset_artifact,
 };
@@ -180,6 +181,69 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         &defs_for_hydrate,
     );
 
+    if matches!(mode, RuntimeMetricEvalMode::WithDag) {
+        let agg_key = agg_result_cache_key(
+            compiled.app_id.as_str(),
+            &eval_plan.owner.id,
+            &covered_eval_metric_ids,
+            query_state,
+            filter_intents,
+            &dependency_revision_key,
+        );
+        if let Some((cached_metrics_map, cached_total_rows)) = lookup_agg_result_cache(&agg_key) {
+            let metrics = if request_all_metrics {
+                cached_metrics_map.values().cloned().collect()
+            } else {
+                project_requested_metrics(
+                    &eval_plan.owner.id,
+                    &eval_plan.request_metric_ids,
+                    &owner_dataset.runtime_metric_defs,
+                    &cached_metrics_map,
+                )
+            };
+            let mut query_perf = BTreeMap::new();
+            query_perf.insert("agg_cache_hit".to_string(), 1);
+            return Ok(RuntimeMetricEvalOutcome {
+                primary_resource_id: eval_plan.primary.id.clone(),
+                owner_resource_id: eval_plan.owner.id.clone(),
+                request_metric_ids: eval_plan.request_metric_ids.clone(),
+                closure_metric_ids,
+                covered_eval_metric_ids,
+                dependency_revision_key: dependency_revision_key.clone(),
+                workset_artifact_hit,
+                eval_artifact_hit: false,
+                total_rows: cached_total_rows,
+                metrics_map: cached_metrics_map,
+                metrics,
+                query_perf,
+                hydrate_perf: BTreeMap::new(),
+                base_rowset_materialize_ms: 0,
+                query_ms: 0,
+                hydrate_ms: 0,
+                eval_scope_ms: 0,
+                workset_artifact_load_ms,
+                eval_artifact_load_ms: 0,
+                eval_node_artifact_load_ms: 0,
+                eval_node_artifact_hits: 0,
+                eval_node_artifact_stores: 0,
+                metric_eval_ms: 0,
+                eval_scope: runtime_metric_eval_scope(
+                    Some(primary_dataset),
+                    &eval_plan.primary.id,
+                    scene_id,
+                    scene_path,
+                    query_state.search.as_deref(),
+                    &query_state.filters,
+                    Some(query_state),
+                    filter_intents,
+                    &dependency_revision_key,
+                    &[],
+                )?,
+                eval_report: None,
+            });
+        }
+    }
+
     let primary_filters =
         resolve_dataset_query_bindings_from_state(query_state, primary_dataset).mapped_filters;
     let primary_query_options = DatasetQueryOptions {
@@ -191,7 +255,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
     let query_ms = elapsed_ms(query_started);
     let base_rowset_materialize_ms = query_ms;
     let total_rows = filtered_rows.rows.len();
-    let query_perf = filtered_rows.perf.clone();
+    let mut query_perf = filtered_rows.perf.clone();
 
     let mut runtime_dataset = primary_dataset.clone();
     runtime_dataset.rows = filtered_rows.rows;
@@ -277,6 +341,19 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         }
     };
     let metric_eval_ms = elapsed_ms(metric_eval_started);
+
+    if matches!(mode, RuntimeMetricEvalMode::WithDag) {
+        let agg_key = agg_result_cache_key(
+            compiled.app_id.as_str(),
+            &eval_plan.owner.id,
+            &covered_eval_metric_ids,
+            query_state,
+            filter_intents,
+            &dependency_revision_key,
+        );
+        store_agg_result_cache(agg_key, metrics_map.clone(), total_rows);
+        query_perf.insert("agg_cache_hit".to_string(), 0);
+    }
 
     let metrics = if request_all_metrics {
         metrics_map.values().cloned().collect()

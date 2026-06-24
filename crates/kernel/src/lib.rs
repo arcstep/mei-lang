@@ -13,6 +13,7 @@ mod runtime_resource_index;
 mod source_version;
 mod theme_tokens;
 mod typed_refs;
+mod warmup_board_autogen;
 mod warmup_manifest;
 mod workspace;
 
@@ -38,6 +39,7 @@ pub use compile::{
     preview_target_from_build_node, preview_target_from_build_node_with_app,
     publish_xlsx_data_snapshots_for_paths, read_data_snapshot_import_manifest,
     resolve_build_node_context, resolve_data_snapshot_import_entry,
+    access_parquet_import_required, parquet_sidecar_write_allowed,
     resolve_default_scene_from_root, resolve_runtime_metric_def_key,
     runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled,
     scene_payload_cache_epoch, source_file_content_signature, try_get_cached_xlsx_table_snapshot,
@@ -137,6 +139,10 @@ pub use theme_tokens::{
 pub use typed_refs::{
     decode_binding_value, decode_ref_value, ref_to_json, BindingValue, RefExpr, RefKind,
     SceneLocator, SceneRegistry,
+};
+pub use warmup_board_autogen::{
+    discover_board_warmup_suggestions, merge_workspace_and_board_warmup_requests,
+    SuggestedWarmupDatasetRequest,
 };
 pub use warmup_manifest::{
     build_runtime_warmup_manifest, resolve_runtime_warmup_manifest,

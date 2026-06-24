@@ -9,6 +9,7 @@ mod mcp;
 mod prebuild;
 mod query;
 mod runtime;
+mod warmup;
 mod workspace;
 
 pub use agent::agent_command;
@@ -22,4 +23,5 @@ pub use mcp::mcp_command;
 pub use prebuild::prebuild_command;
 pub use query::query_command;
 pub use runtime::runtime_command;
+pub use warmup::warmup_command;
 pub use workspace::workspace_command;

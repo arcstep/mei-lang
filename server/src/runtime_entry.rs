@@ -32,7 +32,7 @@ use crate::cli::util::{
 use crate::cli::{
     agent_command, compile_or_check_command, editor_runtime_command, export_command, host_command,
     inspect_command, knowledge_command, mcp_command, prebuild_command, query_command,
-    runtime_command, workspace_command,
+    runtime_command, warmup_command, workspace_command,
 };
 
 static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -86,6 +86,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
             Command::Knowledge(_) => "knowledge",
             Command::EditorRuntime(_) => "editor-runtime",
             Command::Prebuild(_) => "prebuild",
+            Command::Warmup(_) => "warmup",
             Command::Compile(_) => "compile",
             Command::Check(_) => "check",
             Command::Inspect(_) => "inspect",
@@ -107,6 +108,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
                 | Command::Knowledge(_)
                 | Command::EditorRuntime(_)
                 | Command::Prebuild(_)
+                | Command::Warmup(_)
                 | Command::Compile(_)
                 | Command::Check(_)
                 | Command::Inspect(_)
@@ -144,6 +146,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
         Command::Knowledge(_) => "knowledge",
         Command::EditorRuntime(_) => "editor-runtime",
         Command::Prebuild(_) => "prebuild",
+        Command::Warmup(_) => "warmup",
         Command::Compile(_) => "compile",
         Command::Check(_) => "check",
         Command::Inspect(_) => "inspect",
@@ -195,6 +198,7 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
         Command::Knowledge(args) => knowledge_command(args),
         Command::EditorRuntime(args) => editor_runtime_command(args),
         Command::Prebuild(args) => prebuild_command(args),
+        Command::Warmup(args) => warmup_command(args),
         Command::Compile(args) => compile_or_check_command("compile", args),
         Command::Check(args) => compile_or_check_command("check", args),
         Command::Inspect(args) => inspect_command(args),

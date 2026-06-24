@@ -4,6 +4,7 @@ import {
   fetchDatasetRows,
   fetchPanelRuntimeMetrics,
   findRuntimeMetricInResults,
+  formatRuntimeQueryDisplayMessage,
   parseProps,
   queryStateIdOf,
   resolveRuntimeDataRef,
@@ -456,7 +457,7 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         await this.renderChart();
       } catch (error) {
         if (isAbortError(error)) return;
-        this.errorEl.textContent = "运行时查询失败: " + String(error?.message || error);
+        this.errorEl.textContent = formatRuntimeQueryDisplayMessage(error?.message || error);
         this._renderTrace?.mark("runtime_query_error", {
           message: String(error?.message || error),
         });
