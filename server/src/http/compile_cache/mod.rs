@@ -12,20 +12,17 @@ pub(crate) use toolchain::CompileWithCacheOutcome;
 pub(crate) enum RuntimeArtifactPolicy {
     SealedStrict,
     ArtifactFirstFallback,
-    BuildViewJit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RuntimeAssemblyPolicy {
     Sealed,
-    Jit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RuntimeEvalPolicy {
     ArtifactFirstThin,
     SealedStrict,
-    Jit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,19 +32,19 @@ pub(crate) struct RuntimeAccessPolicies {
 }
 
 impl RuntimeAccessPolicies {
-    pub(crate) fn from_headers(headers: &HeaderMap) -> Self {
-        if is_build_view_request(headers) {
-            return Self {
-                assembly: RuntimeAssemblyPolicy::Jit,
-                eval: RuntimeEvalPolicy::Jit,
-            };
-        }
+    pub(crate) fn from_headers(_headers: &HeaderMap) -> Self {
         let assembly = match env_ascii("MEI_ACCESS_ASSEMBLY_POLICY")
             .or_else(|| env_ascii("MEI_RUNTIME_ASSEMBLY_POLICY"))
             .as_deref()
         {
-            Some("jit" | "build_view" | "compile") => RuntimeAssemblyPolicy::Jit,
-            _ => RuntimeAssemblyPolicy::Sealed,
+            Some("sealed") | None => RuntimeAssemblyPolicy::Sealed,
+            Some(other) => {
+                tracing::warn!(
+                    policy = other,
+                    "unknown MEI_ACCESS_ASSEMBLY_POLICY; defaulting to sealed AOT"
+                );
+                RuntimeAssemblyPolicy::Sealed
+            }
         };
         let eval = match env_ascii("MEI_ACCESS_EVAL_POLICY")
             .or_else(|| env_ascii("MEI_RUNTIME_EVAL_POLICY"))
@@ -58,29 +55,23 @@ impl RuntimeAccessPolicies {
             Some("sealed" | "sealed_strict" | "strict" | "aot_strict") => {
                 RuntimeEvalPolicy::SealedStrict
             }
-            Some("jit" | "build_view") => RuntimeEvalPolicy::Jit,
-            _ => RuntimeEvalPolicy::ArtifactFirstThin,
+            Some("artifact_first_thin") | None => RuntimeEvalPolicy::ArtifactFirstThin,
+            Some(other) => {
+                tracing::warn!(
+                    policy = other,
+                    "unknown MEI_ACCESS_EVAL_POLICY; defaulting to artifact_first_thin"
+                );
+                RuntimeEvalPolicy::ArtifactFirstThin
+            }
         };
         Self { assembly, eval }
     }
 
-    pub(crate) fn allows_runtime_compile(self) -> bool {
-        matches!(self.assembly, RuntimeAssemblyPolicy::Jit)
-    }
-
     pub(crate) fn allows_thin_eval(self) -> bool {
-        matches!(
-            self.eval,
-            RuntimeEvalPolicy::ArtifactFirstThin | RuntimeEvalPolicy::Jit
-        )
+        matches!(self.eval, RuntimeEvalPolicy::ArtifactFirstThin)
     }
 
     pub(crate) fn legacy_runtime_artifact_policy(self) -> RuntimeArtifactPolicy {
-        if matches!(self.eval, RuntimeEvalPolicy::Jit)
-            || matches!(self.assembly, RuntimeAssemblyPolicy::Jit)
-        {
-            return RuntimeArtifactPolicy::BuildViewJit;
-        }
         if matches!(self.eval, RuntimeEvalPolicy::SealedStrict) {
             return RuntimeArtifactPolicy::SealedStrict;
         }
@@ -122,20 +113,6 @@ fn env_ascii(name: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_ascii_lowercase())
         .filter(|value| !value.is_empty())
-}
-
-pub(crate) fn is_build_view_request(headers: &HeaderMap) -> bool {
-    if headers
-        .get("x-mei-build-view")
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "yes" | "on"))
-    {
-        return true;
-    }
-    headers
-        .get(axum::http::header::REFERER)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|referer| referer.contains("/apps/build/"))
 }
 
 pub(crate) fn load_compile_artifact_only(
@@ -181,20 +158,6 @@ pub(crate) fn load_compile_artifact_only_shared(
         &state.source_root,
         app_id,
         options,
-        components_root,
-    )
-}
-
-pub(crate) fn compile_app_with_cache_shared(
-    state: &AppState,
-    app_id: &str,
-    options: &CompileOptions,
-    components_root: &std::path::Path,
-) -> Result<toolchain::CompileWithCacheOutcomeShared, toolchain::CompileWithCacheFailure> {
-    toolchain::compile_app_with_cache_shared(
-        &state.source_root,
-        app_id,
-        options.clone(),
         components_root,
     )
 }
@@ -279,17 +242,7 @@ pub(crate) fn resolve_runtime_compile_shared(
             artifact_backfilled: false,
         }));
     }
-    if !access_policies.allows_runtime_compile() {
-        return Ok(None);
-    }
-    let outcome = compile_app_with_cache_shared(state, app_id, options, components_root)?;
-    Ok(Some(RuntimeCompileResolution {
-        artifact_backfilled: policy.is_artifact_first_fallback(),
-        correctness_fallback: policy.is_artifact_first_fallback(),
-        outcome,
-        policy,
-        access_policies,
-    }))
+    Ok(None)
 }
 
 pub(crate) fn compile_outcome_from_shared(
@@ -320,13 +273,22 @@ pub(crate) fn access_import_required() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::{HeaderMap, HeaderValue};
+    use axum::http::HeaderMap;
 
     #[test]
-    fn build_view_detects_custom_header() {
+    fn build_view_header_does_not_change_policy() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-mei-build-view", HeaderValue::from_static("1"));
-        assert!(is_build_view_request(&headers));
+        headers.insert(
+            "x-mei-build-view",
+            axum::http::HeaderValue::from_static("1"),
+        );
+        let policies = RuntimeAccessPolicies::from_headers(&headers);
+        assert_eq!(policies.assembly, RuntimeAssemblyPolicy::Sealed);
+        assert_eq!(policies.eval, RuntimeEvalPolicy::ArtifactFirstThin);
+        assert_eq!(
+            RuntimeArtifactPolicy::from_headers(&headers),
+            RuntimeArtifactPolicy::ArtifactFirstFallback
+        );
     }
 
     #[test]
@@ -336,7 +298,6 @@ mod tests {
         assert_eq!(policies.assembly, RuntimeAssemblyPolicy::Sealed);
         assert_eq!(policies.eval, RuntimeEvalPolicy::ArtifactFirstThin);
         assert!(policies.allows_thin_eval());
-        assert!(!policies.allows_runtime_compile());
     }
 
     #[test]

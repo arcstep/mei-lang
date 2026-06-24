@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use mei_lang_kernel::{clear_runtime_compile_caches, resolve_app_root};
+use mei_lang_kernel::{
+    bump_cache_generation, clear_runtime_compile_caches, resolve_app_root, CacheGenerationRecord,
+};
 
 use crate::AppState;
 
@@ -27,6 +29,7 @@ pub(crate) struct RuntimeCacheInvalidateReport {
     pub metric_dataframe_cache_cleared: usize,
     pub dataset_rows_cache_cleared: usize,
     pub eval_artifacts_cleared: usize,
+    pub cache_generation_bumped: bool,
     pub clear_ms: u64,
 }
 
@@ -58,8 +61,36 @@ pub(crate) fn invalidate_app_runtime_caches(
         metric_dataframe_cache_cleared,
         dataset_rows_cache_cleared,
         eval_artifacts_cleared: 0,
+        cache_generation_bumped: false,
         clear_ms: elapsed_ms(started),
     }
+}
+
+/// Bump persisted cache generation and invalidate in-process runtime caches after manual reload.
+pub(crate) fn invalidate_after_data_reload(
+    state: &AppState,
+    app_id: &str,
+    source_ids: Option<&[String]>,
+) -> anyhow::Result<(RuntimeCacheInvalidateReport, CacheGenerationRecord)> {
+    let app_root = resolve_app_root(state.source_root.as_path(), app_id);
+    let generation =
+        bump_cache_generation(app_root.as_path(), app_id, source_ids)?;
+    if let Some(ids) = source_ids {
+        if !ids.is_empty() && crate::graph::feature::graph_registry_dedup_enabled() {
+            let mut registry = crate::graph::load_mrg_registry(state.source_root.as_path(), app_id);
+            for owner_id in ids {
+                registry.mark_owner_slots_stale(owner_id.as_str(), "data_reload");
+            }
+            registry.finalize();
+            crate::graph::mrg::registry::MrgRegistryWriter::save(
+                state.source_root.as_path(),
+                &registry,
+            )?;
+        }
+    }
+    let mut report = invalidate_app_runtime_caches(state, app_id);
+    report.cache_generation_bumped = true;
+    Ok((report, generation))
 }
 
 pub(crate) fn invalidate_report_perf(
@@ -102,6 +133,10 @@ pub(crate) fn invalidate_report_perf(
     perf.insert(
         "eval_artifacts_cleared".to_string(),
         report.eval_artifacts_cleared as u64,
+    );
+    perf.insert(
+        "cache_generation_bumped".to_string(),
+        u64::from(report.cache_generation_bumped),
     );
     perf
 }

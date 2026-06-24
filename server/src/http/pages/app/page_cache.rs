@@ -104,6 +104,7 @@ pub(super) fn page_render_cache_key(
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
     scene_bundle_marker: &str,
+    ops_themes_revision: Option<&str>,
 ) -> Option<String> {
     let compile_revision = compile_revision.trim();
     if compile_revision.is_empty() {
@@ -139,6 +140,7 @@ pub(super) fn page_render_cache_key(
         "auth_sig": auth_sig,
         "auth_enabled": auth_enabled,
         "scene_bundle_marker": scene_bundle_marker,
+        "ops_themes_revision": ops_themes_revision.unwrap_or(""),
         "host_ssr_payload_revision": HOST_SSR_PAYLOAD_REVISION,
         "gis_base_url": gis.base_url.as_str(),
         "gis_json_path": gis.json_path.as_str(),

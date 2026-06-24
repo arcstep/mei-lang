@@ -207,7 +207,7 @@ pub async fn app_page(
     } else {
         None
     };
-    let compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
+    let mut compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
         url_path_scene
             .clone()
             .or_else(|| query.scene.clone())
@@ -215,6 +215,30 @@ pub async fn app_page(
     } else {
         query.scene.clone()
     };
+    if route_mode == UiRouteMode::Build && compile_scene.is_none() {
+        if let Some(ref target) = normalized_preview_target {
+            if target.ends_with(".board.mei") {
+                let probe_components_root = resolve_components_root(&state.source_root);
+                if let Some(outcome) = load_compile_artifact_only(
+                    &state,
+                    &app_id,
+                    &CompileOptions {
+                        scene: None,
+                        preview_target: None,
+                    },
+                    probe_components_root.as_path(),
+                ) {
+                    let exports = outcome
+                        .compiled
+                        .build_board_index
+                        .exports_for_board_file(target.as_str());
+                    if exports.len() == 1 {
+                        compile_scene = Some(exports[0].scene_id.clone());
+                    }
+                }
+            }
+        }
+    }
     let components_root = resolve_components_root(&state.source_root);
     let compile_options = CompileOptions {
         scene: compile_scene.clone(),

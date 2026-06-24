@@ -1,6 +1,6 @@
 //! Scene-level workspace component JS bundles (access/presentation only).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
@@ -35,18 +35,6 @@ pub(crate) struct PendingSceneBundleBuild {
     pub components_root: PathBuf,
     pub entries: Vec<String>,
     pub cache_path: PathBuf,
-}
-
-#[derive(Debug, Clone)]
-struct CachedSceneBundleRevision {
-    compile_revision: String,
-    entries_signature: String,
-    revision: String,
-}
-
-fn revision_cache() -> &'static Mutex<BTreeMap<String, CachedSceneBundleRevision>> {
-    static CACHE: OnceLock<Mutex<BTreeMap<String, CachedSceneBundleRevision>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
 fn inflight_builds() -> &'static Mutex<BTreeSet<String>> {
@@ -147,14 +135,6 @@ fn collect_entry_scripts(component_assets: &[ComponentAsset]) -> Vec<String> {
     entries
 }
 
-fn entries_signature(entries: &[String]) -> String {
-    entries.join(",")
-}
-
-fn revision_cache_key(app_id: &str, scene_id: &str) -> String {
-    format!("{app_id}|{scene_id}")
-}
-
 fn run_node_script(
     package_root: &Path,
     components_root: &Path,
@@ -206,34 +186,13 @@ pub(crate) fn compute_scene_bundle_revision(
 fn compute_scene_bundle_revision_cached(
     package_root: &Path,
     components_root: &Path,
-    app_id: &str,
-    scene_id: &str,
-    compile_revision: &str,
+    _app_id: &str,
+    _scene_id: &str,
+    _compile_revision: &str,
     entries: &[String],
 ) -> Result<String> {
-    let cache_key = revision_cache_key(app_id, scene_id);
-    let entries_signature = entries_signature(entries);
-    if let Ok(cache) = revision_cache().lock() {
-        if let Some(entry) = cache.get(&cache_key) {
-            if entry.compile_revision == compile_revision
-                && entry.entries_signature == entries_signature
-            {
-                return Ok(entry.revision.clone());
-            }
-        }
-    }
-    let revision = compute_scene_bundle_revision(package_root, components_root, entries)?;
-    if let Ok(mut cache) = revision_cache().lock() {
-        cache.insert(
-            cache_key,
-            CachedSceneBundleRevision {
-                compile_revision: compile_revision.to_string(),
-                entries_signature,
-                revision: revision.clone(),
-            },
-        );
-    }
-    Ok(revision)
+    // Always hash transitive bundle inputs so stock/runtime-query.js changes bump revision.
+    compute_scene_bundle_revision(package_root, components_root, entries)
 }
 
 pub(crate) fn scene_bundle_public_url(app_id: &str, scene_id: &str, revision: &str) -> String {

@@ -9,8 +9,8 @@ use mei_lang_app::{
     UploadFileEntry,
 };
 use mei_lang_kernel::{
-    load_workspace_config, read_source_file, resolve_app_root, CompiledApp, Severity,
-    WorkspaceAppMeta,
+    load_mei_config_for_app, load_workspace_config, ops_themes_revision_digest, read_source_file,
+    resolve_app_root, CompiledApp, Severity, WorkspaceAppMeta,
 };
 
 use crate::http::scene_bundle::{
@@ -180,6 +180,8 @@ pub(super) fn render_compiled_success(
         .unwrap_or("home");
     let scene_bundle_enabled = should_build_scene_bundle(app_root.as_path(), route_mode, scene_id);
     let scene_bundle_marker = scene_bundle_cache_marker(app_root.as_path(), route_mode, scene_id);
+    let live_config = load_mei_config_for_app(&app_root, Some(state.source_root.as_path()));
+    let ops_themes_revision = ops_themes_revision_digest(&live_config);
     let render_cache_key = page_render_cache_key(
         app_id,
         route_mode,
@@ -216,6 +218,7 @@ pub(super) fn render_compiled_success(
         auth_enabled,
         account_view,
         scene_bundle_marker.as_str(),
+        Some(ops_themes_revision.as_str()),
     );
     let mut scene_bundle_header_status = if scene_bundle_enabled {
         "cached".to_string()
@@ -260,7 +263,8 @@ pub(super) fn render_compiled_success(
                 .as_ref()
                 .map(|bundle| bundle.url.as_str());
             let workspace = load_workspace_config(state.source_root.as_path());
-            let body_theme_style = page_body_theme_style(&workspace, Some(compiled));
+            let body_theme_style =
+                page_body_theme_style(&workspace, Some(compiled), Some(&live_config));
             let rendered = render_page(
                 apps,
                 compiled,

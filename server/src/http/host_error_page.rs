@@ -90,12 +90,32 @@ pub struct HostShellAction {
     pub primary: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct HostScopedRebuildContext {
+    pub app_id: String,
+    pub scene_id: Option<String>,
+    pub target_file: Option<String>,
+}
+
 pub fn html_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+pub fn render_scoped_rebuild_block(ctx: &HostScopedRebuildContext) -> String {
+    let scene = html_escape(ctx.scene_id.as_deref().unwrap_or(""));
+    let target = html_escape(ctx.target_file.as_deref().unwrap_or(""));
+    let app_id = html_escape(ctx.app_id.as_str());
+    format!(
+        r#"<p class="mei-host-shell__actions"><button type="button" class="mei-host-shell__btn mei-host-shell__btn--primary" data-mei-scoped-rebuild="1" data-app-id="{app_id}" data-scene-id="{scene}" data-target-file="{target}">重建此 scope</button></p>"#
+    )
+}
+
+pub fn render_scoped_rebuild_script() -> String {
+    r#"<script>(function(){function bind(){document.querySelectorAll("[data-mei-scoped-rebuild]").forEach(function(btn){if(btn.__meiRebuildBound)return;btn.__meiRebuildBound=true;btn.addEventListener("click",async function(){var appId=btn.getAttribute("data-app-id")||"";if(!appId)return;btn.disabled=true;var prev=btn.textContent;btn.textContent="重建中…";try{var body={appId:appId,mode:"build"};var scene=btn.getAttribute("data-scene-id")||"";var target=btn.getAttribute("data-target-file")||"";if(scene)body.sceneId=scene;if(target)body.targetFile=target;var res=await fetch("/api/host/build",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});if(!res.ok){var err=await res.text();throw new Error(err||res.statusText);}location.reload();}catch(err){btn.disabled=false;btn.textContent=prev;alert(String(err&&err.message?err.message:err));}});});}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",bind);else bind();})();</script>"#.to_string()
 }
 
 fn render_actions(actions: &[HostShellAction]) -> String {
