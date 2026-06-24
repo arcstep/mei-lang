@@ -8,7 +8,7 @@ world(resources = [])
 ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets"
 PANEL_ASSETS = ASSET_BASE + "/panel"
 CARET = PANEL_ASSETS + "/caret-left-filled@3x.svg"
-GRADIENT_BG = "linear-gradient(90deg, #245284 0%, #105796 50%, #163349 100%)"
+GRADIENT_BG = "panel_title_bar"
 
 frame()
 
@@ -34,10 +34,10 @@ frame.add_panel(
     heading_variant = "plain",
     heading = {
         "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
-        "font_size": "30px",
+        "font": "4",
         "font_weight": "700",
         "letter_spacing": "20px",
-        "color": "rgba(255,255,255,0.80)",
+        "color": "panel_title",
     },
     props = {
         "border": "1px solid rgba(52, 82, 108, 0.5)",
