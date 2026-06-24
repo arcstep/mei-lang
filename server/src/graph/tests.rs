@@ -117,4 +117,64 @@ mod graph_mcg_tests {
             "enforcement_personnel_count::composition_by_agency"
         );
     }
+
+    #[test]
+    fn assemble_home_scene_payload_without_mcg_registry() {
+        use std::path::Path;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
+        let scene_payload = source_root.join("zhifa/.mei/graph/payloads/scene/scenes-home-mei.json");
+        if !scene_payload.is_file() {
+            return;
+        }
+        let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
+            source_root.as_path(),
+            "zhifa",
+            Some("home"),
+            "scenes/home.mei",
+        )
+        .expect("home scene payload assemble should succeed without MCG registry");
+        assert!(
+            !compiled.world_metrics.is_empty(),
+            "assembled home view must carry world_metrics for SSR metric cards"
+        );
+    }
+
+    #[test]
+    fn assemble_penalty_board_backfills_runtime_catalog() {
+        use std::path::Path;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
+        let board_payload = source_root
+            .join("zhifa/.mei/graph/payloads/scene/scenes-04-行政处罚-board-mei.json");
+        if !board_payload.is_file() {
+            return;
+        }
+        let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
+            source_root.as_path(),
+            "zhifa",
+            Some("penalty_total_analytics_board"),
+            "scenes/04-行政处罚.board.mei",
+        )
+        .expect("penalty board assemble should backfill runtime catalog");
+        assert!(
+            compiled
+                .resources
+                .iter()
+                .any(|resource| resource.id == "penalty_result_dashboard_ds"),
+            "penalty board assemble must expose penalty_result_dashboard_ds"
+        );
+        assert!(
+            compiled
+                .resources
+                .iter()
+                .any(|resource| {
+                    resource
+                        .dataset
+                        .as_ref()
+                        .is_some_and(|dataset| dataset.has_runtime_metric_defs())
+                }),
+            "penalty board assemble must hydrate runtime metric defs"
+        );
+    }
 }

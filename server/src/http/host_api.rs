@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     http::compile_cache::{
-        compile_app_with_cache, load_compile_artifact_only, CompileWithCacheOutcome,
+        compile_app_with_cache, compile_outcome_from_shared, resolve_runtime_compile_shared,
+        CompileWithCacheOutcome, RuntimeAccessPolicies,
     },
     http::startup_run,
     prebuild::{
@@ -1442,8 +1443,11 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
     if normalized_scene.is_empty() {
         return None;
     }
+    let canonical = format!("scenes/{normalized_scene}.mei");
     let snapshot = registry_snapshot();
-    let app = snapshot.apps.iter().find(|app| app.app_id == app_id)?;
+    let Some(app) = snapshot.apps.iter().find(|app| app.app_id == app_id) else {
+        return Some(canonical);
+    };
     let mut candidates = app
         .scopes
         .iter()
@@ -1465,11 +1469,10 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
         })
         .collect::<Vec<_>>();
     if candidates.is_empty() {
-        return None;
+        return Some(canonical);
     }
     candidates.sort();
     candidates.dedup();
-    let canonical = format!("scenes/{normalized_scene}.mei");
     if let Some(hit) = candidates.iter().find(|target| target.as_str() == canonical) {
         return Some(hit.clone());
     }
@@ -1545,19 +1548,36 @@ pub(crate) fn inspect_scoped_artifact(
     target_file: Option<String>,
 ) -> ScopedCompileFeedback {
     let components_root = resolve_components_root(state.source_root.as_ref().as_path());
-    let options = CompileOptions {
+    let mut options = CompileOptions {
         scene: normalized_optional_scope(scene_id),
         preview_target: normalized_optional_scope(target_file),
     };
-    load_compile_artifact_only(state, app_id, &options, components_root.as_path())
-        .map(summarize_scoped_compile_feedback)
-        .unwrap_or(ScopedCompileFeedback {
+    if options.preview_target.is_none() {
+        if let Some(scene) = options.scene.as_deref() {
+            if let Some(hint) = access_scene_target_hint(app_id, scene) {
+                options.preview_target = Some(hint);
+            }
+        }
+    }
+    let access_policies = RuntimeAccessPolicies::default_for_access_host();
+    match resolve_runtime_compile_shared(
+        state,
+        app_id,
+        &options,
+        components_root.as_path(),
+        access_policies,
+    ) {
+        Ok(Some(resolution)) => {
+            summarize_scoped_compile_feedback(compile_outcome_from_shared(resolution.outcome))
+        }
+        Ok(None) | Err(_) => ScopedCompileFeedback {
             status: ScopedFeedbackStatus::ArtifactMissing,
             outcome: None,
             diagnostic_error_count: 0,
             warning_count: 0,
             diagnostic_summary: None,
-        })
+        },
+    }
 }
 
 pub(crate) fn record_scoped_compile_feedback(
@@ -1745,6 +1765,36 @@ pub async fn api_host_ready() -> impl IntoResponse {
 
 pub async fn api_host_readiness() -> impl IntoResponse {
     Json(registry_snapshot())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HostDiagnosticsQuery {
+    #[serde(rename = "appId")]
+    pub app_id: String,
+    pub sections: Option<String>,
+}
+
+pub async fn api_host_diagnostics(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<HostDiagnosticsQuery>,
+) -> impl IntoResponse {
+    let sections = query
+        .sections
+        .as_deref()
+        .map(|text| {
+            text.split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let report = crate::diagnostics::collect_materialization_diagnostics(
+        state.source_root.as_path(),
+        query.app_id.as_str(),
+        sections.as_slice(),
+    );
+    Json(report)
 }
 
 pub async fn api_host_heartbeat() -> impl IntoResponse {

@@ -1,5 +1,6 @@
 mod agent;
 mod compile;
+mod diagnostics;
 mod editor_runtime;
 mod export;
 mod host;
@@ -14,6 +15,7 @@ mod workspace;
 
 pub use agent::agent_command;
 pub use compile::compile_or_check_command;
+pub use diagnostics::diagnostics_command;
 pub use editor_runtime::editor_runtime_command;
 pub use export::export_command;
 pub use host::host_command;

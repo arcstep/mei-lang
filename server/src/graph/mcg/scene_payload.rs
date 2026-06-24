@@ -45,6 +45,10 @@ pub fn scene_payload_is_assemblable(compiled: &CompiledApp) -> bool {
     if compiled.scene_contract.is_some() {
         return true;
     }
+    if !compiled.scene_bindings_by_id.is_empty() || !compiled.scene_projection_assembly_by_id.is_empty()
+    {
+        return true;
+    }
     compiled.resources.iter().any(|resource| {
         resource
             .dataset

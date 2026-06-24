@@ -10,6 +10,7 @@ use crate::graph::feature::{graph_registry_dedup_enabled, graph_registry_enabled
 use crate::graph::mcg::assemble::assemble_scope_view;
 use crate::graph::mcg::metric_def_bundle::DatasetRuntimePayloadView;
 use crate::graph::mcg::registry::McgRegistryWriter;
+use crate::graph::mcg::app_skeleton::{load_app_skeleton_artifact, merge_app_skeleton_into_compiled};
 use crate::graph::mcg::scene_payload::load_scene_payload_artifact;
 use crate::graph::mcg::update::update_mcg_after_compile;
 
@@ -64,6 +65,99 @@ fn assembled_compiled_supports_metric_eval(compiled: &CompiledApp) -> bool {
     })
 }
 
+fn merge_compiled_runtime_catalog(into: &mut CompiledApp, donor: &CompiledApp) {
+    for resource in &donor.resources {
+        if into.resources.iter().any(|existing| existing.id == resource.id) {
+            continue;
+        }
+        into.resources.push(resource.clone());
+    }
+    for (key, entry) in &donor.world_metrics {
+        into.world_metrics
+            .entry(key.clone())
+            .or_insert_with(|| entry.clone());
+    }
+    for (key, value) in &donor.world_semantic_by_file {
+        into.world_semantic_by_file
+            .entry(key.clone())
+            .or_insert_with(|| value.clone());
+    }
+}
+
+fn board_catalog_fallback_targets(board_target: &str) -> Vec<String> {
+    let board_target = board_target.trim();
+    if !board_target.ends_with(".board.mei") {
+        return Vec::new();
+    }
+    let Some(stem) = board_target.strip_suffix(".board.mei") else {
+        return Vec::new();
+    };
+    vec![
+        format!("{stem}.mei"),
+        format!("{stem}.world.mei"),
+        "scenes/home.mei".to_string(),
+    ]
+}
+
+/// Board overlay payloads may carry bindings only; backfill datasets/metrics from sibling capsules.
+fn backfill_assembled_runtime_catalog(app_root: &Path, target: &str, compiled: &mut CompiledApp) {
+    let needs_resources = compiled.resources.is_empty();
+    let needs_world_metrics = compiled.world_metrics.is_empty();
+    if !needs_resources && !needs_world_metrics {
+        return;
+    }
+    let mut fallback_targets = board_catalog_fallback_targets(target);
+    if fallback_targets.is_empty() && (needs_resources || needs_world_metrics) {
+        fallback_targets.push("scenes/home.mei".to_string());
+    }
+    for fallback_target in fallback_targets {
+        let Some(artifact) = load_scene_payload_artifact(app_root, fallback_target.as_str(), None)
+            .ok()
+            .flatten()
+        else {
+            continue;
+        };
+        let Ok(donor) = serde_json::from_value::<CompiledApp>(artifact.payload) else {
+            continue;
+        };
+        merge_compiled_runtime_catalog(compiled, &donor);
+        if !compiled.resources.is_empty() && !compiled.world_metrics.is_empty() {
+            return;
+        }
+    }
+}
+
+/// Restore `world_metrics` ledger from scene payload when slim artifacts stripped it on write.
+pub fn hydrate_world_metrics_from_scene_payload(
+    source_root: &Path,
+    app_id: &str,
+    target_file: &str,
+    compiled: &mut CompiledApp,
+) -> bool {
+    if !compiled.world_metrics.is_empty() {
+        return true;
+    }
+    let target = target_file.trim();
+    if target.is_empty() {
+        return false;
+    }
+    let app_root = resolve_app_root(source_root, app_id);
+    let Some(artifact) = load_scene_payload_artifact(app_root.as_path(), target, None)
+        .ok()
+        .flatten()
+    else {
+        return false;
+    };
+    let Ok(scene_compiled) = serde_json::from_value::<CompiledApp>(artifact.payload) else {
+        return false;
+    };
+    if scene_compiled.world_metrics.is_empty() {
+        return false;
+    }
+    compiled.world_metrics = scene_compiled.world_metrics;
+    true
+}
+
 /// Assemble-only path: load ScenePayload from disk and project scope without Starlark re-run.
 pub fn try_assemble_scope_from_scene_payload(
     source_root: &Path,
@@ -79,7 +173,8 @@ pub fn try_assemble_scope_from_scene_payload(
         return None;
     }
     let mcg = McgRegistryWriter::load(source_root, app_id);
-    let expected_revision = mcg.node_revision("scene_payload", target)?;
+    // MCG registry may be absent on disk-only prebuild; still load scene payload when the file exists.
+    let expected_revision = mcg.node_revision("scene_payload", target);
     let compile_revision = mcg
         .nodes
         .iter()
@@ -91,10 +186,18 @@ pub fn try_assemble_scope_from_scene_payload(
         })
         .unwrap_or_default();
     let app_root = resolve_app_root(source_root, app_id);
-    let artifact = load_scene_payload_artifact(app_root.as_path(), target, Some(expected_revision.as_str()))
-        .ok()
-        .flatten()?;
+    let artifact = load_scene_payload_artifact(
+        app_root.as_path(),
+        target,
+        expected_revision.as_deref(),
+    )
+    .ok()
+    .flatten()?;
     let mut compiled: CompiledApp = serde_json::from_value(artifact.payload).ok()?;
+    if let Ok(Some(skeleton)) = load_app_skeleton_artifact(app_root.as_path()) {
+        merge_app_skeleton_into_compiled(&mut compiled, &skeleton);
+    }
+    backfill_assembled_runtime_catalog(app_root.as_path(), target, &mut compiled);
     if !crate::graph::mcg::scene_payload::scene_payload_is_assemblable(&compiled) {
         return None;
     }
@@ -216,6 +319,35 @@ pub fn record_prebuild_dataframe_slot(
             workset_id = %workset_id,
             error = %error,
             "failed to record MRG dataframe slot after prebuild"
+        );
+    }
+}
+
+pub fn record_prebuild_slot_failed(
+    source_root: &Path,
+    app_id: &str,
+    workset_id: &str,
+    scope_key: &str,
+    owner_resource_id: &str,
+    bundle_revision: &str,
+    data_source_revision: &str,
+    error_message: &str,
+) {
+    if let Err(error) = crate::graph::mrg::slots::record_mrg_slot_failed(
+        source_root,
+        app_id,
+        workset_id,
+        scope_key,
+        owner_resource_id,
+        bundle_revision,
+        data_source_revision,
+        error_message,
+    ) {
+        tracing::warn!(
+            app_id = %app_id,
+            workset_id = %workset_id,
+            error = %error,
+            "failed to record MRG slot failure after prebuild"
         );
     }
 }

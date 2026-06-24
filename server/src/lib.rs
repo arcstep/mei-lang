@@ -3,6 +3,7 @@ pub(crate) mod auth;
 pub(crate) mod build_info;
 pub(crate) mod cli;
 pub(crate) mod gis_config;
+pub(crate) mod diagnostics;
 pub(crate) mod graph;
 pub(crate) mod http;
 pub(crate) mod mei_agent;

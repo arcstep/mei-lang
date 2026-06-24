@@ -18,6 +18,7 @@ pub enum Command {
     Knowledge(KnowledgeArgs),
     EditorRuntime(EditorRuntimeArgs),
     Prebuild(PrebuildArgs),
+    Diagnostics(DiagnosticsArgs),
     Warmup(WarmupArgs),
     Compile(CheckArgs),
     Check(CheckArgs),
@@ -366,6 +367,31 @@ pub struct PrebuildArgs {
     /// 输出完整 prebuild 报告 JSON（体积极大，建议重定向到文件）。
     #[arg(long)]
     pub json_full: bool,
+}
+
+#[derive(Args, Clone)]
+pub struct DiagnosticsArgs {
+    #[command(subcommand)]
+    pub command: DiagnosticsCommand,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum DiagnosticsCommand {
+    Summary(DiagnosticsSummaryArgs),
+}
+
+#[derive(Args, Clone)]
+pub struct DiagnosticsSummaryArgs {
+    #[arg(long, conflicts_with = "source_root")]
+    pub workspace: Option<String>,
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long = "app")]
+    pub app_id: String,
+    #[arg(long)]
+    pub sections: Vec<String>,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Clone)]
