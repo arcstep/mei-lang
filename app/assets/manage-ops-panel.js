@@ -787,6 +787,118 @@
     return payload;
   }
 
+  const SHELL_THEME_VAR_PREFIX = /^--mei-(shell|chrome)-/;
+
+  function isSceneThemeCssVar(name) {
+    return String(name || "").startsWith("--mei-") && !SHELL_THEME_VAR_PREFIX.test(name);
+  }
+
+  function parseInlineStyleMap(styleText) {
+    const map = new Map();
+    for (const chunk of String(styleText || "").split(";")) {
+      const part = chunk.trim();
+      if (!part) continue;
+      const idx = part.indexOf(":");
+      if (idx <= 0) continue;
+      const key = part.slice(0, idx).trim();
+      const value = part.slice(idx + 1).trim();
+      if (key) map.set(key, value);
+    }
+    return map;
+  }
+
+  function mergeSceneThemeInlineStyle(existingStyle, sceneVarStyle) {
+    const merged = parseInlineStyleMap(existingStyle);
+    for (const key of [...merged.keys()]) {
+      if (isSceneThemeCssVar(key)) {
+        merged.delete(key);
+      }
+    }
+    for (const [key, value] of parseInlineStyleMap(sceneVarStyle)) {
+      if (isSceneThemeCssVar(key)) {
+        merged.set(key, value);
+      }
+    }
+    return Array.from(merged.entries())
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("; ");
+  }
+
+  function patchSceneThemeStyleInDocument(doc, cssVarsStyle) {
+    if (!doc || !cssVarsStyle?.trim()) return false;
+    const style = cssVarsStyle.trim();
+    let patched = false;
+    doc.querySelectorAll(".preview-viewport").forEach((node) => {
+      node.setAttribute(
+        "style",
+        mergeSceneThemeInlineStyle(node.getAttribute("style") || "", style),
+      );
+      patched = true;
+    });
+    const body = doc.body;
+    if (body) {
+      body.setAttribute(
+        "style",
+        mergeSceneThemeInlineStyle(body.getAttribute("style") || "", style),
+      );
+      patched = true;
+    }
+    return patched;
+  }
+
+  function notifyPreviewThemeUpdated(targetWindow) {
+    const view = targetWindow || window;
+    try {
+      view.dispatchEvent(
+        new CustomEvent("meilang:preview-updated", {
+          bubbles: true,
+          detail: { reason: "ops-theme-overlay" },
+        }),
+      );
+    } catch {
+      /* ignore cross-origin opener */
+    }
+  }
+
+  function resolveSceneQueryFromLocation(loc) {
+    try {
+      const params = new URLSearchParams(loc?.search || "");
+      const scene = params.get("scene") || params.get("sceneId") || "";
+      return scene.trim();
+    } catch {
+      return "";
+    }
+  }
+
+  async function applySceneThemeOverlayHot(targetWindow) {
+    if (!state.appId) return;
+    const scene = resolveSceneQueryFromLocation(targetWindow?.location || window.location);
+    const query = scene ? `?scene=${encodeURIComponent(scene)}` : "";
+    const payload = await fetchJson(
+      `/api/ops/theme/style/${encodeURIComponent(state.appId)}${query}`,
+    );
+    if (patchSceneThemeStyleInDocument(targetWindow.document, payload.css_vars_style || "")) {
+      notifyPreviewThemeUpdated(targetWindow);
+    }
+  }
+
+  async function broadcastSceneThemeOverlayHot() {
+    const targets = [window];
+    if (window.opener && !window.opener.closed) {
+      targets.push(window.opener);
+    }
+    const seen = new Set();
+    for (const target of targets) {
+      if (!target || seen.has(target)) continue;
+      seen.add(target);
+      try {
+        await applySceneThemeOverlayHot(target);
+      } catch {
+        /* non-fatal: preview may be closed or artifact missing */
+      }
+    }
+  }
+
   async function loadOpsConfig() {
     setBusy(true);
     try {
@@ -899,6 +1011,7 @@
       state.summaryText = "";
       state.journalRevision = payload.revision || state.journalRevision;
       await loadOpsConfig();
+      await broadcastSceneThemeOverlayHot();
     } catch (error) {
       setEditorStatus(`保存失败：${String(error?.message || error)}`, "danger");
       setBusy(false);

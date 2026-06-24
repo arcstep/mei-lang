@@ -300,6 +300,12 @@ pub(crate) struct HostBuildJobResponse {
     pub cache_hit: Option<bool>,
     #[serde(rename = "artifactCacheHit")]
     pub artifact_cache_hit: Option<bool>,
+    #[serde(rename = "scopeArtifactsMs", skip_serializing_if = "Option::is_none")]
+    pub scope_artifacts_ms: Option<u64>,
+    #[serde(rename = "mrgSlotsReady", skip_serializing_if = "Option::is_none")]
+    pub mrg_slots_ready: Option<usize>,
+    #[serde(rename = "evalArtifactsWarmed", skip_serializing_if = "Option::is_none")]
+    pub eval_artifacts_warmed: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1641,6 +1647,7 @@ fn host_build_response_from_scoped_feedback(
     scene_id: Option<String>,
     target_file: Option<String>,
     feedback: ScopedCompileFeedback,
+    materialize: Option<crate::prebuild::ScopedMaterializeReport>,
 ) -> HostBuildJobResponse {
     let compile_revision = feedback
         .outcome
@@ -1658,7 +1665,7 @@ fn host_build_response_from_scoped_feedback(
         active_job: None,
         app_id: Some(app_id.to_string()),
         mode: mode.to_string(),
-        scope_profile: "scoped_dev_jit".to_string(),
+        scope_profile: "scoped_aot_build".to_string(),
         status: feedback.status.as_str().to_string(),
         artifact_ready: feedback.status.artifact_ready(),
         diagnostic_error_count: feedback.diagnostic_error_count,
@@ -1671,6 +1678,9 @@ fn host_build_response_from_scoped_feedback(
         compile_ms,
         cache_hit,
         artifact_cache_hit,
+        scope_artifacts_ms: materialize.as_ref().map(|report| report.scope_artifacts_ms),
+        mrg_slots_ready: materialize.as_ref().map(|report| report.mrg_slots_ready),
+        eval_artifacts_warmed: materialize.as_ref().map(|report| report.eval_artifacts_warmed),
     }
 }
 
@@ -1689,6 +1699,15 @@ fn run_scoped_build(
     };
     let outcome = compile_app_with_cache(state, app_id, &options, components_root.as_path())
         .map_err(|failure| failure.error)?;
+    let materialize = crate::prebuild::materialize_scope_after_compile(
+        state.source_root.as_path(),
+        app_id,
+        scene_id.as_deref(),
+        target_file.as_deref(),
+        &outcome,
+        PrebuildMode::Build,
+    )
+    .ok();
     let feedback = summarize_scoped_compile_feedback(outcome);
     record_scoped_compile_feedback(
         app_id,
@@ -1709,6 +1728,7 @@ fn run_scoped_build(
         scene_id,
         target_file,
         feedback,
+        materialize,
     ))
 }
 
@@ -1890,6 +1910,7 @@ pub async fn api_host_build(
                     scene_id,
                     target_file,
                     feedback,
+                    None,
                 )),
             )
                 .into_response();
@@ -1952,6 +1973,9 @@ pub async fn api_host_build(
                 compile_ms: None,
                 cache_hit: None,
                 artifact_cache_hit: None,
+                scope_artifacts_ms: None,
+                mrg_slots_ready: None,
+                eval_artifacts_warmed: None,
             }),
         )
             .into_response(),

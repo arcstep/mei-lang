@@ -1,3 +1,11 @@
+import {
+  clearSessionRuntimeQueryCaches,
+  clientQueryCacheConfig,
+  persistMemoryRuntimeQueryCaches,
+  readSessionRuntimeQueryCache,
+  writeSessionRuntimeQueryCache,
+} from "./runtime-query-session-cache.js";
+
 const STORE_KEY = "__meiQueryStateStore";
 const EVENT_NAME = "mei:query-state-change";
 const METRIC_QUERY_INFLIGHT = new Map();
@@ -1113,6 +1121,9 @@ export function abortRuntimeQueries(reason = "", options = {}) {
     }
   }
   if (resolveAbortClearCaches(reason, options)) {
+    if (String(reason || "").trim() === "pagehide") {
+      persistRuntimeQueryMemoryCachesToSession();
+    }
     clearRuntimeQueryCaches();
   }
   if (typeof window !== "undefined") {
@@ -1505,15 +1516,16 @@ function handlePreviewUpdatedRuntimeQueryCache(event) {
   }
   const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
   if (detail.resetRuntimeQueryCache === true) {
-    clearRuntimeQueryCaches();
+    clearRuntimeQueryCaches({ clearSession: true });
     return;
   }
   if (detail.resetRuntimeQueryCache === false) {
     return;
   }
   const epoch = String(detail.compileEpoch || readCompileEpochFromPage() || "").trim();
-  if (epoch) {
-    maybeInvalidateRuntimeQueryCachesForCompileEpoch(epoch);
+  const dataGen = String(detail.dataGeneration || detail.data_generation || "").trim();
+  if (epoch || dataGen) {
+    maybeInvalidateRuntimeQueryCachesForCompileEpoch(epoch, dataGen);
   }
 }
 
@@ -1737,20 +1749,86 @@ function runtimeCompileEpoch(props) {
   return String(props?._mei?.compile_epoch || "").trim();
 }
 
-function maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch) {
+function runtimeDataGeneration(props) {
+  return String(props?._mei?.data_generation || "").trim();
+}
+
+function runtimeQueryFingerprint(props) {
+  const compileEpoch = runtimeCompileEpoch(props);
+  const dataGen = runtimeDataGeneration(props);
+  return `${compileEpoch}|${dataGen}`;
+}
+
+function rememberHostRuntimeQueryMeta(props) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const appId = String(props?._mei?.app_id || "").trim();
+  if (appId) {
+    window.__meiRuntimeAppId = appId;
+  }
+  const dataGen = runtimeDataGeneration(props);
+  if (dataGen) {
+    window.__meiRuntimeDataGeneration = dataGen;
+  }
+  window.__meiClientQueryCacheConfig = clientQueryCacheConfig(props);
+}
+
+function persistRuntimeQueryMemoryCachesToSession() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const appId = String(window.__meiRuntimeAppId || "").trim();
+  if (!appId) {
+    return;
+  }
+  const config = window.__meiClientQueryCacheConfig || clientQueryCacheConfig({});
+  if (String(config.persist || "").trim().toLowerCase() !== "sessionstorage") {
+    return;
+  }
+  const dataGen = String(window.__meiRuntimeDataGeneration || "").trim();
+  const now = Date.now();
+  const metricEntries = [];
+  for (const [cacheKey, entry] of METRIC_QUERY_RESULT_CACHE.entries()) {
+    if (entry && Number.isFinite(entry.expiresAt) && entry.expiresAt > now && entry.data) {
+      metricEntries.push({ cacheKey, kind: "metric", data: entry.data });
+    }
+  }
+  for (const [cacheKey, entry] of DATASET_QUERY_RESULT_CACHE.entries()) {
+    if (entry && Number.isFinite(entry.expiresAt) && entry.expiresAt > now && entry.data) {
+      metricEntries.push({ cacheKey, kind: "dataset", data: entry.data });
+    }
+  }
+  persistMemoryRuntimeQueryCaches(
+    appId,
+    dataGen,
+    metricEntries,
+    config.ttlMs,
+    config.maxEntries,
+  );
+}
+
+function maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch, dataGeneration = "") {
   const next = String(compileEpoch || "").trim();
-  if (!next || typeof window === "undefined") {
+  const nextDataGen = String(dataGeneration || "").trim();
+  if ((!next && !nextDataGen) || typeof window === "undefined") {
     return;
   }
   const last = String(window.__meiLastCompileEpoch || "").trim();
-  if (last && last !== next) {
-    clearRuntimeQueryCaches();
+  const lastDataGen = String(window.__meiLastDataGeneration || "").trim();
+  if ((last && last !== next) || (lastDataGen && nextDataGen && lastDataGen !== nextDataGen)) {
+    clearRuntimeQueryCaches({ clearSession: true });
   }
-  window.__meiLastCompileEpoch = next;
+  if (next) {
+    window.__meiLastCompileEpoch = next;
+  }
+  if (nextDataGen) {
+    window.__meiLastDataGeneration = nextDataGen;
+  }
 }
 
-function datasetQueryCacheKey(api, payload, compileEpoch = "") {
-  const epoch = String(compileEpoch || "").trim();
+function datasetQueryCacheKey(api, payload, fingerprint = "") {
+  const epoch = String(fingerprint || "").trim();
   return `dataset|${String(api || "").trim()}|${epoch}|${stableSerialize(payload)}`;
 }
 
@@ -1767,15 +1845,15 @@ function stableSerialize(value) {
   return JSON.stringify(value ?? null);
 }
 
-function metricQueryCacheKey(api, payload, compileEpoch = "") {
-  const epoch = String(compileEpoch || "").trim();
+function metricQueryCacheKey(api, payload, fingerprint = "") {
+  const epoch = String(fingerprint || "").trim();
   return `${String(api || "").trim()}|${epoch}|${stableSerialize(payload)}`;
 }
 
-function metricQueryScopeCacheKey(api, payload, compileEpoch = "") {
+function metricQueryScopeCacheKey(api, payload, fingerprint = "") {
   const scopePayload = payload && typeof payload === "object" ? { ...payload } : {};
   delete scopePayload.metric_ids;
-  const epoch = String(compileEpoch || "").trim();
+  const epoch = String(fingerprint || "").trim();
   return `scope|${String(api || "").trim()}|${epoch}|${stableSerialize(scopePayload)}`;
 }
 
@@ -1874,7 +1952,13 @@ function unregisterMetricScopeInflight(scopeKey, entry) {
   }
 }
 
-function clearRuntimeQueryCaches() {
+function clearRuntimeQueryCaches(options = {}) {
+  if (options?.clearSession === true && typeof window !== "undefined") {
+    const appId = String(window.__meiRuntimeAppId || "").trim();
+    if (appId) {
+      clearSessionRuntimeQueryCaches(appId);
+    }
+  }
   METRIC_QUERY_INFLIGHT.clear();
   METRIC_QUERY_RESULT_CACHE.clear();
   METRIC_QUERY_SCOPE_INFLIGHT.clear();
@@ -2486,7 +2570,15 @@ export async function fetchSceneRuntimeMetricBatch(
     return null;
   }
   const effectiveQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();
-  const compileEpoch = runtimeCompileEpoch(props);
+  const queryFingerprint = runtimeQueryFingerprint(props);
+  rememberHostRuntimeQueryMeta(props);
+  maybeInvalidateRuntimeQueryCachesForCompileEpoch(
+    runtimeCompileEpoch(props),
+    runtimeDataGeneration(props),
+  );
+  const cacheConfig = clientQueryCacheConfig(props);
+  const appId = String(props?._mei?.app_id || "").trim();
+  const dataGen = runtimeDataGeneration(props);
   const queryStatePayload = mergedQueryStatePayload(effectiveQueryStateId, filters, {
     search,
     filterIntentSource: meta?.filter_intent_source ?? meta?.filterIntentSource,
@@ -2512,11 +2604,19 @@ export async function fetchSceneRuntimeMetricBatch(
   pruneMetricQueryCaches(now);
   const pendingGroups = normalizedGroups.filter((group) => {
     const singlePayload = singleMetricPayloadFromBatchPayload(basePayload, group);
-    const cacheKey = metricQueryCacheKey(api, singlePayload, compileEpoch);
-    const scopeKey = metricQueryScopeCacheKey(api, singlePayload, compileEpoch);
+    const cacheKey = metricQueryCacheKey(api, singlePayload, queryFingerprint);
+    const scopeKey = metricQueryScopeCacheKey(api, singlePayload, queryFingerprint);
     const requestedIds = metricQueryRequestedIds(singlePayload);
     const cached = METRIC_QUERY_RESULT_CACHE.get(cacheKey);
     if (cached && cached.expiresAt > now) {
+      return false;
+    }
+    const sessionCached = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, now);
+    if (sessionCached?.data) {
+      METRIC_QUERY_RESULT_CACHE.set(cacheKey, {
+        data: sessionCached.data,
+        expiresAt: sessionCached.expiresAt,
+      });
       return false;
     }
     if (findCoveringMetricScopeResult(scopeKey, requestedIds, now)) {
@@ -2546,7 +2646,7 @@ export async function fetchSceneRuntimeMetricBatch(
   if (!shared) {
     const managedController = createManagedAbortController();
     const registrations = pendingGroups.map((group) =>
-      registerSceneMetricBatchGroupInflight(api, basePayload, group, compileEpoch)
+      registerSceneMetricBatchGroupInflight(api, basePayload, group, queryFingerprint)
     );
     const promise = fetchSceneRuntimeMetricBatchUncached(
       api,
@@ -2576,6 +2676,15 @@ export async function fetchSceneRuntimeMetricBatch(
             data: normalized,
             expiresAt,
           });
+          writeSessionRuntimeQueryCache(
+            appId,
+            registration.cacheKey,
+            dataGen,
+            "metric",
+            normalized,
+            cacheConfig.ttlMs,
+            cacheConfig.maxEntries,
+          );
           rememberMetricScopeResult(
             registration.scopeKey,
             registration.requestedIds,
@@ -2987,7 +3096,9 @@ export async function fetchDatasetRows(
     request_id: safeTrim(meta?.request_id || meta?.requestId),
   };
   const compileEpoch = runtimeCompileEpoch(props);
-  maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch);
+  const queryFingerprint = runtimeQueryFingerprint(props);
+  rememberHostRuntimeQueryMeta(props);
+  maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch, runtimeDataGeneration(props));
   if (runtimePerfDisabled("runtime_dataset_share")) {
     const managedController = createManagedAbortController([signal]);
     return fetchDatasetRowsUncached(api, payload, errorContext, {
@@ -2998,14 +3109,29 @@ export async function fetchDatasetRows(
       managedController.__meiRelease?.();
     });
   }
-  const cacheKey = datasetQueryCacheKey(api, payload, compileEpoch);
+  const cacheKey = datasetQueryCacheKey(api, payload, queryFingerprint);
   const now = Date.now();
+  const cacheConfig = clientQueryCacheConfig(props);
+  const appId = String(props?._mei?.app_id || "").trim();
+  const dataGen = runtimeDataGeneration(props);
   pruneDatasetQueryCaches(now);
   const cached = DATASET_QUERY_RESULT_CACHE.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     notifyClientRuntimeQueryCacheHit("dataset");
     return waitForSharedPromise(
       Promise.resolve(withClientResultCachePerf(cached.data, "dataset")),
+      signal,
+    );
+  }
+  const sessionCached = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, now);
+  if (sessionCached?.data) {
+    DATASET_QUERY_RESULT_CACHE.set(cacheKey, {
+      data: sessionCached.data,
+      expiresAt: sessionCached.expiresAt,
+    });
+    notifyClientRuntimeQueryCacheHit("dataset_session");
+    return waitForSharedPromise(
+      Promise.resolve(withClientResultCachePerf(sessionCached.data, "dataset_session")),
       signal,
     );
   }
@@ -3018,10 +3144,20 @@ export async function fetchDatasetRows(
       signal: managedController.signal,
     })
       .then((data) => {
+        const expiresAt = Date.now() + cacheConfig.ttlMs;
         DATASET_QUERY_RESULT_CACHE.set(cacheKey, {
           data,
-          expiresAt: Date.now() + DATASET_QUERY_CACHE_TTL_MS,
+          expiresAt,
         });
+        writeSessionRuntimeQueryCache(
+          appId,
+          cacheKey,
+          dataGen,
+          "dataset",
+          data,
+          cacheConfig.ttlMs,
+          cacheConfig.maxEntries,
+        );
         return data;
       })
       .finally(() => {
@@ -3143,7 +3279,9 @@ export async function fetchRuntimeMetrics(
     request_id: safeTrim(meta?.request_id || meta?.requestId),
   };
   const compileEpoch = runtimeCompileEpoch(props);
-  maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch);
+  const queryFingerprint = runtimeQueryFingerprint(props);
+  rememberHostRuntimeQueryMeta(props);
+  maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch, runtimeDataGeneration(props));
   if (runtimePerfDisabled("runtime_metric_share")) {
     if (shouldPauseHomeRuntimeMetricFetch(props)) {
       return null;
@@ -3158,16 +3296,31 @@ export async function fetchRuntimeMetrics(
       managedController.__meiRelease?.();
     });
   }
-  const cacheKey = metricQueryCacheKey(api, payload, compileEpoch);
-  const scopeKey = metricQueryScopeCacheKey(api, payload, compileEpoch);
+  const cacheKey = metricQueryCacheKey(api, payload, queryFingerprint);
+  const scopeKey = metricQueryScopeCacheKey(api, payload, queryFingerprint);
   const requestedIds = metricQueryRequestedIds(payload);
   const now = Date.now();
+  const cacheConfig = clientQueryCacheConfig(props);
+  const appId = String(props?._mei?.app_id || "").trim();
+  const dataGen = runtimeDataGeneration(props);
   pruneMetricQueryCaches(now);
   const cached = METRIC_QUERY_RESULT_CACHE.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     notifyClientRuntimeQueryCacheHit("metric");
     return waitForSharedPromise(
       Promise.resolve(withClientResultCachePerf(cached.data, "metric")),
+      signal,
+    );
+  }
+  const sessionCached = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, now);
+  if (sessionCached?.data) {
+    METRIC_QUERY_RESULT_CACHE.set(cacheKey, {
+      data: sessionCached.data,
+      expiresAt: sessionCached.expiresAt,
+    });
+    notifyClientRuntimeQueryCacheHit("metric_session");
+    return waitForSharedPromise(
+      Promise.resolve(withClientResultCachePerf(sessionCached.data, "metric_session")),
       signal,
     );
   }
@@ -3216,16 +3369,21 @@ export async function fetchRuntimeMetrics(
       managedController.signal,
     )
       .then((data) => {
+        const expiresAt = Date.now() + cacheConfig.ttlMs;
         METRIC_QUERY_RESULT_CACHE.set(cacheKey, {
           data,
-          expiresAt: Date.now() + METRIC_QUERY_CACHE_TTL_MS,
+          expiresAt,
         });
-        rememberMetricScopeResult(
-          scopeKey,
-          requestedIds,
+        writeSessionRuntimeQueryCache(
+          appId,
+          cacheKey,
+          dataGen,
+          "metric",
           data,
-          Date.now() + METRIC_QUERY_CACHE_TTL_MS
+          cacheConfig.ttlMs,
+          cacheConfig.maxEntries,
         );
+        rememberMetricScopeResult(scopeKey, requestedIds, data, expiresAt);
         return data;
       })
       .finally(() => {

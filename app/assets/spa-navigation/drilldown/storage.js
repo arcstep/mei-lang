@@ -42,18 +42,19 @@
     const appId = resolvePreviewAppId();
     if (!appId) return "";
     const boardFile = nonEmptyString(config.boardSceneFile);
-    if (!boardFile) return "";
+    const boardSceneId = nonEmptyString(config.boardSceneId);
+    if (!boardFile || !boardSceneId) return "";
     let url;
     try {
       url = new URL(window.location.href);
     } catch (_) {
       return "";
     }
-    url.pathname = `/apps/manage/${appId}`;
-    url.searchParams.set("file", boardFile);
-    if (config.boardSceneId) {
-      url.searchParams.set("scene", config.boardSceneId);
-    }
+    url.pathname = `/apps/build/${appId}`;
+    url.searchParams.set("node", `board-file:${boardFile}#${boardSceneId}`);
+    url.searchParams.set("tab", "preview");
+    url.searchParams.delete("file");
+    url.searchParams.delete("scene");
     url.searchParams.set("mei_projection", "route");
     const entry = nonEmptyString(config.popup?.entry, config.popup?.focus);
     if (entry) {

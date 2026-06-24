@@ -129,8 +129,10 @@
         failed: 0,
         bytes: 0,
         evalMs: 0,
+        evalWallMs: 0,
         lastKind: "",
       },
+      apiCalls: [],
       renderTraceCount: 0,
       ready: false,
       handoffLifecycle: false,
@@ -259,16 +261,47 @@
     for (const value of candidates) {
       const ms = Number(value);
       if (Number.isFinite(ms) && ms > 0) {
-        state.api.evalMs += ms;
+        state.api.evalMs = Math.max(Number(state.api.evalMs) || 0, ms);
         break;
       }
     }
     state.api.lastKind = kind === "metrics" ? "指标求值" : "数据集查询";
   }
 
+  function recordClientRuntimeQueryCacheHit(kind) {
+    if (!state) return;
+    if (!Array.isArray(state.apiCalls)) state.apiCalls = [];
+    const normalized = String(kind || "dataset").trim() || "dataset";
+    const apiKind = normalized.indexOf("metric") >= 0 ? "metrics" : "query";
+    if (state.phases.eval.status === "pending") {
+      setPhase("eval", "active");
+    }
+    state.apiCalls.push({
+      url: "/client-cache/" + normalized,
+      kind: apiKind,
+      status: 200,
+      ms: 0,
+      ok: true,
+      clientHit: true,
+    });
+    if (state.apiCalls.length > 20) {
+      state.apiCalls = state.apiCalls.slice(-20);
+    }
+    paint();
+  }
+
+  function installClientRuntimeQueryCacheHitListener() {
+    if (installClientRuntimeQueryCacheHitListener._installed) return;
+    installClientRuntimeQueryCacheHitListener._installed = true;
+    global.addEventListener("mei:runtime-query-client-cache-hit", function (event) {
+      recordClientRuntimeQueryCacheHit(event && event.detail ? event.detail.kind : "");
+    });
+  }
+
   function installFetchHook() {
     if (fetchHookInstalled || typeof global.fetch !== "function") return;
     fetchHookInstalled = true;
+    installClientRuntimeQueryCacheHitListener();
     const nativeFetch = global.fetch.bind(global);
     global.fetch = async function meiPageLoadFetch(input, init) {
       const requestUrl =
@@ -289,6 +322,7 @@
         trackSession.api.inflight += 1;
         paint();
       }
+      const requestStarted = Date.now();
       try {
         const response = await nativeFetch(input, init);
         if (trackSession && trackSession.api) {
@@ -297,17 +331,37 @@
             trackSession.api.bytes += contentLength;
           }
           const kind = requestUrl.includes("/api/datasets/metrics/") ? "metrics" : "query";
+          let parsedJson = null;
           try {
             const clone = response.clone();
-            const json = await clone.json();
+            parsedJson = await clone.json();
             if (!Number.isFinite(contentLength) || contentLength <= 0) {
-              trackSession.api.bytes += new TextEncoder().encode(JSON.stringify(json)).length;
+              trackSession.api.bytes += new TextEncoder().encode(JSON.stringify(parsedJson)).length;
             }
-            recordApiPerfFromJson(kind, json);
+            recordApiPerfFromJson(kind, parsedJson);
           } catch (_) {}
           trackSession.api.completed += 1;
           if (!response.ok) trackSession.api.failed += 1;
           trackSession.api.inflight = Math.max(0, trackSession.api.inflight - 1);
+          const elapsed = Math.max(0, Date.now() - requestStarted);
+          trackSession.api.evalWallMs = Math.max(Number(trackSession.api.evalWallMs) || 0, elapsed);
+          if (!Array.isArray(trackSession.apiCalls)) trackSession.apiCalls = [];
+          const clientHit =
+            Number(parsedJson?.perf?.client_result_cache_hit) === 1 ||
+            Number(parsedJson?.perf?.client_metric_scope_cache_hit) === 1;
+          trackSession.apiCalls.push({
+            url: requestUrl,
+            kind: kind,
+            status: response.status,
+            ms: elapsed,
+            ok: response.ok,
+            clientHit: clientHit,
+            responseCacheHit: Number(parsedJson?.perf?.response_cache_hit) === 1,
+            resultArtifactHit: Number(parsedJson?.perf?.result_artifact_hit) === 1,
+          });
+          if (trackSession.apiCalls.length > 20) {
+            trackSession.apiCalls = trackSession.apiCalls.slice(-20);
+          }
           paint();
           scheduleReadyCheck();
         }
@@ -317,6 +371,17 @@
           trackSession.api.failed += 1;
           trackSession.api.completed += 1;
           trackSession.api.inflight = Math.max(0, trackSession.api.inflight - 1);
+          const elapsed = Math.max(0, Date.now() - requestStarted);
+          trackSession.api.evalWallMs = Math.max(Number(trackSession.api.evalWallMs) || 0, elapsed);
+          if (!Array.isArray(trackSession.apiCalls)) trackSession.apiCalls = [];
+          trackSession.apiCalls.push({
+            url: requestUrl,
+            kind: requestUrl.includes("/api/datasets/metrics/") ? "metrics" : "query",
+            status: 0,
+            ms: elapsed,
+            ok: false,
+            clientHit: false,
+          });
           paint();
           scheduleReadyCheck();
         }
@@ -529,7 +594,11 @@
   function appendShellVisitHistory() {
     if (!state) return;
     const renderMs = phaseDisplayMs("render");
-    const evalMs = state.api.evalMs || state.phases.eval.durationMs || 0;
+    const evalMs = Math.max(
+      Number(state.api.evalMs) || 0,
+      Number(state.api.evalWallMs) || 0,
+      Number(state.phases.eval.durationMs) || 0,
+    );
     const record = {
       id: "shell-" + String(Date.now()),
       kind: "initial",
@@ -541,7 +610,7 @@
       totalMs: Math.max(0, Date.now() - state.wallStartedAt),
       apiTotal: state.api.total || 0,
       apiFailed: state.api.failed || 0,
-      apiCalls: [],
+      apiCalls: Array.isArray(state.apiCalls) ? state.apiCalls.slice(0, 20) : [],
       handlerReadyMs: Number.isFinite(state.compile.handlerReadyMs) ? state.compile.handlerReadyMs : 0,
       readyReason: state.ready ? "ready" : "aborted",
       uiShown: overlayVisible(),

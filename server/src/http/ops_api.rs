@@ -1,19 +1,24 @@
 //! 受限运维面：只读写 ops registry / journal，不写 `.mei`。
 
 use axum::{
-    extract::{Extension, Path, State},
-    http::StatusCode,
+    extract::{Extension, Path, Query, State},
+    http::{HeaderName, HeaderValue, StatusCode},
     response::IntoResponse,
     Json,
 };
+use mei_lang_app::{scene_theme_style_for_theme_id, scene_viewport_theme_style};
 use mei_lang_kernel::{
-    apply_ops_patch_with_journal, journal_path, load_mei_config_for_app,
-    resolve_app_root as kernel_resolve_app_root, resolve_mei_config_path, MeiConfig,
+    apply_ops_patch_with_journal, compile_app_from_root_with_options, decode_theme_ref_token,
+    journal_path, load_mei_config_for_app, ops_themes_revision_digest,
+    resolve_app_root as kernel_resolve_app_root, resolve_components_root,
+    resolve_default_scene_from_root, resolve_mei_config_path, CompileOptions, MeiConfig,
     OpsConfigPatch, OpsJournal,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::compile_cache::load_compile_artifact_only;
+use crate::http::pages::clear_page_render_cache;
 use crate::{auth::AuthPrincipal, AppState};
 
 fn resolve_app_root(state: &AppState, app_id: &str) -> Option<std::path::PathBuf> {
@@ -108,16 +113,25 @@ pub async fn ops_config_put(
     } else {
         body.summary.trim()
     };
+    let themes_changed = body.patch.themes.is_some();
     match apply_ops_patch_with_journal(&app_root, &config_path, actor, summary, &body.patch) {
-        Ok((config, entry)) => (
-            StatusCode::OK,
-            Json(json!({
-                "ok": true,
-                "revision": entry.revision,
-                "config": config,
-            })),
-        )
-            .into_response(),
+        Ok((config, entry)) => {
+            let page_render_cache_cleared = if themes_changed {
+                clear_page_render_cache()
+            } else {
+                0
+            };
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "ok": true,
+                    "revision": entry.revision,
+                    "config": config,
+                    "page_render_cache_cleared": page_render_cache_cleared,
+                })),
+            )
+                .into_response()
+        }
         Err(error) => (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": error.to_string()})),
@@ -159,4 +173,124 @@ pub async fn ops_boundary_get() -> impl IntoResponse {
             "journal_file": mei_lang_kernel::OPS_JOURNAL_REL_PATH,
         })),
     )
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct OpsThemeStyleQuery {
+    #[serde(default)]
+    scene: Option<String>,
+    #[serde(default, rename = "themeId")]
+    theme_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct OpsThemeStyleResponse {
+    css_vars_style: String,
+    theme_id: String,
+    revision: String,
+}
+
+pub async fn ops_theme_style_get(
+    State(state): State<AppState>,
+    Path(app_id): Path<String>,
+    Query(query): Query<OpsThemeStyleQuery>,
+) -> impl IntoResponse {
+    let Some(app_root) = resolve_app_root(&state, &app_id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    };
+    let source_root = state.source_root.as_path();
+    let config = load_mei_config_for_app(&app_root, Some(source_root));
+    let revision = ops_themes_revision_digest(&config);
+    let theme_revision_header = revision.clone();
+    let scene_id = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| resolve_default_scene_from_root(&app_root).ok().flatten());
+    let compile_options = CompileOptions {
+        scene: scene_id.clone(),
+        preview_target: None,
+    };
+    let components_root = resolve_components_root(&state.source_root);
+    let (css_vars_style, theme_id) =
+        if let Some(outcome) = load_compile_artifact_only(
+            &state,
+            &app_id,
+            &compile_options,
+            components_root.as_path(),
+        ) {
+            let theme_id = outcome
+                .compiled
+                .scene_contract
+                .as_ref()
+                .map(theme_id_from_scene_contract)
+                .unwrap_or_else(|| "page".to_string());
+            (
+                scene_viewport_theme_style(&outcome.compiled, Some(&config)),
+                theme_id,
+            )
+        } else if let Ok(compiled) =
+            compile_app_from_root_with_options(source_root, &app_root, compile_options)
+        {
+            let theme_id = compiled
+                .scene_contract
+                .as_ref()
+                .map(theme_id_from_scene_contract)
+                .unwrap_or_else(|| "page".to_string());
+            (
+                scene_viewport_theme_style(&compiled, Some(&config)),
+                theme_id,
+            )
+        } else if let Some(theme_id) = query
+            .theme_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            (
+                scene_theme_style_for_theme_id(theme_id, Some(&config)),
+                theme_id.to_string(),
+            )
+        } else {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "compile artifact missing and no themeId provided"})),
+            )
+                .into_response();
+        };
+    let mut response = (
+        StatusCode::OK,
+        Json(OpsThemeStyleResponse {
+            css_vars_style,
+            theme_id,
+            revision,
+        }),
+    )
+        .into_response();
+    if let Ok(value) = HeaderValue::from_str(theme_revision_header.as_str()) {
+        response.headers_mut().insert(
+            HeaderName::from_static("x-mei-theme-revision"),
+            value,
+        );
+    }
+    response
+}
+
+fn theme_id_from_scene_contract(
+    contract: &mei_lang_kernel::SceneContract,
+) -> String {
+    contract
+        .scene
+        .theme
+        .as_deref()
+        .and_then(decode_theme_ref_token)
+        .or_else(|| contract.scene.theme.clone())
+        .or_else(|| contract.scene.profile.clone())
+        .unwrap_or_else(|| "page".to_string())
 }
