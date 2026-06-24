@@ -1614,6 +1614,25 @@ a.status-chip-link:focus-visible {
 .access-chat-floating-root[data-dragging="true"] .access-chat-fab {
   cursor: grabbing;
 }
+.access-external-ai-floating-root .access-external-ai-fab {
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  background: transparent;
+  box-shadow: 0 10px 28px rgba(2, 6, 23, 0.45);
+}
+.access-external-ai-floating-root .access-external-ai-fab:hover,
+.access-external-ai-floating-root .access-external-ai-fab:focus-visible {
+  border: none;
+  box-shadow:
+    0 12px 30px rgba(2, 6, 23, 0.56),
+    0 0 0 3px rgba(45, 212, 191, 0.22);
+}
+.access-external-ai-floating-root .access-external-ai-fab-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 .access-chat-overlay-panel {
   position: fixed;
   right: clamp(12px, 2vw, 24px);

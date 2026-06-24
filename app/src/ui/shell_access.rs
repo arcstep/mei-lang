@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
-use super::agent_panel;
+use super::access_ai_entry::access_ai_floating_entry;
 use super::compile_status::is_static_workspace_asset_target;
 use super::manage_routing::WorldSemanticQuery;
 use super::preview;
@@ -86,53 +86,7 @@ pub(crate) fn access_shell(
     } else {
         "min-h-0 min-w-0 overflow-visible [&_.preview-surface]:min-h-auto"
     };
-    let floating_entry = || {
-        view! {
-            <div id="access-chat-floating-root" class="access-chat-floating-root" data-open="false">
-                <button
-                    id="access-chat-fab"
-                    class="access-chat-fab"
-                    type="button"
-                    aria-label="打开助手对话框"
-                    title="打开助手对话框"
-                >
-                    <img class="access-chat-fab-icon" src="/app-assets/favicon.svg" alt="" />
-                </button>
-                <aside
-                    id="access-chat-overlay-panel"
-                    class="access-chat-overlay-panel"
-                    hidden=true
-                >
-                    <div class="access-chat-overlay-head">
-                        <span class="access-chat-overlay-title">"Mei Access Assistant"</span>
-                        <button
-                            id="access-chat-close"
-                            class="access-chat-overlay-close"
-                            type="button"
-                            aria-label="关闭助手对话框"
-                            title="关闭助手对话框"
-                        >
-                            "×"
-                        </button>
-                    </div>
-                    <div class="access-chat-overlay-body">
-                        {agent_panel::panel_view(
-                            compiled,
-                            app_path,
-                            UiRouteMode::App,
-                            current_target,
-                            false,
-                            panel_tab,
-                            true,
-                            false,
-                            "ask",
-                            false,
-                        )}
-                    </div>
-                </aside>
-            </div>
-        }
-    };
+    let floating_entry = || access_ai_floating_entry(compiled, app_path, current_target, panel_tab);
     view! {
         <div class=shell_class>
             {host_ssr_bootstrap_scripts(compiled, app_path, selected_scene.or(compiled.active_scene.as_deref()))}

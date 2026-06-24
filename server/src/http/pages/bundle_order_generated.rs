@@ -93,6 +93,7 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "frame-stage/lifecycle.js",
     "frame-stage/epilogue.js",
     "scope-params.js",
+    "access-external-ai-float.js",
     "agent-host-coordinates.js",
     "statusbar.js",
     "visit-history-panel.js",

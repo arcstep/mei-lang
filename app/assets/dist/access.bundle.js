@@ -3062,6 +3062,216 @@
 
 ;
 
+/* ===== access-external-ai-float.js ===== */
+/**
+ * 访问/演示态外部 AI 链接漂浮入口：可拖拽，点击打开配置 URL。
+ */
+(function (w) {
+  function positionStorageKey(appId) {
+    return "mei-lang.access-external-ai-position." + String(appId || "default");
+  }
+
+  function bootAccessExternalAiFloat() {
+    const root = document.getElementById("access-external-ai-floating-root");
+    const fab = document.getElementById("access-external-ai-fab");
+    if (!root || !fab) return null;
+
+    const MARGIN_PX = 10;
+    const DRAG_THRESHOLD_PX = 4;
+    const storageKey = positionStorageKey(root.dataset.appId || "");
+    let dragState = null;
+    let dragMoved = false;
+
+    function clampPosition(left, top) {
+      const width = Math.max(48, Number(root.offsetWidth || 68));
+      const height = Math.max(48, Number(root.offsetHeight || 68));
+      const minLeft = MARGIN_PX;
+      const minTop = MARGIN_PX;
+      const maxLeft = Math.max(
+        minLeft,
+        Number(window.innerWidth || 0) - width - MARGIN_PX,
+      );
+      const maxTop = Math.max(
+        minTop,
+        Number(window.innerHeight || 0) - height - MARGIN_PX,
+      );
+      return {
+        left: Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0))),
+        top: Math.min(maxTop, Math.max(minTop, Math.round(Number(top) || 0))),
+      };
+    }
+
+    function applyPosition(left, top) {
+      const pos = clampPosition(left, top);
+      root.style.left = String(pos.left) + "px";
+      root.style.top = String(pos.top) + "px";
+      root.style.right = "auto";
+      root.style.bottom = "auto";
+      root.dataset.positioned = "true";
+      return pos;
+    }
+
+    function clearPosition() {
+      root.style.left = "";
+      root.style.top = "";
+      root.style.right = "";
+      root.style.bottom = "";
+      delete root.dataset.positioned;
+    }
+
+    function rememberPosition(left, top) {
+      const pos = clampPosition(left, top);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(pos));
+      } catch (_) {}
+    }
+
+    function restorePosition() {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) {
+          clearPosition();
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        const left = Number(parsed && parsed.left);
+        const top = Number(parsed && parsed.top);
+        if (!Number.isFinite(left) || !Number.isFinite(top)) {
+          clearPosition();
+          return;
+        }
+        const pos = applyPosition(left, top);
+        rememberPosition(pos.left, pos.top);
+      } catch (_) {
+        clearPosition();
+      }
+    }
+
+    function beginDrag(event) {
+      if (event && event.button != null && event.button !== 0) return;
+      const rect = root.getBoundingClientRect();
+      dragState = {
+        pointerId: event ? event.pointerId : null,
+        startX: Number(event && event.clientX),
+        startY: Number(event && event.clientY),
+        baseLeft: Number(rect.left || 0),
+        baseTop: Number(rect.top || 0),
+        moved: false,
+        lastLeft: Number(rect.left || 0),
+        lastTop: Number(rect.top || 0),
+      };
+      dragMoved = false;
+      root.dataset.dragging = "true";
+      try {
+        if (event && event.pointerId != null) {
+          fab.setPointerCapture(event.pointerId);
+        }
+      } catch (_) {}
+      if (event && typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
+    }
+
+    function continueDrag(event) {
+      if (!dragState) return;
+      if (
+        dragState.pointerId != null &&
+        event &&
+        event.pointerId != null &&
+        event.pointerId !== dragState.pointerId
+      ) {
+        return;
+      }
+      const nextX = Number(event && event.clientX);
+      const nextY = Number(event && event.clientY);
+      if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
+      const dx = nextX - dragState.startX;
+      const dy = nextY - dragState.startY;
+      if (!dragState.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) {
+        return;
+      }
+      dragState.moved = true;
+      dragMoved = true;
+      const pos = applyPosition(dragState.baseLeft + dx, dragState.baseTop + dy);
+      dragState.lastLeft = pos.left;
+      dragState.lastTop = pos.top;
+      if (event && typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
+    }
+
+    function endDrag(event) {
+      if (!dragState) return;
+      if (
+        dragState.pointerId != null &&
+        event &&
+        event.pointerId != null &&
+        event.pointerId !== dragState.pointerId
+      ) {
+        return;
+      }
+      const moved = !!dragState.moved;
+      const left = dragState.lastLeft;
+      const top = dragState.lastTop;
+      dragState = null;
+      delete root.dataset.dragging;
+      try {
+        if (event && event.pointerId != null) {
+          fab.releasePointerCapture(event.pointerId);
+        }
+      } catch (_) {}
+      if (moved) {
+        rememberPosition(left, top);
+        window.setTimeout(function () {
+          dragMoved = false;
+        }, 0);
+      }
+    }
+
+    function onFabClick(event) {
+      if (dragMoved) {
+        dragMoved = false;
+        event.preventDefault();
+      }
+    }
+
+    function onWindowResize() {
+      if (root.dataset.positioned !== "true") return;
+      const rect = root.getBoundingClientRect();
+      const pos = applyPosition(rect.left, rect.top);
+      rememberPosition(pos.left, pos.top);
+    }
+
+    fab.addEventListener("click", onFabClick);
+    fab.addEventListener("pointerdown", beginDrag);
+    document.addEventListener("pointermove", continueDrag);
+    document.addEventListener("pointerup", endDrag);
+    document.addEventListener("pointercancel", endDrag);
+    window.addEventListener("resize", onWindowResize);
+    restorePosition();
+
+    return function dispose() {
+      fab.removeEventListener("click", onFabClick);
+      fab.removeEventListener("pointerdown", beginDrag);
+      document.removeEventListener("pointermove", continueDrag);
+      document.removeEventListener("pointerup", endDrag);
+      document.removeEventListener("pointercancel", endDrag);
+      window.removeEventListener("resize", onWindowResize);
+    };
+  }
+
+  const boot = (w.__meiLangBoot = w.__meiLangBoot || {});
+  if (typeof boot.disposeAccessExternalAiFloat === "function") {
+    try {
+      boot.disposeAccessExternalAiFloat();
+    } catch (_) {}
+    boot.disposeAccessExternalAiFloat = null;
+  }
+  boot.disposeAccessExternalAiFloat = bootAccessExternalAiFloat();
+})(window);
+
+;
+
 /* ===== agent-host-coordinates.js ===== */
 /**
  * Agent preview / send / SSE 共用的宿主坐标（scene-first）。
@@ -10922,6 +11132,8 @@
     const kind = nonEmptyString(raw.kind);
     const sceneId = nonEmptyString(raw.scene_id, raw.sceneId);
     if (!items.length && !kindOrder.length && !overlaySize && !kind && !sceneId) return null;
+    const rowDrilldownPopup = raw.row_drilldown_popup ?? raw.rowDrilldownPopup ?? null;
+    const rowDrilldown = raw.row_drilldown ?? raw.rowDrilldown ?? null;
     return {
       kind,
       sceneId,
@@ -10931,6 +11143,12 @@
       overlaySize,
       items,
       kindOrder,
+      ...(rowDrilldownPopup && typeof rowDrilldownPopup === "object" && !Array.isArray(rowDrilldownPopup)
+        ? { rowDrilldownPopup, row_drilldown_popup: rowDrilldownPopup }
+        : {}),
+      ...(rowDrilldown && typeof rowDrilldown === "object" && !Array.isArray(rowDrilldown)
+        ? { rowDrilldown, row_drilldown: rowDrilldown }
+        : {}),
     };
   }
 
@@ -13966,41 +14184,56 @@
     );
   }
 
-  const SPBJW_WARNING_DETAIL_BOARD_FILE = "scenes/_shared/warning-detail.card.board.mei";
-  const SPBJW_TYPICAL_CASES_BOARD_FILE = "scenes/09-监督典型案例.board.mei";
-  const SPBJW_ISSUE_CLUE_DETAIL_BOARD_FILE = "scenes/_shared/issue-clue-detail.card.board.mei";
-  const SPBJW_ISSUE_HANDLING_DETAIL_BOARD_FILE = "scenes/_shared/issue-clue-detail.card.board.mei";
-  const SPBJW_ISSUE_RESULT_DETAIL_BOARD_FILE = "scenes/_shared/issue-result-detail.card.board.mei";
-  const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
-  const SPBJW_ISSUE_HANDLING_METRIC_IDS = new Set([
-    "warnings_pending_count",
-    "effectiveness_in_progress_count",
-    "effectiveness_completed_count",
-  ]);
-  const SPBJW_ISSUE_CLUE_METRIC_IDS = new Set([
-    "effectiveness_transfer_clue_count",
-    "effectiveness_filing_count",
-  ]);
-
-  function resolveDetailCardOwnerSceneFile(boardSceneId) {
-    const id = String(boardSceneId || "").trim();
-    if (id === "issue_handling_detail_card_board") {
-      return "scenes/07-问题办理.mei";
+  function resolveDeclaredRowDrilldownPopup(config = null) {
+    const localNav = config?.sceneLocalNav;
+    const raw =
+      config?.rowDrilldownPopup ||
+      config?.row_drilldown_popup ||
+      localNav?.rowDrilldownPopup ||
+      localNav?.row_drilldown_popup ||
+      null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return null;
     }
-    if (id === "issue_clue_detail_card_board") {
-      return "scenes/08-监督成效.mei";
-    }
-    return "";
+    return raw;
   }
 
-  function resolveDetailCardScopedMetricId(metricId, boardSceneId) {
-    const local = normalizeMetricLocalId(metricId);
-    if (!local) return "";
-    const ownerScene = resolveDetailCardOwnerSceneFile(boardSceneId);
-    if (ownerScene) {
-      return `${ownerScene}::${local}`;
+  function resolveDeclaredRowDrilldownSpec(config = null) {
+    const localNav = config?.sceneLocalNav;
+    const raw =
+      config?.rowDrilldown ||
+      config?.row_drilldown ||
+      localNav?.rowDrilldown ||
+      localNav?.row_drilldown ||
+      null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return null;
     }
-    return nonEmptyString(metricId, local);
+    return raw;
+  }
+
+  function popupBoardSceneFields(popup) {
+    if (!popup || typeof popup !== "object") {
+      return { sceneId: "", sceneFile: "" };
+    }
+    const sceneRef =
+      popup.scene && typeof popup.scene === "object" && !Array.isArray(popup.scene)
+        ? popup.scene
+        : null;
+    return {
+      sceneId: nonEmptyString(
+        popup.scene_id,
+        popup.sceneId,
+        sceneRef?.scene_id,
+        sceneRef?.sceneId,
+      ),
+      sceneFile: nonEmptyString(
+        popup.scene_file,
+        popup.sceneFile,
+        sceneRef?.scene_file,
+        sceneRef?.sceneFile,
+      ),
+    };
   }
 
   function resolveAnalyticsRowsetDatasetId(config = null) {
@@ -14016,90 +14249,80 @@
     );
   }
 
-  function resolveCaseDetailBoardTarget(rowsetId, detail = null, config = null) {
-    const id = localDatasetIdFromSelector(rowsetId);
-    if (!id) return null;
-    if (id === "issue_result_list") {
-      return {
-        sceneId: "issue_result_detail_card_board",
-        sceneFile: SPBJW_ISSUE_RESULT_DETAIL_BOARD_FILE,
-      };
-    }
-    if (id === "typical_cases") {
-      return {
-        sceneId: "typical_cases_detail_board",
-        sceneFile: SPBJW_TYPICAL_CASES_BOARD_FILE,
-      };
-    }
-    if (SPBJW_WARNING_ROWSET_IDS.has(id)) {
-      const metricId = normalizeMetricLocalId(
-        resolveDrilldownTableMetricId(detail, config),
-      );
-      if (SPBJW_ISSUE_HANDLING_METRIC_IDS.has(metricId)) {
-        return {
-          sceneId: "issue_handling_detail_card_board",
-          sceneFile: SPBJW_ISSUE_HANDLING_DETAIL_BOARD_FILE,
-        };
-      }
-      if (SPBJW_ISSUE_CLUE_METRIC_IDS.has(metricId)) {
-        return {
-          sceneId: "issue_clue_detail_card_board",
-          sceneFile: SPBJW_ISSUE_CLUE_DETAIL_BOARD_FILE,
-        };
-      }
-      return {
-        sceneId: "warning_detail_card_board",
-        sceneFile: SPBJW_WARNING_DETAIL_BOARD_FILE,
-      };
-    }
-    return null;
-  }
-
   function resolveAnalyticsTableRowDrilldown(config = null, detail = null) {
     if (!isAnalyticsDetailTableConfig(config)) {
       return null;
     }
+    const declaredPopup = resolveDeclaredRowDrilldownPopup(config);
+    if (!declaredPopup) {
+      return null;
+    }
+    const { sceneId: boardSceneId, sceneFile: boardSceneFile } = popupBoardSceneFields(declaredPopup);
+    if (!boardSceneId || !boardSceneFile) {
+      return null;
+    }
     const rowsetId = resolveAnalyticsRowsetDatasetId(config);
     const localRowsetId = localDatasetIdFromSelector(rowsetId);
-    const boardTarget = resolveCaseDetailBoardTarget(rowsetId, detail, config);
-    if (!boardTarget?.sceneId) {
+    const popupParams =
+      declaredPopup.params && typeof declaredPopup.params === "object" && !Array.isArray(declaredPopup.params)
+        ? declaredPopup.params
+        : {};
+    const popupMetricId = metricRefId(popupParams.metric);
+    if (!popupMetricId) {
       return null;
     }
-    const metricId = resolveDrilldownTableMetricId(detail, config);
-    const boardSceneId = boardTarget.sceneId;
-    const boardSceneFile = nonEmptyString(boardTarget.sceneFile);
+    const rowsetFromPopup = nonEmptyString(
+      popupParams.rowset_dataset_id,
+      popupParams.rowsetDatasetId,
+      localRowsetId,
+    );
     const ownerScenePath = nonEmptyString(
-      resolveDetailCardOwnerSceneFile(boardSceneId),
-      importedCapsuleScenePathFromMetricId(metricId),
+      importedCapsuleScenePathFromMetricId(popupMetricId),
+      popupParams.metric?.__mei_runtime_ref?.scene_path,
       resolveMetricOwnerScenePath(
         config?.detailSlot ? [config.detailSlot] : [],
-        { metric_id: metricId, dataset_id: localRowsetId, host_scene_file: config?.hostSceneFile },
+        {
+          metric_id: popupMetricId,
+          dataset_id: rowsetFromPopup,
+          host_scene_file: config?.hostSceneFile,
+        },
       ),
-      String(config?.hostSceneFile || "").replace(/\.board\.mei$/i, ".mei"),
-      config?.hostSceneFile,
     );
-    const scopedMetricId = resolveDetailCardScopedMetricId(metricId, boardSceneId);
-    if (!scopedMetricId || !boardSceneId || !boardSceneFile) {
-      return null;
-    }
+    const scopedMetricId =
+      popupMetricId.includes(".mei::") || popupMetricId.startsWith("__")
+        ? popupMetricId
+        : ownerScenePath
+          ? `${ownerScenePath}::${normalizeMetricLocalId(popupMetricId)}`
+          : popupMetricId;
+    const tableMetricId = resolveCardMetricRowsetId(scopedMetricId);
     const runtimeRef = {
       kind: "metric",
-      metric_id: scopedMetricId,
-      dataset_id: localRowsetId,
+      metric_id: tableMetricId,
+      dataset_id: nonEmptyString(
+        rowsetFromPopup,
+        qualifyDatasetIdForScene(rowsetFromPopup, ownerScenePath),
+      ),
       scene_id: boardSceneId,
       scene_path: boardSceneFile,
     };
+    const overlaySize = nonEmptyString(
+      declaredPopup.overlay_size,
+      declaredPopup.overlaySize,
+      config?.sceneLocalNav?.overlaySize,
+      "fullscreen",
+    );
     return {
       popup: {
         mode: "popup",
-        type: "popup",
-        projection: "overlay",
-        overlay_size: "fullscreen",
+        type: nonEmptyString(declaredPopup.type, "popup"),
+        projection: nonEmptyString(declaredPopup.projection, "overlay"),
+        overlay_size: overlaySize,
         scene_id: boardSceneId,
         scene_file: boardSceneFile,
         params: {
+          ...popupParams,
           metric: { __mei_runtime_ref: runtimeRef },
-          rowset_dataset_id: localRowsetId,
+          rowset_dataset_id: rowsetFromPopup,
         },
       },
       drilldownMetric: { __mei_runtime_ref: runtimeRef },
@@ -14108,6 +14331,7 @@
         scenePath: boardSceneFile,
         ownerScenePath,
       },
+      rowDrilldown: resolveDeclaredRowDrilldownSpec(config),
     };
   }
 
@@ -14124,6 +14348,8 @@
       popup: rowDrilldown.popup,
       drilldownMetric: rowDrilldown.drilldownMetric,
       previewCompileAnchor: rowDrilldown.previewCompileAnchor,
+      rowDrilldown: rowDrilldown.rowDrilldown || undefined,
+      row_drilldown: rowDrilldown.rowDrilldown || undefined,
     };
   }
 
@@ -15140,6 +15366,19 @@
       .map((entry) => (entry.startsWith("《") ? entry : `《${entry}》`));
   }
 
+  function applyExternalCaseDetailRowEnricher(row, detail) {
+    if (!row || typeof row !== "object") {
+      return row;
+    }
+    const enricher =
+      typeof window !== "undefined" ? window.__meiCaseDetailRowEnricher : null;
+    if (typeof enricher !== "function") {
+      return row;
+    }
+    const enriched = enricher(row, detail);
+    return enriched && typeof enriched === "object" ? enriched : row;
+  }
+
   function enrichCaseDetailRow(row, detail) {
     if (!row || typeof row !== "object") return row;
     const enriched = { ...row };
@@ -15150,99 +15389,16 @@
           ? detail.default_filters
           : {};
     const title = String(detail?.label ?? detail?.desc ?? "").trim();
-    if (title && !String(enriched.案例名称 ?? "").trim()) {
-      const datasetId = String(detail?.dataset_id ?? "").trim();
-      const isLongNarrative = title.length > 80 || title.includes("\n");
-      if (!((datasetId === "warning_list" || datasetId === "warning_detail") && isLongNarrative)) {
-        enriched.案例名称 = title;
+    if (title && !String(enriched.title ?? enriched.label ?? "").trim()) {
+      enriched.title = title;
+    }
+    Object.entries(filters).forEach(([key, value]) => {
+      const text = String(value ?? "").trim();
+      if (text) {
+        enriched[key] = text;
       }
-    }
-    const filterResultId = String(filters["处理结果ID"] ?? "").trim();
-    const rowResultId = String(enriched.处理结果ID ?? "").trim();
-    if (filterResultId) {
-      enriched.处理结果ID = filterResultId;
-    } else if (rowResultId) {
-      enriched.处理结果ID = rowResultId;
-    } else {
-      delete enriched.处理结果ID;
-    }
-    return enriched;
-  }
-
-  function resolveSpbjwYesFlag(row, field, fallbackFields = []) {
-    const value = resolveCaseDetailFieldValue(row, {
-      field: String(field || "").trim(),
-      fallback_fields: fallbackFields,
     });
-    const text = String(value ?? "").trim();
-    if (!text || text === "—" || text === "-" || text === "否" || text === "0") {
-      return "";
-    }
-    if (text.includes("否") && !text.includes("是")) {
-      return "";
-    }
-    return text.includes("是") ? "是" : "";
-  }
-
-  function resolvePartyGovSanctionFlag(row) {
-    const explicit = resolveSpbjwYesFlag(row, "是否给予党纪政务处分");
-    if (explicit) return explicit;
-    const sanction = String(row?.处理处分 ?? "").trim();
-    if (sanction.includes("第二种")) return "是";
-    const result = String(row?.处理结果 ?? "").trim();
-    if (/第二种形态/.test(result)) return "是";
-    return "";
-  }
-
-  function enrichHybridCaseDetailRow(row, detail) {
-    const enriched = enrichCaseDetailRow(row, detail);
-    if (!String(enriched.涉及单位 ?? "").trim() && String(enriched.主责单位 ?? "").trim()) {
-      enriched.涉及单位 = enriched.主责单位;
-    }
-    if (!String(enriched.监督模型 ?? "").trim()) {
-      const model = String(enriched.预警类型 ?? enriched.问题分类名称 ?? "").trim();
-      if (model) enriched.监督模型 = model;
-    }
-    const tracking = String(enriched.问题跟踪ID ?? "").trim();
-    const dept = String(enriched.承办部门 ?? "").trim();
-    const close = String(enriched.办结时间 ?? "").trim();
-    enriched.是否待办 = tracking && !dept ? "是" : "";
-    enriched.是否在办 = tracking && dept && !close ? "是" : "";
-    enriched.是否已办 = tracking && dept && close ? "是" : "";
-    enriched.是否查实 = resolveSpbjwYesFlag(enriched, "是否查实");
-    const transferred = resolveSpbjwYesFlag(enriched, "是否转问题线索");
-    enriched.是否转问题线索 = transferred;
-    const datasetId = String(detail?.dataset_id ?? "").trim();
-    const filing = resolveSpbjwYesFlag(enriched, "是否立案");
-    enriched.是否立案 =
-      filing ||
-      (datasetId === "warning_list" || datasetId === "warning_detail" || enriched.预警ID
-        ? transferred
-        : "");
-    enriched.是否给予党纪政务处分 = resolvePartyGovSanctionFlag(enriched);
-    if (!String(enriched.处置方式 ?? "").trim()) {
-      const fallback = String(enriched.处理结果 ?? "").trim();
-      if (fallback && !/第[一二]种形态/.test(fallback)) {
-        enriched.处置方式 = fallback;
-      }
-    }
-    if (!String(enriched.涉及人员 ?? "").trim()) {
-      const person = String(enriched["姓名/单位"] ?? enriched.姓名 ?? "").trim();
-      if (person) enriched.涉及人员 = person;
-    }
-    if (!String(enriched.处理人数 ?? "").trim()) {
-      const person = String(enriched["姓名/单位"] ?? "").trim();
-      if (person) enriched.处理人数 = "1";
-    }
-    if (!String(enriched.挽回资金万 ?? "").trim()) {
-      const funds = String(enriched.挽回资金 ?? "").trim();
-      if (funds) enriched.挽回资金万 = funds;
-    }
-    if (!String(enriched.健全机制数 ?? "").trim()) {
-      const mechanismCount = splitMechanismDocuments(String(enriched.健全机制 ?? "").trim()).length;
-      if (mechanismCount > 0) enriched.健全机制数 = String(mechanismCount);
-    }
-    return enriched;
+    return applyExternalCaseDetailRowEnricher(enriched, detail);
   }
 
   function mappingShowsHeader(mapping) {
@@ -15610,9 +15766,7 @@
       renderListPreviewItemPanel(host, row, config);
       return;
     }
-    const enrichedRow = mappingHasTypicalCaseStats(mapping)
-      ? enrichHybridCaseDetailRow(row, detail)
-      : enrichCaseDetailRow(row, detail);
+    const enrichedRow = enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-case-detail-panel";
     const hybridStats = mappingHasTypicalCaseStats(mapping);
@@ -16569,9 +16723,6 @@
           ),
           ownerScenePath: nonEmptyString(
             config?.previewCompileAnchor?.ownerScenePath,
-            resolveDetailCardOwnerSceneFile(
-              nonEmptyString(config?.boardSceneId, detail?.board_scene_id, detail?.popup?.scene_id),
-            ),
             importedCapsuleScenePathFromMetricId(
               resolvePopupPassedMetricId(detail, config) || config?.tableMetricId,
             ),

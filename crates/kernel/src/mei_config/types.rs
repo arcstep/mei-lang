@@ -354,12 +354,41 @@ pub struct AppPathsConfig {
     pub prototype: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AccessAiExternalConfig {
+    pub url: String,
+    pub image: String,
+    #[serde(default, rename = "openInNewTab")]
+    pub open_in_new_tab: Option<bool>,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+impl AccessAiExternalConfig {
+    pub fn is_configured(&self) -> bool {
+        !self.url.trim().is_empty() && !self.image.trim().is_empty()
+    }
+
+    pub fn open_in_new_tab(&self) -> bool {
+        self.open_in_new_tab.unwrap_or(true)
+    }
+
+    pub fn label_or_default(&self) -> &str {
+        self.label
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("打开 AI 助手")
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppFeaturesConfig {
     #[serde(default, rename = "aiChat")]
     pub ai_chat: Option<bool>,
     #[serde(default, rename = "sceneBundle")]
     pub scene_bundle: Option<bool>,
+    #[serde(default, rename = "accessAiExternal")]
+    pub access_ai_external: Option<AccessAiExternalConfig>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

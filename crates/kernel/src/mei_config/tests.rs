@@ -8,6 +8,35 @@ use super::workspace_paths::workspace_config_path;
 use super::*;
 
 #[test]
+fn access_ai_external_deserializes_from_features() {
+    let raw = r#"{
+        "features": {
+            "aiChat": false,
+            "accessAiExternal": {
+                "url": "https://example.test/agent",
+                "image": "/workspace-app-assets/demo/assets/AI@3x.png",
+                "label": "Demo AI",
+                "openInNewTab": true
+            }
+        }
+    }"#;
+    let cfg: MeiConfig = serde_json::from_str(raw).expect("parse accessAiExternal");
+    let external = cfg
+        .features
+        .access_ai_external
+        .as_ref()
+        .expect("accessAiExternal");
+    assert_eq!(external.url, "https://example.test/agent");
+    assert_eq!(
+        external.image,
+        "/workspace-app-assets/demo/assets/AI@3x.png"
+    );
+    assert!(external.is_configured());
+    assert!(external.open_in_new_tab());
+    assert_eq!(external.label_or_default(), "Demo AI");
+}
+
+#[test]
 fn workspace_compliance_deserializes_from_json() {
     let raw = r#"{
             "compliance": {

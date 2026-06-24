@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, CompiledSceneRoute, WorkspaceAppMeta};
 
+use super::access_ai_entry::{external_access_ai_floating_entry, resolve_access_ai_external};
 use super::manage_routing::WorldSemanticQuery;
 use super::preview;
 use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
@@ -126,6 +127,7 @@ pub(crate) fn presentation_shell(
         .unwrap_or(0);
     let current_route = deck[current_index];
     let current_target = current_route.target_file.as_str();
+    let external_ai = resolve_access_ai_external(compiled);
     let current_title = current_route
         .title
         .as_deref()
@@ -161,6 +163,9 @@ pub(crate) fn presentation_shell(
                 <section class="h-full overflow-hidden [&_.preview-viewport]:h-full [&_.preview-viewport]:min-h-full [&_.preview-surface:not(.preview-stage)]:h-full [&_.preview-surface:not(.preview-stage)]:min-h-full [&_.preview-stage-shell]:h-full [&_.preview-stage-shell]:min-h-full">
                     {preview}
                 </section>
+                {external_ai
+                    .as_ref()
+                    .map(|entry| external_access_ai_floating_entry(app_path, entry))}
 
                 <div class="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 sm:p-6">
                     <header class="pointer-events-auto mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-white/10 mei-surface-panel-muted px-4 py-3 shadow-lg backdrop-blur-md">

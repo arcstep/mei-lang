@@ -27,7 +27,8 @@ pub use io::{
 pub use ops::{merge_ops_section, OpsConfigPatch};
 pub use shell_theme::{resolve_workspace_shell_theme, validate_workspace_shell_theme};
 pub use types::{
-    AppEntryConfig, AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig, AuthUserConfig,
+    AccessAiExternalConfig, AppEntryConfig, AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig,
+    AuthUserConfig,
     DiscoverConfig, FileCacheConfig, FileCacheSettings, MeiConfig, OpsBasemapEntry, OpsConfig,
     OpsSourceEntry, RuntimeConfig, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
     RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WorkspaceAuthConfig, WorkspaceComplianceConfig,

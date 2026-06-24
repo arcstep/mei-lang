@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 
+mod access_ai_entry;
 mod agent_panel;
 mod build_tree;
 mod capabilities;
