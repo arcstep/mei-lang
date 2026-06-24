@@ -683,6 +683,7 @@ fn execute_metric_query_group(
         ctx.compile_revision,
         ctx.filter_intents,
         result_artifact_candidate,
+        None,
     );
     let response_cache_key = lookup_cache_keys.first().cloned().unwrap_or_else(|| {
         metric_response_cache_scope_key(
@@ -694,6 +695,7 @@ fn execute_metric_query_group(
             ctx.compile_revision,
             "",
             ctx.filter_intents,
+            None,
         )
     });
     let response_cache_lookup_started = Instant::now();

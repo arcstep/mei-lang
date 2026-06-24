@@ -189,6 +189,7 @@ pub fn metric_response_artifact_lookup_cache_keys(
     compile_revision: &str,
     filter_intents: &[FilterIntent],
     prefer_prebuild_keys: bool,
+    slot_revision: Option<&str>,
 ) -> Vec<String> {
     metric_cache_key::metric_response_artifact_lookup_cache_keys(
         app_id,
@@ -202,6 +203,7 @@ pub fn metric_response_artifact_lookup_cache_keys(
         compile_revision,
         filter_intents,
         prefer_prebuild_keys,
+        slot_revision,
     )
 }
 

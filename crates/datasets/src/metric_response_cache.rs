@@ -99,6 +99,32 @@ pub fn prebuild_metric_response_key_matches_dataset_query(
         || response_cache_key.contains(&format!("|{query_tail}"))
 }
 
+pub fn metric_eval_scope_key(scene_id: &str, scene_path: Option<&str>) -> String {
+    let scene_id = scene_id.trim();
+    if let Some(path) = scene_path.map(str::trim).filter(|value| !value.is_empty()) {
+        if scene_id.is_empty() {
+            path.to_string()
+        } else {
+            format!("{scene_id}@{path}")
+        }
+    } else if scene_id.is_empty() {
+        "default".to_string()
+    } else {
+        scene_id.to_string()
+    }
+}
+
+pub fn compute_metric_slot_revision(
+    metric_def_bundle_revision: &str,
+    data_source_revision: &str,
+    scope_key: &str,
+) -> String {
+    let body = format!(
+        "mdb={metric_def_bundle_revision}\nds={data_source_revision}\nscope={scope_key}\nengine=json_walk"
+    );
+    format!("sr:{}", crate::metric_cache_key::stable_slot_hash(&body))
+}
+
 pub fn metric_response_cache_scope_key(
     app_id: &str,
     scene_id: &str,
@@ -108,11 +134,13 @@ pub fn metric_response_cache_scope_key(
     compile_revision: &str,
     dependency_revision_key: &str,
     filter_intents: &[FilterIntent],
+    slot_revision: Option<&str>,
 ) -> String {
     let group = serialize_cache_value(&query.group);
     let time_range = serialize_cache_value(&query.time_range);
     format!(
-        "{app_id}|compile={compile_revision}|{dependency_revision_key}|scene={scene_id}|target={}|dataset={dataset_id}|search={}|filters={}|group={}|time_range={}|filter_intents={}",
+        "{app_id}|compile={compile_revision}|{dependency_revision_key}|slot_rev={}|scene={scene_id}|target={}|dataset={dataset_id}|search={}|filters={}|group={}|time_range={}|filter_intents={}",
+        slot_revision.unwrap_or(""),
         scene_path.unwrap_or(""),
         query.search.as_deref().unwrap_or(""),
         serialize_cache_value(&query.filters),

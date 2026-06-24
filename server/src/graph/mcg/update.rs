@@ -12,6 +12,7 @@ use crate::graph::mcg::assemble::{
 use crate::graph::mcg::metric_def_bundle::{
     extract_metric_def_bundles, DatasetRuntimePayloadView, MetricDefBundleRecord,
 };
+use crate::graph::mcg::app_skeleton::{app_skeleton_revision, persist_app_skeleton_artifact};
 use crate::graph::mcg::panel_contract::{extract_panel_contracts, partial_assemble_panel_merge, persist_panel_contracts};
 use crate::graph::mcg::registry::{AssemblyInputRef, McgEdgeRecord, McgNodeRecord, McgRegistryWriter};
 use crate::graph::mcg::scene_payload::{
@@ -84,6 +85,9 @@ pub fn update_mcg_after_compile(
         scene_revision.as_str(),
         &scene_payload_value(&compiled_for_payload),
     ) {
+        let payload_bytes = serde_json::to_string(&scene_payload_value(&compiled_for_payload))
+            .map(|text| text.len() as u64)
+            .unwrap_or(0);
         registry.upsert_node(McgNodeRecord {
             id: GraphNodeId::new(GraphNodeKind::ScenePayload, target_file.clone()),
             revision: scene_revision.clone(),
@@ -99,8 +103,46 @@ pub fn update_mcg_after_compile(
             defs_fingerprint: None,
             owner_resource_id: None,
             assembly_inputs: Vec::new(),
-            stats: None,
+            stats: Some(
+                [("payloadBytes".to_string(), payload_bytes)]
+                    .into_iter()
+                    .collect(),
+            ),
         });
+    }
+
+    let is_world_compile = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(str::is_empty)
+        && options
+            .scene
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(str::is_empty);
+    if is_world_compile {
+        let sk_rev = app_skeleton_revision(dependency_fingerprint);
+        if let Ok(rel) = persist_app_skeleton_artifact(app_root.as_path(), sk_rev.as_str(), compiled)
+        {
+            registry.upsert_node(McgNodeRecord {
+                id: GraphNodeId::new(GraphNodeKind::AppSkeleton, app_id.to_string()),
+                revision: sk_rev,
+                state: MaterialState::Ready,
+                layer: "compile".to_string(),
+                payload_ref: Some(PayloadRef {
+                    kind: "app_skeleton".to_string(),
+                    relative_path: rel,
+                    schema_version: super::app_skeleton::APP_SKELETON_ARTIFACT_SCHEMA.to_string(),
+                    content_hash: None,
+                }),
+                deps: Vec::new(),
+                defs_fingerprint: None,
+                owner_resource_id: None,
+                assembly_inputs: Vec::new(),
+                stats: None,
+            });
+        }
     }
 
     let mut bundle_inputs = Vec::new();

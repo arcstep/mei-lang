@@ -38,14 +38,17 @@ pub use capability_catalog::{
 };
 pub use compile_report::{compile_report, CompileReport};
 pub use compile_service::{
-    clear_compile_cache_for_app, clear_compiled_app_artifacts_for_app, compile_app_with_cache,
-    compile_app_with_cache_shared, compile_cache_key, env_flag_enabled,
-    hydrate_compiled_app_from_disk_artifacts, inspect_source_layout, is_compile_inflight,
-    load_compile_artifact_only, load_compile_artifact_only_shared, peek_compile_cache,
-    peek_compile_cache_hit, peek_compile_cache_hit_shared, peek_compile_cache_shared,
+    access_slim_artifacts_enabled, canonical_artifact_persist_enabled, clear_compile_cache_for_app,
+    clear_compiled_app_artifacts_for_app, compile_app_with_cache, compile_app_with_cache_shared,
+    compile_cache_key, env_flag_enabled, hydrate_compiled_app_from_disk_artifacts,
+    inspect_source_layout, is_compile_inflight, load_compile_artifact_only,
+    load_compile_artifact_only_shared, peek_compile_cache, peek_compile_cache_hit,
+    peek_compile_cache_hit_shared, peek_compile_cache_shared,
     probe_compiled_app_manifest_identity, recent_compile_failure, resolve_components_root,
-    CompileWithCacheFailure, CompileWithCacheOutcome, CompileWithCacheOutcomeShared, LayoutCheck,
-    PeekCompileCacheHit, PeekCompileCacheHitShared, SourceLayoutInspection, SourceLayoutRoots,
+    should_persist_compiled_app_artifact, slim_compiled_app_for_access,
+    strip_loaded_compiled_app_for_access, CompileWithCacheFailure, CompileWithCacheOutcome,
+    CompileWithCacheOutcomeShared, LayoutCheck, PeekCompileCacheHit, PeekCompileCacheHitShared,
+    SourceLayoutInspection, SourceLayoutRoots,
 };
 pub use editor_runtime::{
     doctor_editor_runtime_for_package_root, doctor_editor_runtime_for_workspace_root,

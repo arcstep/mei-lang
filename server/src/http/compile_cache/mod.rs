@@ -244,8 +244,35 @@ pub(crate) fn resolve_runtime_compile_shared(
     if let Some(outcome) =
         load_compile_artifact_only_shared(state, app_id, options, components_root)
     {
+        let mut compiled = (*outcome.compiled).clone();
+        if compiled.world_metrics.is_empty() {
+            if let Some(target) = options
+                .preview_target
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                crate::graph::hydrate_world_metrics_from_scene_payload(
+                    state.source_root.as_path(),
+                    app_id,
+                    target,
+                    &mut compiled,
+                );
+            }
+        }
         return Ok(Some(RuntimeCompileResolution {
-            outcome,
+            outcome: toolchain::CompileWithCacheOutcomeShared {
+                compiled: Arc::new(compiled),
+                cache_hit: outcome.cache_hit,
+                artifact_cache_hit: outcome.artifact_cache_hit,
+                compile_revision: outcome.compile_revision,
+                revision_scope: outcome.revision_scope,
+                cache_validation: outcome.cache_validation,
+                cache_lookup_ms: outcome.cache_lookup_ms,
+                artifact_load_ms: outcome.artifact_load_ms,
+                compile_cache_lock_wait_ms: outcome.compile_cache_lock_wait_ms,
+                compile_ms: outcome.compile_ms,
+            },
             policy,
             access_policies,
             correctness_fallback: false,
@@ -263,6 +290,23 @@ pub(crate) fn resolve_runtime_compile_shared(
         policy,
         access_policies,
     }))
+}
+
+pub(crate) fn compile_outcome_from_shared(
+    outcome: toolchain::CompileWithCacheOutcomeShared,
+) -> CompileWithCacheOutcome {
+    CompileWithCacheOutcome {
+        compiled: (*outcome.compiled).clone(),
+        cache_hit: outcome.cache_hit,
+        artifact_cache_hit: outcome.artifact_cache_hit,
+        compile_revision: outcome.compile_revision,
+        revision_scope: outcome.revision_scope,
+        cache_validation: outcome.cache_validation,
+        cache_lookup_ms: outcome.cache_lookup_ms,
+        artifact_load_ms: outcome.artifact_load_ms,
+        compile_cache_lock_wait_ms: outcome.compile_cache_lock_wait_ms,
+        compile_ms: outcome.compile_ms,
+    }
 }
 
 pub(crate) fn clear_compile_cache_for_app(state: &AppState, app_id: &str) -> usize {

@@ -10,7 +10,7 @@ pub(crate) use cache_key::{
     dataset_resource_lookup_aliases, eval_node_cache_key,
     metric_dataframe_artifact_lookup_cache_keys, metric_request_revision_fingerprint,
     metric_request_revision_fingerprint_for_compiled, metric_response_artifact_lookup_cache_keys,
-    metric_scope_cache_key, runtime_metric_eval_scope, serialize_cache_value,
+    metric_scope_cache_key, runtime_metric_eval_scope, serialize_cache_value, stable_slot_hash,
 };
 pub(crate) use workset::runtime_metric_workset;
 
@@ -106,6 +106,7 @@ mod tests {
             "compile-rev",
             &[],
             true,
+            None,
         );
         assert!(
             prebuild_first[0].starts_with("prebuild|response|"),
@@ -124,6 +125,7 @@ mod tests {
             "compile-rev",
             &[],
             false,
+            None,
         );
         assert!(
             scoped_first[0].starts_with("demo|compile="),
@@ -201,6 +203,7 @@ mod tests {
             "compile-rev",
             &[],
             true,
+            None,
         );
         assert!(
             keys.iter().any(|key| {
@@ -292,6 +295,7 @@ mod tests {
             "compile-rev",
             &[],
             false,
+            None,
         );
         assert!(
             keys.iter().any(|key| key.contains("target=scenes/10-地图.mei")),

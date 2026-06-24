@@ -1,5 +1,6 @@
 mod revision;
 mod singleflight;
+mod access_slim;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -22,6 +23,11 @@ use crate::artifact_store::{
     ArtifactWriteContext,
 };
 use crate::types::WorldScope;
+pub use access_slim::{
+    access_slim_artifacts_enabled, canonical_artifact_persist_enabled,
+    should_persist_compiled_app_artifact, slim_compiled_app_for_access,
+    strip_loaded_compiled_app_for_access,
+};
 pub use singleflight::env_flag_enabled;
 
 use revision::{compile_revision, components_revision, normalize_path};
@@ -68,9 +74,13 @@ struct CompiledAppDiskArtifact {
     /// MCG input node revisions for AssemblyView derivation (see doc 80).
     #[serde(default, rename = "assemblyInputs")]
     assembly_inputs: Vec<AssemblyInputDiskRecord>,
+    /// When true, `compiled` omits inline dataset rows and compile-time metric snapshots.
+    #[serde(default, rename = "accessSlim")]
+    access_slim: bool,
 }
 
 const COMPILED_APP_ARTIFACT_SCHEMA_VERSION: &str = "mei-compiled-app-artifact-v3";
+const COMPILED_APP_ARTIFACT_SLIM_SCHEMA_VERSION: &str = "mei-compiled-app-artifact-v4";
 const COMPILED_APP_ARTIFACT_KIND: &str = "compiled_app";
 const COMPILED_APP_ARTIFACT_NAME: &str = "compiled_app";
 
@@ -204,13 +214,16 @@ fn artifact_matches_compile_scene_request(options: &CompileOptions, compiled: &C
         // Board overlay requests carry both export scene id and board target file.
         // Parent-scene artifacts (e.g. home + board.mei warmup scope) may embed board
         // assembly metadata but still expose the parent resource table; do not reuse them.
-        if let Some(requested_scene) = requested_scene {
+        if let Some(_requested_scene) = requested_scene {
+            if canonical_artifact_persist_enabled() {
+                return true;
+            }
             return compiled
                 .active_scene
                 .as_deref()
                 .map(str::trim)
                 .filter(|scene| !scene.is_empty())
-                == Some(requested_scene);
+                == Some(_requested_scene);
         }
         return true;
     }
@@ -512,15 +525,32 @@ fn maybe_write_compiled_app_artifact(
     if !compiled_app_artifact_enabled() {
         return;
     }
+    if !should_persist_compiled_app_artifact(
+        options.scene.as_deref(),
+        options.preview_target.as_deref(),
+    ) {
+        return;
+    }
     let app_root = resolve_app_root(source_root, app_id);
     let payloads = extract_dataset_runtime_payloads(compiled);
+    let use_slim = access_slim_artifacts_enabled();
+    let compiled_body = if use_slim {
+        slim_compiled_app_for_access(compiled)
+    } else {
+        compiled.clone()
+    };
     let artifact = CompiledAppDiskArtifact {
-        schema_version: COMPILED_APP_ARTIFACT_SCHEMA_VERSION.to_string(),
+        schema_version: if use_slim {
+            COMPILED_APP_ARTIFACT_SLIM_SCHEMA_VERSION.to_string()
+        } else {
+            COMPILED_APP_ARTIFACT_SCHEMA_VERSION.to_string()
+        },
         compile_revision: revision_stamp.token.clone(),
         revision_scope: revision_stamp.scope.to_string(),
-        compiled: compiled.clone(),
+        compiled: compiled_body,
         dataset_runtime_payloads: payloads.clone(),
         assembly_inputs: build_assembly_inputs(compiled, &payloads, revision_stamp),
+        access_slim: use_slim,
     };
     if let Ok(value) = serde_json::to_value(&artifact) {
         write_compiled_app_artifact_value(
@@ -531,29 +561,31 @@ fn maybe_write_compiled_app_artifact(
             revision_stamp,
             &value,
         );
-        let scene_only_requested = options
-            .scene
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|scene| !scene.is_empty())
-            && options
-                .preview_target
+        if !canonical_artifact_persist_enabled() {
+            let scene_only_requested = options
+                .scene
                 .as_deref()
                 .map(str::trim)
-                .is_none_or(str::is_empty);
-        if !scene_only_requested {
-            let scene_only = CompileOptions {
-                scene: options.scene.clone(),
-                preview_target: None,
-            };
-            write_compiled_app_artifact_value(
-                &app_root,
-                app_id,
-                &scene_only,
-                compiled,
-                revision_stamp,
-                &value,
-            );
+                .is_some_and(|scene| !scene.is_empty())
+                && options
+                    .preview_target
+                    .as_deref()
+                    .map(str::trim)
+                    .is_none_or(str::is_empty);
+            if !scene_only_requested {
+                let scene_only = CompileOptions {
+                    scene: options.scene.clone(),
+                    preview_target: None,
+                };
+                write_compiled_app_artifact_value(
+                    &app_root,
+                    app_id,
+                    &scene_only,
+                    compiled,
+                    revision_stamp,
+                    &value,
+                );
+            }
         }
     }
 }
@@ -735,13 +767,20 @@ fn load_compiled_app_artifact_at_scope(
     ) else {
         return None;
     };
-    if artifact.schema_version != COMPILED_APP_ARTIFACT_SCHEMA_VERSION {
+    if artifact.schema_version != COMPILED_APP_ARTIFACT_SCHEMA_VERSION
+        && artifact.schema_version != COMPILED_APP_ARTIFACT_SLIM_SCHEMA_VERSION
+    {
         return None;
     }
     hydrate_compiled_app_runtime_payloads(
         &mut artifact.compiled,
         &artifact.dataset_runtime_payloads,
     );
+    if artifact.schema_version == COMPILED_APP_ARTIFACT_SCHEMA_VERSION
+        && access_slim_artifacts_enabled()
+    {
+        strip_loaded_compiled_app_for_access(&mut artifact.compiled);
+    }
     artifact.compiled.app_root = app_root.display().to_string();
     let cached = CachedCompiledApp {
         compile_revision: artifact.compile_revision.clone(),
@@ -854,6 +893,36 @@ pub fn load_compile_artifact_only(
         .map(CompileWithCacheOutcomeShared::into_owned)
 }
 
+pub fn apply_compile_options_scope(
+    compiled: Arc<CompiledApp>,
+    options: &CompileOptions,
+) -> Arc<CompiledApp> {
+    if !canonical_artifact_persist_enabled() {
+        return compiled;
+    }
+    let requested_scene = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty());
+    let requested_target = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty());
+    if requested_scene.is_none() && requested_target.is_none() {
+        return compiled;
+    }
+    let mut view = (*compiled).clone();
+    if let Some(scene) = requested_scene {
+        view.active_scene = Some(scene.to_string());
+    }
+    if let Some(target) = requested_target {
+        view.active_target_file = target.to_string();
+    }
+    Arc::new(view)
+}
+
 pub fn load_compile_artifact_only_shared(
     source_root: &Path,
     app_id: &str,
@@ -864,7 +933,7 @@ pub fn load_compile_artifact_only_shared(
     if let Some(hit) = peek_compile_cache_hit_shared(source_root, app_id, options, components_root)
     {
         return Some(CompileWithCacheOutcomeShared {
-            compiled: hit.compiled,
+            compiled: apply_compile_options_scope(hit.compiled, options),
             cache_hit: true,
             artifact_cache_hit: false,
             compile_revision: hit.compile_revision,
@@ -880,7 +949,7 @@ pub fn load_compile_artifact_only_shared(
     let (artifact_hit, artifact_load_ms) =
         maybe_load_compiled_app_artifact(source_root, app_id, options, components_root)?;
     Some(CompileWithCacheOutcomeShared {
-        compiled: artifact_hit.compiled,
+        compiled: apply_compile_options_scope(artifact_hit.compiled, options),
         cache_hit: true,
         artifact_cache_hit: true,
         compile_revision: artifact_hit.compile_revision,
@@ -1089,6 +1158,11 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
     let compile_ms = elapsed_ms(compile_started);
     let compiled = Arc::new(compiled);
     let write_lock_started = Instant::now();
+    let cache_compiled = if access_slim_artifacts_enabled() {
+        Arc::new(slim_compiled_app_for_access(compiled.as_ref()))
+    } else {
+        compiled.clone()
+    };
     store_compile_cache_entry(
         cache_key,
         source_root,
@@ -1097,7 +1171,7 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
         &revision_stamp.token,
         &revision_stamp.watched_files,
         revision_stamp.components_revision,
-        compiled.clone(),
+        cache_compiled,
     );
     compile_cache_lock_wait_ms += elapsed_ms(write_lock_started);
     maybe_write_compiled_app_artifact(
@@ -1199,11 +1273,22 @@ fn validate_cached_entry(
 }
 
 pub fn compile_cache_key(source_root: &Path, app_id: &str, options: &CompileOptions) -> String {
+    let scene = options.scene.as_deref().unwrap_or("");
+    let focus = options.preview_target.as_deref().unwrap_or("");
+    let (scene_key, focus_key) = if canonical_artifact_persist_enabled() {
+        let has_scene = !scene.trim().is_empty();
+        let has_target = !focus.trim().is_empty();
+        if has_scene && has_target {
+            ("", focus)
+        } else {
+            (scene, focus)
+        }
+    } else {
+        (scene, focus)
+    };
     format!(
-        "{}#{app_id}|v5|gen={COMPILE_SEMANTICS_GENERATION}|scene={}|focus={}",
+        "{}#{app_id}|v6|gen={COMPILE_SEMANTICS_GENERATION}|scene={scene_key}|focus={focus_key}",
         normalize_path(source_root),
-        options.scene.as_deref().unwrap_or(""),
-        options.preview_target.as_deref().unwrap_or("")
     )
 }
 

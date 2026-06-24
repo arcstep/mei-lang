@@ -415,6 +415,7 @@ impl PrebuildDiagnostics {
 
 const PREBUILD_COMPILE_INDEX_SCHEMA_V6: &str = "mei-prebuild-compile-index-v6";
 const PREBUILD_COMPILE_INDEX_SCHEMA_V7: &str = "mei-prebuild-compile-index-v7";
+const PREBUILD_COMPILE_INDEX_SCHEMA_V8: &str = "mei-prebuild-compile-index-v8";
 
 fn default_observed_count() -> usize {
     1
@@ -482,7 +483,7 @@ fn write_prebuild_compile_index(app_root: &Path, index: &PrebuildCompileIndex) -
             .with_context(|| format!("create prebuild compile index dir {}", parent.display()))?;
     }
     let persisted = PersistedPrebuildCompileIndex {
-        schema_version: PREBUILD_COMPILE_INDEX_SCHEMA_V7.to_string(),
+        schema_version: PREBUILD_COMPILE_INDEX_SCHEMA_V8.to_string(),
         generated_at_ms: now_epoch_ms(),
         entries: index.entries_by_scope_key.values().cloned().collect(),
     };
@@ -505,6 +506,7 @@ fn load_prebuild_compile_index(app_root: &Path) -> Result<Option<PrebuildCompile
         .with_context(|| format!("parse prebuild compile index {}", path.display()))?;
     if persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V6
         && persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V7
+        && persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V8
     {
         return Ok(None);
     }
@@ -2558,7 +2560,7 @@ fn run_prebuild_for_app(
                     compile_session.as_ref(),
                     &scope,
                     &outcome,
-                    (!discovered_scopes.is_empty()).then_some(discovered_scopes.as_slice()),
+                    Some(discovered_scopes.as_slice()),
                     observed_count,
                     &mut seen_scopes,
                     &mut pending,
@@ -2884,7 +2886,9 @@ fn run_prebuild_for_app(
     drop(prepared_outcomes);
     if std::env::var("MEI_PREBUILD_EVICTION")
         .ok()
-        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "yes" | "on"))
+        .map(|value| value.trim().to_ascii_lowercase())
+        .is_none_or(|value| !matches!(value.as_str(), "0" | "false" | "no" | "off"))
+        && crate::graph::feature::graph_registry_dedup_enabled()
     {
         let _ = toolchain::clear_compile_cache_for_app(source_root, app.app_id.as_str());
     }
@@ -4991,6 +4995,7 @@ fn plan_metric_workset(
         &outcome.compile_revision,
         &dependency_revision_key,
         &[],
+        None,
     );
     let shared_cache_key = metric_response_prebuild_shared_key(
         app_id,
@@ -5649,6 +5654,23 @@ fn ensure_metric_response_artifact_for_plan(
         Ok(eval_outcome) => eval_outcome,
         Err(error) => {
             state.metric_response_jobs.finish(&plan.shared_cache_key, false);
+            if let Some(source_root) = state.source_root.as_deref() {
+                let bundle_revision = current_bundle_revision_for_plan(plan).unwrap_or_default();
+                let scope_key = crate::graph::mrg_eval_scope_key(
+                    plan.scene_id.as_str(),
+                    plan.scene_path.as_deref(),
+                );
+                crate::graph::record_prebuild_slot_failed(
+                    source_root,
+                    app_id,
+                    plan.logical_node_id.as_str(),
+                    scope_key.as_str(),
+                    plan.owner_resource_id.as_str(),
+                    bundle_revision.as_str(),
+                    plan.dependency_revision_key.as_str(),
+                    error.to_string().as_str(),
+                );
+            }
             return Err(error);
         }
     };
@@ -6045,6 +6067,26 @@ fn ensure_metric_dataframe_artifact_for_plan(
         Ok(result) => result,
         Err(error) => {
             state.metric_dataframe_jobs.finish(&plan.shared_artifact_key, false);
+            if let (Some(source_root), Some(app_id)) =
+                (state.source_root.as_deref(), state.app_id.as_deref())
+            {
+                let bundle_revision =
+                    current_dataframe_bundle_revision(plan).unwrap_or_default();
+                let scope_key = crate::graph::mrg_eval_scope_key(
+                    plan.scene_id.as_str(),
+                    plan.scene_path.as_deref(),
+                );
+                crate::graph::record_prebuild_slot_failed(
+                    source_root,
+                    app_id,
+                    plan.logical_node_id.as_str(),
+                    scope_key.as_str(),
+                    plan.owner_resource_id.as_str(),
+                    bundle_revision.as_str(),
+                    plan.dependency_revision_key.as_str(),
+                    error.to_string().as_str(),
+                );
+            }
             return Err(error);
         }
     };
@@ -6210,6 +6252,7 @@ fn materialize_metric_response_sibling_aliases(
             &outcome.compile_revision,
             &dependency_revision_key,
             &[],
+            None,
         );
         if state.metric_response_exact(&response_cache_key).is_some() {
             continue;

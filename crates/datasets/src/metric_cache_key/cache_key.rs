@@ -52,7 +52,7 @@ fn graph_slot_revision_enabled() -> bool {
     })
 }
 
-fn stable_slot_hash(text: &str) -> String {
+pub(crate) fn stable_slot_hash(text: &str) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut hasher = DefaultHasher::new();
@@ -464,6 +464,7 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
     compile_revision: &str,
     filter_intents: &[FilterIntent],
     prefer_prebuild_keys: bool,
+    slot_revision: Option<&str>,
 ) -> Vec<String> {
     let mut dataset_ids = equivalent_dataset_resource_ids(compiled, owner_dataset);
     for alias in dataset_resource_lookup_aliases(primary_dataset_id) {
@@ -520,6 +521,16 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
             } else {
                 Some(scene_path.as_str())
             };
+            let scope_key = crate::metric_response_cache::metric_eval_scope_key(scene_id, scoped_scene_path);
+            let resolved_slot_revision = slot_revision
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    crate::metric_response_cache::compute_metric_slot_revision(
+                        bundle_revision.as_str(),
+                        dependency_revision_key.as_str(),
+                        scope_key.as_str(),
+                    )
+                });
             let scoped_key = metric_response_cache_scope_key(
                 app_id,
                 scene_id,
@@ -529,6 +540,7 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
                 effective_compile_revision.as_str(),
                 &dependency_revision_key,
                 filter_intents,
+                Some(resolved_slot_revision.as_str()),
             );
             let shared_key = metric_response_prebuild_shared_key(
                 app_id,
