@@ -11,10 +11,13 @@ use crate::graph::mcg::registry::McgRegistryWriter;
 use crate::graph::mrg::registry::MrgRegistryWriter;
 use crate::graph::types::{GraphNodeKind, MaterialState};
 
+use super::build::collect_build_diagnostics;
 use super::report::{
-    CacheDiagnosticsSection, DiskDiagnosticsSection, MaterializationDiagnosticsReport,
-    McgDiagnosticsSection, MrgDiagnosticsSection,
+    CacheDiagnosticsSection, DiskDiagnosticsSection, EvalDiagnosticsSection,
+    MaterializationDiagnosticsReport, McgDiagnosticsSection, MrgDiagnosticsSection,
 };
+
+const DEFAULT_SECTIONS: &[&str] = &["disk", "eval", "mcg", "mrg", "cache", "build"];
 
 pub fn collect_materialization_diagnostics(
     source_root: &Path,
@@ -28,12 +31,7 @@ pub fn collect_materialization_diagnostics(
     let mut report = MaterializationDiagnosticsReport {
         app_id: app_id.to_string(),
         sections: if sections.is_empty() {
-            vec![
-                "disk".to_string(),
-                "mcg".to_string(),
-                "mrg".to_string(),
-                "cache".to_string(),
-            ]
+            DEFAULT_SECTIONS.iter().map(|name| (*name).to_string()).collect()
         } else {
             sections.to_vec()
         },
@@ -50,6 +48,10 @@ pub fn collect_materialization_diagnostics(
 
     if wants("disk") {
         report.disk = scan_disk(app_root.as_path());
+    }
+
+    if wants("eval") {
+        report.eval = scan_eval(app_root.as_path());
     }
 
     if wants("mcg") && graph_registry_dedup_enabled() {
@@ -106,10 +108,15 @@ pub fn collect_materialization_diagnostics(
         };
     }
 
+    if wants("build") {
+        report.build = collect_build_diagnostics(source_root, app_root.as_path(), app_id);
+    }
+
     if report.mrg.stale_ratio > 0.10 && report.mrg.slot_count > 0 {
-        report
-            .alerts
-            .push(format!("MRG stale ratio {:.0}% exceeds 10% gate", report.mrg.stale_ratio * 100.0));
+        report.alerts.push(format!(
+            "MRG stale ratio {:.0}% exceeds 10% gate",
+            report.mrg.stale_ratio * 100.0
+        ));
     }
     if report.disk.compiled_app_file_count > 120 {
         report.alerts.push(format!(
@@ -127,15 +134,40 @@ fn scan_disk(app_root: &Path) -> DiskDiagnosticsSection {
     let (manifest_count, manifest_bytes) = dir_stats(&manifest_dir);
     let (artifact_count, artifact_bytes) = dir_stats(&artifact_dir);
     let scene_payload_root = app_root.join(".mei/graph/payloads/scene");
-    let (scene_payload_file_count, _) = dir_stats(&scene_payload_root);
+    let (scene_payload_file_count, scene_payload_bytes) = dir_stats(&scene_payload_root);
     let eval_root = app_root.join(".mei/eval-artifacts");
-    let (eval_artifact_file_count, _) = dir_stats(&eval_root);
+    let (eval_artifact_file_count, eval_artifact_bytes) = dir_stats(&eval_root);
+    let (_, graph_bytes) = dir_stats(&app_root.join(".mei/graph"));
+    let (_, data_snapshots_bytes) = dir_stats(&app_root.join(".mei/data-snapshots"));
+    let (_, prebuild_bytes) = dir_stats(&app_root.join(".mei/prebuild"));
     DiskDiagnosticsSection {
         compiled_app_file_count: manifest_count + artifact_count,
         compiled_app_bytes: manifest_bytes + artifact_bytes,
         scene_payload_file_count,
+        scene_payload_bytes,
         eval_artifact_file_count,
+        eval_artifact_bytes,
+        graph_bytes,
+        data_snapshots_bytes,
+        prebuild_bytes,
         app_root_bytes: dir_stats(app_root).1,
+    }
+}
+
+fn scan_eval(app_root: &Path) -> EvalDiagnosticsSection {
+    let eval_root = app_root.join(".mei/eval-artifacts");
+    let (eval_total_files, eval_total_bytes) = dir_stats(&eval_root);
+    let response_dir = eval_root.join("results").join("metric-response");
+    let dataframe_dir = eval_root.join("results").join("metric-dataframe");
+    let (metric_response_files, metric_response_bytes) = dir_stats(&response_dir);
+    let (metric_dataframe_files, metric_dataframe_bytes) = dir_stats(&dataframe_dir);
+    EvalDiagnosticsSection {
+        metric_response_files,
+        metric_response_bytes,
+        metric_dataframe_files,
+        metric_dataframe_bytes,
+        eval_total_files,
+        eval_total_bytes,
     }
 }
 
@@ -164,5 +196,43 @@ fn walk_dir(path: &Path, files: &mut usize, bytes: &mut u64) {
                 *bytes += meta.len();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::fs;
+
+    fn temp_app_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "mei-diag-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn scan_disk_reports_subtree_bytes() {
+        let app_root = temp_app_root("disk");
+        fs::create_dir_all(app_root.join(".mei/graph/payloads/scene")).expect("mkdir");
+        fs::create_dir_all(app_root.join(".mei/eval-artifacts/results/metric-response")).expect("mkdir");
+        fs::write(app_root.join(".mei/graph/payloads/scene/a.json"), "abc").expect("write");
+        fs::write(
+            app_root.join(".mei/eval-artifacts/results/metric-response/r.json"),
+            "12345",
+        )
+        .expect("write");
+        let disk = scan_disk(&app_root);
+        assert_eq!(disk.scene_payload_file_count, 1);
+        assert_eq!(disk.scene_payload_bytes, 3);
+        let eval = scan_eval(&app_root);
+        assert_eq!(eval.metric_response_files, 1);
+        assert_eq!(eval.metric_response_bytes, 5);
+        let _ = fs::remove_dir_all(&app_root);
     }
 }

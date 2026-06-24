@@ -3194,6 +3194,19 @@ fn run_prebuild_for_app(
         session_entries_after_clear,
         warmup_reuse_hits,
     );
+    let summary = crate::diagnostics::LastBuildSummary::from_prebuild_diagnostics(
+        app.app_id.as_str(),
+        &diagnostics_report,
+    );
+    if let Err(error) =
+        crate::diagnostics::persist_last_build_summary(app_root.as_path(), &summary)
+    {
+        tracing::warn!(
+            %error,
+            app_id = %app.app_id,
+            "failed to persist last build summary"
+        );
+    }
     Ok(PrebuildAppReport {
         app_id: app.app_id.clone(),
         compile_scopes: compile_reports,

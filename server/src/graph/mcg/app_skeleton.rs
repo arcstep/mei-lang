@@ -7,9 +7,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::graph::io::{read_json_registry, write_json_registry};
-use crate::graph::paths::scene_payload_artifact_dir;
 
 pub const APP_SKELETON_ARTIFACT_SCHEMA: &str = "mei-app-skeleton-artifact-v1";
+pub const APP_SKELETON_REL: &str = ".mei/graph/payloads/app-skeleton.json";
+
+pub fn app_skeleton_artifact_path(app_root: &Path) -> std::path::PathBuf {
+    app_root.join(APP_SKELETON_REL)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSkeletonArtifact {
@@ -42,10 +46,11 @@ pub fn persist_app_skeleton_artifact(
     revision: &str,
     compiled: &CompiledApp,
 ) -> anyhow::Result<String> {
-    let dir = scene_payload_artifact_dir(app_root);
-    std::fs::create_dir_all(&dir)?;
-    let rel = ".mei/graph/payloads/app-skeleton.json".to_string();
-    let path = app_root.join(&rel);
+    let path = app_skeleton_artifact_path(app_root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let rel = APP_SKELETON_REL.to_string();
     let artifact = AppSkeletonArtifact {
         schema_version: APP_SKELETON_ARTIFACT_SCHEMA.to_string(),
         revision: revision.to_string(),
@@ -95,9 +100,37 @@ pub fn merge_app_skeleton_into_compiled(compiled: &mut CompiledApp, skeleton: &A
 }
 
 pub fn load_app_skeleton_artifact(app_root: &Path) -> anyhow::Result<Option<AppSkeletonArtifact>> {
-    let path = scene_payload_artifact_dir(app_root).join("app-skeleton.json");
+    let path = app_skeleton_artifact_path(app_root);
     if !path.is_file() {
         return Ok(None);
     }
     read_json_registry(&path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_app_skeleton_reads_payloads_root_not_scene_subdir() {
+        let app_root = std::env::temp_dir().join(format!(
+            "mei-app-sk-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(app_root.join(".mei/graph/payloads")).expect("mkdir");
+        std::fs::write(
+            app_skeleton_artifact_path(&app_root),
+            r#"{"schemaVersion":"mei-app-skeleton-artifact-v1","revision":"sk:test","payload":{}}"#,
+        )
+        .expect("write");
+        let loaded = load_app_skeleton_artifact(&app_root)
+            .expect("load")
+            .expect("some");
+        assert_eq!(loaded.revision, "sk:test");
+        let _ = std::fs::remove_dir_all(&app_root);
+    }
 }
