@@ -86,15 +86,39 @@
   const SPBJW_WARNING_DETAIL_BOARD_FILE = "scenes/_shared/warning-detail.card.board.mei";
   const SPBJW_TYPICAL_CASES_BOARD_FILE = "scenes/09-监督典型案例.board.mei";
   const SPBJW_ISSUE_CLUE_DETAIL_BOARD_FILE = "scenes/_shared/issue-clue-detail.card.board.mei";
+  const SPBJW_ISSUE_HANDLING_DETAIL_BOARD_FILE = "scenes/_shared/issue-clue-detail.card.board.mei";
   const SPBJW_ISSUE_RESULT_DETAIL_BOARD_FILE = "scenes/_shared/issue-result-detail.card.board.mei";
   const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
-  const SPBJW_ISSUE_CLUE_METRIC_IDS = new Set([
+  const SPBJW_ISSUE_HANDLING_METRIC_IDS = new Set([
     "warnings_pending_count",
     "effectiveness_in_progress_count",
     "effectiveness_completed_count",
+  ]);
+  const SPBJW_ISSUE_CLUE_METRIC_IDS = new Set([
     "effectiveness_transfer_clue_count",
     "effectiveness_filing_count",
   ]);
+
+  function resolveDetailCardOwnerSceneFile(boardSceneId) {
+    const id = String(boardSceneId || "").trim();
+    if (id === "issue_handling_detail_card_board") {
+      return "scenes/07-问题办理.mei";
+    }
+    if (id === "issue_clue_detail_card_board") {
+      return "scenes/08-监督成效.mei";
+    }
+    return "";
+  }
+
+  function resolveDetailCardScopedMetricId(metricId, boardSceneId) {
+    const local = normalizeMetricLocalId(metricId);
+    if (!local) return "";
+    const ownerScene = resolveDetailCardOwnerSceneFile(boardSceneId);
+    if (ownerScene) {
+      return `${ownerScene}::${local}`;
+    }
+    return nonEmptyString(metricId, local);
+  }
 
   function resolveAnalyticsRowsetDatasetId(config = null) {
     const popupParams =
@@ -110,7 +134,7 @@
   }
 
   function resolveCaseDetailBoardTarget(rowsetId, detail = null, config = null) {
-    const id = String(rowsetId || "").trim();
+    const id = localDatasetIdFromSelector(rowsetId);
     if (!id) return null;
     if (id === "issue_result_list") {
       return {
@@ -128,6 +152,12 @@
       const metricId = normalizeMetricLocalId(
         resolveDrilldownTableMetricId(detail, config),
       );
+      if (SPBJW_ISSUE_HANDLING_METRIC_IDS.has(metricId)) {
+        return {
+          sceneId: "issue_handling_detail_card_board",
+          sceneFile: SPBJW_ISSUE_HANDLING_DETAIL_BOARD_FILE,
+        };
+      }
       if (SPBJW_ISSUE_CLUE_METRIC_IDS.has(metricId)) {
         return {
           sceneId: "issue_clue_detail_card_board",
@@ -147,35 +177,34 @@
       return null;
     }
     const rowsetId = resolveAnalyticsRowsetDatasetId(config);
+    const localRowsetId = localDatasetIdFromSelector(rowsetId);
     const boardTarget = resolveCaseDetailBoardTarget(rowsetId, detail, config);
     if (!boardTarget?.sceneId) {
       return null;
     }
     const metricId = resolveDrilldownTableMetricId(detail, config);
-    const sceneId = config?.structuredBoard
-      ? nonEmptyString(config?.runtimeSceneId, config?.hostSceneId, config?.sceneId)
-      : nonEmptyString(config?.hostSceneId, config?.sceneId, config?.runtimeSceneId);
-    const scenePath = nonEmptyString(
-      config?.structuredBoard ? config?.runtimeSceneFile : "",
-      config?.detailSlot?.runtimeRef?.scenePath,
-      config?.detailSlot?.runtimeRef?.scene_path,
+    const boardSceneId = boardTarget.sceneId;
+    const boardSceneFile = nonEmptyString(boardTarget.sceneFile);
+    const ownerScenePath = nonEmptyString(
+      resolveDetailCardOwnerSceneFile(boardSceneId),
       importedCapsuleScenePathFromMetricId(metricId),
       resolveMetricOwnerScenePath(
         config?.detailSlot ? [config.detailSlot] : [],
-        { metric_id: metricId, dataset_id: rowsetId, host_scene_file: config?.hostSceneFile },
+        { metric_id: metricId, dataset_id: localRowsetId, host_scene_file: config?.hostSceneFile },
       ),
       String(config?.hostSceneFile || "").replace(/\.board\.mei$/i, ".mei"),
       config?.hostSceneFile,
     );
-    if (!metricId || !sceneId || !scenePath) {
+    const scopedMetricId = resolveDetailCardScopedMetricId(metricId, boardSceneId);
+    if (!scopedMetricId || !boardSceneId || !boardSceneFile) {
       return null;
     }
     const runtimeRef = {
       kind: "metric",
-      metric_id: metricId,
-      dataset_id: rowsetId,
-      scene_id: sceneId,
-      scene_path: scenePath,
+      metric_id: scopedMetricId,
+      dataset_id: localRowsetId,
+      scene_id: boardSceneId,
+      scene_path: boardSceneFile,
     };
     return {
       popup: {
@@ -183,14 +212,19 @@
         type: "popup",
         projection: "overlay",
         overlay_size: "fullscreen",
-        scene_id: boardTarget.sceneId,
-        scene_file: boardTarget.sceneFile || undefined,
+        scene_id: boardSceneId,
+        scene_file: boardSceneFile,
         params: {
           metric: { __mei_runtime_ref: runtimeRef },
-          rowset_dataset_id: rowsetId,
+          rowset_dataset_id: localRowsetId,
         },
       },
       drilldownMetric: { __mei_runtime_ref: runtimeRef },
+      previewCompileAnchor: {
+        sceneId: boardSceneId,
+        scenePath: boardSceneFile,
+        ownerScenePath,
+      },
     };
   }
 
@@ -206,6 +240,7 @@
       ...props,
       popup: rowDrilldown.popup,
       drilldownMetric: rowDrilldown.drilldownMetric,
+      previewCompileAnchor: rowDrilldown.previewCompileAnchor,
     };
   }
 

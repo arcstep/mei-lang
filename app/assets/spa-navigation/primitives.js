@@ -31,6 +31,24 @@
     return text.slice(0, idx + 4);
   }
 
+  function localDatasetIdFromSelector(datasetId) {
+    const text = String(datasetId || "").trim();
+    if (!text) return "";
+    const parts = text.split("::").filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : text;
+  }
+
+  function qualifyDatasetIdForScene(datasetId, scenePath) {
+    const id = String(datasetId || "").trim();
+    if (!id || id.includes("::") || id.startsWith("__")) return id;
+    const scene = String(scenePath || "")
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/\.board\.mei$/i, ".mei");
+    if (!scene.startsWith("scenes/") || !scene.endsWith(".mei")) return id;
+    return `${scene}::${id}`;
+  }
+
   function metricRefId(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return "";
     if (value.__ref === "metric") return nonEmptyString(value.id);

@@ -12,6 +12,17 @@ function nonEmptyString(...values) {
   return "";
 }
 
+function metricRefId(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "";
+  }
+  const runtimeRef = value.__mei_runtime_ref;
+  if (runtimeRef && typeof runtimeRef === "object" && !Array.isArray(runtimeRef)) {
+    return nonEmptyString(runtimeRef.metric_id, runtimeRef.metricId);
+  }
+  return nonEmptyString(value.metric_id, value.metricId);
+}
+
 function globalSceneDrilldownContext() {
   if (typeof window === "undefined") {
     return null;
@@ -72,6 +83,10 @@ export function boardLinkPassthroughFields(raw) {
   const shellContract = raw.shell_contract ?? raw.shellContract;
   if (shellContract && typeof shellContract === "object" && !Array.isArray(shellContract)) {
     out.shell_contract = shellContract;
+  }
+  const params = raw.params;
+  if (params && typeof params === "object" && !Array.isArray(params)) {
+    out.params = params;
   }
   return out;
 }
@@ -294,7 +309,12 @@ export function tableDrilldownMeta(props) {
       assemblyEntry?.projectionSlots,
   );
   const hasProjectionSlots = projectionSlots.length > 0;
-  if (!contract && !hasProjectionSlots) {
+  const popupParams =
+    popup?.params && typeof popup.params === "object" && !Array.isArray(popup.params)
+      ? popup.params
+      : null;
+  const hasPopupMetricParams = Boolean(metricRefId(popupParams?.metric));
+  if (!contract && !hasProjectionSlots && !hasPopupMetricParams) {
     return null;
   }
   const filterSchema =

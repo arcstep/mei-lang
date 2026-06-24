@@ -295,6 +295,10 @@
         sceneAssembly?.filterSchema,
     );
     const paramRowsetDatasetId = sceneParamRowsetDatasetId(boardFields?.params || popup?.params);
+    const rawRowsetDatasetId = nonEmptyString(filterSchema.rowsetDatasetId, paramRowsetDatasetId);
+    const rowsetDatasetId = structuredBoard
+      ? rawRowsetDatasetId
+      : qualifyDatasetIdForScene(rawRowsetDatasetId, ownerScenePath);
     const queryStateId = structuredBoard
       ? nonEmptyString(
           popup?.query_state_id,
@@ -337,7 +341,7 @@
       tabBarZoneId,
       tabContentZoneId,
       queryStateId,
-      rowsetDatasetId: nonEmptyString(filterSchema.rowsetDatasetId, paramRowsetDatasetId),
+      rowsetDatasetId,
       params: boardFields?.params || normalizeSceneParams(popup?.params),
       sceneId: hostSceneId,
       hostSceneId,
