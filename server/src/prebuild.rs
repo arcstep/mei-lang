@@ -1778,6 +1778,8 @@ struct CoverageState {
     diagnostics: Arc<PrebuildDiagnostics>,
     /// MetricDefBundle revisions captured before compile (MCG P1 skip).
     pre_mcg_bundle_revisions: BTreeMap<String, String>,
+    source_root: Option<std::path::PathBuf>,
+    app_id: Option<String>,
 }
 
 impl Default for CoverageState {
@@ -1791,6 +1793,8 @@ impl Default for CoverageState {
             metric_dataframe_shared: Arc::new(Mutex::new(BTreeMap::new())),
             diagnostics: Arc::new(PrebuildDiagnostics::default()),
             pre_mcg_bundle_revisions: BTreeMap::new(),
+            source_root: None,
+            app_id: None,
         }
     }
 }
@@ -4019,6 +4023,23 @@ fn ensure_scope_artifacts(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
+    if crate::graph::feature::graph_registry_enabled() {
+        if let Some(source_root) = state.source_root.as_deref() {
+            let registry_app = state.app_id.as_deref().unwrap_or(app_id);
+            let mrg = crate::graph::MrgRegistryWriter::load(source_root, registry_app);
+            if mrg.dirty_slots().is_empty()
+                && plan.metric_worksets.iter().all(|workset| {
+                    mrg.slots.iter().any(|slot| {
+                        slot.owner_resource_id == workset.owner_resource_id
+                            && slot.state == crate::graph::MaterialState::Ready
+                    })
+                })
+            {
+                coverage.metric_response_artifacts_ready += plan.metric_worksets.len();
+                return Ok(());
+            }
+        }
+    }
     for workset in &plan.metric_worksets {
         ensure_metric_response_artifact_for_plan(
             app_id,
@@ -5131,6 +5152,24 @@ fn ensure_metric_response_artifact_for_plan(
         state,
     )?;
     coverage.metric_response_artifacts_built += 1;
+    if let Some(source_root) = state.source_root.as_deref() {
+        let bundle_revision = current_bundle_revision_for_plan(plan).unwrap_or_default();
+        let metric_id = plan
+            .covered_metric_ids
+            .first()
+            .cloned()
+            .unwrap_or_else(|| plan.owner_resource_id.clone());
+        crate::graph::record_prebuild_slot(
+            source_root,
+            app_id,
+            metric_id.as_str(),
+            plan.owner_resource_id.as_str(),
+            bundle_revision.as_str(),
+            plan.response_cache_key.as_str(),
+            plan.response_cache_key.as_str(),
+            metric_started.elapsed().as_millis() as u64,
+        );
+    }
     Ok(())
 }
 

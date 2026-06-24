@@ -65,6 +65,8 @@ struct PersistedMetricResponseResultArtifact {
     covered_metric_ids: BTreeSet<String>,
     complete: bool,
     generated_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "slotRevision")]
+    slot_revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -215,6 +217,7 @@ pub fn store_metric_response_result_artifact(
         covered_metric_ids: merged_covered_metric_ids,
         complete: merged_complete,
         generated_at_ms: now_epoch_ms(),
+        slot_revision: None,
     };
     write_json_artifact(&path, &persisted)?;
     upsert_metric_response_index_entry(

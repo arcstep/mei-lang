@@ -1014,13 +1014,17 @@ fn refresh_metric_response_indices_after_prebuild(
     for app_id in app_ids {
         let app_root = resolve_app_root(source_root, app_id.as_str());
         match preload_prebuild_metric_response_index(app_root.as_path()) {
-            Ok(stats) => tracing::info!(
-                app_id = %app_id,
-                index_load_ms = stats.load_ms,
-                entry_count = stats.entry_count,
-                rebuilt = stats.rebuilt,
-                "ensured metric response artifact index after prebuild"
-            ),
+            Ok(stats) => {
+                let mrg_slots = crate::graph::mrg::slots::mrg_slot_count(source_root, app_id.as_str());
+                tracing::info!(
+                    app_id = %app_id,
+                    index_load_ms = stats.load_ms,
+                    entry_count = stats.entry_count,
+                    mrg_slot_count = mrg_slots,
+                    rebuilt = stats.rebuilt,
+                    "ensured metric response artifact index after prebuild"
+                );
+            }
             Err(error) => tracing::warn!(
                 app_id = %app_id,
                 %error,
@@ -1672,6 +1676,13 @@ fn run_scoped_build(
         target_file.as_deref(),
         &feedback,
     );
+    if let Some(scene) = scene_id.as_deref() {
+        crate::graph::schedule_warmup_frontier(
+            state.source_root.as_path(),
+            app_id,
+            scene,
+        );
+    }
     Ok(host_build_response_from_scoped_feedback(
         app_id,
         "scope-build",

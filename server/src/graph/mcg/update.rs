@@ -12,7 +12,7 @@ use crate::graph::mcg::assemble::{
 use crate::graph::mcg::metric_def_bundle::{
     extract_metric_def_bundles, DatasetRuntimePayloadView, MetricDefBundleRecord,
 };
-use crate::graph::mcg::panel_contract::extract_panel_contracts;
+use crate::graph::mcg::panel_contract::{extract_panel_contracts, persist_panel_contracts};
 use crate::graph::mcg::registry::{AssemblyInputRef, McgEdgeRecord, McgNodeRecord, McgRegistryWriter};
 use crate::graph::mcg::scene_payload::{persist_scene_payload_artifact, scene_payload_revision};
 use crate::graph::mrg::invalidation::{apply_mcg_invalidation, changed_bundle_owners};
@@ -106,7 +106,33 @@ pub fn update_mcg_after_compile(
         });
     }
 
-    let panel_contracts = extract_panel_contracts(compiled);
+    let mut panel_contracts = extract_panel_contracts(compiled);
+    if graph_registry_enabled() {
+        if let Ok(paths) = persist_panel_contracts(app_root.as_path(), panel_contracts.as_slice()) {
+            for panel in &mut panel_contracts {
+                panel.relative_path = paths.get(&panel.panel_key).cloned();
+            }
+        }
+    }
+    for panel in &panel_contracts {
+        registry.upsert_node(McgNodeRecord {
+            id: GraphNodeId::new(GraphNodeKind::PanelContract, panel.panel_key.clone()),
+            revision: panel.revision.clone(),
+            state: MaterialState::Ready,
+            layer: "assembly".to_string(),
+            payload_ref: panel.relative_path.as_ref().map(|rel| PayloadRef {
+                kind: "panel_contract".to_string(),
+                relative_path: rel.clone(),
+                schema_version: "mei-panel-contract-artifact-v1".to_string(),
+                content_hash: None,
+            }),
+            deps: vec![format!("scene_payload:{target_file}")],
+            defs_fingerprint: None,
+            owner_resource_id: None,
+            assembly_inputs: Vec::new(),
+            stats: None,
+        });
+    }
     let panel_inputs = panel_contracts
         .iter()
         .map(|panel| AssemblyInputRecord {

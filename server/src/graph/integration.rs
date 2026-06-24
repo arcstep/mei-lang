@@ -89,3 +89,57 @@ pub fn app_graph_fingerprint(source_root: &Path, app_id: &str) -> String {
     let mcg = McgRegistryWriter::load(source_root, app_id);
     format!("mcg={}", mcg.registry_revision)
 }
+
+pub fn record_prebuild_slot(
+    source_root: &Path,
+    app_id: &str,
+    metric_id: &str,
+    owner_resource_id: &str,
+    bundle_revision: &str,
+    data_source_revision: &str,
+    response_cache_key: &str,
+    wall_ms: u64,
+) {
+    if let Err(error) = crate::graph::mrg::slots::record_mrg_slot_after_eval(
+        source_root,
+        app_id,
+        metric_id,
+        "default",
+        owner_resource_id,
+        bundle_revision,
+        data_source_revision,
+        response_cache_key,
+        ".mei/eval-artifacts/results/metric-response/",
+        wall_ms,
+        false,
+    ) {
+        tracing::warn!(
+            app_id = %app_id,
+            metric_id = %metric_id,
+            error = %error,
+            "failed to record MRG slot after prebuild"
+        );
+    }
+}
+
+pub fn schedule_warmup_frontier(source_root: &Path, app_id: &str, scene_id: &str) {
+    if !graph_registry_enabled() {
+        return;
+    }
+    let mut mrg = crate::graph::mrg::registry::MrgRegistryWriter::load(source_root, app_id);
+    let navigation_edges_added =
+        crate::graph::mrg::warmup::record_navigation_edge(&mut mrg, "default", scene_id);
+    let mut outcome = crate::graph::mrg::warmup::warm_frontier_slots(&mrg, scene_id, 1);
+    outcome.navigation_edges_added = navigation_edges_added;
+    if !outcome.scheduled_slots.is_empty() || outcome.navigation_edges_added > 0 {
+        tracing::debug!(
+            app_id = %app_id,
+            scene_id = %scene_id,
+            scheduled = outcome.scheduled_slots.len(),
+            navigation_edges = outcome.navigation_edges_added,
+            "MRG warmup frontier scheduled"
+        );
+    }
+    mrg.finalize();
+    let _ = crate::graph::mrg::registry::MrgRegistryWriter::save(source_root, &mrg);
+}

@@ -93,13 +93,6 @@ impl MrgRegistry {
         }
     }
 
-    pub fn slot_bundle_revision(&self, owner_id: &str) -> Option<String> {
-        self.slots
-            .iter()
-            .find(|slot| slot.owner_resource_id == owner_id)
-            .map(|slot| slot.metric_def_bundle_revision.clone())
-    }
-
     pub fn upsert_slot(&mut self, record: MrgSlotRecord) {
         if let Some(existing) = self.slots.iter_mut().find(|slot| {
             slot.slot_id.node.key == record.slot_id.node.key
@@ -111,13 +104,10 @@ impl MrgRegistry {
         }
     }
 
-    pub fn mark_owner_slots_stale(&mut self, owner_id: &str, bundle_revision: &str) {
+    pub fn mark_owner_slots_stale(&mut self, owner_id: &str, _bundle_revision: &str) {
         for slot in &mut self.slots {
-            if slot.owner_resource_id == owner_id
-                && slot.metric_def_bundle_revision != bundle_revision
-            {
+            if slot.owner_resource_id == owner_id {
                 slot.state = MaterialState::Stale;
-                slot.metric_def_bundle_revision = bundle_revision.to_string();
             }
         }
     }

@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use crate::graph::types::MaterialState;
 use crate::graph::mrg::registry::MrgRegistry;
 
 #[derive(Debug, Clone, Default)]
@@ -23,12 +22,8 @@ pub fn apply_mcg_invalidation(
     }
     let mut outcome = InvalidationOutcome::default();
     for owner_id in changed_bundle_owners {
-        for slot in &mut mrg.slots {
-            if slot.owner_resource_id == *owner_id {
-                slot.state = MaterialState::Stale;
-                outcome.slots_marked_stale += 1;
-            }
-        }
+        mrg.mark_owner_slots_stale(owner_id.as_str(), "stale");
+        outcome.slots_marked_stale += 1;
     }
     outcome
 }
@@ -50,6 +45,7 @@ pub fn changed_bundle_owners(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::graph::MaterialState;
     use crate::graph::mrg::registry::{MrgRegistry, MrgSlotId, MrgSlotRecord};
     use crate::graph::types::{GraphNodeId, GraphNodeKind};
 

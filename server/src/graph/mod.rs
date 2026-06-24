@@ -14,5 +14,7 @@ mod tests;
 
 pub use integration::{
     app_graph_fingerprint, bundle_unchanged_owners, maybe_update_graph_after_compile,
-    runtime_payloads_from_compiled,
+    record_prebuild_slot, runtime_payloads_from_compiled, schedule_warmup_frontier,
 };
+pub use mrg::registry::MrgRegistryWriter;
+pub use types::MaterialState;
