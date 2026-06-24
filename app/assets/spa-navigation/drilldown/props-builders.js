@@ -292,10 +292,12 @@
     const previewAnchor = config?.previewCompileAnchor;
     const resolvedSceneId = nonEmptyString(
       previewAnchor?.sceneId,
+      config?.boardSceneId,
       sceneId,
     );
     const resolvedScenePath = nonEmptyString(
       previewAnchor?.scenePath,
+      config?.boardSceneFile,
       ownerScenePath,
     );
     const runtimeRef = metricId

@@ -181,6 +181,29 @@
       const fetchConfig = {
         ...config,
         drilldownDetail: detail,
+        previewCompileAnchor: {
+          sceneId: nonEmptyString(
+            config?.previewCompileAnchor?.sceneId,
+            config?.boardSceneId,
+            detail?.board_scene_id,
+            detail?.popup?.scene_id,
+          ),
+          scenePath: nonEmptyString(
+            config?.previewCompileAnchor?.scenePath,
+            config?.boardSceneFile,
+            detail?.board_scene_file,
+            detail?.popup?.scene_file,
+          ),
+          ownerScenePath: nonEmptyString(
+            config?.previewCompileAnchor?.ownerScenePath,
+            resolveDetailCardOwnerSceneFile(
+              nonEmptyString(config?.boardSceneId, detail?.board_scene_id, detail?.popup?.scene_id),
+            ),
+            importedCapsuleScenePathFromMetricId(
+              resolvePopupPassedMetricId(detail, config) || config?.tableMetricId,
+            ),
+          ),
+        },
         tableMetricId: nonEmptyString(
           resolvePopupPassedMetricId(detail, config),
           config?.tableMetricId,

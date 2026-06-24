@@ -13692,9 +13692,13 @@
   function normalizeMetricLocalId(metricId) {
     const text = String(metricId || "").trim();
     if (!text) return "";
-    const parts = text.split("::");
+    const parts = text.split("::").map((part) => String(part || "").trim()).filter(Boolean);
     if (parts.length >= 2 && parts[parts.length - 1] === "__scalar_rowset__") {
       return parts[parts.length - 2];
+    }
+    // scenes/Foo.mei::metric_id（及带 explain 后缀）应取 capsule 后的 metric 本地名，而非 scene 路径。
+    if (parts.length >= 2 && /\.mei$/i.test(parts[0])) {
+      return parts[1];
     }
     return parts.length >= 2 ? parts[parts.length - 2] : text;
   }
@@ -14171,10 +14175,12 @@
     const previewAnchor = config?.previewCompileAnchor;
     const resolvedSceneId = nonEmptyString(
       previewAnchor?.sceneId,
+      config?.boardSceneId,
       sceneId,
     );
     const resolvedScenePath = nonEmptyString(
       previewAnchor?.scenePath,
+      config?.boardSceneFile,
       ownerScenePath,
     );
     const runtimeRef = metricId
@@ -16548,6 +16554,29 @@
       const fetchConfig = {
         ...config,
         drilldownDetail: detail,
+        previewCompileAnchor: {
+          sceneId: nonEmptyString(
+            config?.previewCompileAnchor?.sceneId,
+            config?.boardSceneId,
+            detail?.board_scene_id,
+            detail?.popup?.scene_id,
+          ),
+          scenePath: nonEmptyString(
+            config?.previewCompileAnchor?.scenePath,
+            config?.boardSceneFile,
+            detail?.board_scene_file,
+            detail?.popup?.scene_file,
+          ),
+          ownerScenePath: nonEmptyString(
+            config?.previewCompileAnchor?.ownerScenePath,
+            resolveDetailCardOwnerSceneFile(
+              nonEmptyString(config?.boardSceneId, detail?.board_scene_id, detail?.popup?.scene_id),
+            ),
+            importedCapsuleScenePathFromMetricId(
+              resolvePopupPassedMetricId(detail, config) || config?.tableMetricId,
+            ),
+          ),
+        },
         tableMetricId: nonEmptyString(
           resolvePopupPassedMetricId(detail, config),
           config?.tableMetricId,
