@@ -17,7 +17,8 @@ use serde_json::Value;
 use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
 
 use crate::artifact_store::{
-    read_json_artifact, write_json_artifact, ArtifactStoreManifest, ArtifactWatchedFile,
+    compiled_app_manifest_identity, read_artifact_manifest, read_json_artifact,
+    write_json_artifact, ArtifactStoreManifest, ArtifactWatchedFile,
     ArtifactWriteContext,
 };
 use crate::types::WorldScope;
@@ -184,13 +185,6 @@ fn compiled_app_artifact_scope(options: &CompileOptions) -> WorldScope {
     }
 }
 
-fn compiled_app_embeds_export_scene(compiled: &CompiledApp, requested_scene: &str) -> bool {
-    compiled
-        .scene_projection_assembly_by_id
-        .contains_key(requested_scene)
-        || compiled.scene_bindings_by_id.contains_key(requested_scene)
-}
-
 fn artifact_matches_compile_scene_request(options: &CompileOptions, compiled: &CompiledApp) -> bool {
     let requested_target = options
         .preview_target
@@ -223,16 +217,12 @@ fn artifact_matches_compile_scene_request(options: &CompileOptions, compiled: &C
     let Some(requested_scene) = requested_scene else {
         return true;
     };
-    if compiled
+    compiled
         .active_scene
         .as_deref()
         .map(str::trim)
         .filter(|scene| !scene.is_empty())
         == Some(requested_scene)
-    {
-        return true;
-    }
-    compiled_app_embeds_export_scene(compiled, requested_scene)
 }
 
 fn normalized_scope_target(value: Option<&str>) -> Option<String> {
@@ -398,6 +388,39 @@ fn hydrate_compiled_app_runtime_payloads(
         dataset.runtime_analysis_graph = payload.runtime_analysis_graph.clone();
         dataset.runtime_analysis_contracts = payload.runtime_analysis_contracts.clone();
     }
+}
+
+/// Restore serde-skipped runtime metric fields from persisted compiled-app sidecars.
+///
+/// ScenePayload artifacts serialize `CompiledApp` without `runtime_metric_defs`
+/// (`#[serde(skip)]` on `DatasetView`). MCG assemble-only paths must call this
+/// before serving access traffic or prebuild eval.
+pub fn hydrate_compiled_app_from_disk_artifacts(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    compiled: &mut CompiledApp,
+) -> bool {
+    if !compiled_app_artifact_enabled() {
+        return false;
+    }
+    let app_root = resolve_app_root(source_root, app_id);
+    for scope in compiled_app_artifact_lookup_scopes(&app_root, options) {
+        let Ok(Some((_, artifact))) = read_json_artifact::<CompiledAppDiskArtifact>(
+            &app_root,
+            COMPILED_APP_ARTIFACT_KIND,
+            COMPILED_APP_ARTIFACT_NAME,
+            &scope,
+        ) else {
+            continue;
+        };
+        if artifact.dataset_runtime_payloads.is_empty() {
+            continue;
+        }
+        hydrate_compiled_app_runtime_payloads(compiled, &artifact.dataset_runtime_payloads);
+        return true;
+    }
+    false
 }
 
 fn count_files_recursively(path: &Path) -> usize {
@@ -673,6 +696,26 @@ fn compiled_app_artifact_lookup_scopes(
         target_file: None,
     });
     scopes
+}
+
+/// Lightweight manifest probe: returns compiled-app identity without loading payload JSON.
+pub fn probe_compiled_app_manifest_identity(
+    source_root: &Path,
+    app_id: &str,
+    scope: &WorldScope,
+) -> Option<String> {
+    if !compiled_app_artifact_enabled() {
+        return None;
+    }
+    let app_root = resolve_app_root(source_root, app_id);
+    let manifest = read_artifact_manifest(
+        app_root.as_path(),
+        COMPILED_APP_ARTIFACT_KIND,
+        COMPILED_APP_ARTIFACT_NAME,
+        scope,
+    )
+    .ok()??;
+    Some(compiled_app_manifest_identity(&manifest))
 }
 
 fn load_compiled_app_artifact_at_scope(
@@ -1410,6 +1453,21 @@ mod tests {
         let mut compiled = compiled_with_scene(Some("ai_warning_cockpit_board"));
         compiled.active_target_file = "scenes/02-行政检查.board.mei".to_string();
         assert!(artifact_matches_compile_scene_request(&options, &compiled));
+    }
+
+    #[test]
+    fn artifact_matches_compile_scene_request_rejects_hydrated_parent_without_active_scene() {
+        let options = CompileOptions {
+            scene: Some("home".to_string()),
+            preview_target: None,
+        };
+        let mut compiled = compiled_with_scene(None);
+        compiled.active_target_file = "scenes/01-执法要素.mei".to_string();
+        compiled.scene_projection_assembly_by_id.insert(
+            "home".to_string(),
+            serde_json::Value::Object(Default::default()),
+        );
+        assert!(!artifact_matches_compile_scene_request(&options, &compiled));
     }
 
     #[test]

@@ -154,6 +154,8 @@ pub(crate) fn current_started_at_ms() -> Option<u64> {
 }
 
 pub(crate) fn initialize(source_root: &Path, startup_policy: &str) {
+    crate::http::host_log::initialize(source_root);
+    crate::http::host_log::prune_startup_runs(source_root);
     let source_root_text = source_root.display().to_string();
     let run_id = next_run_id();
     let run_dir = startup_run_root(source_root).join(run_id.as_str());

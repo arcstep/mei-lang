@@ -218,6 +218,8 @@ pub(crate) struct RequestTraceQuery {
     pub run_id: Option<String>,
     #[serde(rename = "minLatencyMs")]
     pub min_latency_ms: Option<u128>,
+    #[serde(rename = "minStatus")]
+    pub min_status: Option<u16>,
     pub summary: Option<String>,
 }
 
@@ -299,6 +301,11 @@ fn filter_records(
             }
             if let Some(min_latency_ms) = query.min_latency_ms {
                 if record.latency_ms < min_latency_ms {
+                    return false;
+                }
+            }
+            if let Some(min_status) = query.min_status {
+                if record.status < min_status {
                     return false;
                 }
             }

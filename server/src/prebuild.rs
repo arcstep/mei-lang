@@ -27,7 +27,7 @@ use mei_lang_kernel::{
     CompiledApp, DatasetView, LoadedResource, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
-use mei_lang_toolchain::{self as toolchain, PublishDataSnapshotsReport};
+use mei_lang_toolchain::{self as toolchain, PublishDataSnapshotsReport, WorldScope};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use walkdir::WalkDir;
@@ -53,6 +53,94 @@ fn prebuild_disk_diagnostics_enabled() -> bool {
         .ok()
         .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
         .unwrap_or(false)
+}
+
+fn prebuild_progress_every_n() -> usize {
+    static EVERY_N: OnceLock<usize> = OnceLock::new();
+    *EVERY_N.get_or_init(|| {
+        std::env::var("MEI_PREBUILD_PROGRESS_EVERY_N")
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(5)
+    })
+}
+
+fn prebuild_progress_heartbeat_secs() -> u64 {
+    static HEARTBEAT_SECS: OnceLock<u64> = OnceLock::new();
+    *HEARTBEAT_SECS.get_or_init(|| {
+        std::env::var("MEI_PREBUILD_PROGRESS_HEARTBEAT_SECS")
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .filter(|value| *value >= 5)
+            .unwrap_or(30)
+    })
+}
+
+fn format_eta_secs(secs: f64) -> String {
+    if !secs.is_finite() || secs <= 0.0 {
+        return "—".to_string();
+    }
+    if secs < 60.0 {
+        return format!("{:.0}s", secs);
+    }
+    let mins = secs / 60.0;
+    if mins < 60.0 {
+        return format!("{:.1}min", mins);
+    }
+    format!("{:.1}h", mins / 60.0)
+}
+
+fn emit_compile_batch_progress(
+    app_id: &str,
+    batch_idx: usize,
+    done: usize,
+    unique_total: usize,
+    batch_started: Instant,
+    scopes_completed_before_batch: usize,
+    pending_after_discover: usize,
+    new_compile: usize,
+    cache_hit: usize,
+    force: bool,
+    last_emit: &Mutex<Instant>,
+) {
+    if unique_total == 0 {
+        return;
+    }
+    let every_n = prebuild_progress_every_n();
+    let heartbeat = std::time::Duration::from_secs(prebuild_progress_heartbeat_secs());
+    let should_emit = force
+        || done == unique_total
+        || (done > 0 && done % every_n == 0)
+        || last_emit
+            .lock()
+            .map(|guard| guard.elapsed() >= heartbeat)
+            .unwrap_or(false);
+    if !should_emit {
+        return;
+    }
+    let elapsed = batch_started.elapsed().as_secs_f64().max(0.1);
+    let rate = done as f64 / elapsed;
+    let remaining = unique_total.saturating_sub(done);
+    let eta_secs = if done > 0 {
+        remaining as f64 / rate.max(0.01)
+    } else {
+        f64::NAN
+    };
+    let scopes_done_total = scopes_completed_before_batch.saturating_add(done);
+    let queue_hint = if pending_after_discover > 0 {
+        format!(" | 待发现队列 {pending_after_discover}")
+    } else {
+        String::new()
+    };
+    prebuild_emit_progress(format!(
+        "[{app_id}] batch-{batch_idx} 进度 {done}/{unique_total} key | 本批已用 {} | 约 {} 剩余 | 累计 scope ~{scopes_done_total}{queue_hint} | 新编译 {new_compile} 缓存 {cache_hit}",
+        format_eta_secs(elapsed),
+        format_eta_secs(eta_secs),
+    ));
+    if let Ok(mut guard) = last_emit.lock() {
+        *guard = Instant::now();
+    }
 }
 
 fn compile_scope_key_from_parts(
@@ -292,6 +380,11 @@ struct PrebuildDiagnostics {
     compile_index_misses: AtomicUsize,
     compile_index_stale_entries: AtomicUsize,
     compile_fallback_loads: AtomicUsize,
+    compile_manifest_probes: AtomicUsize,
+    compile_manifest_stale_skips: AtomicUsize,
+    compile_artifact_loads_avoided: AtomicUsize,
+    mrg_eval_skips: AtomicUsize,
+    dataframe_eval_skips: AtomicUsize,
 }
 
 impl PrebuildDiagnostics {
@@ -320,7 +413,8 @@ impl PrebuildDiagnostics {
     }
 }
 
-const PREBUILD_COMPILE_INDEX_SCHEMA_VERSION: &str = "mei-prebuild-compile-index-v6";
+const PREBUILD_COMPILE_INDEX_SCHEMA_V6: &str = "mei-prebuild-compile-index-v6";
+const PREBUILD_COMPILE_INDEX_SCHEMA_V7: &str = "mei-prebuild-compile-index-v7";
 
 fn default_observed_count() -> usize {
     1
@@ -330,15 +424,6 @@ fn default_observed_count() -> usize {
 struct PersistedCompileScopeRef {
     requested_scene_id: Option<String>,
     requested_target_file: Option<String>,
-}
-
-impl PersistedCompileScopeRef {
-    fn to_scope(&self) -> CompileScope {
-        compile_scope_from_parts(
-            self.requested_scene_id.clone(),
-            self.requested_target_file.clone(),
-        )
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -352,6 +437,10 @@ struct PersistedPrebuildCompileIndexEntry {
     canonical_requested_target_file: Option<String>,
     canonical_compile_cache_key: String,
     identity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scene_payload_revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    assembly_view_revision: Option<String>,
     #[serde(default)]
     discovered_scopes: Vec<PersistedCompileScopeRef>,
     #[serde(default = "default_observed_count")]
@@ -393,7 +482,7 @@ fn write_prebuild_compile_index(app_root: &Path, index: &PrebuildCompileIndex) -
             .with_context(|| format!("create prebuild compile index dir {}", parent.display()))?;
     }
     let persisted = PersistedPrebuildCompileIndex {
-        schema_version: PREBUILD_COMPILE_INDEX_SCHEMA_VERSION.to_string(),
+        schema_version: PREBUILD_COMPILE_INDEX_SCHEMA_V7.to_string(),
         generated_at_ms: now_epoch_ms(),
         entries: index.entries_by_scope_key.values().cloned().collect(),
     };
@@ -414,7 +503,9 @@ fn load_prebuild_compile_index(app_root: &Path) -> Result<Option<PrebuildCompile
         .with_context(|| format!("read prebuild compile index {}", path.display()))?;
     let persisted = serde_json::from_str::<PersistedPrebuildCompileIndex>(&raw)
         .with_context(|| format!("parse prebuild compile index {}", path.display()))?;
-    if persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_VERSION {
+    if persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V6
+        && persisted.schema_version != PREBUILD_COMPILE_INDEX_SCHEMA_V7
+    {
         return Ok(None);
     }
     Ok(Some(PrebuildCompileIndex {
@@ -467,6 +558,11 @@ fn build_prebuild_compile_index(
             }
         }
     }
+    let mcg_registry = if crate::graph::feature::graph_registry_dedup_enabled() {
+        Some(crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app_id))
+    } else {
+        None
+    };
     let mut entries_by_scope_key = BTreeMap::new();
     for prepared in prepared_outcomes {
         let scope = &prepared.scope;
@@ -475,6 +571,25 @@ fn build_prebuild_compile_index(
         let Some(canonical) = best_scope_by_identity.get(&identity) else {
             continue;
         };
+        let scene_payload_revision = scope
+            .canonicalized()
+            .requested_target_file
+            .as_deref()
+            .and_then(|target| {
+                mcg_registry
+                    .as_ref()
+                    .and_then(|registry| registry.node_revision("scene_payload", target))
+            });
+        let assembly_view_revision = mcg_registry.as_ref().and_then(|registry| {
+            registry.node_revision(
+                "assembly_view",
+                &assembly_view_index_key(
+                    canonical.scope.canonicalized().requested_scene_id.as_deref(),
+                    canonical.scope.canonicalized().requested_target_file.as_deref(),
+                    outcome.compile_revision.as_str(),
+                ),
+            )
+        });
         let entry = PersistedPrebuildCompileIndexEntry {
             scope_key: scope.key(),
             requested_scene_id: scope.canonicalized().requested_scene_id,
@@ -493,6 +608,8 @@ fn build_prebuild_compile_index(
                 &canonical.scope.to_options(),
             ),
             identity,
+            scene_payload_revision,
+            assembly_view_revision,
             discovered_scopes: discovered_compile_scopes(scope, &outcome.compiled)
                 .into_iter()
                 .map(|scope| PersistedCompileScopeRef {
@@ -507,6 +624,47 @@ fn build_prebuild_compile_index(
     }
     PrebuildCompileIndex {
         entries_by_scope_key,
+    }
+}
+
+fn assembly_view_index_key(
+    requested_scene_id: Option<&str>,
+    requested_target_file: Option<&str>,
+    compile_revision: &str,
+) -> String {
+    let scene = requested_scene_id.unwrap_or("default").trim();
+    let target = requested_target_file.unwrap_or("").trim();
+    if target.is_empty() {
+        format!("{scene}@{compile_revision}")
+    } else {
+        format!("{scene}:{target}@{compile_revision}")
+    }
+}
+
+fn scope_assembled_outcome(
+    base: &SharedCompileOutcome,
+    scope: &CompileScope,
+) -> SharedCompileOutcome {
+    if compile_outcome_matches_scope(scope, &base.compiled) {
+        return base.clone();
+    }
+    let canonical = scope.canonicalized();
+    let assembled = crate::graph::mcg::assemble::assemble_scope_view(
+        (*base.compiled).clone(),
+        canonical.requested_scene_id.as_deref(),
+        canonical
+            .requested_target_file
+            .as_deref()
+            .filter(|value| !value.is_empty()),
+    );
+    SharedCompileOutcome {
+        compiled: Arc::new(assembled),
+        cache_hit: base.cache_hit,
+        artifact_cache_hit: base.artifact_cache_hit,
+        compile_revision: base.compile_revision.clone(),
+        cache_lookup_ms: base.cache_lookup_ms,
+        artifact_load_ms: base.artifact_load_ms,
+        compile_ms: 0,
     }
 }
 
@@ -585,6 +743,15 @@ fn build_prebuild_diagnostics_report(
         .compile_index_stale_entries
         .load(Ordering::Relaxed);
     let compile_fallback_loads = diagnostics.compile_fallback_loads.load(Ordering::Relaxed);
+    let manifest_probes = diagnostics.compile_manifest_probes.load(Ordering::Relaxed);
+    let manifest_stale_skips = diagnostics
+        .compile_manifest_stale_skips
+        .load(Ordering::Relaxed);
+    let artifact_loads_avoided = diagnostics
+        .compile_artifact_loads_avoided
+        .load(Ordering::Relaxed);
+    let mrg_eval_skips = diagnostics.mrg_eval_skips.load(Ordering::Relaxed);
+    let dataframe_eval_skips = diagnostics.dataframe_eval_skips.load(Ordering::Relaxed);
     let eval_root = app_root.join(".mei").join("eval-artifacts");
     let response_dir = eval_root.join("results").join("metric-response");
     let dataframe_dir = eval_root.join("results").join("metric-dataframe");
@@ -650,6 +817,11 @@ fn build_prebuild_diagnostics_report(
             misses: compile_index_misses,
             stale_entries: compile_index_stale_entries,
             fallback_loads: compile_fallback_loads,
+            manifest_probes,
+            manifest_stale_skips,
+            artifact_loads_avoided,
+            mrg_eval_skips,
+            dataframe_eval_skips,
         },
         session_before_clear: PrebuildSessionEntryStatsReport {
             scope_entries: session_entries_before_clear.0,
@@ -727,6 +899,14 @@ fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> PrebuildDiagnos
         aggregate.compile_index.misses += diagnostics.compile_index.misses;
         aggregate.compile_index.stale_entries += diagnostics.compile_index.stale_entries;
         aggregate.compile_index.fallback_loads += diagnostics.compile_index.fallback_loads;
+        aggregate.compile_index.manifest_probes += diagnostics.compile_index.manifest_probes;
+        aggregate.compile_index.manifest_stale_skips +=
+            diagnostics.compile_index.manifest_stale_skips;
+        aggregate.compile_index.artifact_loads_avoided +=
+            diagnostics.compile_index.artifact_loads_avoided;
+        aggregate.compile_index.mrg_eval_skips += diagnostics.compile_index.mrg_eval_skips;
+        aggregate.compile_index.dataframe_eval_skips +=
+            diagnostics.compile_index.dataframe_eval_skips;
         aggregate.session_before_clear.scope_entries +=
             diagnostics.session_before_clear.scope_entries;
         aggregate.session_before_clear.cache_entries +=
@@ -934,6 +1114,25 @@ fn emit_prebuild_optimization_report(
             compile_index_misses,
             compile_index_stale_entries,
             compile_fallback_loads
+        ));
+    }
+    let manifest_probes = diagnostics.compile_manifest_probes.load(Ordering::Relaxed);
+    let manifest_stale_skips = diagnostics
+        .compile_manifest_stale_skips
+        .load(Ordering::Relaxed);
+    let artifact_loads_avoided = diagnostics
+        .compile_artifact_loads_avoided
+        .load(Ordering::Relaxed);
+    let mrg_eval_skips = diagnostics.mrg_eval_skips.load(Ordering::Relaxed);
+    let dataframe_eval_skips = diagnostics.dataframe_eval_skips.load(Ordering::Relaxed);
+    if manifest_probes > 0 || artifact_loads_avoided > 0 {
+        prebuild_emit_progress(format!(
+            "  manifest 探测 {manifest_probes} | stale 跳过 {manifest_stale_skips} | 避免全量 load {artifact_loads_avoided}"
+        ));
+    }
+    if mrg_eval_skips > 0 || dataframe_eval_skips > 0 {
+        prebuild_emit_progress(format!(
+            "  MRG eval 跳过 response {mrg_eval_skips} | dataframe {dataframe_eval_skips}"
         ));
     }
     if postload_identity_collapses > 0 {
@@ -1228,6 +1427,8 @@ pub struct PrebuildCoverageReport {
     pub metric_dataframe_artifacts_planned: usize,
     pub metric_dataframe_artifacts_ready: usize,
     pub metric_dataframe_artifacts_built: usize,
+    #[serde(default)]
+    pub metric_dataframe_artifacts_skipped_bundle_unchanged: usize,
     pub metric_dataframe_artifacts_missing: usize,
     pub total_missing_artifacts: usize,
 }
@@ -1253,6 +1454,16 @@ pub struct PrebuildCompileIndexStatsReport {
     pub misses: usize,
     pub stale_entries: usize,
     pub fallback_loads: usize,
+    #[serde(default)]
+    pub manifest_probes: usize,
+    #[serde(default)]
+    pub manifest_stale_skips: usize,
+    #[serde(default)]
+    pub artifact_loads_avoided: usize,
+    #[serde(default)]
+    pub mrg_eval_skips: usize,
+    #[serde(default)]
+    pub dataframe_eval_skips: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -1747,6 +1958,14 @@ impl CompileScope {
         )
     }
 
+    fn to_world_scope(&self) -> WorldScope {
+        let canonical = self.canonicalized();
+        WorldScope {
+            scene_id: canonical.requested_scene_id,
+            target_file: canonical.requested_target_file,
+        }
+    }
+
     fn canonicalized(&self) -> Self {
         let requested_scene_id = self
             .requested_scene_id
@@ -2201,6 +2420,14 @@ fn run_prebuild_for_app(
     let compile_session = Arc::new(Mutex::new(PrebuildCompileSession::default()));
     let manifest_plan = build_prebuild_manifest_plan(app, scope_profile);
     let warmup_requests = manifest_plan.warmup_requests.clone();
+    prebuild_emit_progress(format!(
+        "[{}] 计划 | manifest scope {} (hot {} / deferred {}) | warmup 条目 {}",
+        app.app_id,
+        manifest_plan.initial_scope_count,
+        manifest_plan.hot_scopes.len(),
+        manifest_plan.deferred_scopes.len(),
+        warmup_requests.len()
+    ));
     let max_parallelism = prebuild_parallelism(
         manifest_plan
             .initial_scope_count
@@ -2208,11 +2435,8 @@ fn run_prebuild_for_app(
             .max(1),
     );
     let default_scope = CompileScope::default_scope();
-    let pre_mcg_bundle_revisions = if crate::graph::feature::graph_registry_enabled() {
-        crate::graph::bundle_unchanged_owners(source_root, app.app_id.as_str())
-    } else {
-        BTreeMap::new()
-    };
+    let pre_mcg_bundle_revisions =
+        crate::graph::bundle_unchanged_owners(source_root, app.app_id.as_str());
     let compile_started = Instant::now();
     let initial_scope_count = manifest_plan.initial_scope_count;
     prebuild_emit_progress(&format!(
@@ -2374,10 +2598,20 @@ fn run_prebuild_for_app(
         }
     }
     let mut batch_idx = 0usize;
+    if !pending.is_empty() {
+        prebuild_emit_progress(format!(
+            "[{}] scope 队列就绪 | 已完成 {} | 待处理 {}（含 discover 展开）",
+            app.app_id,
+            compile_reports.len(),
+            pending.len()
+        ));
+    }
     while !pending.is_empty() {
         batch_idx += 1;
+        let queue_depth = pending.len();
         let batch = pending.drain(..).collect::<Vec<_>>();
         let batch_size = batch.len();
+        let scopes_completed_before_batch = compile_reports.len();
         let mut session_hits = Vec::new();
         let mut to_compile = Vec::new();
         {
@@ -2449,17 +2683,28 @@ fn run_prebuild_for_app(
         );
         let unique_keys = compile_groups.len();
         prebuild_emit_progress(&format!(
-            "[{}] 编译 batch-{batch_idx} | {batch_size} scope | session 复用 {session_hit_count} | index 复用 {} | 唯一 cache key {unique_keys}",
+            "[{}] 编译 batch-{batch_idx} | 本批 {batch_size} scope | 入队深度 {queue_depth} | 累计已完成 {scopes_completed_before_batch} | session 复用 {session_hit_count} | index 复用 {index_hit_count} | 唯一 cache key {unique_keys}",
             app.app_id,
-            index_hit_count
         ));
         let batch_started = Instant::now();
+        let batch_done = Arc::new(AtomicUsize::new(0));
+        let batch_new_compile = Arc::new(AtomicUsize::new(0));
+        let batch_cache_hits = Arc::new(AtomicUsize::new(0));
+        let last_progress_emit = Arc::new(Mutex::new(Instant::now()));
         let representatives = compile_groups
             .iter()
             .map(|(scope, _)| scope.clone())
             .collect::<Vec<_>>();
-        let batch_results =
-            run_limited_parallel_ordered(representatives.clone(), max_parallelism, |scope| {
+        let app_id_for_hook = app.app_id.clone();
+        let batch_done_hook = Arc::clone(&batch_done);
+        let batch_new_hook = Arc::clone(&batch_new_compile);
+        let batch_cache_hook = Arc::clone(&batch_cache_hits);
+        let last_emit_hook = Arc::clone(&last_progress_emit);
+        let unique_key_total = representatives.len();
+        let batch_results = run_limited_parallel_ordered_with_hook(
+            representatives.clone(),
+            max_parallelism,
+            |scope| {
                 ensure_compile_scope_for_prebuild(
                     compile_session.as_ref(),
                     diagnostics.as_ref(),
@@ -2469,7 +2714,33 @@ fn run_prebuild_for_app(
                     mode,
                     components_root.as_path(),
                 )
-            });
+            },
+            move |_, outcome| {
+                let done = batch_done_hook.fetch_add(1, Ordering::Relaxed) + 1;
+                match &outcome {
+                    Ok(outcome) if outcome.cache_hit => {
+                        batch_cache_hook.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Ok(outcome) if outcome.compile_ms > 0 => {
+                        batch_new_hook.fetch_add(1, Ordering::Relaxed);
+                    }
+                    _ => {}
+                }
+                emit_compile_batch_progress(
+                    app_id_for_hook.as_str(),
+                    batch_idx,
+                    done,
+                    unique_key_total,
+                    batch_started,
+                    scopes_completed_before_batch,
+                    0,
+                    batch_new_hook.load(Ordering::Relaxed),
+                    batch_cache_hook.load(Ordering::Relaxed),
+                    false,
+                    last_emit_hook.as_ref(),
+                );
+            },
+        );
         let mut batch_compiled = 0usize;
         let mut batch_cache_hit = 0usize;
         let mut outcomes_by_key = BTreeMap::<String, SharedCompileOutcome>::new();
@@ -2514,14 +2785,15 @@ fn run_prebuild_for_app(
                 &mut compile_reports,
             );
             for alias in aliases {
+                let alias_outcome = scope_assembled_outcome(outcome, &alias);
                 compile_session
                     .lock()
                     .expect("prebuild compile session lock")
-                    .register(source_root, app.app_id.as_str(), &alias, outcome.clone());
+                    .register(source_root, app.app_id.as_str(), &alias, alias_outcome.clone());
                 record_prebuild_scope_compile(
                     compile_session.as_ref(),
                     &alias,
-                    outcome,
+                    &alias_outcome,
                     &mut seen_scopes,
                     &mut pending,
                     &mut prepared_outcomes,
@@ -2530,9 +2802,10 @@ fn run_prebuild_for_app(
             }
         }
         prebuild_emit_progress(&format!(
-            "[{}] 编译 batch-{batch_idx} 完成 {:.1}s | 新编译 {batch_compiled} | 缓存 {batch_cache_hit}",
+            "[{}] 编译 batch-{batch_idx} 完成 {:.1}s | 新编译 {batch_compiled} | 缓存 {batch_cache_hit} | 待发现队列 {}",
             app.app_id,
-            batch_started.elapsed().as_secs_f64()
+            batch_started.elapsed().as_secs_f64(),
+            pending.len()
         ));
     }
     if mode == PrebuildMode::Build {
@@ -2582,6 +2855,8 @@ fn run_prebuild_for_app(
     let coverage_state = CoverageState {
         diagnostics: Arc::clone(&diagnostics),
         pre_mcg_bundle_revisions,
+        source_root: Some(source_root.to_path_buf()),
+        app_id: Some(app.app_id.clone()),
         ..CoverageState::default()
     };
     let artifact_outcomes = unique_prepared_outcomes_for_artifacts(&prepared_outcomes);
@@ -2607,6 +2882,12 @@ fn run_prebuild_for_app(
     };
     drop(compile_session);
     drop(prepared_outcomes);
+    if std::env::var("MEI_PREBUILD_EVICTION")
+        .ok()
+        .is_some_and(|value| matches!(value.trim(), "1" | "true" | "yes" | "on"))
+    {
+        let _ = toolchain::clear_compile_cache_for_app(source_root, app.app_id.as_str());
+    }
     let artifact_outcomes_for_warmup = artifact_outcomes.clone();
     let mut scope_artifact_plans = Vec::with_capacity(artifact_outcomes_for_warmup.len());
     for prepared in &artifact_outcomes_for_warmup {
@@ -3252,7 +3533,25 @@ fn warmup_request_matches_outcome(
             return false;
         }
     }
-    mei_lang_kernel::locate_dataset_resource(&outcome.compiled, request.dataset_id.as_str()).is_ok()
+    if !mei_lang_kernel::locate_dataset_resource(&outcome.compiled, request.dataset_id.as_str()).is_ok()
+        || !dataset_can_materialize_metric_artifacts(
+            &outcome.compiled,
+            request.dataset_id.as_str(),
+        )
+    {
+        return false;
+    }
+    if request.metric_ids.is_empty() {
+        return true;
+    }
+    request.metric_ids.iter().all(|metric_id| {
+        locate_runtime_metric_resource(
+            &outcome.compiled,
+            request.dataset_id.as_str(),
+            metric_id.as_str(),
+        )
+        .is_ok()
+    })
 }
 
 fn matching_warmup_requests_for_outcome<'a>(
@@ -3391,6 +3690,26 @@ fn discovered_compile_scopes(
                 }
             }
         }
+    } else if let Some(board_file) = scope
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty() && target.ends_with(".board.mei"))
+        .or_else(|| {
+            active_target
+                .ends_with(".board.mei")
+                .then_some(active_target)
+        })
+    {
+        for entry in compiled.build_board_index.boards.values() {
+            if entry.board_file.trim() != board_file {
+                continue;
+            }
+            push_scope(CompileScope {
+                requested_scene_id: Some(entry.scene_id.clone()),
+                requested_target_file: Some(board_file.to_string()),
+            });
+        }
     }
     scopes
 }
@@ -3487,6 +3806,8 @@ struct PrebuildCompileSession {
     by_compile_cache_key: BTreeMap<String, SharedCompileOutcome>,
     by_identity: BTreeMap<String, SharedCompileOutcome>,
     discovered_scope_keys: BTreeSet<String>,
+    /// Each `.board.mei` target is expanded at most once per prebuild compile phase.
+    expanded_board_targets: BTreeSet<String>,
 }
 
 impl PrebuildCompileSession {
@@ -3543,6 +3864,56 @@ impl PrebuildCompileSession {
         self.by_compile_cache_key.clear();
         self.by_identity.clear();
     }
+
+    fn filter_board_discovered_scopes(
+        &mut self,
+        scope: &CompileScope,
+        discovered: &[CompileScope],
+    ) -> Vec<CompileScope> {
+        let board_target = scope
+            .requested_target_file
+            .as_deref()
+            .map(str::trim)
+            .filter(|target| !target.is_empty() && target.ends_with(".board.mei"))
+            .map(str::to_string)
+            .or_else(|| {
+                discovered.iter().find_map(|candidate| {
+                    candidate
+                        .requested_target_file
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|target| !target.is_empty() && target.ends_with(".board.mei"))
+                        .map(str::to_string)
+                })
+            });
+        let Some(board_target) = board_target else {
+            return discovered.to_vec();
+        };
+        if self.expanded_board_targets.contains(board_target.as_str()) {
+            return discovered
+                .iter()
+                .filter(|candidate| !is_board_export_scope(candidate, board_target.as_str()))
+                .cloned()
+                .collect();
+        }
+        self.expanded_board_targets
+            .insert(board_target.clone());
+        discovered.to_vec()
+    }
+}
+
+fn is_board_export_scope(scope: &CompileScope, board_file: &str) -> bool {
+    scope
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        == Some(board_file)
+        && scope
+            .requested_scene_id
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|scene| !scene.is_empty())
 }
 
 fn group_scopes_by_compile_cache_key(
@@ -3607,6 +3978,32 @@ fn try_reuse_persisted_compile_index(
         entry.canonical_requested_scene_id.clone(),
         entry.canonical_requested_target_file.clone(),
     );
+    {
+        let session = compile_session
+            .lock()
+            .expect("prebuild compile session lock");
+        if let Some(outcome) = session.by_identity.get(&entry.identity).cloned() {
+            if compile_outcome_matches_scope(&canonical_scope, &outcome.compiled) {
+                diagnostics
+                    .compile_index_hits
+                    .fetch_add(1, Ordering::Relaxed);
+                diagnostics
+                    .compile_artifact_loads_avoided
+                    .fetch_add(1, Ordering::Relaxed);
+                drop(session);
+                let mut locked = compile_session
+                    .lock()
+                    .expect("prebuild compile session lock");
+                locked.register(source_root, app_id, scope, outcome.clone());
+                locked.register(source_root, app_id, &canonical_scope, outcome.clone());
+                return Some(PersistedCompileIndexReuse {
+                    outcome: mark_prebuild_session_reuse(&outcome),
+                    discovered_scopes: Vec::new(),
+                    observed_count: entry.observed_count.max(1),
+                });
+            }
+        }
+    }
     if let Some(outcome) = session_try_reuse(compile_session, source_root, app_id, &canonical_scope)
     {
         diagnostics
@@ -3618,13 +4015,35 @@ fn try_reuse_persisted_compile_index(
             .register(source_root, app_id, scope, outcome.clone());
         return Some(PersistedCompileIndexReuse {
             outcome: mark_prebuild_session_reuse(&outcome),
-            discovered_scopes: entry
-                .discovered_scopes
-                .iter()
-                .map(PersistedCompileScopeRef::to_scope)
-                .collect(),
+            discovered_scopes: Vec::new(),
             observed_count: entry.observed_count.max(1),
         });
+    }
+    diagnostics
+        .compile_manifest_probes
+        .fetch_add(1, Ordering::Relaxed);
+    let manifest_identity = toolchain::probe_compiled_app_manifest_identity(
+        source_root,
+        app_id,
+        &canonical_scope.to_world_scope(),
+    );
+    match manifest_identity.as_deref() {
+        Some(manifest_identity) if manifest_identity == entry.identity.as_str() => {}
+        Some(_) => {
+            diagnostics
+                .compile_manifest_stale_skips
+                .fetch_add(1, Ordering::Relaxed);
+            diagnostics
+                .compile_index_stale_entries
+                .fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
+        None => {
+            diagnostics
+                .compile_index_stale_entries
+                .fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
     }
     let Some(outcome) = toolchain::load_compile_artifact_only_shared(
         source_root,
@@ -3656,11 +4075,7 @@ fn try_reuse_persisted_compile_index(
     locked.register(source_root, app_id, scope, outcome.clone());
     Some(PersistedCompileIndexReuse {
         outcome: mark_prebuild_session_reuse(&outcome),
-        discovered_scopes: entry
-            .discovered_scopes
-            .iter()
-            .map(PersistedCompileScopeRef::to_scope)
-            .collect(),
+        discovered_scopes: Vec::new(),
         observed_count: entry.observed_count.max(1),
     })
 }
@@ -3676,16 +4091,6 @@ fn try_reuse_compile_scope_before_load(
 ) -> Option<PersistedCompileIndexReuse> {
     let reused = session_try_reuse(session, source_root, app_id, scope);
     if let Some(reused) = reused {
-        let discovered_scopes = compile_index
-            .and_then(|index| index.entries_by_scope_key.get(&scope.key()))
-            .map(|entry| {
-                entry
-                    .discovered_scopes
-                    .iter()
-                    .map(PersistedCompileScopeRef::to_scope)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
         diagnostics
             .compile_preload_reuse_hits
             .fetch_add(1, Ordering::Relaxed);
@@ -3695,7 +4100,7 @@ fn try_reuse_compile_scope_before_load(
             .note_scope_alias(scope, &reused);
         return Some(PersistedCompileIndexReuse {
             outcome: reused,
-            discovered_scopes,
+            discovered_scopes: Vec::new(),
             observed_count: compile_index
                 .and_then(|index| index.entries_by_scope_key.get(&scope.key()))
                 .map(|entry| entry.observed_count.max(1))
@@ -3749,6 +4154,34 @@ fn ensure_compile_scope_for_prebuild(
         .compile_fallback_loads
         .fetch_add(1, Ordering::Relaxed);
 
+    if let Some(target) = scope
+        .canonicalized()
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some((compiled, compile_revision)) = crate::graph::try_assemble_scope_from_scene_payload(
+            source_root,
+            app_id,
+            scope.canonicalized().requested_scene_id.as_deref(),
+            target,
+        ) {
+            let outcome = SharedCompileOutcome {
+                compiled: Arc::new(compiled),
+                cache_hit: true,
+                artifact_cache_hit: false,
+                compile_revision,
+                cache_lookup_ms: 0,
+                artifact_load_ms: 0,
+                compile_ms: 0,
+            };
+            let mut locked = session.lock().expect("prebuild compile session lock");
+            locked.register(source_root, app_id, scope, outcome.clone());
+            return Ok(outcome);
+        }
+    }
+
     let outcome = match mode {
         PrebuildMode::Build | PrebuildMode::Verify => toolchain::load_compile_artifact_only_shared(
             source_root,
@@ -3771,6 +4204,18 @@ fn ensure_compile_scope_for_prebuild(
         }
         None => ensure_compile_scope(source_root, app_id, scope, mode, components_root)?,
     };
+    if mode == PrebuildMode::Build && outcome.compile_ms > 0 {
+        let options = scope.to_options();
+        let payloads = crate::graph::runtime_payloads_from_compiled(&outcome.compiled);
+        crate::graph::maybe_update_graph_after_compile(
+            source_root,
+            app_id,
+            &options,
+            &outcome.compiled,
+            outcome.compile_revision.as_str(),
+            &payloads,
+        );
+    }
     let identity = compiled_scope_identity(&outcome);
     let mut locked = session.lock().expect("prebuild compile session lock");
     if let Some(existing) = locked.by_identity.get(&identity).cloned() {
@@ -3796,19 +4241,22 @@ fn record_prebuild_scope_compile_with_discovered(
     compile_reports: &mut Vec<PrebuildScopeReport>,
 ) {
     compile_reports.push(scope_report_from_outcome(scope, outcome));
-    if compile_session
+    let mut locked = compile_session
         .lock()
-        .expect("prebuild compile session lock")
-        .should_discover(scope)
-    {
+        .expect("prebuild compile session lock");
+    if locked.should_discover(scope) {
         let discovered_iter = discovered_scopes
             .map(|scopes| scopes.to_vec())
             .unwrap_or_else(|| discovered_compile_scopes(scope, &outcome.compiled));
-        for discovered in discovered_iter {
+        let filtered = locked.filter_board_discovered_scopes(scope, discovered_iter.as_slice());
+        drop(locked);
+        for discovered in filtered {
             if seen_scopes.insert(discovered.key()) {
                 pending.push_back(discovered);
             }
         }
+    } else {
+        drop(locked);
     }
     prepared_outcomes.push(PreparedCompileOutcome {
         scope: scope.clone(),
@@ -4023,24 +4471,52 @@ fn ensure_scope_artifacts(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    if crate::graph::feature::graph_registry_enabled() {
-        if let Some(source_root) = state.source_root.as_deref() {
-            let registry_app = state.app_id.as_deref().unwrap_or(app_id);
-            let mrg = crate::graph::MrgRegistryWriter::load(source_root, registry_app);
-            if mrg.dirty_slots().is_empty()
-                && plan.metric_worksets.iter().all(|workset| {
-                    mrg.slots.iter().any(|slot| {
-                        slot.owner_resource_id == workset.owner_resource_id
-                            && slot.state == crate::graph::MaterialState::Ready
-                    })
-                })
-            {
-                coverage.metric_response_artifacts_ready += plan.metric_worksets.len();
-                return Ok(());
+    let mrg_registry = if crate::graph::feature::graph_registry_dedup_enabled() {
+        state
+            .source_root
+            .as_deref()
+            .zip(state.app_id.as_deref())
+            .map(|(source_root, registry_app)| {
+                crate::graph::load_mrg_registry(source_root, registry_app)
+            })
+    } else {
+        None
+    };
+    let _dirty_frontier = mrg_registry
+        .as_ref()
+        .map(|registry| registry.dirty_slots().len())
+        .unwrap_or(0);
+    for workset in &plan.metric_worksets {
+        if let Some(registry) = mrg_registry.as_ref() {
+            if let Some(current_rev) = current_bundle_revision_for_plan(workset) {
+                let scope_key = crate::graph::mrg_eval_scope_key(
+                    workset.scene_id.as_str(),
+                    workset.scene_path.as_deref(),
+                );
+                let mrg_covers = crate::graph::mrg_slot_covers_eval(
+                    registry,
+                    workset.owner_resource_id.as_str(),
+                    current_rev.as_str(),
+                    workset.dependency_revision_key.as_str(),
+                    scope_key.as_str(),
+                    workset.shared_cache_key.as_str(),
+                ) && prebuild_metric_response_index_covers_key(
+                    app_root,
+                    &workset.shared_cache_key,
+                    &workset.covered_metric_ids,
+                    workset.request_all_metrics,
+                )?;
+                if mrg_covers {
+                    state
+                        .diagnostics
+                        .mrg_eval_skips
+                        .fetch_add(1, Ordering::Relaxed);
+                    coverage.metric_response_artifacts_skipped_bundle_unchanged += 1;
+                    coverage.metric_response_artifacts_ready += 1;
+                    continue;
+                }
             }
         }
-    }
-    for workset in &plan.metric_worksets {
         ensure_metric_response_artifact_for_plan(
             app_id,
             app_root,
@@ -4052,6 +4528,32 @@ fn ensure_scope_artifacts(
         )?;
     }
     for dataframe in &plan.dataframe_artifacts {
+        if let Some(registry) = mrg_registry.as_ref() {
+            if let Some(current_rev) = current_dataframe_bundle_revision(dataframe) {
+                let scope_key = crate::graph::mrg_eval_scope_key(
+                    dataframe.scene_id.as_str(),
+                    dataframe.scene_path.as_deref(),
+                );
+                let mrg_covers = crate::graph::mrg_slot_covers_dataframe_eval(
+                    registry,
+                    dataframe.owner_resource_id.as_str(),
+                    current_rev.as_str(),
+                    dataframe.dependency_revision_key.as_str(),
+                    scope_key.as_str(),
+                    dataframe.shared_artifact_key.as_str(),
+                ) && (metric_dataframe_result_artifact_exists(app_root, &dataframe.shared_artifact_key)
+                    || metric_dataframe_result_artifact_exists(app_root, &dataframe.artifact_key));
+                if mrg_covers {
+                    state
+                        .diagnostics
+                        .dataframe_eval_skips
+                        .fetch_add(1, Ordering::Relaxed);
+                    coverage.metric_dataframe_artifacts_skipped_bundle_unchanged += 1;
+                    coverage.metric_dataframe_artifacts_ready += 1;
+                    continue;
+                }
+            }
+        }
         ensure_metric_dataframe_artifact_for_plan(
             app_root,
             outcome,
@@ -4164,6 +4666,30 @@ fn ensure_request_artifacts_for_compiled(
 fn is_world_metrics_resource(resource_id: &str) -> bool {
     let resource_id = resource_id.trim();
     resource_id == "__world_metrics__" || resource_id.starts_with("__world_metrics__::")
+}
+
+fn compiled_has_world_metrics_runtime_defs(compiled: &CompiledApp) -> bool {
+    compiled.resources.iter().any(|resource| {
+        resource.dataset.as_ref().is_some_and(|dataset| {
+            dataset.has_runtime_metric_defs() && is_world_metrics_resource(resource.id.as_str())
+        })
+    })
+}
+
+fn dataset_can_materialize_metric_artifacts(
+    compiled: &CompiledApp,
+    dataset_selector: &str,
+) -> bool {
+    let Ok(resource) = mei_lang_kernel::locate_dataset_resource(compiled, dataset_selector) else {
+        return false;
+    };
+    let Some(dataset) = resource.dataset.as_ref() else {
+        return false;
+    };
+    if dataset.has_runtime_metric_defs() {
+        return true;
+    }
+    compiled_has_world_metrics_runtime_defs(compiled)
 }
 
 fn response_metric_ids(
@@ -4760,7 +5286,9 @@ fn build_scope_artifact_plan(
             &mut dataframe_tasks,
         )?;
     }
-    if scope.key() == CompileScope::default_scope().key() {
+    if scope.key() == CompileScope::default_scope().key()
+        && compiled_has_world_metrics_runtime_defs(&outcome.compiled)
+    {
         collect_request_artifact_plans(
             app_id,
             app_root,
@@ -4848,6 +5376,18 @@ fn current_bundle_revision_for_plan(plan: &PlannedMetricWorkset) -> Option<Strin
     ))
 }
 
+fn current_dataframe_bundle_revision(plan: &PlannedDataframeArtifact) -> Option<String> {
+    let defs = plan.defs_for_hydrate.as_ref();
+    if defs.is_empty() {
+        return None;
+    }
+    let serialized = serde_json::to_string(defs).ok()?;
+    Some(format!(
+        "mdb:{}",
+        crate::graph::types::stable_hash(&serialized)
+    ))
+}
+
 fn ensure_metric_response_artifact_for_plan(
     app_id: &str,
     app_root: &Path,
@@ -4857,23 +5397,60 @@ fn ensure_metric_response_artifact_for_plan(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    if crate::graph::feature::graph_registry_enabled() {
-        if let Some(current_rev) = current_bundle_revision_for_plan(plan) {
-            if state
-                .pre_mcg_bundle_revisions
-                .get(plan.owner_resource_id.as_str())
-                .is_some_and(|prev| prev == &current_rev)
-            {
-                if prebuild_metric_response_index_covers_key(
+    if let Some(current_rev) = current_bundle_revision_for_plan(plan) {
+        if crate::graph::metric_bundle_revision_unchanged(
+            &state.pre_mcg_bundle_revisions,
+            plan.owner_resource_id.as_str(),
+            current_rev.as_str(),
+        ) && prebuild_metric_response_index_covers_key(
+            app_root,
+            &plan.shared_cache_key,
+            &plan.covered_metric_ids,
+            plan.request_all_metrics,
+        )? {
+            coverage.metric_response_artifacts_skipped_bundle_unchanged += 1;
+            coverage.metric_response_artifacts_ready += 1;
+            return Ok(());
+        }
+        if let (Some(source_root), Some(stored_app_id)) = (
+            state.source_root.as_deref(),
+            state.app_id.as_deref(),
+        ) {
+            let registry = crate::graph::load_mrg_registry(source_root, stored_app_id);
+            let scope_key = crate::graph::mrg_eval_scope_key(
+                plan.scene_id.as_str(),
+                plan.scene_path.as_deref(),
+            );
+            let mrg_covers = crate::graph::mrg_slot_covers_eval(
+                &registry,
+                plan.owner_resource_id.as_str(),
+                current_rev.as_str(),
+                plan.dependency_revision_key.as_str(),
+                scope_key.as_str(),
+                plan.shared_cache_key.as_str(),
+            ) || crate::graph::mrg_slot_covers_eval(
+                &registry,
+                plan.owner_resource_id.as_str(),
+                current_rev.as_str(),
+                plan.dependency_revision_key.as_str(),
+                scope_key.as_str(),
+                plan.response_cache_key.as_str(),
+            );
+            if mrg_covers
+                && prebuild_metric_response_index_covers_key(
                     app_root,
                     &plan.shared_cache_key,
                     &plan.covered_metric_ids,
                     plan.request_all_metrics,
-                )? {
-                    coverage.metric_response_artifacts_skipped_bundle_unchanged += 1;
-                    coverage.metric_response_artifacts_ready += 1;
-                    return Ok(());
-                }
+                )?
+            {
+                state
+                    .diagnostics
+                    .mrg_eval_skips
+                    .fetch_add(1, Ordering::Relaxed);
+                coverage.metric_response_artifacts_skipped_bundle_unchanged += 1;
+                coverage.metric_response_artifacts_ready += 1;
+                return Ok(());
             }
         }
     }
@@ -5154,19 +5731,20 @@ fn ensure_metric_response_artifact_for_plan(
     coverage.metric_response_artifacts_built += 1;
     if let Some(source_root) = state.source_root.as_deref() {
         let bundle_revision = current_bundle_revision_for_plan(plan).unwrap_or_default();
-        let metric_id = plan
-            .covered_metric_ids
-            .first()
-            .cloned()
-            .unwrap_or_else(|| plan.owner_resource_id.clone());
+        let scope_key = crate::graph::mrg_eval_scope_key(
+            plan.scene_id.as_str(),
+            plan.scene_path.as_deref(),
+        );
         crate::graph::record_prebuild_slot(
             source_root,
             app_id,
-            metric_id.as_str(),
+            plan.logical_node_id.as_str(),
+            scope_key.as_str(),
             plan.owner_resource_id.as_str(),
             bundle_revision.as_str(),
-            plan.response_cache_key.as_str(),
-            plan.response_cache_key.as_str(),
+            plan.dependency_revision_key.as_str(),
+            plan.shared_cache_key.as_str(),
+            ".mei/eval-artifacts/results/metric-response/",
             metric_started.elapsed().as_millis() as u64,
         );
     }
@@ -5230,6 +5808,47 @@ fn ensure_metric_dataframe_artifact_for_plan(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
+    if let Some(current_rev) = current_dataframe_bundle_revision(plan) {
+        if crate::graph::metric_bundle_revision_unchanged(
+            &state.pre_mcg_bundle_revisions,
+            plan.owner_resource_id.as_str(),
+            current_rev.as_str(),
+        ) && (metric_dataframe_result_artifact_exists(app_root, &plan.shared_artifact_key)
+            || metric_dataframe_result_artifact_exists(app_root, &plan.artifact_key))
+        {
+            coverage.metric_dataframe_artifacts_skipped_bundle_unchanged += 1;
+            coverage.metric_dataframe_artifacts_ready += 1;
+            return Ok(());
+        }
+        if let (Some(source_root), Some(stored_app_id)) = (
+            state.source_root.as_deref(),
+            state.app_id.as_deref(),
+        ) {
+            let registry = crate::graph::load_mrg_registry(source_root, stored_app_id);
+            let scope_key = crate::graph::mrg_eval_scope_key(
+                plan.scene_id.as_str(),
+                plan.scene_path.as_deref(),
+            );
+            if crate::graph::mrg_slot_covers_dataframe_eval(
+                &registry,
+                plan.owner_resource_id.as_str(),
+                current_rev.as_str(),
+                plan.dependency_revision_key.as_str(),
+                scope_key.as_str(),
+                plan.shared_artifact_key.as_str(),
+            ) && (metric_dataframe_result_artifact_exists(app_root, &plan.shared_artifact_key)
+                || metric_dataframe_result_artifact_exists(app_root, &plan.artifact_key))
+            {
+                state
+                    .diagnostics
+                    .dataframe_eval_skips
+                    .fetch_add(1, Ordering::Relaxed);
+                coverage.metric_dataframe_artifacts_skipped_bundle_unchanged += 1;
+                coverage.metric_dataframe_artifacts_ready += 1;
+                return Ok(());
+            }
+        }
+    }
     let owner_resource = mei_lang_kernel::locate_dataset_resource(
         &outcome.compiled,
         plan.owner_resource_id.as_str(),
@@ -5241,6 +5860,32 @@ fn ensure_metric_dataframe_artifact_for_plan(
         )
     })?;
     let query_options = widget_dataframe_query_options(plan.page_size);
+    if let Some(result) = state.metric_dataframe_shared(&plan.shared_artifact_key) {
+        store_metric_dataframe_result_artifact(app_root, &plan.artifact_key, &result)?;
+        state.store_metric_dataframe_exact(&plan.artifact_key, &result);
+        materialize_metric_dataframe_sibling_aliases(
+            app_root,
+            outcome,
+            &owner_resource,
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        materialize_metric_dataframe_metric_aliases(
+            app_root,
+            outcome,
+            plan.resource_selector_id.as_str(),
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
     if state.metric_dataframe_exact(&plan.artifact_key).is_some() {
         if let Some(result) = state.metric_dataframe_exact(&plan.artifact_key) {
             materialize_metric_dataframe_sibling_aliases(
@@ -5264,6 +5909,39 @@ fn ensure_metric_dataframe_artifact_for_plan(
                 state,
             )?;
         }
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
+    if let Some((result, _)) =
+        load_metric_dataframe_result_artifact(app_root, &plan.shared_artifact_key)?
+    {
+        store_metric_dataframe_result_artifact(app_root, &plan.artifact_key, &result)?;
+        state.store_metric_dataframe_shared(&plan.shared_artifact_key, &result);
+        state.store_metric_dataframe_exact(&plan.artifact_key, &result);
+        materialize_metric_dataframe_sibling_aliases(
+            app_root,
+            outcome,
+            &owner_resource,
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        materialize_metric_dataframe_metric_aliases(
+            app_root,
+            outcome,
+            plan.resource_selector_id.as_str(),
+            plan.resolved_metric_id.as_str(),
+            &query_options,
+            plan.defs_for_hydrate.as_ref(),
+            &result,
+            state,
+        )?;
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
+    if metric_dataframe_result_artifact_exists(app_root, &plan.shared_artifact_key) {
         coverage.metric_dataframe_artifacts_ready += 1;
         return Ok(());
     }
@@ -5305,61 +5983,6 @@ fn ensure_metric_dataframe_artifact_for_plan(
             plan.scene_id,
             plan.scene_path.as_deref().unwrap_or("")
         );
-    }
-    if let Some(result) = state.metric_dataframe_shared(&plan.shared_artifact_key) {
-        store_metric_dataframe_result_artifact(app_root, &plan.artifact_key, &result)?;
-        state.store_metric_dataframe_exact(&plan.artifact_key, &result);
-        materialize_metric_dataframe_sibling_aliases(
-            app_root,
-            outcome,
-            &owner_resource,
-            plan.resolved_metric_id.as_str(),
-            &query_options,
-            plan.defs_for_hydrate.as_ref(),
-            &result,
-            state,
-        )?;
-        materialize_metric_dataframe_metric_aliases(
-            app_root,
-            outcome,
-            plan.resource_selector_id.as_str(),
-            plan.resolved_metric_id.as_str(),
-            &query_options,
-            plan.defs_for_hydrate.as_ref(),
-            &result,
-            state,
-        )?;
-        coverage.metric_dataframe_artifacts_ready += 1;
-        return Ok(());
-    }
-    if let Some((result, _)) =
-        load_metric_dataframe_result_artifact(app_root, &plan.shared_artifact_key)?
-    {
-        store_metric_dataframe_result_artifact(app_root, &plan.artifact_key, &result)?;
-        state.store_metric_dataframe_shared(&plan.shared_artifact_key, &result);
-        state.store_metric_dataframe_exact(&plan.artifact_key, &result);
-        materialize_metric_dataframe_sibling_aliases(
-            app_root,
-            outcome,
-            &owner_resource,
-            plan.resolved_metric_id.as_str(),
-            &query_options,
-            plan.defs_for_hydrate.as_ref(),
-            &result,
-            state,
-        )?;
-        materialize_metric_dataframe_metric_aliases(
-            app_root,
-            outcome,
-            plan.resource_selector_id.as_str(),
-            plan.resolved_metric_id.as_str(),
-            &query_options,
-            plan.defs_for_hydrate.as_ref(),
-            &result,
-            state,
-        )?;
-        coverage.metric_dataframe_artifacts_ready += 1;
-        return Ok(());
     }
     let reservation = state
         .metric_dataframe_jobs
@@ -5477,6 +6100,28 @@ fn ensure_metric_dataframe_artifact_for_plan(
         state,
     )?;
     coverage.metric_dataframe_artifacts_built += 1;
+    if let (Some(source_root), Some(stored_app_id)) = (
+        state.source_root.as_deref(),
+        state.app_id.as_deref(),
+    ) {
+        let bundle_revision = current_dataframe_bundle_revision(plan).unwrap_or_default();
+        let scope_key = crate::graph::mrg_eval_scope_key(
+            plan.scene_id.as_str(),
+            plan.scene_path.as_deref(),
+        );
+        crate::graph::record_prebuild_dataframe_slot(
+            source_root,
+            stored_app_id,
+            plan.logical_node_id.as_str(),
+            scope_key.as_str(),
+            plan.owner_resource_id.as_str(),
+            bundle_revision.as_str(),
+            plan.dependency_revision_key.as_str(),
+            plan.shared_artifact_key.as_str(),
+            ".mei/eval-artifacts/results/metric-dataframe/",
+            metric_started.elapsed().as_millis() as u64,
+        );
+    }
     Ok(())
 }
 
@@ -5820,7 +6465,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mei_lang_kernel::{CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl};
+    use mei_lang_kernel::{BoardFileEntry, CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl};
     use serde_json::json;
 
     fn test_outcome(active_scene: &str, active_target_file: &str) -> SharedCompileOutcome {
@@ -6224,6 +6869,48 @@ mod tests {
     }
 
     #[test]
+    fn discovered_compile_scopes_expand_board_target_without_active_scene() {
+        let scope = CompileScope {
+            requested_scene_id: None,
+            requested_target_file: Some("scenes/01-elements.board.mei".to_string()),
+        };
+        let mut outcome = test_outcome("", "scenes/01-elements.board.mei");
+        {
+            let compiled = Arc::make_mut(&mut outcome.compiled);
+            compiled.active_scene = None;
+            compiled.build_board_index.boards.insert(
+                "scenes/01-elements.board.mei#key_enterprises_analytics_board".to_string(),
+                BoardFileEntry {
+                    board_file: "scenes/01-elements.board.mei".to_string(),
+                    scene_id: "key_enterprises_analytics_board".to_string(),
+                    label: "Key enterprises".to_string(),
+                    ..Default::default()
+                },
+            );
+            compiled.build_board_index.boards.insert(
+                "scenes/01-elements.board.mei#enforcement_units_analytics_board".to_string(),
+                BoardFileEntry {
+                    board_file: "scenes/01-elements.board.mei".to_string(),
+                    scene_id: "enforcement_units_analytics_board".to_string(),
+                    label: "Enforcement units".to_string(),
+                    ..Default::default()
+                },
+            );
+        }
+
+        let discovered = discovered_compile_scopes(&scope, &outcome.compiled)
+            .into_iter()
+            .map(|scope| scope.key())
+            .collect::<BTreeSet<_>>();
+        assert!(discovered.contains(
+            "key_enterprises_analytics_board|scenes/01-elements.board.mei"
+        ));
+        assert!(discovered.contains(
+            "enforcement_units_analytics_board|scenes/01-elements.board.mei"
+        ));
+    }
+
+    #[test]
     fn focus_targets_from_warmup_datasets_extracts_scene_paths() {
         let app = RuntimeWarmupApp {
             app_id: "demo".to_string(),
@@ -6503,6 +7190,29 @@ mod tests {
     }
 
     #[test]
+    fn filter_board_discovered_scopes_expands_once_per_board_file() {
+        let mut session = PrebuildCompileSession::default();
+        let parent = CompileScope {
+            requested_scene_id: None,
+            requested_target_file: Some("scenes/a.board.mei".to_string()),
+        };
+        let discovered = vec![
+            CompileScope {
+                requested_scene_id: Some("s1".to_string()),
+                requested_target_file: Some("scenes/a.board.mei".to_string()),
+            },
+            CompileScope {
+                requested_scene_id: Some("s2".to_string()),
+                requested_target_file: Some("scenes/a.board.mei".to_string()),
+            },
+        ];
+        let first = session.filter_board_discovered_scopes(&parent, &discovered);
+        assert_eq!(first.len(), 2);
+        let second = session.filter_board_discovered_scopes(&parent, &discovered);
+        assert!(second.is_empty());
+    }
+
+    #[test]
     fn clear_runtime_maps_drops_compile_session_indexes() {
         let mut session = PrebuildCompileSession::default();
         let default_scope = CompileScope::default_scope();
@@ -6543,9 +7253,12 @@ mod tests {
             metric_ids: vec!["penalties_total_count::__scalar_rowset__".to_string()],
         };
         let mut outcome = test_outcome("home", "scenes/home.mei");
-        Arc::make_mut(&mut outcome.compiled)
-            .resources
-            .push(test_dataset_resource("penalty_result_dashboard_ds"));
+        let mut resource = test_dataset_resource("penalty_result_dashboard_ds");
+        resource.dataset.as_mut().expect("dataset").runtime_metric_defs.insert(
+            "penalties_total_count::__scalar_rowset__".to_string(),
+            json!({"shape": "scalar_map"}),
+        );
+        Arc::make_mut(&mut outcome.compiled).resources.push(resource);
         assert!(warmup_request_matches_outcome(&request, &outcome));
         assert_eq!(
             matching_warmup_requests_for_outcome(&[request], &outcome).len(),

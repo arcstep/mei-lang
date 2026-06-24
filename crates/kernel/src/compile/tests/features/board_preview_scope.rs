@@ -1,7 +1,8 @@
 use crate::build_runtime_resource_index;
 use crate::compile::{
     compile_app_from_root_with_options, compile_scene_from_build_node,
-    preview_target_from_build_node_with_app, CompileOptions,
+    compile_scene_from_build_node_with_app, preview_target_from_build_node_with_app,
+    CompileOptions,
 };
 use crate::Severity;
 
@@ -429,4 +430,46 @@ fn single_export_board_mei_is_listed_in_boards_group() {
         "boards tree should list single-export capsule: {:?}",
         boards.children
     );
+}
+
+#[test]
+fn world_file_board_node_resolves_default_export_scene_for_multi_export_file() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let board_target = "scenes/02-行政检查.board.mei";
+    let baseline = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: None,
+        },
+    )
+    .expect("compile zhifa baseline for board index");
+    let node = crate::model::BuildNodeId::new(
+        crate::model::BuildNodeKind::WorldFile,
+        board_target.to_string(),
+    );
+    let scene = compile_scene_from_build_node_with_app(&node, Some(&baseline))
+        .expect("world-file board node should resolve a default export scene");
+    assert_eq!(scene, "ai_warning_cockpit_board");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some(scene),
+            preview_target: Some(board_target.to_string()),
+        },
+    )
+    .expect("compile world-file board preview with resolved scene");
+    assert!(
+        !compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "missing_scene_export_selector"),
+        "world-file board preview should compile once scene is resolved: {:?}",
+        compiled.diagnostics
+    );
+    assert_eq!(compiled.active_target_file, board_target);
 }

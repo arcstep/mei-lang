@@ -52,7 +52,6 @@ fn extract_from_contract(
 }
 
 /// Persist panel contract payloads (P2 partial assembly path).
-#[allow(dead_code)]
 pub fn persist_panel_contracts(
     app_root: &Path,
     records: &[PanelContractRecord],
@@ -70,7 +69,6 @@ pub fn persist_panel_contracts(
     Ok(paths)
 }
 
-#[allow(dead_code)]
 pub fn partial_assemble_panel_merge(
     base: &CompiledApp,
     changed_panels: &BTreeMap<String, serde_json::Value>,

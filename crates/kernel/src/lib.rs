@@ -102,7 +102,7 @@ pub use mei_config::{
 };
 pub use model::{
     resolve_build_view_query, tab_visible_for_node, tabs_for_node_kind, AnalysisEdge,
-    AnalysisGraph, AnalysisNode, BlockDecl, BuildExecScope, BuildNodeId, BuildNodeKind,
+    AnalysisGraph, AnalysisNode, BlockDecl, BoardFileEntry, BuildExecScope, BuildNodeId, BuildNodeKind,
     BuildViewTab, ColumnSchema, CompiledApp, CompiledSceneRoute, ComponentAsset, DataRef,
     DataTransform, DatasetSourceRef, DatasetView, Diagnostic, DimensionBinding, FilterIntent,
     FilterIntentSource, FilterOperator, FlowDecl, FrameDecl, LayoutDecl, LegacyBuildQuery,
@@ -145,7 +145,7 @@ pub use warmup_board_autogen::{
     SuggestedWarmupDatasetRequest,
 };
 pub use warmup_manifest::{
-    build_runtime_warmup_manifest, resolve_runtime_warmup_manifest,
+    build_runtime_warmup_manifest, enrich_runtime_warmup_app, resolve_runtime_warmup_manifest,
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION,
 };
 pub use workspace::{discover_apps, load_component_assets, read_source_file, source_tree};

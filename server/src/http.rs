@@ -5,6 +5,7 @@ mod compile_cache;
 mod datasets;
 pub(crate) mod host_api;
 pub(crate) mod host_error_page;
+pub(crate) mod host_log;
 pub(crate) mod observation;
 pub mod ops_api;
 pub mod pages;
@@ -67,6 +68,7 @@ pub fn router() -> Router<AppState> {
             "/api/host/request-trace",
             get(request_trace::api_request_trace),
         )
+        .route("/api/host/logs", get(host_log::api_host_logs))
         .route(
             "/api/auth/change-password",
             post(auth_api::auth_change_password),

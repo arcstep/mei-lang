@@ -5,16 +5,18 @@ use mei_lang_kernel::{resolve_app_root, CompiledApp};
 use serde_json::Value;
 
 use crate::graph::bridge::export_bridge;
-use crate::graph::feature::graph_registry_enabled;
+use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::mcg::assemble::{
     assemble_assembly_view, assembly_view_revision, AssemblyInputRecord, AssemblyViewInputs,
 };
 use crate::graph::mcg::metric_def_bundle::{
     extract_metric_def_bundles, DatasetRuntimePayloadView, MetricDefBundleRecord,
 };
-use crate::graph::mcg::panel_contract::{extract_panel_contracts, persist_panel_contracts};
+use crate::graph::mcg::panel_contract::{extract_panel_contracts, partial_assemble_panel_merge, persist_panel_contracts};
 use crate::graph::mcg::registry::{AssemblyInputRef, McgEdgeRecord, McgNodeRecord, McgRegistryWriter};
-use crate::graph::mcg::scene_payload::{persist_scene_payload_artifact, scene_payload_revision};
+use crate::graph::mcg::scene_payload::{
+    load_scene_payload_artifact, persist_scene_payload_artifact, scene_payload_revision,
+};
 use crate::graph::mrg::invalidation::{apply_mcg_invalidation, changed_bundle_owners};
 use crate::graph::mrg::registry::MrgRegistryWriter;
 use crate::graph::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
@@ -36,7 +38,7 @@ pub fn update_mcg_after_compile(
     dependency_fingerprint: &str,
     dataset_runtime_payloads: &BTreeMap<String, DatasetRuntimePayloadView>,
 ) -> anyhow::Result<McgUpdateOutcome> {
-    if !graph_registry_enabled() {
+    if !graph_registry_dedup_enabled() {
         return Ok(McgUpdateOutcome::default());
     }
     let app_root = resolve_app_root(source_root, app_id);
@@ -56,11 +58,31 @@ pub fn update_mcg_after_compile(
         .collect::<BTreeMap<_, _>>();
     let previous_scene_rev = registry.node_revision("scene_payload", target_file.as_str());
 
+    let bundles = extract_metric_def_bundles(compiled, dataset_runtime_payloads);
+    let compiled_for_payload = if bundles
+        .iter()
+        .all(|(owner_id, bundle)| {
+            previous_bundles
+                .get(owner_id)
+                .is_some_and(|prev| prev == &bundle.revision)
+        })
+        && previous_scene_rev.is_some()
+    {
+        panel_only_scene_payload_compiled(
+            app_root.as_path(),
+            target_file.as_str(),
+            previous_scene_rev.as_deref(),
+            compiled,
+        )
+    } else {
+        compiled.clone()
+    };
+
     if let Ok(rel) = persist_scene_payload_artifact(
         app_root.as_path(),
         target_file.as_str(),
         scene_revision.as_str(),
-        &scene_payload_value(compiled),
+        &scene_payload_value(&compiled_for_payload),
     ) {
         registry.upsert_node(McgNodeRecord {
             id: GraphNodeId::new(GraphNodeKind::ScenePayload, target_file.clone()),
@@ -81,7 +103,6 @@ pub fn update_mcg_after_compile(
         });
     }
 
-    let bundles = extract_metric_def_bundles(compiled, dataset_runtime_payloads);
     let mut bundle_inputs = Vec::new();
     for (owner_id, bundle) in &bundles {
         if previous_bundles
@@ -107,7 +128,7 @@ pub fn update_mcg_after_compile(
     }
 
     let mut panel_contracts = extract_panel_contracts(compiled);
-    if graph_registry_enabled() {
+    if graph_registry_dedup_enabled() {
         if let Ok(paths) = persist_panel_contracts(app_root.as_path(), panel_contracts.as_slice()) {
             for panel in &mut panel_contracts {
                 panel.relative_path = paths.get(&panel.panel_key).cloned();
@@ -246,9 +267,44 @@ fn assembly_view_key(options: &mei_lang_kernel::CompileOptions, compile_revision
 }
 
 fn scene_payload_value(compiled: &CompiledApp) -> Value {
-    serde_json::json!({
-        "activeTargetFile": compiled.active_target_file,
-        "activeScene": compiled.active_scene,
-        "sceneRoutes": compiled.scene_routes,
-    })
+    super::scene_payload::scene_payload_value_from_compiled(compiled)
+}
+
+fn panel_only_scene_payload_compiled(
+    app_root: &Path,
+    target_file: &str,
+    previous_scene_rev: Option<&str>,
+    compiled: &CompiledApp,
+) -> CompiledApp {
+    let Some(previous_scene_rev) = previous_scene_rev else {
+        return compiled.clone();
+    };
+    let Ok(Some(previous)) =
+        load_scene_payload_artifact(app_root, target_file, Some(previous_scene_rev))
+    else {
+        return compiled.clone();
+    };
+    let Ok(base) = serde_json::from_value::<CompiledApp>(previous.payload) else {
+        return compiled.clone();
+    };
+    let scene_id = compiled
+        .active_scene
+        .as_deref()
+        .unwrap_or("default")
+        .to_string();
+    let Some(contract) = compiled.scene_contract.as_ref() else {
+        return compiled.clone();
+    };
+    let mut changed_panels = BTreeMap::new();
+    for panel in &contract.panels {
+        let key = format!("{scene_id}:{}", panel.id);
+        if let Ok(value) = serde_json::to_value(panel) {
+            changed_panels.insert(key, value);
+        }
+    }
+    if changed_panels.is_empty() {
+        compiled.clone()
+    } else {
+        partial_assemble_panel_merge(&base, &changed_panels)
+    }
 }

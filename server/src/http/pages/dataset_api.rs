@@ -233,7 +233,7 @@ pub async fn dataset_query_api(
         metric_id = %requested_metric_id
     );
     let _request_span_guard = request_span.enter();
-    tracing::info!("dataset query started");
+    tracing::debug!("dataset query started");
     let coords = strict_scene_query_coords(
         request.scene_id.clone(),
         request.target.clone(),
@@ -424,7 +424,7 @@ pub async fn dataset_query_api(
     perf.insert("query_api_ms".to_string(), query_ms);
     let total_ms = elapsed_ms(request_started);
     perf.insert("total_ms".to_string(), total_ms);
-    tracing::info!(
+    tracing::debug!(
         app_id = %app_id,
         scene_id = %scene_ctx.scene_id,
         target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),

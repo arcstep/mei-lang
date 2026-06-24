@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::http::HeaderMap;
 use mei_lang_kernel::CompileOptions;
 use mei_lang_toolchain as toolchain;
@@ -205,6 +207,40 @@ pub(crate) fn resolve_runtime_compile_shared(
     access_policies: RuntimeAccessPolicies,
 ) -> Result<Option<RuntimeCompileResolution>, toolchain::CompileWithCacheFailure> {
     let policy = access_policies.legacy_runtime_artifact_policy();
+    if let Some(target) = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some((compiled, compile_revision)) =
+            crate::graph::try_assemble_scope_from_scene_payload(
+                state.source_root.as_path(),
+                app_id,
+                options.scene.as_deref(),
+                target,
+            )
+        {
+            return Ok(Some(RuntimeCompileResolution {
+                outcome: toolchain::CompileWithCacheOutcomeShared {
+                    compiled: Arc::new(compiled),
+                    cache_hit: true,
+                    artifact_cache_hit: false,
+                    compile_revision,
+                    revision_scope: "mcg_scene_payload".to_string(),
+                    cache_validation: "mcg_assemble".to_string(),
+                    cache_lookup_ms: 0,
+                    artifact_load_ms: 0,
+                    compile_cache_lock_wait_ms: 0,
+                    compile_ms: 0,
+                },
+                policy,
+                access_policies,
+                correctness_fallback: false,
+                artifact_backfilled: false,
+            }));
+        }
+    }
     if let Some(outcome) =
         load_compile_artifact_only_shared(state, app_id, options, components_root)
     {

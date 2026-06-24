@@ -85,4 +85,36 @@ mod graph_mcg_tests {
         assert!(outcome.scene_only_skip);
         assert_eq!(mrg.slots[0].state, MaterialState::Ready);
     }
+
+    #[test]
+    fn assemble_board_scope_hydrates_runtime_metric_defs() {
+        use std::path::Path;
+
+        use mei_lang_datasets::locate_runtime_metric_resource;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../workspaces/ws-spbjw");
+        let mcg = source_root.join("zhifa/.mei/graph/registry/mcg.json");
+        if !mcg.is_file() {
+            return;
+        }
+        let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
+            source_root.as_path(),
+            "zhifa",
+            Some("enforcement_personnel_analytics_board"),
+            "scenes/01-执法要素.board.mei",
+        )
+        .expect("board scene payload assemble should succeed for prebuilt zhifa");
+        let (owner, resolved) = locate_runtime_metric_resource(
+            &compiled,
+            "enforcement_officers",
+            "scenes/01-执法要素.mei::enforcement_personnel_count::composition_by_agency",
+        )
+        .expect("metric should resolve after runtime payload hydrate");
+        assert_eq!(owner.id, "__world_metrics__");
+        assert_eq!(
+            resolved,
+            "enforcement_personnel_count::composition_by_agency"
+        );
+    }
 }

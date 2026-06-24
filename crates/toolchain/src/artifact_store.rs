@@ -219,6 +219,33 @@ pub fn artifact_payload_path(
         ))
 }
 
+pub fn read_artifact_manifest(
+    app_root: &Path,
+    artifact_kind: &str,
+    artifact_name: &str,
+    scope: &WorldScope,
+) -> Result<Option<ArtifactStoreManifest>> {
+    let manifest_path = artifact_manifest_path(app_root, artifact_kind, artifact_name, scope);
+    if !manifest_path.is_file() {
+        return Ok(None);
+    }
+    let manifest = serde_json::from_str::<ArtifactStoreManifest>(
+        &fs::read_to_string(&manifest_path)
+            .with_context(|| format!("failed to read manifest {}", manifest_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse manifest {}", manifest_path.display()))?;
+    Ok(Some(manifest))
+}
+
+pub fn compiled_app_manifest_identity(manifest: &ArtifactStoreManifest) -> String {
+    format!(
+        "{}|{}|{}",
+        manifest.active_scene_id.as_deref().unwrap_or(""),
+        manifest.active_target_file,
+        manifest.revision_token
+    )
+}
+
 pub fn read_json_artifact<T: DeserializeOwned>(
     app_root: &Path,
     artifact_kind: &str,

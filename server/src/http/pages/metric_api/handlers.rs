@@ -37,6 +37,7 @@ use mei_lang_kernel::{resolve_app_root, FilterIntent, QueryState};
 #[derive(Debug, Clone)]
 struct MetricQueryExecutionContext<'a> {
     app_id: &'a str,
+    source_root: &'a Path,
     app_root: &'a Path,
     compiled: &'a mei_lang_kernel::CompiledApp,
     coords: &'a SceneQueryCoords,
@@ -56,6 +57,7 @@ struct MetricQueryExecutionContext<'a> {
 #[derive(Debug, Clone)]
 struct MetricQueryExecutionShared {
     app_id: String,
+    source_root: std::path::PathBuf,
     app_root: std::path::PathBuf,
     compiled: Arc<mei_lang_kernel::CompiledApp>,
     coords: SceneQueryCoords,
@@ -76,6 +78,7 @@ impl MetricQueryExecutionShared {
     fn as_borrowed(&self) -> MetricQueryExecutionContext<'_> {
         MetricQueryExecutionContext {
             app_id: &self.app_id,
+            source_root: self.source_root.as_path(),
             app_root: self.app_root.as_path(),
             compiled: self.compiled.as_ref(),
             coords: &self.coords,
@@ -265,6 +268,7 @@ pub async fn dataset_metric_api(
     let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     let execution_ctx = MetricQueryExecutionContext {
         app_id: &app_id,
+        source_root: state.source_root.as_path(),
         app_root: app_root.as_path(),
         compiled: &compile_outcome.compiled,
         coords: &coords,
@@ -297,6 +301,7 @@ pub async fn dataset_metric_api(
     let batch_started = Instant::now();
     let shared_ctx = MetricQueryExecutionShared {
         app_id: app_id.clone(),
+        source_root: state.source_root.to_path_buf(),
         app_root: app_root.clone(),
         compiled: compile_outcome.compiled.clone(),
         coords: coords.clone(),
@@ -744,6 +749,57 @@ fn execute_metric_query_group(
             perf,
         });
     }
+    if cached_hit.is_none() && crate::graph::feature::graph_registry_dedup_enabled() {
+        let bundle_revisions =
+            crate::graph::dedup::load_mcg_bundle_revisions(ctx.source_root, ctx.app_id);
+        if let Some(bundle_rev) = bundle_revisions.get(&access_plan.owner.id) {
+            let dependency_revision_key = mei_lang_datasets::metric_request_revision_fingerprint_for_compiled(
+                ctx.app_root,
+                ctx.compiled,
+                access_plan.owner.id.as_str(),
+                &owner_dataset.runtime_metric_defs,
+            );
+            let registry = crate::graph::load_mrg_registry(ctx.source_root, ctx.app_id);
+            let scope_key =
+                crate::graph::mrg_eval_scope_key(ctx.scene_id, ctx.scene_path);
+            for cache_key in &lookup_cache_keys {
+                if !crate::graph::mrg_slot_covers_eval(
+                    &registry,
+                    access_plan.owner.id.as_str(),
+                    bundle_rev,
+                    dependency_revision_key.as_str(),
+                    scope_key.as_str(),
+                    cache_key,
+                ) {
+                    continue;
+                }
+                if let Some((artifact, artifact_load_ms)) =
+                    load_metric_response_result_artifact(ctx.app_root, cache_key)?
+                {
+                    let mut perf = BTreeMap::new();
+                    ctx.compile_observation.write_perf(&mut perf);
+                    write_runtime_policy_perf(ctx, &mut perf, true);
+                    perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
+                    perf.insert("result_artifact_hit".to_string(), 1);
+                    perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
+                    perf.insert("mrg_eval_skip".to_string(), 1);
+                    perf.insert("total_ms".to_string(), elapsed_ms(request_started));
+                    let metrics = project_requested_metrics(
+                        &access_plan.owner.id,
+                        &access_plan.request_metric_ids,
+                        &owner_dataset.runtime_metric_defs,
+                        &artifact.metrics_map,
+                    );
+                    return Ok(MetricQueryGroupResponse {
+                        dataset_id: resource.id.clone(),
+                        total_rows: artifact.total_rows,
+                        metrics,
+                        perf,
+                    });
+                }
+            }
+        }
+    }
     if result_artifact_candidate {
         let mut loaded_artifact = None;
         let mut used_fallback = false;
@@ -976,6 +1032,40 @@ fn execute_metric_query_group(
             &requested_eval_metric_ids,
             request_all_metrics,
         )?;
+        let bundle_revisions =
+            crate::graph::dedup::load_mcg_bundle_revisions(ctx.source_root, ctx.app_id);
+        if let Some(bundle_rev) = bundle_revisions.get(&access_plan.owner.id) {
+            let dependency_revision_key = mei_lang_datasets::metric_request_revision_fingerprint_for_compiled(
+                ctx.app_root,
+                ctx.compiled,
+                access_plan.owner.id.as_str(),
+                &owner_dataset.runtime_metric_defs,
+            );
+            let scope_key =
+                crate::graph::mrg_eval_scope_key(ctx.scene_id, ctx.scene_path);
+            let workset_id = format!(
+                "workset|app={}|owner={}|metrics={}",
+                ctx.app_id,
+                access_plan.owner.id,
+                if request_all_metrics {
+                    "*".to_string()
+                } else {
+                    requested_eval_metric_ids.iter().cloned().collect::<Vec<_>>().join(",")
+                }
+            );
+            crate::graph::record_prebuild_slot(
+                ctx.source_root,
+                ctx.app_id,
+                workset_id.as_str(),
+                scope_key.as_str(),
+                access_plan.owner.id.as_str(),
+                bundle_rev,
+                dependency_revision_key.as_str(),
+                response_cache_key.as_str(),
+                ".mei/eval-artifacts/results/metric-response/",
+                eval_outcome.metric_eval_ms,
+            );
+        }
     }
     Ok(MetricQueryGroupResponse {
         dataset_id: resource.id.clone(),

@@ -204,6 +204,16 @@ pub fn compile_scene_from_build_node_with_app(
         }
         return None;
     }
+    if node.kind == BuildNodeKind::WorldFile {
+        let board_file = node.key.as_str();
+        if board_file.ends_with(".board.mei") {
+            if let Some(app) = compiled {
+                return app
+                    .build_board_index
+                    .default_export_scene_for_board_file(board_file);
+            }
+        }
+    }
     compile_scene_from_build_node(node)
 }
 
@@ -234,8 +244,14 @@ pub fn compile_coordinate_for_node(
         .or_else(|| compile_scene_from_build_node(node));
     let preview_kind = match node.kind {
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => BuildPreviewKind::BoardCapsule,
-        BuildNodeKind::WorldFile
-        | BuildNodeKind::WorldDataset
+        BuildNodeKind::WorldFile => {
+            if node.key.ends_with(".board.mei") {
+                BuildPreviewKind::BoardCapsule
+            } else {
+                BuildPreviewKind::WorldCapsule
+            }
+        }
+        BuildNodeKind::WorldDataset
         | BuildNodeKind::WorldMetric
         | BuildNodeKind::WorldExplain => BuildPreviewKind::WorldCapsule,
         BuildNodeKind::Scene

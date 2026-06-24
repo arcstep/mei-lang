@@ -22,8 +22,9 @@ pub fn resolve_runtime_warmup_manifest(
     if manifest_path.is_file() {
         let raw = fs::read_to_string(&manifest_path)
             .with_context(|| format!("read warmup manifest {}", manifest_path.display()))?;
-        let manifest = serde_json::from_str::<RuntimeWarmupManifest>(&raw)
+        let mut manifest = serde_json::from_str::<RuntimeWarmupManifest>(&raw)
             .with_context(|| format!("parse warmup manifest {}", manifest_path.display()))?;
+        enrich_runtime_warmup_manifest(source_root, &mut manifest)?;
         return Ok(Some(manifest));
     }
 
@@ -80,7 +81,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
                 .map(|config| config.xlsx_sources.as_slice())
                 .unwrap_or(&[]),
         );
-        warmup_apps.push(RuntimeWarmupApp {
+        let mut warmup_app = RuntimeWarmupApp {
             app_id: app.id,
             default_scene,
             hot_scenes,
@@ -88,7 +89,9 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
             focuses,
             datasets,
             xlsx_sources,
-        });
+        };
+        enrich_runtime_warmup_app(source_root, &mut warmup_app)?;
+        warmup_apps.push(warmup_app);
     }
 
     Ok(RuntimeWarmupManifest {
@@ -96,6 +99,60 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
         enabled: true,
         apps: warmup_apps,
     })
+}
+
+/// Overlay board autogen datasets and board-file focuses onto a manifest app entry.
+pub fn enrich_runtime_warmup_app(
+    source_root: &Path,
+    app: &mut RuntimeWarmupApp,
+) -> Result<()> {
+    let app_root = resolve_app_root(source_root, app.app_id.as_str());
+    let manual_configs = runtime_dataset_requests_as_workspace_configs(&app.datasets);
+    let merged_datasets = crate::warmup_board_autogen::merge_workspace_and_board_warmup_requests(
+        manual_configs.as_slice(),
+        app_root.as_path(),
+    )?;
+    app.datasets = normalize_warmup_dataset_requests(merged_datasets.as_slice());
+    if crate::warmup_board_autogen::board_warmup_autogen_enabled() {
+        let mut focus_seen = app.focuses.iter().cloned().collect::<BTreeSet<_>>();
+        for suggestion in
+            crate::warmup_board_autogen::discover_board_warmup_suggestions(app_root.as_path())?
+        {
+            if focus_seen.insert(suggestion.focus.clone()) {
+                app.focuses.push(suggestion.focus);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn enrich_runtime_warmup_manifest(
+    source_root: &Path,
+    manifest: &mut RuntimeWarmupManifest,
+) -> Result<()> {
+    if !manifest.enabled {
+        return Ok(());
+    }
+    for app in &mut manifest.apps {
+        enrich_runtime_warmup_app(source_root, app)?;
+    }
+    Ok(())
+}
+
+fn runtime_dataset_requests_as_workspace_configs(
+    requests: &[RuntimeWarmupDatasetRequest],
+) -> Vec<WorkspaceWarmupDatasetConfig> {
+    requests
+        .iter()
+        .map(|request| WorkspaceWarmupDatasetConfig {
+            scene_id: request.scene_id.clone(),
+            focus: request.focus.clone(),
+            dataset_id: request.dataset_id.clone(),
+            priority: request.priority.clone(),
+            metric_id: request.metric_id.clone(),
+            metric_ids: request.metric_ids.clone(),
+        })
+        .collect()
 }
 
 fn normalize_hot_scenes(hot_scenes: &[String]) -> Vec<String> {

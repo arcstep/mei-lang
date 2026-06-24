@@ -23,6 +23,7 @@ use clap::Parser;
 use http_body_util::BodyExt;
 use mei_lang_kernel::{set_mei_package_root, HostSurface};
 use tracing::Instrument;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::cli::args::{AgentRuntimeArgs, Cli, Command, HostCommand, ServeArgs};
 use crate::cli::util::{
@@ -178,16 +179,24 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
     let package_root = resolve_package_root()?;
     set_mei_package_root(package_root.clone());
     let default_filter = match cli.command {
-        Command::Serve(_) => "info",
+        Command::Serve(_) => "warn,mei_lang_server=info",
         _ => "error",
     };
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_filter));
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_target(false)
-        .compact()
-        .init();
+    if matches!(cli.command, Command::Serve(_)) {
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer().with_target(false).compact())
+            .with(crate::http::host_log::HostLogLayer)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_target(false)
+            .compact()
+            .init();
+    }
     match cli.command {
         Command::Serve(args) => serve(args).await,
         Command::Agent(args) => agent_command(AgentRuntimeArgs {
@@ -352,10 +361,13 @@ async fn serve(args: ServeArgs) -> Result<()> {
 }
 
 fn is_noisy_success_request(method: &Method, uri: &Uri) -> bool {
+    let path = uri.path();
+    if *method == Method::POST && path.starts_with("/api/datasets/query/") {
+        return true;
+    }
     if *method != Method::GET {
         return false;
     }
-    let path = uri.path();
     matches!(
         path,
         "/api/agent/config"

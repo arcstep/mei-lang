@@ -121,6 +121,25 @@ impl BuildBoardIndex {
             _ => None,
         }
     }
+
+    /// All board capsule exports declared in one `.board.mei` file.
+    pub fn exports_for_board_file<'a>(&'a self, board_file: &str) -> Vec<&'a BoardFileEntry> {
+        self.boards
+            .values()
+            .filter(|entry| entry.board_file == board_file)
+            .collect()
+    }
+
+    /// Default scene export for backing-tree `world-file` preview on a board resource.
+    /// Uses the lexicographically first export when multiple exist.
+    pub fn default_export_scene_for_board_file(&self, board_file: &str) -> Option<String> {
+        let mut entries = self.exports_for_board_file(board_file);
+        if entries.is_empty() {
+            return None;
+        }
+        entries.sort_by(|left, right| left.scene_id.cmp(&right.scene_id));
+        Some(entries[0].scene_id.clone())
+    }
 }
 
 impl BuildTemplateIndex {
