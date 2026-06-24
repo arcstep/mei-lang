@@ -178,6 +178,41 @@ pub fn take_cached_metric_response(
         .then(|| entry.clone())
 }
 
+pub fn store_cached_metric_response_aliases(
+    keys: &[String],
+    total_rows: usize,
+    metrics_map: &BTreeMap<String, MetricContract>,
+    covered_metric_ids: &BTreeSet<String>,
+    complete: bool,
+) {
+    for key in keys {
+        let trimmed = key.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        store_cached_metric_response(
+            trimmed.to_string(),
+            total_rows,
+            metrics_map,
+            covered_metric_ids,
+            complete,
+        );
+    }
+}
+
+pub fn populate_l1_from_loaded_metric_artifact(
+    lookup_keys: &[String],
+    artifact: &crate::result_artifact::LoadedMetricResponseArtifact,
+) {
+    store_cached_metric_response_aliases(
+        lookup_keys,
+        artifact.total_rows,
+        &artifact.metrics_map,
+        &artifact.covered_metric_ids,
+        artifact.complete,
+    );
+}
+
 pub fn store_cached_metric_response(
     key: String,
     total_rows: usize,

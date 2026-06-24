@@ -6,10 +6,12 @@ mod eval_artifact;
 mod eval_execute;
 mod file_cache;
 mod geojson_dataset;
+mod idempotency_key;
 mod json_dataset;
 mod metric_access;
 mod metric_cache_key;
 mod metric_dataframe;
+mod metric_eval_inflight;
 mod metric_hydrate;
 mod metric_locate;
 mod metric_response_cache;
@@ -35,6 +37,14 @@ use mei_lang_kernel::{
 use serde::Serialize;
 use serde_json::Value;
 
+pub use idempotency_key::{
+    canonical_metric_idempotency_key, canonical_metric_shared_cache_key,
+    metric_shared_cache_key_with_data_generation, resolve_metric_data_generation,
+    resolve_metric_data_generation_with_runtime,
+};
+pub use metric_eval_inflight::{
+    run_metric_eval_singleflight, run_metric_response_artifact_load_singleflight,
+};
 pub use metric_access::{
     build_compiled_datasets_map, collect_all_query_options, evaluate_runtime_metrics,
     evaluate_runtime_metrics_from_plan, runtime_metric_scope_requested, RuntimeMetricEvalMode,
@@ -49,7 +59,8 @@ pub use metric_response_cache::{
     cached_metric_response_covers_request, clear_all_metric_caches, clear_metric_response_cache,
     metric_response_cache_scope_key, metric_response_prebuild_dataset_key,
     metric_response_prebuild_shared_key, prebuild_metric_response_key_matches_dataset_query,
-    store_cached_metric_response, take_cached_metric_response, CachedMetricResponse,
+    store_cached_metric_response, store_cached_metric_response_aliases,
+    take_cached_metric_response, populate_l1_from_loaded_metric_artifact, CachedMetricResponse,
 };
 pub use query::query_dataset_rows;
 pub use result_artifact::{

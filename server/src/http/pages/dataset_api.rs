@@ -22,7 +22,9 @@ use super::super::datasets::{
     },
     DatasetQueryOptions,
 };
-use super::super::runtime_cache::{invalidate_app_runtime_caches, invalidate_report_perf};
+use super::super::runtime_cache::{
+    invalidate_after_data_reload, invalidate_app_runtime_caches, invalidate_report_perf,
+};
 use super::components::resolve_components_root;
 use super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
@@ -241,9 +243,8 @@ pub async fn dataset_query_api(
     )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
-    let runtime_policy = RuntimeArtifactPolicy::from_headers(&headers);
     let access_policies = RuntimeAccessPolicies::from_headers(&headers);
-    let access_artifact_only = !matches!(runtime_policy, RuntimeArtifactPolicy::BuildViewJit);
+    let access_artifact_only = true;
     let compile_resolution = crate::http::compile_cache::resolve_runtime_compile_shared(
         &state,
         &app_id,
@@ -487,7 +488,16 @@ pub async fn dataset_recompute_api(
     }
     let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     let warmed = mode == "clear_and_warm";
-    let invalidate_report = invalidate_app_runtime_caches(&state, &app_id);
+    let dataset_id = request.dataset_id.trim();
+    let source_ids = if dataset_id.is_empty() {
+        None
+    } else {
+        Some(vec![dataset_id.to_string()])
+    };
+    let source_ids_slice = source_ids.as_ref().map(|ids| ids.as_slice());
+    let invalidate_report = invalidate_after_data_reload(&state, &app_id, source_ids_slice)
+    .map(|(report, _)| report)
+    .unwrap_or_else(|_| invalidate_app_runtime_caches(&state, &app_id));
     let mut perf = invalidate_report_perf(&invalidate_report);
     let metric_id = request
         .metric_id

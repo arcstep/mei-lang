@@ -28,9 +28,11 @@ use mei_lang_datasets::{
     load_metric_response_result_artifact, load_prebuild_metric_response_artifact_dataset_fallback,
     metric_response_artifact_lookup_cache_keys, metric_response_cache_scope_key,
     normalize_query_filters, normalize_query_search, plan_access_metric_eval_for_ids,
-    project_requested_metrics, query_state_from_request, runtime_metric_workset,
-    store_cached_metric_response, store_metric_response_result_artifact,
-    take_cached_metric_response, take_metric_response_index_stats, RuntimeMetricEvalMode,
+    populate_l1_from_loaded_metric_artifact, project_requested_metrics,
+    query_state_from_request, run_metric_response_artifact_load_singleflight,
+    store_cached_metric_response_aliases,
+    store_metric_response_result_artifact, take_cached_metric_response,
+    take_metric_response_index_stats, runtime_metric_workset, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{resolve_app_root, FilterIntent, QueryState};
 
@@ -201,7 +203,7 @@ pub async fn dataset_metric_api(
     let components_root = resolve_components_root(&state.source_root);
     let runtime_policy = RuntimeArtifactPolicy::from_headers(&headers);
     let access_policies = RuntimeAccessPolicies::from_headers(&headers);
-    let access_artifact_only = !matches!(runtime_policy, RuntimeArtifactPolicy::BuildViewJit);
+    let access_artifact_only = true;
     let compile_resolution = crate::http::compile_cache::resolve_runtime_compile_shared(
         &state,
         &app_id,
@@ -718,6 +720,7 @@ fn execute_metric_query_group(
         write_runtime_policy_perf(ctx, &mut perf, false);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         perf.insert("result_artifact_hit".to_string(), 0);
+        perf.insert("response_cache_hit".to_string(), 1);
         let mut eval_observation = EvalObservation::new(true)
             .with_response_cache_key_hash(hash_metric_response_cache_key(&hit_cache_key));
         eval_observation.insert_counter("request_dag_observed", 0);
@@ -775,13 +778,22 @@ fn execute_metric_query_group(
                 ) {
                     continue;
                 }
-                if let Some((artifact, artifact_load_ms)) =
-                    load_metric_response_result_artifact(ctx.app_root, cache_key)?
+                if let Some((artifact, artifact_load_ms)) = run_metric_response_artifact_load_singleflight(
+                    format!("mrg-artifact|{cache_key}"),
+                    || {
+                        load_metric_response_result_artifact(ctx.app_root, cache_key)
+                            .map_err(|error| error.to_string())
+                    },
+                )
+                .map_err(AppError::msg)?
                 {
+                    populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
                     let mut perf = BTreeMap::new();
                     ctx.compile_observation.write_perf(&mut perf);
                     write_runtime_policy_perf(ctx, &mut perf, true);
                     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
+                    perf.insert("response_cache_hit".to_string(), 0);
+                    perf.insert("response_cache_populated".to_string(), 1);
                     perf.insert("result_artifact_hit".to_string(), 1);
                     perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
                     perf.insert("mrg_eval_skip".to_string(), 1);
@@ -839,13 +851,7 @@ fn execute_metric_query_group(
         }
         if let Some((hit_cache_key, artifact, artifact_load_ms)) = loaded_artifact {
             let index_stats = take_metric_response_index_stats();
-            store_cached_metric_response(
-                hit_cache_key.clone(),
-                artifact.total_rows,
-                &artifact.metrics_map,
-                &artifact.covered_metric_ids,
-                artifact.complete,
-            );
+            populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
             let mut perf = BTreeMap::new();
             ctx.compile_observation.write_perf(&mut perf);
             perf.insert(
@@ -855,6 +861,7 @@ fn execute_metric_query_group(
             write_runtime_policy_perf(ctx, &mut perf, false);
             perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
             perf.insert("response_cache_hit".to_string(), 0);
+            perf.insert("response_cache_populated".to_string(), 1);
             perf.insert("result_artifact_hit".to_string(), 1);
             perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
             perf.insert(
@@ -1018,8 +1025,8 @@ fn execute_metric_query_group(
     }
     perf.insert("metric_eval_ms".to_string(), eval_outcome.metric_eval_ms);
     perf.insert("total_ms".to_string(), elapsed_ms(request_started));
-    store_cached_metric_response(
-        response_cache_key.clone(),
+    store_cached_metric_response_aliases(
+        &lookup_cache_keys,
         eval_outcome.total_rows,
         &metrics_map,
         &requested_eval_metric_ids,

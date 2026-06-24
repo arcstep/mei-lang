@@ -18,6 +18,9 @@ use crate::metric_response_cache::{
     metric_response_cache_scope_key, metric_response_prebuild_dataset_key,
     metric_response_prebuild_shared_key,
 };
+use crate::idempotency_key::{
+    metric_shared_cache_key_with_data_generation, resolve_metric_data_generation,
+};
 use crate::types::DatasetQueryOptions;
 
 use super::query_normalize::{
@@ -509,12 +512,6 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
                 &serde_json::to_string(&owner_dataset.runtime_metric_defs).unwrap_or_default()
             )
         );
-        let effective_compile_revision = effective_compile_revision_for_slot(
-            compile_revision,
-            bundle_revision.as_str(),
-            dependency_revision_key.as_str(),
-            scene_id,
-        );
         for scene_path in &scene_paths {
             let scoped_scene_path = if scene_path.is_empty() {
                 None
@@ -522,6 +519,12 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
                 Some(scene_path.as_str())
             };
             let scope_key = crate::metric_response_cache::metric_eval_scope_key(scene_id, scoped_scene_path);
+            let effective_compile_revision = effective_compile_revision_for_slot(
+                compile_revision,
+                bundle_revision.as_str(),
+                dependency_revision_key.as_str(),
+                scope_key.as_str(),
+            );
             let resolved_slot_revision = slot_revision
                 .map(str::to_string)
                 .unwrap_or_else(|| {
@@ -549,10 +552,24 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
                 &dependency_revision_key,
             );
             let dataset_key = metric_response_prebuild_dataset_key(app_id, dataset_id.as_str(), query);
+            let data_generation = resolve_metric_data_generation(
+                app_root,
+                app_id,
+                compiled,
+                dataset_id.as_str(),
+                &owner_dataset.runtime_metric_defs,
+            );
+            let idempotent_key = metric_shared_cache_key_with_data_generation(
+                app_id,
+                data_generation.as_str(),
+                dataset_id.as_str(),
+                query,
+                dependency_revision_key.as_str(),
+            );
             let ordered_keys = if prefer_prebuild_keys {
-                vec![dataset_key, shared_key, scoped_key]
+                vec![idempotent_key, dataset_key, shared_key, scoped_key]
             } else {
-                vec![scoped_key, shared_key, dataset_key]
+                vec![scoped_key, idempotent_key, shared_key, dataset_key]
             };
             for key in ordered_keys {
                 if seen.insert(key.clone()) {
@@ -745,7 +762,7 @@ pub(crate) fn metric_dataframe_artifact_lookup_cache_keys(
     keys
 }
 
-fn lookup_compiled_dataset_view<'a>(
+pub(crate) fn lookup_compiled_dataset_view<'a>(
     compiled: &'a CompiledApp,
     dataset_id: &str,
 ) -> Option<&'a DatasetView> {
