@@ -52,6 +52,9 @@ pub struct WorkspaceProfile {
     pub label: Option<String>,
     #[serde(default, rename = "deployHost")]
     pub deploy_host: Option<String>,
+    /// 登录后 `/` 与无 `next` 时的默认应用（须为 discover 到的 app id 或 `discover.appAliases` 别名）。
+    #[serde(default, rename = "defaultApp")]
+    pub default_app: Option<String>,
 }
 
 /// 工作区合规展示信息（登录页与底栏备案号等）。

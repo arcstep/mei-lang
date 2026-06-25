@@ -130,6 +130,7 @@ pub fn init_workspace_profile(
                 id: Some(profile_id.to_string()),
                 label: label.map(str::to_string),
                 deploy_host: None,
+                default_app: None,
             },
             paths: WorkspacePathsConfig {
                 components: Some(DEFAULT_STOCK_COMPONENTS_REL.to_string()),

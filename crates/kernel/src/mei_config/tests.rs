@@ -37,6 +37,21 @@ fn access_ai_external_deserializes_from_features() {
 }
 
 #[test]
+fn workspace_default_app_deserializes_from_json() {
+    let raw = r#"{
+            "workspace": {
+                "id": "ws-demo",
+                "defaultApp": "zhifa"
+            }
+        }"#;
+    let cfg: WorkspaceConfig = serde_json::from_str(raw).expect("parse defaultApp");
+    assert_eq!(
+        cfg.workspace.default_app.as_deref(),
+        Some("zhifa")
+    );
+}
+
+#[test]
 fn workspace_compliance_deserializes_from_json() {
     let raw = r#"{
             "compliance": {

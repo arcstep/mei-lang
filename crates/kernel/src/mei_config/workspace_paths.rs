@@ -104,3 +104,13 @@ pub fn resolve_app_root(source_root: &Path, app_id: &str) -> PathBuf {
     }
     direct
 }
+
+/// 将 URL/CLI 中的 app 标识解析为 discover 使用的 canonical app id（目录相对路径）。
+pub fn resolve_app_id(source_root: &Path, app_id: &str) -> String {
+    let root = resolve_app_root(source_root, app_id);
+    root.strip_prefix(source_root)
+        .ok()
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| app_id.trim().to_string())
+}

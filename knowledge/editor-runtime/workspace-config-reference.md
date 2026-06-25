@@ -119,8 +119,7 @@ Minimal shape:
 
 Common fields:
 
-- `workspace.id`, `workspace.label`, `workspace.deployHost`
-- `paths.components`, `paths.templates`
+- `workspace.id`, `workspace.label`, `workspace.deployHost`, `workspace.defaultApp`（登录后访问 `/` 时的默认应用 id；须为 discover 到的 app 或 `discover.appAliases` 别名；不可编译时回退到首个可编译 app）
 - `discover.skip_directories`, `discover.appAliases`
 - `menu`
 - `runtime.file_cache`

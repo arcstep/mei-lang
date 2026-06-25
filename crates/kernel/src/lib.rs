@@ -85,7 +85,7 @@ pub use mei_config::{
     app_mei_config_path, load_mei_config_for_app, load_workspace_auth_bundle,
     load_workspace_config, mei_config_compile_revision_digest, merge_ops_section, ops_themes_revision_digest,
     resolve_app_entry_main, resolve_app_main_path,
-    resolve_app_root, resolve_authoring_helpers, resolve_authoring_root, resolve_components_root,
+    resolve_app_id, resolve_app_root, resolve_authoring_helpers, resolve_authoring_root, resolve_components_root,
     resolve_mei_config_path, resolve_templates_root, resolve_live_ops_theme_value,
     resolve_workspace_shell_theme,
     set_mei_package_root, stock_components_source, stock_templates_source,

@@ -242,6 +242,7 @@ fn initialize_standalone_workspace(
                 id: Some(profile_id.to_string()),
                 label: label.map(str::to_string),
                 deploy_host: None,
+                default_app: None,
             },
             paths: mei_lang_kernel::WorkspacePathsConfig {
                 components: Some(mei_lang_kernel::DEFAULT_STOCK_COMPONENTS_REL.to_string()),

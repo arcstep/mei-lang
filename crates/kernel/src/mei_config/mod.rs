@@ -49,7 +49,7 @@ pub use types::{
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL, WORKSPACE_SNAPSHOT_GIT_REL,
 };
 pub use workspace_paths::{
-    app_mei_config_path, is_app_config_root, resolve_app_root, resolve_authoring_root,
+    app_mei_config_path, is_app_config_root, resolve_app_id, resolve_app_root, resolve_authoring_root,
     resolve_components_root, resolve_templates_root, set_mei_package_root, stock_components_source,
     stock_templates_source, workspace_config_path,
 };
