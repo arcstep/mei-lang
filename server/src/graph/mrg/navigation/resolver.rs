@@ -38,6 +38,35 @@ pub fn find_navigation_by_key(
     registry.navigation_by_key(key)
 }
 
+fn default_scene_navigation_alias(
+    source_root: &Path,
+    app_id: &str,
+    mode: UiMode,
+) -> Option<NavigationEntry> {
+    use mei_lang_kernel::{load_workspace_config, resolve_default_scene_from_root};
+    let cfg = load_workspace_config(source_root);
+    let default_scene = cfg
+        .deploy
+        .access_entry
+        .default_scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            resolve_default_scene_from_root(resolve_app_root(source_root, app_id).as_path())
+                .ok()
+                .flatten()
+                .filter(|scene| !scene.trim().is_empty())
+        })
+        .unwrap_or_else(|| "home".to_string());
+    find_navigation_by_key(
+        source_root,
+        app_id,
+        mode.scene_navigation_key(default_scene.as_str()).as_str(),
+    )
+}
+
 pub fn legacy_fallback_scope(source_root: &Path, app_id: &str, mode: UiMode) -> ScopeCoords {
     let entry = legacy_resolve_access_entry(source_root);
     if entry.app_id == app_id {
@@ -58,6 +87,13 @@ pub fn resolve_default_scope(
 ) -> NavigationMatch {
     let key = mode.default_navigation_key();
     if let Some(entry) = find_navigation_by_key(source_root, app_id, key) {
+        return NavigationMatch {
+            scope: entry.to_scope_coords(app_id, mode),
+            entry: Some(entry),
+            legacy_fallback: false,
+        };
+    }
+    if let Some(entry) = default_scene_navigation_alias(source_root, app_id, mode) {
         return NavigationMatch {
             scope: entry.to_scope_coords(app_id, mode),
             entry: Some(entry),
@@ -260,5 +296,21 @@ mod tests {
         assert!(!nav.legacy_fallback);
         assert_eq!(nav.scope.target_file, "main.mei");
         assert_eq!(nav.scope.scene_id, "home");
+    }
+
+    #[test]
+    fn default_build_aliases_to_scene_navigation_when_default_key_absent() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ws = tmp.path();
+        fs::create_dir_all(ws.join("runtime/platform/graphs/demo")).expect("mkdir");
+        fs::write(
+            ws.join("runtime/platform/graphs/demo/mrg-registry.json"),
+            r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"demo","registryRevision":"x","updatedAtMs":0,"nodes":[{"id":{"kind":"navigation","key":"build:home"},"url":"/apps/build/demo?scene=home&file=scenes/home.mei","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"}],"slots":[],"edges":[]}"#,
+        )
+        .expect("write mrg");
+        let nav = resolve_default_scope(ws, "demo", UiMode::Build);
+        assert!(!nav.legacy_fallback);
+        assert_eq!(nav.scope.scene_id, "home");
+        assert_eq!(nav.scope.target_file, "scenes/home.mei");
     }
 }

@@ -143,11 +143,28 @@ pub fn resolve_scope_gate_for_compile(
     };
     let nav_match =
         match_request_to_navigation(source_root, app_id, route_mode, scene, &aligned);
+    let assembly_scene = scene
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| nav_match.scope.scene_id.clone());
+    let assembly_target = target
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            let nav_target = nav_match.scope.target_file.trim();
+            if !nav_target.is_empty() {
+                nav_match.scope.target_file.clone()
+            } else if !assembly_scene.is_empty() {
+                format!("scenes/{}.mei", assembly_scene.trim())
+            } else {
+                String::new()
+            }
+        });
     let assembly_scope = ScopeCoords::new(
         app_id,
         crate::readiness::types::UiMode::from_route_mode(route_mode),
-        scene.unwrap_or("").to_string(),
-        target.unwrap_or("").to_string(),
+        assembly_scene,
+        assembly_target,
     );
     check_scope_gate_for_coords(source_root, nav_match, Some(assembly_scope))
 }
@@ -382,6 +399,11 @@ pub fn check_scope_gate_for_access_entry(source_root: &Path, entry: &AccessEntry
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mei_lang_app::UiRouteMode;
+    use mei_lang_kernel::CompileOptions;
+    use std::fs;
+
+    use crate::http::pages::AppQuery;
 
     #[test]
     fn scope_gate_report_serializes_layer_fields() {
@@ -399,5 +421,50 @@ mod tests {
         let json = serde_json::to_value(&report).expect("json");
         assert_eq!(json["navigationReady"], true);
         assert_eq!(json["accessReady"], true);
+    }
+
+    #[test]
+    fn compile_gate_infers_target_from_mrg_when_scene_only() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ws = tmp.path();
+        fs::create_dir_all(ws.join("runtime/platform/graphs/demo")).expect("mkdir");
+        fs::write(
+            ws.join("runtime/platform/graphs/demo/mrg-registry.json"),
+            r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"demo","registryRevision":"x","updatedAtMs":0,"nodes":[{"id":{"kind":"navigation","key":"build:home"},"url":"/apps/build/demo?scene=home&file=scenes/home.mei","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"}],"slots":[],"edges":[]}"#,
+        )
+        .expect("write mrg");
+        let compile_options = CompileOptions {
+            scene: Some("home".to_string()),
+            preview_target: None,
+        };
+        let query = AppQuery {
+            file: None,
+            scene: None,
+            tab: None,
+            diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
+            node: Some("scene:home".to_string()),
+            scope: None,
+            focus: None,
+            chrome: None,
+        };
+        let gate = resolve_scope_gate_for_compile(
+            ws,
+            "demo",
+            UiRouteMode::Build,
+            &compile_options,
+            &query,
+        );
+        assert_eq!(gate.resolved_target.as_deref(), Some("scenes/home.mei"));
+        assert!(
+            !gate
+                .blockers
+                .iter()
+                .any(|blocker| blocker == "L3:MCG scene_payload: missing from registry"),
+            "unexpected empty-target MCG lookup: {:?}",
+            gate.blockers
+        );
     }
 }

@@ -71,7 +71,7 @@ pub fn resolve_access_entry(source_root: &Path) -> AccessEntry {
 }
 
 pub fn legacy_resolve_access_entry(source_root: &Path) -> AccessEntry {
-    use mei_lang_kernel::{load_workspace_config, resolve_app_id};
+    use mei_lang_kernel::{discover_apps, load_workspace_config, resolve_app_id};
     let cfg = load_workspace_config(source_root);
     let app_raw = cfg
         .deploy
@@ -79,8 +79,16 @@ pub fn legacy_resolve_access_entry(source_root: &Path) -> AccessEntry {
         .default_app
         .as_deref()
         .or(cfg.workspace.default_app.as_deref())
-        .unwrap_or("zhifa");
-    let app_id = resolve_app_id(source_root, app_raw);
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            discover_apps(source_root)
+                .ok()
+                .and_then(|apps| apps.first().map(|app| app.id.clone()))
+        })
+        .unwrap_or_else(|| "zhifa".to_string());
+    let app_id = resolve_app_id(source_root, app_raw.as_str());
     let scene_id = cfg
         .deploy
         .access_entry
@@ -140,4 +148,22 @@ pub fn check_reachability(
 pub fn shell_ready_for_access_entry(source_root: &Path) -> bool {
     let entry = resolve_access_entry(source_root);
     check_scope_gate_for_access_entry(source_root, &entry).access_ready
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn legacy_access_entry_prefers_first_discovered_app_over_zhifa_default() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ws = tmp.path();
+        fs::write(ws.join("workspace.json"), r#"{"schemaVersion":2,"workspace":{"id":"ws-demo"}}"#)
+            .expect("write workspace");
+        fs::create_dir_all(ws.join("apps/hello/src")).expect("mkdir app");
+        fs::write(ws.join("apps/hello/src/main.mei"), "app(id=hello)").expect("write main");
+        let entry = legacy_resolve_access_entry(ws);
+        assert_eq!(entry.app_id, "hello");
+    }
 }
