@@ -422,6 +422,10 @@ a { color: inherit; text-decoration: none; }
   background: var(--mei-shell-bg);
   color: var(--mei-shell-text);
 }
+/* 演示壳仅 main + 脚本：单行 1fr，避免默认 .shell 三行 grid 把 main 挤到 auto 行 */
+.shell.presentation-shell {
+  grid-template-rows: minmax(0, 1fr);
+}
 .topbar {
   isolation: isolate;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -3553,8 +3557,13 @@ body > .mei-floating-text-pop-backdrop {
 .preview-viewport.preview-viewport-edit-debug.preview-viewport-fluid-height,
 .preview-viewport.preview-viewport-access-clip.preview-viewport-fluid-height {
   display: block;
+  height: auto;
+  min-height: 0;
+  max-height: none;
   overflow-x: auto;
   overflow-y: auto;
+  place-items: unset;
+  place-content: unset;
 }
 .preview-viewport.preview-viewport-edit-debug.preview-viewport-fluid-height > .preview-viewport-toolbar {
   justify-self: auto;

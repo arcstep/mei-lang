@@ -8,6 +8,9 @@ use super::preview;
 use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
 use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
+use super::shell_preview_layout::{
+    access_main_preview_class, access_preview_panel_class, access_shell_grid_class,
+};
 use super::statusbar::statusbar_view;
 use super::topbar::{access_scene_for_topbar, topbar_view};
 use super::{HostAccountView, TopbarMenuContext};
@@ -65,27 +68,9 @@ pub(crate) fn access_shell(
         auth_account,
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::App.slug(), current_target, None);
-    let shell_class = if chrome_hidden {
-        "shell shell-surface min-h-screen h-screen overflow-hidden max-[1200px]:h-auto max-[1200px]:overflow-visible"
-    } else if stage_enabled {
-        "shell shell-surface grid min-h-screen h-screen overflow-hidden [grid-template-rows:auto_minmax(0,1fr)_auto] max-[1200px]:grid max-[1200px]:h-auto max-[1200px]:overflow-visible"
-    } else {
-        "shell shell-surface min-h-screen h-auto overflow-visible"
-    };
-    let main_class = if chrome_hidden {
-        "min-h-0 min-w-0 h-full overflow-hidden p-0 max-[1200px]:h-auto max-[1200px]:overflow-visible"
-    } else if stage_enabled {
-        "min-h-0 min-w-0 h-full overflow-hidden p-4 self-stretch max-[1200px]:h-auto max-[1200px]:overflow-visible"
-    } else {
-        "min-w-0 h-auto overflow-visible p-4 self-start"
-    };
-    let preview_panel_class = if chrome_hidden {
-        "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-viewport]:h-full [&_.preview-viewport]:min-h-full [&_.preview-surface:not(.preview-stage)]:h-full [&_.preview-surface:not(.preview-stage)]:min-h-full max-[1200px]:h-auto max-[1200px]:overflow-visible"
-    } else if stage_enabled {
-        "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-viewport-fluid-width]:max-h-full [&_.preview-viewport-fluid-width]:min-h-0 [&_.preview-viewport-fluid-width]:overflow-y-auto [&_.preview-surface]:min-h-auto max-[1200px]:h-auto max-[1200px]:overflow-visible"
-    } else {
-        "min-h-0 min-w-0 overflow-visible [&_.preview-surface]:min-h-auto"
-    };
+    let shell_class = access_shell_grid_class(chrome_hidden, stage_enabled);
+    let main_class = access_main_preview_class(chrome_hidden, stage_enabled);
+    let preview_panel_class = access_preview_panel_class(chrome_hidden, stage_enabled);
     let floating_entry = || access_ai_floating_entry(compiled, app_path, current_target, panel_tab);
     view! {
         <div class=shell_class>

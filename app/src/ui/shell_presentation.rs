@@ -5,6 +5,9 @@ use super::access_ai_entry::{external_access_ai_floating_entry, resolve_access_a
 use super::manage_routing::WorldSemanticQuery;
 use super::preview;
 use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
+use super::shell_preview_layout::{
+    access_shell_grid_class, presentation_main_preview_class, presentation_preview_panel_class,
+};
 use super::view_routing::{app_scene_href, presentation_scene_href};
 use super::{HostAccountView, TopbarMenuContext};
 
@@ -142,6 +145,10 @@ pub(crate) fn presentation_shell(
         .get(current_index + 1)
         .map(|route| presentation_scene_href(app_path, Some(route.scene_id.as_str())));
     let exit_href = app_scene_href(app_path, Some(current_scene_id), None, None);
+    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
+    let shell_class = concat_presentation_shell_class(stage_enabled);
+    let main_class = presentation_main_preview_class(stage_enabled);
+    let preview_panel_class = presentation_preview_panel_class(stage_enabled);
     let preview = preview::preview_view(
         compiled,
         app_path,
@@ -154,13 +161,13 @@ pub(crate) fn presentation_shell(
     view! {
         <div
             id="presentation-shell"
-            class="shell shell-surface presentation-shell min-h-screen h-screen overflow-hidden mei-surface-shell mei-text-inverse"
+            class=shell_class
             data-prev-href=prev_href.clone().unwrap_or_default()
             data-next-href=next_href.clone().unwrap_or_default()
         >
             {host_ssr_bootstrap_scripts(compiled, app_path, Some(current_scene_id))}
-            <main class="relative h-full overflow-hidden">
-                <section class="h-full overflow-hidden [&_.preview-viewport]:h-full [&_.preview-viewport]:min-h-full [&_.preview-surface:not(.preview-stage)]:h-full [&_.preview-surface:not(.preview-stage)]:min-h-full [&_.preview-stage-shell]:h-full [&_.preview-stage-shell]:min-h-full">
+            <main class=main_class>
+                <section class=preview_panel_class>
                     {preview}
                 </section>
                 {external_ai
@@ -239,4 +246,11 @@ pub(crate) fn presentation_shell(
         </div>
     }
     .into_any()
+}
+
+fn concat_presentation_shell_class(stage_enabled: bool) -> String {
+    format!(
+        "{} presentation-shell mei-surface-shell mei-text-inverse",
+        access_shell_grid_class(true, stage_enabled)
+    )
 }

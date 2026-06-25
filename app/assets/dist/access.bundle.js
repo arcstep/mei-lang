@@ -839,11 +839,18 @@
     return String(root?.dataset?.viewportExplicit || "").toLowerCase() === "true";
   }
 
-  /** 管理端固定调试视口；访问端固定裁切。以 data-route-mode 为准。 */
+  /** 管理端固定调试视口；访问/演示端固定裁切。以 data-route-mode 为准。 */
   function isManagePreviewRoute(root) {
     const route = String(root?.dataset?.routeMode || "").trim().toLowerCase();
     if (route === "manage" || route === "build") return true;
-    if (route === "access") return false;
+    if (
+      route === "access" ||
+      route === "app" ||
+      route === "presentation" ||
+      route === "run"
+    ) {
+      return false;
+    }
     return overflowModeIsDebug(String(root?.dataset?.overflowMode || "clip"));
   }
 
@@ -852,8 +859,12 @@
     return raw !== "false" && raw !== "0";
   }
 
+  /** 仅访问态隐藏 chrome（app-view + chrome-none）；演示态虽无 chrome 但 preview 宿主仍走 shell 链。 */
   function isChromeNoneAccess() {
-    return document.body.classList.contains("chrome-none");
+    return (
+      document.body.classList.contains("app-view") &&
+      document.body.classList.contains("chrome-none")
+    );
   }
 
   function readSafeInsets(root, overflowMode) {
@@ -2492,6 +2503,9 @@
     root.style.display = "block";
     root.style.width = "100%";
     root.style.maxWidth = "100%";
+    root.style.height = "auto";
+    root.style.minHeight = "0";
+    root.style.maxHeight = "none";
     root.style.justifyItems = "";
     root.style.alignItems = "";
     root.style.alignContent = "";
@@ -2574,6 +2588,7 @@
 
   function syncChromeNoneViewportBox(root) {
     if (!isChromeNoneAccess()) return;
+    if (root.dataset.contentFluidHeight === "true") return;
     root.style.width = "100vw";
     root.style.height = "100vh";
     root.style.maxWidth = "100vw";

@@ -19,6 +19,7 @@ mod shell_access;
 mod shell_config;
 mod shell_manage;
 mod shell_presentation;
+mod shell_preview_layout;
 mod shell_upload;
 mod source_tree;
 mod statusbar;

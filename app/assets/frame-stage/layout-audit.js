@@ -97,6 +97,9 @@
     root.style.display = "block";
     root.style.width = "100%";
     root.style.maxWidth = "100%";
+    root.style.height = "auto";
+    root.style.minHeight = "0";
+    root.style.maxHeight = "none";
     root.style.justifyItems = "";
     root.style.alignItems = "";
     root.style.alignContent = "";
@@ -179,6 +182,7 @@
 
   function syncChromeNoneViewportBox(root) {
     if (!isChromeNoneAccess()) return;
+    if (root.dataset.contentFluidHeight === "true") return;
     root.style.width = "100vw";
     root.style.height = "100vh";
     root.style.maxWidth = "100vw";

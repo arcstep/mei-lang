@@ -24,11 +24,18 @@
     return String(root?.dataset?.viewportExplicit || "").toLowerCase() === "true";
   }
 
-  /** 管理端固定调试视口；访问端固定裁切。以 data-route-mode 为准。 */
+  /** 管理端固定调试视口；访问/演示端固定裁切。以 data-route-mode 为准。 */
   function isManagePreviewRoute(root) {
     const route = String(root?.dataset?.routeMode || "").trim().toLowerCase();
     if (route === "manage" || route === "build") return true;
-    if (route === "access") return false;
+    if (
+      route === "access" ||
+      route === "app" ||
+      route === "presentation" ||
+      route === "run"
+    ) {
+      return false;
+    }
     return overflowModeIsDebug(String(root?.dataset?.overflowMode || "clip"));
   }
 
@@ -37,8 +44,12 @@
     return raw !== "false" && raw !== "0";
   }
 
+  /** 仅访问态隐藏 chrome（app-view + chrome-none）；演示态虽无 chrome 但 preview 宿主仍走 shell 链。 */
   function isChromeNoneAccess() {
-    return document.body.classList.contains("chrome-none");
+    return (
+      document.body.classList.contains("app-view") &&
+      document.body.classList.contains("chrome-none")
+    );
   }
 
   function readSafeInsets(root, overflowMode) {
