@@ -115,7 +115,9 @@ pub(crate) fn scene_bundle_cache_marker(
 }
 
 fn scene_bundle_cache_dir(app_root: &Path) -> PathBuf {
-    app_root.join(".mei").join("cache").join("scene-bundles")
+    mei_lang_kernel::resolve_app_var_root(app_root)
+        .join("cache")
+        .join("scene-bundles")
 }
 
 fn build_script_path(package_root: &Path) -> PathBuf {

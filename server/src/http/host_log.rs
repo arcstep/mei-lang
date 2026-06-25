@@ -141,14 +141,14 @@ fn writer() -> &'static Mutex<Option<HostLogWriter>> {
 }
 
 pub(crate) fn initialize(source_root: &Path) {
-    let log_dir = source_root.join(".mei").join("runtime").join("logs");
+    let log_dir = mei_lang_kernel::resolve_workspace_logs_root(source_root);
     if let Ok(mut guard) = writer().lock() {
         *guard = Some(HostLogWriter::new(log_dir));
     }
 }
 
 pub(crate) fn host_log_dir(source_root: &Path) -> PathBuf {
-    source_root.join(".mei").join("runtime").join("logs")
+    mei_lang_kernel::resolve_workspace_logs_root(source_root)
 }
 
 pub struct HostLogLayer;
@@ -314,10 +314,7 @@ pub(crate) fn prune_startup_runs(source_root: &Path) {
         .and_then(|raw| raw.parse().ok())
         .filter(|value| *value >= 3)
         .unwrap_or(DEFAULT_RETAIN_RUNS);
-    let root = source_root
-        .join(".mei")
-        .join("runtime")
-        .join("startup-runs");
+    let root = mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("startup-runs");
     let Ok(entries) = fs::read_dir(root.as_path()) else {
         return;
     };

@@ -169,10 +169,7 @@ fn load_latest_startup_prebuild_diagnostics(
     source_root: &Path,
     app_id: &str,
 ) -> Option<(String, ParsedStartupDiagnostics, u64)> {
-    let runs_root = source_root
-        .join(".mei")
-        .join("runtime")
-        .join("startup-runs");
+    let runs_root = mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("startup-runs");
     let mut candidates = Vec::new();
     let entries = fs::read_dir(&runs_root).ok()?;
     for entry in entries.flatten() {

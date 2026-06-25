@@ -11,7 +11,8 @@ use walkdir::WalkDir;
 use crate::capability_catalog::CAPABILITY_CATALOG_SCHEMA_VERSION;
 use crate::{knowledge_bundle::package_root_hint, knowledge_bundle_descriptor_for_package_root};
 use mei_lang_kernel::{
-    build_runtime_warmup_manifest, RuntimeWarmupManifest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    build_runtime_warmup_manifest, resolve_toolchain_root, resolve_workspace_runtime_root,
+    RuntimeWarmupManifest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 
 pub const EDITOR_RUNTIME_SCHEMA_VERSION: &str = "mei-editor-runtime-v1";
@@ -180,28 +181,24 @@ pub struct WorkspaceRuntimeManifest {
     pub provenance: RuntimeManifestProvenance,
 }
 
-fn workspace_mei_root(workspace_root: &Path) -> PathBuf {
-    workspace_root.join(".mei")
-}
-
-fn workspace_runtime_root(workspace_root: &Path) -> PathBuf {
-    workspace_mei_root(workspace_root).join("runtime")
+fn workspace_platform_dir(workspace_root: &Path) -> PathBuf {
+    resolve_workspace_runtime_root(workspace_root).join("platform")
 }
 
 fn workspace_runtime_bin_dir(workspace_root: &Path) -> PathBuf {
-    workspace_runtime_root(workspace_root).join("bin")
+    resolve_toolchain_root(workspace_root).join("bin")
 }
 
 fn workspace_catalog_dir(workspace_root: &Path) -> PathBuf {
-    workspace_mei_root(workspace_root).join("catalog")
+    workspace_platform_dir(workspace_root).join("catalog")
 }
 
 fn workspace_profiles_dir(workspace_root: &Path) -> PathBuf {
-    workspace_mei_root(workspace_root).join("profiles")
+    workspace_platform_dir(workspace_root).join("profiles")
 }
 
 fn workspace_knowledge_dir(workspace_root: &Path) -> PathBuf {
-    workspace_mei_root(workspace_root).join("knowledge")
+    workspace_platform_dir(workspace_root).join("knowledge")
 }
 
 fn workspace_author_skill_dir(workspace_root: &Path) -> PathBuf {
@@ -341,7 +338,7 @@ fn tooling_templates() -> Vec<EditorRuntimeTemplateDescriptor> {
             files: vec![
                 ".vscode/settings.json".to_string(),
                 ".vscode/tasks.json".to_string(),
-                ".mei/tooling/vscode/README.md".to_string(),
+                "runtime/platform/tooling/vscode/README.md".to_string(),
             ],
         },
         EditorRuntimeTemplateDescriptor {
@@ -356,24 +353,24 @@ fn tooling_templates() -> Vec<EditorRuntimeTemplateDescriptor> {
             tool: "codex".to_string(),
             description: "Codex MCP and knowledge bridge notes.".to_string(),
             files: vec![
-                ".mei/tooling/codex/README.md".to_string(),
-                ".mei/tooling/codex/mcp.json".to_string(),
+                "runtime/platform/tooling/codex/README.md".to_string(),
+                "runtime/platform/tooling/codex/mcp.json".to_string(),
             ],
         },
         EditorRuntimeTemplateDescriptor {
             tool: "claude-code".to_string(),
             description: "Claude Code MCP and authoring prompt notes.".to_string(),
             files: vec![
-                ".mei/tooling/claude-code/README.md".to_string(),
-                ".mei/tooling/claude-code/mcp.json".to_string(),
+                "runtime/platform/tooling/claude-code/README.md".to_string(),
+                "runtime/platform/tooling/claude-code/mcp.json".to_string(),
             ],
         },
         EditorRuntimeTemplateDescriptor {
             tool: "opencode".to_string(),
             description: "OpenCode MCP and workflow bridge notes.".to_string(),
             files: vec![
-                ".mei/tooling/opencode/README.md".to_string(),
-                ".mei/tooling/opencode/mcp.json".to_string(),
+                "runtime/platform/tooling/opencode/README.md".to_string(),
+                "runtime/platform/tooling/opencode/mcp.json".to_string(),
             ],
         },
     ]
@@ -697,14 +694,32 @@ fn json_value_matches(
     }
 }
 
+fn workspace_version_path(workspace_root: &Path) -> PathBuf {
+    workspace_platform_dir(workspace_root).join("version.json")
+}
+
+fn workspace_manifest_path(workspace_root: &Path) -> PathBuf {
+    resolve_toolchain_root(workspace_root).join("MANIFEST.json")
+}
+
+fn workspace_editor_runtime_path(workspace_root: &Path) -> PathBuf {
+    workspace_platform_dir(workspace_root).join("editor-runtime.json")
+}
+
+fn workspace_author_knowledge_path(workspace_root: &Path) -> PathBuf {
+    workspace_platform_dir(workspace_root)
+        .join("knowledge")
+        .join("author-runtime.json")
+}
+
 pub fn doctor_editor_runtime_for_workspace_root(
     package_root: &Path,
     workspace_root: &Path,
 ) -> EditorRuntimeDoctorReport {
-    let version_path = workspace_root.join(".mei/version.json");
-    let manifest_path = workspace_root.join(".mei/runtime/MANIFEST.json");
-    let editor_runtime_path = workspace_root.join(".mei/editor-runtime.json");
-    let knowledge_path = workspace_root.join(".mei/knowledge/author-runtime.json");
+    let version_path = workspace_version_path(workspace_root);
+    let manifest_path = workspace_manifest_path(workspace_root);
+    let editor_runtime_path = workspace_editor_runtime_path(workspace_root);
+    let knowledge_path = workspace_author_knowledge_path(workspace_root);
     let catalog_path = workspace_catalog_dir(workspace_root).join("capability-catalog.json");
     let author_surface_path = workspace_catalog_dir(workspace_root).join("author-surface.json");
     let access_surface_path = workspace_catalog_dir(workspace_root).join("access-surface.json");
@@ -911,8 +926,8 @@ pub fn workspace_runtime_status_for_workspace_root(
     workspace_root: &Path,
 ) -> WorkspaceRuntimeStatusReport {
     let doctor = doctor_editor_runtime_for_workspace_root(package_root, workspace_root);
-    let version_path = workspace_root.join(".mei/version.json");
-    let manifest_path = workspace_root.join(".mei/runtime/MANIFEST.json");
+    let version_path = workspace_version_path(workspace_root);
+    let manifest_path = workspace_manifest_path(workspace_root);
     let catalog_path = workspace_catalog_dir(workspace_root).join("capability-catalog.json");
     let author_skill_dir = workspace_author_skill_dir(workspace_root);
     let access_skill_dir = workspace_access_skill_dir(workspace_root);
@@ -936,7 +951,9 @@ pub fn workspace_runtime_status_for_workspace_root(
     WorkspaceRuntimeStatusReport {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
         source_root: workspace_root.display().to_string(),
-        runtime_root: workspace_runtime_root(workspace_root).display().to_string(),
+        runtime_root: resolve_workspace_runtime_root(workspace_root)
+            .display()
+            .to_string(),
         package_root: package_root.display().to_string(),
         installed,
         fallback_to_source_tree,
@@ -1040,41 +1057,75 @@ fn render_workspace_start_script() -> &'static str {
 # MeiLang workspace host launcher (generated by `mei-toolchain workspace runtime install`).
 set -euo pipefail
 
-WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 HOST="${MEI_HOST:-127.0.0.1}"
 PORT="${MEI_PORT:-9527}"
 URL="http://${HOST}:${PORT}"
-LOCAL_HOST_BIN="${WORKSPACE_ROOT}/.mei/runtime/bin/mei-host-web"
-HOST_BIN="${MEI_HOST_WEB_BIN:-${LOCAL_HOST_BIN}}"
+TOOLCHAIN_MODE="${MEI_TOOLCHAIN_MODE:-cargo}"
+MEI_LANG_ROOT="${MEI_LANG_ROOT:-${WORKSPACE_ROOT}/../../mei-lang}"
+INSTALLED_HOST_BIN="${WORKSPACE_ROOT}/toolchain/bin/mei-host-web"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --toolchain-mode)
+      TOOLCHAIN_MODE="$2"
+      shift 2
+      ;;
+    --toolchain-mode=*)
+      TOOLCHAIN_MODE="${1#*=}"
+      shift
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
 
 echo "MeiLang workspace: ${WORKSPACE_ROOT}"
+echo "Toolchain mode: ${TOOLCHAIN_MODE}"
 echo "Open: ${URL}"
 echo ""
 
-if [[ -x "${HOST_BIN}" ]]; then
-  exec "${HOST_BIN}" serve \
+if [[ "${TOOLCHAIN_MODE}" == "cargo" ]]; then
+  if [[ ! -f "${MEI_LANG_ROOT}/Cargo.toml" ]]; then
+    echo "error: MEI_LANG_ROOT=${MEI_LANG_ROOT} is not a mei-lang checkout" >&2
+    exit 1
+  fi
+  exec cargo run --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
+    -p mei-lang-server --bin mei-host-web -- serve \
     --source-root "${WORKSPACE_ROOT}" \
+    --toolchain-mode cargo \
     --host "${HOST}" \
     --port "${PORT}" \
     "$@"
 fi
 
-if command -v mei-host-web >/dev/null 2>&1; then
-  echo "warning: using PATH mei-host-web instead of workspace-local runtime" >&2
-  exec mei-host-web serve \
+if [[ -x "${INSTALLED_HOST_BIN}" ]]; then
+  exec "${INSTALLED_HOST_BIN}" serve \
     --source-root "${WORKSPACE_ROOT}" \
+    --toolchain-mode installed \
+    --host "${HOST}" \
+    --port "${PORT}" \
+    "$@"
+fi
+
+if [[ -n "${MEI_HOST_WEB_BIN:-}" && -x "${MEI_HOST_WEB_BIN}" ]]; then
+  exec "${MEI_HOST_WEB_BIN}" serve \
+    --source-root "${WORKSPACE_ROOT}" \
+    --toolchain-mode installed \
     --host "${HOST}" \
     --port "${PORT}" \
     "$@"
 fi
 
 cat >&2 <<EOF
-error: cannot find mei-host-web.
+error: cannot find mei-host-web for installed mode.
 
 Try one of:
-  1. run \`mei-toolchain workspace runtime install --source-root "${WORKSPACE_ROOT}" --force\`
-  2. export MEI_HOST_WEB_BIN=/path/to/mei-host-web
-  3. install mei-host-web on PATH as a temporary recovery path
+  1. ./deploy/start.sh --toolchain-mode cargo
+  2. mei-toolchain workspace runtime install --source-root "${WORKSPACE_ROOT}" --force
+  3. export MEI_HOST_WEB_BIN=/path/to/mei-host-web
 
 EOF
 exit 1
@@ -1283,13 +1334,15 @@ fn write_common_runtime_files(
     force: bool,
 ) -> Result<Vec<EditorRuntimeScaffoldFile>> {
     let mut files = Vec::new();
+    let platform = workspace_platform_dir(target_root);
+    fs::create_dir_all(&platform).ok();
     files.push(write_file(
-        &target_root.join(".mei/editor-runtime.json"),
+        &platform.join("editor-runtime.json"),
         &render_common_runtime_json(package_root)?,
         force,
     )?);
     files.push(write_file(
-        &target_root.join(".mei/knowledge/author-runtime.json"),
+        &platform.join("knowledge/author-runtime.json"),
         &serde_json::to_string_pretty(&crate::export_knowledge_bundle_for_package_root(
             package_root,
             "author",
@@ -1299,12 +1352,12 @@ fn write_common_runtime_files(
         force,
     )?);
     files.push(write_file(
-        &target_root.join(".mei/version.json"),
+        &platform.join("version.json"),
         &render_workspace_runtime_version_json()?,
         force,
     )?);
     files.push(write_file(
-        &target_root.join(".mei/runtime/MANIFEST.json"),
+        &resolve_toolchain_root(target_root).join("MANIFEST.json"),
         &render_workspace_runtime_manifest_json(package_root)?,
         force,
     )?);
@@ -1318,8 +1371,9 @@ fn write_common_runtime_files(
         package_root,
         force,
     )?);
+    fs::create_dir_all(target_root.join("deploy")).ok();
     files.push(write_executable_file(
-        &target_root.join("start.sh"),
+        &target_root.join("deploy/start.sh"),
         render_workspace_start_script(),
         force,
     )?);
@@ -1507,7 +1561,7 @@ pub fn scaffold_editor_runtime_tooling(
                     force,
                 )?);
                 files.push(write_file(
-                    &target_root.join(".mei/tooling/vscode/README.md"),
+                    &target_root.join("runtime/platform/tooling/vscode/README.md"),
                     &render_tool_readme("VS Code"),
                     force,
                 )?);
@@ -1526,36 +1580,36 @@ pub fn scaffold_editor_runtime_tooling(
             }
             "codex" => {
                 files.push(write_file(
-                    &target_root.join(".mei/tooling/codex/README.md"),
+                    &target_root.join("runtime/platform/tooling/codex/README.md"),
                     &render_tool_readme("Codex"),
                     force,
                 )?);
                 files.push(write_file(
-                    &target_root.join(".mei/tooling/codex/mcp.json"),
+                    &target_root.join("runtime/platform/tooling/codex/mcp.json"),
                     &render_mcp_json(target_root)?,
                     force,
                 )?);
             }
             "claude-code" => {
                 files.push(write_file(
-                    &target_root.join(".mei/tooling/claude-code/README.md"),
+                    &target_root.join("runtime/platform/tooling/claude-code/README.md"),
                     &render_tool_readme("Claude Code"),
                     force,
                 )?);
                 files.push(write_file(
-                    &target_root.join(".mei/tooling/claude-code/mcp.json"),
+                    &target_root.join("runtime/platform/tooling/claude-code/mcp.json"),
                     &render_mcp_json(target_root)?,
                     force,
                 )?);
             }
             "opencode" => {
                 files.push(write_file(
-                    &target_root.join(".mei/tooling/opencode/README.md"),
+                    &target_root.join("runtime/platform/tooling/opencode/README.md"),
                     &render_tool_readme("OpenCode"),
                     force,
                 )?);
                 files.push(write_file(
-                    &target_root.join(".mei/tooling/opencode/mcp.json"),
+                    &target_root.join("runtime/platform/tooling/opencode/mcp.json"),
                     &render_mcp_json(target_root)?,
                     force,
                 )?);

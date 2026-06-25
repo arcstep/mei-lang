@@ -92,7 +92,7 @@ fn hash_key(value: &str) -> String {
 }
 
 fn eval_result_artifact_root(app_root: &Path) -> PathBuf {
-    app_root.join(".mei").join("eval-artifacts").join("results")
+    mei_lang_kernel::resolve_app_var_root(app_root).join("eval-results")
 }
 
 fn metric_response_result_artifact_path(app_root: &Path, response_cache_key: &str) -> PathBuf {

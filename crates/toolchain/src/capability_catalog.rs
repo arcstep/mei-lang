@@ -51,7 +51,7 @@ pub fn meilang_author_skill_package() -> SkillPackageDescriptor {
         name: "MeiLang Author".to_string(),
         description: "Canonical MeiLang authoring skill package exported from the toolchain capability catalog.".to_string(),
         source_dir_rel: "guides/author-skills".to_string(),
-        install_dir_rel: ".mei/skills/meilang-author".to_string(),
+        install_dir_rel: "runtime/platform/skills/meilang-author".to_string(),
         entry_file: "SKILL.md".to_string(),
         companion_priority: vec![
             "authoring.md".to_string(),
@@ -72,7 +72,7 @@ pub fn meilang_access_skill_package() -> SkillPackageDescriptor {
             "Canonical MeiLang access skill package exported from the toolchain capability catalog."
                 .to_string(),
         source_dir_rel: "guides/access-skills".to_string(),
-        install_dir_rel: ".mei/skills/meilang-access".to_string(),
+        install_dir_rel: "runtime/platform/skills/meilang-access".to_string(),
         entry_file: "SKILL.md".to_string(),
         companion_priority: vec!["workflow.md".to_string()],
     }
@@ -310,7 +310,7 @@ fn workspace_relative_path(path: &str) -> String {
 }
 
 fn workspace_runtime_bin_path(file_name: &str) -> String {
-    workspace_relative_path(&format!(".mei/runtime/bin/{file_name}"))
+    workspace_relative_path(&format!("toolchain/bin/{file_name}"))
 }
 
 fn mcp_surface_descriptor_for_roots(
@@ -359,7 +359,7 @@ fn mcp_surface_descriptor_for_roots(
                 "lsp_entrypoint": "mei-lsp (stdio)",
                 "adapter_entrypoint": author_adapter_entrypoint,
                 "catalog_root": workspace_root.map(|_| workspace_relative_path(".mei/catalog")),
-                "knowledge_root": workspace_root.map(|_| workspace_relative_path(".mei/knowledge"))
+                "knowledge_root": workspace_root.map(|_| workspace_relative_path("runtime/platform/knowledge"))
             },
             "skill_package": meilang_author_skill_package(),
             "knowledge_bundle": knowledge_bundle_descriptor_for_package_root(

@@ -74,8 +74,10 @@ impl From<&CompileWatchedFile> for ArtifactWatchedFile {
     }
 }
 
+use mei_lang_kernel::resolve_app_mei_store_root;
+
 pub fn toolchain_artifact_store_root(app_root: &Path) -> PathBuf {
-    app_root.join(".mei")
+    resolve_app_mei_store_root(app_root)
 }
 
 fn sanitize_segment(value: &str) -> String {

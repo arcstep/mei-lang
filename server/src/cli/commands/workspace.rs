@@ -237,7 +237,7 @@ fn initialize_standalone_workspace(
             .and_then(|value| value.to_str())
             .unwrap_or("workspace");
         let config = mei_lang_kernel::WorkspaceConfig {
-            schema_version: 1,
+            schema_version: 2,
             workspace: mei_lang_kernel::WorkspaceProfile {
                 id: Some(profile_id.to_string()),
                 label: label.map(str::to_string),
@@ -245,15 +245,17 @@ fn initialize_standalone_workspace(
                 default_app: None,
             },
             paths: mei_lang_kernel::WorkspacePathsConfig {
+                apps: Some(mei_lang_kernel::DEFAULT_APPS_REL.to_string()),
                 components: Some(mei_lang_kernel::DEFAULT_STOCK_COMPONENTS_REL.to_string()),
                 templates: Some(mei_lang_kernel::DEFAULT_STOCK_TEMPLATES_REL.to_string()),
                 authoring: Some(mei_lang_kernel::DEFAULT_STOCK_AUTHORING_REL.to_string()),
+                ..mei_lang_kernel::WorkspacePathsConfig::default()
             },
             ..mei_lang_kernel::WorkspaceConfig::default()
         };
         mei_lang_kernel::write_workspace_config(&config_path, &config)?;
     }
-    std::fs::create_dir_all(source_root.join(".mei"))?;
+    std::fs::create_dir_all(source_root.join(mei_lang_kernel::DEFAULT_APPS_REL))?;
     std::fs::create_dir_all(source_root.join(mei_lang_kernel::WORKSPACE_HOSTS_DIR_REL))?;
     if materialize {
         mei_lang_toolchain::materialize_workspace_stock(source_root, package_root, false)?;

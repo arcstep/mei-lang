@@ -18,6 +18,7 @@ pub enum Command {
     Knowledge(KnowledgeArgs),
     EditorRuntime(EditorRuntimeArgs),
     Prebuild(PrebuildArgs),
+    Readiness(ReadinessArgs),
     Diagnostics(DiagnosticsArgs),
     Warmup(WarmupArgs),
     Compile(CheckArgs),
@@ -370,6 +371,29 @@ pub struct PrebuildArgs {
 }
 
 #[derive(Args, Clone)]
+pub struct ReadinessArgs {
+    #[command(subcommand)]
+    pub command: ReadinessCommand,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum ReadinessCommand {
+    Check(ReadinessCheckArgs),
+}
+
+#[derive(Args, Clone)]
+pub struct ReadinessCheckArgs {
+    #[arg(long, conflicts_with = "source_root")]
+    pub workspace: Option<String>,
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+    #[arg(long)]
+    pub bundle_snapshot_root: Option<PathBuf>,
+}
+
+#[derive(Args, Clone)]
 pub struct DiagnosticsArgs {
     #[command(subcommand)]
     pub command: DiagnosticsCommand,
@@ -697,6 +721,9 @@ pub struct ServeArgs {
     /// 启动时将 MeiLang skill 同步到工作区（默认关闭；与 `--auto-agent` 联用时自动开启）
     #[arg(long)]
     pub sync_agent_skill: bool,
+    /// 工具链模式：`cargo` 使用 mei-lang 源码；`installed` 使用工作区 `toolchain/bin/`。
+    #[arg(long, default_value = "installed", value_parser = ["cargo", "installed"])]
+    pub toolchain_mode: String,
 }
 
 #[derive(clap::Args)]

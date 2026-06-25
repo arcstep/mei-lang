@@ -5,8 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 
 use super::types::{
-    MeiConfig, WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceOpsConfig,
-    WorkspacePathsConfig, WorkspaceProfile, DEFAULT_APP_ENTRY_MAIN, MEI_CONFIG_FILENAME,
+    MeiConfig, WorkspaceConfig, DEFAULT_APP_ENTRY_MAIN,
 };
 use super::workspace_paths::{app_mei_config_path, workspace_config_path};
 
@@ -20,27 +19,11 @@ pub fn load_mei_config_for_app(app_root: &Path, source_root: Option<&Path>) -> M
     MeiConfig::load_or_default(&path)
 }
 
-/// 迁移窗口：优先 `.mei-workspace.json`，否则回退读取 segment 级旧 `.mei-config.json`。
+/// 读取 `{workspace}/workspace.json`。
 pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
-    let modern = workspace_config_path(segment_root);
-    if modern.is_file() {
-        return WorkspaceConfig::load_or_default(&modern);
-    }
-    let legacy = segment_root.join(MEI_CONFIG_FILENAME);
-    if legacy.is_file() {
-        let legacy_app = MeiConfig::load_or_default(&legacy);
-        return WorkspaceConfig {
-            schema_version: legacy_app.schema_version,
-            workspace: WorkspaceProfile::default(),
-            paths: WorkspacePathsConfig::default(),
-            discover: legacy_app.discover,
-            menu: legacy_app.menu,
-            runtime: legacy_app.runtime,
-            warmup: Default::default(),
-            compliance: WorkspaceComplianceConfig::default(),
-            auth: WorkspaceAuthConfig::default(),
-            ops: WorkspaceOpsConfig::default(),
-        };
+    let path = workspace_config_path(segment_root);
+    if path.is_file() {
+        return WorkspaceConfig::load_or_default(&path);
     }
     WorkspaceConfig::default()
 }
@@ -55,7 +38,7 @@ pub fn resolve_app_entry_main(app_root: &Path) -> String {
 }
 
 pub fn resolve_app_main_path(app_root: &Path) -> PathBuf {
-    app_root.join(resolve_app_entry_main(app_root))
+    super::workspace_paths::resolve_app_src_root(app_root).join(resolve_app_entry_main(app_root))
 }
 
 pub fn write_mei_config(path: &Path, config: &MeiConfig) -> Result<()> {

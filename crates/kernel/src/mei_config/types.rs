@@ -6,31 +6,42 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const MEI_CONFIG_FILENAME: &str = ".mei-config.json";
-pub const MEI_WORKSPACE_CONFIG_FILENAME: &str = ".mei-workspace.json";
+pub const APP_CONFIG_FILENAME: &str = "app.config.json";
+/// App 级配置文件名（v2：`apps/{id}/app.config.json`）。
+pub const MEI_CONFIG_FILENAME: &str = APP_CONFIG_FILENAME;
+pub const WORKSPACE_CONFIG_FILENAME: &str = "workspace.json";
+pub const MEI_WORKSPACE_CONFIG_FILENAME: &str = WORKSPACE_CONFIG_FILENAME;
 pub const OPS_JOURNAL_REL_PATH: &str = "ops/.mei-ops-journal.json";
-pub const WORKSPACE_LOCAL_DIR_REL: &str = ".mei/local";
-pub const WORKSPACE_HOSTS_DIR_REL: &str = ".mei/local/hosts";
-pub const WORKSPACE_AUTH_DIR_REL: &str = ".mei/local/auth";
-pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL: &str = ".mei/runtime/warmup-manifest.json";
-pub const AUTH_JOURNAL_REL_PATH: &str = ".mei/local/auth/auth-journal.json";
-pub const LEGACY_AUTH_JOURNAL_REL_PATH: &str = ".mei/auth/auth-journal.json";
+pub const DEFAULT_APPS_REL: &str = "apps";
+pub const DEFAULT_APP_SRC_REL: &str = "src";
+pub const DEFAULT_TOOLCHAIN_REL: &str = "toolchain";
+pub const WORKSPACE_RUNTIME_DIR_REL: &str = "runtime";
+pub const DEFAULT_RUNTIME_REL: &str = WORKSPACE_RUNTIME_DIR_REL;
+pub const DEFAULT_DEPLOY_REL: &str = "deploy";
+pub const APP_BUILD_ACTIVE_REL: &str = "build/active";
+pub const APP_VAR_ACTIVE_REL: &str = "var/active";
+pub const WORKSPACE_PLATFORM_DIR_REL: &str = "runtime/platform";
+pub const WORKSPACE_RUNTIME_LOGS_REL: &str = "runtime/logs";
+pub const WORKSPACE_RUNTIME_CACHE_REL: &str = "runtime/cache";
+pub const WORKSPACE_LOCAL_DIR_REL: &str = "runtime";
+pub const WORKSPACE_HOSTS_DIR_REL: &str = "runtime/hosts";
+pub const WORKSPACE_AUTH_DIR_REL: &str = "runtime/hosts";
+pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL: &str = "runtime/platform/warmup-manifest.json";
+pub const AUTH_JOURNAL_REL_PATH: &str = "runtime/hosts/auth-journal.json";
+pub const LEGACY_AUTH_JOURNAL_REL_PATH: &str = ".mei/local/auth/auth-journal.json";
 pub const PRE_LOCAL_AUTH_JOURNAL_REL_PATH: &str = "auth/.mei-auth-journal.json";
-pub const WORKSPACE_AGENT_LOCAL_DIR_REL: &str = ".mei/local/agent";
-pub const WORKSPACE_AGENT_DB_REL: &str = ".mei/local/agent/agent.sqlite";
-pub const LEGACY_WORKSPACE_AGENT_DB_REL: &str = ".mei/agent.sqlite";
-pub const WORKSPACE_SNAPSHOT_DIR_REL: &str = ".mei/local/agent/snapshot";
-pub const WORKSPACE_SNAPSHOT_GIT_REL: &str = ".mei/local/agent/snapshot/git";
-pub const LEGACY_WORKSPACE_SNAPSHOT_DIR_REL: &str = ".mei/snapshot";
-pub const LEGACY_WORKSPACE_SNAPSHOT_GIT_REL: &str = ".mei/snapshot/git";
+pub const WORKSPACE_AGENT_LOCAL_DIR_REL: &str = "runtime/agent";
+pub const WORKSPACE_AGENT_DB_REL: &str = "runtime/agent/agent.sqlite";
+pub const LEGACY_WORKSPACE_AGENT_DB_REL: &str = ".mei/local/agent/agent.sqlite";
+pub const WORKSPACE_SNAPSHOT_DIR_REL: &str = "runtime/agent/snapshot";
+pub const WORKSPACE_SNAPSHOT_GIT_REL: &str = "runtime/agent/snapshot/git";
+pub const LEGACY_WORKSPACE_SNAPSHOT_DIR_REL: &str = ".mei/local/agent/snapshot";
+pub const LEGACY_WORKSPACE_SNAPSHOT_GIT_REL: &str = ".mei/local/agent/snapshot/git";
 pub const DEFAULT_HOST_STATE_ID: &str = "default";
 pub const WORKSPACE_HOST_STATE_SCHEMA_VERSION: u32 = 1;
-/// 可 Git 跟踪的物化组件库（与运行时 `.mei/` 分离）。
-pub const DEFAULT_STOCK_COMPONENTS_REL: &str = ".stock/components";
-/// 可 Git 跟踪的物化模板库。
-pub const DEFAULT_STOCK_TEMPLATES_REL: &str = ".stock/templates";
-/// 可 Git 跟踪的 workspace-local authoring helper（`.star`）目录。
-pub const DEFAULT_STOCK_AUTHORING_REL: &str = ".stock/authoring";
+pub const DEFAULT_STOCK_COMPONENTS_REL: &str = "stock/components";
+pub const DEFAULT_STOCK_TEMPLATES_REL: &str = "stock/templates";
+pub const DEFAULT_STOCK_AUTHORING_REL: &str = "stock/authoring";
 pub const DEFAULT_APP_ENTRY_MAIN: &str = "main.mei";
 
 /// 可运维对象白名单（宿主写操作仅允许触及这些分类）。
@@ -131,6 +142,47 @@ pub struct WorkspaceConfig {
     /// 宿主 shell 主题与 workspace 级主题表。
     #[serde(default)]
     pub ops: WorkspaceOpsConfig,
+    /// 发布 / bundle 运维配置（Git 真源，不含 host-state）。
+    #[serde(default)]
+    pub deploy: WorkspaceDeployConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceDeployAccessEntry {
+    #[serde(default, rename = "defaultApp")]
+    pub default_app: Option<String>,
+    #[serde(default, rename = "defaultScene")]
+    pub default_scene: Option<String>,
+    #[serde(default, rename = "targetFile")]
+    pub target_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceDeployReachabilityGate {
+    #[serde(default, rename = "requireMcgAssemblyReady")]
+    pub require_mcg_assembly_ready: Option<bool>,
+    #[serde(default, rename = "requireMrgCriticalReady")]
+    pub require_mrg_critical_ready: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceDeployConfig {
+    #[serde(default, rename = "bundleIdFormat")]
+    pub bundle_id_format: Option<String>,
+    #[serde(default, rename = "retainBundles")]
+    pub retain_bundles: Option<u32>,
+    #[serde(default, rename = "pinnedBundles")]
+    pub pinned_bundles: Vec<String>,
+    #[serde(default, rename = "accessEntry")]
+    pub access_entry: WorkspaceDeployAccessEntry,
+    #[serde(default, rename = "candidatePort")]
+    pub candidate_port: Option<u16>,
+    #[serde(default, rename = "productionPort")]
+    pub production_port: Option<u16>,
+    #[serde(default, rename = "promotePolicy")]
+    pub promote_policy: Option<String>,
+    #[serde(default, rename = "reachabilityGate")]
+    pub reachability_gate: WorkspaceDeployReachabilityGate,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -396,15 +448,30 @@ pub struct AppFeaturesConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspacePathsConfig {
-    /// 组件库根（相对 profile 根或绝对路径）；未设且未物化时回退 `mei-lang/stock/components`。
+    /// 应用目录根（相对 workspace 根），默认 `apps`。
+    #[serde(default)]
+    pub apps: Option<String>,
+    /// 组件库根（相对 workspace 根），默认 `stock/components`。
     #[serde(default)]
     pub components: Option<String>,
-    /// 模板库根；未设且未物化时回退 `mei-lang/stock/templates`。
+    /// 模板库根，默认 `stock/templates`。
     #[serde(default)]
     pub templates: Option<String>,
-    /// workspace-local authoring helper 根（相对 segment 根）；加载其中全部 `.star` 并注入求值 prelude。
+    /// authoring helper 根，默认 `stock/authoring`。
     #[serde(default)]
     pub authoring: Option<String>,
+    /// 工具链根，默认 `toolchain`。
+    #[serde(default)]
+    pub toolchain: Option<String>,
+    /// 工作区 runtime 根，默认 `runtime`。
+    #[serde(default)]
+    pub runtime: Option<String>,
+    /// 发布脚本根，默认 `deploy`。
+    #[serde(default)]
+    pub deploy: Option<String>,
+    /// 共享 stock 根，默认 `stock`（components/templates 的父目录，实现期可选）。
+    #[serde(default)]
+    pub stock: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

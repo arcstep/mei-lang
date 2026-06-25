@@ -105,10 +105,7 @@ fn next_run_id() -> String {
 }
 
 fn startup_run_root(source_root: &Path) -> PathBuf {
-    source_root
-        .join(".mei")
-        .join("runtime")
-        .join("startup-runs")
+    mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("startup-runs")
 }
 
 fn with_state<T>(f: impl FnOnce(&mut StartupRunState) -> T) -> Option<T> {

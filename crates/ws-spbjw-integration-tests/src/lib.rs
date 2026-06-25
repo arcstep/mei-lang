@@ -15,5 +15,5 @@ pub fn source_root() -> PathBuf {
 }
 
 pub fn zhifa_app_root() -> PathBuf {
-    source_root().join("zhifa")
+    mei_lang_kernel::resolve_app_root(&source_root(), "zhifa")
 }

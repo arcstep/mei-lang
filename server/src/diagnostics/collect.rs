@@ -17,7 +17,7 @@ use super::report::{
     MaterializationDiagnosticsReport, McgDiagnosticsSection, MrgDiagnosticsSection,
 };
 
-const DEFAULT_SECTIONS: &[&str] = &["disk", "eval", "mcg", "mrg", "cache", "build"];
+const DEFAULT_SECTIONS: &[&str] = &["disk", "eval", "mcg", "mrg", "cache", "build", "reachability"];
 
 pub fn collect_materialization_diagnostics(
     source_root: &Path,
@@ -112,6 +112,12 @@ pub fn collect_materialization_diagnostics(
         report.build = collect_build_diagnostics(source_root, app_root.as_path(), app_id);
     }
 
+    if wants("reachability") {
+        let reachability =
+            crate::readiness::reachability::check_reachability(source_root, None);
+        report.reachability = serde_json::to_value(reachability).ok();
+    }
+
     if report.mrg.stale_ratio > 0.10 && report.mrg.slot_count > 0 {
         report.alerts.push(format!(
             "MRG stale ratio {:.0}% exceeds 10% gate",
@@ -129,17 +135,19 @@ pub fn collect_materialization_diagnostics(
 }
 
 fn scan_disk(app_root: &Path) -> DiskDiagnosticsSection {
-    let manifest_dir = app_root.join(".mei/manifests/compiled_app");
-    let artifact_dir = app_root.join(".mei/artifacts/compiled_app");
+    let build_root = mei_lang_kernel::resolve_app_build_root(app_root);
+    let manifest_dir = build_root.join("manifests/compiled_app");
+    let artifact_dir = build_root.join("artifacts/compiled_app");
     let (manifest_count, manifest_bytes) = dir_stats(&manifest_dir);
     let (artifact_count, artifact_bytes) = dir_stats(&artifact_dir);
-    let scene_payload_root = app_root.join(".mei/graph/payloads/scene");
+    let graph_root = build_root.join("graph");
+    let scene_payload_root = graph_root.join("payloads/scene");
     let (scene_payload_file_count, scene_payload_bytes) = dir_stats(&scene_payload_root);
-    let eval_root = app_root.join(".mei/eval-artifacts");
+    let eval_root = build_root.join("eval-artifacts");
     let (eval_artifact_file_count, eval_artifact_bytes) = dir_stats(&eval_root);
-    let (_, graph_bytes) = dir_stats(&app_root.join(".mei/graph"));
-    let (_, data_snapshots_bytes) = dir_stats(&app_root.join(".mei/data-snapshots"));
-    let (_, prebuild_bytes) = dir_stats(&app_root.join(".mei/prebuild"));
+    let (_, graph_bytes) = dir_stats(&graph_root);
+    let (_, data_snapshots_bytes) = dir_stats(&build_root.join("data-snapshots"));
+    let (_, prebuild_bytes) = dir_stats(&build_root.join("prebuild"));
     DiskDiagnosticsSection {
         compiled_app_file_count: manifest_count + artifact_count,
         compiled_app_bytes: manifest_bytes + artifact_bytes,
@@ -155,7 +163,7 @@ fn scan_disk(app_root: &Path) -> DiskDiagnosticsSection {
 }
 
 fn scan_eval(app_root: &Path) -> EvalDiagnosticsSection {
-    let eval_root = app_root.join(".mei/eval-artifacts");
+    let eval_root = mei_lang_kernel::resolve_app_build_root(app_root).join("eval-artifacts");
     let (eval_total_files, eval_total_bytes) = dir_stats(&eval_root);
     let response_dir = eval_root.join("results").join("metric-response");
     let dataframe_dir = eval_root.join("results").join("metric-dataframe");
@@ -219,11 +227,12 @@ mod tests {
     #[test]
     fn scan_disk_reports_subtree_bytes() {
         let app_root = temp_app_root("disk");
-        fs::create_dir_all(app_root.join(".mei/graph/payloads/scene")).expect("mkdir");
-        fs::create_dir_all(app_root.join(".mei/eval-artifacts/results/metric-response")).expect("mkdir");
-        fs::write(app_root.join(".mei/graph/payloads/scene/a.json"), "abc").expect("write");
+        let build_root = mei_lang_kernel::resolve_app_build_root(&app_root);
+        fs::create_dir_all(build_root.join("graph/payloads/scene")).expect("mkdir");
+        fs::create_dir_all(build_root.join("eval-artifacts/results/metric-response")).expect("mkdir");
+        fs::write(build_root.join("graph/payloads/scene/a.json"), "abc").expect("write");
         fs::write(
-            app_root.join(".mei/eval-artifacts/results/metric-response/r.json"),
+            build_root.join("eval-artifacts/results/metric-response/r.json"),
             "12345",
         )
         .expect("write");

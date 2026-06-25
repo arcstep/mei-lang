@@ -319,7 +319,7 @@ fn compiled_app_artifact_context(
 }
 
 fn compiled_app_artifact_root(app_root: &Path) -> PathBuf {
-    app_root.join(".mei")
+    mei_lang_kernel::resolve_app_build_root(app_root)
 }
 
 fn extract_dataset_runtime_payloads(

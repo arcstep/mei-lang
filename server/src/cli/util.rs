@@ -57,6 +57,32 @@ pub fn resolve_package_root() -> Result<PathBuf> {
         .map(std::path::Path::to_path_buf)
 }
 
+pub fn resolve_cargo_package_root(source_root: &std::path::Path) -> Result<PathBuf> {
+    if let Some(path) = package_root_from_env().filter(|path| path.exists()) {
+        return path.canonicalize().with_context(|| {
+            format!("failed to canonicalize MEI_PACKAGE_ROOT {}", path.display())
+        });
+    }
+    if let Ok(raw) = std::env::var("MEI_LANG_ROOT") {
+        let candidate = PathBuf::from(raw.trim());
+        if candidate.join("Cargo.toml").is_file() {
+            return candidate.canonicalize().with_context(|| {
+                format!("failed to canonicalize MEI_LANG_ROOT {}", candidate.display())
+            });
+        }
+    }
+    let sibling = source_root
+        .parent()
+        .and_then(|parent| parent.parent())
+        .map(|grand| grand.join("mei-lang"));
+    if let Some(candidate) = sibling.filter(|path| path.join("Cargo.toml").is_file()) {
+        return candidate.canonicalize().with_context(|| {
+            format!("failed to canonicalize mei-lang root {}", candidate.display())
+        });
+    }
+    resolve_package_root()
+}
+
 pub fn resolve_source_root_arg(
     package_root: &std::path::Path,
     workspace: Option<&str>,

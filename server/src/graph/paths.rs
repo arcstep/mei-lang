@@ -1,11 +1,9 @@
 use std::path::{Path, PathBuf};
 
-/// Per-app graph registry root: `{workspace}/.mei/graphs/{app_id}/`.
+use mei_lang_kernel::resolve_workspace_graph_root;
+
 pub fn resolve_graph_root(source_root: &Path, app_id: &str) -> PathBuf {
-    source_root
-        .join(".mei")
-        .join("graphs")
-        .join(app_id.trim())
+    resolve_workspace_graph_root(source_root, app_id)
 }
 
 pub fn mcg_registry_path(source_root: &Path, app_id: &str) -> PathBuf {
@@ -21,12 +19,14 @@ pub fn bridge_path(source_root: &Path, app_id: &str) -> PathBuf {
 }
 
 pub fn scene_payload_artifact_dir(app_root: &Path) -> PathBuf {
-    app_root.join(".mei").join("graph").join("payloads").join("scene")
+    mei_lang_kernel::resolve_app_build_root(app_root)
+        .join("graph")
+        .join("payloads")
+        .join("scene")
 }
 
 pub fn panel_contract_artifact_dir(app_root: &Path) -> PathBuf {
-    app_root
-        .join(".mei")
+    mei_lang_kernel::resolve_app_build_root(app_root)
         .join("graph")
         .join("payloads")
         .join("panel")
@@ -41,7 +41,7 @@ mod tests {
         let root = Path::new("/ws");
         assert_eq!(
             resolve_graph_root(root, "zhifa"),
-            PathBuf::from("/ws/.mei/graphs/zhifa")
+            PathBuf::from("/ws/runtime/platform/graphs/zhifa")
         );
     }
 }

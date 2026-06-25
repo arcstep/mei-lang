@@ -9,15 +9,17 @@ use mei_lang_kernel::{
 use mei_lang_toolchain::{self as toolchain, WorldScope};
 use std::fs;
 
-const DEFAULT_LANDING_SCOPE: WorldScope = WorldScope {
-    scene_id: None,
-    target_file: None,
-};
-
-/// 宿主 landing 只认 prebuild 写入的 default-scope manifest；不在 HTTP 路径触发 compile。
-fn app_has_prebuilt_default_scope(source_root: &Path, app_id: &str) -> bool {
-    toolchain::probe_compiled_app_manifest_identity(source_root, app_id, &DEFAULT_LANDING_SCOPE)
-        .is_some()
+/// 宿主 landing 只认 prebuild 写入的 access entry compiled_app；不在 HTTP 路径触发 compile。
+fn app_has_prebuilt_access_entry(source_root: &Path, app_id: &str) -> bool {
+    let entry = crate::readiness::reachability::resolve_access_entry(source_root);
+    if entry.app_id != app_id {
+        let scope = WorldScope {
+            scene_id: None,
+            target_file: None,
+        };
+        return toolchain::probe_compiled_app_manifest_identity(source_root, app_id, &scope).is_some();
+    }
+    crate::readiness::reachability::check_shell_ready(source_root, &entry).shell_ready
 }
 
 pub(crate) fn source_panel_meta(source_path: &Path, source: &str) -> SourcePanelMeta {
@@ -58,7 +60,7 @@ pub(crate) fn choose_default_app<'a>(
             .iter()
             .find(|app| app.id == canonical || app.id == preferred)
         {
-            if app_has_prebuilt_default_scope(source_root, &app.id) {
+            if app_has_prebuilt_access_entry(source_root, &app.id) {
                 return Some(app);
             }
             tracing::warn!(
@@ -73,7 +75,7 @@ pub(crate) fn choose_default_app<'a>(
         }
     }
     for app in apps {
-        if app_has_prebuilt_default_scope(source_root, &app.id) {
+        if app_has_prebuilt_access_entry(source_root, &app.id) {
             return Some(app);
         }
         tracing::warn!(

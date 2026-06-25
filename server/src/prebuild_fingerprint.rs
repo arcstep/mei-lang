@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 pub const PREBUILD_INPUTS_SCHEMA_VERSION: &str = "v1";
 pub const PREBUILD_STATE_SCHEMA_VERSION: &str = "mei-prebuild-state-v1";
-pub const PREBUILD_STATE_REL: &str = ".mei/runtime/prebuild-state.json";
+pub const PREBUILD_STATE_REL: &str = "runtime/prebuild-state.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildArtifactCoverageSummary {
@@ -114,7 +114,7 @@ fn canonical_manifest_token(manifest: &RuntimeWarmupManifest) -> Result<String> 
 }
 
 fn workspace_warmup_token(source_root: &Path) -> Result<String> {
-    let path = source_root.join(".mei-workspace.json");
+    let path = mei_lang_kernel::workspace_config_path(source_root);
     let raw = fs::read_to_string(&path)
         .with_context(|| format!("read workspace config {}", path.display()))?;
     let value: serde_json::Value =

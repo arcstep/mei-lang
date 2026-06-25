@@ -62,17 +62,22 @@ fn build_standalone_fixture() -> PathBuf {
         unique
     ));
     fs::create_dir_all(&fixture_root).expect("create fixture root");
+    fs::write(
+        fixture_root.join("workspace.json"),
+        r#"{"schemaVersion":2,"paths":{"apps":"apps","components":"stock/components"}}"#,
+    )
+    .expect("write workspace.json");
     copy_dir_recursive(
-        source.join("examples/core/01-single-file-doc"),
-        fixture_root.join("core-smoke-app"),
+        source.join("apps/examples-core-01-single-file-doc"),
+        fixture_root.join("apps/core-smoke-app"),
     );
     copy_dir_recursive(
-        source.join("examples/ds/01-dataset-baseline"),
-        fixture_root.join("ds-smoke-app"),
+        source.join("apps/examples-ds-01-dataset-baseline"),
+        fixture_root.join("apps/ds-smoke-app"),
     );
     copy_dir_recursive(
-        source.join(".stock/components"),
-        fixture_root.join(".stock/components"),
+        source.join("stock/components"),
+        fixture_root.join("stock/components"),
     );
     fixture_root
 }
@@ -91,9 +96,9 @@ fn copy_dir_recursive(src: PathBuf, dst: PathBuf) {
     }
 }
 
-const DATASET_APP: &str = "examples/ds/01-dataset-baseline";
-const METRIC_APP: &str = "examples/ds/04-data-table-features";
-const RUNTIME_APP: &str = "examples/sim/01-fire-baseline";
+const DATASET_APP: &str = "examples-ds-01-dataset-baseline";
+const METRIC_APP: &str = "examples-ds-04-data-table-features";
+const RUNTIME_APP: &str = "examples-sim-01-fire-baseline";
 
 #[test]
 fn compile_service_reports_cache_hit_on_second_request() {
@@ -546,19 +551,19 @@ fn scaffold_editor_runtime_tooling_writes_cursor_files() {
         .iter()
         .any(|item| item.rel_path == ".cursor/mcp.json"));
     assert!(
-        !root.join(".mei/version.json").exists(),
+        !root.join("runtime/platform/version.json").exists(),
         "scaffold must not install runtime metadata"
     );
     assert!(
-        !root.join(".mei/editor-runtime.json").exists(),
+        !root.join("runtime/platform/editor-runtime.json").exists(),
         "scaffold must not install runtime descriptor"
     );
     assert!(root.join(".cursor/rules/meilang-authoring.mdc").is_file());
     assert!(root.join(".vscode/settings.json").is_file());
     assert!(root.join(".trae/mcp.json").is_file());
-    assert!(root.join(".mei/tooling/codex/mcp.json").is_file());
-    assert!(root.join(".mei/tooling/claude-code/mcp.json").is_file());
-    assert!(root.join(".mei/tooling/opencode/mcp.json").is_file());
+    assert!(root.join("runtime/platform/tooling/codex/mcp.json").is_file());
+    assert!(root.join("runtime/platform/tooling/claude-code/mcp.json").is_file());
+    assert!(root.join("runtime/platform/tooling/opencode/mcp.json").is_file());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -575,11 +580,11 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
     fs::create_dir_all(&root).expect("create install root");
     install_editor_runtime_support_files(&root, &package_root(), true).expect("install runtime");
     let version: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(root.join(".mei/version.json")).expect("read version"),
+        &fs::read_to_string(root.join("runtime/platform/version.json")).expect("read version"),
     )
     .expect("parse version");
     let manifest: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(root.join(".mei/runtime/MANIFEST.json")).expect("read manifest"),
+        &fs::read_to_string(root.join("toolchain/MANIFEST.json")).expect("read manifest"),
     )
     .expect("parse manifest");
     let expected_line = format!(
@@ -595,11 +600,11 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
     assert!(manifest["bundle_id"]
         .as_str()
         .is_some_and(|value| value.starts_with("mei-lang-")));
-    assert!(root.join(".mei/catalog/capability-catalog.json").is_file());
-    assert!(root.join(".mei/catalog/author-surface.json").is_file());
-    assert!(root.join(".mei/catalog/access-surface.json").is_file());
-    assert!(root.join(".mei/profiles/author.md").is_file());
-    assert!(root.join(".mei/profiles/access.md").is_file());
+    assert!(root.join("runtime/platform/catalog/capability-catalog.json").is_file());
+    assert!(root.join("runtime/platform/catalog/author-surface.json").is_file());
+    assert!(root.join("runtime/platform/catalog/access-surface.json").is_file());
+    assert!(root.join("runtime/platform/profiles/author.md").is_file());
+    assert!(root.join("runtime/platform/profiles/access.md").is_file());
     assert_eq!(manifest["artifacts"]["mei_toolchain"], "bin/mei-toolchain");
     assert_eq!(manifest["artifacts"]["mei_lsp"], "bin/mei-lsp");
     assert_eq!(manifest["artifacts"]["mei_host_web"], "bin/mei-host-web");
@@ -609,22 +614,22 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
             .is_some_and(|value| !value.contains('/')),
         "manifest provenance must avoid machine-local absolute paths"
     );
-    assert!(root.join(".mei/skills/meilang-author/SKILL.md").is_file());
-    assert!(root.join(".mei/skills/meilang-access/SKILL.md").is_file());
-    assert!(root.join(".mei/runtime/bin/mei-toolchain").is_file());
-    assert!(root.join(".mei/runtime/bin/mei-lsp").is_file());
-    assert!(root.join(".mei/runtime/bin/mei-host-web").is_file());
-    assert!(root.join(".mei/runtime/bin/author-mcp-adapter").is_file());
-    assert!(root.join(".mei/runtime/bin/access-mcp-adapter").is_file());
-    assert!(root.join("start.sh").is_file());
-    assert!(!root.join(".mei/catalog/editor-surface.json").exists());
+    assert!(root.join("runtime/platform/skills/meilang-author/SKILL.md").is_file());
+    assert!(root.join("runtime/platform/skills/meilang-access/SKILL.md").is_file());
+    assert!(root.join("toolchain/bin/mei-toolchain").is_file());
+    assert!(root.join("toolchain/bin/mei-lsp").is_file());
+    assert!(root.join("toolchain/bin/mei-host-web").is_file());
+    assert!(root.join("toolchain/bin/author-mcp-adapter").is_file());
+    assert!(root.join("toolchain/bin/access-mcp-adapter").is_file());
+    assert!(root.join("deploy/start.sh").is_file());
+    assert!(!root.join("runtime/platform/catalog/editor-surface.json").exists());
     for rel in [
-        ".mei/editor-runtime.json",
-        ".mei/knowledge/author-runtime.json",
-        ".mei/runtime/MANIFEST.json",
-        ".mei/catalog/capability-catalog.json",
-        ".mei/catalog/author-surface.json",
-        ".mei/catalog/access-surface.json",
+        "runtime/platform/editor-runtime.json",
+        "runtime/platform/knowledge/author-runtime.json",
+        "toolchain/MANIFEST.json",
+        "runtime/platform/catalog/capability-catalog.json",
+        "runtime/platform/catalog/author-surface.json",
+        "runtime/platform/catalog/access-surface.json",
     ] {
         let content = fs::read_to_string(root.join(rel)).expect("read installed descriptor");
         assert!(
@@ -767,7 +772,7 @@ fn workspace_runtime_status_fails_when_core_binary_is_missing() {
     ));
     fs::create_dir_all(&root).expect("create missing-bin root");
     install_editor_runtime_support_files(&root, &package_root(), true).expect("install runtime");
-    fs::remove_file(root.join(".mei/runtime/bin/mei-host-web")).expect("remove host binary");
+    fs::remove_file(root.join("toolchain/bin/mei-host-web")).expect("remove host binary");
     let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
     assert!(
         !status.installed,
@@ -815,11 +820,11 @@ fn workspace_bootstrap_cli_installs_runtime_for_new_source_workspace() {
         .status()
         .expect("run bootstrap command");
     assert!(status.success(), "workspace bootstrap CLI should succeed");
-    assert!(root.join(".mei/runtime/bin/mei-toolchain").is_file());
-    assert!(root.join(".mei/runtime/bin/mei-lsp").is_file());
-    assert!(root.join(".mei/runtime/bin/mei-host-web").is_file());
-    assert!(root.join("demo/main.mei").is_file());
-    assert!(root.join("start.sh").is_file());
+    assert!(root.join("toolchain/bin/mei-toolchain").is_file());
+    assert!(root.join("toolchain/bin/mei-lsp").is_file());
+    assert!(root.join("toolchain/bin/mei-host-web").is_file());
+    assert!(root.join("apps/demo/src/main.mei").is_file());
+    assert!(root.join("deploy/start.sh").is_file());
     let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
     assert!(
         status.installed,
@@ -843,12 +848,12 @@ fn workspace_init_does_not_install_runtime_assets() {
         init_workspace_profile(&root, "profile-a", Some("test"), &package_root(), false)
             .expect("init profile");
     assert!(
-        !profile_root.join(".mei/version.json").exists(),
+        !profile_root.join("runtime/platform/version.json").exists(),
         "workspace init must not install runtime metadata"
     );
     assert!(
         !profile_root
-            .join(".mei/skills/meilang-author/SKILL.md")
+            .join("runtime/platform/skills/meilang-author/SKILL.md")
             .exists(),
         "workspace init must not install author skill package"
     );
@@ -865,8 +870,8 @@ fn workspace_runtime_update_preserves_local_state_files() {
             .expect("time")
             .as_millis()
     ));
-    fs::create_dir_all(root.join(".mei/local/hosts")).expect("create local hosts");
-    let local_state_path = root.join(".mei/local/hosts/preserved.state.json");
+    fs::create_dir_all(root.join("runtime/hosts")).expect("create local hosts");
+    let local_state_path = root.join("runtime/hosts/preserved.state.json");
     let local_state = r#"{"schemaVersion":1,"hostId":"test","auth":{"users":[]}}"#;
     fs::write(&local_state_path, local_state).expect("write local state");
 
@@ -876,7 +881,7 @@ fn workspace_runtime_update_preserves_local_state_files() {
     assert_eq!(
         fs::read_to_string(&local_state_path).expect("read preserved local state"),
         local_state,
-        "runtime update must preserve .mei/local/** content"
+        "runtime update must preserve runtime/hosts/** content"
     );
     let _ = fs::remove_dir_all(root);
 }
@@ -929,7 +934,7 @@ fn standalone_workspace_init_install_create_app_and_check_form_a_smoke_path() {
     install_editor_runtime_support_files(&workspace_root, &package_root(), true)
         .expect("install runtime");
     let app_root = create_app_skeleton(&workspace_root, "demo").expect("create app");
-    assert!(app_root.join("main.mei").is_file());
+    assert!(app_root.join("src/main.mei").is_file());
     let config_bundle = export_knowledge_bundle_for_workspace_root(
         &workspace_root,
         &package_root(),
@@ -944,7 +949,7 @@ fn standalone_workspace_init_install_create_app_and_check_form_a_smoke_path() {
         .and_then(|item| item["content"].as_str())
         .expect("config reference content");
     assert!(
-        config_content.contains(".mei-workspace.json") && config_content.contains("theme_ref"),
+        config_content.contains("workspace.json") && config_content.contains("theme_ref"),
         "workspace config reference should be available in standalone installs"
     );
     let report = compile_report(&workspace_root, "demo", CompileOptions::default())

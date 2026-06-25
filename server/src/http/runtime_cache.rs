@@ -186,8 +186,7 @@ mod tests {
         let app_id = "zhifa";
         let app_root = resolve_app_root(source_root.as_path(), app_id);
         fs::create_dir_all(&app_root).expect("app root");
-        let marker = app_root
-            .join(".mei")
+        let marker = mei_lang_kernel::resolve_app_build_root(&app_root)
             .join("artifacts")
             .join("compiled_app")
             .join("marker.bin");

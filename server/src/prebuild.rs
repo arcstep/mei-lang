@@ -470,8 +470,7 @@ fn now_epoch_ms() -> u64 {
 }
 
 fn prebuild_compile_index_path(app_root: &Path) -> PathBuf {
-    app_root
-        .join(".mei")
+    mei_lang_kernel::resolve_app_build_root(app_root)
         .join("prebuild")
         .join("compile-index.json")
 }
@@ -754,7 +753,7 @@ fn build_prebuild_diagnostics_report(
         .load(Ordering::Relaxed);
     let mrg_eval_skips = diagnostics.mrg_eval_skips.load(Ordering::Relaxed);
     let dataframe_eval_skips = diagnostics.dataframe_eval_skips.load(Ordering::Relaxed);
-    let eval_root = app_root.join(".mei").join("eval-artifacts");
+    let eval_root = mei_lang_kernel::resolve_app_build_root(app_root).join("eval-artifacts");
     let response_dir = eval_root.join("results").join("metric-response");
     let dataframe_dir = eval_root.join("results").join("metric-dataframe");
     let current_rss_bytes = current_process_rss_bytes();
@@ -1156,7 +1155,7 @@ fn emit_prebuild_optimization_report(
     ));
 
     if prebuild_disk_diagnostics_enabled() {
-        let eval_root = app_root.join(".mei").join("eval-artifacts");
+        let eval_root = mei_lang_kernel::resolve_app_build_root(app_root).join("eval-artifacts");
         let response_dir = eval_root.join("results").join("metric-response");
         let dataframe_dir = eval_root.join("results").join("metric-dataframe");
         let response_disk = dir_size_summary(response_dir.as_path());

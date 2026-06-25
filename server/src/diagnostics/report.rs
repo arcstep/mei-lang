@@ -14,6 +14,8 @@ pub struct MaterializationDiagnosticsReport {
     pub cache: CacheDiagnosticsSection,
     pub build: BuildDiagnosticsSection,
     pub alerts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reachability: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

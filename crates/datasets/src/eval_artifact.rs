@@ -73,7 +73,7 @@ fn hash_key(value: &str) -> String {
 }
 
 fn eval_artifact_root(app_root: &Path) -> PathBuf {
-    app_root.join(".mei").join("eval-artifacts")
+    mei_lang_kernel::resolve_app_build_root(app_root).join("eval-artifacts")
 }
 
 fn dataset_semantic_revision_key(owner_resource_id: &str, dataset: &DatasetView) -> String {
@@ -415,7 +415,9 @@ mod tests {
     }
 
     fn workset_artifact_file(app_root: &Path) -> PathBuf {
-        fs::read_dir(app_root.join(".mei/eval-artifacts/workset"))
+        fs::read_dir(
+            mei_lang_kernel::resolve_app_build_root(app_root).join("eval-artifacts/workset"),
+        )
             .expect("workset dir")
             .next()
             .expect("workset artifact")

@@ -5,9 +5,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config,
-    WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, DEFAULT_STOCK_AUTHORING_REL,
-    DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, WORKSPACE_HOSTS_DIR_REL,
+    resolve_toolchain_root, resolve_workspace_runtime_root, stock_components_source,
+    stock_templates_source, workspace_config_path, write_workspace_config, APP_CONFIG_FILENAME,
+    WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, DEFAULT_APPS_REL,
+    DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL,
+    WORKSPACE_HOSTS_DIR_REL,
 };
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -118,14 +120,19 @@ pub fn init_workspace_profile(
     }
     fs::create_dir_all(&source_root)
         .with_context(|| format!("create workspace profile {}", source_root.display()))?;
-    fs::create_dir_all(source_root.join(".mei")).context("create workspace .mei runtime dir")?;
     fs::create_dir_all(source_root.join(WORKSPACE_HOSTS_DIR_REL))
         .context("create workspace host-state dir")?;
+    fs::create_dir_all(source_root.join("apps")).context("create workspace apps dir")?;
+    fs::create_dir_all(source_root.join("deploy")).context("create workspace deploy dir")?;
+    fs::create_dir_all(resolve_toolchain_root(&source_root).join("bin"))
+        .context("create workspace toolchain bin dir")?;
+    fs::create_dir_all(resolve_workspace_runtime_root(&source_root).join("platform"))
+        .context("create workspace runtime platform dir")?;
 
     let config_path = workspace_config_path(&source_root);
     if !config_path.is_file() {
         let config = WorkspaceConfig {
-            schema_version: 1,
+            schema_version: 2,
             workspace: WorkspaceProfile {
                 id: Some(profile_id.to_string()),
                 label: label.map(str::to_string),
@@ -133,9 +140,11 @@ pub fn init_workspace_profile(
                 default_app: None,
             },
             paths: WorkspacePathsConfig {
+                apps: Some(DEFAULT_APPS_REL.to_string()),
                 components: Some(DEFAULT_STOCK_COMPONENTS_REL.to_string()),
                 templates: Some(DEFAULT_STOCK_TEMPLATES_REL.to_string()),
                 authoring: Some(DEFAULT_STOCK_AUTHORING_REL.to_string()),
+                ..WorkspacePathsConfig::default()
             },
             ..WorkspaceConfig::default()
         };
@@ -152,13 +161,14 @@ pub fn create_app_skeleton(source_root: &Path, app_id: &str) -> Result<PathBuf> 
     if app_id.is_empty() || app_id.starts_with('.') || app_id.starts_with('_') {
         anyhow::bail!("app id must be a plain directory name");
     }
-    let app_root = source_root.join(app_id);
+    let app_root = source_root.join("apps").join(app_id);
     if app_root.exists() {
         anyhow::bail!("app `{}` already exists", app_root.display());
     }
-    fs::create_dir_all(app_root.join("scenes")).context("create app scenes dir")?;
+    fs::create_dir_all(app_root.join("src/scenes")).context("create app scenes dir")?;
+    fs::create_dir_all(app_root.join("assets")).context("create app assets dir")?;
     fs::write(
-        app_root.join("main.mei"),
+        app_root.join("src/main.mei"),
         format!(
             r#"app(
     id = "{app_id}",
@@ -170,7 +180,7 @@ pub fn create_app_skeleton(source_root: &Path, app_id: &str) -> Result<PathBuf> 
         ),
     )?;
     fs::write(
-        app_root.join("scenes/home.mei"),
+        app_root.join("src/scenes/home.mei"),
         r#"scene(
     id = "home",
     world = "home_world",
@@ -196,7 +206,7 @@ frame.add_panel(
 "#,
     )?;
     fs::write(
-        app_root.join(".mei-config.json"),
+        app_root.join(APP_CONFIG_FILENAME),
         r#"{
   "schemaVersion": 1,
   "entry": { "main": "main.mei" }

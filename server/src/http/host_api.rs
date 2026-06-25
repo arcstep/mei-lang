@@ -818,7 +818,10 @@ fn status_from_report(
         .map(|app| app.warnings.len())
         .sum::<usize>();
     let failed_app_count = report.failed_apps.len();
-    let access_artifacts_ready = failed_app_count == 0 && warning_count == 0;
+    let shell_ready = crate::readiness::reachability::shell_ready_for_access_entry(
+        Path::new(&report.source_root),
+    );
+    let access_artifacts_ready = failed_app_count == 0 && shell_ready;
     let compile_ms: u64 = report
         .apps
         .iter()
@@ -872,9 +875,11 @@ fn status_from_report(
         registry.warning_categories = warning_categories.clone();
         registry.warning_category_counts = warning_category_counts.clone();
         registry.failing_datasets = failing_datasets.clone();
-        registry.access_ready = report.ok && access_artifacts_ready;
-        registry.full_warmup_ready = report.ok && access_artifacts_ready && !deferred_warmup_pending;
-        registry.deferred_warmup_pending = report.ok && access_artifacts_ready && deferred_warmup_pending;
+        registry.access_ready = report.ok && shell_ready && !correctness_failed;
+        registry.full_warmup_ready =
+            report.ok && shell_ready && !correctness_failed && !deferred_warmup_pending;
+        registry.deferred_warmup_pending =
+            report.ok && shell_ready && !correctness_failed && deferred_warmup_pending;
         for app_report in &report.apps {
             let app_state = registry.apps.entry(app_report.app_id.clone()).or_default();
             apply_success_app_report(app_report, app_state);

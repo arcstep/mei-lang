@@ -27,13 +27,14 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::cli::args::{AgentRuntimeArgs, Cli, Command, HostCommand, ServeArgs};
 use crate::cli::util::{
-    print_cli_version_if_requested, resolve_cli_source_root, resolve_package_root,
-    resolve_source_root_arg,
+    print_cli_version_if_requested, resolve_cargo_package_root, resolve_cli_source_root,
+    resolve_package_root, resolve_source_root_arg,
 };
 use crate::cli::{
     agent_command, compile_or_check_command, diagnostics_command, editor_runtime_command,
     export_command, host_command, inspect_command, knowledge_command, mcp_command,
-    prebuild_command, query_command, runtime_command, warmup_command, workspace_command,
+    prebuild_command, query_command, readiness_command, runtime_command, warmup_command,
+    workspace_command,
 };
 
 static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -87,6 +88,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
             Command::Knowledge(_) => "knowledge",
             Command::EditorRuntime(_) => "editor-runtime",
             Command::Prebuild(_) => "prebuild",
+            Command::Readiness(_) => "readiness",
             Command::Diagnostics(_) => "diagnostics",
             Command::Warmup(_) => "warmup",
             Command::Compile(_) => "compile",
@@ -110,6 +112,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
                 | Command::Knowledge(_)
                 | Command::EditorRuntime(_)
                 | Command::Prebuild(_)
+                | Command::Readiness(_)
                 | Command::Diagnostics(_)
                 | Command::Warmup(_)
                 | Command::Compile(_)
@@ -149,6 +152,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
         Command::Knowledge(_) => "knowledge",
         Command::EditorRuntime(_) => "editor-runtime",
         Command::Prebuild(_) => "prebuild",
+        Command::Readiness(_) => "readiness",
         Command::Diagnostics(_) => "diagnostics",
         Command::Warmup(_) => "warmup",
         Command::Compile(_) => "compile",
@@ -210,6 +214,7 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
         Command::Knowledge(args) => knowledge_command(args),
         Command::EditorRuntime(args) => editor_runtime_command(args),
         Command::Prebuild(args) => prebuild_command(args),
+        Command::Readiness(args) => readiness_command(args),
         Command::Diagnostics(args) => diagnostics_command(args),
         Command::Warmup(args) => warmup_command(args),
         Command::Compile(args) => compile_or_check_command("compile", args),
@@ -223,7 +228,22 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
 }
 
 async fn serve(args: ServeArgs) -> Result<()> {
-    let package_root = resolve_package_root()?;
+    let preliminary_source = resolve_source_root_arg(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(".")),
+        args.workspace.as_deref(),
+        &args.source_root,
+    )?;
+    let package_root = if args.toolchain_mode == "cargo" {
+        resolve_cargo_package_root(preliminary_source.as_path())?
+    } else {
+        resolve_package_root()?
+    };
+    unsafe {
+        std::env::set_var("MEI_TOOLCHAIN_MODE", args.toolchain_mode.as_str());
+    }
     crate::agent_runtime::runtime::load_repo_dotenv(&package_root);
     let source_root = resolve_cli_source_root(
         &package_root,

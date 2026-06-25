@@ -9,8 +9,8 @@ use serde::Deserialize;
 use walkdir::WalkDir;
 
 use crate::mei_config::{
-    is_app_config_root, load_workspace_config, resolve_app_entry_main, resolve_components_root,
-    MEI_CONFIG_FILENAME,
+    is_v2_app_root, load_workspace_config, resolve_app_entry_main, resolve_apps_root,
+    resolve_components_root, APP_CONFIG_FILENAME, MEI_CONFIG_FILENAME,
 };
 use crate::model::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
 
@@ -28,16 +28,16 @@ fn segment_discover_skip_dirs(segment_root: &Path) -> HashSet<String> {
 
 fn push_discovered_app(
     app_root: &Path,
-    source_root: &Path,
+    _source_root: &Path,
     apps: &mut Vec<WorkspaceAppMeta>,
 ) -> Result<()> {
-    let Ok(relative) = app_root.strip_prefix(source_root) else {
-        return Ok(());
-    };
-    let id = relative.to_string_lossy().replace('\\', "/");
-    if id.is_empty() {
-        return Ok(());
-    }
+    let id = app_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("discover_apps: app root has no directory name"))?
+        .to_string();
     apps.push(WorkspaceAppMeta {
         id: id.clone(),
         title: id,
@@ -46,19 +46,14 @@ fn push_discovered_app(
     Ok(())
 }
 
-/// 在 `root` 下发现 mei 应用：`.mei-config.json` 优先；否则回退 `main.mei`。
-/// 一旦目录被识别为 app root，不再继续深入其子树发现子应用。
+/// 在 `root` 下发现 mei 应用（v2：`app.config.json` 或 `src/main.mei`）。
 fn discover_apps_under(
     root: &Path,
     source_root: &Path,
     skip_dirs: &HashSet<String>,
     apps: &mut Vec<WorkspaceAppMeta>,
 ) -> Result<()> {
-    if is_app_config_root(root) {
-        push_discovered_app(root, source_root, apps)?;
-        return Ok(());
-    }
-    if root.join("main.mei").is_file() {
+    if is_v2_app_root(root) {
         push_discovered_app(root, source_root, apps)?;
         return Ok(());
     }
@@ -85,8 +80,7 @@ fn discover_apps_under(
     Ok(())
 }
 
-/// 仅在 `source_root` 的**一级子目录**下递归发现应用（不会把 `source_root/main.mei` 当作应用，
-/// 也不会从 `spbjw/` 扫描到 `examples/` 等兄弟目录）。
+/// 在 `{workspace}/apps/` 下发现应用。
 pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
     let mut apps = Vec::new();
     if !source_root.is_dir() {
@@ -95,11 +89,15 @@ pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
             source_root.display()
         );
     }
-    for child in fs::read_dir(source_root)
-        .with_context(|| format!("discover_apps: read_dir {}", source_root.display()))?
+    let apps_root = resolve_apps_root(source_root);
+    if !apps_root.is_dir() {
+        return Ok(apps);
+    }
+    let skip_dirs = segment_discover_skip_dirs(source_root);
+    for child in fs::read_dir(&apps_root)
+        .with_context(|| format!("discover_apps: read_dir {}", apps_root.display()))?
     {
         let child = child.context("discover_apps: read_dir entry")?;
-        let name = child.file_name().to_string_lossy().to_string();
         if !child
             .file_type()
             .context("discover_apps: file_type")?
@@ -107,12 +105,11 @@ pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
         {
             continue;
         }
-        if name.starts_with('.') || name.starts_with('_') {
+        let name = child.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name.starts_with('_') || skip_dirs.contains(&name) {
             continue;
         }
-        let child_root = child.path();
-        let skip_dirs = segment_discover_skip_dirs(&child_root);
-        discover_apps_under(&child_root, source_root, &skip_dirs, &mut apps)?;
+        discover_apps_under(&child.path(), source_root, &skip_dirs, &mut apps)?;
     }
     apps.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(apps)
@@ -176,7 +173,7 @@ fn mei_file_kind(root: &Path, relative: &str, file_name: &str) -> Option<String>
 }
 
 fn should_include_source_tree_file(relative: &str) -> bool {
-    if relative == MEI_CONFIG_FILENAME {
+    if relative == MEI_CONFIG_FILENAME || relative == APP_CONFIG_FILENAME {
         return true;
     }
     !relative

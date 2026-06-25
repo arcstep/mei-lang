@@ -13,7 +13,7 @@ use crate::model::DatasetView;
 
 pub const CACHE_GENERATION_SCHEMA_VERSION: &str = "mei-cache-generation-v1";
 pub const DEFAULT_DATABASE_TTL_MS: u64 = 43_200_000; // 12 hours
-pub const CACHE_GENERATION_REL: &str = ".mei/runtime/cache-generation.json";
+pub const CACHE_GENERATION_REL: &str = "var/active/cache-generation.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheGenerationRecord {
