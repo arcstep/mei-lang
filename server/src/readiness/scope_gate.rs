@@ -109,7 +109,47 @@ pub fn resolve_scope_gate(
 ) -> ScopeGateReport {
     let nav_match =
         match_request_to_navigation(source_root, app_id, route_mode, scene_id, query);
-    check_scope_gate_for_coords(source_root, nav_match)
+    check_scope_gate_for_coords(source_root, nav_match, None)
+}
+
+/// Align L3 assembly checks with compile options (build `file=` may differ from MRG default target).
+pub fn resolve_scope_gate_for_compile(
+    source_root: &Path,
+    app_id: &str,
+    route_mode: UiRouteMode,
+    compile_options: &CompileOptions,
+    query: &AppQuery,
+) -> ScopeGateReport {
+    let scene = compile_options
+        .scene
+        .as_deref()
+        .or(query.scene.as_deref());
+    let target = compile_options
+        .preview_target
+        .as_deref()
+        .or(query.file.as_deref());
+    let aligned = AppQuery {
+        file: target.map(str::to_string),
+        scene: scene.map(str::to_string),
+        tab: query.tab.clone(),
+        diag_filter: query.diag_filter.clone(),
+        world_metric: query.world_metric.clone(),
+        world_dataset: query.world_dataset.clone(),
+        explain: query.explain.clone(),
+        node: query.node.clone(),
+        scope: query.scope.clone(),
+        focus: query.focus.clone(),
+        chrome: query.chrome.clone(),
+    };
+    let nav_match =
+        match_request_to_navigation(source_root, app_id, route_mode, scene, &aligned);
+    let assembly_scope = ScopeCoords::new(
+        app_id,
+        crate::readiness::types::UiMode::from_route_mode(route_mode),
+        scene.unwrap_or("").to_string(),
+        target.unwrap_or("").to_string(),
+    );
+    check_scope_gate_for_coords(source_root, nav_match, Some(assembly_scope))
 }
 
 pub fn check_scope_gate(
@@ -145,8 +185,9 @@ pub fn check_scope_gate(
 fn check_scope_gate_for_coords(
     source_root: &Path,
     nav_match: crate::graph::mrg::navigation::NavigationMatch,
+    assembly_scope: Option<ScopeCoords>,
 ) -> ScopeGateReport {
-    let scope = nav_match.scope.clone();
+    let scope = assembly_scope.unwrap_or_else(|| nav_match.scope.clone());
     let app_id = scope.app_id.as_str();
     let scene = scope.scene_id.clone();
     let target = scope.target_file.clone();
@@ -175,11 +216,18 @@ fn check_scope_gate_for_coords(
         ..Default::default()
     };
 
+    let scene_arg = scene.as_str().trim();
+    let scene_for_assemble = if scene_arg.is_empty() {
+        None
+    } else {
+        Some(scene_arg)
+    };
+
     let (assembly_ready, shell_ready, compile_revision) =
         if try_assemble_scope_from_scene_payload(
             source_root,
             app_id,
-            Some(scene.as_str()),
+            scene_for_assemble,
             target.as_str(),
         )
         .is_some()

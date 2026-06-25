@@ -52,42 +52,31 @@ pub fn sync_navigation_registry(
         }
     }
 
-    if let Some(default_app) = cfg
-        .deploy
-        .access_entry
-        .default_app
-        .as_deref()
-        .or(cfg.workspace.default_app.as_deref())
-    {
-        if resolve_app_id(source_root, default_app) == canonical_app {
-            let scene = cfg
-                .deploy
-                .access_entry
-                .default_scene
-                .as_deref()
-                .unwrap_or("home");
-            let target = cfg
-                .deploy
+    let default_target = scene_routes
+        .iter()
+        .find(|(scene_id, _)| scene_id.trim() == default_scene.as_str())
+        .map(|(_, target)| target.as_str())
+        .or_else(|| {
+            cfg.deploy
                 .access_entry
                 .target_file
                 .as_deref()
-                .unwrap_or("scenes/home.mei");
-            upsert_navigation_node(
-                &mut registry,
-                "default_access",
-                &format!("/apps/app/{canonical_app}/scene/{scene}"),
-                scene,
-                target,
-            );
-            upsert_navigation_node(
-                &mut registry,
-                "default_build",
-                &format!("/apps/build/{canonical_app}"),
-                scene,
-                target,
-            );
-        }
-    }
+        })
+        .unwrap_or("scenes/home.mei");
+    upsert_navigation_node(
+        &mut registry,
+        "default_access",
+        &format!("/apps/app/{canonical_app}/scene/{default_scene}"),
+        default_scene.as_str(),
+        default_target,
+    );
+    upsert_navigation_node(
+        &mut registry,
+        "default_build",
+        &format!("/apps/build/{canonical_app}"),
+        default_scene.as_str(),
+        default_target,
+    );
 
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)

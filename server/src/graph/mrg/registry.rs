@@ -169,6 +169,21 @@ impl MrgRegistry {
         } else {
             self.nodes.push(node);
         }
+        // Remove stale duplicates left from pre-upsert push loops.
+        let mut seen = false;
+        self.nodes.retain(|value| {
+            let node_key = value
+                .get("id")
+                .and_then(|id| id.get("key"))
+                .and_then(|v| v.as_str());
+            if node_key == Some(key) {
+                if seen {
+                    return false;
+                }
+                seen = true;
+            }
+            true
+        });
     }
 
     pub fn finalize(&mut self) {

@@ -222,14 +222,11 @@ pub(super) fn resolve_compile_outcome(
     _discover_ms: u64,
     _app_started: Instant,
 ) -> CompileResolution {
-    let gate = crate::readiness::scope_gate::resolve_scope_gate(
+    let gate = crate::readiness::scope_gate::resolve_scope_gate_for_compile(
         state.source_root.as_path(),
         app_id,
         route_mode,
-        compile_options
-            .scene
-            .as_deref()
-            .or(access_path_scene),
+        &compile_options,
         query,
     );
     if !gate.shell_ready {
