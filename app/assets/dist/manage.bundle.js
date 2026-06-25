@@ -4886,6 +4886,7 @@
     return (
       target.includes("templates/") ||
       target.includes(".stock/templates") ||
+      target.includes("stock/templates") ||
       target.includes("/authoring/examples/")
     );
   }
@@ -4949,6 +4950,17 @@
   function applyTemplateScopedPreview(root, useKeys) {
     if (!Array.isArray(useKeys) || useKeys.length === 0) return;
     const keySet = new Set(useKeys);
+    let anyMatch = false;
+    root.querySelectorAll("[data-mei-use-key]").forEach((el) => {
+      const key = String(el.getAttribute("data-mei-use-key") || "").trim();
+      if (key && keySet.has(key)) {
+        anyMatch = true;
+      }
+    });
+    if (!anyMatch) {
+      syncBuildPreviewScopedChrome(root);
+      return;
+    }
     root.querySelectorAll("[data-mei-use-key]").forEach((el) => {
       const key = String(el.getAttribute("data-mei-use-key") || "").trim();
       if (key && !keySet.has(key)) {

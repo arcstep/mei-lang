@@ -22,7 +22,7 @@ world(
             id = "sales_data",
             kind = "dataset",
             title = "Sales sample",
-            source = ds.csv(path = "../.stock/authoring/examples/data/sales.csv"),
+            source = ds.csv(path = "stock/authoring/examples/data/sales.csv"),
         ),
     ],
 )
