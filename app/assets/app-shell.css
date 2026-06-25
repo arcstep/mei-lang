@@ -4629,6 +4629,24 @@ body > .mei-floating-text-pop-backdrop {
   padding-left: 0.55rem;
   border-left: 1px solid var(--mei-shell-color-border-nav);
 }
+.build-reachability-tree .build-tree-list--flat-section {
+  margin: 0;
+  padding: 0;
+}
+.build-reachability-tree .build-tree-section-head {
+  display: grid;
+  grid-template-columns: 0.75rem 1rem minmax(0, 1fr);
+  column-gap: 0.375rem;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  padding: 0.2rem 0.35rem 0.2rem 0.45rem;
+  color: var(--mei-shell-color-text-muted);
+  user-select: none;
+}
+.build-reachability-tree .build-tree-node--template-section + .build-tree-node--template-section {
+  margin-top: 2px;
+}
 .build-reachability-tree .build-tree-summary,
 .build-reachability-tree .build-tree-link {
   display: grid;
@@ -4681,7 +4699,16 @@ body > .mei-floating-text-pop-backdrop {
   white-space: nowrap;
   color: var(--mei-shell-color-text-muted);
 }
-.build-reachability-tree .build-tree-kind--group {
+.build-reachability-tree .build-tree-summary--group {
+  grid-template-columns: 0.75rem minmax(0, 1fr);
+}
+.build-reachability-tree .build-tree-summary--group::before {
+  grid-column: 1;
+}
+.build-reachability-tree .build-tree-summary--group .build-tree-label {
+  grid-column: 2;
+}
+.build-reachability-tree .build-tree-kind--root {
   font-size: var(--mei-shell-font-1);
 }
 .build-reachability-tree .build-tree-label {

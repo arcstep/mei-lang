@@ -41,7 +41,7 @@ fn root_branch(
                 data-build-tree-children-count=child_count.to_string()
             >
                 <summary class="build-tree-summary build-tree-summary--root">
-                    <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▦"</span>
+                    <span class="build-tree-kind build-tree-kind--root" aria-hidden="true">"▦"</span>
                     <span class="build-tree-label">
                         {branch_label(reachability_root_label(root), None, child_count)}
                     </span>
@@ -69,6 +69,9 @@ fn tree_node(
 ) -> AnyView {
     let child_count = node.children.len();
     if node.node_id.trim().is_empty() && !node.children.is_empty() {
+        if node.kind == "template_group" {
+            return template_category_section(node, app_path, active_node, active_tab);
+        }
         let children = node
             .children
             .iter()
@@ -83,7 +86,6 @@ fn tree_node(
                     data-build-tree-children-count=child_count.to_string()
                 >
                     <summary class="build-tree-summary build-tree-summary--group">
-                        <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▸"</span>
                         <span class="build-tree-label">
                             {branch_label(node.label.clone(), None, child_count)}
                         </span>
@@ -180,6 +182,36 @@ fn tree_node(
     }
 }
 
+fn template_category_section(
+    node: &ReachabilityTreeNode,
+    app_path: &str,
+    active_node: &BuildNodeId,
+    active_tab: BuildViewTab,
+) -> AnyView {
+    let child_count = node.children.len();
+    let children = node
+        .children
+        .iter()
+        .map(|child| tree_node(child, app_path, active_node, active_tab))
+        .collect_view();
+    view! {
+        <li
+            class="build-tree-node build-tree-node--template-section"
+            data-build-tree-section=node.id.clone()
+        >
+            <div class="build-tree-section-head">
+                <span class="build-tree-spacer" aria-hidden="true"></span>
+                <span class="build-tree-kind" aria-hidden="true">{kind_glyph("template_group")}</span>
+                <span class="build-tree-label">
+                    {branch_label(node.label.clone(), None, child_count)}
+                </span>
+            </div>
+            <ul class="build-tree-list build-tree-list--flat-section">{children}</ul>
+        </li>
+    }
+    .into_any()
+}
+
 fn leaf_label(label: String, meta_badge: Option<String>) -> AnyView {
     match meta_badge {
         Some(value) if !value.trim().is_empty() => view! {
@@ -247,7 +279,7 @@ fn kind_glyph(kind: &str) -> &'static str {
         "board_slot" => "S",
         "template" => "T",
         "template_file" => "F",
-        "template_group" => "▸",
+        "template_group" => "G",
         "artifact" => "A",
         _ => "·",
     }
