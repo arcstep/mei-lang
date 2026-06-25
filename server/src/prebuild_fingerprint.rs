@@ -9,7 +9,7 @@ use mei_lang_kernel::{
 };
 use serde::{Deserialize, Serialize};
 
-pub const PREBUILD_INPUTS_SCHEMA_VERSION: &str = "v1";
+pub const PREBUILD_INPUTS_SCHEMA_VERSION: &str = "v2";
 pub const PREBUILD_STATE_SCHEMA_VERSION: &str = "mei-prebuild-state-v1";
 pub const PREBUILD_STATE_REL: &str = "runtime/prebuild-state.json";
 
@@ -74,6 +74,7 @@ pub fn compute_prebuild_inputs_fingerprint(source_root: &Path) -> Result<String>
     let manifest = resolve_runtime_warmup_manifest(source_root)?
         .ok_or_else(|| anyhow::anyhow!("warmup manifest unavailable"))?;
     let mut parts = vec![PREBUILD_INPUTS_SCHEMA_VERSION.to_string()];
+    parts.push(platform_compile_revision_token());
     parts.push(canonical_manifest_token(&manifest)?);
     parts.push(workspace_warmup_token(source_root)?);
     for app in &manifest.apps {
@@ -105,6 +106,14 @@ pub fn try_match_prebuild_fingerprint(source_root: &Path) -> Result<Option<Prebu
         return Ok(None);
     }
     Ok(Some(PrebuildFingerprintMatch { stored }))
+}
+
+fn platform_compile_revision_token() -> String {
+    format!(
+        "host={}|kernel={}",
+        crate::build_info::BUILD_VERSION,
+        mei_lang_kernel::platform_source_revision(),
+    )
 }
 
 fn canonical_manifest_token(manifest: &RuntimeWarmupManifest) -> Result<String> {

@@ -5,8 +5,8 @@ use std::{
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    resolve_toolchain_root, resolve_workspace_runtime_root, stock_components_source,
-    stock_templates_source, workspace_config_path, write_workspace_config, APP_CONFIG_FILENAME,
+    resolve_toolchain_root, resolve_workspace_runtime_root, stock_authoring_source,
+    stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config, APP_CONFIG_FILENAME,
     WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, DEFAULT_APPS_REL,
     DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL,
     WORKSPACE_HOSTS_DIR_REL,
@@ -19,6 +19,7 @@ pub struct MaterializeReport {
     pub source_root: String,
     pub components: MaterializeDirReport,
     pub templates: MaterializeDirReport,
+    pub authoring: MaterializeDirReport,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -47,11 +48,47 @@ pub fn materialize_workspace_stock(
         &source_root.join(DEFAULT_STOCK_TEMPLATES_REL),
         force,
     )?;
+    let authoring = materialize_tree(
+        &stock_authoring_source(package_root),
+        &source_root.join(DEFAULT_STOCK_AUTHORING_REL),
+        force,
+    )?;
     Ok(MaterializeReport {
         source_root: source_root.display().to_string(),
         components,
         templates,
+        authoring,
     })
+}
+
+/// Idempotent stock bootstrap: copy platform `stock/*` into the workspace when trees are missing.
+/// Called from workspace init, runtime install, prebuild, and host startup — not a standalone user workflow.
+pub fn ensure_workspace_stock_materialized(
+    source_root: &Path,
+    package_root: &Path,
+) -> Result<Option<MaterializeReport>> {
+    if !workspace_stock_needs_materialize(source_root) {
+        return Ok(None);
+    }
+    Ok(Some(materialize_workspace_stock(
+        source_root,
+        package_root,
+        false,
+    )?))
+}
+
+fn workspace_stock_needs_materialize(source_root: &Path) -> bool {
+    !stock_tree_ready(&source_root.join(DEFAULT_STOCK_AUTHORING_REL))
+        || !stock_tree_ready(&source_root.join(DEFAULT_STOCK_COMPONENTS_REL))
+        || !stock_tree_ready(&source_root.join(DEFAULT_STOCK_TEMPLATES_REL))
+}
+
+fn stock_tree_ready(path: &Path) -> bool {
+    path.is_dir()
+        && fs::read_dir(path)
+            .ok()
+            .and_then(|mut entries| entries.next())
+            .is_some()
 }
 
 fn materialize_tree(from: &Path, to: &Path, force: bool) -> Result<MaterializeDirReport> {
@@ -108,7 +145,6 @@ pub fn init_workspace_profile(
     profile_id: &str,
     label: Option<&str>,
     package_root: &Path,
-    materialize: bool,
 ) -> Result<PathBuf> {
     let profile_id = profile_id.trim();
     if profile_id.is_empty() || profile_id.starts_with('.') {
@@ -150,9 +186,7 @@ pub fn init_workspace_profile(
         };
         write_workspace_config(&config_path, &config)?;
     }
-    if materialize {
-        materialize_workspace_stock(&source_root, package_root, false)?;
-    }
+    ensure_workspace_stock_materialized(&source_root, package_root)?;
     Ok(source_root)
 }
 
@@ -214,4 +248,50 @@ frame.add_panel(
 "#,
     )?;
     Ok(app_root)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn ensure_materialize_fills_missing_authoring_tree() {
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let temp = std::env::temp_dir().join(format!(
+            "mei-ensure-stock-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).expect("create temp workspace");
+        let report = ensure_workspace_stock_materialized(temp.as_path(), package_root.as_path())
+            .expect("ensure stock")
+            .expect("should materialize");
+        assert!(report.authoring.copied_files > 0);
+        assert!(ensure_workspace_stock_materialized(temp.as_path(), package_root.as_path())
+            .expect("ensure again")
+            .is_none());
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn materialize_report_includes_authoring_tree() {
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let temp = std::env::temp_dir().join(format!(
+            "mei-materialize-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).expect("temp dir");
+        let report =
+            materialize_workspace_stock(temp.as_path(), package_root.as_path(), true).expect("materialize");
+        assert!(
+            temp.join("stock/authoring/examples/chart-baseline.mei").is_file(),
+            "authoring examples should be copied"
+        );
+        assert_eq!(report.authoring.copied_files > 0, true);
+        let json = serde_json::to_value(&report).expect("serialize");
+        assert!(json.get("authoring").is_some(), "json must include authoring");
+        let _ = fs::remove_dir_all(&temp);
+    }
 }

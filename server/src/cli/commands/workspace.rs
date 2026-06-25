@@ -20,7 +20,6 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                 source_root.as_path(),
                 args.label.as_deref(),
                 &package_root,
-                true,
             )?;
             let runtime_report = mei_lang_toolchain::install_editor_runtime_support_files(
                 &source_root,
@@ -76,7 +75,6 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                     profile_id,
                     args.label.as_deref(),
                     &package_root,
-                    args.materialize,
                 )?
             };
             if args.source_root.is_some() {
@@ -84,7 +82,6 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                     source_root.as_path(),
                     args.label.as_deref(),
                     &package_root,
-                    args.materialize,
                 )?;
             }
             let mut scaffold = None;
@@ -102,21 +99,37 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                 "profile_id": args.profile_id,
                 "source_root": source_root,
                 "standalone": args.standalone || args.source_root.is_some(),
-                "materialized": args.materialize,
                 "scaffold": scaffold,
             });
             print_json_output(&output, args.json)
         }
         WorkspaceCommand::Materialize(args) => {
+            eprintln!(
+                "warning: `workspace materialize` is deprecated; stock is ensured automatically during init, runtime install, prebuild, and host startup. Prefer those flows; use `--force` here only for operational overrides."
+            );
             let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
-            let report = mei_lang_toolchain::materialize_workspace_stock(
+            let (report, skipped) = if args.force {
+                (
+                    Some(mei_lang_toolchain::materialize_workspace_stock(
+                        &source_root,
+                        &package_root,
+                        true,
+                    )?),
+                    false,
+                )
+            } else if let Some(report) = mei_lang_toolchain::ensure_workspace_stock_materialized(
                 &source_root,
                 &package_root,
-                args.force,
-            )?;
+            )? {
+                (Some(report), false)
+            } else {
+                (None, true)
+            };
             let output = json!({
                 "schema_version": "mei-cli-v1",
                 "command": "workspace.materialize",
+                "deprecated": true,
+                "skipped": skipped,
                 "report": report,
             });
             print_json_output(&output, args.json)
@@ -319,7 +332,6 @@ fn initialize_standalone_workspace(
     source_root: &std::path::Path,
     label: Option<&str>,
     package_root: &std::path::Path,
-    materialize: bool,
 ) -> Result<()> {
     std::fs::create_dir_all(source_root)?;
     let config_path = mei_lang_kernel::workspace_config_path(source_root);
@@ -349,8 +361,6 @@ fn initialize_standalone_workspace(
     }
     std::fs::create_dir_all(source_root.join(mei_lang_kernel::DEFAULT_APPS_REL))?;
     std::fs::create_dir_all(source_root.join(mei_lang_kernel::WORKSPACE_HOSTS_DIR_REL))?;
-    if materialize {
-        mei_lang_toolchain::materialize_workspace_stock(source_root, package_root, false)?;
-    }
+    mei_lang_toolchain::ensure_workspace_stock_materialized(source_root, package_root)?;
     Ok(())
 }

@@ -614,7 +614,7 @@ pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> Editor
         ],
         standalone_flow: vec![
             "Run `mei-toolchain workspace init --standalone --source-root <dir>` to create a source workspace skeleton.".to_string(),
-            "Run `mei-toolchain workspace materialize --source-root <dir>` to materialize .stock assets.".to_string(),
+            "Run `mei-toolchain workspace bootstrap --source-root <dir>` to create a workspace (stock is copied automatically).".to_string(),
             "Run `mei-toolchain workspace runtime install --source-root <dir>` to install workspace-local .mei runtime assets and `./start.sh`.".to_string(),
             "Run `./start.sh` from the workspace root to launch the MeiLang host.".to_string(),
             "Run `mei-toolchain editor-runtime scaffold --target-root <dir> --tool <tool>` to write tool glue files only.".to_string(),
@@ -1136,6 +1136,7 @@ if [[ "${TOOLCHAIN_MODE}" == "cargo" ]]; then
     echo "error: MEI_LANG_ROOT=${MEI_LANG_ROOT} is not a mei-lang checkout" >&2
     exit 1
   fi
+  echo "cargo mode: incremental compile; stock and prebuild run automatically at startup when needed."
   exec cargo run --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
     -p mei-lang-server --bin mei-host-web -- serve \
     --source-root "${WORKSPACE_ROOT}" \
@@ -1438,6 +1439,7 @@ pub fn install_editor_runtime_support_files(
 ) -> Result<EditorRuntimeInstallReport> {
     fs::create_dir_all(target_root)
         .with_context(|| format!("create target root {}", target_root.display()))?;
+    crate::workspace_stock::ensure_workspace_stock_materialized(target_root, package_root)?;
     let files = normalize_scaffold_files(
         target_root,
         write_common_runtime_files(target_root, package_root, force)?,

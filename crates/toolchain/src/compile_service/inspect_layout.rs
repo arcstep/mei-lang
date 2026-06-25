@@ -77,7 +77,7 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
             components_root.display()
         ),
         Some(
-            "run `mei workspace materialize` or set paths.components in `workspace.json`"
+            "run `mei-toolchain workspace init` or start the host; stock/components is ensured automatically"
                 .to_string(),
         ),
     );
@@ -99,7 +99,7 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
         "warning",
         format!("templates root `{}` does not exist", templates_root.display()),
         Some(
-            "run `mei workspace materialize` or set paths.templates; scenes should reference `../stock/templates/...`"
+            "run `mei-toolchain workspace init` or start the host; stock/templates is ensured automatically"
                 .to_string(),
         ),
     );

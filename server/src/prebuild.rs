@@ -2153,6 +2153,12 @@ impl CoverageState {
 pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<PrebuildReport> {
     let _progress_session = PrebuildProgressSession::begin();
     std::env::set_var("MEI_PREBUILD_ACTIVE", "1");
+    if let Ok(package_root) = crate::cli::util::resolve_package_root() {
+        let _ = mei_lang_toolchain::ensure_workspace_stock_materialized(
+            source_root,
+            package_root.as_path(),
+        );
+    }
     let started = Instant::now();
     let manifest_path = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
     let manifest_source = if manifest_path.is_file() {

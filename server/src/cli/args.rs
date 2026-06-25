@@ -62,11 +62,12 @@ pub struct WorkspaceArgs {
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommand {
-    /// 一条命令创建源码工作区，并可选安装本地 runtime（init + materialize + runtime install + scaffold + optional create-app）
+    /// 一条命令创建源码工作区，并安装本地 runtime（init + runtime install + scaffold + optional create-app）
     Bootstrap(WorkspaceBootstrapArgs),
-    /// 创建 workspace profile 目录与 `.mei-workspace.json`
+    /// 创建 workspace profile 目录与 `workspace.json`（自动补齐 stock/components/templates/authoring）
     Init(WorkspaceInitArgs),
-    /// 从 mei-lang/stock 物化 components/templates 到 profile `.stock/`（可 Git 跟踪）
+    #[command(hide = true)]
+    /// 已弃用：stock 在 init / runtime install / prebuild / host 启动时自动补齐；仅保留 `--force` 供运维脚本覆盖
     Materialize(WorkspaceMaterializeArgs),
     /// 管理 workspace-local `.mei/` runtime 元数据与资产
     Runtime(WorkspaceRuntimeArgs),
@@ -110,8 +111,6 @@ pub struct WorkspaceInitArgs {
     pub standalone: bool,
     #[arg(long = "tool")]
     pub tools: Vec<String>,
-    #[arg(long)]
-    pub materialize: bool,
     #[arg(long)]
     pub json: bool,
 }

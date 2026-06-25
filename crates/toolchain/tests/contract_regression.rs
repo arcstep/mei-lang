@@ -845,7 +845,7 @@ fn workspace_init_does_not_install_runtime_assets() {
     ));
     fs::create_dir_all(&root).expect("create init root");
     let profile_root =
-        init_workspace_profile(&root, "profile-a", Some("test"), &package_root(), false)
+        init_workspace_profile(&root, "profile-a", Some("test"), &package_root())
             .expect("init profile");
     assert!(
         !profile_root.join("runtime/platform/version.json").exists(),
@@ -928,7 +928,6 @@ fn standalone_workspace_init_install_create_app_and_check_form_a_smoke_path() {
         "standalone-smoke",
         Some("Standalone Smoke"),
         &package_root(),
-        true,
     )
     .expect("init source workspace");
     install_editor_runtime_support_files(&workspace_root, &package_root(), true)

@@ -91,7 +91,8 @@ pub use types::{
     WorldScope, WorldSnapshotSummary,
 };
 pub use workspace_stock::{
-    create_app_skeleton, init_workspace_profile, materialize_workspace_stock, MaterializeReport,
+    create_app_skeleton, ensure_workspace_stock_materialized, init_workspace_profile,
+    materialize_workspace_stock, MaterializeReport,
 };
 pub use workspace_summary::build_workspace_summary;
 pub use world::{
