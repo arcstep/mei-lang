@@ -1231,6 +1231,12 @@ fn run_prebuild_job_sync_inner(
     app_filter: Option<&str>,
     scope_profile: PrebuildScopeProfile,
 ) -> Result<PrebuildReport> {
+    if let Ok(package_root) = crate::cli::util::resolve_package_root() {
+        let _ = mei_lang_toolchain::ensure_workspace_author_skill_package(
+            source_root,
+            package_root.as_path(),
+        );
+    }
     run_prebuild(
         source_root,
         &PrebuildOptions {

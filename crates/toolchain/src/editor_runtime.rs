@@ -96,6 +96,14 @@ pub struct EditorRuntimeInstallReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct EnsureAuthorSkillReport {
+    pub installed: bool,
+    pub installed_now: bool,
+    pub install_dir: String,
+    pub file_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceRuntimeStatusReport {
     pub schema_version: String,
     pub source_root: String,
@@ -1398,6 +1406,54 @@ pub fn install_editor_runtime_support_files(
     })
 }
 
+/// Bootstrap only the workspace-local author skill tree when missing.
+/// Does not install binaries, MCP adapters, or other runtime projection files.
+pub fn ensure_workspace_author_skill_package(
+    workspace_root: &Path,
+    package_root: &Path,
+) -> Result<EnsureAuthorSkillReport> {
+    let install_dir = workspace_author_skill_dir(workspace_root);
+    let entry_file = install_dir.join("SKILL.md");
+    if entry_file.is_file() {
+        return Ok(EnsureAuthorSkillReport {
+            installed: true,
+            installed_now: false,
+            install_dir: install_dir.display().to_string(),
+            file_count: count_markdown_files(&install_dir),
+        });
+    }
+    let source_dir = package_root.join("guides/author-skills");
+    anyhow::ensure!(
+        source_dir.is_dir(),
+        "author skill source tree missing at {}",
+        source_dir.display()
+    );
+    copy_runtime_tree(workspace_root, &source_dir, &install_dir, false)?;
+    anyhow::ensure!(
+        entry_file.is_file(),
+        "author skill install incomplete at {}",
+        entry_file.display()
+    );
+    Ok(EnsureAuthorSkillReport {
+        installed: true,
+        installed_now: true,
+        install_dir: install_dir.display().to_string(),
+        file_count: count_markdown_files(&install_dir),
+    })
+}
+
+fn count_markdown_files(path: &Path) -> usize {
+    if !path.exists() {
+        return 0;
+    }
+    WalkDir::new(path)
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .count()
+}
+
 fn render_workspace_runtime_warmup_manifest_json(target_root: &Path) -> Result<String> {
     serde_json::to_string_pretty(&build_workspace_runtime_warmup_manifest(target_root)?)
         .context("serialize workspace warmup manifest")
@@ -1710,6 +1766,38 @@ mod tests {
         assert_eq!(manifest.apps[0].focuses, vec!["main.mei".to_string()]);
         assert!(manifest.apps[0].datasets[0].focus.is_none());
 
+        let _ = fs::remove_dir_all(&workspace_root);
+    }
+
+    #[test]
+    fn ensure_author_skill_installs_when_missing_without_full_runtime_install() {
+        let workspace_root = temp_workspace_root("ensure-author-skill");
+        fs::create_dir_all(&workspace_root).expect("create workspace root");
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("mei-lang package root")
+            .to_path_buf();
+        assert!(
+            !workspace_root
+                .join("runtime/platform/skills/meilang-author/SKILL.md")
+                .is_file(),
+            "fixture should start without author skill"
+        );
+        let report = ensure_workspace_author_skill_package(&workspace_root, &package_root)
+            .expect("ensure author skill");
+        assert!(report.installed);
+        assert!(report.installed_now);
+        assert!(report.file_count > 0);
+        assert!(
+            workspace_root
+                .join("runtime/platform/skills/meilang-author/SKILL.md")
+                .is_file()
+        );
+        let again = ensure_workspace_author_skill_package(&workspace_root, &package_root)
+            .expect("ensure author skill again");
+        assert!(again.installed);
+        assert!(!again.installed_now);
         let _ = fs::remove_dir_all(&workspace_root);
     }
 }

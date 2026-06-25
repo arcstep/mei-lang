@@ -21,6 +21,16 @@ pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
     let raw_source_root =
         resolve_source_root_arg(&package_root, args.workspace.as_deref(), &args.source_root)?;
     let source_root = resolve_cli_source_root(&package_root, &raw_source_root)?;
+    let skill_report = mei_lang_toolchain::ensure_workspace_author_skill_package(
+        source_root.as_path(),
+        package_root.as_path(),
+    )?;
+    if skill_report.installed_now {
+        eprintln!(
+            "installed workspace-local author skill at {}",
+            skill_report.install_dir
+        );
+    }
     let report = run_prebuild(
         source_root.as_path(),
         &PrebuildOptions {

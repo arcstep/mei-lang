@@ -320,6 +320,23 @@ async fn serve(args: ServeArgs) -> Result<()> {
         agent_backend = "native",
         "mei serve resolved paths"
     );
+    match crate::agent_runtime::runtime::ensure_managed_agent_skill_for_root(
+        package_root.as_path(),
+        source_root.as_path(),
+    ) {
+        Ok(report) if report.installed_now => {
+            tracing::info!(
+                install_dir = %report.install_dir,
+                file_count = report.file_count,
+                "installed workspace-local MeiLang author skill from toolchain package"
+            );
+        }
+        Ok(_) => {}
+        Err(error) => tracing::warn!(
+            %error,
+            "failed to ensure workspace-local MeiLang author skill"
+        ),
+    }
     match crate::agent_runtime::runtime::managed_agent_skill_status(&state) {
         Ok(status) => {
             if status.installed {

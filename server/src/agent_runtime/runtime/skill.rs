@@ -110,3 +110,10 @@ pub(crate) fn sync_managed_agent_skill(
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
     sync_managed_agent_skill_for_root(&state.package_root, &state.source_root)
 }
+
+pub(crate) fn ensure_managed_agent_skill_for_root(
+    package_root: &FsPath,
+    source_root: &FsPath,
+) -> anyhow::Result<mei_lang_toolchain::EnsureAuthorSkillReport> {
+    mei_lang_toolchain::ensure_workspace_author_skill_package(source_root, package_root)
+}
