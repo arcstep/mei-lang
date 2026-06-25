@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::mei_config::resolve_templates_root;
+use crate::mei_config::{resolve_templates_root, resolve_workspace_source_root_from_app_root};
 use crate::model::{
     BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest, PanelDecl,
     UiNodeDecl,
@@ -27,14 +27,14 @@ pub fn template_file_preview_target(compiled: &CompiledApp, key: &str) -> Option
         return Some(key.to_string());
     }
     let app_root = Path::new(compiled.app_root.as_str());
-    let source_root = app_root.parent()?;
-    let templates_root = resolve_templates_root(source_root);
+    let source_root = resolve_workspace_source_root_from_app_root(app_root);
+    let templates_root = resolve_templates_root(source_root.as_path());
     let templates_prefix = templates_root
-        .strip_prefix(source_root)
+        .strip_prefix(source_root.as_path())
         .ok()
         .map(|rel| rel.to_string_lossy().replace('\\', "/"))
         .filter(|rel| !rel.is_empty())
-        .unwrap_or_else(|| ".stock/templates".to_string());
+        .unwrap_or_else(|| "stock/templates".to_string());
     Some(format!("{templates_prefix}/{key}"))
 }
 
@@ -55,15 +55,22 @@ pub fn preview_target_relative_to_app(compiled: &CompiledApp, path: &str) -> Opt
     if app_root.join(&normalized).is_file() {
         return Some(normalized);
     }
-    let source_root = app_root.parent().unwrap_or(app_root);
+    let source_root = resolve_workspace_source_root_from_app_root(app_root);
     let abs = if let Some(suffix) = normalized.strip_prefix("templates/") {
-        resolve_templates_root(source_root).join(suffix)
-    } else if normalized.starts_with(".stock/") {
+        resolve_templates_root(source_root.as_path()).join(suffix)
+    } else if normalized.starts_with("stock/") || normalized.starts_with(".stock/") {
         source_root.join(&normalized)
     } else {
-        resolve_templates_root(source_root).join(&normalized)
+        resolve_templates_root(source_root.as_path()).join(&normalized)
     };
     relative_path_from_to(app_root, abs.as_path())
+}
+
+pub(crate) fn preview_target_for_absolute_path(
+    compiled: &CompiledApp,
+    abs_path: &Path,
+) -> Option<String> {
+    relative_path_from_to(Path::new(compiled.app_root.as_str()), abs_path)
 }
 
 fn relative_path_from_to(from: &Path, to: &Path) -> Option<String> {
@@ -910,5 +917,150 @@ mod tests {
         };
         assert_eq!(block_instance_id(&block, 0), "mei.text~0");
         assert_eq!(block_instance_id(&block, 1), "mei.text~1");
+    }
+
+    #[test]
+    fn ws_hello_chart_bar_resolves_authoring_example_preview() {
+        use std::path::Path;
+
+        use crate::compile::build_experience::preview_target_from_build_node_with_app;
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+        use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
+        use crate::model::BuildNodeId;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-hello");
+        if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+            return;
+        }
+        let app_root = source_root.join("apps").join("hello");
+        if !app_root.is_dir() {
+            return;
+        }
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile hello");
+        let node = BuildNodeId::template("chart.bar");
+        let preview = preview_target_from_build_node_with_app(&node, Some(&compiled))
+            .expect("chart.bar preview target");
+        assert!(
+            preview.contains("chart-baseline.mei"),
+            "chart.bar should preview stock authoring example, got {preview}"
+        );
+    }
+
+    #[test]
+    fn ws_hello_doc_markdown_resolves_scene_consumer_preview() {
+        use std::path::Path;
+
+        use crate::compile::build_experience::{
+            compile_coordinate_for_node, preview_target_from_build_node_with_app,
+        };
+        use crate::compile::build_node_context::resolve_build_node_context;
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+        use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
+        use crate::model::BuildNodeId;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-hello");
+        if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+            return;
+        }
+        let app_root = source_root.join("apps").join("hello");
+        if !app_root.is_dir() {
+            return;
+        }
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile hello");
+        let node = BuildNodeId::template("doc.markdown");
+        let entry = compiled.build_template_index.lookup("doc.markdown");
+        assert!(
+            entry.is_some(),
+            "doc.markdown should be indexed from home scene compile"
+        );
+        assert!(
+            !entry.expect("entry").consumer_anchors.is_empty(),
+            "doc.markdown should have consumer anchors from home scene"
+        );
+        let preview = preview_target_from_build_node_with_app(&node, Some(&compiled))
+            .expect("preview target");
+        assert!(
+            preview.contains("dataset-baseline.mei") || preview.contains("home"),
+            "doc.markdown should preview authoring example or home consumer scene, got {preview}"
+        );
+        let ctx = resolve_build_node_context(&compiled, &node);
+        assert!(
+            ctx.target_file.ends_with(".mei"),
+            "build context should not fall back to raw js, got {}",
+            ctx.target_file
+        );
+        let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
+        assert!(
+            coord.preview_target.ends_with(".mei"),
+            "coord preview should be scene mei, got {}",
+            coord.preview_target
+        );
+    }
+
+    #[test]
+    fn v2_template_file_preview_resolves_stock_templates_path() {
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+        use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
+        use crate::model::BuildNodeId;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-hello");
+        if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+            return;
+        }
+        let app_root = source_root.join("apps").join("hello");
+        if !app_root.is_dir() {
+            return;
+        }
+        let template_key = "cockpit/metric-card.mei";
+        if !source_root
+            .join("stock/templates")
+            .join(template_key)
+            .is_file()
+        {
+            return;
+        }
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile hello");
+        let node = BuildNodeId::template(template_key);
+        let target = preview_target_from_build_node_with_app(&node, Some(&compiled))
+            .expect("template preview target");
+        assert!(
+            target.contains("metric-card.mei"),
+            "expected stock template path, got {target}"
+        );
+        assert!(
+            preview_target_relative_to_app(&compiled, &target)
+                .is_some_and(|rel| rel.contains("metric-card.mei")),
+            "preview target should compile from app-relative stock path"
+        );
     }
 }

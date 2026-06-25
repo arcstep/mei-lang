@@ -9,7 +9,7 @@ use crate::{
     eval::evaluate_mei_file,
     mei_config::{
         app_mei_config_path, resolve_app_entry_main, resolve_app_main_path, MeiConfig,
-        MEI_CONFIG_FILENAME, MEI_WORKSPACE_CONFIG_FILENAME,
+        MEI_CONFIG_FILENAME,
     },
     model::CompiledSceneRoute,
     typed_refs::SceneRegistry,
@@ -29,7 +29,7 @@ use crate::compile::discover_routes::{
 use crate::compile::scene::{find_scene_route, resolve_scene_routes};
 
 pub fn resolve_default_scene_from_root(app_root: &Path) -> Result<Option<String>> {
-    let source_root = infer_source_root_from_app(app_root);
+    let source_root = crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);
     let _authoring_guard = install_authoring_eval_context(&source_root)?;
     let app_main = resolve_app_main_path(app_root);
     let app_decls = evaluate_mei_file(&app_main)?;
@@ -310,23 +310,6 @@ pub(crate) fn scoped_dependency_graph_routes(
         return routes.to_vec();
     }
     scoped.into_values().collect()
-}
-
-fn infer_source_root_from_app(app_root: &Path) -> std::path::PathBuf {
-    let mut current = Some(app_root);
-    while let Some(dir) = current {
-        if dir.join(MEI_WORKSPACE_CONFIG_FILENAME).is_file() {
-            return dir.to_path_buf();
-        }
-        if dir.join("_components").is_dir() {
-            return dir.to_path_buf();
-        }
-        current = dir.parent();
-    }
-    app_root
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| app_root.to_path_buf())
 }
 
 #[cfg(test)]

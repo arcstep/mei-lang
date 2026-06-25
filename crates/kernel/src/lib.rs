@@ -97,9 +97,10 @@ pub use mei_config::{
     app_build_store_dir, app_var_store_dir, promote_build, read_build_manifest, read_links_state,
     resolve_app_build_store_root, resolve_active_build_id, resolve_toolchain_version, rollback_build,
     set_prebuild_build_root_override, write_build_manifest, write_links_state,
-    resolve_mei_config_path, resolve_templates_root, resolve_live_ops_theme_value,
+    resolve_mei_config_path, resolve_templates_root, resolve_workspace_source_root_from_app_root,
+    resolve_live_ops_theme_value,
     resolve_workspace_shell_theme,
-    set_mei_package_root, stock_components_source, stock_templates_source,
+    set_mei_package_root, stock_authoring_source, stock_components_source, stock_templates_source,
     validate_workspace_shell_theme, workspace_auth_config_path, workspace_auth_host_id,
     workspace_auth_state_dir, workspace_config_path, write_mei_config, write_workspace_auth_bundle,
     write_workspace_config, AccessAiExternalConfig, AppEntryConfig, AppFeaturesConfig,
@@ -174,3 +175,8 @@ pub use warmup_manifest::{
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION,
 };
 pub use workspace::{discover_apps, load_component_assets, read_source_file, source_tree};
+
+/// Stable revision token derived from kernel sources at compile time.
+pub fn platform_source_revision() -> &'static str {
+    env!("MEI_KERNEL_SOURCE_REVISION")
+}

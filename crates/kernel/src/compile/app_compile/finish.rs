@@ -260,17 +260,17 @@ pub(super) fn finish_compiled_app(
         &compiled.scene_projection_assembly_by_id,
     );
     compiled.build_board_index = board.index;
-    ensure_world_capsule_preview_components(&mut active_payload.component_assets, asset_map);
-    let template_catalog: Vec<ComponentAsset> = active_payload.component_assets.clone();
+    ensure_world_capsule_preview_components(&mut compiled.component_assets, asset_map);
     let template = crate::compile::build_template_index(
-        &template_catalog,
+        &compiled.component_assets,
         &target_scene_contracts,
         &compiled.build_experience_index.node_manifest,
     );
     compiled.build_template_index = template.index;
-    let workspace_source_root = app_root.parent().unwrap_or(app_root);
+    let workspace_source_root =
+        crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);
     let template_files = crate::compile::build_template_index::build_stock_template_files_root(
-        workspace_source_root,
+        workspace_source_root.as_path(),
     );
     let empty_templates = crate::compile::ReachabilityTreeRoot {
         group: "templates".to_string(),

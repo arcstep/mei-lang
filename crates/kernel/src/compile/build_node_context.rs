@@ -295,9 +295,7 @@ fn board_context_from_node(compiled: &CompiledApp, node: &BuildNodeId) -> (Strin
 }
 
 fn template_target_file(compiled: &CompiledApp, node: &BuildNodeId) -> String {
-    compiled
-        .build_template_index
-        .lookup(node.key.as_str())
+    super::build_template_index::template_entry_for_preview(compiled, node.key.as_str())
         .map(|entry| entry.template_file.clone())
         .unwrap_or_else(|| compiled.active_target_file.clone())
 }

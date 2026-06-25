@@ -42,6 +42,26 @@ pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
     segment_root.join(WORKSPACE_CONFIG_FILENAME)
 }
 
+/// 从 app 根向上解析 workspace `--source-root`（v2：`apps/{id}/` → 含 `workspace.json` 的祖先）。
+pub fn resolve_workspace_source_root_from_app_root(app_root: &Path) -> PathBuf {
+    let mut cursor = app_root.to_path_buf();
+    loop {
+        if cursor.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+            return cursor;
+        }
+        if cursor.join("_components").is_dir() {
+            return cursor;
+        }
+        if !cursor.pop() {
+            break;
+        }
+    }
+    app_root
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| app_root.to_path_buf())
+}
+
 /// 保留给 CLI 启动路径；workspace stock 不再回退到 package tree。
 pub fn set_mei_package_root(_path: PathBuf) {}
 
@@ -158,6 +178,10 @@ pub fn stock_components_source(package_root: &Path) -> PathBuf {
 
 pub fn stock_templates_source(package_root: &Path) -> PathBuf {
     package_root.join("stock/templates")
+}
+
+pub fn stock_authoring_source(package_root: &Path) -> PathBuf {
+    package_root.join("stock/authoring")
 }
 
 pub fn resolve_authoring_root(source_root: &Path) -> PathBuf {

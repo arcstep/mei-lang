@@ -441,10 +441,9 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
 }
 
 fn source_root_from_app(compiled: &CompiledApp) -> PathBuf {
-    Path::new(compiled.app_root.as_str())
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(compiled.app_root.as_str()))
+    crate::mei_config::resolve_workspace_source_root_from_app_root(Path::new(
+        compiled.app_root.as_str(),
+    ))
 }
 
 fn template_catalog_for_tree(compiled: &CompiledApp, source_root: &Path) -> Vec<ComponentAsset> {
@@ -1152,6 +1151,51 @@ mod tests {
         assert!(
             !templates.children.is_empty(),
             "empty templates snapshot should be rebuilt with component catalog entries"
+        );
+    }
+
+    #[test]
+    fn v2_app_root_hydrates_stock_components_and_templates_in_build_tree() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+        use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-hello");
+        if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+            return;
+        }
+        let app_root = source_root.join("apps").join("hello");
+        if !app_root.is_dir() {
+            return;
+        }
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile hello");
+        let roots = reachability_roots_from_compiled(&compiled);
+        let templates = roots
+            .iter()
+            .find(|root| root.group == "templates")
+            .expect("templates/components group");
+        assert!(
+            !templates.children.is_empty(),
+            "v2 app_root should hydrate stock components into build tree"
+        );
+        let template_files = roots
+            .iter()
+            .find(|root| root.group == "template_files")
+            .expect("template_files group");
+        assert!(
+            !template_files.children.is_empty(),
+            "v2 app_root should list stock template files in build tree"
         );
     }
 

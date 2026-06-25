@@ -30,6 +30,27 @@ pub fn merged_component_catalog(source_root: &Path, compiled: &CompiledApp) -> V
     merged.into_values().collect()
 }
 
+/// Resolve catalog entry for build preview: compiled index first, then workspace stock manifest.
+pub fn template_entry_for_preview(
+    compiled: &CompiledApp,
+    template_key: &str,
+) -> Option<TemplateCatalogEntry> {
+    if let Some(entry) = compiled.build_template_index.lookup(template_key) {
+        return Some(entry.clone());
+    }
+    let source_root = crate::mei_config::resolve_workspace_source_root_from_app_root(Path::new(
+        compiled.app_root.as_str(),
+    ));
+    let asset = merged_component_catalog(source_root.as_path(), compiled)
+        .into_iter()
+        .find(|asset| asset.key == template_key)?;
+    build_template_index(&[asset], &BTreeMap::new(), &BTreeMap::new())
+        .index
+        .templates
+        .get(template_key)
+        .cloned()
+}
+
 pub fn build_template_index(
     component_assets: &[ComponentAsset],
     scene_contracts_by_id: &BTreeMap<String, SceneContract>,
@@ -310,7 +331,7 @@ fn authoring_template_workspace_path(compiled: &CompiledApp, template_key: &str)
     if super::build_experience::is_template_file_node_key(template_key) {
         return super::build_experience::template_file_preview_target(compiled, template_key);
     }
-    let entry = compiled.build_template_index.lookup(template_key)?;
+    let entry = template_entry_for_preview(compiled, template_key)?;
     let file = entry.template_file.as_str();
     if file.ends_with(".mei") {
         Some(file.to_string())

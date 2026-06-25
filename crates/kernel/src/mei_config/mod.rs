@@ -69,6 +69,6 @@ pub use workspace_paths::{
     is_app_mei_source_rel, resolve_components_root, resolve_deploy_root, resolve_templates_root,
     resolve_toolchain_root, resolve_workspace_cache_root, resolve_workspace_graph_root,
     resolve_workspace_logs_root, resolve_workspace_platform_root, resolve_workspace_runtime_root,
-    set_mei_package_root, stock_components_source,
-    stock_templates_source, workspace_config_path,
+    resolve_workspace_source_root_from_app_root, set_mei_package_root, stock_authoring_source,
+    stock_components_source, stock_templates_source, workspace_config_path,
 };

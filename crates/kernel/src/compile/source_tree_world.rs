@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::eval::active_authoring_helpers;
-use crate::mei_config::MEI_WORKSPACE_CONFIG_FILENAME;
 use crate::model::{
     ResourceDecl, WorkspaceNode, WorldSemanticDataset, WorldSemanticExplainBlock,
     WorldSemanticFileIndex, WorldSemanticMetric,
@@ -19,16 +18,9 @@ fn is_world_capsule_path(path: &str) -> bool {
 }
 
 fn resolve_source_root_from_app_root(app_root: &Path) -> Option<PathBuf> {
-    let mut cursor = app_root.to_path_buf();
-    loop {
-        if cursor.join(MEI_WORKSPACE_CONFIG_FILENAME).is_file() {
-            return Some(cursor);
-        }
-        if !cursor.pop() {
-            break;
-        }
-    }
-    None
+    Some(crate::mei_config::resolve_workspace_source_root_from_app_root(
+        app_root,
+    ))
 }
 
 fn load_world_for_semantic_index(
