@@ -137,7 +137,9 @@ fn load_compile_index_meta(app_root: &Path) -> Option<CompileIndexMeta> {
         generated_at_ms: u64,
         entries: Vec<serde_json::Value>,
     }
-    let path = app_root.join(".mei/prebuild/compile-index.json");
+    let path = mei_lang_kernel::resolve_app_build_root(app_root).join(
+        mei_lang_kernel::PREBUILD_COMPILE_INDEX_REL,
+    );
     let raw = fs::read_to_string(&path).ok()?;
     let persisted = serde_json::from_str::<PersistedCompileIndex>(&raw).ok()?;
     Some(CompileIndexMeta {

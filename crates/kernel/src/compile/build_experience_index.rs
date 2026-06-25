@@ -227,17 +227,6 @@ fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
     if expects_boards && !has_boards {
         return true;
     }
-    let expects_templates = !compiled.component_assets.is_empty()
-        || !compiled.build_template_index.templates.is_empty()
-        || workspace_component_catalog_from_app(compiled).is_some();
-    if expects_templates {
-        let templates_ok = snapshot
-            .iter()
-            .any(|root| root.group == "templates" && !root.children.is_empty());
-        if !templates_ok {
-            return true;
-        }
-    }
     false
 }
 
@@ -377,32 +366,28 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
             }
         }
     }
-    if !roots.iter().any(|root| root.group == "templates") {
-        let template_root = if !compiled.build_template_index.templates.is_empty() {
-            Some(
-                crate::compile::build_template_index::template_tree_root_from_index(
-                    &compiled.build_template_index,
-                ),
-            )
+    let template_root = {
+        let contracts = scene_contracts_from_compiled(compiled);
+        let catalog =
+            template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
+        if catalog.is_empty() {
+            None
         } else {
-            let contracts = scene_contracts_from_compiled(compiled);
-            let catalog =
-                template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
-            if catalog.is_empty() {
-                None
-            } else {
-                Some(
-                    crate::compile::build_template_index::build_template_index(
-                        &catalog,
-                        &contracts,
-                        &compiled.build_experience_index.node_manifest,
-                    )
-                    .tree_root,
+            Some(
+                crate::compile::build_template_index::build_template_index(
+                    &catalog,
+                    &contracts,
+                    &compiled.build_experience_index.node_manifest,
                 )
-            }
-        };
-        if let Some(template_root) = template_root {
-            if !template_root.children.is_empty() {
+                .tree_root,
+            )
+        }
+    };
+    if let Some(template_root) = template_root {
+        if !template_root.children.is_empty() {
+            if let Some(existing) = roots.iter_mut().find(|root| root.group == "templates") {
+                *existing = template_root;
+            } else {
                 let insert_at = roots
                     .iter()
                     .position(|root| root.group == "boards")
@@ -415,36 +400,6 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
                             .unwrap_or(roots.len()),
                     );
                 roots.insert(insert_at, template_root);
-            }
-        }
-    } else if let Some(existing) = roots.iter_mut().find(|root| root.group == "templates") {
-        if existing.children.is_empty() {
-            let template_root = if !compiled.build_template_index.templates.is_empty() {
-                crate::compile::build_template_index::template_tree_root_from_index(
-                    &compiled.build_template_index,
-                )
-            } else {
-                let contracts = scene_contracts_from_compiled(compiled);
-                let catalog =
-                    template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path());
-                if !catalog.is_empty() {
-                    crate::compile::build_template_index::build_template_index(
-                        &catalog,
-                        &contracts,
-                        &compiled.build_experience_index.node_manifest,
-                    )
-                    .tree_root
-                } else {
-                    ReachabilityTreeRoot {
-                        group: "templates".to_string(),
-                        label: "Components".to_string(),
-                        default_open: false,
-                        children: Vec::new(),
-                    }
-                }
-            };
-            if !template_root.children.is_empty() {
-                *existing = template_root;
             }
         }
     }
@@ -483,16 +438,6 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
             }
         }
     }
-}
-
-fn workspace_component_catalog_from_app(compiled: &CompiledApp) -> Option<Vec<ComponentAsset>> {
-    let app_root = Path::new(compiled.app_root.as_str());
-    let source_root = app_root.parent()?;
-    let map = crate::workspace::load_component_assets(source_root).ok()?;
-    if map.is_empty() {
-        return None;
-    }
-    Some(map.values().cloned().collect())
 }
 
 fn source_root_from_app(compiled: &CompiledApp) -> PathBuf {

@@ -338,43 +338,6 @@ pub fn preview_scene_id_for_template_file_consumer(
         .map(|anchor| anchor.scene_id.clone())
 }
 
-/// Rebuild Templates reachability group from compile-time index (e.g. stale snapshot fallback).
-pub fn template_tree_root_from_index(index: &BuildTemplateIndex) -> ReachabilityTreeRoot {
-    let mut by_category = BTreeMap::<String, Vec<ReachabilityTreeNode>>::new();
-    for entry in index.templates.values() {
-        by_category
-            .entry(entry.category.clone())
-            .or_default()
-            .push(ReachabilityTreeNode {
-                id: format!("template-{}", entry.template_key),
-                node_id: BuildNodeId::template(entry.template_key.as_str()).encode(),
-                kind: "template".to_string(),
-                label: entry.template_key.clone(),
-                badges: vec![entry.template_file.clone()],
-                children: Vec::new(),
-                ..Default::default()
-            });
-    }
-    let mut tree_children = Vec::new();
-    for (category, nodes) in by_category {
-        tree_children.push(ReachabilityTreeNode {
-            id: format!("template-group-{category}"),
-            node_id: String::new(),
-            kind: "template_group".to_string(),
-            label: category,
-            badges: Vec::new(),
-            children: nodes,
-            ..Default::default()
-        });
-    }
-    ReachabilityTreeRoot {
-        group: "templates".to_string(),
-        label: "Components".to_string(),
-        default_open: false,
-        children: tree_children,
-    }
-}
-
 fn collect_panel_use_keys(panel: &PanelDecl, out: &mut BTreeMap<String, BTreeSet<String>>) {
     for ui_node in &panel.blocks {
         match ui_node {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const LAST_BUILD_SUMMARY_REL: &str = ".mei/prebuild/last-build-summary.json";
+pub const LAST_BUILD_SUMMARY_REL: &str = "prebuild/last-build-summary.json";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MaterializationDiagnosticsReport {

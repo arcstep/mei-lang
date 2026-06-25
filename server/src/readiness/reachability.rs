@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use mei_lang_kernel::{bundle_snapshot_root_from_env, MEI_BUNDLE_SNAPSHOT_ROOT_ENV};
 use serde::Serialize;
 
 use crate::readiness::scope_gate::{check_scope_gate_for_access_entry, ScopeGateReport};
@@ -35,35 +34,6 @@ pub struct ReachabilityReport {
     pub shell_blockers: Vec<String>,
     pub data_blockers: Vec<String>,
     pub scope_gate: ScopeGateReport,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bundle_snapshot_root: Option<String>,
-}
-
-struct SnapshotEnvGuard {
-    previous: Option<String>,
-}
-
-impl SnapshotEnvGuard {
-    fn install(snapshot_root: Option<&Path>) -> Self {
-        let previous = std::env::var(MEI_BUNDLE_SNAPSHOT_ROOT_ENV).ok();
-        match snapshot_root {
-            Some(root) => std::env::set_var(
-                MEI_BUNDLE_SNAPSHOT_ROOT_ENV,
-                root.to_string_lossy().as_ref(),
-            ),
-            None => std::env::remove_var(MEI_BUNDLE_SNAPSHOT_ROOT_ENV),
-        }
-        Self { previous }
-    }
-}
-
-impl Drop for SnapshotEnvGuard {
-    fn drop(&mut self) {
-        match &self.previous {
-            Some(value) => std::env::set_var(MEI_BUNDLE_SNAPSHOT_ROOT_ENV, value),
-            None => std::env::remove_var(MEI_BUNDLE_SNAPSHOT_ROOT_ENV),
-        }
-    }
 }
 
 pub fn resolve_access_entry(source_root: &Path) -> AccessEntry {
@@ -110,11 +80,7 @@ pub fn legacy_resolve_access_entry(source_root: &Path) -> AccessEntry {
     }
 }
 
-pub fn check_reachability(
-    source_root: &Path,
-    snapshot_root: Option<&Path>,
-) -> ReachabilityReport {
-    let _guard = SnapshotEnvGuard::install(snapshot_root);
+pub fn check_reachability(source_root: &Path, _snapshot_root: Option<&Path>) -> ReachabilityReport {
     let entry = resolve_access_entry(source_root);
     let gate = check_scope_gate_for_access_entry(source_root, &entry);
     let shell_blockers = gate
@@ -139,9 +105,6 @@ pub fn check_reachability(
         shell_blockers,
         data_blockers,
         scope_gate: gate,
-        bundle_snapshot_root: snapshot_root
-            .map(|path| path.display().to_string())
-            .or_else(|| bundle_snapshot_root_from_env().map(|path| path.display().to_string())),
     }
 }
 

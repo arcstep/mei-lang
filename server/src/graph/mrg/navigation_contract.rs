@@ -92,9 +92,9 @@ mod tests {
     fn verify_navigation_contract_detects_missing_keys() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let ws = tmp.path();
-        fs::create_dir_all(ws.join("apps/demo/.mei/graph/payloads")).expect("mkdir");
+        fs::create_dir_all(ws.join("apps/demo/build/active/graph/payloads")).expect("mkdir");
         fs::write(
-            ws.join("apps/demo/.mei/graph/payloads/app-skeleton.json"),
+            ws.join("apps/demo/build/active/graph/payloads/app-skeleton.json"),
             r#"{"schemaVersion":"mei-app-skeleton-artifact-v1","revision":"sk:t","payload":{"sceneRoutes":[{"scene_id":"home","target_file":"scenes/home.mei","kind":"scene","access_export":true}]}}"#,
         )
         .expect("write skeleton");

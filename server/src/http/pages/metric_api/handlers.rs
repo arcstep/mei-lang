@@ -1072,7 +1072,7 @@ fn execute_metric_query_group(
                 bundle_rev,
                 dependency_revision_key.as_str(),
                 response_cache_key.as_str(),
-                ".mei/eval-artifacts/results/metric-response/",
+                "eval-results/results/metric-response/",
                 eval_outcome.metric_eval_ms,
             );
         }

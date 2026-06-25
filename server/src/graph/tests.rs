@@ -94,7 +94,7 @@ mod graph_mcg_tests {
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../workspaces/ws-spbjw");
-        let mcg = source_root.join("zhifa/.mei/graph/registry/mcg.json");
+        let mcg = source_root.join("zhifa/build/active/graph/registry/mcg.json");
         if !mcg.is_file() {
             return;
         }
@@ -123,7 +123,7 @@ mod graph_mcg_tests {
         use std::path::Path;
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
-        let scene_payload = source_root.join("zhifa/.mei/graph/payloads/scene/scenes-home-mei.json");
+        let scene_payload = source_root.join("zhifa/build/active/graph/payloads/scene/scenes-home-mei.json");
         if !scene_payload.is_file() {
             return;
         }
@@ -146,7 +146,7 @@ mod graph_mcg_tests {
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
         let board_payload = source_root
-            .join("zhifa/.mei/graph/payloads/scene/scenes-04-行政处罚-board-mei.json");
+            .join("zhifa/build/active/graph/payloads/scene/scenes-04-行政处罚-board-mei.json");
         if !board_payload.is_file() {
             return;
         }

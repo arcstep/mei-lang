@@ -10,10 +10,10 @@ use crate::graph::content_store::{self, content_store_enabled};
 use crate::graph::io::{read_json_registry, write_json_registry};
 
 pub const APP_SKELETON_ARTIFACT_SCHEMA: &str = "mei-app-skeleton-artifact-v1";
-pub const APP_SKELETON_REL: &str = ".mei/graph/payloads/app-skeleton.json";
+pub const APP_SKELETON_REL: &str = "graph/payloads/app-skeleton.json";
 
 pub fn app_skeleton_artifact_path(app_root: &Path) -> std::path::PathBuf {
-    app_root.join(APP_SKELETON_REL)
+    mei_lang_kernel::resolve_app_build_root(app_root).join(APP_SKELETON_REL)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,7 +168,7 @@ mod tests {
                 .expect("clock")
                 .as_nanos()
         ));
-        std::fs::create_dir_all(app_root.join(".mei/graph/payloads")).expect("mkdir");
+        std::fs::create_dir_all(app_root.join("build/active/graph/payloads")).expect("mkdir");
         std::fs::write(
             app_skeleton_artifact_path(&app_root),
             r#"{"schemaVersion":"mei-app-skeleton-artifact-v1","revision":"sk:test","payload":{}}"#,

@@ -260,11 +260,8 @@ pub(super) fn finish_compiled_app(
         &compiled.scene_projection_assembly_by_id,
     );
     compiled.build_board_index = board.index;
-    let mut catalog_map = asset_map.clone();
-    for asset in &active_payload.component_assets {
-        catalog_map.insert(asset.key.clone(), asset.clone());
-    }
-    let template_catalog: Vec<ComponentAsset> = catalog_map.values().cloned().collect();
+    ensure_world_capsule_preview_components(&mut active_payload.component_assets, asset_map);
+    let template_catalog: Vec<ComponentAsset> = active_payload.component_assets.clone();
     let template = crate::compile::build_template_index(
         &template_catalog,
         &target_scene_contracts,
@@ -275,6 +272,12 @@ pub(super) fn finish_compiled_app(
     let template_files = crate::compile::build_template_index::build_stock_template_files_root(
         workspace_source_root,
     );
+    let empty_templates = crate::compile::ReachabilityTreeRoot {
+        group: "templates".to_string(),
+        label: "Components".to_string(),
+        default_open: false,
+        children: Vec::new(),
+    };
     compiled.build_experience_index.reachability_snapshot =
         crate::compile::build_experience_index::merge_build_view_tree_roots(
             compiled
@@ -282,7 +285,7 @@ pub(super) fn finish_compiled_app(
                 .reachability_snapshot
                 .clone(),
             board.tree_root,
-            template.tree_root,
+            empty_templates,
             template_files,
         );
     Ok(compiled)

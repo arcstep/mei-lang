@@ -92,10 +92,7 @@ pub fn resolve_payload_ref(app_root: &Path, pref: &PayloadRef) -> Option<PathBuf
     if legacy.is_file() {
         return Some(legacy);
     }
-    let under_build = resolve_app_build_root(app_root).join(
-        rel.trim_start_matches(".mei/")
-            .trim_start_matches('/'),
-    );
+    let under_build = resolve_app_build_root(app_root).join(rel.trim_start_matches('/'));
     under_build.is_file().then_some(under_build)
 }
 

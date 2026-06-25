@@ -74,6 +74,10 @@ pub enum WorkspaceCommand {
     CreateApp(WorkspaceCreateAppArgs),
     /// 输出 workspace 级别的 headless 摘要，便于 AI / 外部工具快速理解 app 列表与发现配置
     Summary(WorkspaceSummaryArgs),
+    /// v2 build store：promote / rollback / status
+    Build(WorkspaceBuildArgs),
+    /// 一次性迁移 legacy `.mei/`：工作区根 → runtime/；app 级 → build/active/
+    MigrateLegacyAppMei(WorkspaceMigrateLegacyArgs),
 }
 
 #[derive(Args)]
@@ -183,6 +187,64 @@ pub struct WorkspaceCreateAppArgs {
 pub struct WorkspaceSummaryArgs {
     #[arg(long, default_value = "../workspaces/ws-dev")]
     pub source_root: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceBuildArgs {
+    #[command(subcommand)]
+    pub command: WorkspaceBuildCommand,
+}
+
+#[derive(Subcommand)]
+pub enum WorkspaceBuildCommand {
+    /// candidate → active；同步各 app build/var active symlink
+    Promote(WorkspaceBuildPromoteArgs),
+    /// active ← previous
+    Rollback(WorkspaceBuildRollbackArgs),
+    /// 打印 deploy/state/links.json 与各 app BUILD.json
+    Status(WorkspaceBuildStatusArgs),
+}
+
+#[derive(Args)]
+pub struct WorkspaceBuildPromoteArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long = "build-id")]
+    pub build_id: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceBuildRollbackArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceBuildStatusArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceMigrateLegacyArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub app_id: Option<String>,
+    /// 迁移工作区根级 legacy `.mei/`（hosts/agent/runtime → runtime/）
+    #[arg(long, default_value_t = true)]
+    pub migrate_workspace: bool,
+    /// 未指定 --app 时迁移全部 app 的 `.mei/`
+    #[arg(long, default_value_t = true)]
+    pub all_apps: bool,
     #[arg(long)]
     pub json: bool,
 }

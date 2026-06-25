@@ -268,9 +268,9 @@ mod tests {
         )
         .expect("write mrg");
         fs::create_dir_all(ws.join("apps/demo/src")).expect("mkdir app");
-        fs::create_dir_all(ws.join("apps/demo/.mei/graph/payloads")).expect("mkdir skel");
+        fs::create_dir_all(ws.join("apps/demo/build/active/graph/payloads")).expect("mkdir skel");
         fs::write(
-            ws.join("apps/demo/.mei/graph/payloads/app-skeleton.json"),
+            ws.join("apps/demo/build/active/graph/payloads/app-skeleton.json"),
             r#"{"schemaVersion":"mei-app-skeleton-artifact-v1","revision":"sk:t","payload":{"sceneRoutes":[{"scene_id":"home","target_file":"scenes/home.mei","kind":"scene","access_export":true,"is_default":true}]}}"#,
         )
         .expect("write skeleton");

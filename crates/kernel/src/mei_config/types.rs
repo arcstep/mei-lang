@@ -15,11 +15,20 @@ pub const OPS_JOURNAL_REL_PATH: &str = "ops/.mei-ops-journal.json";
 pub const DEFAULT_APPS_REL: &str = "apps";
 pub const DEFAULT_APP_SRC_REL: &str = "src";
 pub const DEFAULT_TOOLCHAIN_REL: &str = "toolchain";
+pub const TOOLCHAIN_STORE_REL: &str = "store";
+pub const TOOLCHAIN_ACTIVE_REL: &str = "active";
 pub const WORKSPACE_RUNTIME_DIR_REL: &str = "runtime";
 pub const DEFAULT_RUNTIME_REL: &str = WORKSPACE_RUNTIME_DIR_REL;
 pub const DEFAULT_DEPLOY_REL: &str = "deploy";
 pub const APP_BUILD_ACTIVE_REL: &str = "build/active";
+pub const APP_BUILD_STORE_REL: &str = "build/store";
 pub const APP_VAR_ACTIVE_REL: &str = "var/active";
+pub const APP_VAR_STORE_REL: &str = "var/store";
+pub const DEPLOY_LINKS_REL: &str = "state/links.json";
+pub const BUILD_MANIFEST_FILENAME: &str = "BUILD.json";
+pub const PREBUILD_DIR_REL: &str = "prebuild";
+pub const PREBUILD_COMPILE_INDEX_REL: &str = "prebuild/compile-index.json";
+pub const PREBUILD_LAST_BUILD_SUMMARY_REL: &str = "prebuild/last-build-summary.json";
 pub const WORKSPACE_PLATFORM_DIR_REL: &str = "runtime/platform";
 pub const WORKSPACE_RUNTIME_LOGS_REL: &str = "runtime/logs";
 pub const WORKSPACE_RUNTIME_CACHE_REL: &str = "runtime/cache";
@@ -145,6 +154,24 @@ pub struct WorkspaceConfig {
     /// 发布 / bundle 运维配置（Git 真源，不含 host-state）。
     #[serde(default)]
     pub deploy: WorkspaceDeployConfig,
+    /// 工作区绑定的 mei 工具链版本 pin（84 §3.1）。
+    #[serde(default)]
+    pub toolchain: WorkspaceToolchainConfig,
+    /// 应用 build store 保留策略（84 §4.2）。
+    #[serde(default)]
+    pub build: WorkspaceBuildConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceToolchainConfig {
+    #[serde(default)]
+    pub pin: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceBuildConfig {
+    #[serde(default, rename = "retainBuildGenerations")]
+    pub retain_build_generations: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

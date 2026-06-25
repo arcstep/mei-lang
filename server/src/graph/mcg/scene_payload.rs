@@ -138,14 +138,7 @@ pub fn load_scene_payload_artifact(
     let slug = scope_slug(target_file);
     let path = scene_payload_artifact_dir(app_root).join(format!("{slug}.json"));
     if !path.is_file() {
-        let legacy = app_root.join(format!(".mei/graph/payloads/scene/{slug}.json"));
-        if !legacy.is_file() {
-            return Ok(None);
-        }
-        let Some(artifact) = read_json_registry::<ScenePayloadArtifact>(&legacy)? else {
-            return Ok(None);
-        };
-        return Ok(artifact_matches_target(&artifact, target_file, expected_revision).then_some(artifact));
+        return Ok(None);
     }
     let Some(artifact) = read_json_registry::<ScenePayloadArtifact>(&path)? else {
         return Ok(None);

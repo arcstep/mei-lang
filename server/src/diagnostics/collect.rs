@@ -173,7 +173,7 @@ fn scan_disk(app_root: &Path) -> DiskDiagnosticsSection {
     let graph_root = build_root.join("graph");
     let scene_payload_root = graph_root.join("payloads/scene");
     let (scene_payload_file_count, scene_payload_bytes) = dir_stats(&scene_payload_root);
-    let eval_root = build_root.join("eval-artifacts");
+    let eval_root = mei_lang_kernel::resolve_app_var_root(app_root).join("eval-results");
     let (eval_artifact_file_count, eval_artifact_bytes) = dir_stats(&eval_root);
     let (_, graph_bytes) = dir_stats(&graph_root);
     let (_, data_snapshots_bytes) = dir_stats(&build_root.join("data-snapshots"));
@@ -193,7 +193,7 @@ fn scan_disk(app_root: &Path) -> DiskDiagnosticsSection {
 }
 
 fn scan_eval(app_root: &Path) -> EvalDiagnosticsSection {
-    let eval_root = mei_lang_kernel::resolve_app_build_root(app_root).join("eval-artifacts");
+    let eval_root = mei_lang_kernel::resolve_app_var_root(app_root).join("eval-results");
     let (eval_total_files, eval_total_bytes) = dir_stats(&eval_root);
     let response_dir = eval_root.join("results").join("metric-response");
     let dataframe_dir = eval_root.join("results").join("metric-dataframe");
@@ -258,11 +258,12 @@ mod tests {
     fn scan_disk_reports_subtree_bytes() {
         let app_root = temp_app_root("disk");
         let build_root = mei_lang_kernel::resolve_app_build_root(&app_root);
+        let var_root = mei_lang_kernel::resolve_app_var_root(&app_root);
         fs::create_dir_all(build_root.join("graph/payloads/scene")).expect("mkdir");
-        fs::create_dir_all(build_root.join("eval-artifacts/results/metric-response")).expect("mkdir");
+        fs::create_dir_all(var_root.join("eval-results/results/metric-response")).expect("mkdir");
         fs::write(build_root.join("graph/payloads/scene/a.json"), "abc").expect("write");
         fs::write(
-            build_root.join("eval-artifacts/results/metric-response/r.json"),
+            var_root.join("eval-results/results/metric-response/r.json"),
             "12345",
         )
         .expect("write");

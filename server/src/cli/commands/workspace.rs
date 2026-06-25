@@ -2,7 +2,9 @@ use anyhow::Result;
 use mei_lang_toolchain;
 use serde_json::json;
 
-use super::super::args::{WorkspaceArgs, WorkspaceCommand, WorkspaceRuntimeCommand};
+use super::super::args::{
+    WorkspaceArgs, WorkspaceBuildCommand, WorkspaceCommand, WorkspaceRuntimeCommand,
+};
 use super::super::util::{print_json_output, resolve_cli_source_root, resolve_package_root};
 
 pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
@@ -169,7 +171,7 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                     "report": report,
                     "status": status,
                     "force_requested": args.force,
-                    "preserved": [".mei/local/**"],
+                    "preserved": ["runtime/hosts/**", "runtime/agent/**"],
                 });
                 print_json_output(&output, args.json)
             }
@@ -204,6 +206,96 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                 "schema_version": "mei-cli-v1",
                 "command": "workspace.summary",
                 "summary": summary,
+            });
+            print_json_output(&output, args.json)
+        }
+        WorkspaceCommand::Build(args) => match args.command {
+            WorkspaceBuildCommand::Promote(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let build_id = mei_lang_kernel::promote_build(
+                    source_root.as_path(),
+                    args.build_id.as_deref(),
+                )?;
+                let links = mei_lang_kernel::read_links_state(source_root.as_path())?;
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.build.promote",
+                    "build_id": build_id,
+                    "links": links,
+                });
+                print_json_output(&output, args.json)
+            }
+            WorkspaceBuildCommand::Rollback(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let build_id = mei_lang_kernel::rollback_build(source_root.as_path())?;
+                let links = mei_lang_kernel::read_links_state(source_root.as_path())?;
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.build.rollback",
+                    "build_id": build_id,
+                    "links": links,
+                });
+                print_json_output(&output, args.json)
+            }
+            WorkspaceBuildCommand::Status(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let links = mei_lang_kernel::read_links_state(source_root.as_path())?;
+                let apps = mei_lang_kernel::discover_apps(source_root.as_path())?;
+                let build_id = links
+                    .build
+                    .active
+                    .as_deref()
+                    .or(links.build.candidate.as_deref());
+                let mut app_manifests = serde_json::Map::new();
+                if let Some(build_id) = build_id.map(str::trim).filter(|value| !value.is_empty()) {
+                    for app in &apps {
+                        let app_root =
+                            mei_lang_kernel::resolve_app_root(source_root.as_path(), app.id.as_str());
+                        let store = mei_lang_kernel::app_build_store_dir(app_root.as_path(), build_id);
+                        if let Ok(Some(manifest)) =
+                            mei_lang_kernel::read_build_manifest(store.as_path())
+                        {
+                            app_manifests.insert(app.id.clone(), serde_json::to_value(manifest)?);
+                        }
+                    }
+                }
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.build.status",
+                    "links": links,
+                    "app_manifests": app_manifests,
+                });
+                print_json_output(&output, args.json)
+            }
+        },
+        WorkspaceCommand::MigrateLegacyAppMei(args) => {
+            let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+            let mut migrated_apps = Vec::new();
+            if args.migrate_workspace {
+                mei_lang_kernel::migrate_legacy_workspace_mei(source_root.as_path())?;
+            }
+            if let Some(app_id) = args
+                .app_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                let app_root = mei_lang_kernel::resolve_app_root(source_root.as_path(), app_id);
+                mei_lang_kernel::migrate_legacy_app_mei(app_root.as_path())?;
+                migrated_apps.push(app_id.to_string());
+            } else if args.migrate_workspace || args.all_apps {
+                for app in mei_lang_kernel::discover_apps(source_root.as_path())? {
+                    let app_root =
+                        mei_lang_kernel::resolve_app_root(source_root.as_path(), app.id.as_str());
+                    mei_lang_kernel::migrate_legacy_app_mei(app_root.as_path())?;
+                    migrated_apps.push(app.id);
+                }
+            }
+            let output = json!({
+                "schema_version": "mei-cli-v1",
+                "command": "workspace.migrate-legacy-app-mei",
+                "migrated_workspace": args.migrate_workspace,
+                "migrated_apps": migrated_apps,
             });
             print_json_output(&output, args.json)
         }

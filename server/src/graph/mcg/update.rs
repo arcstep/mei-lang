@@ -236,7 +236,7 @@ pub fn update_mcg_after_compile(
         layer: "assembly".to_string(),
         payload_ref: Some(PayloadRef {
             kind: "compiled_app".to_string(),
-            relative_path: ".mei/artifacts/compiled_app/".to_string(),
+            relative_path: "artifacts/compiled_app/".to_string(),
             schema_version: "mei-compiled-app-artifact-v3".to_string(),
             content_hash: Some(compile_revision.to_string()),
         }),

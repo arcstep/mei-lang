@@ -1,23 +1,26 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::io::load_workspace_config;
+use super::build_store::{resolve_app_build_root_following_active, resolve_symlink_target};
 use super::types::{
-    WorkspaceConfig, APP_CONFIG_FILENAME, APP_BUILD_ACTIVE_REL, APP_VAR_ACTIVE_REL,
+    WorkspaceConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL, APP_VAR_ACTIVE_REL,
     DEFAULT_APPS_REL, DEFAULT_APP_SRC_REL, DEFAULT_DEPLOY_REL, DEFAULT_RUNTIME_REL,
     DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, DEFAULT_TOOLCHAIN_REL,
-    WORKSPACE_CONFIG_FILENAME,     WORKSPACE_PLATFORM_DIR_REL, WORKSPACE_RUNTIME_CACHE_REL,
+    WORKSPACE_CONFIG_FILENAME, WORKSPACE_PLATFORM_DIR_REL, WORKSPACE_RUNTIME_CACHE_REL,
     WORKSPACE_RUNTIME_LOGS_REL,
 };
 
-pub const MEI_BUNDLE_SNAPSHOT_ROOT_ENV: &str = "MEI_BUNDLE_SNAPSHOT_ROOT";
-
-/// When set, app build stores resolve under `{MEI_BUNDLE_SNAPSHOT_ROOT}/{app}/build/active/`.
-pub fn bundle_snapshot_root_from_env() -> Option<PathBuf> {
-    std::env::var(MEI_BUNDLE_SNAPSHOT_ROOT_ENV)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+pub fn resolve_symlink_target_from_link(link: &Path) -> Option<PathBuf> {
+    fs::read_link(link).ok().map(|target| {
+        if target.is_absolute() {
+            target
+        } else {
+            link.parent()
+                .map(|parent| parent.join(&target))
+                .unwrap_or(target)
+        }
+    })
 }
 
 pub fn is_app_config_root(dir: &Path) -> bool {
@@ -227,22 +230,28 @@ pub fn is_app_mei_source_rel(rel: &str) -> bool {
     rel.ends_with(".mei") || rel.starts_with("scenes/") || rel == "main.mei"
 }
 
-/// App AOT 读路径：`apps/{appId}/build/active/`。
+/// App AOT 读路径：`apps/{appId}/build/active/`（symlink 指向 `build/store/{buildId}/`）。
 pub fn resolve_app_build_root(app_root: &Path) -> PathBuf {
-    if let Some(snapshot_root) = bundle_snapshot_root_from_env() {
-        if let Some(app_name) = app_root.file_name() {
-            return snapshot_root
-                .join(app_name)
-                .join("build")
-                .join("active");
-        }
-    }
-    app_root.join(APP_BUILD_ACTIVE_REL)
+    resolve_app_build_root_following_active(app_root)
 }
 
-/// App 运行时写路径：`apps/{appId}/var/active/`。
+/// App build store 根：`apps/{appId}/build/store/{buildId}/`。
+pub fn resolve_app_build_store_root(app_root: &Path, build_id: &str) -> PathBuf {
+    app_root.join(APP_BUILD_STORE_REL).join(build_id.trim())
+}
+
+/// App 运行时写路径：`apps/{appId}/var/active/`（symlink 指向 `var/store/{buildId}/`）。
 pub fn resolve_app_var_root(app_root: &Path) -> PathBuf {
-    app_root.join(APP_VAR_ACTIVE_REL)
+    let active = app_root.join(APP_VAR_ACTIVE_REL);
+    if active.is_symlink() {
+        if let Some(target) = resolve_symlink_target(&active) {
+            return target;
+        }
+    }
+    if active.is_dir() {
+        return active;
+    }
+    active
 }
 
 /// 兼容旧名：AOT artifact store = `build/active/`。

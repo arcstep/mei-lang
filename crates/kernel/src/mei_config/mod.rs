@@ -5,6 +5,7 @@
 mod auth_bundle;
 mod authoring_helpers;
 mod authoring_policy;
+mod build_store;
 mod io;
 mod ops;
 mod shell_theme;
@@ -15,6 +16,16 @@ mod workspace_paths;
 #[cfg(test)]
 mod tests;
 
+pub use build_store::{
+    app_build_store_dir, app_var_store_dir, apply_toolchain_store_symlinks, begin_prebuild_generation,
+    clear_prebuild_build_root_override, finish_prebuild_generation, generate_build_id,
+    migrate_legacy_app_mei, migrate_legacy_workspace_mei, promote_build, read_build_manifest,
+    read_links_state, record_toolchain_install_links, resolve_active_build_id,
+    resolve_toolchain_version, rollback_build, set_prebuild_build_root_override,
+    toolchain_store_dir, write_build_manifest, write_links_state, BuildLinks, BuildManifest,
+    LinksState, PrebuildGeneration, ToolchainLinks, BUILD_MANIFEST_SCHEMA, DEV_TOOLCHAIN_VERSION,
+    LINKS_STATE_SCHEMA,
+};
 pub use auth_bundle::{
     load_workspace_auth_bundle, workspace_auth_config_path, workspace_auth_host_id,
     workspace_auth_state_dir, write_workspace_auth_bundle, WorkspaceAuthBundle,
@@ -38,7 +49,10 @@ pub use types::{
     RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WorkspaceAuthConfig, WorkspaceComplianceConfig,
     WorkspaceConfig, WorkspaceHostState, WorkspaceOpsConfig, WorkspacePathsConfig,
     WorkspaceProfile, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
-    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, APP_CONFIG_FILENAME,
+    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, WorkspaceBuildConfig,
+    WorkspaceToolchainConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL, APP_VAR_STORE_REL,
+    BUILD_MANIFEST_FILENAME, DEPLOY_LINKS_REL, PREBUILD_COMPILE_INDEX_REL, PREBUILD_DIR_REL,
+    PREBUILD_LAST_BUILD_SUMMARY_REL, TOOLCHAIN_ACTIVE_REL, TOOLCHAIN_STORE_REL,
     AUTH_JOURNAL_REL_PATH, DEFAULT_APPS_REL, DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID, DEFAULT_STOCK_AUTHORING_REL,
     DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, LEGACY_AUTH_JOURNAL_REL_PATH,
     LEGACY_WORKSPACE_AGENT_DB_REL, LEGACY_WORKSPACE_SNAPSHOT_DIR_REL,
@@ -49,13 +63,12 @@ pub use types::{
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL, WORKSPACE_SNAPSHOT_GIT_REL,
 };
 pub use workspace_paths::{
-    app_mei_config_path, bundle_snapshot_root_from_env, is_v2_app_root,
-    resolve_app_build_root, resolve_app_id, resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_root,
+    app_mei_config_path, is_v2_app_root, resolve_app_build_root, resolve_app_build_store_root,
+    resolve_app_id, resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_root,
     resolve_app_src_root, resolve_app_var_root, resolve_apps_root, resolve_authoring_root,
-    is_app_mei_source_rel,
-    resolve_components_root, resolve_deploy_root, resolve_templates_root,
+    is_app_mei_source_rel, resolve_components_root, resolve_deploy_root, resolve_templates_root,
     resolve_toolchain_root, resolve_workspace_cache_root, resolve_workspace_graph_root,
     resolve_workspace_logs_root, resolve_workspace_platform_root, resolve_workspace_runtime_root,
-    set_mei_package_root, stock_components_source, stock_templates_source, workspace_config_path,
-    MEI_BUNDLE_SNAPSHOT_ROOT_ENV,
+    set_mei_package_root, stock_components_source,
+    stock_templates_source, workspace_config_path,
 };

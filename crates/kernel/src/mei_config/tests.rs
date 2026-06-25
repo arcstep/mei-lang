@@ -310,7 +310,7 @@ fn workspace_auth_path_uses_deploy_host_when_present() {
     };
     write_workspace_config(&workspace_config_path(&dir), &workspace).expect("write workspace");
     assert_eq!(workspace_auth_host_id(&dir), "zw-spbjw");
-    assert!(workspace_auth_config_path(&dir).ends_with(".mei/local/hosts/zw-spbjw.state.json"));
+    assert!(workspace_auth_config_path(&dir).ends_with("runtime/hosts/zw-spbjw.state.json"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

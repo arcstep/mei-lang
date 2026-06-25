@@ -22,10 +22,11 @@ use mei_lang_datasets::{
     AccessMetricEvalPlan, LoadedMetricResponseArtifact, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{
-    data_snapshot_import_manifest_path, data_snapshot_store_root, resolve_app_root,
-    resolve_data_snapshot_import_entry, resolve_runtime_warmup_manifest, CompileOptions,
-    CompiledApp, DatasetView, LoadedResource, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
-    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    begin_prebuild_generation, clear_prebuild_build_root_override, data_snapshot_import_manifest_path,
+    data_snapshot_store_root, finish_prebuild_generation, resolve_app_root,
+    resolve_data_snapshot_import_entry, resolve_runtime_warmup_manifest, set_prebuild_build_root_override,
+    CompileOptions, CompiledApp, DatasetView, LoadedResource, RuntimeWarmupApp,
+    RuntimeWarmupDatasetRequest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use mei_lang_toolchain::{self as toolchain, PublishDataSnapshotsReport, WorldScope};
 use serde::{Deserialize, Serialize};
@@ -753,7 +754,7 @@ fn build_prebuild_diagnostics_report(
         .load(Ordering::Relaxed);
     let mrg_eval_skips = diagnostics.mrg_eval_skips.load(Ordering::Relaxed);
     let dataframe_eval_skips = diagnostics.dataframe_eval_skips.load(Ordering::Relaxed);
-    let eval_root = mei_lang_kernel::resolve_app_build_root(app_root).join("eval-artifacts");
+    let eval_root = mei_lang_kernel::resolve_app_var_root(app_root).join("eval-results");
     let response_dir = eval_root.join("results").join("metric-response");
     let dataframe_dir = eval_root.join("results").join("metric-dataframe");
     let current_rss_bytes = current_process_rss_bytes();
@@ -1155,14 +1156,14 @@ fn emit_prebuild_optimization_report(
     ));
 
     if prebuild_disk_diagnostics_enabled() {
-        let eval_root = mei_lang_kernel::resolve_app_build_root(app_root).join("eval-artifacts");
+        let eval_root = mei_lang_kernel::resolve_app_var_root(app_root).join("eval-results");
         let response_dir = eval_root.join("results").join("metric-response");
         let dataframe_dir = eval_root.join("results").join("metric-dataframe");
         let response_disk = dir_size_summary(response_dir.as_path());
         let dataframe_disk = dir_size_summary(dataframe_dir.as_path());
         let eval_disk = dir_size_summary(eval_root.as_path());
         prebuild_emit_progress(format!(
-            "■ 磁盘占用 | eval-artifacts 合计 {} ({} 文件)",
+            "■ 磁盘占用 | eval-results 合计 {} ({} 文件)",
             format_bytes(eval_disk.bytes),
             eval_disk.files,
         ));
@@ -2262,13 +2263,26 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             .collect::<Vec<_>>()
             .join(", ")
     ));
+    let prebuild_app_ids: Vec<String> = manifest.apps.iter().map(|app| app.app_id.clone()).collect();
+    let build_generation = Arc::new(if options.mode == PrebuildMode::Build {
+        Some(begin_prebuild_generation(source_root, &prebuild_app_ids)?)
+    } else {
+        None
+    });
     let app_results = run_limited_parallel_ordered(
         manifest.apps.clone(),
         prebuild_parallelism(manifest.apps.len()),
         |app| {
             let app_id = app.app_id.clone();
+            let app_root = resolve_app_root(source_root, app.app_id.as_str());
+            if let Some(ref gen) = *build_generation {
+                if let Some(store) = gen.store_dirs.get(&app.app_id) {
+                    set_prebuild_build_root_override(app_root.as_path(), Some(store.as_path()));
+                }
+            }
             let result =
                 run_prebuild_for_app(source_root, &app, options.mode, options.scope_profile);
+            clear_prebuild_build_root_override();
             (app_id, result)
         },
     );
@@ -2320,6 +2334,16 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
                 };
                 let _ = crate::prebuild_fingerprint::persist_prebuild_state(source_root, &state);
             }
+        }
+    }
+    if report.ok && options.mode == PrebuildMode::Build {
+        if let Some(ref gen) = *build_generation {
+            finish_prebuild_generation(source_root, gen, &prebuild_app_ids, None, None)?;
+            prebuild_emit_progress(format!(
+                "{} candidate buildId={}",
+                ansi_wrap("STORE", "1;32"),
+                gen.build_id
+            ));
         }
     }
     Ok(report)
@@ -5434,7 +5458,7 @@ fn promote_prebuild_metric_response_slot(
         bundle_revision,
         plan.dependency_revision_key.as_str(),
         plan.response_cache_key.as_str(),
-        ".mei/eval-artifacts/results/metric-response/",
+        "eval-results/results/metric-response/",
         0,
         true,
     ) {
@@ -5832,7 +5856,7 @@ fn ensure_metric_response_artifact_for_plan(
             bundle_revision.as_str(),
             plan.dependency_revision_key.as_str(),
             plan.shared_cache_key.as_str(),
-            ".mei/eval-artifacts/results/metric-response/",
+            "eval-results/results/metric-response/",
             metric_started.elapsed().as_millis() as u64,
         );
     }
@@ -6226,7 +6250,7 @@ fn ensure_metric_dataframe_artifact_for_plan(
             bundle_revision.as_str(),
             plan.dependency_revision_key.as_str(),
             plan.shared_artifact_key.as_str(),
-            ".mei/eval-artifacts/results/metric-dataframe/",
+            "eval-results/results/metric-dataframe/",
             metric_started.elapsed().as_millis() as u64,
         );
     }

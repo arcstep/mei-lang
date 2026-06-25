@@ -11,7 +11,8 @@ use walkdir::WalkDir;
 use crate::capability_catalog::CAPABILITY_CATALOG_SCHEMA_VERSION;
 use crate::{knowledge_bundle::package_root_hint, knowledge_bundle_descriptor_for_package_root};
 use mei_lang_kernel::{
-    build_runtime_warmup_manifest, resolve_toolchain_root, resolve_workspace_runtime_root,
+    apply_toolchain_store_symlinks, build_runtime_warmup_manifest, record_toolchain_install_links,
+    resolve_toolchain_root, resolve_workspace_runtime_root, toolchain_store_dir,
     RuntimeWarmupManifest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 
@@ -195,6 +196,10 @@ fn workspace_platform_dir(workspace_root: &Path) -> PathBuf {
 
 fn workspace_runtime_bin_dir(workspace_root: &Path) -> PathBuf {
     resolve_toolchain_root(workspace_root).join("bin")
+}
+
+fn workspace_store_bin_dir(workspace_root: &Path, toolchain_version: &str) -> PathBuf {
+    toolchain_store_dir(workspace_root, toolchain_version).join("bin")
 }
 
 fn workspace_catalog_dir(workspace_root: &Path) -> PathBuf {
@@ -459,22 +464,25 @@ fn try_resolve_runtime_binary(package_root: &Path, env_key: &str, base: &str) ->
 
 fn build_runtime_binary_set_for_package_root(
     package_root: &Path,
+    target_root: &Path,
 ) -> Result<Vec<(&'static str, PathBuf, PathBuf)>> {
+    let version = TOOLCHAIN_VERSION;
+    let store_bin = workspace_store_bin_dir(target_root, version);
     let mut binaries = vec![
         (
             "mei-toolchain",
             PathBuf::new(),
-            workspace_runtime_bin_dir(Path::new("")).join(binary_file_name("mei-toolchain")),
+            store_bin.join(binary_file_name("mei-toolchain")),
         ),
         (
             "mei-lsp",
             PathBuf::new(),
-            workspace_runtime_bin_dir(Path::new("")).join(binary_file_name("mei-lsp")),
+            store_bin.join(binary_file_name("mei-lsp")),
         ),
         (
             "mei-host-web",
             PathBuf::new(),
-            workspace_runtime_bin_dir(Path::new("")).join(binary_file_name("mei-host-web")),
+            store_bin.join(binary_file_name("mei-host-web")),
         ),
     ];
     let env_keys = [
@@ -527,9 +535,15 @@ fn build_runtime_binary_set_for_package_root(
                 package_root.join("target/release").display()
             )
         })?;
-        *destination = workspace_runtime_bin_dir(Path::new("")).join(binary_file_name(name));
+        *destination = store_bin.join(binary_file_name(name));
     }
     Ok(binaries)
+}
+
+fn finalize_toolchain_store_layout(target_root: &Path) -> Result<()> {
+    apply_toolchain_store_symlinks(target_root, TOOLCHAIN_VERSION)?;
+    record_toolchain_install_links(target_root, TOOLCHAIN_VERSION)?;
+    Ok(())
 }
 
 pub fn workspace_runtime_version_descriptor() -> WorkspaceRuntimeVersionDescriptor {
@@ -1069,10 +1083,10 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 HOST="${MEI_HOST:-127.0.0.1}"
 PORT="${MEI_PORT:-9527}"
-URL="http://${HOST}:${PORT}"
 TOOLCHAIN_MODE="${MEI_TOOLCHAIN_MODE:-cargo}"
 MEI_LANG_ROOT="${MEI_LANG_ROOT:-${WORKSPACE_ROOT}/../../mei-lang}"
 INSTALLED_HOST_BIN="${WORKSPACE_ROOT}/toolchain/bin/mei-host-web"
+LINKS_JSON="${WORKSPACE_ROOT}/deploy/state/links.json"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -1084,15 +1098,37 @@ while [[ $# -gt 0 ]]; do
       TOOLCHAIN_MODE="${1#*=}"
       shift
       ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --port=*)
+      PORT="${1#*=}"
+      shift
+      ;;
+    --host)
+      HOST="$2"
+      shift 2
+      ;;
+    --host=*)
+      HOST="${1#*=}"
+      shift
+      ;;
     *)
       break
       ;;
   esac
 done
 
+URL="http://${HOST}:${PORT}"
+
 echo "MeiLang workspace: ${WORKSPACE_ROOT}"
 echo "Toolchain mode: ${TOOLCHAIN_MODE}"
+echo "Listen: ${HOST}:${PORT}"
 echo "Open: ${URL}"
+if [[ -f "${LINKS_JSON}" && "${TOOLCHAIN_MODE}" == "installed" ]]; then
+  echo "Links: ${LINKS_JSON} (toolchain.active should match toolchain/MANIFEST.json#version)"
+fi
 echo ""
 
 if [[ "${TOOLCHAIN_MODE}" == "cargo" ]]; then
@@ -1131,7 +1167,7 @@ cat >&2 <<EOF
 error: cannot find mei-host-web for installed mode.
 
 Try one of:
-  1. ./deploy/start.sh --toolchain-mode cargo
+  1. ./deploy/start.sh --toolchain-mode cargo --port ${PORT}
   2. mei-toolchain workspace runtime install --source-root "${WORKSPACE_ROOT}" --force
   3. export MEI_HOST_WEB_BIN=/path/to/mei-host-web
 
@@ -1245,12 +1281,12 @@ fn write_runtime_projection_files(
 ) -> Result<Vec<EditorRuntimeScaffoldFile>> {
     let mut files = Vec::new();
     for (_, source_path, destination_path) in
-        build_runtime_binary_set_for_package_root(package_root)?
+        build_runtime_binary_set_for_package_root(package_root, target_root)?
     {
         files.push(copy_runtime_binary(
             target_root,
             &source_path,
-            &target_root.join(destination_path),
+            &destination_path,
             force,
         )?);
     }
@@ -1303,21 +1339,22 @@ fn write_runtime_projection_files(
     files.push(copy_runtime_file(
         target_root,
         &package_root.join("scripts/mcp/mei-author-stdio-adapter.mjs"),
-        &workspace_runtime_bin_dir(target_root).join("author-mcp-adapter"),
+        &workspace_store_bin_dir(target_root, TOOLCHAIN_VERSION).join("author-mcp-adapter"),
         force,
     )?);
     files.push(copy_runtime_file(
         target_root,
         &package_root.join("scripts/mcp/mei-access-stdio-adapter.mjs"),
-        &workspace_runtime_bin_dir(target_root).join("access-mcp-adapter"),
+        &workspace_store_bin_dir(target_root, TOOLCHAIN_VERSION).join("access-mcp-adapter"),
         force,
     )?);
     files.push(copy_runtime_file(
         target_root,
         &package_root.join("scripts/mcp/mcp-adapter-common.mjs"),
-        &workspace_runtime_bin_dir(target_root).join("mcp-adapter-common.mjs"),
+        &workspace_store_bin_dir(target_root, TOOLCHAIN_VERSION).join("mcp-adapter-common.mjs"),
         force,
     )?);
+    finalize_toolchain_store_layout(target_root)?;
     Ok(files)
 }
 
@@ -1364,9 +1401,15 @@ fn write_common_runtime_files(
         &render_workspace_runtime_version_json()?,
         force,
     )?);
+    let manifest_json = render_workspace_runtime_manifest_json(package_root)?;
+    files.push(write_file(
+        &toolchain_store_dir(target_root, TOOLCHAIN_VERSION).join("MANIFEST.json"),
+        &manifest_json,
+        force,
+    )?);
     files.push(write_file(
         &resolve_toolchain_root(target_root).join("MANIFEST.json"),
-        &render_workspace_runtime_manifest_json(package_root)?,
+        &manifest_json,
         force,
     )?);
     files.push(write_file(
