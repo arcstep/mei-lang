@@ -50,8 +50,9 @@ pub use types::{
 };
 pub use workspace_paths::{
     app_mei_config_path, bundle_snapshot_root_from_env, is_v2_app_root,
-    resolve_app_build_root, resolve_app_id, resolve_app_mei_store_root, resolve_app_root,
+    resolve_app_build_root, resolve_app_id, resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_root,
     resolve_app_src_root, resolve_app_var_root, resolve_apps_root, resolve_authoring_root,
+    is_app_mei_source_rel,
     resolve_components_root, resolve_deploy_root, resolve_templates_root,
     resolve_toolchain_root, resolve_workspace_cache_root, resolve_workspace_graph_root,
     resolve_workspace_logs_root, resolve_workspace_platform_root, resolve_workspace_runtime_root,

@@ -660,6 +660,7 @@ mod tests {
             startup_policy: "background-build".into(),
             auto_agent: false,
             sync_agent_skill: false,
+            toolchain_mode: "installed".into(),
         });
         assert!(ensure_command_allowed(BinaryFlavor::Toolchain, &command).is_err());
     }

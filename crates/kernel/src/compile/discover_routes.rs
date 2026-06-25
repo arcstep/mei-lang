@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use anyhow::Result;
@@ -234,7 +234,7 @@ pub(super) fn push_app_config_diagnostics(app_root: &Path, diagnostics: &mut Vec
     }
     let config = load_mei_config_for_app(app_root, None);
     let entry_main = config.entry.main_rel();
-    let entry_path = app_root.join(&entry_main);
+    let entry_path = crate::mei_config::resolve_app_mei_file_path(app_root, &entry_main);
     if !entry_path.is_file() {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -431,7 +431,11 @@ pub(super) fn inject_discovered_entry_scene_routes(
             continue;
         };
         let rel_str = rel.to_string_lossy().replace('\\', "/");
-        let full: PathBuf = app_root.join(rel);
+        let rel_str = rel_str
+            .strip_prefix("src/")
+            .map(str::to_string)
+            .unwrap_or(rel_str);
+        let full = crate::mei_config::resolve_app_mei_file_path(app_root, rel_str.as_str());
         mei_files.push((rel_str, file_modified_ms(&full)));
     }
     mei_files.sort_by(|a, b| b.1.cmp(&a.1));

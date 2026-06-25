@@ -109,7 +109,7 @@ pub(super) fn load_world_from_file(
     relative_path: &str,
     world_id: Option<&str>,
 ) -> Result<crate::model::WorldDecl> {
-    let source_path = app_root.join(relative_path);
+    let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
     let mut worlds = Vec::new();
     let mut pending_resources = Vec::new();
@@ -258,7 +258,7 @@ pub(super) fn load_frame_from_file(
     relative_path: &str,
     frame_id: Option<&str>,
 ) -> Result<FrameDecl> {
-    let source_path = app_root.join(relative_path);
+    let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
     let mut frames = load_frame_decl_values(&decls)?;
     let mut pending_layout: Option<crate::model::LayoutDecl> = None;
@@ -330,7 +330,7 @@ pub(super) fn load_flow_from_file(
     relative_path: &str,
     flow_id: Option<&str>,
 ) -> Result<FlowDecl> {
-    let source_path = app_root.join(relative_path);
+    let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
     let mut flows = Vec::new();
     if let Some(values) = decls.as_array() {
@@ -367,7 +367,7 @@ pub(super) fn load_panel_from_scene_file(
     relative_path: &str,
     panel_id: &str,
 ) -> Result<PanelDecl> {
-    let source_path = app_root.join(relative_path);
+    let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
     load_panel_decl_values(&decls)?
         .into_iter()
@@ -379,7 +379,7 @@ pub(super) fn load_scene_decls_from_file(
     app_root: &Path,
     relative_path: &str,
 ) -> Result<Vec<SceneDecl>> {
-    let source_path = app_root.join(relative_path);
+    let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
     load_scene_decl_values(app_root, relative_path, &decls)
 }
@@ -472,7 +472,7 @@ pub(super) fn load_block_from_scene_file(
     block_id: Option<&str>,
     use_key: Option<&str>,
 ) -> Result<Value> {
-    let source_path = app_root.join(relative_path);
+    let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
     let mut candidates = Vec::new();
     if let Some(values) = decls.as_array() {

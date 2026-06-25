@@ -181,11 +181,11 @@ pub(crate) fn scene_payload_cache_key(
     if target_file.is_empty() {
         return None;
     }
-    let target_path = app_root.join(&target_file);
+    let target_path = crate::mei_config::resolve_app_mei_file_path(app_root, &target_file);
     if !target_path.is_file() {
         return None;
     }
-    let main_path = app_root.join("main.mei");
+    let main_path = crate::mei_config::resolve_app_mei_file_path(app_root, "main.mei");
     Some(format!(
         "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|scene={}|{}|{}|{}|{}|authoring={}",
         app_root.display(),

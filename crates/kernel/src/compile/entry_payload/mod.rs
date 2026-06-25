@@ -76,7 +76,7 @@ fn load_entry_decls(app_root: &Path, app_decls: &Value, target_file: &str) -> Re
     if target_file == crate::mei_config::resolve_app_entry_main(app_root) {
         Ok(app_decls.clone())
     } else {
-        let entry_path = app_root.join(target_file);
+        let entry_path = crate::mei_config::resolve_app_mei_file_path(app_root, target_file);
         evaluate_mei_file_cached(&entry_path)
     }
 }

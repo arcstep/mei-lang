@@ -4,6 +4,7 @@ use std::path::Path;
 use mei_lang_kernel::CompiledApp;
 use serde::{Deserialize, Serialize};
 
+use crate::graph::content_store::{self, content_store_enabled};
 use crate::graph::io::write_json_registry;
 use crate::graph::paths::panel_contract_artifact_dir;
 use crate::graph::types::stable_hash;
@@ -16,6 +17,12 @@ pub struct PanelContractRecord {
     pub revision: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relative_path: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PersistedPanelContract {
+    pub relative_path: String,
+    pub content_hash: Option<String>,
 }
 
 pub fn extract_panel_contracts(compiled: &CompiledApp) -> Vec<PanelContractRecord> {
@@ -55,16 +62,39 @@ fn extract_from_contract(
 pub fn persist_panel_contracts(
     app_root: &Path,
     records: &[PanelContractRecord],
-) -> anyhow::Result<BTreeMap<String, String>> {
-    let dir = panel_contract_artifact_dir(app_root);
-    std::fs::create_dir_all(&dir)?;
+) -> anyhow::Result<BTreeMap<String, PersistedPanelContract>> {
     let mut paths = BTreeMap::new();
     for record in records {
+        let bytes = serde_json::to_vec(record)?;
+        if content_store_enabled() {
+            let put = content_store::put_if_absent(app_root, "panel_contract", &bytes)?;
+            let rel = put
+                .path
+                .strip_prefix(app_root)
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| put.path.display().to_string());
+            paths.insert(
+                record.panel_key.clone(),
+                PersistedPanelContract {
+                    relative_path: rel,
+                    content_hash: Some(put.content_hash),
+                },
+            );
+            continue;
+        }
+        let dir = panel_contract_artifact_dir(app_root);
+        std::fs::create_dir_all(&dir)?;
         let slug = record.panel_key.replace([':', '/'], "-");
-        let rel = format!(".mei/graph/payloads/panel/{slug}.json");
+        let rel = format!("build/active/graph/payloads/panel/{slug}.json");
         let path = app_root.join(&rel);
         write_json_registry(&path, record)?;
-        paths.insert(record.panel_key.clone(), rel);
+        paths.insert(
+            record.panel_key.clone(),
+            PersistedPanelContract {
+                relative_path: rel,
+                content_hash: None,
+            },
+        );
     }
     Ok(paths)
 }

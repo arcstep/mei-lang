@@ -1,6 +1,7 @@
 //! MCG/MRG dual-graph registry (see docs `80` / `80b`).
 
 pub mod bridge;
+pub mod content_store;
 pub mod dedup;
 pub mod feature;
 pub mod integration;

@@ -19,6 +19,9 @@ starlark.workspace = true
 thiserror.workspace = true
 walkdir.workspace = true
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 default = []
 polars = []

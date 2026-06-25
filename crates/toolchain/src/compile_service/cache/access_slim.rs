@@ -17,6 +17,20 @@ pub fn access_slim_artifacts_enabled() -> bool {
     })
 }
 
+const CONTENT_STORE_ENV: &str = "MEI_CONTENT_STORE";
+
+/// Phase G: when true (default), compiled_app per-scope blobs are superseded by scene_payload CAS.
+pub fn content_store_preferred() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| match std::env::var(CONTENT_STORE_ENV) {
+        Ok(value) => {
+            let trimmed = value.trim();
+            !(trimmed == "0" || trimmed.eq_ignore_ascii_case("false"))
+        }
+        Err(_) => true,
+    })
+}
+
 const CANONICAL_ARTIFACT_PERSIST_ENV: &str = "MEI_CANONICAL_ARTIFACT_PERSIST";
 
 /// When true (default), only persist compiled_app for canonical scopes (not board overlay scene+target).

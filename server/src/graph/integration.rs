@@ -56,15 +56,6 @@ pub fn maybe_update_graph_after_compile(
 
 use crate::graph::types::GraphNodeKind;
 
-fn assembled_compiled_supports_metric_eval(compiled: &CompiledApp) -> bool {
-    compiled.resources.iter().any(|resource| {
-        resource
-            .dataset
-            .as_ref()
-            .is_some_and(|dataset| dataset.has_runtime_metric_defs())
-    })
-}
-
 fn merge_compiled_runtime_catalog(into: &mut CompiledApp, donor: &CompiledApp) {
     for resource in &donor.resources {
         if into.resources.iter().any(|existing| existing.id == resource.id) {
@@ -111,7 +102,7 @@ fn backfill_assembled_runtime_catalog(app_root: &Path, target: &str, compiled: &
         fallback_targets.push("scenes/home.mei".to_string());
     }
     for fallback_target in fallback_targets {
-        let Some(artifact) = load_scene_payload_artifact(app_root, fallback_target.as_str(), None)
+        let Some(artifact) = load_scene_payload_artifact(app_root, fallback_target.as_str(), None, None)
             .ok()
             .flatten()
         else {
@@ -142,7 +133,7 @@ pub fn hydrate_world_metrics_from_scene_payload(
         return false;
     }
     let app_root = resolve_app_root(source_root, app_id);
-    let Some(artifact) = load_scene_payload_artifact(app_root.as_path(), target, None)
+    let Some(artifact) = load_scene_payload_artifact(app_root.as_path(), target, None, None)
         .ok()
         .flatten()
     else {
@@ -185,16 +176,23 @@ pub fn try_assemble_scope_from_scene_payload(
                 .and_then(|payload| payload.content_hash.clone())
         })
         .unwrap_or_default();
+    let scene_node = mcg.nodes.iter().find(|node| {
+        node.id.kind == GraphNodeKind::ScenePayload && node.id.key == target
+    });
+    let content_hash = scene_node
+        .and_then(|node| node.payload_ref.as_ref())
+        .and_then(|payload| payload.content_hash.as_deref());
     let app_root = resolve_app_root(source_root, app_id);
     let artifact = load_scene_payload_artifact(
         app_root.as_path(),
         target,
         expected_revision.as_deref(),
+        content_hash,
     )
     .ok()
     .flatten()?;
     let mut compiled: CompiledApp = serde_json::from_value(artifact.payload).ok()?;
-    if let Ok(Some(skeleton)) = load_app_skeleton_artifact(app_root.as_path()) {
+    if let Ok(Some(skeleton)) = load_app_skeleton_artifact(app_root.as_path(), None) {
         merge_app_skeleton_into_compiled(&mut compiled, &skeleton);
     }
     backfill_assembled_runtime_catalog(app_root.as_path(), target, &mut compiled);
@@ -208,15 +206,12 @@ pub fn try_assemble_scope_from_scene_payload(
             .map(str::to_string),
         preview_target: Some(target.to_string()),
     };
-    if !mei_lang_toolchain::hydrate_compiled_app_from_disk_artifacts(
+    let _ = mei_lang_toolchain::hydrate_compiled_app_from_disk_artifacts(
         source_root,
         app_id,
         &compile_options,
         &mut compiled,
-    ) || !assembled_compiled_supports_metric_eval(&compiled)
-    {
-        return None;
-    }
+    );
     Some((
         assemble_scope_view(compiled, active_scene, Some(target)),
         compile_revision,

@@ -24,7 +24,7 @@ use crate::artifact_store::{
 };
 use crate::types::WorldScope;
 pub use access_slim::{
-    access_slim_artifacts_enabled, canonical_artifact_persist_enabled,
+    access_slim_artifacts_enabled, canonical_artifact_persist_enabled, content_store_preferred,
     should_persist_compiled_app_artifact, slim_compiled_app_for_access,
     strip_loaded_compiled_app_for_access,
 };
@@ -523,6 +523,9 @@ fn maybe_write_compiled_app_artifact(
     compiled: &CompiledApp,
 ) {
     if !compiled_app_artifact_enabled() {
+        return;
+    }
+    if content_store_preferred() {
         return;
     }
     if !should_persist_compiled_app_artifact(
@@ -1310,7 +1313,11 @@ pub(super) fn watched_files_are_fresh(
     }
     let app_root = resolve_app_root(source_root, app_id);
     entry.watched_files.iter().all(|watched| {
-        let path = app_root.join(&watched.rel_path);
+        let path = if mei_lang_kernel::is_app_mei_source_rel(watched.rel_path.as_str()) {
+            mei_lang_kernel::resolve_app_mei_file_path(&app_root, watched.rel_path.as_str())
+        } else {
+            app_root.join(&watched.rel_path)
+        };
         let Ok(metadata) = std::fs::metadata(&path) else {
             return false;
         };

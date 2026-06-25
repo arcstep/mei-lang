@@ -184,6 +184,49 @@ pub fn resolve_app_src_root(app_root: &Path) -> PathBuf {
     app_root.join(DEFAULT_APP_SRC_REL)
 }
 
+fn normalize_app_rel_path(rel: &str) -> String {
+    rel.trim().trim_start_matches("./").replace('\\', "/")
+}
+
+/// 将 app 内逻辑相对路径解析为磁盘路径（v2：`*.mei` 在 `src/` 下；config 在 app 根）。
+pub fn resolve_app_mei_file_path(app_root: &Path, rel: &str) -> PathBuf {
+    let rel = normalize_app_rel_path(rel);
+    if rel.is_empty() {
+        return resolve_app_src_root(app_root);
+    }
+    if Path::new(&rel).is_absolute() {
+        return PathBuf::from(rel);
+    }
+    if rel.starts_with("src/") {
+        return app_root.join(rel);
+    }
+    if rel == APP_CONFIG_FILENAME {
+        return app_root.join(rel);
+    }
+    if rel.ends_with(".mei") {
+        let under_src = resolve_app_src_root(app_root).join(&rel);
+        if under_src.is_file() {
+            return under_src;
+        }
+        let legacy = app_root.join(&rel);
+        if legacy.is_file() {
+            return legacy;
+        }
+        return under_src;
+    }
+    let under_src = resolve_app_src_root(app_root).join(&rel);
+    if under_src.is_file() {
+        return under_src;
+    }
+    app_root.join(&rel)
+}
+
+/// 逻辑路径是否指向 Mei 源码（watch set / dependency 用逻辑名，open 用 [`resolve_app_mei_file_path`]）。
+pub fn is_app_mei_source_rel(rel: &str) -> bool {
+    let rel = normalize_app_rel_path(rel);
+    rel.ends_with(".mei") || rel.starts_with("scenes/") || rel == "main.mei"
+}
+
 /// App AOT 读路径：`apps/{appId}/build/active/`。
 pub fn resolve_app_build_root(app_root: &Path) -> PathBuf {
     if let Some(snapshot_root) = bundle_snapshot_root_from_env() {
@@ -245,6 +288,17 @@ mod tests {
             resolve_app_build_root(&app),
             app.join("build/active")
         );
+    }
+
+    #[test]
+    fn resolve_app_mei_file_path_v2_layout() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = tmp.path().join("apps/hello");
+        fs::create_dir_all(app.join("src/scenes")).expect("mkdir");
+        fs::write(app.join("src/main.mei"), "app(id=hello)").expect("write");
+        fs::write(app.join("src/scenes/home.mei"), "scene(id=home)").expect("write");
+        assert!(resolve_app_mei_file_path(&app, "main.mei").is_file());
+        assert!(resolve_app_mei_file_path(&app, "scenes/home.mei").is_file());
     }
 
     fn resolve_app_main_path(app_root: &Path) -> PathBuf {

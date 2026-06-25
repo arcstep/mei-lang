@@ -5,6 +5,7 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
+use crate::mei_config::resolve_app_mei_file_path;
 use crate::model::CompiledSceneRoute;
 
 use super::catalog::{extract_from_dataset_tokens, extract_metric_ref_tokens};
@@ -141,7 +142,8 @@ impl DependencyGraph {
         let closure = self.closure_for_target(app_root, app_decls, target_file);
         let mut parts = Vec::<String>::new();
         for rel in &closure {
-            let signature = file_content_signature(&app_root.join(rel), rel.as_str());
+            let path = resolve_app_mei_file_path(app_root, rel.as_str());
+            let signature = file_content_signature(path.as_path(), rel.as_str());
             parts.push(format!("{rel}@{signature}"));
         }
         if parts.is_empty() {
@@ -279,7 +281,7 @@ fn collect_direct_dependencies(
     let decls = if target == "main.mei" {
         Some(app_decls.clone())
     } else {
-        evaluate_mei_file_cached(&app_root.join(&target)).ok()
+        evaluate_mei_file_cached(&resolve_app_mei_file_path(app_root, &target)).ok()
     };
 
     if let Some(values) = decls.as_ref().and_then(Value::as_array) {
@@ -290,7 +292,7 @@ fn collect_direct_dependencies(
         collect_ref_scene_files_from_value(value, &mut deps);
     }
 
-    if let Ok(content) = std::fs::read_to_string(app_root.join(&target)) {
+    if let Ok(content) = std::fs::read_to_string(resolve_app_mei_file_path(app_root, &target)) {
         for from_dataset in extract_from_dataset_tokens(&content) {
             let dep = normalize_rel_path(&from_dataset);
             if dep.ends_with(".mei") {
@@ -322,11 +324,11 @@ fn dependency_graph_cache_key(app_root: &Path, routes: &[CompiledSceneRoute]) ->
         if target.is_empty() {
             continue;
         }
-        let mtime = file_mtime_ms(&app_root.join(&target));
+        let mtime = file_mtime_ms(&resolve_app_mei_file_path(app_root, &target));
         parts.push(format!("{target}@{mtime}"));
     }
     parts.sort();
-    let app_mtime = file_mtime_ms(&app_root.join("main.mei"));
+    let app_mtime = file_mtime_ms(&resolve_app_mei_file_path(app_root, "main.mei"));
     format!(
         "{}|main@{app_mtime}|{}",
         app_root.display(),
@@ -354,4 +356,54 @@ fn file_content_signature(path: &Path, rel: &str) -> String {
         cache.insert(key, signature.clone());
     }
     signature
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    use crate::model::CompiledSceneRoute;
+
+    #[test]
+    fn v2_layout_dependency_closure_includes_scene_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = tmp.path().join("apps/demo");
+        fs::create_dir_all(app.join("src/scenes")).expect("mkdir");
+        fs::write(
+            app.join("src/main.mei"),
+            r#"[
+  {"kind":"app","id":"demo"},
+  {"kind":"ref","scene":"scenes/home.mei"}
+]"#,
+        )
+        .expect("write main");
+        fs::write(app.join("src/scenes/home.mei"), r#"scene(id=home)"#).expect("write scene");
+        let app_decls = evaluate_mei_file_cached(&resolve_app_mei_file_path(&app, "main.mei"))
+            .expect("main decls");
+        let routes = vec![CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "scenes/home.mei".to_string(),
+            kind: "scene".to_string(),
+            title: None,
+            is_default: true,
+            access_export: true,
+        }];
+        let graph = DependencyGraph::build(&app, &app_decls, &routes);
+        let closure = graph
+            .target_closures
+            .get("scenes/home.mei")
+            .cloned()
+            .unwrap_or_default();
+        assert!(closure.contains("scenes/home.mei"));
+        assert!(
+            resolve_app_mei_file_path(&app, "scenes/home.mei").is_file(),
+            "v2 src path must resolve scene file"
+        );
+        assert!(
+            file_mtime_ms(&resolve_app_mei_file_path(&app, "scenes/home.mei")) > 0,
+            "scene mtime must be readable via v2 path"
+        );
+    }
 }

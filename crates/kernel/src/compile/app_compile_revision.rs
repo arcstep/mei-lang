@@ -227,7 +227,7 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
     let watched_files = watched_paths
         .into_iter()
         .map(|rel_path| {
-            let path = app_root.join(&rel_path);
+            let path = crate::mei_config::resolve_app_mei_file_path(app_root, &rel_path);
             let metadata = std::fs::metadata(&path).ok();
             CompileWatchedFile {
                 content_signature: path.is_file().then(|| {

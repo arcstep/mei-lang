@@ -79,7 +79,7 @@ pub fn update_mcg_after_compile(
         compiled.clone()
     };
 
-    if let Ok(rel) = persist_scene_payload_artifact(
+    if let Ok(persisted) = persist_scene_payload_artifact(
         app_root.as_path(),
         target_file.as_str(),
         scene_revision.as_str(),
@@ -95,9 +95,9 @@ pub fn update_mcg_after_compile(
             layer: "compile".to_string(),
             payload_ref: Some(PayloadRef {
                 kind: "scene_payload".to_string(),
-                relative_path: rel,
+                relative_path: persisted.relative_path,
                 schema_version: super::scene_payload::SCENE_PAYLOAD_ARTIFACT_SCHEMA.to_string(),
-                content_hash: None,
+                content_hash: persisted.content_hash,
             }),
             deps: Vec::new(),
             defs_fingerprint: None,
@@ -123,7 +123,8 @@ pub fn update_mcg_after_compile(
             .is_none_or(str::is_empty);
     if is_world_compile {
         let sk_rev = app_skeleton_revision(dependency_fingerprint);
-        if let Ok(rel) = persist_app_skeleton_artifact(app_root.as_path(), sk_rev.as_str(), compiled)
+        if let Ok(persisted) =
+            persist_app_skeleton_artifact(app_root.as_path(), sk_rev.as_str(), compiled)
         {
             registry.upsert_node(McgNodeRecord {
                 id: GraphNodeId::new(GraphNodeKind::AppSkeleton, app_id.to_string()),
@@ -132,9 +133,9 @@ pub fn update_mcg_after_compile(
                 layer: "compile".to_string(),
                 payload_ref: Some(PayloadRef {
                     kind: "app_skeleton".to_string(),
-                    relative_path: rel,
+                    relative_path: persisted.relative_path,
                     schema_version: super::app_skeleton::APP_SKELETON_ARTIFACT_SCHEMA.to_string(),
-                    content_hash: None,
+                    content_hash: persisted.content_hash,
                 }),
                 deps: Vec::new(),
                 defs_fingerprint: None,
@@ -170,10 +171,14 @@ pub fn update_mcg_after_compile(
     }
 
     let mut panel_contracts = extract_panel_contracts(compiled);
+    let mut panel_persisted = BTreeMap::new();
     if graph_registry_dedup_enabled() {
         if let Ok(paths) = persist_panel_contracts(app_root.as_path(), panel_contracts.as_slice()) {
             for panel in &mut panel_contracts {
-                panel.relative_path = paths.get(&panel.panel_key).cloned();
+                if let Some(persisted) = paths.get(&panel.panel_key) {
+                    panel.relative_path = Some(persisted.relative_path.clone());
+                    panel_persisted.insert(panel.panel_key.clone(), persisted.content_hash.clone());
+                }
             }
         }
     }
@@ -187,7 +192,7 @@ pub fn update_mcg_after_compile(
                 kind: "panel_contract".to_string(),
                 relative_path: rel.clone(),
                 schema_version: "mei-panel-contract-artifact-v1".to_string(),
-                content_hash: None,
+                content_hash: panel_persisted.get(&panel.panel_key).cloned().flatten(),
             }),
             deps: vec![format!("scene_payload:{target_file}")],
             defs_fingerprint: None,
@@ -266,6 +271,17 @@ pub fn update_mcg_after_compile(
     mrg.finalize();
     MrgRegistryWriter::save(source_root, &mrg)?;
 
+    let routes = compiled
+        .scene_routes
+        .iter()
+        .map(|route| (route.scene_id.clone(), route.target_file.clone()))
+        .collect::<Vec<_>>();
+    if let Err(error) =
+        crate::graph::mrg::navigation::sync_navigation_registry(source_root, app_id, &routes)
+    {
+        tracing::warn!(app_id = %app_id, error = %error, "failed to sync MRG navigation registry");
+    }
+
     Ok(outcome)
 }
 
@@ -322,7 +338,7 @@ fn panel_only_scene_payload_compiled(
         return compiled.clone();
     };
     let Ok(Some(previous)) =
-        load_scene_payload_artifact(app_root, target_file, Some(previous_scene_rev))
+        load_scene_payload_artifact(app_root, target_file, Some(previous_scene_rev), None)
     else {
         return compiled.clone();
     };

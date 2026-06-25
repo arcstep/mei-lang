@@ -272,7 +272,7 @@ fn load_resources_from_capsule_file_recursive(
             insert_resource_if_absent(&mut resources, resource);
         }
     }
-    let source_path = app_root.join(relative_path);
+    let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
     let decls = super::super::decl_file_cache::evaluate_mei_file_cached(&source_path)?;
     let mut nested_paths = BTreeSet::new();
     if let Some(values) = decls.as_array() {
