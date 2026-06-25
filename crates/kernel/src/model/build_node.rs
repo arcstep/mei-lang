@@ -199,6 +199,7 @@ impl BuildNodeId {
         if key.is_empty() {
             return None;
         }
+        let kind = normalize_legacy_catalog_kind(kind, key);
         Some(Self {
             kind,
             key: key.to_string(),
@@ -225,6 +226,18 @@ impl BuildNodeId {
                 .copied()
                 .unwrap_or(Overview),
         }
+    }
+}
+
+fn is_template_file_catalog_key(key: &str) -> bool {
+    key.contains('/') || key.ends_with(".mei")
+}
+
+fn normalize_legacy_catalog_kind(kind: BuildNodeKind, key: &str) -> BuildNodeKind {
+    if kind == BuildNodeKind::Template && !is_template_file_catalog_key(key) {
+        BuildNodeKind::Component
+    } else {
+        kind
     }
 }
 

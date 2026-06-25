@@ -16,11 +16,17 @@ pub(crate) fn preview_view(
     route_mode: UiRouteMode,
     world_semantic: WorldSemanticQuery<'_>,
     build_preview_scope: Option<&str>,
+    build_preview_component_use_key: Option<&str>,
 ) -> AnyView {
     let mut live_config_loaded = MeiConfig::default();
     let scene_live_config =
         theme::scene_live_config_for_compiled(compiled, None, &mut live_config_loaded);
-    let runtime_ctx = build_preview_runtime_context(compiled, route_mode, build_preview_scope);
+    let runtime_ctx = build_preview_runtime_context(
+        compiled,
+        route_mode,
+        build_preview_scope,
+        build_preview_component_use_key,
+    );
 
     let preview_scene_path = {
         let selected = selected_target.trim();

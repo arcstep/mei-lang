@@ -1,8 +1,8 @@
-# Proof: chart.* common contract (`data` + `mapping`) on the app + scene mainline.
+# Proof: chart.pie / chart.donut / chart.rose composition mapping.
 
 app(
-    id = "author-example-chart",
-    title = "Author Example Chart",
+    id = "author-example-chart-composition",
+    title = "Author Example Chart Composition",
     default_scene = "home",
 )
 
@@ -11,7 +11,7 @@ scene(
     world = "home_world",
     frame = "home_frame",
     profile = "chart",
-    summary = "Minimal chart baseline for the standalone author package.",
+    summary = "Composition charts for donut/pie/rose preview.",
 )
 
 world(
@@ -32,19 +32,18 @@ frame(
 )
 
 frame.add_panel(
-    id = "trend_panel",
+    id = "donut_panel",
     area = "auto",
     blocks = [
         component(
-            "chart.line",
+            "chart.donut",
             area = "auto",
             props = {
-                "title": "Revenue by month",
+                "title": "Revenue donut",
                 "data": dataset_ref(id = "chart_data"),
                 "mapping": {
-                    "x": [{"field": "month", "name": "Month"}],
+                    "label": [{"field": "label", "name": "Series"}],
                     "y": [{"field": "revenue", "name": "Revenue"}],
-                    "group": [{"field": "label", "name": "Series"}],
                 },
             },
         ),
@@ -52,19 +51,18 @@ frame.add_panel(
 )
 
 frame.add_panel(
-    id = "area_panel",
+    id = "pie_panel",
     area = "auto",
     blocks = [
         component(
-            "chart.area",
+            "chart.pie",
             area = "auto",
             props = {
-                "title": "Revenue area",
+                "title": "Revenue composition",
                 "data": dataset_ref(id = "chart_data"),
                 "mapping": {
-                    "x": [{"field": "month", "name": "Month"}],
+                    "label": [{"field": "label", "name": "Series"}],
                     "y": [{"field": "revenue", "name": "Revenue"}],
-                    "group": [{"field": "label", "name": "Series"}],
                 },
             },
         ),
@@ -72,20 +70,18 @@ frame.add_panel(
 )
 
 frame.add_panel(
-    id = "ranking_panel",
+    id = "rose_panel",
     area = "auto",
     blocks = [
         component(
-            "chart.ranking",
+            "chart.rose",
             area = "auto",
             props = {
-                "title": "Orders ranking",
+                "title": "Revenue rose",
                 "data": dataset_ref(id = "chart_data"),
-                "showBackground": True,
-                "rankingLayout": "side",
                 "mapping": {
-                    "x": [{"field": "label", "name": "Series"}],
-                    "y": [{"field": "orders", "name": "Orders"}],
+                    "label": [{"field": "label", "name": "Series"}],
+                    "y": [{"field": "revenue", "name": "Revenue"}],
                 },
             },
         ),

@@ -40,13 +40,13 @@ MeiLang 当前作者态的主线是：
 
 ## 推荐顺序
 
-1. 先读当前任务相关的 `.mei` 文件、相邻 scene、`.stock/templates` 引用与 `.stock/components` 使用点。
+1. 先读当前任务相关的 `.mei` 文件、相邻 scene、`stock/templates` 引用与 `stock/components` 使用点。
 2. 再读 `.mei/profiles/author.md` 与同目录 skill companion 文档，不要把 `summary` 当源码替代品。
 3. 跑 `mei-toolchain check --app <app> --source-root <workspace> --json`；需要编辑器内反馈时走 `mei-lsp`。
 4. 如需理解当前 workspace 的 app、别名与 discover 结果，再跑 `mei-toolchain workspace summary --source-root <workspace> --json`。
 5. 涉及 bootstrap、create-app、配置、upload source、主题时，优先补读 `.mei/knowledge/author/workspace-config-reference.md`。
 6. 涉及新组件 / 新模板时，先读 `.mei/knowledge/author/extension-authoring.md`，确认是否已经离开普通 author 链。
-7. 只有当源码与 packaged knowledge 仍不足时，再读 `.stock/**/README.md` 或实现文件作为最后兜底。
+7. 只有当源码与 packaged knowledge 仍不足时，再读 `stock/**/README.md` 或实现文件作为最后兜底。
 8. 只有当仍需要 runtime/world 真值时，再跑 `inspect/query/runtime`。
 
 ## 运行中宿主的默认处理原则

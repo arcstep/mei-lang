@@ -71,7 +71,12 @@ pub(crate) fn manage_shell(
     let show_inspector =
         should_show_world_semantic_inspector(&ctx.node, selected_target.as_str(), semantic);
     let source_panel = source.unwrap_or("").to_string();
-    let build_preview_scope = super::preview_fragment::build_preview_panel_scope(&resolved.node);
+    let build_preview_scope =
+        super::preview_fragment::build_preview_panel_scope(compiled, &resolved.node);
+    let build_preview_component_use_key_owned =
+        super::preview_fragment::build_preview_component_use_key(&resolved.node);
+    let build_preview_component_use_key =
+        build_preview_component_use_key_owned.as_deref();
     let preview = preview::preview_view(
         compiled,
         app_path,
@@ -79,6 +84,7 @@ pub(crate) fn manage_shell(
         UiRouteMode::Build,
         semantic,
         build_preview_scope.as_deref(),
+        build_preview_component_use_key,
     );
     let active_scene = ctx.scene_id.as_deref().or(compiled.active_scene.as_deref());
     let scene_for_links = active_scene;

@@ -1,14 +1,107 @@
+use std::collections::BTreeMap;
+use std::path::Path;
+
 use super::build_template_index::{
     authoring_preview_target_for_template, preview_scene_id_for_template_consumer,
     preview_scene_id_for_template_file_consumer, preview_target_for_template_consumer,
     preview_target_for_template_file_consumer,
 };
-use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, ProvenanceAnchor};
+use crate::model::{
+    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, PanelDecl, ProvenanceAnchor, UiNodeDecl,
+};
 
 /// Script path used as `CompileOptions.preview_target` before compile, when the build URL
 /// selects a node via `?node=` without legacy `?file=`.
 pub fn preview_target_from_build_node(node: &BuildNodeId) -> Option<String> {
     super::build_experience::preview_target_from_build_node_with_app(node, None)
+}
+
+fn panel_path_for_use_key(
+    panel: &PanelDecl,
+    parent_path: Option<&str>,
+    use_key: &str,
+) -> Option<String> {
+    let panel_path = match parent_path {
+        Some(parent) => format!("{parent}/{}", panel.id),
+        None => panel.id.clone(),
+    };
+    for node in &panel.blocks {
+        match node {
+            UiNodeDecl::Block(BlockDecl { use_key: key, .. }) if key.as_str() == use_key => {
+                return Some(panel_path);
+            }
+            UiNodeDecl::Panel(nested) => {
+                if let Some(found) =
+                    panel_path_for_use_key(nested, Some(panel_path.as_str()), use_key)
+                {
+                    return Some(found);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// When build preview compiles an authoring example, SSR may scope to the panel that
+/// hosts the selected component so one tree node maps to one preview surface.
+pub fn build_preview_panel_scope(compiled: &CompiledApp, node: &BuildNodeId) -> Option<String> {
+    match node.kind {
+        BuildNodeKind::Component => {
+            let contract = compiled.scene_contract.as_ref()?;
+            let scene_id = contract.scene.id.as_str();
+            for panel in &contract.panels {
+                if let Some(panel_path) =
+                    panel_path_for_use_key(panel, None, node.key.as_str())
+                {
+                    return Some(format!("{scene_id}/{panel_path}"));
+                }
+            }
+            None
+        }
+        BuildNodeKind::ScenePanel => {
+            let key = node.key.trim();
+            if key.is_empty() {
+                None
+            } else {
+                Some(key.to_string())
+            }
+        }
+        BuildNodeKind::SceneBlock => node
+            .key
+            .rsplit_once('/')
+            .map(|(panel_path, _)| panel_path.to_string()),
+        _ => None,
+    }
+}
+
+pub fn catalog_preview_target_for_build_node(
+    app_root: &Path,
+    node: &BuildNodeId,
+) -> Option<String> {
+    let stub = CompiledApp {
+        app_id: String::new(),
+        title: String::new(),
+        app_root: app_root.display().to_string(),
+        scene_routes: Vec::new(),
+        active_scene: None,
+        active_target_file: String::new(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::new(),
+        world_semantic_by_file: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+    };
+    super::build_experience::preview_target_from_build_node_with_app(node, Some(&stub))
 }
 
 /// Resolved preview / routing context for a build-view node selection.
@@ -137,16 +230,32 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
                 provenance,
             }
         }
-        BuildNodeKind::Component => BuildNodeContext {
-            node: node.clone(),
-            target_file: template_target_file(compiled, node),
-            scene_id: compiled.active_scene.clone(),
-            world_metric: None,
-            world_dataset: None,
-            explain: None,
-            projection_id: None,
-            provenance,
-        },
+        BuildNodeKind::Component => {
+            let component_key = node.key.as_str();
+            let authoring =
+                authoring_preview_target_for_template(compiled, component_key);
+            let target_file = authoring.clone().unwrap_or_else(|| {
+                template_target_file(compiled, node)
+            });
+            BuildNodeContext {
+                node: node.clone(),
+                target_file,
+                scene_id: if authoring.is_some() {
+                    None
+                } else {
+                    compiled.active_scene.clone()
+                },
+                world_metric: None,
+                world_dataset: None,
+                explain: None,
+                projection_id: None,
+                provenance: ProvenanceAnchor {
+                    file: authoring.unwrap_or_else(|| template_target_file(compiled, node)),
+                    symbol_id: node.key.clone(),
+                    symbol_kind: "component".to_string(),
+                },
+            }
+        }
         BuildNodeKind::Template => {
             let template_key = node.key.as_str();
             let authoring = authoring_preview_target_for_template(compiled, template_key);
@@ -509,5 +618,52 @@ mod tests {
             preview_target_from_build_node(&node).as_deref(),
             Some("scenes/01-执法要素.world.mei")
         );
+    }
+
+    #[test]
+    fn component_authoring_preview_panel_scope_targets_host_panel() {
+        use crate::compile::{
+            compile_app_from_root_with_options, CompileOptions,
+        };
+        use crate::BuildPreviewKind;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-hello");
+        let app_root = source_root.join("apps/hello");
+        let example = source_root.join("stock/authoring/examples/chart-baseline.mei");
+        if !app_root.is_dir() || !example.is_file() {
+            return;
+        }
+        let home = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile hello home");
+        let coord = super::super::build_experience::compile_coordinate_for_node(
+            &BuildNodeId::component("chart.area"),
+            &home,
+        )
+        .expect("coord");
+        assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
+        let preview = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions {
+                preview_target: Some(coord.preview_target.clone()),
+                ..CompileOptions::default()
+            },
+        )
+        .expect("compile chart.area preview");
+        assert!(
+            preview.scene_contract.is_some(),
+            "expected scene contract for chart.area preview"
+        );
+        let scope = build_preview_panel_scope(&preview, &BuildNodeId::component("chart.area"));
+        assert_eq!(scope.as_deref(), Some("home/area_panel"));
     }
 }

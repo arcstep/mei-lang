@@ -282,6 +282,12 @@ async fn serve(args: ServeArgs) -> Result<()> {
         crate::auth::AuthEnforcement::Disabled
     };
     crate::auth::prepare_auth_for_serve(source_root.as_path(), auth_enforcement)?;
+    if let Err(error) = mei_lang_toolchain::ensure_workspace_stock_materialized(
+        source_root.as_path(),
+        package_root.as_path(),
+    ) {
+        tracing::warn!(%error, "failed to ensure workspace stock before serve");
+    }
     if !cfg!(test) {
         crate::http::pages::prepare_landing_artifacts_for_serve(source_root.as_path())?;
     }

@@ -56,7 +56,11 @@ pub fn render_build_preview_fragment(
         world_dataset: ctx.world_dataset.as_deref(),
         explain: ctx.explain.as_deref(),
     };
-    let build_preview_scope = build_preview_panel_scope(&resolved.node);
+    let build_preview_scope = build_preview_panel_scope(compiled, &resolved.node);
+    let build_preview_component_use_key_owned =
+        build_preview_component_use_key(&resolved.node);
+    let build_preview_component_use_key =
+        build_preview_component_use_key_owned.as_deref();
     let preview = preview::preview_view(
         compiled,
         app_path,
@@ -64,6 +68,7 @@ pub fn render_build_preview_fragment(
         UiRouteMode::Build,
         semantic,
         build_preview_scope.as_deref(),
+        build_preview_component_use_key,
     );
     let preview_body =
         if selected_target.ends_with(".mei") || selected_target.ends_with(".world.mei") {
@@ -95,8 +100,24 @@ pub fn render_build_preview_fragment(
     })
 }
 
-pub(crate) fn build_preview_panel_scope(_node: &mei_lang_kernel::BuildNodeId) -> Option<String> {
-    // Tier0 panel navigation dims/highlight via `data-preview-scope` in the client;
-    // SSR must render the full scene so sibling panels exist in the DOM.
-    None
+pub(crate) fn build_preview_component_use_key(
+    node: &mei_lang_kernel::BuildNodeId,
+) -> Option<String> {
+    use mei_lang_kernel::BuildNodeKind;
+    if node.kind != BuildNodeKind::Component {
+        return None;
+    }
+    let key = node.key.trim();
+    if key.is_empty() {
+        None
+    } else {
+        Some(key.to_string())
+    }
+}
+
+pub(crate) fn build_preview_panel_scope(
+    compiled: &CompiledApp,
+    node: &mei_lang_kernel::BuildNodeId,
+) -> Option<String> {
+    mei_lang_kernel::build_preview_panel_scope(compiled, node)
 }

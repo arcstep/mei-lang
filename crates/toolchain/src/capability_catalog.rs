@@ -8,7 +8,10 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use crate::knowledge_bundle::knowledge_bundle_descriptor_for_package_root;
-use crate::platform_assets::platform_asset_catalog_descriptor_for_package_root;
+use crate::platform_assets::{
+    platform_asset_catalog_descriptor_for_package_root,
+    platform_asset_catalog_descriptor_for_workspace_root,
+};
 use crate::types::ResourceQueryToolSpec;
 
 pub const CAPABILITY_CATALOG_SCHEMA_VERSION: &str = "mei-capability-catalog-v1";
@@ -252,7 +255,12 @@ fn capability_catalog_descriptor_for_roots(
             author_profile_descriptor(),
             access_profile_descriptor()
         ],
-        "platform_assets": platform_asset_catalog_descriptor_for_package_root(package_root),
+        "platform_assets": match workspace_root {
+            Some(source_root) => {
+                platform_asset_catalog_descriptor_for_workspace_root(source_root)
+            }
+            None => platform_asset_catalog_descriptor_for_package_root(package_root),
+        },
         "skill_packages": [
             meilang_author_skill_package(),
             meilang_access_skill_package()

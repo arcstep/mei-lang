@@ -39,7 +39,7 @@ pub fn template_file_preview_target(compiled: &CompiledApp, key: &str) -> Option
 }
 
 /// Convert a workspace-relative or catalog template path into an app-root-relative
-/// `CompileOptions.preview_target` (e.g. `../.stock/templates/cockpit/metric-card.mei`).
+/// `CompileOptions.preview_target` (e.g. `../stock/templates/cockpit/metric-card.mei`).
 pub fn preview_target_relative_to_app(compiled: &CompiledApp, path: &str) -> Option<String> {
     let normalized = path.trim().replace('\\', "/");
     if normalized.is_empty() {
@@ -64,13 +64,6 @@ pub fn preview_target_relative_to_app(compiled: &CompiledApp, path: &str) -> Opt
         resolve_templates_root(source_root.as_path()).join(&normalized)
     };
     relative_path_from_to(app_root, abs.as_path())
-}
-
-pub(crate) fn preview_target_for_absolute_path(
-    compiled: &CompiledApp,
-    abs_path: &Path,
-) -> Option<String> {
-    relative_path_from_to(Path::new(compiled.app_root.as_str()), abs_path)
 }
 
 fn relative_path_from_to(from: &Path, to: &Path) -> Option<String> {
@@ -134,6 +127,21 @@ pub fn preview_target_from_build_node_with_app(
             let (file, _) = board_capsule_from_node_key(&node.key);
             non_empty_path(file)
         }
+        BuildNodeKind::Component => compiled.and_then(|app| {
+            super::build_template_index::authoring_preview_target_for_template(
+                app,
+                node.key.as_str(),
+            )
+            .or_else(|| {
+                super::component_authoring_preview::component_authoring_example_workspace_path(
+                    app,
+                    node.key.as_str(),
+                )
+                .and_then(|workspace_path| {
+                    preview_target_relative_to_app(app, workspace_path.as_str())
+                })
+            })
+        }),
         BuildNodeKind::Template => compiled.and_then(|app| {
             super::build_template_index::authoring_preview_target_for_template(
                 app,
@@ -186,7 +194,7 @@ pub fn compile_scene_from_build_node_with_app(
     node: &BuildNodeId,
     compiled: Option<&CompiledApp>,
 ) -> Option<String> {
-    if node.kind == BuildNodeKind::Template {
+    if matches!(node.kind, BuildNodeKind::Component | BuildNodeKind::Template) {
         if let Some(app) = compiled {
             if super::build_template_index::authoring_preview_target_for_template(
                 app,
@@ -194,6 +202,9 @@ pub fn compile_scene_from_build_node_with_app(
             )
             .is_some()
             {
+                return None;
+            }
+            if node.kind == BuildNodeKind::Component {
                 return None;
             }
             if is_template_file_node_key(node.key.as_str()) {
@@ -272,6 +283,18 @@ pub fn compile_coordinate_for_node(
                 BuildPreviewKind::SceneCapsule
             }
         }
+        BuildNodeKind::Component => {
+            if super::build_template_index::authoring_preview_target_for_template(
+                compiled,
+                node.key.as_str(),
+            )
+            .is_some()
+            {
+                BuildPreviewKind::Script
+            } else {
+                BuildPreviewKind::Other
+            }
+        }
         BuildNodeKind::Template => {
             if super::build_template_index::authoring_preview_target_for_template(
                 compiled,
@@ -305,7 +328,7 @@ pub fn compile_coordinate_for_node(
         BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval => {
             BuildPreviewKind::Other
         }
-        BuildNodeKind::Dataset | BuildNodeKind::Component => BuildPreviewKind::Script,
+        BuildNodeKind::Dataset => BuildPreviewKind::Script,
     };
     Some(BuildCompileCoordinate {
         scene_id,
@@ -378,6 +401,17 @@ fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> 
                 ]
             } else {
                 vec!["Board".to_string(), node.key.clone()]
+            }
+        }
+        BuildNodeKind::Component => {
+            if let Some(entry) = compiled.build_template_index.lookup(node.key.as_str()) {
+                vec![
+                    "Component".to_string(),
+                    entry.template_key.clone(),
+                    entry.template_file.clone(),
+                ]
+            } else {
+                vec!["Component".to_string(), node.key.clone()]
             }
         }
         BuildNodeKind::Template => {
@@ -845,7 +879,7 @@ mod tests {
             "cockpit.main".to_string(),
             TemplateCatalogEntry {
                 template_key: "cockpit.main".to_string(),
-                template_file: ".stock/templates/cockpit/main.mei".to_string(),
+                template_file: "stock/templates/cockpit/main.mei".to_string(),
                 category: "component".to_string(),
                 props_schema: Vec::new(),
                 variants: Vec::new(),
@@ -892,7 +926,7 @@ mod tests {
         let node = BuildNodeId::template("cockpit/main.mei");
         let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
         assert_eq!(coord.scene_id, None);
-        assert_eq!(coord.preview_target, "../.stock/templates/cockpit/main.mei");
+        assert_eq!(coord.preview_target, "../stock/templates/cockpit/main.mei");
         assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
     }
 

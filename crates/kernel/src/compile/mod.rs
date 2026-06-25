@@ -39,6 +39,8 @@ mod source_tree_enrich;
 mod source_tree_world;
 mod ui_data_policy;
 mod xlsx_singleflight;
+#[cfg(test)]
+mod build_preview_target_probe;
 
 pub use analysis::dates::{
     coerce_calendar_columns_in_rows, coerce_row_to_schema, coerce_rows_to_schema,
@@ -72,8 +74,12 @@ pub use build_experience::{
 };
 pub use build_experience_index::{build_experience_index, enrich_reachability_tree_compile_coords};
 pub use build_node_context::{
+    build_preview_panel_scope, catalog_preview_target_for_build_node,
     default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,
     BuildNodeContext,
+};
+pub use component_authoring_preview::{
+    component_authoring_example_workspace_path, scene_contract_contains_use_key,
 };
 pub use build_template_index::build_template_index;
 pub use discover_routes::{CompileOptions, CompileRevisionPlan, CompileWatchedFile};

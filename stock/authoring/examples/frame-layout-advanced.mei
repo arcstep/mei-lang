@@ -27,7 +27,7 @@ world(
     ],
 )
 
-COCKPIT_TPL = "../.stock/templates/cockpit"
+COCKPIT_TPL = "../../templates/cockpit"
 SHELL = COCKPIT_TPL + "/panel/panel-titled-shell.mei"
 BODY = COCKPIT_TPL + "/panel/metrics-auto-body.mei"
 CARD = COCKPIT_TPL + "/metric-card/metric-card-narrow-stack.mei"

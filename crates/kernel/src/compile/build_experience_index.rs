@@ -12,9 +12,9 @@ use crate::compile::{
 };
 use crate::model::{
     BlockDecl, BuildExperienceIndex, BuildNodeId, BuildNodeKind, CompiledApp, CompiledSceneRoute,
-    ComponentAsset, ExperienceNodeManifest, MountChainEntry, PanelDecl,
+    ComponentAsset, Diagnostic, ExperienceNodeManifest, MountChainEntry, PanelDecl,
     ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, SceneContract, SceneDecl,
-    UiNodeDecl,
+    Severity, UiNodeDecl,
 };
 
 const MAX_BLOCK_CHILDREN_IN_TREE: usize = 8;
@@ -209,10 +209,72 @@ fn enrich_node_compile_coords(node: &mut ReachabilityTreeNode, compiled: &Compil
         {
             node.compile_scene = coord.scene_id.unwrap_or_default();
             node.compile_target = coord.preview_target;
+        } else if matches!(
+            parsed.kind,
+            BuildNodeKind::Component | BuildNodeKind::Template
+        ) {
+            mark_preview_unavailable(node);
         }
     }
     for child in &mut node.children {
         enrich_node_compile_coords(child, compiled);
+    }
+}
+
+fn mark_preview_unavailable(node: &mut ReachabilityTreeNode) {
+    if !node
+        .badges
+        .iter()
+        .any(|badge| badge == "preview:unavailable")
+    {
+        node.badges.push("preview:unavailable".to_string());
+    }
+}
+
+/// At compile time, mark component/template nodes without workspace preview targets.
+pub fn annotate_stock_preview_availability(
+    snapshot: &mut [ReachabilityTreeRootSnapshot],
+    compiled: &CompiledApp,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for root in snapshot.iter_mut() {
+        for child in &mut root.children {
+            annotate_snapshot_preview_availability(child, compiled, diagnostics);
+        }
+    }
+}
+
+fn annotate_snapshot_preview_availability(
+    node: &mut ReachabilityTreeNodeSnapshot,
+    compiled: &CompiledApp,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if let Some(parsed) = BuildNodeId::parse(&node.node_id) {
+        if matches!(
+            parsed.kind,
+            BuildNodeKind::Component | BuildNodeKind::Template
+        ) && super::build_experience::compile_coordinate_for_node(&parsed, compiled).is_none()
+        {
+            if !node
+                .badges
+                .iter()
+                .any(|badge| badge == "preview:unavailable")
+            {
+                node.badges.push("preview:unavailable".to_string());
+            }
+            diagnostics.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "previewUnavailable".to_string(),
+                message: format!(
+                    "Build preview unavailable for `{}`: missing workspace stock example or template scene",
+                    node.label
+                ),
+                source_path: None,
+            });
+        }
+    }
+    for child in &mut node.children {
+        annotate_snapshot_preview_availability(child, compiled, diagnostics);
     }
 }
 

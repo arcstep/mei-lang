@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="14px" height="24px" viewBox="0 0 14 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>caret-left-filled@3x</title>
+    <defs>
+        <linearGradient x1="50%" y1="0%" x2="50%" y2="92.8570755%" id="linearGradient-1">
+            <stop stop-color="#5586B1" offset="0%"></stop>
+            <stop stop-color="#5586B1" stop-opacity="0" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="切图" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="首页" transform="translate(-384, -95)">
+            <g id="养老" transform="translate(14, 86)">
+                <g id="caret-left-filled" transform="translate(377, 21) scale(-1, 1) translate(-377, -21)translate(370, 9)">
+                    <path d="M7,5.92195445 L17.6954676,18.4 L-3.69546762,18.4 L7,5.92195445 Z" id="三角形" stroke="url(#linearGradient-1)" stroke-width="1.2" transform="translate(7, 12) rotate(90) translate(-7, -12)"></path>
+                    <path d="M3.29629497,9.52623302 L7.20918465,14.091271 C7.38889572,14.3009339 7.36461496,14.6165839 7.15495204,14.796295 C7.06433048,14.8739706 6.94891198,14.9166667 6.82955635,14.9166667 L-0.996223015,14.9166667 C-1.27236539,14.9166667 -1.49622301,14.692809 -1.49622301,14.4166667 C-1.49622301,14.297311 -1.45352693,14.1818925 -1.37585132,14.091271 L2.53703837,9.52623302 C2.71674944,9.3165701 3.03239943,9.29228933 3.24206235,9.4720004 C3.26150176,9.48866275 3.27963262,9.50679361 3.29629497,9.52623302 Z" id="三角形" fill="#5586B1" transform="translate(2.9167, 12) rotate(90) translate(-2.9167, -12)"></path>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

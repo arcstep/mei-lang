@@ -160,6 +160,104 @@ pub struct WorkspaceConfig {
     /// 应用 build store 保留策略（84 §4.2）。
     #[serde(default)]
     pub build: WorkspaceBuildConfig,
+    /// 工作区 stock 目录、构建树 catalog 与 preview 边界（87 §1）。
+    #[serde(default)]
+    pub stock: WorkspaceStockConfig,
+}
+
+/// 工作区 stock 真源配置：catalog 过滤、preview 边界、未来多 pack 来源。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceStockConfig {
+    #[serde(default)]
+    pub bootstrap: WorkspaceStockBootstrapConfig,
+    #[serde(default)]
+    pub catalog: WorkspaceStockCatalogConfig,
+    #[serde(default)]
+    pub preview: WorkspaceStockPreviewConfig,
+    /// 预留：外部 stock pack 来源（git/tar/registry）；本阶段可为空。
+    #[serde(default)]
+    pub sources: Vec<WorkspaceStockSourceEntry>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceStockBootstrapConfig {
+    /// `platform-default` = mei-lang 包内 stock bootstrap。
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceStockCatalogConfig {
+    #[serde(default)]
+    pub components: WorkspaceStockCatalogKindConfig,
+    #[serde(default)]
+    pub templates: WorkspaceStockCatalogKindConfig,
+    #[serde(default)]
+    pub authoring: WorkspaceStockCatalogKindConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceStockCatalogKindConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub exclude: Vec<String>,
+}
+
+impl Default for WorkspaceStockCatalogKindConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            exclude: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceStockPreviewConfig {
+    #[serde(default = "default_true", rename = "workspaceOnly")]
+    pub workspace_only: bool,
+    #[serde(default)]
+    pub contracts: Option<String>,
+}
+
+impl Default for WorkspaceStockPreviewConfig {
+    fn default() -> Self {
+        Self {
+            workspace_only: true,
+            contracts: Some(format!(
+                "{DEFAULT_STOCK_AUTHORING_REL}/component-contracts.json"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceStockSourceEntry {
+    pub id: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl WorkspaceConfig {
+    pub fn preview_workspace_only(&self) -> bool {
+        self.stock.preview.workspace_only
+    }
+
+    pub fn stock_contracts_rel(&self) -> Option<&str> {
+        self.stock
+            .preview
+            .contracts
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

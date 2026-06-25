@@ -4,6 +4,7 @@ use serde_json::json;
 
 use super::super::args::{
     WorkspaceArgs, WorkspaceBuildCommand, WorkspaceCommand, WorkspaceRuntimeCommand,
+    WorkspaceStockCommand,
 };
 use super::super::util::{print_json_output, resolve_cli_source_root, resolve_package_root};
 
@@ -312,6 +313,67 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
             });
             print_json_output(&output, args.json)
         }
+        WorkspaceCommand::Stock(args) => match args.command {
+            WorkspaceStockCommand::Sync(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let (report, skipped) = if args.force {
+                    (
+                        mei_lang_toolchain::sync_workspace_stock(
+                            &source_root,
+                            &package_root,
+                            true,
+                        )?,
+                        false,
+                    )
+                } else if let Some(report) =
+                    mei_lang_toolchain::ensure_workspace_stock_materialized(
+                        &source_root,
+                        &package_root,
+                    )?
+                {
+                    (report, false)
+                } else {
+                    (
+                        mei_lang_toolchain::sync_workspace_stock(
+                            &source_root,
+                            &package_root,
+                            false,
+                        )?,
+                        true,
+                    )
+                };
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.stock.sync",
+                    "force": args.force,
+                    "skipped": skipped,
+                    "report": report,
+                });
+                print_json_output(&output, args.json)
+            }
+            WorkspaceStockCommand::Doctor(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let report =
+                    mei_lang_toolchain::doctor_workspace_stock(&source_root, &package_root)?;
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.stock.doctor",
+                    "report": report,
+                });
+                print_json_output(&output, args.json)
+            }
+            WorkspaceStockCommand::MigratePaths(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let report =
+                    mei_lang_toolchain::migrate_workspace_stock_paths(source_root.as_path())?;
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.stock.migrate-paths",
+                    "report": report,
+                });
+                print_json_output(&output, args.json)
+            }
+        },
     }
 }
 
@@ -354,6 +416,30 @@ fn initialize_standalone_workspace(
                 templates: Some(mei_lang_kernel::DEFAULT_STOCK_TEMPLATES_REL.to_string()),
                 authoring: Some(mei_lang_kernel::DEFAULT_STOCK_AUTHORING_REL.to_string()),
                 ..mei_lang_kernel::WorkspacePathsConfig::default()
+            },
+            stock: mei_lang_kernel::WorkspaceStockConfig {
+                bootstrap: mei_lang_kernel::WorkspaceStockBootstrapConfig {
+                    source: Some("platform-default".to_string()),
+                },
+                catalog: mei_lang_kernel::WorkspaceStockCatalogConfig {
+                    components: mei_lang_kernel::WorkspaceStockCatalogKindConfig {
+                        enabled: true,
+                        exclude: Vec::new(),
+                    },
+                    templates: mei_lang_kernel::WorkspaceStockCatalogKindConfig {
+                        enabled: true,
+                        exclude: Vec::new(),
+                    },
+                    authoring: mei_lang_kernel::WorkspaceStockCatalogKindConfig {
+                        enabled: true,
+                        exclude: Vec::new(),
+                    },
+                },
+                preview: mei_lang_kernel::WorkspaceStockPreviewConfig {
+                    workspace_only: true,
+                    ..mei_lang_kernel::WorkspaceStockPreviewConfig::default()
+                },
+                sources: Vec::new(),
             },
             ..mei_lang_kernel::WorkspaceConfig::default()
         };

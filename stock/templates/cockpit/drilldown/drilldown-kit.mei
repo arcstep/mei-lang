@@ -1,0 +1,200 @@
+# cockpit drilldown 资源容器：同文件多 scene_export，供 scene_ref(scene_file=..., scene_id=...) 引用。
+# 注意：文件名勿含 `ds.` 子串（eval 预处理 `.replace("ds.", "")` 会误伤如 `boards.mei` → `boarmei`）。
+# 旧单文件模板（generic-/analytics-/list-preview-/metric-explain-board.mei）保留兼容一轮。
+
+world(id = "cockpit_drilldown_world", resources = [])
+
+scene_export(
+    id = "generic_drilldown_board",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "通用指标下钻：动态 projection_slots",
+    world = world_ref(id = "cockpit_drilldown_world"),
+    frame = frame_ref(id = "generic_drilldown_frame"),
+    params = {
+        "metric": param(type = "metric", required = True),
+        "entry": param(type = "string"),
+    },
+    local_nav = {
+        "kind": "generic_drilldown",
+        "scene_id": "generic_drilldown_board",
+    },
+)
+
+frame_export(
+    id = "generic_drilldown_frame",
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["auto", "minmax(0, 1fr)"],
+        areas = [["tabs"], ["content"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+    panels = [
+        panel(
+            id = "tabs",
+            area = "tabs",
+            slot = panel_slot(kind = "tab_bar"),
+            blocks = [],
+        ),
+        panel(
+            id = "content",
+            area = "content",
+            slot = panel_slot(kind = "tab_content"),
+            blocks = [],
+        ),
+    ],
+)
+
+scene_export(
+    id = "analytics_drilldown_board",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "分析型二级看板：左过滤 + 右上图表 + 下明细",
+    world = world_ref(id = "cockpit_drilldown_world"),
+    frame = frame_ref(id = "analytics_drilldown_frame"),
+    params = {
+        "metric": param(type = "metric", required = True),
+        "rowset_dataset_id": param(type = "string"),
+        "entry": param(type = "string"),
+    },
+    local_nav = {
+        "kind": "analytics_drilldown_board",
+        "scene_id": "analytics_drilldown_board",
+        "max_charts": 3,
+        "overlay_size": "large",
+    },
+)
+
+frame_export(
+    id = "analytics_drilldown_frame",
+    layout = grid(
+        columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+        rows = ["minmax(0, 1fr)"],
+        areas = [["filter", "main"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+    panels = [
+        panel(
+            id = "filter",
+            area = "filter",
+            slot = panel_slot(kind = "filter", source = "filter_schema"),
+            blocks = [],
+        ),
+        panel(
+            id = "main",
+            area = "main",
+            layout = grid(
+                columns = ["1fr"],
+                rows = ["auto", "minmax(0, 1fr)"],
+                areas = [["chart"], ["detail"]],
+                gap = "12px",
+            ),
+            slot = panel_slot(kind = "container"),
+            blocks = [
+                panel(
+                    id = "chart",
+                    area = "chart",
+                    slot = panel_slot(kind = "slots", accepts = ["chart"], max = 3),
+                    blocks = [],
+                ),
+                panel(
+                    id = "detail",
+                    area = "detail",
+                    slot = panel_slot(kind = "slots", accepts = ["data_table"], required = True),
+                    blocks = [],
+                ),
+            ],
+        ),
+    ],
+)
+
+scene_export(
+    id = "list_preview_drilldown_board",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "清单预览型二级看板：左过滤 + 中明细清单 + 右条目预览",
+    world = world_ref(id = "cockpit_drilldown_world"),
+    frame = frame_ref(id = "list_preview_drilldown_frame"),
+    params = {
+        "metric": param(type = "metric", required = True),
+        "rowset_dataset_id": param(type = "string"),
+        "entry": param(type = "string"),
+    },
+    local_nav = {
+        "kind": "list_preview_drilldown_board",
+        "scene_id": "list_preview_drilldown_board",
+        "overlay_size": "large",
+    },
+)
+
+frame_export(
+    id = "list_preview_drilldown_frame",
+    layout = grid(
+        columns = ["minmax(180px, 1fr)", "minmax(0, 2.2fr)", "minmax(220px, 1.1fr)"],
+        rows = ["minmax(0, 1fr)"],
+        areas = [["filter", "list", "preview"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+    panels = [
+        panel(
+            id = "filter",
+            area = "filter",
+            slot = panel_slot(kind = "filter", source = "filter_schema"),
+            blocks = [],
+        ),
+        panel(
+            id = "list",
+            area = "list",
+            slot = panel_slot(kind = "slots", accepts = ["data_table"], required = True),
+            blocks = [],
+        ),
+        panel(
+            id = "preview",
+            area = "preview",
+            slot = panel_slot(kind = "row_preview", accepts = ["summary"], selection_from = "list"),
+            blocks = [],
+        ),
+    ],
+)
+
+scene_export(
+    id = "metric_explain_board",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "指标解释二级看板：tabs 归属本 scene，入口 link 仅决定 overlay/route projection",
+    world = world_ref(id = "cockpit_drilldown_world"),
+    frame = frame_ref(id = "metric_explain_frame"),
+    params = {
+        "metric": param(type = "metric", required = True),
+        "entry": param(type = "string"),
+    },
+    local_nav = {
+        "kind": "metric_explain_board",
+        "scene_id": "metric_explain_board",
+        "default_entry": "definition",
+        "include_hero": True,
+        "order_by_kind": [
+            "definition",
+            "composition",
+            "trend",
+            "numerator_denominator",
+            "detail",
+        ],
+    },
+)
+
+frame_export(
+    id = "metric_explain_frame",
+    panels = [
+        panel(
+            id = "metric_explain_shell",
+            variant = "container",
+            title = "指标解释",
+            props = {},
+            blocks = [],
+        ),
+    ],
+)

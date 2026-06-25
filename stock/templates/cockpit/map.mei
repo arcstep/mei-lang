@@ -1,0 +1,144 @@
+# 地图模板预览：全幅底图 + 中间观察区；演示四周漂浮占位（非 chart 模板）。
+
+app(
+    id = "cockpit-templates",
+    title = "Cockpit 模板预览",
+    default_scene = "map",
+)
+
+scene(
+    id = "map",
+    world = "map_tpl_world",
+    frame = "map_tpl_frame",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "GIS 地图 cockpitBleed + 漂浮区占位。",
+)
+
+world(
+    id = "map_tpl_world",
+    resources = [
+        resource(
+            id = "map_tpl_doc",
+            kind = "document",
+            title = "GIS 地图模板",
+            content = """## map 场景
+
+- 地图 **`cockpitBleed`**：铺满驾驶舱，瓦片画布在漂浮 panel 下方可见
+- **`mapViewport.focusInset`**：中间观察区；图层切换、状态栏、缩放控件落在此区内
+- 半透明块为**布局占位**（模拟 chart panel），非模板自带组件
+
+配置真源：`panel/panel-gis-map-fullscreen.mei` 内 `MAP_VIEWPORT`。
+""",
+        ),
+    ],
+)
+
+GIS_MAP = "panel/panel-gis-map-fullscreen.mei"
+GIS_DESIGN_H = 1080
+GIS_BODY_H = "1052px"
+
+FLOAT_BG = "rgba(15,23,42,.82)"
+FLOAT_BORDER = "1px solid rgba(56,189,248,.35)"
+
+stack_layout = grid(
+    columns = ["1fr"],
+    rows = [GIS_BODY_H],
+    areas = [["stack"]],
+)
+
+frame(
+    id = "map_tpl_frame",
+    layout = grid(
+        columns = ["1fr"],
+        rows = [GIS_BODY_H],
+        areas = [["body"]],
+        padding = "12px 16px 16px",
+    ),
+    props = {
+        "viewport": {
+            "enabled": True,
+            "design_width": 1920,
+            "design_height": GIS_DESIGN_H,
+            "scale_mode": "contain",
+            "align": "top-center",
+        },
+        "height": str(GIS_DESIGN_H) + "px",
+        "min_height": str(GIS_DESIGN_H) + "px",
+        "box_sizing": "border-box",
+    },
+)
+
+frame.add_panel(
+    id = "gis_stage",
+    area = "body",
+    layout = stack_layout,
+    variant = "container",
+    show_heading = False,
+    props = {
+        "position": "relative",
+        "height": GIS_BODY_H,
+        "min_height": GIS_BODY_H,
+        "padding": "0",
+        "background": "transparent",
+        "overflow": "hidden",
+    },
+    blocks = [
+        panel(
+            base = panel_ref(id = "gis_map", scene_file = GIS_MAP),
+            id = "gis_map",
+            area = "stack",
+            props = {
+                "position": "absolute",
+                "inset": "0",
+                "width": "100%",
+                "height": "100%",
+                "z_index": "1",
+            },
+        ),
+        panel(
+            id = "float_tl",
+            area = "stack",
+            title = "左上（chart 占位）",
+            props = {
+                "position": "absolute",
+                "top": "16px",
+                "left": "16px",
+                "width": "400px",
+                "height": "280px",
+                "z_index": "20",
+                "background": FLOAT_BG,
+                "border": FLOAT_BORDER,
+                "radius": "12px",
+            },
+            blocks = [
+                doc.markdown(
+                    area = "auto",
+                    content = "业务 `chart.geo` 等叠放于此，地图在下方仍可见。",
+                ),
+            ],
+        ),
+        panel(
+            id = "float_tr",
+            area = "stack",
+            title = "右上（chart 占位）",
+            props = {
+                "position": "absolute",
+                "top": "16px",
+                "right": "16px",
+                "width": "360px",
+                "height": "320px",
+                "z_index": "20",
+                "background": FLOAT_BG,
+                "border": FLOAT_BORDER,
+                "radius": "12px",
+            },
+            blocks = [
+                doc.markdown(
+                    area = "auto",
+                    content = "排行 / 指标卡等。`focusInset.right` 须 ≥ 本 panel 宽度 + 边距。",
+                ),
+            ],
+        ),
+    ],
+)

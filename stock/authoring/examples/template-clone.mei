@@ -17,7 +17,7 @@ scene(
 
 world(id = "home_world", resources = [])
 
-COCKPIT_TPL = "../.stock/templates/cockpit"
+COCKPIT_TPL = "../../templates/cockpit"
 CARD = COCKPIT_TPL + "/metric-card/metric-card-narrow-stack.mei"
 
 frame(

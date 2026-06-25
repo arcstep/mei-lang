@@ -43,6 +43,7 @@ pub(crate) fn access_shell(
             UiRouteMode::App,
             WorldSemanticQuery::default(),
             None,
+            None,
         )
     };
     let topbar_preview_target = if static_asset { None } else { file_target };

@@ -9,10 +9,12 @@ use axum::{
 use mei_lang_app::{HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry};
 use mei_lang_kernel::{CompileOptions, WorkspaceAppMeta};
 
-use crate::AppState;
-
+use crate::http::compile_cache::{
+    build_preview_diagnostic_error_count, resolve_build_preview_compile,
+};
 use crate::http::host_api;
 use crate::http::host_error_page::{self, HostScopedRebuildContext, HostShellAction};
+use crate::AppState;
 use crate::http::pages::app::compiling_shell::{
     compile_bootstrap_probe_requested, compile_bootstrap_route_supported,
 };
@@ -229,6 +231,50 @@ pub(super) fn resolve_compile_outcome(
         &compile_options,
         query,
     );
+    if route_mode == UiRouteMode::Build
+        && compile_options
+            .preview_target
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+    {
+        match resolve_build_preview_compile(
+            state,
+            app_id,
+            &compile_options,
+            _components_root.as_path(),
+        ) {
+            Ok(Some(outcome)) => {
+                let diagnostic_error_count =
+                    build_preview_diagnostic_error_count(&outcome.compiled);
+                let reason = if diagnostic_error_count > 0 {
+                    "degraded"
+                } else if outcome.cache_hit {
+                    "ready"
+                } else {
+                    "compiled"
+                };
+                return CompileResolution::Outcome(ResolvedCompileOutcome {
+                    outcome,
+                    feedback: compile_feedback(
+                        "build_preview_compile",
+                        reason,
+                        &compile_options,
+                        diagnostic_error_count,
+                    ),
+                });
+            }
+            Ok(None) => {}
+            Err(failure) => {
+                tracing::warn!(
+                    app_id = %app_id,
+                    preview_target = %compile_options.preview_target.as_deref().unwrap_or("-"),
+                    error = %failure.error,
+                    "build preview scoped compile failed; falling back to artifact-only path"
+                );
+            }
+        }
+    }
     if !gate.shell_ready {
         let scene_hint = gate.resolved_scene.clone();
         let target_hint = gate.resolved_target.clone();

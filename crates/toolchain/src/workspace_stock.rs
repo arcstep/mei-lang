@@ -1,18 +1,28 @@
 use std::{
+    collections::hash_map::DefaultHasher,
     fs,
+    hash::{Hash, Hasher},
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use mei_lang_kernel::{
+    resolve_authoring_root, resolve_components_root, resolve_stock_root, resolve_templates_root,
     resolve_toolchain_root, resolve_workspace_runtime_root, stock_authoring_source,
-    stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config, APP_CONFIG_FILENAME,
-    WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, DEFAULT_APPS_REL,
-    DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL,
-    WORKSPACE_HOSTS_DIR_REL,
+    stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config,
+    APP_CONFIG_FILENAME, WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile,
+    WorkspaceStockBootstrapConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,
+    WorkspaceStockConfig, WorkspaceStockPreviewConfig, DEFAULT_APPS_REL, DEFAULT_STOCK_AUTHORING_REL,
+    DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, WORKSPACE_HOSTS_DIR_REL,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
+
+const STOCK_MANIFEST_FILENAME: &str = "STOCK.json";
+const STOCK_MANIFEST_SCHEMA_VERSION: u32 = 1;
+const BOOTSTRAP_SOURCE_PLATFORM_DEFAULT: &str = "platform-default";
+const LEGACY_STOCK_DIR: &str = ".stock";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MaterializeReport {
@@ -31,6 +41,44 @@ pub struct MaterializeDirReport {
     pub overwritten_files: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StockTreeFingerprint {
+    #[serde(rename = "fileCount")]
+    pub file_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "pathsHash")]
+    pub paths_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StockManifest {
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: u32,
+    #[serde(rename = "materializedAt")]
+    pub materialized_at: String,
+    #[serde(rename = "bootstrapSource")]
+    pub bootstrap_source: String,
+    #[serde(rename = "packageRoot")]
+    pub package_root: String,
+    pub components: StockTreeFingerprint,
+    pub templates: StockTreeFingerprint,
+    pub authoring: StockTreeFingerprint,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StockDoctorReport {
+    pub ok: bool,
+    pub missing_trees: Vec<String>,
+    pub orphan_paths: Vec<String>,
+    pub manifest_drift: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MigrateWorkspaceStockPathsReport {
+    pub renamed_legacy_stock: bool,
+    pub updated_example_files: Vec<String>,
+}
+
 pub fn materialize_workspace_stock(
     source_root: &Path,
     package_root: &Path,
@@ -38,20 +86,30 @@ pub fn materialize_workspace_stock(
 ) -> Result<MaterializeReport> {
     fs::create_dir_all(source_root.join(WORKSPACE_HOSTS_DIR_REL))
         .context("create workspace host-state dir")?;
+    let components_dest = resolve_components_root(source_root);
+    let templates_dest = resolve_templates_root(source_root);
+    let authoring_dest = resolve_authoring_root(source_root);
     let components = materialize_tree(
         &stock_components_source(package_root),
-        &source_root.join(DEFAULT_STOCK_COMPONENTS_REL),
+        &components_dest,
         force,
     )?;
     let templates = materialize_tree(
         &stock_templates_source(package_root),
-        &source_root.join(DEFAULT_STOCK_TEMPLATES_REL),
+        &templates_dest,
         force,
     )?;
     let authoring = materialize_tree(
         &stock_authoring_source(package_root),
-        &source_root.join(DEFAULT_STOCK_AUTHORING_REL),
+        &authoring_dest,
         force,
+    )?;
+    write_stock_manifest(
+        source_root,
+        package_root,
+        &components_dest,
+        &templates_dest,
+        &authoring_dest,
     )?;
     Ok(MaterializeReport {
         source_root: source_root.display().to_string(),
@@ -59,6 +117,15 @@ pub fn materialize_workspace_stock(
         templates,
         authoring,
     })
+}
+
+/// Force-sync workspace stock trees from the platform package (alias for materialize).
+pub fn sync_workspace_stock(
+    source_root: &Path,
+    package_root: &Path,
+    force: bool,
+) -> Result<MaterializeReport> {
+    materialize_workspace_stock(source_root, package_root, force)
 }
 
 /// Idempotent stock bootstrap: copy platform `stock/*` into the workspace when trees are missing.
@@ -77,10 +144,155 @@ pub fn ensure_workspace_stock_materialized(
     )?))
 }
 
+pub fn doctor_workspace_stock(
+    source_root: &Path,
+    package_root: &Path,
+) -> Result<StockDoctorReport> {
+    let mut missing_trees = Vec::new();
+    let mut orphan_paths = Vec::new();
+    let mut manifest_drift = Vec::new();
+    let mut warnings = Vec::new();
+
+    let components_root = resolve_components_root(source_root);
+    let templates_root = resolve_templates_root(source_root);
+    let authoring_root = resolve_authoring_root(source_root);
+    for (label, path) in [
+        ("components", &components_root),
+        ("templates", &templates_root),
+        ("authoring", &authoring_root),
+    ] {
+        if !stock_tree_ready(path) {
+            missing_trees.push(format!("{label}: {}", path.display()));
+        }
+    }
+
+    let legacy_stock = source_root.join(LEGACY_STOCK_DIR);
+    if legacy_stock.is_dir() {
+        orphan_paths.push(legacy_stock.display().to_string());
+    }
+    let root_authoring = source_root.join("authoring");
+    if root_authoring.is_dir() {
+        orphan_paths.push(root_authoring.display().to_string());
+    }
+    let nested_authoring = resolve_stock_root(source_root).join("authoring/authoring");
+    if nested_authoring.is_dir() {
+        orphan_paths.push(nested_authoring.display().to_string());
+    }
+
+    let manifest_path = resolve_stock_root(source_root).join(STOCK_MANIFEST_FILENAME);
+    if manifest_path.is_file() {
+        let raw = fs::read_to_string(&manifest_path)
+            .with_context(|| format!("read {}", manifest_path.display()))?;
+        match serde_json::from_str::<StockManifest>(&raw) {
+            Ok(manifest) => {
+                if manifest.bootstrap_source != BOOTSTRAP_SOURCE_PLATFORM_DEFAULT {
+                    manifest_drift.push(format!(
+                        "bootstrapSource={} (expected {BOOTSTRAP_SOURCE_PLATFORM_DEFAULT})",
+                        manifest.bootstrap_source
+                    ));
+                }
+                let expected_package_root = package_root
+                    .canonicalize()
+                    .unwrap_or_else(|_| package_root.to_path_buf());
+                let recorded = PathBuf::from(&manifest.package_root);
+                let recorded_canonical = recorded.canonicalize().unwrap_or(recorded);
+                if recorded_canonical != expected_package_root {
+                    manifest_drift.push(format!(
+                        "packageRoot={} (expected {})",
+                        manifest.package_root,
+                        expected_package_root.display()
+                    ));
+                }
+            }
+            Err(error) => warnings.push(format!(
+                "failed to parse {}: {error}",
+                manifest_path.display()
+            )),
+        }
+    } else if stock_tree_ready(&components_root)
+        || stock_tree_ready(&templates_root)
+        || stock_tree_ready(&authoring_root)
+    {
+        warnings.push(format!(
+            "missing {} under {}",
+            STOCK_MANIFEST_FILENAME,
+            resolve_stock_root(source_root).display()
+        ));
+    }
+
+    let ok = missing_trees.is_empty() && orphan_paths.is_empty() && manifest_drift.is_empty();
+    Ok(StockDoctorReport {
+        ok,
+        missing_trees,
+        orphan_paths,
+        manifest_drift,
+        warnings,
+    })
+}
+
+pub fn migrate_workspace_stock_paths(source_root: &Path) -> Result<MigrateWorkspaceStockPathsReport> {
+    let legacy_stock = source_root.join(LEGACY_STOCK_DIR);
+    let stock_root = resolve_stock_root(source_root);
+    let mut renamed_legacy_stock = false;
+    if legacy_stock.is_dir() {
+        if stock_root.exists() {
+            anyhow::bail!(
+                "both `{}` and `{}` exist; merge or remove legacy `.stock` manually before migrate",
+                legacy_stock.display(),
+                stock_root.display()
+            );
+        }
+        fs::rename(&legacy_stock, &stock_root).with_context(|| {
+            format!(
+                "rename legacy stock {} -> {}",
+                legacy_stock.display(),
+                stock_root.display()
+            )
+        })?;
+        renamed_legacy_stock = true;
+    }
+
+    let examples_dir = resolve_authoring_root(source_root).join("examples");
+    let mut updated_example_files = Vec::new();
+    if examples_dir.is_dir() {
+        for entry in fs::read_dir(&examples_dir).with_context(|| {
+            format!("read authoring examples dir {}", examples_dir.display())
+        })? {
+            let entry = entry?;
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|value| value.to_str()) != Some("mei") {
+                continue;
+            }
+            let original = fs::read_to_string(&path)
+                .with_context(|| format!("read example mei {}", path.display()))?;
+            let migrated = migrate_example_mei_stock_paths(&original);
+            if migrated != original {
+                fs::write(&path, migrated)
+                    .with_context(|| format!("write migrated example {}", path.display()))?;
+                updated_example_files.push(path.display().to_string());
+            }
+        }
+    }
+
+    Ok(MigrateWorkspaceStockPathsReport {
+        renamed_legacy_stock,
+        updated_example_files,
+    })
+}
+
+fn migrate_example_mei_stock_paths(content: &str) -> String {
+    content
+        .replace("../.stock/", "../../stock/")
+        .replace(".stock/", "stock/")
+}
+
 fn workspace_stock_needs_materialize(source_root: &Path) -> bool {
-    !stock_tree_ready(&source_root.join(DEFAULT_STOCK_AUTHORING_REL))
-        || !stock_tree_ready(&source_root.join(DEFAULT_STOCK_COMPONENTS_REL))
-        || !stock_tree_ready(&source_root.join(DEFAULT_STOCK_TEMPLATES_REL))
+    !stock_tree_ready(&resolve_authoring_root(source_root))
+        || !stock_tree_ready(&resolve_components_root(source_root))
+        || !stock_tree_ready(&resolve_templates_root(source_root))
 }
 
 fn stock_tree_ready(path: &Path) -> bool {
@@ -140,6 +352,108 @@ fn materialize_tree(from: &Path, to: &Path, force: bool) -> Result<MaterializeDi
     })
 }
 
+/// Stable revision string for promote gates (`stockRevision` in links state).
+pub fn workspace_stock_revision(source_root: &Path) -> Option<String> {
+    let manifest_path = resolve_stock_root(source_root).join(STOCK_MANIFEST_FILENAME);
+    let raw = fs::read_to_string(manifest_path).ok()?;
+    let manifest: StockManifest = serde_json::from_str(&raw).ok()?;
+    let mut hasher = DefaultHasher::new();
+    manifest.components.paths_hash.hash(&mut hasher);
+    manifest.templates.paths_hash.hash(&mut hasher);
+    manifest.authoring.paths_hash.hash(&mut hasher);
+    Some(format!(
+        "stock-v{STOCK_MANIFEST_SCHEMA_VERSION}-{:016x}",
+        hasher.finish()
+    ))
+}
+
+fn write_stock_manifest(
+    source_root: &Path,
+    package_root: &Path,
+    components_root: &Path,
+    templates_root: &Path,
+    authoring_root: &Path,
+) -> Result<()> {
+    let stock_root = resolve_stock_root(source_root);
+    fs::create_dir_all(&stock_root).context("create stock root for manifest")?;
+    let manifest = StockManifest {
+        schema_version: STOCK_MANIFEST_SCHEMA_VERSION,
+        materialized_at: Utc::now().to_rfc3339(),
+        bootstrap_source: BOOTSTRAP_SOURCE_PLATFORM_DEFAULT.to_string(),
+        package_root: package_root.display().to_string(),
+        components: fingerprint_tree(components_root)?,
+        templates: fingerprint_tree(templates_root)?,
+        authoring: fingerprint_tree(authoring_root)?,
+    };
+    let manifest_path = stock_root.join(STOCK_MANIFEST_FILENAME);
+    let json = serde_json::to_string_pretty(&manifest).context("serialize STOCK.json")?;
+    fs::write(&manifest_path, format!("{json}\n"))
+        .with_context(|| format!("write {}", manifest_path.display()))?;
+    Ok(())
+}
+
+fn fingerprint_tree(root: &Path) -> Result<StockTreeFingerprint> {
+    if !root.is_dir() {
+        return Ok(StockTreeFingerprint {
+            file_count: 0,
+            paths_hash: None,
+        });
+    }
+    let mut rel_paths = Vec::new();
+    for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let rel = entry
+            .path()
+            .strip_prefix(root)
+            .context("strip fingerprint prefix")?
+            .to_string_lossy()
+            .replace('\\', "/");
+        rel_paths.push(rel);
+    }
+    rel_paths.sort();
+    let file_count = rel_paths.len();
+    let paths_hash = if file_count == 0 {
+        None
+    } else {
+        let mut hasher = DefaultHasher::new();
+        rel_paths.join("\n").hash(&mut hasher);
+        Some(format!("{:016x}", hasher.finish()))
+    };
+    Ok(StockTreeFingerprint {
+        file_count,
+        paths_hash,
+    })
+}
+
+fn default_workspace_stock_config() -> WorkspaceStockConfig {
+    WorkspaceStockConfig {
+        bootstrap: WorkspaceStockBootstrapConfig {
+            source: Some(BOOTSTRAP_SOURCE_PLATFORM_DEFAULT.to_string()),
+        },
+        catalog: WorkspaceStockCatalogConfig {
+            components: WorkspaceStockCatalogKindConfig {
+                enabled: true,
+                exclude: Vec::new(),
+            },
+            templates: WorkspaceStockCatalogKindConfig {
+                enabled: true,
+                exclude: Vec::new(),
+            },
+            authoring: WorkspaceStockCatalogKindConfig {
+                enabled: true,
+                exclude: Vec::new(),
+            },
+        },
+        preview: WorkspaceStockPreviewConfig {
+            workspace_only: true,
+            ..WorkspaceStockPreviewConfig::default()
+        },
+        sources: Vec::new(),
+    }
+}
+
 pub fn init_workspace_profile(
     parent: &Path,
     profile_id: &str,
@@ -182,6 +496,7 @@ pub fn init_workspace_profile(
                 authoring: Some(DEFAULT_STOCK_AUTHORING_REL.to_string()),
                 ..WorkspacePathsConfig::default()
             },
+            stock: default_workspace_stock_config(),
             ..WorkspaceConfig::default()
         };
         write_workspace_config(&config_path, &config)?;
@@ -292,6 +607,44 @@ mod tests {
         assert_eq!(report.authoring.copied_files > 0, true);
         let json = serde_json::to_value(&report).expect("serialize");
         assert!(json.get("authoring").is_some(), "json must include authoring");
+        assert!(
+            temp.join("stock/STOCK.json").is_file(),
+            "STOCK.json manifest should be written"
+        );
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn doctor_detects_missing_tree() {
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let temp = std::env::temp_dir().join(format!(
+            "mei-doctor-stock-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).expect("create temp workspace");
+        let report = doctor_workspace_stock(temp.as_path(), package_root.as_path()).expect("doctor");
+        assert!(!report.ok, "empty workspace should not pass doctor");
+        assert_eq!(report.missing_trees.len(), 3);
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
+    fn workspace_stock_revision_reads_manifest_fingerprint() {
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let temp = std::env::temp_dir().join(format!(
+            "mei-stock-revision-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&temp).expect("create temp workspace");
+        materialize_workspace_stock(temp.as_path(), package_root.as_path(), false)
+            .expect("materialize");
+        let revision = workspace_stock_revision(temp.as_path()).expect("revision");
+        assert!(
+            revision.starts_with("stock-v"),
+            "unexpected revision format: {revision}"
+        );
         let _ = fs::remove_dir_all(&temp);
     }
 }

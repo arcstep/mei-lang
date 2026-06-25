@@ -79,6 +79,8 @@ pub enum WorkspaceCommand {
     Build(WorkspaceBuildArgs),
     /// 一次性迁移 legacy `.mei/`：工作区根 → runtime/；app 级 → build/active/
     MigrateLegacyAppMei(WorkspaceMigrateLegacyArgs),
+    /// 工作区 stock SSOT：同步、诊断、路径迁移
+    Stock(WorkspaceStockArgs),
 }
 
 #[derive(Args)]
@@ -111,6 +113,48 @@ pub struct WorkspaceInitArgs {
     pub standalone: bool,
     #[arg(long = "tool")]
     pub tools: Vec<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceStockArgs {
+    #[command(subcommand)]
+    pub command: WorkspaceStockCommand,
+}
+
+#[derive(Subcommand)]
+pub enum WorkspaceStockCommand {
+    /// 从平台包强制同步 stock 树到工作区
+    Sync(WorkspaceStockSyncArgs),
+    /// 检查 stock 树、孤儿路径与 STOCK.json 漂移
+    Doctor(WorkspaceStockDoctorArgs),
+    /// 迁移 legacy `.stock/` 路径与 authoring 示例引用
+    MigratePaths(WorkspaceStockMigratePathsArgs),
+}
+
+#[derive(Args)]
+pub struct WorkspaceStockSyncArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceStockDoctorArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceStockMigratePathsArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
     #[arg(long)]
     pub json: bool,
 }

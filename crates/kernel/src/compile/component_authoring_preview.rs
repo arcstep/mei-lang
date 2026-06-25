@@ -1,9 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use serde::Deserialize;
 
-use crate::mei_config::{resolve_authoring_root, resolve_workspace_source_root_from_app_root};
+use crate::mei_config::{
+    load_workspace_config, resolve_authoring_root, resolve_workspace_source_root_from_app_root,
+    resolve_workspace_path,
+};
 use crate::model::CompiledApp;
 
 #[derive(Debug, Deserialize)]
@@ -11,17 +16,17 @@ struct ComponentContractsFile {
     components: Vec<ComponentContractEntry>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct ComponentContractEntry {
     id: String,
     #[serde(default)]
     preferred_example_ids: Vec<String>,
 }
 
-static CONTRACTS: OnceLock<ComponentContractsFile> = OnceLock::new();
+static KERNEL_CONTRACTS: OnceLock<ComponentContractsFile> = OnceLock::new();
 
-fn contracts() -> &'static ComponentContractsFile {
-    CONTRACTS.get_or_init(|| {
+fn kernel_contracts() -> &'static ComponentContractsFile {
+    KERNEL_CONTRACTS.get_or_init(|| {
         serde_json::from_str(include_str!(
             "../../../../knowledge/editor-runtime/components/component-contracts.json"
         ))
@@ -29,8 +34,28 @@ fn contracts() -> &'static ComponentContractsFile {
     })
 }
 
-fn package_authoring_examples_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../stock/authoring/examples")
+fn workspace_contracts(source_root: &Path) -> Option<ComponentContractsFile> {
+    let cfg = load_workspace_config(source_root);
+    let rel = cfg.stock_contracts_rel()?;
+    let path = resolve_workspace_path(source_root, rel);
+    if !path.is_file() {
+        return None;
+    }
+    let raw = fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn merged_contract_entries(source_root: &Path) -> Vec<ComponentContractEntry> {
+    let mut by_id = HashMap::<String, ComponentContractEntry>::new();
+    for entry in &kernel_contracts().components {
+        by_id.insert(entry.id.clone(), entry.clone());
+    }
+    if let Some(overlay) = workspace_contracts(source_root) {
+        for entry in overlay.components {
+            by_id.insert(entry.id.clone(), entry);
+        }
+    }
+    by_id.into_values().collect()
 }
 
 /// Map `example_chart_baseline` → `chart-baseline.mei`.
@@ -42,22 +67,25 @@ pub fn example_id_to_mei_filename(example_id: &str) -> Option<String> {
     Some(format!("{stem}.mei").replace('_', "-"))
 }
 
-pub fn preferred_example_id_for_component(component_key: &str) -> Option<&'static str> {
+pub fn preferred_example_id_for_component(
+    source_root: &Path,
+    component_key: &str,
+) -> Option<String> {
     let key = component_key.trim();
     if key.is_empty() {
         return None;
     }
-    let file = contracts();
-    for entry in &file.components {
+    let entries = merged_contract_entries(source_root);
+    for entry in &entries {
         if entry.id == key {
-            return entry.preferred_example_ids.first().map(String::as_str);
+            return entry.preferred_example_ids.first().cloned();
         }
     }
     let family = key.split_once('.').map(|(prefix, _)| prefix)?;
     let wildcard = format!("{family}.*");
-    for entry in &file.components {
+    for entry in &entries {
         if entry.id == wildcard {
-            return entry.preferred_example_ids.first().map(String::as_str);
+            return entry.preferred_example_ids.first().cloned();
         }
     }
     None
@@ -82,18 +110,33 @@ pub fn component_authoring_example_workspace_path(
     compiled: &CompiledApp,
     component_key: &str,
 ) -> Option<String> {
-    let example_id = preferred_example_id_for_component(component_key)?;
-    let filename = example_id_to_mei_filename(example_id)?;
     let app_root = Path::new(compiled.app_root.as_str());
     let source_root = resolve_workspace_source_root_from_app_root(app_root);
-    if let Some(rel) = workspace_example_rel(source_root.as_path(), filename.as_str()) {
-        return Some(rel);
+    let example_id = preferred_example_id_for_component(source_root.as_path(), component_key)?;
+    let filename = example_id_to_mei_filename(example_id.as_str())?;
+    workspace_example_rel(source_root.as_path(), filename.as_str())
+}
+
+pub fn scene_contract_contains_use_key(contract: &crate::model::SceneContract, use_key: &str) -> bool {
+    contract
+        .panels
+        .iter()
+        .any(|panel| panel_contains_use_key(panel, use_key))
+}
+
+fn panel_contains_use_key(panel: &crate::model::PanelDecl, use_key: &str) -> bool {
+    panel
+        .blocks
+        .iter()
+        .any(|node| node_contains_use_key(node, use_key))
+}
+
+fn node_contains_use_key(node: &crate::model::UiNodeDecl, use_key: &str) -> bool {
+    match node {
+        crate::model::UiNodeDecl::Block(block) => block.use_key == use_key,
+        crate::model::UiNodeDecl::Panel(nested) => panel_contains_use_key(nested, use_key),
+        crate::model::UiNodeDecl::PanelRefEmbed(_) => false,
     }
-    let package_file = package_authoring_examples_root().join(&filename);
-    if package_file.is_file() {
-        return super::build_experience::preview_target_for_absolute_path(compiled, &package_file);
-    }
-    None
 }
 
 #[cfg(test)]
@@ -102,29 +145,22 @@ mod tests {
 
     #[test]
     fn chart_area_resolves_chart_baseline_example() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let example_id =
+            preferred_example_id_for_component(tmp.path(), "chart.area").expect("example id");
+        assert_eq!(example_id, "example_chart_baseline");
         assert_eq!(
-            preferred_example_id_for_component("chart.area"),
-            Some("example_chart_baseline")
-        );
-        assert_eq!(
-            example_id_to_mei_filename("example_chart_baseline").as_deref(),
+            example_id_to_mei_filename(example_id.as_str()).as_deref(),
             Some("chart-baseline.mei")
         );
     }
 
     #[test]
     fn chart_bar_resolves_chart_wildcard_example() {
+        let tmp = tempfile::tempdir().expect("tempdir");
         assert_eq!(
-            preferred_example_id_for_component("chart.bar"),
-            Some("example_chart_baseline")
-        );
-    }
-
-    #[test]
-    fn cockpit_header_brand_resolves_cockpit_panel_example() {
-        assert_eq!(
-            preferred_example_id_for_component("cockpit.header-brand"),
-            Some("example_cockpit_panel")
+            preferred_example_id_for_component(tmp.path(), "chart.bar"),
+            Some("example_chart_baseline".to_string())
         );
     }
 }

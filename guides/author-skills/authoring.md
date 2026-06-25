@@ -21,7 +21,7 @@
 优先读取：
 
 1. 当前 `main.mei` / 目标 scene 文件
-2. 相关 `.stock/templates` / `.stock/components`
+2. 相关 `stock/templates` / `stock/components`
 3. `syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`、`context.md`
 4. `.mei/knowledge/author/workspace-config-reference.md`
 5. `.mei/knowledge/author/components/*`、`.mei/knowledge/author/templates/*`
@@ -226,7 +226,7 @@ node ./scripts/host-perf-report.mjs \
 
 - 应用入口优先使用 `main.mei`
 - 外部场景优先使用 `scene_ref(scene_file = ...)` 并在 `app_add_scene(...)` 中注册
-- `.stock/templates/**` 是公共模板消费面；不要把 `workspaces/**` 相对路径当成 standalone 默认写法
+- `stock/templates/**` 是公共模板消费面；不要把 `workspaces/**` 相对路径当成 standalone 默认写法
 - 不要把运行态临时问答结果直接回写成正式作者态源码
 - `inspect summary` / `workspace summary` 更适合作为作者态路由摘要，而不是源码理解主入口
 - 新组件 / 新模板任务先切到 `.mei/knowledge/author/extension-authoring.md`，不要假装它仍是普通 author 任务

@@ -9,7 +9,7 @@ This guide explains when a task is still normal authoring and when it has crosse
 Stay in the normal `author` chain when you are:
 
 - creating or editing `.mei`
-- reusing existing `.stock/components/**` or `.stock/templates/**`
+- reusing existing `stock/components/**` or `stock/templates/**`
 - wiring datasets, metrics, templates, and layouts together
 - fixing diagnostics in existing MeiLang apps
 
@@ -44,7 +44,7 @@ Public rule:
 The current minimum template-pack shape is:
 
 ```text
-.stock/templates/<pack>/
+stock/templates/<pack>/
   README.md
   panel/
   metric-card/

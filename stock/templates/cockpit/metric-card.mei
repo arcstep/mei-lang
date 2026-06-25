@@ -1,0 +1,348 @@
+# 指标卡模板预览：窄卡 / 宽卡 / 长卡 / 进度 / 横排 / 叠排 / 左图 / 长条。
+
+scene(
+    id = "metric",
+    world = "metric_world",
+    frame = "metric_frame",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "metric_card 与 compound 壳预览。",
+)
+
+world(id = "metric_world", resources = [])
+
+SHELL = "panel/panel-titled-shell.mei"
+BODY = "panel/metrics-auto-body.mei"
+CARD_NARROW_STACK = "metric-card/metric-card-narrow-stack.mei"
+CARD_SOLID_ROW = "metric-card/metric-card-solid-row.mei"
+CARD_SOLID_STACK = "metric-card/metric-card-solid-stack.mei"
+CARD_STACK_DESC = "metric-card/metric-card-stack-desc.mei"
+CARD_STACK_PROGRESS = "metric-card/metric-card-stack-progress.mei"
+CARD_PLAIN = "metric-card/metric-card-plain.mei"
+CARD_ICON_LEFT = "metric-card/metric-card-icon-left.mei"
+CARD_STRIP_ICON_LEFT = "metric-card/metric-card-strip-icon-left.mei"
+WIDE_COMPOUND = "metric-card/metric-wide-compound.mei"
+LONG_COMPOUND = "metric-card/metric-card-long-compound.mei"
+
+METRIC_ASSETS = "/workspace-app-assets/templates/cockpit/assets/metrics"
+ICON_TODO = METRIC_ASSETS + "/待办@3x.png"
+ICON_DOING = METRIC_ASSETS + "/在办@3x.png"
+ICON_DONE = METRIC_ASSETS + "/已办@3x.png"
+
+PREVIEW_SHELL_PROPS = {"height": "auto", "min_height": "0"}
+PREVIEW_BODY_PROPS = {"height": "auto", "width": "520px", "min_height": "0"}
+
+frame(
+    id = "metric_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "16px", align = "center"),
+    props = {
+        "width": "560px",
+        "max_width": "560px",
+        "min_height": "0",
+        "height": "auto",
+        "margin": "0 auto",
+        "box_sizing": "border-box",
+        "viewport": {"enabled": True, "design_width": 560, "fluid_height": True},
+    },
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "block_narrow",
+    title = "窄卡",
+    props = PREVIEW_SHELL_PROPS,
+    blocks = [
+        panel(
+            base = panel_ref(id = "metrics_auto_body", scene_file = BODY),
+            id = "narrow_body",
+            props = PREVIEW_BODY_PROPS | {"layout_columns_prefer": 3},
+            blocks = [
+                metric_card(
+                    base = metric_card_ref(id = "card_normal", scene_file = CARD_NARROW_STACK),
+                    id = "preview_normal",
+                    source = {"label": "normal", "value": "2000", "unit": "项"},
+                ),
+                metric_card(
+                    base = metric_card_ref(id = "card_selected", scene_file = CARD_NARROW_STACK),
+                    id = "preview_selected",
+                    source = {"label": "selected", "value": "1286", "unit": "人"},
+                ),
+                metric_card(
+                    base = metric_card_ref(id = "card_stack_desc_mid", scene_file = CARD_STACK_DESC),
+                    id = "preview_stack_desc",
+                ),
+            ],
+        ),
+    ],
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "block_compound",
+    title = "宽卡",
+    props = PREVIEW_SHELL_PROPS,
+    blocks = [
+        panel(
+            id = "compound_body",
+            show_heading = False,
+            variant = "container",
+            props = PREVIEW_BODY_PROPS,
+            layout = flex(direction = "column", gap = "8px", align = "center"),
+            blocks = [
+                panel(
+                    base = panel_ref(id = "wide_compound_shell", scene_file = WIDE_COMPOUND),
+                    id = "preview_compound",
+                    blocks = [
+                        metric_card(
+                            base = metric_card_ref(id = "card_plain", scene_file = CARD_PLAIN),
+                            id = "compound_top",
+                            template = "row",
+                            layout = layout_metric_row(inline_align = "compact", slot_align = "center"),
+                            source = {"label": "执法对象", "value": "356", "unit": "个"},
+                            label_vertical_align = "center",
+                            value_vertical_align = "center",
+                            unit_vertical_align = "center",
+                        ),
+                        metric_card(
+                            base = metric_card_ref(id = "card_plain", scene_file = CARD_PLAIN),
+                            id = "compound_b0",
+                            variant = "sub",
+                            template = "stack",
+                            layout = layout_metric_stack(title_ratio = 5, content_ratio = 5),
+                            source = {"label": "企业", "value": "210", "unit": "家"},
+                            label_vertical_align = "end",
+                            value_vertical_align = "center",
+                            unit_vertical_align = "center",
+                        ),
+                        metric_card(
+                            base = metric_card_ref(id = "card_plain", scene_file = CARD_PLAIN),
+                            id = "compound_b1",
+                            variant = "sub",
+                            template = "stack",
+                            layout = layout_metric_stack(title_ratio = 5, content_ratio = 5),
+                            source = {"label": "个人", "value": "98", "unit": "人"},
+                            label_vertical_align = "end",
+                            value_vertical_align = "center",
+                            unit_vertical_align = "center",
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    ],
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "block_long",
+    title = "长卡",
+    props = PREVIEW_SHELL_PROPS,
+    blocks = [
+        panel(
+            id = "long_body",
+            show_heading = False,
+            variant = "container",
+            props = PREVIEW_BODY_PROPS,
+            layout = flex(direction = "column", gap = "8px", align = "center"),
+            blocks = [
+                panel(
+                    base = panel_ref(id = "long_compound_shell", scene_file = LONG_COMPOUND),
+                    id = "preview_long",
+                    blocks = [
+                        metric_card(
+                            base = metric_card_ref(id = "card_plain", scene_file = CARD_PLAIN),
+                            id = "long_main",
+                            area = "main",
+                            template = "stack",
+                            layout = layout_metric_stack(title_ratio = 5, content_ratio = 5),
+                            source = {"label": "执法对象", "value": "356", "unit": "个"},
+                            label_vertical_align = "end",
+                            value_vertical_align = "center",
+                            unit_vertical_align = "center",
+                        ),
+                        metric_card(
+                            base = metric_card_ref(id = "card_plain", scene_file = CARD_PLAIN),
+                            id = "long_rtop",
+                            area = "rtop",
+                            template = "row",
+                            layout = grid(
+                                rows = ["1fr"],
+                                columns = ["auto", "auto", "auto"],
+                                areas = [["label", "value", "unit"]],
+                                gap = "4px",
+                                align = "center",
+                                justify = "center",
+                            ),
+                            variant = "sub",
+                            blocks = [
+                                label("企业", area = "label", align = "center", vertical_align = "center", variant = "sub"),
+                                value("210", area = "value", align = "center", vertical_align = "center", variant = "sub"),
+                                unit("家", area = "unit", align = "center", vertical_align = "center", variant = "sub"),
+                            ],
+                        ),
+                        metric_card(
+                            base = metric_card_ref(id = "card_plain", scene_file = CARD_PLAIN),
+                            id = "long_rbottom",
+                            area = "rbottom",
+                            template = "row",
+                            layout = grid(
+                                rows = ["1fr"],
+                                columns = ["auto", "auto", "auto"],
+                                areas = [["label", "value", "unit"]],
+                                gap = "4px",
+                                align = "center",
+                                justify = "center",
+                            ),
+                            variant = "sub",
+                            blocks = [
+                                label("个人", area = "label", align = "center", vertical_align = "center", variant = "sub"),
+                                value("98", area = "value", align = "center", vertical_align = "center", variant = "sub"),
+                                unit("人", area = "unit", align = "center", vertical_align = "center", variant = "sub"),
+                            ],
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    ],
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "block_progress",
+    title = "进度",
+    props = PREVIEW_SHELL_PROPS,
+    blocks = [
+        panel(
+            base = panel_ref(id = "metrics_auto_body", scene_file = BODY),
+            id = "progress_body",
+            props = PREVIEW_BODY_PROPS | {"layout_columns_prefer": 1},
+            blocks = [
+                metric_card(
+                    base = metric_card_ref(id = "card_stack_progress_clean", scene_file = CARD_STACK_PROGRESS),
+                    id = "preview_progress",
+                ),
+                metric_card(
+                    base = metric_card_ref(id = "card_stack_progress_clean", scene_file = CARD_STACK_PROGRESS),
+                    id = "preview_progress_patch",
+                    source = {"label": "无违规", "value": "150", "unit": "次"},
+                    patch = {"desc": "65%"},
+                ),
+            ],
+        ),
+    ],
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "block_solid_row",
+    title = "横排",
+    props = PREVIEW_SHELL_PROPS,
+    blocks = [
+        panel(
+            base = panel_ref(id = "metrics_auto_body", scene_file = BODY),
+            id = "solid_row_body",
+            props = PREVIEW_BODY_PROPS | {"__mei_layout_policy": "metrics_strip"},
+            blocks = [
+                metric_card(
+                    base = metric_card_ref(id = "card_solid_row_accent", scene_file = CARD_SOLID_ROW),
+                    id = "preview_row_accent",
+                ),
+                metric_card(
+                    base = metric_card_ref(id = "card_solid_row_compact", scene_file = CARD_SOLID_ROW),
+                    id = "preview_row_compact",
+                ),
+            ],
+        ),
+    ],
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "block_solid_stack",
+    title = "叠排",
+    props = PREVIEW_SHELL_PROPS,
+    blocks = [
+        panel(
+            base = panel_ref(id = "metrics_auto_body", scene_file = BODY),
+            id = "solid_stack_body",
+            props = PREVIEW_BODY_PROPS | {"layout_columns_prefer": 2},
+            blocks = [
+                metric_card(
+                    base = metric_card_ref(id = "card_solid_stack_plain", scene_file = CARD_SOLID_STACK),
+                    id = "preview_stack_plain",
+                ),
+                metric_card(
+                    base = metric_card_ref(id = "card_solid_stack_corner", scene_file = CARD_SOLID_STACK),
+                    id = "preview_stack_corner",
+                ),
+            ],
+        ),
+    ],
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "block_icon_left",
+    title = "左图",
+    props = PREVIEW_SHELL_PROPS,
+    blocks = [
+        panel(
+            base = panel_ref(id = "metrics_auto_body", scene_file = BODY),
+            id = "icon_left_body",
+            props = PREVIEW_BODY_PROPS | {"layout_columns_prefer": 3},
+            blocks = [
+                metric_card(
+                    base = metric_card_ref(id = "card_icon_left", scene_file = CARD_ICON_LEFT),
+                    id = "preview_icon_todo",
+                    source = {"label": "待办", "value": "22", "unit": "件"},
+                    props = {
+                        "background": {
+                            "image": "url(" + ICON_TODO + ")",
+                        },
+                    },
+                ),
+                metric_card(
+                    base = metric_card_ref(id = "card_icon_left", scene_file = CARD_ICON_LEFT),
+                    id = "preview_icon_doing",
+                    source = {"label": "在办", "value": "18", "unit": "件"},
+                    props = {
+                        "background": {
+                            "image": "url(" + ICON_DOING + ")",
+                        },
+                    },
+                ),
+                metric_card(
+                    base = metric_card_ref(id = "card_icon_left", scene_file = CARD_ICON_LEFT),
+                    id = "preview_icon_done",
+                    source = {"label": "已办", "value": "36", "unit": "件"},
+                    props = {
+                        "background": {
+                            "image": "url(" + ICON_DONE + ")",
+                        },
+                    },
+                ),
+            ],
+        ),
+    ],
+)
+
+frame.add_panel(
+    base = panel_ref(id = "titled_shell", scene_file = SHELL),
+    id = "block_strip",
+    title = "长条",
+    props = PREVIEW_SHELL_PROPS,
+    blocks = [
+        panel(
+            base = panel_ref(id = "metrics_auto_body", scene_file = BODY),
+            id = "strip_body",
+            props = PREVIEW_BODY_PROPS | {"layout_columns_prefer": 1},
+            blocks = [
+                metric_card(
+                    base = metric_card_ref(id = "card_strip_icon_left", scene_file = CARD_STRIP_ICON_LEFT),
+                    id = "preview_strip",
+                ),
+            ],
+        ),
+    ],
+)

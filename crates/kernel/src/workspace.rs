@@ -10,7 +10,8 @@ use walkdir::WalkDir;
 
 use crate::mei_config::{
     is_v2_app_root, load_workspace_config, resolve_app_entry_main, resolve_apps_root,
-    resolve_components_root, APP_CONFIG_FILENAME, MEI_CONFIG_FILENAME,
+    resolve_components_root, stock_path_excluded, StockCatalogKind, APP_CONFIG_FILENAME,
+    MEI_CONFIG_FILENAME,
 };
 use crate::model::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
 
@@ -327,6 +328,14 @@ pub fn load_component_assets(source_root: &Path) -> Result<BTreeMap<String, Comp
 
     let mut assets = BTreeMap::new();
     for manifest_path in manifests {
+        let rel = manifest_path
+            .strip_prefix(&components_root)
+            .ok()
+            .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        if stock_path_excluded(source_root, StockCatalogKind::Components, rel.as_str()) {
+            continue;
+        }
         let raw = fs::read_to_string(&manifest_path)
             .with_context(|| format!("failed to read {}", manifest_path.display()))?;
         let manifest: ComponentManifestFile = serde_json::from_str(&raw).with_context(|| {

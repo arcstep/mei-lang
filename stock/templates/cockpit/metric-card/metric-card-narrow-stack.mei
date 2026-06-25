@@ -1,0 +1,86 @@
+# 窄指标卡 stack 基壳（114×128）：card_normal / card_selected 仅背景皮肤不同。
+# 宽版 target 底图见 metric-wide-compound.mei，不在此导出。
+
+scene(id = "metric_card_narrow_stack_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+METRIC_ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets/metrics"
+BG_NORMAL = METRIC_ASSET_BASE + "/metric-bg-normal@3x.svg"
+BG_SELECTED = METRIC_ASSET_BASE + "/metric-bg-selected@3x.svg"
+
+frame()
+
+frame.add_panel(
+    id = "card_normal",
+    area = "auto",
+    show_heading = False,
+    chrome = "bare",
+    variant = "container",
+    props = {
+        "chrome": "bare",
+        "padding": "6px 4px",
+        "width": "114px",
+        "height": "128px",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+        "__mei_metric_card": True,
+        "__mei_metric_density": "normal",
+        "__mei_metric_template": "stack",
+        "__mei_metric_inline_align": "compact",
+        "__mei_metric_title_ratio": "3",
+        "__mei_metric_content_ratio": "7",
+        "__mei_metric_label_v_align": "center",
+        "__mei_metric_value_v_align": "center",
+        "__mei_metric_unit_v_align": "center",
+        "background": {
+            "image": "url(" + BG_NORMAL + ")",
+            "size": "100% 100%",
+            "position": "center",
+            "repeat": "no-repeat",
+        },
+    },
+    layout = layout_metric_stack(title_ratio = 3, content_ratio = 7),
+    blocks = [
+        label("·", area = "label", vertical_align = "center"),
+        value("--", area = "value", vertical_align = "center"),
+        unit("", area = "unit", vertical_align = "center"),
+    ],
+)
+
+frame.add_panel(
+    id = "card_selected",
+    area = "auto",
+    show_heading = False,
+    chrome = "bare",
+    variant = "container",
+    props = {
+        "chrome": "bare",
+        "padding": "6px 4px",
+        "width": "114px",
+        "height": "128px",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+        "__mei_metric_card": True,
+        "__mei_metric_density": "normal",
+        "__mei_metric_template": "stack",
+        "__mei_metric_inline_align": "compact",
+        "__mei_metric_title_ratio": "3",
+        "__mei_metric_content_ratio": "7",
+        "__mei_metric_label_v_align": "center",
+        "__mei_metric_value_v_align": "center",
+        "__mei_metric_unit_v_align": "center",
+        "background": {
+            "image": "url(" + BG_SELECTED + ")",
+            "size": "100% 100%",
+            "position": "center",
+            "repeat": "no-repeat",
+        },
+    },
+    layout = layout_metric_stack(title_ratio = 3, content_ratio = 7),
+    blocks = [
+        label("·", area = "label", vertical_align = "center"),
+        value("--", area = "value", vertical_align = "center"),
+        unit("", area = "unit", vertical_align = "center"),
+    ],
+)

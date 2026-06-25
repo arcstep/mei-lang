@@ -78,6 +78,7 @@ pub use knowledge_bundle::{
 pub use observation::{CompileObservation, EvalObservation, ExposureManifest};
 pub use platform_assets::{
     platform_asset_catalog_descriptor, platform_asset_catalog_descriptor_for_package_root,
+    platform_asset_catalog_descriptor_for_workspace_root,
     ComponentExportDescriptor, ComponentPackDescriptor, PlatformAssetCatalogDescriptor,
     TemplatePackDescriptor, PLATFORM_ASSET_SCHEMA_VERSION,
 };
@@ -91,8 +92,10 @@ pub use types::{
     WorldScope, WorldSnapshotSummary,
 };
 pub use workspace_stock::{
-    create_app_skeleton, ensure_workspace_stock_materialized, init_workspace_profile,
-    materialize_workspace_stock, MaterializeReport,
+    create_app_skeleton, doctor_workspace_stock, ensure_workspace_stock_materialized,
+    init_workspace_profile, materialize_workspace_stock, migrate_workspace_stock_paths,
+    sync_workspace_stock, workspace_stock_revision, MaterializeDirReport, MaterializeReport, MigrateWorkspaceStockPathsReport,
+    StockDoctorReport, StockManifest, StockTreeFingerprint,
 };
 pub use workspace_summary::build_workspace_summary;
 pub use world::{

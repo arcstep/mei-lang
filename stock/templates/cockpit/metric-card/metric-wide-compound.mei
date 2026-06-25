@@ -1,0 +1,38 @@
+# 宽卡 compound 壳：首子卡上横排，其余底行 1～6 张（示例 1+1 预览；main 常用 1+3）。
+
+scene(id = "metric_wide_compound_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+METRIC_ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets/metrics"
+BG = METRIC_ASSET_BASE + "/metric-bg-target@3x.svg"
+
+frame()
+
+frame.add_panel(
+    id = "wide_compound_shell",
+    area = "auto",
+    show_heading = False,
+    chrome = "bare",
+    variant = "container",
+    layout_policy = "metric_compound_2_1",
+    layout_padding = "2px 6px",
+    layout_gap = "2px",
+    props = {
+        "__mei_compound_top_band_ratio": "56/128",
+        "background": {
+            "color": "rgba(98,190,235,0.10)",
+            "image": "url(" + BG + ")",
+            "size": "100% 100%",
+            "position": "center",
+            "repeat": "no-repeat",
+        },
+        "width": "234px",
+        "height": "100%",
+        "min_height": "0",
+        "max_height": "100%",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    },
+    blocks = [],
+)

@@ -380,18 +380,25 @@ fn node_view(
             preview_scene_path,
             parent_panel_id,
         ),
-        UiNodeDecl::Block(block) => block_view(
-            block,
-            parent_layout,
-            compiled,
-            app_path,
-            scene_contract,
-            runtime_ctx,
-            theme,
-            preview_scene_path,
-            parent_panel_id,
-            parent_panel,
-        ),
+        UiNodeDecl::Block(block) => {
+            if let Some(use_key) = runtime_ctx.build_preview_component_use_key.as_deref() {
+                if block.use_key.as_str() != use_key {
+                    return ().into_any();
+                }
+            }
+            block_view_for_decl(
+                block,
+                parent_layout,
+                compiled,
+                app_path,
+                scene_contract,
+                runtime_ctx,
+                theme,
+                preview_scene_path,
+                parent_panel_id,
+                parent_panel,
+            )
+        }
         UiNodeDecl::PanelRefEmbed(embed) => panel_ref_embed_removed_view(embed, parent_layout),
     }
 }
@@ -422,7 +429,7 @@ fn panel_ref_embed_removed_view(
     .into_any()
 }
 
-fn block_view(
+pub(crate) fn block_view_for_decl(
     block: &BlockDecl,
     panel_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,

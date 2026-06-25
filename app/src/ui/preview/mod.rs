@@ -42,12 +42,15 @@ pub(crate) struct PreviewRuntimeContext {
     pub build_inspect_enabled: bool,
     /// Build 视图：panel 级 SSR 切片 scope（scene-relative panel path）。
     pub build_preview_scope: Option<String>,
+    /// Build 视图：component 节点仅渲染匹配的 `use_key` block。
+    pub build_preview_component_use_key: Option<String>,
 }
 
 pub(crate) fn build_preview_runtime_context(
     compiled: &CompiledApp,
     route_mode: UiRouteMode,
     build_preview_scope: Option<&str>,
+    build_preview_component_use_key: Option<&str>,
 ) -> PreviewRuntimeContext {
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),
@@ -58,6 +61,10 @@ pub(crate) fn build_preview_runtime_context(
         ),
         build_inspect_enabled: route_mode == UiRouteMode::Build,
         build_preview_scope: build_preview_scope
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        build_preview_component_use_key: build_preview_component_use_key
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
@@ -72,6 +79,7 @@ pub(crate) fn preview_view(
     route_mode: UiRouteMode,
     world_semantic: WorldSemanticQuery<'_>,
     build_preview_scope: Option<&str>,
+    build_preview_component_use_key: Option<&str>,
 ) -> AnyView {
     view::preview_view(
         compiled,
@@ -80,6 +88,7 @@ pub(crate) fn preview_view(
         route_mode,
         world_semantic,
         build_preview_scope,
+        build_preview_component_use_key,
     )
 }
 

@@ -5,7 +5,7 @@ use walkdir::WalkDir;
 
 use crate::compile::block_instance_id;
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
-use crate::mei_config::resolve_templates_root;
+use crate::mei_config::{resolve_templates_root, stock_path_excluded, StockCatalogKind};
 use crate::model::{
     BlockDecl, BuildNodeId, BuildTemplateIndex, CompiledApp, ComponentAsset,
     ExperienceNodeManifest, PanelDecl, SceneContract, TemplateCatalogEntry, TemplateConsumerAnchor,
@@ -109,9 +109,19 @@ pub fn build_template_index(
             .entry(entry.category.clone())
             .or_default()
             .push(ReachabilityTreeNode {
-                id: format!("template-{}", entry.template_key),
-                node_id: BuildNodeId::template(entry.template_key.as_str()).encode(),
-                kind: "template".to_string(),
+                id: format!("component-{}", entry.template_key),
+                node_id: if super::build_experience::is_template_file_node_key(entry.template_key.as_str())
+                {
+                    BuildNodeId::template(entry.template_key.as_str()).encode()
+                } else {
+                    BuildNodeId::component(entry.template_key.as_str()).encode()
+                },
+                kind: if super::build_experience::is_template_file_node_key(entry.template_key.as_str())
+                {
+                    "template_file".to_string()
+                } else {
+                    "component".to_string()
+                },
                 label: entry.template_key.clone(),
                 badges: vec![entry.template_file.clone()],
                 children: Vec::new(),
@@ -143,7 +153,7 @@ pub fn build_template_index(
     BuildTemplateIndexResult { index, tree_root }
 }
 
-/// Workspace `.stock/templates/**/*.mei` as a separate reachability group (authoring file tree).
+/// Workspace `stock/templates/**/*.mei` as a separate reachability group (authoring file tree).
 pub fn build_stock_template_files_root(source_root: &Path) -> ReachabilityTreeRoot {
     let templates_root = resolve_templates_root(source_root);
     let templates_prefix = templates_root
@@ -151,7 +161,7 @@ pub fn build_stock_template_files_root(source_root: &Path) -> ReachabilityTreeRo
         .ok()
         .map(|rel| rel.to_string_lossy().replace('\\', "/"))
         .filter(|rel| !rel.is_empty())
-        .unwrap_or_else(|| ".stock/templates".to_string());
+        .unwrap_or_else(|| "stock/templates".to_string());
     let mut by_folder = BTreeMap::<String, Vec<ReachabilityTreeNode>>::new();
     if templates_root.is_dir() {
         for entry in WalkDir::new(&templates_root)
@@ -169,6 +179,9 @@ pub fn build_stock_template_files_root(source_root: &Path) -> ReachabilityTreeRo
                 .ok()
                 .map(|rel| rel.to_string_lossy().replace('\\', "/"))
                 .unwrap_or_else(|| file_name.to_string());
+            if stock_path_excluded(source_root, StockCatalogKind::Templates, rel.as_str()) {
+                continue;
+            }
             if rel.starts_with("assets/") || rel.contains("/assets/") {
                 continue;
             }
@@ -324,7 +337,37 @@ pub fn authoring_preview_target_for_template(
     template_key: &str,
 ) -> Option<String> {
     let workspace_path = authoring_template_workspace_path(compiled, template_key)?;
-    super::build_experience::preview_target_relative_to_app(compiled, workspace_path.as_str())
+    let rel =
+        super::build_experience::preview_target_relative_to_app(compiled, workspace_path.as_str())?;
+    if !template_file_supports_authoring_preview(compiled, rel.as_str()) {
+        return None;
+    }
+    Some(rel)
+}
+
+fn template_file_supports_authoring_preview(compiled: &CompiledApp, rel_path: &str) -> bool {
+    let app_root = Path::new(compiled.app_root.as_str());
+    let abs = if rel_path.starts_with("../") {
+        let mut base = app_root.to_path_buf();
+        for part in rel_path.split('/') {
+            if part == ".." {
+                if !base.pop() {
+                    return false;
+                }
+            } else if !part.is_empty() && part != "." {
+                base.push(part);
+            }
+        }
+        base
+    } else {
+        app_root.join(rel_path)
+    };
+    let content = match std::fs::read_to_string(abs) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    let trimmed = content.trim();
+    !trimmed.is_empty() && trimmed.contains("scene(")
 }
 
 fn authoring_template_workspace_path(compiled: &CompiledApp, template_key: &str) -> Option<String> {
@@ -571,14 +614,14 @@ mod tests {
             .join("workspaces")
             .join("ws-spbjw");
         let app_root = source_root.join("zhifa");
-        let examples_root = source_root.join(".stock/authoring/examples/chart-baseline.mei");
+        let examples_root = source_root.join("stock/authoring/examples/chart-baseline.mei");
         if !app_root.is_dir() || !examples_root.is_file() {
             return;
         }
         let compiled =
             compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
                 .expect("compile zhifa");
-        let node = BuildNodeId::template("chart.area");
+        let node = BuildNodeId::component("chart.area");
         let target = authoring_preview_target_for_template(&compiled, "chart.area");
         assert!(
             target
@@ -618,6 +661,39 @@ mod tests {
     }
 
     #[test]
+    fn ws_hello_chart_area_authoring_preview_coordinate() {
+        use std::path::Path;
+
+        use crate::compile::{
+            compile_app_from_root_with_options, compile_coordinate_for_node, BuildPreviewKind,
+            CompileOptions,
+        };
+        use crate::model::BuildNodeId;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("repo root")
+            .join("workspaces")
+            .join("ws-hello");
+        let app_root = source_root.join("apps").join("hello");
+        if !app_root.is_dir() {
+            return;
+        }
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile ws-hello hello");
+        let node = BuildNodeId::component("chart.area");
+        let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
+        assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
+        assert!(
+            coord.preview_target.contains("chart-baseline.mei"),
+            "expected chart baseline example, got {}",
+            coord.preview_target
+        );
+    }
+
+    #[test]
     fn template_preview_targets_primary_consumer_scene() {
         use std::path::Path;
 
@@ -649,7 +725,7 @@ mod tests {
         let scene = preview_scene_id_for_template_consumer(&compiled, "cockpit.header-brand");
         assert_eq!(scene.as_deref(), Some("home"));
         let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
-        let cockpit_example = source_root.join(".stock/authoring/examples/cockpit-panel.mei");
+        let cockpit_example = source_root.join("stock/authoring/examples/cockpit-panel.mei");
         if cockpit_example.is_file() {
             assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
             assert!(coord.preview_target.contains("cockpit-panel.mei"));
@@ -666,12 +742,22 @@ mod tests {
             BuildTemplateIndex, CompiledApp, CompiledSceneRoute, TemplateCatalogEntry,
         };
 
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .join("workspaces")
+            .join("ws-spbjw");
+        let app_root = source_root.join("zhifa");
+        let template_mei = source_root.join("stock/templates/cockpit/main.mei");
+        if !app_root.is_dir() || !template_mei.is_file() {
+            return;
+        }
+
         let mut templates = BTreeMap::new();
         templates.insert(
             "cockpit.main".to_string(),
             TemplateCatalogEntry {
                 template_key: "cockpit.main".to_string(),
-                template_file: ".stock/templates/cockpit/main.mei".to_string(),
+                template_file: "stock/templates/cockpit/main.mei".to_string(),
                 category: "component".to_string(),
                 props_schema: Vec::new(),
                 variants: Vec::new(),
@@ -688,7 +774,7 @@ mod tests {
         let compiled = CompiledApp {
             app_id: "demo".to_string(),
             title: "demo".to_string(),
-            app_root: "zhifa".to_string(),
+            app_root: app_root.display().to_string(),
             scene_routes: vec![CompiledSceneRoute {
                 scene_id: "home".to_string(),
                 frame_id: None,
@@ -717,7 +803,7 @@ mod tests {
         };
         assert_eq!(
             authoring_preview_target_for_template(&compiled, "cockpit/main.mei").as_deref(),
-            Some("../.stock/templates/cockpit/main.mei")
+            Some("../stock/templates/cockpit/main.mei")
         );
         assert_eq!(
             preview_scene_id_for_template_file_consumer(&compiled, "cockpit/main.mei").as_deref(),

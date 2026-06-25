@@ -261,33 +261,38 @@ pub(super) fn finish_compiled_app(
     );
     compiled.build_board_index = board.index;
     ensure_world_capsule_preview_components(&mut compiled.component_assets, asset_map);
+    let workspace_source_root =
+        crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);
+    let catalog_assets =
+        crate::compile::build_template_index::merged_component_catalog(
+            workspace_source_root.as_path(),
+            &compiled,
+        );
     let template = crate::compile::build_template_index(
-        &compiled.component_assets,
+        catalog_assets.as_slice(),
         &target_scene_contracts,
         &compiled.build_experience_index.node_manifest,
     );
     compiled.build_template_index = template.index;
-    let workspace_source_root =
-        crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);
     let template_files = crate::compile::build_template_index::build_stock_template_files_root(
         workspace_source_root.as_path(),
     );
-    let empty_templates = crate::compile::ReachabilityTreeRoot {
-        group: "templates".to_string(),
-        label: "Components".to_string(),
-        default_open: false,
-        children: Vec::new(),
-    };
-    compiled.build_experience_index.reachability_snapshot =
+    let mut reachability_snapshot =
         crate::compile::build_experience_index::merge_build_view_tree_roots(
             compiled
                 .build_experience_index
                 .reachability_snapshot
                 .clone(),
             board.tree_root,
-            empty_templates,
+            template.tree_root,
             template_files,
         );
+    crate::compile::build_experience_index::annotate_stock_preview_availability(
+        &mut reachability_snapshot,
+        &compiled,
+        diagnostics,
+    );
+    compiled.build_experience_index.reachability_snapshot = reachability_snapshot;
     Ok(compiled)
 }
 

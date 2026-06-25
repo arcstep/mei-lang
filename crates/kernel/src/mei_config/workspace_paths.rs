@@ -65,7 +65,7 @@ pub fn resolve_workspace_source_root_from_app_root(app_root: &Path) -> PathBuf {
 /// 保留给 CLI 启动路径；workspace stock 不再回退到 package tree。
 pub fn set_mei_package_root(_path: PathBuf) {}
 
-pub(crate) fn resolve_workspace_path(source_root: &Path, rel: &str) -> PathBuf {
+pub fn resolve_workspace_path(source_root: &Path, rel: &str) -> PathBuf {
     let trimmed = rel.trim();
     if trimmed.is_empty() {
         return source_root.to_path_buf();
@@ -148,28 +148,54 @@ fn configured_templates_rel(cfg: &WorkspaceConfig) -> Option<&str> {
         .filter(|value| !value.trim().is_empty())
 }
 
-/// 解析组件根：`paths.components` → `stock/components`。
-pub fn resolve_components_root(source_root: &Path) -> PathBuf {
+pub fn resolve_stock_root(source_root: &Path) -> PathBuf {
     let cfg = load_workspace_config(source_root);
-    if let Some(rel) = configured_components_rel(&cfg) {
-        let candidate = resolve_workspace_path(source_root, rel);
-        if candidate.is_dir() {
-            return candidate;
-        }
-    }
-    resolve_workspace_path(source_root, DEFAULT_STOCK_COMPONENTS_REL)
+    let rel = cfg
+        .paths
+        .stock
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("stock");
+    resolve_workspace_path(source_root, rel)
 }
 
-/// 解析模板根：`paths.templates` → `stock/templates`。
-pub fn resolve_templates_root(source_root: &Path) -> PathBuf {
-    let cfg = load_workspace_config(source_root);
-    if let Some(rel) = configured_templates_rel(&cfg) {
-        let candidate = resolve_workspace_path(source_root, rel);
-        if candidate.is_dir() {
-            return candidate;
+fn resolve_stock_subdir(source_root: &Path, configured: Option<&str>, default_rel: &str) -> PathBuf {
+    if let Some(rel) = configured.filter(|value| !value.trim().is_empty()) {
+        let trimmed = rel.trim();
+        if trimmed.contains('/') {
+            let candidate = resolve_workspace_path(source_root, trimmed);
+            if candidate.is_dir() {
+                return candidate;
+            }
+        } else {
+            let under_stock = resolve_stock_root(source_root).join(trimmed);
+            if under_stock.is_dir() {
+                return under_stock;
+            }
         }
     }
-    resolve_workspace_path(source_root, DEFAULT_STOCK_TEMPLATES_REL)
+    resolve_workspace_path(source_root, default_rel)
+}
+
+/// 解析组件根：`paths.components` → `{stock}/components`。
+pub fn resolve_components_root(source_root: &Path) -> PathBuf {
+    let cfg = load_workspace_config(source_root);
+    let configured = configured_components_rel(&cfg);
+    resolve_stock_subdir(
+        source_root,
+        configured,
+        DEFAULT_STOCK_COMPONENTS_REL,
+    )
+}
+
+/// 解析模板根：`paths.templates` → `{stock}/templates`。
+pub fn resolve_templates_root(source_root: &Path) -> PathBuf {
+    let cfg = load_workspace_config(source_root);
+    resolve_stock_subdir(
+        source_root,
+        configured_templates_rel(&cfg),
+        DEFAULT_STOCK_TEMPLATES_REL,
+    )
 }
 
 pub fn stock_components_source(package_root: &Path) -> PathBuf {

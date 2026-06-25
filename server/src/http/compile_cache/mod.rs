@@ -1,8 +1,9 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use axum::http::HeaderMap;
 use mei_lang_app::UiRouteMode;
-use mei_lang_kernel::CompileOptions;
+use mei_lang_kernel::{CompiledApp, CompileOptions, Severity};
 use mei_lang_toolchain as toolchain;
 
 use crate::AppState;
@@ -123,6 +124,82 @@ pub(crate) fn load_compile_artifact_only(
     components_root: &std::path::Path,
 ) -> Option<CompileWithCacheOutcome> {
     toolchain::load_compile_artifact_only(&state.source_root, app_id, options, components_root)
+}
+
+/// Build preview targets such as stock authoring examples are outside app scene routes;
+/// artifact-first loads may patch `active_target_file` on a parent scope without updating
+/// `scene_contract`. Those previews must run a scoped compile.
+pub(crate) fn build_preview_target_requires_scoped_compile(
+    compiled: &CompiledApp,
+    preview_target: &str,
+) -> bool {
+    let target = preview_target.trim();
+    if target.is_empty() {
+        return false;
+    }
+    if target.ends_with(".world.mei") || target.ends_with(".board.mei") {
+        return false;
+    }
+    if compiled
+        .scene_routes
+        .iter()
+        .any(|route| route.target_file.trim() == target)
+    {
+        return compiled.scene_contract.is_none();
+    }
+    true
+}
+
+pub(crate) fn build_preview_diagnostic_error_count(compiled: &CompiledApp) -> usize {
+    compiled
+        .diagnostics
+        .iter()
+        .filter(|diag| diag.severity == Severity::Error)
+        .count()
+}
+
+/// Resolve build-view preview compile: reuse warmed artifacts when they truly match the
+/// requested target; otherwise compile the preview scope on demand.
+pub(crate) fn resolve_build_preview_compile(
+    state: &AppState,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+) -> Result<Option<CompileWithCacheOutcome>, toolchain::CompileWithCacheFailure> {
+    let preview_target = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let Some(preview_target) = preview_target else {
+        return Ok(resolve_runtime_compile_shared(
+            state,
+            app_id,
+            options,
+            components_root,
+            RuntimeAccessPolicies::default_for_access_host(),
+            UiRouteMode::Build,
+        )
+        .ok()
+        .flatten()
+        .map(|resolution| compile_outcome_from_shared(resolution.outcome)));
+    };
+
+    if let Ok(Some(resolution)) = resolve_runtime_compile_shared(
+        state,
+        app_id,
+        options,
+        components_root,
+        RuntimeAccessPolicies::default_for_access_host(),
+        UiRouteMode::Build,
+    ) {
+        let compiled = resolution.outcome.compiled.as_ref();
+        if !build_preview_target_requires_scoped_compile(compiled, preview_target) {
+            return Ok(Some(compile_outcome_from_shared(resolution.outcome)));
+        }
+    }
+
+    compile_app_with_cache(state, app_id, options, components_root).map(Some)
 }
 
 pub(crate) fn compile_app_with_cache(

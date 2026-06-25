@@ -13,7 +13,7 @@ use mei_lang_kernel::{
     Diagnostic as MeiDiagnostic, Severity as MeiSeverity,
 };
 use mei_lang_toolchain::{
-    compile_app_with_cache, platform_asset_catalog_descriptor_for_package_root,
+    compile_app_with_cache, platform_asset_catalog_descriptor_for_workspace_root,
     resolve_components_root,
 };
 use starlark::syntax::{AstModule, Dialect};
@@ -320,7 +320,7 @@ impl LanguageServer for Backend {
                         format!(
                             "### component `{}`\n\n- pack: `{}`\n- tag: `{}`\n- script: `{}`",
                             asset.key,
-                            component_pack_id(&reference.value)
+                            component_pack_id(source_root.as_path(), reference.value.as_str())
                                 .unwrap_or_else(|| "unknown".to_string()),
                             asset.tag,
                             asset.script
@@ -389,7 +389,7 @@ impl LanguageServer for Backend {
             if let Ok(assets) = load_component_assets(&source_root) {
                 for asset in assets.values() {
                     let pack_id =
-                        component_pack_id(&asset.key).unwrap_or_else(|| "unknown".to_string());
+                        component_pack_id(source_root.as_path(), asset.key.as_str()).unwrap_or_else(|| "unknown".to_string());
                     items.push(CompletionItem {
                         label: asset.key.clone(),
                         kind: Some(CompletionItemKind::CLASS),
@@ -762,9 +762,8 @@ fn file_location(path: &Path) -> Option<Location> {
     Some(Location::new(uri, zero_range()))
 }
 
-fn component_pack_id(component_id: &str) -> Option<String> {
-    let package_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let descriptor = platform_asset_catalog_descriptor_for_package_root(package_root.as_path());
+fn component_pack_id(source_root: &Path, component_id: &str) -> Option<String> {
+    let descriptor = platform_asset_catalog_descriptor_for_workspace_root(source_root);
     descriptor
         .component_packs
         .into_iter()

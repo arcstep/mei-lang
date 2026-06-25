@@ -1,0 +1,51 @@
+# 标题壳 panel 模板：主文件覆写 title / props.height / blocks。
+# 520×54 标题行；底纹 GRADIENT_BG；两侧 caret 对齐 Sketch（26.2% / 71.2%）。
+
+scene(id = "panel_titled_shell_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets"
+PANEL_ASSETS = ASSET_BASE + "/panel"
+CARET = PANEL_ASSETS + "/caret-left-filled@3x.svg"
+GRADIENT_BG = "panel_title_bar"
+
+frame()
+
+frame.add_panel(
+    id = "titled_shell",
+    variant = "container",
+    title = "标题占位",
+    title_background = {
+        "image": GRADIENT_BG,
+        "position": "center",
+        "size": "100% 100%",
+        "repeat": "no-repeat",
+    },
+    title_decor = {
+        "url": CARET,
+        "left": "26.2%",
+        "right": "71.2%",
+        "left_rotate": "180deg",
+        "size": "14px 24px",
+    },
+    title_height = "54px",
+    title_align = "center",
+    heading_variant = "plain",
+    heading = {
+        "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
+        "font": "4",
+        "font_weight": "700",
+        "letter_spacing": "20px",
+        "color": "panel_title",
+    },
+    props = {
+        "border": "1px solid rgba(52, 82, 108, 0.5)",
+        "radius": "4px",
+        "width": "522px",
+        "height": "232px",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    },
+    blocks = [],
+)

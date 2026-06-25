@@ -13,7 +13,8 @@ use axum::{
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
     compile_scene_from_build_node, compile_scene_from_build_node_with_app, discover_apps,
-    preview_target_from_build_node, preview_target_from_build_node_with_app, resolve_app_root,
+    catalog_preview_target_for_build_node, preview_target_from_build_node,
+    preview_target_from_build_node_with_app, resolve_app_root,
     resolve_default_scene_from_root, BuildNodeId, CompileOptions,
 };
 
@@ -195,6 +196,12 @@ pub async fn app_page(
                     }
                 }
             }
+            if preview_target.is_none() {
+                preview_target = catalog_preview_target_for_build_node(
+                    resolve_app_root(state.source_root.as_path(), &app_id).as_path(),
+                    node,
+                );
+            }
             (scene_hint, preview_target)
         } else {
             (None, None)
@@ -243,6 +250,7 @@ pub async fn app_page(
     if route_mode == UiRouteMode::Build
         && compile_scene.is_none()
         && normalized_preview_target.is_none()
+        && build_node.is_none()
     {
         let default = crate::graph::mrg::navigation::resolve_default_scope(
             state.source_root.as_path(),

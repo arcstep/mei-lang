@@ -17,7 +17,7 @@ scene(
 
 world(id = "home_world", resources = [])
 
-COCKPIT_TPL = "../.stock/templates/cockpit"
+COCKPIT_TPL = "../../templates/cockpit"
 SHELL = COCKPIT_TPL + "/panel/panel-titled-shell.mei"
 
 frame(

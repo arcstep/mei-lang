@@ -2158,6 +2158,18 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             source_root,
             package_root.as_path(),
         );
+        if let Ok(doctor) =
+            mei_lang_toolchain::doctor_workspace_stock(source_root, package_root.as_path())
+        {
+            if !doctor.ok {
+                tracing::warn!(
+                    missing_trees = ?doctor.missing_trees,
+                    orphan_paths = ?doctor.orphan_paths,
+                    manifest_drift = ?doctor.manifest_drift,
+                    "workspace stock doctor reported issues before prebuild"
+                );
+            }
+        }
     }
     let started = Instant::now();
     let manifest_path = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
@@ -2344,7 +2356,14 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
     }
     if report.ok && options.mode == PrebuildMode::Build {
         if let Some(ref gen) = *build_generation {
-            finish_prebuild_generation(source_root, gen, &prebuild_app_ids, None, None)?;
+            let stock_revision = mei_lang_toolchain::workspace_stock_revision(source_root);
+            finish_prebuild_generation(
+                source_root,
+                gen,
+                &prebuild_app_ids,
+                None,
+                stock_revision.as_deref(),
+            )?;
             prebuild_emit_progress(format!(
                 "{} candidate buildId={}",
                 ansi_wrap("STORE", "1;32"),

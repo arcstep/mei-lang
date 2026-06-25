@@ -5,13 +5,17 @@ use axum::{
 };
 use mei_lang_app::render_build_preview_fragment;
 use mei_lang_kernel::{
-    compile_scene_from_build_node, preview_target_from_build_node,
-    preview_target_from_build_node_with_app, resolve_build_view_query, resolve_components_root,
-    BuildViewTab, CompileOptions, LegacyBuildQuery,
+    catalog_preview_target_for_build_node, compile_scene_from_build_node,
+    compile_scene_from_build_node_with_app, preview_target_from_build_node,
+    preview_target_from_build_node_with_app, resolve_app_root, resolve_build_view_query,
+    resolve_components_root, BuildViewTab, CompileOptions, LegacyBuildQuery,
 };
 use serde::Serialize;
 use serde_json::json;
 
+use crate::http::compile_cache::{
+    build_preview_diagnostic_error_count, resolve_build_preview_compile,
+};
 use crate::http::compile_cache::load_compile_artifact_only;
 use crate::AppState;
 
@@ -77,20 +81,67 @@ pub async fn api_build_workspace_fragment(
         );
     }
 
-    let preview_target = preview_target_from_build_node(&resolved.node);
+    let components_root = resolve_components_root(&state.source_root);
+    let mut preview_target = preview_target_from_build_node(&resolved.node);
+    let mut scene_hint = compile_scene_from_build_node(&resolved.node);
+    if preview_target.is_none() || scene_hint.is_none() {
+        if let Some(probe) = load_compile_artifact_only(
+            &state,
+            app_id,
+            &CompileOptions::default(),
+            components_root.as_path(),
+        ) {
+            if preview_target.is_none() {
+                preview_target = preview_target_from_build_node_with_app(
+                    &resolved.node,
+                    Some(&probe.compiled),
+                );
+            }
+            if scene_hint.is_none() {
+                scene_hint = compile_scene_from_build_node_with_app(
+                    &resolved.node,
+                    Some(&probe.compiled),
+                );
+            }
+        }
+    }
+    if preview_target.is_none() {
+        preview_target = catalog_preview_target_for_build_node(
+            resolve_app_root(state.source_root.as_path(), app_id).as_path(),
+            &resolved.node,
+        );
+    }
     let compile_options = CompileOptions {
-        scene: compile_scene_from_build_node(&resolved.node),
+        scene: scene_hint,
         preview_target: preview_target.clone(),
     };
-    let components_root = resolve_components_root(&state.source_root);
-    let Some(outcome) =
-        load_compile_artifact_only(&state, app_id, &compile_options, components_root.as_path())
-    else {
-        return json_error(
-            StatusCode::NOT_FOUND,
-            "compile artifact missing for node scope",
-        );
+    let compile_result = resolve_build_preview_compile(
+        &state,
+        app_id,
+        &compile_options,
+        components_root.as_path(),
+    );
+    let outcome = match compile_result {
+        Ok(Some(outcome)) => outcome,
+        Ok(None) => {
+            return json_error(
+                StatusCode::NOT_FOUND,
+                "compile artifact missing for node scope",
+            );
+        }
+        Err(failure) => {
+            let message = failure.error.to_string();
+            return json_error(StatusCode::INTERNAL_SERVER_ERROR, message.as_str());
+        }
     };
+    if build_preview_diagnostic_error_count(&outcome.compiled) > 0 {
+        tracing::warn!(
+            app_id = %app_id,
+            node = %node_raw,
+            error_count = build_preview_diagnostic_error_count(&outcome.compiled),
+            "build preview fragment compiled with diagnostics; rendering degraded preview"
+        );
+    }
     let compile_cache_hit = outcome.cache_hit;
     let preview_target = preview_target.or_else(|| {
         preview_target_from_build_node_with_app(&resolved.node, Some(&outcome.compiled))

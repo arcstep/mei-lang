@@ -1,0 +1,51 @@
+# 指标解释二级看板 scene 壳（scene-first 真身）。
+# local_nav 仅保留默认入口与排序元数据；tab 结构由 panel_slot 壳定义。
+
+scene(
+    id = "metric_explain_board",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "指标解释二级看板：tabs 归属本 scene，入口 link 仅决定 overlay/route projection",
+    params = {
+        "metric": param(type = "metric", required = True),
+        "entry": param(type = "string"),
+    },
+    local_nav = {
+        "scene_id": "metric_explain_board",
+        "default_entry": "definition",
+        "include_hero": True,
+        "order_by_kind": [
+            "definition",
+            "composition",
+            "trend",
+            "numerator_denominator",
+            "detail",
+        ],
+    },
+)
+
+world(resources = [])
+
+frame(
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["auto", "minmax(0, 1fr)"],
+        areas = [["tabs"], ["content"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+)
+
+frame.add_panel(
+    id = "tabs",
+    area = "tabs",
+    slot = panel_slot(kind = "tab_bar"),
+    blocks = [],
+)
+
+frame.add_panel(
+    id = "content",
+    area = "content",
+    slot = panel_slot(kind = "tab_content"),
+    blocks = [],
+)

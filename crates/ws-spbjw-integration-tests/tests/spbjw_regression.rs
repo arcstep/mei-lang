@@ -1265,7 +1265,7 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
             );
         }
         assert!(
-            !encoded.contains("scene_file\":\"../.stock/templates/cockpit/drilldown/metric-explain-board.mei\""),
+            !encoded.contains("scene_file\":\"../stock/templates/cockpit/drilldown/metric-explain-board.mei\""),
             "`{target}` should not keep direct metric-explain-board scene_file links, got: {encoded}"
         );
     }
@@ -1406,7 +1406,7 @@ fn compile_spbjw_enforcement_units_shell_contract_zones_match_layout() {
 fn compile_spbjw_drilldown_kit_template_is_previewable() {
     let source_root = source_root();
     let app_root = zhifa_app_root();
-    let target = "../.stock/templates/cockpit/drilldown/drilldown-kit.mei";
+    let target = "../stock/templates/cockpit/drilldown/drilldown-kit.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1437,7 +1437,7 @@ fn compile_spbjw_drilldown_kit_template_is_previewable() {
 fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
     let source_root = source_root();
     let app_root = zhifa_app_root();
-    let target = "../.stock/templates/cockpit/drilldown/generic-drilldown-board.mei";
+    let target = "../stock/templates/cockpit/drilldown/generic-drilldown-board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1468,7 +1468,7 @@ fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
 fn compile_spbjw_analytics_drilldown_board_template_is_previewable() {
     let source_root = source_root();
     let app_root = zhifa_app_root();
-    let target = "../.stock/templates/cockpit/drilldown/analytics-drilldown-board.mei";
+    let target = "../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,

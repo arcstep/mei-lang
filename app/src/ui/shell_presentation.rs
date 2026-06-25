@@ -156,6 +156,7 @@ pub(crate) fn presentation_shell(
         super::route::UiRouteMode::Presentation,
         WorldSemanticQuery::default(),
         None,
+        None,
     );
 
     view! {

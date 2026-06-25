@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use mei_lang_kernel::{stock_components_source, stock_templates_source};
+use mei_lang_kernel::{
+    resolve_components_root, resolve_templates_root, stock_components_source,
+    stock_templates_source,
+};
 use serde::Serialize;
 use serde_json::Value;
 use walkdir::WalkDir;
@@ -72,6 +75,10 @@ fn rel_to_package_root(package_root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+fn rel_to_root(root: &Path, path: &Path) -> String {
+    rel_to_package_root(root, path)
 }
 
 fn read_json_value(path: &Path) -> Option<Value> {
@@ -171,12 +178,14 @@ fn template_pack_authoring_support(pack_id: &str) -> Option<AuthoringSupportDesc
     }
 }
 
-fn component_pack_descriptors(package_root: &Path) -> Vec<ComponentPackDescriptor> {
-    let components_root = stock_components_source(package_root);
+fn component_pack_descriptors_in_root(
+    components_root: &Path,
+    rel_root: &Path,
+) -> Vec<ComponentPackDescriptor> {
     if !components_root.is_dir() {
         return Vec::new();
     }
-    let mut packs = WalkDir::new(&components_root)
+    let mut packs = WalkDir::new(components_root)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file() && entry.file_name() == "manifest.json")
@@ -233,10 +242,10 @@ fn component_pack_descriptors(package_root: &Path) -> Vec<ComponentPackDescripto
                     pack_rel.clone()
                 },
                 asset_kind: "component_pack".to_string(),
-                source_dir_rel: rel_to_package_root(package_root, pack_dir),
-                manifest_file_rel: rel_to_package_root(package_root, &manifest_path),
-                readme_file_rel: readme_for_pack(pack_dir, &components_root)
-                    .map(|path| rel_to_package_root(package_root, Path::new(&path))),
+                source_dir_rel: rel_to_root(rel_root, pack_dir),
+                manifest_file_rel: rel_to_root(rel_root, &manifest_path),
+                readme_file_rel: readme_for_pack(pack_dir, components_root)
+                    .map(|path| rel_to_root(rel_root, Path::new(&path))),
                 authoring_support: component_pack_authoring_support(if pack_rel.is_empty() {
                     "root"
                 } else {
@@ -250,6 +259,13 @@ fn component_pack_descriptors(package_root: &Path) -> Vec<ComponentPackDescripto
         .collect::<Vec<_>>();
     packs.sort_by(|left, right| left.id.cmp(&right.id));
     packs
+}
+
+fn component_pack_descriptors(package_root: &Path) -> Vec<ComponentPackDescriptor> {
+    component_pack_descriptors_in_root(
+        stock_components_source(package_root).as_path(),
+        package_root,
+    )
 }
 
 fn collect_template_files(pack_dir: &Path) -> Vec<String> {
@@ -290,12 +306,14 @@ fn collect_asset_dirs(pack_dir: &Path) -> Vec<String> {
     dirs
 }
 
-fn template_pack_descriptors(package_root: &Path) -> Vec<TemplatePackDescriptor> {
-    let templates_root = stock_templates_source(package_root);
+fn template_pack_descriptors_in_root(
+    templates_root: &Path,
+    rel_root: &Path,
+) -> Vec<TemplatePackDescriptor> {
     if !templates_root.is_dir() {
         return Vec::new();
     }
-    let mut packs = fs::read_dir(&templates_root)
+    let mut packs = fs::read_dir(templates_root)
         .ok()
         .into_iter()
         .flat_map(|entries| entries.filter_map(Result::ok))
@@ -313,11 +331,11 @@ fn template_pack_descriptors(package_root: &Path) -> Vec<TemplatePackDescriptor>
             Some(TemplatePackDescriptor {
                 id,
                 asset_kind: "template_pack".to_string(),
-                source_dir_rel: rel_to_package_root(package_root, &path),
+                source_dir_rel: rel_to_root(rel_root, &path),
                 readme_file_rel: path
                     .join("README.md")
                     .is_file()
-                    .then(|| rel_to_package_root(package_root, &path.join("README.md"))),
+                    .then(|| rel_to_root(rel_root, &path.join("README.md"))),
                 authoring_support: template_pack_authoring_support(
                     path.file_name()?.to_string_lossy().as_ref(),
                 ),
@@ -329,6 +347,13 @@ fn template_pack_descriptors(package_root: &Path) -> Vec<TemplatePackDescriptor>
         .collect::<Vec<_>>();
     packs.sort_by(|left, right| left.id.cmp(&right.id));
     packs
+}
+
+fn template_pack_descriptors(package_root: &Path) -> Vec<TemplatePackDescriptor> {
+    template_pack_descriptors_in_root(
+        stock_templates_source(package_root).as_path(),
+        package_root,
+    )
 }
 
 pub fn platform_asset_catalog_descriptor() -> PlatformAssetCatalogDescriptor {
@@ -348,5 +373,23 @@ pub fn platform_asset_catalog_descriptor_for_package_root(
         ],
         component_packs: component_pack_descriptors(package_root),
         template_packs: template_pack_descriptors(package_root),
+    }
+}
+
+pub fn platform_asset_catalog_descriptor_for_workspace_root(
+    source_root: &Path,
+) -> PlatformAssetCatalogDescriptor {
+    let components_root = resolve_components_root(source_root);
+    let templates_root = resolve_templates_root(source_root);
+    PlatformAssetCatalogDescriptor {
+        schema_version: PLATFORM_ASSET_SCHEMA_VERSION.to_string(),
+        package_root: source_root.to_string_lossy().replace('\\', "/"),
+        registration_model: vec![
+            "component_packs_register_via_workspace_stock_components_manifest".to_string(),
+            "template_packs_register_via_workspace_stock_templates_directory".to_string(),
+            "host_extensions_must_register_before_export".to_string(),
+        ],
+        component_packs: component_pack_descriptors_in_root(components_root.as_path(), source_root),
+        template_packs: template_pack_descriptors_in_root(templates_root.as_path(), source_root),
     }
 }

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1920px" height="72px" viewBox="0 0 1920 72" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>大标题-背景@3x</title>
+    <defs>
+        <linearGradient x1="100%" y1="50%" x2="0%" y2="50%" id="linearGradient-1">
+            <stop stop-color="#04377D" offset="0%"></stop>
+            <stop stop-color="#064389" offset="60.0954468%"></stop>
+            <stop stop-color="#003D7D" stop-opacity="0.499276115" offset="100%"></stop>
+        </linearGradient>
+        <linearGradient x1="17.1649072%" y1="50%" x2="0%" y2="50%" id="linearGradient-2">
+            <stop stop-color="#002B63" offset="0%"></stop>
+            <stop stop-color="#0052A9" offset="100%"></stop>
+        </linearGradient>
+    </defs>
+    <g id="切图" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="大标题-背景">
+            <rect id="矩形" x="0" y="0" width="1920" height="72" fill="#04377D"></rect>
+            <g id="左线" transform="translate(0, 49)">
+                <polyline id="路径-2" stroke="url(#linearGradient-1)" stroke-width="1.8" points="486.157703 5.5 319.997812 5.5 314.77031 0 276.684223 0"></polyline>
+                <polygon id="矩形" fill="#0954B6" points="466.741267 2 483.170559 2 486.170829 5 463.740997 5"></polygon>
+                <polyline id="路径-3" stroke="url(#linearGradient-2)" stroke-width="1.4" points="310.289594 5.5 173.627751 5.5 171.607641 3.02034993"></polyline>
+                <line x1="169.147035" y1="5.5" x2="72.4382446" y2="5.5" id="路径-3备份" stroke="#002553" stroke-width="1.4"></line>
+                <rect id="矩形" fill="#004192" x="48.9741388" y="4.8" width="22.4035808" height="1.4"></rect>
+                <rect id="矩形备份-3" fill="#004192" x="25.0935455" y="4.8" width="22.4035808" height="1.4"></rect>
+                <rect id="矩形备份-4" fill="#006AD5" x="0" y="4.8" width="23.8971529" height="1.4"></rect>
+                <line x1="270.709935" y1="0.5" x2="0.373393013" y2="0.5" id="直线-2" stroke="#001F40" stroke-linecap="square"></line>
+            </g>
+            <g id="左线" transform="translate(1433.8292, 49)">
+                <polyline id="路径-2" stroke="url(#linearGradient-1)" stroke-width="1.8" points="486.157703 5.5 319.997812 5.5 314.77031 0 276.684223 0"></polyline>
+                <polygon id="矩形" fill="#0954B6" points="466.741267 2 483.170559 2 486.170829 5 463.740997 5"></polygon>
+                <polyline id="路径-3" stroke="url(#linearGradient-2)" stroke-width="1.4" points="310.289594 5.5 173.627751 5.5 171.607641 3.02034993"></polyline>
+                <line x1="169.147035" y1="5.5" x2="72.4382446" y2="5.5" id="路径-3备份" stroke="#002553" stroke-width="1.4"></line>
+                <rect id="矩形" fill="#004192" x="48.9741388" y="4.8" width="22.4035808" height="1.4"></rect>
+                <rect id="矩形备份-3" fill="#004192" x="25.0935455" y="4.8" width="22.4035808" height="1.4"></rect>
+                <rect id="矩形备份-4" fill="#006AD5" x="0" y="4.8" width="23.8971529" height="1.4"></rect>
+                <line x1="270.709935" y1="0.5" x2="0.373393013" y2="0.5" id="直线-2" stroke="#001F40" stroke-linecap="square"></line>
+            </g>
+        </g>
+    </g>
+</svg>

@@ -9,6 +9,7 @@ mod build_store;
 mod io;
 mod ops;
 mod shell_theme;
+mod stock_catalog;
 mod theme_overlay;
 mod types;
 mod workspace_paths;
@@ -48,7 +49,9 @@ pub use types::{
     OpsSourceEntry, RuntimeConfig, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
     RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WorkspaceAuthConfig, WorkspaceComplianceConfig,
     WorkspaceConfig, WorkspaceHostState, WorkspaceOpsConfig, WorkspacePathsConfig,
-    WorkspaceProfile, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
+    WorkspaceProfile, WorkspaceStockBootstrapConfig, WorkspaceStockCatalogConfig,
+    WorkspaceStockCatalogKindConfig, WorkspaceStockConfig, WorkspaceStockPreviewConfig,
+    WorkspaceStockSourceEntry, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
     WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, WorkspaceBuildConfig,
     WorkspaceToolchainConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL, APP_VAR_STORE_REL,
     BUILD_MANIFEST_FILENAME, DEPLOY_LINKS_REL, PREBUILD_COMPILE_INDEX_REL, PREBUILD_DIR_REL,
@@ -62,13 +65,17 @@ pub use types::{
     WORKSPACE_CONFIG_FILENAME, WORKSPACE_HOSTS_DIR_REL, WORKSPACE_HOST_STATE_SCHEMA_VERSION, WORKSPACE_LOCAL_DIR_REL,
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL, WORKSPACE_SNAPSHOT_GIT_REL,
 };
+pub use stock_catalog::{
+    normalize_stock_relative_path, stock_catalog_enabled, stock_path_excluded, StockCatalogKind,
+};
 pub use workspace_paths::{
     app_mei_config_path, is_v2_app_root, resolve_app_build_root, resolve_app_build_store_root,
     resolve_app_id, resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_root,
     resolve_app_src_root, resolve_app_var_root, resolve_apps_root, resolve_authoring_root,
     is_app_mei_source_rel, resolve_components_root, resolve_deploy_root, resolve_templates_root,
     resolve_toolchain_root, resolve_workspace_cache_root, resolve_workspace_graph_root,
-    resolve_workspace_logs_root, resolve_workspace_platform_root, resolve_workspace_runtime_root,
-    resolve_workspace_source_root_from_app_root, set_mei_package_root, stock_authoring_source,
-    stock_components_source, stock_templates_source, workspace_config_path,
+    resolve_workspace_logs_root, resolve_workspace_platform_root, resolve_workspace_path,
+    resolve_workspace_runtime_root, resolve_workspace_source_root_from_app_root, resolve_stock_root,
+    set_mei_package_root, stock_authoring_source, stock_components_source, stock_templates_source,
+    workspace_config_path,
 };

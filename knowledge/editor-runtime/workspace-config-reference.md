@@ -13,7 +13,7 @@ mei-toolchain workspace bootstrap --source-root /path/to/workspace --app hello -
 This creates a new source workspace and immediately installs a local runtime:
 
 - `.mei-workspace.json`
-- `.stock/`
+- `stock/`（components、templates、authoring 示例；Git 真源）
 - workspace-local `.mei/` runtime metadata
 - `.mei/runtime/bin/mei-toolchain`
 - `.mei/runtime/bin/mei-lsp`
@@ -33,7 +33,7 @@ mei-toolchain editor-runtime scaffold --target-root /path/to/workspace --tool cu
 mei-toolchain workspace create-app hello --source-root /path/to/workspace --json
 ```
 
-- `workspace init` creates the workspace root, `.mei-workspace.json`, `.mei/`, and optional `.stock/`.
+- `workspace init` creates the workspace root, `workspace.json`, `stock/`, and optional runtime scaffolding.
 - `workspace runtime install` writes the workspace-local runtime metadata, packaged docs, local binaries under `.mei/runtime/bin/`, and a workspace-root `./start.sh` launcher.
 - `editor-runtime scaffold` writes tool glue only. It should not replace runtime metadata or host-local state.
 
@@ -94,28 +94,59 @@ Use the two JSON files for different concerns:
 
 | File | Scope | What belongs here |
 |------|-------|-------------------|
-| `.mei-workspace.json` | workspace root | workspace id/label, stock paths, discover rules, menu, runtime file cache, compliance, **`ops.shellTheme`**, **`ops.themes`** (shell chrome only) |
+| `workspace.json` | workspace root | workspace id/label, **`stock`** catalog filters, stock paths, discover rules, menu, runtime file cache, compliance, **`ops.shellTheme`**, **`ops.themes`** (shell chrome only) |
 | `<app>/.mei-config.json` | app root | app entry, app-local paths, host feature flags, `ops.themes` (scene / `theme_ref`), `ops.sources`, `ops.basemaps`, `ops.params` |
 
 Do not treat them as interchangeable.
 
-## `.mei-workspace.json`
+## `workspace.json` and `stock`
 
-Minimal shape:
+Minimal shape (schemaVersion 2):
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "workspace": {
     "id": "ws-demo",
     "label": "Demo Workspace"
   },
   "paths": {
-    "components": ".stock/components",
-    "templates": ".stock/templates"
+    "stock": "stock",
+    "components": "stock/components",
+    "templates": "stock/templates",
+    "authoring": "stock/authoring"
+  },
+  "stock": {
+    "bootstrap": { "source": "platform-default" },
+    "catalog": {
+      "components": { "enabled": true, "exclude": [] },
+      "templates": { "enabled": true, "exclude": ["**/assets/**"] },
+      "authoring": { "enabled": true, "exclude": [] }
+    },
+    "preview": {
+      "workspaceOnly": true,
+      "contracts": "stock/authoring/component-contracts.json"
+    },
+    "sources": []
   }
 }
 ```
+
+Stock maintenance commands:
+
+```bash
+mei-toolchain workspace stock sync --source-root /path/to/workspace [--force] --json
+mei-toolchain workspace stock doctor --source-root /path/to/workspace --json
+mei-toolchain workspace stock migrate-paths --source-root /path/to/workspace --json
+```
+
+See `docs/mei-lang/implementation/host/87-workspace-stock-ssot-and-catalog.md` for SSOT invariants.
+
+## Legacy `.mei-workspace.json` note
+
+Older workspaces may still use `.mei-workspace.json` and `.stock/` paths. Run `workspace stock migrate-paths` and prefer `workspace.json` + `stock/` layout.
+
+## Config fields (workspace root)
 
 Common fields:
 

@@ -4870,14 +4870,25 @@
     document.body.classList.toggle("build-preview-scoped-active", scopedActive);
   }
 
-  function templateKeyFromNode(node) {
+  function catalogKeyFromNode(node) {
     const raw = String(node || "").trim();
-    if (!raw.startsWith("template:")) return "";
-    return raw.replace(/^template:/i, "");
+    if (raw.startsWith("component:")) return raw.slice("component:".length).trim();
+    if (raw.startsWith("template:")) return raw.slice("template:".length).trim();
+    return "";
+  }
+
+  function templateKeyFromNode(node) {
+    return catalogKeyFromNode(node);
   }
 
   function isTemplateAuthoringPreview() {
     const node = activeBuildNode();
+    if (node.startsWith("component:")) {
+      const target = String(activeShell()?.getAttribute("data-compile-target") || "")
+        .trim()
+        .toLowerCase();
+      return target.includes("/authoring/examples/");
+    }
     if (!node.startsWith("template:")) return false;
     const target = String(activeShell()?.getAttribute("data-compile-target") || "")
       .trim()
@@ -4928,8 +4939,13 @@
       for (const node of nodes || []) {
         const kind = String(node?.kind || "").trim();
         const nodeId = String(node?.node_id || "").trim();
-        if (kind === "template" && nodeId.startsWith("template:")) {
-          const useKey = nodeId.slice("template:".length).trim();
+        if (
+          (kind === "component" && nodeId.startsWith("component:")) ||
+          (kind === "template" && nodeId.startsWith("template:"))
+        ) {
+          const useKey = nodeId.includes(":")
+            ? nodeId.slice(nodeId.indexOf(":") + 1).trim()
+            : "";
           const badges = Array.isArray(node?.badges) ? node.badges : [];
           const matched = badges.some(
             (badge) => normalizeTemplateFileKey(badge) === normalizedFile,
