@@ -7,8 +7,12 @@ use std::{
 };
 
 use super::app::{app_page, index, AppQuery};
+use super::app_render::prepare_landing_artifacts_for_serve;
 use super::assets::{app_bundle, workspace_app_asset};
 use super::static_serve::content_type_for_path;
+use mei_lang_kernel::CompileOptions;
+use mei_lang_toolchain as toolchain;
+
 use crate::{agent_runtime, auth::AuthEnforcement, mei_agent, AppState};
 use axum::{
     body::to_bytes,
@@ -16,6 +20,22 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
+
+fn seed_prebuilt_default_scope_artifact(source_root: &std::path::Path, app_id: &str) {
+    let components_root = toolchain::resolve_components_root(source_root);
+    toolchain::compile_app_with_cache(
+        source_root,
+        app_id,
+        CompileOptions::default(),
+        components_root.as_path(),
+    )
+    .unwrap_or_else(|failure| {
+        panic!(
+            "seed prebuilt default-scope artifact for test: {}",
+            failure.error
+        )
+    });
+}
 
 const VALID_APP_SOURCE: &str = r#"
 app(
@@ -1195,6 +1215,7 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
         )
         .expect("write invalid mei file");
     fs::write(good_root.join("main.mei"), VALID_APP_SOURCE).expect("write valid mei file");
+    seed_prebuilt_default_scope_artifact(root.as_path(), "020-good");
 
     let source_root = Arc::new(root.clone());
     let native_agent =
@@ -1227,6 +1248,34 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn prepare_landing_artifacts_fails_without_prebuild_manifest() {
+    let root = unique_test_root("landing-gate-miss");
+    let good_root = root.join("010-good");
+    fs::create_dir_all(&good_root).expect("create good app root");
+    fs::write(good_root.join("main.mei"), VALID_APP_SOURCE).expect("write valid mei file");
+
+    let err = prepare_landing_artifacts_for_serve(root.as_path()).expect_err("missing manifest");
+    let message = err.to_string();
+    assert!(message.contains("host landing gate failed"));
+    assert!(message.contains("prebuild"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn prepare_landing_artifacts_passes_with_default_scope_manifest() {
+    let root = unique_test_root("landing-gate-hit");
+    let good_root = root.join("010-good");
+    fs::create_dir_all(&good_root).expect("create good app root");
+    fs::write(good_root.join("main.mei"), VALID_APP_SOURCE).expect("write valid mei file");
+    seed_prebuilt_default_scope_artifact(root.as_path(), "010-good");
+
+    prepare_landing_artifacts_for_serve(root.as_path()).expect("landing gate should pass");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[tokio::test]
 async fn index_redirects_to_access_only_entry_when_surface_enabled() {
     let _surface = ScopedAccessOnlySurface::new();
@@ -1234,6 +1283,7 @@ async fn index_redirects_to_access_only_entry_when_surface_enabled() {
     let good_root = root.join("010-good");
     fs::create_dir_all(&good_root).expect("create good app root");
     fs::write(good_root.join("main.mei"), VALID_APP_SOURCE).expect("write valid mei file");
+    seed_prebuilt_default_scope_artifact(root.as_path(), "010-good");
 
     let source_root = Arc::new(root.clone());
     let native_agent =

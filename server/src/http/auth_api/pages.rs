@@ -105,27 +105,57 @@ pub(super) fn login_page_html(
         <label for="password">密码</label>
         {password_field}
         <input id="next" type="hidden" value="{next_escaped}" />
-        <button type="submit"{form_disabled}>登录</button>
+        <button type="submit" id="login-submit"{form_disabled}>登录</button>
       </form>
+      <div id="status" class="mei-host-shell__feedback mei-host-shell__feedback--pending" aria-live="polite"></div>
       <div id="error" class="mei-host-shell__feedback mei-host-shell__feedback--error"></div>
     {auth_rsa_bundle_script}
     <script>
       const errorBox = document.getElementById('error');
+      const statusBox = document.getElementById('status');
+      const loginForm = document.getElementById('login-form');
+      const submitButton = document.getElementById('login-submit');
+      const usernameInput = document.getElementById('username');
+      const passwordInput = document.getElementById('password');
+      const submitLabel = submitButton.textContent || '登录';
+      const formDisabled = submitButton.disabled;
       function clearError() {{ errorBox.textContent = ''; }}
-      function setError(message) {{ errorBox.textContent = message || '登录失败'; }}
+      function setError(message) {{
+        errorBox.textContent = message || '登录失败';
+        statusBox.textContent = '';
+      }}
+      function setLoginPending(pending, message) {{
+        loginForm.classList.toggle('is-busy', pending);
+        loginForm.setAttribute('aria-busy', pending ? 'true' : 'false');
+        submitButton.disabled = pending || formDisabled;
+        usernameInput.disabled = pending || formDisabled;
+        passwordInput.disabled = pending || formDisabled;
+        submitButton.textContent = pending ? '正在登录…' : submitLabel;
+        statusBox.textContent = pending ? (message || '正在登录，请稍候…') : '';
+        if (pending) {{
+          clearError();
+        }}
+      }}
       {auth_rsa_client_script}
       document.getElementById('login-form').addEventListener('submit', async (event) => {{
         event.preventDefault();
         clearError();
+        if (formDisabled) {{
+          return;
+        }}
+        setLoginPending(true, '正在准备安全连接…');
         try {{
-          const username = document.getElementById('username').value.trim();
-          const password = document.getElementById('password').value;
+          const username = usernameInput.value.trim();
+          const password = passwordInput.value;
           if (!username || !password) {{
+            setLoginPending(false);
             setError('请输入用户名和密码');
             return;
           }}
           const next = document.getElementById('next').value || '/';
+          setLoginPending(true, '正在获取加密公钥…');
           const publicKeyPem = await resolvePublicKey();
+          setLoginPending(true, '正在验证账户…');
           const encryptedPassword = encryptWithPem(publicKeyPem, password);
           const body = {{ username, encryptedPassword, next }};
           const resp = await fetch('/api/auth/login', {{
@@ -136,11 +166,14 @@ pub(super) fn login_page_html(
           }});
           const data = await resp.json();
           if (!resp.ok) {{
+            setLoginPending(false);
             setError(data.error || '登录失败');
             return;
           }}
+          setLoginPending(true, '登录成功，正在跳转…');
           window.location.href = data.next || '/';
         }} catch (error) {{
+          setLoginPending(false);
           setError(error && error.message ? error.message : '登录失败');
         }}
       }});

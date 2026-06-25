@@ -262,6 +262,9 @@ async fn serve(args: ServeArgs) -> Result<()> {
         crate::auth::AuthEnforcement::Disabled
     };
     crate::auth::prepare_auth_for_serve(source_root.as_path(), auth_enforcement)?;
+    if !cfg!(test) {
+        crate::http::pages::prepare_landing_artifacts_for_serve(source_root.as_path())?;
+    }
     let preferred_mode = if args.auto_agent {
         "managed".to_string()
     } else {

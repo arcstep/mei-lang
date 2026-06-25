@@ -281,9 +281,17 @@
   font-family: inherit;
 }
 
+.mei-host-shell__form.is-busy {
+  pointer-events: none;
+}
+
 .mei-host-shell__form button[type="submit"]:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.mei-host-shell__form button[type="submit"][aria-busy="true"] {
+  opacity: 0.85;
 }
 
 .mei-host-shell__meta {
@@ -315,6 +323,10 @@
 
 .mei-host-shell__feedback--ok {
   color: var(--mei-shell-color-feedback-ok);
+}
+
+.mei-host-shell__feedback--pending {
+  color: var(--mei-shell-color-link);
 }
 
 .mei-host-shell__link {
