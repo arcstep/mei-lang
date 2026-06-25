@@ -84,6 +84,12 @@ pub struct MrgDiagnosticsSection {
     pub failed_slots: usize,
     #[serde(rename = "staleRatio")]
     pub stale_ratio: f64,
+    #[serde(rename = "navigationNodeCount", skip_serializing_if = "Option::is_none")]
+    pub navigation_node_count: Option<usize>,
+    #[serde(rename = "navigationDuplicateKeys", skip_serializing_if = "Option::is_none")]
+    pub navigation_duplicate_keys: Option<usize>,
+    #[serde(rename = "navigationOrphanUrls", skip_serializing_if = "Option::is_none")]
+    pub navigation_orphan_urls: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

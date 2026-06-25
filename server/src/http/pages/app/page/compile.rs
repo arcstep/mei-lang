@@ -205,7 +205,7 @@ pub(super) fn resolve_compile_outcome(
     state: &AppState,
     route_mode: UiRouteMode,
     app_id: &str,
-    _query: &AppQuery,
+    query: &AppQuery,
     compile_options: CompileOptions,
     _components_root: PathBuf,
     access_path_scene: Option<&str>,
@@ -222,6 +222,28 @@ pub(super) fn resolve_compile_outcome(
     _discover_ms: u64,
     _app_started: Instant,
 ) -> CompileResolution {
+    let gate = crate::readiness::scope_gate::resolve_scope_gate(
+        state.source_root.as_path(),
+        app_id,
+        route_mode,
+        compile_options
+            .scene
+            .as_deref()
+            .or(access_path_scene),
+        query,
+    );
+    if !gate.shell_ready {
+        let scene_hint = gate.resolved_scene.clone();
+        let target_hint = gate.resolved_target.clone();
+        return CompileResolution::EarlyResponse(render_artifact_unavailable(
+            state.source_root.as_path(),
+            route_mode,
+            app_id,
+            scene_hint.as_deref(),
+            target_hint.as_deref().or(manage_file),
+            gate,
+        ));
+    }
     if let Some(outcome) =
         resolved_artifact_feedback(state, app_id, &compile_options, "artifact_only")
     {
@@ -236,19 +258,25 @@ pub(super) fn resolve_compile_outcome(
             return CompileResolution::Outcome(outcome);
         }
     }
+    let scene_hint = gate.resolved_scene.clone();
+    let target_hint = gate.resolved_target.clone();
     CompileResolution::EarlyResponse(render_artifact_unavailable(
+        state.source_root.as_path(),
         route_mode,
         app_id,
-        compile_options.scene.as_deref().or(access_path_scene),
-        compile_options.preview_target.as_deref().or(manage_file),
+        scene_hint.as_deref(),
+        target_hint.as_deref().or(manage_file),
+        gate,
     ))
 }
 
 fn render_artifact_unavailable(
+    _source_root: &std::path::Path,
     route_mode: UiRouteMode,
     app_id: &str,
     scene_hint: Option<&str>,
     target_hint: Option<&str>,
+    scope_gate: crate::readiness::scope_gate::ScopeGateReport,
 ) -> Response {
     let is_build = route_mode == UiRouteMode::Build;
     let mut actions = vec![HostShellAction {
@@ -285,8 +313,13 @@ fn render_artifact_unavailable(
         );
     }
     let gate = host_api::artifact_gate_status(app_id, scene_hint, target_hint);
+    let blocker_detail = if scope_gate.blockers.is_empty() {
+        gate.last_error.clone()
+    } else {
+        Some(scope_gate.blockers.join("; "))
+    };
     let message = if is_build {
-        gate.last_error.as_deref().map_or_else(
+        blocker_detail.as_deref().map_or_else(
             || {
                 "当前 scope 产物尚未 materialize。宿主读路径不会触发 Starlark 编译；请使用「重建此 scope」或等待 prebuild 完成。"
                     .to_string()
@@ -298,7 +331,7 @@ fn render_artifact_unavailable(
             },
         )
     } else {
-        gate.last_error.as_deref().map_or_else(
+        blocker_detail.as_deref().map_or_else(
             || {
                 "当前 access-only 宿主已切到 artifact-first 主路径，请先等待后台构建完成，或在构建视图中手动触发重建。"
                     .to_string()
@@ -315,11 +348,12 @@ fn render_artifact_unavailable(
         target_hint.map(str::trim).filter(|value| !value.is_empty()),
     ) {
         (Some(scene_id), Some(target)) => Some(format!(
-            "mode={} app={app_id} scene={scene_id} target={target} host_phase={} app_phase={} scope_phase={}",
+            "mode={} app={app_id} scene={scene_id} target={target} host_phase={} app_phase={} scope_phase={} blockers={}",
             route_mode.slug(),
             gate.host_phase,
             gate.app_phase.as_deref().unwrap_or("missing"),
             gate.scope_phase.as_deref().unwrap_or("missing"),
+            scope_gate.blockers.join("|"),
         )),
         (Some(scene_id), None) => Some(format!(
             "mode={} app={app_id} scene={scene_id} host_phase={} app_phase={} scope_phase={}",

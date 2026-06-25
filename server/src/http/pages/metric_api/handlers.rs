@@ -210,6 +210,7 @@ pub async fn dataset_metric_api(
         &compile_options,
         components_root.as_path(),
         access_policies,
+        mei_lang_app::UiRouteMode::App,
     )
     .map_err(|failure| AppError::from(failure.error))?
     .ok_or_else(|| {

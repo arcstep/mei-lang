@@ -151,6 +151,8 @@ pub(crate) struct HostReadyResponse {
     #[serde(rename = "errorSummary")]
     pub error_summary: Vec<String>,
     pub apps: Vec<HostAppReadinessResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_gate: Option<crate::readiness::scope_gate::ScopeGateReport>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -543,6 +545,18 @@ fn app_response(app_id: String, state: HostAppReadinessState) -> HostAppReadines
     }
 }
 
+fn registry_snapshot_with_scope_gate(
+    source_root: Option<&Path>,
+) -> HostReadyResponse {
+    let mut response = registry_snapshot();
+    if let Some(root) = source_root {
+        let reachability = crate::readiness::reachability::check_reachability(root, None);
+        response.access_ready = reachability.access_ready;
+        response.scope_gate = Some(reachability.scope_gate);
+    }
+    response
+}
+
 fn registry_snapshot() -> HostReadyResponse {
     let snapshot = host_readiness_registry()
         .lock()
@@ -604,6 +618,7 @@ fn registry_snapshot() -> HostReadyResponse {
         failed_app_count,
         error_summary: snapshot.error_summary,
         apps,
+        scope_gate: None,
     }
 }
 
@@ -883,6 +898,24 @@ fn status_from_report(
         for app_report in &report.apps {
             let app_state = registry.apps.entry(app_report.app_id.clone()).or_default();
             apply_success_app_report(app_report, app_state);
+        }
+        if report.diagnostics.fingerprint_skip {
+            for app_id in &report.succeeded_apps {
+                let gate = crate::readiness::scope_gate::check_scope_gate(
+                    Path::new(&report.source_root),
+                    app_id,
+                    None,
+                    None,
+                );
+                let app_state = registry.apps.entry(app_id.clone()).or_default();
+                if gate.access_ready {
+                    app_state.phase = "ready".to_string();
+                    app_state.last_error = None;
+                } else if app_state.phase == "building" || app_state.phase == "pending" {
+                    app_state.phase = "degraded".to_string();
+                    app_state.last_error = gate.blockers.first().cloned();
+                }
+            }
         }
         for app_id in &report.failed_apps {
             let app_state = registry.apps.entry(app_id.clone()).or_default();
@@ -1577,6 +1610,7 @@ pub(crate) fn inspect_scoped_artifact(
         &options,
         components_root.as_path(),
         access_policies,
+        mei_lang_app::UiRouteMode::App,
     ) {
         Ok(Some(resolution)) => {
             summarize_scoped_compile_feedback(compile_outcome_from_shared(resolution.outcome))
@@ -1788,8 +1822,8 @@ pub async fn api_host_ready() -> impl IntoResponse {
     (status, Json(response))
 }
 
-pub async fn api_host_readiness() -> impl IntoResponse {
-    Json(registry_snapshot())
+pub async fn api_host_readiness(State(state): State<AppState>) -> impl IntoResponse {
+    Json(registry_snapshot_with_scope_gate(Some(state.source_root.as_path())))
 }
 
 #[derive(Debug, Deserialize)]

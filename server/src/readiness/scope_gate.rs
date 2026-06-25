@@ -1,0 +1,355 @@
+use std::path::Path;
+
+use mei_lang_app::UiRouteMode;
+use mei_lang_kernel::{load_workspace_config, CompileOptions};
+use mei_lang_toolchain::{self as toolchain};
+use serde::Serialize;
+
+use crate::graph::feature::graph_registry_dedup_enabled;
+use crate::graph::integration::try_assemble_scope_from_scene_payload;
+use crate::graph::mcg::registry::McgRegistryWriter;
+use crate::graph::mrg::navigation::{match_request_to_navigation, mrg_nav_gate_enabled, resolve_default_scope};
+use crate::graph::mrg::registry::MrgRegistryWriter;
+use crate::graph::types::{GraphNodeKind, MaterialState};
+use crate::http::pages::AppQuery;
+use crate::readiness::reachability::AccessEntry;
+use crate::readiness::types::{ScopeCoords, UiMode};
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopeGateReport {
+    pub scope: ScopeCoords,
+    pub navigation_ready: bool,
+    pub assembly_ready: bool,
+    pub shell_ready: bool,
+    pub data_ready: bool,
+    pub access_ready: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub navigation_key: Option<String>,
+    pub blockers: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compile_revision: Option<String>,
+    // Legacy aliases for existing callers
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_scene: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_target: Option<String>,
+}
+
+impl ScopeGateReport {
+    fn from_parts(
+        scope: ScopeCoords,
+        navigation_ready: bool,
+        assembly_ready: bool,
+        shell_ready: bool,
+        data_ready: bool,
+        access_ready: bool,
+        navigation_key: Option<String>,
+        compile_revision: Option<String>,
+        blockers: Vec<String>,
+    ) -> Self {
+        Self {
+            resolved_scene: Some(scope.scene_id.clone()),
+            resolved_target: Some(scope.target_file.clone()),
+            scope,
+            navigation_ready,
+            assembly_ready,
+            shell_ready,
+            data_ready,
+            access_ready,
+            navigation_key,
+            compile_revision,
+            blockers,
+        }
+    }
+}
+
+pub fn resolve_scope_coords(
+    source_root: &Path,
+    app_id: &str,
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let nav_match = if scene_id.is_some() || target_file.is_some() {
+        let query = AppQuery {
+            file: target_file.map(str::to_string),
+            scene: scene_id.map(str::to_string),
+            tab: None,
+            diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
+            node: None,
+            scope: None,
+            focus: None,
+            chrome: None,
+        };
+        match_request_to_navigation(
+            source_root,
+            app_id,
+            UiRouteMode::Build,
+            scene_id,
+            &query,
+        )
+    } else {
+        resolve_default_scope(source_root, app_id, UiMode::Build)
+    };
+    (
+        Some(nav_match.scope.scene_id.clone()),
+        Some(nav_match.scope.target_file.clone()),
+    )
+}
+
+pub fn resolve_scope_gate(
+    source_root: &Path,
+    app_id: &str,
+    route_mode: UiRouteMode,
+    scene_id: Option<&str>,
+    query: &AppQuery,
+) -> ScopeGateReport {
+    let nav_match =
+        match_request_to_navigation(source_root, app_id, route_mode, scene_id, query);
+    check_scope_gate_for_coords(source_root, nav_match)
+}
+
+pub fn check_scope_gate(
+    source_root: &Path,
+    app_id: &str,
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
+) -> ScopeGateReport {
+    let (resolved_scene, resolved_target) =
+        resolve_scope_coords(source_root, app_id, scene_id, target_file);
+    let query = AppQuery {
+        file: resolved_target.clone(),
+        scene: resolved_scene.clone(),
+        tab: None,
+        diag_filter: None,
+        world_metric: None,
+        world_dataset: None,
+        explain: None,
+        node: None,
+        scope: None,
+        focus: None,
+        chrome: None,
+    };
+    resolve_scope_gate(
+        source_root,
+        app_id,
+        UiRouteMode::Build,
+        resolved_scene.as_deref(),
+        &query,
+    )
+}
+
+fn check_scope_gate_for_coords(
+    source_root: &Path,
+    nav_match: crate::graph::mrg::navigation::NavigationMatch,
+) -> ScopeGateReport {
+    let scope = nav_match.scope.clone();
+    let app_id = scope.app_id.as_str();
+    let scene = scope.scene_id.clone();
+    let target = scope.target_file.clone();
+    let nav_gate = mrg_nav_gate_enabled();
+    let navigation_ready = nav_match.navigation_ready(nav_gate);
+    let navigation_key = nav_match.navigation_key();
+    let mut blockers = Vec::new();
+
+    if nav_gate && !navigation_ready {
+        if nav_match.legacy_fallback {
+            blockers.push("L2:navigation missing in MRG registry (legacy scope fallback)".to_string());
+        } else if let Some(entry) = nav_match.entry.as_ref() {
+            blockers.push(format!(
+                "L2:navigation {} state={:?}",
+                entry.key, entry.state
+            ));
+        } else {
+            blockers.push("L2:navigation entry missing".to_string());
+        }
+    }
+
+    let components_root = toolchain::resolve_components_root(source_root);
+    let options = CompileOptions {
+        scene: Some(scene.clone()),
+        preview_target: Some(target.clone()),
+        ..Default::default()
+    };
+
+    let (assembly_ready, shell_ready, compile_revision) =
+        if try_assemble_scope_from_scene_payload(
+            source_root,
+            app_id,
+            Some(scene.as_str()),
+            target.as_str(),
+        )
+        .is_some()
+        {
+            (true, true, None)
+        } else if let Some(outcome) = toolchain::load_compile_artifact_only(
+            source_root,
+            app_id,
+            &options,
+            components_root.as_path(),
+        ) {
+            (
+                true,
+                true,
+                Some(outcome.compile_revision),
+            )
+        } else {
+            let entry = AccessEntry {
+                app_id: app_id.to_string(),
+                scene_id: scene.clone(),
+                target_file: target.clone(),
+            };
+            if let Some(blocker) = check_mcg_scene_payload_ready(source_root, &entry) {
+                blockers.push(format!("L3:{blocker}"));
+            } else {
+                blockers.push(format!(
+                    "L3:scope artifact missing for app={app_id} scene={scene} target={target}"
+                ));
+            }
+            (false, false, None)
+        };
+
+    let data_blockers = check_mrg_data_ready(source_root, app_id);
+    let data_ready = data_blockers.is_empty();
+    blockers.extend(data_blockers.into_iter().map(|b| format!("L4:{b}")));
+
+    let require_data = load_workspace_config(source_root)
+        .deploy
+        .reachability_gate
+        .require_mrg_critical_ready
+        .unwrap_or(false);
+    let access_ready = shell_ready
+        && (!require_data || data_ready)
+        && (navigation_ready || nav_match.legacy_fallback || !nav_gate);
+
+    ScopeGateReport::from_parts(
+        scope,
+        navigation_ready,
+        assembly_ready,
+        shell_ready,
+        data_ready,
+        access_ready,
+        navigation_key,
+        compile_revision,
+        blockers,
+    )
+}
+
+fn check_mcg_scene_payload_ready(source_root: &Path, entry: &AccessEntry) -> Option<String> {
+    if !graph_registry_dedup_enabled() {
+        return None;
+    }
+    let cfg = load_workspace_config(source_root);
+    if !cfg
+        .deploy
+        .reachability_gate
+        .require_mcg_assembly_ready
+        .unwrap_or(true)
+    {
+        return None;
+    }
+    let registry = McgRegistryWriter::load(source_root, &entry.app_id);
+    let node = registry.nodes.iter().find(|node| {
+        node.id.kind == GraphNodeKind::ScenePayload && node.id.key == entry.target_file
+    });
+    let Some(node) = node else {
+        return Some(format!(
+            "MCG scene_payload:{} missing from registry",
+            entry.target_file
+        ));
+    };
+    if node.state == MaterialState::Ready {
+        None
+    } else {
+        Some(format!(
+            "MCG scene_payload:{} state={:?}",
+            entry.target_file, node.state
+        ))
+    }
+}
+
+fn check_mrg_data_ready(source_root: &Path, app_id: &str) -> Vec<String> {
+    let cfg = load_workspace_config(source_root);
+    if !cfg
+        .deploy
+        .reachability_gate
+        .require_mrg_critical_ready
+        .unwrap_or(false)
+    {
+        return Vec::new();
+    }
+    if !graph_registry_dedup_enabled() {
+        return vec!["MRG registry dedup disabled".to_string()];
+    }
+    let registry = MrgRegistryWriter::load(source_root, app_id);
+    registry
+        .slots
+        .iter()
+        .filter_map(|slot| {
+            if slot.state != MaterialState::Ready {
+                return Some(format!(
+                    "MRG slot {} state={:?}",
+                    slot.slot_id.node.stable_key(),
+                    slot.state
+                ));
+            }
+            if crate::graph::mrg::slots::resolve_slot_payload_path(source_root, app_id, slot).is_none()
+            {
+                return Some(format!(
+                    "MRG slot {} payload missing (CAS and legacy path)",
+                    slot.slot_id.node.stable_key()
+                ));
+            }
+            None
+        })
+        .collect()
+}
+
+pub fn check_scope_gate_for_access_entry(source_root: &Path, entry: &AccessEntry) -> ScopeGateReport {
+    let query = AppQuery {
+        file: Some(entry.target_file.clone()),
+        scene: Some(entry.scene_id.clone()),
+        tab: None,
+        diag_filter: None,
+        world_metric: None,
+        world_dataset: None,
+        explain: None,
+        node: None,
+        scope: None,
+        focus: None,
+        chrome: None,
+    };
+    resolve_scope_gate(
+        source_root,
+        entry.app_id.as_str(),
+        UiRouteMode::App,
+        Some(entry.scene_id.as_str()),
+        &query,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scope_gate_report_serializes_layer_fields() {
+        let report = ScopeGateReport::from_parts(
+            ScopeCoords::new("hello", UiMode::Build, "home", "scenes/home.mei"),
+            true,
+            true,
+            true,
+            true,
+            true,
+            Some("default_build".to_string()),
+            None,
+            Vec::new(),
+        );
+        let json = serde_json::to_value(&report).expect("json");
+        assert_eq!(json["navigationReady"], true);
+        assert_eq!(json["accessReady"], true);
+    }
+}

@@ -27,14 +27,18 @@ fn readiness_check_command(args: super::super::args::ReadinessCheckArgs) -> Resu
         print_json_output(&report, true)?;
     } else {
         println!(
-            "access_entry={}/scene/{}/{} shell_ready={} data_ready={} access_ready={}",
+            "access_entry={}/scene/{}/{} shell_ready={} navigation_ready={} data_ready={} access_ready={}",
             report.access_entry.app_id,
             report.access_entry.scene_id,
             report.access_entry.target_file,
             report.shell_ready,
+            report.navigation_ready,
             report.data_ready,
             report.access_ready
         );
+        if let Some(key) = report.navigation_key.as_deref() {
+            println!("  navigation_key: {key}");
+        }
         for blocker in &report.shell_blockers {
             println!("  shell blocker: {blocker}");
         }

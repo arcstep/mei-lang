@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::graph::io::{read_json_registry, write_json_registry};
 use crate::graph::paths::mrg_registry_path;
-use crate::graph::types::{GraphNodeId, MaterialState, PayloadRef, stable_hash};
+use crate::graph::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef, stable_hash};
 
 pub const MRG_REGISTRY_SCHEMA_VERSION: &str = "mei-mrg-registry-v1";
 
@@ -122,6 +122,53 @@ impl MrgRegistry {
                 )
             })
             .collect()
+    }
+
+    pub fn navigation_entries(&self) -> Vec<crate::graph::mrg::navigation::types::NavigationEntry> {
+        self.nodes
+            .iter()
+            .filter_map(crate::graph::mrg::navigation::types::parse_navigation_node)
+            .collect()
+    }
+
+    pub fn navigation_by_key(&self, key: &str) -> Option<crate::graph::mrg::navigation::types::NavigationEntry> {
+        self.navigation_entries()
+            .into_iter()
+            .find(|entry| entry.key == key)
+    }
+
+    pub fn upsert_navigation_node(
+        &mut self,
+        key: &str,
+        url: &str,
+        scene_id: &str,
+        target_file: &str,
+        state: MaterialState,
+    ) {
+        let node = serde_json::json!({
+            "id": { "kind": GraphNodeKind::Navigation.slug(), "key": key },
+            "url": url,
+            "sceneId": scene_id,
+            "targetFile": target_file,
+            "state": match state {
+                MaterialState::Ready => "ready",
+                MaterialState::Stale => "stale",
+                MaterialState::Warming => "warming",
+                MaterialState::Failed => "failed",
+                MaterialState::Missing => "missing",
+            },
+        });
+        if let Some(existing) = self.nodes.iter_mut().find(|value| {
+            value
+                .get("id")
+                .and_then(|id| id.get("key"))
+                .and_then(|v| v.as_str())
+                == Some(key)
+        }) {
+            *existing = node;
+        } else {
+            self.nodes.push(node);
+        }
     }
 
     pub fn finalize(&mut self) {

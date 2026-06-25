@@ -3,23 +3,41 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
 use mei_lang_app::SourcePanelMeta;
+use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
     discover_apps, load_workspace_config, resolve_app_id, WorkspaceAppMeta,
 };
-use mei_lang_toolchain::{self as toolchain, WorldScope};
 use std::fs;
 
-/// 宿主 landing 只认 prebuild 写入的 access entry compiled_app；不在 HTTP 路径触发 compile。
+/// 宿主 landing 只认统一 scope gate（L2 MRG + L3 assemble）；不在 HTTP 路径触发 compile。
 fn app_has_prebuilt_access_entry(source_root: &Path, app_id: &str) -> bool {
-    let entry = crate::readiness::reachability::resolve_access_entry(source_root);
-    if entry.app_id != app_id {
-        let scope = WorldScope {
-            scene_id: None,
-            target_file: None,
-        };
-        return toolchain::probe_compiled_app_manifest_identity(source_root, app_id, &scope).is_some();
-    }
-    crate::readiness::reachability::check_shell_ready(source_root, &entry).shell_ready
+    use crate::graph::mrg::navigation::resolve_default_scope;
+    use crate::http::pages::AppQuery;
+    use crate::readiness::scope_gate::resolve_scope_gate;
+    use crate::readiness::types::UiMode;
+
+    let nav = resolve_default_scope(source_root, app_id, UiMode::App);
+    let query = AppQuery {
+        file: Some(nav.scope.target_file.clone()),
+        scene: Some(nav.scope.scene_id.clone()),
+        tab: None,
+        diag_filter: None,
+        world_metric: None,
+        world_dataset: None,
+        explain: None,
+        node: None,
+        scope: None,
+        focus: None,
+        chrome: None,
+    };
+    resolve_scope_gate(
+        source_root,
+        app_id,
+        UiRouteMode::App,
+        Some(nav.scope.scene_id.as_str()),
+        &query,
+    )
+    .access_ready
 }
 
 pub(crate) fn source_panel_meta(source_path: &Path, source: &str) -> SourcePanelMeta {

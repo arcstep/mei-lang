@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::http::HeaderMap;
+use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::CompileOptions;
 use mei_lang_toolchain as toolchain;
 
@@ -168,7 +169,35 @@ pub(crate) fn resolve_runtime_compile_shared(
     options: &CompileOptions,
     components_root: &std::path::Path,
     access_policies: RuntimeAccessPolicies,
+    route_mode: UiRouteMode,
 ) -> Result<Option<RuntimeCompileResolution>, toolchain::CompileWithCacheFailure> {
+    use crate::http::pages::AppQuery;
+    use crate::readiness::scope_gate::resolve_scope_gate;
+
+    let query = AppQuery {
+        file: options.preview_target.clone(),
+        scene: options.scene.clone(),
+        tab: None,
+        diag_filter: None,
+        world_metric: None,
+        world_dataset: None,
+        explain: None,
+        node: None,
+        scope: None,
+        focus: None,
+        chrome: None,
+    };
+    let gate = resolve_scope_gate(
+        state.source_root.as_path(),
+        app_id,
+        route_mode,
+        options.scene.as_deref(),
+        &query,
+    );
+    if !gate.shell_ready {
+        return Ok(None);
+    }
+
     let policy = access_policies.legacy_runtime_artifact_policy();
     if let Some(target) = options
         .preview_target

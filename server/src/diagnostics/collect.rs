@@ -56,7 +56,7 @@ pub fn collect_materialization_diagnostics(
 
     if wants("mcg") && graph_registry_dedup_enabled() {
         let mcg = McgRegistryWriter::load(source_root, app_id);
-        let app_skeleton_present = load_app_skeleton_artifact(app_root.as_path())
+        let app_skeleton_present = load_app_skeleton_artifact(app_root.as_path(), None)
             .ok()
             .flatten()
             .is_some();
@@ -95,6 +95,33 @@ pub fn collect_materialization_diagnostics(
             .filter(|slot| slot.state == MaterialState::Failed)
             .count();
         let total = mrg.slots.len();
+        let (navigation_node_count, navigation_duplicate_keys, navigation_orphan_urls) =
+            crate::graph::mrg::navigation_contract::navigation_drift_metrics(
+                source_root,
+                app_id,
+            );
+        let nav_contract =
+            crate::graph::mrg::navigation_contract::verify_navigation_contract(source_root, app_id);
+        if !nav_contract.ok {
+            if !nav_contract.missing_access_keys.is_empty() {
+                report.alerts.push(format!(
+                    "MRG navigation missing access keys: {}",
+                    nav_contract.missing_access_keys.join(", ")
+                ));
+            }
+            if !nav_contract.missing_build_keys.is_empty() {
+                report.alerts.push(format!(
+                    "MRG navigation missing build keys: {}",
+                    nav_contract.missing_build_keys.join(", ")
+                ));
+            }
+            if !nav_contract.duplicate_keys.is_empty() {
+                report.alerts.push(format!(
+                    "MRG navigation duplicate keys: {}",
+                    nav_contract.duplicate_keys.join(", ")
+                ));
+            }
+        }
         report.mrg = MrgDiagnosticsSection {
             slot_count: total,
             ready_slots: ready,
@@ -105,6 +132,9 @@ pub fn collect_materialization_diagnostics(
             } else {
                 stale as f64 / total as f64
             },
+            navigation_node_count: Some(navigation_node_count),
+            navigation_duplicate_keys: Some(navigation_duplicate_keys),
+            navigation_orphan_urls: Some(navigation_orphan_urls),
         };
     }
 

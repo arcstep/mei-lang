@@ -1,5 +1,8 @@
 use std::path::Path;
 
+use mei_lang_kernel::resolve_app_root;
+
+use crate::graph::content_store;
 use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::mrg::registry::{
     MrgLastEval, MrgRegistryWriter, MrgSlotId, MrgSlotRecord,
@@ -59,6 +62,25 @@ fn record_mrg_slot(
     });
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
+}
+
+/// Resolve slot artifact bytes: Content Store CAS first, then legacy relative path.
+pub fn resolve_slot_payload_path(
+    source_root: &Path,
+    app_id: &str,
+    slot: &MrgSlotRecord,
+) -> Option<std::path::PathBuf> {
+    let app_root = resolve_app_root(source_root, app_id);
+    if let Some(ref pref) = slot.payload_ref {
+        if let Some(cas_path) = content_store::resolve_payload_ref(app_root.as_path(), pref) {
+            return Some(cas_path);
+        }
+        let legacy = app_root.join(&pref.relative_path);
+        if legacy.is_file() {
+            return Some(legacy);
+        }
+    }
+    None
 }
 
 pub fn record_mrg_slot_after_eval(
