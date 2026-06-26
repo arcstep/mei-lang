@@ -6,15 +6,10 @@ use mei_lang_kernel::CompiledApp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::graph::content_store::{self, content_store_enabled};
-use crate::graph::io::{read_json_registry, write_json_registry};
+use crate::graph::content_store::{self, APP_SKELETON};
+use crate::graph::io::read_json_registry;
 
 pub const APP_SKELETON_ARTIFACT_SCHEMA: &str = "mei-app-skeleton-artifact-v1";
-pub const APP_SKELETON_REL: &str = "graph/payloads/app-skeleton.json";
-
-pub fn app_skeleton_artifact_path(app_root: &Path) -> std::path::PathBuf {
-    mei_lang_kernel::resolve_app_build_root(app_root).join(APP_SKELETON_REL)
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSkeletonArtifact {
@@ -26,8 +21,7 @@ pub struct AppSkeletonArtifact {
 
 #[derive(Debug, Clone)]
 pub struct PersistedAppSkeleton {
-    pub relative_path: String,
-    pub content_hash: Option<String>,
+    pub content_hash: String,
 }
 
 pub fn app_skeleton_revision(dependency_fingerprint: &str) -> String {
@@ -59,26 +53,9 @@ pub fn persist_app_skeleton_artifact(
         payload: app_skeleton_value_from_compiled(compiled),
     };
     let bytes = serde_json::to_vec(&artifact)?;
-    if content_store_enabled() {
-        let put = content_store::put_if_absent(app_root, "app_skeleton", &bytes)?;
-        let rel = put
-            .path
-            .strip_prefix(app_root)
-            .map(|path| path.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|_| put.path.display().to_string());
-        return Ok(PersistedAppSkeleton {
-            relative_path: rel,
-            content_hash: Some(put.content_hash),
-        });
-    }
-    let path = app_skeleton_artifact_path(app_root);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    write_json_registry(&path, &artifact)?;
+    let put = content_store::put_if_absent(app_root, APP_SKELETON, &bytes)?;
     Ok(PersistedAppSkeleton {
-        relative_path: APP_SKELETON_REL.to_string(),
-        content_hash: None,
+        content_hash: put.content_hash,
     })
 }
 
@@ -121,36 +98,35 @@ pub fn merge_app_skeleton_into_compiled(compiled: &mut CompiledApp, skeleton: &A
     }
 }
 
+pub fn load_app_skeleton_from_mcg(
+    source_root: &Path,
+    app_id: &str,
+) -> anyhow::Result<Option<AppSkeletonArtifact>> {
+    let mcg = crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app_id);
+    let Some(hash) = mcg
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == crate::graph::types::GraphNodeKind::AppSkeleton)
+        .and_then(|node| node.payload_ref.as_ref())
+        .map(|payload| payload.content_hash.as_str())
+        .filter(|hash| !hash.is_empty())
+    else {
+        return Ok(None);
+    };
+    let app_root = mei_lang_kernel::resolve_app_root(source_root, app_id);
+    load_app_skeleton_artifact(app_root.as_path(), hash)
+}
 pub fn load_app_skeleton_artifact(
     app_root: &Path,
-    content_hash: Option<&str>,
+    content_hash: &str,
 ) -> anyhow::Result<Option<AppSkeletonArtifact>> {
-    if let Some(hash) = content_hash.map(str::trim).filter(|value| !value.is_empty()) {
-        let pref = crate::graph::types::PayloadRef {
-            kind: "app_skeleton".to_string(),
-            relative_path: String::new(),
-            schema_version: APP_SKELETON_ARTIFACT_SCHEMA.to_string(),
-            content_hash: Some(hash.to_string()),
-        };
-        if let Some(path) = content_store::resolve_payload_ref(app_root, &pref) {
-            if let Some(artifact) = read_json_registry::<AppSkeletonArtifact>(&path)? {
-                return Ok(Some(artifact));
-            }
-        }
-        if let Some(path) = content_store::get(app_root, "app_skeleton", hash) {
-            if let Some(artifact) = read_json_registry::<AppSkeletonArtifact>(&path)? {
-                return Ok(Some(artifact));
-            }
-        }
-    }
-    let path = app_skeleton_artifact_path(app_root);
-    if !path.is_file() {
-        let legacy = app_root.join("build/active/graph/payloads/app-skeleton.json");
-        if legacy.is_file() {
-            return read_json_registry(&legacy);
-        }
+    let hash = content_hash.trim();
+    if hash.is_empty() {
         return Ok(None);
     }
+    let Some(path) = content_store::get(app_root, APP_SKELETON, hash) else {
+        return Ok(None);
+    };
     read_json_registry(&path)
 }
 
@@ -159,7 +135,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn load_app_skeleton_reads_payloads_root_not_scene_subdir() {
+    fn persist_and_load_app_skeleton_via_cas() {
         let app_root = std::env::temp_dir().join(format!(
             "mei-app-sk-{}-{}",
             std::process::id(),
@@ -168,13 +144,32 @@ mod tests {
                 .expect("clock")
                 .as_nanos()
         ));
-        std::fs::create_dir_all(app_root.join("build/active/graph/payloads")).expect("mkdir");
-        std::fs::write(
-            app_skeleton_artifact_path(&app_root),
-            r#"{"schemaVersion":"mei-app-skeleton-artifact-v1","revision":"sk:test","payload":{}}"#,
-        )
-        .expect("write");
-        let loaded = load_app_skeleton_artifact(&app_root, None)
+        std::fs::create_dir_all(app_root.join("build/active")).expect("mkdir");
+        let compiled = CompiledApp {
+            app_id: "demo".to_string(),
+            title: String::new(),
+            app_root: String::new(),
+            scene_routes: Vec::new(),
+            active_scene: None,
+            active_target_file: String::new(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: Default::default(),
+            scene_bindings_by_id: Default::default(),
+            scene_examples_by_id: Default::default(),
+            scene_projection_assembly_by_id: Default::default(),
+            resources: Vec::new(),
+            world_metrics: Default::default(),
+            world_semantic_by_file: Default::default(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
+        let persisted =
+            persist_app_skeleton_artifact(&app_root, "sk:test", &compiled).expect("persist");
+        let loaded = load_app_skeleton_artifact(&app_root, persisted.content_hash.as_str())
             .expect("load")
             .expect("some");
         assert_eq!(loaded.revision, "sk:test");

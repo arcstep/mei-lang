@@ -4,9 +4,7 @@ use std::path::Path;
 use mei_lang_kernel::CompiledApp;
 use serde::{Deserialize, Serialize};
 
-use crate::graph::content_store::{self, content_store_enabled};
-use crate::graph::io::write_json_registry;
-use crate::graph::paths::panel_contract_artifact_dir;
+use crate::graph::content_store::{self, PANEL_CONTRACT};
 use crate::graph::types::stable_hash;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,13 +14,12 @@ pub struct PanelContractRecord {
     pub panel_id: String,
     pub revision: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub relative_path: Option<String>,
+    pub panel: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
 pub struct PersistedPanelContract {
-    pub relative_path: String,
-    pub content_hash: Option<String>,
+    pub content_hash: String,
 }
 
 pub fn extract_panel_contracts(compiled: &CompiledApp) -> Vec<PanelContractRecord> {
@@ -52,7 +49,7 @@ fn extract_from_contract(
                 scene_id: scene_id.to_string(),
                 panel_id: panel.id.clone(),
                 revision: format!("pc:{fingerprint}"),
-                relative_path: None,
+                panel: Some(serde_json::to_value(panel).unwrap_or(serde_json::Value::Null)),
             }
         })
         .collect()
@@ -66,37 +63,46 @@ pub fn persist_panel_contracts(
     let mut paths = BTreeMap::new();
     for record in records {
         let bytes = serde_json::to_vec(record)?;
-        if content_store_enabled() {
-            let put = content_store::put_if_absent(app_root, "panel_contract", &bytes)?;
-            let rel = put
-                .path
-                .strip_prefix(app_root)
-                .map(|path| path.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_else(|_| put.path.display().to_string());
-            paths.insert(
-                record.panel_key.clone(),
-                PersistedPanelContract {
-                    relative_path: rel,
-                    content_hash: Some(put.content_hash),
-                },
-            );
-            continue;
-        }
-        let dir = panel_contract_artifact_dir(app_root);
-        std::fs::create_dir_all(&dir)?;
-        let slug = record.panel_key.replace([':', '/'], "-");
-        let rel = format!("build/active/graph/payloads/panel/{slug}.json");
-        let path = app_root.join(&rel);
-        write_json_registry(&path, record)?;
+        let put = content_store::put_if_absent(app_root, PANEL_CONTRACT, &bytes)?;
         paths.insert(
             record.panel_key.clone(),
             PersistedPanelContract {
-                relative_path: rel,
-                content_hash: None,
+                content_hash: put.content_hash,
             },
         );
     }
     Ok(paths)
+}
+
+pub fn load_panel_contracts_from_store(
+    app_root: &Path,
+    mcg: &crate::graph::mcg::registry::McgRegistry,
+) -> anyhow::Result<BTreeMap<String, serde_json::Value>> {
+    use crate::graph::content_store::{self, PANEL_CONTRACT};
+    use crate::graph::types::GraphNodeKind;
+    let mut panels = BTreeMap::new();
+    for node in &mcg.nodes {
+        if node.id.kind != GraphNodeKind::PanelContract {
+            continue;
+        }
+        let Some(hash) = node
+            .payload_ref
+            .as_ref()
+            .map(|payload| payload.content_hash.as_str())
+            .filter(|hash| !hash.is_empty())
+        else {
+            continue;
+        };
+        let Some(path) = content_store::get(app_root, PANEL_CONTRACT, hash) else {
+            continue;
+        };
+        let raw = std::fs::read_to_string(path)?;
+        let record: PanelContractRecord = serde_json::from_str(&raw)?;
+        if let Some(panel) = record.panel {
+            panels.insert(record.panel_key.clone(), panel);
+        }
+    }
+    Ok(panels)
 }
 
 pub fn partial_assemble_panel_merge(

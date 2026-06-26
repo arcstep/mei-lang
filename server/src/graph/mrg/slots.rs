@@ -2,7 +2,7 @@ use std::path::Path;
 
 use mei_lang_kernel::resolve_app_root;
 
-use crate::graph::content_store;
+use crate::graph::content_store::{self, METRIC_DATAFRAME, METRIC_RESPONSE};
 use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::mrg::registry::{
     MrgLastEval, MrgRegistryWriter, MrgSlotId, MrgSlotRecord,
@@ -20,7 +20,6 @@ fn record_mrg_slot(
     data_source_revision: &str,
     payload_kind: &str,
     content_hash: &str,
-    artifact_relative_path: &str,
     schema_version: &str,
     wall_ms: u64,
     artifact_hit: bool,
@@ -45,12 +44,11 @@ fn record_mrg_slot(
         owner_resource_id: owner_resource_id.to_string(),
         metric_def_bundle_revision: metric_def_bundle_revision.to_string(),
         data_source_revision: data_source_revision.to_string(),
-        payload_ref: Some(PayloadRef {
-            kind: payload_kind.to_string(),
-            relative_path: artifact_relative_path.to_string(),
-            schema_version: schema_version.to_string(),
-            content_hash: Some(content_hash.to_string()),
-        }),
+        payload_ref: Some(PayloadRef::new(
+            payload_kind,
+            content_hash,
+            schema_version,
+        )),
         cache_policy: "artifact_sealed".to_string(),
         eval_engine: "json_walk".to_string(),
         last_eval: Some(MrgLastEval {
@@ -64,23 +62,16 @@ fn record_mrg_slot(
     MrgRegistryWriter::save(source_root, &registry)
 }
 
-/// Resolve slot artifact bytes: Content Store CAS first, then legacy relative path.
+/// Resolve slot artifact bytes from Content Store CAS only.
 pub fn resolve_slot_payload_path(
     source_root: &Path,
     app_id: &str,
     slot: &MrgSlotRecord,
 ) -> Option<std::path::PathBuf> {
     let app_root = resolve_app_root(source_root, app_id);
-    if let Some(ref pref) = slot.payload_ref {
-        if let Some(cas_path) = content_store::resolve_payload_ref(app_root.as_path(), pref) {
-            return Some(cas_path);
-        }
-        let legacy = app_root.join(&pref.relative_path);
-        if legacy.is_file() {
-            return Some(legacy);
-        }
-    }
-    None
+    slot.payload_ref
+        .as_ref()
+        .and_then(|pref| content_store::resolve_payload_ref(app_root.as_path(), pref))
 }
 
 pub fn record_mrg_slot_after_eval(
@@ -92,7 +83,7 @@ pub fn record_mrg_slot_after_eval(
     metric_def_bundle_revision: &str,
     data_source_revision: &str,
     response_cache_key: &str,
-    artifact_relative_path: &str,
+    _artifact_relative_path: &str,
     wall_ms: u64,
     artifact_hit: bool,
 ) -> anyhow::Result<()> {
@@ -104,9 +95,8 @@ pub fn record_mrg_slot_after_eval(
         owner_resource_id,
         metric_def_bundle_revision,
         data_source_revision,
-        "metric_response",
+        METRIC_RESPONSE,
         response_cache_key,
-        artifact_relative_path,
         "mei-metric-response-result-artifact-v1",
         wall_ms,
         artifact_hit,
@@ -122,7 +112,7 @@ pub fn record_mrg_dataframe_slot_after_eval(
     metric_def_bundle_revision: &str,
     data_source_revision: &str,
     shared_artifact_key: &str,
-    artifact_relative_path: &str,
+    _artifact_relative_path: &str,
     wall_ms: u64,
     artifact_hit: bool,
 ) -> anyhow::Result<()> {
@@ -134,9 +124,8 @@ pub fn record_mrg_dataframe_slot_after_eval(
         owner_resource_id,
         metric_def_bundle_revision,
         data_source_revision,
-        "metric_dataframe",
+        METRIC_DATAFRAME,
         shared_artifact_key,
-        artifact_relative_path,
         "mei-metric-dataframe-result-artifact-v1",
         wall_ms,
         artifact_hit,

@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::OnceLock;
 
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
@@ -7,24 +6,14 @@ use mei_lang_kernel::{
 };
 use tracing::warn;
 
-use crate::graph::mcg::app_skeleton::load_app_skeleton_artifact;
+use crate::graph::mrg::navigation::NavigationResolveOpts;
+
+use crate::graph::mcg::app_skeleton::load_app_skeleton_from_mcg;
 use crate::graph::mrg::navigation::types::{NavigationEntry, NavigationMatch};
 use crate::graph::mrg::registry::MrgRegistryWriter;
 use crate::http::pages::AppQuery;
 use crate::readiness::reachability::legacy_resolve_access_entry;
 use crate::readiness::types::{ScopeCoords, UiMode};
-
-pub fn mrg_nav_gate_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        std::env::var("MEI_MRG_NAV_GATE")
-            .map(|value| {
-                let trimmed = value.trim();
-                !(trimmed == "0" || trimmed.eq_ignore_ascii_case("false"))
-            })
-            .unwrap_or(true)
-    })
-}
 
 pub fn list_navigation_entries(source_root: &Path, app_id: &str) -> Vec<NavigationEntry> {
     let registry = MrgRegistryWriter::load(source_root, app_id);
@@ -77,7 +66,12 @@ fn default_scene_navigation_alias(
 }
 
 fn default_build_entry_is_stale(source_root: &Path, app_id: &str, entry: &NavigationEntry) -> bool {
-    if entry.scene_id != "home" || entry.target_file != "scenes/home.mei" {
+    if entry.scene_id != "home"
+        || !matches!(
+            entry.target_file.as_str(),
+            "scenes/home.mei" | "src/scenes/home.mei"
+        )
+    {
         return false;
     }
     if find_navigation_by_key(source_root, app_id, "build:home").is_some() {
@@ -102,7 +96,7 @@ pub fn legacy_fallback_scope(source_root: &Path, app_id: &str, mode: UiMode) -> 
     }
     let app_root = resolve_app_root(source_root, app_id);
     if let Ok(Some(default_scene)) = resolve_default_scene_from_root(app_root.as_path()) {
-        if let Ok(Some(skeleton)) = load_app_skeleton_artifact(app_root.as_path(), None) {
+        if let Ok(Some(skeleton)) = load_app_skeleton_from_mcg(source_root, app_id) {
             if let Some(routes) = skeleton
                 .payload
                 .get("sceneRoutes")
@@ -156,6 +150,15 @@ pub fn resolve_default_scope(
     app_id: &str,
     mode: UiMode,
 ) -> NavigationMatch {
+    resolve_default_scope_with_opts(source_root, app_id, mode, NavigationResolveOpts::default())
+}
+
+pub fn resolve_default_scope_with_opts(
+    source_root: &Path,
+    app_id: &str,
+    mode: UiMode,
+    opts: NavigationResolveOpts,
+) -> NavigationMatch {
     let key = mode.default_navigation_key();
     if let Some(entry) = find_navigation_by_key(source_root, app_id, key) {
         if !default_build_entry_is_stale(source_root, app_id, &entry) {
@@ -173,11 +176,19 @@ pub fn resolve_default_scope(
             legacy_fallback: false,
         };
     }
-    warn!(
-        app_id = %app_id,
-        navigation_key = %key,
-        "L2: MRG default navigation missing; using legacy scope resolver"
-    );
+    if !opts.silent {
+        warn!(
+            app_id = %app_id,
+            navigation_key = %key,
+            "L2: MRG default navigation missing; using legacy scope resolver"
+        );
+    } else {
+        tracing::debug!(
+            app_id = %app_id,
+            navigation_key = %key,
+            "L2: MRG default navigation missing; using legacy scope resolver"
+        );
+    }
     NavigationMatch {
         scope: legacy_fallback_scope(source_root, app_id, mode),
         entry: None,
@@ -196,7 +207,7 @@ pub fn infer_build_scene_for_target(
         return None;
     }
     let app_root = resolve_app_root(source_root, app_id);
-    if let Ok(Some(skeleton)) = load_app_skeleton_artifact(app_root.as_path(), None) {
+        if let Ok(Some(skeleton)) = load_app_skeleton_from_mcg(source_root, app_id) {
         if let Some(routes) = skeleton
             .payload
             .get("sceneRoutes")
@@ -204,9 +215,15 @@ pub fn infer_build_scene_for_target(
                 serde_json::from_value::<Vec<mei_lang_kernel::CompiledSceneRoute>>(value.clone()).ok()
             })
         {
+            let canonical_target = mei_lang_kernel::canonical_app_source_rel_path(target_file);
             let matches = routes
                 .iter()
-                .filter(|route| route.target_file == target_file)
+                .filter(|route| {
+                    route.target_file == canonical_target
+                        || route.target_file == target_file
+                        || mei_lang_kernel::canonical_app_source_rel_path(route.target_file.as_str())
+                            == canonical_target
+                })
                 .map(|route| route.scene_id.clone())
                 .collect::<Vec<_>>();
             if matches.len() == 1 {
@@ -227,9 +244,15 @@ pub fn infer_build_scene_for_target(
     }
     if is_stock_catalog_app_for_root(source_root, app_id) {
         let catalog_routes = mei_lang_kernel::catalog_scene_routes_from_app_root(app_root.as_path());
+        let canonical_target = mei_lang_kernel::canonical_app_source_rel_path(target_file);
         let matches = catalog_routes
             .iter()
-            .filter(|route| route.target_file == target_file)
+            .filter(|route| {
+                route.target_file == canonical_target
+                    || route.target_file == target_file
+                    || mei_lang_kernel::canonical_app_source_rel_path(route.target_file.as_str())
+                        == canonical_target
+            })
             .map(|route| route.scene_id.clone())
             .collect::<Vec<_>>();
         if matches.len() == 1 {
@@ -248,6 +271,24 @@ pub fn match_request_to_navigation(
     route_mode: UiRouteMode,
     scene_id: Option<&str>,
     query: &AppQuery,
+) -> NavigationMatch {
+    match_request_to_navigation_with_opts(
+        source_root,
+        app_id,
+        route_mode,
+        scene_id,
+        query,
+        NavigationResolveOpts::default(),
+    )
+}
+
+pub fn match_request_to_navigation_with_opts(
+    source_root: &Path,
+    app_id: &str,
+    route_mode: UiRouteMode,
+    scene_id: Option<&str>,
+    query: &AppQuery,
+    opts: NavigationResolveOpts,
 ) -> NavigationMatch {
     let mode = UiMode::from_route_mode(route_mode);
     let mut scene = scene_id
@@ -269,7 +310,7 @@ pub fn match_request_to_navigation(
         .map(|value| value.trim().to_string());
 
     if scene.is_none() && target.is_none() {
-        return resolve_default_scope(source_root, app_id, mode);
+        return resolve_default_scope_with_opts(source_root, app_id, mode, opts);
     }
 
     if scene.is_none() {
@@ -308,6 +349,13 @@ pub fn match_request_to_navigation(
                 target_file = %target_file,
                 "L2: MRG navigation miss for stock preview scope; using legacy scope resolver"
             );
+        } else if opts.silent {
+            tracing::debug!(
+                app_id = %app_id,
+                scene_id = %scene_id,
+                target_file = %target_file,
+                "L2: MRG navigation miss for explicit scope; using legacy scope resolver"
+            );
         } else {
             warn!(
                 app_id = %app_id,
@@ -325,11 +373,19 @@ pub fn match_request_to_navigation(
 
     if mode == UiMode::Build {
         if let Some(target_file) = target {
-            warn!(
-                app_id = %app_id,
-                target_file = %target_file,
-                "L2: build file target without MRG navigation; using explicit file scope"
-            );
+            if !opts.silent {
+                warn!(
+                    app_id = %app_id,
+                    target_file = %target_file,
+                    "L2: build file target without MRG navigation; using explicit file scope"
+                );
+            } else {
+                tracing::debug!(
+                    app_id = %app_id,
+                    target_file = %target_file,
+                    "L2: build file target without MRG navigation; using explicit file scope"
+                );
+            }
             return NavigationMatch {
                 scope: ScopeCoords::new(
                     app_id,
@@ -343,7 +399,7 @@ pub fn match_request_to_navigation(
         }
     }
 
-    resolve_default_scope(source_root, app_id, mode)
+    resolve_default_scope_with_opts(source_root, app_id, mode, opts)
 }
 
 #[cfg(test)]

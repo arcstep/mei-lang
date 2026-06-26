@@ -1,10 +1,25 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use mei_lang_kernel::CompiledApp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::graph::content_store::{self, METRIC_DEF_BUNDLE};
 use crate::graph::types::stable_hash;
+
+pub const METRIC_DEF_BUNDLE_ARTIFACT_SCHEMA: &str = "mei-metric-def-bundle-artifact-v1";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricDefBundleArtifact {
+    #[serde(rename = "schemaVersion")]
+    pub schema_version: String,
+    #[serde(rename = "ownerResourceId")]
+    pub owner_resource_id: String,
+    pub revision: String,
+    #[serde(rename = "runtimeMetricDefs")]
+    pub runtime_metric_defs: BTreeMap<String, Value>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricDefBundleRecord {
@@ -12,6 +27,8 @@ pub struct MetricDefBundleRecord {
     pub revision: String,
     pub defs_fingerprint: String,
     pub metric_ids: Vec<String>,
+    #[serde(skip)]
+    pub runtime_metric_defs: BTreeMap<String, Value>,
 }
 
 pub fn extract_metric_def_bundles(
@@ -41,6 +58,7 @@ pub fn extract_metric_def_bundles(
                 revision,
                 defs_fingerprint: fingerprint,
                 metric_ids,
+                runtime_metric_defs: defs,
             },
         );
     }
@@ -55,6 +73,32 @@ pub struct DatasetRuntimePayloadView {
 pub fn metric_defs_fingerprint(defs: &BTreeMap<String, Value>) -> String {
     let serialized = serde_json::to_string(defs).unwrap_or_default();
     stable_hash(&serialized)
+}
+
+pub fn persist_metric_def_bundle(
+    app_root: &Path,
+    bundle: &MetricDefBundleRecord,
+) -> anyhow::Result<String> {
+    let artifact = MetricDefBundleArtifact {
+        schema_version: METRIC_DEF_BUNDLE_ARTIFACT_SCHEMA.to_string(),
+        owner_resource_id: bundle.owner_resource_id.clone(),
+        revision: bundle.revision.clone(),
+        runtime_metric_defs: bundle.runtime_metric_defs.clone(),
+    };
+    let bytes = serde_json::to_vec(&artifact)?;
+    let put = content_store::put_if_absent(app_root, METRIC_DEF_BUNDLE, &bytes)?;
+    Ok(put.content_hash)
+}
+
+pub fn load_metric_def_bundle(
+    app_root: &Path,
+    content_hash: &str,
+) -> anyhow::Result<Option<MetricDefBundleArtifact>> {
+    let Some(path) = content_store::get(app_root, METRIC_DEF_BUNDLE, content_hash) else {
+        return Ok(None);
+    };
+    let raw = std::fs::read_to_string(&path)?;
+    Ok(Some(serde_json::from_str(&raw)?))
 }
 
 #[cfg(test)]

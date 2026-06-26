@@ -11,16 +11,30 @@ pub struct InvalidationOutcome {
 /// Apply bridge invalidation policies after MCG update.
 pub fn apply_mcg_invalidation(
     mrg: &mut MrgRegistry,
+    bridge: &crate::graph::bridge::BridgeExport,
     scene_only_bump: bool,
     changed_bundle_owners: &[String],
 ) -> InvalidationOutcome {
     if scene_only_bump && changed_bundle_owners.is_empty() {
-        return InvalidationOutcome {
-            scene_only_skip: true,
-            ..Default::default()
-        };
+        let scene_policy = bridge
+            .invalidation_policies
+            .iter()
+            .find(|policy| policy.mcg_kind == "scene_payload");
+        if scene_policy.is_some_and(|policy| !policy.mrg_propagate) {
+            return InvalidationOutcome {
+                scene_only_skip: true,
+                ..Default::default()
+            };
+        }
     }
     let mut outcome = InvalidationOutcome::default();
+    let bundle_policy = bridge
+        .invalidation_policies
+        .iter()
+        .find(|policy| policy.mcg_kind == "metric_def_bundle");
+    if bundle_policy.is_some_and(|policy| !policy.mrg_propagate) {
+        return outcome;
+    }
     for owner_id in changed_bundle_owners {
         mrg.mark_owner_slots_stale(owner_id.as_str(), "stale");
         outcome.slots_marked_stale += 1;
@@ -67,7 +81,8 @@ mod tests {
             eval_engine: "json_walk".to_string(),
             last_eval: None,
         });
-        let outcome = apply_mcg_invalidation(&mut mrg, true, &[]);
+        let bridge = crate::graph::bridge::export_bridge("zhifa", &BTreeMap::new());
+        let outcome = apply_mcg_invalidation(&mut mrg, &bridge, true, &[]);
         assert!(outcome.scene_only_skip);
         assert_eq!(mrg.slots[0].state, MaterialState::Ready);
     }

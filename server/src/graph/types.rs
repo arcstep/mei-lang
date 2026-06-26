@@ -68,12 +68,20 @@ pub enum MaterialState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PayloadRef {
     pub kind: String,
-    #[serde(rename = "relativePath")]
-    pub relative_path: String,
+    #[serde(rename = "contentHash")]
+    pub content_hash: String,
     #[serde(rename = "schemaVersion")]
     pub schema_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "contentHash")]
-    pub content_hash: Option<String>,
+}
+
+impl PayloadRef {
+    pub fn new(kind: impl Into<String>, content_hash: impl Into<String>, schema_version: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            content_hash: content_hash.into(),
+            schema_version: schema_version.into(),
+        }
+    }
 }
 
 pub fn stable_hash(text: &str) -> String {

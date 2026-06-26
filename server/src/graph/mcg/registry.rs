@@ -6,7 +6,7 @@ use crate::graph::io::{read_json_registry, write_json_registry};
 use crate::graph::paths::mcg_registry_path;
 use crate::graph::types::{GraphNodeId, MaterialState, PayloadRef, stable_hash};
 
-pub const MCG_REGISTRY_SCHEMA_VERSION: &str = "mei-mcg-registry-v1";
+pub const MCG_REGISTRY_SCHEMA_VERSION: &str = "mei-mcg-registry-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssemblyInputRef {

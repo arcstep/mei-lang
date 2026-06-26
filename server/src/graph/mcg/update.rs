@@ -9,8 +9,10 @@ use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::mcg::assemble::{
     assemble_assembly_view, assembly_view_revision, AssemblyInputRecord, AssemblyViewInputs,
 };
+use crate::graph::content_store::{APP_SKELETON, METRIC_DEF_BUNDLE, SCENE_PAYLOAD, PANEL_CONTRACT};
 use crate::graph::mcg::metric_def_bundle::{
-    extract_metric_def_bundles, DatasetRuntimePayloadView, MetricDefBundleRecord,
+    extract_metric_def_bundles, persist_metric_def_bundle, DatasetRuntimePayloadView,
+    MetricDefBundleRecord, METRIC_DEF_BUNDLE_ARTIFACT_SCHEMA,
 };
 use crate::graph::mcg::app_skeleton::{app_skeleton_revision, persist_app_skeleton_artifact};
 use crate::graph::mcg::panel_contract::{extract_panel_contracts, partial_assemble_panel_merge, persist_panel_contracts};
@@ -93,12 +95,11 @@ pub fn update_mcg_after_compile(
             revision: scene_revision.clone(),
             state: MaterialState::Ready,
             layer: "compile".to_string(),
-            payload_ref: Some(PayloadRef {
-                kind: "scene_payload".to_string(),
-                relative_path: persisted.relative_path,
-                schema_version: super::scene_payload::SCENE_PAYLOAD_ARTIFACT_SCHEMA.to_string(),
-                content_hash: persisted.content_hash,
-            }),
+            payload_ref: Some(PayloadRef::new(
+                SCENE_PAYLOAD,
+                persisted.content_hash,
+                super::scene_payload::SCENE_PAYLOAD_ARTIFACT_SCHEMA,
+            )),
             deps: Vec::new(),
             defs_fingerprint: None,
             owner_resource_id: None,
@@ -131,12 +132,11 @@ pub fn update_mcg_after_compile(
                 revision: sk_rev,
                 state: MaterialState::Ready,
                 layer: "compile".to_string(),
-                payload_ref: Some(PayloadRef {
-                    kind: "app_skeleton".to_string(),
-                    relative_path: persisted.relative_path,
-                    schema_version: super::app_skeleton::APP_SKELETON_ARTIFACT_SCHEMA.to_string(),
-                    content_hash: persisted.content_hash,
-                }),
+                payload_ref: Some(PayloadRef::new(
+                    APP_SKELETON,
+                    persisted.content_hash,
+                    super::app_skeleton::APP_SKELETON_ARTIFACT_SCHEMA,
+                )),
                 deps: Vec::new(),
                 defs_fingerprint: None,
                 owner_resource_id: None,
@@ -162,7 +162,7 @@ pub fn update_mcg_after_compile(
             key: owner_id.clone(),
             revision: bundle.revision.clone(),
         });
-        registry.upsert_node(bundle_node_record(bundle));
+        registry.upsert_node(bundle_node_record(app_root.as_path(), bundle));
         registry.edges.push(McgEdgeRecord {
             from: format!("metric_def_bundle:{owner_id}"),
             to: format!("mrg:eval_plan:{owner_id}"),
@@ -176,7 +176,6 @@ pub fn update_mcg_after_compile(
         if let Ok(paths) = persist_panel_contracts(app_root.as_path(), panel_contracts.as_slice()) {
             for panel in &mut panel_contracts {
                 if let Some(persisted) = paths.get(&panel.panel_key) {
-                    panel.relative_path = Some(persisted.relative_path.clone());
                     panel_persisted.insert(panel.panel_key.clone(), persisted.content_hash.clone());
                 }
             }
@@ -188,11 +187,12 @@ pub fn update_mcg_after_compile(
             revision: panel.revision.clone(),
             state: MaterialState::Ready,
             layer: "assembly".to_string(),
-            payload_ref: panel.relative_path.as_ref().map(|rel| PayloadRef {
-                kind: "panel_contract".to_string(),
-                relative_path: rel.clone(),
-                schema_version: "mei-panel-contract-artifact-v1".to_string(),
-                content_hash: panel_persisted.get(&panel.panel_key).cloned().flatten(),
+            payload_ref: panel_persisted.get(&panel.panel_key).map(|hash| {
+                PayloadRef::new(
+                    PANEL_CONTRACT,
+                    hash.clone(),
+                    "mei-panel-contract-artifact-v1",
+                )
             }),
             deps: vec![format!("scene_payload:{target_file}")],
             defs_fingerprint: None,
@@ -231,15 +231,14 @@ pub fn update_mcg_after_compile(
             GraphNodeKind::AssemblyView,
             assembly_view_key(options, compile_revision),
         ),
-        revision: av_revision,
+        revision: av_revision.clone(),
         state: MaterialState::Ready,
         layer: "assembly".to_string(),
-        payload_ref: Some(PayloadRef {
-            kind: "compiled_app".to_string(),
-            relative_path: "artifacts/compiled_app/".to_string(),
-            schema_version: "mei-compiled-app-artifact-v3".to_string(),
-            content_hash: Some(compile_revision.to_string()),
-        }),
+        payload_ref: Some(PayloadRef::new(
+            "assembly_view",
+            av_revision,
+            "mei-assembly-view-v1",
+        )),
         deps: vec![format!("scene_payload:{target_file}")],
         defs_fingerprint: None,
         owner_resource_id: None,
@@ -264,7 +263,7 @@ pub fn update_mcg_after_compile(
     let changed_owners = changed_bundle_owners(&previous_bundles, &outcome.bundle_revisions);
     let scene_only = scene_changed && changed_owners.is_empty();
     let mut mrg = MrgRegistryWriter::load(source_root, app_id);
-    let invalidation = apply_mcg_invalidation(&mut mrg, scene_only, changed_owners.as_slice());
+    let invalidation = apply_mcg_invalidation(&mut mrg, &bridge, scene_only, changed_owners.as_slice());
     if invalidation.scene_only_skip {
         tracing::debug!(app_id = %app_id, "MRG invalidation skipped (scene-only bump)");
     }
@@ -285,7 +284,15 @@ pub fn update_mcg_after_compile(
     Ok(outcome)
 }
 
-fn bundle_node_record(bundle: &MetricDefBundleRecord) -> McgNodeRecord {
+fn bundle_node_record(app_root: &Path, bundle: &MetricDefBundleRecord) -> McgNodeRecord {
+    let content_hash = persist_metric_def_bundle(app_root, bundle).unwrap_or_else(|error| {
+        tracing::warn!(
+            owner = %bundle.owner_resource_id,
+            error = %error,
+            "failed to persist metric def bundle to content store"
+        );
+        String::new()
+    });
     McgNodeRecord {
         id: GraphNodeId::new(
             GraphNodeKind::MetricDefBundle,
@@ -294,7 +301,15 @@ fn bundle_node_record(bundle: &MetricDefBundleRecord) -> McgNodeRecord {
         revision: bundle.revision.clone(),
         state: MaterialState::Ready,
         layer: "eval_export".to_string(),
-        payload_ref: None,
+        payload_ref: if content_hash.is_empty() {
+            None
+        } else {
+            Some(PayloadRef::new(
+                METRIC_DEF_BUNDLE,
+                content_hash,
+                METRIC_DEF_BUNDLE_ARTIFACT_SCHEMA,
+            ))
+        },
         deps: Vec::new(),
         defs_fingerprint: Some(bundle.defs_fingerprint.clone()),
         owner_resource_id: Some(bundle.owner_resource_id.clone()),

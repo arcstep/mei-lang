@@ -35,10 +35,7 @@ pub struct NavigationMatch {
 }
 
 impl NavigationMatch {
-    pub fn navigation_ready(&self, nav_gate_enabled: bool) -> bool {
-        if !nav_gate_enabled {
-            return true;
-        }
+    pub fn navigation_ready(&self) -> bool {
         if self.legacy_fallback {
             return false;
         }

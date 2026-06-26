@@ -8,11 +8,15 @@ use mei_lang_kernel::{resolve_app_root, CompiledApp, CompileOptions};
 use crate::graph::dedup::load_mcg_bundle_revisions;
 use crate::graph::feature::{graph_registry_dedup_enabled, graph_registry_enabled};
 use crate::graph::mcg::assemble::assemble_scope_view;
-use crate::graph::mcg::metric_def_bundle::DatasetRuntimePayloadView;
+use crate::graph::mcg::metric_def_bundle::{
+    load_metric_def_bundle, DatasetRuntimePayloadView, MetricDefBundleArtifact,
+};
+use crate::graph::mcg::panel_contract::{load_panel_contracts_from_store, partial_assemble_panel_merge};
 use crate::graph::mcg::registry::McgRegistryWriter;
 use crate::graph::mcg::app_skeleton::{load_app_skeleton_artifact, merge_app_skeleton_into_compiled};
 use crate::graph::mcg::scene_payload::load_scene_payload_artifact;
 use crate::graph::mcg::update::update_mcg_after_compile;
+use crate::graph::types::GraphNodeKind;
 
 pub fn maybe_update_graph_after_compile(
     source_root: &Path,
@@ -54,7 +58,47 @@ pub fn maybe_update_graph_after_compile(
     }
 }
 
-use crate::graph::types::GraphNodeKind;
+fn hydrate_metric_defs_from_mcg_cas(
+    app_root: &Path,
+    mcg: &crate::graph::mcg::registry::McgRegistry,
+    compiled: &mut CompiledApp,
+) {
+    for resource in &mut compiled.resources {
+        let Some(dataset) = resource.dataset.as_mut() else {
+            continue;
+        };
+        if !dataset.runtime_metric_defs.is_empty() {
+            continue;
+        }
+        let node = mcg.nodes.iter().find(|node| {
+            node.id.kind == GraphNodeKind::MetricDefBundle && node.id.key == resource.id
+        });
+        let Some(hash) = node
+            .and_then(|node| node.payload_ref.as_ref())
+            .map(|payload| payload.content_hash.as_str())
+            .filter(|hash| !hash.is_empty())
+        else {
+            continue;
+        };
+        let Ok(Some(bundle)) = load_metric_def_bundle(app_root, hash) else {
+            continue;
+        };
+        apply_metric_def_bundle_to_resource(resource.id.as_str(), dataset, &bundle);
+    }
+}
+
+fn apply_metric_def_bundle_to_resource(
+    owner_id: &str,
+    dataset: &mut mei_lang_kernel::DatasetView,
+    bundle: &MetricDefBundleArtifact,
+) {
+    if bundle.owner_resource_id != owner_id {
+        return;
+    }
+    if dataset.runtime_metric_defs.is_empty() {
+        dataset.runtime_metric_defs = bundle.runtime_metric_defs.clone();
+    }
+}
 
 fn merge_compiled_runtime_catalog(into: &mut CompiledApp, donor: &CompiledApp) {
     for resource in &donor.resources {
@@ -84,9 +128,9 @@ fn board_catalog_fallback_targets(board_target: &str) -> Vec<String> {
         return Vec::new();
     };
     vec![
-        format!("{stem}.mei"),
-        format!("{stem}.world.mei"),
-        "scenes/home.mei".to_string(),
+        mei_lang_kernel::canonical_app_source_rel_path(&format!("{stem}.mei")),
+        mei_lang_kernel::canonical_app_source_rel_path(&format!("{stem}.world.mei")),
+        mei_lang_kernel::canonical_app_source_rel_path("scenes/home.mei"),
     ]
 }
 
@@ -99,7 +143,7 @@ fn backfill_assembled_runtime_catalog(app_root: &Path, target: &str, compiled: &
     }
     let mut fallback_targets = board_catalog_fallback_targets(target);
     if fallback_targets.is_empty() && (needs_resources || needs_world_metrics) {
-        fallback_targets.push("scenes/home.mei".to_string());
+        fallback_targets.push(mei_lang_kernel::canonical_app_source_rel_path("scenes/home.mei"));
     }
     for fallback_target in fallback_targets {
         let Some(artifact) = load_scene_payload_artifact(app_root, fallback_target.as_str(), None, None)
@@ -163,9 +207,12 @@ pub fn try_assemble_scope_from_scene_payload(
     if target.is_empty() {
         return None;
     }
+    let lookup_keys = mei_lang_kernel::app_source_rel_path_lookup_keys(target);
     let mcg = McgRegistryWriter::load(source_root, app_id);
     // MCG registry may be absent on disk-only prebuild; still load scene payload when the file exists.
-    let expected_revision = mcg.node_revision("scene_payload", target);
+    let expected_revision = lookup_keys
+        .iter()
+        .find_map(|key| mcg.node_revision("scene_payload", key.as_str()));
     let compile_revision = mcg
         .nodes
         .iter()
@@ -173,47 +220,53 @@ pub fn try_assemble_scope_from_scene_payload(
         .find_map(|node| {
             node.payload_ref
                 .as_ref()
-                .and_then(|payload| payload.content_hash.clone())
+                .and_then(|payload| Some(payload.content_hash.clone()))
         })
         .unwrap_or_default();
-    let scene_node = mcg.nodes.iter().find(|node| {
-        node.id.kind == GraphNodeKind::ScenePayload && node.id.key == target
-    });
+    let (scene_node, resolved_target) = lookup_keys.iter().find_map(|key| {
+        mcg.nodes.iter().find(|node| {
+            node.id.kind == GraphNodeKind::ScenePayload && node.id.key == *key
+        }).map(|node| (node, key.clone()))
+    })?;
     let content_hash = scene_node
-        .and_then(|node| node.payload_ref.as_ref())
-        .and_then(|payload| payload.content_hash.as_deref());
+        .payload_ref
+        .as_ref()
+        .map(|payload| payload.content_hash.as_str());
     let app_root = resolve_app_root(source_root, app_id);
     let artifact = load_scene_payload_artifact(
         app_root.as_path(),
-        target,
+        resolved_target.as_str(),
         expected_revision.as_deref(),
         content_hash,
     )
     .ok()
     .flatten()?;
     let mut compiled: CompiledApp = serde_json::from_value(artifact.payload).ok()?;
-    if let Ok(Some(skeleton)) = load_app_skeleton_artifact(app_root.as_path(), None) {
-        merge_app_skeleton_into_compiled(&mut compiled, &skeleton);
+    if let Some(sk_node) = mcg.nodes.iter().find(|node| node.id.kind == GraphNodeKind::AppSkeleton) {
+        if let Some(hash) = sk_node
+            .payload_ref
+            .as_ref()
+            .map(|payload| payload.content_hash.as_str())
+            .filter(|hash| !hash.is_empty())
+        {
+            if let Ok(Some(skeleton)) = load_app_skeleton_artifact(app_root.as_path(), hash) {
+                merge_app_skeleton_into_compiled(&mut compiled, &skeleton);
+            }
+        }
     }
-    backfill_assembled_runtime_catalog(app_root.as_path(), target, &mut compiled);
+    backfill_assembled_runtime_catalog(app_root.as_path(), resolved_target.as_str(), &mut compiled);
+    hydrate_world_metrics_from_scene_payload(source_root, app_id, resolved_target.as_str(), &mut compiled);
+    hydrate_metric_defs_from_mcg_cas(app_root.as_path(), &mcg, &mut compiled);
+    if let Ok(changed_panels) = load_panel_contracts_from_store(app_root.as_path(), &mcg) {
+        if !changed_panels.is_empty() {
+            compiled = partial_assemble_panel_merge(&compiled, &changed_panels);
+        }
+    }
     if !crate::graph::mcg::scene_payload::scene_payload_is_assemblable(&compiled) {
         return None;
     }
-    let compile_options = CompileOptions {
-        scene: active_scene
-            .map(str::trim)
-            .filter(|scene| !scene.is_empty())
-            .map(str::to_string),
-        preview_target: Some(target.to_string()),
-    };
-    let _ = mei_lang_toolchain::hydrate_compiled_app_from_disk_artifacts(
-        source_root,
-        app_id,
-        &compile_options,
-        &mut compiled,
-    );
     Some((
-        assemble_scope_view(compiled, active_scene, Some(target)),
+        assemble_scope_view(compiled, active_scene, Some(resolved_target.as_str())),
         compile_revision,
     ))
 }

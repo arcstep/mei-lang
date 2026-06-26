@@ -2,9 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::graph::io::{read_json_registry, write_json_registry};
 use crate::graph::paths::mrg_registry_path;
-use crate::graph::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef, stable_hash};
+use crate::graph::mrg::nodes::{deserialize_mrg_nodes, serialize_mrg_nodes, MrgNodeRecord};
+use crate::graph::types::{GraphNodeId, MaterialState, PayloadRef, stable_hash};
 
-pub const MRG_REGISTRY_SCHEMA_VERSION: &str = "mei-mrg-registry-v1";
+pub const MRG_REGISTRY_SCHEMA_VERSION: &str = "mei-mrg-registry-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MrgSlotId {
@@ -73,8 +74,12 @@ pub struct MrgRegistry {
     pub registry_revision: String,
     #[serde(rename = "updatedAtMs")]
     pub updated_at_ms: u64,
-    #[serde(default)]
-    pub nodes: Vec<serde_json::Value>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_mrg_nodes",
+        serialize_with = "serialize_mrg_nodes"
+    )]
+    pub nodes: Vec<MrgNodeRecord>,
     pub slots: Vec<MrgSlotRecord>,
     #[serde(default)]
     pub edges: Vec<MrgEdgeRecord>,
@@ -127,7 +132,22 @@ impl MrgRegistry {
     pub fn navigation_entries(&self) -> Vec<crate::graph::mrg::navigation::types::NavigationEntry> {
         self.nodes
             .iter()
-            .filter_map(crate::graph::mrg::navigation::types::parse_navigation_node)
+            .filter_map(|node| match node {
+                MrgNodeRecord::Navigation {
+                    id,
+                    url,
+                    scene_id,
+                    target_file,
+                    state,
+                } => Some(crate::graph::mrg::navigation::types::NavigationEntry {
+                    key: id.key.clone(),
+                    url: url.clone(),
+                    scene_id: scene_id.clone(),
+                    target_file: target_file.clone(),
+                    state: state.clone(),
+                }),
+                _ => None,
+            })
             .collect()
     }
 
@@ -145,45 +165,46 @@ impl MrgRegistry {
         target_file: &str,
         state: MaterialState,
     ) {
-        let node = serde_json::json!({
-            "id": { "kind": GraphNodeKind::Navigation.slug(), "key": key },
-            "url": url,
-            "sceneId": scene_id,
-            "targetFile": target_file,
-            "state": match state {
-                MaterialState::Ready => "ready",
-                MaterialState::Stale => "stale",
-                MaterialState::Warming => "warming",
-                MaterialState::Failed => "failed",
-                MaterialState::Missing => "missing",
-            },
-        });
-        if let Some(existing) = self.nodes.iter_mut().find(|value| {
-            value
-                .get("id")
-                .and_then(|id| id.get("key"))
-                .and_then(|v| v.as_str())
-                == Some(key)
+        let record = MrgNodeRecord::navigation(key, url, scene_id, target_file, state);
+        if let Some(existing) = self.nodes.iter_mut().find(|node| {
+            matches!(
+                node,
+                MrgNodeRecord::Navigation { id, .. } if id.key == key
+            )
         }) {
-            *existing = node;
+            *existing = record;
         } else {
-            self.nodes.push(node);
+            self.nodes.push(record);
         }
-        // Remove stale duplicates left from pre-upsert push loops.
         let mut seen = false;
-        self.nodes.retain(|value| {
-            let node_key = value
-                .get("id")
-                .and_then(|id| id.get("key"))
-                .and_then(|v| v.as_str());
-            if node_key == Some(key) {
-                if seen {
-                    return false;
+        self.nodes.retain(|node| {
+            if let MrgNodeRecord::Navigation { id, .. } = node {
+                if id.key == key {
+                    if seen {
+                        return false;
+                    }
+                    seen = true;
                 }
-                seen = true;
             }
             true
         });
+    }
+
+    pub fn upsert_typed_node(&mut self, node: serde_json::Value) {
+        let Some(record) = MrgNodeRecord::from_legacy_json(&node) else {
+            return;
+        };
+        let key = match &record {
+            MrgNodeRecord::Navigation { id, .. }
+            | MrgNodeRecord::EvalPlan { id, .. }
+            | MrgNodeRecord::Workset { id, .. }
+            | MrgNodeRecord::DataSource { id, .. } => id.key.as_str(),
+        };
+        if let Some(existing) = self.nodes.iter_mut().find(|entry| node_key(entry) == Some(key)) {
+            *existing = record;
+        } else {
+            self.nodes.push(record);
+        }
     }
 
     pub fn finalize(&mut self) {
@@ -202,6 +223,15 @@ impl MrgRegistry {
             .collect::<Vec<_>>();
         keys.sort();
         self.registry_revision = stable_hash(&keys.join("\n"));
+    }
+}
+
+fn node_key(node: &MrgNodeRecord) -> Option<&str> {
+    match node {
+        MrgNodeRecord::Navigation { id, .. }
+        | MrgNodeRecord::EvalPlan { id, .. }
+        | MrgNodeRecord::Workset { id, .. }
+        | MrgNodeRecord::DataSource { id, .. } => Some(id.key.as_str()),
     }
 }
 

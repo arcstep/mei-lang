@@ -4,7 +4,7 @@ use std::path::Path;
 
 use mei_lang_kernel::resolve_app_root;
 
-use crate::graph::mcg::app_skeleton::load_app_skeleton_artifact;
+use crate::graph::mcg::app_skeleton::load_app_skeleton_from_mcg;
 use crate::graph::mrg::navigation::list_navigation_entries;
 use crate::graph::mrg::registry::MrgRegistryWriter;
 
@@ -22,8 +22,8 @@ pub fn verify_navigation_contract(source_root: &Path, app_id: &str) -> Navigatio
         ok: true,
         ..Default::default()
     };
-    let app_root = resolve_app_root(source_root, app_id);
-    let Some(skeleton) = load_app_skeleton_artifact(app_root.as_path(), None)
+    let _app_root = resolve_app_root(source_root, app_id);
+    let Some(skeleton) = load_app_skeleton_from_mcg(source_root, app_id)
         .ok()
         .flatten()
     else {

@@ -4,9 +4,8 @@ use mei_lang_kernel::CompiledApp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::graph::content_store::{self, content_store_enabled};
-use crate::graph::io::{read_json_registry, write_json_registry};
-use crate::graph::paths::scene_payload_artifact_dir;
+use crate::graph::content_store::{self, SCENE_PAYLOAD};
+use crate::graph::io::read_json_registry;
 use crate::graph::types::stable_hash;
 
 pub const SCENE_PAYLOAD_ARTIFACT_SCHEMA: &str = "mei-scene-payload-artifact-v2";
@@ -23,8 +22,7 @@ pub struct ScenePayloadArtifact {
 
 #[derive(Debug, Clone)]
 pub struct PersistedScenePayload {
-    pub relative_path: String,
-    pub content_hash: Option<String>,
+    pub content_hash: String,
 }
 
 pub fn scene_payload_revision(target_file: &str, dependency_fingerprint: &str) -> String {
@@ -77,33 +75,15 @@ pub fn persist_scene_payload_artifact(
         payload: payload.clone(),
     };
     let bytes = serde_json::to_vec(&artifact)?;
-    if content_store_enabled() {
-        let put = content_store::put_if_absent(app_root, "scene_payload", &bytes)?;
-        if put.created {
-            tracing::debug!(
-                content_hash = %put.content_hash,
-                "scene payload content store blob created"
-            );
-        }
-        let rel = put
-            .path
-            .strip_prefix(app_root)
-            .map(|path| path.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|_| put.path.display().to_string());
-        return Ok(PersistedScenePayload {
-            relative_path: rel,
-            content_hash: Some(put.content_hash),
-        });
+    let put = content_store::put_if_absent(app_root, SCENE_PAYLOAD, &bytes)?;
+    if put.created {
+        tracing::debug!(
+            content_hash = %put.content_hash,
+            "scene payload content store blob created"
+        );
     }
-    let slug = scope_slug(target_file);
-    let dir = scene_payload_artifact_dir(app_root);
-    std::fs::create_dir_all(&dir)?;
-    let rel = format!("build/active/graph/payloads/scene/{slug}.json");
-    let path = app_root.join(&rel);
-    write_json_registry(&path, &artifact)?;
     Ok(PersistedScenePayload {
-        relative_path: rel,
-        content_hash: None,
+        content_hash: put.content_hash,
     })
 }
 
@@ -114,20 +94,7 @@ pub fn load_scene_payload_artifact(
     content_hash: Option<&str>,
 ) -> anyhow::Result<Option<ScenePayloadArtifact>> {
     if let Some(hash) = content_hash.map(str::trim).filter(|value| !value.is_empty()) {
-        let pref = crate::graph::types::PayloadRef {
-            kind: "scene_payload".to_string(),
-            relative_path: String::new(),
-            schema_version: SCENE_PAYLOAD_ARTIFACT_SCHEMA.to_string(),
-            content_hash: Some(hash.to_string()),
-        };
-        if let Some(path) = content_store::resolve_payload_ref(app_root, &pref) {
-            if let Some(artifact) = read_json_registry::<ScenePayloadArtifact>(&path)? {
-                if artifact_matches_target(&artifact, target_file, expected_revision) {
-                    return Ok(Some(artifact));
-                }
-            }
-        }
-        if let Some(path) = content_store::get(app_root, "scene_payload", hash) {
+        if let Some(path) = content_store::get(app_root, SCENE_PAYLOAD, hash) {
             if let Some(artifact) = read_json_registry::<ScenePayloadArtifact>(&path)? {
                 if artifact_matches_target(&artifact, target_file, expected_revision) {
                     return Ok(Some(artifact));
@@ -135,15 +102,7 @@ pub fn load_scene_payload_artifact(
             }
         }
     }
-    let slug = scope_slug(target_file);
-    let path = scene_payload_artifact_dir(app_root).join(format!("{slug}.json"));
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let Some(artifact) = read_json_registry::<ScenePayloadArtifact>(&path)? else {
-        return Ok(None);
-    };
-    Ok(artifact_matches_target(&artifact, target_file, expected_revision).then_some(artifact))
+    Ok(None)
 }
 
 fn artifact_matches_target(
@@ -160,21 +119,4 @@ fn artifact_matches_target(
         }
     }
     true
-}
-
-pub fn scope_slug(target_file: &str) -> String {
-    target_file
-        .trim()
-        .trim_start_matches('/')
-        .replace(['/', '.'], "-")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scope_slug_normalizes() {
-        assert_eq!(scope_slug("scenes/home.mei"), "scenes-home-mei");
-    }
 }

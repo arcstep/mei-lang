@@ -1,6 +1,9 @@
+pub mod cache_key;
+pub mod eval_nodes;
 pub mod invalidation;
 pub mod navigation;
 pub mod navigation_contract;
+pub mod nodes;
 pub mod registry;
 pub mod slot_revision;
 pub mod slots;

@@ -81,7 +81,9 @@ mod graph_mcg_tests {
             eval_engine: "json_walk".to_string(),
             last_eval: None,
         });
-        let outcome = apply_mcg_invalidation(&mut mrg, true, &[]);
+        use std::collections::BTreeMap;
+        let bridge = crate::graph::bridge::export_bridge("zhifa", &BTreeMap::new());
+        let outcome = apply_mcg_invalidation(&mut mrg, &bridge, true, &[]);
         assert!(outcome.scene_only_skip);
         assert_eq!(mrg.slots[0].state, MaterialState::Ready);
     }

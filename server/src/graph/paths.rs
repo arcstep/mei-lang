@@ -18,20 +18,6 @@ pub fn bridge_path(source_root: &Path, app_id: &str) -> PathBuf {
     resolve_graph_root(source_root, app_id).join("bridge.json")
 }
 
-pub fn scene_payload_artifact_dir(app_root: &Path) -> PathBuf {
-    mei_lang_kernel::resolve_app_build_root(app_root)
-        .join("graph")
-        .join("payloads")
-        .join("scene")
-}
-
-pub fn panel_contract_artifact_dir(app_root: &Path) -> PathBuf {
-    mei_lang_kernel::resolve_app_build_root(app_root)
-        .join("graph")
-        .join("payloads")
-        .join("panel")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

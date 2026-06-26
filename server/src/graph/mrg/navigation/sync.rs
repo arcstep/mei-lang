@@ -6,7 +6,14 @@ use mei_lang_kernel::{
 
 use crate::graph::mrg::registry::{MrgRegistry, MrgRegistryWriter};
 use crate::graph::mrg::warmup::record_navigation_edge;
-use crate::graph::types::MaterialState;
+use crate::graph::types::{MaterialState, stable_hash};
+
+/// Minimal scene×target pair for MRG navigation sync (prebuild compile scopes).
+#[derive(Debug, Clone)]
+pub struct CompileScopeNav {
+    pub scene_id: String,
+    pub target_file: String,
+}
 
 pub fn sync_navigation_registry(
     source_root: &Path,
@@ -78,7 +85,7 @@ pub fn sync_navigation_registry(
                 .filter(|target| !target.is_empty())
         })
         .or_else(|| scene_routes.first().map(|(_, target)| target.as_str()))
-        .unwrap_or("scenes/home.mei");
+        .unwrap_or("src/scenes/home.mei");
     upsert_navigation_node(
         &mut registry,
         "default_access",
@@ -93,6 +100,91 @@ pub fn sync_navigation_registry(
         default_scene.as_str(),
         default_target,
     );
+
+    registry.finalize();
+    MrgRegistryWriter::save(source_root, &registry)
+}
+
+/// Register every prebuild compile scope (scene×target) so L2 gate refresh hits MRG navigation.
+pub fn sync_navigation_for_compile_scopes(
+    source_root: &Path,
+    app_id: &str,
+    scopes: &[CompileScopeNav],
+) -> anyhow::Result<()> {
+    if scopes.is_empty() {
+        return Ok(());
+    }
+    let mut registry = MrgRegistryWriter::load(source_root, app_id);
+    let cfg = load_workspace_config(source_root);
+    let canonical_app = resolve_app_id(source_root, app_id);
+    let mut seen = std::collections::BTreeSet::new();
+
+    for scope in scopes {
+        let scene_id = scope.scene_id.trim();
+        let target_file = scope.target_file.trim();
+        if scene_id.is_empty() || target_file.is_empty() {
+            continue;
+        }
+        let dedupe_key = format!("{scene_id}\0{target_file}");
+        if !seen.insert(dedupe_key) {
+            continue;
+        }
+        let access_url = format!("/apps/app/{canonical_app}/scene/{scene_id}");
+        let build_url = format!(
+            "/apps/build/{canonical_app}?scene={scene_id}&file={}",
+            urlencoding_path_segment(target_file)
+        );
+        upsert_navigation_node(
+            &mut registry,
+            &format!("access:{scene_id}"),
+            &access_url,
+            scene_id,
+            target_file,
+        );
+        upsert_navigation_node(
+            &mut registry,
+            &format!("build:{scene_id}"),
+            &build_url,
+            scene_id,
+            target_file,
+        );
+        let scope_key = format!(
+            "scope:{scene_id}:{}",
+            stable_hash(&format!("{scene_id}@{target_file}"))
+        );
+        upsert_navigation_node(
+            &mut registry,
+            scope_key.as_str(),
+            &access_url,
+            scene_id,
+            target_file,
+        );
+    }
+
+    let default_scene = resolve_default_scene_from_root(resolve_app_root(source_root, app_id).as_path())
+        .ok()
+        .flatten()
+        .map(|scene| scene.trim().to_string())
+        .filter(|scene| !scene.is_empty())
+        .or_else(|| {
+            cfg.deploy
+                .access_entry
+                .default_scene
+                .as_deref()
+                .map(str::trim)
+                .filter(|scene| !scene.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| scopes.first().map(|scope| scope.scene_id.clone()))
+        .unwrap_or_else(|| "home".to_string());
+
+    for scope in scopes {
+        let scene_id = scope.scene_id.trim();
+        if scene_id.is_empty() || scene_id == default_scene.as_str() {
+            continue;
+        }
+        record_navigation_edge(&mut registry, default_scene.as_str(), scene_id);
+    }
 
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
