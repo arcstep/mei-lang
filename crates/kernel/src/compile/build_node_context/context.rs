@@ -1,117 +1,14 @@
-use std::collections::BTreeMap;
-use std::path::Path;
+use super::{world_file_symbol_id};
 
-use super::build_template_index::{
+
+use crate::compile::build_template_index::{
     authoring_preview_target_for_template, preview_scene_id_for_template_consumer,
     preview_scene_id_for_template_file_consumer, preview_target_for_template_consumer,
     preview_target_for_template_file_consumer,
 };
 use crate::model::{
-    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, PanelDecl, ProvenanceAnchor, UiNodeDecl,
+    BuildNodeId, BuildNodeKind, CompiledApp, ProvenanceAnchor,
 };
-
-/// Script path used as `CompileOptions.preview_target` before compile, when the build URL
-/// selects a node via `?node=` without legacy `?file=`.
-pub fn preview_target_from_build_node(node: &BuildNodeId) -> Option<String> {
-    super::build_experience::preview_target_from_build_node_with_app(node, None)
-}
-
-fn panel_path_for_use_key(
-    panel: &PanelDecl,
-    parent_path: Option<&str>,
-    use_key: &str,
-) -> Option<String> {
-    let panel_path = match parent_path {
-        Some(parent) => format!("{parent}/{}", panel.id),
-        None => panel.id.clone(),
-    };
-    for node in &panel.blocks {
-        match node {
-            UiNodeDecl::Block(BlockDecl { use_key: key, .. }) if key.as_str() == use_key => {
-                return Some(panel_path);
-            }
-            UiNodeDecl::Panel(nested) => {
-                if let Some(found) =
-                    panel_path_for_use_key(nested, Some(panel_path.as_str()), use_key)
-                {
-                    return Some(found);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// When build preview compiles an authoring example, SSR may scope to the panel that
-/// hosts the selected component so one tree node maps to one preview surface.
-pub fn build_preview_panel_scope(compiled: &CompiledApp, node: &BuildNodeId) -> Option<String> {
-    match node.kind {
-        BuildNodeKind::Component => {
-            let contract = compiled.scene_contract.as_ref()?;
-            let scene_id = contract.scene.id.as_str();
-            for panel in &contract.panels {
-                if let Some(panel_path) =
-                    panel_path_for_use_key(panel, None, node.key.as_str())
-                {
-                    return Some(format!("{scene_id}/{panel_path}"));
-                }
-            }
-            None
-        }
-        BuildNodeKind::ScenePanel => {
-            let key = node.key.trim();
-            if key.is_empty() {
-                None
-            } else {
-                Some(key.to_string())
-            }
-        }
-        BuildNodeKind::SceneBlock => node
-            .key
-            .rsplit_once('/')
-            .map(|(panel_path, _)| panel_path.to_string()),
-        _ => None,
-    }
-}
-
-pub fn catalog_preview_target_for_build_node(
-    app_root: &Path,
-    node: &BuildNodeId,
-) -> Option<String> {
-    let scene_routes = crate::catalog_app::catalog_scene_routes_from_app_root(app_root);
-    if scene_routes.is_empty() {
-        return None;
-    }
-    let active_target_file = scene_routes
-        .first()
-        .map(|route| route.target_file.clone())
-        .unwrap_or_default();
-    let active_scene = scene_routes.first().map(|route| route.scene_id.clone());
-    let stub = CompiledApp {
-        app_id: String::new(),
-        title: String::new(),
-        app_root: app_root.display().to_string(),
-        scene_routes,
-        active_scene,
-        active_target_file,
-        file_tree: Vec::new(),
-        scene_contract: None,
-        scene_local_nav_by_target: BTreeMap::new(),
-        scene_bindings_by_id: BTreeMap::new(),
-        scene_examples_by_id: BTreeMap::new(),
-        scene_projection_assembly_by_id: BTreeMap::new(),
-        resources: Vec::new(),
-        world_metrics: BTreeMap::new(),
-        world_semantic_by_file: BTreeMap::new(),
-        component_assets: Vec::new(),
-        diagnostics: Vec::new(),
-        build_experience_index: Default::default(),
-        build_board_index: Default::default(),
-        build_template_index: Default::default(),
-    };
-    super::build_experience::preview_target_from_build_node_with_app(node, Some(&stub))
-}
 
 /// Resolved preview / routing context for a build-view node selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,7 +166,7 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
             let template_key = node.key.as_str();
             let authoring = authoring_preview_target_for_template(compiled, template_key);
             let target_file = authoring.clone().unwrap_or_else(|| {
-                if super::build_experience::is_template_file_node_key(template_key) {
+                if crate::compile::build_experience::is_template_file_node_key(template_key) {
                     preview_target_for_template_file_consumer(compiled, template_key)
                         .unwrap_or_else(|| template_target_file(compiled, node))
                 } else {
@@ -279,7 +176,7 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
             });
             let scene_id = if authoring.is_some() {
                 None
-            } else if super::build_experience::is_template_file_node_key(template_key) {
+            } else if crate::compile::build_experience::is_template_file_node_key(template_key) {
                 preview_scene_id_for_template_file_consumer(compiled, template_key)
                     .or_else(|| compiled.active_scene.clone())
             } else {
@@ -414,7 +311,7 @@ fn board_context_from_node(compiled: &CompiledApp, node: &BuildNodeId) -> (Strin
 }
 
 fn template_target_file(compiled: &CompiledApp, node: &BuildNodeId) -> String {
-    super::build_template_index::template_entry_for_preview(compiled, node.key.as_str())
+    crate::compile::build_template_index::template_entry_for_preview(compiled, node.key.as_str())
         .map(|entry| entry.template_file.clone())
         .unwrap_or_else(|| compiled.active_target_file.clone())
 }
@@ -496,8 +393,8 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
         BuildNodeKind::Template => ProvenanceAnchor {
             file: authoring_preview_target_for_template(compiled, node.key.as_str())
                 .or_else(|| {
-                    if super::build_experience::is_template_file_node_key(node.key.as_str()) {
-                        super::build_experience::template_file_preview_target(
+                    if crate::compile::build_experience::is_template_file_node_key(node.key.as_str()) {
+                        crate::compile::build_experience::template_file_preview_target(
                             compiled,
                             node.key.as_str(),
                         )
@@ -565,117 +462,3 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
     }
 }
 
-fn world_file_symbol_id(compiled: &CompiledApp, file: &str) -> String {
-    compiled
-        .world_semantic_by_file
-        .get(file)
-        .and_then(|index| index.world_id.as_deref())
-        .map(str::to_string)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| file.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use super::*;
-    use crate::model::CompiledSceneRoute;
-
-    fn sample_compiled() -> CompiledApp {
-        CompiledApp {
-            app_id: "demo".to_string(),
-            title: "demo".to_string(),
-            app_root: ".".to_string(),
-            scene_routes: vec![CompiledSceneRoute {
-                scene_id: "home".to_string(),
-                frame_id: None,
-                target_file: "scenes/home.mei".to_string(),
-                kind: "file_ref".to_string(),
-                title: None,
-                is_default: true,
-                access_export: true,
-            }],
-            active_scene: Some("home".to_string()),
-            active_target_file: "scenes/home.mei".to_string(),
-            file_tree: Vec::new(),
-            scene_contract: None,
-            scene_local_nav_by_target: BTreeMap::new(),
-            scene_bindings_by_id: BTreeMap::new(),
-            scene_examples_by_id: BTreeMap::new(),
-            scene_projection_assembly_by_id: BTreeMap::new(),
-            resources: Vec::new(),
-            world_metrics: BTreeMap::new(),
-            world_semantic_by_file: BTreeMap::new(),
-            component_assets: Vec::new(),
-            diagnostics: Vec::new(),
-            build_experience_index: Default::default(),
-            build_board_index: Default::default(),
-            build_template_index: Default::default(),
-        }
-    }
-
-    #[test]
-    fn scene_node_resolves_target_file() {
-        let compiled = sample_compiled();
-        let ctx = resolve_build_node_context(&compiled, &BuildNodeId::scene("home"));
-        assert_eq!(ctx.target_file, "scenes/home.mei");
-        assert_eq!(ctx.provenance.symbol_id, "home");
-    }
-
-    #[test]
-    fn preview_target_from_world_dataset_node() {
-        let node = BuildNodeId::world_dataset("scenes/01-执法要素.world.mei", "agency_objects");
-        assert_eq!(
-            preview_target_from_build_node(&node).as_deref(),
-            Some("scenes/01-执法要素.world.mei")
-        );
-    }
-
-    #[test]
-    fn component_authoring_preview_panel_scope_targets_host_panel() {
-        use crate::compile::{
-            compile_app_from_root_with_options, CompileOptions,
-        };
-        use crate::BuildPreviewKind;
-
-        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../..")
-            .canonicalize()
-            .expect("workspace root")
-            .join("workspaces")
-            .join("ws-hello");
-        let app_root = source_root.join("apps/hello");
-        let example = source_root.join("stock/authoring/examples/chart-baseline.mei");
-        if !app_root.is_dir() || !example.is_file() {
-            return;
-        }
-        let home = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile hello home");
-        let coord = super::super::build_experience::compile_coordinate_for_node(
-            &BuildNodeId::component("chart.area"),
-            &home,
-        )
-        .expect("coord");
-        assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
-        let preview = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions {
-                preview_target: Some(coord.preview_target.clone()),
-                ..CompileOptions::default()
-            },
-        )
-        .expect("compile chart.area preview");
-        assert!(
-            preview.scene_contract.is_some(),
-            "expected scene contract for chart.area preview"
-        );
-        let scope = build_preview_panel_scope(&preview, &BuildNodeId::component("chart.area"));
-        assert_eq!(scope.as_deref(), Some("home/area_panel"));
-    }
-}
