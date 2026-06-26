@@ -263,6 +263,8 @@ pub(crate) fn resolve_runtime_compile_shared(
         scope: None,
         focus: None,
         chrome: None,
+        catalog: None,
+        pack: None,
     };
     let gate = resolve_scope_gate(
         state.source_root.as_path(),

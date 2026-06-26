@@ -40,6 +40,7 @@ impl UiMode {
             UiRouteMode::Presentation => Self::Presentation,
             UiRouteMode::Config => Self::Config,
             UiRouteMode::Upload => Self::Upload,
+            UiRouteMode::Runtime => Self::Build,
         }
     }
 

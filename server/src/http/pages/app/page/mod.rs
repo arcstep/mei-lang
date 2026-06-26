@@ -12,14 +12,14 @@ use axum::{
 };
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
-    compile_scene_from_build_node, compile_scene_from_build_node_with_app, discover_apps,
-    catalog_preview_target_for_build_node, preview_target_from_build_node,
-    preview_target_from_build_node_with_app, resolve_app_root,
-    resolve_default_scene_from_root, BuildNodeId, CompileOptions,
+    discover_apps, is_stock_catalog_app_for_root, resolve_app_root,
+    resolve_default_scene_from_root, stock_catalog_app_id, BuildNodeId, BuildNodeKind,
+    CompileOptions,
 };
 
 use crate::{
     auth::{AuthEnforcement, AuthPrincipal},
+    http::build_preview::resolve_build_node_compile_hints,
     http::host_error_page::{self, HostShellAction},
     AppError, AppState,
 };
@@ -102,6 +102,97 @@ pub async fn app_page(
         ));
     }
     let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
+    if route_mode == UiRouteMode::Build {
+        if is_stock_catalog_app_for_root(state.source_root.as_path(), app_id.as_str()) {
+            let pack = query.pack.as_deref().map(str::trim).filter(|value| !value.is_empty());
+            if pack.is_none() {
+                if let Ok(discovery) =
+                    mei_lang_kernel::discover_stock_catalog_packs(state.source_root.as_path())
+                {
+                    let facet = query
+                        .catalog
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("components");
+                    let first_pack = if facet == "templates" {
+                        discovery.template_packs.first()
+                    } else {
+                        discovery.component_packs.first()
+                    };
+                    if let Some(default_pack) = first_pack {
+                        let mut redirected = query.clone();
+                        redirected.catalog = Some(facet.to_string());
+                        redirected.pack = Some(default_pack.clone());
+                        return Ok(Redirect::temporary(&format!(
+                            "/apps/build/{}{}",
+                            app_id,
+                            super::query::build_query_suffix_with_options(
+                                &redirected,
+                                super::query::BuildQuerySuffixOptions {
+                                    include_node: true,
+                                    include_scope: true,
+                                    include_focus: true,
+                                },
+                            )
+                        ))
+                        .into_response());
+                    }
+                }
+            }
+        }
+        if let Some(node) = query.node.as_deref().and_then(BuildNodeId::parse) {
+            if matches!(node.kind, BuildNodeKind::Component | BuildNodeKind::Template)
+                && !is_stock_catalog_app_for_root(state.source_root.as_path(), app_id.as_str())
+            {
+                let catalog_id = stock_catalog_app_id(state.source_root.as_path());
+                let mut redirected = query.clone();
+                redirected.node = Some(node.encode());
+                if matches!(node.kind, BuildNodeKind::Component) {
+                    redirected.catalog = Some("components".to_string());
+                    if let Ok(discovery) =
+                        mei_lang_kernel::discover_stock_catalog_packs(state.source_root.as_path())
+                    {
+                        let pack = discovery
+                            .component_packs
+                            .iter()
+                            .find(|pack| node.key.starts_with(pack.as_str()) || node.key.contains(pack.as_str()))
+                            .or_else(|| discovery.component_packs.first());
+                        if let Some(pack) = pack {
+                            redirected.pack = Some(pack.clone());
+                        }
+                    }
+                } else if matches!(node.kind, BuildNodeKind::Template) {
+                    redirected.catalog = Some("templates".to_string());
+                    if let Ok(discovery) =
+                        mei_lang_kernel::discover_stock_catalog_packs(state.source_root.as_path())
+                    {
+                        let top = node.key.split('/').next().unwrap_or("");
+                        let pack = discovery
+                            .template_packs
+                            .iter()
+                            .find(|pack| *pack == top)
+                            .or_else(|| discovery.template_packs.first());
+                        if let Some(pack) = pack {
+                            redirected.pack = Some(pack.clone());
+                        }
+                    }
+                }
+                return Ok(Redirect::temporary(&format!(
+                    "/apps/build/{catalog_id}{}",
+                    super::query::build_query_suffix_with_options(
+                        &redirected,
+                        super::query::BuildQuerySuffixOptions {
+                            include_node: true,
+                            include_scope: true,
+                            include_focus: true,
+                        },
+                    )
+                ))
+                .into_response());
+            }
+        }
+    }
     let access_only_surface = access_only_surface_enabled();
     if auth_enabled {
         if let Some(ref auth_principal) = principal {
@@ -173,36 +264,14 @@ pub async fn app_page(
     let (build_node_compile_scene, build_node_preview_target) = if route_mode == UiRouteMode::Build
     {
         if let Some(node) = build_node.as_ref() {
-            let mut scene_hint = compile_scene_from_build_node(node);
-            let mut preview_target = preview_target_from_build_node(node);
-            if scene_hint.is_none() || preview_target.is_none() {
-                let probe_components_root = resolve_components_root(&state.source_root);
-                if let Some(outcome) = load_compile_artifact_only(
-                    &state,
-                    &app_id,
-                    &CompileOptions {
-                        scene: scene_hint.clone(),
-                        preview_target: None,
-                    },
-                    probe_components_root.as_path(),
-                ) {
-                    if scene_hint.is_none() {
-                        scene_hint =
-                            compile_scene_from_build_node_with_app(node, Some(&outcome.compiled));
-                    }
-                    if preview_target.is_none() {
-                        preview_target =
-                            preview_target_from_build_node_with_app(node, Some(&outcome.compiled));
-                    }
-                }
-            }
-            if preview_target.is_none() {
-                preview_target = catalog_preview_target_for_build_node(
-                    resolve_app_root(state.source_root.as_path(), &app_id).as_path(),
-                    node,
-                );
-            }
-            (scene_hint, preview_target)
+            let probe_components_root = resolve_components_root(&state.source_root);
+            let hints = resolve_build_node_compile_hints(
+                &state,
+                &app_id,
+                node,
+                probe_components_root.as_path(),
+            );
+            (hints.scene, hints.preview_target)
         } else {
             (None, None)
         }
@@ -361,7 +430,11 @@ pub async fn app_page(
         }
     }
     let discover_started = Instant::now();
-    let mut apps = discover_apps(&state.source_root).map_err(AppError::from)?;
+    let mut apps = if matches!(route_mode, UiRouteMode::Build | UiRouteMode::Runtime) {
+        mei_lang_kernel::discover_build_apps(&state.source_root).map_err(AppError::from)?
+    } else {
+        discover_apps(&state.source_root).map_err(AppError::from)?
+    };
     if auth_enabled {
         if let Some(ref auth_principal) = principal {
             apps.retain(|app| auth_principal.can_access_app(app.id.as_str()));

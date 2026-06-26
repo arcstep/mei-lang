@@ -1,6 +1,7 @@
 pub(crate) mod agent_api;
 pub mod auth_api;
 pub(crate) mod build_api;
+mod build_preview;
 mod compile_cache;
 mod datasets;
 pub(crate) mod host_api;
@@ -10,6 +11,7 @@ pub(crate) mod observation;
 pub mod ops_api;
 pub mod pages;
 pub mod projection_api;
+pub(crate) mod runtime_snapshot;
 pub(crate) mod request_trace;
 mod runtime_cache;
 pub mod scene_api;
@@ -51,6 +53,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/host/diagnostics", get(host_api::api_host_diagnostics))
         .route("/api/host/heartbeat", get(host_api::api_host_heartbeat))
         .route("/api/host/build", post(host_api::api_host_build))
+        .route(
+            "/api/runtime/snapshot",
+            get(build_api::api_runtime_snapshot),
+        )
         .route(
             "/api/build/context/export",
             get(build_api::api_build_context_export),

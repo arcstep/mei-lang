@@ -209,6 +209,8 @@ pub(super) fn render_compiled_success(
         },
         query.scope.as_deref(),
         query.focus.as_deref(),
+        query.catalog.as_deref(),
+        query.pack.as_deref(),
         chrome_hidden,
         upload_enabled,
         Some(upload_root_label),
@@ -228,6 +230,14 @@ pub(super) fn render_compiled_success(
     let mut scene_bundle_revision_header: Option<String> = None;
     let mut scene_bundle_probe_ms = 0u64;
     let mut scene_bundle_build_scheduled = false;
+    let runtime_observability_roots = if route_mode == UiRouteMode::Runtime {
+        crate::http::runtime_snapshot::build_runtime_observability_roots(
+            state.source_root.as_path(),
+            app_id,
+        )
+    } else {
+        Vec::new()
+    };
     let (mut html, page_render_cache_hit, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
         let (h, cache_hit) = render_page_template_with_cache(render_cache_key, || {
@@ -284,6 +294,8 @@ pub(super) fn render_compiled_success(
                 query.node.as_deref(),
                 query.scope.as_deref(),
                 query.focus.as_deref(),
+                query.catalog.as_deref(),
+                query.pack.as_deref(),
                 chrome_hidden,
                 upload_enabled,
                 Some(upload_root_label),
@@ -292,6 +304,11 @@ pub(super) fn render_compiled_success(
                 account_view,
                 scene_bundle_for_render,
                 body_theme_style.as_str(),
+                if route_mode == UiRouteMode::Runtime {
+                    Some(runtime_observability_roots.as_slice())
+                } else {
+                    None
+                },
             );
             fill_page_shell_placeholders(rendered, &gis, state.source_root.as_path())
         });

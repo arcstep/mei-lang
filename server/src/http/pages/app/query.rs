@@ -3,7 +3,7 @@ use mei_lang_app::UiRouteMode;
 /// 应用视图 URL 中 `/scene/<id>` 的固定标记（`scene_id` 为单段，可含百分号编码）。
 pub(crate) const ACCESS_SCENE_PATH_MARK: &str = "/scene/";
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
 pub struct AppQuery {
     /// 构建/上传视图：当前打开的源码/资源路径（相对 app 根）。兼容旧链接 `target=`。
     /// 应用视图禁止携带脚本 `file`：若出现则 307 重定向到剥离 `file`/`target` 后的 URL。
@@ -22,6 +22,10 @@ pub struct AppQuery {
     pub scope: Option<String>,
     /// 构建视图预览细粒度锚点（scene-block 编码）；与 `node` 独立，不强制改左树 selection。
     pub focus: Option<String>,
+    /// Stock catalog facet when `_stock-catalog` has split topbar entries: `components` | `templates`.
+    pub catalog: Option<String>,
+    /// Component pack or template folder within the catalog facet.
+    pub pack: Option<String>,
     pub chrome: Option<String>,
 }
 
@@ -156,6 +160,20 @@ pub(crate) fn presentation_sanitized_redirect_location(app_id: &str, query: &App
 }
 
 fn build_query_suffix(query: &AppQuery) -> String {
+    build_query_suffix_with_options(query, BuildQuerySuffixOptions::default())
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct BuildQuerySuffixOptions {
+    pub include_node: bool,
+    pub include_scope: bool,
+    pub include_focus: bool,
+}
+
+pub(crate) fn build_query_suffix_with_options(
+    query: &AppQuery,
+    options: BuildQuerySuffixOptions,
+) -> String {
     let mut parts = Vec::new();
     if let Some(file) = query
         .file
@@ -200,6 +218,37 @@ fn build_query_suffix(query: &AppQuery) -> String {
         if let Some(value) = value.map(str::trim).filter(|s| !s.is_empty()) {
             parts.push(format!("{key}={}", percent_encode_query_component(value)));
         }
+    }
+    if options.include_node {
+        if let Some(node) = query.node.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            parts.push(format!("node={}", percent_encode_query_component(node)));
+        }
+    }
+    if options.include_scope {
+        if let Some(scope) = query.scope.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            parts.push(format!("scope={}", percent_encode_query_component(scope)));
+        }
+    }
+    if options.include_focus {
+        if let Some(focus) = query.focus.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            parts.push(format!("focus={}", percent_encode_query_component(focus)));
+        }
+    }
+    if let Some(catalog) = query
+        .catalog
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("catalog={}", percent_encode_query_component(catalog)));
+    }
+    if let Some(pack) = query
+        .pack
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("pack={}", percent_encode_query_component(pack)));
     }
     if parts.is_empty() {
         String::new()

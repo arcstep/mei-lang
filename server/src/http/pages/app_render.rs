@@ -29,6 +29,8 @@ fn app_has_prebuilt_access_entry(source_root: &Path, app_id: &str) -> bool {
         scope: None,
         focus: None,
         chrome: None,
+        catalog: None,
+        pack: None,
     };
     resolve_scope_gate(
         source_root,

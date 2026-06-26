@@ -131,6 +131,8 @@ pub enum WorkspaceStockCommand {
     Doctor(WorkspaceStockDoctorArgs),
     /// 迁移 legacy `.stock/` 路径与 authoring 示例引用
     MigratePaths(WorkspaceStockMigratePathsArgs),
+    /// 生成/更新隐藏 stock catalog 应用与 warmup manifest
+    CatalogAppSync(WorkspaceStockCatalogAppSyncArgs),
 }
 
 #[derive(Args)]
@@ -153,6 +155,14 @@ pub struct WorkspaceStockDoctorArgs {
 
 #[derive(Args)]
 pub struct WorkspaceStockMigratePathsArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceStockCatalogAppSyncArgs {
     #[arg(long, default_value = "../workspaces/ws-dev")]
     pub source_root: PathBuf,
     #[arg(long)]

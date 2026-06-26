@@ -48,6 +48,8 @@ mod tests {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         };
         assert!(compile_bootstrap_probe_requested(&probe));
     }

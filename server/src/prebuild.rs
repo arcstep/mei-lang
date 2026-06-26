@@ -2166,6 +2166,8 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
                     missing_trees = ?doctor.missing_trees,
                     orphan_paths = ?doctor.orphan_paths,
                     manifest_drift = ?doctor.manifest_drift,
+                    missing_component_previews = ?doctor.missing_component_previews,
+                    catalog_app_drift = ?doctor.catalog_app_drift,
                     "workspace stock doctor reported issues before prebuild"
                 );
             }

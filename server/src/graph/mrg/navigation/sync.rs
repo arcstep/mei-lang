@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use mei_lang_kernel::{load_workspace_config, resolve_app_id};
+use mei_lang_kernel::{
+    load_workspace_config, resolve_app_id, resolve_app_root, resolve_default_scene_from_root,
+};
 
 use crate::graph::mrg::registry::{MrgRegistry, MrgRegistryWriter};
 use crate::graph::mrg::warmup::record_navigation_edge;
@@ -14,13 +16,24 @@ pub fn sync_navigation_registry(
     let mut registry = MrgRegistryWriter::load(source_root, app_id);
     let cfg = load_workspace_config(source_root);
     let canonical_app = resolve_app_id(source_root, app_id);
-    let default_scene = cfg
-        .deploy
-        .access_entry
-        .default_scene
-        .as_deref()
-        .unwrap_or("home")
-        .to_string();
+    let app_root = resolve_app_root(source_root, app_id);
+    let default_scene = resolve_default_scene_from_root(app_root.as_path())
+        .ok()
+        .flatten()
+        .map(|scene| scene.trim().to_string())
+        .filter(|scene| !scene.is_empty())
+        .or_else(|| {
+            cfg.deploy
+                .access_entry
+                .default_scene
+                .as_deref()
+                .map(str::trim)
+                .filter(|scene| !scene.is_empty())
+                .map(str::to_string)
+        })
+        .or_else(|| scene_routes.first().map(|(scene_id, _)| scene_id.trim().to_string()))
+        .filter(|scene| !scene.is_empty())
+        .unwrap_or_else(|| "home".to_string());
 
     for (scene_id, target_file) in scene_routes {
         let scene_id = scene_id.trim();
@@ -61,7 +74,10 @@ pub fn sync_navigation_registry(
                 .access_entry
                 .target_file
                 .as_deref()
+                .map(str::trim)
+                .filter(|target| !target.is_empty())
         })
+        .or_else(|| scene_routes.first().map(|(_, target)| target.as_str()))
         .unwrap_or("scenes/home.mei");
     upsert_navigation_node(
         &mut registry,
@@ -100,4 +116,50 @@ fn upsert_navigation_node(
 
 fn urlencoding_path_segment(value: &str) -> String {
     value.replace(' ', "%20")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn sync_default_build_uses_main_mei_default_scene() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ws = tmp.path();
+        fs::create_dir_all(ws.join("runtime/platform/graphs/catalog")).expect("mkdir");
+        fs::create_dir_all(ws.join("apps/catalog/src")).expect("mkdir app");
+        fs::write(
+            ws.join("apps/catalog/src/main.mei"),
+            r#"app(id=catalog, default_scene=analytics-drilldown-board)
+app_add_scene(scene=scene_ref(id="analytics-drilldown-board", scene_file="../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei"))
+app_add_scene(scene=scene_ref(id="chart.rose", scene_file="../../stock/components/chart/echarts/previews/chart.rose.mei"))"#,
+        )
+        .expect("write main");
+        sync_navigation_registry(
+            ws,
+            "catalog",
+            &[
+                (
+                    "analytics-drilldown-board".to_string(),
+                    "../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei"
+                        .to_string(),
+                ),
+                (
+                    "chart.rose".to_string(),
+                    "../../stock/components/chart/echarts/previews/chart.rose.mei".to_string(),
+                ),
+            ],
+        )
+        .expect("sync");
+        let registry = MrgRegistryWriter::load(ws, "catalog");
+        let default_build = registry
+            .navigation_by_key("default_build")
+            .expect("default_build");
+        assert_eq!(default_build.scene_id, "analytics-drilldown-board");
+        assert_eq!(
+            default_build.target_file,
+            "../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei"
+        );
+    }
 }

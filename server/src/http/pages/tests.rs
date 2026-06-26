@@ -348,6 +348,8 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -406,6 +408,8 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -560,6 +564,8 @@ async fn access_mei_file_query_still_strips_file_param() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -630,6 +636,8 @@ async fn manage_html_preview_uses_document_iframe() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -743,6 +751,8 @@ async fn access_scene_not_exported_returns_403() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -797,6 +807,8 @@ async fn access_page_launch_button_targets_presentation_route() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -851,6 +863,8 @@ async fn access_scene_not_found_returns_404() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -960,6 +974,8 @@ async fn presentation_route_strips_file_query() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -1019,6 +1035,8 @@ async fn presentation_route_renders_navigation_shell() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -1077,6 +1095,8 @@ async fn access_only_surface_redirects_build_route_to_access_scene() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -1133,6 +1153,8 @@ async fn access_only_surface_hides_topbar_tabs_on_app_route() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await
@@ -1193,6 +1215,8 @@ async fn access_only_mode_slug_routes_to_app_surface() {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         }),
     )
     .await

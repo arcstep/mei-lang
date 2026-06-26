@@ -149,7 +149,7 @@ impl AuthPrincipal {
         match mode {
             "app" | "access" | "access-only" | "run" | "presentation" | "slides" => true,
             "upload" | "config" => self.can_use_config_upload_surface(),
-            "build" | "manage" => self.can_use_build_surface(),
+            "build" | "manage" | "runtime" => self.can_use_build_surface(),
             _ => false,
         }
     }

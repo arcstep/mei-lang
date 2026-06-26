@@ -83,6 +83,8 @@ pub fn resolve_scope_coords(
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         };
         match_request_to_navigation(
             source_root,
@@ -140,6 +142,8 @@ pub fn resolve_scope_gate_for_compile(
         scope: query.scope.clone(),
         focus: query.focus.clone(),
         chrome: query.chrome.clone(),
+        catalog: query.catalog.clone(),
+        pack: query.pack.clone(),
     };
     let nav_match =
         match_request_to_navigation(source_root, app_id, route_mode, scene, &aligned);
@@ -189,6 +193,8 @@ pub fn check_scope_gate(
         scope: None,
         focus: None,
         chrome: None,
+        catalog: None,
+        pack: None,
     };
     resolve_scope_gate(
         source_root,
@@ -386,6 +392,8 @@ pub fn check_scope_gate_for_access_entry(source_root: &Path, entry: &AccessEntry
         scope: None,
         focus: None,
         chrome: None,
+        catalog: None,
+        pack: None,
     };
     resolve_scope_gate(
         source_root,
@@ -449,6 +457,8 @@ mod tests {
             scope: None,
             focus: None,
             chrome: None,
+            catalog: None,
+            pack: None,
         };
         let gate = resolve_scope_gate_for_compile(
             ws,

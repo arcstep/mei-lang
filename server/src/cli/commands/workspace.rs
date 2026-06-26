@@ -348,6 +348,9 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                     "force": args.force,
                     "skipped": skipped,
                     "report": report,
+                    "catalog_app": mei_lang_toolchain::ensure_stock_catalog_app_synced(
+                        &source_root,
+                    )?,
                 });
                 print_json_output(&output, args.json)
             }
@@ -369,6 +372,20 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                 let output = json!({
                     "schema_version": "mei-cli-v1",
                     "command": "workspace.stock.migrate-paths",
+                    "report": report,
+                });
+                print_json_output(&output, args.json)
+            }
+            WorkspaceStockCommand::CatalogAppSync(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let _ = mei_lang_toolchain::ensure_workspace_stock_materialized(
+                    &source_root,
+                    &package_root,
+                )?;
+                let report = mei_lang_toolchain::sync_stock_catalog_app(source_root.as_path())?;
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.stock.catalog-app.sync",
                     "report": report,
                 });
                 print_json_output(&output, args.json)
@@ -439,6 +456,7 @@ fn initialize_standalone_workspace(
                     workspace_only: true,
                     ..mei_lang_kernel::WorkspaceStockPreviewConfig::default()
                 },
+                catalog_app: mei_lang_kernel::WorkspaceStockCatalogAppConfig::default(),
                 sources: Vec::new(),
             },
             ..mei_lang_kernel::WorkspaceConfig::default()

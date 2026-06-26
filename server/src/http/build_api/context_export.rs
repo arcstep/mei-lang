@@ -13,6 +13,8 @@ use mei_lang_toolchain::{format_semantic_graph_markdown, load_world_runtime_bund
 
 use serde::Deserialize;
 
+use crate::graph::mcg::registry::McgRegistryWriter;
+use crate::graph::mrg::registry::MrgRegistryWriter;
 use crate::http::host_api::artifact_gate_status;
 use crate::AppState;
 
@@ -164,6 +166,13 @@ pub async fn api_build_context_export(
 
     append_provenance_section(&mut md, &ctx.provenance);
     append_graph_sections(&mut md, compiled, &ctx, include_graph);
+    append_registry_graph_sections(
+        &mut md,
+        state.source_root.as_path(),
+        app_id,
+        include_graph,
+        &resolved.node,
+    );
     if include_readiness {
         append_readiness_section(&mut md, app_id, &gate.host_phase);
     }
@@ -380,6 +389,54 @@ fn append_graph_sections(
                 }
             }
         }
+    }
+}
+
+fn append_registry_graph_sections(
+    md: &mut String,
+    source_root: &std::path::Path,
+    app_id: &str,
+    include_graph: &str,
+    node: &mei_lang_kernel::BuildNodeId,
+) {
+    let want_mcg = include_graph.contains("mcg");
+    let want_mrg = include_graph.contains("mrg");
+    if !want_mcg && !want_mrg {
+        return;
+    }
+    if want_mcg {
+        let registry = McgRegistryWriter::load(source_root, app_id);
+        md.push_str("### MCG registry 摘要\n\n");
+        md.push_str(&format!("- nodes: `{}`\n", registry.nodes.len()));
+        for record in registry.nodes.iter().take(24) {
+            md.push_str(&format!(
+                "- `{}` state=`{:?}` revision=`{}`\n",
+                record.id.stable_key(),
+                record.state,
+                record.revision
+            ));
+        }
+        md.push('\n');
+        if node.kind == mei_lang_kernel::BuildNodeKind::McgNode {
+            md.push_str(&format!(
+                "- runtime_view: `/apps/runtime/{app_id}`（MRG · Materialization）\n\n"
+            ));
+        }
+    }
+    if want_mrg {
+        let registry = MrgRegistryWriter::load(source_root, app_id);
+        md.push_str("### MRG registry 摘要\n\n");
+        md.push_str(&format!("- slots: `{}`\n", registry.slots.len()));
+        for slot in registry.slots.iter().take(24) {
+            md.push_str(&format!(
+                "- `{}@{}` state=`{:?}` revision=`{}`\n",
+                slot.slot_id.node.key,
+                slot.slot_id.scope_key,
+                slot.state,
+                slot.slot_revision
+            ));
+        }
+        md.push('\n');
     }
 }
 
