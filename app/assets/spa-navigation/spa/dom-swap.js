@@ -22,13 +22,35 @@
       const path = normalizePath(src);
       return isWorkspaceComponentModulePath(path);
     });
-    for (const src of scripts) {
-      if (navigationId !== currentNavigationId) return false;
+    return syncPreviewWorkspaceScripts(scripts, navigationId);
+  }
+
+  async function syncPreviewWorkspaceScripts(scriptUrls, navigationId) {
+    if (!Array.isArray(scriptUrls) || scriptUrls.length === 0) return true;
+    for (const rawSrc of scriptUrls) {
+      if (navigationId != null && navigationId !== currentNavigationId) return false;
+      const src = String(rawSrc || "").trim();
+      if (!src) continue;
       const path = normalizePath(src);
+      if (!path) continue;
+      if (isSceneBundlePath(path)) {
+        const alreadyLoaded = document.querySelector(
+          'script[data-mei-scene-bundle="true"][data-mei-persistent-script="' + path + '"]',
+        );
+        if (alreadyLoaded) continue;
+        removeExistingSceneBundleScripts();
+        await loadScript(src, {
+          module: true,
+          persistentKey: path,
+          sceneBundle: true,
+          softFail: true,
+        });
+        wakeRuntimeAfterSceneBundleLoaded();
+        continue;
+      }
+      if (!isWorkspaceComponentModulePath(path)) continue;
       if (
-        document.querySelector(
-          'script[data-mei-persistent-script="' + path + '"]',
-        )
+        document.querySelector('script[data-mei-persistent-script="' + path + '"]')
       ) {
         continue;
       }
@@ -36,6 +58,8 @@
     }
     return true;
   }
+
+  boot.syncPreviewWorkspaceScripts = syncPreviewWorkspaceScripts;
 
   async function ensureHostBundlesFromDoc(doc, navigationId, currentUrl, nextUrl) {
     for (const src of collectBodyScripts(doc)) {

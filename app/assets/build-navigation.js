@@ -16,16 +16,41 @@
     return /^\/apps\/(?:build|manage)\//.test(String(pathname || ""));
   }
 
+  function inferPreviewTabFromNodeId(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return "";
+    if (/^component:|^template:/i.test(id)) return "preview";
+    if (/^(?:scene|route|projection):/i.test(id)) return "preview";
+    if (/^board-(?:file|slot):/i.test(id)) return "preview";
+    if (/^world-(?:dataset|metric|file):/i.test(id)) return "preview";
+    if (/^dataset:/i.test(id)) return "preview";
+    return "";
+  }
+
   function buildTab(rawUrl) {
     try {
       const parsed = new URL(rawUrl, global.location.href);
       const fromQuery = String(parsed.searchParams.get("tab") || "").trim().toLowerCase();
       if (fromQuery) return fromQuery;
+      const fromNode = inferPreviewTabFromNodeId(nodeIdFromUrl(rawUrl));
+      if (fromNode) return fromNode;
       const shell = document.querySelector(".shell[data-build-tab]");
       return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
     } catch (_) {
       return "overview";
     }
+  }
+
+  function isPackCatalogNodeId(nodeId) {
+    return /^(?:component|template):/i.test(String(nodeId || "").trim());
+  }
+
+  function isBuildCatalogPreviewNode(nodeId) {
+    return isPackCatalogNodeId(nodeId);
+  }
+
+  function nodeIdChanged(prevUrl, nextUrl) {
+    return nodeIdFromUrl(prevUrl) !== nodeIdFromUrl(nextUrl);
   }
 
   function sceneIdFromNodeId(nodeId) {
@@ -55,17 +80,19 @@
         return { scene: scene || shell.scene, target: shell.target };
       }
     }
-    if (/^template:/i.test(id)) {
+    if (/^(?:component|template):/i.test(id)) {
       const fromTree = readCompileCoordinateFromReachabilityTree(id);
       if (fromTree) return fromTree;
-      const payload = id.replace(/^template:/i, "");
-      if (payload.includes("/") || payload.endsWith(".mei")) {
-        const link = document.querySelector(
-          `.build-reachability-tree a[data-build-node="${CSS.escape(id)}"]`,
-        );
-        const target = String(link?.getAttribute("data-compile-target") || "").trim();
+      const link = document.querySelector(
+        `.build-reachability-tree a[data-build-node="${CSS.escape(id)}"]`,
+      );
+      if (link instanceof HTMLElement) {
+        const target = String(link.getAttribute("data-compile-target") || "").trim();
         if (target) {
-          return { scene: String(link?.getAttribute("data-compile-scene") || "").trim(), target };
+          return {
+            scene: String(link.getAttribute("data-compile-scene") || "").trim(),
+            target,
+          };
         }
       }
     }
@@ -224,7 +251,9 @@
       const toCoord = readCompileCoordinate(toUrl, linkEl);
       const fromCoord = readCompileCoordinate(fromUrl);
       if (!toCoord || !fromCoord) return "full";
-      if (coordinatesEqual(fromCoord, toCoord)) return "client";
+      if (coordinatesEqual(fromCoord, toCoord)) {
+        return "client";
+      }
       return "fragment";
     } catch (_) {
       return "full";
@@ -254,7 +283,8 @@
       else shell.removeAttribute("data-build-node");
       if (focus) shell.setAttribute("data-build-focus", focus);
       else shell.removeAttribute("data-build-focus");
-      if (tab) shell.setAttribute("data-build-tab", tab);
+      const resolvedTab = tab || inferPreviewTabFromNodeId(node);
+      if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
       const coord = readCompileCoordinate(url, linkEl);
       if (coord) {
         shell.setAttribute("data-compile-scene", coord.scene);
@@ -293,25 +323,48 @@
     });
   }
 
-  function wakePreviewRuntime(scope) {
+  function wakePreviewRuntime(scope, options) {
+    const opts = options || {};
+    const resetCache = opts.resetRuntimeQueryCache === true;
     if (typeof boot.scheduleFrameViewportRelayout === "function") {
       try {
         boot.scheduleFrameViewportRelayout();
       } catch (_) {}
     }
     if (typeof publishManagePreviewFromDoc === "function") {
-      publishManagePreviewFromDoc(document, { resetRuntimeQueryCache: false });
+      publishManagePreviewFromDoc(document, { resetRuntimeQueryCache: resetCache });
     }
     if (typeof boot.mountManagePreviewBoard === "function") {
       void boot.mountManagePreviewBoard(document);
     }
-    try {
-      global.dispatchEvent(
-        new CustomEvent("meilang:preview-updated", {
-          detail: { scope: scope || "build-nav" },
-        }),
-      );
-    } catch (_) {}
+    const dispatchPreviewUpdated = (pass) => {
+      try {
+        global.dispatchEvent(
+          new CustomEvent("meilang:preview-updated", {
+            detail: {
+              scope: scope || "build-nav",
+              resetRuntimeQueryCache: pass === 0 ? resetCache : false,
+            },
+          }),
+        );
+      } catch (_) {}
+    };
+    dispatchPreviewUpdated(0);
+    if (opts.pulsePreviewUpdated) {
+      global.requestAnimationFrame(() => {
+        if (typeof boot.scheduleFrameViewportRelayout === "function") {
+          try {
+            boot.scheduleFrameViewportRelayout();
+          } catch (_) {}
+        }
+        global.requestAnimationFrame(() => {
+          dispatchPreviewUpdated(1);
+          if (typeof boot.mountManagePreviewBoard === "function") {
+            void boot.mountManagePreviewBoard(document);
+          }
+        });
+      });
+    }
   }
 
   function runTier0PostNav(prevUrl) {
@@ -335,6 +388,13 @@
     const nextNode = nodeIdFromUrl(global.location.href);
     if (boardExportChanged(prevNode, nextNode)) {
       wakePreviewRuntime("build-nav-board-export");
+      return;
+    }
+    if (isPackCatalogNodeId(nextNode) && nodeIdChanged(prevUrl, nextNode)) {
+      wakePreviewRuntime("build-nav-catalog-node", {
+        resetRuntimeQueryCache: true,
+        pulsePreviewUpdated: true,
+      });
     }
   }
 
@@ -350,6 +410,27 @@
     return !shouldSkipPreviewRuntimeWake(prevUrl, nextUrl);
   }
 
+  function applyBootstrapScripts(drilldownScript) {
+    const raw = String(drilldownScript || "").trim();
+    if (!raw) return;
+    const scriptTpl = document.createElement("template");
+    scriptTpl.innerHTML = raw;
+    ["mei-scene-drilldown-context", "mei-host-runtime-capabilities"].forEach((id) => {
+      const next = scriptTpl.content.querySelector(`#${CSS.escape(id)}`);
+      if (!(next instanceof HTMLScriptElement)) return;
+      const existing = document.getElementById(id);
+      if (existing instanceof HTMLScriptElement) {
+        existing.textContent = next.textContent || "";
+        return;
+      }
+      document.body.appendChild(next.cloneNode(true));
+    });
+    try {
+      delete global.__meiSceneDrilldownContext;
+      delete global.__meiHostRuntimeCapabilities;
+    } catch (_) {}
+  }
+
   function swapPreviewFragment(previewHtml, drilldownScript) {
     const panel = document.querySelector('[data-manage-tab-panel="preview"]');
     if (!panel) return false;
@@ -360,7 +441,7 @@
     const nextScroll = tpl.content.querySelector(".preview-pane-scroll");
     const scroll = panel.querySelector(".preview-pane-scroll");
     if (nextScroll instanceof HTMLElement && scroll instanceof HTMLElement) {
-      scroll.replaceWith(nextScroll.cloneNode(true));
+      scroll.replaceWith(document.importNode(nextScroll, true));
     } else if (scroll instanceof HTMLElement) {
       scroll.innerHTML = html;
     } else {
@@ -369,16 +450,9 @@
     const nextBar = tpl.content.querySelector("#build-inspect-bar");
     const curBar = panel.querySelector("#build-inspect-bar");
     if (nextBar instanceof HTMLElement && curBar instanceof HTMLElement) {
-      curBar.replaceWith(nextBar.cloneNode(true));
+      curBar.replaceWith(document.importNode(nextBar, true));
     }
-    if (drilldownScript) {
-      const existing = document.getElementById("mei-scene-drilldown-context");
-      if (existing) existing.remove();
-      const scriptTpl = document.createElement("template");
-      scriptTpl.innerHTML = drilldownScript;
-      const script = scriptTpl.content.querySelector("script");
-      if (script) document.body.appendChild(script.cloneNode(true));
-    }
+    applyBootstrapScripts(drilldownScript);
     return true;
   }
 
@@ -389,7 +463,7 @@
     const params = new URLSearchParams({
       app_id: appId,
       node: String(parsed.searchParams.get("node") || ""),
-      tab: String(parsed.searchParams.get("tab") || "preview"),
+      tab: buildTab(url) || "preview",
     });
     const focus = parsed.searchParams.get("focus");
     if (focus) params.set("focus", focus);
@@ -408,15 +482,22 @@
     }
   }
 
-  async function navigateBuildTier1(url, replaceHistory) {
+  async function navigateBuildTier1(url, replaceHistory, linkEl) {
     showBuildNavLoading(url);
     try {
+      ensurePreviewTabVisible(url);
       const { payload } = await fetchWorkspaceFragment(url);
       const ok = swapPreviewFragment(
         String(payload.preview_html || ""),
         String(payload.drilldown_script || ""),
       );
       if (!ok) return false;
+      if (
+        Array.isArray(payload.workspace_scripts) &&
+        typeof boot.syncPreviewWorkspaceScripts === "function"
+      ) {
+        await boot.syncPreviewWorkspaceScripts(payload.workspace_scripts);
+      }
       const shell = document.querySelector(".shell");
       if (shell) {
         if (payload.node) shell.setAttribute("data-build-node", String(payload.node));
@@ -426,13 +507,22 @@
           shell.setAttribute("data-compile-scene", String(coord.scene_id || ""));
           shell.setAttribute("data-compile-target", String(coord.preview_target || ""));
         }
+        const parsed = new URL(url, global.location.href);
+        const tab = String(parsed.searchParams.get("tab") || "").trim();
+        const node = String(parsed.searchParams.get("node") || "").trim();
+        const resolvedTab = tab || inferPreviewTabFromNodeId(node);
+        if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
       }
       if (replaceHistory) global.history.replaceState({}, "", url);
       else global.history.pushState({}, "", url);
       lastBuildNavUrl = url;
       stats.tier1 += 1;
-      runTier0PostNav();
-      wakePreviewRuntime("build-fragment");
+      runTier0PostNav(url);
+      const nextNode = nodeIdFromUrl(url);
+      wakePreviewRuntime("build-fragment", {
+        resetRuntimeQueryCache: isPackCatalogNodeId(nextNode),
+        pulsePreviewUpdated: true,
+      });
       return true;
     } finally {
       clearBuildNavLoading();
@@ -449,7 +539,7 @@
       if (!tier0TargetReady(toUrl)) {
         buildNavInFlight = true;
         try {
-          const ok = await navigateBuildTier1(toUrl, !!opts.replaceHistory);
+          const ok = await navigateBuildTier1(toUrl, !!opts.replaceHistory, opts.linkEl);
           if (ok) return { handled: true, tier: 1 };
         } catch (err) {
           console.warn("[build-navigation] tier0 missing DOM; tier1 failed", err);
@@ -472,7 +562,7 @@
     if (tier === "fragment" && !opts.skipFragment) {
       buildNavInFlight = true;
       try {
-        const ok = await navigateBuildTier1(toUrl, !!opts.replaceHistory);
+        const ok = await navigateBuildTier1(toUrl, !!opts.replaceHistory, opts.linkEl);
         if (ok) return { handled: true, tier: 1 };
       } catch (err) {
         console.warn("[build-navigation] tier1 failed; fallback to full SPA", err);
@@ -510,6 +600,8 @@
   }
 
   global.MeiBuildNavigation = {
+    buildTab,
+    inferPreviewTabFromNodeId,
     readCompileCoordinate,
     coordinatesEqual,
     classifyBuildNavTier,

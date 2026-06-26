@@ -350,16 +350,10 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
             },
             "heading": {},
             "font": {
-                "1": "12px",
+                "1": "16px",
                 "2": "14px",
-                "3": "16px",
+                "3": "18px",
                 "4": "20px"
-            },
-            "font": {
-                "1": "11px",
-                "2": "13px",
-                "3": "15px",
-                "4": "18px"
             },
             "tokens": {
                 "color": page_shell_color_tokens(),

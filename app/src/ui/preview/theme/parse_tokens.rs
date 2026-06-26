@@ -101,7 +101,12 @@ pub(super) fn collect_shell_css_vars(theme: &Value) -> Vec<(String, String)> {
     {
         for (key, value) in font {
             if let Some(raw) = value.as_str() {
-                vars.push((format!("--mei-shell-font-{key}"), raw.to_string()));
+                let resolved = if key == "1" {
+                    shell_font_with_minimum(raw, 16.0)
+                } else {
+                    raw.to_string()
+                };
+                vars.push((format!("--mei-shell-font-{key}"), resolved));
             }
         }
     }
@@ -114,6 +119,18 @@ pub(super) fn collect_shell_css_vars(theme: &Value) -> Vec<(String, String)> {
         }
     }
     vars
+}
+
+fn shell_font_with_minimum(raw: &str, min_px: f64) -> String {
+    let trimmed = raw.trim();
+    if trimmed.ends_with("px") {
+        if let Ok(value) = trimmed.trim_end_matches("px").trim().parse::<f64>() {
+            if value < min_px {
+                return format!("{}px", min_px as u32);
+            }
+        }
+    }
+    trimmed.to_string()
 }
 
 #[allow(dead_code)]

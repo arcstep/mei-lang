@@ -1390,7 +1390,8 @@ a.status-chip-link:focus-visible {
   color: var(--mei-shell-color-text-primary);
   border-color: var(--mei-shell-color-nav-chip-active-border);
 }
-.app-group-dropdown::part(panel) {
+.app-group-dropdown::part(panel),
+.app-group-dropdown::part(popup) {
   border: 1px solid var(--mei-shell-color-border-metadata);
   border-radius: 12px;
   background: var(--mei-shell-color-panel-bg);
@@ -1403,6 +1404,7 @@ a.status-chip-link:focus-visible {
   flex-direction: column;
   gap: 6px;
   padding: 10px;
+  background: var(--mei-shell-color-panel-bg);
 }
 .app-subgroup {
   display: grid;

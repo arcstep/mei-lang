@@ -88,14 +88,14 @@
     return null;
   }
 
-  /** 构建页内 Tab 走客户端切换；配置/上传独立壳整页导航；应用↔构建与其它 /apps/ 链路由 SPA 拦截。 */
+  /** 构建页内 Tab 走客户端切换；配置/上传/模式切换/跨应用 Tab 整页导航。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
       if (
         item.matches(
-          "a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], a[data-manage-config-link='1']",
+          "a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;
@@ -110,7 +110,7 @@
       if (!(item instanceof HTMLElement) || !item.matches) continue;
       if (
         item.matches(
-          "[data-mei-view='config'], [data-mei-view='upload'], a[data-manage-config-link='1']",
+          "[data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;

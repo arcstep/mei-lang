@@ -16,6 +16,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "build-copy-context.js",
     "build-scoped-rebuild.js",
     "build-tree-persist.js",
+    "runtime-refresh.js",
     "build-navigation.js",
     "build-inspect-highlight.js",
     "build-exec-panel.js",

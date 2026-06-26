@@ -15,5 +15,10 @@ assert.match(src, /classifyBuildNavTier/, "tier classifier");
 assert.match(src, /shouldSkipPreviewRuntimeWake/, "runtime wake bypass");
 assert.match(src, /workspace-fragment/, "tier1 fragment fetch");
 assert.match(src, /__meiBuildNavStats/, "nav stats");
+assert.match(src, /inferPreviewTabFromNodeId/, "node-aware preview tab inference");
+assert.match(src, /isPackCatalogNodeId/, "pack catalog runtime reset");
+assert.match(src, /ensurePreviewTabVisible\(url\)/, "preview tab before fragment swap");
+assert.match(src, /applyBootstrapScripts/, "bootstrap script sync on fragment swap");
+assert.doesNotMatch(src, /isBuildCatalogPreviewNode\(nextNode\)\) return "fragment"/, "catalog uses coordinate-based tier");
 
 console.log("check-build-navigation-tier: ok");

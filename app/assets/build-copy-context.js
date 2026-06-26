@@ -60,7 +60,7 @@
         include_readiness: "1",
       };
       if (intent === "full") {
-        params.include_graph = "semantic,eval";
+        params.include_graph = "semantic,eval,mcg,mrg";
       }
       const md = await fetchMarkdown(params);
       const ok = await copyText(md);
@@ -126,7 +126,7 @@
         node: ctx.node,
         tab: "agent",
         intent: "full",
-        include_graph: "semantic,eval",
+        include_graph: "semantic,eval,mcg,mrg",
         include_readiness: "1",
       });
     } catch (err) {

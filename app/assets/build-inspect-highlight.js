@@ -100,7 +100,7 @@
       const target = String(activeShell()?.getAttribute("data-compile-target") || "")
         .trim()
         .toLowerCase();
-      return target.includes("/authoring/examples/");
+      return target.includes("/previews/") || target.includes("stock/components/");
     }
     if (!node.startsWith("template:")) return false;
     const target = String(activeShell()?.getAttribute("data-compile-target") || "")
@@ -111,7 +111,7 @@
       target.includes("templates/") ||
       target.includes(".stock/templates") ||
       target.includes("stock/templates") ||
-      target.includes("/authoring/examples/")
+      target.includes("/previews/")
     );
   }
 
