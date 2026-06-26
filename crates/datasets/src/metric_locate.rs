@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
     imported_capsule_path_from_world_metrics_resource_id, locate_dataset_resource,
-    resolve_runtime_metric_def_key, CompiledApp, DatasetView, LoadedResource,
+    resolve_metric_contract_key, resolve_runtime_metric_def_key, CompiledApp, DatasetView,
+    LoadedResource,
 };
 
 const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
@@ -21,12 +22,17 @@ fn try_resolve_metric_on_resource<'a>(
     metric_id: &str,
 ) -> Option<(&'a LoadedResource, String)> {
     let dataset = resource.dataset.as_ref()?;
-    if !dataset.has_runtime_metric_defs() {
-        return None;
+    if dataset.has_runtime_metric_defs() {
+        let resolved =
+            resolve_runtime_metric_def_key(&resource.id, metric_id, &dataset.runtime_metric_defs)?;
+        return Some((resource, resolved));
     }
-    let resolved =
-        resolve_runtime_metric_def_key(&resource.id, metric_id, &dataset.runtime_metric_defs)?;
-    Some((resource, resolved))
+    if dataset.uses_compiled_metric_snapshot_only() {
+        let resolved =
+            resolve_metric_contract_key(&resource.id, metric_id, &dataset.metrics)?;
+        return Some((resource, resolved));
+    }
+    None
 }
 
 fn world_metrics_capsule_from_metric_id(metric_id: &str) -> Option<String> {
@@ -104,7 +110,9 @@ pub fn locate_runtime_metric_resource<'a>(
     if primary
         .dataset
         .as_ref()
-        .is_some_and(|dataset| !dataset.has_runtime_metric_defs())
+        .is_some_and(|dataset| {
+            !dataset.has_runtime_metric_defs() && !dataset.uses_compiled_metric_snapshot_only()
+        })
     {
         return Err(anyhow!("dataset `{dataset_id}` has no runtime metric defs"));
     }
@@ -115,12 +123,13 @@ pub fn locate_runtime_metric_resource<'a>(
 
 fn find_world_metrics_resource<'a>(compiled: &'a CompiledApp) -> Option<&'a LoadedResource> {
     compiled.resources.iter().find(|resource| {
-        resource
-            .dataset
-            .as_ref()
-            .is_some_and(|dataset| dataset.has_runtime_metric_defs())
-            && (resource.id == WORLD_METRICS_RESOURCE_ID
-                || resource.id.starts_with("__world_metrics__::"))
+        resource.dataset.as_ref().is_some_and(|dataset| {
+            if dataset.has_runtime_metric_defs() {
+                return resource.id == WORLD_METRICS_RESOURCE_ID
+                    || resource.id.starts_with("__world_metrics__::");
+            }
+            resource.id.starts_with("__world_metrics__") && !dataset.metrics.is_empty()
+        })
     })
 }
 
@@ -148,23 +157,47 @@ fn plan_access_metric_eval<'a>(
                 .collect(),
         });
     }
+    if primary_dataset.uses_compiled_metric_snapshot_only() {
+        return Ok(AccessMetricEvalPlan {
+            primary,
+            primary_dataset,
+            owner: primary,
+            owner_dataset: primary_dataset,
+            request_metric_ids: primary_dataset
+                .metrics
+                .keys()
+                .take(64)
+                .cloned()
+                .collect(),
+        });
+    }
     let owner = find_world_metrics_resource(compiled)
         .ok_or_else(|| anyhow!("dataset `{dataset_selector}` has no runtime metric defs"))?;
     let owner_dataset = owner
         .dataset
         .as_ref()
         .expect("world metrics resource should expose dataset view");
+    let request_metric_ids = if !owner_dataset.runtime_metric_defs.is_empty() {
+        owner_dataset
+            .runtime_metric_defs
+            .keys()
+            .take(64)
+            .cloned()
+            .collect()
+    } else {
+        owner_dataset
+            .metrics
+            .keys()
+            .take(64)
+            .cloned()
+            .collect()
+    };
     Ok(AccessMetricEvalPlan {
         primary,
         primary_dataset,
         owner,
         owner_dataset,
-        request_metric_ids: owner_dataset
-            .runtime_metric_defs
-            .keys()
-            .take(64)
-            .cloned()
-            .collect(),
+        request_metric_ids,
     })
 }
 
@@ -230,13 +263,19 @@ pub fn metric_ids_visible_for_dataset(
     let mut ids = BTreeSet::new();
     if !primary_dataset.runtime_metric_defs.is_empty() {
         ids.extend(primary_dataset.runtime_metric_defs.keys().take(64).cloned());
+    } else if !primary_dataset.metrics.is_empty() {
+        ids.extend(primary_dataset.metrics.keys().take(64).cloned());
     } else if let Some(metrics) = world_metrics_decl {
         ids.extend(metrics.keys().take(64).cloned());
     }
     if ids.is_empty() {
         if let Some(owner) = find_world_metrics_resource(compiled) {
             if let Some(dataset) = owner.dataset.as_ref() {
-                ids.extend(dataset.runtime_metric_defs.keys().take(64).cloned());
+                if !dataset.runtime_metric_defs.is_empty() {
+                    ids.extend(dataset.runtime_metric_defs.keys().take(64).cloned());
+                } else {
+                    ids.extend(dataset.metrics.keys().take(64).cloned());
+                }
             }
         }
     }
@@ -482,5 +521,87 @@ mod tests {
         assert_eq!(plan.owner.id, WORLD_METRICS_RESOURCE_ID);
         assert!(plan.primary_dataset.runtime_metric_defs.is_empty());
         assert!(!plan.owner_dataset.runtime_metric_defs.is_empty());
+    }
+
+    #[test]
+    fn locate_runtime_metric_resource_uses_compiled_metric_snapshot_without_runtime_defs() {
+        let resource_id = "__world_metrics__::scenes/01-执法要素.mei::metrics";
+        let metric_key = "scenes/01-执法要素.mei::enforcement_items_count";
+        let compiled = CompiledApp {
+            app_id: "test".to_string(),
+            title: String::new(),
+            app_root: String::new(),
+            scene_routes: Vec::new(),
+            active_scene: None,
+            active_target_file: String::new(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: vec![LoadedResource {
+                id: resource_id.to_string(),
+                kind: "dataset".to_string(),
+                title: None,
+                document: None,
+                dataset: Some(DatasetView {
+                    id: resource_id.to_string(),
+                    title: None,
+                    purpose: None,
+                    schema: Vec::new(),
+                    stage_schema: Vec::new(),
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    source: SourceDecl {
+                        kind: "world_metrics".to_string(),
+                        path: String::new(),
+                        sheet: None,
+                        header_row: None,
+                        preview_rows: None,
+                        page_size: None,
+                        max_page_size: None,
+                        table: None,
+                        query: None,
+                        connection: None,
+                        content: None,
+                    },
+                    sources: Vec::new(),
+                    metrics: BTreeMap::from([(
+                        metric_key.to_string(),
+                        MetricContract {
+                            id: metric_key.to_string(),
+                            label: Some("items".to_string()),
+                            unit: None,
+                            value_format: None,
+                            purpose: None,
+                            shape: MetricShape::Scalar,
+                            schema: Vec::new(),
+                            dataset: None,
+                            transforms: Vec::new(),
+                            value: json!(42),
+                        },
+                    )]),
+                    runtime_metric_defs: BTreeMap::new(),
+                    runtime_analysis_graph: Default::default(),
+                    runtime_analysis_contracts: Default::default(),
+                }),
+            }],
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
+        let (owner, resolved) = locate_runtime_metric_resource(
+            &compiled,
+            resource_id,
+            metric_key,
+        )
+        .expect("locate snapshot metric");
+        assert_eq!(owner.id, resource_id);
+        assert_eq!(resolved, metric_key);
     }
 }

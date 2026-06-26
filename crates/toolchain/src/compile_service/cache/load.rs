@@ -6,33 +6,6 @@ use super::*;
 /// ScenePayload artifacts serialize `CompiledApp` without `runtime_metric_defs`
 /// (`#[serde(skip)]` on `DatasetView`). MCG assemble-only paths must call this
 /// before serving access traffic or prebuild eval.
-pub fn hydrate_compiled_app_from_disk_artifacts(
-    source_root: &Path,
-    app_id: &str,
-    options: &CompileOptions,
-    compiled: &mut CompiledApp,
-) -> bool {
-    if !compiled_app_artifact_enabled() {
-        return false;
-    }
-    let app_root = resolve_app_root(source_root, app_id);
-    for scope in compiled_app_artifact_lookup_scopes(&app_root, options) {
-        let Ok(Some((_, artifact))) = read_json_artifact::<CompiledAppDiskArtifact>(
-            &app_root,
-            COMPILED_APP_ARTIFACT_KIND,
-            COMPILED_APP_ARTIFACT_NAME,
-            &scope,
-        ) else {
-            continue;
-        };
-        if artifact.dataset_runtime_payloads.is_empty() {
-            continue;
-        }
-        hydrate_compiled_app_runtime_payloads(compiled, &artifact.dataset_runtime_payloads);
-        return true;
-    }
-    false
-}
 pub fn probe_compiled_app_manifest_identity(
     source_root: &Path,
     app_id: &str,

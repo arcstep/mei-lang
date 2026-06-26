@@ -26,8 +26,8 @@ pub(crate) use invalidate::*;
 
 pub use access_slim::{
     access_slim_artifacts_enabled, canonical_artifact_persist_enabled,
-    should_persist_compiled_app_artifact, slim_compiled_app_for_access,
-    strip_loaded_compiled_app_for_access,
+    locked_cache_env_overrides, should_persist_compiled_app_artifact,
+    slim_compiled_app_for_access, strip_loaded_compiled_app_for_access,
 };
 pub use singleflight::env_flag_enabled;
 
@@ -35,9 +35,7 @@ pub use types::{
     CompileWithCacheFailure, CompileWithCacheOutcome, CompileWithCacheOutcomeShared,
     PeekCompileCacheHit, PeekCompileCacheHitShared,
 };
-pub use load::{
-    hydrate_compiled_app_from_disk_artifacts, probe_compiled_app_manifest_identity,
-};
+pub use load::{probe_compiled_app_manifest_identity};
 pub use compile::{
     compile_app_with_cache, compile_app_with_cache_shared,
     load_compile_artifact_only, load_compile_artifact_only_shared, recent_compile_failure,

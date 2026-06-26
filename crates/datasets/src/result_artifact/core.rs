@@ -1,13 +1,5 @@
 pub fn take_metric_response_index_stats() -> MetricResponseIndexStats {
-    LAST_METRIC_RESPONSE_INDEX_STATS.with(|cell| {
-        let stats = cell.get();
-        cell.set(MetricResponseIndexStats::default());
-        stats
-    })
-}
-
-fn record_metric_response_index_stats(stats: MetricResponseIndexStats) {
-    LAST_METRIC_RESPONSE_INDEX_STATS.with(|cell| cell.set(stats));
+    MetricResponseIndexStats::default()
 }
 
 #[derive(Debug, Clone)]
@@ -76,18 +68,6 @@ fn write_json_artifact<T: Serialize>(path: &Path, artifact: &T) -> Result<()> {
     }
     fs::write(path, serde_json::to_string_pretty(artifact)?)
         .with_context(|| format!("write result artifact {}", path.display()))?;
-    Ok(())
-}
-
-fn write_json_artifact_atomic<T: Serialize>(path: &Path, artifact: &T) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create result artifact dir {}", parent.display()))?;
-    }
-    let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, serde_json::to_string_pretty(artifact)?)
-        .with_context(|| format!("write temp artifact {}", tmp_path.display()))?;
-    fs::rename(&tmp_path, path).with_context(|| format!("rename artifact {}", path.display()))?;
     Ok(())
 }
 
@@ -182,39 +162,6 @@ pub fn store_metric_response_result_artifact(
         slot_revision: None,
     };
     write_json_artifact(&path, &persisted)?;
-    upsert_metric_response_index_entry(
-        app_root,
-        response_cache_key,
-        persisted.generated_at_ms,
-        persisted.complete,
-        &persisted.covered_metric_ids,
-    )?;
-    if response_cache_key.starts_with("prebuild|response|")
-        && response_cache_key.contains("|dependency=")
-    {
-        if let Some((app_id, dataset_id, query)) =
-            parse_prebuild_metric_response_key(response_cache_key)
-        {
-            let dataset_key =
-                metric_response_prebuild_dataset_key(app_id.as_str(), dataset_id.as_str(), &query);
-            if dataset_key != response_cache_key {
-                write_json_artifact(
-                    &metric_response_result_artifact_path(app_root, dataset_key.as_str()),
-                    &PersistedMetricResponseResultArtifact {
-                        response_cache_key: dataset_key.clone(),
-                        ..persisted.clone()
-                    },
-                )?;
-                upsert_metric_response_index_entry(
-                    app_root,
-                    dataset_key.as_str(),
-                    persisted.generated_at_ms,
-                    persisted.complete,
-                    &persisted.covered_metric_ids,
-                )?;
-            }
-        }
-    }
     Ok(())
 }
 

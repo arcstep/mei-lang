@@ -64,12 +64,9 @@ pub use metric_response_cache::{
 };
 pub use query::query_dataset_rows;
 pub use result_artifact::{
-    default_result_artifact_scope, invalidate_prebuild_metric_response_index,
-    load_metric_dataframe_result_artifact, load_metric_response_result_artifact,
-    load_prebuild_metric_response_artifact_dataset_fallback,
-    metric_dataframe_result_artifact_exists, metric_response_result_artifact_exists,
-    prebuild_metric_response_index_covers_key, preload_prebuild_metric_response_index,
-    rebuild_and_install_prebuild_metric_response_index, store_metric_dataframe_result_artifact,
+    default_result_artifact_scope, load_metric_dataframe_result_artifact,
+    load_metric_response_result_artifact, metric_dataframe_result_artifact_exists,
+    metric_response_result_artifact_exists, store_metric_dataframe_result_artifact,
     store_metric_response_result_artifact, take_metric_response_index_stats,
     LoadedMetricResponseArtifact, MetricResponseIndexStats,
 };
@@ -331,11 +328,15 @@ pub fn project_requested_metrics(
     request_metric_ids
         .iter()
         .filter_map(|metric_id| {
-            let resolved = mei_lang_kernel::resolve_runtime_metric_def_key(
-                resource_id,
-                metric_id,
-                runtime_metric_defs,
-            )?;
+            let resolved = if !runtime_metric_defs.is_empty() {
+                mei_lang_kernel::resolve_runtime_metric_def_key(
+                    resource_id,
+                    metric_id,
+                    runtime_metric_defs,
+                )
+            } else {
+                mei_lang_kernel::resolve_metric_contract_key(resource_id, metric_id, metrics_map)
+            }?;
             let mut metric = metrics_map.get(&resolved)?.clone();
             metric.id = metric_id.clone();
             Some(metric)

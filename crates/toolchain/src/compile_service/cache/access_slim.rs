@@ -5,44 +5,46 @@ use mei_lang_kernel::{CompiledApp, DatasetView};
 
 const ACCESS_SLIM_ARTIFACTS_ENV: &str = "MEI_ACCESS_SLIM_ARTIFACTS";
 
-/// When true (default), prebuild/access paths write v4 slim artifacts without inline rows/metrics.
+/// 1.3.0: slim artifacts are always on; env override is reported in diagnostics only.
 pub fn access_slim_artifacts_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| match std::env::var(ACCESS_SLIM_ARTIFACTS_ENV) {
-        Ok(value) => {
-            let trimmed = value.trim();
-            !(trimmed == "0" || trimmed.eq_ignore_ascii_case("false"))
-        }
-        Err(_) => true,
-    })
+    true
 }
 
-const CONTENT_STORE_ENV: &str = "MEI_CONTENT_STORE";
-
-/// Phase G: when true (default), compiled_app per-scope blobs are superseded by scene_payload CAS.
-pub fn content_store_preferred() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| match std::env::var(CONTENT_STORE_ENV) {
-        Ok(value) => {
-            let trimmed = value.trim();
-            !(trimmed == "0" || trimmed.eq_ignore_ascii_case("false"))
+pub fn access_slim_env_override_detected() -> Option<String> {
+    std::env::var(ACCESS_SLIM_ARTIFACTS_ENV).ok().and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
+            Some(format!("{ACCESS_SLIM_ARTIFACTS_ENV}={trimmed}"))
+        } else {
+            None
         }
-        Err(_) => true,
     })
 }
 
 const CANONICAL_ARTIFACT_PERSIST_ENV: &str = "MEI_CANONICAL_ARTIFACT_PERSIST";
 
-/// When true (default), only persist compiled_app for canonical scopes (not board overlay scene+target).
+/// 1.3.0: canonical persist is always on; env override is reported in diagnostics only.
 pub fn canonical_artifact_persist_enabled() -> bool {
-    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| match std::env::var(CANONICAL_ARTIFACT_PERSIST_ENV) {
-        Ok(value) => {
-            let trimmed = value.trim();
-            !(trimmed == "0" || trimmed.eq_ignore_ascii_case("false"))
+    true
+}
+
+pub fn canonical_artifact_persist_env_override_detected() -> Option<String> {
+    std::env::var(CANONICAL_ARTIFACT_PERSIST_ENV).ok().and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed == "0" || trimmed.eq_ignore_ascii_case("false") {
+            Some(format!("{CANONICAL_ARTIFACT_PERSIST_ENV}={trimmed}"))
+        } else {
+            None
         }
-        Err(_) => true,
     })
+}
+
+/// Collect locked-on env overrides for diagnostics `cache.envOverrides[]`.
+pub fn locked_cache_env_overrides() -> Vec<String> {
+    [access_slim_env_override_detected(), canonical_artifact_persist_env_override_detected()]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 pub fn slim_dataset_for_access(dataset: &mut DatasetView) {

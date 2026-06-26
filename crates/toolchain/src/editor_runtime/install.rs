@@ -200,6 +200,16 @@ pub(crate) fn write_common_runtime_files(
         render_workspace_start_script(),
         force,
     )?);
+    files.push(write_executable_file(
+        &target_root.join("deploy/prebuild.sh"),
+        render_workspace_prebuild_script(),
+        force,
+    )?);
+    files.push(write_executable_file(
+        &target_root.join("deploy/build-promote.sh"),
+        render_workspace_build_promote_script(),
+        force,
+    )?);
     Ok(files)
 }
 

@@ -125,6 +125,8 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
     assert!(root.join("toolchain/bin/author-mcp-adapter").is_file());
     assert!(root.join("toolchain/bin/access-mcp-adapter").is_file());
     assert!(root.join("deploy/start.sh").is_file());
+    assert!(root.join("deploy/prebuild.sh").is_file());
+    assert!(root.join("deploy/build-promote.sh").is_file());
     assert!(!root.join("runtime/platform/catalog/editor-surface.json").exists());
     for rel in [
         "runtime/platform/editor-runtime.json",
@@ -328,6 +330,8 @@ fn workspace_bootstrap_cli_installs_runtime_for_new_source_workspace() {
     assert!(root.join("toolchain/bin/mei-host-web").is_file());
     assert!(root.join("apps/demo/src/main.mei").is_file());
     assert!(root.join("deploy/start.sh").is_file());
+    assert!(root.join("deploy/prebuild.sh").is_file());
+    assert!(root.join("deploy/build-promote.sh").is_file());
     let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
     assert!(
         status.installed,
