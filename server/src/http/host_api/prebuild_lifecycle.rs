@@ -13,6 +13,8 @@ pub(crate) fn mark_job_failed(
         registry.active_job_started_at = None;
         if !preserve_access_ready {
             registry.access_ready = false;
+            registry.artifacts_ready = false;
+            registry.scope_gate_ready = false;
         }
         registry.full_warmup_ready = false;
         registry.deferred_warmup_pending = false;

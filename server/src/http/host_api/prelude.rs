@@ -19,8 +19,7 @@ pub(crate) use crate::{
     },
     AppState,
 };
-pub(crate) use mei_lang_datasets::preload_prebuild_metric_response_index;
 pub(crate) use mei_lang_kernel::{
-    resolve_app_root, resolve_runtime_warmup_manifest, CompileOptions, CompiledApp, Severity,
+    resolve_runtime_warmup_manifest, CompileOptions, CompiledApp, Severity,
 };
 pub(crate) use mei_lang_toolchain::resolve_components_root;

@@ -51,6 +51,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/host/ready", get(host_api::api_host_ready))
         .route("/api/host/readiness", get(host_api::api_host_readiness))
         .route("/api/host/diagnostics", get(host_api::api_host_diagnostics))
+        .route("/api/host/graph/status", get(host_api::api_host_graph_status))
+        .route("/api/host/graph/doctor", get(host_api::api_host_graph_doctor))
         .route("/api/host/heartbeat", get(host_api::api_host_heartbeat))
         .route("/api/host/build", post(host_api::api_host_build))
         .route(

@@ -36,6 +36,18 @@ pub(crate) struct HostAppReadinessResponse {
     pub scopes: Vec<HostScopeReadinessResponse>,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+pub(crate) struct ScopeGateSweepSummary {
+    #[serde(rename = "l2Miss")]
+    pub l2_miss: usize,
+    #[serde(rename = "l3Fail")]
+    pub l3_fail: usize,
+    #[serde(rename = "l4Stale")]
+    pub l4_stale: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub degraded_scopes: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct HostReadyResponse {
     pub ready: bool,
@@ -51,6 +63,10 @@ pub(crate) struct HostReadyResponse {
     pub host_started_at_ms: Option<u64>,
     #[serde(rename = "hostReady")]
     pub host_ready: bool,
+    #[serde(rename = "artifactsReady")]
+    pub artifacts_ready: bool,
+    #[serde(rename = "scopeGateReady")]
+    pub scope_gate_ready: bool,
     #[serde(rename = "accessReady")]
     pub access_ready: bool,
     #[serde(rename = "fullWarmupReady")]
@@ -109,6 +125,8 @@ pub(crate) struct HostReadyResponse {
     pub apps: Vec<HostAppReadinessResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope_gate: Option<crate::readiness::scope_gate::ScopeGateReport>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "gateSummary")]
+    pub gate_summary: Option<ScopeGateSweepSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -270,6 +288,9 @@ pub(crate) struct HostBuildJobResponse {
 pub(crate) struct HostReadinessRegistry {
     pub(crate) host_bound: bool,
     pub(crate) host_started_at_ms: Option<u64>,
+    pub(crate) artifacts_ready: bool,
+    pub(crate) scope_gate_ready: bool,
+    pub(crate) gate_summary: Option<ScopeGateSweepSummary>,
     pub(crate) access_ready: bool,
     pub(crate) full_warmup_ready: bool,
     pub(crate) deferred_warmup_pending: bool,

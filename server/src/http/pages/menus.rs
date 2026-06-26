@@ -1,7 +1,9 @@
 use std::{fs, path::Path};
 
 use mei_lang_app::{TopbarMenuConfig, TopbarMenuContext};
-use mei_lang_kernel::{discover_stock_catalog_packs, load_workspace_config, WorkspaceConfig};
+use mei_lang_kernel::{
+    discover_stock_catalog_packs, load_workspace_config, stock_catalog_app_config, WorkspaceConfig,
+};
 use std::collections::BTreeMap;
 
 fn read_topbar_menu_json(path: &Path) -> Option<TopbarMenuConfig> {
@@ -68,7 +70,13 @@ pub(crate) fn load_segment_topbar_menus(source_root: &Path) -> TopbarMenuContext
         .as_ref()
         .map(|discovery| discovery.template_packs.clone())
         .unwrap_or_default();
-    let stock_catalog_app_id = stock_packs.map(|discovery| discovery.catalog_app_id);
+    let stock_catalog_app_id = stock_packs.as_ref().map(|discovery| discovery.catalog_app_id.clone());
+    let stock_catalog_app_title = stock_packs.as_ref().map(|_| {
+        stock_catalog_app_config(source_root)
+            .title
+            .trim()
+            .to_string()
+    }).filter(|title| !title.is_empty());
     let Ok(entries) = fs::read_dir(source_root) else {
         return TopbarMenuContext {
             root,
@@ -77,6 +85,7 @@ pub(crate) fn load_segment_topbar_menus(source_root: &Path) -> TopbarMenuContext
             stock_component_packs,
             stock_template_packs,
             stock_catalog_app_id,
+            stock_catalog_app_title,
         };
     };
     for entry in entries.flatten() {
@@ -101,5 +110,6 @@ pub(crate) fn load_segment_topbar_menus(source_root: &Path) -> TopbarMenuContext
         stock_component_packs,
         stock_template_packs,
         stock_catalog_app_id,
+        stock_catalog_app_title,
     }
 }

@@ -20,6 +20,10 @@ pub struct HostDiagnosticsQuery {
     #[serde(rename = "appId")]
     pub app_id: String,
     pub sections: Option<String>,
+    #[serde(rename = "sceneId")]
+    pub scene_id: Option<String>,
+    #[serde(rename = "targetFile")]
+    pub target_file: Option<String>,
 }
 
 pub async fn api_host_diagnostics(
@@ -41,8 +45,46 @@ pub async fn api_host_diagnostics(
         state.source_root.as_path(),
         query.app_id.as_str(),
         sections.as_slice(),
+        query.scene_id.as_deref(),
+        query.target_file.as_deref(),
     );
     Json(report)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HostGraphQuery {
+    #[serde(rename = "appId")]
+    pub app_id: Option<String>,
+}
+
+pub async fn api_host_graph_status(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<HostGraphQuery>,
+) -> impl IntoResponse {
+    let report = crate::graph::run_graph_status(
+        state.source_root.as_path(),
+        query.app_id.as_deref(),
+    );
+    Json(report)
+}
+
+pub async fn api_host_graph_doctor(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<HostGraphQuery>,
+) -> impl IntoResponse {
+    let app_id = query
+        .app_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("zhifa");
+    let report = crate::graph::run_graph_doctor(state.source_root.as_path(), app_id);
+    let status = if report.ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (status, Json(report))
 }
 
 pub async fn api_host_heartbeat() -> impl IntoResponse {

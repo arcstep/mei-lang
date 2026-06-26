@@ -1,12 +1,106 @@
 use super::prelude::*;
 use super::*;
 
+fn compile_scope_keys_from_report(report: &PrebuildReport, app_id: &str) -> BTreeSet<String> {
+    report
+        .apps
+        .iter()
+        .find(|app| app.app_id == app_id)
+        .map(|app| {
+            app.compile_scopes
+                .iter()
+                .map(|scope| {
+                    normalize_scope_key(
+                        scope
+                            .requested_scene_id
+                            .as_deref()
+                            .or(scope.active_scene_id.as_deref()),
+                        Some(scope.active_target_file.as_str())
+                            .or(scope.requested_target_file.as_deref()),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn prune_stale_scopes(registry: &mut HostReadinessRegistry, report: &PrebuildReport) {
+    for app_id in &report.succeeded_apps {
+        let keep = compile_scope_keys_from_report(report, app_id.as_str());
+        if let Some(app_state) = registry.apps.get_mut(app_id.as_str()) {
+            app_state.scopes.retain(|key, _| keep.contains(key));
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn scope_registry_has_degraded_errors(registry: &HostReadinessRegistry) -> bool {
+    registry.apps.values().any(|app| {
+        app.scopes.values().any(|scope| {
+            scope.phase == "degraded"
+                || scope
+                    .last_error
+                    .as_deref()
+                    .is_some_and(|err| !err.trim().is_empty())
+        })
+    })
+}
+
+fn refresh_registry_scope_gates(
+    source_root: &Path,
+    registry: &mut HostReadinessRegistry,
+    app_ids: &[String],
+) -> ScopeGateSweepSummary {
+    let mut summary = ScopeGateSweepSummary::default();
+    for app_id in app_ids {
+        let scope_keys = registry
+            .apps
+            .get(app_id.as_str())
+            .map(|app| app.scopes.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for key in scope_keys {
+            let Some(scope) = registry
+                .apps
+                .get(app_id.as_str())
+                .and_then(|app| app.scopes.get(&key))
+                .cloned()
+            else {
+                continue;
+            };
+            let gate = crate::readiness::scope_gate::check_scope_gate_silent(
+                source_root,
+                app_id.as_str(),
+                scope.scene_id.as_deref(),
+                scope.target_file.as_deref(),
+                true,
+            );
+            if !gate.navigation_ready {
+                summary.l2_miss += 1;
+            }
+            if !gate.assembly_ready {
+                summary.l3_fail += 1;
+            }
+            if !gate.data_ready {
+                summary.l4_stale += 1;
+            }
+            let Some(app_state) = registry.apps.get_mut(app_id.as_str()) else {
+                continue;
+            };
+            let entry = app_state.scopes.entry(key.clone()).or_default();
+            if gate.access_ready {
+                entry.phase = "ready".to_string();
+                entry.last_error = None;
+            } else {
+                entry.phase = "degraded".to_string();
+                entry.last_error = gate.blockers.first().cloned();
+                summary.degraded_scopes.push(key);
+            }
+        }
+    }
+    summary
+}
+
 pub(crate) fn apply_success_app_report(app_report: &PrebuildAppReport, app_state: &mut HostAppReadinessState) {
-    app_state.phase = if app_report.warnings.is_empty() {
-        "ready".to_string()
-    } else {
-        "degraded".to_string()
-    };
     app_state.last_error = None;
     app_state.warnings = app_report
         .warnings
@@ -67,6 +161,7 @@ pub(crate) fn status_from_report(
         Path::new(&report.source_root),
     );
     let access_artifacts_ready = failed_app_count == 0 && shell_ready;
+    let artifacts_ready = report.ok && access_artifacts_ready;
     let compile_ms: u64 = report
         .apps
         .iter()
@@ -101,6 +196,8 @@ pub(crate) fn status_from_report(
     let warning_category_counts = report.warning_category_counts();
     let failing_datasets = report.failing_datasets();
     let correctness_failed = report.correctness_failed();
+    let mut scope_gate_ready = true;
+    let mut gate_summary = ScopeGateSweepSummary::default();
     let registry_update = with_registry(|registry| {
         let active_job = registry.active_job.clone();
         registry.manifest_path = report.manifest_path.clone();
@@ -120,33 +217,71 @@ pub(crate) fn status_from_report(
         registry.warning_categories = warning_categories.clone();
         registry.warning_category_counts = warning_category_counts.clone();
         registry.failing_datasets = failing_datasets.clone();
-        registry.access_ready = report.ok && shell_ready && !correctness_failed;
-        registry.full_warmup_ready =
-            report.ok && shell_ready && !correctness_failed && !deferred_warmup_pending;
-        registry.deferred_warmup_pending =
-            report.ok && shell_ready && !correctness_failed && deferred_warmup_pending;
+        registry.artifacts_ready = artifacts_ready;
         for app_report in &report.apps {
             let app_state = registry.apps.entry(app_report.app_id.clone()).or_default();
             apply_success_app_report(app_report, app_state);
         }
-        if report.diagnostics.fingerprint_skip {
-            for app_id in &report.succeeded_apps {
-                let gate = crate::readiness::scope_gate::check_scope_gate(
-                    Path::new(&report.source_root),
-                    app_id,
-                    None,
-                    None,
-                );
-                let app_state = registry.apps.entry(app_id.clone()).or_default();
-                if gate.access_ready {
-                    app_state.phase = "ready".to_string();
-                    app_state.last_error = None;
-                } else if app_state.phase == "building" || app_state.phase == "pending" {
-                    app_state.phase = "degraded".to_string();
-                    app_state.last_error = gate.blockers.first().cloned();
-                }
-            }
+        prune_stale_scopes(registry, report);
+        gate_summary = refresh_registry_scope_gates(
+            Path::new(&report.source_root),
+            registry,
+            &report.succeeded_apps,
+        );
+        for app_id in &report.succeeded_apps {
+            let Some(app_state) = registry.apps.get_mut(app_id.as_str()) else {
+                continue;
+            };
+            let degraded_scopes = app_state
+                .scopes
+                .values()
+                .filter(|scope| scope.phase == "degraded")
+                .count();
+            let ready_scopes = app_state
+                .scopes
+                .values()
+                .filter(|scope| scope.phase == "ready")
+                .count();
+            app_state.phase = if degraded_scopes > 0 {
+                "degraded".to_string()
+            } else if ready_scopes > 0 {
+                "ready".to_string()
+            } else {
+                "building".to_string()
+            };
         }
+        scope_gate_ready = gate_summary.l2_miss == 0
+            && gate_summary.l3_fail == 0
+            && gate_summary.l4_stale == 0;
+        registry.scope_gate_ready = scope_gate_ready;
+        registry.gate_summary = Some(gate_summary.clone());
+        registry.access_ready = artifacts_ready && scope_gate_ready;
+        registry.full_warmup_ready =
+            artifacts_ready && scope_gate_ready && !deferred_warmup_pending;
+        registry.deferred_warmup_pending =
+            artifacts_ready && scope_gate_ready && deferred_warmup_pending;
+        if gate_summary.l2_miss > 0 || gate_summary.l3_fail > 0 || gate_summary.l4_stale > 0 {
+            tracing::info!(
+                l2_miss = gate_summary.l2_miss,
+                l3_fail = gate_summary.l3_fail,
+                l4_stale = gate_summary.l4_stale,
+                access_ready = registry.access_ready,
+                "scope gate sweep summary"
+            );
+        }
+        emit_prebuild_status_line(
+            "gate sweep",
+            "1;36",
+            &format!(
+                "L2={} L3={} L4={} | accessReady={}",
+                gate_summary.l2_miss,
+                gate_summary.l3_fail,
+                gate_summary.l4_stale,
+                artifacts_ready && scope_gate_ready
+            ),
+        );
+        registry.active_job = None;
+        sync_registry_phase(registry);
         for app_id in &report.failed_apps {
             let app_state = registry.apps.entry(app_id.clone()).or_default();
             app_state.phase = "failed".to_string();
@@ -169,7 +304,6 @@ pub(crate) fn status_from_report(
                     Some("requested app missing from prebuild report".to_string());
             }
         }
-        registry.active_job = None;
         sync_registry_phase(registry);
         active_job
     });
@@ -218,7 +352,7 @@ pub(crate) fn status_from_report(
         warning_count,
         "startup prebuild report applied"
     );
-    if failed_app_count == 0 && warning_count == 0 {
+    if failed_app_count == 0 && artifacts_ready && scope_gate_ready {
         let ready_title = if deferred_warmup_pending {
             "ACCESS READY!"
         } else {
@@ -249,13 +383,35 @@ pub(crate) fn status_from_report(
             "{ready_title} {ready_detail}"
         );
     } else {
+        let app_lines = registry_snapshot()
+            .apps
+            .iter()
+            .map(|app| {
+                format!(
+                    "{}:{}(warnings={})",
+                    app.app_id,
+                    app.phase,
+                    app.warnings.len()
+                )
+            })
+            .collect::<Vec<_>>();
+        let gate_detail = if !scope_gate_ready {
+            format!(
+                "scope_gate L2={} L3={} L4={}",
+                gate_summary.l2_miss, gate_summary.l3_fail, gate_summary.l4_stale
+            )
+        } else if !artifacts_ready {
+            "artifacts incomplete".to_string()
+        } else {
+            String::new()
+        };
         emit_prebuild_status_line(
-            "NOT READY!",
-            "1;31",
+            "WORKSPACE ACCESS INCOMPLETE",
+            "1;33",
             &format!(
-                "[PREBUILD +{:.1}s] access artifacts incomplete | apps={} | failed_apps={} | warnings={} | compile={}ms | warmup={}ms",
+                "[PREBUILD +{:.1}s] host shell unaffected | apps=[{}] | failed_apps={} | warnings={} | {gate_detail} | compile={}ms | warmup={}ms",
                 report.total_wall_ms as f64 / 1000.0,
-                report.apps.len(),
+                app_lines.join(", "),
                 failed_app_count,
                 warning_count,
                 compile_ms,
@@ -269,7 +425,9 @@ pub(crate) fn status_from_report(
             app_count = report.apps.len(),
             failed_app_count,
             warning_count,
-            "NOT READY! access artifacts incomplete"
+            scope_gate_ready,
+            artifacts_ready,
+            "workspace access incomplete (host shell remains available)"
         );
     }
     refresh_metric_response_indices_after_prebuild(report, app_filter);
@@ -287,25 +445,12 @@ pub(crate) fn refresh_metric_response_indices_after_prebuild(
             report.succeeded_apps.clone()
         };
     for app_id in app_ids {
-        let app_root = resolve_app_root(source_root, app_id.as_str());
-        match preload_prebuild_metric_response_index(app_root.as_path()) {
-            Ok(stats) => {
-                let mrg_slots = crate::graph::mrg::slots::mrg_slot_count(source_root, app_id.as_str());
-                tracing::info!(
-                    app_id = %app_id,
-                    index_load_ms = stats.load_ms,
-                    entry_count = stats.entry_count,
-                    mrg_slot_count = mrg_slots,
-                    rebuilt = stats.rebuilt,
-                    "ensured metric response artifact index after prebuild"
-                );
-            }
-            Err(error) => tracing::warn!(
-                app_id = %app_id,
-                %error,
-                "failed to ensure metric response index after prebuild"
-            ),
-        }
+        let mrg_slots = crate::graph::mrg::slots::mrg_slot_count(source_root, app_id.as_str());
+        tracing::info!(
+            app_id = %app_id,
+            mrg_slot_count = mrg_slots,
+            "verified MRG slot registry after prebuild"
+        );
     }
 }
 
@@ -314,21 +459,61 @@ pub(crate) fn preload_metric_response_indices_for_workspace(source_root: &Path) 
         return;
     };
     for app in manifest.apps {
-        let app_root = resolve_app_root(source_root, app.app_id.as_str());
-        match preload_prebuild_metric_response_index(app_root.as_path()) {
-            Ok(stats) => tracing::info!(
-                app_id = %app.app_id,
-                index_load_ms = stats.load_ms,
-                entry_count = stats.entry_count,
-                rebuilt = stats.rebuilt,
-                "preloaded metric response artifact index"
-            ),
-            Err(error) => tracing::warn!(
-                app_id = %app.app_id,
-                %error,
-                "metric response index preload failed"
-            ),
-        }
+        let mrg_slots =
+            crate::graph::mrg::slots::mrg_slot_count(source_root, app.app_id.as_str());
+        tracing::info!(
+            app_id = %app.app_id,
+            mrg_slot_count = mrg_slots,
+            "preloaded MRG slot registry"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scope_registry_has_degraded_errors_detects_scope_last_error() {
+        let mut registry = HostReadinessRegistry::default();
+        registry.apps.insert(
+            "zhifa".to_string(),
+            HostAppReadinessState {
+                phase: "ready".to_string(),
+                scopes: BTreeMap::from([(
+                    "home/scenes/home.mei".to_string(),
+                    HostScopeReadinessState {
+                        scene_id: Some("home".to_string()),
+                        target_file: Some("scenes/home.mei".to_string()),
+                        phase: "degraded".to_string(),
+                        last_error: Some("invalid_resource_ref".to_string()),
+                        ..Default::default()
+                    },
+                )]),
+                ..Default::default()
+            },
+        );
+        assert!(scope_registry_has_degraded_errors(&registry));
+    }
+
+    #[test]
+    fn scope_registry_has_degraded_errors_allows_ready_scope() {
+        let mut registry = HostReadinessRegistry::default();
+        registry.apps.insert(
+            "zhifa".to_string(),
+            HostAppReadinessState {
+                phase: "ready".to_string(),
+                scopes: BTreeMap::from([(
+                    "home/scenes/home.mei".to_string(),
+                    HostScopeReadinessState {
+                        phase: "ready".to_string(),
+                        ..Default::default()
+                    },
+                )]),
+                ..Default::default()
+            },
+        );
+        assert!(!scope_registry_has_degraded_errors(&registry));
     }
 }
 

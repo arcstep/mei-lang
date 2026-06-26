@@ -2,27 +2,32 @@ use std::path::Path;
 
 use mei_lang_kernel::resolve_app_root;
 use mei_lang_toolchain::{
-    access_slim_artifacts_enabled, canonical_artifact_persist_enabled,
+    access_slim_artifacts_enabled, canonical_artifact_persist_enabled, locked_cache_env_overrides,
 };
 
 use crate::graph::feature::graph_registry_dedup_enabled;
-use crate::graph::mcg::app_skeleton::load_app_skeleton_artifact;
 use crate::graph::mcg::registry::McgRegistryWriter;
 use crate::graph::mrg::registry::MrgRegistryWriter;
 use crate::graph::types::{GraphNodeKind, MaterialState};
+use crate::graph::observability::scan_content_store_summary;
 
 use super::build::collect_build_diagnostics;
 use super::report::{
-    CacheDiagnosticsSection, DiskDiagnosticsSection, EvalDiagnosticsSection,
-    MaterializationDiagnosticsReport, McgDiagnosticsSection, MrgDiagnosticsSection,
+    CacheDiagnosticsSection, ContentStoreDiagnosticsSection, DiskDiagnosticsSection,
+    EvalDiagnosticsSection, FailedSlotDiagnostic, MaterializationDiagnosticsReport,
+    McgDiagnosticsSection, MrgDiagnosticsSection, PrebuildPlanSection, ScopeGateSweepSection,
 };
 
-const DEFAULT_SECTIONS: &[&str] = &["disk", "eval", "mcg", "mrg", "cache", "build", "reachability"];
+const DEFAULT_SECTIONS: &[&str] = &[
+    "disk", "eval", "mcg", "mrg", "cache", "build", "reachability", "content_store", "gate_sweep",
+];
 
 pub fn collect_materialization_diagnostics(
     source_root: &Path,
     app_id: &str,
     sections: &[String],
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
 ) -> MaterializationDiagnosticsReport {
     let app_root = resolve_app_root(source_root, app_id);
     let include_all = sections.is_empty();
@@ -39,10 +44,16 @@ pub fn collect_materialization_diagnostics(
     };
 
     if wants("cache") {
+        let mut env_overrides = locked_cache_env_overrides();
+        if let Some(entry) = crate::graph::feature::graph_registry_dedup_env_override_detected() {
+            env_overrides.push(entry);
+        }
         report.cache = CacheDiagnosticsSection {
             access_slim_artifacts: access_slim_artifacts_enabled(),
             canonical_artifact_persist: canonical_artifact_persist_enabled(),
             graph_registry_dedup: graph_registry_dedup_enabled(),
+            locked_on: true,
+            env_overrides,
         };
     }
 
@@ -56,10 +67,10 @@ pub fn collect_materialization_diagnostics(
 
     if wants("mcg") && graph_registry_dedup_enabled() {
         let mcg = McgRegistryWriter::load(source_root, app_id);
-        let app_skeleton_present = load_app_skeleton_artifact(app_root.as_path(), None)
-            .ok()
-            .flatten()
-            .is_some();
+        let app_skeleton_present = mcg
+            .nodes
+            .iter()
+            .any(|node| node.id.kind == GraphNodeKind::AppSkeleton && node.payload_ref.is_some());
         report.mcg = McgDiagnosticsSection {
             node_count: mcg.nodes.len(),
             scene_payload_nodes: mcg
@@ -74,6 +85,29 @@ pub fn collect_materialization_diagnostics(
                 .count(),
             app_skeleton_present,
             registry_revision: mcg.registry_revision,
+        };
+    }
+
+    if wants("content_store") {
+        let summary = scan_content_store_summary(app_root.as_path());
+        report.content_store = ContentStoreDiagnosticsSection {
+            bytes: summary.bytes,
+            files_by_kind: summary.files_by_kind,
+            orphan_count: 0,
+        };
+    }
+
+    if wants("gate_sweep") && graph_registry_dedup_enabled() {
+        let gate = crate::graph::run_scope_gate_check(source_root, app_id, None, None);
+        report.scope_gate_sweep = ScopeGateSweepSection {
+            l2_miss: if gate.navigation_ready { 0 } else { 1 },
+            l3_fail: if gate.assembly_ready { 0 } else { 1 },
+            l4_stale: if gate.data_ready { 0 } else { 1 },
+            degraded_scopes: if gate.access_ready {
+                Vec::new()
+            } else {
+                vec![format!("{}/{}", gate.scope.scene_id, gate.scope.target_file)]
+            },
         };
     }
 
@@ -136,15 +170,50 @@ pub fn collect_materialization_diagnostics(
             navigation_duplicate_keys: Some(navigation_duplicate_keys),
             navigation_orphan_urls: Some(navigation_orphan_urls),
         };
+        report.failed_slots = mrg
+            .slots
+            .iter()
+            .filter(|slot| slot.state == MaterialState::Failed)
+            .map(|slot| FailedSlotDiagnostic {
+                key: slot.slot_id.node.key.clone(),
+                owner: slot.owner_resource_id.clone(),
+                scope_key: slot.slot_id.scope_key.clone(),
+                error: "MRG slot Failed".to_string(),
+            })
+            .collect();
     }
 
     if wants("build") {
         report.build = collect_build_diagnostics(source_root, app_root.as_path(), app_id);
+        report.prebuild_plan = PrebuildPlanSection {
+            plan_source: report.build.report_path.as_ref().and_then(|_| None),
+            dirty_slot_count: None,
+            mrg_eval_skips: report.build.mrg_eval_skips,
+        };
+        if let Ok(Some(manifest)) = mei_lang_kernel::resolve_runtime_warmup_manifest(source_root) {
+            if manifest.apps.iter().any(|app| app.app_id == app_id) {
+                let frontier = crate::prebuild::build_mrg_eval_frontier(
+                    source_root,
+                    app_id,
+                    crate::prebuild::PrebuildScopeProfile::HotOnly,
+                );
+                report.prebuild_plan.plan_source = Some(frontier.plan_source.to_string());
+                report.prebuild_plan.dirty_slot_count = Some(frontier.dirty_slot_count);
+            }
+        }
     }
 
     if wants("reachability") {
-        let reachability =
-            crate::readiness::reachability::check_reachability(source_root, None);
+        let reachability = if scene_id.is_some() || target_file.is_some() {
+            crate::graph::run_scope_gate_check(
+                source_root,
+                app_id,
+                scene_id,
+                target_file,
+            )
+        } else {
+            crate::readiness::reachability::check_reachability(source_root, None).scope_gate
+        };
         report.reachability = serde_json::to_value(reachability).ok();
     }
 

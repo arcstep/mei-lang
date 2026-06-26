@@ -37,8 +37,10 @@ use super::query::{
     presentation_sanitized_redirect_location, AppQuery,
 };
 
-use crate::http::compile_cache::load_compile_artifact_only;
-use crate::http::compile_cache::CompileWithCacheOutcome;
+use crate::http::compile_cache::{
+    compile_outcome_from_shared, resolve_runtime_compile_shared, RuntimeAccessPolicies,
+    CompileWithCacheOutcome,
+};
 
 use access_gate::check_access_scene_gate;
 use catalog_redirect::try_catalog_redirect;
@@ -211,7 +213,7 @@ pub async fn app_page(
         if let Some(ref target) = normalized_preview_target {
             if target.ends_with(".board.mei") {
                 let probe_components_root = resolve_components_root(&state.source_root);
-                if let Some(outcome) = load_compile_artifact_only(
+                if let Ok(Some(resolution)) = resolve_runtime_compile_shared(
                     &state,
                     &app_id,
                     &CompileOptions {
@@ -219,7 +221,10 @@ pub async fn app_page(
                         preview_target: None,
                     },
                     probe_components_root.as_path(),
+                    RuntimeAccessPolicies::default_for_access_host(),
+                    UiRouteMode::Build,
                 ) {
+                    let outcome = compile_outcome_from_shared(resolution.outcome);
                     let exports = outcome
                         .compiled
                         .build_board_index

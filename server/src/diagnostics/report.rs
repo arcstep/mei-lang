@@ -3,6 +3,46 @@ use serde::{Deserialize, Serialize};
 pub const LAST_BUILD_SUMMARY_REL: &str = "prebuild/last-build-summary.json";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ContentStoreDiagnosticsSection {
+    pub bytes: u64,
+    #[serde(rename = "filesByKind")]
+    pub files_by_kind: std::collections::BTreeMap<String, usize>,
+    #[serde(rename = "orphanCount", default)]
+    pub orphan_count: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FailedSlotDiagnostic {
+    pub key: String,
+    pub owner: String,
+    #[serde(rename = "scopeKey")]
+    pub scope_key: String,
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ScopeGateSweepSection {
+    #[serde(rename = "l2Miss")]
+    pub l2_miss: usize,
+    #[serde(rename = "l3Fail")]
+    pub l3_fail: usize,
+    #[serde(rename = "l4Stale")]
+    pub l4_stale: usize,
+    #[serde(default, rename = "degradedScopes", skip_serializing_if = "Vec::is_empty")]
+    pub degraded_scopes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PrebuildPlanSection {
+    #[serde(rename = "planSource", skip_serializing_if = "Option::is_none")]
+    pub plan_source: Option<String>,
+    #[serde(rename = "dirtySlotCount", skip_serializing_if = "Option::is_none")]
+    pub dirty_slot_count: Option<usize>,
+    #[serde(rename = "mrgEvalSkips", skip_serializing_if = "Option::is_none")]
+    pub mrg_eval_skips: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MaterializationDiagnosticsReport {
     #[serde(rename = "appId")]
     pub app_id: String,
@@ -13,6 +53,14 @@ pub struct MaterializationDiagnosticsReport {
     pub mrg: MrgDiagnosticsSection,
     pub cache: CacheDiagnosticsSection,
     pub build: BuildDiagnosticsSection,
+    #[serde(default)]
+    pub content_store: ContentStoreDiagnosticsSection,
+    #[serde(default, rename = "scopeGateSweep")]
+    pub scope_gate_sweep: ScopeGateSweepSection,
+    #[serde(default, rename = "prebuildPlan")]
+    pub prebuild_plan: PrebuildPlanSection,
+    #[serde(default, rename = "failedSlots", skip_serializing_if = "Vec::is_empty")]
+    pub failed_slots: Vec<FailedSlotDiagnostic>,
     pub alerts: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reachability: Option<serde_json::Value>,
@@ -100,6 +148,10 @@ pub struct CacheDiagnosticsSection {
     pub canonical_artifact_persist: bool,
     #[serde(rename = "graphRegistryDedup")]
     pub graph_registry_dedup: bool,
+    #[serde(rename = "lockedOn", default)]
+    pub locked_on: bool,
+    #[serde(default, rename = "envOverrides", skip_serializing_if = "Vec::is_empty")]
+    pub env_overrides: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

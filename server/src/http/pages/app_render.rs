@@ -85,7 +85,7 @@ pub(crate) fn choose_default_app<'a>(
             }
             tracing::warn!(
                 app_id = %app.id,
-                "configured workspace.defaultApp has no prebuilt default-scope artifact"
+                "configured workspace.defaultApp default-scope scope gate not ready (L2+L3)"
             );
         } else {
             tracing::warn!(
@@ -100,13 +100,13 @@ pub(crate) fn choose_default_app<'a>(
         }
         tracing::warn!(
             app_id = %app.id,
-            "skip app without prebuilt default-scope artifact as landing target"
+            "skip app without default-scope scope gate ready as landing target"
         );
     }
     None
 }
 
-/// `serve` 启动门禁：landing 目标 app 必须有 prebuild 写入的 default-scope manifest。
+/// `serve` 启动门禁：landing 目标 app 的 default-scope scope gate（L2+L3）必须 ready。
 pub(crate) fn prepare_landing_artifacts_for_serve(source_root: &Path) -> Result<()> {
     let apps = discover_apps(source_root)
         .with_context(|| format!("discover apps under `{}`", source_root.display()))?;
@@ -127,12 +127,12 @@ pub(crate) fn prepare_landing_artifacts_for_serve(source_root: &Path) -> Result<
         tracing::info!(
             app_id = %app.id,
             default_app = preferred.unwrap_or("(auto)"),
-            "host landing gate passed: default-scope compiled_app manifest is present"
+            "host landing gate passed: default-scope scope gate ready (L2 navigation + L3 MCG assemble)"
         );
         return Ok(());
     }
     let mut lines = vec![
-        "host landing gate failed: no app has a prebuilt default-scope compiled_app manifest."
+        "host landing gate failed: no app has default-scope scope gate ready (L2+L3)."
             .to_string(),
         format!("source-root: {}", source_root.display()),
     ];
@@ -150,12 +150,17 @@ pub(crate) fn prepare_landing_artifacts_for_serve(source_root: &Path) -> Result<
     lines.push(String::new());
     lines.push("Run prebuild before serve (host HTTP paths do not compile):".to_string());
     lines.push(format!(
-        "  mei-toolchain host prebuild --source-root {}",
+        "  {}/deploy/prebuild.sh",
+        source_root.display()
+    ));
+    lines.push("Or with cargo toolchain (dev checkout):".to_string());
+    lines.push(format!(
+        "  {}/deploy/prebuild.sh --toolchain-mode cargo --json",
         source_root.display()
     ));
     lines.push("Or verify existing artifacts:".to_string());
     lines.push(format!(
-        "  mei-toolchain host prebuild --verify --source-root {}",
+        "  {}/deploy/prebuild.sh --verify --json",
         source_root.display()
     ));
     anyhow::bail!("{}", lines.join("\n"))

@@ -7,8 +7,14 @@ pub(crate) fn registry_snapshot_with_scope_gate(
     let mut response = registry_snapshot();
     if let Some(root) = source_root {
         let reachability = crate::readiness::reachability::check_reachability(root, None);
-        response.access_ready = reachability.access_ready;
         response.scope_gate = Some(reachability.scope_gate);
+        if !response.artifacts_ready {
+            response.access_ready = false;
+        } else if !response.scope_gate_ready {
+            response.access_ready = false;
+        } else {
+            response.access_ready = response.artifacts_ready && response.scope_gate_ready;
+        }
     }
     response
 }
@@ -41,6 +47,8 @@ pub(crate) fn registry_snapshot() -> HostReadyResponse {
         startup_artifact_dir: snapshot.startup_artifact_dir.clone(),
         host_started_at_ms,
         host_ready: snapshot.host_bound,
+        artifacts_ready: snapshot.artifacts_ready,
+        scope_gate_ready: snapshot.scope_gate_ready,
         access_ready: snapshot.access_ready,
         full_warmup_ready: snapshot.full_warmup_ready,
         deferred_warmup_pending: snapshot.deferred_warmup_pending,
@@ -75,6 +83,7 @@ pub(crate) fn registry_snapshot() -> HostReadyResponse {
         error_summary: snapshot.error_summary,
         apps,
         scope_gate: None,
+        gate_summary: snapshot.gate_summary,
     }
 }
 
@@ -97,6 +106,9 @@ pub(crate) fn reset_registry_for_source_root(source_root: &Path) {
         *registry = HostReadinessRegistry {
             host_bound: false,
             host_started_at_ms: startup_run::current_started_at_ms(),
+            artifacts_ready: false,
+            scope_gate_ready: false,
+            gate_summary: None,
             access_ready: false,
             full_warmup_ready: false,
             deferred_warmup_pending: false,

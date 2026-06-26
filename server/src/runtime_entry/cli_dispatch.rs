@@ -14,6 +14,8 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
             Command::Workspace(_) => "workspace",
             Command::Knowledge(_) => "knowledge",
             Command::EditorRuntime(_) => "editor-runtime",
+            Command::Graph(_) => "graph",
+            Command::Scope(_) => "scope",
             Command::Prebuild(_) => "prebuild",
             Command::Readiness(_) => "readiness",
             Command::Diagnostics(_) => "diagnostics",
@@ -38,6 +40,8 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
             Command::Workspace(_)
                 | Command::Knowledge(_)
                 | Command::EditorRuntime(_)
+                | Command::Graph(_)
+                | Command::Scope(_)
                 | Command::Prebuild(_)
                 | Command::Readiness(_)
                 | Command::Diagnostics(_)
@@ -78,6 +82,8 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
         Command::Workspace(_) => "workspace",
         Command::Knowledge(_) => "knowledge",
         Command::EditorRuntime(_) => "editor-runtime",
+        Command::Graph(_) => "graph",
+        Command::Scope(_) => "scope",
         Command::Prebuild(_) => "prebuild",
         Command::Readiness(_) => "readiness",
         Command::Diagnostics(_) => "diagnostics",
@@ -140,6 +146,8 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
         Command::Workspace(args) => workspace_command(args),
         Command::Knowledge(args) => knowledge_command(args),
         Command::EditorRuntime(args) => editor_runtime_command(args),
+        Command::Graph(args) => graph_command(args),
+        Command::Scope(args) => scope_command(args),
         Command::Prebuild(args) => prebuild_command(args),
         Command::Readiness(args) => readiness_command(args),
         Command::Diagnostics(args) => diagnostics_command(args),

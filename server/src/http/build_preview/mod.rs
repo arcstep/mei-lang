@@ -7,8 +7,11 @@ use mei_lang_kernel::{
 };
 use std::path::Path;
 
-use crate::http::compile_cache::load_compile_artifact_only;
+use crate::http::compile_cache::{
+    resolve_runtime_compile_shared, RuntimeAccessPolicies,
+};
 use crate::AppState;
+use mei_lang_app::UiRouteMode;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct BuildNodeCompileHints {
@@ -25,7 +28,7 @@ pub(crate) fn resolve_build_node_compile_hints(
     let mut scene_hint = compile_scene_from_build_node(node);
     let mut preview_target = preview_target_from_build_node(node);
     if scene_hint.is_none() || preview_target.is_none() {
-        if let Some(probe) = load_compile_artifact_only(
+        if let Ok(Some(resolution)) = resolve_runtime_compile_shared(
             state,
             app_id,
             &CompileOptions {
@@ -33,7 +36,10 @@ pub(crate) fn resolve_build_node_compile_hints(
                 preview_target: None,
             },
             components_root,
+            RuntimeAccessPolicies::default_for_access_host(),
+            UiRouteMode::Build,
         ) {
+            let probe = crate::http::compile_cache::compile_outcome_from_shared(resolution.outcome);
             if scene_hint.is_none() {
                 scene_hint = compile_scene_from_build_node_with_app(node, Some(&probe.compiled));
             }

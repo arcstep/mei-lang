@@ -19,7 +19,8 @@ pub(crate) use prebuild_startup::*;
 pub(crate) use scoped_build::*;
 
 pub(crate) use handlers::{
-    api_host_build, api_host_diagnostics, api_host_heartbeat, api_host_readiness, api_host_ready,
+    api_host_build, api_host_diagnostics, api_host_graph_doctor, api_host_graph_status,
+    api_host_heartbeat, api_host_readiness, api_host_ready,
 };
 pub(crate) use types::{
     ArtifactGateStatus, HostAppReadinessResponse, HostBuildRequest, HostReadyResponse,

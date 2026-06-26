@@ -28,7 +28,6 @@ use mei_lang_kernel::resolve_app_root;
 use super::execute::execute_metric_query_group;
 use super::helpers::{
     merge_metric_query_groups, normalize_metric_query_groups, project_metric_group_response,
-    requested_metric_ids_label,
 };
 use super::types::*;
 
@@ -99,21 +98,15 @@ pub async fn dataset_metric_api(
             .map(|group| group.dataset_id.clone())
             .unwrap_or_else(|| "-".to_string())
     };
-    let requested_metric_ids = if request_group_count > 1 {
-        format!("batch_groups={request_group_count}")
-    } else {
-        request_groups
-            .first()
-            .map(|group| requested_metric_ids_label(&group.metric_ids))
-            .unwrap_or_else(|| "-".to_string())
-    };
+    let metric_count: usize = request_groups.iter().map(|g| g.metric_ids.len()).sum();
     let request_span = tracing::info_span!(
         "dataset_metric_api",
         app_id = %app_id,
         scene_id = %requested_scene_id,
         target = %requested_target,
         dataset_id = %requested_dataset_id,
-        metric_ids = %requested_metric_ids
+        metric_count,
+        metric_group_count = request_group_count
     );
     let _request_span_guard = request_span.enter();
     tracing::info!(
@@ -171,7 +164,7 @@ pub async fn dataset_metric_api(
             scene_id = %requested_scene_id,
             target = %requested_target,
             dataset_id = %requested_dataset_id,
-            metric_ids = %requested_metric_ids,
+            metric_count,
             phase = "artifact_only_miss",
             "metric query rejected because host requires prebuilt artifacts"
         );

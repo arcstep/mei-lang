@@ -117,18 +117,6 @@ fn env_ascii(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-pub(crate) fn load_compile_artifact_only(
-    state: &AppState,
-    app_id: &str,
-    options: &CompileOptions,
-    components_root: &std::path::Path,
-) -> Option<CompileWithCacheOutcome> {
-    toolchain::load_compile_artifact_only(&state.source_root, app_id, options, components_root)
-}
-
-/// Build preview targets such as stock authoring examples are outside app scene routes;
-/// artifact-first loads may patch `active_target_file` on a parent scope without updating
-/// `scene_contract`. Those previews must run a scoped compile.
 pub(crate) fn build_preview_target_requires_scoped_compile(
     compiled: &CompiledApp,
     preview_target: &str,
@@ -226,25 +214,11 @@ pub(crate) fn compile_app_with_cache(
     Ok(outcome)
 }
 
-pub(crate) fn load_compile_artifact_only_shared(
-    state: &AppState,
-    app_id: &str,
-    options: &CompileOptions,
-    components_root: &std::path::Path,
-) -> Option<toolchain::CompileWithCacheOutcomeShared> {
-    toolchain::load_compile_artifact_only_shared(
-        &state.source_root,
-        app_id,
-        options,
-        components_root,
-    )
-}
-
 pub(crate) fn resolve_runtime_compile_shared(
     state: &AppState,
     app_id: &str,
     options: &CompileOptions,
-    components_root: &std::path::Path,
+    _components_root: &std::path::Path,
     access_policies: RuntimeAccessPolicies,
     route_mode: UiRouteMode,
 ) -> Result<Option<RuntimeCompileResolution>, toolchain::CompileWithCacheFailure> {
@@ -311,44 +285,6 @@ pub(crate) fn resolve_runtime_compile_shared(
                 artifact_backfilled: false,
             }));
         }
-    }
-    if let Some(outcome) =
-        load_compile_artifact_only_shared(state, app_id, options, components_root)
-    {
-        let mut compiled = (*outcome.compiled).clone();
-        if compiled.world_metrics.is_empty() {
-            if let Some(target) = options
-                .preview_target
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                crate::graph::hydrate_world_metrics_from_scene_payload(
-                    state.source_root.as_path(),
-                    app_id,
-                    target,
-                    &mut compiled,
-                );
-            }
-        }
-        return Ok(Some(RuntimeCompileResolution {
-            outcome: toolchain::CompileWithCacheOutcomeShared {
-                compiled: Arc::new(compiled),
-                cache_hit: outcome.cache_hit,
-                artifact_cache_hit: outcome.artifact_cache_hit,
-                compile_revision: outcome.compile_revision,
-                revision_scope: outcome.revision_scope,
-                cache_validation: outcome.cache_validation,
-                cache_lookup_ms: outcome.cache_lookup_ms,
-                artifact_load_ms: outcome.artifact_load_ms,
-                compile_cache_lock_wait_ms: outcome.compile_cache_lock_wait_ms,
-                compile_ms: outcome.compile_ms,
-            },
-            policy,
-            access_policies,
-            correctness_fallback: false,
-            artifact_backfilled: false,
-        }));
     }
     Ok(None)
 }

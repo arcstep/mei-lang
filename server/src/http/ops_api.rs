@@ -17,7 +17,9 @@ use mei_lang_kernel::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::compile_cache::load_compile_artifact_only;
+use super::compile_cache::{
+    compile_outcome_from_shared, resolve_runtime_compile_shared, RuntimeAccessPolicies,
+};
 use crate::http::pages::clear_page_render_cache;
 use crate::{auth::AuthPrincipal, AppState};
 
@@ -219,12 +221,15 @@ pub async fn ops_theme_style_get(
     };
     let components_root = resolve_components_root(&state.source_root);
     let (css_vars_style, theme_id) =
-        if let Some(outcome) = load_compile_artifact_only(
+        if let Ok(Some(resolution)) = resolve_runtime_compile_shared(
             &state,
             &app_id,
             &compile_options,
             components_root.as_path(),
+            RuntimeAccessPolicies::default_for_access_host(),
+            mei_lang_app::UiRouteMode::App,
         ) {
+            let outcome = compile_outcome_from_shared(resolution.outcome);
             let theme_id = outcome
                 .compiled
                 .scene_contract

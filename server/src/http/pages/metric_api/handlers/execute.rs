@@ -4,7 +4,7 @@ use crate::http::pages::scene_qualified::locate_dataset_resource;
 use crate::http::pages::util::elapsed_ms;
 use crate::http::observation::EvalObservation;
 use crate::AppError;
-use mei_lang_datasets::{collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics_from_plan, load_metric_response_result_artifact, load_prebuild_metric_response_artifact_dataset_fallback, metric_response_artifact_lookup_cache_keys, metric_response_cache_scope_key, plan_access_metric_eval_for_ids, populate_l1_from_loaded_metric_artifact, project_requested_metrics, run_metric_response_artifact_load_singleflight, store_cached_metric_response_aliases, store_metric_response_result_artifact, take_cached_metric_response, take_metric_response_index_stats, runtime_metric_workset, RuntimeMetricEvalMode};
+use mei_lang_datasets::{collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics_from_plan, load_metric_response_result_artifact, metric_response_artifact_lookup_cache_keys, metric_response_cache_scope_key, plan_access_metric_eval_for_ids, populate_l1_from_loaded_metric_artifact, project_requested_metrics, run_metric_response_artifact_load_singleflight, store_cached_metric_response_aliases, store_metric_response_result_artifact, take_cached_metric_response, runtime_metric_workset, RuntimeMetricEvalMode};
 use super::helpers::{requested_metric_ids_label, write_runtime_policy_perf};
 use super::types::*;
 
@@ -221,7 +221,6 @@ pub(super) fn execute_metric_query_group(
     }
     if result_artifact_candidate {
         let mut loaded_artifact = None;
-        let mut used_fallback = false;
         for cache_key in &lookup_cache_keys {
             if let Some((artifact, artifact_load_ms)) =
                 load_metric_response_result_artifact(ctx.app_root, cache_key)?
@@ -240,22 +239,9 @@ pub(super) fn execute_metric_query_group(
             }
         }
         if loaded_artifact.is_none() {
-            if let Some((cache_key, artifact, artifact_load_ms)) =
-                load_prebuild_metric_response_artifact_dataset_fallback(
-                    ctx.app_root,
-                    ctx.app_id,
-                    access_plan.owner.id.as_str(),
-                    &query,
-                    &requested_eval_metric_ids,
-                    request_all_metrics,
-                )?
-            {
-                used_fallback = true;
-                loaded_artifact = Some((cache_key, artifact, artifact_load_ms));
-            }
+            // Strict AOT: no index/dataset fallback; MRG slot + direct artifact load only.
         }
         if let Some((hit_cache_key, artifact, artifact_load_ms)) = loaded_artifact {
-            let index_stats = take_metric_response_index_stats();
             populate_l1_from_loaded_metric_artifact(&lookup_cache_keys, &artifact);
             let mut perf = BTreeMap::new();
             ctx.compile_observation.write_perf(&mut perf);
@@ -269,18 +255,6 @@ pub(super) fn execute_metric_query_group(
             perf.insert("response_cache_populated".to_string(), 1);
             perf.insert("result_artifact_hit".to_string(), 1);
             perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
-            perf.insert(
-                "result_artifact_index_load_ms".to_string(),
-                index_stats.load_ms,
-            );
-            perf.insert(
-                "result_artifact_index_entry_count".to_string(),
-                index_stats.entry_count as u64,
-            );
-            perf.insert(
-                "result_artifact_fallback_hit".to_string(),
-                u64::from(used_fallback),
-            );
             let mut eval_observation = EvalObservation::new(false)
                 .with_response_cache_key_hash(hash_metric_response_cache_key(&hit_cache_key));
             eval_observation.insert_counter("request_dag_observed", 0);
@@ -424,7 +398,6 @@ pub(super) fn execute_metric_query_group(
         "eval_artifact_hit".to_string(),
         u64::from(eval_outcome.eval_artifact_hit),
     );
-    perf.insert("compat_compiled_metric_snapshot_fallback".to_string(), 0);
     for (key, value) in eval_outcome.hydrate_perf {
         perf.insert(key, value);
     }

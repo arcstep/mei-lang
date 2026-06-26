@@ -242,7 +242,9 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
     if normalized_scene.is_empty() {
         return None;
     }
-    let canonical = format!("scenes/{normalized_scene}.mei");
+    let canonical = mei_lang_kernel::canonical_app_source_rel_path(&format!(
+        "scenes/{normalized_scene}.mei"
+    ));
     let snapshot = registry_snapshot();
     let Some(app) = snapshot.apps.iter().find(|app| app.app_id == app_id) else {
         return Some(canonical);
@@ -272,13 +274,17 @@ pub(crate) fn access_scene_target_hint(app_id: &str, scene_id: &str) -> Option<S
     }
     candidates.sort();
     candidates.dedup();
-    if let Some(hit) = candidates.iter().find(|target| target.as_str() == canonical) {
+    if let Some(hit) = candidates.iter().find(|target| {
+        target.as_str() == canonical
+            || mei_lang_kernel::canonical_app_source_rel_path(target.as_str()) == canonical
+    }) {
         return Some(hit.clone());
     }
     candidates.into_iter().min_by_key(|target| {
         let cross_capsule_penalty = usize::from(
-            target.starts_with("scenes/")
+            (target.starts_with("scenes/") || target.starts_with("src/scenes/"))
                 && target
+                    .trim_start_matches("src/")
                     .strip_prefix("scenes/")
                     .and_then(|rest| rest.chars().next())
                     .is_some_and(|ch| ch.is_ascii_digit()),

@@ -66,6 +66,8 @@ fn build_warmup_root(source_root: &Path, app_id: &str) -> ReachabilityTreeRoot {
         source_root,
         app_id,
         &["build".to_string(), "mrg".to_string()],
+        None,
+        None,
     );
     let mut children = Vec::new();
     if report.mrg.slot_count > 0 {
@@ -113,6 +115,8 @@ fn build_l1_root(source_root: &Path, app_id: &str) -> ReachabilityTreeRoot {
         source_root,
         app_id,
         &["cache".to_string(), "eval".to_string(), "build".to_string()],
+        None,
+        None,
     );
     let children = vec![
         summary_node(
@@ -147,7 +151,7 @@ fn build_l1_root(source_root: &Path, app_id: &str) -> ReachabilityTreeRoot {
 }
 
 fn build_logs_root(source_root: &Path, app_id: &str) -> ReachabilityTreeRoot {
-    let report = collect_materialization_diagnostics(source_root, app_id, &[]);
+    let report = collect_materialization_diagnostics(source_root, app_id, &[], None, None);
     let mut children: Vec<ReachabilityTreeNode> = report
         .alerts
         .into_iter()
