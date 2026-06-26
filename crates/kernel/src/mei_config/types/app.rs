@@ -1,5 +1,4 @@
-use super::workspace::{WorkspaceAuthConfig, WorkspaceConfig, WorkspaceHostState};
-use super::paths::DEFAULT_APP_ENTRY_MAIN;
+use super::workspace::WorkspaceAuthConfig;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -8,6 +7,8 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use super::paths::DEFAULT_APP_ENTRY_MAIN;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 /// app 根目录 `.mei-config.json`：入口、路径、宿主能力与 ops。
@@ -336,40 +337,5 @@ impl MeiConfig {
             || self.runtime.file_cache.max_file_mb.is_some()
             || self.runtime.file_cache.max_entries.is_some()
             || self.runtime.file_cache.max_total_mb.is_some()
-    }
-}
-
-impl WorkspaceConfig {
-    pub fn load_from_path(path: &Path) -> Result<Self> {
-        let raw = fs::read_to_string(path)
-            .with_context(|| format!("failed to read workspace config {}", path.display()))?;
-        serde_json::from_str(&raw)
-            .with_context(|| format!("failed to parse workspace config {}", path.display()))
-    }
-
-    pub fn load_or_default(path: &Path) -> Self {
-        Self::load_from_path(path).unwrap_or_default()
-    }
-
-    pub fn discover_skip_directories(&self) -> Vec<String> {
-        self.discover
-            .skip_directories
-            .iter()
-            .map(|d| d.trim().trim_matches('/').replace('\\', "/"))
-            .filter(|d| !d.is_empty() && !d.contains('/'))
-            .collect()
-    }
-}
-
-impl WorkspaceHostState {
-    pub fn load_from_path(path: &Path) -> Result<Self> {
-        let raw = fs::read_to_string(path)
-            .with_context(|| format!("failed to read workspace host state {}", path.display()))?;
-        serde_json::from_str(&raw)
-            .with_context(|| format!("failed to parse workspace host state {}", path.display()))
-    }
-
-    pub fn load_or_default(path: &Path) -> Self {
-        Self::load_from_path(path).unwrap_or_default()
     }
 }

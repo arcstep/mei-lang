@@ -6,7 +6,6 @@ use crate::model::{
     LayoutDecl, PanelDecl, PanelSlotDecl, UiNodeDecl,
 };
 
-
 pub(super) fn collect_top_level_layout_areas(layout: &Value) -> BTreeSet<String> {
     let mut allowed = BTreeSet::new();
     let Some(areas) = layout.get("areas").and_then(Value::as_array) else {

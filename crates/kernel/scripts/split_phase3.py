@@ -83,6 +83,45 @@ SPLIT_JOBS: List[SplitJob] = [
         PartSpec("types", 1, 55), PartSpec("core", 56, 209),
         PartSpec("stock", 210, 413),
     ], extra_super_depth=0, reexport="pub"),
+    # Phase 7 production splits
+    SplitJob("model/build_node.rs", [
+        PartSpec("id", 1, 245),
+        PartSpec("view_tabs", 247, 350),
+        PartSpec("query", 352, 567),
+    ], extra_super_depth=0, reexport="pub"),
+    SplitJob("workspace.rs", [
+        PartSpec("discover", 1, 145),
+        PartSpec("source_tree", 147, 330),
+        PartSpec("components", 332, 467),
+    ], extra_super_depth=0, reexport="pub"),
+    SplitJob("mei_config/build_store.rs", [
+        PartSpec("types", 1, 108),
+        PartSpec("paths", 110, 250),
+        PartSpec("lifecycle", 252, 410),
+        PartSpec("migrate", 412, 541),
+    ], extra_super_depth=0, reexport="pub"),
+    SplitJob("compile/load_external.rs", [
+        PartSpec("decl_helpers", 1, 105),
+        PartSpec("world", 107, 254),
+        PartSpec("scene", 256, 413),
+        PartSpec("resources", 415, 547),
+    ], extra_super_depth=1, reexport="pub(super)"),
+    SplitJob("compile/materialize/world_metrics.rs", [
+        PartSpec("ids", 1, 195),
+        PartSpec("resource", 197, 293),
+        PartSpec("evaluate", 295, 419),
+    ], extra_super_depth=1, reexport="pub(super)"),
+    SplitJob("compile/analysis/eval_context.rs", [
+        PartSpec("scope", 12, 65),
+        PartSpec("cache", 67, 231),
+        PartSpec("context", 233, 418),
+    ], extra_super_depth=1, reexport="pub(super)"),
+    SplitJob("compile/materialize/analysis_graph/expand.rs", [
+        PartSpec("hoist", 8, 348),
+        PartSpec("rowset", 350, 476),
+        PartSpec("scope", 478, 582),
+        PartSpec("helpers", 584, 623),
+    ], extra_super_depth=2, reexport="pub(super)"),
 ]
 
 

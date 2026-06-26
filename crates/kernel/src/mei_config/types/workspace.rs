@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -233,6 +236,26 @@ impl WorkspaceConfig {
             .map(str::trim)
             .filter(|value| !value.is_empty())
     }
+
+    pub fn load_from_path(path: &Path) -> Result<Self> {
+        let raw = fs::read_to_string(path)
+            .with_context(|| format!("failed to read workspace config {}", path.display()))?;
+        serde_json::from_str(&raw)
+            .with_context(|| format!("failed to parse workspace config {}", path.display()))
+    }
+
+    pub fn load_or_default(path: &Path) -> Self {
+        Self::load_from_path(path).unwrap_or_default()
+    }
+
+    pub fn discover_skip_directories(&self) -> Vec<String> {
+        self.discover
+            .skip_directories
+            .iter()
+            .map(|d| d.trim().trim_matches('/').replace('\\', "/"))
+            .filter(|d| !d.is_empty() && !d.contains('/'))
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -410,18 +433,8 @@ pub struct WorkspaceAuthConfig {
 impl WorkspaceAuthConfig {
     pub fn is_empty(&self) -> bool {
         self.users.is_empty()
-            && self
-                .jwt_secret
-                .as_deref()
-                .map(str::trim)
-                .unwrap_or("")
-                .is_empty()
-            && self
-                .cookie_name
-                .as_deref()
-                .map(str::trim)
-                .unwrap_or("")
-                .is_empty()
+            && self.jwt_secret.as_deref().unwrap_or("").trim().is_empty()
+            && self.cookie_name.as_deref().unwrap_or("").trim().is_empty()
             && self.jwt_ttl_seconds.is_none()
             && self.key_pair.public_key_pem.trim().is_empty()
             && self.key_pair.private_key_pem.trim().is_empty()
@@ -436,6 +449,19 @@ pub struct WorkspaceHostState {
     pub host_id: Option<String>,
     #[serde(default, skip_serializing_if = "WorkspaceAuthConfig::is_empty")]
     pub auth: WorkspaceAuthConfig,
+}
+
+impl WorkspaceHostState {
+    pub fn load_from_path(path: &Path) -> Result<Self> {
+        let raw = fs::read_to_string(path)
+            .with_context(|| format!("failed to read workspace host state {}", path.display()))?;
+        serde_json::from_str(&raw)
+            .with_context(|| format!("failed to parse workspace host state {}", path.display()))
+    }
+
+    pub fn load_or_default(path: &Path) -> Self {
+        Self::load_from_path(path).unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
