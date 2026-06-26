@@ -862,7 +862,7 @@
 
 ;
 
-/* ===== manage-ops-panel.js ===== */
+/* ===== manage-ops-panel/p1.js ===== */
 (function initManageOpsPanel() {
   const OPS_CONFIG_TARGET = ".mei-config.json";
   let summaryRoot = null;
@@ -1208,6 +1208,10 @@
 
   function renderParamRows() {
     if (!state.paramRows.length) {
+
+;
+
+/* ===== manage-ops-panel/p2.js ===== */
       return '<div class="manage-ops-empty-state">暂无运行参数，点击“新增参数”创建。</div>';
     }
     return state.paramRows
@@ -1553,6 +1557,10 @@
 
   function syncJsonDraftsFromDom() {
     if (!editorRoot) return;
+
+;
+
+/* ===== manage-ops-panel/p3.js ===== */
     const basemapsEl = editorRoot.querySelector('[data-ops-json="basemaps"]');
     const themesEl = editorRoot.querySelector('[data-ops-json="themes"]');
     const rawEl = editorRoot.querySelector('[data-ops-json="raw"]');

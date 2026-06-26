@@ -1190,7 +1190,7 @@
 
 ;
 
-/* ===== upload-upload-panel.js ===== */
+/* ===== upload-upload-panel/p1.js ===== */
 (function initUploadPanel() {
   const root = document.getElementById("upload-panel-root");
   if (!root) return;
@@ -1590,6 +1590,10 @@
           item.status === "done"
             ? "完成"
             : item.status === "error"
+
+;
+
+/* ===== upload-upload-panel/p2.js ===== */
               ? "失败"
               : item.status === "uploading"
                 ? "上传中"

@@ -984,7 +984,7 @@
 
 ;
 
-/* ===== frame-stage/viewport.js ===== */
+/* ===== frame-stage/viewport/p1.js ===== */
   function queueUpdateViewport(root) {
     if (viewportUpdateQueued.get(root)) return;
     viewportUpdateQueued.set(root, true);
@@ -1332,6 +1332,10 @@
 
   function measureStageContentSize(
     stage,
+
+;
+
+/* ===== frame-stage/viewport/p2.js ===== */
     canvasWidth,
     designHeight,
     fluidHeight,
@@ -1679,6 +1683,10 @@
           leftPad,
           rightPad,
         });
+
+;
+
+/* ===== frame-stage/viewport/p3.js ===== */
       }
     });
     return hits;
@@ -5354,7 +5362,7 @@
 
 ;
 
-/* ===== agent-panel-context.js ===== */
+/* ===== agent-panel-context/p1.js ===== */
 /**
  * 上下文预览 API 查询、资源 inventory 展示、模型探测。由 agent-panel 主文件装配 `CTX`。
  */
@@ -5642,6 +5650,10 @@
               .join("\n"),
         );
       }
+
+;
+
+/* ===== agent-panel-context/p2.js ===== */
       return parts.join("\n\n");
     }
 
@@ -5932,7 +5944,7 @@
 
 ;
 
-/* ===== agent-panel-chrome.js ===== */
+/* ===== agent-panel-chrome/p1.js ===== */
 /**
  * 状态栏、配置行、进度、模型选择、Markdown 与发送态。由 agent-panel 主文件装配 `CHR`。
  */
@@ -6251,6 +6263,10 @@
       span.style.cssText = "position:absolute;left:-9999px;top:0;white-space:nowrap;visibility:hidden;pointer-events:none;";
       document.body.appendChild(span);
       api.state._completionModelMeasure = span;
+
+;
+
+/* ===== agent-panel-chrome/p2.js ===== */
     }
     var measure = api.state._completionModelMeasure;
     var cs = window.getComputedStyle(sel);
@@ -6878,7 +6894,7 @@
 
 ;
 
-/* ===== agent-panel-messages.js ===== */
+/* ===== agent-panel-messages/p1.js ===== */
 /**
  * 会话列表缓存、消息渲染、权限提示与 Prompt 发送链。由 agent-panel 主文件装配 `MSG`。
  */
@@ -7323,6 +7339,10 @@
     });
     api.setSessionRevertedFlag(sid, false);
     api.setRevertedIdsForSession(sid, []);
+
+;
+
+/* ===== agent-panel-messages/p2.js ===== */
     Object.keys(state.messageMeta).forEach(function (key) {
       if (key.startsWith(sid + "::")) {
         state.messageMeta[key] = Object.assign({}, state.messageMeta[key], {
@@ -7767,6 +7787,10 @@
     } catch (error) {
       refreshFailed = true;
       state.health = null;
+
+;
+
+/* ===== agent-panel-messages/p3.js ===== */
       state.sessions = [];
       state.skillStatus = null;
       if (error && error.agentBlocked) {
@@ -8967,7 +8991,7 @@
 
 ;
 
-/* ===== agent-panel.js ===== */
+/* ===== agent-panel/p1.js ===== */
 (function () {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
   if (typeof boot.disposeAgentPanel === "function") {
@@ -9314,6 +9338,10 @@
             return;
           }
           $U.unblockAgentRequests();
+
+;
+
+/* ===== agent-panel/p2.js ===== */
           return MSG.refreshAll();
         })
         .catch(function (error) {
@@ -14515,7 +14543,7 @@
 
 ;
 
-/* ===== spa-navigation/drilldown/widget-mount.js ===== */
+/* ===== spa-navigation/drilldown/widget-mount/p1.js ===== */
   function resolveDrilldownChartSlotCaption(config) {
     const explicit = nonEmptyString(config?.title, config?.label);
     if (explicit) return explicit;
@@ -14783,6 +14811,10 @@
     const host =
       hostOverride instanceof HTMLElement
         ? hostOverride
+
+;
+
+/* ===== spa-navigation/drilldown/widget-mount/p2.js ===== */
         : root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
       return false;
@@ -15281,7 +15313,7 @@
 
 ;
 
-/* ===== spa-navigation/drilldown/swimlane-preview.js ===== */
+/* ===== spa-navigation/drilldown/swimlane-preview/p1.js ===== */
   function resolveListPreviewMapping(config) {
     const slot = config?.rowPreviewSlot || config?.previewSlot || {};
     const mapping = slot?.mapping;
@@ -15625,6 +15657,10 @@
     pills.className = "access-drilldown-typical-case-status-pills";
     flags.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
+
+;
+
+/* ===== spa-navigation/drilldown/swimlane-preview/p2.js ===== */
       const field = String(spec?.field || "").trim();
       if (!label || !field) return;
       const active = isTruthyFlag(row?.[field]);
@@ -15968,6 +16004,10 @@
     title.className = "access-drilldown-swimlane-title";
     title.textContent = resolveListPreviewTitle(row, config, mapping);
     panel.appendChild(title);
+
+;
+
+/* ===== spa-navigation/drilldown/swimlane-preview/p3.js ===== */
     appendSwimlaneSubtitle(panel, row, mapping);
     appendSwimlaneContext(panel, row, mapping);
 
@@ -17775,7 +17815,7 @@
 
 ;
 
-/* ===== spa-navigation/spa/loading-progress.js ===== */
+/* ===== spa-navigation/spa/loading-progress/p1.js ===== */
   const PHASES = boot.LOAD_PHASES || ["render", "eval"];
   const PHASE_LABELS = boot.LOAD_PHASE_LABELS || { render: "渲染", eval: "求值" };
   const PHASE_WEIGHTS = boot.LOAD_PHASE_WEIGHTS || { render: 0.55, eval: 0.45 };
@@ -18124,6 +18164,10 @@
           });
           if (session.apiCalls.length > 20) {
             session.apiCalls = session.apiCalls.slice(-20);
+
+;
+
+/* ===== spa-navigation/spa/loading-progress/p2.js ===== */
           }
           updateLoadingProgressDom(session);
         }

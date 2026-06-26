@@ -984,7 +984,7 @@
 
 ;
 
-/* ===== frame-stage/viewport.js ===== */
+/* ===== frame-stage/viewport/p1.js ===== */
   function queueUpdateViewport(root) {
     if (viewportUpdateQueued.get(root)) return;
     viewportUpdateQueued.set(root, true);
@@ -1332,6 +1332,10 @@
 
   function measureStageContentSize(
     stage,
+
+;
+
+/* ===== frame-stage/viewport/p2.js ===== */
     canvasWidth,
     designHeight,
     fluidHeight,
@@ -1679,6 +1683,10 @@
           leftPad,
           rightPad,
         });
+
+;
+
+/* ===== frame-stage/viewport/p3.js ===== */
       }
     });
     return hits;
@@ -4302,7 +4310,7 @@
 
 ;
 
-/* ===== build-navigation.js ===== */
+/* ===== build-navigation/p1.js ===== */
 /**
  * Build view fast navigation: Tier0 client-only (same compile coordinate),
  * Tier1 workspace fragment fetch, Tier2 full SPA fallback.
@@ -4613,6 +4621,10 @@
         const slug = String(panel.getAttribute("data-manage-tab-panel") || "")
           .trim()
           .toLowerCase();
+
+;
+
+/* ===== build-navigation/p2.js ===== */
         panel.hidden = slug !== tab;
       });
       return;
@@ -4926,7 +4938,7 @@
 
 ;
 
-/* ===== build-inspect-highlight.js ===== */
+/* ===== build-inspect-highlight/p1.js ===== */
 /**
  * Build view: preview inspect — highlight, click-to-select node/focus, inspect bar, suppress drilldown.
  */
@@ -5302,6 +5314,10 @@
       if (panelId && !keepZones.has(panelId)) {
         el.classList.add("build-preview-scoped-dim");
       }
+
+;
+
+/* ===== build-inspect-highlight/p2.js ===== */
     });
 
     if (meta.component === "chart" || meta.layoutZone === "chart") {
@@ -10567,7 +10583,7 @@
 
 ;
 
-/* ===== spa-navigation/drilldown/widget-mount.js ===== */
+/* ===== spa-navigation/drilldown/widget-mount/p1.js ===== */
   function resolveDrilldownChartSlotCaption(config) {
     const explicit = nonEmptyString(config?.title, config?.label);
     if (explicit) return explicit;
@@ -10835,6 +10851,10 @@
     const host =
       hostOverride instanceof HTMLElement
         ? hostOverride
+
+;
+
+/* ===== spa-navigation/drilldown/widget-mount/p2.js ===== */
         : root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
       return false;
@@ -11333,7 +11353,7 @@
 
 ;
 
-/* ===== spa-navigation/drilldown/swimlane-preview.js ===== */
+/* ===== spa-navigation/drilldown/swimlane-preview/p1.js ===== */
   function resolveListPreviewMapping(config) {
     const slot = config?.rowPreviewSlot || config?.previewSlot || {};
     const mapping = slot?.mapping;
@@ -11677,6 +11697,10 @@
     pills.className = "access-drilldown-typical-case-status-pills";
     flags.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
+
+;
+
+/* ===== spa-navigation/drilldown/swimlane-preview/p2.js ===== */
       const field = String(spec?.field || "").trim();
       if (!label || !field) return;
       const active = isTruthyFlag(row?.[field]);
@@ -12020,6 +12044,10 @@
     title.className = "access-drilldown-swimlane-title";
     title.textContent = resolveListPreviewTitle(row, config, mapping);
     panel.appendChild(title);
+
+;
+
+/* ===== spa-navigation/drilldown/swimlane-preview/p3.js ===== */
     appendSwimlaneSubtitle(panel, row, mapping);
     appendSwimlaneContext(panel, row, mapping);
 
@@ -13827,7 +13855,7 @@
 
 ;
 
-/* ===== spa-navigation/spa/loading-progress.js ===== */
+/* ===== spa-navigation/spa/loading-progress/p1.js ===== */
   const PHASES = boot.LOAD_PHASES || ["render", "eval"];
   const PHASE_LABELS = boot.LOAD_PHASE_LABELS || { render: "渲染", eval: "求值" };
   const PHASE_WEIGHTS = boot.LOAD_PHASE_WEIGHTS || { render: 0.55, eval: 0.45 };
@@ -14176,6 +14204,10 @@
           });
           if (session.apiCalls.length > 20) {
             session.apiCalls = session.apiCalls.slice(-20);
+
+;
+
+/* ===== spa-navigation/spa/loading-progress/p2.js ===== */
           }
           updateLoadingProgressDom(session);
         }

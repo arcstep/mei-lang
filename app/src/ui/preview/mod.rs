@@ -20,7 +20,7 @@ pub use theme::{
     shell_body_theme_style,
 };
 mod viewport;
-mod world_capsule_preview;
+mod world_capsule;
 
 pub(crate) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
     let Some(scene_contract) = &compiled.scene_contract else {

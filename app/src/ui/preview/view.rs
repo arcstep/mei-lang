@@ -8,7 +8,7 @@ use crate::ui::manage_routing::WorldSemanticQuery;
 use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::{CompiledApp, MeiConfig};
 
-use super::world_capsule_preview;
+use super::world_capsule;
 pub(crate) fn preview_view(
     compiled: &CompiledApp,
     app_path: &str,
@@ -243,7 +243,7 @@ pub(crate) fn preview_view(
     if is_world_capsule_target(selected_target) {
         let blocking_errors = blocking_errors_for_preview(compiled, selected_target, 3);
         if blocking_errors.is_empty() {
-            if let Some(preview) = world_capsule_preview::world_capsule_semantic_preview(
+            if let Some(preview) = world_capsule::world_capsule_semantic_preview(
                 compiled,
                 app_path,
                 selected_target,
