@@ -17,3 +17,8 @@ node_modules/
 # workspace runtime install 输出（见 docs/mei-lang/implementation/toolchain/14-workspace-local-environment-mode1-contract.md）
 /.mei/
 /start.sh
+
+# Python 拆分脚本缓存
+__pycache__/
+*.py[cod]
+*$py.class
