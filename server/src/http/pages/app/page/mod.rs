@@ -1,7 +1,9 @@
 mod access_gate;
+mod catalog_redirect;
 pub(super) mod compile;
 mod light_pages;
 mod render;
+mod scene_redirect;
 
 use std::time::Instant;
 
@@ -12,9 +14,7 @@ use axum::{
 };
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
-    discover_apps, is_stock_catalog_app_for_root, resolve_app_root,
-    resolve_default_scene_from_root, stock_catalog_app_id, BuildNodeId, BuildNodeKind,
-    CompileOptions,
+    discover_apps, resolve_app_root, resolve_default_scene_from_root, BuildNodeId, CompileOptions,
 };
 
 use crate::{
@@ -34,15 +34,17 @@ use super::page_render::{
 use super::query::{
     access_canonical_location, access_sanitized_redirect_location, legacy_access_redirect_location,
     legacy_manage_redirect_location, parse_access_scene_path,
-    presentation_sanitized_redirect_location, scene_projection_canonical_location, AppQuery,
+    presentation_sanitized_redirect_location, AppQuery,
 };
 
 use crate::http::compile_cache::load_compile_artifact_only;
 use crate::http::compile_cache::CompileWithCacheOutcome;
 
 use access_gate::check_access_scene_gate;
+use catalog_redirect::try_catalog_redirect;
 use compile::{maybe_handle_compile_bootstrap_probe, resolve_compile_outcome, CompileResolution};
 use light_pages::{try_render_light_page, LightPageContext};
+use scene_redirect::try_scene_projection_redirect;
 
 pub async fn app_page(
     State(state): State<AppState>,
@@ -103,94 +105,8 @@ pub async fn app_page(
     }
     let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     if route_mode == UiRouteMode::Build {
-        if is_stock_catalog_app_for_root(state.source_root.as_path(), app_id.as_str()) {
-            let pack = query.pack.as_deref().map(str::trim).filter(|value| !value.is_empty());
-            if pack.is_none() {
-                if let Ok(discovery) =
-                    mei_lang_kernel::discover_stock_catalog_packs(state.source_root.as_path())
-                {
-                    let facet = query
-                        .catalog
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .unwrap_or("components");
-                    let first_pack = if facet == "templates" {
-                        discovery.template_packs.first()
-                    } else {
-                        discovery.component_packs.first()
-                    };
-                    if let Some(default_pack) = first_pack {
-                        let mut redirected = query.clone();
-                        redirected.catalog = Some(facet.to_string());
-                        redirected.pack = Some(default_pack.clone());
-                        return Ok(Redirect::temporary(&format!(
-                            "/apps/build/{}{}",
-                            app_id,
-                            super::query::build_query_suffix_with_options(
-                                &redirected,
-                                super::query::BuildQuerySuffixOptions {
-                                    include_node: true,
-                                    include_scope: true,
-                                    include_focus: true,
-                                },
-                            )
-                        ))
-                        .into_response());
-                    }
-                }
-            }
-        }
-        if let Some(node) = query.node.as_deref().and_then(BuildNodeId::parse) {
-            if matches!(node.kind, BuildNodeKind::Component | BuildNodeKind::Template)
-                && !is_stock_catalog_app_for_root(state.source_root.as_path(), app_id.as_str())
-            {
-                let catalog_id = stock_catalog_app_id(state.source_root.as_path());
-                let mut redirected = query.clone();
-                redirected.node = Some(node.encode());
-                if matches!(node.kind, BuildNodeKind::Component) {
-                    redirected.catalog = Some("components".to_string());
-                    if let Ok(discovery) =
-                        mei_lang_kernel::discover_stock_catalog_packs(state.source_root.as_path())
-                    {
-                        let pack = discovery
-                            .component_packs
-                            .iter()
-                            .find(|pack| node.key.starts_with(pack.as_str()) || node.key.contains(pack.as_str()))
-                            .or_else(|| discovery.component_packs.first());
-                        if let Some(pack) = pack {
-                            redirected.pack = Some(pack.clone());
-                        }
-                    }
-                } else if matches!(node.kind, BuildNodeKind::Template) {
-                    redirected.catalog = Some("templates".to_string());
-                    if let Ok(discovery) =
-                        mei_lang_kernel::discover_stock_catalog_packs(state.source_root.as_path())
-                    {
-                        let top = node.key.split('/').next().unwrap_or("");
-                        let pack = discovery
-                            .template_packs
-                            .iter()
-                            .find(|pack| *pack == top)
-                            .or_else(|| discovery.template_packs.first());
-                        if let Some(pack) = pack {
-                            redirected.pack = Some(pack.clone());
-                        }
-                    }
-                }
-                return Ok(Redirect::temporary(&format!(
-                    "/apps/build/{catalog_id}{}",
-                    super::query::build_query_suffix_with_options(
-                        &redirected,
-                        super::query::BuildQuerySuffixOptions {
-                            include_node: true,
-                            include_scope: true,
-                            include_focus: true,
-                        },
-                    )
-                ))
-                .into_response());
-            }
+        if let Some(response) = try_catalog_redirect(&state, app_id.as_str(), &query) {
+            return Ok(response);
         }
     }
     let access_only_surface = access_only_surface_enabled();
@@ -388,46 +304,15 @@ pub async fn app_page(
     } else {
         None
     };
-    if route_mode.uses_scene_route() && access_static_file.is_none() {
-        let q_scene = query
-            .scene
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
-        if let Some(ref ps) = access_path_scene {
-            if let Some(qs) = q_scene {
-                if qs != ps {
-                    return Ok(Redirect::temporary(&scene_projection_canonical_location(
-                        route_mode,
-                        &app_id,
-                        ps,
-                        query.tab.as_deref(),
-                        query.chrome.as_deref(),
-                    ))
-                    .into_response());
-                }
-            }
-        } else if let Some(qs) = q_scene {
-            return Ok(Redirect::temporary(&scene_projection_canonical_location(
-                route_mode,
-                &app_id,
-                qs,
-                query.tab.as_deref(),
-                query.chrome.as_deref(),
-            ))
-            .into_response());
-        } else if let Ok(Some(default_scene)) =
-            resolve_default_scene_from_root(&resolve_app_root(state.source_root.as_path(), &app_id))
-        {
-            return Ok(Redirect::temporary(&scene_projection_canonical_location(
-                route_mode,
-                &app_id,
-                &default_scene,
-                query.tab.as_deref(),
-                query.chrome.as_deref(),
-            ))
-            .into_response());
-        }
+    if let Some(response) = try_scene_projection_redirect(
+        &state,
+        route_mode,
+        app_id.as_str(),
+        &query,
+        &access_path_scene,
+        &access_static_file,
+    ) {
+        return Ok(response);
     }
     let discover_started = Instant::now();
     let mut apps = if matches!(route_mode, UiRouteMode::Build | UiRouteMode::Runtime) {
