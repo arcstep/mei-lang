@@ -2,6 +2,8 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
+use crate::model::MetricContract;
+
 
 
 
@@ -111,61 +113,86 @@ pub fn resolve_runtime_metric_def_key(
     metric_id: &str,
     defs: &BTreeMap<String, Value>,
 ) -> Option<String> {
+    resolve_storage_map_key(resource_id, metric_id, |key| defs.contains_key(key))
+}
+
+/// Resolve a compile-time metric snapshot key after artifact reload.
+///
+/// `runtime_metric_defs` are not persisted in scene payloads; access routes must
+/// locate requested metrics via the serialized `metrics` map instead.
+pub fn resolve_metric_contract_key(
+    resource_id: &str,
+    metric_id: &str,
+    metrics: &BTreeMap<String, MetricContract>,
+) -> Option<String> {
+    resolve_storage_map_key(resource_id, metric_id, |key| metrics.contains_key(key))
+}
+
+fn resolve_storage_map_key<F>(resource_id: &str, metric_id: &str, contains_key: F) -> Option<String>
+where
+    F: Fn(&str) -> bool,
+{
     let metric_id = metric_id.trim();
     if metric_id.is_empty() {
         return None;
     }
-    if defs.contains_key(metric_id) {
+    if contains_key(metric_id) {
         return Some(metric_id.to_string());
     }
     if let Some(resolved) =
-        resolve_runtime_metric_def_key_without_rowset_fallback(resource_id, metric_id, defs)
+        resolve_storage_map_key_without_rowset_fallback(resource_id, metric_id, &contains_key)
     {
         return Some(resolved);
     }
-    resolve_runtime_scalar_rowset_metric_def_key(resource_id, metric_id, defs)
+    resolve_storage_scalar_rowset_key(resource_id, metric_id, contains_key)
 }
 
-fn resolve_runtime_scalar_rowset_metric_def_key(
+fn resolve_storage_scalar_rowset_key<F>(
     resource_id: &str,
     metric_id: &str,
-    defs: &BTreeMap<String, Value>,
-) -> Option<String> {
+    contains_key: F,
+) -> Option<String>
+where
+    F: Fn(&str) -> bool,
+{
     let parent_metric_id = metric_id.strip_suffix("::__scalar_rowset__")?;
-    let resolved_parent = resolve_runtime_metric_def_key_without_rowset_fallback(
+    let resolved_parent = resolve_storage_map_key_without_rowset_fallback(
         resource_id,
         parent_metric_id,
-        defs,
+        &contains_key,
     )?;
     let rowset_metric_id = format!("{resolved_parent}::__scalar_rowset__");
-    if defs.contains_key(&rowset_metric_id) {
+    if contains_key(&rowset_metric_id) {
         return Some(rowset_metric_id);
     }
-    if defs.contains_key(&resolved_parent) {
+    if contains_key(&resolved_parent) {
         return Some(rowset_metric_id);
     }
     None
 }
 
-fn resolve_runtime_metric_def_key_without_rowset_fallback(
+fn resolve_storage_map_key_without_rowset_fallback<F>(
     resource_id: &str,
     metric_id: &str,
-    defs: &BTreeMap<String, Value>,
-) -> Option<String> {
+    contains_key: &F,
+) -> Option<String>
+where
+    F: Fn(&str) -> bool,
+{
     let metric_id = metric_id.trim();
     if metric_id.is_empty() {
         return None;
     }
-    if defs.contains_key(metric_id) {
+    if contains_key(metric_id) {
         return Some(metric_id.to_string());
     }
     if let Some(capsule_path) = imported_capsule_path_from_world_metrics_resource_id(resource_id) {
         let namespaced = format!("{capsule_path}::{metric_id}");
-        if defs.contains_key(&namespaced) {
+        if contains_key(&namespaced) {
             return Some(namespaced);
         }
         if let Some(local) = metric_id.strip_prefix(&format!("{capsule_path}::")) {
-            if defs.contains_key(local) {
+            if contains_key(local) {
                 return Some(local.to_string());
             }
         }
@@ -173,12 +200,12 @@ fn resolve_runtime_metric_def_key_without_rowset_fallback(
     }
     if let Some(capsule_path) = capsule_path_from_namespaced_resource_id(resource_id) {
         let namespaced = format!("{capsule_path}::{metric_id}");
-        if defs.contains_key(&namespaced) {
+        if contains_key(&namespaced) {
             return Some(namespaced);
         }
     }
     if let Some(local) = local_dataset_id_from_namespaced_token(metric_id) {
-        if defs.contains_key(local) {
+        if contains_key(local) {
             return Some(local.to_string());
         }
     }

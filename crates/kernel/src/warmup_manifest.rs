@@ -6,8 +6,8 @@ use anyhow::{Context, Result};
 
 use crate::compile::resolve_default_scene_from_root;
 use crate::mei_config::{
-    load_workspace_config, resolve_app_entry_main, resolve_app_root, RuntimeWarmupApp,
-    RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
+    canonical_app_source_rel_path, load_workspace_config, resolve_app_entry_main, resolve_app_root,
+    RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
     WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use crate::workspace::discover_apps;
@@ -172,11 +172,11 @@ fn normalize_focuses(focuses: &[String]) -> Vec<String> {
     let mut normalized = Vec::new();
     let mut seen = BTreeSet::new();
     for focus in focuses {
-        let focus = focus.trim();
-        if focus.is_empty() || !seen.insert(focus.to_string()) {
+        let focus = canonical_app_source_rel_path(focus.trim());
+        if focus.is_empty() || !seen.insert(focus.clone()) {
             continue;
         }
-        normalized.push(focus.to_string());
+        normalized.push(focus);
     }
     normalized
 }

@@ -7,6 +7,33 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 const UPLOAD_REGISTRY_REL_PATH: &str = "upload/.mei-upload-registry.json";
+const LEGACY_UPLOAD_REGISTRY_REL_PATH: &str = "assets/upload/.mei-upload-registry.json";
+const LEGACY_UPLOAD_PREFIX: &str = "upload/";
+
+fn upload_registry_candidate_paths(app_root: &Path) -> [PathBuf; 2] {
+    [
+        app_root.join(LEGACY_UPLOAD_REGISTRY_REL_PATH),
+        app_root.join(UPLOAD_REGISTRY_REL_PATH),
+    ]
+}
+
+fn resolve_upload_registry_path(app_root: &Path) -> PathBuf {
+    upload_registry_candidate_paths(app_root)
+        .into_iter()
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| app_root.join(LEGACY_UPLOAD_REGISTRY_REL_PATH))
+}
+
+/// Map legacy app-relative `upload/...` onto v2 `assets/upload/...` when the former is absent.
+pub fn resolve_legacy_app_upload_path(app_root: &Path, rel: &str) -> Option<PathBuf> {
+    let rel = normalize_path(rel);
+    let tail = rel.strip_prefix(LEGACY_UPLOAD_PREFIX)?;
+    if tail.is_empty() {
+        return None;
+    }
+    let under_assets = app_root.join("assets/upload").join(tail);
+    under_assets.is_file().then_some(under_assets)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedVersionedUploadFile {
@@ -77,13 +104,19 @@ pub fn compare_version_tokens(left: &str, right: &str) -> Option<Ordering> {
 }
 
 pub fn read_upload_registry(app_root: &Path) -> Option<UploadRegistry> {
-    let path = app_root.join(UPLOAD_REGISTRY_REL_PATH);
-    let raw = fs::read_to_string(path).ok()?;
-    serde_json::from_str::<UploadRegistry>(&raw).ok()
+    for path in upload_registry_candidate_paths(app_root) {
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Ok(registry) = serde_json::from_str::<UploadRegistry>(&raw) {
+            return Some(registry);
+        }
+    }
+    None
 }
 
 pub fn write_upload_registry(app_root: &Path, registry: &UploadRegistry) -> std::io::Result<()> {
-    let path = app_root.join(UPLOAD_REGISTRY_REL_PATH);
+    let path = resolve_upload_registry_path(app_root);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -202,6 +235,15 @@ fn resolve_versioned_source_meta(app_root: &Path, source_path: &str) -> Resolved
         PathBuf::from(&current)
     } else {
         app_root.join(&current)
+    };
+    let absolute_path = if absolute_path.is_file() {
+        absolute_path
+    } else if let Some(fallback) = resolve_legacy_app_upload_path(app_root, current.as_str()) {
+        fallback
+    } else if let Some(fallback) = resolve_legacy_app_upload_path(app_root, normalized.as_str()) {
+        fallback
+    } else {
+        absolute_path
     };
     ResolvedVersionedSource {
         absolute_path,
@@ -438,6 +480,28 @@ mod tests {
         let resolved_xls = resolve_versioned_source_identifier(&root, "upload/11.预警清单.xls");
         assert_eq!(resolved_xlsx, "upload/.versions/11.预警清单.20260527B.xlsx");
         assert_eq!(resolved_xls, "upload/.versions/11.预警清单.20260527B.xlsx");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn resolve_versioned_source_path_falls_back_to_assets_upload() {
+        let root = std::env::temp_dir().join(format!(
+            "mei-upload-legacy-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("assets/upload")).expect("mkdir assets upload");
+        fs::write(
+            root.join("assets/upload/8.行政处罚结果清单.xlsx"),
+            b"xlsx",
+        )
+        .expect("write xlsx");
+        let resolved =
+            resolve_versioned_source_path(&root, "upload/8.行政处罚结果清单.xlsx");
+        assert_eq!(
+            resolved,
+            root.join("assets/upload/8.行政处罚结果清单.xlsx")
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }

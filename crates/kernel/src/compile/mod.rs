@@ -37,6 +37,7 @@ mod scene;
 mod scene_binding;
 mod scene_payload_cache;
 mod shards;
+mod source_paths;
 mod source_tree_enrich;
 mod source_tree_world;
 mod ui_data_policy;
@@ -59,6 +60,7 @@ pub use data_snapshot::{
 };
 pub use loaders::{load_xlsx_table_snapshot, materialize_xlsx_column_headers};
 
+pub use source_paths::canonicalize_compiled_app_source_paths;
 pub use app_compile::{
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
     compile_app_from_root_with_options_and_revision, compile_app_with_options,
@@ -202,7 +204,8 @@ pub use analysis::eval_context::{
 pub use materialize::{
     capsule_path_from_namespaced_resource_id, evaluate_runtime_metric_defs_with_plan_and_dag,
     imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
-    resolve_runtime_metric_def_key, EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode,
+    resolve_metric_contract_key, resolve_runtime_metric_def_key, EvalPlan, EvalPlanEdge,
+    EvalPlanEdgeKind, EvalPlanNode,
     EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
 };
 

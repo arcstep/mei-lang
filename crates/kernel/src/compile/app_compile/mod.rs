@@ -94,6 +94,10 @@ pub fn compile_app_from_root_with_options_and_revision(
     options: CompileOptions,
 ) -> Result<CompileAppArtifacts> {
     let _authoring_guard = super::authoring_eval::install_authoring_eval_context(source_root)?;
+    let mut options = options;
+    if let Some(ref mut target) = options.preview_target {
+        *target = crate::mei_config::canonical_app_source_rel_path(target.as_str());
+    }
     let cache_before = CompileCacheBefore {
         l2_hits: scene_payload_cache_metrics_snapshot().0,
         l2_misses: scene_payload_cache_metrics_snapshot().1,

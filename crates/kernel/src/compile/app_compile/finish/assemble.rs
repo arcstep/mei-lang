@@ -303,6 +303,7 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
         diagnostics,
     );
     compiled.build_experience_index.reachability_snapshot = reachability_snapshot;
+    crate::compile::canonicalize_compiled_app_source_paths(&mut compiled);
     Ok(compiled)
 }
 

@@ -59,7 +59,7 @@ pub use compile::{
     publish_xlsx_data_snapshots_for_paths, read_data_snapshot_import_manifest,
     resolve_build_node_context, resolve_data_snapshot_import_entry,
     access_parquet_import_required, parquet_sidecar_write_allowed,
-    resolve_default_scene_from_root, resolve_runtime_metric_def_key,
+    resolve_default_scene_from_root, resolve_metric_contract_key, resolve_runtime_metric_def_key,
     runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled,
     scene_payload_cache_epoch, source_file_content_signature, try_get_cached_xlsx_table_snapshot,
     try_load_xlsx_parquet_snapshot, write_data_snapshot_import_manifest,
@@ -94,7 +94,8 @@ pub use host_contract::{
     HOST_RUNTIME_CONTRACT_SCHEMA, HOST_RUNTIME_PROTOCOL_SCHEMA,
 };
 pub use mei_config::{
-    app_mei_config_path, load_mei_config_for_app, load_workspace_auth_bundle,
+    app_mei_config_path, app_source_rel_path_lookup_keys, canonical_app_source_rel_path,
+    load_mei_config_for_app, load_workspace_auth_bundle,
     load_workspace_config, mei_config_compile_revision_digest, merge_ops_section, ops_themes_revision_digest,
     resolve_app_entry_main, resolve_app_main_path,
     resolve_app_id, resolve_app_mei_file_path, resolve_app_root, resolve_app_mei_store_root, resolve_app_build_root,

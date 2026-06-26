@@ -24,5 +24,5 @@ pub(super) use world_metrics::{
 pub use world_metrics::{
     capsule_path_from_namespaced_resource_id, evaluate_runtime_metric_defs_with_plan_and_dag,
     imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
-    resolve_runtime_metric_def_key,
+    resolve_metric_contract_key, resolve_runtime_metric_def_key,
 };

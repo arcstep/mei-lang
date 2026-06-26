@@ -72,7 +72,8 @@ pub use stock_catalog::{
     StockCatalogKind,
 };
 pub use workspace_paths::{
-    app_mei_config_path, is_v2_app_root, resolve_app_build_root, resolve_app_build_store_root,
+    app_mei_config_path, app_source_rel_path_lookup_keys, canonical_app_source_rel_path,
+    is_v2_app_root, resolve_app_build_root, resolve_app_build_store_root,
     resolve_app_id, resolve_app_mei_file_path, resolve_app_mei_store_root, resolve_app_root,
     resolve_app_src_root, resolve_app_var_root, resolve_apps_root, resolve_authoring_root,
     is_app_mei_source_rel, resolve_components_root, resolve_deploy_root, resolve_templates_root,

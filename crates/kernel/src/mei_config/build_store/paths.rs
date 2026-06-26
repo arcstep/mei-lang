@@ -36,6 +36,10 @@ pub fn resolve_toolchain_version(source_root: &Path) -> String {
     if let Some(pin) = cfg.toolchain.pin.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         return pin.to_string();
     }
+    let embedded = env!("CARGO_PKG_VERSION").trim();
+    if !embedded.is_empty() {
+        return embedded.to_string();
+    }
     DEV_TOOLCHAIN_VERSION.to_string()
 }
 

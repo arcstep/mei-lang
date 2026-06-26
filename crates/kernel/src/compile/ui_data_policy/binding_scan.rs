@@ -31,7 +31,9 @@ pub(super) fn validate_embed_capsule_ui_bindings(
             &capsule_resources,
             path,
         );
-    let Ok(decls) = evaluate_mei_file_cached(&app_root.join(path)) else {
+    let Ok(decls) = evaluate_mei_file_cached(&crate::mei_config::resolve_app_mei_file_path(
+        app_root, path,
+    )) else {
         return;
     };
     let Some(values) = decls.as_array() else {

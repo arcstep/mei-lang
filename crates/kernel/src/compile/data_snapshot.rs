@@ -18,7 +18,7 @@ use serde_json::Value;
 
 use super::loaders::{load_xlsx_table_snapshot, XlsxTableSnapshot};
 use super::scene_payload_cache::file_mtime_ms;
-use crate::resolve_versioned_source_identifier;
+use crate::{resolve_versioned_source_identifier, resolve_versioned_source_path};
 
 pub const DATA_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 pub const DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION: &str = "mei-dataset-import-manifest-v1";
@@ -101,7 +101,7 @@ pub fn parquet_snapshot_path(
         return None;
     }
     let resolved = resolve_versioned_source_identifier(app_root, source_path);
-    let absolute = app_root.join(&resolved);
+    let absolute = resolve_versioned_source_path(app_root, source_path);
     if !absolute.is_file() {
         return None;
     }
@@ -156,7 +156,7 @@ pub fn resolve_data_snapshot_import_entry(
         return None;
     }
     let resolved = resolve_versioned_source_identifier(app_root, source_path);
-    let absolute = app_root.join(&resolved);
+    let absolute = resolve_versioned_source_path(app_root, source_path);
     if !absolute.is_file() {
         return None;
     }
@@ -268,7 +268,7 @@ pub fn write_xlsx_parquet_snapshot(
 ) -> Result<PathBuf> {
     let source_path = source_path.trim();
     let resolved = resolve_versioned_source_identifier(app_root, source_path);
-    let absolute = app_root.join(&resolved);
+    let absolute = resolve_versioned_source_path(app_root, source_path);
     let snapshot = load_xlsx_table_snapshot(
         absolute.as_path(),
         source_path,
@@ -375,7 +375,7 @@ pub fn try_load_xlsx_parquet_snapshot(
         return None;
     }
     let resolved = resolve_versioned_source_identifier(app_root, source_path.trim());
-    let absolute = app_root.join(&resolved);
+    let absolute = resolve_versioned_source_path(app_root, source_path.trim());
     if !absolute.is_file() {
         return None;
     }

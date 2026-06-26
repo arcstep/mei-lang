@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::io::load_workspace_config;
 use super::build_store::{resolve_app_build_root_following_active, resolve_symlink_target};
+use super::stock_catalog::normalize_stock_relative_path;
 use super::types::{
     WorkspaceConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL, APP_VAR_ACTIVE_REL,
     DEFAULT_APPS_REL, DEFAULT_APP_SRC_REL, DEFAULT_DEPLOY_REL, DEFAULT_RUNTIME_REL,
@@ -241,6 +242,98 @@ fn normalize_app_rel_path(rel: &str) -> String {
     rel.trim().trim_start_matches("./").replace('\\', "/")
 }
 
+/// Paths that must not receive an automatic `src/` prefix (stock imports, escapes).
+pub fn is_external_or_stock_mei_rel(rel: &str) -> bool {
+    let rel = normalize_app_rel_path(rel);
+    rel.starts_with("stock/")
+        || rel.starts_with(".stock/")
+        || rel.contains("/../")
+        || rel.starts_with("../")
+}
+
+/// Canonical app-relative path for authored sources under `apps/{id}/src/`.
+///
+/// v2 SSOT: logical paths in MCG/MRG/scope gate/prebuild use `src/…` even when
+/// authors or legacy configs still write `scenes/foo.mei`.
+pub fn canonical_app_source_rel_path(rel: &str) -> String {
+    let rel = normalize_app_rel_path(rel);
+    if rel.is_empty() || Path::new(&rel).is_absolute() {
+        return rel;
+    }
+    if is_external_or_stock_mei_rel(rel.as_str()) {
+        return rel;
+    }
+    if rel.starts_with("src/") {
+        return rel;
+    }
+    if rel.ends_with(".mei") {
+        return format!("src/{rel}");
+    }
+    rel
+}
+
+/// Lookup keys for registry rows keyed by target file (canonical first, then legacy).
+pub fn app_source_rel_path_lookup_keys(rel: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut push = |value: String| {
+        if !value.is_empty() && !keys.iter().any(|existing| existing == &value) {
+            keys.push(value);
+        }
+    };
+    push(canonical_app_source_rel_path(rel));
+    let normalized = normalize_app_rel_path(rel);
+    push(normalized.clone());
+    if let Some(stripped) = normalized.strip_prefix("src/") {
+        push(stripped.to_string());
+    } else if normalized.ends_with(".mei") {
+        push(format!("src/{normalized}"));
+    }
+    keys
+}
+
+/// Map legacy app-relative `.stock/...` paths onto workspace `stock/...` (post v2 migration).
+fn resolve_legacy_workspace_stock_mei_path(app_root: &Path, rel: &str) -> Option<PathBuf> {
+    let rel = rel.replace('\\', "/");
+    let dot_stock = rel.find(".stock/")?;
+    let stock_tail = rel[dot_stock + ".stock/".len()..].trim_start_matches('/');
+    if stock_tail.is_empty() {
+        return None;
+    }
+    let source_root = resolve_workspace_source_root_from_app_root(app_root);
+    let under_stock = source_root.join(normalize_stock_relative_path(&format!(".stock/{stock_tail}")));
+    if under_stock.is_file() {
+        return Some(under_stock);
+    }
+    let under_templates = resolve_templates_root(&source_root).join(
+        stock_tail
+            .strip_prefix("templates/")
+            .unwrap_or(stock_tail),
+    );
+    if under_templates.is_file() {
+        return Some(under_templates);
+    }
+    None
+}
+
+fn resolve_app_mei_file_path_primary(app_root: &Path, rel: &str) -> PathBuf {
+    if rel.ends_with(".mei") {
+        let under_src = resolve_app_src_root(app_root).join(rel);
+        if under_src.is_file() {
+            return under_src;
+        }
+        let legacy = app_root.join(rel);
+        if legacy.is_file() {
+            return legacy;
+        }
+        return under_src;
+    }
+    let under_src = resolve_app_src_root(app_root).join(rel);
+    if under_src.is_file() {
+        return under_src;
+    }
+    app_root.join(rel)
+}
+
 /// 将 app 内逻辑相对路径解析为磁盘路径（v2：`*.mei` 在 `src/` 下；config 在 app 根）。
 pub fn resolve_app_mei_file_path(app_root: &Path, rel: &str) -> PathBuf {
     let rel = normalize_app_rel_path(rel);
@@ -256,28 +349,21 @@ pub fn resolve_app_mei_file_path(app_root: &Path, rel: &str) -> PathBuf {
     if rel == APP_CONFIG_FILENAME {
         return app_root.join(rel);
     }
-    if rel.ends_with(".mei") {
-        let under_src = resolve_app_src_root(app_root).join(&rel);
-        if under_src.is_file() {
-            return under_src;
-        }
-        let legacy = app_root.join(&rel);
-        if legacy.is_file() {
-            return legacy;
-        }
-        return under_src;
+    let primary = resolve_app_mei_file_path_primary(app_root, rel.as_str());
+    if primary.is_file() {
+        return primary;
     }
-    let under_src = resolve_app_src_root(app_root).join(&rel);
-    if under_src.is_file() {
-        return under_src;
-    }
-    app_root.join(&rel)
+    resolve_legacy_workspace_stock_mei_path(app_root, rel.as_str()).unwrap_or(primary)
 }
 
 /// 逻辑路径是否指向 Mei 源码（watch set / dependency 用逻辑名，open 用 [`resolve_app_mei_file_path`]）。
 pub fn is_app_mei_source_rel(rel: &str) -> bool {
     let rel = normalize_app_rel_path(rel);
-    rel.ends_with(".mei") || rel.starts_with("scenes/") || rel == "main.mei"
+    rel.ends_with(".mei")
+        || rel.starts_with("scenes/")
+        || rel.starts_with("src/scenes/")
+        || rel == "main.mei"
+        || rel == "src/main.mei"
 }
 
 /// App AOT 读路径：`apps/{appId}/build/active/`（symlink 指向 `build/store/{buildId}/`）。
@@ -327,6 +413,30 @@ mod tests {
     use std::fs;
 
     #[test]
+    fn canonical_app_source_rel_path_adds_src_prefix() {
+        assert_eq!(
+            canonical_app_source_rel_path("scenes/home.mei"),
+            "src/scenes/home.mei"
+        );
+        assert_eq!(
+            canonical_app_source_rel_path("src/scenes/home.mei"),
+            "src/scenes/home.mei"
+        );
+        assert_eq!(canonical_app_source_rel_path("main.mei"), "src/main.mei");
+        assert_eq!(
+            canonical_app_source_rel_path("../../stock/templates/cockpit/panel/x.mei"),
+            "../../stock/templates/cockpit/panel/x.mei"
+        );
+    }
+
+    #[test]
+    fn app_source_rel_path_lookup_keys_includes_legacy() {
+        let keys = app_source_rel_path_lookup_keys("scenes/home.mei");
+        assert!(keys.contains(&"src/scenes/home.mei".to_string()));
+        assert!(keys.contains(&"scenes/home.mei".to_string()));
+    }
+
+    #[test]
     fn v2_app_layout_paths() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let ws = tmp.path();
@@ -358,6 +468,45 @@ mod tests {
         fs::write(app.join("src/scenes/home.mei"), "scene(id=home)").expect("write");
         assert!(resolve_app_mei_file_path(&app, "main.mei").is_file());
         assert!(resolve_app_mei_file_path(&app, "scenes/home.mei").is_file());
+    }
+
+    #[test]
+    fn resolve_app_mei_file_path_legacy_dot_stock_templates() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ws = tmp.path();
+        fs::write(
+            ws.join("workspace.json"),
+            r#"{"schemaVersion":2,"paths":{"templates":"stock/templates"}}"#,
+        )
+        .expect("write");
+        let tpl = ws.join("stock/templates/cockpit/panel/panel-screen-header.mei");
+        fs::create_dir_all(tpl.parent().expect("parent")).expect("mkdir");
+        fs::write(&tpl, "panel(id=screen_header_shell)").expect("write");
+        let app = ws.join("apps/zhifa");
+        fs::create_dir_all(app.join("src/scenes")).expect("mkdir");
+        let resolved = resolve_app_mei_file_path(
+            &app,
+            "../.stock/templates/cockpit/panel/panel-screen-header.mei",
+        );
+        assert_eq!(resolved, tpl);
+        assert!(resolved.is_file());
+    }
+
+    #[test]
+    fn resolve_spbjw_legacy_panel_template_when_workspace_present() {
+        let ws = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .join("workspaces/ws-spbjw");
+        let app = ws.join("apps/zhifa");
+        let tpl = ws.join("stock/templates/cockpit/panel/panel-screen-header.mei");
+        if !app.is_dir() || !tpl.is_file() {
+            return;
+        }
+        let resolved = resolve_app_mei_file_path(
+            &app,
+            "../.stock/templates/cockpit/panel/panel-screen-header.mei",
+        );
+        assert_eq!(resolved, tpl);
     }
 
     fn resolve_app_main_path(app_root: &Path) -> PathBuf {

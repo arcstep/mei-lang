@@ -4,7 +4,8 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::model::{
-    Diagnostic, LoadedResource, ResourceDecl, Severity, UiNodeDecl, WorldMetricLedgerEntry,
+    Diagnostic, LoadedResource, MetricContract, MetricShape, ResourceDecl, Severity, UiNodeDecl,
+    WorldMetricLedgerEntry,
 };
 
 use super::super::decls::{
@@ -191,6 +192,74 @@ pub(crate) fn load_resources_from_capsule_file(
     load_resources_from_capsule_file_recursive(app_root, relative_path, &mut visited_paths)
 }
 
+fn raw_world_metric_local_keys(raw_metrics: &[Value]) -> Vec<String> {
+    raw_metrics
+        .iter()
+        .filter_map(|value| {
+            value
+                .get("key")
+                .or_else(|| value.get("id"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+/// 编译期 capsule 导入：数据集 xlsx 等运行时源缺失时仍保留 world metric id 供 UI 绑定校验。
+fn extend_world_metric_ledger_with_compile_stubs(
+    ledger: &mut BTreeMap<String, WorldMetricLedgerEntry>,
+    raw_metrics: &[Value],
+    capsule_path: &str,
+    owner_resource_id: &str,
+) {
+    for (idx, local_key) in raw_world_metric_local_keys(raw_metrics)
+        .into_iter()
+        .enumerate()
+    {
+        let namespaced =
+            super::import_scope::namespaced_import_id(capsule_path, local_key.as_str());
+        if ledger.contains_key(&namespaced) {
+            continue;
+        }
+        let raw = raw_metrics.iter().find(|value| {
+            value
+                .get("key")
+                .or_else(|| value.get("id"))
+                .and_then(Value::as_str)
+                .map(|id| id.trim() == local_key.as_str())
+                .unwrap_or(false)
+        });
+        ledger.insert(
+            namespaced.clone(),
+            WorldMetricLedgerEntry {
+                id: namespaced.clone(),
+                owner_resource_id: owner_resource_id.to_string(),
+                order: ledger.len() + idx + 1,
+                metric: MetricContract {
+                    id: namespaced,
+                    label: raw
+                        .and_then(|value| value.get("label"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    unit: raw
+                        .and_then(|value| value.get("unit"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    shape: MetricShape::Dataframe,
+                    value: Value::Null,
+                    schema: Vec::new(),
+                    purpose: None,
+                    value_format: None,
+                    dataset: None,
+                    transforms: Vec::new(),
+                },
+            },
+        );
+    }
+}
+
 fn load_resources_from_capsule_file_recursive(
     app_root: &Path,
     relative_path: &str,
@@ -261,15 +330,18 @@ fn load_resources_from_capsule_file_recursive(
     }
 
     if !world_dataset_decls.is_empty() {
-        let derived = materialize_legacy_datasets(app_root, &resources, &world_dataset_decls)?;
-        for resource in derived {
-            insert_resource_if_absent(&mut resources, resource);
+        if let Ok(derived) = materialize_legacy_datasets(app_root, &resources, &world_dataset_decls)
+        {
+            for resource in derived {
+                insert_resource_if_absent(&mut resources, resource);
+            }
         }
     }
     if !world_metric_pack_decls.is_empty() {
-        let derived = materialize_metric_packs(&resources, &world_metric_pack_decls)?;
-        for resource in derived {
-            insert_resource_if_absent(&mut resources, resource);
+        if let Ok(derived) = materialize_metric_packs(&resources, &world_metric_pack_decls) {
+            for resource in derived {
+                insert_resource_if_absent(&mut resources, resource);
+            }
         }
     }
     let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
@@ -287,10 +359,32 @@ fn load_resources_from_capsule_file_recursive(
             insert_resource_if_absent(&mut resources, resource);
         }
     }
-    if !world_decl.metrics.is_empty() {
+    let mut compile_stub_metric_values = world_decl.metrics.clone();
+    for decl in &world_dataset_decls {
+        for (metric_id, value) in &decl.metrics {
+            let mut entry = value.clone();
+            if let Some(map) = entry.as_object_mut() {
+                map.entry("key".to_string())
+                    .or_insert_with(|| Value::String(metric_id.clone()));
+            }
+            compile_stub_metric_values.push(entry);
+        }
+    }
+    for decl in &world_metric_pack_decls {
+        for (metric_id, value) in &decl.metrics {
+            let mut entry = value.clone();
+            if let Some(map) = entry.as_object_mut() {
+                map.entry("key".to_string())
+                    .or_insert_with(|| Value::String(metric_id.clone()));
+            }
+            compile_stub_metric_values.push(entry);
+        }
+    }
+    if !compile_stub_metric_values.is_empty() {
         let owner_resource_id = imported_world_metrics_resource_id(relative_path);
-        let world_metrics = materialize_world_metrics(&resources, &world_decl.metrics)?;
-        let ledger = world_metrics
+        let world_metrics =
+            materialize_world_metrics(&resources, &compile_stub_metric_values).unwrap_or_default();
+        let mut ledger = world_metrics
             .into_iter()
             .enumerate()
             .map(|(idx, (metric_id, metric))| {
@@ -305,12 +399,20 @@ fn load_resources_from_capsule_file_recursive(
                 )
             })
             .collect::<BTreeMap<_, _>>();
-        append_world_metrics_dataset_resource_with_id(
-            &mut resources,
-            &ledger,
-            &world_decl.metrics,
+        extend_world_metric_ledger_with_compile_stubs(
+            &mut ledger,
+            &compile_stub_metric_values,
+            relative_path,
             &owner_resource_id,
         );
+        if !ledger.is_empty() {
+            append_world_metrics_dataset_resource_with_id(
+                &mut resources,
+                &ledger,
+                &compile_stub_metric_values,
+                &owner_resource_id,
+            );
+        }
     }
 
     Ok(resources)

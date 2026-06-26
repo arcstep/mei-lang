@@ -262,7 +262,7 @@ fn append_ops_source_revision_tokens(
         }
         let resolved = crate::resolve_versioned_source_identifier(app_root, rel.as_str());
         watched_paths.insert(resolved.clone());
-        let absolute = app_root.join(&resolved);
+        let absolute = crate::resolve_versioned_source_path(app_root, rel.as_str());
         let content_signature =
             crate::compile::source_file_content_signature(absolute.as_path(), resolved.as_str());
         token_parts.insert(

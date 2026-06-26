@@ -67,6 +67,8 @@ pub(crate) fn resolve_panel_slot(
             diagnostics,
             target_file,
         );
+        merged.base = None;
+        merged.import_scope = base_panel.import_scope.or(merged.import_scope);
         return Some(merged);
     }
 

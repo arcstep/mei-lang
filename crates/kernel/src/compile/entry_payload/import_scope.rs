@@ -330,3 +330,59 @@ pub(crate) fn host_local_resource_ids(resources: &[LoadedResource]) -> BTreeSet<
         })
         .collect()
 }
+
+#[cfg(test)]
+mod spbjw_capsule_load_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    use crate::mei_config::resolve_app_root;
+
+    fn spbjw_zhifa_app_root() -> PathBuf {
+        let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../workspaces/ws-spbjw")
+            .canonicalize()
+            .expect("ws-spbjw source root");
+        resolve_app_root(&source_root, "zhifa")
+    }
+
+    #[test]
+    fn load_spbjw_map_capsule_world_metrics() {
+        let app_root = spbjw_zhifa_app_root();
+        let scoped =
+            load_namespaced_capsule_resources(&app_root, "scenes/10-地图.mei").expect("load map");
+        let metrics_id = imported_world_metrics_resource_id("scenes/10-地图.mei");
+        let world_metrics = scoped
+            .iter()
+            .find(|resource| resource.id == metrics_id)
+            .and_then(|resource| resource.dataset.as_ref())
+            .expect("map capsule world metrics dataset");
+        assert!(
+            world_metrics
+                .metrics
+                .contains_key("scenes/10-地图.mei::map_enterprise_poi_all_2025"),
+            "expected namespaced map metric, keys sample: {:?}",
+            world_metrics.metrics.keys().take(5).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn load_spbjw_inspection_scene_world_metrics() {
+        let app_root = spbjw_zhifa_app_root();
+        let scoped = load_namespaced_capsule_resources(&app_root, "scenes/02-行政检查.mei")
+            .expect("load inspection scene");
+        let metrics_id = imported_world_metrics_resource_id("scenes/02-行政检查.mei");
+        let world_metrics = scoped
+            .iter()
+            .find(|resource| resource.id == metrics_id)
+            .and_then(|resource| resource.dataset.as_ref())
+            .expect("inspection scene world metrics dataset");
+        assert!(
+            world_metrics
+                .metrics
+                .contains_key("scenes/02-行政检查.mei::inspections_total_count"),
+            "expected inspections_total_count, keys sample: {:?}",
+            world_metrics.metrics.keys().take(5).collect::<Vec<_>>()
+        );
+    }
+}
