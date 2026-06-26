@@ -1,0 +1,57 @@
+# Pack preview: chart.radar
+
+app(
+    id = "preview-chart-radar",
+    title = "Preview chart.radar",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "chart",
+    summary = "Pack-local build preview for chart.radar.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "chart_data",
+            kind = "dataset",
+            title = "Chart sample",
+            source = ds.csv(path = "../../stock/authoring/examples/data/chart-radar.csv"),
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "main_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.radar",
+            area = "auto",
+            props = {
+                "title": "Multi metric radar",
+                "data": dataset_ref(id = "chart_data"),
+                "mapping": {
+                    "label": [{"field": "series", "name": "Series"}],
+                    "y": [
+                        {"field": "speed", "name": "Speed"},
+                        {"field": "quality", "name": "Quality"},
+                        {"field": "cost", "name": "Cost"},
+                        {"field": "uptime", "name": "Uptime"},
+                    ],
+                },
+            }
+        ),
+    ],
+)
+

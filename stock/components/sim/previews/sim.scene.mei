@@ -1,0 +1,8 @@
+app(id="preview-sim-scene", title="Preview sim.scene", default_scene="home")
+scene(id="home", world="home_world", frame="home_frame", profile="sim", summary="Pack preview")
+world(id="home_world", resources=[])
+frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"))
+frame.add_panel(id="main", area="auto", blocks=[
+    component("sim.scene", area="auto", props={"scene": scene_ref("self")}),
+])
+

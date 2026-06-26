@@ -1,0 +1,53 @@
+# Pack preview: chart.geo
+
+app(
+    id = "preview-chart-geo",
+    title = "Preview chart.geo",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "cockpit",
+    summary = "Pack-local build preview for chart.geo.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "chart_data",
+            kind = "dataset",
+            title = "Chart sample",
+            source = ds.csv(path = "../../stock/authoring/examples/data/chart-geo.csv"),
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "main_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.geo",
+            area = "auto",
+            props = {
+                "title": "Geo sample",
+                "geojsonUrl": "/workspace-app-assets/templates/cockpit/assets/map/geo/streets_mini.geojson",
+                "joinKey": "code",
+                "data": dataset_ref(id = "chart_data"),
+                "mapping": {
+                    "y": [{"field": "value", "name": "Value"}],
+                },
+            }
+        ),
+    ],
+)
+

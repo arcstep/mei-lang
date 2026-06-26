@@ -711,9 +711,13 @@ function reconcileCartesianMapping(rows, mapping) {
 function buildChartModel(kind, props, diagnostics) {
   const rows = resolveRows(props);
   const columns = resolveColumns(props, rows);
-  const mapping = reconcileCartesianMapping(rows, resolveMapping(props, columns));
-  const legacy = Object.assign(resolveLegacyBehavior(props), { __host: props.__host });
   const normalized = normalizeKind(kind);
+  const baseMapping = resolveMapping(props, columns);
+  const mapping =
+    PIE_KINDS.has(normalized) || normalized === "radar" || normalized === "boxplot"
+      ? baseMapping
+      : reconcileCartesianMapping(rows, baseMapping);
+  const legacy = Object.assign(resolveLegacyBehavior(props), { __host: props.__host });
   const topN = resolveTopN(props);
   const chartRows =
     topN > 0 && normalized === "column"
@@ -755,12 +759,20 @@ function buildChartModel(kind, props, diagnostics) {
     };
   }
   const option = buildOption(kind, chartRows, mapping, legacy, diagnostics);
+  const dimensionCount =
+    normalized === "radar"
+      ? (mapping.radarDimensions?.length || mapping.y?.length || 0)
+      : 0;
+  const meta =
+    normalized === "radar"
+      ? `${mapping.label?.[0]?.name || mapping.label?.[0]?.field || "series"} · ${dimensionCount} dims · ${chartRows.length} rows`
+      : `${mapping.titleLeft} -> ${mapping.titleRight}`;
   return {
     kind: normalized,
     rows: chartRows,
     mapping,
     option,
-    meta: `${mapping.titleLeft} -> ${mapping.titleRight}`,
+    meta,
   };
 }
 
@@ -1430,6 +1442,9 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
       value: toNumber(row?.[valueField]),
     }))
     .filter((item) => item.name && Number.isFinite(item.value));
+  if (data.length === 0) {
+    diagnostics.push(`pie/donut/rose 无有效数据点 (label=${labelField || "-"}, y=${valueField || "-"})`);
+  }
   const compact = legacy.compact === true || legacy.compact === "true";
   const chartHeight = Number(legacy.chartHeight) > 0 ? Number(legacy.chartHeight) : 0;
   const themeTypography = readThemeTypography(legacy.__host);
@@ -1445,7 +1460,9 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
     legend: compact
       ? { show: false }
       : {
-          top: 0,
+          top: 4,
+          left: "center",
+          orient: "horizontal",
           textStyle: {
             fontSize: themeTypography.label,
             color: canvasThemeColor(host, "text_muted"),
@@ -1456,14 +1473,17 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
       {
         type: "pie",
         radius: kind === "donut" ? donutRadius : tight ? "62%" : compact ? "68%" : "70%",
-        center: compact ? ["50%", "50%"] : undefined,
+        // Legend and pie share one canvas; reserve vertical space so slices are not clipped to zero height.
+        center: compact ? ["50%", "50%"] : ["50%", "58%"],
+        top: compact ? 0 : 36,
+        height: compact ? undefined : "72%",
         label: {
           show: !compact,
           fontSize: themeTypography.label,
           color: canvasThemeColor(host, "text_body"),
         },
         labelLine: { show: !compact },
-        roseType: kind === "rose" ? "radius" : undefined,
+        ...(kind === "rose" ? { roseType: "radius" } : {}),
         data,
       },
     ],

@@ -1,6 +1,8 @@
 # dataset 组件包
 
-通用数据观察组件包。当前导出：
+通用数据观察组件包。Build 预览见 [`previews/`](previews/)（`{use_key}.mei` 约定）。
+
+当前导出：
 
 | use key | 说明 |
 |---------|------|

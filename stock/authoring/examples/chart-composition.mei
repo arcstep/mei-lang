@@ -21,7 +21,7 @@ world(
             id = "chart_data",
             kind = "dataset",
             title = "Chart sample",
-            source = ds.csv(path = "../../stock/authoring/examples/data/chart-lab.csv"),
+            source = ds.csv(path = "../../stock/authoring/examples/data/chart-composition.csv"),
         ),
     ],
 )
@@ -42,7 +42,7 @@ frame.add_panel(
                 "title": "Revenue donut",
                 "data": dataset_ref(id = "chart_data"),
                 "mapping": {
-                    "label": [{"field": "label", "name": "Series"}],
+                    "label": [{"field": "category", "name": "Category"}],
                     "y": [{"field": "revenue", "name": "Revenue"}],
                 },
             },
@@ -61,7 +61,7 @@ frame.add_panel(
                 "title": "Revenue composition",
                 "data": dataset_ref(id = "chart_data"),
                 "mapping": {
-                    "label": [{"field": "label", "name": "Series"}],
+                    "label": [{"field": "category", "name": "Category"}],
                     "y": [{"field": "revenue", "name": "Revenue"}],
                 },
             },
@@ -80,7 +80,7 @@ frame.add_panel(
                 "title": "Revenue rose",
                 "data": dataset_ref(id = "chart_data"),
                 "mapping": {
-                    "label": [{"field": "label", "name": "Series"}],
+                    "label": [{"field": "category", "name": "Category"}],
                     "y": [{"field": "revenue", "name": "Revenue"}],
                 },
             },

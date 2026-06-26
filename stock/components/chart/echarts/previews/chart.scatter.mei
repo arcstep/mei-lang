@@ -1,0 +1,53 @@
+# Pack preview: chart.scatter
+
+app(
+    id = "preview-chart-scatter",
+    title = "Preview chart.scatter",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "chart",
+    summary = "Pack-local build preview for chart.scatter.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "chart_data",
+            kind = "dataset",
+            title = "Chart sample",
+            source = ds.csv(path = "../../stock/authoring/examples/data/chart-lab.csv"),
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "main_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.scatter",
+            area = "auto",
+            props = {
+                "title": "Revenue vs orders",
+                "data": dataset_ref(id = "chart_data"),
+                "mapping": {
+                    "x": [{"field": "revenue", "name": "Revenue"}],
+                    "y": [{"field": "orders", "name": "Orders"}],
+                    "label": [{"field": "region", "name": "Region"}],
+                },
+            }
+        ),
+    ],
+)
+

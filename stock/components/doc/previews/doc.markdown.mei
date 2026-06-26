@@ -1,0 +1,8 @@
+app(id="preview-doc-markdown", title="Preview doc.markdown", default_scene="home")
+scene(id="home", world="home_world", frame="home_frame", profile="page", summary="Pack preview")
+world(id="home_world", resources=[])
+frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"))
+frame.add_panel(id="main", area="auto", blocks=[
+    component("doc.markdown", area="auto", props={"content": "## Pack preview\n\nMinimal markdown block."}),
+])
+

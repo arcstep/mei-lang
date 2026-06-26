@@ -8,5 +8,7 @@
 - `echarts/manifest.json` 负责注册 `chart.*` 组件
 - `chart.ranking`：横向排名条形图，按数值降序；`showBackground` 全宽背景条 + 高亮数据条；`rankingLayout`：`side`（左侧标签）或 `above`（标签置顶，适合长事项名）；`label_max_chars` / 宽度估算控制省略号截断；悬停 tooltip / 点击柱条查看全文；可选 `barColor` / `barBackground`
 - `echarts/*.js` 为具体图表入口
+- `echarts/previews/*.mei` 为 **Build 视图组件预览**（每 use_key 一个最小 scene；约定 `{pack}/previews/{use_key}.mei`）
+- `echarts/docs/README.md` 为 **pack 用法真源**（mapping、示例 CSV、Agent 检索）
 
-组件加载器会递归扫描 `_components/**/manifest.json`，并自动把 `script` 解析为相对 `_components/` 根目录的路径。
+组件加载器会递归扫描 `stock/components/**/manifest.json`，并自动把 `script` 解析为相对 components 根目录的路径。Build 预览只读 pack 内 `previews/`，不再经 `authoring/examples`。

@@ -2,6 +2,8 @@
 
 驾驶舱**专题运行时组件**包。
 
+Build 预览：每个 use key 在 [`previews/`](previews/) 下有对应的 `{use_key}.mei` 最小 scene（与 manifest 同域，供构建树 Preview 编译）。
+
 | use key | 说明 |
 |---------|------|
 | `cockpit.header-brand` | 大屏标题（1920×72；全宽底图 + 居中帽檐 + 主标题） |

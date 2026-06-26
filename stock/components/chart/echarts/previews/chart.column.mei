@@ -1,0 +1,53 @@
+# Pack preview: chart.column
+
+app(
+    id = "preview-chart-column",
+    title = "Preview chart.column",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "chart",
+    summary = "Pack-local build preview for chart.column.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "chart_data",
+            kind = "dataset",
+            title = "Chart sample",
+            source = ds.csv(path = "../../stock/authoring/examples/data/chart-lab.csv"),
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "main_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.column",
+            area = "auto",
+            props = {
+                "title": "Revenue columns",
+                "data": dataset_ref(id = "chart_data"),
+                "mapping": {
+                    "x": [{"field": "month", "name": "Month"}],
+                    "y": [{"field": "revenue", "name": "Revenue"}],
+                    "group": [{"field": "region", "name": "Region"}],
+                },
+            }
+        ),
+    ],
+)
+

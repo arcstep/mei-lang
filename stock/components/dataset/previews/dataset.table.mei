@@ -1,0 +1,11 @@
+app(id="preview-dataset-table", title="Preview dataset.table", default_scene="home")
+scene(id="home", world="home_world", frame="home_frame", profile="page", summary="Pack preview")
+world(id="home_world", resources=[
+    resource(id="sales_data", kind="dataset", title="Sales", source=ds.csv(path="../../stock/authoring/examples/data/sales.csv")),
+])
+sales_rows = ds.data_ref("sales_data")
+frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"))
+frame.add_panel(id="main", area="auto", blocks=[
+    component("dataset.table", area="auto", props={"data": sales_rows, "headers": ["region", "product", "amount"]}),
+])
+

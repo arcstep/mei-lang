@@ -18,9 +18,15 @@ world(
     id = "home_world",
     resources = [
         resource(
-            id = "chart_data",
+            id = "radar_data",
             kind = "dataset",
-            title = "Chart sample",
+            title = "Radar sample",
+            source = ds.csv(path = "../../stock/authoring/examples/data/chart-radar.csv"),
+        ),
+        resource(
+            id = "scatter_data",
+            kind = "dataset",
+            title = "Scatter sample",
             source = ds.csv(path = "../../stock/authoring/examples/data/chart-lab.csv"),
         ),
     ],
@@ -40,12 +46,14 @@ frame.add_panel(
             area = "auto",
             props = {
                 "title": "Multi metric radar",
-                "data": dataset_ref(id = "chart_data"),
+                "data": dataset_ref(id = "radar_data"),
                 "mapping": {
-                    "label": [{"field": "label", "name": "Series"}],
+                    "label": [{"field": "series", "name": "Series"}],
                     "y": [
-                        {"field": "revenue", "name": "Revenue"},
-                        {"field": "orders", "name": "Orders"},
+                        {"field": "speed", "name": "Speed"},
+                        {"field": "quality", "name": "Quality"},
+                        {"field": "cost", "name": "Cost"},
+                        {"field": "uptime", "name": "Uptime"},
                     ],
                 },
             },
@@ -62,11 +70,11 @@ frame.add_panel(
             area = "auto",
             props = {
                 "title": "Revenue vs orders",
-                "data": dataset_ref(id = "chart_data"),
+                "data": dataset_ref(id = "scatter_data"),
                 "mapping": {
                     "x": [{"field": "revenue", "name": "Revenue"}],
                     "y": [{"field": "orders", "name": "Orders"}],
-                    "label": [{"field": "label", "name": "Series"}],
+                    "label": [{"field": "region", "name": "Region"}],
                 },
             },
         ),

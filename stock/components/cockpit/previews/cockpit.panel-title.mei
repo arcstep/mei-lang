@@ -1,0 +1,8 @@
+app(id="preview-cockpit-panel-title", title="Preview cockpit.panel-title", default_scene="home")
+scene(id="home", world="home_world", frame="home_frame", profile="cockpit", theme="cockpit", summary="Pack preview")
+world(id="home_world", resources=[])
+frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"))
+frame.add_panel(id="main", area="auto", blocks=[
+    component("cockpit.panel-title", area="auto", props={"title": "Panel title"}),
+])
+

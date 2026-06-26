@@ -1,0 +1,53 @@
+# Pack preview: chart.trend
+
+app(
+    id = "preview-chart-trend",
+    title = "Preview chart.trend",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "chart",
+    summary = "Pack-local build preview for chart.trend.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "chart_data",
+            kind = "dataset",
+            title = "Chart sample",
+            source = ds.csv(path = "../../stock/authoring/examples/data/chart-lab.csv"),
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "main_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.trend",
+            area = "auto",
+            props = {
+                "title": "Revenue trend",
+                "data": dataset_ref(id = "chart_data"),
+                "mapping": {
+                    "x": [{"field": "month", "name": "Month"}],
+                    "y": [{"field": "revenue", "name": "Revenue"}],
+                    "group": [{"field": "region", "name": "Region"}],
+                },
+            }
+        ),
+    ],
+)
+

@@ -44,7 +44,7 @@ frame.add_panel(
                 "mapping": {
                     "x": [{"field": "month", "name": "Month"}],
                     "y": [{"field": "revenue", "name": "Revenue"}],
-                    "group": [{"field": "label", "name": "Series"}],
+                    "group": [{"field": "region", "name": "Region"}],
                 },
             },
         ),
@@ -64,7 +64,7 @@ frame.add_panel(
                 "mapping": {
                     "x": [{"field": "month", "name": "Month"}],
                     "y": [{"field": "revenue", "name": "Revenue"}],
-                    "group": [{"field": "label", "name": "Series"}],
+                    "group": [{"field": "region", "name": "Region"}],
                 },
             },
         ),
@@ -84,8 +84,8 @@ frame.add_panel(
                 "showBackground": True,
                 "rankingLayout": "side",
                 "mapping": {
-                    "x": [{"field": "label", "name": "Series"}],
-                    "y": [{"field": "orders", "name": "Orders"}],
+                    "label": [{"field": "region", "name": "Region"}],
+                    "y": [{"field": "revenue", "name": "Revenue"}],
                 },
             },
         ),
