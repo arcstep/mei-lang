@@ -21,6 +21,7 @@ mod artifact_plan_collect;
 mod artifact_metric;
 mod artifact_dataframe;
 mod artifact_aliases;
+mod mrg_plan;
 mod parallel;
 mod scoped_materialize;
 #[cfg(test)]
@@ -47,6 +48,7 @@ pub(crate) use artifact_plan_collect::*;
 pub(crate) use artifact_metric::*;
 pub(crate) use artifact_dataframe::*;
 pub(crate) use artifact_aliases::*;
+pub(crate) use mrg_plan::*;
 pub(crate) use parallel::*;
 
 #[allow(unused_imports)]
@@ -59,6 +61,7 @@ pub use types::{
     PrebuildSlowMetricDiagnostic, PrebuildSlowScopeDiagnostic, PrebuildTimingReport,
     PrebuildWarmupDiagnosticReport, PrebuildWarningReport,
 };
-pub use run::run_prebuild;
+pub use run::{persist_prebuild_report, run_prebuild};
+pub use mrg_plan::build_mrg_eval_frontier;
 pub use scoped_materialize::{materialize_scope_after_compile, ScopedMaterializeReport};
 pub(crate) use plan::app_has_deferred_warmup_work;

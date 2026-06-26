@@ -140,6 +140,34 @@ pub(crate) fn build_prebuild_warning(
     cache_key: Option<&str>,
     error: impl Into<String>,
 ) -> PrebuildWarningReport {
+    build_prebuild_warning_with_mrg(
+        phase,
+        scene_id,
+        target_file,
+        dataset_selector,
+        metric_id,
+        compile_revision,
+        cache_key,
+        None,
+        None,
+        None,
+        error,
+    )
+}
+
+pub(crate) fn build_prebuild_warning_with_mrg(
+    phase: &str,
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
+    dataset_selector: Option<&str>,
+    metric_id: Option<&str>,
+    compile_revision: Option<&str>,
+    cache_key: Option<&str>,
+    scope_key: Option<&str>,
+    mrg_slot_key: Option<&str>,
+    layer: Option<&str>,
+    error: impl Into<String>,
+) -> PrebuildWarningReport {
     let error = error.into();
     let (category, inferred_dataset, inferred_metric) = warning_category_from_error(error.as_str());
     let scene_id = scene_id
@@ -191,6 +219,18 @@ pub(crate) fn build_prebuild_warning(
         metric_id,
         compile_revision,
         cache_key,
+        scope_key: scope_key
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        mrg_slot_key: mrg_slot_key
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        layer: layer
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
         error,
     }
 }
@@ -241,7 +281,7 @@ impl CompileScope {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .filter(|target| is_script_target(target))
-            .map(str::to_string);
+            .map(mei_lang_kernel::canonical_app_source_rel_path);
         Self {
             requested_scene_id,
             requested_target_file,

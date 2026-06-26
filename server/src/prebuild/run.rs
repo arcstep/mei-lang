@@ -101,7 +101,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         if let Some(fingerprint_match) =
             crate::prebuild_fingerprint::try_match_prebuild_fingerprint(source_root)?
         {
-            prebuild_emit_progress(format!(
+            prebuild_emit_notice(format!(
                 "{} | fingerprint={} | 跳过完整 prebuild（输入未变）",
                 ansi_wrap("SKIP", "1;32"),
                 fingerprint_match.stored.inputs_fingerprint
@@ -114,7 +114,7 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             return Ok(report);
         }
     }
-    prebuild_emit_progress(&format!(
+    prebuild_emit_notice(&format!(
         "{} | workspace={} | apps={}",
         ansi_wrap(
             &format!(
@@ -217,14 +217,47 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
                 None,
                 stock_revision.as_deref(),
             )?;
-            prebuild_emit_progress(format!(
+            prebuild_emit_notice(format!(
                 "{} candidate buildId={}",
                 ansi_wrap("STORE", "1;32"),
                 gen.build_id
             ));
+            if report.failed_apps.is_empty() {
+                match mei_lang_kernel::promote_build(source_root, Some(gen.build_id.as_str())) {
+                    Ok(active_id) => {
+                        prebuild_emit_notice(format!(
+                            "{} build/active → store/{}",
+                            ansi_wrap("PROMOTE", "1;32"),
+                            active_id
+                        ));
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            build_id = %gen.build_id,
+                            error = %error,
+                            "prebuild finished but build/active promote failed; run `mei-toolchain workspace build promote`"
+                        );
+                        prebuild_emit_notice(format!(
+                            "{} promote failed: {error:#}",
+                            ansi_wrap("WARN", "1;33")
+                        ));
+                    }
+                }
+            }
         }
     }
     Ok(report)
+}
+
+pub fn persist_prebuild_report(source_root: &Path, report: &PrebuildReport) -> Result<PathBuf> {
+    let runtime_root = mei_lang_kernel::resolve_workspace_runtime_root(source_root);
+    fs::create_dir_all(&runtime_root)
+        .with_context(|| format!("create runtime dir {}", runtime_root.display()))?;
+    let path = runtime_root.join("prebuild-last.json");
+    let payload =
+        serde_json::to_string_pretty(report).context("serialize prebuild report to JSON")?;
+    fs::write(&path, payload).with_context(|| format!("write {}", path.display()))?;
+    Ok(path)
 }
 
 pub(crate) fn clear_app_artifacts(source_root: &Path, app_id: &str) -> Result<()> {

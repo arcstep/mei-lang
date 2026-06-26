@@ -171,6 +171,8 @@ pub(crate) fn build_prebuild_diagnostics_report(
         slow_metrics,
         fingerprint_skip: false,
         inputs_fingerprint: None,
+        plan_source: None,
+        dirty_slot_count: None,
     }
 }
 

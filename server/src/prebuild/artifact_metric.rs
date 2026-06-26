@@ -1,6 +1,35 @@
 use super::prelude::*;
 use super::*;
 
+fn mrg_slot_and_artifact_ready(
+    registry: &crate::graph::mrg::registry::MrgRegistry,
+    app_root: &Path,
+    plan: &PlannedMetricWorkset,
+    bundle_revision: &str,
+) -> bool {
+    let scope_key = crate::graph::mrg_eval_scope_key(
+        plan.scene_id.as_str(),
+        plan.scene_path.as_deref(),
+    );
+    let canonical = slot_cache_key_for_plan(plan, bundle_revision);
+    let mrg_covers = crate::graph::mrg_slot_covers_eval(
+        registry,
+        plan.owner_resource_id.as_str(),
+        bundle_revision,
+        plan.dependency_revision_key.as_str(),
+        scope_key.as_str(),
+        canonical.as_str(),
+    );
+    mrg_covers
+        && (metric_response_result_artifact_exists(app_root, canonical.as_str())
+            || metric_response_result_artifact_exists(app_root, plan.shared_cache_key.as_str())
+            || metric_response_result_artifact_exists(app_root, plan.response_cache_key.as_str()))
+}
+
+fn active_mcg_bundle_revisions(state: &CoverageState) -> BTreeMap<String, String> {
+    state.active_mcg_bundle_revisions()
+}
+
 pub(crate) fn ensure_metric_response_artifact_for_plan(
     app_id: &str,
     app_root: &Path,
@@ -10,59 +39,37 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    if let Some(current_rev) = current_bundle_revision_for_plan(plan) {
+    let mcg_revisions = active_mcg_bundle_revisions(state);
+    if let Some(current_rev) = current_bundle_revision_for_plan(plan, &mcg_revisions) {
         if crate::graph::metric_bundle_revision_unchanged(
             &state.pre_mcg_bundle_revisions,
             plan.owner_resource_id.as_str(),
             current_rev.as_str(),
-        ) && prebuild_metric_response_index_covers_key(
-            app_root,
-            &plan.shared_cache_key,
-            &plan.covered_metric_ids,
-            plan.request_all_metrics,
-        )? {
-            promote_prebuild_metric_response_slot(
+        ) {
+            if let (Some(source_root), Some(stored_app_id)) = (
                 state.source_root.as_deref(),
                 state.app_id.as_deref(),
-                plan,
-                current_rev.as_str(),
-            );
-            coverage.metric_response_artifacts_skipped_bundle_unchanged += 1;
-            coverage.metric_response_artifacts_ready += 1;
-            return Ok(());
+            ) {
+                let registry = crate::graph::load_mrg_registry(source_root, stored_app_id);
+                if mrg_slot_and_artifact_ready(&registry, app_root, plan, current_rev.as_str()) {
+                    promote_prebuild_metric_response_slot(
+                        state.source_root.as_deref(),
+                        state.app_id.as_deref(),
+                        plan,
+                        current_rev.as_str(),
+                    );
+                    coverage.metric_response_artifacts_skipped_bundle_unchanged += 1;
+                    coverage.metric_response_artifacts_ready += 1;
+                    return Ok(());
+                }
+            }
         }
         if let (Some(source_root), Some(stored_app_id)) = (
             state.source_root.as_deref(),
             state.app_id.as_deref(),
         ) {
             let registry = crate::graph::load_mrg_registry(source_root, stored_app_id);
-            let scope_key = crate::graph::mrg_eval_scope_key(
-                plan.scene_id.as_str(),
-                plan.scene_path.as_deref(),
-            );
-            let mrg_covers = crate::graph::mrg_slot_covers_eval(
-                &registry,
-                plan.owner_resource_id.as_str(),
-                current_rev.as_str(),
-                plan.dependency_revision_key.as_str(),
-                scope_key.as_str(),
-                plan.shared_cache_key.as_str(),
-            ) || crate::graph::mrg_slot_covers_eval(
-                &registry,
-                plan.owner_resource_id.as_str(),
-                current_rev.as_str(),
-                plan.dependency_revision_key.as_str(),
-                scope_key.as_str(),
-                plan.response_cache_key.as_str(),
-            );
-            if mrg_covers
-                && prebuild_metric_response_index_covers_key(
-                    app_root,
-                    &plan.shared_cache_key,
-                    &plan.covered_metric_ids,
-                    plan.request_all_metrics,
-                )?
-            {
+            if mrg_slot_and_artifact_ready(&registry, app_root, plan, current_rev.as_str()) {
                 promote_prebuild_metric_response_slot(
                     state.source_root.as_deref(),
                     state.app_id.as_deref(),
@@ -134,12 +141,9 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
             return Ok(());
         }
     }
-    if prebuild_metric_response_index_covers_key(
-        app_root,
-        &plan.shared_cache_key,
-        &plan.covered_metric_ids,
-        plan.request_all_metrics,
-    )? {
+    if metric_response_result_artifact_exists(app_root, plan.shared_cache_key.as_str())
+        || metric_response_result_artifact_exists(app_root, plan.response_cache_key.as_str())
+    {
         coverage.metric_response_artifacts_ready += 1;
         return Ok(());
     }
@@ -275,7 +279,8 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
         Err(error) => {
             state.metric_response_jobs.finish(&plan.shared_cache_key, false);
             if let Some(source_root) = state.source_root.as_deref() {
-                let bundle_revision = current_bundle_revision_for_plan(plan).unwrap_or_default();
+                let bundle_revision =
+                    current_bundle_revision_for_plan(plan, &mcg_revisions).unwrap_or_default();
                 let scope_key = crate::graph::mrg_eval_scope_key(
                     plan.scene_id.as_str(),
                     plan.scene_path.as_deref(),
@@ -372,10 +377,29 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
     )?;
     coverage.metric_response_artifacts_built += 1;
     if let Some(source_root) = state.source_root.as_deref() {
-        let bundle_revision = current_bundle_revision_for_plan(plan).unwrap_or_default();
+        let bundle_revision =
+            current_bundle_revision_for_plan(plan, &mcg_revisions).unwrap_or_default();
         let scope_key = crate::graph::mrg_eval_scope_key(
             plan.scene_id.as_str(),
             plan.scene_path.as_deref(),
+        );
+        let _ = crate::graph::mrg::eval_nodes::persist_workset_node(
+            source_root,
+            app_id,
+            plan.logical_node_id.as_str(),
+            plan.owner_resource_id.as_str(),
+            plan.covered_metric_ids.iter().cloned().collect::<Vec<_>>().as_slice(),
+        );
+        let _ = crate::graph::mrg::eval_nodes::persist_eval_plan_node(
+            source_root,
+            app_id,
+            plan.owner_resource_id.as_str(),
+            bundle_revision.as_str(),
+            &serde_json::json!({
+                "worksetId": plan.logical_node_id,
+                "responseCacheKey": plan.shared_cache_key,
+                "scopeKey": scope_key,
+            }),
         );
         crate::graph::record_prebuild_slot(
             source_root,

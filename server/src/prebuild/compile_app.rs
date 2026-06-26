@@ -42,7 +42,7 @@ pub(crate) fn run_prebuild_for_app(
     let compile_started = Instant::now();
     let initial_scope_count = manifest_plan.initial_scope_count;
     prebuild_emit_progress(&format!(
-        "[{}] ── 1/3 编译 .mei ── 约 {initial_scope_count} 个 manifest scope（request-scope 闭包 + 结果复用）",
+        "[{}] ── [MCG pass] 编译 .mei ── 约 {initial_scope_count} 个 manifest scope（request-scope 闭包 + 结果复用）",
         app.app_id
     ));
     let hot_scopes = manifest_plan.hot_scopes.clone();
@@ -302,6 +302,7 @@ pub(crate) fn run_prebuild_for_app(
         let batch_new_hook = Arc::clone(&batch_new_compile);
         let batch_cache_hook = Arc::clone(&batch_cache_hits);
         let last_emit_hook = Arc::clone(&last_progress_emit);
+        let last_emit_for_progress = Arc::clone(&last_emit_hook);
         let unique_key_total = representatives.len();
         let batch_results = run_limited_parallel_ordered_with_hook(
             representatives.clone(),
@@ -335,11 +336,11 @@ pub(crate) fn run_prebuild_for_app(
                     unique_key_total,
                     batch_started,
                     scopes_completed_before_batch,
-                    0,
+                    unique_key_total.saturating_sub(done),
                     batch_new_hook.load(Ordering::Relaxed),
                     batch_cache_hook.load(Ordering::Relaxed),
                     false,
-                    last_emit_hook.as_ref(),
+                    last_emit_for_progress.as_ref(),
                 );
             },
         );
@@ -409,6 +410,19 @@ pub(crate) fn run_prebuild_for_app(
             batch_started.elapsed().as_secs_f64(),
             pending.len()
         ));
+        emit_compile_batch_progress(
+            app.app_id.as_str(),
+            batch_idx,
+            unique_key_total,
+            unique_key_total,
+            batch_started,
+            scopes_completed_before_batch,
+            pending.len(),
+            batch_compiled,
+            batch_cache_hit,
+            true,
+            last_emit_hook.as_ref(),
+        );
     }
     if mode == PrebuildMode::Build {
         let index = build_prebuild_compile_index(
@@ -439,6 +453,7 @@ pub(crate) fn run_prebuild_for_app(
         app,
         mode,
         PrebuildAppAfterCompile {
+            scope_profile,
             app_started,
             app_root,
             components_root,

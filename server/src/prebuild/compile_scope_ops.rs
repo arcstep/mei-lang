@@ -75,7 +75,7 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
         }
         None => ensure_compile_scope(source_root, app_id, scope, mode, components_root)?,
     };
-    if mode == PrebuildMode::Build && outcome.compile_ms > 0 {
+    if mode == PrebuildMode::Build {
         let options = scope.to_options();
         let payloads = crate::graph::runtime_payloads_from_compiled(&outcome.compiled);
         crate::graph::maybe_update_graph_after_compile(
@@ -305,8 +305,18 @@ pub(crate) fn publish_required_data_snapshots(
         .iter()
         .map(|(path, sheet, header_row)| (path.as_str(), sheet.as_deref(), *header_row))
         .collect::<Vec<_>>();
-    toolchain::publish_data_snapshots(source_root, app_id, refs.as_slice())
-        .with_context(|| format!("publish data snapshots for app `{app_id}`"))
+    let report = toolchain::publish_data_snapshots(source_root, app_id, refs.as_slice())
+        .with_context(|| format!("publish data snapshots for app `{app_id}`"))?;
+    for source_key in &report.written {
+        let _ = crate::graph::mrg::eval_nodes::persist_data_source_node(
+            source_root,
+            app_id,
+            source_key.as_str(),
+            "ds:published",
+            source_key.as_str(),
+        );
+    }
+    Ok(report)
 }
 
 pub(crate) fn verify_required_xlsx_sources(

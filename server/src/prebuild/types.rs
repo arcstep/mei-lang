@@ -191,6 +191,10 @@ pub struct PrebuildDiagnosticsReport {
     pub fingerprint_skip: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inputs_fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "planSource")]
+    pub plan_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "dirtySlotCount")]
+    pub dirty_slot_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -210,12 +214,89 @@ pub struct PrebuildWarningReport {
     pub compile_revision: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "scopeKey")]
+    pub scope_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "mrgSlotKey")]
+    pub mrg_slot_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
     pub error: String,
 }
 
 impl PrebuildWarningReport {
     pub fn display_message(&self) -> &str {
         self.message.as_str()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrebuildWarningSample {
+    pub category: String,
+    pub phase: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "targetFile")]
+    pub target_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "datasetSelector")]
+    pub dataset_selector: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct PrebuildWarningSummary {
+    pub total: usize,
+    #[serde(rename = "byCategory")]
+    pub by_category: BTreeMap<String, usize>,
+    #[serde(rename = "byPhase")]
+    pub by_phase: BTreeMap<String, usize>,
+    #[serde(rename = "failingDatasets")]
+    pub failing_datasets: Vec<String>,
+    pub samples: Vec<PrebuildWarningSample>,
+    #[serde(rename = "truncatedSampleCount")]
+    pub truncated_sample_count: usize,
+}
+
+pub(crate) fn build_warning_summary(
+    warnings: &[PrebuildWarningReport],
+    sample_limit: usize,
+    dataset_limit: usize,
+) -> PrebuildWarningSummary {
+    let mut by_category = BTreeMap::<String, usize>::new();
+    let mut by_phase = BTreeMap::<String, usize>::new();
+    for warning in warnings {
+        *by_category.entry(warning.category.clone()).or_insert(0) += 1;
+        *by_phase.entry(warning.phase.clone()).or_insert(0) += 1;
+    }
+    let mut failing_datasets = warnings
+        .iter()
+        .filter_map(|warning| warning.dataset_selector.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    failing_datasets.sort();
+    if failing_datasets.len() > dataset_limit {
+        failing_datasets.truncate(dataset_limit);
+    }
+    let samples = warnings
+        .iter()
+        .take(sample_limit)
+        .map(|warning| PrebuildWarningSample {
+            category: warning.category.clone(),
+            phase: warning.phase.clone(),
+            scene_id: warning.scene_id.clone(),
+            target_file: warning.target_file.clone(),
+            dataset_selector: warning.dataset_selector.clone(),
+            message: warning.message.clone(),
+        })
+        .collect::<Vec<_>>();
+    let truncated_sample_count = warnings.len().saturating_sub(samples.len());
+    PrebuildWarningSummary {
+        total: warnings.len(),
+        by_category,
+        by_phase,
+        failing_datasets,
+        samples,
+        truncated_sample_count,
     }
 }
 
@@ -269,7 +350,10 @@ pub struct PrebuildAppSummary {
     pub coverage: PrebuildCoverageReport,
     pub timings: PrebuildTimingReport,
     pub diagnostics: PrebuildDiagnosticsReport,
-    pub warnings: Vec<PrebuildWarningReport>,
+    #[serde(rename = "warningCount")]
+    pub warning_count: usize,
+    #[serde(rename = "warningSummary")]
+    pub warning_summary: PrebuildWarningSummary,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -288,6 +372,12 @@ pub struct PrebuildReportSummary {
     pub failed_apps: Vec<String>,
     pub error_summary: Vec<String>,
     pub diagnostics: PrebuildDiagnosticsReport,
+    #[serde(rename = "warningCount")]
+    pub warning_count: usize,
+    #[serde(rename = "warningSummary")]
+    pub warning_summary: PrebuildWarningSummary,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "fullReportPath")]
+    pub full_report_path: Option<String>,
     pub apps: Vec<PrebuildAppSummary>,
 }
 
@@ -329,15 +419,21 @@ impl PrebuildReport {
     }
 
     pub fn correctness_failed(&self) -> bool {
-        !self.ok
-            || self
-                .apps
-                .iter()
-                .any(|app| !app.warnings.is_empty())
-            || !self.failed_apps.is_empty()
+        !self.ok || !self.failed_apps.is_empty()
     }
 
-    pub fn summary(&self) -> PrebuildReportSummary {
+    pub fn aggregate_warning_summary(&self) -> PrebuildWarningSummary {
+        let warnings = self
+            .apps
+            .iter()
+            .flat_map(|app| app.warnings.iter())
+            .cloned()
+            .collect::<Vec<_>>();
+        build_warning_summary(&warnings, 8, 12)
+    }
+
+    pub fn summary(&self, full_report_path: Option<String>) -> PrebuildReportSummary {
+        let warning_summary = self.aggregate_warning_summary();
         PrebuildReportSummary {
             schema_version: self.schema_version.clone(),
             mode: self.mode,
@@ -353,30 +449,37 @@ impl PrebuildReport {
             failed_apps: self.failed_apps.clone(),
             error_summary: self.error_summary.clone(),
             diagnostics: self.diagnostics.clone(),
+            warning_count: warning_summary.total,
+            warning_summary: warning_summary.clone(),
+            full_report_path,
             apps: self
                 .apps
                 .iter()
-                .map(|app| PrebuildAppSummary {
-                    app_id: app.app_id.clone(),
-                    compile_scopes: app
-                        .compile_scopes
-                        .iter()
-                        .map(|scope| PrebuildScopeSummary {
-                            requested_scene_id: scope.requested_scene_id.clone(),
-                            requested_target_file: scope.requested_target_file.clone(),
-                            active_scene_id: scope.active_scene_id.clone(),
-                            active_target_file: scope.active_target_file.clone(),
-                            cache_hit: scope.cache_hit,
-                            artifact_cache_hit: scope.artifact_cache_hit,
-                            cache_lookup_ms: scope.cache_lookup_ms,
-                            artifact_load_ms: scope.artifact_load_ms,
-                            compile_ms: scope.compile_ms,
-                        })
-                        .collect(),
-                    coverage: app.coverage.clone(),
-                    timings: app.timings.clone(),
-                    diagnostics: app.diagnostics.clone(),
-                    warnings: app.warnings.clone(),
+                .map(|app| {
+                    let app_warning_summary = build_warning_summary(&app.warnings, 5, 8);
+                    PrebuildAppSummary {
+                        app_id: app.app_id.clone(),
+                        compile_scopes: app
+                            .compile_scopes
+                            .iter()
+                            .map(|scope| PrebuildScopeSummary {
+                                requested_scene_id: scope.requested_scene_id.clone(),
+                                requested_target_file: scope.requested_target_file.clone(),
+                                active_scene_id: scope.active_scene_id.clone(),
+                                active_target_file: scope.active_target_file.clone(),
+                                cache_hit: scope.cache_hit,
+                                artifact_cache_hit: scope.artifact_cache_hit,
+                                cache_lookup_ms: scope.cache_lookup_ms,
+                                artifact_load_ms: scope.artifact_load_ms,
+                                compile_ms: scope.compile_ms,
+                            })
+                            .collect(),
+                        coverage: app.coverage.clone(),
+                        timings: app.timings.clone(),
+                        diagnostics: app.diagnostics.clone(),
+                        warning_count: app.warnings.len(),
+                        warning_summary: app_warning_summary,
+                    }
                 })
                 .collect(),
         }

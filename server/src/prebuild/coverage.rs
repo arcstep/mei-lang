@@ -160,4 +160,15 @@ impl CoverageState {
         self.metric_response_jobs.clear();
         self.metric_dataframe_jobs.clear();
     }
+
+    pub(crate) fn active_mcg_bundle_revisions(&self) -> BTreeMap<String, String> {
+        let mut revisions = self.pre_mcg_bundle_revisions.clone();
+        if let (Some(source_root), Some(app_id)) = (
+            self.source_root.as_deref(),
+            self.app_id.as_deref(),
+        ) {
+            revisions.extend(crate::graph::load_mcg_bundle_revisions(source_root, app_id));
+        }
+        revisions
+    }
 }

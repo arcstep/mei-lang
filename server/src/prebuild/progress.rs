@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use super::prelude::*;
 use super::*;
 
@@ -208,6 +210,29 @@ pub(crate) fn dir_size_summary(root: &Path) -> DirSizeSummary {
     DirSizeSummary { files, bytes }
 }
 
+static OUTPUT_QUIET: AtomicBool = AtomicBool::new(false);
+static OUTPUT_VERBOSE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn prebuild_set_output_quiet(quiet: bool) {
+    OUTPUT_QUIET.store(quiet, Ordering::Relaxed);
+}
+
+pub(crate) fn prebuild_output_quiet() -> bool {
+    OUTPUT_QUIET.load(Ordering::Relaxed)
+        || std::env::var("MEI_PREBUILD_QUIET")
+            .ok()
+            .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+            .unwrap_or(false)
+}
+
+pub(crate) fn prebuild_output_verbose() -> bool {
+    OUTPUT_VERBOSE.load(Ordering::Relaxed)
+        || std::env::var("MEI_PREBUILD_VERBOSE")
+            .ok()
+            .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+            .unwrap_or(false)
+}
+
 pub(crate) fn prebuild_progress_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -249,10 +274,19 @@ pub(crate) fn ansi_wrap(text: &str, code: &str) -> String {
     }
 }
 
-pub(crate) fn prebuild_emit_progress(message: impl AsRef<str>) {
+fn prebuild_emit_stderr_line(prefix: &str, message: &str, prefix_style: &str) {
     let _guard = prebuild_progress_lock()
         .lock()
         .expect("prebuild progress lock");
+    eprintln!(
+        "{} {}",
+        ansi_wrap(prefix, prefix_style),
+        message
+    );
+    let _ = std::io::stderr().flush();
+}
+
+pub(crate) fn prebuild_emit_notice(message: impl AsRef<str>) {
     let elapsed = prebuild_progress_origin()
         .lock()
         .ok()
@@ -263,8 +297,24 @@ pub(crate) fn prebuild_emit_progress(message: impl AsRef<str>) {
         Some(ms) => format!("[PREBUILD +{:.1}s]", ms as f64 / 1000.0),
         None => "[PREBUILD]".to_string(),
     };
-    eprintln!("{} {}", ansi_wrap(&prefix, "1;36"), message.as_ref());
-    let _ = std::io::stderr().flush();
+    prebuild_emit_stderr_line(&prefix, message.as_ref(), "1;32");
+}
+
+pub(crate) fn prebuild_emit_progress(message: impl AsRef<str>) {
+    if prebuild_output_quiet() {
+        return;
+    }
+    let elapsed = prebuild_progress_origin()
+        .lock()
+        .ok()
+        .and_then(|guard| *guard)
+        .map(|started| started.elapsed().as_millis() as u64);
+    let prefix = match elapsed {
+        Some(ms) if ms < 1000 => format!("[PREBUILD +{ms}ms]"),
+        Some(ms) => format!("[PREBUILD +{:.1}s]", ms as f64 / 1000.0),
+        None => "[PREBUILD]".to_string(),
+    };
+    prebuild_emit_stderr_line(&prefix, message.as_ref(), "1;36");
 }
 
 pub(crate) fn format_scope_file(scene: &str, requested_target: &str, active_target: Option<&str>) -> String {

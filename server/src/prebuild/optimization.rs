@@ -18,6 +18,18 @@ pub(crate) fn emit_prebuild_optimization_report(
     warmup_reuse_hits: usize,
 ) {
     diagnostics.sample_memory_peak();
+    if !prebuild_output_verbose() {
+        emit_prebuild_optimization_compact(
+            app_id,
+            reports,
+            coverage,
+            diagnostics,
+            compile_phase_ms,
+            artifacts_phase_ms,
+            warning_count,
+        );
+        return;
+    }
     prebuild_emit_progress(format!("[{app_id}] ══ 优化诊断（重复 vs 耗时）══"));
 
     let total_checks = reports.len();
@@ -291,7 +303,11 @@ pub(crate) fn emit_prebuild_optimization_report(
         .expect("lock prebuild diagnostics")
         .clone();
     if metric_builds.is_empty() {
-        prebuild_emit_progress("■ 指标求值最慢 | 无（本次未重新计算指标）".to_string());
+        let mrg_skips = diagnostics.mrg_eval_skips.load(Ordering::Relaxed);
+        let df_skips = diagnostics.dataframe_eval_skips.load(Ordering::Relaxed);
+        prebuild_emit_progress(format!(
+            "■ 指标 eval | 新建 0 | MRG skip {mrg_skips} | dataframe skip {df_skips}"
+        ));
     } else {
         let mut slow_metrics = metric_builds;
         slow_metrics.sort_by_key(|entry| std::cmp::Reverse(entry.ms));
@@ -374,6 +390,36 @@ pub(crate) fn emit_prebuild_optimization_report(
         prebuild_emit_progress(format!(
             "  6. [低] 修复 {warning_count} 条 warning（失败 scope 会拖慢产物阶段并可能重复重试）"
         ));
+    }
+}
+
+fn emit_prebuild_optimization_compact(
+    app_id: &str,
+    reports: &[PrebuildScopeReport],
+    coverage: &PrebuildCoverageReport,
+    diagnostics: &PrebuildDiagnostics,
+    compile_phase_ms: u64,
+    artifacts_phase_ms: u64,
+    warning_count: usize,
+) {
+    let total_checks = reports.len();
+    let real_compiles = reports.iter().filter(|report| !report.cache_hit).count();
+    let cache_hits = reports.iter().filter(|report| report.cache_hit).count();
+    let mrg_skips = diagnostics.mrg_eval_skips.load(Ordering::Relaxed);
+    let message = format!(
+        "[{app_id}] scopes={total_checks} compile={real_compiles} cache={cache_hits} | phases compile={:.1}s artifacts={:.1}s | metric response {}/{} | warnings={warning_count} | MRG skip {mrg_skips}",
+        compile_phase_ms as f64 / 1000.0,
+        artifacts_phase_ms as f64 / 1000.0,
+        coverage.metric_response_artifacts_ready,
+        coverage.metric_response_artifacts_planned,
+    );
+    if prebuild_output_quiet() {
+        prebuild_emit_notice(message);
+    } else {
+        prebuild_emit_progress(message);
+        prebuild_emit_progress(
+            "  详细优化诊断：MEI_PREBUILD_VERBOSE=1 或查看 runtime/prebuild-last.json".to_string(),
+        );
     }
 }
 

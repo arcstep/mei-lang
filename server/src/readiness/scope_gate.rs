@@ -2,13 +2,15 @@ use std::path::Path;
 
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{load_workspace_config, CompileOptions};
-use mei_lang_toolchain::{self as toolchain};
 use serde::Serialize;
 
 use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::integration::try_assemble_scope_from_scene_payload;
 use crate::graph::mcg::registry::McgRegistryWriter;
-use crate::graph::mrg::navigation::{match_request_to_navigation, mrg_nav_gate_enabled, resolve_default_scope};
+use crate::graph::mrg::navigation::{
+    match_request_to_navigation, match_request_to_navigation_with_opts, resolve_default_scope_with_opts,
+    NavigationResolveOpts,
+};
 use crate::graph::mrg::registry::MrgRegistryWriter;
 use crate::graph::types::{GraphNodeKind, MaterialState};
 use crate::http::pages::AppQuery;
@@ -62,44 +64,6 @@ impl ScopeGateReport {
             blockers,
         }
     }
-}
-
-pub fn resolve_scope_coords(
-    source_root: &Path,
-    app_id: &str,
-    scene_id: Option<&str>,
-    target_file: Option<&str>,
-) -> (Option<String>, Option<String>) {
-    let nav_match = if scene_id.is_some() || target_file.is_some() {
-        let query = AppQuery {
-            file: target_file.map(str::to_string),
-            scene: scene_id.map(str::to_string),
-            tab: None,
-            diag_filter: None,
-            world_metric: None,
-            world_dataset: None,
-            explain: None,
-            node: None,
-            scope: None,
-            focus: None,
-            chrome: None,
-            catalog: None,
-            pack: None,
-        };
-        match_request_to_navigation(
-            source_root,
-            app_id,
-            UiRouteMode::Build,
-            scene_id,
-            &query,
-        )
-    } else {
-        resolve_default_scope(source_root, app_id, UiMode::Build)
-    };
-    (
-        Some(nav_match.scope.scene_id.clone()),
-        Some(nav_match.scope.target_file.clone()),
-    )
 }
 
 pub fn resolve_scope_gate(
@@ -159,7 +123,10 @@ pub fn resolve_scope_gate_for_compile(
             if !nav_target.is_empty() {
                 nav_match.scope.target_file.clone()
             } else if !assembly_scene.is_empty() {
-                format!("scenes/{}.mei", assembly_scene.trim())
+                mei_lang_kernel::canonical_app_source_rel_path(&format!(
+                    "scenes/{}.mei",
+                    assembly_scene.trim()
+                ))
             } else {
                 String::new()
             }
@@ -173,17 +140,27 @@ pub fn resolve_scope_gate_for_compile(
     check_scope_gate_for_coords(source_root, nav_match, Some(assembly_scope))
 }
 
+#[allow(dead_code)]
 pub fn check_scope_gate(
     source_root: &Path,
     app_id: &str,
     scene_id: Option<&str>,
     target_file: Option<&str>,
 ) -> ScopeGateReport {
-    let (resolved_scene, resolved_target) =
-        resolve_scope_coords(source_root, app_id, scene_id, target_file);
+    check_scope_gate_silent(source_root, app_id, scene_id, target_file, false)
+}
+
+pub fn check_scope_gate_silent(
+    source_root: &Path,
+    app_id: &str,
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
+    silent: bool,
+) -> ScopeGateReport {
+    let opts = NavigationResolveOpts { silent };
     let query = AppQuery {
-        file: resolved_target.clone(),
-        scene: resolved_scene.clone(),
+        file: target_file.map(str::to_string),
+        scene: scene_id.map(str::to_string),
         tab: None,
         diag_filter: None,
         world_metric: None,
@@ -196,13 +173,19 @@ pub fn check_scope_gate(
         catalog: None,
         pack: None,
     };
-    resolve_scope_gate(
-        source_root,
-        app_id,
-        UiRouteMode::Build,
-        resolved_scene.as_deref(),
-        &query,
-    )
+    let nav_match = if scene_id.is_some() || target_file.is_some() {
+        match_request_to_navigation_with_opts(
+            source_root,
+            app_id,
+            UiRouteMode::Build,
+            scene_id,
+            &query,
+            opts,
+        )
+    } else {
+        resolve_default_scope_with_opts(source_root, app_id, UiMode::Build, opts)
+    };
+    check_scope_gate_for_coords(source_root, nav_match, None)
 }
 
 fn check_scope_gate_for_coords(
@@ -214,12 +197,11 @@ fn check_scope_gate_for_coords(
     let app_id = scope.app_id.as_str();
     let scene = scope.scene_id.clone();
     let target = scope.target_file.clone();
-    let nav_gate = mrg_nav_gate_enabled();
-    let navigation_ready = nav_match.navigation_ready(nav_gate);
+    let navigation_ready = nav_match.navigation_ready();
     let navigation_key = nav_match.navigation_key();
     let mut blockers = Vec::new();
 
-    if nav_gate && !navigation_ready {
+    if !navigation_ready {
         if nav_match.legacy_fallback {
             blockers.push("L2:navigation missing in MRG registry (legacy scope fallback)".to_string());
         } else if let Some(entry) = nav_match.entry.as_ref() {
@@ -231,13 +213,6 @@ fn check_scope_gate_for_coords(
             blockers.push("L2:navigation entry missing".to_string());
         }
     }
-
-    let components_root = toolchain::resolve_components_root(source_root);
-    let options = CompileOptions {
-        scene: Some(scene.clone()),
-        preview_target: Some(target.clone()),
-        ..Default::default()
-    };
 
     let scene_arg = scene.as_str().trim();
     let scene_for_assemble = if scene_arg.is_empty() {
@@ -256,17 +231,6 @@ fn check_scope_gate_for_coords(
         .is_some()
         {
             (true, true, None)
-        } else if let Some(outcome) = toolchain::load_compile_artifact_only(
-            source_root,
-            app_id,
-            &options,
-            components_root.as_path(),
-        ) {
-            (
-                true,
-                true,
-                Some(outcome.compile_revision),
-            )
         } else {
             let entry = AccessEntry {
                 app_id: app_id.to_string(),
@@ -294,7 +258,7 @@ fn check_scope_gate_for_coords(
         .unwrap_or(false);
     let access_ready = shell_ready
         && (!require_data || data_ready)
-        && (navigation_ready || nav_match.legacy_fallback || !nav_gate);
+        && navigation_ready;
 
     ScopeGateReport::from_parts(
         scope,
@@ -323,13 +287,16 @@ fn check_mcg_scene_payload_ready(source_root: &Path, entry: &AccessEntry) -> Opt
         return None;
     }
     let registry = McgRegistryWriter::load(source_root, &entry.app_id);
-    let node = registry.nodes.iter().find(|node| {
-        node.id.kind == GraphNodeKind::ScenePayload && node.id.key == entry.target_file
+    let lookup_keys = mei_lang_kernel::app_source_rel_path_lookup_keys(entry.target_file.as_str());
+    let node = lookup_keys.iter().find_map(|key| {
+        registry.nodes.iter().find(|node| {
+            node.id.kind == GraphNodeKind::ScenePayload && node.id.key == *key
+        })
     });
     let Some(node) = node else {
         return Some(format!(
             "MCG scene_payload:{} missing from registry",
-            entry.target_file
+            mei_lang_kernel::canonical_app_source_rel_path(entry.target_file.as_str())
         ));
     };
     if node.state == MaterialState::Ready {
@@ -467,7 +434,7 @@ mod tests {
             &compile_options,
             &query,
         );
-        assert_eq!(gate.resolved_target.as_deref(), Some("scenes/home.mei"));
+        assert_eq!(gate.resolved_target.as_deref(), Some("src/scenes/home.mei"));
         assert!(
             !gate
                 .blockers

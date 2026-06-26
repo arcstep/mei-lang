@@ -153,10 +153,11 @@ fn prebuild_report_summary_omits_compile_revision() {
             warnings: Vec::new(),
         }],
     };
-    let json = serde_json::to_string(&report.summary()).expect("serialize summary");
+    let json = serde_json::to_string(&report.summary(None)).expect("serialize summary");
     assert!(!json.contains("compile_revision"));
     assert!(!json.contains("very-long-revision-token"));
     assert!(json.contains("scenes/01-执法要素.mei"));
+    assert!(json.contains("warningSummary"));
 }
 
 #[test]

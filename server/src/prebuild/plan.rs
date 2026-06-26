@@ -147,8 +147,11 @@ pub(crate) fn warmup_dataset_selector_target_file(dataset_selector: &str) -> Opt
     dataset_selector
         .split("::")
         .map(str::trim)
-        .find(|segment| segment.starts_with("scenes/") && segment.ends_with(".mei"))
-        .map(str::to_string)
+        .find(|segment| {
+            (segment.starts_with("scenes/") || segment.starts_with("src/scenes/"))
+                && segment.ends_with(".mei")
+        })
+        .map(mei_lang_kernel::canonical_app_source_rel_path)
 }
 
 pub(crate) fn warmup_request_target_file(request: &RuntimeWarmupDatasetRequest) -> Option<String> {

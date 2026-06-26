@@ -2,6 +2,7 @@ use super::prelude::*;
 use super::*;
 
 pub(crate) struct PrebuildAppAfterCompile {
+    pub scope_profile: PrebuildScopeProfile,
     pub app_started: Instant,
     pub app_root: PathBuf,
     pub components_root: PathBuf,
@@ -25,6 +26,7 @@ pub(crate) fn finish_run_prebuild_for_app(
     ctx: PrebuildAppAfterCompile,
 ) -> Result<PrebuildAppReport> {
     let PrebuildAppAfterCompile {
+        scope_profile,
         app_started,
         app_root,
         components_root,
@@ -40,6 +42,42 @@ pub(crate) fn finish_run_prebuild_for_app(
         compile_session,
         mut warnings,
     } = ctx;
+
+    let nav_scopes = compile_reports
+        .iter()
+        .filter_map(|scope| {
+            let scene_id = scope
+                .requested_scene_id
+                .as_deref()
+                .or(scope.active_scene_id.as_deref())?
+                .trim()
+                .to_string();
+            let target_file = scope
+                .requested_target_file
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| scope.active_target_file.clone());
+            if scene_id.is_empty() || target_file.trim().is_empty() {
+                return None;
+            }
+            Some(crate::graph::mrg::navigation::CompileScopeNav {
+                scene_id,
+                target_file,
+            })
+        })
+        .collect::<Vec<_>>();
+    if let Err(error) = crate::graph::mrg::navigation::sync_navigation_for_compile_scopes(
+        source_root,
+        app.app_id.as_str(),
+        nav_scopes.as_slice(),
+    ) {
+        tracing::warn!(
+            app_id = %app.app_id,
+            error = %error,
+            "failed to sync MRG navigation for compile scopes"
+        );
+    }
 
     let required_xlsx_sources = collect_required_xlsx_sources(
         app,
@@ -122,18 +160,23 @@ pub(crate) fn finish_run_prebuild_for_app(
     coverage.metric_response_artifacts_planned = plan_nodes.planned_response_artifact_nodes;
     coverage.metric_dataframe_artifacts_planned = plan_nodes.planned_dataframe_artifact_nodes;
     let scope_artifacts_started = Instant::now();
+    let mrg_frontier = build_mrg_eval_frontier(source_root, app.app_id.as_str(), scope_profile);
     prebuild_emit_progress(&format!(
-        "[{}] ── 2/3 生成 metric 产物 ── {} 个编译结果待处理（response + dataframe 落盘）",
+        "[{}] ── [MRG pass] planSource={} dirtySlotCount={} ── {} 个编译结果待处理",
         app.app_id,
+        mrg_frontier.plan_source,
+        mrg_frontier.dirty_slot_count,
         artifact_outcomes.len()
     ));
     let artifact_total = artifact_outcomes.len();
+    let mut artifact_pairs: Vec<_> = artifact_outcomes
+        .into_iter()
+        .zip(scope_artifact_plans.clone())
+        .collect();
+    prioritize_artifact_plans_by_frontier(&mut artifact_pairs, &mrg_frontier);
     let artifacts_started = Arc::new(Instant::now());
     let scope_results = run_limited_parallel_ordered_with_hook(
-        artifact_outcomes
-            .into_iter()
-            .zip(scope_artifact_plans.clone())
-            .collect(),
+        artifact_pairs,
         max_parallelism,
         |(prepared, scope_plan)| {
             let mut local_coverage = PrebuildCoverageReport::default();
@@ -195,7 +238,7 @@ pub(crate) fn finish_run_prebuild_for_app(
             if mode == PrebuildMode::Verify {
                 return Err(error);
             }
-            warnings.push(build_prebuild_warning(
+            warnings.push(build_prebuild_warning_with_mrg(
                 "scope_artifacts",
                 scope.requested_scene_id.as_deref(),
                 scope.requested_target_file.as_deref(),
@@ -203,6 +246,9 @@ pub(crate) fn finish_run_prebuild_for_app(
                 None,
                 None,
                 None,
+                Some(scope.key().as_str()),
+                None,
+                Some("L4"),
                 error.to_string(),
             ));
         } else {
@@ -352,21 +398,7 @@ pub(crate) fn finish_run_prebuild_for_app(
         );
     }
     let warmup_requests_ms = critical_warmup_requests_ms + deferred_warmup_requests_ms;
-    if let Err(error) =
-        mei_lang_datasets::preload_prebuild_metric_response_index(app_root.as_path())
-    {
-        warnings.push(build_prebuild_warning(
-            "post_prebuild",
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            format!("metric response index preload failed: {error}"),
-        ));
-    }
-    let diagnostics_report = build_prebuild_diagnostics_report(
+    let mut diagnostics_report = build_prebuild_diagnostics_report(
         app_root.as_path(),
         compile_reports.as_slice(),
         diagnostics.as_ref(),
@@ -386,6 +418,8 @@ pub(crate) fn finish_run_prebuild_for_app(
         deferred_warmup_requests_ms,
         deferred_warmup_ok,
     );
+    diagnostics_report.plan_source = Some(mrg_frontier.plan_source.to_string());
+    diagnostics_report.dirty_slot_count = Some(mrg_frontier.dirty_slot_count);
     emit_prebuild_optimization_report(
         app.app_id.as_str(),
         app_root.as_path(),

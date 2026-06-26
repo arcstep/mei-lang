@@ -9,7 +9,8 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    if let Some(current_rev) = current_dataframe_bundle_revision(plan) {
+    let mcg_revisions = state.active_mcg_bundle_revisions();
+    if let Some(current_rev) = current_dataframe_bundle_revision(plan, &mcg_revisions) {
         if crate::graph::metric_bundle_revision_unchanged(
             &state.pre_mcg_bundle_revisions,
             plan.owner_resource_id.as_str(),
@@ -249,8 +250,8 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
             if let (Some(source_root), Some(app_id)) =
                 (state.source_root.as_deref(), state.app_id.as_deref())
             {
-                let bundle_revision =
-                    current_dataframe_bundle_revision(plan).unwrap_or_default();
+                let bundle_revision = current_dataframe_bundle_revision(plan, &mcg_revisions)
+                    .unwrap_or_default();
                 let scope_key = crate::graph::mrg_eval_scope_key(
                     plan.scene_id.as_str(),
                     plan.scene_path.as_deref(),
@@ -325,7 +326,7 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
         state.source_root.as_deref(),
         state.app_id.as_deref(),
     ) {
-        let bundle_revision = current_dataframe_bundle_revision(plan).unwrap_or_default();
+        let bundle_revision = current_dataframe_bundle_revision(plan, &mcg_revisions).unwrap_or_default();
         let scope_key = crate::graph::mrg_eval_scope_key(
             plan.scene_id.as_str(),
             plan.scene_path.as_deref(),

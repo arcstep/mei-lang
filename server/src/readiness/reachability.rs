@@ -66,13 +66,14 @@ pub fn legacy_resolve_access_entry(source_root: &Path) -> AccessEntry {
         .as_deref()
         .unwrap_or("home")
         .to_string();
-    let target_file = cfg
-        .deploy
-        .access_entry
-        .target_file
-        .as_deref()
-        .unwrap_or("scenes/home.mei")
-        .to_string();
+    let target_file = mei_lang_kernel::canonical_app_source_rel_path(
+        cfg
+            .deploy
+            .access_entry
+            .target_file
+            .as_deref()
+            .unwrap_or("scenes/home.mei"),
+    );
     AccessEntry {
         app_id,
         scene_id,

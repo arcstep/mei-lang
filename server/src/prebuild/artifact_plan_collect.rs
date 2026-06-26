@@ -194,28 +194,39 @@ pub(crate) fn build_plan_node_stats(
     }
 }
 
-pub(crate) fn current_bundle_revision_for_plan(plan: &PlannedMetricWorkset) -> Option<String> {
-    let defs = plan.defs_for_hydrate.as_ref();
-    if defs.is_empty() {
-        return None;
-    }
-    let serialized = serde_json::to_string(defs).ok()?;
-    Some(format!(
-        "mdb:{}",
-        crate::graph::types::stable_hash(&serialized)
-    ))
+pub(crate) fn current_bundle_revision_for_plan(
+    plan: &PlannedMetricWorkset,
+    mcg_revisions: &BTreeMap<String, String>,
+) -> Option<String> {
+    crate::graph::resolve_metric_bundle_revision(
+        mcg_revisions,
+        plan.owner_resource_id.as_str(),
+        plan.defs_for_hydrate.as_ref(),
+    )
 }
 
-pub(crate) fn current_dataframe_bundle_revision(plan: &PlannedDataframeArtifact) -> Option<String> {
-    let defs = plan.defs_for_hydrate.as_ref();
-    if defs.is_empty() {
-        return None;
-    }
-    let serialized = serde_json::to_string(defs).ok()?;
-    Some(format!(
-        "mdb:{}",
-        crate::graph::types::stable_hash(&serialized)
-    ))
+pub(crate) fn current_dataframe_bundle_revision(
+    plan: &PlannedDataframeArtifact,
+    mcg_revisions: &BTreeMap<String, String>,
+) -> Option<String> {
+    crate::graph::resolve_metric_bundle_revision(
+        mcg_revisions,
+        plan.owner_resource_id.as_str(),
+        plan.defs_for_hydrate.as_ref(),
+    )
+}
+
+pub(crate) fn slot_cache_key_for_plan(
+    plan: &PlannedMetricWorkset,
+    bundle_revision: &str,
+) -> String {
+    crate::graph::canonical_slot_cache_key_for_workset(
+        plan.owner_resource_id.as_str(),
+        plan.scene_id.as_str(),
+        plan.scene_path.as_deref(),
+        bundle_revision,
+        plan.dependency_revision_key.as_str(),
+    )
 }
 
 pub(crate) fn promote_prebuild_metric_response_slot(
@@ -246,7 +257,7 @@ pub(crate) fn promote_prebuild_metric_response_slot(
         plan.owner_resource_id.as_str(),
         bundle_revision,
         plan.dependency_revision_key.as_str(),
-        plan.response_cache_key.as_str(),
+        slot_cache_key_for_plan(plan, bundle_revision).as_str(),
         "eval-results/results/metric-response/",
         0,
         true,

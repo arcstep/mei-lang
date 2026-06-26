@@ -89,6 +89,10 @@ pub fn compute_prebuild_inputs_fingerprint(source_root: &Path) -> Result<String>
         parts.push(format!("compile_revision={token}"));
         if crate::graph::feature::graph_registry_enabled() {
             parts.push(crate::graph::app_graph_fingerprint(source_root, app.app_id.as_str()));
+            let mcg = crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app.app_id.as_str());
+            let mrg = crate::graph::mrg::registry::MrgRegistryWriter::load(source_root, app.app_id.as_str());
+            parts.push(format!("mcg_rev={}", mcg.registry_revision));
+            parts.push(format!("mrg_rev={}", mrg.registry_revision));
         }
     }
     Ok(stable_hash(parts.join("\n").as_str()))

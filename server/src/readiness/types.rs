@@ -12,11 +12,17 @@ pub struct ScopeCoords {
 
 impl ScopeCoords {
     pub fn new(app_id: impl Into<String>, mode: UiMode, scene_id: impl Into<String>, target_file: impl Into<String>) -> Self {
+        let target_file = target_file.into();
+        let target_file = if target_file.ends_with(".mei") {
+            mei_lang_kernel::canonical_app_source_rel_path(target_file.as_str())
+        } else {
+            target_file
+        };
         Self {
             app_id: app_id.into(),
             mode,
             scene_id: scene_id.into(),
-            target_file: target_file.into(),
+            target_file,
         }
     }
 }
