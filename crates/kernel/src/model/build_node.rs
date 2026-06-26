@@ -27,6 +27,7 @@ pub enum BuildNodeKind {
     Artifact,
     GraphSemantic,
     GraphEval,
+    McgNode,
 }
 
 impl BuildNodeKind {
@@ -49,6 +50,7 @@ impl BuildNodeKind {
             Self::Artifact => "artifact",
             Self::GraphSemantic => "graph-semantic",
             Self::GraphEval => "graph-eval",
+            Self::McgNode => "mcg-node",
         }
     }
 
@@ -71,6 +73,7 @@ impl BuildNodeKind {
             "artifact" => Some(Self::Artifact),
             "graph-semantic" => Some(Self::GraphSemantic),
             "graph-eval" => Some(Self::GraphEval),
+            "mcg-node" => Some(Self::McgNode),
             _ => None,
         }
     }
@@ -338,6 +341,7 @@ pub fn tabs_for_node_kind(kind: BuildNodeKind) -> &'static [BuildViewTab] {
         BuildNodeKind::Artifact => &[Overview, ArtifactTab, Agent],
         BuildNodeKind::GraphSemantic => &[Semantic, Agent],
         BuildNodeKind::GraphEval => &[Eval, Agent],
+        BuildNodeKind::McgNode => &[Overview, Provenance, Agent],
     }
 }
 

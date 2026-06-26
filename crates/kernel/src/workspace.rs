@@ -116,6 +116,34 @@ pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
     Ok(apps)
 }
 
+fn stock_catalog_app_meta(source_root: &Path) -> Option<WorkspaceAppMeta> {
+    use crate::catalog_app::stock_catalog_app_root;
+    use crate::mei_config::stock_catalog_app_config;
+
+    let app_root = stock_catalog_app_root(source_root);
+    if !is_v2_app_root(app_root.as_path()) {
+        return None;
+    }
+    let cfg = stock_catalog_app_config(source_root);
+    Some(WorkspaceAppMeta {
+        id: cfg.id,
+        title: cfg.title,
+        root: app_root.to_string_lossy().to_string(),
+    })
+}
+
+/// Discover apps for Build/manage surfaces, including hidden `_stock-catalog` when present.
+pub fn discover_build_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
+    let mut apps = discover_apps(source_root)?;
+    if let Some(catalog) = stock_catalog_app_meta(source_root) {
+        if !apps.iter().any(|app| app.id == catalog.id) {
+            apps.push(catalog);
+            apps.sort_by(|left, right| left.id.cmp(&right.id));
+        }
+    }
+    Ok(apps)
+}
+
 pub fn read_source_file(path: &Path) -> Result<String> {
     fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))
 }
@@ -310,6 +338,8 @@ struct ComponentManifestFile {
 struct ComponentManifestEntry {
     tag: String,
     script: String,
+    #[serde(default)]
+    preview: Option<String>,
 }
 
 pub fn load_component_assets(source_root: &Path) -> Result<BTreeMap<String, ComponentAsset>> {
@@ -345,14 +375,27 @@ pub fn load_component_assets(source_root: &Path) -> Result<BTreeMap<String, Comp
             )
         })?;
         let manifest_dir = manifest_path.parent().unwrap_or(&components_root);
+        let pack_path = manifest_dir
+            .strip_prefix(&components_root)
+            .ok()
+            .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
         for (key, entry) in manifest.components {
             let script_path =
                 normalize_component_script_path(&components_root, manifest_dir, &entry.script)
                     .with_context(|| format!("failed to resolve script for component `{key}`"))?;
+            let preview_mei = resolve_component_preview_workspace_path(
+                source_root,
+                manifest_dir,
+                key.as_str(),
+                &entry,
+            );
             let asset = ComponentAsset {
                 key: key.clone(),
                 tag: entry.tag,
                 script: script_path,
+                pack_path: pack_path.clone(),
+                preview_mei,
             };
             if assets.insert(key.clone(), asset).is_some() {
                 bail!(
@@ -363,6 +406,49 @@ pub fn load_component_assets(source_root: &Path) -> Result<BTreeMap<String, Comp
         }
     }
     Ok(assets)
+}
+
+fn resolve_component_preview_workspace_path(
+    source_root: &Path,
+    manifest_dir: &Path,
+    use_key: &str,
+    entry: &ComponentManifestEntry,
+) -> Option<String> {
+    let preview_abs = if let Some(rel) = entry
+        .preview
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        manifest_dir.join(rel)
+    } else {
+        manifest_dir
+            .join("previews")
+            .join(format!("{use_key}.mei"))
+    };
+    if !preview_abs.is_file() {
+        return None;
+    }
+    workspace_relative_path(source_root, preview_abs.as_path())
+}
+
+fn workspace_relative_path(source_root: &Path, abs: &Path) -> Option<String> {
+    abs.strip_prefix(source_root)
+        .ok()
+        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        .filter(|rel| !rel.is_empty())
+}
+
+/// Manifest use_keys missing a resolvable pack-local preview scene.
+pub fn audit_component_preview_coverage(source_root: &Path) -> Result<Vec<String>> {
+    let assets = load_component_assets(source_root)?;
+    let mut missing = assets
+        .values()
+        .filter(|asset| asset.preview_mei.is_none())
+        .map(|asset| asset.key.clone())
+        .collect::<Vec<_>>();
+    missing.sort();
+    Ok(missing)
 }
 
 fn normalize_component_script_path(
@@ -500,6 +586,29 @@ scene(id="home", target="home.mei")
         assert_eq!(board.mei_kind.as_deref(), Some("board"));
         assert_eq!(world.mei_kind.as_deref(), Some("world"));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn load_component_assets_resolves_pack_path_and_preview() {
+        let package_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("package root");
+        let assets = load_component_assets(package_root.as_path()).expect("load assets");
+        let asset = assets.get("chart.donut").expect("chart.donut");
+        assert_eq!(asset.pack_path, "chart/echarts");
+        assert!(
+            asset
+                .preview_mei
+                .as_deref()
+                .is_some_and(|path| path.ends_with("stock/components/chart/echarts/previews/chart.donut.mei")),
+            "preview path missing for chart.donut"
+        );
+        let missing = audit_component_preview_coverage(package_root.as_path()).expect("audit");
+        assert!(
+            missing.is_empty(),
+            "package stock should cover all manifest previews, missing: {missing:?}"
+        );
     }
 
     fn flatten_paths(nodes: &[WorkspaceNode]) -> Vec<String> {

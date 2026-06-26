@@ -49,9 +49,10 @@ pub use types::{
     OpsSourceEntry, RuntimeConfig, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
     RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WorkspaceAuthConfig, WorkspaceComplianceConfig,
     WorkspaceConfig, WorkspaceHostState, WorkspaceOpsConfig, WorkspacePathsConfig,
-    WorkspaceProfile, WorkspaceStockBootstrapConfig, WorkspaceStockCatalogConfig,
+    WorkspaceProfile,     WorkspaceStockBootstrapConfig, WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig,
     WorkspaceStockCatalogKindConfig, WorkspaceStockConfig, WorkspaceStockPreviewConfig,
-    WorkspaceStockSourceEntry, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
+    WorkspaceStockSourceEntry, DEFAULT_STOCK_CATALOG_APP_ID, WorkspaceWarmupAppConfig,
+    WorkspaceWarmupConfig,
     WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, WorkspaceBuildConfig,
     WorkspaceToolchainConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL, APP_VAR_STORE_REL,
     BUILD_MANIFEST_FILENAME, DEPLOY_LINKS_REL, PREBUILD_COMPILE_INDEX_REL, PREBUILD_DIR_REL,
@@ -66,7 +67,9 @@ pub use types::{
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL, WORKSPACE_SNAPSHOT_GIT_REL,
 };
 pub use stock_catalog::{
-    normalize_stock_relative_path, stock_catalog_enabled, stock_path_excluded, StockCatalogKind,
+    is_stock_catalog_app, is_stock_catalog_app_for_root, normalize_stock_relative_path,
+    stock_catalog_app_config, stock_catalog_app_id, stock_catalog_enabled, stock_path_excluded,
+    StockCatalogKind,
 };
 pub use workspace_paths::{
     app_mei_config_path, is_v2_app_root, resolve_app_build_root, resolve_app_build_store_root,

@@ -297,7 +297,7 @@ fn board_scoped_compile_lists_only_entry_scenes_not_board_exports() {
 }
 
 #[test]
-fn board_scoped_compile_includes_templates_group_in_reachability_tree() {
+fn board_scoped_compile_does_not_mount_stock_templates_group() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
@@ -319,16 +319,12 @@ fn board_scoped_compile_includes_templates_group_in_reachability_tree() {
     let roots = crate::compile::build_reachability_tree(&compiled);
     let groups: Vec<_> = roots.iter().map(|group| group.group.as_str()).collect();
     assert!(
-        groups.contains(&"templates"),
-        "board scoped compile should still expose Templates group, got {groups:?}"
+        !groups.contains(&"templates"),
+        "business app build tree must not mount stock components group, got {groups:?}"
     );
-    let templates = roots
-        .into_iter()
-        .find(|group| group.group == "templates")
-        .expect("templates group");
     assert!(
-        !templates.children.is_empty(),
-        "templates group should list workspace component catalog entries"
+        !groups.contains(&"template_files"),
+        "business app build tree must not mount stock templates group, got {groups:?}"
     );
 }
 

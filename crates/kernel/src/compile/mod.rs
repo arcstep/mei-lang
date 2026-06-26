@@ -10,10 +10,12 @@ mod authoring_eval;
 mod build_board_index;
 mod build_experience;
 mod build_experience_index;
+mod build_mcg_index;
 mod build_node_context;
 mod build_template_index;
 mod catalog;
 mod component_authoring_preview;
+mod component_pack_preview;
 mod data_snapshot;
 mod decl_file_cache;
 mod decls;
@@ -70,7 +72,7 @@ pub use build_experience::{
     build_experience_path, build_overview_backing, compile_coordinate_for_node,
     compile_scene_from_build_node, compile_scene_from_build_node_with_app, experience_layout_hint,
     experience_mount_chain, format_experience_path, preview_target_from_build_node_with_app,
-    BuildCompileCoordinate, BuildPreviewKind,
+    preview_target_relative_to_app, BuildCompileCoordinate, BuildPreviewKind,
 };
 pub use build_experience_index::{build_experience_index, enrich_reachability_tree_compile_coords};
 pub use build_node_context::{
@@ -83,7 +85,11 @@ pub use component_authoring_preview::{
 };
 pub use build_template_index::build_template_index;
 pub use discover_routes::{CompileOptions, CompileRevisionPlan, CompileWatchedFile};
-pub use reachability_tree::{build_reachability_tree, ReachabilityTreeNode, ReachabilityTreeRoot};
+pub use reachability_tree::{
+    build_reachability_tree, filter_reachability_roots_for_stock_catalog,
+    is_stock_catalog_facet_root, ReachabilityTreeNode,
+    ReachabilityTreeRoot,
+};
 
 pub use materialize_cache::cached_load_xlsx_table_snapshot;
 pub use materialize_cache::dataset_materialize_cache_epoch;

@@ -12,9 +12,9 @@ use mei_lang_kernel::{
     resolve_toolchain_root, resolve_workspace_runtime_root, stock_authoring_source,
     stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config,
     APP_CONFIG_FILENAME, WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile,
-    WorkspaceStockBootstrapConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,
-    WorkspaceStockConfig, WorkspaceStockPreviewConfig, DEFAULT_APPS_REL, DEFAULT_STOCK_AUTHORING_REL,
-    DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, WORKSPACE_HOSTS_DIR_REL,
+    WorkspaceStockBootstrapConfig, WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig,
+    WorkspaceStockCatalogKindConfig, WorkspaceStockConfig, WorkspaceStockPreviewConfig,
+    DEFAULT_APPS_REL, DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, WORKSPACE_HOSTS_DIR_REL,
 };
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
@@ -71,6 +71,10 @@ pub struct StockDoctorReport {
     pub orphan_paths: Vec<String>,
     pub manifest_drift: Vec<String>,
     pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_component_previews: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub catalog_app_drift: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,6 +146,16 @@ pub fn ensure_workspace_stock_materialized(
         package_root,
         false,
     )?))
+}
+
+pub fn ensure_stock_catalog_app_synced(source_root: &Path) -> Result<Option<crate::catalog_app::SyncStockCatalogAppReport>> {
+    use crate::catalog_app::sync_stock_catalog_app;
+    use mei_lang_kernel::catalog_app_needs_sync;
+
+    if !catalog_app_needs_sync(source_root)? {
+        return Ok(None);
+    }
+    Ok(Some(sync_stock_catalog_app(source_root)?))
 }
 
 pub fn doctor_workspace_stock(
@@ -220,14 +234,105 @@ pub fn doctor_workspace_stock(
         ));
     }
 
-    let ok = missing_trees.is_empty() && orphan_paths.is_empty() && manifest_drift.is_empty();
+    let missing_component_previews =
+        mei_lang_kernel::audit_component_preview_coverage(source_root).unwrap_or_default();
+    let mut catalog_app_drift = Vec::new();
+    if mei_lang_kernel::catalog_app_needs_sync(source_root).unwrap_or(true) {
+        catalog_app_drift.push(
+            "apps/_stock-catalog out of sync; run `mei-toolchain workspace stock catalog-app sync`"
+                .to_string(),
+        );
+    }
+    catalog_app_drift.extend(check_stock_catalog_menu_config(source_root));
+
+    let ok = missing_trees.is_empty()
+        && orphan_paths.is_empty()
+        && manifest_drift.is_empty()
+        && missing_component_previews.is_empty()
+        && catalog_app_drift.is_empty();
     Ok(StockDoctorReport {
         ok,
         missing_trees,
         orphan_paths,
         manifest_drift,
         warnings,
+        missing_component_previews,
+        catalog_app_drift,
     })
+}
+
+fn check_stock_catalog_menu_config(source_root: &Path) -> Vec<String> {
+    let workspace = mei_lang_kernel::load_workspace_config(source_root);
+    let groups = workspace
+        .menu
+        .get("groups")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let group_ids: Vec<String> = groups
+        .iter()
+        .filter_map(|group| {
+            group
+                .get("id")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    let items = workspace.menu.get("items").and_then(|value| value.as_array());
+    let mut has_stock_catalog_single = false;
+    let mut has_legacy_catalog_only = false;
+    if let Some(items) = items {
+        for item in items {
+            let app_id = item.get("app_id").and_then(|value| value.as_str()).unwrap_or("");
+            if app_id != "_stock-catalog" {
+                continue;
+            }
+            let label = item.get("label").and_then(|value| value.as_str()).unwrap_or("");
+            let catalog = item.get("catalog").and_then(|value| value.as_str()).unwrap_or("");
+            let pack = item.get("pack").and_then(|value| value.as_str()).unwrap_or("");
+            if label.eq_ignore_ascii_case("stock catalog") {
+                has_stock_catalog_single = true;
+            }
+            if !catalog.is_empty() && pack.is_empty() {
+                has_legacy_catalog_only = true;
+            }
+        }
+    }
+    let discovery = mei_lang_kernel::discover_stock_catalog_packs(source_root).ok();
+    let mut out = Vec::new();
+    if has_stock_catalog_single {
+        out.push(
+            "remove legacy Stock Catalog topbar item; use 组件/模板 first-level groups with per-pack entries"
+                .to_string(),
+        );
+    }
+    if has_legacy_catalog_only {
+        out.push(
+            "remove catalog-only _stock-catalog menu items without pack=; packs are auto-discovered from stock/"
+                .to_string(),
+        );
+    }
+    if !group_ids.iter().any(|id| id == "components") {
+        out.push("workspace menu.groups should include id=components (label 组件)".to_string());
+    }
+    if !group_ids.iter().any(|id| id == "templates") {
+        out.push("workspace menu.groups should include id=templates (label 模板)".to_string());
+    }
+    if let Some(discovery) = discovery {
+        if !discovery.component_packs.is_empty() && !group_ids.iter().any(|id| id == "components") {
+            out.push(format!(
+                "discovered {} component packs but menu group components is missing",
+                discovery.component_packs.len()
+            ));
+        }
+        if !discovery.template_packs.is_empty() && !group_ids.iter().any(|id| id == "templates") {
+            out.push(format!(
+                "discovered {} template packs but menu group templates is missing",
+                discovery.template_packs.len()
+            ));
+        }
+    }
+    out
 }
 
 pub fn migrate_workspace_stock_paths(source_root: &Path) -> Result<MigrateWorkspaceStockPathsReport> {
@@ -450,6 +555,7 @@ fn default_workspace_stock_config() -> WorkspaceStockConfig {
             workspace_only: true,
             ..WorkspaceStockPreviewConfig::default()
         },
+        catalog_app: WorkspaceStockCatalogAppConfig::default(),
         sources: Vec::new(),
     }
 }

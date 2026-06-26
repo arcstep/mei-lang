@@ -102,6 +102,8 @@ pub struct TemplateCatalogEntry {
     pub consumer_anchors: Vec<TemplateConsumerAnchor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_mei: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

@@ -4,6 +4,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::mei_config::{resolve_templates_root, resolve_workspace_source_root_from_app_root};
+use crate::catalog_app::catalog_scene_route_for_build_node;
 use crate::model::{
     BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest, PanelDecl,
     UiNodeDecl,
@@ -128,21 +129,18 @@ pub fn preview_target_from_build_node_with_app(
             non_empty_path(file)
         }
         BuildNodeKind::Component => compiled.and_then(|app| {
+            if let Some(route) = catalog_scene_route_for_build_node(app, node) {
+                return Some(route.target_file.clone());
+            }
             super::build_template_index::authoring_preview_target_for_template(
                 app,
                 node.key.as_str(),
             )
-            .or_else(|| {
-                super::component_authoring_preview::component_authoring_example_workspace_path(
-                    app,
-                    node.key.as_str(),
-                )
-                .and_then(|workspace_path| {
-                    preview_target_relative_to_app(app, workspace_path.as_str())
-                })
-            })
         }),
         BuildNodeKind::Template => compiled.and_then(|app| {
+            if let Some(route) = catalog_scene_route_for_build_node(app, node) {
+                return Some(route.target_file.clone());
+            }
             super::build_template_index::authoring_preview_target_for_template(
                 app,
                 node.key.as_str(),
@@ -196,6 +194,9 @@ pub fn compile_scene_from_build_node_with_app(
 ) -> Option<String> {
     if matches!(node.kind, BuildNodeKind::Component | BuildNodeKind::Template) {
         if let Some(app) = compiled {
+            if let Some(route) = catalog_scene_route_for_build_node(app, node) {
+                return Some(route.scene_id.clone());
+            }
             if super::build_template_index::authoring_preview_target_for_template(
                 app,
                 node.key.as_str(),
@@ -284,7 +285,9 @@ pub fn compile_coordinate_for_node(
             }
         }
         BuildNodeKind::Component => {
-            if super::build_template_index::authoring_preview_target_for_template(
+            if catalog_scene_route_for_build_node(compiled, node).is_some() {
+                BuildPreviewKind::SceneCapsule
+            } else if super::build_template_index::authoring_preview_target_for_template(
                 compiled,
                 node.key.as_str(),
             )
@@ -296,7 +299,9 @@ pub fn compile_coordinate_for_node(
             }
         }
         BuildNodeKind::Template => {
-            if super::build_template_index::authoring_preview_target_for_template(
+            if catalog_scene_route_for_build_node(compiled, node).is_some() {
+                BuildPreviewKind::SceneCapsule
+            } else if super::build_template_index::authoring_preview_target_for_template(
                 compiled,
                 node.key.as_str(),
             )
@@ -325,9 +330,8 @@ pub fn compile_coordinate_for_node(
                 BuildPreviewKind::Other
             }
         }
-        BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval => {
-            BuildPreviewKind::Other
-        }
+        BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval
+        | BuildNodeKind::McgNode => BuildPreviewKind::Other,
         BuildNodeKind::Dataset => BuildPreviewKind::Script,
     };
     Some(BuildCompileCoordinate {
@@ -891,6 +895,7 @@ mod tests {
                     label: "Header".to_string(),
                 }],
                 agent_hint: None,
+                preview_mei: None,
             },
         );
         let compiled = CompiledApp {

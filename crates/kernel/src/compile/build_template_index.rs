@@ -99,14 +99,23 @@ pub fn build_template_index(
                 consumers,
                 consumer_anchors: anchors,
                 agent_hint,
+                preview_mei: asset.preview_mei.clone(),
             },
         );
     }
 
-    let mut by_category = BTreeMap::<String, Vec<ReachabilityTreeNode>>::new();
-    for entry in templates.values() {
-        by_category
-            .entry(entry.category.clone())
+    let mut by_pack = BTreeMap::<String, Vec<ReachabilityTreeNode>>::new();
+    for asset in component_assets {
+        let entry = templates.get(asset.key.as_str()).expect("catalog entry");
+        let mut badges = vec![entry
+            .preview_mei
+            .clone()
+            .unwrap_or_else(|| entry.template_file.clone())];
+        if entry.preview_mei.is_none() {
+            badges.push("preview:unavailable".to_string());
+        }
+        by_pack
+            .entry(asset.pack_path.clone())
             .or_default()
             .push(ReachabilityTreeNode {
                 id: format!("component-{}", entry.template_key),
@@ -123,24 +132,26 @@ pub fn build_template_index(
                     "component".to_string()
                 },
                 label: entry.template_key.clone(),
-                badges: vec![entry.template_file.clone()],
+                badges,
                 children: Vec::new(),
                 ..Default::default()
             });
     }
 
     let mut tree_children = Vec::new();
-    for (category, nodes) in by_category {
+    for (pack_path, mut nodes) in by_pack {
+        nodes.sort_by(|left, right| left.label.cmp(&right.label));
         tree_children.push(ReachabilityTreeNode {
-            id: format!("template-group-{category}"),
+            id: format!("component-pack-{pack_path}"),
             node_id: String::new(),
-            kind: "template_group".to_string(),
-            label: category,
+            kind: "component_pack".to_string(),
+            label: pack_path.clone(),
             badges: Vec::new(),
             children: nodes,
             ..Default::default()
         });
     }
+    tree_children.sort_by(|left, right| left.label.cmp(&right.label));
 
     let index = BuildTemplateIndex { templates };
     let tree_root = ReachabilityTreeRoot {
@@ -331,18 +342,38 @@ fn template_primary_consumer_for_template_file<'a>(
     fallback
 }
 
-/// Primary build preview: compile the template `.mei` itself (built-in preview scene + sample data).
+/// Primary build preview: pack-local preview scene or template `.mei`.
 pub fn authoring_preview_target_for_template(
     compiled: &CompiledApp,
     template_key: &str,
 ) -> Option<String> {
-    let workspace_path = authoring_template_workspace_path(compiled, template_key)?;
-    let rel =
-        super::build_experience::preview_target_relative_to_app(compiled, workspace_path.as_str())?;
-    if !template_file_supports_authoring_preview(compiled, rel.as_str()) {
-        return None;
+    if super::build_experience::is_template_file_node_key(template_key) {
+        let workspace_path =
+            super::build_experience::template_file_preview_target(compiled, template_key)?;
+        let rel = super::build_experience::preview_target_relative_to_app(
+            compiled,
+            workspace_path.as_str(),
+        )?;
+        if !template_file_supports_authoring_preview(compiled, rel.as_str()) {
+            return None;
+        }
+        return Some(rel);
     }
-    Some(rel)
+    let entry = template_entry_for_preview(compiled, template_key)?;
+    if entry.template_file.ends_with(".mei") {
+        let rel = super::build_experience::preview_target_relative_to_app(
+            compiled,
+            entry.template_file.as_str(),
+        )?;
+        if !template_file_supports_authoring_preview(compiled, rel.as_str()) {
+            return None;
+        }
+        return Some(rel);
+    }
+    super::component_pack_preview::component_pack_preview_relative_to_app_for_key(
+        compiled,
+        template_key,
+    )
 }
 
 fn template_file_supports_authoring_preview(compiled: &CompiledApp, rel_path: &str) -> bool {
@@ -368,22 +399,6 @@ fn template_file_supports_authoring_preview(compiled: &CompiledApp, rel_path: &s
     };
     let trimmed = content.trim();
     !trimmed.is_empty() && trimmed.contains("scene(")
-}
-
-fn authoring_template_workspace_path(compiled: &CompiledApp, template_key: &str) -> Option<String> {
-    if super::build_experience::is_template_file_node_key(template_key) {
-        return super::build_experience::template_file_preview_target(compiled, template_key);
-    }
-    let entry = template_entry_for_preview(compiled, template_key)?;
-    let file = entry.template_file.as_str();
-    if file.ends_with(".mei") {
-        Some(file.to_string())
-    } else {
-        super::component_authoring_preview::component_authoring_example_workspace_path(
-            compiled,
-            template_key,
-        )
-    }
 }
 
 pub fn preview_target_for_template_file_consumer(
@@ -467,10 +482,11 @@ fn categorize_template_key(key: &str) -> &'static str {
 }
 
 fn related_variant_keys(key: &str, assets: &[ComponentAsset]) -> Vec<String> {
-    let family = key.rsplit('.').next().unwrap_or(key);
+    let family = key.split('.').next().unwrap_or(key);
+    let prefix = format!("{family}.");
     let mut variants: Vec<String> = assets
         .iter()
-        .filter(|asset| asset.key.contains(family) && asset.key != key)
+        .filter(|asset| asset.key.starts_with(prefix.as_str()) && asset.key.as_str() != key)
         .map(|asset| asset.key.clone())
         .collect();
     variants.sort();
@@ -513,6 +529,8 @@ mod tests {
             key: "cockpit.metric-card".to_string(),
             tag: "div".to_string(),
             script: "templates/cockpit/metric-card.mei".to_string(),
+            pack_path: "cockpit".to_string(),
+            preview_mei: None,
         }];
         let result = build_template_index(&assets, &BTreeMap::new(), &BTreeMap::new());
         let entry = result
@@ -535,6 +553,8 @@ mod tests {
             key: "cockpit.header-brand".to_string(),
             tag: "div".to_string(),
             script: "templates/cockpit/header-brand.mei".to_string(),
+            pack_path: "cockpit".to_string(),
+            preview_mei: None,
         }];
         let mut contracts = BTreeMap::new();
         contracts.insert(
@@ -614,8 +634,8 @@ mod tests {
             .join("workspaces")
             .join("ws-spbjw");
         let app_root = source_root.join("zhifa");
-        let examples_root = source_root.join("stock/authoring/examples/chart-baseline.mei");
-        if !app_root.is_dir() || !examples_root.is_file() {
+        let preview = source_root.join("stock/components/chart/echarts/previews/chart.area.mei");
+        if !app_root.is_dir() || !preview.is_file() {
             return;
         }
         let compiled =
@@ -626,14 +646,14 @@ mod tests {
         assert!(
             target
                 .as_deref()
-                .is_some_and(|file| file.contains("chart-baseline.mei")),
-            "expected chart baseline example, got {target:?}"
+                .is_some_and(|file| file.contains("chart.area.mei")),
+            "expected pack preview, got {target:?}"
         );
         let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
         assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
         assert!(
-            coord.preview_target.contains("chart-baseline.mei"),
-            "coord target should be example mei, got {}",
+            coord.preview_target.contains("chart.area.mei"),
+            "coord target should be pack preview, got {}",
             coord.preview_target
         );
         let preview_compiled = compile_app_from_root_with_options(
@@ -677,7 +697,8 @@ mod tests {
             .join("workspaces")
             .join("ws-hello");
         let app_root = source_root.join("apps").join("hello");
-        if !app_root.is_dir() {
+        let preview = source_root.join("stock/components/chart/echarts/previews/chart.area.mei");
+        if !app_root.is_dir() || !preview.is_file() {
             return;
         }
         let compiled =
@@ -687,10 +708,44 @@ mod tests {
         let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");
         assert_eq!(coord.preview_kind, BuildPreviewKind::Script);
         assert!(
-            coord.preview_target.contains("chart-baseline.mei"),
-            "expected chart baseline example, got {}",
+            coord.preview_target.contains("chart.area.mei"),
+            "expected pack preview path, got {}",
             coord.preview_target
         );
+        assert!(
+            coord.preview_target.contains("stock/components/chart/echarts/previews"),
+            "expected pack-local preview, got {}",
+            coord.preview_target
+        );
+    }
+
+    #[test]
+    fn components_tree_groups_by_pack_path() {
+        let assets = vec![
+            ComponentAsset {
+                key: "chart.line".to_string(),
+                tag: "t".to_string(),
+                script: "chart/echarts/line.js".to_string(),
+                pack_path: "chart/echarts".to_string(),
+                preview_mei: Some(
+                    "stock/components/chart/echarts/previews/chart.line.mei".to_string(),
+                ),
+            },
+            ComponentAsset {
+                key: "chart.area".to_string(),
+                tag: "t".to_string(),
+                script: "chart/echarts/area.js".to_string(),
+                pack_path: "chart/echarts".to_string(),
+                preview_mei: Some(
+                    "stock/components/chart/echarts/previews/chart.area.mei".to_string(),
+                ),
+            },
+        ];
+        let result = build_template_index(&assets, &BTreeMap::new(), &BTreeMap::new());
+        assert_eq!(result.tree_root.children.len(), 1);
+        assert_eq!(result.tree_root.children[0].kind, "component_pack");
+        assert_eq!(result.tree_root.children[0].label, "chart/echarts");
+        assert_eq!(result.tree_root.children[0].children.len(), 2);
     }
 
     #[test]
@@ -769,6 +824,7 @@ mod tests {
                     label: "Header".to_string(),
                 }],
                 agent_hint: None,
+                preview_mei: None,
             },
         );
         let compiled = CompiledApp {

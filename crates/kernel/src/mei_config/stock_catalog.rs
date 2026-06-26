@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use super::io::load_workspace_config;
-use super::types::WorkspaceStockCatalogKindConfig;
+use super::types::{
+    WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogKindConfig, DEFAULT_STOCK_CATALOG_APP_ID,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StockCatalogKind {
@@ -21,6 +23,29 @@ pub fn stock_catalog_kind_config(source_root: &Path, kind: StockCatalogKind) -> 
 
 pub fn stock_catalog_enabled(source_root: &Path, kind: StockCatalogKind) -> bool {
     stock_catalog_kind_config(source_root, kind).enabled
+}
+
+pub fn stock_catalog_app_config(source_root: &Path) -> WorkspaceStockCatalogAppConfig {
+    load_workspace_config(source_root).stock.catalog_app
+}
+
+pub fn stock_catalog_app_id(source_root: &Path) -> String {
+    let id = stock_catalog_app_config(source_root).id;
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        DEFAULT_STOCK_CATALOG_APP_ID.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+pub fn is_stock_catalog_app(app_id: &str) -> bool {
+    app_id.trim() == DEFAULT_STOCK_CATALOG_APP_ID
+        || app_id.trim().starts_with("_stock-catalog")
+}
+
+pub fn is_stock_catalog_app_for_root(source_root: &Path, app_id: &str) -> bool {
+    app_id.trim() == stock_catalog_app_id(source_root).as_str()
 }
 
 pub fn stock_path_excluded(source_root: &Path, kind: StockCatalogKind, rel_path: &str) -> bool {

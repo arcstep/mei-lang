@@ -79,13 +79,22 @@ pub fn catalog_preview_target_for_build_node(
     app_root: &Path,
     node: &BuildNodeId,
 ) -> Option<String> {
+    let scene_routes = crate::catalog_app::catalog_scene_routes_from_app_root(app_root);
+    if scene_routes.is_empty() {
+        return None;
+    }
+    let active_target_file = scene_routes
+        .first()
+        .map(|route| route.target_file.clone())
+        .unwrap_or_default();
+    let active_scene = scene_routes.first().map(|route| route.scene_id.clone());
     let stub = CompiledApp {
         app_id: String::new(),
         title: String::new(),
         app_root: app_root.display().to_string(),
-        scene_routes: Vec::new(),
-        active_scene: None,
-        active_target_file: String::new(),
+        scene_routes,
+        active_scene,
+        active_target_file,
         file_tree: Vec::new(),
         scene_contract: None,
         scene_local_nav_by_target: BTreeMap::new(),
@@ -301,7 +310,8 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
                 provenance,
             }
         }
-        BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval => {
+        BuildNodeKind::Artifact | BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval
+        | BuildNodeKind::McgNode => {
             BuildNodeContext {
                 node: node.clone(),
                 target_file: compiled.active_target_file.clone(),
@@ -545,11 +555,13 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
                 },
             }
         }
-        BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval => ProvenanceAnchor {
-            file: String::new(),
-            symbol_id: node.key.clone(),
-            symbol_kind: node.kind.slug().to_string(),
-        },
+        BuildNodeKind::GraphSemantic | BuildNodeKind::GraphEval | BuildNodeKind::McgNode => {
+            ProvenanceAnchor {
+                file: String::new(),
+                symbol_id: node.key.clone(),
+                symbol_kind: node.kind.slug().to_string(),
+            }
+        }
     }
 }
 

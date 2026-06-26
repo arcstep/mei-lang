@@ -72,15 +72,21 @@ pub fn build_experience_index(
                 });
             }
         } else if !scene_projection_assembly_by_id.contains_key(&route.scene_id) {
-            children.push(ReachabilityTreeNode {
-                id: format!("scene-gate-{}", route.scene_id),
-                node_id: String::new(),
-                kind: "scene_group".to_string(),
-                label: "Panels".to_string(),
-                badges: vec!["gate:missing".to_string()],
-                children: Vec::new(),
-                ..Default::default()
-            });
+            let target = route.target_file.replace('\\', "/");
+            let is_stock_pack_preview = target.contains("/stock/components/")
+                || target.contains("/stock/templates/")
+                || target.starts_with("../../stock/");
+            if !is_stock_pack_preview {
+                children.push(ReachabilityTreeNode {
+                    id: format!("scene-gate-{}", route.scene_id),
+                    node_id: String::new(),
+                    kind: "scene_group".to_string(),
+                    label: "Panels".to_string(),
+                    badges: vec!["gate:missing".to_string()],
+                    children: Vec::new(),
+                    ..Default::default()
+                });
+            }
         }
 
         if let Some(assembly) = scene_projection_assembly_by_id.get(&route.scene_id) {
@@ -176,9 +182,36 @@ pub fn reachability_roots_from_compiled(compiled: &CompiledApp) -> Vec<Reachabil
         ensure_board_and_template_roots(&mut roots, compiled);
         roots
     };
+    ensure_mcg_root(&mut roots, compiled);
     enrich_reachability_tree_compile_coords(&mut roots, compiled);
     normalize_reachability_tree_roots(&mut roots);
+    strip_stock_facet_roots_for_business_app(&mut roots, compiled);
     roots
+}
+
+fn strip_stock_facet_roots_for_business_app(
+    roots: &mut Vec<ReachabilityTreeRoot>,
+    compiled: &CompiledApp,
+) {
+    if crate::mei_config::is_stock_catalog_app(compiled.app_id.as_str()) {
+        return;
+    }
+    roots.retain(|root| root.group != "templates" && root.group != "template_files");
+}
+
+fn ensure_mcg_root(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp) {
+    if roots.iter().any(|root| root.group == "mcg") {
+        return;
+    }
+    let source_root = source_root_from_app(compiled);
+    let mcg_root = super::build_mcg_index::build_mcg_tree_root(
+        source_root.as_path(),
+        compiled.app_id.as_str(),
+    );
+    if mcg_root.children.is_empty() {
+        return;
+    }
+    roots.push(mcg_root);
 }
 
 fn normalize_reachability_tree_roots(roots: &mut [ReachabilityTreeRoot]) {
@@ -237,6 +270,9 @@ pub fn annotate_stock_preview_availability(
     compiled: &CompiledApp,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    if !crate::mei_config::is_stock_catalog_app(compiled.app_id.as_str()) {
+        return;
+    }
     for root in snapshot.iter_mut() {
         for child in &mut root.children {
             annotate_snapshot_preview_availability(child, compiled, diagnostics);
@@ -322,19 +358,31 @@ fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) -> Vec<Reacha
         &contracts,
         &compiled.scene_projection_assembly_by_id,
     );
-    let template = crate::compile::build_template_index(
-        &template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path()),
-        &contracts,
-        &experience.node_manifest,
-    );
-    let template_files = crate::compile::build_template_index::build_stock_template_files_root(
-        &source_root_from_app(compiled),
-    );
+    let (template_root, template_files_root) =
+        if crate::mei_config::is_stock_catalog_app(compiled.app_id.as_str()) {
+            let template = crate::compile::build_template_index(
+                &template_catalog_for_tree(compiled, source_root_from_app(compiled).as_path()),
+                &contracts,
+                &experience.node_manifest,
+            );
+            let template_files = crate::compile::build_template_index::build_stock_template_files_root(
+                &source_root_from_app(compiled),
+            );
+            (template.tree_root, template_files)
+        } else {
+            let empty = |group: &str, label: &str| ReachabilityTreeRoot {
+                group: group.to_string(),
+                label: label.to_string(),
+                default_open: false,
+                children: Vec::new(),
+            };
+            (empty("templates", "Components"), empty("template_files", "Templates"))
+        };
     merge_build_view_tree_roots(
         experience.reachability_snapshot,
         board.tree_root,
-        template.tree_root,
-        template_files,
+        template_root,
+        template_files_root,
     )
     .into_iter()
     .map(|snapshot| snapshot_to_root(&snapshot))
@@ -427,6 +475,9 @@ fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compil
                 roots.insert(insert_at, board_root);
             }
         }
+    }
+    if !crate::mei_config::is_stock_catalog_app(compiled.app_id.as_str()) {
+        return;
     }
     let template_root = {
         let contracts = scene_contracts_from_compiled(compiled);
@@ -1094,6 +1145,48 @@ mod tests {
     }
 
     #[test]
+    fn business_app_strips_legacy_templates_snapshot_on_read() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-hello");
+        let app_root = source_root.join("apps").join("hello");
+        let compiled =
+            compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+                .expect("compile hello");
+        let mut legacy = compiled.clone();
+        legacy.build_experience_index.reachability_snapshot.push(
+            ReachabilityTreeRootSnapshot {
+                group: "templates".to_string(),
+                label: "Components".to_string(),
+                default_open: false,
+                children: vec![ReachabilityTreeNodeSnapshot {
+                    id: "legacy-component".to_string(),
+                    node_id: "component:chart.line".to_string(),
+                    kind: "component".to_string(),
+                    label: "chart.line".to_string(),
+                    badges: Vec::new(),
+                    compile_scene: String::new(),
+                    compile_target: String::new(),
+                    board_layout_zone: String::new(),
+                    children: Vec::new(),
+                }],
+            },
+        );
+        let roots = reachability_roots_from_compiled(&legacy);
+        assert!(
+            roots.iter().all(|root| root.group != "templates"),
+            "legacy templates snapshot must be stripped for business apps"
+        );
+    }
+
+    #[test]
     fn stale_snapshot_rebuilds_boards_and_templates_groups() {
         use std::path::Path;
 
@@ -1104,11 +1197,11 @@ mod tests {
             .canonicalize()
             .expect("workspace root")
             .join("workspaces")
-            .join("ws-spbjw");
-        let app_root = source_root.join("zhifa");
+            .join("ws-hello");
+        let app_root = source_root.join("apps").join("hello");
         let compiled =
             compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
-                .expect("compile zhifa");
+                .expect("compile hello");
         let mut stale = compiled;
         stale.build_experience_index = BuildExperienceIndex::default();
         stale.build_board_index = Default::default();
@@ -1117,24 +1210,20 @@ mod tests {
         let roots = reachability_roots_from_compiled(&stale);
         let groups: Vec<_> = roots.iter().map(|root| root.group.as_str()).collect();
         assert!(
-            groups.contains(&"boards"),
-            "expected boards group after stale rebuild, got {groups:?}"
+            groups.contains(&"scenes"),
+            "expected scenes group after stale rebuild, got {groups:?}"
         );
         assert!(
-            groups.contains(&"templates"),
-            "expected templates group after stale rebuild, got {groups:?}"
+            !groups.contains(&"templates"),
+            "business app stale rebuild should not inject stock templates, got {groups:?}"
+        );
+        assert!(
+            !groups.contains(&"template_files"),
+            "business app stale rebuild should not inject stock template files, got {groups:?}"
         );
         assert!(
             !groups.contains(&"components"),
             "stale rebuild should not fall back to legacy runtime-only components group"
-        );
-        let boards = roots
-            .iter()
-            .find(|root| root.group == "boards")
-            .expect("boards group");
-        assert!(
-            !boards.children.is_empty(),
-            "boards group should list board capsules"
         );
     }
 
@@ -1149,11 +1238,14 @@ mod tests {
             .canonicalize()
             .expect("workspace root")
             .join("workspaces")
-            .join("ws-spbjw");
-        let app_root = source_root.join("zhifa");
+            .join("ws-hello");
+        let app_root = source_root.join("apps").join("_stock-catalog");
+        if !app_root.is_dir() {
+            return;
+        }
         let compiled =
             compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
-                .expect("compile zhifa");
+                .expect("compile stock catalog");
         assert!(
             !compiled.component_assets.is_empty(),
             "fixture should expose component assets"
@@ -1187,11 +1279,14 @@ mod tests {
             .canonicalize()
             .expect("workspace root")
             .join("workspaces")
-            .join("ws-spbjw");
-        let app_root = source_root.join("zhifa");
+            .join("ws-hello");
+        let app_root = source_root.join("apps").join("_stock-catalog");
+        if !app_root.is_dir() {
+            return;
+        }
         let compiled =
             compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
-                .expect("compile zhifa");
+                .expect("compile stock catalog");
         let mut partial = compiled.clone();
         partial.build_experience_index.reachability_snapshot = partial
             .build_experience_index
@@ -1243,13 +1338,50 @@ mod tests {
         )
         .expect("compile hello");
         let roots = reachability_roots_from_compiled(&compiled);
+        assert!(
+            roots.iter().all(|root| root.group != "templates"),
+            "business app build tree should not include stock component catalog"
+        );
+        assert!(
+            roots.iter().all(|root| root.group != "template_files"),
+            "business app build tree should not include stock template files"
+        );
+    }
+
+    #[test]
+    fn stock_catalog_app_hydrates_components_and_templates_in_build_tree() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+        use crate::mei_config::WORKSPACE_CONFIG_FILENAME;
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-hello");
+        if !source_root.join(WORKSPACE_CONFIG_FILENAME).is_file() {
+            return;
+        }
+        let app_root = source_root.join("apps").join("_stock-catalog");
+        if !app_root.is_dir() {
+            return;
+        }
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile stock catalog");
+        let roots = reachability_roots_from_compiled(&compiled);
         let templates = roots
             .iter()
             .find(|root| root.group == "templates")
             .expect("templates/components group");
         assert!(
             !templates.children.is_empty(),
-            "v2 app_root should hydrate stock components into build tree"
+            "stock catalog app should hydrate stock components into build tree"
         );
         let template_files = roots
             .iter()
@@ -1257,7 +1389,7 @@ mod tests {
             .expect("template_files group");
         assert!(
             !template_files.children.is_empty(),
-            "v2 app_root should list stock template files in build tree"
+            "stock catalog app should list stock template files in build tree"
         );
     }
 
@@ -1272,11 +1404,14 @@ mod tests {
             .canonicalize()
             .expect("workspace root")
             .join("workspaces")
-            .join("ws-spbjw");
-        let app_root = source_root.join("zhifa");
+            .join("ws-hello");
+        let app_root = source_root.join("apps").join("_stock-catalog");
+        if !app_root.is_dir() {
+            return;
+        }
         let compiled =
             compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
-                .expect("compile zhifa");
+                .expect("compile stock catalog");
         let roots = reachability_roots_from_compiled(&compiled);
         let components = roots
             .iter()

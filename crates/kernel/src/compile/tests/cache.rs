@@ -24,16 +24,16 @@ use crate::{
 };
 
 fn write_spbjw_like_app(root: &Path) {
-    fs::create_dir_all(root.join("scenes/layouts")).unwrap();
-    fs::create_dir_all(root.join("scenes/child")).unwrap();
+    fs::create_dir_all(root.join("src/scenes/layouts")).unwrap();
+    fs::create_dir_all(root.join("src/scenes/child")).unwrap();
     fs::create_dir_all(root.join("data")).unwrap();
     fs::write(
-        root.join("main.mei"),
+        root.join("src/main.mei"),
         r#"app(id = "cache-test", default_scene = "left", scene = scene_ref(scene_file = "scenes/layouts/left.mei"))"#,
     )
     .unwrap();
     fs::write(
-        root.join("scenes/layouts/left.mei"),
+        root.join("src/scenes/layouts/left.mei"),
         r#"
 scene(id = "left")
 world()
@@ -46,7 +46,7 @@ frame(
     )
     .unwrap();
     fs::write(
-        root.join("scenes/child/page.mei"),
+        root.join("src/scenes/child/page.mei"),
         r#"
 scene(id = "child")
 world()
@@ -64,9 +64,9 @@ frame.add_panel(id = "child_panel", area = "main", blocks = [])
 }
 
 fn write_multi_route_app(root: &Path) {
-    fs::create_dir_all(root.join("scenes")).unwrap();
+    fs::create_dir_all(root.join("src/scenes")).unwrap();
     fs::write(
-        root.join("main.mei"),
+        root.join("src/main.mei"),
         r#"
 app(
     id = "revision-test",
@@ -78,7 +78,7 @@ app.add_scene(scene_ref(id = "right", scene_file = "scenes/right.mei"))
     )
     .unwrap();
     fs::write(
-        root.join("scenes/left.mei"),
+        root.join("src/scenes/left.mei"),
         r#"
 scene(id = "left")
 world()
@@ -87,7 +87,7 @@ frame()
     )
     .unwrap();
     fs::write(
-        root.join("scenes/right.mei"),
+        root.join("src/scenes/right.mei"),
         r#"
 scene(id = "right")
 world()

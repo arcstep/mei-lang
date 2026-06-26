@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp};
@@ -53,6 +55,156 @@ pub struct ReachabilityTreeRoot {
 
 pub fn build_reachability_tree(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
     crate::compile::build_experience_index::reachability_roots_from_compiled(compiled)
+}
+
+/// When browsing `_stock-catalog`, keep only the stock facet root matching `catalog=`,
+/// optionally narrowed to a single component pack or template folder (`pack=`).
+/// Business apps never mount stock component/template trees (platform topbar entries only).
+pub fn is_stock_catalog_facet_root(group: &str) -> bool {
+    is_stock_facet_root_group(group)
+}
+
+pub fn filter_reachability_roots_for_stock_catalog(
+    roots: Vec<ReachabilityTreeRoot>,
+    is_catalog_app: bool,
+    catalog: Option<&str>,
+    pack: Option<&str>,
+) -> Vec<ReachabilityTreeRoot> {
+    if !is_catalog_app {
+        return roots
+            .into_iter()
+            .filter(|root| !is_stock_facet_root_group(root.group.as_str()))
+            .collect();
+    }
+    let facet = catalog
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("components");
+    let pack = pack.map(str::trim).filter(|value| !value.is_empty());
+    let path_prefix = stock_catalog_path_prefix(facet, pack);
+    let mut filtered: Vec<ReachabilityTreeRoot> = roots
+        .into_iter()
+        .filter(|root| match facet {
+            "templates" => root.group != "templates",
+            _ => root.group != "template_files",
+        })
+        .map(|mut root| {
+            if is_stock_facet_root_group(root.group.as_str()) {
+                if let Some(pack) = pack {
+                    narrow_stock_facet_root(&mut root, pack);
+                }
+            }
+            root
+        })
+        .collect();
+    filter_catalog_scene_roots(&mut filtered, &path_prefix);
+    filtered.retain(|root| !should_hide_catalog_root(root, pack.is_some()));
+    filtered
+}
+
+fn stock_catalog_path_prefix(facet: &str, pack: Option<&str>) -> String {
+    let base = match facet {
+        "templates" => "stock/templates/",
+        _ => "stock/components/",
+    };
+    match pack {
+        Some(pack) => format!("{base}{pack}/"),
+        None => base.to_string(),
+    }
+}
+
+fn normalize_stock_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+fn node_matches_stock_prefix(node: &ReachabilityTreeNode, prefix: &str) -> bool {
+    if node
+        .badges
+        .iter()
+        .any(|badge| normalize_stock_path(badge).contains(prefix))
+    {
+        return true;
+    }
+    if !node.compile_target.is_empty()
+        && normalize_stock_path(&node.compile_target).contains(prefix)
+    {
+        return true;
+    }
+    false
+}
+
+fn scene_ids_from_nodes(nodes: &[ReachabilityTreeNode]) -> HashSet<String> {
+    nodes
+        .iter()
+        .filter_map(|node| {
+            BuildNodeId::parse(&node.node_id).and_then(|id| {
+                (id.kind == BuildNodeKind::Scene).then_some(id.key)
+            })
+        })
+        .collect()
+}
+
+fn filter_catalog_scene_roots(roots: &mut [ReachabilityTreeRoot], path_prefix: &str) {
+    let mut allowed_scene_ids = HashSet::new();
+    for root in roots.iter_mut() {
+        if root.group == "scenes" {
+            root.children
+                .retain(|node| node_matches_stock_prefix(node, path_prefix));
+            allowed_scene_ids.extend(scene_ids_from_nodes(&root.children));
+            continue;
+        }
+        if root.group == "routes" {
+            root.children.retain(|node| {
+                BuildNodeId::parse(&node.node_id)
+                    .is_some_and(|id| id.kind == BuildNodeKind::Route && allowed_scene_ids.contains(&id.key))
+            });
+            continue;
+        }
+        if root.group == "artifacts" {
+            root.children.retain(|node| {
+                BuildNodeId::parse(&node.node_id).is_some_and(|id| {
+                    id.kind == BuildNodeKind::Artifact
+                        && id
+                            .key
+                            .split('/')
+                            .nth(1)
+                            .is_some_and(|scene_id| allowed_scene_ids.contains(scene_id))
+                })
+            });
+        }
+    }
+}
+
+fn should_hide_catalog_root(root: &ReachabilityTreeRoot, pack_selected: bool) -> bool {
+    if root.children.is_empty() {
+        return matches!(
+            root.group.as_str(),
+            "scenes" | "routes" | "artifacts" | "world" | "datasets" | "boards"
+        );
+    }
+    if pack_selected && is_stock_facet_root_group(root.group.as_str()) && root.children.is_empty()
+    {
+        return true;
+    }
+    false
+}
+
+fn narrow_stock_facet_root(root: &mut ReachabilityTreeRoot, pack: &str) {
+    if let Some(pack_node) = root
+        .children
+        .iter()
+        .find(|node| node.label == pack)
+        .cloned()
+    {
+        root.label = pack_node.label.clone();
+        root.children = pack_node.children;
+        return;
+    }
+    root.children.retain(|node| node.label == pack);
+}
+
+fn is_stock_facet_root_group(group: &str) -> bool {
+    group == "templates" || group == "template_files"
 }
 
 pub(crate) fn routes_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
@@ -412,5 +564,99 @@ mod tests {
             .badges
             .iter()
             .any(|badge| badge.contains("agency_objects")));
+    }
+
+    fn sample_catalog_scene_node(scene_id: &str, target_file: &str) -> ReachabilityTreeNode {
+        ReachabilityTreeNode {
+            id: format!("scene-{scene_id}"),
+            node_id: BuildNodeId::scene(scene_id).encode(),
+            kind: "scene".to_string(),
+            label: scene_id.to_string(),
+            badges: vec![target_file.to_string()],
+            children: Vec::new(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn stock_catalog_filter_narrows_scenes_and_flattens_facet_by_pack() {
+        let roots = vec![
+            ReachabilityTreeRoot {
+                group: "scenes".to_string(),
+                label: "Scenes".to_string(),
+                default_open: false,
+                children: vec![
+                    sample_catalog_scene_node(
+                        "chart.pie",
+                        "../../stock/components/chart/echarts/previews/chart.pie.mei",
+                    ),
+                    sample_catalog_scene_node(
+                        "chart.line",
+                        "../../stock/components/chart/line/previews/chart.line.mei",
+                    ),
+                ],
+            },
+            ReachabilityTreeRoot {
+                group: "templates".to_string(),
+                label: "Components".to_string(),
+                default_open: false,
+                children: vec![ReachabilityTreeNode {
+                    id: "pack-chart-echarts".to_string(),
+                    node_id: String::new(),
+                    kind: "component_pack".to_string(),
+                    label: "chart/echarts".to_string(),
+                    badges: Vec::new(),
+                    children: vec![ReachabilityTreeNode {
+                        id: "tpl-pie".to_string(),
+                        node_id: BuildNodeId::new(BuildNodeKind::Template, "chart.pie.mei").encode(),
+                        kind: "template".to_string(),
+                        label: "chart.pie".to_string(),
+                        badges: Vec::new(),
+                        children: Vec::new(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+            },
+            ReachabilityTreeRoot {
+                group: "template_files".to_string(),
+                label: "Templates".to_string(),
+                default_open: false,
+                children: vec![ReachabilityTreeNode {
+                    id: "tpl-pack".to_string(),
+                    node_id: String::new(),
+                    kind: "template_group".to_string(),
+                    label: "layout/basic".to_string(),
+                    badges: Vec::new(),
+                    children: Vec::new(),
+                    ..Default::default()
+                }],
+            },
+        ];
+        let filtered = filter_reachability_roots_for_stock_catalog(
+            roots,
+            true,
+            Some("components"),
+            Some("chart/echarts"),
+        );
+        assert!(
+            filtered
+                .iter()
+                .all(|root| root.group != "template_files"),
+            "components facet should drop template_files root"
+        );
+        let scenes = filtered
+            .iter()
+            .find(|root| root.group == "scenes")
+            .expect("scenes root");
+        assert_eq!(scenes.children.len(), 1);
+        assert_eq!(scenes.children[0].label, "chart.pie");
+        let components = filtered
+            .iter()
+            .find(|root| root.group == "templates")
+            .expect("components root");
+        assert_eq!(components.label, "chart/echarts");
+        assert_eq!(components.children.len(), 1);
+        assert_eq!(components.children[0].label, "chart.pie");
     }
 }

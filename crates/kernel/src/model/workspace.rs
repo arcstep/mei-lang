@@ -5,6 +5,12 @@ pub struct ComponentAsset {
     pub key: String,
     pub tag: String,
     pub script: String,
+    /// Manifest directory relative to the workspace components root (e.g. `chart/echarts`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub pack_path: String,
+    /// Workspace-relative preview scene (e.g. `stock/components/chart/echarts/previews/chart.donut.mei`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_mei: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

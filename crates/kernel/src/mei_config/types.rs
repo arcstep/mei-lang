@@ -174,9 +174,42 @@ pub struct WorkspaceStockConfig {
     pub catalog: WorkspaceStockCatalogConfig,
     #[serde(default)]
     pub preview: WorkspaceStockPreviewConfig,
+    /// 隐藏 Build-only 应用：统一 stock 组件/模板预览 compile/prebuild 管线。
+    #[serde(default, rename = "catalogApp")]
+    pub catalog_app: WorkspaceStockCatalogAppConfig,
     /// 预留：外部 stock pack 来源（git/tar/registry）；本阶段可为空。
     #[serde(default)]
     pub sources: Vec<WorkspaceStockSourceEntry>,
+}
+
+pub const DEFAULT_STOCK_CATALOG_APP_ID: &str = "_stock-catalog";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceStockCatalogAppConfig {
+    #[serde(default = "default_stock_catalog_app_id")]
+    pub id: String,
+    #[serde(default = "default_stock_catalog_app_title")]
+    pub title: String,
+    #[serde(default = "default_true", rename = "buildOnly")]
+    pub build_only: bool,
+}
+
+impl Default for WorkspaceStockCatalogAppConfig {
+    fn default() -> Self {
+        Self {
+            id: default_stock_catalog_app_id(),
+            title: default_stock_catalog_app_title(),
+            build_only: true,
+        }
+    }
+}
+
+fn default_stock_catalog_app_id() -> String {
+    DEFAULT_STOCK_CATALOG_APP_ID.to_string()
+}
+
+fn default_stock_catalog_app_title() -> String {
+    "Stock Catalog".to_string()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -375,7 +408,7 @@ pub struct RuntimeWarmupManifest {
     pub apps: Vec<RuntimeWarmupApp>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeWarmupApp {
     #[serde(rename = "appId")]
     pub app_id: String,

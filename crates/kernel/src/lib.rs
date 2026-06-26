@@ -1,5 +1,6 @@
 mod auth_journal;
 mod cache_generation;
+mod catalog_app;
 mod compile;
 mod compile_semantics;
 mod config_refs;
@@ -18,6 +19,13 @@ mod warmup_board_autogen;
 mod warmup_manifest;
 mod workspace;
 
+pub use catalog_app::{
+    catalog_app_needs_sync, catalog_scene_route_for_build_node, collect_stock_catalog_routes,
+    catalog_scene_routes_from_app_root, discover_stock_catalog_packs, is_catalog_build_app,
+    render_stock_catalog_main_mei,
+    stock_catalog_app_root, StockCatalogPackDiscovery,
+    StockCatalogRouteEntry, StockCatalogRouteKind,
+};
 pub use cache_generation::{
     bump_cache_generation, cache_generation_path, is_file_source_dataset,
     load_cache_generation, resolve_app_data_generation, save_cache_generation,
@@ -29,6 +37,7 @@ pub use compile::{
     build_preview_panel_scope,
     component_authoring_example_workspace_path, scene_contract_contains_use_key,
     build_reachability_tree, build_runtime_analysis_contracts, build_runtime_analysis_graph,
+    filter_reachability_roots_for_stock_catalog, is_stock_catalog_facet_root,
     build_runtime_eval_plan, cached_load_xlsx_table_snapshot,
     capsule_path_from_namespaced_resource_id, clear_runtime_compile_caches,
     clear_runtime_eval_node_cache, coerce_calendar_columns_in_rows, coerce_row_to_schema,
@@ -91,7 +100,9 @@ pub use mei_config::{
     resolve_app_id, resolve_app_mei_file_path, resolve_app_root, resolve_app_mei_store_root, resolve_app_build_root,
     resolve_app_src_root, resolve_app_var_root, resolve_apps_root, resolve_deploy_root,
     resolve_authoring_helpers, resolve_authoring_root, resolve_components_root,
-    resolve_stock_root, stock_catalog_enabled, stock_path_excluded, normalize_stock_relative_path,
+    resolve_stock_root, stock_catalog_app_id, stock_catalog_enabled, stock_path_excluded,
+    normalize_stock_relative_path, is_stock_catalog_app, is_stock_catalog_app_for_root,
+    stock_catalog_app_config,
     StockCatalogKind,
     resolve_toolchain_root, resolve_workspace_cache_root, resolve_workspace_graph_root,
     resolve_workspace_logs_root, resolve_workspace_platform_root, resolve_workspace_runtime_root,
@@ -115,13 +126,14 @@ pub use mei_config::{
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
     WorkspaceAuthBundle, WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig,
     WorkspaceHostState, WorkspaceOpsConfig, WorkspacePathsConfig, WorkspaceProfile,
-    WorkspaceStockBootstrapConfig, WorkspaceStockCatalogConfig, WorkspaceStockCatalogKindConfig,
-    WorkspaceStockConfig, WorkspaceStockPreviewConfig, WorkspaceStockSourceEntry,
-    WorkspaceWarmupAppConfig, WorkspaceWarmupConfig, WorkspaceWarmupDatasetConfig,
-    WorkspaceWarmupXlsxConfig, APP_BUILD_STORE_REL, APP_CONFIG_FILENAME, APP_VAR_STORE_REL,
-    AUTH_JOURNAL_REL_PATH, BUILD_MANIFEST_FILENAME, BUILD_MANIFEST_SCHEMA, DEFAULT_APPS_REL,
-    DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID, DEFAULT_STOCK_AUTHORING_REL,
-    DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, DEPLOY_LINKS_REL,
+    WorkspaceStockBootstrapConfig, WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig,
+    WorkspaceStockCatalogKindConfig, WorkspaceStockConfig, WorkspaceStockPreviewConfig,
+    WorkspaceStockSourceEntry, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
+    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, APP_BUILD_STORE_REL,
+    APP_CONFIG_FILENAME, APP_VAR_STORE_REL, AUTH_JOURNAL_REL_PATH, BUILD_MANIFEST_FILENAME,
+    BUILD_MANIFEST_SCHEMA, DEFAULT_APPS_REL, DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID,
+    DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_CATALOG_APP_ID, DEFAULT_STOCK_COMPONENTS_REL,
+    DEFAULT_STOCK_TEMPLATES_REL, DEPLOY_LINKS_REL,
     TOOLCHAIN_ACTIVE_REL, TOOLCHAIN_STORE_REL,
     DEV_TOOLCHAIN_VERSION, LEGACY_AUTH_JOURNAL_REL_PATH, LEGACY_WORKSPACE_AGENT_DB_REL,
     LEGACY_WORKSPACE_SNAPSHOT_DIR_REL, LEGACY_WORKSPACE_SNAPSHOT_GIT_REL, LINKS_STATE_SCHEMA,
@@ -181,7 +193,7 @@ pub use warmup_manifest::{
     build_runtime_warmup_manifest, enrich_runtime_warmup_app, resolve_runtime_warmup_manifest,
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION,
 };
-pub use workspace::{discover_apps, load_component_assets, read_source_file, source_tree};
+pub use workspace::{audit_component_preview_coverage, discover_apps, discover_build_apps, load_component_assets, read_source_file, source_tree};
 
 /// Stable revision token derived from kernel sources at compile time.
 pub fn platform_source_revision() -> &'static str {

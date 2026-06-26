@@ -15,6 +15,7 @@ mod publish_data_snapshots;
 mod runtime_sim;
 mod semantic_summary;
 mod types;
+mod catalog_app;
 mod workspace_stock;
 mod workspace_summary;
 mod world;
@@ -91,11 +92,13 @@ pub use types::{
     WorldContextSnapshot, WorldRuntimeBundle, WorldRuntimePeekResponse, WorldRuntimeSummary,
     WorldScope, WorldSnapshotSummary,
 };
+pub use catalog_app::{sync_stock_catalog_app, SyncStockCatalogAppReport};
 pub use workspace_stock::{
-    create_app_skeleton, doctor_workspace_stock, ensure_workspace_stock_materialized,
-    init_workspace_profile, materialize_workspace_stock, migrate_workspace_stock_paths,
-    sync_workspace_stock, workspace_stock_revision, MaterializeDirReport, MaterializeReport, MigrateWorkspaceStockPathsReport,
-    StockDoctorReport, StockManifest, StockTreeFingerprint,
+    create_app_skeleton, doctor_workspace_stock, ensure_stock_catalog_app_synced,
+    ensure_workspace_stock_materialized, init_workspace_profile, materialize_workspace_stock,
+    migrate_workspace_stock_paths, sync_workspace_stock, workspace_stock_revision,
+    MaterializeDirReport, MaterializeReport, MigrateWorkspaceStockPathsReport, StockDoctorReport,
+    StockManifest, StockTreeFingerprint,
 };
 pub use workspace_summary::build_workspace_summary;
 pub use world::{

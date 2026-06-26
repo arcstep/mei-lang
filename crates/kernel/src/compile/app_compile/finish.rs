@@ -263,20 +263,45 @@ pub(super) fn finish_compiled_app(
     ensure_world_capsule_preview_components(&mut compiled.component_assets, asset_map);
     let workspace_source_root =
         crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);
-    let catalog_assets =
+    let is_catalog_app = crate::mei_config::is_stock_catalog_app(compiled.app_id.as_str());
+    let catalog_assets = if is_catalog_app {
         crate::compile::build_template_index::merged_component_catalog(
             workspace_source_root.as_path(),
             &compiled,
-        );
-    let template = crate::compile::build_template_index(
-        catalog_assets.as_slice(),
-        &target_scene_contracts,
-        &compiled.build_experience_index.node_manifest,
-    );
+        )
+    } else {
+        Vec::new()
+    };
+    let template = if is_catalog_app {
+        crate::compile::build_template_index(
+            catalog_assets.as_slice(),
+            &target_scene_contracts,
+            &compiled.build_experience_index.node_manifest,
+        )
+    } else {
+        crate::compile::build_template_index::BuildTemplateIndexResult {
+            index: Default::default(),
+            tree_root: crate::compile::ReachabilityTreeRoot {
+                group: "templates".to_string(),
+                label: "Components".to_string(),
+                default_open: false,
+                children: Vec::new(),
+            },
+        }
+    };
     compiled.build_template_index = template.index;
-    let template_files = crate::compile::build_template_index::build_stock_template_files_root(
-        workspace_source_root.as_path(),
-    );
+    let template_files = if is_catalog_app {
+        crate::compile::build_template_index::build_stock_template_files_root(
+            workspace_source_root.as_path(),
+        )
+    } else {
+        crate::compile::ReachabilityTreeRoot {
+            group: "template_files".to_string(),
+            label: "Templates".to_string(),
+            default_open: false,
+            children: Vec::new(),
+        }
+    };
     let mut reachability_snapshot =
         crate::compile::build_experience_index::merge_build_view_tree_roots(
             compiled
