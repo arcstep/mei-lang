@@ -9886,7 +9886,6 @@
 
 })));
 
-;
 
 /* ===== vendor/codemirror-mode-javascript.js ===== */
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
@@ -10850,7 +10849,6 @@ CodeMirror.defineMIME("application/typescript", { name: "javascript", typescript
 
 });
 
-;
 
 /* ===== vendor/codemirror-mode-xml.js ===== */
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
@@ -11271,7 +11269,6 @@ if (!CodeMirror.mimeModes.hasOwnProperty("text/html"))
 
 });
 
-;
 
 /* ===== vendor/codemirror-mode-css.js ===== */
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
@@ -12137,7 +12134,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
 
 });
 
-;
 
 /* ===== vendor/codemirror-mode-python.js ===== */
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
@@ -12543,7 +12539,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
 
 });
 
-;
 
 /* ===== source-codemirror-mode.js ===== */
 (function () {
@@ -12747,7 +12742,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   });
 })();
 
-;
 
 /* ===== vendor/codemirror-merge.js ===== */
 // CodeMirror, copyright (c) by Marijn Haverbeke and others
@@ -13769,7 +13763,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   };
 });
 
-;
 
 /* ===== asset-source-editor.js ===== */
 (() => {
@@ -13846,7 +13839,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   document.addEventListener("mei:manage-context-change", boot);
 })();
 
-;
 
 /* ===== source-tree-controls.js ===== */
 (function initSourceTreeControls() {
@@ -13892,7 +13884,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   mountSourceTreeControls();
 })();
 
-;
 
 /* ===== source-highlight.js ===== */
 (function () {
@@ -14167,4 +14158,3 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   };
 })();
 
-;

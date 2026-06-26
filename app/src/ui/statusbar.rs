@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use mei_lang_kernel::is_stock_catalog_app;
 
 use super::manage_routing::OPS_CONFIG_TARGET;
 
@@ -79,6 +80,29 @@ fn workspace_relative_path(app_path: &str, target: &str) -> String {
     }
 }
 
+fn collapse_parent_path_segments(raw: &str) -> String {
+    let mut stack: Vec<&str> = Vec::new();
+    for part in raw.split('/').filter(|part| !part.is_empty() && *part != ".") {
+        if part == ".." {
+            stack.pop();
+        } else {
+            stack.push(part);
+        }
+    }
+    stack.join("/")
+}
+
+fn build_statusbar_display_path(app_path: &str, target: &str) -> String {
+    let joined = workspace_relative_path(app_path, target);
+    let collapsed = collapse_parent_path_segments(joined.as_str());
+    if is_stock_catalog_app(app_path) {
+        if let Some(idx) = collapsed.find("stock/") {
+            return collapsed[idx..].to_string();
+        }
+    }
+    collapsed
+}
+
 fn statusbar_left_path(
     app_path: &str,
     route_mode: &str,
@@ -91,7 +115,7 @@ fn statusbar_left_path(
             if target.is_empty() {
                 None
             } else {
-                Some(workspace_relative_path(app_path, target))
+                Some(build_statusbar_display_path(app_path, target))
             }
         }
         "config" => Some(workspace_relative_path(app_path, OPS_CONFIG_TARGET)),
@@ -128,6 +152,20 @@ mod tests {
         assert_eq!(
             statusbar_left_path("zhifa", "config", "", None).as_deref(),
             Some("zhifa/.mei-config.json")
+        );
+    }
+
+    #[test]
+    fn build_stock_catalog_path_collapses_parent_segments() {
+        assert_eq!(
+            statusbar_left_path(
+                "_stock-catalog",
+                "build",
+                "../../stock/components/chart/echarts/previews/chart.trend.mei",
+                None,
+            )
+            .as_deref(),
+            Some("stock/components/chart/echarts/previews/chart.trend.mei")
         );
     }
 

@@ -196,7 +196,6 @@
   boot.notifyHostHttpError = notify;
 })();
 
-;
 
 /* ===== host-auth-session.js ===== */
 /**
@@ -442,7 +441,6 @@
   bootstrap().catch(function () {});
 })();
 
-;
 
 /* ===== host-heartbeat.js ===== */
 /**
@@ -795,7 +793,6 @@
   start();
 })();
 
-;
 
 /* ===== frame-stage/preamble.js ===== */
 (() => {
@@ -810,7 +807,6 @@
   const observers = new Set();
 
 
-;
 
 /* ===== frame-stage/util.js ===== */
   function round(value) {
@@ -982,7 +978,6 @@
   boot.activeBuildTabSlug = activeBuildTabSlug;
 
 
-;
 
 /* ===== frame-stage/viewport/p1.js ===== */
   function queueUpdateViewport(root) {
@@ -1333,7 +1328,6 @@
   function measureStageContentSize(
     stage,
 
-;
 
 /* ===== frame-stage/viewport/p2.js ===== */
     canvasWidth,
@@ -1684,7 +1678,6 @@
           rightPad,
         });
 
-;
 
 /* ===== frame-stage/viewport/p3.js ===== */
       }
@@ -2035,7 +2028,6 @@
     publishLayoutAudit(root, stage, diagnostics, buildRuntimeEvalReport(diagnostics));
   }
 
-;
 
 /* ===== frame-stage/manage-zoom.js ===== */
   function shouldShowHorizontalOverflowVeil(canvasWidth, extentWidth, contentMaxWidth) {
@@ -2409,7 +2401,6 @@
     scheduleManageViewportRelayout(root, contentHeight);
   }
 
-;
 
 /* ===== frame-stage/layout-audit.js ===== */
   const manageRelayoutTimers = new WeakMap();
@@ -2780,7 +2771,6 @@
     );
   }
 
-;
 
 /* ===== frame-stage/lifecycle.js ===== */
   function observeHostResize(root) {
@@ -2988,12 +2978,10 @@
     boot.scheduleFrameViewportRelayout = null;
   };
 
-;
 
 /* ===== frame-stage/epilogue.js ===== */
 })();
 
-;
 
 /* ===== scope-params.js ===== */
 /**
@@ -3049,7 +3037,6 @@
   g.MeiAgentScopeParams = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
 
-;
 
 /* ===== access-external-ai-float.js ===== */
 /**
@@ -3259,7 +3246,6 @@
   boot.disposeAccessExternalAiFloat = bootAccessExternalAiFloat();
 })(window);
 
-;
 
 /* ===== agent-host-coordinates.js ===== */
 /**
@@ -3393,7 +3379,6 @@
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);
 
-;
 
 /* ===== statusbar.js ===== */
 (() => {
@@ -3458,7 +3443,6 @@
   start();
 })();
 
-;
 
 /* ===== visit-history-panel.js ===== */
 (() => {
@@ -3763,7 +3747,6 @@
   };
 })();
 
-;
 
 /* ===== agent-panel-utils.js ===== */
 /**
@@ -4149,7 +4132,6 @@
   };
 })();
 
-;
 
 /* ===== agent-panel-routing.js ===== */
 /**
@@ -4386,7 +4368,6 @@
   };
 })(window);
 
-;
 
 /* ===== agent-panel-access-float.js ===== */
 /**
@@ -4642,7 +4623,6 @@
   };
 })(window);
 
-;
 
 /* ===== agent-panel-source.js ===== */
 /**
@@ -5101,7 +5081,6 @@
   };
 })(window);
 
-;
 
 /* ===== agent-panel-session.js ===== */
 /**
@@ -5360,7 +5339,6 @@
   };
 })(window);
 
-;
 
 /* ===== agent-panel-context/p1.js ===== */
 /**
@@ -5651,7 +5629,6 @@
         );
       }
 
-;
 
 /* ===== agent-panel-context/p2.js ===== */
       return parts.join("\n\n");
@@ -5942,7 +5919,6 @@
   };
 })(window);
 
-;
 
 /* ===== agent-panel-chrome/p1.js ===== */
 /**
@@ -6264,7 +6240,6 @@
       document.body.appendChild(span);
       api.state._completionModelMeasure = span;
 
-;
 
 /* ===== agent-panel-chrome/p2.js ===== */
     }
@@ -6586,7 +6561,6 @@
   };
 })(window);
 
-;
 
 /* ===== agent-panel-messages-model.js ===== */
 /**
@@ -6892,7 +6866,6 @@
   global.MeiAgentPanelMessagesModel = M;
 })(typeof globalThis !== "undefined" ? globalThis : window);
 
-;
 
 /* ===== agent-panel-messages/p1.js ===== */
 /**
@@ -7340,7 +7313,6 @@
     api.setSessionRevertedFlag(sid, false);
     api.setRevertedIdsForSession(sid, []);
 
-;
 
 /* ===== agent-panel-messages/p2.js ===== */
     Object.keys(state.messageMeta).forEach(function (key) {
@@ -7788,7 +7760,6 @@
       refreshFailed = true;
       state.health = null;
 
-;
 
 /* ===== agent-panel-messages/p3.js ===== */
       state.sessions = [];
@@ -8238,7 +8209,6 @@
   };
 })(window);
 
-;
 
 /* ===== agent-panel-layout.js ===== */
 /**
@@ -8361,7 +8331,6 @@
   };
 })(typeof globalThis !== "undefined" ? globalThis : window);
 
-;
 
 /* ===== agent-panel-delta-debug.js ===== */
 /**
@@ -8550,7 +8519,6 @@
   };
 })(typeof globalThis !== "undefined" ? globalThis : window);
 
-;
 
 /* ===== agent-panel-bindings.js ===== */
 /**
@@ -8989,7 +8957,6 @@
   };
 })(typeof globalThis !== "undefined" ? globalThis : window);
 
-;
 
 /* ===== agent-panel/p1.js ===== */
 (function () {
@@ -9339,7 +9306,6 @@
           }
           $U.unblockAgentRequests();
 
-;
 
 /* ===== agent-panel/p2.js ===== */
           return MSG.refreshAll();
@@ -9690,7 +9656,6 @@
   };
 })();
 
-;
 
 /* ===== workspace-splitters.js ===== */
 (function initWorkspaceSplitters() {
@@ -9972,7 +9937,6 @@
   };
 })();
 
-;
 
 /* ===== spa-navigation/preamble.js ===== */
 (() => {
@@ -9981,7 +9945,6 @@
   boot.spaNavigationMounted = true;
 
 
-;
 
 /* ===== spa-navigation/constants.js ===== */
   const RELOAD_APP_SCRIPTS = new Set([
@@ -10025,7 +9988,6 @@
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
 
 
-;
 
 /* ===== spa-navigation/events.js ===== */
   function dispatchPreviewUpdated(scope = "page", detail = {}) {
@@ -10070,7 +10032,6 @@
     });
   }
 
-;
 
 /* ===== spa-navigation/constants-maps.js ===== */
   const DRILLDOWN_SCENE_BY_FILE = {
@@ -10099,7 +10060,6 @@
   const SCENE_PROJECTION_CONTEXT_KEY = "mei.scene_projection_context";
 
 
-;
 
 /* ===== spa-navigation/drilldown/column-infer.js ===== */
   function sceneParamRowsetDatasetId(params) {
@@ -10156,7 +10116,6 @@
     };
   }
 
-;
 
 /* ===== spa-navigation/nav-state.js ===== */
   let currentNavigationId = 0;
@@ -10166,7 +10125,6 @@
   let drilldownContextRetryTimer = null;
 
 
-;
 
 /* ===== spa-navigation/visit-history-store.js ===== */
 (function (global) {
@@ -10483,7 +10441,6 @@
   typeof window !== "undefined" ? window : typeof globalThis !== "undefined" ? globalThis : {},
 );
 
-;
 
 /* ===== spa-navigation/load-session.js ===== */
   const LOAD_PHASES = ["render", "eval"];
@@ -10805,7 +10762,6 @@
   boot.loadNowMs = loadNowMs;
   boot.loadPhaseProgress = loadPhaseProgress;
 
-;
 
 /* ===== spa-navigation/route-predicates.js ===== */
   // Keep in sync with `UiRouteMode::from_slug` (app/src/ui/route.rs).
@@ -10902,7 +10858,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/scene-shell-normalize.js ===== */
   function normalizeProjection(value) {
@@ -11263,7 +11218,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/board-link.js ===== */
   function normalizeSceneParams(raw) {
@@ -11357,7 +11311,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/primitives.js ===== */
   function nonEmptyString(...values) {
@@ -11501,7 +11454,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/tab-model-runtime.js ===== */
   function runtimeDrilldownConfig(detail) {
@@ -11841,7 +11793,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/tab-model-overrides.js ===== */
   function normalizeTabMetricOverrides(...values) {
@@ -12030,7 +11981,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/tab-model-config.js ===== */
   function readGlobalSceneDrilldownContext() {
@@ -12535,7 +12485,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/config-slots.js ===== */
   function resolveAccessAppBasePath(pathname = window.location.pathname) {
@@ -12997,7 +12946,6 @@
 
   /** @deprecated Internal legacy adapter; callers must use resolveSceneOpenRequest. */
 
-;
 
 /* ===== spa-navigation/drilldown/config-legacy.js ===== */
   function resolveLegacySceneProjectionConfig(detail) {
@@ -13315,7 +13263,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/config-open.js ===== */
   function buildSceneOpenRequest(config, detail = {}) {
@@ -13393,7 +13340,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/debug.js ===== */
   function resolvePopupDebugHost() {
@@ -13458,7 +13404,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/data-fetch.js ===== */
   const drilldownRowFetchInflight = new Map();
@@ -13848,7 +13793,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/row-aggregation.js ===== */
   function monthBucketLabel(value) {
@@ -14115,7 +14059,6 @@
     };
   }
 
-;
 
 /* ===== spa-navigation/drilldown/props-builders.js ===== */
   function isAnalyticsChartPresentation(config) {
@@ -14541,7 +14484,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/widget-mount/p1.js ===== */
   function resolveDrilldownChartSlotCaption(config) {
@@ -14812,7 +14754,6 @@
       hostOverride instanceof HTMLElement
         ? hostOverride
 
-;
 
 /* ===== spa-navigation/drilldown/widget-mount/p2.js ===== */
         : root.querySelector('[data-drilldown-table-host="true"]');
@@ -15084,7 +15025,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/render-analytics.js ===== */
   async function mountAnalyticsChartSlots(root, detail, config, chartSlots, chartsHost) {
@@ -15311,7 +15251,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/swimlane-preview/p1.js ===== */
   function resolveListPreviewMapping(config) {
@@ -15658,7 +15597,6 @@
     flags.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
 
-;
 
 /* ===== spa-navigation/drilldown/swimlane-preview/p2.js ===== */
       const field = String(spec?.field || "").trim();
@@ -16005,7 +15943,6 @@
     title.textContent = resolveListPreviewTitle(row, config, mapping);
     panel.appendChild(title);
 
-;
 
 /* ===== spa-navigation/drilldown/swimlane-preview/p3.js ===== */
     appendSwimlaneSubtitle(panel, row, mapping);
@@ -16352,7 +16289,6 @@
     host.appendChild(panel);
   }
 
-;
 
 /* ===== spa-navigation/drilldown/render-list-preview.js ===== */
   const LIST_PREVIEW_ROW_SELECT_EVENT = "mei:table-row-select";
@@ -16553,7 +16489,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/render-structured.js ===== */
   function cleanupStructuredDrilldownWatcher(root) {
@@ -16878,7 +16813,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/render-derived.js ===== */
   async function mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride = null) {
@@ -17030,7 +16964,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/render-generic.js ===== */
   function renderDrilldownContent(root, detail, config, tabId, hostOverride = null) {
@@ -17247,7 +17180,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/overlay-chrome.js ===== */
   function drilldownLoadingStatusHtml(fallbackText) {
@@ -17453,7 +17385,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/storage.js ===== */
   function stashSceneProjectionContext(detail, config) {
@@ -17557,7 +17488,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/projection-host.js ===== */
   function useSceneBoardOverlay(config) {
@@ -17719,7 +17649,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/context-banner.js ===== */
   function patchDrilldownTableByMetric(tableMetricId) {
@@ -17813,7 +17742,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/loading-progress/p1.js ===== */
   const PHASES = boot.LOAD_PHASES || ["render", "eval"];
@@ -18165,7 +18093,6 @@
           if (session.apiCalls.length > 20) {
             session.apiCalls = session.apiCalls.slice(-20);
 
-;
 
 /* ===== spa-navigation/spa/loading-progress/p2.js ===== */
           }
@@ -18518,7 +18445,6 @@
     window.__meiLoadingProgressMarkRender = markLoadingRenderTrace;
   }
 
-;
 
 /* ===== spa-navigation/spa/loading-ui.js ===== */
   function currentMainPane() {
@@ -18819,7 +18745,6 @@
   boot.isDrilldownProgressVisible = isDrilldownProgressVisible;
   boot.clearManageWorkspaceLoadingState = clearManageWorkspaceLoadingState;
 
-;
 
 /* ===== spa-navigation/spa/url-policy.js ===== */
   function isManageSamePathNavigation(currentUrl, nextUrl) {
@@ -18967,7 +18892,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/script-sync.js ===== */
   const SCENE_BUNDLE_PATH_PREFIX = "/workspace-components/bundles/";
@@ -19113,7 +19037,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/script-loader.js ===== */
   function waitForPersistentScriptReady(scriptEl) {
@@ -19197,7 +19120,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/manage-preview.js ===== */
   function pulseManagePreview(detail, options) {
@@ -19238,7 +19160,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/manage-preview-board.js ===== */
   const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
@@ -19700,7 +19621,6 @@
 
   installManagePreviewBoard();
 
-;
 
 /* ===== spa-navigation/spa/dom-swap.js ===== */
   function replaceShellFromDoc(doc, url, replaceHistory) {
@@ -20186,7 +20106,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/post-navigation.js ===== */
   function stabilizeBuildPreviewRuntime() {
@@ -20270,7 +20189,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/navigation.js ===== */
   async function loadAndSwap(url, replaceHistory, navigationId) {
@@ -20437,7 +20355,6 @@
   };
 
 
-;
 
 /* ===== spa-navigation/spa/initial-load-progress.js ===== */
   function initialLoadNavigationId() {
@@ -20573,7 +20490,6 @@
 
   boot.bootstrapInitialLoadProgress = bootstrapInitialLoadProgress;
 
-;
 
 /* ===== spa-navigation/epilogue.js ===== */
 // @ts-nocheck — closes IIFE opened in preamble.js; valid only after bundle concat.
@@ -20656,4 +20572,3 @@
   }
 })();
 
-;

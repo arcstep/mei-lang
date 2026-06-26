@@ -379,6 +379,7 @@ mod tests {
             by_segment: Default::default(),
             workspace_label: Some("Hello".to_string()),
             stock_catalog_app_id: Some("_stock-catalog".to_string()),
+            stock_catalog_app_title: Some("组件库".to_string()),
             stock_component_packs: vec!["chart/echarts".to_string()],
             stock_template_packs: vec!["cockpit".to_string()],
         };

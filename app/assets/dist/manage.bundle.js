@@ -196,7 +196,6 @@
   boot.notifyHostHttpError = notify;
 })();
 
-;
 
 /* ===== host-auth-session.js ===== */
 /**
@@ -442,7 +441,6 @@
   bootstrap().catch(function () {});
 })();
 
-;
 
 /* ===== host-heartbeat.js ===== */
 /**
@@ -795,7 +793,6 @@
   start();
 })();
 
-;
 
 /* ===== frame-stage/preamble.js ===== */
 (() => {
@@ -810,7 +807,6 @@
   const observers = new Set();
 
 
-;
 
 /* ===== frame-stage/util.js ===== */
   function round(value) {
@@ -982,7 +978,6 @@
   boot.activeBuildTabSlug = activeBuildTabSlug;
 
 
-;
 
 /* ===== frame-stage/viewport/p1.js ===== */
   function queueUpdateViewport(root) {
@@ -1333,7 +1328,6 @@
   function measureStageContentSize(
     stage,
 
-;
 
 /* ===== frame-stage/viewport/p2.js ===== */
     canvasWidth,
@@ -1684,7 +1678,6 @@
           rightPad,
         });
 
-;
 
 /* ===== frame-stage/viewport/p3.js ===== */
       }
@@ -2035,7 +2028,6 @@
     publishLayoutAudit(root, stage, diagnostics, buildRuntimeEvalReport(diagnostics));
   }
 
-;
 
 /* ===== frame-stage/manage-zoom.js ===== */
   function shouldShowHorizontalOverflowVeil(canvasWidth, extentWidth, contentMaxWidth) {
@@ -2409,7 +2401,6 @@
     scheduleManageViewportRelayout(root, contentHeight);
   }
 
-;
 
 /* ===== frame-stage/layout-audit.js ===== */
   const manageRelayoutTimers = new WeakMap();
@@ -2780,7 +2771,6 @@
     );
   }
 
-;
 
 /* ===== frame-stage/lifecycle.js ===== */
   function observeHostResize(root) {
@@ -2988,12 +2978,10 @@
     boot.scheduleFrameViewportRelayout = null;
   };
 
-;
 
 /* ===== frame-stage/epilogue.js ===== */
 })();
 
-;
 
 /* ===== workspace-splitters.js ===== */
 (function initWorkspaceSplitters() {
@@ -3275,7 +3263,6 @@
   };
 })();
 
-;
 
 /* ===== manage-tabs.js ===== */
 (() => {
@@ -3512,7 +3499,6 @@
   installManageTabs();
 })();
 
-;
 
 /* ===== build-copy-context.js ===== */
 /**
@@ -3776,7 +3762,6 @@
   });
 })(typeof window !== "undefined" ? window : globalThis);
 
-;
 
 /* ===== build-scoped-rebuild.js ===== */
 /**
@@ -3893,7 +3878,6 @@
   global.addEventListener("meilang:preview-updated", initBuildScopedRebuild);
 })(typeof window !== "undefined" ? window : globalThis);
 
-;
 
 /* ===== build-tree-persist.js ===== */
 /**
@@ -4258,7 +4242,6 @@
   global.MeiBuildTreePersist = { refresh, captureScroll };
 })(window);
 
-;
 
 /* ===== runtime-refresh.js ===== */
 (function initRuntimeObservatoryRefresh() {
@@ -4308,7 +4291,6 @@
   );
 })();
 
-;
 
 /* ===== build-navigation/p1.js ===== */
 /**
@@ -4622,7 +4604,6 @@
           .trim()
           .toLowerCase();
 
-;
 
 /* ===== build-navigation/p2.js ===== */
         panel.hidden = slug !== tab;
@@ -4936,7 +4917,6 @@
   global.MeiBuildNavigation.noteUrl(global.location.href);
 })(window);
 
-;
 
 /* ===== build-inspect-highlight/p1.js ===== */
 /**
@@ -5315,7 +5295,6 @@
         el.classList.add("build-preview-scoped-dim");
       }
 
-;
 
 /* ===== build-inspect-highlight/p2.js ===== */
     });
@@ -5695,7 +5674,6 @@
   global.MeiBuildInspectHighlight = { refresh, navigateToBuildNode, navigateToBuildFocus };
 })(window);
 
-;
 
 /* ===== build-exec-panel.js ===== */
 /**
@@ -5759,7 +5737,6 @@
   global.__meiBuildExecPanelInit = initBuildExecPanel;
 })(typeof window !== "undefined" ? window : globalThis);
 
-;
 
 /* ===== manage-diagnostics.js ===== */
 (() => {
@@ -5947,7 +5924,6 @@
   });
 })();
 
-;
 
 /* ===== statusbar.js ===== */
 (() => {
@@ -6012,7 +5988,6 @@
   start();
 })();
 
-;
 
 /* ===== spa-navigation/preamble.js ===== */
 (() => {
@@ -6021,7 +5996,6 @@
   boot.spaNavigationMounted = true;
 
 
-;
 
 /* ===== spa-navigation/constants.js ===== */
   const RELOAD_APP_SCRIPTS = new Set([
@@ -6065,7 +6039,6 @@
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
 
 
-;
 
 /* ===== spa-navigation/events.js ===== */
   function dispatchPreviewUpdated(scope = "page", detail = {}) {
@@ -6110,7 +6083,6 @@
     });
   }
 
-;
 
 /* ===== spa-navigation/constants-maps.js ===== */
   const DRILLDOWN_SCENE_BY_FILE = {
@@ -6139,7 +6111,6 @@
   const SCENE_PROJECTION_CONTEXT_KEY = "mei.scene_projection_context";
 
 
-;
 
 /* ===== spa-navigation/drilldown/column-infer.js ===== */
   function sceneParamRowsetDatasetId(params) {
@@ -6196,7 +6167,6 @@
     };
   }
 
-;
 
 /* ===== spa-navigation/nav-state.js ===== */
   let currentNavigationId = 0;
@@ -6206,7 +6176,6 @@
   let drilldownContextRetryTimer = null;
 
 
-;
 
 /* ===== spa-navigation/visit-history-store.js ===== */
 (function (global) {
@@ -6523,7 +6492,6 @@
   typeof window !== "undefined" ? window : typeof globalThis !== "undefined" ? globalThis : {},
 );
 
-;
 
 /* ===== spa-navigation/load-session.js ===== */
   const LOAD_PHASES = ["render", "eval"];
@@ -6845,7 +6813,6 @@
   boot.loadNowMs = loadNowMs;
   boot.loadPhaseProgress = loadPhaseProgress;
 
-;
 
 /* ===== spa-navigation/route-predicates.js ===== */
   // Keep in sync with `UiRouteMode::from_slug` (app/src/ui/route.rs).
@@ -6942,7 +6909,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/scene-shell-normalize.js ===== */
   function normalizeProjection(value) {
@@ -7303,7 +7269,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/board-link.js ===== */
   function normalizeSceneParams(raw) {
@@ -7397,7 +7362,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/primitives.js ===== */
   function nonEmptyString(...values) {
@@ -7541,7 +7505,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/tab-model-runtime.js ===== */
   function runtimeDrilldownConfig(detail) {
@@ -7881,7 +7844,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/tab-model-overrides.js ===== */
   function normalizeTabMetricOverrides(...values) {
@@ -8070,7 +8032,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/tab-model-config.js ===== */
   function readGlobalSceneDrilldownContext() {
@@ -8575,7 +8536,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/config-slots.js ===== */
   function resolveAccessAppBasePath(pathname = window.location.pathname) {
@@ -9037,7 +8997,6 @@
 
   /** @deprecated Internal legacy adapter; callers must use resolveSceneOpenRequest. */
 
-;
 
 /* ===== spa-navigation/drilldown/config-legacy.js ===== */
   function resolveLegacySceneProjectionConfig(detail) {
@@ -9355,7 +9314,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/config-open.js ===== */
   function buildSceneOpenRequest(config, detail = {}) {
@@ -9433,7 +9391,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/debug.js ===== */
   function resolvePopupDebugHost() {
@@ -9498,7 +9455,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/data-fetch.js ===== */
   const drilldownRowFetchInflight = new Map();
@@ -9888,7 +9844,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/row-aggregation.js ===== */
   function monthBucketLabel(value) {
@@ -10155,7 +10110,6 @@
     };
   }
 
-;
 
 /* ===== spa-navigation/drilldown/props-builders.js ===== */
   function isAnalyticsChartPresentation(config) {
@@ -10581,7 +10535,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/widget-mount/p1.js ===== */
   function resolveDrilldownChartSlotCaption(config) {
@@ -10852,7 +10805,6 @@
       hostOverride instanceof HTMLElement
         ? hostOverride
 
-;
 
 /* ===== spa-navigation/drilldown/widget-mount/p2.js ===== */
         : root.querySelector('[data-drilldown-table-host="true"]');
@@ -11124,7 +11076,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/render-analytics.js ===== */
   async function mountAnalyticsChartSlots(root, detail, config, chartSlots, chartsHost) {
@@ -11351,7 +11302,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/swimlane-preview/p1.js ===== */
   function resolveListPreviewMapping(config) {
@@ -11698,7 +11648,6 @@
     flags.forEach((spec) => {
       const label = String(spec?.label || spec?.field || "").trim();
 
-;
 
 /* ===== spa-navigation/drilldown/swimlane-preview/p2.js ===== */
       const field = String(spec?.field || "").trim();
@@ -12045,7 +11994,6 @@
     title.textContent = resolveListPreviewTitle(row, config, mapping);
     panel.appendChild(title);
 
-;
 
 /* ===== spa-navigation/drilldown/swimlane-preview/p3.js ===== */
     appendSwimlaneSubtitle(panel, row, mapping);
@@ -12392,7 +12340,6 @@
     host.appendChild(panel);
   }
 
-;
 
 /* ===== spa-navigation/drilldown/render-list-preview.js ===== */
   const LIST_PREVIEW_ROW_SELECT_EVENT = "mei:table-row-select";
@@ -12593,7 +12540,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/render-structured.js ===== */
   function cleanupStructuredDrilldownWatcher(root) {
@@ -12918,7 +12864,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/render-derived.js ===== */
   async function mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride = null) {
@@ -13070,7 +13015,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/render-generic.js ===== */
   function renderDrilldownContent(root, detail, config, tabId, hostOverride = null) {
@@ -13287,7 +13231,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/overlay-chrome.js ===== */
   function drilldownLoadingStatusHtml(fallbackText) {
@@ -13493,7 +13436,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/storage.js ===== */
   function stashSceneProjectionContext(detail, config) {
@@ -13597,7 +13539,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/projection-host.js ===== */
   function useSceneBoardOverlay(config) {
@@ -13759,7 +13700,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/drilldown/context-banner.js ===== */
   function patchDrilldownTableByMetric(tableMetricId) {
@@ -13853,7 +13793,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/loading-progress/p1.js ===== */
   const PHASES = boot.LOAD_PHASES || ["render", "eval"];
@@ -14205,7 +14144,6 @@
           if (session.apiCalls.length > 20) {
             session.apiCalls = session.apiCalls.slice(-20);
 
-;
 
 /* ===== spa-navigation/spa/loading-progress/p2.js ===== */
           }
@@ -14558,7 +14496,6 @@
     window.__meiLoadingProgressMarkRender = markLoadingRenderTrace;
   }
 
-;
 
 /* ===== spa-navigation/spa/loading-ui.js ===== */
   function currentMainPane() {
@@ -14859,7 +14796,6 @@
   boot.isDrilldownProgressVisible = isDrilldownProgressVisible;
   boot.clearManageWorkspaceLoadingState = clearManageWorkspaceLoadingState;
 
-;
 
 /* ===== spa-navigation/spa/url-policy.js ===== */
   function isManageSamePathNavigation(currentUrl, nextUrl) {
@@ -15007,7 +14943,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/script-sync.js ===== */
   const SCENE_BUNDLE_PATH_PREFIX = "/workspace-components/bundles/";
@@ -15153,7 +15088,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/script-loader.js ===== */
   function waitForPersistentScriptReady(scriptEl) {
@@ -15237,7 +15171,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/manage-preview.js ===== */
   function pulseManagePreview(detail, options) {
@@ -15278,7 +15211,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/manage-preview-board.js ===== */
   const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
@@ -15740,7 +15672,6 @@
 
   installManagePreviewBoard();
 
-;
 
 /* ===== spa-navigation/spa/build-projection-preview.js ===== */
 /**
@@ -15800,7 +15731,6 @@
   global.__meiBuildProjectionPreviewInit = initBuildProjectionPreview;
 })(typeof window !== "undefined" ? window : globalThis);
 
-;
 
 /* ===== spa-navigation/spa/dom-swap.js ===== */
   function replaceShellFromDoc(doc, url, replaceHistory) {
@@ -16286,7 +16216,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/post-navigation.js ===== */
   function stabilizeBuildPreviewRuntime() {
@@ -16370,7 +16299,6 @@
   }
 
 
-;
 
 /* ===== spa-navigation/spa/navigation.js ===== */
   async function loadAndSwap(url, replaceHistory, navigationId) {
@@ -16537,7 +16465,6 @@
   };
 
 
-;
 
 /* ===== spa-navigation/spa/initial-load-progress.js ===== */
   function initialLoadNavigationId() {
@@ -16673,7 +16600,6 @@
 
   boot.bootstrapInitialLoadProgress = bootstrapInitialLoadProgress;
 
-;
 
 /* ===== spa-navigation/epilogue.js ===== */
 // @ts-nocheck — closes IIFE opened in preamble.js; valid only after bundle concat.
@@ -16756,4 +16682,3 @@
   }
 })();
 
-;

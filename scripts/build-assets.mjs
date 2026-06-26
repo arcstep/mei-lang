@@ -77,7 +77,7 @@ async function concatScripts(outputName, scripts) {
     const scriptContent = await readFile(fullPath, "utf8");
     content += `\n/* ===== ${script} ===== */\n`;
     content += scriptContent;
-    content += "\n;\n";
+    content += "\n";
   }
   const outputPath = path.join(distRoot, outputName);
   await writeFile(outputPath, content, "utf8");

@@ -196,7 +196,6 @@
   boot.notifyHostHttpError = notify;
 })();
 
-;
 
 /* ===== host-auth-session.js ===== */
 /**
@@ -442,7 +441,6 @@
   bootstrap().catch(function () {});
 })();
 
-;
 
 /* ===== host-heartbeat.js ===== */
 /**
@@ -795,7 +793,6 @@
   start();
 })();
 
-;
 
 /* ===== statusbar.js ===== */
 (() => {
@@ -860,7 +857,6 @@
   start();
 })();
 
-;
 
 /* ===== workspace-splitters.js ===== */
 (function initWorkspaceSplitters() {
@@ -1142,7 +1138,6 @@
   };
 })();
 
-;
 
 /* ===== source-tree-controls.js ===== */
 (function initSourceTreeControls() {
@@ -1188,7 +1183,6 @@
   mountSourceTreeControls();
 })();
 
-;
 
 /* ===== upload-upload-panel/p1.js ===== */
 (function initUploadPanel() {
@@ -1591,7 +1585,6 @@
             ? "完成"
             : item.status === "error"
 
-;
 
 /* ===== upload-upload-panel/p2.js ===== */
               ? "失败"
@@ -1995,4 +1988,3 @@
   renderQueue();
 })();
 
-;

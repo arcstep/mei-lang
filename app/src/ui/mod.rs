@@ -105,6 +105,9 @@ pub struct TopbarMenuContext {
     pub stock_template_packs: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stock_catalog_app_id: Option<String>,
+    /// `stock.catalogApp.title`（如「组件库」），组件库浏览时顶栏面包屑首段。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stock_catalog_app_title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

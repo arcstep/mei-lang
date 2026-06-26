@@ -196,7 +196,6 @@
   boot.notifyHostHttpError = notify;
 })();
 
-;
 
 /* ===== host-auth-session.js ===== */
 /**
@@ -442,7 +441,6 @@
   bootstrap().catch(function () {});
 })();
 
-;
 
 /* ===== host-heartbeat.js ===== */
 /**
@@ -795,7 +793,6 @@
   start();
 })();
 
-;
 
 /* ===== statusbar.js ===== */
 (() => {
@@ -860,7 +857,6 @@
   start();
 })();
 
-;
 
 /* ===== manage-ops-panel/p1.js ===== */
 (function initManageOpsPanel() {
@@ -1209,7 +1205,6 @@
   function renderParamRows() {
     if (!state.paramRows.length) {
 
-;
 
 /* ===== manage-ops-panel/p2.js ===== */
       return '<div class="manage-ops-empty-state">暂无运行参数，点击“新增参数”创建。</div>';
@@ -1558,7 +1553,6 @@
   function syncJsonDraftsFromDom() {
     if (!editorRoot) return;
 
-;
 
 /* ===== manage-ops-panel/p3.js ===== */
     const basemapsEl = editorRoot.querySelector('[data-ops-json="basemaps"]');
@@ -1907,4 +1901,3 @@
   mountIfPresent();
 })();
 
-;
