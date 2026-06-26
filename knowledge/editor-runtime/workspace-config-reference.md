@@ -132,6 +132,10 @@ Minimal shape (schemaVersion 2):
 }
 ```
 
+- **`preview.workspaceOnly`**: when true, Build preview reads only workspace stock (no package fallback).
+- **Build component preview**: `{paths.components}/{pack}/previews/{use_key}.mei` beside each manifest (see host doc 87).
+- **`preview.contracts`**: optional Agent/LSP overlay for tutorial `preferred_example_ids` — not the Build preview router.
+
 Stock maintenance commands:
 
 ```bash

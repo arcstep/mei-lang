@@ -36,5 +36,10 @@ This guide is the standalone-friendly public summary for the `chart` pack.
 
 ## Recommended examples
 
-- `examples/chart-baseline.mei`
+- Pack 预览（与 Build 树 1:1）：`stock/components/chart/echarts/previews/`
+- Pack 用法真源：`stock/components/chart/echarts/docs/README.md`
+- `stock/authoring/examples/chart-baseline.mei`
+- `stock/authoring/examples/chart-composition.mei`
 - `examples/filter-reactivity.mei`
+
+Agent 总索引：`knowledge/editor-runtime/stock-pack-agent-guide.md`
