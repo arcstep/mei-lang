@@ -16,6 +16,8 @@ pub enum Command {
     Workspace(WorkspaceArgs),
     Knowledge(KnowledgeArgs),
     EditorRuntime(EditorRuntimeArgs),
+    Graph(GraphArgs),
+    Scope(ScopeArgs),
     Prebuild(PrebuildArgs),
     Readiness(ReadinessArgs),
     Diagnostics(DiagnosticsArgs),
@@ -29,5 +31,5 @@ pub enum Command {
     Mcp(McpArgs),
 }
 
-mod common_ops; mod host_workspace; mod inspect_export; mod query_agent;
-pub use common_ops::*; pub use host_workspace::*; pub use inspect_export::*; pub use query_agent::*;
+mod common_ops; mod graph_ops; mod host_workspace; mod inspect_export; mod query_agent;
+pub use common_ops::*; pub use graph_ops::*; pub use host_workspace::*; pub use inspect_export::*; pub use query_agent::*;

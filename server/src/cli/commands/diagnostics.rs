@@ -31,6 +31,8 @@ fn diagnostics_summary_command(
         source_root.as_path(),
         args.app_id.as_str(),
         args.sections.as_slice(),
+        None,
+        None,
     );
     if args.json {
         print_json_output(&report, true)?;
