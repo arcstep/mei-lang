@@ -70,13 +70,19 @@ pub(crate) fn resolve_build_query(
     )
 }
 
+pub(crate) fn runtime_node_href(app_path: &str, node_id: &str, tab: Option<&str>) -> String {
+    super::view_routing::runtime_href(app_path, Some(node_id), tab)
+}
+
 pub(crate) fn build_node_href(
     app_path: &str,
     node: &BuildNodeId,
     tab: BuildViewTab,
     scope: BuildExecScope,
+    catalog: Option<&str>,
+    stock_pack: Option<&str>,
 ) -> String {
-    let query = build_node_query_parts(node, tab, scope);
+    let query = build_node_query_parts(node, tab, scope, catalog, stock_pack);
     if query.is_empty() {
         format!("/apps/build/{app_path}")
     } else {
@@ -88,9 +94,17 @@ pub(crate) fn build_node_query_parts(
     node: &BuildNodeId,
     tab: BuildViewTab,
     scope: BuildExecScope,
+    catalog: Option<&str>,
+    stock_pack: Option<&str>,
 ) -> Vec<String> {
     let mut query = vec![format!("node={}", encode_query_value(&node.encode()))];
-    if tab != node.default_tab() {
+    if let Some(c) = catalog.map(str::trim).filter(|value| !value.is_empty()) {
+        query.push(format!("catalog={}", encode_query_value(c)));
+    }
+    if let Some(p) = stock_pack.map(str::trim).filter(|value| !value.is_empty()) {
+        query.push(format!("pack={}", encode_query_value(p)));
+    }
+    if tab != node.default_tab() || tab == BuildViewTab::Preview {
         query.push(format!("tab={}", encode_query_value(tab.slug())));
     }
     if scope != BuildExecScope::Warmup {
@@ -122,7 +136,7 @@ pub(crate) fn manage_tab_href(
         semantic.explain,
     );
     if let Some(resolved) = resolved {
-        return build_node_href(app_path, &resolved.node, resolved.tab, resolved.scope);
+        return build_node_href(app_path, &resolved.node, resolved.tab, resolved.scope, None, None);
     }
     build_preview_href(
         app_path,
@@ -153,7 +167,7 @@ pub(crate) fn build_preview_href(
         semantic.world_dataset,
         semantic.explain,
     ) {
-        return build_node_href(app_path, &resolved.node, resolved.tab, resolved.scope);
+        return build_node_href(app_path, &resolved.node, resolved.tab, resolved.scope, None, None);
     }
     let query = build_preview_query_parts(file, scene, tab, diag_filter, semantic);
     if query.is_empty() {
@@ -180,7 +194,7 @@ pub(crate) fn build_preview_query_parts(
         semantic.world_dataset,
         semantic.explain,
     ) {
-        return build_node_query_parts(&resolved.node, resolved.tab, resolved.scope);
+        return build_node_query_parts(&resolved.node, resolved.tab, resolved.scope, None, None);
     }
     let mut query = Vec::new();
     if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {

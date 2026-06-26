@@ -4,6 +4,8 @@ use mei_lang_kernel::{
     format_experience_path, BuildNodeContext, BuildNodeKind, CompiledApp, ProvenanceAnchor,
 };
 
+use super::super::view_routing::runtime_href;
+
 pub(crate) fn build_overview_view(
     compiled: &CompiledApp,
     ctx: &BuildNodeContext,
@@ -22,6 +24,8 @@ pub(crate) fn build_overview_view(
         .unwrap_or_else(|| node_label.clone());
     let board_entry = compiled.build_board_index.lookup(&ctx.node);
     let template_entry = compiled.build_template_index.lookup(ctx.node.key.as_str());
+    let is_mcg = ctx.node.kind == BuildNodeKind::McgNode;
+    let runtime_cross_link = is_mcg.then(|| runtime_href(app_path, None, Some("overview")));
 
     view! {
         <section class="build-overview build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 mei-text-body">
@@ -50,11 +54,20 @@ pub(crate) fn build_overview_view(
                     </button>
                 </div>
             </div>
-            <dl class="grid gap-2">
-                <div class="flex flex-col gap-0.5">
-                    <dt class="mei-text-muted">"体验路径"</dt>
-                    <dd class="mei-font-2 mei-text-primary">{experience_line}</dd>
+            {runtime_cross_link.map(|href| view! {
+                <div class="flex flex-col gap-1 rounded-lg border border-white/10 bg-black/10 p-3">
+                    <span class="mei-font-2 mei-text-primary">"MCG 编译检查点"</span>
+                    <span class="mei-font-1 mei-text-muted">"Materialization 当前态在运行视图观测。"</span>
+                    <a class="build-toolbar-btn inline-flex w-fit" href=href>"在运行视图查看 MRG materialization"</a>
                 </div>
+            })}
+            <dl class="grid gap-2">
+                {(!is_mcg).then(|| view! {
+                    <div class="flex flex-col gap-0.5">
+                        <dt class="mei-text-muted">"体验路径"</dt>
+                        <dd class="mei-font-2 mei-text-primary">{experience_line}</dd>
+                    </div>
+                })}
                 {(!backing.is_empty()).then(|| view! {
                     <div class="flex flex-col gap-0.5">
                         <dt class="mei-text-muted">"Backing"</dt>

@@ -1,8 +1,9 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_reachability_tree, compile_coordinate_for_node, default_build_node_for_compiled,
-    resolve_build_node_context, resolve_build_view_query, tabs_for_node_kind, BuildNodeKind,
-    BuildViewTab, CompiledApp, LegacyBuildQuery, WorkspaceAppMeta,
+    filter_reachability_roots_for_stock_catalog, is_stock_catalog_app, resolve_build_node_context,
+    resolve_build_view_query, tabs_for_node_kind, BuildNodeKind, BuildViewTab, CompiledApp,
+    LegacyBuildQuery, WorkspaceAppMeta,
 };
 
 use super::super::build_tree::reachability_tree_view;
@@ -40,6 +41,8 @@ pub(crate) fn manage_shell(
     node: Option<&str>,
     scope: Option<&str>,
     focus: Option<&str>,
+    catalog: Option<&str>,
+    stock_pack: Option<&str>,
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
@@ -88,12 +91,19 @@ pub(crate) fn manage_shell(
     );
     let active_scene = ctx.scene_id.as_deref().or(compiled.active_scene.as_deref());
     let scene_for_links = active_scene;
-    let reachability_roots = build_reachability_tree(compiled);
+    let reachability_roots = filter_reachability_roots_for_stock_catalog(
+        build_reachability_tree(compiled),
+        is_stock_catalog_app(app_path),
+        catalog,
+        stock_pack,
+    );
     let build_tree = reachability_tree_view(
         reachability_roots.as_slice(),
         app_path,
         &resolved.node,
         resolved.tab,
+        catalog,
+        stock_pack,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let active_tab_enum = resolved.tab;
@@ -110,6 +120,8 @@ pub(crate) fn manage_shell(
         ),
         Some(selected_target.as_str()),
         Some(active_tab_enum.slug()),
+        catalog,
+        stock_pack,
         upload_enabled,
         stage_enabled,
         auth_enabled,
@@ -149,7 +161,7 @@ pub(crate) fn manage_shell(
     let tab_links = visible_tabs
         .iter()
         .map(|tab| {
-            let href = build_node_href(app_path, &resolved.node, *tab, resolved.scope);
+            let href = build_node_href(app_path, &resolved.node, *tab, resolved.scope, catalog, stock_pack);
             let class = if *tab == active_tab_enum {
                 "manage-view-tab is-active"
             } else {

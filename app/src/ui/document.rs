@@ -23,6 +23,7 @@ pub(crate) fn render_document(
         UiRouteMode::App => "app-view",
         UiRouteMode::Presentation => "presentation-view chrome-none",
         UiRouteMode::Build => "build-view",
+        UiRouteMode::Runtime => "runtime-view",
         UiRouteMode::Config => "config-view",
         UiRouteMode::Upload => "upload-view",
     };

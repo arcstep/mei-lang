@@ -63,6 +63,8 @@ pub(crate) fn access_shell(
         topbar_access_scene,
         Some(current_target),
         active_tab,
+        None,
+        None,
         upload_enabled,
         stage_enabled,
         auth_enabled,

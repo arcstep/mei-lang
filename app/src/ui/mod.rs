@@ -20,7 +20,9 @@ mod shell_config;
 mod shell_manage;
 mod shell_presentation;
 mod shell_preview_layout;
+mod shell_runtime;
 mod shell_upload;
+mod runtime_tree;
 mod source_tree;
 mod statusbar;
 mod topbar;
@@ -43,6 +45,7 @@ pub use preview::{
     shell_body_theme_style,
 };
 pub use shell_manage::{render_build_preview_fragment, BuildPreviewFragment};
+use shell_runtime::runtime_shell;
 
 use document::render_document;
 
@@ -96,6 +99,12 @@ pub struct TopbarMenuContext {
     /// `.mei-workspace.json#workspace.label`（无则回退 id /「工作区」），用于顶栏应用面包屑。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stock_component_packs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stock_template_packs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stock_catalog_app_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +127,15 @@ pub struct TopbarMenuConfigItem {
     pub label: Option<String>,
     #[serde(default)]
     pub order: Option<i32>,
+    /// When set, the item appears only in listed route modes (e.g. `["build"]`).
+    #[serde(default)]
+    pub modes: Vec<String>,
+    /// Stock catalog split entry: `components` | `templates` (same app_id, distinct topbar tabs).
+    #[serde(default)]
+    pub catalog: Option<String>,
+    /// Stock pack within catalog facet (component `pack_path` or template top folder).
+    #[serde(default)]
+    pub pack: Option<String>,
 }
 
 pub fn render_page(
@@ -139,6 +157,8 @@ pub fn render_page(
     node: Option<&str>,
     scope: Option<&str>,
     focus: Option<&str>,
+    catalog: Option<&str>,
+    stock_pack: Option<&str>,
     chrome_hidden: bool,
     upload_enabled: bool,
     upload_root_label: Option<&str>,
@@ -147,6 +167,7 @@ pub fn render_page(
     auth_account: Option<&HostAccountView>,
     scene_component_bundle_url: Option<&str>,
     shell_body_theme_style: &str,
+    runtime_roots: Option<&[mei_lang_kernel::ReachabilityTreeRoot]>,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -194,6 +215,19 @@ pub fn render_page(
             node,
             scope,
             focus,
+            catalog,
+            stock_pack,
+            upload_enabled,
+            auth_enabled,
+            auth_account,
+        ),
+        UiRouteMode::Runtime => runtime_shell(
+            apps,
+            compiled,
+            app_path,
+            topbar_menu,
+            runtime_roots.unwrap_or(&[]),
+            node,
             upload_enabled,
             auth_enabled,
             auth_account,
@@ -326,7 +360,7 @@ mod tests {
         access_scene_query, build_preview_href, encode_query_value, manage_tab_href,
         resolve_build_query, route_query, WorldSemanticQuery, OPS_CONFIG_TARGET,
     };
-    use super::view_routing::{build_href, config_href};
+    use super::view_routing::{build_href_with_catalog, config_href};
     use super::UiRouteMode;
     use mei_lang_kernel::BuildViewTab;
 
@@ -342,7 +376,7 @@ mod tests {
     #[test]
     fn build_href_uses_build_route() {
         assert_eq!(
-            build_href("zhifa", Some("main.mei"), Some("preview")),
+            build_href_with_catalog("zhifa", Some("main.mei"), Some("preview"), None, None),
             "/apps/build/zhifa?file=main.mei&tab=preview"
         );
         assert_eq!(config_href("zhifa"), "/apps/config/zhifa");

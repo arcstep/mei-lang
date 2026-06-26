@@ -219,6 +219,8 @@ pub(crate) fn upload_shell(
         access_scene,
         None,
         None,
+        None,
+        None,
         upload_enabled,
         false,
         auth_enabled,

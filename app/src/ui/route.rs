@@ -5,6 +5,7 @@ pub enum UiRouteMode {
     Build,
     Config,
     Upload,
+    Runtime,
 }
 
 impl UiRouteMode {
@@ -15,6 +16,7 @@ impl UiRouteMode {
             "build" | "manage" => Self::Build,
             "config" => Self::Config,
             "upload" => Self::Upload,
+            "runtime" => Self::Runtime,
             _ => Self::Build,
         }
     }
@@ -26,6 +28,7 @@ impl UiRouteMode {
             Self::Build => "build",
             Self::Config => "config",
             Self::Upload => "upload",
+            Self::Runtime => "runtime",
         }
     }
 
@@ -36,6 +39,7 @@ impl UiRouteMode {
             Self::Build => "构建",
             Self::Config => "配置",
             Self::Upload => "上传",
+            Self::Runtime => "运行",
         }
     }
 
@@ -52,11 +56,11 @@ impl UiRouteMode {
     }
 
     pub fn uses_workspace_tree(self) -> bool {
-        self == Self::Build
+        matches!(self, Self::Build | Self::Runtime)
     }
 
     pub fn uses_full_page_navigation(self) -> bool {
-        matches!(self, Self::Config | Self::Upload)
+        matches!(self, Self::Config | Self::Upload | Self::Runtime)
     }
 
     pub fn uses_scene_route(self) -> bool {

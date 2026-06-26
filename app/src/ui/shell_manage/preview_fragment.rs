@@ -7,7 +7,7 @@ use mei_lang_kernel::{
 
 use super::super::manage_routing::WorldSemanticQuery;
 use super::super::preview;
-use super::super::preview_chrome::asset_preview_body;
+use super::super::preview_chrome::{asset_preview_body, workspace_component_script_urls};
 use super::super::route::UiRouteMode;
 use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 
@@ -18,6 +18,7 @@ pub struct BuildPreviewFragment {
     pub compile_coordinate: BuildCompileCoordinate,
     pub preview_html: String,
     pub drilldown_script: String,
+    pub workspace_scripts: Vec<String>,
 }
 
 pub fn render_build_preview_fragment(
@@ -97,6 +98,7 @@ pub fn render_build_preview_fragment(
         compile_coordinate,
         preview_html: fragment.to_html(),
         drilldown_script,
+        workspace_scripts: workspace_component_script_urls(compiled, None),
     })
 }
 

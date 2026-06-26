@@ -1,5 +1,8 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{BuildNodeId, BuildViewTab, ReachabilityTreeNode, ReachabilityTreeRoot};
+use mei_lang_kernel::{
+    is_stock_catalog_facet_root, BuildNodeId, BuildViewTab, ReachabilityTreeNode,
+    ReachabilityTreeRoot,
+};
 
 use super::manage_routing::build_node_href;
 
@@ -8,11 +11,35 @@ pub(crate) fn reachability_tree_view(
     app_path: &str,
     active_node: &BuildNodeId,
     active_tab: BuildViewTab,
+    catalog: Option<&str>,
+    stock_pack: Option<&str>,
 ) -> AnyView {
-    let items = roots
-        .iter()
-        .map(|root| root_branch(root, app_path, active_node, active_tab))
-        .collect_view();
+    let flatten_facet = stock_pack.is_some();
+    let mut items = Vec::new();
+    for root in roots {
+        if flatten_facet && is_stock_catalog_facet_root(root.group.as_str()) {
+            for node in &root.children {
+                items.push(tree_node(
+                    node,
+                    app_path,
+                    active_node,
+                    active_tab,
+                    catalog,
+                    stock_pack,
+                ));
+            }
+        } else {
+            items.push(root_branch(
+                root,
+                app_path,
+                active_node,
+                active_tab,
+                catalog,
+                stock_pack,
+            ));
+        }
+    }
+    let items = items.into_iter().collect_view();
     view! {
         <div class="build-reachability-tree">
             <ul class="build-tree-list">{items}</ul>
@@ -26,12 +53,14 @@ fn root_branch(
     app_path: &str,
     active_node: &BuildNodeId,
     active_tab: BuildViewTab,
+    catalog: Option<&str>,
+    stock_pack: Option<&str>,
 ) -> AnyView {
     let child_count = root.children.len();
     let children = root
         .children
         .iter()
-        .map(|node| tree_node(node, app_path, active_node, active_tab))
+        .map(|node| tree_node(node, app_path, active_node, active_tab, catalog, stock_pack))
         .collect_view();
     view! {
         <li class="build-tree-node build-tree-node--branch">
@@ -55,8 +84,9 @@ fn root_branch(
 
 fn reachability_root_label(root: &ReachabilityTreeRoot) -> String {
     match root.group.as_str() {
-        "templates" => "Components".to_string(),
-        "template_files" => "Templates".to_string(),
+        "templates" => "组件".to_string(),
+        "template_files" => "模板".to_string(),
+        "mcg" => "Compile · MCG".to_string(),
         _ => root.label.clone(),
     }
 }
@@ -66,16 +96,18 @@ fn tree_node(
     app_path: &str,
     active_node: &BuildNodeId,
     active_tab: BuildViewTab,
+    catalog: Option<&str>,
+    stock_pack: Option<&str>,
 ) -> AnyView {
     let child_count = node.children.len();
     if node.node_id.trim().is_empty() && !node.children.is_empty() {
-        if node.kind == "template_group" {
-            return template_category_section(node, app_path, active_node, active_tab);
+        if node.kind == "template_group" || node.kind == "component_pack" {
+            return template_category_section(node, app_path, active_node, active_tab, catalog, stock_pack);
         }
         let children = node
             .children
             .iter()
-            .map(|child| tree_node(child, app_path, active_node, active_tab))
+            .map(|child| tree_node(child, app_path, active_node, active_tab, catalog, stock_pack))
             .collect_view();
         let branch_id = format!("group:{}", node.id);
         return view! {
@@ -107,6 +139,8 @@ fn tree_node(
                 id,
                 tab_for_node_link(id, active_tab),
                 Default::default(),
+                catalog,
+                stock_pack,
             )
         })
         .unwrap_or_else(|| "#".to_string());
@@ -172,7 +206,7 @@ fn tree_node(
                         {node
                             .children
                             .iter()
-                            .map(|child| tree_node(child, app_path, active_node, active_tab))
+                            .map(|child| tree_node(child, app_path, active_node, active_tab, catalog, stock_pack))
                             .collect_view()}
                     </ul>
                 </details>
@@ -187,26 +221,30 @@ fn template_category_section(
     app_path: &str,
     active_node: &BuildNodeId,
     active_tab: BuildViewTab,
+    catalog: Option<&str>,
+    stock_pack: Option<&str>,
 ) -> AnyView {
     let child_count = node.children.len();
     let children = node
         .children
         .iter()
-        .map(|child| tree_node(child, app_path, active_node, active_tab))
+        .map(|child| tree_node(child, app_path, active_node, active_tab, catalog, stock_pack))
         .collect_view();
     view! {
-        <li
-            class="build-tree-node build-tree-node--template-section"
-            data-build-tree-section=node.id.clone()
-        >
-            <div class="build-tree-section-head">
-                <span class="build-tree-spacer" aria-hidden="true"></span>
-                <span class="build-tree-kind" aria-hidden="true">{kind_glyph("template_group")}</span>
-                <span class="build-tree-label">
-                    {branch_label(node.label.clone(), None, child_count)}
-                </span>
-            </div>
-            <ul class="build-tree-list build-tree-list--flat-section">{children}</ul>
+        <li class="build-tree-node build-tree-node--branch">
+            <details
+                class="build-tree-details"
+                data-build-tree-branch=node.id.clone()
+                data-build-tree-children-count=child_count.to_string()
+            >
+                <summary class="build-tree-summary build-tree-summary--group">
+                    <span class="build-tree-kind" aria-hidden="true">{kind_glyph(&node.kind)}</span>
+                    <span class="build-tree-label">
+                        {branch_label(node.label.clone(), None, child_count)}
+                    </span>
+                </summary>
+                <ul class="build-tree-list build-tree-list--nested">{children}</ul>
+            </details>
         </li>
     }
     .into_any()
@@ -279,8 +317,9 @@ fn kind_glyph(kind: &str) -> &'static str {
         "board_slot" => "S",
         "template" => "T",
         "template_file" => "F",
-        "template_group" => "G",
+        "template_group" | "component_pack" => "G",
         "artifact" => "A",
+        "mcg_node" => "M",
         _ => "·",
     }
 }

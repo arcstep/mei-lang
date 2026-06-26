@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 use super::super::manage_routing::{access_scene_query, encode_query_value};
 use super::super::route::UiRouteMode;
 use super::super::view_routing::{
-    app_scene_href, build_href, config_href, cross_app_href, presentation_scene_href, upload_href,
+    app_scene_href, build_href_with_catalog, config_href, cross_app_href, presentation_scene_href,
+    runtime_href, upload_href,
 };
 use super::super::{HostAccountView, HostCapabilities, TopbarMenuContext};
 
@@ -112,6 +113,8 @@ pub(crate) fn topbar_view(
     access_scene_for_href: Option<&str>,
     build_file: Option<&str>,
     active_tab: Option<&str>,
+    active_catalog: Option<&str>,
+    active_stock_pack: Option<&str>,
     upload_enabled: bool,
     stage_enabled: bool,
     auth_enabled: bool,
@@ -119,11 +122,11 @@ pub(crate) fn topbar_view(
 ) -> AnyView {
     let access_entry_query = access_scene_query(access_scene_for_href);
     let access_disabled = access_entry_query.is_empty();
-    let menu_groups = build_topbar_menu_groups(apps, topbar_menu);
+    let menu_groups = build_topbar_menu_groups(apps, topbar_menu, route_mode);
     let active_app_label = menu_groups
         .iter()
         .flat_map(|group| group.items.iter())
-        .find(|item| item.app_id.as_str() == active_app_path)
+        .find(|item| menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack))
         .map(|item| item.label.clone())
         .or_else(|| {
             apps.iter()
@@ -143,7 +146,7 @@ pub(crate) fn topbar_view(
             let group_has_active = group
                 .items
                 .iter()
-                .any(|item| item.app_id.as_str() == active_app_path);
+                .any(|item| menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack));
             let trigger_class = if group_has_active {
                 "app-group-trigger is-active"
             } else {
@@ -161,15 +164,18 @@ pub(crate) fn topbar_view(
                     direct_items.push(item.clone());
                 }
             }
-            let is_single_top_level_tab = direct_items.len() == 1 && subgroup_items.is_empty();
+            let is_stock_pack_group = group_id == "components" || group_id == "templates";
+            let is_single_top_level_tab = !is_stock_pack_group
+                && direct_items.len() == 1
+                && subgroup_items.is_empty();
             if is_single_top_level_tab {
                 let item = &direct_items[0];
-                let class = if item.app_id.as_str() == active_app_path {
+                let class = if menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack) {
                     "app-tab active"
                 } else {
                     "app-tab"
                 };
-                let href = cross_app_href(route_mode, &item.app_id);
+                let href = cross_app_href(route_mode, &item.app_id, item.catalog.as_deref(), item.pack.as_deref());
                 return view! {
                     <a class=class href=href data-topbar-menu-group=group_id.clone()>
                         {item.label.clone()}
@@ -180,12 +186,12 @@ pub(crate) fn topbar_view(
             let direct_links = direct_items
                 .iter()
                 .map(|item| {
-                    let class = if item.app_id.as_str() == active_app_path {
+                    let class = if menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack) {
                         "app-tab app-tab-sub active"
                     } else {
                         "app-tab app-tab-sub"
                     };
-                    let href = cross_app_href(route_mode, &item.app_id);
+                    let href = cross_app_href(route_mode, &item.app_id, item.catalog.as_deref(), item.pack.as_deref());
                     view! { <a class=class href=href>{item.label.clone()}</a> }
                 })
                 .collect_view();
@@ -195,12 +201,12 @@ pub(crate) fn topbar_view(
                     let links = items
                         .iter()
                         .map(|item| {
-                            let class = if item.app_id.as_str() == active_app_path {
+                            let class = if menu_item_is_active(item, active_app_path, active_catalog, active_stock_pack) {
                                 "app-tab app-tab-sub active"
                             } else {
                                 "app-tab app-tab-sub"
                             };
-                            let href = cross_app_href(route_mode, &item.app_id);
+                            let href = cross_app_href(route_mode, &item.app_id, item.catalog.as_deref(), item.pack.as_deref());
                             view! { <a class=class href=href>{item.label.clone()}</a> }
                         })
                         .collect_view();
@@ -258,7 +264,14 @@ pub(crate) fn topbar_view(
     } else {
         app_scene_href(active_app_path, access_scene_for_href, active_tab, None)
     };
-    let build_href = build_href(active_app_path, Some(build_file), active_tab);
+    let build_href = build_href_with_catalog(
+        active_app_path,
+        Some(build_file),
+        active_tab,
+        active_catalog,
+        active_stock_pack,
+    );
+    let runtime_href = runtime_href(active_app_path, None, None);
     let config_href = append_scene_query(config_href(active_app_path), access_scene_for_href);
     let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
     let presentation_href = if access_disabled {
@@ -268,11 +281,13 @@ pub(crate) fn topbar_view(
     };
     let (show_config_tab, show_upload_tab, show_build_tab) =
         auth_surface_tabs_visible(auth_enabled, auth_account);
+    let show_runtime_tab = show_build_tab;
     let show_upload_mode = upload_enabled && show_upload_tab;
     let visible_mode_tab_count = 1usize
         + usize::from(show_upload_mode)
         + usize::from(show_config_tab)
-        + usize::from(show_build_tab);
+        + usize::from(show_build_tab)
+        + usize::from(show_runtime_tab);
     let mode_tabs = if visible_mode_tab_count <= 1 {
         view! { <></> }.into_any()
     } else {
@@ -333,6 +348,22 @@ pub(crate) fn topbar_view(
                             data-mei-view="build"
                         >
                             <span class="mode-label">"构建"</span>
+                        </sl-button>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }}
+                {if show_runtime_tab {
+                    view! {
+                        <sl-button
+                            class=if route_mode == UiRouteMode::Runtime { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                            size="small"
+                            href=runtime_href.clone()
+                            title="运行"
+                            aria-label="运行"
+                            data-mei-view="runtime"
+                        >
+                            <span class="mode-label">"运行"</span>
                         </sl-button>
                     }.into_any()
                 } else {
@@ -432,6 +463,27 @@ pub(crate) fn topbar_view(
         </header>
     }
     .into_any()
+}
+
+fn menu_item_is_active(
+    item: &super::menu_groups::TopbarMenuItem,
+    active_app_path: &str,
+    active_catalog: Option<&str>,
+    active_stock_pack: Option<&str>,
+) -> bool {
+    if item.app_id.as_str() != active_app_path {
+        return false;
+    }
+    let cat = active_catalog.map(str::trim).filter(|value| !value.is_empty());
+    let pack = active_stock_pack.map(str::trim).filter(|value| !value.is_empty());
+    match (item.catalog.as_deref(), item.pack.as_deref()) {
+        (None, None) => cat.is_none() && pack.is_none(),
+        (Some(item_cat), None) => cat.unwrap_or("components") == item_cat && pack.is_none(),
+        (Some(item_cat), Some(item_pack)) => {
+            cat.unwrap_or("components") == item_cat && pack == Some(item_pack)
+        }
+        (None, Some(_)) => false,
+    }
 }
 
 #[cfg(test)]
