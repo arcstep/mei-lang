@@ -9,11 +9,11 @@ use mei_lang_kernel::{
 use walkdir::WalkDir;
 
 #[derive(Debug, Clone)]
-pub(super) struct CompileRevisionStamp {
-    pub(super) token: String,
-    pub(super) scope: &'static str,
-    pub(super) watched_files: Vec<CompileWatchedFile>,
-    pub(super) components_revision: u128,
+pub(crate) struct CompileRevisionStamp {
+    pub(crate) token: String,
+    pub(crate) scope: &'static str,
+    pub(crate) watched_files: Vec<CompileWatchedFile>,
+    pub(crate) components_revision: u128,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -28,7 +28,7 @@ enum RevisionScope {
     Components,
 }
 
-pub(super) fn compile_revision(
+pub(crate) fn compile_revision(
     source_root: &Path,
     app_id: &str,
     options: &CompileOptions,
@@ -69,7 +69,7 @@ fn compile_revision_fallback(app_root: &Path, components_root: &Path) -> Compile
     }
 }
 
-pub(super) fn components_revision(components_root: &Path) -> u128 {
+pub(crate) fn components_revision(components_root: &Path) -> u128 {
     if compile_revision_mode() == RevisionMode::Full {
         return directory_latest_full_modified_ms(components_root).unwrap_or(0);
     }
@@ -186,7 +186,7 @@ fn is_components_tree_path(normalized: &str) -> bool {
     normalized.contains("/.stock/components/") || normalized.contains("/_components/")
 }
 
-pub(super) fn normalize_path(path: &Path) -> String {
+pub(crate) fn normalize_path(path: &Path) -> String {
     PathBuf::from(path).to_string_lossy().replace('\\', "/")
 }
 

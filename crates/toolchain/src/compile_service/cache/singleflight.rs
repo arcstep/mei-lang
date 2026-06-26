@@ -4,18 +4,18 @@ use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 
 use mei_lang_kernel::CompiledApp;
 
-pub(super) struct CompileInflight {
-    pub(super) result: StdMutex<Option<Result<Arc<CompiledApp>, String>>>,
-    pub(super) ready: Condvar,
+pub(crate) struct CompileInflight {
+    pub(crate) result: StdMutex<Option<Result<Arc<CompiledApp>, String>>>,
+    pub(crate) ready: Condvar,
 }
 
-pub(super) fn compile_inflight_map() -> &'static StdMutex<HashMap<String, Arc<CompileInflight>>> {
+pub(crate) fn compile_inflight_map() -> &'static StdMutex<HashMap<String, Arc<CompileInflight>>> {
     static COMPILE_INFLIGHT: OnceLock<StdMutex<HashMap<String, Arc<CompileInflight>>>> =
         OnceLock::new();
     COMPILE_INFLIGHT.get_or_init(|| StdMutex::new(HashMap::new()))
 }
 
-pub(super) fn compile_singleflight_enabled() -> bool {
+pub(crate) fn compile_singleflight_enabled() -> bool {
     if env_flag_enabled("MEI_DISABLE_COMPILE_SINGLEFLIGHT") {
         return false;
     }
@@ -31,7 +31,7 @@ pub fn env_flag_enabled(name: &str) -> bool {
     })
 }
 
-pub(super) fn env_list_contains(name: &str, needle: &str) -> bool {
+pub(crate) fn env_list_contains(name: &str, needle: &str) -> bool {
     env::var(name).ok().is_some_and(|value| {
         value
             .split(',')
@@ -40,7 +40,7 @@ pub(super) fn env_list_contains(name: &str, needle: &str) -> bool {
     })
 }
 
-pub(super) fn register_compile_inflight(cache_key: &str) -> Option<(Arc<CompileInflight>, bool)> {
+pub(crate) fn register_compile_inflight(cache_key: &str) -> Option<(Arc<CompileInflight>, bool)> {
     let map = compile_inflight_map();
     let mut guard = map.lock().ok()?;
     if let Some(entry) = guard.get(cache_key) {
@@ -54,7 +54,7 @@ pub(super) fn register_compile_inflight(cache_key: &str) -> Option<(Arc<CompileI
     Some((entry, true))
 }
 
-pub(super) fn finish_compile_inflight(
+pub(crate) fn finish_compile_inflight(
     cache_key: &str,
     entry: &Arc<CompileInflight>,
     result: Result<Arc<CompiledApp>, String>,
@@ -68,7 +68,7 @@ pub(super) fn finish_compile_inflight(
     }
 }
 
-pub(super) fn wait_for_compile_inflight(
+pub(crate) fn wait_for_compile_inflight(
     entry: &Arc<CompileInflight>,
 ) -> Result<Arc<CompiledApp>, String> {
     let mut slot = entry
