@@ -561,7 +561,41 @@
     if (document.body && document.body.dataset.meiCompileShell === "true") {
       return false;
     }
-    return !!pageBuildVersion();
+    if (pageBuildVersion()) return true;
+    const path = window.location.pathname || "";
+    return (
+      path === "/host" ||
+      path === "/login" ||
+      path.startsWith("/account/") ||
+      path.startsWith("/logout")
+    );
+  }
+
+  function currentPageAppId() {
+    const fromRuntime = String(window.__meiRuntimeAppId || "").trim();
+    if (fromRuntime) return fromRuntime;
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/[^/]+\/([^/]+)/,
+    );
+    return match ? String(match[1] || "").trim() : "";
+  }
+
+  function isShellSurface() {
+    const path = window.location.pathname || "";
+    return (
+      path === "/host" ||
+      path === "/login" ||
+      path.startsWith("/account/") ||
+      path.startsWith("/logout")
+    );
+  }
+
+  function appAccessReadyFromPayload(payload, appId) {
+    if (!payload || !appId) return false;
+    const apps = Array.isArray(payload.apps) ? payload.apps : [];
+    const entry = apps.find((app) => String(app?.appId || "").trim() === appId);
+    if (entry) return entry.accessReady === true;
+    return false;
   }
 
   function ensureRoot() {
@@ -694,7 +728,14 @@
   }
 
   function isAccessFullyReady(payload) {
-    return payload?.accessReady === true;
+    if (isShellSurface()) {
+      return isHostServiceable(payload);
+    }
+    const appId = currentPageAppId();
+    if (appId) {
+      return appAccessReadyFromPayload(payload, appId);
+    }
+    return payload?.accessReady === true || payload?.anyAppAccessReady === true;
   }
 
   async function tick() {
@@ -729,7 +770,11 @@
         }
         return;
       }
-      if (!isAccessFullyReady(payload) && isActivelyBuilding(payload)) {
+      if (
+        !isShellSurface() &&
+        !isAccessFullyReady(payload) &&
+        isActivelyBuilding(payload)
+      ) {
         if (alertKind === "build") {
           renderBanner("build", lastHeartbeat);
         } else {

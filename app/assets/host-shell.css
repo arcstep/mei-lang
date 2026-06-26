@@ -300,6 +300,26 @@
   font-size: var(--mei-shell-font-2);
 }
 
+.mei-host-shell__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 16px;
+  font-size: var(--mei-shell-font-2);
+}
+
+.mei-host-shell__table th,
+.mei-host-shell__table td {
+  border: 1px solid var(--mei-shell-color-border-slate);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.mei-host-shell__table th {
+  color: var(--mei-shell-color-text-muted);
+  font-weight: 600;
+}
+
 .mei-host-shell__setup {
   color: var(--mei-shell-color-status-warn);
   font-size: var(--mei-shell-font-2);

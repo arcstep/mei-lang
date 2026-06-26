@@ -4,6 +4,8 @@ use super::*;
 #[derive(Debug, Clone, Default)]
 pub(crate) struct HostAppReadinessState {
     pub(crate) phase: String,
+    pub(crate) access_ready: bool,
+    pub(crate) gate_summary: Option<ScopeGateSweepSummary>,
     pub(crate) last_error: Option<String>,
     pub(crate) warnings: Vec<String>,
     pub(crate) warning_details: Vec<PrebuildWarningReport>,
@@ -86,15 +88,12 @@ pub(crate) fn host_warmup_in_progress() -> bool {
     if !snapshot.host_bound {
         return true;
     }
-    if !snapshot.access_ready {
-        return true;
-    }
     if snapshot.deferred_warmup_pending {
         return true;
     }
     matches!(
         snapshot.phase.as_str(),
-        "starting" | "bound" | "building" | "verifying"
+        "starting" | "building" | "verifying"
     )
 }
 
@@ -134,10 +133,6 @@ pub(crate) fn is_warmup_transient_runtime_error(message: &str) -> bool {
         || text.contains("missing strict AOT metric result artifact")
         || text.contains("requires prebuilt access artifacts on access-only host")
         || text.contains("该指标尚未装载")
-}
-
-pub(crate) fn phase_access_ready(phase: &str) -> bool {
-    matches!(phase, "ready" | "skipped")
 }
 
 pub(crate) fn normalize_scope_key(scene_id: Option<&str>, target_file: Option<&str>) -> String {
@@ -184,12 +179,14 @@ pub(crate) fn app_response(app_id: String, state: HostAppReadinessState) -> Host
         .count();
     HostAppReadinessResponse {
         app_id,
-        ready: phase_access_ready(state.phase.as_str()),
+        ready: state.access_ready,
+        access_ready: state.access_ready,
         phase: if state.phase.trim().is_empty() {
             "pending".to_string()
         } else {
             state.phase
         },
+        gate_summary: state.gate_summary,
         last_error: state.last_error,
         warnings: state.warnings,
         warning_details: state.warning_details,

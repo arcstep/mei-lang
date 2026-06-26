@@ -19,6 +19,8 @@ pub(crate) struct HostAppReadinessResponse {
     #[serde(rename = "appId")]
     pub app_id: String,
     pub ready: bool,
+    #[serde(rename = "accessReady")]
+    pub access_ready: bool,
     pub phase: String,
     #[serde(rename = "lastError")]
     pub last_error: Option<String>,
@@ -33,6 +35,8 @@ pub(crate) struct HostAppReadinessResponse {
     pub ready_scope_count: usize,
     #[serde(rename = "failedScopeCount")]
     pub failed_scope_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "gateSummary")]
+    pub gate_summary: Option<ScopeGateSweepSummary>,
     pub scopes: Vec<HostScopeReadinessResponse>,
 }
 
@@ -69,6 +73,12 @@ pub(crate) struct HostReadyResponse {
     pub scope_gate_ready: bool,
     #[serde(rename = "accessReady")]
     pub access_ready: bool,
+    #[serde(rename = "defaultAppId", skip_serializing_if = "Option::is_none")]
+    pub default_app_id: Option<String>,
+    #[serde(rename = "defaultAppAccessReady")]
+    pub default_app_access_ready: bool,
+    #[serde(rename = "anyAppAccessReady")]
+    pub any_app_access_ready: bool,
     #[serde(rename = "fullWarmupReady")]
     pub full_warmup_ready: bool,
     #[serde(rename = "deferredWarmupPending")]
@@ -130,6 +140,15 @@ pub(crate) struct HostReadyResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub(crate) struct HostHeartbeatAppSummary {
+    #[serde(rename = "appId")]
+    pub app_id: String,
+    pub phase: String,
+    #[serde(rename = "accessReady")]
+    pub access_ready: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct HostHeartbeatResponse {
     #[serde(rename = "buildVersion")]
     pub build_version: String,
@@ -149,6 +168,12 @@ pub(crate) struct HostHeartbeatResponse {
     pub host_ready: bool,
     #[serde(rename = "accessReady")]
     pub access_ready: bool,
+    #[serde(rename = "defaultAppId", skip_serializing_if = "Option::is_none")]
+    pub default_app_id: Option<String>,
+    #[serde(rename = "defaultAppAccessReady")]
+    pub default_app_access_ready: bool,
+    #[serde(rename = "anyAppAccessReady")]
+    pub any_app_access_ready: bool,
     #[serde(rename = "fullWarmupReady")]
     pub full_warmup_ready: bool,
     #[serde(rename = "deferredWarmupPending")]
@@ -184,6 +209,7 @@ pub(crate) struct HostHeartbeatResponse {
     pub warning_category_counts: BTreeMap<String, usize>,
     #[serde(rename = "failingDatasets")]
     pub failing_datasets: Vec<String>,
+    pub apps: Vec<HostHeartbeatAppSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -292,6 +318,9 @@ pub(crate) struct HostReadinessRegistry {
     pub(crate) scope_gate_ready: bool,
     pub(crate) gate_summary: Option<ScopeGateSweepSummary>,
     pub(crate) access_ready: bool,
+    pub(crate) default_app_id: Option<String>,
+    pub(crate) default_app_access_ready: bool,
+    pub(crate) any_app_access_ready: bool,
     pub(crate) full_warmup_ready: bool,
     pub(crate) deferred_warmup_pending: bool,
     pub(crate) run_id: Option<String>,

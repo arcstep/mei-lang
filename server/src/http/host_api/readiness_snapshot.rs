@@ -8,13 +8,6 @@ pub(crate) fn registry_snapshot_with_scope_gate(
     if let Some(root) = source_root {
         let reachability = crate::readiness::reachability::check_reachability(root, None);
         response.scope_gate = Some(reachability.scope_gate);
-        if !response.artifacts_ready {
-            response.access_ready = false;
-        } else if !response.scope_gate_ready {
-            response.access_ready = false;
-        } else {
-            response.access_ready = response.artifacts_ready && response.scope_gate_ready;
-        }
     }
     response
 }
@@ -33,10 +26,7 @@ pub(crate) fn registry_snapshot() -> HostReadyResponse {
     let active_job_elapsed_ms = snapshot
         .active_job_started_at
         .map(|started| started.elapsed().as_millis() as u64);
-    let ready_app_count = apps
-        .iter()
-        .filter(|app| phase_access_ready(app.phase.as_str()))
-        .count();
+    let ready_app_count = apps.iter().filter(|app| app.access_ready).count();
     let degraded_app_count = apps.iter().filter(|app| app.phase == "degraded").count();
     let failed_app_count = apps.iter().filter(|app| app.phase == "failed").count();
     HostReadyResponse {
@@ -50,6 +40,9 @@ pub(crate) fn registry_snapshot() -> HostReadyResponse {
         artifacts_ready: snapshot.artifacts_ready,
         scope_gate_ready: snapshot.scope_gate_ready,
         access_ready: snapshot.access_ready,
+        default_app_id: snapshot.default_app_id.clone(),
+        default_app_access_ready: snapshot.default_app_access_ready,
+        any_app_access_ready: snapshot.any_app_access_ready,
         full_warmup_ready: snapshot.full_warmup_ready,
         deferred_warmup_pending: snapshot.deferred_warmup_pending,
         phase: if snapshot.phase.trim().is_empty() {
@@ -110,6 +103,9 @@ pub(crate) fn reset_registry_for_source_root(source_root: &Path) {
             scope_gate_ready: false,
             gate_summary: None,
             access_ready: false,
+            default_app_id: None,
+            default_app_access_ready: false,
+            any_app_access_ready: false,
             full_warmup_ready: false,
             deferred_warmup_pending: false,
             run_id: startup_run::current_run_id(),
@@ -182,7 +178,7 @@ pub(crate) fn sync_registry_phase(registry: &mut HostReadinessRegistry) {
     let ready_count = registry
         .apps
         .values()
-        .filter(|app| phase_access_ready(app.phase.as_str()))
+        .filter(|app| app.access_ready)
         .count();
     let degraded_count = registry
         .apps
@@ -202,9 +198,7 @@ pub(crate) fn sync_registry_phase(registry: &mut HostReadinessRegistry) {
     registry.warmed_apps = registry
         .apps
         .iter()
-        .filter_map(|(app_id, app)| {
-            phase_access_ready(app.phase.as_str()).then_some(app_id.clone())
-        })
+        .filter_map(|(app_id, app)| app.access_ready.then_some(app_id.clone()))
         .collect();
     registry.failed_apps = registry
         .apps

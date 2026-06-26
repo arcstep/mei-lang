@@ -201,13 +201,31 @@ impl Drop for ScopedAccessOnlySurface {
 }
 
 #[test]
-fn prepare_landing_artifacts_fails_without_prebuild_manifest() {
+fn prepare_landing_artifacts_warns_without_prebuild_manifest_by_default() {
     let root = unique_test_root("landing-gate-miss");
     let good_root = root.join("010-good");
     fs::create_dir_all(&good_root).expect("create good app root");
     fs::write(good_root.join("main.mei"), VALID_APP_SOURCE).expect("write valid mei file");
 
-    let err = prepare_landing_artifacts_for_serve(root.as_path()).expect_err("missing manifest");
+    prepare_landing_artifacts_for_serve(root.as_path()).expect("warn-only landing gate");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn prepare_landing_artifacts_strict_mode_fails_without_prebuild_manifest() {
+    let root = unique_test_root("landing-gate-strict");
+    let good_root = root.join("010-good");
+    fs::create_dir_all(&good_root).expect("create good app root");
+    fs::write(good_root.join("main.mei"), VALID_APP_SOURCE).expect("write valid mei file");
+
+    unsafe {
+        std::env::set_var("MEI_HOST_LANDING_GATE", "strict");
+    }
+    let err = prepare_landing_artifacts_for_serve(root.as_path()).expect_err("strict gate");
+    unsafe {
+        std::env::remove_var("MEI_HOST_LANDING_GATE");
+    }
     let message = err.to_string();
     assert!(message.contains("host landing gate failed"));
     assert!(message.contains("prebuild"));

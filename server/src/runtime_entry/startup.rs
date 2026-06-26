@@ -64,6 +64,14 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
         tracing::warn!(%error, "failed to ensure workspace stock before serve");
     }
     if !cfg!(test) {
+        let probe = crate::http::pages::probe_landing_readiness(source_root.as_path());
+        if probe.ready_app_id.is_none() {
+            tracing::info!(
+                app_count = probe.app_count,
+                default_app = probe.configured_default_app.as_deref().unwrap_or("(none)"),
+                "host landing probe: no default-scope ready app; serving /host shell (strict gate: MEI_HOST_LANDING_GATE=strict)"
+            );
+        }
         crate::http::pages::prepare_landing_artifacts_for_serve(source_root.as_path())?;
     }
     let preferred_mode = if args.auto_agent {

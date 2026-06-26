@@ -46,6 +46,53 @@ pub(crate) fn scope_registry_has_degraded_errors(registry: &HostReadinessRegistr
     })
 }
 
+fn app_default_scope_access_ready(source_root: &Path, app_id: &str) -> bool {
+    use crate::graph::mrg::navigation::resolve_default_scope;
+    use crate::readiness::types::UiMode;
+
+    let nav = resolve_default_scope(source_root, app_id, UiMode::App);
+    crate::readiness::scope_gate::check_scope_gate_silent(
+        source_root,
+        app_id,
+        Some(nav.scope.scene_id.as_str()),
+        Some(nav.scope.target_file.as_str()),
+        true,
+    )
+    .access_ready
+}
+
+fn apply_global_access_flags(registry: &mut HostReadinessRegistry, source_root: &Path) {
+    use mei_lang_kernel::{load_workspace_config, resolve_app_id};
+
+    let workspace = load_workspace_config(source_root);
+    let configured_default = workspace
+        .workspace
+        .default_app
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    registry.default_app_id = configured_default.as_ref().map(|preferred| {
+        let canonical = resolve_app_id(source_root, preferred.as_str());
+        if registry.apps.contains_key(canonical.as_str()) {
+            canonical
+        } else {
+            preferred.clone()
+        }
+    });
+    registry.any_app_access_ready = registry.apps.values().any(|app| app.access_ready);
+    registry.default_app_access_ready = registry
+        .default_app_id
+        .as_ref()
+        .and_then(|app_id| registry.apps.get(app_id.as_str()))
+        .is_some_and(|app| app.access_ready);
+    registry.access_ready = if registry.default_app_id.is_some() {
+        registry.default_app_access_ready
+    } else {
+        registry.any_app_access_ready
+    };
+}
+
 fn refresh_registry_scope_gates(
     source_root: &Path,
     registry: &mut HostReadinessRegistry,
@@ -58,6 +105,7 @@ fn refresh_registry_scope_gates(
             .get(app_id.as_str())
             .map(|app| app.scopes.keys().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
+        let mut app_summary = ScopeGateSweepSummary::default();
         for key in scope_keys {
             let Some(scope) = registry
                 .apps
@@ -76,12 +124,15 @@ fn refresh_registry_scope_gates(
             );
             if !gate.navigation_ready {
                 summary.l2_miss += 1;
+                app_summary.l2_miss += 1;
             }
             if !gate.assembly_ready {
                 summary.l3_fail += 1;
+                app_summary.l3_fail += 1;
             }
             if !gate.data_ready {
                 summary.l4_stale += 1;
+                app_summary.l4_stale += 1;
             }
             let Some(app_state) = registry.apps.get_mut(app_id.as_str()) else {
                 continue;
@@ -93,10 +144,27 @@ fn refresh_registry_scope_gates(
             } else {
                 entry.phase = "degraded".to_string();
                 entry.last_error = gate.blockers.first().cloned();
-                summary.degraded_scopes.push(key);
+                summary.degraded_scopes.push(key.clone());
+                app_summary.degraded_scopes.push(key);
             }
         }
+        if let Some(app_state) = registry.apps.get_mut(app_id.as_str()) {
+            app_state.gate_summary = Some(app_summary);
+            app_state.access_ready = app_default_scope_access_ready(source_root, app_id.as_str());
+            app_state.phase = if app_state.access_ready {
+                "ready".to_string()
+            } else if app_state
+                .gate_summary
+                .as_ref()
+                .is_some_and(|gate| gate.l2_miss > 0 || gate.l3_fail > 0 || gate.l4_stale > 0)
+            {
+                "degraded".to_string()
+            } else {
+                "building".to_string()
+            };
+        }
     }
+    apply_global_access_flags(registry, source_root);
     summary
 }
 
@@ -228,34 +296,11 @@ pub(crate) fn status_from_report(
             registry,
             &report.succeeded_apps,
         );
-        for app_id in &report.succeeded_apps {
-            let Some(app_state) = registry.apps.get_mut(app_id.as_str()) else {
-                continue;
-            };
-            let degraded_scopes = app_state
-                .scopes
-                .values()
-                .filter(|scope| scope.phase == "degraded")
-                .count();
-            let ready_scopes = app_state
-                .scopes
-                .values()
-                .filter(|scope| scope.phase == "ready")
-                .count();
-            app_state.phase = if degraded_scopes > 0 {
-                "degraded".to_string()
-            } else if ready_scopes > 0 {
-                "ready".to_string()
-            } else {
-                "building".to_string()
-            };
-        }
         scope_gate_ready = gate_summary.l2_miss == 0
             && gate_summary.l3_fail == 0
             && gate_summary.l4_stale == 0;
         registry.scope_gate_ready = scope_gate_ready;
         registry.gate_summary = Some(gate_summary.clone());
-        registry.access_ready = artifacts_ready && scope_gate_ready;
         registry.full_warmup_ready =
             artifacts_ready && scope_gate_ready && !deferred_warmup_pending;
         registry.deferred_warmup_pending =
@@ -266,6 +311,8 @@ pub(crate) fn status_from_report(
                 l3_fail = gate_summary.l3_fail,
                 l4_stale = gate_summary.l4_stale,
                 access_ready = registry.access_ready,
+                default_app_access_ready = registry.default_app_access_ready,
+                any_app_access_ready = registry.any_app_access_ready,
                 "scope gate sweep summary"
             );
         }
@@ -273,11 +320,12 @@ pub(crate) fn status_from_report(
             "gate sweep",
             "1;36",
             &format!(
-                "L2={} L3={} L4={} | accessReady={}",
+                "L2={} L3={} L4={} | defaultAppAccessReady={} | anyAppAccessReady={}",
                 gate_summary.l2_miss,
                 gate_summary.l3_fail,
                 gate_summary.l4_stale,
-                artifacts_ready && scope_gate_ready
+                registry.default_app_access_ready,
+                registry.any_app_access_ready
             ),
         );
         registry.active_job = None;
@@ -383,14 +431,27 @@ pub(crate) fn status_from_report(
             "{ready_title} {ready_detail}"
         );
     } else {
-        let app_lines = registry_snapshot()
+        let snapshot = registry_snapshot();
+        let app_lines = snapshot
             .apps
             .iter()
             .map(|app| {
+                let gate = app
+                    .gate_summary
+                    .as_ref()
+                    .map(|summary| {
+                        format!(
+                            "L2={} L3={} L4={}",
+                            summary.l2_miss, summary.l3_fail, summary.l4_stale
+                        )
+                    })
+                    .unwrap_or_else(|| "L2=? L3=? L4=?".to_string());
                 format!(
-                    "{}:{}(warnings={})",
+                    "  {}: {} | accessReady={} | {} | warnings={}",
                     app.app_id,
                     app.phase,
+                    app.access_ready,
+                    gate,
                     app.warnings.len()
                 )
             })
@@ -409,13 +470,13 @@ pub(crate) fn status_from_report(
             "WORKSPACE ACCESS INCOMPLETE",
             "1;33",
             &format!(
-                "[PREBUILD +{:.1}s] host shell unaffected | apps=[{}] | failed_apps={} | warnings={} | {gate_detail} | compile={}ms | warmup={}ms",
+                "[PREBUILD +{:.1}s] host shell unaffected | failed_apps={} | warnings={} | {gate_detail} | compile={}ms | warmup={}ms\n{}",
                 report.total_wall_ms as f64 / 1000.0,
-                app_lines.join(", "),
                 failed_app_count,
                 warning_count,
                 compile_ms,
-                warmup_ms
+                warmup_ms,
+                app_lines.join("\n")
             ),
         );
         tracing::warn!(
@@ -514,6 +575,50 @@ mod tests {
             },
         );
         assert!(!scope_registry_has_degraded_errors(&registry));
+    }
+
+    #[test]
+    fn apply_global_access_flags_prefers_default_app_when_configured() {
+        let root = std::env::temp_dir().join(format!(
+            "mei-access-flags-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("create temp root");
+        std::fs::write(
+            root.join(".mei-workspace.json"),
+            r#"{"workspace":{"defaultApp":"zhifa"}}"#,
+        )
+        .expect("write workspace config");
+        std::fs::create_dir_all(root.join("zhifa")).expect("create app dir");
+        std::fs::create_dir_all(root.join("qunfu")).expect("create app dir");
+
+        let mut registry = HostReadinessRegistry::default();
+        registry.apps.insert(
+            "zhifa".to_string(),
+            HostAppReadinessState {
+                phase: "degraded".to_string(),
+                access_ready: false,
+                ..Default::default()
+            },
+        );
+        registry.apps.insert(
+            "qunfu".to_string(),
+            HostAppReadinessState {
+                phase: "ready".to_string(),
+                access_ready: true,
+                ..Default::default()
+            },
+        );
+        apply_global_access_flags(&mut registry, root.as_path());
+        assert_eq!(registry.default_app_id.as_deref(), Some("zhifa"));
+        assert!(!registry.default_app_access_ready);
+        assert!(registry.any_app_access_ready);
+        assert!(!registry.access_ready);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }
 

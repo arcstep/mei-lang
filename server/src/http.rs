@@ -37,6 +37,7 @@ pub fn router() -> Router<AppState> {
             get(|| async { Redirect::permanent("/app-assets/favicon.svg") }),
         )
         .route("/", get(pages::index))
+        .route("/host", get(pages::host_hub_page))
         .route("/login", get(auth_api::login_page))
         .route("/logout", get(auth_api::logout_page))
         .route(

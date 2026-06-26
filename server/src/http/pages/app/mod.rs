@@ -74,26 +74,27 @@ pub async fn index(
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
     let filtered = filter_apps_for_principal(&apps, principal.as_ref());
     let first = choose_default_app(&state.source_root, &filtered)
-        .or_else(|| filtered.first())
-        .or_else(|| choose_default_app(&state.source_root, &apps))
-        .or_else(|| apps.first());
-    let first = first.ok_or_else(|| {
-        AppError::msg(format!(
+        .or_else(|| choose_default_app(&state.source_root, &apps));
+    match first {
+        Some(app) => {
+            let access_only_surface = std::env::var("MEI_HOST_SURFACE")
+                .ok()
+                .map(|value| HostSurface::from_host_surface_flag(&value))
+                .is_some_and(|surface| surface == HostSurface::AccessOnlyHost);
+            let location = index_landing_location(
+                state.source_root.as_path(),
+                app,
+                principal.as_ref(),
+                access_only_surface,
+            );
+            Ok(Redirect::to(&location))
+        }
+        None if apps.is_empty() => Err(AppError::msg(format!(
             "source root has no discoverable apps (need at least one first-level subdirectory under `{}` containing `main.mei`; root-level `main.mei` is ignored)",
             state.source_root.display()
-        ))
-    })?;
-    let access_only_surface = std::env::var("MEI_HOST_SURFACE")
-        .ok()
-        .map(|value| HostSurface::from_host_surface_flag(&value))
-        .is_some_and(|surface| surface == HostSurface::AccessOnlyHost);
-    let location = index_landing_location(
-        state.source_root.as_path(),
-        first,
-        principal.as_ref(),
-        access_only_surface,
-    );
-    Ok(Redirect::to(&location))
+        ))),
+        None => Ok(Redirect::to("/host")),
+    }
 }
 
 #[cfg(test)]

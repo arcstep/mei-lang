@@ -99,6 +99,9 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
         ready: ready.host_ready,
         host_ready: ready.host_ready,
         access_ready: ready.access_ready,
+        default_app_id: ready.default_app_id,
+        default_app_access_ready: ready.default_app_access_ready,
+        any_app_access_ready: ready.any_app_access_ready,
         full_warmup_ready: ready.full_warmup_ready,
         deferred_warmup_pending: ready.deferred_warmup_pending,
         phase: ready.phase,
@@ -117,6 +120,15 @@ pub async fn api_host_heartbeat() -> impl IntoResponse {
         warning_categories: ready.warning_categories,
         warning_category_counts: ready.warning_category_counts,
         failing_datasets: ready.failing_datasets,
+        apps: ready
+            .apps
+            .iter()
+            .map(|app| HostHeartbeatAppSummary {
+                app_id: app.app_id.clone(),
+                phase: app.phase.clone(),
+                access_ready: app.access_ready,
+            })
+            .collect(),
     })
 }
 
@@ -280,6 +292,9 @@ mod tests {
             ready: ready.ready,
             host_ready: ready.host_ready,
             access_ready: ready.access_ready,
+            default_app_id: ready.default_app_id,
+            default_app_access_ready: ready.default_app_access_ready,
+            any_app_access_ready: ready.any_app_access_ready,
             full_warmup_ready: ready.full_warmup_ready,
             deferred_warmup_pending: ready.deferred_warmup_pending,
             phase: ready.phase,
@@ -298,6 +313,15 @@ mod tests {
             warning_categories: ready.warning_categories,
             warning_category_counts: ready.warning_category_counts,
             failing_datasets: ready.failing_datasets,
+            apps: ready
+                .apps
+                .iter()
+                .map(|app| HostHeartbeatAppSummary {
+                    app_id: app.app_id.clone(),
+                    phase: app.phase.clone(),
+                    access_ready: app.access_ready,
+                })
+                .collect(),
         };
         assert!(!heartbeat.build_version.is_empty());
         assert_eq!(heartbeat.build_version, crate::build_info::BUILD_VERSION);
@@ -338,6 +362,7 @@ mod tests {
                     "ready-app".to_string(),
                     HostAppReadinessState {
                         phase: "ready".to_string(),
+                        access_ready: true,
                         ..Default::default()
                     },
                 ),

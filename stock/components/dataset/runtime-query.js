@@ -2091,14 +2091,24 @@ export function isHostWarmupInProgress(payload) {
   if (!payload || typeof payload !== "object") {
     return false;
   }
-  if (payload.accessReady === false || payload.access_ready === false) {
-    return true;
+  const appId = currentRuntimeAppId();
+  if (appId) {
+    if (appAccessReadyFromHeartbeat(payload, appId)) {
+      return payload.deferredWarmupPending === true || payload.deferred_warmup_pending === true;
+    }
+    const phase = String(payload.phase || "").trim().toLowerCase();
+    return (
+      phase === "starting" ||
+      phase === "bound" ||
+      phase === "building" ||
+      phase === "verifying"
+    );
   }
   if (payload.deferredWarmupPending === true || payload.deferred_warmup_pending === true) {
     return true;
   }
   const phase = String(payload.phase || "").trim().toLowerCase();
-  return phase === "starting" || phase === "bound" || phase === "building" || phase === "verifying";
+  return phase === "starting" || phase === "building" || phase === "verifying";
 }
 
 export function isWarmupTransientRuntimeError(message) {
@@ -2118,7 +2128,7 @@ export function formatWarmupPendingUserMessage(payload) {
       ? "后台仍在装载 deferred 指标"
       : ["building", "verifying", "bound"].includes(String(payload?.phase || "").trim().toLowerCase())
         ? "后台正在编译与预热"
-        : payload?.accessReady === false || payload?.access_ready === false
+        : !hostAccessReadyFromPayload(payload)
           ? "启动预热尚未完成"
           : "访问态产物仍在装载";
   return `系统于 ${ago} 前刚刚启动，${detail}，该指标尚未装载，请稍候刷新页面。`;
@@ -2197,8 +2207,29 @@ function waitMsWithAbort(ms, signal) {
   });
 }
 
+function currentRuntimeAppId() {
+  return String(window.__meiRuntimeAppId || "").trim();
+}
+
+function appAccessReadyFromHeartbeat(payload, appId) {
+  if (!payload || !appId) return false;
+  const apps = Array.isArray(payload.apps) ? payload.apps : [];
+  const entry = apps.find((app) => String(app?.appId || "").trim() === appId);
+  if (entry) return entry.accessReady === true;
+  return false;
+}
+
 function hostAccessReadyFromPayload(payload) {
-  return payload?.access_ready === true || payload?.accessReady === true;
+  const appId = currentRuntimeAppId();
+  if (appId) {
+    return appAccessReadyFromHeartbeat(payload, appId);
+  }
+  return (
+    payload?.access_ready === true ||
+    payload?.accessReady === true ||
+    payload?.anyAppAccessReady === true ||
+    payload?.any_app_access_ready === true
+  );
 }
 
 async function readHostAccessReadyState(signal) {
