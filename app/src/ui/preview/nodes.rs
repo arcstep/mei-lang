@@ -441,10 +441,11 @@ pub(crate) fn block_view_for_decl(
     parent_panel_id: Option<&str>,
     parent_panel: Option<&PanelDecl>,
 ) -> AnyView {
-    let scene_anchor = RuntimeSceneAnchor {
-        scene_id: scene_contract.scene.id.clone(),
-        scene_path: Some(preview_scene_path.to_string()),
-    };
+    let scene_anchor = RuntimeSceneAnchor::for_preview(
+        compiled,
+        Some(preview_scene_path),
+        Some(scene_contract.scene.id.as_str()),
+    );
     let resolved = resolve_value(
         &block.props,
         &theme.shared,

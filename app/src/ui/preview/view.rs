@@ -26,6 +26,7 @@ pub(crate) fn preview_view(
         route_mode,
         build_preview_scope,
         build_preview_component_use_key,
+        Some(selected_target),
     );
 
     let preview_scene_path = {

@@ -5,7 +5,7 @@ use super::super::route::UiRouteMode;
 
 pub(crate) fn chrome_script_preload_markup(route_mode: UiRouteMode) -> &'static str {
     match route_mode {
-        UiRouteMode::Build => r#"<link rel="preload" href="/app-bundles/manage.js" as="script"/>"#,
+        UiRouteMode::Build | UiRouteMode::Runtime => r#"<link rel="preload" href="/app-bundles/manage.js" as="script"/>"#,
         UiRouteMode::App | UiRouteMode::Presentation => {
             r#"<link rel="preload" href="/app-bundles/access.js" as="script"/>"#
         }
@@ -16,7 +16,7 @@ pub(crate) fn chrome_script_preload_markup(route_mode: UiRouteMode) -> &'static 
 
 pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     match route_mode {
-        UiRouteMode::Build => view! {
+        UiRouteMode::Build | UiRouteMode::Runtime => view! {
             <>
                 <script defer src="/app-bundles/manage.js"></script>
             </>
@@ -47,6 +47,23 @@ pub(crate) fn chrome_script_preloads_view(_route_mode: UiRouteMode) -> AnyView {
     // `as` is a Rust keyword and Leptos SSR does not serialize `prop:as` on <link>.
     // Preload tags are injected as raw HTML in document::render_document.
     view! { <></> }.into_any()
+}
+
+pub(crate) fn workspace_component_script_urls(
+    compiled: &CompiledApp,
+    scene_bundle_url: Option<&str>,
+) -> Vec<String> {
+    if let Some(bundle_url) = scene_bundle_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return vec![bundle_url.to_string()];
+    }
+    compiled
+        .component_assets
+        .iter()
+        .map(|asset| format!("/workspace-components/{}", asset.script))
+        .collect()
 }
 
 pub(crate) fn component_scripts(

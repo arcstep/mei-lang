@@ -24,6 +24,13 @@ pub(crate) fn chrome_script_preload_markup(route_mode: UiRouteMode) -> &'static 
     scripts::chrome_script_preload_markup(route_mode)
 }
 
+pub(crate) fn workspace_component_script_urls(
+    compiled: &CompiledApp,
+    scene_bundle_url: Option<&str>,
+) -> Vec<String> {
+    scripts::workspace_component_script_urls(compiled, scene_bundle_url)
+}
+
 pub(crate) fn component_scripts(
     compiled: &CompiledApp,
     scene_bundle_url: Option<&str>,

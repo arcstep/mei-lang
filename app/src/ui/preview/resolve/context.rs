@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
-    dataset_materialize_cache_epoch, host_runtime_capabilities_catalog,
-    host_runtime_contract_descriptor, load_cache_generation, load_mei_config_for_app,
-    resolve_dataset_selector_value, scene_payload_cache_epoch, CompiledApp, LoadedResource,
+    catalog_scene_routes_from_app_root, dataset_materialize_cache_epoch,
+    host_runtime_capabilities_catalog, host_runtime_contract_descriptor, is_stock_catalog_app,
+    load_cache_generation, load_mei_config_for_app, resolve_dataset_selector_value,
+    scene_payload_cache_epoch, CompiledApp, CompiledSceneRoute, LoadedResource,
     RuntimeResourceIndex, SceneContract,
 };
 use serde_json::{json, Value};
@@ -76,29 +77,67 @@ pub(crate) fn host_runtime_capabilities_value(app_path: &str) -> Value {
 }
 
 impl RuntimeSceneAnchor {
-    pub fn from_compiled(compiled: &CompiledApp) -> Self {
-        let scene_id = compiled
-            .active_scene
-            .as_deref()
+    /// Prefer catalog `scene_routes` entry matching the preview target over inner scene ids
+    /// (pack previews declare `scene(id = "home")` but catalog routes use `chart.pie`, etc.).
+    pub fn for_preview(
+        compiled: &CompiledApp,
+        preview_scene_path: Option<&str>,
+        fallback_scene_id: Option<&str>,
+    ) -> Self {
+        let path = preview_scene_path
             .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(compiled.active_target_file.as_str());
+        let route_scene_id = |routes: &[CompiledSceneRoute]| {
+            routes
+                .iter()
+                .find(|route| route.target_file == path)
+                .map(|route| route.scene_id.clone())
+        };
+        let mut anchor = Self::from_compiled(compiled);
+        if let Some(scene_id) = route_scene_id(&compiled.scene_routes) {
+            anchor.scene_id = scene_id;
+        } else if is_stock_catalog_app(compiled.app_id.as_str()) {
+            let app_root = std::path::Path::new(compiled.app_root.as_str());
+            if let Some(scene_id) = route_scene_id(&catalog_scene_routes_from_app_root(app_root)) {
+                anchor.scene_id = scene_id;
+            }
+        } else if let Some(fallback) =
+            fallback_scene_id.map(str::trim).filter(|value| !value.is_empty())
+        {
+            if anchor.scene_id == "default" {
+                anchor.scene_id = fallback.to_string();
+            }
+        }
+        anchor.scene_path = Some(path.to_string());
+        anchor
+    }
+
+    pub fn from_compiled(compiled: &CompiledApp) -> Self {
+        let target = compiled.active_target_file.trim();
+        let route_scene = compiled
+            .scene_routes
+            .iter()
+            .find(|route| route.target_file == target)
+            .map(|route| route.scene_id.clone());
+        let scene_id = route_scene
             .or_else(|| {
                 compiled
-                    .scene_routes
-                    .iter()
-                    .find(|route| route.target_file == compiled.active_target_file)
-                    .map(|route| route.scene_id.clone())
+                    .active_scene
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
             })
             .unwrap_or_else(|| "default".to_string());
-        let scene_path = compiled.active_target_file.trim().to_string();
+        let scene_path = if target.is_empty() {
+            None
+        } else {
+            Some(target.to_string())
+        };
         Self {
             scene_id,
-            scene_path: if scene_path.is_empty() {
-                None
-            } else {
-                Some(scene_path)
-            },
+            scene_path,
         }
     }
 
@@ -141,10 +180,7 @@ pub(crate) fn attach_host_meta(
     preview_scene_path: Option<&str>,
     options: HostMetaOptions,
 ) -> Value {
-    let mut anchor = RuntimeSceneAnchor::from_compiled(compiled);
-    if let Some(path) = preview_scene_path.map(str::trim).filter(|s| !s.is_empty()) {
-        anchor.scene_path = Some(path.to_string());
-    }
+    let anchor = RuntimeSceneAnchor::for_preview(compiled, preview_scene_path, None);
     let active_target_file = anchor
         .scene_path
         .as_deref()

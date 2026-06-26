@@ -51,6 +51,7 @@ pub(crate) fn build_preview_runtime_context(
     route_mode: UiRouteMode,
     build_preview_scope: Option<&str>,
     build_preview_component_use_key: Option<&str>,
+    _selected_target: Option<&str>,
 ) -> PreviewRuntimeContext {
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),

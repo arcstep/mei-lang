@@ -22,8 +22,8 @@ use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::PanelDecl;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
-    DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape, SceneContract, SceneDecl,
-    SourceDecl, ThemeDecl,
+    CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
+    SceneContract, SceneDecl, SourceDecl, ThemeDecl,
 };
 use serde_json::{json, Value};
 
@@ -1635,6 +1635,52 @@ fn resolve_value_host_ssr_slim_strips_dataset_rows() {
 }
 
 #[test]
+fn runtime_scene_anchor_prefers_matching_route_scene_id() {
+    let compiled = CompiledApp {
+        app_id: "_stock-catalog".to_string(),
+        title: "catalog".to_string(),
+        app_root: ".".to_string(),
+        scene_routes: vec![CompiledSceneRoute {
+            scene_id: "chart.radar".to_string(),
+            frame_id: None,
+            target_file: "../../stock/components/chart/echarts/previews/chart.radar.mei".to_string(),
+            kind: "file_ref".to_string(),
+            title: None,
+            is_default: false,
+            access_export: true,
+        }],
+        active_scene: Some("home".to_string()),
+        active_target_file: "../../stock/components/chart/echarts/previews/chart.radar.mei".to_string(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::new(),
+        world_semantic_by_file: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+    };
+    let anchor = RuntimeSceneAnchor::from_compiled(&compiled);
+    assert_eq!(anchor.scene_id, "chart.radar");
+    assert_eq!(
+        anchor.scene_path.as_deref(),
+        Some("../../stock/components/chart/echarts/previews/chart.radar.mei")
+    );
+    let preview_anchor = RuntimeSceneAnchor::for_preview(
+        &compiled,
+        Some("../../stock/components/chart/echarts/previews/chart.radar.mei"),
+        Some("home"),
+    );
+    assert_eq!(preview_anchor.scene_id, "chart.radar");
+}
+
+#[test]
 fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
     use super::build_preview_runtime_context;
 
@@ -1661,11 +1707,21 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
         build_template_index: Default::default(),
     };
     assert!(
-        build_preview_runtime_context(&compiled, UiRouteMode::Build, None, None).host_ssr_slim_payload
+        build_preview_runtime_context(&compiled, UiRouteMode::Build, None, None, None).host_ssr_slim_payload
     );
-    assert!(build_preview_runtime_context(&compiled, UiRouteMode::App, None, None).host_ssr_slim_payload);
+    assert!(build_preview_runtime_context(&compiled, UiRouteMode::App, None, None, None).host_ssr_slim_payload);
     assert!(
-        !build_preview_runtime_context(&compiled, UiRouteMode::Config, None, None).host_ssr_slim_payload
+        !build_preview_runtime_context(&compiled, UiRouteMode::Config, None, None, None).host_ssr_slim_payload
+    );
+    assert!(
+        build_preview_runtime_context(
+            &compiled,
+            UiRouteMode::Build,
+            None,
+            Some("chart.donut"),
+            Some("../../stock/components/chart/echarts/previews/chart.donut.mei"),
+        )
+        .host_ssr_slim_payload
     );
 }
 
@@ -2627,7 +2683,7 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
         .scene_contract
         .as_ref()
         .expect("home scene contract");
-    let runtime_ctx = build_preview_runtime_context(&compiled, UiRouteMode::Build, None, None);
+    let runtime_ctx = build_preview_runtime_context(&compiled, UiRouteMode::Build, None, None, None);
     assert!(
         runtime_ctx.host_ssr_slim_payload,
         "build mode must enable host SSR slim payload"
@@ -2739,6 +2795,8 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
         Some("scene:home"),
         None,
         None,
+        None,
+        None,
         false,
         false,
         None,
@@ -2747,6 +2805,7 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
         None,
         None,
         shell_theme.as_str(),
+        None,
     );
     let mut data_props_count = 0usize;
     let mut data_props_bytes = 0usize;
