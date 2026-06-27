@@ -33,11 +33,16 @@ pub fn app_skeleton_revision(dependency_fingerprint: &str) -> String {
 
 pub fn app_skeleton_value_from_compiled(compiled: &CompiledApp) -> Value {
     serde_json::to_value(serde_json::json!({
+        "appId": compiled.app_id,
+        "title": compiled.title,
         "fileTree": compiled.file_tree,
         "buildExperienceIndex": compiled.build_experience_index,
         "buildBoardIndex": compiled.build_board_index,
         "buildTemplateIndex": compiled.build_template_index,
         "sceneRoutes": compiled.scene_routes,
+        "resources": compiled.resources,
+        "worldMetrics": compiled.world_metrics,
+        "worldSemanticByFile": compiled.world_semantic_by_file,
     }))
     .unwrap_or(Value::Null)
 }
@@ -95,6 +100,37 @@ pub fn merge_app_skeleton_into_compiled(compiled: &mut CompiledApp, skeleton: &A
             .unwrap_or(Value::Null),
     ) {
         compiled.scene_routes = routes;
+    }
+    if let Some(app_id) = payload
+        .get("appId")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+    {
+        if !app_id.trim().is_empty() {
+            compiled.app_id = app_id;
+        }
+    }
+    if let Ok(title) = serde_json::from_value::<String>(payload.get("title").cloned().unwrap_or(Value::Null)) {
+        compiled.title = title;
+    }
+    if let Ok(resources) = serde_json::from_value(payload.get("resources").cloned().unwrap_or(Value::Null)) {
+        compiled.resources = resources;
+    }
+    if let Ok(world_metrics) = serde_json::from_value(
+        payload
+            .get("worldMetrics")
+            .cloned()
+            .unwrap_or(Value::Null),
+    ) {
+        compiled.world_metrics = world_metrics;
+    }
+    if let Ok(semantic) = serde_json::from_value(
+        payload
+            .get("worldSemanticByFile")
+            .cloned()
+            .unwrap_or(Value::Null),
+    ) {
+        compiled.world_semantic_by_file = semantic;
     }
 }
 

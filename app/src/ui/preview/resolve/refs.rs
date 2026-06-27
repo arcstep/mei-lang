@@ -6,42 +6,58 @@ use mei_lang_kernel::{
 };
 use serde_json::Value;
 
+fn metric_lookup_key_aliases(metric_id: &str) -> Vec<String> {
+    let metric_id = metric_id.trim();
+    if metric_id.is_empty() {
+        return Vec::new();
+    }
+    let mut aliases = vec![metric_id.to_string()];
+    if let Some((_, local)) = metric_id.rsplit_once("::") {
+        if !local.is_empty() && !aliases.iter().any(|key| key == local) {
+            aliases.push(local.to_string());
+        }
+    }
+    aliases
+}
+
 fn lookup_world_metric_ledger_entry<'a>(
     compiled: &'a CompiledApp,
     metric_id: &str,
 ) -> Option<&'a WorldMetricLedgerEntry> {
-    let metric_id = metric_id.trim();
-    if metric_id.is_empty() {
-        return None;
+    for alias in metric_lookup_key_aliases(metric_id) {
+        if let Some(entry) = compiled.world_metrics.get(alias.as_str()) {
+            return Some(entry);
+        }
+        let suffix = format!("::{alias}");
+        if let Some((_, entry)) = compiled
+            .world_metrics
+            .iter()
+            .find(|(key, _)| key.as_str() == alias.as_str() || key.ends_with(suffix.as_str()))
+        {
+            return Some(entry);
+        }
     }
-    if let Some(entry) = compiled.world_metrics.get(metric_id) {
-        return Some(entry);
-    }
-    let suffix = format!("::{metric_id}");
-    compiled
-        .world_metrics
-        .iter()
-        .find(|(key, _)| key.as_str() == metric_id || key.ends_with(&suffix))
-        .map(|(_, entry)| entry)
+    None
 }
 
 fn lookup_dataset_metric(
     dataset: &mei_lang_kernel::DatasetView,
     metric_id: &str,
 ) -> Option<MetricContract> {
-    let metric_id = metric_id.trim();
-    if metric_id.is_empty() {
-        return None;
+    for alias in metric_lookup_key_aliases(metric_id) {
+        if let Some(metric) = dataset.metrics.get(alias.as_str()) {
+            return Some(metric.clone());
+        }
+        let suffix = format!("::{alias}");
+        if let Some((_, metric)) = dataset
+            .metrics
+            .iter()
+            .find(|(key, _)| key.as_str() == alias.as_str() || key.ends_with(suffix.as_str()))
+        {
+            return Some(metric.clone());
+        }
     }
-    if let Some(metric) = dataset.metrics.get(metric_id) {
-        return Some(metric.clone());
-    }
-    let suffix = format!("::{metric_id}");
-    dataset
-        .metrics
-        .iter()
-        .find(|(key, _)| key.as_str() == metric_id || key.ends_with(&suffix))
-        .map(|(_, metric)| metric.clone())
+    None
 }
 
 pub(crate) fn resolve_data_ref(

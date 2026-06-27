@@ -95,6 +95,7 @@ pub use reachability_tree::{
 
 pub use materialize_cache::cached_load_xlsx_table_snapshot;
 pub use materialize_cache::dataset_materialize_cache_epoch;
+pub use materialize_cache::dataset_materialize_cache_hit_count;
 pub use materialize_cache::try_get_cached_xlsx_table_snapshot;
 pub use materialize_cache::TableSnapshot;
 pub use materialize_cache::TableSnapshotKey;

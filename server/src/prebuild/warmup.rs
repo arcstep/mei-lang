@@ -94,6 +94,7 @@ pub(crate) struct SharedCompileOutcome {
     pub(crate) compiled: Arc<CompiledApp>,
     pub(crate) cache_hit: bool,
     pub(crate) artifact_cache_hit: bool,
+    pub(crate) assemble_only: bool,
     pub(crate) compile_revision: String,
     pub(crate) cache_lookup_ms: u64,
     pub(crate) artifact_load_ms: u64,
@@ -106,6 +107,7 @@ impl SharedCompileOutcome {
             compiled: outcome.compiled,
             cache_hit: outcome.cache_hit,
             artifact_cache_hit: outcome.artifact_cache_hit,
+            assemble_only: false,
             compile_revision: outcome.compile_revision,
             cache_lookup_ms: outcome.cache_lookup_ms,
             artifact_load_ms: outcome.artifact_load_ms,
@@ -127,6 +129,25 @@ pub(crate) fn compiled_scope_identity(outcome: &SharedCompileOutcome) -> String 
         outcome.compiled.active_target_file,
         outcome.compile_revision
     )
+}
+
+/// Compile target + revision — shared by all scene overlays on the same `.mei` / board file.
+pub(crate) fn compiled_target_identity(outcome: &SharedCompileOutcome) -> String {
+    let target = outcome.compiled.active_target_file.trim();
+    if target.is_empty() {
+        return String::new();
+    }
+    format!("{}|{}", target, outcome.compile_revision)
+}
+
+/// Artifact / RSS dedup key: collapse board scene aliases onto one ScenePayload base.
+pub(crate) fn compiled_artifact_identity(outcome: &SharedCompileOutcome) -> String {
+    let target_identity = compiled_target_identity(outcome);
+    if target_identity.is_empty() {
+        compiled_scope_identity(outcome)
+    } else {
+        target_identity
+    }
 }
 
 pub(crate) fn compiled_default_target_file(compiled: &CompiledApp) -> Option<&str> {

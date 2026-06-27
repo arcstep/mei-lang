@@ -16,6 +16,10 @@ pub(crate) struct PrebuildDiagnostics {
     pub(crate) peak_rss_bytes: AtomicUsize,
     pub(crate) compile_preload_reuse_hits: AtomicUsize,
     pub(crate) compile_postload_identity_collapses: AtomicUsize,
+    pub(crate) compile_target_overlay_reuse_hits: AtomicUsize,
+    pub(crate) mcg_assemble_only_count: AtomicUsize,
+    pub(crate) session_peak_identity_entries: AtomicUsize,
+    pub(crate) hydrate_reuse_hits: AtomicU64,
     pub(crate) compile_index_hits: AtomicUsize,
     pub(crate) compile_index_misses: AtomicUsize,
     pub(crate) compile_index_stale_entries: AtomicUsize,
@@ -30,6 +34,21 @@ pub(crate) struct PrebuildDiagnostics {
 impl PrebuildDiagnostics {
     pub(crate) fn sample_memory_peak(&self) {
         sample_peak_rss_bytes(&self.peak_rss_bytes);
+    }
+
+    pub(crate) fn note_session_identity_peak(&self, count: usize) {
+        let mut prev = self.session_peak_identity_entries.load(Ordering::Relaxed);
+        while count > prev {
+            match self.session_peak_identity_entries.compare_exchange_weak(
+                prev,
+                count,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(next) => prev = next,
+            }
+        }
     }
 
     pub(crate) fn record_metric_build(
@@ -185,7 +204,7 @@ pub(crate) fn build_prebuild_compile_index(
     }
     let mut best_scope_by_identity = BTreeMap::<String, &PreparedCompileOutcome>::new();
     for prepared in prepared_outcomes {
-        let identity = compiled_scope_identity(&prepared.outcome);
+        let identity = compiled_artifact_identity(&prepared.outcome);
         match best_scope_by_identity.get(&identity) {
             Some(existing) => {
                 if compile_scope_specificity(&prepared.scope)
@@ -208,10 +227,11 @@ pub(crate) fn build_prebuild_compile_index(
     for prepared in prepared_outcomes {
         let scope = &prepared.scope;
         let outcome = &prepared.outcome;
-        let identity = compiled_scope_identity(outcome);
-        let Some(canonical) = best_scope_by_identity.get(&identity) else {
+        let artifact_identity = compiled_artifact_identity(outcome);
+        let Some(canonical) = best_scope_by_identity.get(&artifact_identity) else {
             continue;
         };
+        let identity = compiled_scope_identity(outcome);
         let scene_payload_revision = scope
             .canonicalized()
             .requested_target_file
@@ -342,6 +362,7 @@ pub(crate) fn scope_assembled_outcome(
     app_id: &str,
     base: &SharedCompileOutcome,
     scope: &CompileScope,
+    diagnostics: Option<&PrebuildDiagnostics>,
 ) -> SharedCompileOutcome {
     if compile_outcome_matches_scope(scope, &base.compiled) {
         return base.clone();
@@ -369,10 +390,15 @@ pub(crate) fn scope_assembled_outcome(
                     &[],
                     &[],
                 );
+                if let Some(diag) = diagnostics {
+                    diag.mcg_assemble_only_count
+                        .fetch_add(1, Ordering::Relaxed);
+                }
                 return SharedCompileOutcome {
                     compiled: Arc::new(compiled),
                     cache_hit: true,
                     artifact_cache_hit: false,
+                    assemble_only: true,
                     compile_revision,
                     cache_lookup_ms: 0,
                     artifact_load_ms: 0,
@@ -381,20 +407,39 @@ pub(crate) fn scope_assembled_outcome(
             }
         }
     }
-    let assembled = crate::graph::mcg::assemble::assemble_scope_view(
-        (*base.compiled).clone(),
-        canonical.requested_scene_id.as_deref(),
-        canonical
-            .requested_target_file
-            .as_deref()
-            .filter(|value| !value.is_empty()),
-    );
-    let mut hydrated = assembled;
+    let scene = canonical.requested_scene_id.as_deref();
+    let target = canonical
+        .requested_target_file
+        .as_deref()
+        .filter(|value| !value.is_empty());
+    let compiled = match Arc::try_unwrap(Arc::clone(&base.compiled)) {
+        Ok(mut owned) => {
+            crate::graph::mcg::assemble::apply_scope_to_compiled_app(
+                &mut owned,
+                scene,
+                target,
+            );
+            owned
+        }
+        Err(shared) => crate::graph::mcg::assemble::assemble_scope_view(
+            (*shared).clone(),
+            scene,
+            target,
+        ),
+    };
+    let mut hydrated = compiled;
     let _ = crate::graph::hydrate_compiled_for_prebuild_eval(source_root, app_id, &mut hydrated, &[], &[]);
+    if let Some(diag) = diagnostics {
+        diag.mcg_assemble_only_count
+            .fetch_add(1, Ordering::Relaxed);
+        diag.compile_target_overlay_reuse_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
     SharedCompileOutcome {
         compiled: Arc::new(hydrated),
-        cache_hit: base.cache_hit,
+        cache_hit: true,
         artifact_cache_hit: base.artifact_cache_hit,
+        assemble_only: true,
         compile_revision: base.compile_revision.clone(),
         cache_lookup_ms: base.cache_lookup_ms,
         artifact_load_ms: base.artifact_load_ms,

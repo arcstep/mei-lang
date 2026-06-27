@@ -32,6 +32,7 @@ pub fn materialize_scope_after_compile(
         compiled: Arc::new(outcome.compiled.clone()),
         cache_hit: outcome.cache_hit,
         artifact_cache_hit: outcome.artifact_cache_hit,
+        assemble_only: false,
         compile_revision: outcome.compile_revision.clone(),
         cache_lookup_ms: outcome.cache_lookup_ms,
         artifact_load_ms: outcome.artifact_load_ms,

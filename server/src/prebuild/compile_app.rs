@@ -3,6 +3,105 @@ use super::*;
 use crate::block::{parse_block_id, BlockOrchestrator};
 use crate::graph::types::GraphNodeKind;
 
+#[allow(clippy::too_many_arguments)]
+fn compile_hot_manifest_scope(
+    source_root: &Path,
+    app_id: &str,
+    mode: PrebuildMode,
+    compile_session: &Mutex<PrebuildCompileSession>,
+    diagnostics: &PrebuildDiagnostics,
+    compile_index: Option<&PrebuildCompileIndex>,
+    components_root: &Path,
+    scope: &CompileScope,
+    label: &str,
+    seen_scopes: &mut BTreeSet<String>,
+    pending: &mut std::collections::VecDeque<CompileScope>,
+    prepared_outcomes: &mut Vec<PreparedCompileOutcome>,
+    compile_reports: &mut Vec<PrebuildScopeReport>,
+    warnings: &mut Vec<PrebuildWarningReport>,
+) -> Result<()> {
+    if !seen_scopes.insert(scope.key()) {
+        return Ok(());
+    }
+    let scene = scope.requested_scene_id.clone().unwrap_or_default();
+    let target_file = scope.requested_target_file.clone().unwrap_or_default();
+    let hot_started = Instant::now();
+    match try_reuse_compile_scope_before_load(
+        compile_session,
+        diagnostics,
+        compile_index,
+        source_root,
+        app_id,
+        scope,
+        components_root,
+    )
+    .map(Ok)
+    .unwrap_or_else(|| {
+        BlockOrchestrator::compile_scope_for_prebuild(
+            compile_session,
+            diagnostics,
+            source_root,
+            app_id,
+            scope,
+            mode,
+            components_root,
+        )
+        .map(|outcome| PersistedCompileIndexReuse {
+            outcome,
+            discovered_scopes: Vec::new(),
+            observed_count: 1,
+        })
+    }) {
+        Ok(reuse) => {
+            let PersistedCompileIndexReuse {
+                outcome,
+                discovered_scopes,
+                observed_count,
+            } = reuse;
+            if !outcome.cache_hit && !outcome.assemble_only {
+                let file = format_scope_file(
+                    scene.as_str(),
+                    target_file.as_str(),
+                    Some(outcome.compiled.active_target_file.as_str()),
+                );
+                prebuild_emit_progress(&format!(
+                    "[{app_id}] 编译 {:.1}s | {label} | scene={scene} | file={file}",
+                    hot_started.elapsed().as_secs_f64(),
+                ));
+            }
+            record_prebuild_scope_compile_with_discovered(
+                source_root,
+                app_id,
+                compile_session,
+                scope,
+                &outcome,
+                Some(discovered_scopes.as_slice()),
+                observed_count,
+                seen_scopes,
+                pending,
+                prepared_outcomes,
+                compile_reports,
+            );
+        }
+        Err(error) => {
+            if mode == PrebuildMode::Verify {
+                return Err(error);
+            }
+            warnings.push(build_prebuild_warning(
+                "compile_scope",
+                scope.requested_scene_id.as_deref(),
+                scope.requested_target_file.as_deref(),
+                None,
+                None,
+                None,
+                None,
+                error.to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn run_prebuild_for_app(
     source_root: &Path,
     app: &RuntimeWarmupApp,
@@ -186,90 +285,91 @@ pub(crate) fn run_prebuild_for_app(
     }
     let hot_total = manifest_plan.hot_scopes.len();
     if !block_scoped {
-    for (idx, scope) in hot_scopes.into_iter().enumerate() {
-        if !seen_scopes.insert(scope.key()) {
-            continue;
-        }
-        let scene = scope.requested_scene_id.clone().unwrap_or_default();
-        let target = scope.requested_target_file.clone().unwrap_or_default();
-        let hot_started = Instant::now();
-        match try_reuse_compile_scope_before_load(
-            compile_session.as_ref(),
-            diagnostics.as_ref(),
-            compile_index.as_ref(),
-            source_root,
-            app.app_id.as_str(),
-            &scope,
-            components_root.as_path(),
-        )
-        .map(Ok)
-        .unwrap_or_else(|| {
-            BlockOrchestrator::compile_scope_for_prebuild(
-                compile_session.as_ref(),
-                diagnostics.as_ref(),
+        let hot_target_plan = build_mcg_target_plan(manifest_plan.hot_scopes.as_slice());
+        for target in hot_target_plan.unique_targets {
+            let Some(group) = hot_target_plan.scopes_by_target.get(&target) else {
+                continue;
+            };
+            let representative = group
+                .iter()
+                .max_by_key(|scope| compile_scope_specificity(scope))
+                .expect("non-empty target group");
+            compile_hot_manifest_scope(
                 source_root,
                 app.app_id.as_str(),
-                &scope,
                 mode,
+                compile_session.as_ref(),
+                diagnostics.as_ref(),
+                compile_index.as_ref(),
                 components_root.as_path(),
-            )
-            .map(|outcome| PersistedCompileIndexReuse {
-                outcome,
-                discovered_scopes: Vec::new(),
-                observed_count: 1,
-            })
-        }) {
-            Ok(reuse) => {
-                let PersistedCompileIndexReuse {
-                    outcome,
-                    discovered_scopes,
-                    observed_count,
-                } = reuse;
-                if !outcome.cache_hit {
-                    let file = format_scope_file(
-                        scene.as_str(),
-                        target.as_str(),
-                        Some(outcome.compiled.active_target_file.as_str()),
-                    );
-                    prebuild_emit_progress(&format!(
-                        "[{}] 编译 {:.1}s | hot {}/{} | scene={scene} | file={file}",
-                        app.app_id,
-                        hot_started.elapsed().as_secs_f64(),
-                        idx + 1,
-                        hot_total
-                    ));
+                representative,
+                "hot-representative",
+                &mut seen_scopes,
+                &mut pending,
+                &mut prepared_outcomes,
+                &mut compile_reports,
+                &mut warnings,
+            )?;
+            for alias in group {
+                if alias.key() == representative.key() {
+                    continue;
                 }
-                record_prebuild_scope_compile_with_discovered(
-                    source_root,
-                    app.app_id.as_str(),
-                    compile_session.as_ref(),
-                    &scope,
-                    &outcome,
-                    Some(discovered_scopes.as_slice()),
-                    observed_count,
-                    &mut seen_scopes,
-                    &mut pending,
-                    &mut prepared_outcomes,
-                    &mut compile_reports,
-                );
+                if !seen_scopes.contains(&alias.key()) {
+                    if let Some(base) = compile_session
+                        .lock()
+                        .expect("prebuild compile session lock")
+                        .try_reuse_base_for_target(target.as_str())
+                    {
+                        let alias_outcome = scope_assembled_outcome(
+                            source_root,
+                            app.app_id.as_str(),
+                            &base,
+                            alias,
+                            Some(diagnostics.as_ref()),
+                        );
+                        compile_session
+                            .lock()
+                            .expect("prebuild compile session lock")
+                            .register(source_root, app.app_id.as_str(), alias, alias_outcome.clone());
+                        record_prebuild_scope_compile_with_discovered(
+                            source_root,
+                            app.app_id.as_str(),
+                            compile_session.as_ref(),
+                            alias,
+                            &alias_outcome,
+                            Some(&[] as &[CompileScope]),
+                            1,
+                            &mut seen_scopes,
+                            &mut pending,
+                            &mut prepared_outcomes,
+                            &mut compile_reports,
+                        );
+                    } else {
+                        compile_hot_manifest_scope(
+                            source_root,
+                            app.app_id.as_str(),
+                            mode,
+                            compile_session.as_ref(),
+                            diagnostics.as_ref(),
+                            compile_index.as_ref(),
+                            components_root.as_path(),
+                            alias,
+                            "hot-alias",
+                            &mut seen_scopes,
+                            &mut pending,
+                            &mut prepared_outcomes,
+                            &mut compile_reports,
+                            &mut warnings,
+                        )?;
+                    }
+                }
             }
-            Err(error) => {
-                if mode == PrebuildMode::Verify {
-                    return Err(error);
-                }
-                warnings.push(build_prebuild_warning(
-                    "compile_scope",
-                    scope.requested_scene_id.as_deref(),
-                    scope.requested_target_file.as_deref(),
-                    None,
-                    None,
-                    None,
-                    None,
-                    error.to_string(),
-                ));
+            if let Ok(mut session) = compile_session.lock() {
+                session.evict_non_canonical_for_target(target.as_str());
+                diagnostics.note_session_identity_peak(session.peak_identity_entries);
             }
         }
-    }
+        let _ = hot_total;
     let deferred_total = deferred_scopes.len();
     if effective_profile == PrebuildScopeProfile::Full {
         for (idx, scope) in deferred_scopes.into_iter().enumerate() {
@@ -374,11 +474,7 @@ pub(crate) fn run_prebuild_for_app(
                 &mut compile_reports,
             );
         }
-        let compile_groups = group_scopes_by_compile_cache_key(
-            source_root,
-            app.app_id.as_str(),
-            to_compile_after_index,
-        );
+        let compile_groups = group_scopes_by_compile_target(to_compile_after_index);
         let unique_keys = compile_groups.len();
         prebuild_emit_progress(&format!(
             "[{}] 编译 batch-{batch_idx} | 本批 {batch_size} scope | 入队深度 {queue_depth} | 累计已完成 {scopes_completed_before_batch} | session 复用 {session_hit_count} | index 复用 {index_hit_count} | 唯一 cache key {unique_keys}",
@@ -486,8 +582,13 @@ pub(crate) fn run_prebuild_for_app(
                 &mut compile_reports,
             );
             for alias in aliases {
-                let alias_outcome =
-                    scope_assembled_outcome(source_root, app.app_id.as_str(), outcome, &alias);
+                let alias_outcome = scope_assembled_outcome(
+                    source_root,
+                    app.app_id.as_str(),
+                    outcome,
+                    &alias,
+                    Some(diagnostics.as_ref()),
+                );
                 compile_session
                     .lock()
                     .expect("prebuild compile session lock")

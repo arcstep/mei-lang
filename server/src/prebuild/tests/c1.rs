@@ -40,6 +40,7 @@ pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> Shar
         }),
         cache_hit: true,
         artifact_cache_hit: true,
+        assemble_only: false,
         compile_revision: "rev-a".to_string(),
         cache_lookup_ms: 0,
         artifact_load_ms: 0,

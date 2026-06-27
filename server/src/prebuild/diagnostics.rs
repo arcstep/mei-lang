@@ -7,8 +7,8 @@ pub(crate) fn build_prebuild_diagnostics_report(
     diagnostics: &PrebuildDiagnostics,
     plan_nodes: PrebuildPlanNodeStatsReport,
     canonical_identity_count: usize,
-    session_entries_before_clear: (usize, usize, usize),
-    session_entries_after_clear: (usize, usize, usize),
+    session_entries_before_clear: (usize, usize, usize, usize),
+    session_entries_after_clear: (usize, usize, usize, usize),
     warmup_reuse_hits: usize,
     critical_warmup_total_count: usize,
     critical_warmup_executed_count: usize,
@@ -22,7 +22,11 @@ pub(crate) fn build_prebuild_diagnostics_report(
     deferred_warmup_ok: bool,
 ) -> PrebuildDiagnosticsReport {
     let total_scope_checks = reports.len();
-    let real_compile_count = reports.iter().filter(|report| !report.cache_hit).count();
+    let assemble_only_count = reports.iter().filter(|report| report.assemble_only).count();
+    let real_compile_count = reports
+        .iter()
+        .filter(|report| !report.cache_hit && !report.assemble_only)
+        .count();
     let cache_hit_count = reports.iter().filter(|report| report.cache_hit).count();
     let cache_probe_ms: u64 = reports
         .iter()
@@ -70,6 +74,16 @@ pub(crate) fn build_prebuild_diagnostics_report(
         .load(Ordering::Relaxed);
     let mrg_eval_skips = diagnostics.mrg_eval_skips.load(Ordering::Relaxed);
     let dataframe_eval_skips = diagnostics.dataframe_eval_skips.load(Ordering::Relaxed);
+    let target_overlay_reuse_hits = diagnostics
+        .compile_target_overlay_reuse_hits
+        .load(Ordering::Relaxed);
+    let mcg_assemble_only_count = diagnostics
+        .mcg_assemble_only_count
+        .load(Ordering::Relaxed);
+    let session_peak_identity_entries = diagnostics
+        .session_peak_identity_entries
+        .load(Ordering::Relaxed);
+    let hydrate_reuse_hits = diagnostics.hydrate_reuse_hits.load(Ordering::Relaxed);
     let eval_root = mei_lang_kernel::resolve_app_var_root(app_root).join("eval-results");
     let response_dir = eval_root.join("results").join("metric-response");
     let dataframe_dir = eval_root.join("results").join("metric-dataframe");
@@ -114,6 +128,7 @@ pub(crate) fn build_prebuild_diagnostics_report(
     PrebuildDiagnosticsReport {
         total_scope_checks,
         real_compile_count,
+        assemble_only_count,
         cache_hit_count,
         unique_compile_result_count,
         canonical_identity_count,
@@ -123,6 +138,8 @@ pub(crate) fn build_prebuild_diagnostics_report(
         compile_miss_ms,
         current_rss_bytes,
         peak_rss_bytes,
+        session_peak_identity_entries,
+        hydrate_reuse_hits,
         eval_artifacts_disk: PrebuildEvalArtifactDiskReport {
             total: disk_usage_report(dir_size_summary(eval_root.as_path())),
             metric_response: disk_usage_report(dir_size_summary(response_dir.as_path())),
@@ -140,16 +157,20 @@ pub(crate) fn build_prebuild_diagnostics_report(
             artifact_loads_avoided,
             mrg_eval_skips,
             dataframe_eval_skips,
+            target_overlay_reuse_hits,
+            mcg_assemble_only_count,
         },
         session_before_clear: PrebuildSessionEntryStatsReport {
             scope_entries: session_entries_before_clear.0,
             cache_entries: session_entries_before_clear.1,
             identity_entries: session_entries_before_clear.2,
+            target_entries: session_entries_before_clear.3,
         },
         session_after_clear: PrebuildSessionEntryStatsReport {
             scope_entries: session_entries_after_clear.0,
             cache_entries: session_entries_after_clear.1,
             identity_entries: session_entries_after_clear.2,
+            target_entries: session_entries_after_clear.3,
         },
         warmup_reuse_hits,
         plan_nodes,
@@ -227,18 +248,33 @@ pub(crate) fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> Preb
         aggregate.compile_index.mrg_eval_skips += diagnostics.compile_index.mrg_eval_skips;
         aggregate.compile_index.dataframe_eval_skips +=
             diagnostics.compile_index.dataframe_eval_skips;
+        aggregate.compile_index.target_overlay_reuse_hits += diagnostics
+            .compile_index
+            .target_overlay_reuse_hits;
+        aggregate.compile_index.mcg_assemble_only_count += diagnostics
+            .compile_index
+            .mcg_assemble_only_count;
+        aggregate.assemble_only_count += diagnostics.assemble_only_count;
+        aggregate.session_peak_identity_entries = aggregate
+            .session_peak_identity_entries
+            .max(diagnostics.session_peak_identity_entries);
+        aggregate.hydrate_reuse_hits += diagnostics.hydrate_reuse_hits;
         aggregate.session_before_clear.scope_entries +=
             diagnostics.session_before_clear.scope_entries;
         aggregate.session_before_clear.cache_entries +=
             diagnostics.session_before_clear.cache_entries;
         aggregate.session_before_clear.identity_entries +=
             diagnostics.session_before_clear.identity_entries;
+        aggregate.session_before_clear.target_entries +=
+            diagnostics.session_before_clear.target_entries;
         aggregate.session_after_clear.scope_entries +=
             diagnostics.session_after_clear.scope_entries;
         aggregate.session_after_clear.cache_entries +=
             diagnostics.session_after_clear.cache_entries;
         aggregate.session_after_clear.identity_entries +=
             diagnostics.session_after_clear.identity_entries;
+        aggregate.session_after_clear.target_entries +=
+            diagnostics.session_after_clear.target_entries;
         aggregate.warmup_reuse_hits += diagnostics.warmup_reuse_hits;
         aggregate.plan_nodes.manifest_compile_scope_nodes +=
             diagnostics.plan_nodes.manifest_compile_scope_nodes;

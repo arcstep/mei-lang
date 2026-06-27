@@ -13,8 +13,8 @@ pub(crate) fn emit_prebuild_optimization_report(
     max_parallelism: usize,
     warning_count: usize,
     canonical_identity_count: usize,
-    session_entries_before_clear: (usize, usize, usize),
-    session_entries_after_clear: (usize, usize, usize),
+    session_entries_before_clear: (usize, usize, usize, usize),
+    session_entries_after_clear: (usize, usize, usize, usize),
     warmup_reuse_hits: usize,
 ) {
     diagnostics.sample_memory_peak();
@@ -94,14 +94,16 @@ pub(crate) fn emit_prebuild_optimization_report(
         "■ 数量统计 | 编译检查 {total_checks} | 唯一编译结果 {unique_active} | 展开倍率 {expansion_ratio:.1}x | 冗余检查约 {redundant_checks}"
     ));
     prebuild_emit_progress(format!(
-        "  RSS 相关 | canonical outcomes {} | session(before) scope/cache/identity = {}/{}/{} | session(after) = {}/{}/{} | warmup 直接复用 {}",
+        "  RSS 相关 | canonical outcomes {} | session(before) scope/cache/identity/target = {}/{}/{}/{} | session(after) = {}/{}/{}/{} | warmup 直接复用 {}",
         canonical_identity_count,
         session_entries_before_clear.0,
         session_entries_before_clear.1,
         session_entries_before_clear.2,
+        session_entries_before_clear.3,
         session_entries_after_clear.0,
         session_entries_after_clear.1,
         session_entries_after_clear.2,
+        session_entries_after_clear.3,
         warmup_reuse_hits
     ));
     prebuild_emit_progress(format!(

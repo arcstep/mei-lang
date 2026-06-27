@@ -47,6 +47,8 @@ pub struct PrebuildScopeReport {
     pub active_target_file: String,
     pub cache_hit: bool,
     pub artifact_cache_hit: bool,
+    #[serde(default)]
+    pub assemble_only: bool,
     pub compile_revision: String,
     pub cache_lookup_ms: u64,
     pub artifact_load_ms: u64,
@@ -121,6 +123,10 @@ pub struct PrebuildCompileIndexStatsReport {
     pub mrg_eval_skips: usize,
     #[serde(default)]
     pub dataframe_eval_skips: usize,
+    #[serde(default)]
+    pub target_overlay_reuse_hits: usize,
+    #[serde(default)]
+    pub mcg_assemble_only_count: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -128,6 +134,8 @@ pub struct PrebuildSessionEntryStatsReport {
     pub scope_entries: usize,
     pub cache_entries: usize,
     pub identity_entries: usize,
+    #[serde(default)]
+    pub target_entries: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -181,6 +189,8 @@ pub struct PrebuildWarmupDiagnosticReport {
 pub struct PrebuildDiagnosticsReport {
     pub total_scope_checks: usize,
     pub real_compile_count: usize,
+    #[serde(default)]
+    pub assemble_only_count: usize,
     pub cache_hit_count: usize,
     pub unique_compile_result_count: usize,
     pub canonical_identity_count: usize,
@@ -190,6 +200,10 @@ pub struct PrebuildDiagnosticsReport {
     pub compile_miss_ms: u64,
     pub current_rss_bytes: Option<u64>,
     pub peak_rss_bytes: u64,
+    #[serde(default)]
+    pub session_peak_identity_entries: usize,
+    #[serde(default)]
+    pub hydrate_reuse_hits: u64,
     pub eval_artifacts_disk: PrebuildEvalArtifactDiskReport,
     pub compile_index: PrebuildCompileIndexStatsReport,
     pub session_before_clear: PrebuildSessionEntryStatsReport,

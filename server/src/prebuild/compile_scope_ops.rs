@@ -162,16 +162,45 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
+        if let Some(base) = session
+            .lock()
+            .expect("prebuild compile session lock")
+            .try_reuse_base_for_target(target)
+        {
+            if !compile_outcome_matches_scope(scope, base.compiled.as_ref()) {
+                let assembled =
+                    scope_assembled_outcome(source_root, app_id, &base, scope, Some(diagnostics));
+                session
+                    .lock()
+                    .expect("prebuild compile session lock")
+                    .register(source_root, app_id, scope, assembled.clone());
+                ensure_mcg_scene_payload_for_scope(source_root, app_id, scope, &assembled, mode);
+                return Ok(assembled);
+            }
+        }
+    }
+
+    if let Some(target) = scope
+        .canonicalized()
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         if let Some((compiled, compile_revision)) = crate::graph::try_assemble_scope_from_scene_payload(
             source_root,
             app_id,
             scope.canonicalized().requested_scene_id.as_deref(),
             target,
         ) {
+            diagnostics
+                .mcg_assemble_only_count
+                .fetch_add(1, Ordering::Relaxed);
             let outcome = SharedCompileOutcome {
                 compiled: Arc::new(compiled),
                 cache_hit: true,
                 artifact_cache_hit: false,
+                assemble_only: true,
                 compile_revision,
                 cache_lookup_ms: 0,
                 artifact_load_ms: 0,
@@ -368,13 +397,17 @@ pub(crate) fn fill_manifest_prepared_outcomes(
         .iter()
         .map(|prepared| prepared.scope.key())
         .collect::<BTreeSet<_>>();
-    let fallback_base = compile_session
-        .lock()
-        .expect("prebuild compile session lock")
-        .by_identity
-        .values()
-        .max_by_key(|outcome| (outcome.compile_ms, !outcome.cache_hit))
-        .cloned();
+    let fallback_base = {
+        let session = compile_session
+            .lock()
+            .expect("prebuild compile session lock");
+        session
+            .by_target_identity
+            .values()
+            .chain(session.by_identity.values())
+            .max_by_key(|outcome| (outcome.compile_ms, !outcome.cache_hit))
+            .cloned()
+    };
     let Some(fallback_base) = fallback_base else {
         return;
     };
@@ -385,7 +418,8 @@ pub(crate) fn fill_manifest_prepared_outcomes(
         if !seen_scopes.insert(scope.key()) {
             continue;
         }
-        let assembled = scope_assembled_outcome(source_root, app_id, &fallback_base, scope);
+        let assembled =
+            scope_assembled_outcome(source_root, app_id, &fallback_base, scope, None);
         compile_session
             .lock()
             .expect("prebuild compile session lock")
@@ -429,7 +463,7 @@ pub(crate) fn unique_prepared_outcomes_for_artifacts(
 ) -> Vec<PreparedCompileOutcome> {
     let mut best_by_identity = BTreeMap::<String, PreparedCompileOutcome>::new();
     for prepared in prepared_outcomes {
-        let identity = compiled_scope_identity(&prepared.outcome);
+        let identity = compiled_artifact_identity(&prepared.outcome);
         match best_by_identity.get(&identity) {
             Some(existing) => {
                 if compile_scope_specificity(&prepared.scope)

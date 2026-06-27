@@ -149,13 +149,15 @@ pub(crate) fn finish_run_prebuild_for_app(
     }
     let canonical_identity_count = artifact_outcomes.len();
     let session_entries_before_clear = if let Ok(session) = compile_session.lock() {
+        diagnostics.note_session_identity_peak(session.peak_identity_entries);
         (
             session.by_scope_key.len(),
             session.by_compile_cache_key.len(),
             session.by_identity.len(),
+            session.by_target_identity.len(),
         )
     } else {
-        (0, 0, 0)
+        (0, 0, 0, 0)
     };
     let session_entries_after_clear = if let Ok(mut session) = compile_session.lock() {
         session.clear_runtime_maps();
@@ -163,9 +165,10 @@ pub(crate) fn finish_run_prebuild_for_app(
             session.by_scope_key.len(),
             session.by_compile_cache_key.len(),
             session.by_identity.len(),
+            session.by_target_identity.len(),
         )
     } else {
-        (0, 0, 0)
+        (0, 0, 0, 0)
     };
     drop(compile_session);
     drop(prepared_outcomes);
@@ -520,6 +523,10 @@ pub(crate) fn finish_run_prebuild_for_app(
         );
     }
     let warmup_requests_ms = critical_warmup_requests_ms + deferred_warmup_requests_ms;
+    diagnostics.hydrate_reuse_hits.store(
+        mei_lang_kernel::dataset_materialize_cache_hit_count(),
+        Ordering::Relaxed,
+    );
     let mut diagnostics_report = build_prebuild_diagnostics_report(
         app_root.as_path(),
         compile_reports.as_slice(),

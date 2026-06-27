@@ -274,6 +274,7 @@ fn cached_load_xlsx_table_snapshot_with_key(
     header_row: usize,
 ) -> Result<(Arc<XlsxTableSnapshot>, bool)> {
     if let Some(snapshot) = take_xlsx_table_snapshot_cache(key) {
+        XLSX_TABLE_SNAPSHOT_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
         return Ok((snapshot, true));
     }
 
@@ -365,6 +366,13 @@ pub(crate) fn dataset_materialize_cache_metrics_snapshot() -> (u64, u64) {
         LEGACY_ROWS_CACHE_MISSES.load(Ordering::Relaxed),
     )
 }
+
+pub fn dataset_materialize_cache_hit_count() -> u64 {
+    LEGACY_ROWS_CACHE_HITS.load(Ordering::Relaxed)
+        + XLSX_TABLE_SNAPSHOT_CACHE_HITS.load(Ordering::Relaxed)
+}
+
+static XLSX_TABLE_SNAPSHOT_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn clear_materialize_cache() {
     if let Ok(mut c) = LEGACY_ROWS_CACHE.lock() {

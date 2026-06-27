@@ -80,6 +80,27 @@ fn unique_prepared_outcomes_prefers_scene_scoped_compile_scope() {
 }
 
 #[test]
+fn unique_prepared_outcomes_collapses_board_scene_aliases() {
+    let prepared = vec![
+        PreparedCompileOutcome {
+            scope: CompileScope {
+                requested_scene_id: Some("board_a".to_string()),
+                requested_target_file: Some("scenes/x.board.mei".to_string()),
+            },
+            outcome: test_outcome("board_a", "scenes/x.board.mei"),
+        },
+        PreparedCompileOutcome {
+            scope: CompileScope {
+                requested_scene_id: Some("board_b".to_string()),
+                requested_target_file: Some("scenes/x.board.mei".to_string()),
+            },
+            outcome: test_outcome("board_b", "scenes/x.board.mei"),
+        },
+    ];
+    assert_eq!(unique_prepared_outcomes_for_artifacts(&prepared).len(), 1);
+}
+
+#[test]
 fn observed_count_replays_reports_without_dup_prepared_outcomes() {
     let scope = CompileScope {
         requested_scene_id: Some("home".to_string()),

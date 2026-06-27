@@ -51,6 +51,7 @@ pub use compile::{
     compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
     compile_scene_from_build_node, compile_scene_from_build_node_with_app,
     data_snapshot_import_manifest_path, data_snapshot_store_root, dataset_materialize_cache_epoch,
+    dataset_materialize_cache_hit_count,
     default_build_node_for_compiled, enrich_reachability_tree_compile_coords,
     evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_plan_and_dag,
     evaluate_runtime_metric_defs_with_scope, evaluate_runtime_metric_defs_with_scope_and_dag,

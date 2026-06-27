@@ -567,6 +567,7 @@ pub(crate) fn scope_report_from_outcome(
         active_target_file: outcome.compiled.active_target_file.clone(),
         cache_hit: outcome.cache_hit,
         artifact_cache_hit: outcome.artifact_cache_hit,
+        assemble_only: outcome.assemble_only,
         compile_revision: outcome.compile_revision.clone(),
         cache_lookup_ms: outcome.cache_lookup_ms,
         artifact_load_ms: outcome.artifact_load_ms,

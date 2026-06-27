@@ -261,3 +261,102 @@ fn resolve_value_supports_data_and_metric_refs() {
     );
 }
 
+#[test]
+fn resolve_value_resolves_namespaced_world_metric_against_flat_ledger_key() {
+    use mei_lang_kernel::WorldMetricLedgerEntry;
+
+    let scene_contract = SceneContract {
+        scene: SceneDecl {
+            kind: "scene".to_string(),
+            id: "home".to_string(),
+            world: None,
+            flow: None,
+            frame: None,
+            profile: None,
+            theme: None,
+            summary: None,
+            goal: None,
+            state: json!({}),
+            shared: json!({}),
+            local_nav: serde_json::json!({}),
+            params: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
+            access_export: true,
+        },
+        themes: vec![],
+        shared: json!({}),
+        world: None,
+        flow: None,
+        frame: None,
+        panels: vec![],
+    };
+    let mut compiled = CompiledApp {
+        app_id: "data-demo".to_string(),
+        title: String::new(),
+        app_root: String::new(),
+        active_scene: Some("home".to_string()),
+        active_target_file: "src/scenes/home.mei".to_string(),
+        scene_routes: Vec::new(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::from([(
+            "supervision_items_count".to_string(),
+            WorldMetricLedgerEntry {
+                id: "supervision_items_count".to_string(),
+                owner_resource_id: "__world_metrics__".to_string(),
+                order: 1,
+                metric: MetricContract {
+                    id: "supervision_items_count".to_string(),
+                    label: Some("监督事项".to_string()),
+                    unit: Some("项".to_string()),
+                    value_format: None,
+                    purpose: None,
+                    shape: MetricShape::Scalar,
+                    schema: Vec::new(),
+                    dataset: None,
+                    transforms: Vec::new(),
+                    value: json!({"value": 21}),
+                },
+            },
+        )]),
+        world_semantic_by_file: Default::default(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+    };
+    let resources = build_runtime_resource_map(&compiled);
+    let resource_index = build_runtime_resource_index(&compiled);
+    let scene_anchor = RuntimeSceneAnchor::for_preview(
+        &compiled,
+        Some("src/scenes/home.mei"),
+        Some("home"),
+    );
+    let metric_ref = json!({
+        "__ref": "metric",
+        "id": "scenes/05-监督预警.mei::supervision_items_count"
+    });
+    let resolved = resolve_value(
+        &metric_ref,
+        &json!({}),
+        &scene_contract,
+        &resources,
+        &scene_anchor,
+        &resource_index,
+        &compiled,
+        true,
+    );
+    assert_eq!(
+        resolved.get("id").and_then(|value| value.as_str()),
+        Some("supervision_items_count")
+    );
+    assert!(resolved.get("__mei_runtime_ref").is_some());
+}
+

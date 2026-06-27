@@ -14,7 +14,7 @@ use crate::graph::mcg::metric_def_bundle::{
     extract_metric_def_bundles, persist_metric_def_bundle, DatasetRuntimePayloadView,
     MetricDefBundleRecord, METRIC_DEF_BUNDLE_ARTIFACT_SCHEMA,
 };
-use crate::graph::mcg::app_skeleton::{app_skeleton_revision, persist_app_skeleton_artifact};
+use crate::graph::mcg::app_skeleton::{app_skeleton_revision, load_app_skeleton_artifact, persist_app_skeleton_artifact};
 use crate::graph::mcg::panel_contract::{extract_panel_contracts, partial_assemble_panel_merge, persist_panel_contracts};
 use crate::graph::mcg::registry::{AssemblyInputRef, McgEdgeRecord, McgNodeRecord, McgRegistryWriter};
 use crate::graph::mcg::scene_payload::{
@@ -112,38 +112,71 @@ pub fn update_mcg_after_compile(
         });
     }
 
-    let is_world_compile = options
-        .preview_target
-        .as_deref()
-        .map(str::trim)
-        .is_none_or(str::is_empty)
-        && options
-            .scene
-            .as_deref()
-            .map(str::trim)
-            .is_none_or(str::is_empty);
-    if is_world_compile {
-        let sk_rev = app_skeleton_revision(dependency_fingerprint);
-        if let Ok(persisted) =
-            persist_app_skeleton_artifact(app_root.as_path(), sk_rev.as_str(), compiled)
+    let sk_rev = app_skeleton_revision(dependency_fingerprint);
+    let mut skeleton_compiled = compiled.clone();
+    if let Some(existing_node) = registry
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::AppSkeleton)
+    {
+        if let Some(hash) = existing_node
+            .payload_ref
+            .as_ref()
+            .map(|payload| payload.content_hash.as_str())
+            .filter(|hash| !hash.is_empty())
         {
-            registry.upsert_node(McgNodeRecord {
-                id: GraphNodeId::new(GraphNodeKind::AppSkeleton, app_id.to_string()),
-                revision: sk_rev,
-                state: MaterialState::Ready,
-                layer: "compile".to_string(),
-                payload_ref: Some(PayloadRef::new(
-                    APP_SKELETON,
-                    persisted.content_hash,
-                    super::app_skeleton::APP_SKELETON_ARTIFACT_SCHEMA,
-                )),
-                deps: Vec::new(),
-                defs_fingerprint: None,
-                owner_resource_id: None,
-                assembly_inputs: Vec::new(),
-                stats: None,
-            });
+            if let Ok(Some(existing_sk)) =
+                load_app_skeleton_artifact(app_root.as_path(), hash)
+            {
+                let mut donor = CompiledApp {
+                    app_id: app_id.to_string(),
+                    title: String::new(),
+                    app_root: String::new(),
+                    active_scene: None,
+                    active_target_file: String::new(),
+                    scene_routes: Vec::new(),
+                    file_tree: Vec::new(),
+                    scene_contract: None,
+                    scene_local_nav_by_target: Default::default(),
+                    scene_bindings_by_id: Default::default(),
+                    scene_examples_by_id: Default::default(),
+                    scene_projection_assembly_by_id: Default::default(),
+                    resources: Vec::new(),
+                    world_metrics: Default::default(),
+                    world_semantic_by_file: Default::default(),
+                    component_assets: Vec::new(),
+                    diagnostics: Vec::new(),
+                    build_experience_index: Default::default(),
+                    build_board_index: Default::default(),
+                    build_template_index: Default::default(),
+                };
+                super::app_skeleton::merge_app_skeleton_into_compiled(&mut donor, &existing_sk);
+                crate::graph::integration::merge_compiled_runtime_catalog(
+                    &mut skeleton_compiled,
+                    &donor,
+                );
+            }
         }
+    }
+    if let Ok(persisted) =
+        persist_app_skeleton_artifact(app_root.as_path(), sk_rev.as_str(), &skeleton_compiled)
+    {
+        registry.upsert_node(McgNodeRecord {
+            id: GraphNodeId::new(GraphNodeKind::AppSkeleton, app_id.to_string()),
+            revision: sk_rev.clone(),
+            state: MaterialState::Ready,
+            layer: "compile".to_string(),
+            payload_ref: Some(PayloadRef::new(
+                APP_SKELETON,
+                persisted.content_hash,
+                super::app_skeleton::APP_SKELETON_ARTIFACT_SCHEMA,
+            )),
+            deps: Vec::new(),
+            defs_fingerprint: None,
+            owner_resource_id: None,
+            assembly_inputs: Vec::new(),
+            stats: None,
+        });
     }
 
     let mut bundle_inputs = Vec::new();
@@ -340,7 +373,7 @@ fn assembly_view_key(options: &mei_lang_kernel::CompileOptions, compile_revision
 }
 
 fn scene_payload_value(compiled: &CompiledApp) -> Value {
-    super::scene_payload::scene_payload_value_from_compiled(compiled)
+    super::scene_payload::scene_payload_value_for_persist(compiled)
 }
 
 fn panel_only_scene_payload_compiled(
@@ -357,7 +390,13 @@ fn panel_only_scene_payload_compiled(
     else {
         return compiled.clone();
     };
-    let Ok(base) = serde_json::from_value::<CompiledApp>(previous.payload) else {
+    let app_root_str = app_root.display().to_string();
+    let Some(base) = super::scene_payload::compiled_from_scene_payload_artifact(
+        &previous,
+        None,
+        compiled.app_id.as_str(),
+        app_root_str.as_str(),
+    ) else {
         return compiled.clone();
     };
     let scene_id = compiled

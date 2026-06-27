@@ -6,7 +6,10 @@ pub(crate) struct PrebuildCompileSession {
     pub(crate) by_scope_key: BTreeMap<String, SharedCompileOutcome>,
     pub(crate) by_compile_cache_key: BTreeMap<String, SharedCompileOutcome>,
     pub(crate) by_identity: BTreeMap<String, SharedCompileOutcome>,
+    /// One canonical compile outcome per `(target_file|compile_revision)`.
+    pub(crate) by_target_identity: BTreeMap<String, SharedCompileOutcome>,
     pub(crate) discovered_scope_keys: BTreeSet<String>,
+    pub(crate) peak_identity_entries: usize,
     /// Each `.board.mei` target is expanded at most once per prebuild compile phase.
     pub(crate) expanded_board_targets: BTreeSet<String>,
     /// When set, discover expansion only keeps scopes for these scene ids (+ target-only scopes).
@@ -45,7 +48,48 @@ impl PrebuildCompileSession {
         self.by_compile_cache_key
             .entry(cache_key)
             .or_insert_with(|| outcome.clone());
-        self.by_identity.entry(identity).or_insert(outcome);
+        self.by_identity.entry(identity).or_insert(outcome.clone());
+        let target_identity = compiled_target_identity(&outcome);
+        if !target_identity.is_empty() {
+            self.by_target_identity
+                .entry(target_identity)
+                .or_insert(outcome);
+        }
+        self.peak_identity_entries = self.peak_identity_entries.max(self.by_identity.len());
+    }
+
+    /// Drop identity/scope entries for other targets after a target group completes compile.
+    pub(crate) fn evict_non_canonical_for_target(&mut self, keep_target: &str) {
+        let keep_target = keep_target.trim();
+        if keep_target.is_empty() {
+            return;
+        }
+        let prefix = format!("{keep_target}|");
+        self.by_identity.retain(|_, outcome| {
+            let target_identity = compiled_target_identity(outcome);
+            target_identity.is_empty() || target_identity.starts_with(prefix.as_str())
+        });
+        self.by_scope_key.retain(|_, outcome| {
+            let target_identity = compiled_target_identity(outcome);
+            target_identity.is_empty() || target_identity.starts_with(prefix.as_str())
+        });
+        self.by_compile_cache_key.retain(|_, outcome| {
+            let target_identity = compiled_target_identity(outcome);
+            target_identity.is_empty() || target_identity.starts_with(prefix.as_str())
+        });
+        self.peak_identity_entries = self.peak_identity_entries.max(self.by_identity.len());
+    }
+
+    pub(crate) fn try_reuse_base_for_target(&self, target_file: &str) -> Option<SharedCompileOutcome> {
+        let target = target_file.trim();
+        if target.is_empty() {
+            return None;
+        }
+        let prefix = format!("{target}|");
+        self.by_target_identity
+            .iter()
+            .find(|(key, _)| key.starts_with(prefix.as_str()))
+            .map(|(_, outcome)| outcome.clone())
     }
 
     pub(crate) fn try_reuse(
@@ -82,6 +126,7 @@ impl PrebuildCompileSession {
         self.by_scope_key.clear();
         self.by_compile_cache_key.clear();
         self.by_identity.clear();
+        self.by_target_identity.clear();
     }
 
     pub(crate) fn filter_board_discovered_scopes(
@@ -171,22 +216,27 @@ pub(crate) fn is_board_export_scope(scope: &CompileScope, board_file: &str) -> b
             .is_some_and(|scene| !scene.is_empty())
 }
 
-pub(crate) fn group_scopes_by_compile_cache_key(
-    source_root: &Path,
-    app_id: &str,
+pub(crate) fn group_scopes_by_compile_target(
     scopes: Vec<CompileScope>,
 ) -> Vec<(CompileScope, Vec<CompileScope>)> {
     let mut groups: BTreeMap<String, (CompileScope, Vec<CompileScope>)> = BTreeMap::new();
     for scope in scopes {
-        let cache_key = toolchain::compile_cache_key(source_root, app_id, &scope.to_options());
-        match groups.get_mut(&cache_key) {
-            Some((representative, aliases)) if representative.key() != scope.key() => {
-                aliases.push(scope);
+        let target_key = super::mcg_target_plan::compile_target_key(&scope);
+        match groups.get_mut(&target_key) {
+            Some((representative, aliases)) => {
+                if representative.key() == scope.key() {
+                    continue;
+                }
+                if compile_scope_specificity(&scope) < compile_scope_specificity(representative) {
+                    aliases.push(representative.clone());
+                    *representative = scope;
+                } else {
+                    aliases.push(scope);
+                }
             }
             None => {
-                groups.insert(cache_key, (scope, Vec::new()));
+                groups.insert(target_key, (scope, Vec::new()));
             }
-            _ => {}
         }
     }
     groups.into_values().collect()
@@ -378,6 +428,7 @@ pub(crate) fn mark_prebuild_session_reuse(outcome: &SharedCompileOutcome) -> Sha
         compiled: Arc::clone(&outcome.compiled),
         cache_hit: true,
         artifact_cache_hit: true,
+        assemble_only: outcome.assemble_only,
         compile_revision: outcome.compile_revision.clone(),
         cache_lookup_ms: 0,
         artifact_load_ms: 0,

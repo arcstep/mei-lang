@@ -4,7 +4,12 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use mei_lang_kernel::{resolve_app_root, CompiledApp, CompileOptions, DatasetView, LoadedResource, SourceDecl};
+use serde_json::Value;
+
+use mei_lang_kernel::{
+    resolve_app_root, ColumnSchema, CompiledApp, CompileOptions, DatasetView, LoadedResource,
+    MetricContract, MetricShape, SourceDecl, WorldMetricLedgerEntry,
+};
 
 use crate::graph::dedup::load_mcg_bundle_revisions;
 use crate::graph::feature::{graph_registry_dedup_enabled, graph_registry_enabled};
@@ -14,7 +19,7 @@ use crate::graph::mcg::metric_def_bundle::{
 };
 use crate::graph::mcg::panel_contract::{load_panel_contracts_from_store, partial_assemble_panel_merge};
 use crate::graph::mcg::registry::McgRegistryWriter;
-use crate::graph::mcg::app_skeleton::{load_app_skeleton_artifact, merge_app_skeleton_into_compiled};
+use crate::graph::mcg::app_skeleton::load_app_skeleton_artifact;
 use crate::graph::content_store::{self, SCENE_PAYLOAD};
 use crate::graph::mcg::scene_payload::load_scene_payload_artifact;
 use crate::graph::mcg::update::update_mcg_after_compile;
@@ -165,6 +170,136 @@ fn hydrate_imported_world_metrics_resources_from_mcg(
     }
 }
 
+fn metric_shape_from_runtime_def(def: &Value) -> MetricShape {
+    match def.get("shape").and_then(Value::as_str) {
+        Some("dataframe") => MetricShape::Dataframe,
+        Some("series") => MetricShape::Series,
+        Some("scalar") => MetricShape::Scalar,
+        _ => MetricShape::Scalar,
+    }
+}
+
+fn metric_stub_from_runtime_def(def: &Value) -> MetricContract {
+    let id = def
+        .get("key")
+        .or_else(|| def.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let schema = def
+        .get("schema")
+        .and_then(|value| serde_json::from_value::<Vec<ColumnSchema>>(value.clone()).ok())
+        .unwrap_or_default();
+    MetricContract {
+        id: id.clone(),
+        label: def
+            .get("label")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        unit: def
+            .get("unit")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        purpose: None,
+        shape: metric_shape_from_runtime_def(def),
+        schema,
+        dataset: None,
+        transforms: Vec::new(),
+        value: serde_json::Value::Null,
+        value_format: None,
+    }
+}
+
+fn should_hydrate_runtime_metric_def_key(metric_id: &str, def: &Value) -> bool {
+    if metric_id.contains("__scalar_rowset__") {
+        return false;
+    }
+    if def
+        .get("analysis_inferred_scalar_rowset")
+        .and_then(Value::as_bool)
+        .is_some_and(|flag| flag)
+    {
+        return false;
+    }
+    true
+}
+
+fn world_metric_ledger_has_key(ledger: &BTreeMap<String, WorldMetricLedgerEntry>, metric_id: &str) -> bool {
+    if ledger.contains_key(metric_id) {
+        return true;
+    }
+    let Some((_, local)) = metric_id.rsplit_once("::") else {
+        return false;
+    };
+    let suffix = format!("::{local}");
+    ledger
+        .keys()
+        .any(|key| key.as_str() == local || key.ends_with(suffix.as_str()))
+}
+
+/// Slim assemble + partial AppSkeleton may omit embedded capsule metrics; rebuild ledger stubs from MCG bundles.
+fn hydrate_world_metric_ledger_from_mcg_bundles(
+    app_root: &Path,
+    mcg: &crate::graph::mcg::registry::McgRegistry,
+    compiled: &mut CompiledApp,
+) {
+    let mut order = compiled
+        .world_metrics
+        .values()
+        .map(|entry| entry.order)
+        .max()
+        .unwrap_or(0);
+    for node in &mcg.nodes {
+        if node.id.kind != GraphNodeKind::MetricDefBundle {
+            continue;
+        }
+        let owner_id = node.id.key.trim();
+        if !owner_id.starts_with("__world_metrics__") {
+            continue;
+        }
+        let Some(hash) = node
+            .payload_ref
+            .as_ref()
+            .map(|payload| payload.content_hash.as_str())
+            .filter(|hash| !hash.is_empty())
+        else {
+            continue;
+        };
+        let Ok(Some(bundle)) = load_metric_def_bundle(app_root, hash) else {
+            continue;
+        };
+        if bundle.owner_resource_id != owner_id || bundle.runtime_metric_defs.is_empty() {
+            continue;
+        }
+        for (metric_id, def) in &bundle.runtime_metric_defs {
+            if !should_hydrate_runtime_metric_def_key(metric_id, def) {
+                continue;
+            }
+            if world_metric_ledger_has_key(&compiled.world_metrics, metric_id) {
+                if let Some(entry) = compiled.world_metrics.get_mut(metric_id) {
+                    if entry.owner_resource_id != owner_id
+                        && owner_id.starts_with("__world_metrics__::")
+                    {
+                        entry.owner_resource_id = owner_id.to_string();
+                    }
+                }
+                continue;
+            }
+            order += 1;
+            compiled.world_metrics.insert(
+                metric_id.clone(),
+                WorldMetricLedgerEntry {
+                    id: metric_id.clone(),
+                    owner_resource_id: owner_id.to_string(),
+                    order,
+                    metric: metric_stub_from_runtime_def(def),
+                },
+            );
+        }
+    }
+}
+
 /// Capsule scene paths referenced by a compiled scope (embedded panels, world_metrics owners, MCG bundles).
 pub fn embedded_capsule_target_files(
     source_root: &Path,
@@ -242,7 +377,58 @@ fn load_scene_payload_compiled_from_mcg(
     )
     .ok()
     .flatten()?;
-    serde_json::from_value::<CompiledApp>(artifact.payload).ok()
+    let skeleton = mcg
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::AppSkeleton)
+        .and_then(|node| node.payload_ref.as_ref())
+        .and_then(|payload| load_app_skeleton_artifact(app_root, payload.content_hash.as_str()).ok().flatten());
+    let app_root_str = app_root.display().to_string();
+    crate::graph::mcg::scene_payload::compiled_from_scene_payload_artifact(
+        &artifact,
+        skeleton.as_ref(),
+        artifact.payload.get("appId").and_then(|v| v.as_str()).unwrap_or("app"),
+        app_root_str.as_str(),
+    )
+}
+
+fn world_capsule_path_for_scene(capsule: &str) -> Option<String> {
+    let capsule = capsule.trim();
+    if !capsule.ends_with(".mei") || capsule.ends_with(".world.mei") {
+        return None;
+    }
+    let stem = capsule.strip_suffix(".mei")?;
+    Some(mei_lang_kernel::canonical_app_source_rel_path(
+        format!("{stem}.world.mei").as_str(),
+    ))
+}
+
+fn hydrate_runtime_catalog_from_mcg_scene_payloads(
+    app_root: &Path,
+    mcg: &crate::graph::mcg::registry::McgRegistry,
+    compiled: &mut CompiledApp,
+) {
+    for node in &mcg.nodes {
+        if node.id.kind != GraphNodeKind::ScenePayload {
+            continue;
+        }
+        let key = node.id.key.as_str();
+        if !key.contains("scenes/") || key.ends_with(".board.mei") {
+            continue;
+        }
+        if let Some(donor) = load_scene_payload_compiled_from_mcg(app_root, mcg, key) {
+            merge_compiled_runtime_catalog(compiled, &donor);
+        }
+        if key.ends_with(".mei") && !key.ends_with(".world.mei") {
+            if let Some(world_capsule) = world_capsule_path_for_scene(key) {
+                if let Some(donor) =
+                    load_scene_payload_compiled_from_mcg(app_root, mcg, world_capsule.as_str())
+                {
+                    merge_compiled_runtime_catalog(compiled, &donor);
+                }
+            }
+        }
+    }
 }
 
 /// Merge full embedded capsule catalogs (datasets + world_metrics owners) for home assemble.
@@ -252,10 +438,16 @@ fn backfill_embedded_capsule_catalog_from_mcg(
     compiled: &mut CompiledApp,
 ) {
     for capsule in embedded_capsule_targets(compiled, mcg) {
-        let Some(donor) = load_scene_payload_compiled_from_mcg(app_root, mcg, capsule.as_str()) else {
-            continue;
-        };
-        merge_compiled_runtime_catalog(compiled, &donor);
+        if let Some(donor) = load_scene_payload_compiled_from_mcg(app_root, mcg, capsule.as_str()) {
+            merge_compiled_runtime_catalog(compiled, &donor);
+        }
+        if let Some(world_capsule) = world_capsule_path_for_scene(capsule.as_str()) {
+            if let Some(donor) =
+                load_scene_payload_compiled_from_mcg(app_root, mcg, world_capsule.as_str())
+            {
+                merge_compiled_runtime_catalog(compiled, &donor);
+            }
+        }
     }
 }
 
@@ -336,7 +528,7 @@ fn merge_dataset_view(into: &mut DatasetView, donor: &DatasetView) {
     }
 }
 
-fn merge_compiled_runtime_catalog(into: &mut CompiledApp, donor: &CompiledApp) {
+pub(crate) fn merge_compiled_runtime_catalog(into: &mut CompiledApp, donor: &CompiledApp) {
     for resource in &donor.resources {
         if let Some(existing) = into.resources.iter_mut().find(|existing| existing.id == resource.id)
         {
@@ -374,6 +566,7 @@ pub fn hydrate_compiled_for_embedded_capsules(
     let app_root = resolve_app_root(source_root, app_id);
     let mcg = McgRegistryWriter::load(source_root, app_id);
     hydrate_imported_world_metrics_resources_from_mcg(app_root.as_path(), &mcg, compiled);
+    hydrate_world_metric_ledger_from_mcg_bundles(app_root.as_path(), &mcg, compiled);
     backfill_embedded_capsule_catalog_from_mcg(app_root.as_path(), &mcg, compiled);
     hydrate_metric_defs_from_mcg_cas(app_root.as_path(), &mcg, compiled);
     Ok(())
@@ -629,23 +822,28 @@ pub fn try_assemble_scope_from_scene_payload(
     )
     .ok()
     .flatten()?;
-    let mut compiled: CompiledApp = serde_json::from_value(artifact.payload).ok()?;
-    if let Some(sk_node) = mcg.nodes.iter().find(|node| node.id.kind == GraphNodeKind::AppSkeleton) {
-        if let Some(hash) = sk_node
-            .payload_ref
-            .as_ref()
-            .map(|payload| payload.content_hash.as_str())
-            .filter(|hash| !hash.is_empty())
-        {
-            if let Ok(Some(skeleton)) = load_app_skeleton_artifact(app_root.as_path(), hash) {
-                merge_app_skeleton_into_compiled(&mut compiled, &skeleton);
-            }
-        }
-    }
+    let skeleton = mcg
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::AppSkeleton)
+        .and_then(|node| node.payload_ref.as_ref())
+        .map(|payload| payload.content_hash.as_str())
+        .filter(|hash| !hash.is_empty())
+        .and_then(|hash| load_app_skeleton_artifact(app_root.as_path(), hash).ok().flatten());
+    let app_root_str = app_root.display().to_string();
+    let mut compiled = crate::graph::mcg::scene_payload::compiled_from_scene_payload_artifact(
+        &artifact,
+        skeleton.as_ref(),
+        app_id,
+        app_root_str.as_str(),
+    )?;
     backfill_assembled_runtime_catalog(app_root.as_path(), resolved_target.as_str(), &mut compiled);
     hydrate_world_metrics_from_scene_payload(source_root, app_id, resolved_target.as_str(), &mut compiled);
     hydrate_imported_world_metrics_resources_from_mcg(app_root.as_path(), &mcg, &mut compiled);
+    hydrate_world_metric_ledger_from_mcg_bundles(app_root.as_path(), &mcg, &mut compiled);
     backfill_embedded_capsule_catalog_from_mcg(app_root.as_path(), &mcg, &mut compiled);
+    hydrate_runtime_catalog_from_mcg_scene_payloads(app_root.as_path(), &mcg, &mut compiled);
+    let _ = hydrate_compiled_for_embedded_capsules(source_root, app_id, &mut compiled);
     hydrate_metric_defs_from_mcg_cas(app_root.as_path(), &mcg, &mut compiled);
     if let Ok(changed_panels) = load_panel_contracts_from_store(app_root.as_path(), &mcg) {
         if !changed_panels.is_empty() {
