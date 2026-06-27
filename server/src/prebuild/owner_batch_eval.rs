@@ -5,7 +5,7 @@ use super::warmup::PreparedCompileOutcome;
 
 /// Group artifact eval pairs by dataset owner so one owner hydrates once per batch.
 pub(crate) fn group_artifact_pairs_by_owner<T>(
-    pairs: &[(PreparedCompileOutcome, T)],
+    pairs: &[(impl AsRef<PreparedCompileOutcome>, T)],
 ) -> BTreeMap<String, Vec<usize>>
 where
     T: OwnerBatchPlanView,
@@ -38,7 +38,10 @@ impl OwnerBatchPlanView for ScopeArtifactPlan {
 
 /// Sort pairs so all plans sharing an owner run contiguously (improves dataset pool locality).
 pub(crate) fn order_artifact_pairs_by_owner<T: OwnerBatchPlanView>(
-    pairs: &mut [(PreparedCompileOutcome, T)],
+    pairs: &mut [(impl AsRef<PreparedCompileOutcome>, T)],
 ) {
-    pairs.sort_by_cached_key(|(_prepared, plan)| plan.primary_owner_resource_id());
+    pairs.sort_by_cached_key(|(prepared, plan)| {
+        let _ = prepared.as_ref();
+        plan.primary_owner_resource_id()
+    });
 }

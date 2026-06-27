@@ -136,6 +136,7 @@ pub(crate) fn run_prebuild_for_app(
         None
     });
     let diagnostics = Arc::new(PrebuildDiagnostics::default());
+    diagnostics.record_empty_binary_baseline();
     let skip_discover = block_scoped
         || app
             .compile_scope
@@ -496,46 +497,86 @@ pub(crate) fn run_prebuild_for_app(
         let last_emit_hook = Arc::clone(&last_progress_emit);
         let last_emit_for_progress = Arc::clone(&last_emit_hook);
         let unique_key_total = representatives.len();
-        let batch_results = run_limited_parallel_ordered_with_hook(
-            representatives.clone(),
-            max_parallelism,
-            |scope| {
-                BlockOrchestrator::compile_scope_for_prebuild(
-                    compile_session.as_ref(),
-                    diagnostics.as_ref(),
-                    source_root,
-                    app.app_id.as_str(),
-                    &scope,
-                    mode,
-                    components_root.as_path(),
-                )
-            },
-            move |_, outcome| {
-                let done = batch_done_hook.fetch_add(1, Ordering::Relaxed) + 1;
-                match &outcome {
-                    Ok(outcome) if outcome.cache_hit => {
-                        batch_cache_hook.fetch_add(1, Ordering::Relaxed);
+        let batch_results = if prebuild_isolate_compile_enabled() {
+            run_limited_parallel_ordered_with_hook(
+                representatives.clone(),
+                max_parallelism,
+                |scope| {
+                    spawn_compile_scope_worker(
+                        source_root,
+                        app.app_id.as_str(),
+                        &scope,
+                        diagnostics.as_ref(),
+                    )
+                },
+                move |_, outcome| {
+                    let done = batch_done_hook.fetch_add(1, Ordering::Relaxed) + 1;
+                    match outcome {
+                        Ok(outcome) if outcome.cache_hit => {
+                            batch_cache_hook.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Ok(outcome) if outcome.compile_ms > 0 => {
+                            batch_new_hook.fetch_add(1, Ordering::Relaxed);
+                        }
+                        _ => {}
                     }
-                    Ok(outcome) if outcome.compile_ms > 0 => {
-                        batch_new_hook.fetch_add(1, Ordering::Relaxed);
+                    emit_compile_batch_progress(
+                        app_id_for_hook.as_str(),
+                        batch_idx,
+                        done,
+                        unique_key_total,
+                        batch_started,
+                        scopes_completed_before_batch,
+                        unique_key_total.saturating_sub(done),
+                        batch_new_hook.load(Ordering::Relaxed),
+                        batch_cache_hook.load(Ordering::Relaxed),
+                        false,
+                        last_emit_for_progress.as_ref(),
+                    );
+                },
+            )
+        } else {
+            run_limited_parallel_ordered_with_hook(
+                representatives.clone(),
+                max_parallelism,
+                |scope| {
+                    BlockOrchestrator::compile_scope_for_prebuild(
+                        compile_session.as_ref(),
+                        diagnostics.as_ref(),
+                        source_root,
+                        app.app_id.as_str(),
+                        &scope,
+                        mode,
+                        components_root.as_path(),
+                    )
+                },
+                move |_, outcome| {
+                    let done = batch_done_hook.fetch_add(1, Ordering::Relaxed) + 1;
+                    match outcome {
+                        Ok(outcome) if outcome.cache_hit => {
+                            batch_cache_hook.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Ok(outcome) if outcome.compile_ms > 0 => {
+                            batch_new_hook.fetch_add(1, Ordering::Relaxed);
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                }
-                emit_compile_batch_progress(
-                    app_id_for_hook.as_str(),
-                    batch_idx,
-                    done,
-                    unique_key_total,
-                    batch_started,
-                    scopes_completed_before_batch,
-                    unique_key_total.saturating_sub(done),
-                    batch_new_hook.load(Ordering::Relaxed),
-                    batch_cache_hook.load(Ordering::Relaxed),
-                    false,
-                    last_emit_for_progress.as_ref(),
-                );
-            },
-        );
+                    emit_compile_batch_progress(
+                        app_id_for_hook.as_str(),
+                        batch_idx,
+                        done,
+                        unique_key_total,
+                        batch_started,
+                        scopes_completed_before_batch,
+                        unique_key_total.saturating_sub(done),
+                        batch_new_hook.load(Ordering::Relaxed),
+                        batch_cache_hook.load(Ordering::Relaxed),
+                        false,
+                        last_emit_for_progress.as_ref(),
+                    );
+                },
+            )
+        };
         let mut batch_compiled = 0usize;
         let mut batch_cache_hit = 0usize;
         let mut outcomes_by_key = BTreeMap::<String, SharedCompileOutcome>::new();
@@ -652,8 +693,14 @@ pub(crate) fn run_prebuild_for_app(
             &mut seen_scopes,
         );
     }
+    shrink_prepared_outcomes_with_mcg_handles(
+        source_root,
+        app.app_id.as_str(),
+        prepared_outcomes.as_mut_slice(),
+    );
     let compile_scopes_ms = compile_started.elapsed().as_millis() as u64;
     diagnostics.sample_memory_peak();
+    diagnostics.record_phase_rss(PrebuildRssPhase::AfterCompile);
     prebuild_emit_progress(&format!(
         "[{}] ── 1/3 编译完成 {:.1}s | 共 {} scope ──",
         app.app_id,

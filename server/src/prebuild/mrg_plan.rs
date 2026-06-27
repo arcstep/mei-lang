@@ -51,13 +51,14 @@ pub fn build_mrg_eval_frontier(
 
 /// Reorder artifact plans so MRG-dirty scopes are evaluated first.
 pub(crate) fn prioritize_artifact_plans_by_frontier<T>(
-    plans: &mut [(PreparedCompileOutcome, T)],
+    plans: &mut [(impl AsRef<PreparedCompileOutcome>, T)],
     frontier: &MrgEvalFrontier,
 ) {
     if frontier.dirty_scope_keys.is_empty() {
         return;
     }
     plans.sort_by_key(|(prepared, _)| {
+        let prepared = prepared.as_ref();
         let scope_key = crate::graph::mrg_eval_scope_key(
             prepared
                 .scope
@@ -73,7 +74,7 @@ pub(crate) fn prioritize_artifact_plans_by_frontier<T>(
 }
 
 pub(crate) fn retain_dirty_artifact_plans<T>(
-    plans: &mut Vec<(PreparedCompileOutcome, T)>,
+    plans: &mut Vec<(impl AsRef<PreparedCompileOutcome>, T)>,
     frontier: &MrgEvalFrontier,
 ) {
     if frontier.dirty_slot_keys.is_empty() && frontier.dirty_scope_keys.is_empty() {
@@ -81,6 +82,7 @@ pub(crate) fn retain_dirty_artifact_plans<T>(
         return;
     }
     plans.retain(|(prepared, _)| {
+        let prepared = prepared.as_ref();
         let scope_key = crate::graph::mrg_eval_scope_key(
             prepared
                 .scope

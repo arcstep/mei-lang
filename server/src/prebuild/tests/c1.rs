@@ -45,6 +45,7 @@ pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> Shar
         cache_lookup_ms: 0,
         artifact_load_ms: 0,
         compile_ms: 0,
+        handle_only: false,
     }
 }
 

@@ -148,6 +148,36 @@ pub(crate) fn finish_run_prebuild_for_app(
         artifact_outcomes = filtered;
     }
     let canonical_identity_count = artifact_outcomes.len();
+    let mut scope_artifact_plans = Vec::with_capacity(artifact_outcomes.len());
+    for prepared in &artifact_outcomes {
+        let planning_outcome = if prepared.outcome.handle_only {
+            hydrate_outcome_for_artifacts(source_root, app.app_id.as_str(), &prepared.outcome)?
+        } else {
+            prepared.outcome.clone()
+        };
+        let matching_requests =
+            matching_warmup_requests_for_outcome(&warmup_requests, &planning_outcome);
+        scope_artifact_plans.push(build_scope_artifact_plan(
+            source_root,
+            app.app_id.as_str(),
+            app_root.as_path(),
+            &prepared.scope,
+            &planning_outcome,
+            matching_requests.as_slice(),
+            scope_profile,
+            warmup_requests.as_slice(),
+        )?);
+    }
+    for prepared in artifact_outcomes.iter_mut() {
+        if !prepared.outcome.handle_only {
+            let target = prepared.outcome.compiled.active_target_file.as_str();
+            if !target.trim().is_empty()
+                && mcg_scene_payload_registered(source_root, app.app_id.as_str(), target)
+            {
+                shrink_outcome_to_handle(&mut prepared.outcome);
+            }
+        }
+    }
     let session_entries_before_clear = if let Ok(session) = compile_session.lock() {
         diagnostics.note_session_identity_peak(session.peak_identity_entries);
         (
@@ -180,21 +210,10 @@ pub(crate) fn finish_run_prebuild_for_app(
     {
         let _ = toolchain::clear_compile_cache_for_app(source_root, app.app_id.as_str());
     }
-    let artifact_outcomes_for_warmup = artifact_outcomes.clone();
-    let mut scope_artifact_plans = Vec::with_capacity(artifact_outcomes_for_warmup.len());
-    for prepared in &artifact_outcomes_for_warmup {
-        let matching_requests = matching_warmup_requests_for_outcome(&warmup_requests, &prepared.outcome);
-        scope_artifact_plans.push(build_scope_artifact_plan(
-            source_root,
-            app.app_id.as_str(),
-            app_root.as_path(),
-            &prepared.scope,
-            &prepared.outcome,
-            matching_requests.as_slice(),
-            scope_profile,
-            warmup_requests.as_slice(),
-        )?);
-    }
+    let artifact_warmup_refs: Vec<Arc<PreparedCompileOutcome>> = artifact_outcomes
+        .iter()
+        .map(|prepared| Arc::new(prepared.clone()))
+        .collect();
     let plan_nodes = build_plan_node_stats(
         &manifest_plan,
         canonical_identity_count,
@@ -220,9 +239,10 @@ pub(crate) fn finish_run_prebuild_for_app(
         Some(&format!("{} scope artifacts", artifact_outcomes.len())),
     );
     let artifact_total = artifact_outcomes.len();
-    let mut artifact_pairs: Vec<_> = artifact_outcomes
+    let mut artifact_pairs: Vec<(Arc<PreparedCompileOutcome>, ScopeArtifactPlan)> = artifact_outcomes
         .into_iter()
-        .zip(scope_artifact_plans.clone())
+        .zip(scope_artifact_plans)
+        .map(|(prepared, plan)| (Arc::new(prepared), plan))
         .collect();
     if dirty_only {
         retain_dirty_artifact_plans(&mut artifact_pairs, &mrg_frontier);
@@ -242,7 +262,7 @@ pub(crate) fn finish_run_prebuild_for_app(
     if let Some(node_filter) = block_node.as_deref().map(str::trim).filter(|value| !value.is_empty())
     {
         artifact_pairs.retain(|(prepared, plan)| {
-            artifact_plan_matches_continue_target(prepared, plan, node_filter)
+            artifact_plan_matches_continue_target(prepared.as_ref(), plan, node_filter)
         });
     }
     if let Some(continue_target) = continue_from
@@ -251,75 +271,92 @@ pub(crate) fn finish_run_prebuild_for_app(
         .filter(|value| !value.is_empty())
     {
         artifact_pairs.retain(|(prepared, plan)| {
-            artifact_plan_matches_continue_target(prepared, plan, continue_target)
+            artifact_plan_matches_continue_target(prepared.as_ref(), plan, continue_target)
         });
     }
     let workspace_flag = format!("--workspace {}", source_root.display());
     let artifacts_started = Arc::new(Instant::now());
-    let scope_results = run_limited_parallel_ordered_with_hook(
-        artifact_pairs,
-        max_parallelism,
-        |(prepared, scope_plan)| {
-            let mut local_coverage = PrebuildCoverageReport::default();
-            let started = Instant::now();
-            let result = BlockOrchestrator::materialize_scope_plan(
-                app.app_id.as_str(),
-                app_root.as_path(),
-                &prepared.outcome,
-                &scope_plan,
-                mode,
-                &mut local_coverage,
-                &coverage_state,
-            );
-            (
-                prepared.clone(),
-                scope_plan.clone(),
-                prepared.scope.clone(),
-                result,
-                local_coverage,
-                started.elapsed(),
-            )
-        },
-        {
-            let app_id = app.app_id.clone();
-            let done = Arc::new(AtomicUsize::new(0));
-            let artifacts_started = Arc::clone(&artifacts_started);
-            move |index,
-                  (_prepared, _scope_plan, scope, result, local_coverage, wall_time): &(
-                PreparedCompileOutcome,
-                ScopeArtifactPlan,
-                CompileScope,
-                Result<()>,
-                PrebuildCoverageReport,
-                std::time::Duration,
-            )| {
-                let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-                let scene = scope.requested_scene_id.clone().unwrap_or_default();
-                let target = scope.requested_target_file.clone().unwrap_or_default();
-                let file = format_scope_file(scene.as_str(), target.as_str(), None);
-                let built_df = local_coverage.metric_dataframe_artifacts_built;
-                let built_resp = local_coverage.metric_response_artifacts_built;
-                if built_df > 0 || built_resp > 0 {
-                    if prebuild_output_verbose() || n % 20 == 0 || n == artifact_total {
-                        prebuild_emit_progress(format!(
-                            "[{app_id}] 指标产物 {:.1}s | {n}/{artifact_total} | scene={scene} | file={file} | +{built_df} dataframe +{built_resp} response",
-                            wall_time.as_secs_f64()
-                        ));
-                    }
-                } else if result.is_err() {
-                    prebuild_emit_progress(format!(
-                        "[{app_id}] 指标产物失败 | {n}/{artifact_total} | scene={scene} | file={file}"
-                    ));
-                } else if n % 50 == 0 || n == artifact_total {
-                    prebuild_emit_progress(format!(
-                        "[{app_id}] 指标产物进度 {n}/{artifact_total} | 已用 {:.0}s（多数命中磁盘缓存）",
-                        artifacts_started.elapsed().as_secs_f64()
-                    ));
-                }
-                let _ = index;
-            }
-        },
-    );
+    let isolate_artifacts = prebuild_subprocess_isolate_enabled();
+    let scope_results = if isolate_artifacts {
+        run_limited_parallel_ordered_with_hook(
+            artifact_pairs,
+            max_parallelism,
+            |(prepared, scope_plan)| {
+                let started = Instant::now();
+                let worker_report = spawn_materialize_scope_worker(
+                    source_root,
+                    app.app_id.as_str(),
+                    prepared.as_ref(),
+                    &scope_plan,
+                    diagnostics.as_ref(),
+                );
+                let scope = prepared.scope.clone();
+                let (result, local_coverage) = match worker_report {
+                    Ok(report) if report.ok => (Ok(()), report.coverage),
+                    Ok(report) => (
+                        Err(anyhow::anyhow!(
+                            report
+                                .error
+                                .unwrap_or_else(|| "materialize worker failed".to_string())
+                        )),
+                        report.coverage,
+                    ),
+                    Err(error) => (Err(error), PrebuildCoverageReport::default()),
+                };
+                (
+                    Arc::clone(&prepared),
+                    scope_plan,
+                    scope,
+                    result,
+                    local_coverage,
+                    started.elapsed(),
+                )
+            },
+            artifact_progress_hook(
+                app.app_id.clone(),
+                artifact_total,
+                Arc::clone(&artifacts_started),
+            ),
+        )
+    } else {
+        run_limited_parallel_ordered_with_hook(
+            artifact_pairs,
+            max_parallelism,
+            |(prepared, scope_plan)| {
+                let mut local_coverage = PrebuildCoverageReport::default();
+                let started = Instant::now();
+                let result = (|| {
+                    let outcome = hydrate_outcome_for_artifacts(
+                        source_root,
+                        app.app_id.as_str(),
+                        &prepared.outcome,
+                    )?;
+                    BlockOrchestrator::materialize_scope_plan(
+                        app.app_id.as_str(),
+                        app_root.as_path(),
+                        &outcome,
+                        &scope_plan,
+                        mode,
+                        &mut local_coverage,
+                        &coverage_state,
+                    )
+                })();
+                (
+                    Arc::clone(&prepared),
+                    scope_plan,
+                    prepared.scope.clone(),
+                    result,
+                    local_coverage,
+                    started.elapsed(),
+                )
+            },
+            artifact_progress_hook(
+                app.app_id.clone(),
+                artifact_total,
+                Arc::clone(&artifacts_started),
+            ),
+        )
+    };
     for (prepared, scope_plan, scope, result, local_coverage, _wall_time) in scope_results {
         if let Err(error) = result {
             if mode == PrebuildMode::Verify {
@@ -339,11 +376,17 @@ pub(crate) fn finish_run_prebuild_for_app(
                         continue;
                     }
                     let mut diag_coverage = PrebuildCoverageReport::default();
+                    let hydrated = hydrate_outcome_for_artifacts(
+                        source_root,
+                        app.app_id.as_str(),
+                        &prepared.outcome,
+                    )
+                    .unwrap_or_else(|_| prepared.outcome.clone());
                     if let Err(diag_error) = BlockOrchestrator::materialize_owner_with_outcome(
                         source_root,
                         app.app_id.as_str(),
                         &prepared.scope,
-                        &prepared.outcome,
+                        &hydrated,
                         workset.owner_resource_id.as_str(),
                         metric_ids.as_slice(),
                         mode,
@@ -381,6 +424,8 @@ pub(crate) fn finish_run_prebuild_for_app(
         }
     }
     let scope_artifacts_ms = scope_artifacts_started.elapsed().as_millis() as u64;
+    diagnostics.sample_memory_peak();
+    diagnostics.record_phase_rss(PrebuildRssPhase::AfterArtifacts);
     prebuild_emit_progress(&format!(
         "[{}] ── 2/3 产物完成 {:.1}s | response={} dataframe={} | 新建 dataframe {} 个 ──",
         app.app_id,
@@ -395,7 +440,7 @@ pub(crate) fn finish_run_prebuild_for_app(
     let warmup_reuse_hits = warmup_requests
         .iter()
         .filter(|request| {
-            artifact_outcomes_for_warmup
+            artifact_warmup_refs
                 .iter()
                 .any(|prepared| warmup_request_matches_outcome(request, &prepared.outcome))
         })
@@ -403,7 +448,7 @@ pub(crate) fn finish_run_prebuild_for_app(
     let warmup_requests_to_run = warmup_requests
         .iter()
         .filter(|request| {
-            !artifact_outcomes_for_warmup
+            !artifact_warmup_refs
                 .iter()
                 .any(|prepared| warmup_request_matches_outcome(request, &prepared.outcome))
         })
@@ -414,7 +459,7 @@ pub(crate) fn finish_run_prebuild_for_app(
         .iter()
         .filter(|request| {
             request.priority == WarmupRequestPriority::Critical
-                && artifact_outcomes_for_warmup
+                && artifact_warmup_refs
                     .iter()
                     .any(|prepared| warmup_request_matches_outcome(request, &prepared.outcome))
         })
@@ -423,7 +468,7 @@ pub(crate) fn finish_run_prebuild_for_app(
         .iter()
         .filter(|request| {
             request.priority == WarmupRequestPriority::Deferred
-                && artifact_outcomes_for_warmup
+                && artifact_warmup_refs
                     .iter()
                     .any(|prepared| warmup_request_matches_outcome(request, &prepared.outcome))
         })
@@ -523,6 +568,8 @@ pub(crate) fn finish_run_prebuild_for_app(
         );
     }
     let warmup_requests_ms = critical_warmup_requests_ms + deferred_warmup_requests_ms;
+    diagnostics.sample_memory_peak();
+    diagnostics.record_phase_rss(PrebuildRssPhase::AfterWarmup);
     diagnostics.hydrate_reuse_hits.store(
         mei_lang_kernel::dataset_materialize_cache_hit_count(),
         Ordering::Relaxed,
@@ -598,5 +645,58 @@ pub(crate) fn finish_run_prebuild_for_app(
         diagnostics: diagnostics_report,
         warnings,
     })
+}
+
+fn artifact_progress_hook(
+    app_id: String,
+    artifact_total: usize,
+    artifacts_started: Arc<Instant>,
+) -> impl Fn(
+    usize,
+    &(
+        Arc<PreparedCompileOutcome>,
+        ScopeArtifactPlan,
+        CompileScope,
+        Result<()>,
+        PrebuildCoverageReport,
+        std::time::Duration,
+    ),
+) + Send
++ Sync {
+    let done = Arc::new(AtomicUsize::new(0));
+    move |index,
+          (_prepared, _scope_plan, scope, result, local_coverage, wall_time): &(
+        Arc<PreparedCompileOutcome>,
+        ScopeArtifactPlan,
+        CompileScope,
+        Result<()>,
+        PrebuildCoverageReport,
+        std::time::Duration,
+    )| {
+        let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+        let scene = scope.requested_scene_id.clone().unwrap_or_default();
+        let target = scope.requested_target_file.clone().unwrap_or_default();
+        let file = format_scope_file(scene.as_str(), target.as_str(), None);
+        let built_df = local_coverage.metric_dataframe_artifacts_built;
+        let built_resp = local_coverage.metric_response_artifacts_built;
+        if built_df > 0 || built_resp > 0 {
+            if prebuild_output_verbose() || n % 20 == 0 || n == artifact_total {
+                prebuild_emit_progress(format!(
+                    "[{app_id}] 指标产物 {:.1}s | {n}/{artifact_total} | scene={scene} | file={file} | +{built_df} dataframe +{built_resp} response",
+                    wall_time.as_secs_f64()
+                ));
+            }
+        } else if result.is_err() {
+            prebuild_emit_progress(format!(
+                "[{app_id}] 指标产物失败 | {n}/{artifact_total} | scene={scene} | file={file}"
+            ));
+        } else if n % 50 == 0 || n == artifact_total {
+            prebuild_emit_progress(format!(
+                "[{app_id}] 指标产物进度 {n}/{artifact_total} | 已用 {:.0}s（多数命中磁盘缓存）",
+                artifacts_started.elapsed().as_secs_f64()
+            ));
+        }
+        let _ = index;
+    }
 }
 

@@ -3,7 +3,7 @@ use super::*;
 use crate::block::BlockOrchestrator;
 use crate::graph::types::GraphNodeKind;
 
-fn mcg_scene_payload_registered(source_root: &Path, app_id: &str, target_file: &str) -> bool {
+pub(crate) fn mcg_scene_payload_registered(source_root: &Path, app_id: &str, target_file: &str) -> bool {
     if !crate::graph::feature::graph_registry_dedup_enabled() {
         return true;
     }
@@ -205,6 +205,7 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
                 cache_lookup_ms: 0,
                 artifact_load_ms: 0,
                 compile_ms: 0,
+                handle_only: false,
             };
             let mut locked = session.lock().expect("prebuild compile session lock");
             locked.register(source_root, app_id, scope, outcome.clone());
@@ -639,5 +640,26 @@ pub(crate) fn verify_required_xlsx_sources(
         }
     }
     Ok(())
+}
+
+pub(crate) fn shrink_prepared_outcomes_with_mcg_handles(
+    source_root: &Path,
+    app_id: &str,
+    prepared_outcomes: &mut [PreparedCompileOutcome],
+) {
+    if !crate::graph::feature::graph_registry_dedup_enabled() {
+        return;
+    }
+    for prepared in prepared_outcomes.iter_mut() {
+        let target = prepared.outcome.compiled.active_target_file.as_str();
+        if target.trim().is_empty() {
+            continue;
+        }
+        if mcg_scene_payload_registered(source_root, app_id, target)
+            && !prepared.outcome.handle_only
+        {
+            shrink_outcome_to_handle(&mut prepared.outcome);
+        }
+    }
 }
 

@@ -99,6 +99,8 @@ pub(crate) struct SharedCompileOutcome {
     pub(crate) cache_lookup_ms: u64,
     pub(crate) artifact_load_ms: u64,
     pub(crate) compile_ms: u64,
+    /// Heavy `CompiledApp` dropped after MCG persist; hydrate before artifact eval.
+    pub(crate) handle_only: bool,
 }
 
 impl SharedCompileOutcome {
@@ -112,8 +114,78 @@ impl SharedCompileOutcome {
             cache_lookup_ms: outcome.cache_lookup_ms,
             artifact_load_ms: outcome.artifact_load_ms,
             compile_ms: outcome.compile_ms,
+            handle_only: false,
         }
     }
+}
+
+pub(crate) fn shrink_outcome_to_handle(outcome: &mut SharedCompileOutcome) {
+    if outcome.handle_only {
+        return;
+    }
+    let stub = CompiledApp {
+        app_id: outcome.compiled.app_id.clone(),
+        title: String::new(),
+        app_root: outcome.compiled.app_root.clone(),
+        scene_routes: Vec::new(),
+        active_scene: outcome.compiled.active_scene.clone(),
+        active_target_file: outcome.compiled.active_target_file.clone(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::new(),
+        world_semantic_by_file: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+    };
+    outcome.compiled = Arc::new(stub);
+    outcome.handle_only = true;
+}
+
+pub(crate) fn hydrate_outcome_for_artifacts(
+    source_root: &Path,
+    app_id: &str,
+    outcome: &SharedCompileOutcome,
+) -> Result<SharedCompileOutcome> {
+    if !outcome.handle_only {
+        return Ok(outcome.clone());
+    }
+    let scene = outcome.compiled.active_scene.as_deref();
+    let target = outcome.compiled.active_target_file.as_str();
+    if let Some((mut compiled, compile_revision)) =
+        crate::graph::try_assemble_scope_from_scene_payload(source_root, app_id, scene, target)
+    {
+        let _ = crate::graph::hydrate_compiled_for_prebuild_eval(
+            source_root,
+            app_id,
+            &mut compiled,
+            &[],
+            &[],
+        );
+        return Ok(SharedCompileOutcome {
+            compiled: Arc::new(compiled),
+            cache_hit: outcome.cache_hit,
+            artifact_cache_hit: outcome.artifact_cache_hit,
+            assemble_only: outcome.assemble_only,
+            compile_revision,
+            cache_lookup_ms: outcome.cache_lookup_ms,
+            artifact_load_ms: outcome.artifact_load_ms,
+            compile_ms: outcome.compile_ms,
+            handle_only: false,
+        });
+    }
+    anyhow::bail!(
+        "hydrate artifact handle failed for target `{}` revision `{}`",
+        target,
+        outcome.compile_revision
+    )
 }
 
 #[derive(Clone)]

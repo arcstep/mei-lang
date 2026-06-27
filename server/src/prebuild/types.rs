@@ -201,6 +201,22 @@ pub struct PrebuildDiagnosticsReport {
     pub current_rss_bytes: Option<u64>,
     pub peak_rss_bytes: u64,
     #[serde(default)]
+    pub orchestrator_peak_rss_bytes: u64,
+    #[serde(default)]
+    pub worker_peak_rss_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub empty_binary_baseline_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rss_after_compile_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rss_after_artifacts_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rss_after_warmup_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_working_set_peak_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logical_disk_bytes: Option<u64>,
+    #[serde(default)]
     pub session_peak_identity_entries: usize,
     #[serde(default)]
     pub hydrate_reuse_hits: u64,

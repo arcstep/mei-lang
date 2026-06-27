@@ -27,6 +27,7 @@ mod scoped_materialize;
 mod phase_tracker;
 mod mcg_target_plan;
 mod owner_batch_eval;
+mod worker;
 #[cfg(test)]
 mod tests;
 
@@ -56,6 +57,7 @@ pub(crate) use parallel::*;
 pub(crate) use phase_tracker::*;
 pub(crate) use mcg_target_plan::*;
 pub(crate) use owner_batch_eval::*;
+pub(crate) use worker::*;
 
 #[allow(unused_imports)]
 pub use types::{

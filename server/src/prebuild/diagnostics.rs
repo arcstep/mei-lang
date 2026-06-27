@@ -1,6 +1,15 @@
 use super::prelude::*;
 use super::*;
 
+fn phase_rss_snapshot(atom: &AtomicUsize) -> Option<u64> {
+    let value = atom.load(Ordering::Relaxed) as u64;
+    if value > 0 {
+        Some(value)
+    } else {
+        None
+    }
+}
+
 pub(crate) fn build_prebuild_diagnostics_report(
     app_root: &Path,
     reports: &[PrebuildScopeReport],
@@ -89,6 +98,42 @@ pub(crate) fn build_prebuild_diagnostics_report(
     let dataframe_dir = eval_root.join("results").join("metric-dataframe");
     let current_rss_bytes = current_process_rss_bytes();
     let peak_rss_bytes = diagnostics.peak_rss_bytes.load(Ordering::Relaxed) as u64;
+    let orchestrator_peak_rss_bytes = peak_rss_bytes;
+    let worker_peak_rss_bytes = diagnostics.worker_peak_rss_bytes.load(Ordering::Relaxed) as u64;
+    let empty_binary_baseline_bytes = {
+        let baseline = diagnostics.empty_binary_baseline_bytes.load(Ordering::Relaxed) as u64;
+        if baseline > 0 {
+            Some(baseline)
+        } else {
+            None
+        }
+    };
+    let rss_after_compile_bytes = phase_rss_snapshot(&diagnostics.rss_after_compile_bytes);
+    let rss_after_artifacts_bytes = phase_rss_snapshot(&diagnostics.rss_after_artifacts_bytes);
+    let rss_after_warmup_bytes = phase_rss_snapshot(&diagnostics.rss_after_warmup_bytes);
+    let graph_working_set_peak_bytes = {
+        let baseline = empty_binary_baseline_bytes.unwrap_or(0);
+        let orchestrator_delta = orchestrator_peak_rss_bytes.saturating_sub(baseline);
+        if worker_peak_rss_bytes > 0 {
+            Some(worker_peak_rss_bytes)
+        } else if orchestrator_delta > 0 {
+            Some(orchestrator_delta)
+        } else {
+            None
+        }
+    };
+    let content_store_root = app_root.join("build").join("active").join("store");
+    let var_active_root = mei_lang_kernel::resolve_app_var_root(app_root).join("active");
+    let logical_disk_bytes = {
+        let content_bytes = dir_size_summary(content_store_root.as_path()).bytes;
+        let var_bytes = dir_size_summary(var_active_root.as_path()).bytes;
+        let total = content_bytes.saturating_add(var_bytes);
+        if total > 0 {
+            Some(total)
+        } else {
+            None
+        }
+    };
 
     let mut slow_scopes = reports
         .iter()
@@ -138,6 +183,14 @@ pub(crate) fn build_prebuild_diagnostics_report(
         compile_miss_ms,
         current_rss_bytes,
         peak_rss_bytes,
+        orchestrator_peak_rss_bytes,
+        worker_peak_rss_bytes,
+        empty_binary_baseline_bytes,
+        rss_after_compile_bytes,
+        rss_after_artifacts_bytes,
+        rss_after_warmup_bytes,
+        graph_working_set_peak_bytes,
+        logical_disk_bytes,
         session_peak_identity_entries,
         hydrate_reuse_hits,
         eval_artifacts_disk: PrebuildEvalArtifactDiskReport {
@@ -223,6 +276,38 @@ pub(crate) fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> Preb
                 (None, None) => None,
             };
         aggregate.peak_rss_bytes = aggregate.peak_rss_bytes.max(diagnostics.peak_rss_bytes);
+        aggregate.orchestrator_peak_rss_bytes = aggregate
+            .orchestrator_peak_rss_bytes
+            .max(diagnostics.orchestrator_peak_rss_bytes);
+        aggregate.worker_peak_rss_bytes = aggregate
+            .worker_peak_rss_bytes
+            .max(diagnostics.worker_peak_rss_bytes);
+        aggregate.empty_binary_baseline_bytes =
+            match (aggregate.empty_binary_baseline_bytes, diagnostics.empty_binary_baseline_bytes) {
+                (Some(left), Some(right)) => Some(left.min(right)),
+                (Some(left), None) => Some(left),
+                (None, Some(right)) => Some(right),
+                (None, None) => None,
+            };
+        aggregate.rss_after_compile_bytes = max_optional_u64(
+            aggregate.rss_after_compile_bytes,
+            diagnostics.rss_after_compile_bytes,
+        );
+        aggregate.rss_after_artifacts_bytes = max_optional_u64(
+            aggregate.rss_after_artifacts_bytes,
+            diagnostics.rss_after_artifacts_bytes,
+        );
+        aggregate.rss_after_warmup_bytes = max_optional_u64(
+            aggregate.rss_after_warmup_bytes,
+            diagnostics.rss_after_warmup_bytes,
+        );
+        aggregate.graph_working_set_peak_bytes = max_optional_u64(
+            aggregate.graph_working_set_peak_bytes,
+            diagnostics.graph_working_set_peak_bytes,
+        );
+        aggregate.logical_disk_bytes = aggregate
+            .logical_disk_bytes
+            .max(diagnostics.logical_disk_bytes);
         aggregate.eval_artifacts_disk.total.files += diagnostics.eval_artifacts_disk.total.files;
         aggregate.eval_artifacts_disk.total.bytes += diagnostics.eval_artifacts_disk.total.bytes;
         aggregate.eval_artifacts_disk.metric_response.files +=
@@ -333,5 +418,14 @@ pub(crate) fn aggregate_prebuild_diagnostics(apps: &[PrebuildAppReport]) -> Preb
     aggregate.slow_scopes = slow_scopes;
     aggregate.slow_metrics = slow_metrics;
     aggregate
+}
+
+fn max_optional_u64(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
 }
 

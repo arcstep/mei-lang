@@ -11,12 +11,15 @@ use super::super::util::{
 use crate::agent_runtime;
 use crate::prebuild::{
     clean_workspace_prebuild_artifacts, persist_prebuild_report, prebuild_emit_notice,
-    prebuild_set_output_quiet, PrebuildPhaseSession, PrebuildPhaseTracker, PrebuildProgressSession,
+    prebuild_set_output_quiet, run_prebuild_worker_if_requested, PrebuildPhaseSession, PrebuildPhaseTracker, PrebuildProgressSession,
     run_prebuild, PrebuildMode, PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
     PrebuildWarningSummary,
 };
 
 pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
+    if run_prebuild_worker_if_requested(&args)? {
+        return Ok(());
+    }
     if args.verify && args.clean {
         anyhow::bail!("`prebuild --verify` and `--clean` cannot be used together");
     }

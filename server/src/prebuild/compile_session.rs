@@ -433,6 +433,7 @@ pub(crate) fn mark_prebuild_session_reuse(outcome: &SharedCompileOutcome) -> Sha
         cache_lookup_ms: 0,
         artifact_load_ms: 0,
         compile_ms: 0,
+        handle_only: outcome.handle_only,
     }
 }
 

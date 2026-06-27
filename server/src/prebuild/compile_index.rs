@@ -1,6 +1,13 @@
 use super::prelude::*;
 use super::*;
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PrebuildRssPhase {
+    AfterCompile,
+    AfterArtifacts,
+    AfterWarmup,
+}
+
 #[derive(Clone)]
 pub(crate) struct MetricBuildTiming {
     pub(crate) kind: &'static str,
@@ -14,6 +21,11 @@ pub(crate) struct MetricBuildTiming {
 pub(crate) struct PrebuildDiagnostics {
     pub(crate) metric_builds: Mutex<Vec<MetricBuildTiming>>,
     pub(crate) peak_rss_bytes: AtomicUsize,
+    pub(crate) empty_binary_baseline_bytes: AtomicUsize,
+    pub(crate) rss_after_compile_bytes: AtomicUsize,
+    pub(crate) rss_after_artifacts_bytes: AtomicUsize,
+    pub(crate) rss_after_warmup_bytes: AtomicUsize,
+    pub(crate) worker_peak_rss_bytes: AtomicUsize,
     pub(crate) compile_preload_reuse_hits: AtomicUsize,
     pub(crate) compile_postload_identity_collapses: AtomicUsize,
     pub(crate) compile_target_overlay_reuse_hits: AtomicUsize,
@@ -34,6 +46,48 @@ pub(crate) struct PrebuildDiagnostics {
 impl PrebuildDiagnostics {
     pub(crate) fn sample_memory_peak(&self) {
         sample_peak_rss_bytes(&self.peak_rss_bytes);
+    }
+
+    pub(crate) fn record_empty_binary_baseline(&self) {
+        let Some(rss) = current_process_rss_bytes() else {
+            return;
+        };
+        let _ = self.empty_binary_baseline_bytes.compare_exchange(
+            0,
+            rss as usize,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        );
+        sample_peak_rss_bytes(&self.peak_rss_bytes);
+    }
+
+    pub(crate) fn record_phase_rss(&self, phase: PrebuildRssPhase) {
+        let Some(rss) = current_process_rss_bytes() else {
+            return;
+        };
+        sample_peak_rss_bytes(&self.peak_rss_bytes);
+        let target = match phase {
+            PrebuildRssPhase::AfterCompile => &self.rss_after_compile_bytes,
+            PrebuildRssPhase::AfterArtifacts => &self.rss_after_artifacts_bytes,
+            PrebuildRssPhase::AfterWarmup => &self.rss_after_warmup_bytes,
+        };
+        target.store(rss as usize, Ordering::Relaxed);
+    }
+
+    pub(crate) fn note_worker_peak_rss(&self, bytes: u64) {
+        let current = bytes as usize;
+        let mut prev = self.worker_peak_rss_bytes.load(Ordering::Relaxed);
+        while current > prev {
+            match self.worker_peak_rss_bytes.compare_exchange_weak(
+                prev,
+                current,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(next) => prev = next,
+            }
+        }
     }
 
     pub(crate) fn note_session_identity_peak(&self, count: usize) {
@@ -403,6 +457,7 @@ pub(crate) fn scope_assembled_outcome(
                     cache_lookup_ms: 0,
                     artifact_load_ms: 0,
                     compile_ms: 0,
+                    handle_only: false,
                 };
             }
         }
@@ -412,6 +467,43 @@ pub(crate) fn scope_assembled_outcome(
         .requested_target_file
         .as_deref()
         .filter(|value| !value.is_empty());
+    if crate::graph::feature::graph_registry_dedup_enabled() {
+        if let Some(target_file) = target {
+            if let Some((mut compiled, compile_revision)) =
+                crate::graph::try_assemble_scope_from_scene_payload(
+                    source_root,
+                    app_id,
+                    scene,
+                    target_file,
+                )
+            {
+                let _ = crate::graph::hydrate_compiled_for_prebuild_eval(
+                    source_root,
+                    app_id,
+                    &mut compiled,
+                    &[],
+                    &[],
+                );
+                if let Some(diag) = diagnostics {
+                    diag.mcg_assemble_only_count
+                        .fetch_add(1, Ordering::Relaxed);
+                    diag.compile_target_overlay_reuse_hits
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                return SharedCompileOutcome {
+                    compiled: Arc::new(compiled),
+                    cache_hit: true,
+                    artifact_cache_hit: false,
+                    assemble_only: true,
+                    compile_revision,
+                    cache_lookup_ms: 0,
+                    artifact_load_ms: 0,
+                    compile_ms: 0,
+                    handle_only: false,
+                };
+            }
+        }
+    }
     let compiled = match Arc::try_unwrap(Arc::clone(&base.compiled)) {
         Ok(mut owned) => {
             crate::graph::mcg::assemble::apply_scope_to_compiled_app(
@@ -444,6 +536,7 @@ pub(crate) fn scope_assembled_outcome(
         cache_lookup_ms: base.cache_lookup_ms,
         artifact_load_ms: base.artifact_load_ms,
         compile_ms: 0,
+        handle_only: false,
     }
 }
 

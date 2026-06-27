@@ -37,6 +37,7 @@ pub fn materialize_scope_after_compile(
         cache_lookup_ms: outcome.cache_lookup_ms,
         artifact_load_ms: outcome.artifact_load_ms,
         compile_ms: outcome.compile_ms,
+        handle_only: false,
     };
     let scope = CompileScope {
         requested_scene_id: scene_id
