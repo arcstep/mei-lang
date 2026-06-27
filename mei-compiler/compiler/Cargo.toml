@@ -1,0 +1,25 @@
+[package]
+name = "mei-compiler"
+version = "2.0.0"
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mei-compiler"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap = { workspace = true, features = ["derive"] }
+mei-lower = { path = "../crates/mei-lower" }
+mei-surface = { path = "../crates/mei-surface" }
+mei-graph = { path = "../crates/mei-graph" }
+mei-syntax = { path = "../crates/mei-syntax" }
+serde_json.workspace = true
+mei-lang-kernel = { path = "../../crates/kernel", optional = true }
+
+[features]
+check = ["dep:mei-lang-kernel"]
+
+[dev-dependencies]
+mei-lang-kernel = { path = "../../crates/kernel" }

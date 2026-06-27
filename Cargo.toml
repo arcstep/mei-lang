@@ -6,6 +6,12 @@ members = [
   "crates/lsp",
   "crates/toolchain",
   "crates/ws-spbjw-integration-tests",
+  "mei-compiler/compiler",
+  "mei-compiler/crates/mei-compiler-tests",
+  "mei-compiler/crates/mei-graph",
+  "mei-compiler/crates/mei-lower",
+  "mei-compiler/crates/mei-surface",
+  "mei-compiler/crates/mei-syntax",
   "server",
 ]
 resolver = "2"
@@ -36,3 +42,5 @@ walkdir = "2"
 arrow-array = "53"
 arrow-schema = "53"
 parquet = "53"
+chumsky = "0.9"
+miette = { version = "7", features = ["fancy"] }

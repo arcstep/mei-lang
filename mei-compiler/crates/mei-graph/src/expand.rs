@@ -1,0 +1,323 @@
+use std::collections::BTreeMap;
+
+use mei_syntax::v2::{CallArgs, V2Expr, V2Item, V2SourceFile};
+use thiserror::Error;
+
+use crate::registry::{MacroDef, MacroRegistry, normalize_template_path, template_file_path};
+
+#[derive(Debug, Error)]
+pub enum ExpandError {
+    #[error("parse error: {0}")]
+    Parse(#[from] mei_syntax::V2ParseError),
+    #[error("{0}")]
+    Expand(String),
+}
+
+pub struct ExpandContext<'a> {
+    pub registry: &'a MacroRegistry,
+    pub imports: BTreeMap<String, String>,
+    pub module_consts: BTreeMap<String, V2Expr>,
+}
+
+pub fn expand_v2_file(
+    file: &V2SourceFile,
+    registry: &MacroRegistry,
+    stock_templates: &std::path::Path,
+) -> Result<V2SourceFile, ExpandError> {
+    let mut imports = BTreeMap::new();
+    let mut module_consts = BTreeMap::new();
+    for item in &file.items {
+        match item {
+            V2Item::UseTemplate { path, alias } => {
+                let norm = normalize_template_path(path);
+                let import_name = alias.clone().unwrap_or_else(|| {
+                    norm.rsplit('/').next().unwrap_or(&norm).to_string()
+                });
+                imports.insert(import_name, norm);
+                if !registry.resolve_path(path).is_some() {
+                    let disk = template_file_path(stock_templates, path);
+                    if disk.is_file() {
+                        let nested = mei_syntax::v2::parse_v2_source_file(&disk)?;
+                        let mut reg = MacroRegistry::new();
+                        reg.register_file(
+                            &normalize_template_path(path),
+                            &nested,
+                        );
+                        // merge single file defs — registry should already have from load_dir
+                        let _ = reg;
+                    }
+                }
+            }
+            V2Item::ModuleConst { name, value } => {
+                module_consts.insert(name.clone(), eval_const_expr(value, &module_consts)?);
+            }
+            _ => {}
+        }
+    }
+
+    let ctx = ExpandContext {
+        registry,
+        imports,
+        module_consts,
+    };
+
+    let mut out = Vec::new();
+    for item in &file.items {
+        match item {
+            V2Item::UseTemplate { .. } | V2Item::ModuleConst { .. } => {}
+            V2Item::TemplateDecl { .. } => {
+                out.push(item.clone());
+            }
+            V2Item::TopLevel { name, args } => {
+                out.push(V2Item::TopLevel {
+                    name: name.clone(),
+                    args: expand_call_args(args, &ctx)?,
+                });
+            }
+        }
+    }
+    Ok(V2SourceFile { items: out })
+}
+
+fn expand_call_args(args: &CallArgs, ctx: &ExpandContext<'_>) -> Result<CallArgs, ExpandError> {
+    Ok(CallArgs {
+        positional: args
+            .positional
+            .iter()
+            .map(|e| expand_expr(e, ctx))
+            .collect::<Result<Vec<_>, ExpandError>>()?,
+        keywords: args
+            .keywords
+            .iter()
+            .map(|(k, v)| Ok((k.clone(), expand_expr(v, ctx)?)))
+            .collect::<Result<Vec<_>, ExpandError>>()?,
+    })
+}
+
+fn expand_expr(expr: &V2Expr, ctx: &ExpandContext<'_>) -> Result<V2Expr, ExpandError> {
+    match expr {
+        V2Expr::BinOp { op, left, right } => {
+            let left = expand_expr(left, ctx)?;
+            let right = expand_expr(right, ctx)?;
+            if matches!(op, mei_syntax::v2::BinOp::Add) {
+                if let (V2Expr::String(a), V2Expr::String(b)) = (&left, &right) {
+                    return Ok(V2Expr::String(format!("{a}{b}")));
+                }
+            }
+            Ok(V2Expr::BinOp {
+                op: *op,
+                left: Box::new(left),
+                right: Box::new(right),
+            })
+        }
+        V2Expr::List(items) => Ok(V2Expr::List(
+            items
+                .iter()
+                .map(|e| expand_expr(e, ctx))
+                .collect::<Result<Vec<_>, ExpandError>>()?,
+        )),
+        V2Expr::Dict(entries) => Ok(V2Expr::Dict(
+            entries
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), expand_expr(v, ctx)?)))
+                .collect::<Result<Vec<_>, ExpandError>>()?,
+        )),
+        V2Expr::Call { path, args } => {
+            if let Some(expanded) = try_expand_macro_call(path, args, ctx)? {
+                return Ok(expanded);
+            }
+            Ok(V2Expr::Call {
+                path: path.clone(),
+                args: expand_call_args(args, ctx)?,
+            })
+        }
+        V2Expr::RefCall { name, args } if name == "template_ref" => {
+            let path = args
+                .positional
+                .first()
+                .or_else(|| args.keywords.iter().find(|(k, _)| k == "path").map(|(_, v)| v))
+                .and_then(|e| match e {
+                    V2Expr::String(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .ok_or_else(|| ExpandError::Expand("template_ref requires string path".into()))?;
+            let macro_args = CallArgs {
+                positional: args.positional.get(1..).unwrap_or(&[]).to_vec(),
+                keywords: args.keywords.clone(),
+            };
+            expand_macro_by_path(&path, &macro_args, ctx)
+        }
+        V2Expr::RefCall { name, args } => Ok(V2Expr::RefCall {
+            name: name.clone(),
+            args: expand_call_args(args, ctx)?,
+        }),
+        other => Ok(other.clone()),
+    }
+}
+
+fn try_expand_macro_call(
+    path: &[String],
+    args: &CallArgs,
+    ctx: &ExpandContext<'_>,
+) -> Result<Option<V2Expr>, ExpandError> {
+    match path {
+        [name] => {
+            if let Some(def) = ctx.registry.resolve_name(name) {
+                return Ok(Some(apply_macro(def, args, ctx)?));
+            }
+            if ctx.imports.contains_key(name) {
+                let import_path = ctx.imports.get(name).cloned().unwrap_or_default();
+                if let Some(def) = ctx.registry.resolve_path(&import_path) {
+                    return Ok(Some(apply_macro(def, args, ctx)?));
+                }
+            }
+            Ok(None)
+        }
+        [alias, method] => {
+            if let Some(def) = ctx.registry.resolve_qualified(alias, method) {
+                return Ok(Some(apply_macro(def, args, ctx)?));
+            }
+            if let Some(import_path) = ctx.imports.get(alias) {
+                let qualified = format!("{import_path}/{method}");
+                if let Some(def) = ctx.registry.resolve_path(&qualified) {
+                    return Ok(Some(apply_macro(def, args, ctx)?));
+                }
+            }
+            Ok(None)
+        }
+        _ => Ok(None),
+    }
+}
+
+fn expand_macro_by_path(path: &str, args: &CallArgs, ctx: &ExpandContext<'_>) -> Result<V2Expr, ExpandError> {
+    let def = ctx
+        .registry
+        .resolve_path(path)
+        .ok_or_else(|| ExpandError::Expand(format!("unknown template macro `{path}`")))?;
+    apply_macro(def, args, ctx)
+}
+
+fn apply_macro(def: &MacroDef, args: &CallArgs, ctx: &ExpandContext<'_>) -> Result<V2Expr, ExpandError> {
+    let mut bindings = def.module_consts.clone();
+    bindings.extend(ctx.module_consts.clone());
+    for param in &def.params {
+        if let Some((_, value)) = args.keywords.iter().find(|(k, _)| k == &param.name) {
+            bindings.insert(param.name.clone(), expand_expr(value, ctx)?);
+        } else if let Some(default) = &param.default {
+            bindings.insert(
+                param.name.clone(),
+                eval_const_expr(default, &bindings)?,
+            );
+        } else if let Some(value) = args.positional.get(
+            def.params
+                .iter()
+                .position(|p| p.name == param.name)
+                .unwrap_or(0),
+        ) {
+            bindings.insert(param.name.clone(), expand_expr(value, ctx)?);
+        } else if param.default.is_none() {
+            return Err(ExpandError::Expand(format!(
+                "missing macro argument `{}` for `{}`",
+                param.name, def.name
+            )));
+        }
+    }
+    let local = ExpandContext {
+        registry: ctx.registry,
+        imports: ctx.imports.clone(),
+        module_consts: bindings.clone(),
+    };
+    substitute_expr(&def.body, &bindings, &local)
+}
+
+fn substitute_expr(
+    expr: &V2Expr,
+    bindings: &BTreeMap<String, V2Expr>,
+    ctx: &ExpandContext<'_>,
+) -> Result<V2Expr, ExpandError> {
+    match expr {
+        V2Expr::VarRef(name) => bindings
+            .get(name)
+            .cloned()
+            .ok_or_else(|| ExpandError::Expand(format!("unbound macro variable `{name}`"))),
+        V2Expr::BinOp { op, left, right } => Ok(V2Expr::BinOp {
+            op: *op,
+            left: Box::new(substitute_expr(left, bindings, ctx)?),
+            right: Box::new(substitute_expr(right, bindings, ctx)?),
+        }),
+        V2Expr::List(items) => Ok(V2Expr::List(
+            items
+                .iter()
+                .map(|e| substitute_expr(e, bindings, ctx))
+                .collect::<Result<Vec<_>, ExpandError>>()?,
+        )),
+        V2Expr::Dict(entries) => Ok(V2Expr::Dict(
+            entries
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), substitute_expr(v, bindings, ctx)?)))
+                .collect::<Result<Vec<_>, ExpandError>>()?,
+        )),
+        V2Expr::Call { path, args } => {
+            if let Some(expanded) = try_expand_macro_call(path, args, ctx)? {
+                return substitute_expr(&expanded, bindings, ctx);
+            }
+            Ok(V2Expr::Call {
+                path: path.clone(),
+                args: CallArgs {
+                    positional: args
+                        .positional
+                        .iter()
+                        .map(|e| substitute_expr(e, bindings, ctx))
+                        .collect::<Result<Vec<_>, ExpandError>>()?,
+                    keywords: args
+                        .keywords
+                        .iter()
+                        .map(|(k, v)| Ok((k.clone(), substitute_expr(v, bindings, ctx)?)))
+                        .collect::<Result<Vec<_>, ExpandError>>()?,
+                },
+            })
+        }
+        V2Expr::RefCall { name, args } => Ok(V2Expr::RefCall {
+            name: name.clone(),
+            args: CallArgs {
+                positional: args
+                    .positional
+                    .iter()
+                    .map(|e| substitute_expr(e, bindings, ctx))
+                    .collect::<Result<Vec<_>, ExpandError>>()?,
+                keywords: args
+                    .keywords
+                    .iter()
+                    .map(|(k, v)| Ok((k.clone(), substitute_expr(v, bindings, ctx)?)))
+                    .collect::<Result<Vec<_>, ExpandError>>()?,
+            },
+        }),
+        other => Ok(other.clone()),
+    }
+}
+
+fn eval_const_expr(expr: &V2Expr, consts: &BTreeMap<String, V2Expr>) -> Result<V2Expr, ExpandError> {
+    match expr {
+        V2Expr::VarRef(name) => consts
+            .get(name)
+            .cloned()
+            .ok_or_else(|| ExpandError::Expand(format!("unbound module const `{name}`"))),
+        V2Expr::BinOp {
+            op: mei_syntax::v2::BinOp::Add,
+            left,
+            right,
+        } => {
+            let left = eval_const_expr(left, consts)?;
+            let right = eval_const_expr(right, consts)?;
+            match (left, right) {
+                (V2Expr::String(a), V2Expr::String(b)) => Ok(V2Expr::String(format!("{a}{b}"))),
+                (l, r) => Ok(V2Expr::BinOp {
+                    op: mei_syntax::v2::BinOp::Add,
+                    left: Box::new(l),
+                    right: Box::new(r),
+                }),
+            }
+        }
+        other => Ok(other.clone()),
+    }
+}
