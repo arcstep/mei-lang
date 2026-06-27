@@ -308,6 +308,8 @@ pub(crate) struct HostBuildJobResponse {
     pub mrg_slots_ready: Option<usize>,
     #[serde(rename = "evalArtifactsWarmed", skip_serializing_if = "Option::is_none")]
     pub eval_artifacts_warmed: Option<usize>,
+    #[serde(rename = "blockEvalHint", skip_serializing_if = "Option::is_none")]
+    pub block_eval_hint: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

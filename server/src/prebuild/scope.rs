@@ -91,6 +91,9 @@ pub(crate) fn warning_quoted_value(error: &str, marker: &str) -> Option<String> 
 }
 
 pub(crate) fn warning_category_from_error(error: &str) -> (&'static str, Option<String>, Option<String>) {
+    if error.contains("MRG default_access missing") {
+        return ("navigation_default_access_missing", None, None);
+    }
     if error.contains("locate warmup dataset `") {
         return (
             "warmup_dataset_locate_failed",
@@ -169,6 +172,7 @@ pub(crate) fn build_prebuild_warning_with_mrg(
     error: impl Into<String>,
 ) -> PrebuildWarningReport {
     let error = error.into();
+    let error_chain = error.clone();
     let (category, inferred_dataset, inferred_metric) = warning_category_from_error(error.as_str());
     let scene_id = scene_id
         .map(str::trim)
@@ -232,6 +236,7 @@ pub(crate) fn build_prebuild_warning_with_mrg(
             .filter(|value| !value.is_empty())
             .map(str::to_string),
         error,
+        error_chain: Some(error_chain),
     }
 }
 

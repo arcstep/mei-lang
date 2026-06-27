@@ -97,6 +97,7 @@ pub(crate) fn collect_request_artifact_plans(
 }
 
 pub(crate) fn build_scope_artifact_plan(
+    source_root: &Path,
     app_id: &str,
     app_root: &Path,
     scope: &CompileScope,
@@ -117,17 +118,54 @@ pub(crate) fn build_scope_artifact_plan(
         )?;
     }
     if scope.key() == CompileScope::default_scope().key()
-        && compiled_has_world_metrics_runtime_defs(&outcome.compiled)
+        || outcome
+            .compiled
+            .active_target_file
+            .contains("home.mei")
     {
-        collect_request_artifact_plans(
+        let mut planning_compiled = (*outcome.compiled).clone();
+        let _ = crate::graph::hydrate_compiled_for_prebuild_eval(
+            source_root,
             app_id,
-            app_root,
-            outcome,
-            "__world_metrics__",
+            &mut planning_compiled,
             &[],
-            &mut metric_worksets,
-            &mut dataframe_tasks,
-        )?;
+            &[],
+        );
+        let planning_outcome = SharedCompileOutcome {
+            compiled: Arc::new(planning_compiled),
+            ..outcome.clone()
+        };
+        let mut owners = crate::graph::discover_world_metrics_owner_ids(
+            source_root,
+            app_id,
+            &planning_outcome.compiled,
+        );
+        if owners.is_empty()
+            && compiled_has_world_metrics_runtime_defs(&planning_outcome.compiled)
+        {
+            owners.insert("__world_metrics__".to_string());
+        }
+        for owner in owners {
+            if mei_lang_kernel::locate_dataset_resource(&planning_outcome.compiled, owner.as_str())
+                .is_err()
+            {
+                tracing::debug!(
+                    app_id = %app_id,
+                    owner = %owner,
+                    "skip home embedded world_metrics artifact plan: owner not locateable after MCG hydrate"
+                );
+                continue;
+            }
+            collect_request_artifact_plans(
+                app_id,
+                app_root,
+                &planning_outcome,
+                owner.as_str(),
+                &[],
+                &mut metric_worksets,
+                &mut dataframe_tasks,
+            )?;
+        }
     }
     Ok(ScopeArtifactPlan {
         metric_worksets: metric_worksets.into_values().collect(),

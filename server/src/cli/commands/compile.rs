@@ -10,6 +10,7 @@ use super::super::util::{
     watched_files_json,
 };
 use crate::agent_runtime;
+use crate::block::{block_compile_hint, layer_verify_hint};
 
 pub fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
@@ -24,6 +25,28 @@ pub fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
     let options = compile_options_from_selector(&args.app);
     let report = toolchain::compile_report(&source_root, app_id, options.clone())?;
     let compiled = report.compiled;
+    let has_error = compiled
+        .diagnostics
+        .iter()
+        .any(|item| matches!(item.severity, Severity::Error));
+    let has_warning = compiled
+        .diagnostics
+        .iter()
+        .any(|item| matches!(item.severity, Severity::Warning));
+    let workspace_flag = format!("--workspace {}", source_root.display());
+    let target = options
+        .preview_target
+        .clone()
+        .unwrap_or_else(|| "src/scenes/home.mei".to_string());
+    let mut hints = Vec::new();
+    if has_error || has_warning {
+        hints.push(block_compile_hint(
+            workspace_flag.as_str(),
+            app_id,
+            target.trim_start_matches('/'),
+        ));
+        hints.push(layer_verify_hint(workspace_flag.as_str(), app_id, "mcg"));
+    }
     let output = json!({
         "schema_version": "mei-cli-v1",
         "command": command,
@@ -37,10 +60,11 @@ pub fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
             "scene_id": compiled.active_scene,
             "target_file": compiled.active_target_file,
         },
-        "ok": !compiled.diagnostics.iter().any(|item| matches!(item.severity, Severity::Error)),
+        "ok": !has_error,
         "diagnostics_summary": diagnostics_summary(&compiled.diagnostics),
         "diagnostics": compiled.diagnostics,
         "scene_routes": compiled.scene_routes,
+        "hints": hints,
         "revision": {
             "token": report.revision_token,
             "components_revision": report.components_revision,
@@ -48,5 +72,10 @@ pub fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
         },
         "layout": layout,
     });
+    if !args.app.json && !hints.is_empty() {
+        for hint in &hints {
+            eprintln!("hint: {hint}");
+        }
+    }
     print_json_output(&output, args.app.json)
 }

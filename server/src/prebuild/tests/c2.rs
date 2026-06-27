@@ -178,3 +178,43 @@ fn discovered_compile_scopes_keep_default_scope_explicit_only() {
     assert!(!discovered.contains("popup_scene|scenes/popup.board.mei"));
 }
 
+#[test]
+fn hot_only_skips_deferred_pending() {
+    let session = Mutex::new(PrebuildCompileSession {
+        hot_only_scene_ids: Some(BTreeSet::from(["home".to_string()])),
+        skip_discover: false,
+        ..PrebuildCompileSession::default()
+    });
+    let scope = CompileScope {
+        requested_scene_id: Some("home".to_string()),
+        requested_target_file: Some("scenes/home.mei".to_string()),
+    };
+    let outcome = test_outcome("home", "scenes/home.mei");
+    let mut seen_scopes = BTreeSet::new();
+    let mut pending = std::collections::VecDeque::new();
+    let mut prepared_outcomes = Vec::new();
+    let mut compile_reports = Vec::new();
+
+    record_prebuild_scope_compile_with_discovered(
+        &session,
+        &scope,
+        &outcome,
+        None,
+        1,
+        &mut seen_scopes,
+        &mut pending,
+        &mut prepared_outcomes,
+        &mut compile_reports,
+    );
+
+    assert!(
+        pending.iter().all(|candidate| {
+            candidate
+                .requested_scene_id
+                .as_deref()
+                .is_none_or(|scene| scene == "home")
+        }),
+        "hot-only discover must not enqueue non-hot scenes"
+    );
+}
+

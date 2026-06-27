@@ -6,7 +6,7 @@ pub(crate) use std::path::{Path, PathBuf};
 pub(crate) use std::sync::atomic::{AtomicUsize, Ordering};
 pub(crate) use std::sync::{Arc, Condvar, Mutex, OnceLock};
 pub(crate) use std::thread;
-pub(crate) use std::time::{Instant, SystemTime, UNIX_EPOCH};
+pub(crate) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub(crate) use anyhow::{Context, Result};
 pub(crate) use mei_lang_datasets::{
     collect_all_query_options, evaluate_runtime_metrics_from_plan,

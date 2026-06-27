@@ -1,13 +1,6 @@
 use super::prelude::*;
 use super::*;
 
-pub(crate) fn startup_deferred_warmup_pending(source_root: &Path) -> bool {
-    let Ok(Some(manifest)) = resolve_runtime_warmup_manifest(source_root) else {
-        return false;
-    };
-    manifest.apps.iter().any(app_has_deferred_warmup_work)
-}
-
 pub(crate) fn initialize_startup_readiness(source_root: &Path, startup_policy: &str) {
     startup_run::initialize(source_root, startup_policy);
     reset_registry_for_source_root(source_root);
@@ -28,6 +21,66 @@ pub(crate) fn mark_host_bound() {
             "phase": registry_snapshot().phase,
         })),
     );
+}
+
+fn default_landing_ready(source_root: &Path) -> bool {
+    let workspace = mei_lang_kernel::load_workspace_config(source_root);
+    let default_app = workspace
+        .workspace
+        .default_app
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|app_id| mei_lang_kernel::resolve_app_id(source_root, app_id));
+    default_app
+        .as_deref()
+        .map(|app_id| crate::readiness::scope_gate::default_app_access_ready(source_root, app_id))
+        .unwrap_or(false)
+}
+
+fn startup_prebuild_skip_reason(source_root: &Path) -> Option<String> {
+    if std::env::var("MEI_STARTUP_FORCE_PREBUILD")
+        .ok()
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    if let Ok(Some((report, age))) = crate::prebuild::recent_ok_prebuild_report(source_root) {
+        let profile = match report.scope_profile {
+            PrebuildScopeProfile::Full => "full",
+            PrebuildScopeProfile::HotOnly => "hot_only",
+            PrebuildScopeProfile::BlockScoped => "block_scoped",
+        };
+        if age.as_secs() <= crate::prebuild::RECENT_PREBUILD_TRUST_LANDING_SECS {
+            return Some(format!(
+                "recent prebuild ok ({profile}, {:.0}s ago, {:.0}s wall) — reuse CLI prebuild-last.json"
+            ,
+                age.as_secs_f64(),
+                report.total_wall_ms as f64 / 1000.0
+            ));
+        }
+        if age.as_secs() <= crate::prebuild::RECENT_PREBUILD_SKIP_MAX_AGE_SECS
+            && default_landing_ready(source_root)
+        {
+            return Some(format!(
+                "recent prebuild ok ({profile}, {:.0}min ago) + default landing ready",
+                age.as_secs_f64() / 60.0
+            ));
+        }
+    }
+    if !default_landing_ready(source_root) {
+        return None;
+    }
+    let links = mei_lang_kernel::read_links_state(source_root).ok()?;
+    let active = links.build.active.filter(|value| !value.trim().is_empty())?;
+    let matched = crate::prebuild_fingerprint::try_match_prebuild_fingerprint(source_root).ok()??;
+    if matched.stored.artifact_coverage_summary.total_missing_artifacts > 0 {
+        return None;
+    }
+    Some(format!(
+        "fingerprint match + build/active={active} + default landing ready"
+    ))
 }
 
 pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildReport> {
@@ -72,7 +125,7 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
         PrebuildScopeProfile::Full,
     ) {
         Ok(report) => {
-            status_from_report(&report, None, false);
+            status_from_report(&report, None, false, ScopeGateRefreshMode::Full);
             Ok(report)
         }
         Err(error) => {
@@ -83,77 +136,152 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
     }
 }
 
+fn startup_watcher_detail(snapshot: &HostReadyResponse, source_root: &Path) -> String {
+    if snapshot.active_job.is_some() {
+        return "background prebuild running".to_string();
+    }
+    if matches!(snapshot.phase.as_str(), "building" | "verifying" | "starting") {
+        return "startup warmup in progress".to_string();
+    }
+    if !snapshot.scope_gate_ready && snapshot.access_ready {
+        return "landing ready; manifest scope sweep still running in background".to_string();
+    }
+    if let Some(app_id) = snapshot.default_app_id.as_deref() {
+        let gate =
+            crate::readiness::scope_gate::resolve_default_app_access_gate(source_root, app_id);
+        if !gate.access_ready {
+            return gate
+                .blockers
+                .first()
+                .cloned()
+                .unwrap_or_else(|| format!("landing gate not ready for `{app_id}`"));
+        }
+    }
+    "waiting for landing gate".to_string()
+}
+
+pub(crate) fn spawn_startup_status_watcher(source_root: PathBuf) {
+    tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        let mut ticks = 0u32;
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            ticks += 1;
+            let snapshot = registry_snapshot();
+            if snapshot.access_ready {
+                if ticks == 1 {
+                    let note = if !snapshot.scope_gate_ready {
+                        " (manifest scope sweep may still run in background)"
+                    } else {
+                        ""
+                    };
+                    tracing::warn!(
+                        target: "mei.startup",
+                        elapsed_secs = started.elapsed().as_secs(),
+                        phase = %snapshot.phase,
+                        scope_gate_ready = snapshot.scope_gate_ready,
+                        "✓ default app ACCESS READY{note} — /host and landing routes should work"
+                    );
+                }
+                break;
+            }
+            let job = snapshot
+                .active_job
+                .as_deref()
+                .unwrap_or("(none)")
+                .to_string();
+            let detail = startup_watcher_detail(&snapshot, source_root.as_path());
+            tracing::warn!(
+                target: "mei.startup",
+                elapsed_secs = started.elapsed().as_secs(),
+                phase = %snapshot.phase,
+                active_job = %job,
+                host_bound = snapshot.host_ready,
+                access_ready = snapshot.access_ready,
+                scope_gate_ready = snapshot.scope_gate_ready,
+                "{detail} — port is open; open /host now"
+            );
+            crate::prebuild::prebuild_emit_notice(format!(
+                "⏳ startup {:.0}s | phase={} | job={job} | {detail} | /host available now",
+                started.elapsed().as_secs_f64(),
+                snapshot.phase,
+            ));
+            if ticks >= 360 {
+                tracing::warn!(
+                    target: "mei.startup",
+                    "startup status watcher stopped after 1h; check runtime/prebuild-last.json"
+                );
+                break;
+            }
+            let _ = source_root;
+        }
+    });
+}
+
 pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
+    if let Some(reason) = startup_prebuild_skip_reason(source_root.as_path()) {
+        tracing::info!(skip_reason = %reason, "startup prebuild skipped (recent prebuild still valid)");
+        crate::prebuild::prebuild_emit_success_banner(
+            "STARTUP PREBUILD SKIPPED",
+            &[
+                &reason,
+                "host shell at /host — no duplicate build on serve startup",
+            ],
+        );
+        startup_run::record_phase(
+            "startup_prebuild_skipped",
+            Some(serde_json::json!({ "reason": reason })),
+        );
+        spawn_startup_status_watcher(source_root.clone());
+        if let Ok(Some(report)) = crate::prebuild::load_prebuild_report(source_root.as_path()) {
+            tracing::warn!(
+                target: "mei.startup",
+                app_count = report.succeeded_apps.len(),
+                "startup report loaded (landing-only)"
+            );
+            crate::prebuild::prebuild_emit_notice(
+                "startup report loaded (landing-only) — applying ACCESS gate now",
+            );
+            status_from_report(
+                &report,
+                None,
+                false,
+                ScopeGateRefreshMode::LandingOnly,
+            );
+            spawn_deferred_scope_gate_sweep(
+                source_root.clone(),
+                report.succeeded_apps.clone(),
+            );
+        }
+        return Ok(());
+    }
     begin_job(PrebuildMode::Build, None, "startup")?;
     startup_run::record_phase(
         "startup_prebuild_started",
         Some(serde_json::json!({
             "job": "startup:build:workspace",
-            "scopeProfile": if startup_deferred_warmup_pending(source_root.as_path()) {
-                "hot_only"
-            } else {
-                "full"
-            },
+            "scopeProfile": "full",
             "mode": "build",
         })),
     );
-    tracing::info!("startup background prebuild scheduled");
+    tracing::info!("startup background prebuild scheduled (single full pass, no hot+deferred chain)");
+    crate::prebuild::prebuild_emit_notice(
+        "startup background prebuild running — port is already open; default app may 503 until ACCESS READY banner",
+    );
+    let source_root_for_watcher = source_root.clone();
     tokio::spawn(async move {
         let source_root_for_job = source_root.clone();
-        let deferred_pending = startup_deferred_warmup_pending(source_root.as_path());
         let report_result = tokio::task::spawn_blocking(move || {
             run_prebuild_job_sync_inner(
                 source_root_for_job.as_path(),
                 PrebuildMode::Build,
                 None,
-                if deferred_pending {
-                    PrebuildScopeProfile::HotOnly
-                } else {
-                    PrebuildScopeProfile::Full
-                },
+                PrebuildScopeProfile::Full,
             )
         })
         .await;
         match report_result {
-            Ok(Ok(report)) => {
-                status_from_report(&report, None, deferred_pending);
-                if deferred_pending && report.ok {
-                    if let Err(error) = begin_job(PrebuildMode::Build, None, "startup_deferred") {
-                        mark_job_failed(None, PrebuildMode::Build, &error.to_string(), true);
-                        return;
-                    }
-                    startup_run::record_phase(
-                        "startup_prebuild_started",
-                        Some(serde_json::json!({
-                            "job": "startup_deferred:build:workspace",
-                            "scopeProfile": "full",
-                            "mode": "build",
-                        })),
-                    );
-                    let source_root_for_deferred = source_root.clone();
-                    let deferred_result = tokio::task::spawn_blocking(move || {
-                        run_prebuild_job_sync_inner(
-                            source_root_for_deferred.as_path(),
-                            PrebuildMode::Build,
-                            None,
-                            PrebuildScopeProfile::Full,
-                        )
-                    })
-                    .await;
-                    match deferred_result {
-                        Ok(Ok(report)) => status_from_report(&report, None, false),
-                        Ok(Err(error)) => {
-                            mark_job_failed(None, PrebuildMode::Build, &error.to_string(), true)
-                        }
-                        Err(error) => mark_job_failed(
-                            None,
-                            PrebuildMode::Build,
-                            &format!("startup deferred build worker join failed: {error}"),
-                            true,
-                        ),
-                    }
-                }
-            }
+            Ok(Ok(report)) => status_from_report(&report, None, false, ScopeGateRefreshMode::Full),
             Ok(Err(error)) => mark_job_failed(None, PrebuildMode::Build, &error.to_string(), false),
             Err(error) => mark_job_failed(
                 None,
@@ -163,6 +291,7 @@ pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
             ),
         }
     });
+    spawn_startup_status_watcher(source_root_for_watcher);
     Ok(())
 }
 
@@ -191,7 +320,14 @@ pub(crate) fn spawn_manual_job(
         })
         .await;
         match report_result {
-            Ok(Ok(report)) => status_from_report(&report, app_filter_owned.as_deref(), false),
+            Ok(Ok(report)) => {
+                status_from_report(
+                    &report,
+                    app_filter_owned.as_deref(),
+                    false,
+                    ScopeGateRefreshMode::Full,
+                )
+            }
             Ok(Err(error)) => {
                 mark_job_failed(app_filter_owned.as_deref(), mode, &error.to_string(), false)
             }

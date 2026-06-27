@@ -5,6 +5,33 @@ fn active_mcg_bundle_revisions(state: &CoverageState) -> BTreeMap<String, String
     state.active_mcg_bundle_revisions()
 }
 
+fn hydrate_outcome_for_artifacts(
+    app_id: &str,
+    state: &CoverageState,
+    outcome: &SharedCompileOutcome,
+    metric_ids: &[String],
+    owner_resource_ids: &[String],
+) -> Result<SharedCompileOutcome> {
+    let Some(source_root) = state.source_root.as_deref() else {
+        return Ok(outcome.clone());
+    };
+    if !crate::graph::feature::graph_registry_dedup_enabled() {
+        return Ok(outcome.clone());
+    }
+    let mut compiled = (*outcome.compiled).clone();
+    crate::graph::hydrate_compiled_for_prebuild_eval(
+        source_root,
+        app_id,
+        &mut compiled,
+        metric_ids,
+        owner_resource_ids,
+    )?;
+    Ok(SharedCompileOutcome {
+        compiled: Arc::new(compiled),
+        ..outcome.clone()
+    })
+}
+
 fn metric_artifact_exists(app_root: &Path, workset: &PlannedMetricWorkset, canonical: &str) -> bool {
     metric_response_result_artifact_exists(app_root, canonical)
         || metric_response_result_artifact_exists(app_root, workset.shared_cache_key.as_str())
@@ -50,6 +77,24 @@ pub(crate) fn ensure_scope_artifacts(
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
+    let metric_ids = plan
+        .metric_worksets
+        .iter()
+        .flat_map(|workset| workset.requested_metric_ids.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+    let owner_resource_ids = plan
+        .metric_worksets
+        .iter()
+        .map(|workset| workset.owner_resource_id.clone())
+        .collect::<Vec<_>>();
+    let outcome = hydrate_outcome_for_artifacts(
+        app_id,
+        state,
+        outcome,
+        metric_ids.as_slice(),
+        owner_resource_ids.as_slice(),
+    )?;
     let mrg_registry = if crate::graph::feature::graph_registry_dedup_enabled() {
         state
             .source_root
@@ -98,7 +143,7 @@ pub(crate) fn ensure_scope_artifacts(
         ensure_metric_response_artifact_for_plan(
             app_id,
             app_root,
-            outcome,
+            &outcome,
             workset,
             mode,
             coverage,
@@ -141,7 +186,7 @@ pub(crate) fn ensure_scope_artifacts(
         }
         ensure_metric_dataframe_artifact_for_plan(
             app_root,
-            outcome,
+            &outcome,
             dataframe,
             mode,
             coverage,

@@ -151,6 +151,10 @@ pub(crate) fn run_prebuild_job_sync_inner(
             clean: false,
             force_rebuild: false,
             scope_profile,
+            dirty_only: false,
+            block_node: None,
+            diagnose_on_fail: true,
+            continue_from: None,
         },
     )
 }

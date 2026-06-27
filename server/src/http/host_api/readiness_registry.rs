@@ -132,6 +132,7 @@ pub(crate) fn is_warmup_transient_runtime_error(message: &str) -> bool {
     text.contains("not found in active scene resources")
         || text.contains("missing strict AOT metric result artifact")
         || text.contains("requires prebuilt access artifacts on access-only host")
+        || text.contains("legacy metric")
         || text.contains("该指标尚未装载")
 }
 

@@ -14,7 +14,7 @@ mod static_serve;
 mod util;
 
 pub(crate) use app::clear_page_render_cache;
-pub(crate) use app_render::{prepare_landing_artifacts_for_serve, probe_landing_readiness};
+pub(crate) use app_render::prepare_landing_artifacts_for_serve;
 pub use app::{app_page, index, AppQuery};
 pub use host_hub::host_hub_page;
 pub use assets::{app_asset, app_bundle, workspace_app_asset};

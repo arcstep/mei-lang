@@ -30,8 +30,8 @@ pub(crate) use crate::cli::util::{
     resolve_package_root, resolve_source_root_arg,
 };
 pub(crate) use crate::cli::{
-    agent_command, compile_or_check_command, diagnostics_command, editor_runtime_command,
-    export_command, graph_command, host_command, inspect_command, knowledge_command, mcp_command,
-    prebuild_command, query_command, readiness_command, runtime_command, scope_command,
-    warmup_command, workspace_command,
+    agent_command, block_command, compile_or_check_command, diagnostics_command,
+    editor_runtime_command, export_command, graph_command, host_command, inspect_command,
+    knowledge_command, layer_command, mcp_command, prebuild_command, query_command,
+    readiness_command, runtime_command, scope_command, warmup_command, workspace_command,
 };

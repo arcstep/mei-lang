@@ -9,6 +9,10 @@ pub(crate) struct PrebuildCompileSession {
     pub(crate) discovered_scope_keys: BTreeSet<String>,
     /// Each `.board.mei` target is expanded at most once per prebuild compile phase.
     pub(crate) expanded_board_targets: BTreeSet<String>,
+    /// When set, discover expansion only keeps scopes for these scene ids (+ target-only scopes).
+    pub(crate) hot_only_scene_ids: Option<BTreeSet<String>>,
+    /// When set, discover expansion is skipped (block-scoped MCG pass).
+    pub(crate) skip_discover: bool,
 }
 
 impl PrebuildCompileSession {
@@ -100,6 +104,26 @@ impl PrebuildCompileSession {
         self.expanded_board_targets
             .insert(board_target.clone());
         discovered.to_vec()
+    }
+
+    pub(crate) fn filter_hot_only_discovered(&self, discovered: Vec<CompileScope>) -> Vec<CompileScope> {
+        let Some(hot_scenes) = self.hot_only_scene_ids.as_ref() else {
+            return discovered;
+        };
+        discovered
+            .into_iter()
+            .filter(|scope| {
+                match scope
+                    .requested_scene_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    None => true,
+                    Some(scene) => hot_scenes.contains(scene),
+                }
+            })
+            .collect()
     }
 }
 

@@ -1,5 +1,6 @@
 use super::prelude::*;
 use super::*;
+use crate::block::BlockOrchestrator;
 
 pub(crate) fn ensure_compile_scope_for_prebuild(
     session: &Mutex<PrebuildCompileSession>,
@@ -70,10 +71,16 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
                 diagnostics
                     .compile_index_stale_entries
                     .fetch_add(1, Ordering::Relaxed);
-                ensure_compile_scope(source_root, app_id, scope, mode, components_root)?
+                BlockOrchestrator::compile_scope(
+                    source_root,
+                    app_id,
+                    scope,
+                    mode,
+                    false,
+                )?
             }
         }
-        None => ensure_compile_scope(source_root, app_id, scope, mode, components_root)?,
+        None => BlockOrchestrator::compile_scope(source_root, app_id, scope, mode, false)?,
     };
     if mode == PrebuildMode::Build {
         let options = scope.to_options();
@@ -115,11 +122,14 @@ pub(crate) fn record_prebuild_scope_compile_with_discovered(
     let mut locked = compile_session
         .lock()
         .expect("prebuild compile session lock");
-    if locked.should_discover(scope) {
+    if locked.skip_discover {
+        drop(locked);
+    } else if locked.should_discover(scope) {
         let discovered_iter = discovered_scopes
             .map(|scopes| scopes.to_vec())
             .unwrap_or_else(|| discovered_compile_scopes(scope, &outcome.compiled));
         let filtered = locked.filter_board_discovered_scopes(scope, discovered_iter.as_slice());
+        let filtered = locked.filter_hot_only_discovered(filtered);
         drop(locked);
         for discovered in filtered {
             if seen_scopes.insert(discovered.key()) {

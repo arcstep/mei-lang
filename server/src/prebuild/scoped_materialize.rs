@@ -1,6 +1,8 @@
 use super::prelude::*;
 use super::*;
 
+use crate::block::{block_eval_hint, BlockOrchestrator};
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ScopedMaterializeReport {
     #[serde(rename = "scopeArtifactsMs")]
@@ -9,6 +11,8 @@ pub struct ScopedMaterializeReport {
     pub mrg_slots_ready: usize,
     #[serde(rename = "evalArtifactsWarmed")]
     pub eval_artifacts_warmed: usize,
+    #[serde(rename = "blockEvalHint", skip_serializing_if = "Option::is_none")]
+    pub block_eval_hint: Option<String>,
 }
 
 /// Write-path: warm metric/dataframe artifacts for a scoped compile outcome (Build scoped rebuild).
@@ -42,7 +46,8 @@ pub fn materialize_scope_after_compile(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
-    };
+    }
+    .canonicalized();
     let mut coverage = PrebuildCoverageReport::default();
     let mut state = CoverageState::default();
     state.source_root = Some(source_root.to_path_buf());
@@ -50,30 +55,59 @@ pub fn materialize_scope_after_compile(
     state.pre_mcg_bundle_revisions =
         crate::graph::dedup::load_mcg_bundle_revisions(source_root, app_id);
 
+    let scope_profile = PrebuildScopeProfile::HotOnly;
+    let frontier = build_mrg_eval_frontier(source_root, app_id, scope_profile);
+    tracing::info!(
+        target: "mei.scoped_build",
+        app_id = %app_id,
+        scene_id = ?scene_id,
+        target_file = ?target_file,
+        dirty_slot_count = frontier.dirty_slot_count,
+        plan_source = frontier.plan_source,
+        "[SCOPED-BUILD] warming scope artifacts"
+    );
+
+    let workspace_flag = format!("--workspace {}", source_root.display());
+    let block_eval_hint = block_eval_hint(
+        workspace_flag.as_str(),
+        app_id,
+        scene_id,
+        target_file,
+        "<owner>",
+        &[],
+    );
+
     let mut warmed_via_plan = false;
     if let Ok(Some(manifest)) = resolve_runtime_warmup_manifest(source_root) {
         if let Some(app) = manifest.apps.iter().find(|entry| entry.app_id == app_id) {
-            let plan = build_prebuild_manifest_plan(app, PrebuildScopeProfile::Full);
-            let matching =
-                matching_warmup_requests_for_outcome(&plan.warmup_requests, &shared);
+            let plan = build_prebuild_manifest_plan(app, scope_profile);
+            let matching = matching_warmup_requests_for_outcome(&plan.warmup_requests, &shared);
             if !matching.is_empty() {
-                let scope_plan = build_scope_artifact_plan(
+                let mut scope_plan = build_scope_artifact_plan(
+                    source_root,
                     app_id,
                     app_root.as_path(),
                     &scope,
                     &shared,
                     matching.as_slice(),
                 )?;
-                ensure_scope_artifacts(
-                    app_id,
-                    app_root.as_path(),
-                    &shared,
-                    &scope_plan,
-                    mode,
-                    &mut coverage,
-                    &state,
-                )?;
-                warmed_via_plan = true;
+                if frontier.dirty_slot_count > 0 {
+                    retain_dirty_scope_plan(&mut scope_plan, &frontier);
+                }
+                if !scope_plan.metric_worksets.is_empty()
+                    || !scope_plan.dataframe_artifacts.is_empty()
+                {
+                    BlockOrchestrator::materialize_scope_plan(
+                        app_id,
+                        app_root.as_path(),
+                        &shared,
+                        &scope_plan,
+                        mode,
+                        &mut coverage,
+                        &state,
+                    )?;
+                    warmed_via_plan = true;
+                }
             }
         }
     }
@@ -111,6 +145,26 @@ pub fn materialize_scope_after_compile(
         }
     }
 
+    if let (Some(scene), Some(target)) = (
+        scope.requested_scene_id.as_deref(),
+        scope.requested_target_file.as_deref(),
+    ) {
+        let _ = crate::graph::mrg::navigation::sync_navigation_for_compile_scopes(
+            source_root,
+            app_id,
+            &[crate::graph::mrg::navigation::CompileScopeNav {
+                scene_id: scene.to_string(),
+                target_file: target.to_string(),
+            }],
+        );
+    }
+    if let Err(error) = patch_prebuild_compile_index_entry(source_root, app_id, &scope, &shared) {
+        tracing::warn!(target: "mei.scoped_build", app_id = %app_id, error = %error, "patch scoped compile index failed");
+    }
+    if let Err(error) = crate::prebuild_fingerprint::bump_scoped_prebuild_timestamp(source_root, app_id) {
+        tracing::warn!(target: "mei.scoped_build", app_id = %app_id, error = %error, "scoped prebuild fingerprint bump failed");
+    }
+
     let eval_artifacts_warmed = coverage
         .metric_response_artifacts_built
         .saturating_add(coverage.metric_dataframe_artifacts_built)
@@ -126,10 +180,20 @@ pub fn materialize_scope_after_compile(
         0
     };
 
+    tracing::info!(
+        target: "mei.scoped_build",
+        app_id = %app_id,
+        eval_warmed = eval_artifacts_warmed,
+        mrg_slots_ready,
+        scope_ms = started.elapsed().as_millis() as u64,
+        hint = %block_eval_hint,
+        "[SCOPED-BUILD] complete"
+    );
+
     Ok(ScopedMaterializeReport {
         scope_artifacts_ms: started.elapsed().as_millis() as u64,
         mrg_slots_ready,
         eval_artifacts_warmed,
+        block_eval_hint: Some(block_eval_hint),
     })
 }
-

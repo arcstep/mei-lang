@@ -3,18 +3,19 @@ pub(crate) fn is_script_target(path: &str) -> bool {
     path.ends_with(".mei")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PrebuildMode {
     Build,
     Verify,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PrebuildScopeProfile {
     Full,
     HotOnly,
+    BlockScoped,
 }
 
 #[derive(Debug, Clone)]
@@ -24,9 +25,21 @@ pub struct PrebuildOptions {
     pub clean: bool,
     pub force_rebuild: bool,
     pub scope_profile: PrebuildScopeProfile,
+    pub dirty_only: bool,
+    pub block_node: Option<String>,
+    pub diagnose_on_fail: bool,
+    pub continue_from: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+pub fn effective_prebuild_scope_profile(options: &PrebuildOptions) -> PrebuildScopeProfile {
+    if options.block_node.is_some() {
+        PrebuildScopeProfile::BlockScoped
+    } else {
+        options.scope_profile
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildScopeReport {
     pub requested_scene_id: Option<String>,
     pub requested_target_file: Option<String>,
@@ -40,7 +53,7 @@ pub struct PrebuildScopeReport {
     pub compile_ms: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildTimingReport {
     pub total_wall_ms: u64,
     pub compile_scopes_ms: u64,
@@ -54,7 +67,7 @@ pub struct PrebuildTimingReport {
     pub max_parallelism: usize,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildCoverageReport {
     pub compile_artifacts_planned: usize,
     pub compile_artifacts_ready: usize,
@@ -77,20 +90,20 @@ pub struct PrebuildCoverageReport {
     pub total_missing_artifacts: usize,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildDiskUsageReport {
     pub files: usize,
     pub bytes: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildEvalArtifactDiskReport {
     pub total: PrebuildDiskUsageReport,
     pub metric_response: PrebuildDiskUsageReport,
     pub metric_dataframe: PrebuildDiskUsageReport,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildCompileIndexStatsReport {
     pub preload_reuse_hits: usize,
     pub postload_identity_collapses: usize,
@@ -110,21 +123,21 @@ pub struct PrebuildCompileIndexStatsReport {
     pub dataframe_eval_skips: usize,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildSessionEntryStatsReport {
     pub scope_entries: usize,
     pub cache_entries: usize,
     pub identity_entries: usize,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildNodeBudgetReport {
     pub canonical_node_limit: usize,
     pub startup_wall_ms_limit: u64,
     pub over_canonical_node_limit: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildPlanNodeStatsReport {
     pub manifest_compile_scope_nodes: usize,
     pub hot_compile_scope_nodes: usize,
@@ -139,14 +152,14 @@ pub struct PrebuildPlanNodeStatsReport {
     pub budget: PrebuildNodeBudgetReport,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildSlowScopeDiagnostic {
     pub scene_id: Option<String>,
     pub target_file: String,
     pub compile_ms: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildSlowMetricDiagnostic {
     pub kind: String,
     pub dataset: String,
@@ -155,7 +168,7 @@ pub struct PrebuildSlowMetricDiagnostic {
     pub ms: u64,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildWarmupDiagnosticReport {
     pub total_request_count: usize,
     pub executed_request_count: usize,
@@ -164,7 +177,7 @@ pub struct PrebuildWarmupDiagnosticReport {
     pub ok: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PrebuildDiagnosticsReport {
     pub total_scope_checks: usize,
     pub real_compile_count: usize,
@@ -197,7 +210,7 @@ pub struct PrebuildDiagnosticsReport {
     pub dirty_slot_count: Option<usize>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildWarningReport {
     pub phase: String,
     pub category: String,
@@ -221,6 +234,8 @@ pub struct PrebuildWarningReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
     pub error: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "errorChain")]
+    pub error_chain: Option<String>,
 }
 
 impl PrebuildWarningReport {
@@ -229,7 +244,7 @@ impl PrebuildWarningReport {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildWarningSample {
     pub category: String,
     pub phase: String,
@@ -242,7 +257,7 @@ pub struct PrebuildWarningSample {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PrebuildWarningSummary {
     pub total: usize,
     #[serde(rename = "byCategory")]
@@ -300,18 +315,19 @@ pub(crate) fn build_warning_summary(
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildAppReport {
     pub app_id: String,
     pub compile_scopes: Vec<PrebuildScopeReport>,
     pub coverage: PrebuildCoverageReport,
     pub timings: PrebuildTimingReport,
+    #[serde(skip_serializing_if = "Option::is_none", skip_deserializing)]
     pub data_snapshots: Option<PublishDataSnapshotsReport>,
     pub diagnostics: PrebuildDiagnosticsReport,
     pub warnings: Vec<PrebuildWarningReport>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildReport {
     pub schema_version: String,
     pub mode: PrebuildMode,
@@ -330,7 +346,8 @@ pub struct PrebuildReport {
     pub apps: Vec<PrebuildAppReport>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildScopeSummary {
     pub requested_scene_id: Option<String>,
     pub requested_target_file: Option<String>,
@@ -343,7 +360,8 @@ pub struct PrebuildScopeSummary {
     pub compile_ms: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildAppSummary {
     pub app_id: String,
     pub compile_scopes: Vec<PrebuildScopeSummary>,
@@ -356,7 +374,8 @@ pub struct PrebuildAppSummary {
     pub warning_summary: PrebuildWarningSummary,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[allow(dead_code)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrebuildReportSummary {
     pub schema_version: String,
     pub mode: PrebuildMode,
@@ -378,6 +397,8 @@ pub struct PrebuildReportSummary {
     pub warning_summary: PrebuildWarningSummary,
     #[serde(skip_serializing_if = "Option::is_none", rename = "fullReportPath")]
     pub full_report_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "failedBlockHints")]
+    pub failed_block_hints: Vec<String>,
     pub apps: Vec<PrebuildAppSummary>,
 }
 
@@ -432,6 +453,7 @@ impl PrebuildReport {
         build_warning_summary(&warnings, 8, 12)
     }
 
+    #[allow(dead_code)]
     pub fn summary(&self, full_report_path: Option<String>) -> PrebuildReportSummary {
         let warning_summary = self.aggregate_warning_summary();
         PrebuildReportSummary {
@@ -452,6 +474,7 @@ impl PrebuildReport {
             warning_count: warning_summary.total,
             warning_summary: warning_summary.clone(),
             full_report_path,
+            failed_block_hints: Vec::new(),
             apps: self
                 .apps
                 .iter()

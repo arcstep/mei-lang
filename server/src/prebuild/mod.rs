@@ -59,9 +59,11 @@ pub use types::{
     PrebuildOptions, PrebuildPlanNodeStatsReport, PrebuildReport, PrebuildReportSummary,
     PrebuildScopeProfile, PrebuildScopeReport, PrebuildScopeSummary, PrebuildSessionEntryStatsReport,
     PrebuildSlowMetricDiagnostic, PrebuildSlowScopeDiagnostic, PrebuildTimingReport,
-    PrebuildWarmupDiagnosticReport, PrebuildWarningReport,
+    PrebuildWarmupDiagnosticReport, PrebuildWarningReport, effective_prebuild_scope_profile,
 };
-pub use run::{persist_prebuild_report, run_prebuild};
+pub use run::{
+    clean_workspace_prebuild_artifacts, load_prebuild_report, persist_prebuild_report,
+    run_prebuild,
+};
 pub use mrg_plan::build_mrg_eval_frontier;
 pub use scoped_materialize::{materialize_scope_after_compile, ScopedMaterializeReport};
-pub(crate) use plan::app_has_deferred_warmup_work;

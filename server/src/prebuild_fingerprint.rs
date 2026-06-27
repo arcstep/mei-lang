@@ -70,6 +70,31 @@ pub fn persist_prebuild_state(source_root: &Path, state: &PersistedPrebuildState
     Ok(())
 }
 
+/// Bump scoped-build timestamp when workspace fingerprint still matches stored state.
+pub fn bump_scoped_prebuild_timestamp(source_root: &Path, app_id: &str) -> Result<()> {
+    let Some(mut stored) = load_prebuild_state(source_root)? else {
+        return Ok(());
+    };
+    let current = compute_prebuild_inputs_fingerprint(source_root)?;
+    if stored.inputs_fingerprint != current {
+        return Ok(());
+    }
+    stored.last_ok_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(stored.last_ok_at_ms);
+    if !stored
+        .succeeded_apps
+        .iter()
+        .any(|entry| entry == app_id)
+    {
+        stored.succeeded_apps.push(app_id.to_string());
+        stored.succeeded_apps.sort();
+        stored.succeeded_apps.dedup();
+    }
+    persist_prebuild_state(source_root, &stored)
+}
+
 pub fn compute_prebuild_inputs_fingerprint(source_root: &Path) -> Result<String> {
     let manifest = resolve_runtime_warmup_manifest(source_root)?
         .ok_or_else(|| anyhow::anyhow!("warmup manifest unavailable"))?;

@@ -242,6 +242,7 @@ pub async fn api_host_build(
                 scope_profile: match scope_profile {
                     PrebuildScopeProfile::Full => "full".to_string(),
                     PrebuildScopeProfile::HotOnly => "hot_only".to_string(),
+                    PrebuildScopeProfile::BlockScoped => "block_scoped".to_string(),
                 },
                 status: "accepted".to_string(),
                 artifact_ready: false,
@@ -258,6 +259,7 @@ pub async fn api_host_build(
                 scope_artifacts_ms: None,
                 mrg_slots_ready: None,
                 eval_artifacts_warmed: None,
+                block_eval_hint: None,
             }),
         )
             .into_response(),

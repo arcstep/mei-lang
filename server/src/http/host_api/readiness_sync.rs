@@ -47,18 +47,15 @@ pub(crate) fn scope_registry_has_degraded_errors(registry: &HostReadinessRegistr
 }
 
 fn app_default_scope_access_ready(source_root: &Path, app_id: &str) -> bool {
-    use crate::graph::mrg::navigation::resolve_default_scope;
-    use crate::readiness::types::UiMode;
+    crate::readiness::scope_gate::default_app_access_ready(source_root, app_id)
+}
 
-    let nav = resolve_default_scope(source_root, app_id, UiMode::App);
-    crate::readiness::scope_gate::check_scope_gate_silent(
-        source_root,
-        app_id,
-        Some(nav.scope.scene_id.as_str()),
-        Some(nav.scope.target_file.as_str()),
-        true,
-    )
-    .access_ready
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScopeGateRefreshMode {
+    /// Check every compiled scope (slow on large workspaces; use after prebuild completes).
+    Full,
+    /// Landing/default-app gate only — serve must not block on manifest sweep.
+    LandingOnly,
 }
 
 fn apply_global_access_flags(registry: &mut HostReadinessRegistry, source_root: &Path) {
@@ -93,12 +90,75 @@ fn apply_global_access_flags(registry: &mut HostReadinessRegistry, source_root: 
     };
 }
 
+fn refresh_registry_landing_gates(
+    source_root: &Path,
+    registry: &mut HostReadinessRegistry,
+    app_ids: &[String],
+) {
+    for app_id in app_ids {
+        let landing_ready = app_default_scope_access_ready(source_root, app_id.as_str());
+        let Some(app_state) = registry.apps.get_mut(app_id.as_str()) else {
+            continue;
+        };
+        app_state.access_ready = landing_ready;
+        app_state.phase = if landing_ready {
+            "ready".to_string()
+        } else {
+            "degraded".to_string()
+        };
+    }
+    apply_global_access_flags(registry, source_root);
+}
+
+fn count_registry_scopes(registry: &HostReadinessRegistry, app_ids: &[String]) -> usize {
+    app_ids
+        .iter()
+        .filter_map(|app_id| registry.apps.get(app_id.as_str()))
+        .map(|app| app.scopes.len())
+        .sum()
+}
+
+fn emit_scope_gate_sweep_progress(
+    checked: usize,
+    total: usize,
+    summary: &ScopeGateSweepSummary,
+    elapsed: std::time::Duration,
+) {
+    if total == 0 {
+        return;
+    }
+    let every = 50usize;
+    if checked != total && checked % every != 0 {
+        return;
+    }
+    tracing::warn!(
+        target: "mei.startup",
+        checked,
+        total,
+        l2_miss = summary.l2_miss,
+        l3_fail = summary.l3_fail,
+        l4_stale = summary.l4_stale,
+        elapsed_secs = elapsed.as_secs(),
+        "scope gate manifest sweep in progress"
+    );
+    crate::prebuild::prebuild_emit_notice(format!(
+        "scope gate sweep {checked}/{total} ({:.0}s) | L2={} L3={} L4={}",
+        elapsed.as_secs_f64(),
+        summary.l2_miss,
+        summary.l3_fail,
+        summary.l4_stale,
+    ));
+}
+
 fn refresh_registry_scope_gates(
     source_root: &Path,
     registry: &mut HostReadinessRegistry,
     app_ids: &[String],
 ) -> ScopeGateSweepSummary {
+    let total_scopes = count_registry_scopes(registry, app_ids);
+    let started = std::time::Instant::now();
     let mut summary = ScopeGateSweepSummary::default();
+    let mut checked = 0usize;
     for app_id in app_ids {
         let scope_keys = registry
             .apps
@@ -147,6 +207,8 @@ fn refresh_registry_scope_gates(
                 summary.degraded_scopes.push(key.clone());
                 app_summary.degraded_scopes.push(key);
             }
+            checked += 1;
+            emit_scope_gate_sweep_progress(checked, total_scopes, &summary, started.elapsed());
         }
         if let Some(app_state) = registry.apps.get_mut(app_id.as_str()) {
             app_state.gate_summary = Some(app_summary);
@@ -166,6 +228,90 @@ fn refresh_registry_scope_gates(
     }
     apply_global_access_flags(registry, source_root);
     summary
+}
+
+pub(crate) fn spawn_deferred_scope_gate_sweep(source_root: PathBuf, succeeded_apps: Vec<String>) {
+    if succeeded_apps.is_empty() {
+        return;
+    }
+    tokio::spawn(async move {
+        let apps = succeeded_apps;
+        let join = tokio::task::spawn_blocking(move || {
+            apply_background_scope_gate_sweep(source_root.as_path(), &apps)
+        })
+        .await;
+        if let Err(error) = join {
+            tracing::warn!(%error, "background scope gate sweep worker join failed");
+        }
+    });
+}
+
+fn apply_background_scope_gate_sweep(source_root: &Path, app_ids: &[String]) {
+    let total_scopes =
+        with_registry(|registry| count_registry_scopes(registry, app_ids)).unwrap_or(0);
+    if total_scopes == 0 {
+        return;
+    }
+    crate::prebuild::prebuild_emit_notice(format!(
+        "scope gate manifest sweep starting ({total_scopes} scopes, background) — /host already open"
+    ));
+    tracing::warn!(
+        target: "mei.startup",
+        total_scopes,
+        app_count = app_ids.len(),
+        "scope gate manifest sweep started (background)"
+    );
+    let started = std::time::Instant::now();
+    let gate_summary = with_registry(|registry| {
+        let summary = refresh_registry_scope_gates(source_root, registry, app_ids);
+        let scope_gate_ready =
+            summary.l2_miss == 0 && summary.l3_fail == 0 && summary.l4_stale == 0;
+        let deferred_warmup_pending = registry.deferred_warmup_pending;
+        registry.scope_gate_ready = scope_gate_ready;
+        registry.gate_summary = Some(summary.clone());
+        registry.full_warmup_ready =
+            registry.artifacts_ready && scope_gate_ready && !deferred_warmup_pending;
+        sync_registry_phase(registry);
+        summary
+    })
+    .unwrap_or_default();
+    tracing::warn!(
+        target: "mei.startup",
+        elapsed_secs = started.elapsed().as_secs(),
+        l2_miss = gate_summary.l2_miss,
+        l3_fail = gate_summary.l3_fail,
+        l4_stale = gate_summary.l4_stale,
+        "scope gate manifest sweep finished"
+    );
+    crate::prebuild::prebuild_emit_notice(format!(
+        "scope gate sweep done {:.1}s | L2={} L3={} L4={}",
+        started.elapsed().as_secs_f64(),
+        gate_summary.l2_miss,
+        gate_summary.l3_fail,
+        gate_summary.l4_stale,
+    ));
+}
+
+fn incomplete_gate_detail(
+    report: &PrebuildReport,
+    shell_ready: bool,
+    landing_ready: bool,
+    scope_gate_ready: bool,
+    gate_summary: &ScopeGateSweepSummary,
+) -> String {
+    if !report.ok {
+        return "prebuild failed".to_string();
+    }
+    if !shell_ready || !landing_ready {
+        return "landing gate not ready (L2/L3)".to_string();
+    }
+    if !scope_gate_ready {
+        return format!(
+            "landing ready; manifest sweep L2={} L3={} L4={}",
+            gate_summary.l2_miss, gate_summary.l3_fail, gate_summary.l4_stale
+        );
+    }
+    "access prerequisites incomplete".to_string()
 }
 
 pub(crate) fn apply_success_app_report(app_report: &PrebuildAppReport, app_state: &mut HostAppReadinessState) {
@@ -218,6 +364,7 @@ pub(crate) fn status_from_report(
     report: &PrebuildReport,
     app_filter: Option<&str>,
     deferred_warmup_pending: bool,
+    gate_refresh: ScopeGateRefreshMode,
 ) {
     let warning_count = report
         .apps
@@ -291,12 +438,37 @@ pub(crate) fn status_from_report(
             apply_success_app_report(app_report, app_state);
         }
         prune_stale_scopes(registry, report);
-        gate_summary = refresh_registry_scope_gates(
-            Path::new(&report.source_root),
-            registry,
-            &report.succeeded_apps,
-        );
-        scope_gate_ready = gate_summary.l2_miss == 0
+        match gate_refresh {
+            ScopeGateRefreshMode::Full => {
+                let total_scopes = count_registry_scopes(registry, &report.succeeded_apps);
+                if total_scopes > 0 {
+                    tracing::warn!(
+                        target: "mei.startup",
+                        total_scopes,
+                        app_count = report.succeeded_apps.len(),
+                        "scope gate manifest sweep started (sync)"
+                    );
+                    crate::prebuild::prebuild_emit_notice(format!(
+                        "scope gate manifest sweep starting ({total_scopes} scopes)..."
+                    ));
+                }
+                gate_summary = refresh_registry_scope_gates(
+                    Path::new(&report.source_root),
+                    registry,
+                    &report.succeeded_apps,
+                );
+            }
+            ScopeGateRefreshMode::LandingOnly => {
+                refresh_registry_landing_gates(
+                    Path::new(&report.source_root),
+                    registry,
+                    &report.succeeded_apps,
+                );
+                gate_summary = ScopeGateSweepSummary::default();
+            }
+        }
+        scope_gate_ready = gate_refresh == ScopeGateRefreshMode::Full
+            && gate_summary.l2_miss == 0
             && gate_summary.l3_fail == 0
             && gate_summary.l4_stale == 0;
         registry.scope_gate_ready = scope_gate_ready;
@@ -306,7 +478,7 @@ pub(crate) fn status_from_report(
         registry.deferred_warmup_pending =
             artifacts_ready && scope_gate_ready && deferred_warmup_pending;
         if gate_summary.l2_miss > 0 || gate_summary.l3_fail > 0 || gate_summary.l4_stale > 0 {
-            tracing::info!(
+            tracing::debug!(
                 l2_miss = gate_summary.l2_miss,
                 l3_fail = gate_summary.l3_fail,
                 l4_stale = gate_summary.l4_stale,
@@ -316,18 +488,6 @@ pub(crate) fn status_from_report(
                 "scope gate sweep summary"
             );
         }
-        emit_prebuild_status_line(
-            "gate sweep",
-            "1;36",
-            &format!(
-                "L2={} L3={} L4={} | defaultAppAccessReady={} | anyAppAccessReady={}",
-                gate_summary.l2_miss,
-                gate_summary.l3_fail,
-                gate_summary.l4_stale,
-                registry.default_app_access_ready,
-                registry.any_app_access_ready
-            ),
-        );
         registry.active_job = None;
         sync_registry_phase(registry);
         for app_id in &report.failed_apps {
@@ -400,83 +560,107 @@ pub(crate) fn status_from_report(
         warning_count,
         "startup prebuild report applied"
     );
-    if failed_app_count == 0 && artifacts_ready && scope_gate_ready {
-        let ready_title = if deferred_warmup_pending {
-            "ACCESS READY!"
-        } else {
+    let snapshot = registry_snapshot();
+    let landing_ready = snapshot.access_ready;
+    let prebuild_ok = failed_app_count == 0 && report.ok;
+    if prebuild_ok && landing_ready {
+        let ready_title = if scope_gate_ready && !deferred_warmup_pending {
             "FULL READY!"
-        };
-        let ready_detail = if deferred_warmup_pending {
-            "access artifacts ready; deferred warmup still running"
         } else {
-            "full warmup artifacts ready"
+            "ACCESS READY!"
         };
-        emit_prebuild_status_line(
-            ready_title,
-            "1;32",
-            &format!(
-                "[PREBUILD +{:.1}s] {ready_detail} | apps={} | compile={}ms | warmup={}ms",
-                report.total_wall_ms as f64 / 1000.0,
-                report.succeeded_apps.len(),
-                compile_ms,
-                warmup_ms
-            ),
+        let ready_detail = if gate_refresh == ScopeGateRefreshMode::LandingOnly && !scope_gate_ready {
+            "landing gate ok; full manifest sweep running in background".to_string()
+        } else if !scope_gate_ready {
+            format!(
+                "landing gate ok; manifest sweep L2={} L3={} L4={} — embedded capsules may still 503/404",
+                gate_summary.l2_miss, gate_summary.l3_fail, gate_summary.l4_stale
+            )
+        } else {
+            "landing + full manifest sweep ok".to_string()
+        };
+        let wall_summary = format!(
+            "耗时 {:.1}s | apps={} | compile={}ms | warmup={}ms",
+            report.total_wall_ms as f64 / 1000.0,
+            report.succeeded_apps.len(),
+            compile_ms,
+            warmup_ms,
         );
+        crate::prebuild::prebuild_emit_success_banner(ready_title, &[
+            wall_summary.as_str(),
+            "host entry: /host",
+            ready_detail.as_str(),
+        ]);
         tracing::info!(
             total_wall_ms = report.total_wall_ms,
             compile_ms,
             warmup_ms,
             app_count = report.succeeded_apps.len(),
             deferred_warmup_pending,
+            scope_gate_ready,
+            default_app_access_ready = snapshot.default_app_access_ready,
             "{ready_title} {ready_detail}"
         );
     } else {
-        let snapshot = registry_snapshot();
+        let source_root = Path::new(&report.source_root);
+        let default_app_line = snapshot
+            .default_app_id
+            .as_deref()
+            .map(|app_id| {
+                let gate =
+                    crate::readiness::scope_gate::resolve_default_app_access_gate(source_root, app_id);
+                format!(
+                    "  defaultApp `{app_id}`: {}",
+                    crate::readiness::scope_gate::format_landing_gate_summary(&gate)
+                )
+            })
+            .unwrap_or_else(|| "  defaultApp: (not configured)".to_string());
         let app_lines = snapshot
             .apps
             .iter()
             .map(|app| {
-                let gate = app
-                    .gate_summary
-                    .as_ref()
-                    .map(|summary| {
-                        format!(
-                            "L2={} L3={} L4={}",
-                            summary.l2_miss, summary.l3_fail, summary.l4_stale
-                        )
-                    })
-                    .unwrap_or_else(|| "L2=? L3=? L4=?".to_string());
+                let landing = crate::readiness::scope_gate::format_landing_gate_summary(
+                    &crate::readiness::scope_gate::resolve_default_app_access_gate(
+                        source_root,
+                        app.app_id.as_str(),
+                    ),
+                );
                 format!(
-                    "  {}: {} | accessReady={} | {} | warnings={}",
+                    "  {}: {} | accessReady={} | {} | prebuild warnings={}",
                     app.app_id,
                     app.phase,
                     app.access_ready,
-                    gate,
+                    landing,
                     app.warnings.len()
                 )
             })
             .collect::<Vec<_>>();
-        let gate_detail = if !scope_gate_ready {
-            format!(
-                "scope_gate L2={} L3={} L4={}",
-                gate_summary.l2_miss, gate_summary.l3_fail, gate_summary.l4_stale
-            )
-        } else if !artifacts_ready {
-            "artifacts incomplete".to_string()
-        } else {
+        let gate_detail = incomplete_gate_detail(
+            report,
+            shell_ready,
+            landing_ready,
+            scope_gate_ready,
+            &gate_summary,
+        );
+        let report_hint = if report.source_root.trim().is_empty() {
             String::new()
+        } else {
+            format!(
+                "\n  full report: {}/runtime/prebuild-last.json",
+                report.source_root
+            )
         };
         emit_prebuild_status_line(
-            "WORKSPACE ACCESS INCOMPLETE",
+            "WORKSPACE ACCESS INCOMPLETE (not ACCESS READY)",
             "1;33",
             &format!(
-                "[PREBUILD +{:.1}s] host shell unaffected | failed_apps={} | warnings={} | {gate_detail} | compile={}ms | warmup={}ms\n{}",
+                "[PREBUILD +{:.1}s] {gate_detail}; host shell OK at /host | failed_apps={} | prebuild_warnings={} | compile={}ms | warmup={}ms\n{default_app_line}\n{}\n  hint: mei-toolchain scope gate check --app <id>{report_hint}",
                 report.total_wall_ms as f64 / 1000.0,
                 failed_app_count,
                 warning_count,
                 compile_ms,
                 warmup_ms,
-                app_lines.join("\n")
+                app_lines.join("\n"),
             ),
         );
         tracing::warn!(
@@ -488,7 +672,9 @@ pub(crate) fn status_from_report(
             warning_count,
             scope_gate_ready,
             artifacts_ready,
-            "workspace access incomplete (host shell remains available)"
+            default_app = snapshot.default_app_id.as_deref().unwrap_or("(none)"),
+            default_app_access_ready = snapshot.default_app_access_ready,
+            "workspace access incomplete: host shell at /host remains available"
         );
     }
     refresh_metric_response_indices_after_prebuild(report, app_filter);
@@ -575,6 +761,40 @@ mod tests {
             },
         );
         assert!(!scope_registry_has_degraded_errors(&registry));
+    }
+
+    #[test]
+    fn incomplete_gate_detail_distinguishes_prebuild_fail_and_landing() {
+        let report_ok = PrebuildReport {
+            schema_version: "mei-prebuild-report-v1".to_string(),
+            mode: PrebuildMode::Build,
+            scope_profile: PrebuildScopeProfile::Full,
+            clean: false,
+            clean_wall_ms: 0,
+            total_wall_ms: 0,
+            source_root: "/tmp".to_string(),
+            manifest_path: "/tmp/runtime/prebuild-last.json".to_string(),
+            manifest_source: "test".to_string(),
+            ok: true,
+            succeeded_apps: vec!["zhifa".to_string()],
+            failed_apps: Vec::new(),
+            error_summary: Vec::new(),
+            diagnostics: PrebuildDiagnosticsReport::default(),
+            apps: Vec::new(),
+        };
+        let report_fail = PrebuildReport {
+            ok: false,
+            ..report_ok.clone()
+        };
+        let summary = ScopeGateSweepSummary::default();
+        assert_eq!(
+            incomplete_gate_detail(&report_fail, false, false, false, &summary),
+            "prebuild failed"
+        );
+        assert_eq!(
+            incomplete_gate_detail(&report_ok, false, false, false, &summary),
+            "landing gate not ready (L2/L3)"
+        );
     }
 
     #[test]

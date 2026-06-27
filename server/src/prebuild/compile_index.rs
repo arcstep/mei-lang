@@ -268,6 +268,61 @@ pub(crate) fn build_prebuild_compile_index(
     }
 }
 
+pub(crate) fn patch_prebuild_compile_index_entry(
+    source_root: &Path,
+    app_id: &str,
+    scope: &CompileScope,
+    outcome: &SharedCompileOutcome,
+) -> Result<()> {
+    let app_root = resolve_app_root(source_root, app_id);
+    let mut index = load_prebuild_compile_index(app_root.as_path())?.unwrap_or_default();
+    let mcg_registry = if crate::graph::feature::graph_registry_dedup_enabled() {
+        Some(crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app_id))
+    } else {
+        None
+    };
+    let identity = compiled_scope_identity(outcome);
+    let scene_payload_revision = scope
+        .canonicalized()
+        .requested_target_file
+        .as_deref()
+        .and_then(|target| {
+            mcg_registry
+                .as_ref()
+                .and_then(|registry| registry.node_revision("scene_payload", target))
+        });
+    let entry = PersistedPrebuildCompileIndexEntry {
+        scope_key: scope.key(),
+        requested_scene_id: scope.canonicalized().requested_scene_id,
+        requested_target_file: scope.canonicalized().requested_target_file,
+        compile_cache_key: toolchain::compile_cache_key(source_root, app_id, &scope.to_options()),
+        canonical_scope_key: scope.key(),
+        canonical_requested_scene_id: scope.canonicalized().requested_scene_id,
+        canonical_requested_target_file: scope.canonicalized().requested_target_file,
+        canonical_compile_cache_key: toolchain::compile_cache_key(
+            source_root,
+            app_id,
+            &scope.to_options(),
+        ),
+        identity,
+        scene_payload_revision,
+        assembly_view_revision: None,
+        discovered_scopes: discovered_compile_scopes(scope, &outcome.compiled)
+            .into_iter()
+            .map(|scope| PersistedCompileScopeRef {
+                requested_scene_id: scope.requested_scene_id,
+                requested_target_file: scope.requested_target_file,
+            })
+            .collect(),
+        observed_count: 1,
+        generated_at_ms: now_epoch_ms(),
+    };
+    index
+        .entries_by_scope_key
+        .insert(entry.scope_key.clone(), entry);
+    write_prebuild_compile_index(app_root.as_path(), &index)
+}
+
 pub(crate) fn assembly_view_index_key(
     requested_scene_id: Option<&str>,
     requested_target_file: Option<&str>,
@@ -283,6 +338,8 @@ pub(crate) fn assembly_view_index_key(
 }
 
 pub(crate) fn scope_assembled_outcome(
+    source_root: &Path,
+    app_id: &str,
     base: &SharedCompileOutcome,
     scope: &CompileScope,
 ) -> SharedCompileOutcome {
@@ -290,6 +347,40 @@ pub(crate) fn scope_assembled_outcome(
         return base.clone();
     }
     let canonical = scope.canonicalized();
+    if crate::graph::feature::graph_registry_dedup_enabled() {
+        if let Some(target) = canonical
+            .requested_target_file
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            if let Some((mut compiled, compile_revision)) =
+                crate::graph::try_assemble_scope_from_scene_payload(
+                    source_root,
+                    app_id,
+                    canonical.requested_scene_id.as_deref(),
+                    target,
+                )
+            {
+                let _ = crate::graph::hydrate_compiled_for_prebuild_eval(
+                    source_root,
+                    app_id,
+                    &mut compiled,
+                    &[],
+                    &[],
+                );
+                return SharedCompileOutcome {
+                    compiled: Arc::new(compiled),
+                    cache_hit: true,
+                    artifact_cache_hit: false,
+                    compile_revision,
+                    cache_lookup_ms: 0,
+                    artifact_load_ms: 0,
+                    compile_ms: 0,
+                };
+            }
+        }
+    }
     let assembled = crate::graph::mcg::assemble::assemble_scope_view(
         (*base.compiled).clone(),
         canonical.requested_scene_id.as_deref(),
@@ -298,8 +389,10 @@ pub(crate) fn scope_assembled_outcome(
             .as_deref()
             .filter(|value| !value.is_empty()),
     );
+    let mut hydrated = assembled;
+    let _ = crate::graph::hydrate_compiled_for_prebuild_eval(source_root, app_id, &mut hydrated, &[], &[]);
     SharedCompileOutcome {
-        compiled: Arc::new(assembled),
+        compiled: Arc::new(hydrated),
         cache_hit: base.cache_hit,
         artifact_cache_hit: base.artifact_cache_hit,
         compile_revision: base.compile_revision.clone(),

@@ -22,7 +22,8 @@ pub use dedup::{
     mrg_slot_covers_eval, resolve_metric_bundle_revision,
 };
 pub use integration::{
-    app_graph_fingerprint, bundle_unchanged_owners, maybe_update_graph_after_compile,
+    app_graph_fingerprint, bundle_unchanged_owners, discover_world_metrics_owner_ids,
+    hydrate_compiled_for_prebuild_eval, maybe_update_graph_after_compile,
     record_prebuild_dataframe_slot, record_prebuild_slot, record_prebuild_slot_failed,
     runtime_payloads_from_compiled, schedule_warmup_frontier, try_assemble_scope_from_scene_payload,
 };

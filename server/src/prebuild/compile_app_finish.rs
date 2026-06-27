@@ -1,6 +1,8 @@
 use super::prelude::*;
 use super::*;
 
+use crate::block::{prebuild_warning_hint, BlockOrchestrator};
+
 pub(crate) struct PrebuildAppAfterCompile {
     pub scope_profile: PrebuildScopeProfile,
     pub app_started: Instant,
@@ -17,6 +19,10 @@ pub(crate) struct PrebuildAppAfterCompile {
     pub prepared_outcomes: Vec<PreparedCompileOutcome>,
     pub compile_session: Arc<Mutex<PrebuildCompileSession>>,
     pub warnings: Vec<PrebuildWarningReport>,
+    pub dirty_only: bool,
+    pub block_node: Option<String>,
+    pub diagnose_on_fail: bool,
+    pub continue_from: Option<String>,
 }
 
 pub(crate) fn finish_run_prebuild_for_app(
@@ -41,6 +47,10 @@ pub(crate) fn finish_run_prebuild_for_app(
         prepared_outcomes,
         compile_session,
         mut warnings,
+        dirty_only,
+        block_node,
+        diagnose_on_fail,
+        continue_from,
     } = ctx;
 
     let nav_scopes = compile_reports
@@ -77,6 +87,21 @@ pub(crate) fn finish_run_prebuild_for_app(
             error = %error,
             "failed to sync MRG navigation for compile scopes"
         );
+    } else {
+        let registry =
+            crate::graph::mrg::registry::MrgRegistryWriter::load(source_root, app.app_id.as_str());
+        if registry.navigation_by_key("default_access").is_none() {
+            warnings.push(build_prebuild_warning(
+                "navigation",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                "MRG default_access missing after compile-scopes navigation sync",
+            ));
+        }
     }
 
     let required_xlsx_sources = collect_required_xlsx_sources(
@@ -143,6 +168,7 @@ pub(crate) fn finish_run_prebuild_for_app(
     for prepared in &artifact_outcomes_for_warmup {
         let matching_requests = matching_warmup_requests_for_outcome(&warmup_requests, &prepared.outcome);
         scope_artifact_plans.push(build_scope_artifact_plan(
+            source_root,
             app.app_id.as_str(),
             app_root.as_path(),
             &prepared.scope,
@@ -173,7 +199,27 @@ pub(crate) fn finish_run_prebuild_for_app(
         .into_iter()
         .zip(scope_artifact_plans.clone())
         .collect();
-    prioritize_artifact_plans_by_frontier(&mut artifact_pairs, &mrg_frontier);
+    if dirty_only {
+        retain_dirty_artifact_plans(&mut artifact_pairs, &mrg_frontier);
+    } else {
+        prioritize_artifact_plans_by_frontier(&mut artifact_pairs, &mrg_frontier);
+    }
+    if let Some(node_filter) = block_node.as_deref().map(str::trim).filter(|value| !value.is_empty())
+    {
+        artifact_pairs.retain(|(prepared, plan)| {
+            artifact_plan_matches_continue_target(prepared, plan, node_filter)
+        });
+    }
+    if let Some(continue_target) = continue_from
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        artifact_pairs.retain(|(prepared, plan)| {
+            artifact_plan_matches_continue_target(prepared, plan, continue_target)
+        });
+    }
+    let workspace_flag = format!("--workspace {}", source_root.display());
     let artifacts_started = Arc::new(Instant::now());
     let scope_results = run_limited_parallel_ordered_with_hook(
         artifact_pairs,
@@ -181,7 +227,7 @@ pub(crate) fn finish_run_prebuild_for_app(
         |(prepared, scope_plan)| {
             let mut local_coverage = PrebuildCoverageReport::default();
             let started = Instant::now();
-            let result = ensure_scope_artifacts(
+            let result = BlockOrchestrator::materialize_scope_plan(
                 app.app_id.as_str(),
                 app_root.as_path(),
                 &prepared.outcome,
@@ -191,6 +237,8 @@ pub(crate) fn finish_run_prebuild_for_app(
                 &coverage_state,
             );
             (
+                prepared.clone(),
+                scope_plan.clone(),
                 prepared.scope.clone(),
                 result,
                 local_coverage,
@@ -202,7 +250,9 @@ pub(crate) fn finish_run_prebuild_for_app(
             let done = Arc::new(AtomicUsize::new(0));
             let artifacts_started = Arc::clone(&artifacts_started);
             move |index,
-                  (scope, result, local_coverage, wall_time): &(
+                  (_prepared, _scope_plan, scope, result, local_coverage, wall_time): &(
+                PreparedCompileOutcome,
+                ScopeArtifactPlan,
                 CompileScope,
                 Result<()>,
                 PrebuildCoverageReport,
@@ -215,15 +265,17 @@ pub(crate) fn finish_run_prebuild_for_app(
                 let built_df = local_coverage.metric_dataframe_artifacts_built;
                 let built_resp = local_coverage.metric_response_artifacts_built;
                 if built_df > 0 || built_resp > 0 {
-                    prebuild_emit_progress(format!(
-                        "[{app_id}] 指标产物 {:.1}s | {n}/{artifact_total} | scene={scene} | file={file} | +{built_df} dataframe +{built_resp} response",
-                        wall_time.as_secs_f64()
-                    ));
+                    if prebuild_output_verbose() || n % 20 == 0 || n == artifact_total {
+                        prebuild_emit_progress(format!(
+                            "[{app_id}] 指标产物 {:.1}s | {n}/{artifact_total} | scene={scene} | file={file} | +{built_df} dataframe +{built_resp} response",
+                            wall_time.as_secs_f64()
+                        ));
+                    }
                 } else if result.is_err() {
                     prebuild_emit_progress(format!(
                         "[{app_id}] 指标产物失败 | {n}/{artifact_total} | scene={scene} | file={file}"
                     ));
-                } else if n % 20 == 0 || n == artifact_total {
+                } else if n % 50 == 0 || n == artifact_total {
                     prebuild_emit_progress(format!(
                         "[{app_id}] 指标产物进度 {n}/{artifact_total} | 已用 {:.0}s（多数命中磁盘缓存）",
                         artifacts_started.elapsed().as_secs_f64()
@@ -233,12 +285,42 @@ pub(crate) fn finish_run_prebuild_for_app(
             }
         },
     );
-    for (scope, result, local_coverage, _wall_time) in scope_results {
+    for (prepared, scope_plan, scope, result, local_coverage, _wall_time) in scope_results {
         if let Err(error) = result {
             if mode == PrebuildMode::Verify {
                 return Err(error);
             }
-            warnings.push(build_prebuild_warning_with_mrg(
+            let mut error_chain = format!("{error:#}");
+            if diagnose_on_fail {
+                for workset in &scope_plan.metric_worksets {
+                    let metric_ids = if workset.request_all_metrics
+                        || workset.requested_metric_ids.is_empty()
+                    {
+                        workset.covered_metric_ids.iter().cloned().collect::<Vec<_>>()
+                    } else {
+                        workset.requested_metric_ids.clone()
+                    };
+                    if metric_ids.is_empty() {
+                        continue;
+                    }
+                    let mut diag_coverage = PrebuildCoverageReport::default();
+                    if let Err(diag_error) = BlockOrchestrator::materialize_owner_with_outcome(
+                        source_root,
+                        app.app_id.as_str(),
+                        &prepared.scope,
+                        &prepared.outcome,
+                        workset.owner_resource_id.as_str(),
+                        metric_ids.as_slice(),
+                        mode,
+                        &mut diag_coverage,
+                        &coverage_state,
+                    ) {
+                        error_chain = format!("{diag_error:#}");
+                        break;
+                    }
+                }
+            }
+            let warning = build_prebuild_warning_with_mrg(
                 "scope_artifacts",
                 scope.requested_scene_id.as_deref(),
                 scope.requested_target_file.as_deref(),
@@ -249,8 +331,16 @@ pub(crate) fn finish_run_prebuild_for_app(
                 Some(scope.key().as_str()),
                 None,
                 Some("L4"),
-                error.to_string(),
-            ));
+                error_chain.clone(),
+            );
+            if diagnose_on_fail && !prebuild_output_quiet() {
+                if let Some(hint) =
+                    prebuild_warning_hint(workspace_flag.as_str(), app.app_id.as_str(), &warning)
+                {
+                    prebuild_emit_progress(format!("  block eval hint: {hint}"));
+                }
+            }
+            warnings.push(warning);
         } else {
             merge_coverage(&mut coverage, &local_coverage);
         }

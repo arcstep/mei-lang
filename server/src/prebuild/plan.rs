@@ -5,6 +5,9 @@ pub(crate) fn compile_scopes_for_app(
     app: &RuntimeWarmupApp,
     scope_profile: PrebuildScopeProfile,
 ) -> Vec<CompileScope> {
+    if scope_profile == PrebuildScopeProfile::BlockScoped {
+        return vec![CompileScope::default_scope()];
+    }
     let mut scopes = Vec::new();
     let mut seen = BTreeSet::new();
     let mut push_scope = |scope: CompileScope| {
@@ -108,7 +111,7 @@ pub(crate) fn scene_ids_for_profile(
 ) -> Vec<String> {
     match scope_profile {
         PrebuildScopeProfile::Full => explicit_scene_ids(app),
-        PrebuildScopeProfile::HotOnly => hot_scene_ids(app),
+        PrebuildScopeProfile::HotOnly | PrebuildScopeProfile::BlockScoped => hot_scene_ids(app),
     }
 }
 
@@ -190,7 +193,9 @@ pub(crate) fn focus_targets_for_profile(
     match scope_profile {
         PrebuildScopeProfile::Full => all_focus_targets(app),
         // Hot path should keep the explicit entry/main focus, but skip dataset-derived expansions.
-        PrebuildScopeProfile::HotOnly => explicit_focus_targets(app),
+        PrebuildScopeProfile::HotOnly | PrebuildScopeProfile::BlockScoped => {
+            explicit_focus_targets(app)
+        }
     }
 }
 
@@ -282,15 +287,10 @@ pub(crate) fn warmup_dataset_request_in_profile(
     if scope_profile == PrebuildScopeProfile::Full {
         return true;
     }
+    if scope_profile == PrebuildScopeProfile::BlockScoped {
+        return false;
+    }
     warmup_request_priority(app, request) == WarmupRequestPriority::Critical
-}
-
-pub(crate) fn app_has_deferred_warmup_work(app: &RuntimeWarmupApp) -> bool {
-    let full = build_prebuild_manifest_plan(app, PrebuildScopeProfile::Full);
-    let hot = build_prebuild_manifest_plan(app, PrebuildScopeProfile::HotOnly);
-    (full.hot_scopes.len() + full.deferred_scopes.len())
-        > (hot.hot_scopes.len() + hot.deferred_scopes.len())
-        || full.warmup_requests.len() > hot.warmup_requests.len()
 }
 
 pub(crate) fn warmup_request_matches_outcome(

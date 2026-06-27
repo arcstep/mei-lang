@@ -1,5 +1,6 @@
 pub(crate) mod agent_runtime;
 pub(crate) mod auth;
+pub(crate) mod block;
 pub(crate) mod build_info;
 pub(crate) mod cli;
 pub(crate) mod gis_config;
@@ -16,4 +17,6 @@ mod runtime_entry;
 #[cfg(test)]
 pub(crate) use runtime_entry::test_support;
 pub use runtime_entry::{run_cli_for_flavor, BinaryFlavor};
+pub use block::{block_eval, materialize_worksets, BlockEvalRequest};
+pub use prebuild::PrebuildMode;
 pub(crate) use runtime_entry::{AppError, AppState, SessionContextSnapshot};

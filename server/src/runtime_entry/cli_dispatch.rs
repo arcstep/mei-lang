@@ -15,6 +15,8 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
             Command::Knowledge(_) => "knowledge",
             Command::EditorRuntime(_) => "editor-runtime",
             Command::Graph(_) => "graph",
+            Command::Layer(_) => "layer",
+            Command::Block(_) => "block",
             Command::Scope(_) => "scope",
             Command::Prebuild(_) => "prebuild",
             Command::Readiness(_) => "readiness",
@@ -41,6 +43,8 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
                 | Command::Knowledge(_)
                 | Command::EditorRuntime(_)
                 | Command::Graph(_)
+                | Command::Layer(_)
+                | Command::Block(_)
                 | Command::Scope(_)
                 | Command::Prebuild(_)
                 | Command::Readiness(_)
@@ -83,6 +87,8 @@ pub(crate) fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) ->
         Command::Knowledge(_) => "knowledge",
         Command::EditorRuntime(_) => "editor-runtime",
         Command::Graph(_) => "graph",
+        Command::Layer(_) => "layer",
+        Command::Block(_) => "block",
         Command::Scope(_) => "scope",
         Command::Prebuild(_) => "prebuild",
         Command::Readiness(_) => "readiness",
@@ -147,6 +153,8 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
         Command::Knowledge(args) => knowledge_command(args),
         Command::EditorRuntime(args) => editor_runtime_command(args),
         Command::Graph(args) => graph_command(args),
+        Command::Layer(args) => layer_command(args),
+        Command::Block(args) => block_command(args),
         Command::Scope(args) => scope_command(args),
         Command::Prebuild(args) => prebuild_command(args),
         Command::Readiness(args) => readiness_command(args),

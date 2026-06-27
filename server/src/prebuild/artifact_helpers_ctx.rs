@@ -41,14 +41,28 @@ pub(crate) fn artifact_scene_context_for_resource(
     else {
         return artifact_scene_context(compiled);
     };
-    let scene_id = compiled
-        .scene_routes
+    let lookup_keys = mei_lang_kernel::app_source_rel_path_lookup_keys(target_file.as_str());
+    let scene_id = lookup_keys
         .iter()
-        .find(|route| route.target_file == target_file)
-        .map(|route| route.scene_id.clone())
+        .find_map(|key| {
+            compiled
+                .scene_routes
+                .iter()
+                .find(|route| route.target_file == *key)
+                .map(|route| route.scene_id.clone())
+        })
         .or_else(|| compiled.active_scene.clone())
         .unwrap_or_else(|| "default".to_string());
-    (scene_id, Some(target_file))
+    let scene_path = lookup_keys
+        .into_iter()
+        .find(|key| {
+            compiled
+                .scene_routes
+                .iter()
+                .any(|route| route.target_file == *key)
+        })
+        .or_else(|| Some(mei_lang_kernel::canonical_app_source_rel_path(target_file.as_str())));
+    (scene_id, scene_path)
 }
 
 pub(crate) fn scope_identity_key(scene_id: &str, scene_path: Option<&str>) -> String {

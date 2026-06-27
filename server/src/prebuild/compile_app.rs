@@ -1,12 +1,24 @@
 use super::prelude::*;
 use super::*;
+use crate::block::{parse_block_id, BlockOrchestrator};
+use crate::graph::types::GraphNodeKind;
 
 pub(crate) fn run_prebuild_for_app(
     source_root: &Path,
     app: &RuntimeWarmupApp,
     mode: PrebuildMode,
     scope_profile: PrebuildScopeProfile,
+    dirty_only: bool,
+    block_node: Option<String>,
+    diagnose_on_fail: bool,
+    continue_from: Option<String>,
 ) -> Result<PrebuildAppReport> {
+    let effective_profile = if block_node.is_some() {
+        PrebuildScopeProfile::BlockScoped
+    } else {
+        scope_profile
+    };
+    let block_scoped = effective_profile == PrebuildScopeProfile::BlockScoped;
     let app_started = Instant::now();
     let components_root = toolchain::resolve_components_root(source_root);
     let app_root = resolve_app_root(source_root, app.app_id.as_str());
@@ -19,8 +31,20 @@ pub(crate) fn run_prebuild_for_app(
         None
     });
     let diagnostics = Arc::new(PrebuildDiagnostics::default());
-    let compile_session = Arc::new(Mutex::new(PrebuildCompileSession::default()));
-    let manifest_plan = build_prebuild_manifest_plan(app, scope_profile);
+    let compile_session = Arc::new(Mutex::new(PrebuildCompileSession {
+        hot_only_scene_ids: if effective_profile == PrebuildScopeProfile::HotOnly {
+            Some(
+                hot_scene_ids(app)
+                    .into_iter()
+                    .collect::<BTreeSet<_>>(),
+            )
+        } else {
+            None
+        },
+        skip_discover: block_scoped,
+        ..PrebuildCompileSession::default()
+    }));
+    let manifest_plan = build_prebuild_manifest_plan(app, effective_profile);
     let warmup_requests = manifest_plan.warmup_requests.clone();
     prebuild_emit_progress(format!(
         "[{}] 计划 | manifest scope {} (hot {} / deferred {}) | warmup 条目 {}",
@@ -59,7 +83,7 @@ pub(crate) fn run_prebuild_for_app(
     );
     let default_outcome = match default_reuse.as_ref() {
         Some(reuse) => reuse.outcome.clone(),
-        None => ensure_compile_scope_for_prebuild(
+        None => BlockOrchestrator::compile_scope_for_prebuild(
             compile_session.as_ref(),
             diagnostics.as_ref(),
             source_root,
@@ -102,7 +126,26 @@ pub(crate) fn run_prebuild_for_app(
         &mut compile_reports,
     );
     let mut warnings = Vec::new();
-    let hot_total = hot_scopes.len();
+    if block_scoped {
+        if let Some(node) = block_node.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            compile_block_scoped_node(
+                source_root,
+                app,
+                node,
+                mode,
+                compile_session.as_ref(),
+                diagnostics.as_ref(),
+                components_root.as_path(),
+                &mut seen_scopes,
+                &mut pending,
+                &mut prepared_outcomes,
+                &mut compile_reports,
+                &mut warnings,
+            )?;
+        }
+    }
+    let hot_total = manifest_plan.hot_scopes.len();
+    if !block_scoped {
     for (idx, scope) in hot_scopes.into_iter().enumerate() {
         if !seen_scopes.insert(scope.key()) {
             continue;
@@ -121,7 +164,7 @@ pub(crate) fn run_prebuild_for_app(
         )
         .map(Ok)
         .unwrap_or_else(|| {
-            ensure_compile_scope_for_prebuild(
+            BlockOrchestrator::compile_scope_for_prebuild(
                 compile_session.as_ref(),
                 diagnostics.as_ref(),
                 source_root,
@@ -186,18 +229,25 @@ pub(crate) fn run_prebuild_for_app(
         }
     }
     let deferred_total = deferred_scopes.len();
-    for (idx, scope) in deferred_scopes.into_iter().enumerate() {
-        if seen_scopes.insert(scope.key()) {
-            tracing::debug!(
-                "prebuild compile deferred scope queued app_id={} idx={}/{} scene={} target={}",
-                app.app_id,
-                idx + 1,
-                deferred_total,
-                scope.requested_scene_id.as_deref().unwrap_or(""),
-                scope.requested_target_file.as_deref().unwrap_or("")
-            );
-            pending.push_back(scope);
+    if effective_profile == PrebuildScopeProfile::Full {
+        for (idx, scope) in deferred_scopes.into_iter().enumerate() {
+            if seen_scopes.insert(scope.key()) {
+                tracing::debug!(
+                    "prebuild compile deferred scope queued app_id={} idx={}/{} scene={} target={}",
+                    app.app_id,
+                    idx + 1,
+                    deferred_total,
+                    scope.requested_scene_id.as_deref().unwrap_or(""),
+                    scope.requested_target_file.as_deref().unwrap_or("")
+                );
+                pending.push_back(scope);
+            }
         }
+    } else if deferred_total > 0 {
+        prebuild_emit_progress(format!(
+            "[{}] hot-only 跳过 deferred manifest scope {deferred_total} 个（不进入 discover 队列）",
+            app.app_id
+        ));
     }
     let mut batch_idx = 0usize;
     if !pending.is_empty() {
@@ -308,7 +358,7 @@ pub(crate) fn run_prebuild_for_app(
             representatives.clone(),
             max_parallelism,
             |scope| {
-                ensure_compile_scope_for_prebuild(
+                BlockOrchestrator::compile_scope_for_prebuild(
                     compile_session.as_ref(),
                     diagnostics.as_ref(),
                     source_root,
@@ -388,15 +438,18 @@ pub(crate) fn run_prebuild_for_app(
                 &mut compile_reports,
             );
             for alias in aliases {
-                let alias_outcome = scope_assembled_outcome(outcome, &alias);
+                let alias_outcome =
+                    scope_assembled_outcome(source_root, app.app_id.as_str(), outcome, &alias);
                 compile_session
                     .lock()
                     .expect("prebuild compile session lock")
                     .register(source_root, app.app_id.as_str(), &alias, alias_outcome.clone());
-                record_prebuild_scope_compile(
+                record_prebuild_scope_compile_with_discovered(
                     compile_session.as_ref(),
                     &alias,
                     &alias_outcome,
+                    Some(&[]),
+                    1,
                     &mut seen_scopes,
                     &mut pending,
                     &mut prepared_outcomes,
@@ -404,12 +457,6 @@ pub(crate) fn run_prebuild_for_app(
                 );
             }
         }
-        prebuild_emit_progress(&format!(
-            "[{}] 编译 batch-{batch_idx} 完成 {:.1}s | 新编译 {batch_compiled} | 缓存 {batch_cache_hit} | 待发现队列 {}",
-            app.app_id,
-            batch_started.elapsed().as_secs_f64(),
-            pending.len()
-        ));
         emit_compile_batch_progress(
             app.app_id.as_str(),
             batch_idx,
@@ -423,6 +470,7 @@ pub(crate) fn run_prebuild_for_app(
             true,
             last_emit_hook.as_ref(),
         );
+    }
     }
     if mode == PrebuildMode::Build {
         let index = build_prebuild_compile_index(
@@ -453,7 +501,7 @@ pub(crate) fn run_prebuild_for_app(
         app,
         mode,
         PrebuildAppAfterCompile {
-            scope_profile,
+            scope_profile: effective_profile,
             app_started,
             app_root,
             components_root,
@@ -468,6 +516,93 @@ pub(crate) fn run_prebuild_for_app(
             prepared_outcomes,
             compile_session,
             warnings,
+            dirty_only,
+            block_node,
+            diagnose_on_fail,
+            continue_from,
         },
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compile_block_scoped_node(
+    source_root: &Path,
+    app: &RuntimeWarmupApp,
+    block_node: &str,
+    mode: PrebuildMode,
+    compile_session: &Mutex<PrebuildCompileSession>,
+    diagnostics: &PrebuildDiagnostics,
+    components_root: &Path,
+    seen_scopes: &mut BTreeSet<String>,
+    pending: &mut std::collections::VecDeque<CompileScope>,
+    prepared_outcomes: &mut Vec<PreparedCompileOutcome>,
+    compile_reports: &mut Vec<PrebuildScopeReport>,
+    warnings: &mut Vec<PrebuildWarningReport>,
+) -> Result<()> {
+    let block_id = parse_block_id(block_node)?;
+    match block_id.kind {
+        GraphNodeKind::ScenePayload => {
+            let scope = CompileScope {
+                requested_scene_id: block_id.scope_key,
+                requested_target_file: Some(block_id.key),
+            }
+            .canonicalized();
+            if !seen_scopes.insert(scope.key()) {
+                return Ok(());
+            }
+            let started = Instant::now();
+            match BlockOrchestrator::compile_scope_for_prebuild(
+                compile_session,
+                diagnostics,
+                source_root,
+                app.app_id.as_str(),
+                &scope,
+                mode,
+                components_root,
+            ) {
+                Ok(outcome) => {
+                    prebuild_emit_progress(format!(
+                        "[{}] block-scoped 编译 {:.1}s | scene={} | file={}",
+                        app.app_id,
+                        started.elapsed().as_secs_f64(),
+                        scope.requested_scene_id.as_deref().unwrap_or(""),
+                        scope
+                            .requested_target_file
+                            .as_deref()
+                            .unwrap_or("")
+                    ));
+                    record_prebuild_scope_compile_with_discovered(
+                        compile_session,
+                        &scope,
+                        &outcome,
+                        Some(&[]),
+                        1,
+                        seen_scopes,
+                        pending,
+                        prepared_outcomes,
+                        compile_reports,
+                    );
+                }
+                Err(error) => {
+                    if mode == PrebuildMode::Verify {
+                        return Err(error);
+                    }
+                    warnings.push(build_prebuild_warning(
+                        "compile_scope",
+                        scope.requested_scene_id.as_deref(),
+                        scope.requested_target_file.as_deref(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        error.to_string(),
+                    ));
+                }
+            }
+        }
+        _ => {
+            BlockOrchestrator::compile(source_root, app.app_id.as_str(), &block_id, false)?;
+        }
+    }
+    Ok(())
 }

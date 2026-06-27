@@ -186,6 +186,35 @@ pub fn sync_navigation_for_compile_scopes(
         record_navigation_edge(&mut registry, default_scene.as_str(), scene_id);
     }
 
+    let default_target = scopes
+        .iter()
+        .find(|scope| scope.scene_id.trim() == default_scene.as_str())
+        .map(|scope| scope.target_file.as_str())
+        .or_else(|| {
+            cfg.deploy
+                .access_entry
+                .target_file
+                .as_deref()
+                .map(str::trim)
+                .filter(|target| !target.is_empty())
+        })
+        .or_else(|| scopes.first().map(|scope| scope.target_file.as_str()))
+        .unwrap_or("src/scenes/home.mei");
+    upsert_navigation_node(
+        &mut registry,
+        "default_access",
+        &format!("/apps/app/{canonical_app}/scene/{default_scene}"),
+        default_scene.as_str(),
+        default_target,
+    );
+    upsert_navigation_node(
+        &mut registry,
+        "default_build",
+        &format!("/apps/build/{canonical_app}"),
+        default_scene.as_str(),
+        default_target,
+    );
+
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
 }
@@ -214,6 +243,35 @@ fn urlencoding_path_segment(value: &str) -> String {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn sync_compile_scopes_writes_default_access() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let ws = tmp.path();
+        fs::create_dir_all(ws.join("runtime/platform/graphs/catalog")).expect("mkdir");
+        fs::create_dir_all(ws.join("apps/demo/src/scenes")).expect("mkdir app");
+        fs::write(
+            ws.join("apps/demo/src/main.mei"),
+            r#"app(id=demo, default_scene=home)
+app_add_scene(scene=scene_ref(id="home", scene_file="scenes/home.mei"))"#,
+        )
+        .expect("write main");
+        sync_navigation_for_compile_scopes(
+            ws,
+            "demo",
+            &[CompileScopeNav {
+                scene_id: "home".to_string(),
+                target_file: "src/scenes/home.mei".to_string(),
+            }],
+        )
+        .expect("sync");
+        let registry = MrgRegistryWriter::load(ws, "demo");
+        let default_access = registry
+            .navigation_by_key("default_access")
+            .expect("default_access");
+        assert_eq!(default_access.scene_id, "home");
+        assert_eq!(default_access.target_file, "src/scenes/home.mei");
+    }
 
     #[test]
     fn sync_default_build_uses_main_mei_default_scene() {

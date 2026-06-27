@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::prelude::*;
 use super::*;
 
+static PREBUILD_LAST_STDERR: Mutex<Option<(Instant, String, u32)>> = Mutex::new(None);
+
 pub(crate) const PREBUILD_REPORT_SCHEMA_VERSION: &str = "mei-prebuild-report-v1";
 pub(crate) const PREBUILD_MAX_PARALLELISM: usize = 16;
 pub(crate) const CANONICAL_PREBUILD_NODE_BUDGET: usize = 90;
@@ -104,11 +106,18 @@ pub(crate) fn emit_compile_batch_progress(
     } else {
         String::new()
     };
-    prebuild_emit_progress(format!(
-        "[{app_id}] batch-{batch_idx} 进度 {done}/{unique_total} key | 本批已用 {} | 约 {} 剩余 | 累计 scope ~{scopes_done_total}{queue_hint} | 新编译 {new_compile} 缓存 {cache_hit}",
-        format_eta_secs(elapsed),
-        format_eta_secs(eta_secs),
-    ));
+    if done == unique_total {
+        prebuild_emit_progress(format!(
+            "[{app_id}] batch-{batch_idx} 完成 {:.1}s | {done}/{unique_total} key | 累计 scope ~{scopes_done_total}{queue_hint} | 新编译 {new_compile} 缓存 {cache_hit}",
+            elapsed
+        ));
+    } else {
+        prebuild_emit_progress(format!(
+            "[{app_id}] batch-{batch_idx} 进度 {done}/{unique_total} key | 本批已用 {} | 约 {} 剩余 | 累计 scope ~{scopes_done_total}{queue_hint} | 新编译 {new_compile} 缓存 {cache_hit}",
+            format_eta_secs(elapsed),
+            format_eta_secs(eta_secs),
+        ));
+    }
     if let Ok(mut guard) = last_emit.lock() {
         *guard = Instant::now();
     }
@@ -278,12 +287,54 @@ fn prebuild_emit_stderr_line(prefix: &str, message: &str, prefix_style: &str) {
     let _guard = prebuild_progress_lock()
         .lock()
         .expect("prebuild progress lock");
+    if let Ok(mut last) = PREBUILD_LAST_STDERR.lock() {
+        let now = Instant::now();
+        if let Some((at, prev, repeat)) = last.as_ref() {
+            if prev == message && at.elapsed() < Duration::from_secs(1) {
+                *last = Some((*at, message.to_string(), repeat.saturating_add(1)));
+                return;
+            }
+            if *repeat > 1 {
+                eprintln!(
+                    "{} {}",
+                    ansi_wrap(prefix, prefix_style),
+                    format!("(suppressed {repeat} identical lines within 1s)")
+                );
+            }
+        }
+        *last = Some((now, message.to_string(), 1));
+    }
     eprintln!(
         "{} {}",
         ansi_wrap(prefix, prefix_style),
         message
     );
     let _ = std::io::stderr().flush();
+}
+
+/// High-visibility success banner (ACCESS READY / FULL READY / prebuild ok).
+pub(crate) fn prebuild_emit_success_banner(title: &str, detail_lines: &[&str]) {
+    if prebuild_output_quiet() {
+        return;
+    }
+    let _guard = prebuild_progress_lock()
+        .lock()
+        .expect("prebuild progress lock");
+    let width = 58usize;
+    let border = "═".repeat(width);
+    let green = "1;32";
+    let bold_green = "1;32;1";
+    eprintln!("{}", ansi_wrap(&border, green));
+    eprintln!("{}", ansi_wrap(&format!("  ✓ {title}"), bold_green));
+    for line in detail_lines {
+        eprintln!("  {line}");
+    }
+    eprintln!("{}", ansi_wrap(&border, green));
+    let _ = std::io::stderr().flush();
+    tracing::warn!(target: "mei.startup", title = %title, "prebuild status banner");
+    for line in detail_lines {
+        tracing::warn!(target: "mei.startup", "{}", line);
+    }
 }
 
 pub(crate) fn prebuild_emit_notice(message: impl AsRef<str>) {
@@ -298,6 +349,7 @@ pub(crate) fn prebuild_emit_notice(message: impl AsRef<str>) {
         None => "[PREBUILD]".to_string(),
     };
     prebuild_emit_stderr_line(&prefix, message.as_ref(), "1;32");
+    tracing::warn!(target: "mei.startup", "{prefix} {}", message.as_ref());
 }
 
 pub(crate) fn prebuild_emit_progress(message: impl AsRef<str>) {
@@ -315,6 +367,17 @@ pub(crate) fn prebuild_emit_progress(message: impl AsRef<str>) {
         None => "[PREBUILD]".to_string(),
     };
     prebuild_emit_stderr_line(&prefix, message.as_ref(), "1;36");
+    if !prebuild_output_quiet() {
+        tracing::info!(target: "mei.prebuild", "{prefix} {}", message.as_ref());
+    }
+}
+
+/// Per-metric / per-scope detail — only when `MEI_PREBUILD_VERBOSE=1` (or prebuild_set_output_verbose).
+pub(crate) fn prebuild_emit_progress_detail(message: impl AsRef<str>) {
+    if prebuild_output_quiet() || !prebuild_output_verbose() {
+        return;
+    }
+    prebuild_emit_progress(message);
 }
 
 pub(crate) fn format_scope_file(scene: &str, requested_target: &str, active_target: Option<&str>) -> String {

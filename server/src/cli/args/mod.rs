@@ -17,6 +17,8 @@ pub enum Command {
     Knowledge(KnowledgeArgs),
     EditorRuntime(EditorRuntimeArgs),
     Graph(GraphArgs),
+    Layer(LayerArgs),
+    Block(BlockArgs),
     Scope(ScopeArgs),
     Prebuild(PrebuildArgs),
     Readiness(ReadinessArgs),
@@ -31,5 +33,17 @@ pub enum Command {
     Mcp(McpArgs),
 }
 
-mod common_ops; mod graph_ops; mod host_workspace; mod inspect_export; mod query_agent;
-pub use common_ops::*; pub use graph_ops::*; pub use host_workspace::*; pub use inspect_export::*; pub use query_agent::*;
+mod block_ops;
+mod common_ops;
+mod graph_ops;
+mod host_workspace;
+mod inspect_export;
+mod layer_ops;
+mod query_agent;
+pub use block_ops::*;
+pub use common_ops::*;
+pub use graph_ops::*;
+pub use host_workspace::*;
+pub use inspect_export::*;
+pub use layer_ops::*;
+pub use query_agent::*;

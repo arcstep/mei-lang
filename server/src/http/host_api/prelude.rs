@@ -14,12 +14,12 @@ pub(crate) use crate::{
     },
     http::startup_run,
     prebuild::{
-        app_has_deferred_warmup_work, run_prebuild, PrebuildAppReport, PrebuildDiagnosticsReport,
+        run_prebuild, PrebuildAppReport, PrebuildDiagnosticsReport,
         PrebuildMode, PrebuildOptions, PrebuildReport, PrebuildScopeProfile, PrebuildWarningReport,
     },
     AppState,
 };
 pub(crate) use mei_lang_kernel::{
-    resolve_runtime_warmup_manifest, CompileOptions, CompiledApp, Severity,
+    CompileOptions, CompiledApp, Severity,
 };
 pub(crate) use mei_lang_toolchain::resolve_components_root;

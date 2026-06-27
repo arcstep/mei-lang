@@ -189,6 +189,7 @@ pub(crate) fn host_build_response_from_scoped_feedback(
         scope_artifacts_ms: materialize.as_ref().map(|report| report.scope_artifacts_ms),
         mrg_slots_ready: materialize.as_ref().map(|report| report.mrg_slots_ready),
         eval_artifacts_warmed: materialize.as_ref().map(|report| report.eval_artifacts_warmed),
+        block_eval_hint: materialize.as_ref().and_then(|report| report.block_eval_hint.clone()),
     }
 }
 
@@ -216,6 +217,18 @@ pub(crate) fn run_scoped_build(
         PrebuildMode::Build,
     )
     .ok();
+    if let Some(ref report) = materialize {
+        tracing::info!(
+            target: "mei.scoped_build",
+            app_id = %app_id,
+            scene_id = ?scene_id,
+            target_file = ?target_file,
+            eval_warmed = report.eval_artifacts_warmed,
+            scope_ms = report.scope_artifacts_ms,
+            hint = ?report.block_eval_hint,
+            "scoped build materialize complete"
+        );
+    }
     let feedback = summarize_scoped_compile_feedback(outcome);
     record_scoped_compile_feedback(
         app_id,

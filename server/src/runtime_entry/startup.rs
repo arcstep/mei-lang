@@ -64,14 +64,6 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
         tracing::warn!(%error, "failed to ensure workspace stock before serve");
     }
     if !cfg!(test) {
-        let probe = crate::http::pages::probe_landing_readiness(source_root.as_path());
-        if probe.ready_app_id.is_none() {
-            tracing::info!(
-                app_count = probe.app_count,
-                default_app = probe.configured_default_app.as_deref().unwrap_or("(none)"),
-                "host landing probe: no default-scope ready app; serving /host shell (strict gate: MEI_HOST_LANDING_GATE=strict)"
-            );
-        }
         crate::http::pages::prepare_landing_artifacts_for_serve(source_root.as_path())?;
     }
     let preferred_mode = if args.auto_agent {
@@ -172,23 +164,49 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("serving MeiLang skeleton at http://{}", addr);
     crate::http::host_api::mark_host_bound();
+    let host_url = format!("http://{addr}/host");
+    crate::prebuild::prebuild_emit_success_banner(
+        "HOST LISTENING",
+        &[
+            host_url.as_str(),
+            "port open now — open /host immediately; app pages need ACCESS READY (or skipped startup prebuild)",
+        ],
+    );
     if startup_policy == "background-build" {
-        if let Err(error) =
-            crate::http::host_api::spawn_startup_build(source_root.as_path().to_path_buf())
-        {
-            tracing::warn!(%error, "failed to schedule startup background build");
-        }
+        let source_root_for_startup = source_root.clone();
+        tokio::spawn(async move {
+            if let Err(error) =
+                crate::http::host_api::spawn_startup_build(source_root_for_startup)
+            {
+                tracing::warn!(%error, "failed to schedule startup background build");
+            }
+        });
+    } else {
+        crate::http::host_api::spawn_startup_status_watcher(source_root.clone());
     }
     let source_root_for_preload = source_root.clone();
-    if let Err(error) = tokio::task::spawn_blocking(move || {
-        crate::http::host_api::preload_metric_response_indices_for_workspace(
-            source_root_for_preload.as_path(),
+    tokio::spawn(async move {
+        tracing::warn!(
+            target: "mei.startup",
+            "MRG slot preload started (background)"
         );
-    })
-    .await
-    {
-        tracing::warn!(%error, "metric response index preload worker join failed");
-    }
+        crate::prebuild::prebuild_emit_notice("MRG slot preload started (background)");
+        if let Err(error) = tokio::task::spawn_blocking(move || {
+            crate::http::host_api::preload_metric_response_indices_for_workspace(
+                source_root_for_preload.as_path(),
+            );
+        })
+        .await
+        {
+            tracing::warn!(%error, "metric response index preload worker join failed");
+        } else {
+            tracing::warn!(
+                target: "mei.startup",
+                "MRG slot preload done (background)"
+            );
+            crate::prebuild::prebuild_emit_notice("MRG slot preload done (background)");
+        }
+    });
     axum::serve(listener, app).await?;
     Ok(())
 }

@@ -240,11 +240,6 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
             }
         }
     }
-    prebuild_emit_progress(format!(
-        "[{app_id}] 指标求值开始 | response | dataset={} | scene={}",
-        short_dataset_id(plan.dataset_selector.as_str()),
-        plan.scene_id
-    ));
     let metric_started = Instant::now();
     let primary_resource = mei_lang_kernel::locate_dataset_resource(
         &outcome.compiled,
@@ -299,7 +294,7 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
             return Err(error);
         }
     };
-    prebuild_emit_progress(format!(
+    prebuild_emit_progress_detail(format!(
         "[{app_id}] 指标求值 {:.1}s | response | dataset={} | scene={} | rows={}",
         metric_started.elapsed().as_secs_f64(),
         short_dataset_id(plan.dataset_selector.as_str()),

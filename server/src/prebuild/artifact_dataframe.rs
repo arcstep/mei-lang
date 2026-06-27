@@ -217,13 +217,6 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
             return Ok(());
         }
     }
-    prebuild_emit_progress(format!(
-        "[{}] 指标求值开始 | dataframe | {} | metric={} | scene={}",
-        app_root.file_name().and_then(|s| s.to_str()).unwrap_or(""),
-        short_dataset_id(plan.resource_selector_id.as_str()),
-        short_metric_id(plan.dataframe_metric_id.as_str()),
-        plan.scene_id
-    ));
     let metric_started = Instant::now();
     let result = query_metric_dataframe(
         &outcome.compiled,
@@ -270,7 +263,7 @@ pub(crate) fn ensure_metric_dataframe_artifact_for_plan(
             return Err(error);
         }
     };
-    prebuild_emit_progress(format!(
+    prebuild_emit_progress_detail(format!(
         "[{}] 指标求值 {:.1}s | dataframe | {} | metric={} | scene={} | rows={}",
         app_root.file_name().and_then(|s| s.to_str()).unwrap_or(""),
         metric_started.elapsed().as_secs_f64(),

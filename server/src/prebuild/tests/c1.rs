@@ -6,7 +6,7 @@ use super::*;
 use mei_lang_kernel::{BoardFileEntry, CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl};
 use serde_json::json;
 
-fn test_outcome(active_scene: &str, active_target_file: &str) -> SharedCompileOutcome {
+pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> SharedCompileOutcome {
     SharedCompileOutcome {
         compiled: Arc::new(CompiledApp {
             app_id: "demo".to_string(),

@@ -78,6 +78,56 @@ pub fn resolve_scope_gate(
     check_scope_gate_for_coords(source_root, nav_match, None)
 }
 
+/// SSOT：default app landing（MRG `default_access`）是否 `access_ready`。
+pub fn resolve_default_app_access_gate(source_root: &Path, app_id: &str) -> ScopeGateReport {
+    use crate::graph::mrg::navigation::resolve_default_scope;
+
+    let nav = resolve_default_scope(source_root, app_id, UiMode::App);
+    let query = AppQuery {
+        file: Some(nav.scope.target_file.clone()),
+        scene: Some(nav.scope.scene_id.clone()),
+        tab: None,
+        diag_filter: None,
+        world_metric: None,
+        world_dataset: None,
+        explain: None,
+        node: None,
+        scope: None,
+        focus: None,
+        chrome: None,
+        catalog: None,
+        pack: None,
+    };
+    resolve_scope_gate(
+        source_root,
+        app_id,
+        UiRouteMode::App,
+        Some(nav.scope.scene_id.as_str()),
+        &query,
+    )
+}
+
+pub fn default_app_access_ready(source_root: &Path, app_id: &str) -> bool {
+    resolve_default_app_access_gate(source_root, app_id).access_ready
+}
+
+pub(crate) fn format_landing_gate_summary(gate: &ScopeGateReport) -> String {
+    let scope = format!(
+        "{}/{}",
+        gate.scope.scene_id.trim(),
+        gate.scope.target_file.trim()
+    );
+    if gate.access_ready {
+        return format!("landing {scope} | ready");
+    }
+    let blocker = gate
+        .blockers
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "access_ready=false".to_string());
+    format!("landing {scope} | {blocker}")
+}
+
 /// Align L3 assembly checks with compile options (build `file=` may differ from MRG default target).
 pub fn resolve_scope_gate_for_compile(
     source_root: &Path,

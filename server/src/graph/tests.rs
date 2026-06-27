@@ -16,6 +16,97 @@ mod graph_mcg_tests {
     use crate::graph::types::{GraphNodeId, GraphNodeKind, MaterialState};
 
     #[test]
+    fn discover_world_metrics_owner_ids_normalizes_src_prefix() {
+        use std::path::Path;
+
+        use mei_lang_kernel::{CompiledApp, DatasetView, LoadedResource, SourceDecl};
+
+        let mut compiled = CompiledApp::default();
+        compiled.resources.push(LoadedResource {
+            id: "__world_metrics__::src/scenes/x.mei::metrics".to_string(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: Some(DatasetView {
+                id: "__world_metrics__::src/scenes/x.mei::metrics".to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                source: SourceDecl {
+                    kind: "world_metrics".to_string(),
+                    path: String::new(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: BTreeMap::new(),
+                runtime_metric_defs: BTreeMap::new(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
+            }),
+        });
+        let owners =
+            crate::graph::discover_world_metrics_owner_ids(Path::new("."), "demo", &compiled);
+        assert!(owners.contains("__world_metrics__::scenes/x.mei::metrics"));
+        assert!(!owners.contains("__world_metrics__::src/scenes/x.mei::metrics"));
+    }
+
+    #[test]
+    fn discover_world_metrics_owner_ids_reads_compiled_resources() {
+        use std::path::Path;
+
+        use mei_lang_kernel::{CompiledApp, DatasetView, LoadedResource, SourceDecl};
+
+        let mut compiled = CompiledApp::default();
+        compiled.resources.push(LoadedResource {
+            id: "__world_metrics__::scenes/x.mei::metrics".to_string(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: Some(DatasetView {
+                id: "__world_metrics__::scenes/x.mei::metrics".to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                source: SourceDecl {
+                    kind: "world_metrics".to_string(),
+                    path: String::new(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: BTreeMap::new(),
+                runtime_metric_defs: BTreeMap::new(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
+            }),
+        });
+        let owners =
+            crate::graph::discover_world_metrics_owner_ids(Path::new("."), "demo", &compiled);
+        assert!(owners.contains("__world_metrics__::scenes/x.mei::metrics"));
+    }
+
+    #[test]
     fn ui_tweak_invalidation_bundle_unchanged() {
         let mut current = BTreeMap::new();
         current.insert("ds_home".to_string(), "mdb:abc".to_string());

@@ -14,12 +14,12 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         {
             if !doctor.ok {
                 tracing::warn!(
-                    missing_trees = ?doctor.missing_trees,
-                    orphan_paths = ?doctor.orphan_paths,
-                    manifest_drift = ?doctor.manifest_drift,
-                    missing_component_previews = ?doctor.missing_component_previews,
-                    catalog_app_drift = ?doctor.catalog_app_drift,
-                    "workspace stock doctor reported issues before prebuild"
+                    missing_trees = doctor.missing_trees.len(),
+                    orphan_paths = doctor.orphan_paths.len(),
+                    manifest_drift = doctor.manifest_drift.len(),
+                    missing_component_previews = doctor.missing_component_previews.len(),
+                    catalog_app_drift = doctor.catalog_app_drift.len(),
+                    "workspace stock doctor reported issues before prebuild (run `mei-toolchain workspace stock doctor` for details)"
                 );
             }
         }
@@ -72,10 +72,11 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
     } else {
         0
     };
+    let effective_profile = effective_prebuild_scope_profile(options);
     let mut report = PrebuildReport {
         schema_version: PREBUILD_REPORT_SCHEMA_VERSION.to_string(),
         mode: options.mode,
-        scope_profile: options.scope_profile,
+        scope_profile: effective_profile,
         clean: options.clean,
         clean_wall_ms,
         total_wall_ms: 0,
@@ -151,8 +152,16 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
                     set_prebuild_build_root_override(app_root.as_path(), Some(store.as_path()));
                 }
             }
-            let result =
-                run_prebuild_for_app(source_root, &app, options.mode, options.scope_profile);
+            let result = run_prebuild_for_app(
+                source_root,
+                &app,
+                options.mode,
+                options.scope_profile,
+                options.dirty_only,
+                options.block_node.clone(),
+                options.diagnose_on_fail,
+                options.continue_from.clone(),
+            );
             clear_prebuild_build_root_override();
             (app_id, result)
         },
@@ -174,7 +183,6 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
     report.total_wall_ms = started.elapsed().as_millis() as u64;
     if report.ok
         && options.mode == PrebuildMode::Build
-        && !options.clean
         && options.app_filter.is_none()
     {
         let total_missing = report
@@ -193,9 +201,10 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
                     inputs_fingerprint: fingerprint,
                     last_ok_at_ms: now_epoch_ms(),
                     last_mode: "build".to_string(),
-                    last_scope_profile: match options.scope_profile {
+                    last_scope_profile: match effective_profile {
                         PrebuildScopeProfile::Full => "full".to_string(),
                         PrebuildScopeProfile::HotOnly => "hot_only".to_string(),
+                        PrebuildScopeProfile::BlockScoped => "block_scoped".to_string(),
                     },
                     succeeded_apps: report.succeeded_apps.clone(),
                     artifact_coverage_summary:
@@ -258,6 +267,82 @@ pub fn persist_prebuild_report(source_root: &Path, report: &PrebuildReport) -> R
         serde_json::to_string_pretty(report).context("serialize prebuild report to JSON")?;
     fs::write(&path, payload).with_context(|| format!("write {}", path.display()))?;
     Ok(path)
+}
+
+/// How long `prebuild-last.json` remains valid for skipping startup prebuild.
+pub(crate) const RECENT_PREBUILD_SKIP_MAX_AGE_SECS: u64 = 4 * 3600;
+/// Trust a fresh CLI prebuild report without re-checking landing gate (avoid duplicate ~100s serve build).
+pub(crate) const RECENT_PREBUILD_TRUST_LANDING_SECS: u64 = 30 * 60;
+
+#[derive(Debug, Clone)]
+pub struct CleanPrebuildArtifactsReport {
+    pub source_root: String,
+    pub cleaned_apps: Vec<String>,
+    pub clean_wall_ms: u64,
+}
+
+pub fn clean_workspace_prebuild_artifacts(
+    source_root: &Path,
+    app_filter: Option<&str>,
+) -> Result<CleanPrebuildArtifactsReport> {
+    let started = Instant::now();
+    let Some(mut manifest) = resolve_runtime_warmup_manifest(source_root)? else {
+        return Ok(CleanPrebuildArtifactsReport {
+            source_root: source_root.display().to_string(),
+            cleaned_apps: Vec::new(),
+            clean_wall_ms: started.elapsed().as_millis() as u64,
+        });
+    };
+    if let Some(app_filter) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
+        manifest.apps.retain(|app| app.app_id.trim() == app_filter);
+        if manifest.apps.is_empty() {
+            anyhow::bail!("app `{app_filter}` not found in runtime warmup manifest");
+        }
+    }
+    let mut cleaned_apps = Vec::new();
+    for app in &manifest.apps {
+        clear_app_artifacts(source_root, app.app_id.as_str())?;
+        cleaned_apps.push(app.app_id.clone());
+    }
+    Ok(CleanPrebuildArtifactsReport {
+        source_root: source_root.display().to_string(),
+        cleaned_apps,
+        clean_wall_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+pub fn recent_ok_prebuild_report(
+    source_root: &Path,
+) -> Result<Option<(PrebuildReport, std::time::Duration)>> {
+    let path =
+        mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("prebuild-last.json");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let age = fs::metadata(&path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .unwrap_or(std::time::Duration::MAX);
+    let Some(report) = load_prebuild_report(source_root)? else {
+        return Ok(None);
+    };
+    if !report.ok || !report.failed_apps.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some((report, age)))
+}
+
+pub fn load_prebuild_report(source_root: &Path) -> Result<Option<PrebuildReport>> {
+    let path = mei_lang_kernel::resolve_workspace_runtime_root(source_root).join("prebuild-last.json");
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let raw = fs::read_to_string(&path)
+        .with_context(|| format!("read prebuild report {}", path.display()))?;
+    let report = serde_json::from_str::<PrebuildReport>(&raw)
+        .with_context(|| format!("parse prebuild report {}", path.display()))?;
+    Ok(Some(report))
 }
 
 pub(crate) fn clear_app_artifacts(source_root: &Path, app_id: &str) -> Result<()> {
