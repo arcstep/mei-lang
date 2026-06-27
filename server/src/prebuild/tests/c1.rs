@@ -46,6 +46,7 @@ pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> Shar
         artifact_load_ms: 0,
         compile_ms: 0,
         handle_only: false,
+        assembly_handle: None,
     }
 }
 
@@ -147,6 +148,7 @@ fn prebuild_report_summary_omits_compile_revision() {
                 cache_lookup_ms: 0,
                 artifact_load_ms: 12,
                 compile_ms: 0,
+                assemble_only: false,
             }],
             coverage: PrebuildCoverageReport::default(),
             timings: PrebuildTimingReport::default(),

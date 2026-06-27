@@ -101,6 +101,8 @@ pub(crate) struct SharedCompileOutcome {
     pub(crate) compile_ms: u64,
     /// Heavy `CompiledApp` dropped after MCG persist; hydrate before artifact eval.
     pub(crate) handle_only: bool,
+    /// MCG assembly metadata when `handle_only`.
+    pub(crate) assembly_handle: Option<crate::graph::mcg::handle::AssemblyViewHandle>,
 }
 
 impl SharedCompileOutcome {
@@ -115,14 +117,86 @@ impl SharedCompileOutcome {
             artifact_load_ms: outcome.artifact_load_ms,
             compile_ms: outcome.compile_ms,
             handle_only: false,
+            assembly_handle: None,
         }
     }
 }
 
-pub(crate) fn shrink_outcome_to_handle(outcome: &mut SharedCompileOutcome) {
+pub(crate) fn projection_handle_outcome(
+    scope: &CompileScope,
+    base: &SharedCompileOutcome,
+    diagnostics: Option<&PrebuildDiagnostics>,
+) -> SharedCompileOutcome {
+    let canonical = scope.canonicalized();
+    let scene = canonical.requested_scene_id.as_deref();
+    let target = canonical
+        .requested_target_file
+        .as_deref()
+        .filter(|value| !value.is_empty());
+    let mut stub = mei_lang_kernel::CompiledApp {
+        app_id: base.compiled.app_id.clone(),
+        title: String::new(),
+        app_root: base.compiled.app_root.clone(),
+        active_scene: scene.map(str::to_string),
+        active_target_file: target.unwrap_or_default().to_string(),
+        file_tree: Vec::new(),
+        scene_routes: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::new(),
+        world_semantic_by_file: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+    };
+    crate::graph::mcg::assemble::apply_scope_to_compiled_app(
+        &mut stub,
+        scene,
+        target,
+    );
+    if let Some(diag) = diagnostics {
+        diag.mcg_assemble_only_count.fetch_add(1, Ordering::Relaxed);
+        diag.compile_target_overlay_reuse_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    SharedCompileOutcome {
+        compiled: Arc::new(stub),
+        cache_hit: true,
+        artifact_cache_hit: base.artifact_cache_hit,
+        assemble_only: true,
+        compile_revision: base.compile_revision.clone(),
+        cache_lookup_ms: base.cache_lookup_ms,
+        artifact_load_ms: base.artifact_load_ms,
+        compile_ms: 0,
+        handle_only: true,
+        assembly_handle: None,
+    }
+}
+
+pub(crate) fn shrink_outcome_to_handle(
+    outcome: &mut SharedCompileOutcome,
+    source_root: Option<&Path>,
+    app_id: Option<&str>,
+) {
     if outcome.handle_only {
         return;
     }
+    let assembly_handle = source_root
+        .zip(app_id)
+        .map(|(root, id)| {
+            crate::graph::mcg::handle::AssemblyViewHandle::from_mcg_registry(
+                root,
+                id,
+                outcome.compiled.as_ref(),
+                outcome.compile_revision.as_str(),
+            )
+        });
     let stub = CompiledApp {
         app_id: outcome.compiled.app_id.clone(),
         title: String::new(),
@@ -147,6 +221,7 @@ pub(crate) fn shrink_outcome_to_handle(outcome: &mut SharedCompileOutcome) {
     };
     outcome.compiled = Arc::new(stub);
     outcome.handle_only = true;
+    outcome.assembly_handle = assembly_handle;
 }
 
 pub(crate) fn hydrate_outcome_for_artifacts(
@@ -156,6 +231,21 @@ pub(crate) fn hydrate_outcome_for_artifacts(
 ) -> Result<SharedCompileOutcome> {
     if !outcome.handle_only {
         return Ok(outcome.clone());
+    }
+    if let Some(handle) = outcome.assembly_handle.as_ref() {
+        let compiled = crate::graph::mcg::handle::hydrate_handle_for_eval(source_root, handle)?;
+        return Ok(SharedCompileOutcome {
+            compiled: Arc::new(compiled),
+            cache_hit: outcome.cache_hit,
+            artifact_cache_hit: outcome.artifact_cache_hit,
+            assemble_only: outcome.assemble_only,
+            compile_revision: outcome.compile_revision.clone(),
+            cache_lookup_ms: outcome.cache_lookup_ms,
+            artifact_load_ms: outcome.artifact_load_ms,
+            compile_ms: outcome.compile_ms,
+            handle_only: false,
+            assembly_handle: None,
+        });
     }
     let scene = outcome.compiled.active_scene.as_deref();
     let target = outcome.compiled.active_target_file.as_str();
@@ -179,6 +269,7 @@ pub(crate) fn hydrate_outcome_for_artifacts(
             artifact_load_ms: outcome.artifact_load_ms,
             compile_ms: outcome.compile_ms,
             handle_only: false,
+            assembly_handle: None,
         });
     }
     anyhow::bail!(

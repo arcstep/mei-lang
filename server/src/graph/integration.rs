@@ -310,7 +310,7 @@ pub fn embedded_capsule_target_files(
     embedded_capsule_targets(compiled, &mcg)
 }
 
-fn embedded_capsule_targets(
+pub(crate) fn embedded_capsule_targets(
     compiled: &CompiledApp,
     mcg: &crate::graph::mcg::registry::McgRegistry,
 ) -> BTreeSet<String> {
@@ -344,7 +344,7 @@ fn embedded_capsule_targets(
     out
 }
 
-fn load_scene_payload_compiled_from_mcg(
+pub(crate) fn load_scene_payload_compiled_from_mcg(
     app_root: &Path,
     mcg: &crate::graph::mcg::registry::McgRegistry,
     target: &str,
@@ -392,7 +392,7 @@ fn load_scene_payload_compiled_from_mcg(
     )
 }
 
-fn world_capsule_path_for_scene(capsule: &str) -> Option<String> {
+pub(crate) fn world_capsule_path_for_scene(capsule: &str) -> Option<String> {
     let capsule = capsule.trim();
     if !capsule.ends_with(".mei") || capsule.ends_with(".world.mei") {
         return None;
@@ -451,7 +451,7 @@ fn backfill_embedded_capsule_catalog_from_mcg(
     }
 }
 
-fn hydrate_metric_defs_from_mcg_cas(
+pub(crate) fn hydrate_metric_defs_from_mcg_cas(
     app_root: &Path,
     mcg: &crate::graph::mcg::registry::McgRegistry,
     compiled: &mut CompiledApp,
@@ -610,7 +610,7 @@ fn hydrate_capsule_scene_payloads_from_mcg(
     }
 }
 
-fn capsule_paths_for_prebuild_hydrate(
+pub(crate) fn capsule_paths_for_prebuild_hydrate(
     metric_ids: &[String],
     owner_resource_ids: &[String],
 ) -> BTreeSet<String> {
@@ -638,6 +638,19 @@ pub fn hydrate_compiled_for_prebuild_eval(
     if !target.is_empty() {
         backfill_assembled_runtime_catalog(app_root.as_path(), target.as_str(), compiled);
         hydrate_world_metrics_from_scene_payload(source_root, app_id, target.as_str(), compiled);
+    }
+    if crate::graph::hydrate_closure::closure_hydrate_enabled() {
+        let mcg = McgRegistryWriter::load(source_root, app_id);
+        hydrate_imported_world_metrics_resources_from_mcg(app_root.as_path(), &mcg, compiled);
+        hydrate_world_metric_ledger_from_mcg_bundles(app_root.as_path(), &mcg, compiled);
+        crate::graph::hydrate_closure::hydrate_assembled_scope_closure(
+            source_root,
+            app_id,
+            compiled,
+            metric_ids,
+            owner_resource_ids,
+        );
+        return Ok(());
     }
     hydrate_compiled_for_embedded_capsules(source_root, app_id, compiled)?;
     let capsules = capsule_paths_for_prebuild_hydrate(metric_ids, owner_resource_ids);
@@ -694,7 +707,7 @@ fn normalize_world_metrics_owner_id(owner_id: &str) -> String {
     format!("__world_metrics__::{path}::metrics")
 }
 
-fn board_catalog_fallback_targets(board_target: &str) -> Vec<String> {
+pub(crate) fn board_catalog_fallback_targets(board_target: &str) -> Vec<String> {
     let board_target = board_target.trim();
     if !board_target.ends_with(".board.mei") {
         return Vec::new();
@@ -837,14 +850,30 @@ pub fn try_assemble_scope_from_scene_payload(
         app_id,
         app_root_str.as_str(),
     )?;
+    super::mcg::projection_assembly::hydrate_projection_assemblies_from_mcg(
+        app_root.as_path(),
+        &mcg,
+        resolved_target.as_str(),
+        &mut compiled,
+    );
     backfill_assembled_runtime_catalog(app_root.as_path(), resolved_target.as_str(), &mut compiled);
     hydrate_world_metrics_from_scene_payload(source_root, app_id, resolved_target.as_str(), &mut compiled);
     hydrate_imported_world_metrics_resources_from_mcg(app_root.as_path(), &mcg, &mut compiled);
     hydrate_world_metric_ledger_from_mcg_bundles(app_root.as_path(), &mcg, &mut compiled);
-    backfill_embedded_capsule_catalog_from_mcg(app_root.as_path(), &mcg, &mut compiled);
-    hydrate_runtime_catalog_from_mcg_scene_payloads(app_root.as_path(), &mcg, &mut compiled);
-    let _ = hydrate_compiled_for_embedded_capsules(source_root, app_id, &mut compiled);
-    hydrate_metric_defs_from_mcg_cas(app_root.as_path(), &mcg, &mut compiled);
+    if crate::graph::hydrate_closure::closure_hydrate_enabled() {
+        crate::graph::hydrate_closure::hydrate_assembled_scope_closure(
+            source_root,
+            app_id,
+            &mut compiled,
+            &[],
+            &[],
+        );
+    } else {
+        backfill_embedded_capsule_catalog_from_mcg(app_root.as_path(), &mcg, &mut compiled);
+        hydrate_runtime_catalog_from_mcg_scene_payloads(app_root.as_path(), &mcg, &mut compiled);
+        let _ = hydrate_compiled_for_embedded_capsules(source_root, app_id, &mut compiled);
+        hydrate_metric_defs_from_mcg_cas(app_root.as_path(), &mcg, &mut compiled);
+    }
     if let Ok(changed_panels) = load_panel_contracts_from_store(app_root.as_path(), &mcg) {
         if !changed_panels.is_empty() {
             compiled = partial_assemble_panel_merge(&compiled, &changed_panels);

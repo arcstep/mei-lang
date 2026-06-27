@@ -69,6 +69,10 @@ pub fn router() -> Router<AppState> {
             get(build_api::api_build_workspace_fragment),
         )
         .route("/api/build/graph/mcg", get(build_api::api_build_graph_mcg))
+        .route(
+            "/api/build/panel-contract",
+            get(build_api::api_build_panel_contract),
+        )
         .route("/api/build/graph/mrg", get(build_api::api_build_graph_mrg))
         .route(
             "/api/build/graph/bridge",

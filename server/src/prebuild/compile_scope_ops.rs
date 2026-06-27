@@ -46,6 +46,58 @@ fn is_home_assembly_target(target: &str) -> bool {
     canonical.ends_with("home.mei")
 }
 
+pub(crate) fn is_board_target_file(target: &str) -> bool {
+    target.trim().ends_with(".board.mei")
+}
+
+pub(crate) fn maybe_shrink_board_projection_outcome(
+    source_root: &Path,
+    app_id: &str,
+    scope: &CompileScope,
+    outcome: &mut SharedCompileOutcome,
+) {
+    let canonical = scope.canonicalized();
+    let target = canonical
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if !target.is_some_and(is_board_target_file) {
+        return;
+    }
+    if outcome.handle_only {
+        return;
+    }
+    if !crate::graph::feature::graph_registry_dedup_enabled() {
+        return;
+    }
+    if mcg_scene_payload_registered(source_root, app_id, target.unwrap_or_default()) {
+        shrink_outcome_to_handle(outcome, Some(source_root), Some(app_id));
+    }
+}
+
+pub(crate) fn assembly_base_matches_scope_target(
+    scope: &CompileScope,
+    base: &SharedCompileOutcome,
+) -> bool {
+    let canonical = scope.canonicalized();
+    let scope_target = canonical
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let Some(scope_target) = scope_target else {
+        return true;
+    };
+    let base_target = base.compiled.active_target_file.trim();
+    if base_target == scope_target {
+        return true;
+    }
+    let base_canonical = mei_lang_kernel::canonical_app_source_rel_path(base_target);
+    let scope_canonical = mei_lang_kernel::canonical_app_source_rel_path(scope_target);
+    base_canonical == scope_canonical
+}
+
 fn enqueue_missing_embedded_capsule_scene_payloads(
     source_root: &Path,
     app_id: &str,
@@ -162,20 +214,25 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        if let Some(base) = session
+        let base = session
             .lock()
             .expect("prebuild compile session lock")
             .try_reuse_base_for_target(target)
-        {
+            .map(|outcome| outcome.clone());
+        if let Some(base) = base {
             if !compile_outcome_matches_scope(scope, base.compiled.as_ref()) {
-                let assembled =
-                    scope_assembled_outcome(source_root, app_id, &base, scope, Some(diagnostics));
-                session
-                    .lock()
-                    .expect("prebuild compile session lock")
-                    .register(source_root, app_id, scope, assembled.clone());
-                ensure_mcg_scene_payload_for_scope(source_root, app_id, scope, &assembled, mode);
-                return Ok(assembled);
+                let board_payload_ready =
+                    !is_board_target_file(target) || mcg_scene_payload_registered(source_root, app_id, target);
+                if assembly_base_matches_scope_target(scope, &base) && board_payload_ready {
+                    let assembled =
+                        scope_assembled_outcome(source_root, app_id, &base, scope, Some(diagnostics));
+                    session
+                        .lock()
+                        .expect("prebuild compile session lock")
+                        .register(source_root, app_id, scope, assembled.clone());
+                    ensure_mcg_scene_payload_for_scope(source_root, app_id, scope, &assembled, mode);
+                    return Ok(assembled);
+                }
             }
         }
     }
@@ -206,6 +263,7 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
                 artifact_load_ms: 0,
                 compile_ms: 0,
                 handle_only: false,
+                assembly_handle: None,
             };
             let mut locked = session.lock().expect("prebuild compile session lock");
             locked.register(source_root, app_id, scope, outcome.clone());
@@ -390,6 +448,9 @@ pub(crate) fn fill_manifest_prepared_outcomes(
     app_id: &str,
     manifest_scopes: &[CompileScope],
     compile_session: &Mutex<PrebuildCompileSession>,
+    diagnostics: &PrebuildDiagnostics,
+    mode: PrebuildMode,
+    components_root: &Path,
     prepared_outcomes: &mut Vec<PreparedCompileOutcome>,
     compile_reports: &mut Vec<PrebuildScopeReport>,
     seen_scopes: &mut BTreeSet<String>,
@@ -409,9 +470,6 @@ pub(crate) fn fill_manifest_prepared_outcomes(
             .max_by_key(|outcome| (outcome.compile_ms, !outcome.cache_hit))
             .cloned()
     };
-    let Some(fallback_base) = fallback_base else {
-        return;
-    };
     for scope in manifest_scopes {
         if prepared_keys.contains(&scope.key()) {
             continue;
@@ -419,16 +477,80 @@ pub(crate) fn fill_manifest_prepared_outcomes(
         if !seen_scopes.insert(scope.key()) {
             continue;
         }
-        let assembled =
-            scope_assembled_outcome(source_root, app_id, &fallback_base, scope, None);
+        let canonical = scope.canonicalized();
+        let scope_target = canonical
+            .requested_target_file
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let outcome = if scope_target.is_some_and(is_board_target_file) {
+            ensure_compile_scope_for_prebuild(
+                compile_session,
+                diagnostics,
+                source_root,
+                app_id,
+                scope,
+                mode,
+                components_root,
+            )
+            .unwrap_or_else(|error| {
+                tracing::warn!(
+                    app_id = %app_id,
+                    scope = %scope.key(),
+                    error = %error,
+                    "fill_manifest board compile failed; projection handle only"
+                );
+                let base = fallback_base.clone().unwrap_or_else(|| {
+                    SharedCompileOutcome {
+                        compiled: Arc::new(mei_lang_kernel::CompiledApp {
+                            app_id: app_id.to_string(),
+                            title: String::new(),
+                            app_root: String::new(),
+                            active_scene: scope.requested_scene_id.clone(),
+                            active_target_file: scope_target.unwrap_or_default().to_string(),
+                            file_tree: Vec::new(),
+                            scene_routes: Vec::new(),
+                            scene_contract: None,
+                            scene_local_nav_by_target: Default::default(),
+                            scene_bindings_by_id: Default::default(),
+                            scene_examples_by_id: Default::default(),
+                            scene_projection_assembly_by_id: Default::default(),
+                            resources: Vec::new(),
+                            world_metrics: Default::default(),
+                            world_semantic_by_file: Default::default(),
+                            component_assets: Vec::new(),
+                            diagnostics: Vec::new(),
+                            build_experience_index: Default::default(),
+                            build_board_index: Default::default(),
+                            build_template_index: Default::default(),
+                        }),
+                        cache_hit: true,
+                        artifact_cache_hit: false,
+                        assemble_only: true,
+                        compile_revision: String::new(),
+                        cache_lookup_ms: 0,
+                        artifact_load_ms: 0,
+                        compile_ms: 0,
+                        handle_only: true,
+                        assembly_handle: None,
+                    }
+                });
+                projection_handle_outcome(scope, &base, None)
+            })
+        } else {
+            let Some(fallback_base) = fallback_base.as_ref() else {
+                continue;
+            };
+            scope_assembled_outcome(source_root, app_id, fallback_base, scope, None)
+        };
         compile_session
             .lock()
             .expect("prebuild compile session lock")
-            .register(source_root, app_id, scope, assembled.clone());
-        compile_reports.push(scope_report_from_outcome(scope, &assembled));
+            .register(source_root, app_id, scope, outcome.clone());
+        compile_reports.push(scope_report_from_outcome(scope, &outcome));
         prepared_outcomes.push(PreparedCompileOutcome {
             scope: scope.clone(),
-            outcome: assembled,
+            outcome,
         });
     }
 }
@@ -658,7 +780,7 @@ pub(crate) fn shrink_prepared_outcomes_with_mcg_handles(
         if mcg_scene_payload_registered(source_root, app_id, target)
             && !prepared.outcome.handle_only
         {
-            shrink_outcome_to_handle(&mut prepared.outcome);
+            shrink_outcome_to_handle(&mut prepared.outcome, Some(source_root), Some(app_id));
         }
     }
 }

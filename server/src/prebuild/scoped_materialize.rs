@@ -38,6 +38,7 @@ pub fn materialize_scope_after_compile(
         artifact_load_ms: outcome.artifact_load_ms,
         compile_ms: outcome.compile_ms,
         handle_only: false,
+        assembly_handle: None,
     };
     let scope = CompileScope {
         requested_scene_id: scene_id

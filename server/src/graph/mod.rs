@@ -4,6 +4,7 @@ pub mod bridge;
 pub mod content_store;
 pub mod dedup;
 pub mod feature;
+pub mod hydrate_closure;
 pub mod integration;
 pub mod io;
 pub mod migrate;

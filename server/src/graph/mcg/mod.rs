@@ -1,7 +1,9 @@
 pub mod app_skeleton;
 pub mod assemble;
+pub mod handle;
 pub mod metric_def_bundle;
 pub mod panel_contract;
+pub mod projection_assembly;
 pub mod registry;
 pub mod scene_payload;
 pub mod update;

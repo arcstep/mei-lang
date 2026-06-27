@@ -174,7 +174,11 @@ pub(crate) fn finish_run_prebuild_for_app(
             if !target.trim().is_empty()
                 && mcg_scene_payload_registered(source_root, app.app_id.as_str(), target)
             {
-                shrink_outcome_to_handle(&mut prepared.outcome);
+                shrink_outcome_to_handle(
+                    &mut prepared.outcome,
+                    Some(source_root),
+                    Some(app.app_id.as_str()),
+                );
             }
         }
     }

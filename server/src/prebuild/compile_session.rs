@@ -434,6 +434,7 @@ pub(crate) fn mark_prebuild_session_reuse(outcome: &SharedCompileOutcome) -> Sha
         artifact_load_ms: 0,
         compile_ms: 0,
         handle_only: outcome.handle_only,
+        assembly_handle: outcome.assembly_handle.clone(),
     }
 }
 

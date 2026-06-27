@@ -316,17 +316,24 @@ pub(crate) fn run_prebuild_for_app(
                     continue;
                 }
                 if !seen_scopes.contains(&alias.key()) {
-                    if let Some(base) = compile_session
+                    let base = compile_session
                         .lock()
                         .expect("prebuild compile session lock")
                         .try_reuse_base_for_target(target.as_str())
-                    {
-                        let alias_outcome = scope_assembled_outcome(
+                        .map(|outcome| outcome.clone());
+                    if let Some(base) = base {
+                        let mut alias_outcome = scope_assembled_outcome(
                             source_root,
                             app.app_id.as_str(),
                             &base,
                             alias,
                             Some(diagnostics.as_ref()),
+                        );
+                        maybe_shrink_board_projection_outcome(
+                            source_root,
+                            app.app_id.as_str(),
+                            alias,
+                            &mut alias_outcome,
                         );
                         compile_session
                             .lock()
@@ -623,12 +630,18 @@ pub(crate) fn run_prebuild_for_app(
                 &mut compile_reports,
             );
             for alias in aliases {
-                let alias_outcome = scope_assembled_outcome(
+                let mut alias_outcome = scope_assembled_outcome(
                     source_root,
                     app.app_id.as_str(),
                     outcome,
                     &alias,
                     Some(diagnostics.as_ref()),
+                );
+                maybe_shrink_board_projection_outcome(
+                    source_root,
+                    app.app_id.as_str(),
+                    &alias,
+                    &mut alias_outcome,
                 );
                 compile_session
                     .lock()
@@ -688,6 +701,9 @@ pub(crate) fn run_prebuild_for_app(
             app.app_id.as_str(),
             manifest_scopes.as_slice(),
             compile_session.as_ref(),
+            diagnostics.as_ref(),
+            mode,
+            components_root.as_path(),
             &mut prepared_outcomes,
             &mut compile_reports,
             &mut seen_scopes,

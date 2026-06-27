@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use std::collections::BTreeMap;
+
 use mei_lang_kernel::CompiledApp;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -39,7 +41,12 @@ pub fn scene_payload_revision(target_file: &str, dependency_fingerprint: &str) -
     )
 }
 
-pub fn scene_payload_slim_value_from_compiled(compiled: &CompiledApp) -> Value {
+pub fn scene_payload_slim_value_from_compiled(compiled: &CompiledApp, omit_projection_map: bool) -> Value {
+    let projection = if omit_projection_map {
+        BTreeMap::new()
+    } else {
+        compiled.scene_projection_assembly_by_id.clone()
+    };
     serde_json::to_value(serde_json::json!({
         "activeTargetFile": compiled.active_target_file,
         "activeScene": compiled.active_scene,
@@ -47,7 +54,7 @@ pub fn scene_payload_slim_value_from_compiled(compiled: &CompiledApp) -> Value {
         "sceneLocalNavByTarget": compiled.scene_local_nav_by_target,
         "sceneBindingsById": compiled.scene_bindings_by_id,
         "sceneExamplesById": compiled.scene_examples_by_id,
-        "sceneProjectionAssemblyById": compiled.scene_projection_assembly_by_id,
+        "sceneProjectionAssemblyById": projection,
         "componentAssets": compiled.component_assets,
         "diagnostics": compiled.diagnostics,
     }))
@@ -55,7 +62,12 @@ pub fn scene_payload_slim_value_from_compiled(compiled: &CompiledApp) -> Value {
 }
 
 pub fn scene_payload_value_for_persist(compiled: &CompiledApp) -> Value {
-    scene_payload_slim_value_from_compiled(compiled)
+    let omit_projections = crate::graph::feature::graph_registry_dedup_enabled()
+        && super::projection_assembly::is_home_scene_payload_target(
+            compiled.active_target_file.as_str(),
+        )
+        && !compiled.scene_projection_assembly_by_id.is_empty();
+    scene_payload_slim_value_from_compiled(compiled, omit_projections)
 }
 
 pub fn scene_payload_is_full_compiled_payload(payload: &Value) -> bool {

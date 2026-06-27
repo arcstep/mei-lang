@@ -458,6 +458,7 @@ pub(crate) fn scope_assembled_outcome(
                     artifact_load_ms: 0,
                     compile_ms: 0,
                     handle_only: false,
+                    assembly_handle: None,
                 };
             }
         }
@@ -500,9 +501,25 @@ pub(crate) fn scope_assembled_outcome(
                     artifact_load_ms: 0,
                     compile_ms: 0,
                     handle_only: false,
+                    assembly_handle: None,
                 };
             }
         }
+    }
+    if target.is_some_and(super::compile_scope_ops::is_board_target_file) {
+        let board_target = target.unwrap_or_default();
+        if !super::compile_scope_ops::mcg_scene_payload_registered(
+            source_root,
+            app_id,
+            board_target,
+        ) {
+            return super::projection_handle_outcome(scope, base, diagnostics);
+        }
+    }
+    if target.is_some_and(super::compile_scope_ops::is_board_target_file)
+        && !super::compile_scope_ops::assembly_base_matches_scope_target(scope, base)
+    {
+        return super::projection_handle_outcome(scope, base, diagnostics);
     }
     let compiled = match Arc::try_unwrap(Arc::clone(&base.compiled)) {
         Ok(mut owned) => {
@@ -513,11 +530,12 @@ pub(crate) fn scope_assembled_outcome(
             );
             owned
         }
-        Err(shared) => crate::graph::mcg::assemble::assemble_scope_view(
-            (*shared).clone(),
-            scene,
-            target,
-        ),
+        Err(shared) => {
+            if target.is_some_and(|value| super::compile_scope_ops::is_board_target_file(value)) {
+                return super::projection_handle_outcome(scope, base, diagnostics);
+            }
+            crate::graph::mcg::assemble::assemble_scope_view((*shared).clone(), scene, target)
+        }
     };
     let mut hydrated = compiled;
     let _ = crate::graph::hydrate_compiled_for_prebuild_eval(source_root, app_id, &mut hydrated, &[], &[]);
@@ -537,6 +555,7 @@ pub(crate) fn scope_assembled_outcome(
         artifact_load_ms: base.artifact_load_ms,
         compile_ms: 0,
         handle_only: false,
+        assembly_handle: None,
     }
 }
 

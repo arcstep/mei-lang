@@ -80,6 +80,19 @@ fn unique_prepared_outcomes_prefers_scene_scoped_compile_scope() {
 }
 
 #[test]
+fn assembly_base_rejects_home_base_for_board_scope() {
+    use crate::prebuild::compile_scope_ops::assembly_base_matches_scope_target;
+    let scope = CompileScope {
+        requested_scene_id: Some("penalty".to_string()),
+        requested_target_file: Some("scenes/04-行政处罚.board.mei".to_string()),
+    };
+    let home_outcome = test_outcome("home", "scenes/home.mei");
+    assert!(!assembly_base_matches_scope_target(&scope, &home_outcome));
+    let board_outcome = test_outcome("penalty", "scenes/04-行政处罚.board.mei");
+    assert!(assembly_base_matches_scope_target(&scope, &board_outcome));
+}
+
+#[test]
 fn unique_prepared_outcomes_collapses_board_scene_aliases() {
     let prepared = vec![
         PreparedCompileOutcome {

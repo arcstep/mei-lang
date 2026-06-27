@@ -150,6 +150,7 @@ fn materialize_scope_worker(
         artifact_load_ms: 0,
         compile_ms: 0,
         handle_only: false,
+        assembly_handle: None,
     };
     let result = BlockOrchestrator::materialize_scope_plan(
         app_id,

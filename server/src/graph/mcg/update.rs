@@ -111,6 +111,21 @@ pub fn update_mcg_after_compile(
             ),
         });
     }
+    if super::projection_assembly::is_home_scene_payload_target(target_file.as_str())
+        && !compiled.scene_projection_assembly_by_id.is_empty()
+    {
+        if let Ok(hashes) = super::projection_assembly::persist_projection_assemblies(
+            app_root.as_path(),
+            target_file.as_str(),
+            &compiled.scene_projection_assembly_by_id,
+        ) {
+            for node in
+                super::projection_assembly::projection_assembly_mcg_nodes(target_file.as_str(), &hashes)
+            {
+                registry.upsert_node(node);
+            }
+        }
+    }
 
     let sk_rev = app_skeleton_revision(dependency_fingerprint);
     let mut skeleton_compiled = compiled.clone();

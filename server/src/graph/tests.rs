@@ -21,7 +21,28 @@ mod graph_mcg_tests {
 
         use mei_lang_kernel::{CompiledApp, DatasetView, LoadedResource, SourceDecl};
 
-        let mut compiled = CompiledApp::default();
+        let mut compiled = CompiledApp {
+            app_id: "demo".to_string(),
+            title: String::new(),
+            app_root: String::new(),
+            active_scene: None,
+            active_target_file: String::new(),
+            file_tree: Vec::new(),
+            scene_routes: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: Vec::new(),
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
         compiled.resources.push(LoadedResource {
             id: "__world_metrics__::src/scenes/x.mei::metrics".to_string(),
             kind: "dataset".to_string(),
@@ -67,7 +88,28 @@ mod graph_mcg_tests {
 
         use mei_lang_kernel::{CompiledApp, DatasetView, LoadedResource, SourceDecl};
 
-        let mut compiled = CompiledApp::default();
+        let mut compiled = CompiledApp {
+            app_id: "demo".to_string(),
+            title: String::new(),
+            app_root: String::new(),
+            active_scene: None,
+            active_target_file: String::new(),
+            file_tree: Vec::new(),
+            scene_routes: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: Vec::new(),
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
         compiled.resources.push(LoadedResource {
             id: "__world_metrics__::scenes/x.mei::metrics".to_string(),
             kind: "dataset".to_string(),

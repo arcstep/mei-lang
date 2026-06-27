@@ -9,3 +9,4 @@ pub const METRIC_DATAFRAME: &str = "metric_dataframe";
 pub const EVAL_PLAN: &str = "eval_plan";
 pub const WORKSET: &str = "workset";
 pub const DATA_SOURCE: &str = "data_source";
+pub const PROJECTION_ASSEMBLY: &str = "projection_assembly";
