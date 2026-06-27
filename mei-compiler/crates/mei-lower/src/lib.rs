@@ -5,7 +5,7 @@ pub use mei_surface::{
 };
 pub use mei_syntax::{parse_source, parse_source_file, ParseError, SourceFile};
 pub use mei_graph::{
-    compile_v2_app, CompileV2Error, CompileV2Outcome, GraphBlock, GraphOutcome,
+    compile_app, CompileAppError, CompileOutcome, GraphBlock, GraphOutcome,
 };
 
 pub fn lower_path(path: &std::path::Path) -> Result<LowerOutcome, LowerError> {

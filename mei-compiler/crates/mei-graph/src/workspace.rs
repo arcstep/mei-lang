@@ -10,7 +10,7 @@ use crate::lower::{lower_v2_file, GraphBlock, GraphOutcome};
 use crate::registry::MacroRegistry;
 
 #[derive(Debug, Error)]
-pub enum CompileV2Error {
+pub enum CompileAppError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("parse error in {path}: {error}")]
@@ -33,17 +33,17 @@ pub enum CompileV2Error {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompileV2Outcome {
+pub struct CompileOutcome {
     pub app_id: String,
     pub syntax_version: String,
     pub files: Vec<GraphOutcome>,
     pub blocks: Vec<GraphBlock>,
 }
 
-pub fn compile_v2_app(workspace: &Path, app_id: &str) -> Result<CompileV2Outcome, CompileV2Error> {
+pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, CompileAppError> {
     let workspace_json = workspace.join("workspace.json");
     let ws_config: WorkspaceJson = serde_json::from_str(&std::fs::read_to_string(&workspace_json)?)
-        .map_err(|e| CompileV2Error::Config(format!("workspace.json: {e}")))?;
+        .map_err(|e| CompileAppError::Config(format!("workspace.json: {e}")))?;
 
     let templates_rel = ws_config
         .paths
@@ -54,7 +54,7 @@ pub fn compile_v2_app(workspace: &Path, app_id: &str) -> Result<CompileV2Outcome
     let app_root = workspace.join("apps").join(app_id);
     let src_root = app_root.join("src");
     if !src_root.is_dir() {
-        return Err(CompileV2Error::Config(format!(
+        return Err(CompileAppError::Config(format!(
             "missing app src: {}",
             src_root.display()
         )));
@@ -79,17 +79,17 @@ pub fn compile_v2_app(workspace: &Path, app_id: &str) -> Result<CompileV2Outcome
             .to_string_lossy()
             .replace('\\', "/");
 
-        let parsed = parse_v2_source_file(path).map_err(|error| CompileV2Error::Parse {
+        let parsed = parse_v2_source_file(path).map_err(|error| CompileAppError::Parse {
             path: path.to_path_buf(),
             error,
         })?;
         let expanded = expand_v2_file(&parsed, &registry, &stock_templates).map_err(|error| {
-            CompileV2Error::Expand {
+            CompileAppError::Expand {
                 path: path.to_path_buf(),
                 error,
             }
         })?;
-        let outcome = lower_v2_file(&rel, &expanded).map_err(|error| CompileV2Error::Lower {
+        let outcome = lower_v2_file(&rel, &expanded).map_err(|error| CompileAppError::Lower {
             path: path.to_path_buf(),
             error,
         })?;
@@ -100,7 +100,7 @@ pub fn compile_v2_app(workspace: &Path, app_id: &str) -> Result<CompileV2Outcome
     files.sort_by(|a, b| a.source_file.cmp(&b.source_file));
     blocks.sort_by(|a, b| a.block_id.cmp(&b.block_id));
 
-    Ok(CompileV2Outcome {
+    Ok(CompileOutcome {
         app_id: app_id.to_string(),
         syntax_version,
         files,

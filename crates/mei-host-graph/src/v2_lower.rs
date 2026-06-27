@@ -1,0 +1,1324 @@
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use mei_lang_kernel::{
+    load_mei_config_for_app, BlockDecl, FrameDecl, LayoutDecl, PanelDecl, UiNodeDecl,
+};
+use serde_json::{json, Map, Value};
+
+use crate::import::load_block_artifact;
+use crate::mcg::registry::McgRegistry;
+use crate::types::GraphNodeKind;
+
+pub struct PanelLowerContext<'a> {
+    pub app_root: &'a Path,
+    pub app_id: &'a str,
+    pub registry: &'a McgRegistry,
+    pub scene_id: &'a str,
+}
+
+pub fn lower_frame_from_assembly(payload: &Value) -> FrameDecl {
+    let layout = payload.get("layout").and_then(lower_layout);
+    let mut props = json!({});
+    if let Some(canvas) = payload.get("canvas") {
+        let vp_args = v2_call_args(canvas).unwrap_or(canvas);
+        if let Some(obj) = props.as_object_mut() {
+            obj.insert("viewport".to_string(), lower_viewport_props(vp_args));
+        }
+    }
+    FrameDecl {
+        kind: "frame".to_string(),
+        id: payload
+            .get("scene")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        title: payload
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        layout,
+        props,
+        base: None,
+        panels: payload
+            .get("panels")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default(),
+    }
+}
+
+pub fn lower_panel_payload(
+    payload: &Value,
+    panel_key: &str,
+    ctx: &PanelLowerContext<'_>,
+) -> Result<PanelDecl> {
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or(panel_key)
+        .to_string();
+    let area = payload.get("area").and_then(|v| v.as_str()).map(str::to_string);
+
+    if payload.get("slots").and_then(Value::as_array).is_some() {
+        return lower_panel_with_slots(payload, id, area, ctx);
+    }
+
+    if let Some(shell) = payload.get("shell") {
+        return lower_panel_from_shell(payload, shell, id, area, ctx);
+    }
+
+    let mut props = json!({});
+    merge_card_fields(&mut props, payload);
+    apply_placement(payload.get("placement"), &mut props);
+
+    Ok(PanelDecl {
+        kind: "panel".to_string(),
+        id,
+        title: payload.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        head: None,
+        area,
+        layout: payload.get("layout").and_then(lower_layout),
+        blocks: lower_blocks(payload.get("blocks"), ctx)?,
+        slot: None,
+        props,
+        head_props: lower_head_props(payload),
+        body_props: payload
+            .get("body_props")
+            .cloned()
+            .unwrap_or(json!({})),
+        base: None,
+        import_scope: None,
+    })
+}
+
+fn lower_panel_with_slots(
+    payload: &Value,
+    id: String,
+    area: Option<String>,
+    ctx: &PanelLowerContext<'_>,
+) -> Result<PanelDecl> {
+    let mut props = json!({});
+    merge_card_fields(&mut props, payload);
+    apply_placement(payload.get("placement"), &mut props);
+
+    let mut blocks = Vec::new();
+    if let Some(slots) = payload.get("slots").and_then(Value::as_array) {
+        for slot in slots {
+            if v2_call_name(slot) != Some("panel_slot") {
+                continue;
+            }
+            let slot_args = v2_call_args(slot).unwrap_or(slot);
+            let slot_area = slot_args
+                .get("area")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let slot_id = slot_area.clone().unwrap_or_else(|| "slot".to_string());
+            if let Some(shell) = slot_args.get("shell") {
+                let slot_panel = lower_titled_shell_panel(
+                    shell,
+                    slot_id,
+                    slot_area,
+                    ctx,
+                    None,
+                )?;
+                blocks.push(UiNodeDecl::Panel(slot_panel));
+            }
+        }
+    }
+
+    Ok(PanelDecl {
+        kind: "panel".to_string(),
+        id,
+        title: None,
+        head: None,
+        area,
+        layout: payload.get("layout").and_then(lower_layout),
+        blocks,
+        slot: None,
+        props,
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    })
+}
+
+fn lower_panel_from_shell(
+    payload: &Value,
+    shell: &Value,
+    id: String,
+    area: Option<String>,
+    ctx: &PanelLowerContext<'_>,
+) -> Result<PanelDecl> {
+    match v2_call_name(shell) {
+        Some("screen_header") => lower_screen_header_panel(payload, shell, id, area, ctx),
+        Some("titled_shell") => lower_titled_shell_panel(
+            shell,
+            id,
+            area,
+            ctx,
+            payload.get("placement"),
+        ),
+        _ => lower_panel_from_generic_shell(payload, shell, id, area, ctx),
+    }
+}
+
+fn lower_screen_header_panel(
+    payload: &Value,
+    shell: &Value,
+    id: String,
+    area: Option<String>,
+    ctx: &PanelLowerContext<'_>,
+) -> Result<PanelDecl> {
+    let args = v2_call_args(shell).context("screen_header missing __args")?;
+    let title = args
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let cap_min_width = args
+        .get("cap_min_width")
+        .or_else(|| args.get("capMinWidth"))
+        .and_then(Value::as_i64)
+        .unwrap_or(633);
+    let assets = resolve_assets_map(args.get("assets"), ctx.app_id);
+
+    let mut props = json!({
+        "chrome": "bare",
+        "variant": "container",
+        "show_heading": false,
+        "padding": "0",
+        "background": "transparent",
+        "border": "none",
+        "width": "100%",
+        "box_sizing": "border-box",
+        "overflow": "hidden"
+    });
+    apply_placement(payload.get("placement"), &mut props);
+
+    let block = BlockDecl {
+        kind: "block".to_string(),
+        use_key: "cockpit.header-brand".to_string(),
+        id: Some("screen_header_brand".to_string()),
+        title: None,
+        area: None,
+        props: json!({
+            "title": title,
+            "assets": assets,
+            "capMinWidth": cap_min_width,
+            "titleColor": "#E8F0FF",
+            "titleLineHeight": "68px",
+            "titleLetterSpacing": "0"
+        }),
+        base: None,
+        layout: None,
+        blocks: Vec::new(),
+        component: None,
+        placement: None,
+        interactions: Vec::new(),
+        lifecycle: None,
+        constraints: None,
+        data: None,
+    };
+
+    Ok(PanelDecl {
+        kind: "panel".to_string(),
+        id,
+        title: None,
+        head: None,
+        area,
+        layout: None,
+        blocks: vec![UiNodeDecl::Block(block)],
+        slot: None,
+        props,
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    })
+}
+
+fn lower_titled_shell_panel(
+    shell: &Value,
+    id: String,
+    area: Option<String>,
+    ctx: &PanelLowerContext<'_>,
+    outer_placement: Option<&Value>,
+) -> Result<PanelDecl> {
+    let args = v2_call_args(shell).context("titled_shell missing __args")?;
+    let mut props = titled_shell_template_props(args);
+    merge_card_fields(&mut props, args);
+    if let Some(placement) = outer_placement {
+        apply_placement(Some(placement), &mut props);
+    }
+
+    let mut head_props = titled_shell_template_head_props();
+    merge_head_props_from_source(&mut head_props, args);
+
+    let mut blocks = Vec::new();
+    if let Some(body) = args.get("body") {
+        blocks.extend(lower_block_node(body, ctx)?);
+    }
+
+    Ok(PanelDecl {
+        kind: "panel".to_string(),
+        id,
+        title: args.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        head: None,
+        area,
+        layout: args.get("layout").and_then(lower_layout),
+        blocks,
+        slot: None,
+        props,
+        head_props,
+        body_props: args
+            .get("body_props")
+            .cloned()
+            .unwrap_or(json!({})),
+        base: None,
+        import_scope: None,
+    })
+}
+
+fn lower_panel_from_generic_shell(
+    payload: &Value,
+    shell: &Value,
+    id: String,
+    area: Option<String>,
+    ctx: &PanelLowerContext<'_>,
+) -> Result<PanelDecl> {
+    let args = v2_call_args(shell).context("panel shell missing __args")?;
+    let mut props = args
+        .get("props")
+        .cloned()
+        .unwrap_or(json!({}));
+    merge_card_fields(&mut props, args);
+    apply_placement(payload.get("placement"), &mut props);
+
+    let mut head_props = lower_head_props(args);
+    if let Some(heading) = args.get("heading") {
+        if let Some(map) = head_props.as_object_mut() {
+            map.insert("heading".to_string(), heading.clone());
+        }
+    }
+    for key in ["title_background", "title_decor", "title_align", "title_height"] {
+        if let Some(value) = args.get(key) {
+            if let Some(map) = head_props.as_object_mut() {
+                map.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+
+    Ok(PanelDecl {
+        kind: "panel".to_string(),
+        id,
+        title: args.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        head: None,
+        area,
+        layout: args.get("layout").and_then(lower_layout),
+        blocks: lower_blocks(args.get("blocks"), ctx)?,
+        slot: None,
+        props,
+        head_props,
+        body_props: args
+            .get("body_props")
+            .cloned()
+            .unwrap_or(json!({})),
+        base: None,
+        import_scope: None,
+    })
+}
+
+fn merge_card_fields(props: &mut Value, source: &Value) {
+    let Some(map) = props.as_object_mut() else {
+        return;
+    };
+    for key in [
+        "chrome",
+        "variant",
+        "show_heading",
+        "title",
+        "title_align",
+        "title_height",
+        "heading_variant",
+    ] {
+        if let Some(value) = source.get(key) {
+            map.insert(key.to_string(), value.clone());
+        }
+    }
+}
+
+fn lower_head_props(source: &Value) -> Value {
+    let mut head = Map::new();
+    if let Some(value) = source.get("heading_variant") {
+        head.insert("heading_variant".to_string(), value.clone());
+    }
+    if let Some(value) = source.get("heading") {
+        head.insert("heading".to_string(), value.clone());
+    }
+    Value::Object(head)
+}
+
+fn apply_placement(placement: Option<&Value>, props: &mut Value) {
+    let Some(placement) = placement else {
+        return;
+    };
+    let call = v2_call_name(placement);
+    let args = v2_call_args(placement).unwrap_or(placement);
+    let Some(map) = props.as_object_mut() else {
+        return;
+    };
+    if call.as_deref() == Some("absolute") {
+        map.insert("position".to_string(), json!("absolute"));
+    }
+    if let Some(args_obj) = args.as_object() {
+        for (key, value) in args_obj {
+            map.insert(key.clone(), value.clone());
+        }
+    }
+}
+
+fn lower_layout(value: &Value) -> Option<LayoutDecl> {
+    let layout_type = v2_call_name(value)?.to_string();
+    let args = v2_call_args(value).unwrap_or(value);
+    let obj = args.as_object()?;
+    Some(LayoutDecl {
+        layout_type,
+        direction: obj.get("direction").and_then(|v| v.as_str()).map(str::to_string),
+        columns: obj
+            .get("columns")
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            }),
+        rows: obj
+            .get("rows")
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            }),
+        areas: obj.get("areas").and_then(|v| v.as_array()).map(|rows| {
+            rows.iter()
+                .filter_map(|row| {
+                    row.as_array().map(|cells| {
+                        cells
+                            .iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect()
+        }),
+        gap: obj.get("gap").and_then(|v| v.as_str()).map(str::to_string),
+        padding: obj
+            .get("padding")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        align: obj.get("align").and_then(|v| v.as_str()).map(str::to_string),
+        justify: obj
+            .get("justify")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+    })
+}
+
+fn lower_viewport_props(args: &Value) -> Value {
+    let mut viewport = Map::new();
+    if let Some(obj) = args.as_object() {
+        for (key, value) in obj {
+            viewport.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(viewport)
+}
+
+fn lower_blocks(value: Option<&Value>, ctx: &PanelLowerContext<'_>) -> Result<Vec<UiNodeDecl>> {
+    let Some(array) = value.and_then(|v| v.as_array()) else {
+        return Ok(Vec::new());
+    };
+    let mut blocks = Vec::new();
+    for item in array {
+        blocks.extend(lower_block_node(item, ctx)?);
+    }
+    Ok(blocks)
+}
+
+fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<UiNodeDecl>> {
+    if v2_ref_name(value) == Some("panel_ref") {
+        let ref_path = v2_ref_arg0(value).context("panel_ref missing arg0")?;
+        let payload = load_panel_contract_payload(ctx, ref_path.as_str())?;
+        let panel = lower_panel_payload(&payload, ref_path.as_str(), ctx)?;
+        return Ok(vec![UiNodeDecl::Panel(panel)]);
+    }
+    if v2_call_name(value).as_deref() == Some("component") {
+        return Ok(vec![UiNodeDecl::Block(lower_component(value, ctx)?)]);
+    }
+    if v2_call_name(value).as_deref() == Some("metric_card") {
+        return Ok(vec![lower_metric_card(value, ctx)?]);
+    }
+    if value.get("use_key").is_some() || value.get("kind").and_then(|v| v.as_str()) == Some("block")
+    {
+        return Ok(vec![UiNodeDecl::Block(
+            serde_json::from_value(value.clone()).context("decode legacy block")?,
+        )]);
+    }
+    Ok(Vec::new())
+}
+
+fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
+    let args = v2_call_args(value).context("metric_card missing __args")?;
+    let template_name = metric_template_name(args.get("template"));
+    let preset = metric_template_preset(template_name.as_str());
+    let layout_template = preset.layout_template;
+    let height_px = args.get("height_px").and_then(Value::as_i64);
+    let density = metric_density(height_px, layout_template);
+    let mut props = metric_shell_props(height_px, layout_template, &density);
+    deep_merge_value(&mut props, &preset.shell);
+    if let Some(extra) = args.get("props").filter(|value| value.is_object()) {
+        let resolved = resolve_config_refs_in_value(extra, ctx);
+        deep_merge_value(&mut props, &resolved);
+    }
+    stamp_metric_vertical_align(&mut props, args);
+
+    let source = args.get("source").cloned().unwrap_or(json!({}));
+    let map = args.get("map").cloned();
+    let patch = args.get("patch").cloned();
+    let popup = args.get("popup").cloned();
+    let blocks = metric_runtime_blocks(
+        &source,
+        layout_template,
+        map.as_ref(),
+        patch.as_ref(),
+        popup.as_ref(),
+        args,
+    );
+    let layout = preset.layout.clone().or_else(|| {
+        Some(metric_layout_from_template(
+            layout_template,
+            &density,
+            preset.title_ratio,
+            preset.content_ratio,
+        ))
+    });
+
+    Ok(UiNodeDecl::Panel(PanelDecl {
+        kind: "panel".to_string(),
+        id: args
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("metric_card")
+            .to_string(),
+        title: None,
+        head: None,
+        area: args.get("area").and_then(|v| v.as_str()).map(str::to_string),
+        layout,
+        blocks,
+        slot: None,
+        props,
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }))
+}
+
+fn metric_runtime_blocks(
+    source: &Value,
+    template: &str,
+    map: Option<&Value>,
+    patch: Option<&Value>,
+    popup: Option<&Value>,
+    args: &Value,
+) -> Vec<UiNodeDecl> {
+    let roles = ["label", "value", "unit"];
+    roles
+        .into_iter()
+        .map(|role| {
+            UiNodeDecl::Block(metric_runtime_slot_block(
+                source, role, role, template, map, patch, popup, args,
+            ))
+        })
+        .collect()
+}
+
+fn metric_runtime_slot_block(
+    source: &Value,
+    role: &str,
+    area: &str,
+    template: &str,
+    map: Option<&Value>,
+    patch: Option<&Value>,
+    popup: Option<&Value>,
+    args: &Value,
+) -> BlockDecl {
+    let mut props = Map::new();
+    props.insert(
+        "content".to_string(),
+        lower_v2_metric_ref(source).unwrap_or_else(|| source.clone()),
+    );
+    props.insert("metric_role".to_string(), json!(role));
+    props.insert(
+        "align".to_string(),
+        json!(metric_slot_align(template, role)),
+    );
+    if let Some(map) = map.filter(|value| value.is_object()) {
+        props.insert("metric_map".to_string(), map.clone());
+    }
+    if let Some(patch) = patch.filter(|value| value.is_object()) {
+        props.insert("metric_patch".to_string(), patch.clone());
+    }
+    if role == "value" {
+        if let Some(popup) = popup.filter(|value| !value.is_null()) {
+            props.insert("popup".to_string(), popup.clone());
+        }
+    }
+    if let Some(v_align) = args
+        .get(format!("{role}_vertical_align"))
+        .or_else(|| args.get(format!("{role}VerticalAlign")))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        props.insert("metric_v_align".to_string(), json!(v_align));
+    }
+
+    BlockDecl {
+        kind: "block".to_string(),
+        use_key: "mei.text".to_string(),
+        id: None,
+        title: None,
+        area: Some(area.to_string()),
+        props: Value::Object(props),
+        base: None,
+        layout: None,
+        blocks: Vec::new(),
+        component: None,
+        placement: None,
+        interactions: Vec::new(),
+        lifecycle: None,
+        constraints: None,
+        data: None,
+    }
+}
+
+fn metric_template_name(value: Option<&Value>) -> String {
+    if let Some(call) = value.and_then(v2_call_name) {
+        return call.to_string();
+    }
+    value
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("stack")
+        .to_string()
+}
+
+fn metric_density(height_px: Option<i64>, template: &str) -> String {
+    let Some(height_px) = height_px else {
+        return "normal".to_string();
+    };
+    if height_px <= 84 {
+        return "compact".to_string();
+    }
+    if template == "row" && height_px >= 120 {
+        return "roomy".to_string();
+    }
+    if height_px >= 132 {
+        return "roomy".to_string();
+    }
+    "normal".to_string()
+}
+
+fn metric_default_gap(template: &str, density: &str) -> &'static str {
+    match (template, density) {
+        ("row", "compact") => "3px",
+        ("row", _) => "4px",
+        ("column", "compact") => "3px",
+        ("column", _) => "4px",
+        (_, "compact") => "2px 2px",
+        (_, "roomy") => "4px 3px",
+        _ => "3px 2px",
+    }
+}
+
+fn metric_layout_from_template(
+    template: &str,
+    density: &str,
+    title_ratio: u32,
+    content_ratio: u32,
+) -> LayoutDecl {
+    if template == "row" {
+        return LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["auto".to_string(), "auto".to_string(), "auto".to_string()]),
+            rows: Some(vec!["1fr".to_string()]),
+            areas: Some(vec![vec![
+                "label".to_string(),
+                "value".to_string(),
+                "unit".to_string(),
+            ]]),
+            gap: Some(metric_default_gap(template, density).to_string()),
+            padding: None,
+            align: Some("center".to_string()),
+            justify: Some("start".to_string()),
+        };
+    }
+    LayoutDecl {
+        layout_type: "grid".to_string(),
+        direction: None,
+        columns: Some(vec!["auto".to_string(), "auto".to_string()]),
+        rows: Some(vec![
+            format!("{title_ratio}fr"),
+            format!("{content_ratio}fr"),
+        ]),
+        areas: Some(vec![
+            vec!["label".to_string(), "label".to_string()],
+            vec!["value".to_string(), "unit".to_string()],
+        ]),
+        gap: Some(metric_default_gap(template, density).to_string()),
+        padding: None,
+        align: Some("stretch".to_string()),
+        justify: Some("center".to_string()),
+    }
+}
+
+struct MetricTemplatePreset {
+    layout_template: &'static str,
+    title_ratio: u32,
+    content_ratio: u32,
+    shell: Value,
+    layout: Option<LayoutDecl>,
+}
+
+fn metric_template_preset(name: &str) -> MetricTemplatePreset {
+    const CORNER_DECOR_BG: &str = concat!(
+        "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat,",
+        "linear-gradient(#71F1EA,#71F1EA) right top / 4px 2px no-repeat,",
+        "linear-gradient(#71F1EA,#71F1EA) left bottom / 4px 2px no-repeat,",
+        "linear-gradient(#71F1EA,#71F1EA) right bottom / 4px 2px no-repeat,",
+        "rgba(98,190,235,0.10)"
+    );
+    match name {
+        "solid_stack" => MetricTemplatePreset {
+            layout_template: "stack",
+            title_ratio: 2,
+            content_ratio: 3,
+            shell: json!({
+                "padding": "4px 8px",
+                "border": "1px solid rgba(98,190,235,0.35)",
+                "background": CORNER_DECOR_BG,
+                "__mei_metric_density": "compact",
+                "__mei_metric_template": "stack",
+                "__mei_metric_inline_align": "compact",
+                "__mei_metric_title_ratio": "2",
+                "__mei_metric_content_ratio": "3",
+            }),
+            layout: None,
+        },
+        "icon_left" => MetricTemplatePreset {
+            layout_template: "stack",
+            title_ratio: 2,
+            content_ratio: 3,
+            shell: json!({
+                "padding": "10px 8px 10px 70px",
+                "__mei_metric_density": "compact",
+                "__mei_metric_template": "stack",
+                "__mei_metric_inline_align": "compact",
+                "__mei_metric_title_ratio": "2",
+                "__mei_metric_content_ratio": "3",
+                "background": {
+                    "color": "rgba(98,190,235,0.10)",
+                    "size": "48px 48px",
+                    "position": "11px center",
+                    "repeat": "no-repeat",
+                },
+            }),
+            layout: None,
+        },
+        "strip_icon_left" => MetricTemplatePreset {
+            layout_template: "row",
+            title_ratio: 1,
+            content_ratio: 1,
+            shell: json!({
+                "padding": "0 16px 0 92px",
+                "__mei_metric_density": "compact",
+                "__mei_metric_template": "row",
+                "__mei_metric_inline_align": "compact",
+                "__mei_metric_label_v_align": "center",
+                "__mei_metric_value_v_align": "center",
+                "__mei_metric_unit_v_align": "center",
+                "background": {
+                    "color": "rgba(98,190,235,0.10)",
+                    "size": "48px 48px",
+                    "position": "24px center",
+                    "repeat": "no-repeat",
+                },
+            }),
+            layout: Some(LayoutDecl {
+                layout_type: "grid".to_string(),
+                direction: None,
+                columns: Some(vec!["auto".to_string(), "auto".to_string(), "auto".to_string()]),
+                rows: Some(vec!["1fr".to_string()]),
+                areas: Some(vec![vec![
+                    "label".to_string(),
+                    "value".to_string(),
+                    "unit".to_string(),
+                ]]),
+                gap: Some("4px".to_string()),
+                padding: None,
+                align: Some("center".to_string()),
+                justify: Some("start".to_string()),
+            }),
+        },
+        "stack" => MetricTemplatePreset {
+            layout_template: "stack",
+            title_ratio: 1,
+            content_ratio: 1,
+            shell: json!({}),
+            layout: None,
+        },
+        "row" => MetricTemplatePreset {
+            layout_template: "row",
+            title_ratio: 1,
+            content_ratio: 1,
+            shell: json!({}),
+            layout: None,
+        },
+        "column" => MetricTemplatePreset {
+            layout_template: "column",
+            title_ratio: 1,
+            content_ratio: 1,
+            shell: json!({}),
+            layout: None,
+        },
+        "stack_desc" => MetricTemplatePreset {
+            layout_template: "stack_desc",
+            title_ratio: 1,
+            content_ratio: 1,
+            shell: json!({}),
+            layout: None,
+        },
+        _ => MetricTemplatePreset {
+            layout_template: "stack",
+            title_ratio: 1,
+            content_ratio: 1,
+            shell: json!({}),
+            layout: None,
+        },
+    }
+}
+
+fn deep_merge_value(base: &mut Value, overlay: &Value) {
+    match (base, overlay) {
+        (Value::Object(base_map), Value::Object(overlay_map)) => {
+            for (key, value) in overlay_map {
+                if let Some(existing) = base_map.get_mut(key) {
+                    deep_merge_value(existing, value);
+                } else {
+                    base_map.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        (base_slot, overlay) => *base_slot = overlay.clone(),
+    }
+}
+
+fn lower_v2_metric_ref(value: &Value) -> Option<Value> {
+    if v2_ref_name(value) != Some("metric_ref") {
+        return None;
+    }
+    let args = value.get("__args")?.as_object()?;
+    let metric_id = args
+        .get("arg0")
+        .or_else(|| args.get("id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())?;
+    let bundle = args
+        .get("bundle")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())?;
+    let mut out = Map::new();
+    out.insert("__ref".to_string(), Value::String("metric".to_string()));
+    out.insert("id".to_string(), Value::String(metric_id.to_string()));
+    out.insert(
+        "from_dataset".to_string(),
+        Value::String(format!("__world_metrics__::{bundle}")),
+    );
+    Some(Value::Object(out))
+}
+
+fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> Value {
+    match value {
+        Value::Object(map) => {
+            if v2_ref_name(value) == Some("metric_ref") {
+                if let Some(lowered) = lower_v2_metric_ref(value) {
+                    return lowered;
+                }
+            }
+            if v2_ref_name(value) == Some("ops_param_ref") {
+                if let Some(key) = v2_ref_arg0(value) {
+                    if let Some(resolved) = resolve_ops_param(ctx, key.as_str()) {
+                        return resolved;
+                    }
+                }
+            }
+            let mut out = Map::new();
+            for (key, entry) in map {
+                out.insert(
+                    key.clone(),
+                    resolve_config_refs_in_value(entry, ctx),
+                );
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| resolve_config_refs_in_value(item, ctx))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+fn resolve_ops_param(ctx: &PanelLowerContext<'_>, key: &str) -> Option<Value> {
+    let config = load_mei_config_for_app(ctx.app_root, None);
+    config.ops.params.get(key).cloned()
+}
+
+fn metric_shell_props(height_px: Option<i64>, template: &str, density: &str) -> Value {
+    let mut props = Map::new();
+    props.insert("chrome".to_string(), json!("bare"));
+    props.insert("variant".to_string(), json!("container"));
+    props.insert("show_heading".to_string(), json!(false));
+    props.insert("padding".to_string(), json!(match density {
+        "compact" => "4px 3px",
+        "roomy" => "8px 5px",
+        _ => "6px 4px",
+    }));
+    props.insert("width".to_string(), json!("100%"));
+    props.insert("box_sizing".to_string(), json!("border-box"));
+    props.insert("overflow".to_string(), json!("hidden"));
+    props.insert("background".to_string(), json!("transparent"));
+    props.insert("__mei_metric_card".to_string(), json!(true));
+    props.insert("__mei_metric_density".to_string(), json!(density));
+    props.insert("__mei_metric_template".to_string(), json!(template));
+    props.insert("__mei_metric_inline_align".to_string(), json!("compact"));
+    props.insert("__mei_metric_title_ratio".to_string(), json!("1"));
+    props.insert("__mei_metric_content_ratio".to_string(), json!("1"));
+    if let Some(height_px) = height_px {
+        props.insert("height".to_string(), json!(format!("{height_px}px")));
+    }
+    Value::Object(props)
+}
+
+fn stamp_metric_vertical_align(props: &mut Value, args: &Value) {
+    let Some(map) = props.as_object_mut() else {
+        return;
+    };
+    for role in ["label", "value", "unit", "desc"] {
+        if let Some(raw) = args
+            .get(format!("{role}_vertical_align"))
+            .or_else(|| args.get(format!("{role}VerticalAlign")))
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            map.insert(format!("__mei_metric_{role}_v_align"), json!(raw));
+        }
+    }
+}
+
+fn metric_slot_align(template: &str, role: &str) -> &'static str {
+    if template == "column" {
+        return "center";
+    }
+    if template == "row" {
+        return match role {
+            "label" | "desc" => "left",
+            _ => "right",
+        };
+    }
+    "center"
+}
+
+fn titled_shell_template_props(args: &Value) -> Value {
+    let mut props = json!({
+        "chrome": "default",
+        "variant": "container",
+        "show_heading": true,
+        "border": "1px solid rgba(52, 82, 108, 0.5)",
+        "radius": "4px",
+        "box_sizing": "border-box",
+        "overflow": "hidden"
+    });
+    if let Some(map) = props.as_object_mut() {
+        for key in ["width", "height", "min_height", "max_height"] {
+            if let Some(value) = args.get(key) {
+                map.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    props
+}
+
+fn titled_shell_template_head_props() -> Value {
+    json!({
+        "heading_variant": "plain",
+        "heading": {
+            "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
+            "font": "4",
+            "font_weight": "700",
+            "letter_spacing": "20px",
+            "color": "panel_title"
+        },
+        "title_background": {
+            "image": "panel_title_bar",
+            "position": "center",
+            "size": "100% 100%",
+            "repeat": "no-repeat"
+        },
+        "title_decor": {
+            "url": "/workspace-app-assets/templates/cockpit/assets/panel/caret-left-filled@3x.svg",
+            "left": "26.2%",
+            "right": "71.2%",
+            "left_rotate": "180deg",
+            "size": "14px 24px"
+        },
+        "title_height": "54px",
+        "title_align": "center"
+    })
+}
+
+fn merge_head_props_from_source(head_props: &mut Value, source: &Value) {
+    let Some(map) = head_props.as_object_mut() else {
+        return;
+    };
+    for key in [
+        "heading_variant",
+        "heading",
+        "title_background",
+        "title_decor",
+        "title_align",
+        "title_height",
+    ] {
+        if let Some(value) = source.get(key) {
+            map.insert(key.to_string(), value.clone());
+        }
+    }
+}
+
+fn resolve_assets_map(value: Option<&Value>, app_id: &str) -> Value {
+    let Some(obj) = value.and_then(Value::as_object) else {
+        return json!({});
+    };
+    let mut out = Map::new();
+    for (key, asset) in obj {
+        out.insert(key.clone(), resolve_asset_value(asset, app_id));
+    }
+    Value::Object(out)
+}
+
+fn resolve_asset_value(value: &Value, app_id: &str) -> Value {
+    if v2_ref_name(value) == Some("asset_ref") {
+        if let Some(path) = v2_ref_arg0(value) {
+            return json!(format!(
+                "/workspace-app-assets/{app_id}/assets/{path}"
+            ));
+        }
+    }
+    value.clone()
+}
+
+fn lower_component(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<BlockDecl> {
+    let args = v2_call_args(value).context("component missing __args")?;
+    let use_key = args
+        .get("arg0")
+        .and_then(|v| v.as_str())
+        .context("component missing arg0")?
+        .to_string();
+    let props = args
+        .get("props")
+        .map(|raw| resolve_config_refs_in_value(raw, ctx))
+        .unwrap_or(json!({}));
+    Ok(BlockDecl {
+        kind: "block".to_string(),
+        use_key,
+        id: args.get("id").and_then(|v| v.as_str()).map(str::to_string),
+        title: args.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        area: args.get("area").and_then(|v| v.as_str()).map(str::to_string),
+        props,
+        base: None,
+        layout: args.get("layout").and_then(lower_layout),
+        blocks: Vec::new(),
+        component: None,
+        placement: args.get("placement").cloned(),
+        interactions: Vec::new(),
+        lifecycle: None,
+        constraints: None,
+        data: None,
+    })
+}
+
+pub fn panel_contract_lookup_keys(panel_key: &str, scene_id: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut push = |key: &str| {
+        if !keys.iter().any(|existing| existing == key) {
+            keys.push(key.to_string());
+        }
+    };
+
+    if panel_key.starts_with("panel_contract:") {
+        push(panel_key);
+        if let Some(stripped) = panel_key.strip_prefix("panel_contract:") {
+            push(stripped);
+        }
+        return keys;
+    }
+
+    push(&format!("panel_contract:{panel_key}"));
+    push(panel_key);
+    if !panel_key.contains(':') {
+        push(&format!("panel_contract:{scene_id}:{panel_key}"));
+        push(&format!("{scene_id}:{panel_key}"));
+    }
+    if let Some(basename) = panel_key.rsplit('/').next() {
+        if basename != panel_key {
+            push(&format!("panel_contract:{basename}"));
+            push(basename);
+        }
+    }
+    keys
+}
+
+pub fn find_panel_contract_node<'a>(
+    registry: &'a McgRegistry,
+    panel_key: &str,
+    scene_id: &str,
+) -> Option<&'a crate::mcg::registry::McgNodeRecord> {
+    for key in panel_contract_lookup_keys(panel_key, scene_id) {
+        if let Some(node) = registry.nodes.iter().find(|node| {
+            node.id.kind == GraphNodeKind::PanelContract && node.id.key == key
+        }) {
+            return Some(node);
+        }
+    }
+    None
+}
+
+fn load_panel_contract_payload(ctx: &PanelLowerContext<'_>, ref_path: &str) -> Result<Value> {
+    let node = find_panel_contract_node(ctx.registry, ref_path, ctx.scene_id)
+        .with_context(|| format!("panel contract not found for ref `{ref_path}`"))?;
+    let pref = node
+        .payload_ref
+        .as_ref()
+        .context("panel contract missing payload ref")?;
+    let artifact = load_block_artifact(ctx.app_root, pref)?
+        .with_context(|| format!("panel artifact missing for ref `{ref_path}`"))?;
+    Ok(artifact.get("payload").cloned().unwrap_or(json!({})))
+}
+
+fn v2_call_name(value: &Value) -> Option<&str> {
+    value.get("__call").and_then(|v| v.as_str())
+}
+
+fn v2_ref_name(value: &Value) -> Option<&str> {
+    value.get("__ref").and_then(|v| v.as_str())
+}
+
+fn v2_call_args(value: &Value) -> Option<&Value> {
+    value.get("__args")
+}
+
+fn v2_ref_arg0(value: &Value) -> Option<String> {
+    value
+        .get("__args")
+        .and_then(|args| args.get("arg0"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lower_frame_builds_viewport_from_canvas() {
+        let payload = json!({
+            "scene": "home",
+            "canvas": {
+                "__call": "viewport",
+                "__args": {
+                    "design_width": 1920,
+                    "design_height": 1080,
+                    "scale_mode": "contain",
+                    "aspect_ratio": "16:9"
+                }
+            },
+            "layout": {
+                "__call": "grid",
+                "__args": {
+                    "columns": ["1fr"],
+                    "rows": ["1064px"],
+                    "areas": [["body"]]
+                }
+            }
+        });
+        let frame = lower_frame_from_assembly(&payload);
+        assert_eq!(frame.kind, "frame");
+        assert_eq!(frame.layout.as_ref().unwrap().layout_type, "grid");
+        assert_eq!(
+            frame.props["viewport"]["design_width"].as_i64(),
+            Some(1920)
+        );
+    }
+
+    #[test]
+    fn lower_component_block_from_v2_ir() {
+        let value = json!({
+            "__call": "component",
+            "__args": {
+                "arg0": "cockpit.header-brand",
+                "props": { "title": "Demo" }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "data-demo",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "data-demo".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+        };
+        let block = lower_component(&value, &ctx).expect("component");
+        assert_eq!(block.use_key, "cockpit.header-brand");
+        assert_eq!(block.props["title"], json!("Demo"));
+    }
+
+    #[test]
+    fn panel_contract_lookup_resolves_content_ref_basename() {
+        let keys = panel_contract_lookup_keys("content/realtime-table", "home");
+        assert!(keys.iter().any(|key| key == "panel_contract:realtime-table"));
+    }
+
+    #[test]
+    fn lower_screen_header_shell_emits_header_brand_block() {
+        let payload = json!({
+            "id": "home_header",
+            "placement": {
+                "__call": "absolute",
+                "__args": { "top": "0", "height": "72px" }
+            },
+            "shell": {
+                "__call": "screen_header",
+                "__args": {
+                    "title": "预警与问题线索 Data Demo",
+                    "cap_min_width": 663,
+                    "assets": {
+                        "title_bg": {
+                            "__ref": "asset_ref",
+                            "__args": { "arg0": "header/screen-title-bg@3x.svg" }
+                        }
+                    }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: std::path::Path::new("/tmp"),
+            app_id: "data-demo",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "data-demo".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+        };
+        let panel = lower_panel_payload(&payload, "home:home_header", &ctx).expect("panel");
+        assert_eq!(panel.blocks.len(), 1);
+        let block = match &panel.blocks[0] {
+            UiNodeDecl::Block(block) => block,
+            other => panic!("expected block, got {other:?}"),
+        };
+        assert_eq!(block.use_key, "cockpit.header-brand");
+        assert_eq!(block.props["title"], json!("预警与问题线索 Data Demo"));
+    }
+
+    #[test]
+    fn lower_metric_card_emits_mei_text_slots() {
+        let value = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "warnings_total_card",
+                "area": "warnings",
+                "height_px": 86,
+                "template": { "__call": "solid_stack", "__args": {} },
+                "source": {
+                    "__ref": "metric_ref",
+                    "__args": { "arg0": "warnings_count", "bundle": "metrics/supervision-warning.bundle.mei" }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "data-demo",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "data-demo".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+        };
+        let card = lower_metric_card(&value, &ctx).expect("metric card");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        assert_eq!(panel.blocks.len(), 3);
+        assert!(panel
+            .blocks
+            .iter()
+            .all(|node| matches!(node, UiNodeDecl::Block(b) if b.use_key == "mei.text")));
+        assert_eq!(
+            panel.props["__mei_metric_title_ratio"],
+            json!("2"),
+            "solid_stack template should set title/content ratio"
+        );
+        assert!(
+            panel
+                .props
+                .get("border")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.contains("rgba(98,190,235")),
+            "solid_stack should inherit cockpit card border"
+        );
+        let value_block = match &panel.blocks[1] {
+            UiNodeDecl::Block(block) => block,
+            other => panic!("expected value slot block, got {other:?}"),
+        };
+        assert_eq!(
+            value_block.props["content"],
+            json!({
+                "__ref": "metric",
+                "id": "warnings_count",
+                "from_dataset": "__world_metrics__::metrics/supervision-warning.bundle.mei",
+            })
+        );
+    }
+}

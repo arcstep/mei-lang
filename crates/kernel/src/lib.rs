@@ -58,7 +58,7 @@ pub use compile::{
     experience_layout_hint, experience_mount_chain, format_calendar_date_value,
     format_experience_path, imported_capsule_path_from_world_metrics_resource_id,
     load_xlsx_table_snapshot, local_dataset_id_from_namespaced_token,
-    materialize_xlsx_column_headers, panel_resolved_has_head, parquet_snapshot_path,
+    materialize_xlsx_column_headers, normalize_panel_slots, panel_resolved_has_head, parquet_snapshot_path,
     preview_target_from_build_node, preview_target_from_build_node_with_app,
     catalog_preview_target_for_build_node,
     publish_xlsx_data_snapshots_for_paths, read_data_snapshot_import_manifest,

@@ -7,11 +7,16 @@ members = [
   "crates/toolchain",
   "crates/ws-spbjw-integration-tests",
   "mei-compiler/compiler",
+  "mei-compiler/crates/mei-bundle",
   "mei-compiler/crates/mei-compiler-tests",
   "mei-compiler/crates/mei-graph",
   "mei-compiler/crates/mei-lower",
   "mei-compiler/crates/mei-surface",
   "mei-compiler/crates/mei-syntax",
+  "crates/mei-host-core",
+  "crates/mei-host-graph",
+  "crates/mei-plug-ds",
+  "host-shell",
   "server",
 ]
 resolver = "2"
@@ -43,4 +48,6 @@ arrow-array = "53"
 arrow-schema = "53"
 parquet = "53"
 chumsky = "0.9"
-miette = { version = "7", features = ["fancy"] }
+zstd = "0.13"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"

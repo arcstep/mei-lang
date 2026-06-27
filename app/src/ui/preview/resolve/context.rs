@@ -14,7 +14,7 @@ use super::super::theme::resolve_shared_refs;
 use super::drilldown::resolve_metric_drilldown_meta;
 use super::drilldown::MetricDrilldownMeta;
 use super::host_ssr_payload::{dataset_for_host_ssr, metric_for_host_ssr};
-use super::refs::{resolve_data_ref, resolve_metric_ref, resolve_rows_expr, with_runtime_ref};
+use super::refs::{normalize_v2_metric_ref, resolve_data_ref, resolve_metric_ref, resolve_rows_expr, with_runtime_ref};
 
 /// Controls whether nested popup/board_link bindings stay as authored refs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -350,6 +350,21 @@ fn resolve_value_in_context(
                     return with_runtime_ref(
                         payload,
                         scene_anchor.runtime_ref_extra("data", &dataset_id, None, None),
+                    );
+                }
+                return Value::Null;
+            }
+            if map.get("__ref").and_then(Value::as_str) == Some("metric_ref") {
+                if let Some(v1_ref) = normalize_v2_metric_ref(value) {
+                    return resolve_value(
+                        &v1_ref,
+                        shared_context,
+                        scene_contract,
+                        resources,
+                        scene_anchor,
+                        resource_index,
+                        compiled,
+                        host_ssr_slim_payload,
                     );
                 }
                 return Value::Null;
