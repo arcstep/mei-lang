@@ -125,7 +125,7 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
     let package_root = resolve_package_root()?;
     set_mei_package_root(package_root.clone());
     let default_filter = match cli.command {
-        Command::Serve(_) => "warn,mei_lang_server=info",
+        Command::Serve(_) => "warn,mei_lang_server=info,mei.startup=info,mei.prebuild=info",
         _ => "error",
     };
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()

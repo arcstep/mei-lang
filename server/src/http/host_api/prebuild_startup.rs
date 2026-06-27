@@ -175,7 +175,7 @@ pub(crate) fn spawn_startup_status_watcher(source_root: PathBuf) {
                     } else {
                         ""
                     };
-                    tracing::warn!(
+                    tracing::info!(
                         target: "mei.startup",
                         elapsed_secs = started.elapsed().as_secs(),
                         phase = %snapshot.phase,
@@ -191,7 +191,7 @@ pub(crate) fn spawn_startup_status_watcher(source_root: PathBuf) {
                 .unwrap_or("(none)")
                 .to_string();
             let detail = startup_watcher_detail(&snapshot, source_root.as_path());
-            tracing::warn!(
+            tracing::info!(
                 target: "mei.startup",
                 elapsed_secs = started.elapsed().as_secs(),
                 phase = %snapshot.phase,
@@ -234,7 +234,7 @@ pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
         );
         spawn_startup_status_watcher(source_root.clone());
         if let Ok(Some(report)) = crate::prebuild::load_prebuild_report(source_root.as_path()) {
-            tracing::warn!(
+            tracing::info!(
                 target: "mei.startup",
                 app_count = report.succeeded_apps.len(),
                 "startup report loaded (landing-only)"
@@ -260,33 +260,73 @@ pub(crate) fn spawn_startup_build(source_root: PathBuf) -> Result<()> {
         "startup_prebuild_started",
         Some(serde_json::json!({
             "job": "startup:build:workspace",
-            "scopeProfile": "full",
+            "scopeProfile": "hot_then_full",
             "mode": "build",
         })),
     );
-    tracing::info!("startup background prebuild scheduled (single full pass, no hot+deferred chain)");
+    tracing::info!("startup background prebuild scheduled (hot-only then deferred full)");
     crate::prebuild::prebuild_emit_notice(
-        "startup background prebuild running — port is already open; default app may 503 until ACCESS READY banner",
+        "startup hot prebuild running — port is already open; default app may 503 until ACCESS READY banner",
     );
     let source_root_for_watcher = source_root.clone();
     tokio::spawn(async move {
-        let source_root_for_job = source_root.clone();
-        let report_result = tokio::task::spawn_blocking(move || {
+        let source_root_hot = source_root.clone();
+        let hot_result = tokio::task::spawn_blocking(move || {
             run_prebuild_job_sync_inner(
-                source_root_for_job.as_path(),
+                source_root_hot.as_path(),
+                PrebuildMode::Build,
+                None,
+                PrebuildScopeProfile::HotOnly,
+            )
+        })
+        .await;
+        match hot_result {
+            Ok(Ok(hot_report)) => {
+                status_from_report(
+                    &hot_report,
+                    None,
+                    false,
+                    ScopeGateRefreshMode::LandingOnly,
+                );
+                startup_run::record_phase(
+                    "startup_prebuild_hot_finished",
+                    Some(serde_json::json!({
+                        "ok": hot_report.ok,
+                        "totalWallMs": hot_report.total_wall_ms,
+                    })),
+                );
+            }
+            Ok(Err(error)) => {
+                mark_job_failed(None, PrebuildMode::Build, &error.to_string(), false);
+                return;
+            }
+            Err(error) => {
+                mark_job_failed(
+                    None,
+                    PrebuildMode::Build,
+                    &format!("startup hot build worker join failed: {error}"),
+                    false,
+                );
+                return;
+            }
+        }
+        let source_root_full = source_root.clone();
+        let full_result = tokio::task::spawn_blocking(move || {
+            run_prebuild_job_sync_inner(
+                source_root_full.as_path(),
                 PrebuildMode::Build,
                 None,
                 PrebuildScopeProfile::Full,
             )
         })
         .await;
-        match report_result {
+        match full_result {
             Ok(Ok(report)) => status_from_report(&report, None, false, ScopeGateRefreshMode::Full),
             Ok(Err(error)) => mark_job_failed(None, PrebuildMode::Build, &error.to_string(), false),
             Err(error) => mark_job_failed(
                 None,
                 PrebuildMode::Build,
-                &format!("startup build worker join failed: {error}"),
+                &format!("startup full build worker join failed: {error}"),
                 false,
             ),
         }

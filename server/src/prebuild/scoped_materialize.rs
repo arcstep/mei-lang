@@ -90,6 +90,8 @@ pub fn materialize_scope_after_compile(
                     &scope,
                     &shared,
                     matching.as_slice(),
+                    scope_profile,
+                    plan.warmup_requests.as_slice(),
                 )?;
                 if frontier.dirty_slot_count > 0 {
                     retain_dirty_scope_plan(&mut scope_plan, &frontier);

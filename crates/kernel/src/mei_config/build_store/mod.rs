@@ -8,7 +8,10 @@ mod migrate;
 mod tests;
 
 pub use types::*;
-pub use prebuild_override::{clear_prebuild_build_root_override, set_prebuild_build_root_override};
+pub use prebuild_override::{
+    clear_prebuild_build_root_override, restore_prebuild_build_root_override,
+    set_prebuild_build_root_override, snapshot_prebuild_build_root_override,
+};
 pub use paths::*;
 pub use lifecycle::*;
 pub use migrate::*;

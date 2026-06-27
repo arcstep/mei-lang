@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
 
+use crate::local_dataset_id_from_namespaced_token;
 use crate::model::DatasetView;
 
 use super::super::eval_context::{EvalContext, EvalNodeKind};
@@ -129,6 +130,10 @@ pub(super) fn lookup_dataset_view<'a>(
                     || key.ends_with(&format!("/{normalized}")))
                 .then_some(dataset)
             })
+        })
+        .or_else(|| {
+            local_dataset_id_from_namespaced_token(normalized)
+                .and_then(|local| lookup_dataset_view(datasets, local))
         })
 }
 

@@ -45,6 +45,7 @@ where
             })
             .collect();
     }
+    let prebuild_store_override = mei_lang_kernel::snapshot_prebuild_build_root_override();
     let worker_count = max_parallelism.min(items.len()).max(1);
     let mut buckets = (0..worker_count)
         .map(|_| Vec::<(usize, T)>::new())
@@ -57,13 +58,16 @@ where
         let hook_ref = &hook;
         let mut handles = Vec::new();
         for bucket in buckets.into_iter().filter(|bucket| !bucket.is_empty()) {
+            let prebuild_store_override = prebuild_store_override.clone();
             handles.push(scope.spawn(move || {
+                mei_lang_kernel::restore_prebuild_build_root_override(prebuild_store_override.clone());
                 let mut output = Vec::with_capacity(bucket.len());
                 for (index, item) in bucket {
                     let result = job_ref(item);
                     hook_ref(index, &result);
                     output.push((index, result));
                 }
+                mei_lang_kernel::restore_prebuild_build_root_override(None);
                 output
             }));
         }

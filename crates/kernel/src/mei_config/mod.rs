@@ -22,7 +22,8 @@ pub use build_store::{
     clear_prebuild_build_root_override, finish_prebuild_generation, generate_build_id,
     migrate_legacy_app_mei, migrate_legacy_workspace_mei, promote_build, read_build_manifest,
     read_links_state, record_toolchain_install_links, resolve_active_build_id,
-    resolve_toolchain_version, rollback_build, set_prebuild_build_root_override,
+    resolve_toolchain_version, rollback_build, restore_prebuild_build_root_override,
+    set_prebuild_build_root_override, snapshot_prebuild_build_root_override,
     toolchain_store_dir, write_build_manifest, write_links_state, BuildLinks, BuildManifest,
     LinksState, PrebuildGeneration, ToolchainLinks, BUILD_MANIFEST_SCHEMA, DEV_TOOLCHAIN_VERSION,
     LINKS_STATE_SCHEMA,
@@ -54,7 +55,7 @@ pub use types::{
     WorkspaceStockSourceEntry, DEFAULT_STOCK_CATALOG_APP_ID, WorkspaceWarmupAppConfig,
     WorkspaceWarmupConfig,
     WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, WorkspaceBuildConfig,
-    WorkspaceToolchainConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL, APP_VAR_STORE_REL,
+    CompileScopeFilterConfig, WorkspaceToolchainConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL, APP_VAR_STORE_REL,
     BUILD_MANIFEST_FILENAME, DEPLOY_LINKS_REL, PREBUILD_COMPILE_INDEX_REL, PREBUILD_DIR_REL,
     PREBUILD_LAST_BUILD_SUMMARY_REL, TOOLCHAIN_ACTIVE_REL, TOOLCHAIN_STORE_REL,
     AUTH_JOURNAL_REL_PATH, DEFAULT_APPS_REL, DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID, DEFAULT_STOCK_AUTHORING_REL,
@@ -67,9 +68,9 @@ pub use types::{
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL, WORKSPACE_SNAPSHOT_GIT_REL,
 };
 pub use stock_catalog::{
-    is_stock_catalog_app, is_stock_catalog_app_for_root, normalize_stock_relative_path,
-    stock_catalog_app_config, stock_catalog_app_id, stock_catalog_enabled, stock_path_excluded,
-    StockCatalogKind,
+    is_stock_catalog_app, is_stock_catalog_app_for_root, match_path_glob,
+    normalize_stock_relative_path, stock_catalog_app_config, stock_catalog_app_id,
+    stock_catalog_enabled, stock_path_excluded, StockCatalogKind,
 };
 pub use workspace_paths::{
     app_mei_config_path, app_source_rel_path_lookup_keys, canonical_app_source_rel_path,

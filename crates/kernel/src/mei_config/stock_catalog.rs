@@ -72,6 +72,10 @@ pub fn normalize_stock_relative_path(rel_path: &str) -> String {
     normalized
 }
 
+pub fn match_path_glob(pattern: &str, path: &str) -> bool {
+    glob_matches(pattern, path)
+}
+
 fn glob_matches(pattern: &str, path: &str) -> bool {
     if pattern.is_empty() {
         return false;

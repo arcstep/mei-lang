@@ -186,7 +186,7 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
     }
     let source_root_for_preload = source_root.clone();
     tokio::spawn(async move {
-        tracing::warn!(
+        tracing::info!(
             target: "mei.startup",
             "MRG slot preload started (background)"
         );
@@ -200,7 +200,7 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
         {
             tracing::warn!(%error, "metric response index preload worker join failed");
         } else {
-            tracing::warn!(
+            tracing::info!(
                 target: "mei.startup",
                 "MRG slot preload done (background)"
             );

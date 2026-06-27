@@ -131,16 +131,16 @@ fn emit_scope_gate_sweep_progress(
     if checked != total && checked % every != 0 {
         return;
     }
-    tracing::warn!(
-        target: "mei.startup",
-        checked,
-        total,
-        l2_miss = summary.l2_miss,
-        l3_fail = summary.l3_fail,
-        l4_stale = summary.l4_stale,
-        elapsed_secs = elapsed.as_secs(),
-        "scope gate manifest sweep in progress"
-    );
+        tracing::info!(
+            target: "mei.startup",
+            checked,
+            total,
+            l2_miss = summary.l2_miss,
+            l3_fail = summary.l3_fail,
+            l4_stale = summary.l4_stale,
+            elapsed_secs = elapsed.as_secs(),
+            "scope gate manifest sweep in progress"
+        );
     crate::prebuild::prebuild_emit_notice(format!(
         "scope gate sweep {checked}/{total} ({:.0}s) | L2={} L3={} L4={}",
         elapsed.as_secs_f64(),
@@ -255,7 +255,7 @@ fn apply_background_scope_gate_sweep(source_root: &Path, app_ids: &[String]) {
     crate::prebuild::prebuild_emit_notice(format!(
         "scope gate manifest sweep starting ({total_scopes} scopes, background) — /host already open"
     ));
-    tracing::warn!(
+    tracing::info!(
         target: "mei.startup",
         total_scopes,
         app_count = app_ids.len(),
@@ -275,14 +275,25 @@ fn apply_background_scope_gate_sweep(source_root: &Path, app_ids: &[String]) {
         summary
     })
     .unwrap_or_default();
-    tracing::warn!(
-        target: "mei.startup",
-        elapsed_secs = started.elapsed().as_secs(),
-        l2_miss = gate_summary.l2_miss,
-        l3_fail = gate_summary.l3_fail,
-        l4_stale = gate_summary.l4_stale,
-        "scope gate manifest sweep finished"
-    );
+    if gate_summary.l2_miss > 0 || gate_summary.l3_fail > 0 || gate_summary.l4_stale > 0 {
+        tracing::warn!(
+            target: "mei.startup",
+            elapsed_secs = started.elapsed().as_secs(),
+            l2_miss = gate_summary.l2_miss,
+            l3_fail = gate_summary.l3_fail,
+            l4_stale = gate_summary.l4_stale,
+            "scope gate manifest sweep finished with gate misses"
+        );
+    } else {
+        tracing::info!(
+            target: "mei.startup",
+            elapsed_secs = started.elapsed().as_secs(),
+            l2_miss = gate_summary.l2_miss,
+            l3_fail = gate_summary.l3_fail,
+            l4_stale = gate_summary.l4_stale,
+            "scope gate manifest sweep finished"
+        );
+    }
     crate::prebuild::prebuild_emit_notice(format!(
         "scope gate sweep done {:.1}s | L2={} L3={} L4={}",
         started.elapsed().as_secs_f64(),
@@ -442,7 +453,7 @@ pub(crate) fn status_from_report(
             ScopeGateRefreshMode::Full => {
                 let total_scopes = count_registry_scopes(registry, &report.succeeded_apps);
                 if total_scopes > 0 {
-                    tracing::warn!(
+                    tracing::info!(
                         target: "mei.startup",
                         total_scopes,
                         app_count = report.succeeded_apps.len(),

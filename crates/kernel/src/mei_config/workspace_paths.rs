@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::io::load_workspace_config;
-use super::build_store::{resolve_app_build_root_following_active, resolve_symlink_target};
+use super::build_store::resolve_app_build_root_following_active;
 use super::stock_catalog::normalize_stock_relative_path;
 use super::types::{
-    WorkspaceConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL, APP_VAR_ACTIVE_REL,
+    WorkspaceConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL,
     DEFAULT_APPS_REL, DEFAULT_APP_SRC_REL, DEFAULT_DEPLOY_REL, DEFAULT_RUNTIME_REL,
     DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, DEFAULT_TOOLCHAIN_REL,
     WORKSPACE_CONFIG_FILENAME, WORKSPACE_PLATFORM_DIR_REL, WORKSPACE_RUNTIME_CACHE_REL,
@@ -378,16 +378,7 @@ pub fn resolve_app_build_store_root(app_root: &Path, build_id: &str) -> PathBuf 
 
 /// App 运行时写路径：`apps/{appId}/var/active/`（symlink 指向 `var/store/{buildId}/`）。
 pub fn resolve_app_var_root(app_root: &Path) -> PathBuf {
-    let active = app_root.join(APP_VAR_ACTIVE_REL);
-    if active.is_symlink() {
-        if let Some(target) = resolve_symlink_target(&active) {
-            return target;
-        }
-    }
-    if active.is_dir() {
-        return active;
-    }
-    active
+    crate::mei_config::build_store::resolve_app_var_root_following_active(app_root)
 }
 
 /// 兼容旧名：AOT artifact store = `build/active/`。

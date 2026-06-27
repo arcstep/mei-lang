@@ -109,7 +109,7 @@ fn migrate_flat_toolchain_bin_to_store(toolchain_root: &Path, store_bin: &Path) 
     Ok(())
 }
 
-fn merge_dir_recursive(from: &Path, to: &Path) -> Result<()> {
+pub(crate) fn merge_dir_recursive(from: &Path, to: &Path) -> Result<()> {
     fs::create_dir_all(to)?;
     for entry in fs::read_dir(from)? {
         let entry = entry?;

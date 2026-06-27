@@ -20,6 +20,12 @@ pub(crate) fn run_prebuild_for_app(
     };
     let block_scoped = effective_profile == PrebuildScopeProfile::BlockScoped;
     let app_started = Instant::now();
+    PrebuildPhaseTracker::global().set_phase(
+        source_root,
+        "mcg_plan",
+        Some(app.app_id.as_str()),
+        Some(&format!("hot-only={}", effective_profile == PrebuildScopeProfile::HotOnly)),
+    );
     let components_root = toolchain::resolve_components_root(source_root);
     let app_root = resolve_app_root(source_root, app.app_id.as_str());
     let compile_index = load_prebuild_compile_index(app_root.as_path()).unwrap_or_else(|error| {
@@ -31,6 +37,11 @@ pub(crate) fn run_prebuild_for_app(
         None
     });
     let diagnostics = Arc::new(PrebuildDiagnostics::default());
+    let skip_discover = block_scoped
+        || app
+            .compile_scope
+            .as_ref()
+            .is_some_and(|scope| scope.should_skip_discover());
     let compile_session = Arc::new(Mutex::new(PrebuildCompileSession {
         hot_only_scene_ids: if effective_profile == PrebuildScopeProfile::HotOnly {
             Some(
@@ -41,7 +52,9 @@ pub(crate) fn run_prebuild_for_app(
         } else {
             None
         },
-        skip_discover: block_scoped,
+        skip_discover,
+        compile_scope: app.compile_scope.clone(),
+        discover_enqueue_compile: prebuild_discover_enqueue_compile_enabled(),
         ..PrebuildCompileSession::default()
     }));
     let manifest_plan = build_prebuild_manifest_plan(app, effective_profile);
@@ -69,9 +82,34 @@ pub(crate) fn run_prebuild_for_app(
         "[{}] ── [MCG pass] 编译 .mei ── 约 {initial_scope_count} 个 manifest scope（request-scope 闭包 + 结果复用）",
         app.app_id
     ));
-    let hot_scopes = manifest_plan.hot_scopes.clone();
-    let deferred_scopes = manifest_plan.deferred_scopes.clone();
+    let hot_scopes = order_scopes_target_first(manifest_plan.hot_scopes.clone());
+    let deferred_scopes = order_scopes_target_first(manifest_plan.deferred_scopes.clone());
+    let mcg_scope_union = hot_scopes
+        .iter()
+        .cloned()
+        .chain(deferred_scopes.iter().cloned())
+        .collect::<Vec<_>>();
+    let mcg_target_plan = build_mcg_target_plan(mcg_scope_union.as_slice());
+    prebuild_emit_progress(format!(
+        "[{}] MCG target plan | unique targets {} | manifest scopes {}",
+        app.app_id,
+        mcg_target_plan.unique_targets.len(),
+        manifest_plan.initial_scope_count
+    ));
+    PrebuildPhaseTracker::global().set_phase(
+        source_root,
+        "mcg_compile",
+        Some(app.app_id.as_str()),
+        Some(&format!(
+            "default_scope + {} hot targets",
+            mcg_target_plan.unique_targets.len()
+        )),
+    );
     let default_started = Instant::now();
+    prebuild_emit_progress(format!(
+        "[{}] compiling default_scope…",
+        app.app_id
+    ));
     let default_reuse = try_reuse_compile_scope_before_load(
         compile_session.as_ref(),
         diagnostics.as_ref(),
@@ -109,6 +147,8 @@ pub(crate) fn run_prebuild_for_app(
     let mut compile_reports = Vec::new();
     let mut prepared_outcomes = Vec::new();
     record_prebuild_scope_compile_with_discovered(
+        source_root,
+        app.app_id.as_str(),
         compile_session.as_ref(),
         &default_scope,
         &default_outcome,
@@ -200,6 +240,8 @@ pub(crate) fn run_prebuild_for_app(
                     ));
                 }
                 record_prebuild_scope_compile_with_discovered(
+                    source_root,
+                    app.app_id.as_str(),
                     compile_session.as_ref(),
                     &scope,
                     &outcome,
@@ -288,6 +330,8 @@ pub(crate) fn run_prebuild_for_app(
                 .expect("prebuild compile session lock")
                 .note_scope_alias(&scope, &outcome);
             record_prebuild_scope_compile(
+                source_root,
+                app.app_id.as_str(),
                 compile_session.as_ref(),
                 &scope,
                 &outcome,
@@ -317,6 +361,8 @@ pub(crate) fn run_prebuild_for_app(
         let index_hit_count = index_hits.len();
         for (scope, reuse) in index_hits {
             record_prebuild_scope_compile_with_discovered(
+                source_root,
+                app.app_id.as_str(),
                 compile_session.as_ref(),
                 &scope,
                 &reuse.outcome,
@@ -429,6 +475,8 @@ pub(crate) fn run_prebuild_for_app(
                 continue;
             };
             record_prebuild_scope_compile(
+                source_root,
+                app.app_id.as_str(),
                 compile_session.as_ref(),
                 &representative,
                 outcome,
@@ -445,10 +493,12 @@ pub(crate) fn run_prebuild_for_app(
                     .expect("prebuild compile session lock")
                     .register(source_root, app.app_id.as_str(), &alias, alias_outcome.clone());
                 record_prebuild_scope_compile_with_discovered(
+                    source_root,
+                    app.app_id.as_str(),
                     compile_session.as_ref(),
                     &alias,
                     &alias_outcome,
-                    Some(&[]),
+                    Some(&[] as &[CompileScope]),
                     1,
                     &mut seen_scopes,
                     &mut pending,
@@ -486,6 +536,20 @@ pub(crate) fn run_prebuild_for_app(
                 "write prebuild compile index failed"
             );
         }
+    }
+    if !block_scoped {
+        let mut manifest_scopes = vec![default_scope.clone()];
+        manifest_scopes.extend(manifest_plan.hot_scopes.iter().cloned());
+        manifest_scopes.extend(manifest_plan.deferred_scopes.iter().cloned());
+        fill_manifest_prepared_outcomes(
+            source_root,
+            app.app_id.as_str(),
+            manifest_scopes.as_slice(),
+            compile_session.as_ref(),
+            &mut prepared_outcomes,
+            &mut compile_reports,
+            &mut seen_scopes,
+        );
     }
     let compile_scopes_ms = compile_started.elapsed().as_millis() as u64;
     diagnostics.sample_memory_peak();
@@ -572,6 +636,8 @@ fn compile_block_scoped_node(
                             .unwrap_or("")
                     ));
                     record_prebuild_scope_compile_with_discovered(
+                        source_root,
+                        app.app_id.as_str(),
                         compile_session,
                         &scope,
                         &outcome,

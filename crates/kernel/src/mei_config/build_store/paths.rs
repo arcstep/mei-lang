@@ -12,7 +12,7 @@ use crate::mei_config::workspace_paths::{
     resolve_app_root, resolve_symlink_target_from_link, resolve_toolchain_root,
 };
 
-use super::prebuild_override::prebuild_build_root_override;
+use super::prebuild_override::{prebuild_build_root_override, prebuild_var_root_override};
 use super::types::{read_links_state, BuildManifest, DEV_TOOLCHAIN_VERSION};
 
 use std::fs;
@@ -108,6 +108,22 @@ pub fn resolve_app_build_root_following_active(app_root: &Path) -> PathBuf {
         return override_root;
     }
     let active = app_build_active_link(app_root);
+    if active.is_symlink() {
+        if let Some(target) = resolve_symlink_target(&active) {
+            return target;
+        }
+    }
+    if active.is_dir() {
+        return active;
+    }
+    active
+}
+
+pub fn resolve_app_var_root_following_active(app_root: &Path) -> PathBuf {
+    if let Some(override_root) = prebuild_var_root_override() {
+        return override_root;
+    }
+    let active = app_var_active_link(app_root);
     if active.is_symlink() {
         if let Some(target) = resolve_symlink_target(&active) {
             return target;

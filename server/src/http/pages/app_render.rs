@@ -3,7 +3,6 @@ use std::path::Path;
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use mei_lang_app::SourcePanelMeta;
-use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
     discover_apps, load_workspace_config, resolve_app_id, WorkspaceAppMeta,
 };
@@ -11,35 +10,7 @@ use std::fs;
 
 /// 宿主 landing 只认统一 scope gate（L2 MRG + L3 assemble）；不在 HTTP 路径触发 compile。
 pub(crate) fn app_has_prebuilt_access_entry(source_root: &Path, app_id: &str) -> bool {
-    use crate::graph::mrg::navigation::resolve_default_scope;
-    use crate::http::pages::AppQuery;
-    use crate::readiness::scope_gate::resolve_scope_gate;
-    use crate::readiness::types::UiMode;
-
-    let nav = resolve_default_scope(source_root, app_id, UiMode::App);
-    let query = AppQuery {
-        file: Some(nav.scope.target_file.clone()),
-        scene: Some(nav.scope.scene_id.clone()),
-        tab: None,
-        diag_filter: None,
-        world_metric: None,
-        world_dataset: None,
-        explain: None,
-        node: None,
-        scope: None,
-        focus: None,
-        chrome: None,
-        catalog: None,
-        pack: None,
-    };
-    resolve_scope_gate(
-        source_root,
-        app_id,
-        UiRouteMode::App,
-        Some(nav.scope.scene_id.as_str()),
-        &query,
-    )
-    .access_ready
+    crate::readiness::scope_gate::default_app_access_ready(source_root, app_id)
 }
 
 pub(crate) fn source_panel_meta(source_path: &Path, source: &str) -> SourcePanelMeta {
@@ -83,25 +54,12 @@ pub(crate) fn choose_default_app<'a>(
             if app_has_prebuilt_access_entry(source_root, &app.id) {
                 return Some(app);
             }
-            tracing::warn!(
-                app_id = %app.id,
-                "configured workspace.defaultApp default-scope scope gate not ready (L2+L3)"
-            );
-        } else {
-            tracing::warn!(
-                app_id = preferred,
-                "configured workspace.defaultApp is not discoverable in this workspace"
-            );
         }
     }
     for app in apps {
         if app_has_prebuilt_access_entry(source_root, &app.id) {
             return Some(app);
         }
-        tracing::warn!(
-            app_id = %app.id,
-            "skip app without default-scope scope gate ready as landing target"
-        );
     }
     None
 }
@@ -170,6 +128,7 @@ fn host_landing_gate_strict() -> bool {
 }
 
 /// 探测 landing 就绪情况；不阻塞 serve（除非 `MEI_HOST_LANDING_GATE=strict`）。
+/// 只认 `workspace.defaultApp`（canonical resolve 后）的 landing gate，不因其它 app ready 误报 passed。
 pub(crate) fn probe_landing_readiness(source_root: &Path) -> LandingProbeReport {
     let apps = match discover_apps(source_root) {
         Ok(apps) => apps,
@@ -194,24 +153,61 @@ pub(crate) fn probe_landing_readiness(source_root: &Path) -> LandingProbeReport 
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    if let Some(app) = choose_default_app(source_root, &apps) {
+    if let Some(preferred) = preferred.as_ref() {
+        let canonical = resolve_app_id(source_root, preferred.as_str());
+        if apps
+            .iter()
+            .any(|app| app.id == canonical || app.id == preferred.as_str())
+        {
+            if app_has_prebuilt_access_entry(source_root, canonical.as_str()) {
+                tracing::info!(
+                    app_id = %canonical,
+                    default_app = preferred.as_str(),
+                    "host landing probe passed: defaultApp scope gate ready (L2 navigation + L3 MCG assemble)"
+                );
+                return LandingProbeReport {
+                    ready_app_id: Some(canonical),
+                    app_count: apps.len(),
+                    configured_default_app: Some(preferred.clone()),
+                    message: None,
+                };
+            }
+        }
+    } else if let Some(app) = choose_default_app(source_root, &apps) {
         tracing::info!(
             app_id = %app.id,
-            default_app = preferred.as_deref().unwrap_or("(auto)"),
-            "host landing probe passed: default-scope scope gate ready (L2 navigation + L3 MCG assemble)"
+            default_app = "(auto)",
+            "host landing probe passed: auto-selected app scope gate ready (L2 navigation + L3 MCG assemble)"
         );
         return LandingProbeReport {
             ready_app_id: Some(app.id.clone()),
             app_count: apps.len(),
-            configured_default_app: preferred,
+            configured_default_app: None,
             message: None,
         };
     }
     let message = landing_gate_failure_message(source_root, &apps);
+    let app_summaries = apps
+        .iter()
+        .map(|app| {
+            format!(
+                "{}: {}",
+                app.id,
+                crate::readiness::scope_gate::format_landing_gate_summary(
+                    &crate::readiness::scope_gate::resolve_default_app_access_gate(
+                        source_root,
+                        app.id.as_str(),
+                    ),
+                )
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
     tracing::warn!(
         app_count = apps.len(),
         default_app = preferred.as_deref().unwrap_or("(none)"),
-        "host landing probe: no app with default-scope gate ready; shell will serve at /host"
+        app_gate_summary = %app_summaries,
+        "host landing probe: no app landing-ready; host shell remains at /host"
     );
     LandingProbeReport {
         ready_app_id: None,
@@ -228,6 +224,11 @@ pub(crate) fn prepare_landing_artifacts_for_serve(source_root: &Path) -> Result<
         return Ok(());
     }
     if host_landing_gate_strict() {
+        tracing::warn!(
+            app_count = probe.app_count,
+            default_app = probe.configured_default_app.as_deref().unwrap_or("(none)"),
+            "host landing gate strict mode failed"
+        );
         anyhow::bail!(probe.message.unwrap_or_else(|| {
             "host landing gate failed under MEI_HOST_LANDING_GATE=strict".to_string()
         }));

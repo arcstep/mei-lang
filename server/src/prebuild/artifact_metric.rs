@@ -95,6 +95,17 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
         .dataset
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
+    if !state
+        .hydrated_owners
+        .lock()
+        .expect("prebuild dataset pool lock")
+        .insert(plan.owner_resource_id.clone())
+    {
+        state
+            .diagnostics
+            .mrg_eval_skips
+            .fetch_add(1, Ordering::Relaxed);
+    }
     let query_state = empty_query_state();
     let query = collect_all_query_options(&query_state);
     if let Some(artifact) = state.metric_response_exact(&plan.response_cache_key) {
@@ -342,6 +353,12 @@ pub(crate) fn ensure_metric_response_artifact_for_plan(
             &plan.covered_metric_ids,
             complete,
         )?;
+        let dataset_key = mei_lang_datasets::metric_response_prebuild_dataset_key(
+            app_id,
+            plan.owner_resource_id.as_str(),
+            &query,
+        );
+        materialize_metric_response_alias(app_root, dataset_key.as_str(), &built_artifact)?;
         materialize_metric_response_alias_parts(
             app_root,
             &plan.response_cache_key,

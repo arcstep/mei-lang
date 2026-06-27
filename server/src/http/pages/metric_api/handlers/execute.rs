@@ -91,6 +91,7 @@ pub(super) fn execute_metric_query_group(
         ctx.filter_intents,
         result_artifact_candidate,
         None,
+        Some(&runtime_workset.defs_for_hydrate),
     );
     let response_cache_key = lookup_cache_keys.first().cloned().unwrap_or_else(|| {
         metric_response_cache_scope_key(
@@ -288,7 +289,7 @@ pub(super) fn execute_metric_query_group(
                 perf,
             });
         }
-        if !ctx.access_policies.allows_thin_eval() {
+        if ctx.access_artifact_only || !ctx.access_policies.allows_thin_eval() {
             let error = if crate::http::host_api::host_warmup_in_progress() {
                 crate::http::host_api::warmup_pending_user_message()
             } else {

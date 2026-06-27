@@ -13,6 +13,8 @@ pub(crate) struct CoverageState {
     pub(crate) pre_mcg_bundle_revisions: BTreeMap<String, String>,
     pub(crate) source_root: Option<std::path::PathBuf>,
     pub(crate) app_id: Option<String>,
+    /// Owners whose dataset hydrate completed in this prebuild pass (owner-batch eval).
+    pub(crate) hydrated_owners: Arc<Mutex<std::collections::BTreeSet<String>>>,
 }
 
 impl Default for CoverageState {
@@ -28,6 +30,7 @@ impl Default for CoverageState {
             pre_mcg_bundle_revisions: BTreeMap::new(),
             source_root: None,
             app_id: None,
+            hydrated_owners: Arc::new(Mutex::new(std::collections::BTreeSet::new())),
         }
     }
 }

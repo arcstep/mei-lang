@@ -24,6 +24,9 @@ mod artifact_aliases;
 mod mrg_plan;
 mod parallel;
 mod scoped_materialize;
+mod phase_tracker;
+mod mcg_target_plan;
+mod owner_batch_eval;
 #[cfg(test)]
 mod tests;
 
@@ -50,6 +53,9 @@ pub(crate) use artifact_dataframe::*;
 pub(crate) use artifact_aliases::*;
 pub(crate) use mrg_plan::*;
 pub(crate) use parallel::*;
+pub(crate) use phase_tracker::*;
+pub(crate) use mcg_target_plan::*;
+pub(crate) use owner_batch_eval::*;
 
 #[allow(unused_imports)]
 pub use types::{

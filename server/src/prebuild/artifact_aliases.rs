@@ -30,8 +30,6 @@ pub(crate) fn materialize_metric_response_sibling_aliases(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
     let identity = dataset_metric_identity_key(owner_dataset);
-    let (scene_id, scene_path) =
-        artifact_scene_context_for_resource(&outcome.compiled, owner_resource.id.as_str());
     for resource in &outcome.compiled.resources {
         let Some(dataset) = resource.dataset.as_ref() else {
             continue;
@@ -39,30 +37,80 @@ pub(crate) fn materialize_metric_response_sibling_aliases(
         if dataset_metric_identity_key(dataset) != identity {
             continue;
         }
+        let (scene_id, scene_path) =
+            artifact_scene_context_for_resource(&outcome.compiled, resource.id.as_str());
         let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
             app_root,
             &outcome.compiled,
             resource.id.as_str(),
             metric_defs,
         );
-        let response_cache_key = metric_response_cache_scope_key(
-            app_id,
-            scene_id.as_str(),
+        let mut alias_keys = Vec::new();
+        let mut seen_alias_keys = BTreeSet::new();
+        let mut push_alias_key =
+            |scene_path: Option<&str>, response_cache_key: String| {
+                if seen_alias_keys.insert(response_cache_key.clone()) {
+                    alias_keys.push((scene_path.map(str::to_string), response_cache_key));
+                }
+            };
+        push_alias_key(
             scene_path.as_deref(),
-            resource.id.as_str(),
-            query,
-            &outcome.compile_revision,
-            &dependency_revision_key,
-            &[],
-            None,
+            metric_response_cache_scope_key(
+                app_id,
+                scene_id.as_str(),
+                scene_path.as_deref(),
+                resource.id.as_str(),
+                query,
+                &outcome.compile_revision,
+                &dependency_revision_key,
+                &[],
+                None,
+            ),
         );
-        if state.metric_response_exact(&response_cache_key).is_some() {
-            continue;
+        if let Some(path) = scene_path.as_deref() {
+            for variant in mei_lang_kernel::app_source_rel_path_lookup_keys(path) {
+                push_alias_key(
+                    Some(variant.as_str()),
+                    metric_response_cache_scope_key(
+                        app_id,
+                        scene_id.as_str(),
+                        Some(variant.as_str()),
+                        resource.id.as_str(),
+                        query,
+                        &outcome.compile_revision,
+                        &dependency_revision_key,
+                        &[],
+                        None,
+                    ),
+                );
+            }
         }
-        if metric_response_result_artifact_exists(app_root, &response_cache_key) {
-            continue;
+        push_alias_key(
+            None,
+            mei_lang_datasets::metric_response_prebuild_dataset_key(
+                app_id,
+                resource.id.as_str(),
+                query,
+            ),
+        );
+        push_alias_key(
+            None,
+            mei_lang_datasets::metric_response_prebuild_shared_key(
+                app_id,
+                resource.id.as_str(),
+                query,
+                &dependency_revision_key,
+            ),
+        );
+        for (_alias_scene_path, response_cache_key) in alias_keys {
+            if state.metric_response_exact(&response_cache_key).is_some() {
+                continue;
+            }
+            if metric_response_result_artifact_exists(app_root, &response_cache_key) {
+                continue;
+            }
+            materialize_metric_response_alias(app_root, &response_cache_key, artifact)?;
         }
-        materialize_metric_response_alias(app_root, &response_cache_key, artifact)?;
     }
     Ok(())
 }

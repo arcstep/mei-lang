@@ -165,6 +165,16 @@ fn hydrate_imported_world_metrics_resources_from_mcg(
     }
 }
 
+/// Capsule scene paths referenced by a compiled scope (embedded panels, world_metrics owners, MCG bundles).
+pub fn embedded_capsule_target_files(
+    source_root: &Path,
+    app_id: &str,
+    compiled: &CompiledApp,
+) -> BTreeSet<String> {
+    let mcg = McgRegistryWriter::load(source_root, app_id);
+    embedded_capsule_targets(compiled, &mcg)
+}
+
 fn embedded_capsule_targets(
     compiled: &CompiledApp,
     mcg: &crate::graph::mcg::registry::McgRegistry,

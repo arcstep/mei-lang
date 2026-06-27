@@ -82,6 +82,7 @@ fn merge_catalog_warmup_manifest(
         focuses: Vec::new(),
         datasets: Vec::new(),
         xlsx_sources: Vec::new(),
+        compile_scope: None,
     };
     if let Some(existing) = manifest.apps.iter_mut().find(|app| app.app_id == app_id) {
         let changed = existing != &entry;

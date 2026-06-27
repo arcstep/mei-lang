@@ -1,67 +1,69 @@
-pub(crate) fn metric_response_artifact_lookup_cache_keys(
+fn expand_scene_path_lookup_variants(
+    scene_path: Option<&str>,
+    primary_dataset_id: &str,
+) -> Vec<String> {
+    let mut scene_paths = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut push_path = |path: &str| {
+        let path = path.trim();
+        if path.is_empty() {
+            return;
+        }
+        for key in mei_lang_kernel::app_source_rel_path_lookup_keys(path) {
+            if seen.insert(key.clone()) {
+                scene_paths.push(key);
+            }
+        }
+    };
+    if let Some(path) = scene_path {
+        push_path(path);
+    }
+    if let Some(capsule_path) =
+        mei_lang_kernel::imported_capsule_path_from_world_metrics_resource_id(primary_dataset_id)
+    {
+        push_path(capsule_path.as_str());
+    }
+    if scene_paths.is_empty() {
+        scene_paths.push(String::new());
+    }
+    scene_paths
+}
+
+fn append_metric_response_lookup_keys(
     app_id: &str,
     app_root: &Path,
     compiled: &CompiledApp,
     scene_id: &str,
-    scene_path: Option<&str>,
-    primary_dataset_id: &str,
-    owner_dataset: &DatasetView,
+    scene_paths: &[String],
+    dataset_ids: &[String],
+    dependency_metric_defs: &BTreeMap<String, Value>,
     query: &DatasetQueryOptions,
     compile_revision: &str,
     filter_intents: &[FilterIntent],
     prefer_prebuild_keys: bool,
     slot_revision: Option<&str>,
-) -> Vec<String> {
-    let mut dataset_ids = equivalent_dataset_resource_ids(compiled, owner_dataset);
-    for alias in dataset_resource_lookup_aliases(primary_dataset_id) {
-        if !dataset_ids.iter().any(|id| id == &alias) {
-            dataset_ids.push(alias);
-        }
-    }
-    if let Some(index) = dataset_ids.iter().position(|id| id == primary_dataset_id) {
-        if index > 0 {
-            let primary = dataset_ids.remove(index);
-            dataset_ids.insert(0, primary);
-        }
-    } else {
-        dataset_ids.insert(0, primary_dataset_id.to_string());
-    }
-    let mut scene_paths = Vec::new();
-    if let Some(path) = scene_path.map(str::trim).filter(|value| !value.is_empty()) {
-        scene_paths.push(path.to_string());
-    }
-    if let Some(capsule_path) =
-        mei_lang_kernel::imported_capsule_path_from_world_metrics_resource_id(primary_dataset_id)
-    {
-        if !scene_paths.iter().any(|path| path == &capsule_path) {
-            scene_paths.push(capsule_path);
-        }
-    }
-    if scene_paths.is_empty() {
-        scene_paths.push(String::new());
-    }
-    let mut keys = Vec::new();
-    let mut seen = BTreeSet::new();
+    seen: &mut BTreeSet<String>,
+    keys: &mut Vec<String>,
+) {
     for dataset_id in dataset_ids {
         let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
             app_root,
             compiled,
             dataset_id.as_str(),
-            &owner_dataset.runtime_metric_defs,
+            dependency_metric_defs,
         );
         let bundle_revision = format!(
             "mdb:{}",
-            stable_slot_hash(
-                &serde_json::to_string(&owner_dataset.runtime_metric_defs).unwrap_or_default()
-            )
+            stable_slot_hash(&serde_json::to_string(dependency_metric_defs).unwrap_or_default())
         );
-        for scene_path in &scene_paths {
+        for scene_path in scene_paths {
             let scoped_scene_path = if scene_path.is_empty() {
                 None
             } else {
                 Some(scene_path.as_str())
             };
-            let scope_key = crate::metric_response_cache::metric_eval_scope_key(scene_id, scoped_scene_path);
+            let scope_key =
+                crate::metric_response_cache::metric_eval_scope_key(scene_id, scoped_scene_path);
             let effective_compile_revision = effective_compile_revision_for_slot(
                 compile_revision,
                 bundle_revision.as_str(),
@@ -94,13 +96,14 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
                 query,
                 &dependency_revision_key,
             );
-            let dataset_key = metric_response_prebuild_dataset_key(app_id, dataset_id.as_str(), query);
+            let dataset_key =
+                metric_response_prebuild_dataset_key(app_id, dataset_id.as_str(), query);
             let data_generation = resolve_metric_data_generation(
                 app_root,
                 app_id,
                 compiled,
                 dataset_id.as_str(),
-                &owner_dataset.runtime_metric_defs,
+                dependency_metric_defs,
             );
             let idempotent_key = metric_shared_cache_key_with_data_generation(
                 app_id,
@@ -119,6 +122,76 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
                     keys.push(key);
                 }
             }
+        }
+    }
+}
+
+pub(crate) fn metric_response_artifact_lookup_cache_keys(
+    app_id: &str,
+    app_root: &Path,
+    compiled: &CompiledApp,
+    scene_id: &str,
+    scene_path: Option<&str>,
+    primary_dataset_id: &str,
+    owner_dataset: &DatasetView,
+    query: &DatasetQueryOptions,
+    compile_revision: &str,
+    filter_intents: &[FilterIntent],
+    prefer_prebuild_keys: bool,
+    slot_revision: Option<&str>,
+    dependency_metric_defs: Option<&BTreeMap<String, Value>>,
+) -> Vec<String> {
+    let mut dataset_ids = equivalent_dataset_resource_ids(compiled, owner_dataset);
+    for alias in dataset_resource_lookup_aliases(primary_dataset_id) {
+        if !dataset_ids.iter().any(|id| id == &alias) {
+            dataset_ids.push(alias);
+        }
+    }
+    if let Some(index) = dataset_ids.iter().position(|id| id == primary_dataset_id) {
+        if index > 0 {
+            let primary = dataset_ids.remove(index);
+            dataset_ids.insert(0, primary);
+        }
+    } else {
+        dataset_ids.insert(0, primary_dataset_id.to_string());
+    }
+    let scene_paths = expand_scene_path_lookup_variants(scene_path, primary_dataset_id);
+    let mut keys = Vec::new();
+    let mut seen = BTreeSet::new();
+    append_metric_response_lookup_keys(
+        app_id,
+        app_root,
+        compiled,
+        scene_id,
+        scene_paths.as_slice(),
+        dataset_ids.as_slice(),
+        &owner_dataset.runtime_metric_defs,
+        query,
+        compile_revision,
+        filter_intents,
+        prefer_prebuild_keys,
+        slot_revision,
+        &mut seen,
+        &mut keys,
+    );
+    if let Some(subset_defs) = dependency_metric_defs {
+        if subset_defs != &owner_dataset.runtime_metric_defs {
+            append_metric_response_lookup_keys(
+                app_id,
+                app_root,
+                compiled,
+                scene_id,
+                scene_paths.as_slice(),
+                dataset_ids.as_slice(),
+                subset_defs,
+                query,
+                compile_revision,
+                filter_intents,
+                prefer_prebuild_keys,
+                slot_revision,
+                &mut seen,
+                &mut keys,
+            );
         }
     }
     keys
@@ -176,6 +249,16 @@ fn dataframe_query_option_variants(options: &DatasetQueryOptions) -> Vec<Dataset
         let mut with_summary = options.clone();
         with_summary.summary = true;
         variants.push(with_summary);
+    }
+    // Prebuild writes one collect_all rowset; runtime queries with smaller page_size must still hit it.
+    let mut prebuild_canonical = options.clone();
+    prebuild_canonical.page = 1;
+    prebuild_canonical.page_size = crate::metric_dataframe::MAX_PAGE_SIZE;
+    prebuild_canonical.collect_all = true;
+    if !variants.iter().any(|variant| {
+        variant.page_size == prebuild_canonical.page_size && variant.collect_all
+    }) {
+        variants.push(prebuild_canonical);
     }
     variants
 }

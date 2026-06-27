@@ -17,9 +17,14 @@ if [[ -d "${WS_SSPBJW}" ]]; then
     layer verify --workspace "${WS_SSPBJW}" --app qunfu --layer mcg
 
   echo "-- prebuild qunfu (hot path) --"
+  QUNFU_START=$(date +%s)
   cargo run -q -p mei-lang-server --bin mei-toolchain -- \
     prebuild --workspace "${WS_SSPBJW}" --app qunfu --hot-only --json \
     | (command -v jq >/dev/null 2>&1 && jq -e '.warning_count == 0' || cat)
+  QUNFU_ELAPSED=$(( $(date +%s) - QUNFU_START ))
+  if [[ "${QUNFU_ELAPSED}" -gt 30 ]]; then
+    echo "WARN: qunfu hot-only took ${QUNFU_ELAPSED}s (target <30s)" >&2
+  fi
 
   echo "-- prebuild zhifa (hot-only, pending queue guard) --"
   ZHIFA_LOG="$(mktemp)"
@@ -30,6 +35,17 @@ if [[ -d "${WS_SSPBJW}" ]]; then
   ZHIFA_ELAPSED=$(( $(date +%s) - ZHIFA_START ))
   if [[ "${ZHIFA_ELAPSED}" -gt 180 ]]; then
     echo "WARN: zhifa hot-only took ${ZHIFA_ELAPSED}s (target <3min)" >&2
+  fi
+  if [[ "${MEI_SSPBJW_MILESTONE:-0}" == "1" ]]; then
+    echo "-- prebuild zhifa (full milestone) --"
+    ZHIFA_FULL_START=$(date +%s)
+    cargo run -q -p mei-lang-server --bin mei-toolchain -- \
+      prebuild --workspace "${WS_SSPBJW}" --app zhifa --json \
+      | (command -v jq >/dev/null 2>&1 && jq -e '.warning_count == 0' || cat)
+    ZHIFA_FULL_ELAPSED=$(( $(date +%s) - ZHIFA_FULL_START ))
+    if [[ "${ZHIFA_FULL_ELAPSED}" -gt 1800 ]]; then
+      echo "WARN: zhifa full took ${ZHIFA_FULL_ELAPSED}s (target <30min milestone)" >&2
+    fi
   fi
   PENDING_PEAK="$(rg -o '待处理 [0-9]+' "${ZHIFA_LOG}" | rg -o '[0-9]+' | sort -n | tail -1 || true)"
   if [[ -n "${PENDING_PEAK}" && "${PENDING_PEAK}" -gt 50 ]]; then

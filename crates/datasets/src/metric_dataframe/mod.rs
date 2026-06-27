@@ -36,8 +36,8 @@ use super::{
     query_state_from_request, runtime_metric_eval_scope, serialize_cache_value,
 };
 
-const DEFAULT_PAGE_SIZE: usize = 20;
-const MAX_PAGE_SIZE: usize = 1000;
+pub const DEFAULT_PAGE_SIZE: usize = 20;
+pub const MAX_PAGE_SIZE: usize = 1000;
 const METRIC_DATAFRAME_CACHE_TTL_MS: u64 = 1500;
 const METRIC_DATAFRAME_MATERIALIZED_CACHE_TTL_MS: u64 = 300_000;
 const METRIC_DATAFRAME_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;

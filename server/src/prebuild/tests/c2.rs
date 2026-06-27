@@ -183,6 +183,7 @@ fn hot_only_skips_deferred_pending() {
     let session = Mutex::new(PrebuildCompileSession {
         hot_only_scene_ids: Some(BTreeSet::from(["home".to_string()])),
         skip_discover: false,
+        discover_enqueue_compile: true,
         ..PrebuildCompileSession::default()
     });
     let scope = CompileScope {
@@ -196,6 +197,8 @@ fn hot_only_skips_deferred_pending() {
     let mut compile_reports = Vec::new();
 
     record_prebuild_scope_compile_with_discovered(
+        Path::new("/tmp/ws"),
+        "demo",
         &session,
         &scope,
         &outcome,
@@ -216,5 +219,113 @@ fn hot_only_skips_deferred_pending() {
         }),
         "hot-only discover must not enqueue non-hot scenes"
     );
+}
+
+#[test]
+fn hot_only_artifact_outcomes_keep_default_and_warmup_scopes_only() {
+    let manifest_plan = PrebuildManifestPlan {
+        initial_scope_count: 3,
+        hot_scopes: vec![CompileScope {
+            requested_scene_id: Some("home".to_string()),
+            requested_target_file: None,
+        }],
+        deferred_scopes: vec![CompileScope {
+            requested_scene_id: None,
+            requested_target_file: Some("scenes/deferred.board.mei".to_string()),
+        }],
+        warmup_requests: vec![AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: Some("scenes/panel.mei".to_string()),
+            },
+            dataset_id: "hot_ds".to_string(),
+            metric_ids: vec!["metric_a".to_string()],
+            request_all_metrics: false,
+            priority: WarmupRequestPriority::Critical,
+        }],
+    };
+    let prepared = vec![
+        PreparedCompileOutcome {
+            scope: CompileScope::default_scope(),
+            outcome: test_outcome("home", "scenes/home.mei"),
+        },
+        PreparedCompileOutcome {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: Some("scenes/panel.mei".to_string()),
+            },
+            outcome: test_outcome("home", "scenes/panel.mei"),
+        },
+        PreparedCompileOutcome {
+            scope: CompileScope {
+                requested_scene_id: None,
+                requested_target_file: Some("scenes/deferred.board.mei".to_string()),
+            },
+            outcome: test_outcome("board", "scenes/deferred.board.mei"),
+        },
+    ];
+    let filtered = filter_hot_only_artifact_outcomes(
+        prepared,
+        &manifest_plan,
+        manifest_plan.warmup_requests.as_slice(),
+    );
+    assert_eq!(filtered.len(), 2);
+    assert!(filtered
+        .iter()
+        .any(|entry| entry.scope.key() == CompileScope::default_scope().key()));
+    assert!(filtered.iter().any(|entry| entry.scope.key() == "home|scenes/panel.mei"));
+}
+
+#[test]
+fn compile_scope_excludes_board_focus_and_deferred_datasets() {
+    let app = RuntimeWarmupApp {
+        app_id: "demo".to_string(),
+        default_scene: Some("home".to_string()),
+        hot_scenes: vec!["home".to_string()],
+        scenes: vec!["home".to_string()],
+        focuses: vec![
+            "scenes/home.mei".to_string(),
+            "scenes/05-监督预警.board.mei".to_string(),
+        ],
+        datasets: vec![
+            RuntimeWarmupDatasetRequest {
+                scene_id: Some("home".to_string()),
+                focus: Some("scenes/home.mei".to_string()),
+                dataset_id: "hot_ds".to_string(),
+                priority: None,
+                metric_id: Some("metric_a".to_string()),
+                metric_ids: Vec::new(),
+            },
+            RuntimeWarmupDatasetRequest {
+                scene_id: Some("issue_pending_analytics_board".to_string()),
+                focus: Some("scenes/07-问题办理.board.mei".to_string()),
+                dataset_id: "board_ds".to_string(),
+                priority: Some("critical".to_string()),
+                metric_id: Some("metric_b".to_string()),
+                metric_ids: Vec::new(),
+            },
+        ],
+        compile_scope: Some(mei_lang_kernel::CompileScopeFilterConfig {
+            exclude_targets: vec!["**/*.board.mei".to_string()],
+            exclude_scene_ids: vec!["*_analytics_board".to_string()],
+            skip_discover: Some(true),
+            skip_board_autogen_focus: Some(true),
+            ..Default::default()
+        }),
+        ..RuntimeWarmupApp::default()
+    };
+    let scope_keys = compile_scopes_for_app(&app, PrebuildScopeProfile::HotOnly)
+        .into_iter()
+        .map(|scope| scope.key())
+        .collect::<BTreeSet<_>>();
+
+    assert!(scope_keys.contains("|"));
+    assert!(scope_keys.contains("home|"));
+    assert!(!scope_keys.contains("|scenes/05-监督预警.board.mei"));
+    assert!(!scope_keys.contains("issue_pending_analytics_board|scenes/07-问题办理.board.mei"));
+
+    let requests = aggregate_warmup_requests(&app, PrebuildScopeProfile::HotOnly);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].dataset_id, "hot_ds");
 }
 

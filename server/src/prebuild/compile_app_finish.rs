@@ -132,7 +132,21 @@ pub(crate) fn finish_run_prebuild_for_app(
         app_id: Some(app.app_id.clone()),
         ..CoverageState::default()
     };
-    let artifact_outcomes = unique_prepared_outcomes_for_artifacts(&prepared_outcomes);
+    let mut artifact_outcomes = unique_prepared_outcomes_for_artifacts(&prepared_outcomes);
+    let unique_identity_count = artifact_outcomes.len();
+    if scope_profile == PrebuildScopeProfile::HotOnly {
+        let filtered =
+            filter_hot_only_artifact_outcomes(artifact_outcomes, &manifest_plan, &warmup_requests);
+        if filtered.len() != unique_identity_count {
+            prebuild_emit_progress_detail(format!(
+                "[{}] hot-only MRG | compile identities {} -> {}",
+                app.app_id,
+                unique_identity_count,
+                filtered.len()
+            ));
+        }
+        artifact_outcomes = filtered;
+    }
     let canonical_identity_count = artifact_outcomes.len();
     let session_entries_before_clear = if let Ok(session) = compile_session.lock() {
         (
@@ -174,6 +188,8 @@ pub(crate) fn finish_run_prebuild_for_app(
             &prepared.scope,
             &prepared.outcome,
             matching_requests.as_slice(),
+            scope_profile,
+            warmup_requests.as_slice(),
         )?);
     }
     let plan_nodes = build_plan_node_stats(
@@ -194,6 +210,12 @@ pub(crate) fn finish_run_prebuild_for_app(
         mrg_frontier.dirty_slot_count,
         artifact_outcomes.len()
     ));
+    PrebuildPhaseTracker::global().set_phase(
+        source_root,
+        "mrg_artifacts",
+        Some(app.app_id.as_str()),
+        Some(&format!("{} scope artifacts", artifact_outcomes.len())),
+    );
     let artifact_total = artifact_outcomes.len();
     let mut artifact_pairs: Vec<_> = artifact_outcomes
         .into_iter()
@@ -203,6 +225,16 @@ pub(crate) fn finish_run_prebuild_for_app(
         retain_dirty_artifact_plans(&mut artifact_pairs, &mrg_frontier);
     } else {
         prioritize_artifact_plans_by_frontier(&mut artifact_pairs, &mrg_frontier);
+    }
+    order_artifact_pairs_by_owner(&mut artifact_pairs);
+    let owner_batches = group_artifact_pairs_by_owner(artifact_pairs.as_slice());
+    if owner_batches.len() > 1 {
+        prebuild_emit_progress_detail(format!(
+            "[{}] owner-batch eval | {} owners across {} scope plans",
+            app.app_id,
+            owner_batches.len(),
+            artifact_pairs.len()
+        ));
     }
     if let Some(node_filter) = block_node.as_deref().map(str::trim).filter(|value| !value.is_empty())
     {

@@ -10,7 +10,7 @@ use crate::mei_config::{
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
     WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
-use crate::workspace::discover_apps;
+use crate::workspace::discover_build_apps;
 
 pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION: &str = "mei-runtime-warmup-manifest-v2";
 
@@ -46,7 +46,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
         });
     }
 
-    let apps = discover_apps(source_root)?;
+    let apps = discover_build_apps(source_root)?;
     let mut warmup_apps = Vec::new();
     for app in apps {
         let app_root = resolve_app_root(source_root, &app.id);
@@ -89,6 +89,9 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
             focuses,
             datasets,
             xlsx_sources,
+            compile_scope: app_config
+                .and_then(|config| config.compile_scope.clone())
+                .filter(|scope| scope.is_active()),
         };
         enrich_runtime_warmup_app(source_root, &mut warmup_app)?;
         warmup_apps.push(warmup_app);
@@ -114,10 +117,25 @@ pub fn enrich_runtime_warmup_app(
     )?;
     app.datasets = normalize_warmup_dataset_requests(merged_datasets.as_slice());
     if crate::warmup_board_autogen::board_warmup_autogen_enabled() {
+        let skip_board_focus = app
+            .compile_scope
+            .as_ref()
+            .is_some_and(|scope| scope.should_skip_board_autogen_focus());
         let mut focus_seen = app.focuses.iter().cloned().collect::<BTreeSet<_>>();
         for suggestion in
             crate::warmup_board_autogen::discover_board_warmup_suggestions(app_root.as_path())?
         {
+            if skip_board_focus {
+                continue;
+            }
+            if let Some(scope) = app.compile_scope.as_ref() {
+                if !crate::compile_scope_filter::compile_scope_target_allowed(
+                    scope,
+                    suggestion.focus.as_str(),
+                ) {
+                    continue;
+                }
+            }
             if focus_seen.insert(suggestion.focus.clone()) {
                 app.focuses.push(suggestion.focus);
             }
@@ -133,10 +151,36 @@ fn enrich_runtime_warmup_manifest(
     if !manifest.enabled {
         return Ok(());
     }
+    if manifest.apps.is_empty() {
+        let built = build_runtime_warmup_manifest(source_root)?;
+        manifest.apps = built.apps;
+        return Ok(());
+    }
     for app in &mut manifest.apps {
+        overlay_workspace_warmup_app_config(source_root, app);
         enrich_runtime_warmup_app(source_root, app)?;
     }
     Ok(())
+}
+
+fn overlay_workspace_warmup_app_config(source_root: &Path, app: &mut RuntimeWarmupApp) {
+    let workspace = load_workspace_config(source_root);
+    let Some(cfg) = workspace.warmup.apps.get(app.app_id.as_str()) else {
+        return;
+    };
+    if let Some(scope) = cfg
+        .compile_scope
+        .clone()
+        .filter(|entry| entry.is_active())
+    {
+        app.compile_scope = Some(scope);
+    }
+    if !cfg.hot_scenes.is_empty() {
+        app.hot_scenes = normalize_hot_scenes(cfg.hot_scenes.as_slice());
+    }
+    if !cfg.focuses.is_empty() {
+        app.focuses = normalize_focuses(cfg.focuses.as_slice());
+    }
 }
 
 fn runtime_dataset_requests_as_workspace_configs(

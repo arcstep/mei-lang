@@ -271,6 +271,11 @@ pub(crate) fn compile_app_with_cache_uncached_path_shared(
         let compiled = match compile_app_with_options(source_root, app_id, options) {
             Ok(compiled) => compiled,
             Err(error) => {
+                tracing::warn!(
+                    app_id = %app_id,
+                    hint = "block_compile",
+                    "compile failed"
+                );
                 return Err(CompileWithCacheFailure {
                     error,
                     revision_scope: revision_stamp.scope.to_string(),
@@ -294,6 +299,11 @@ pub(crate) fn compile_app_with_cache_uncached_path_shared(
                 },
             ),
             Err(error) => {
+                tracing::warn!(
+                    app_id = %app_id,
+                    hint = "block_compile",
+                    "compile failed"
+                );
                 return Err(CompileWithCacheFailure {
                     error,
                     revision_scope: "miss".to_string(),

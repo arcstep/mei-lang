@@ -237,15 +237,16 @@ pub async fn app_page(
         }
     }
     let mut normalized_preview_target = normalized_preview_target;
-    if route_mode == UiRouteMode::Build
+    if matches!(route_mode, UiRouteMode::Build | UiRouteMode::Runtime)
         && compile_scene.is_none()
         && normalized_preview_target.is_none()
         && build_node.is_none()
     {
+        let ui_mode = crate::readiness::types::UiMode::from_route_mode(route_mode);
         let default = crate::graph::mrg::navigation::resolve_default_scope(
             state.source_root.as_path(),
             app_id.as_str(),
-            crate::readiness::types::UiMode::Build,
+            ui_mode,
         );
         compile_scene = Some(default.scope.scene_id.clone());
         normalized_preview_target = Some(default.scope.target_file.clone());

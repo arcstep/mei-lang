@@ -177,7 +177,10 @@ pub(crate) fn plan_dataframe_artifact(
     }))
 }
 
-pub(crate) fn widget_dataframe_page_sizes() -> &'static [usize] {
+/// Prebuild materializes one full rowset per metric; runtime paginates at query time.
+pub(crate) const PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE: usize = 1000;
+
+pub(crate) fn prebuild_dataframe_page_sizes() -> &'static [usize] {
     static PAGE_SIZES: OnceLock<Vec<usize>> = OnceLock::new();
     PAGE_SIZES.get_or_init(|| {
         let mut sizes = std::env::var("MEI_PREBUILD_DATAFRAME_PAGE_SIZES")
@@ -189,20 +192,28 @@ pub(crate) fn widget_dataframe_page_sizes() -> &'static [usize] {
                     .collect::<Vec<_>>()
             })
             .filter(|sizes| !sizes.is_empty())
-            .unwrap_or_else(|| vec![16, 20, 64]);
+            .unwrap_or_else(|| vec![PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE]);
         sizes.sort_unstable();
         sizes.dedup();
         sizes
     })
 }
 
-pub(crate) fn widget_dataframe_query_options(page_size: usize) -> DatasetQueryOptions {
+pub(crate) fn prebuild_dataframe_query_options(page_size: usize) -> DatasetQueryOptions {
     DatasetQueryOptions {
         page: 1,
         page_size,
-        collect_all: false,
+        collect_all: page_size >= PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE,
         ..Default::default()
     }
+}
+
+pub(crate) fn widget_dataframe_page_sizes() -> &'static [usize] {
+    prebuild_dataframe_page_sizes()
+}
+
+pub(crate) fn widget_dataframe_query_options(page_size: usize) -> DatasetQueryOptions {
+    prebuild_dataframe_query_options(page_size)
 }
 
 pub(crate) fn equivalent_dataframe_metric_ids(

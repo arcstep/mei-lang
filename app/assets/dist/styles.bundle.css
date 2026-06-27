@@ -1581,6 +1581,12 @@ a.status-chip-link:focus-visible {
 #workspace-root.manage-workspace.manage-workspace--with-inspector {
   grid-template-columns: var(--workspace-left-aside) 8px minmax(0, 1fr) 8px var(--workspace-right-aside);
 }
+#workspace-root.runtime-workspace .runtime-layer-metrics {
+  width: 100%;
+}
+#workspace-root.runtime-workspace .runtime-detail-json {
+  max-height: min(72vh, 760px);
+}
 /* shell chrome end — body/scene overlays below use scene track (--mei-color-*) */
 /* 访问侧：悬浮按钮 + 悬浮对话框模式，不依赖主布局宽度。 */
 .access-chat-floating-root {

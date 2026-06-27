@@ -1,6 +1,128 @@
 use super::prelude::*;
 use super::*;
 use crate::block::BlockOrchestrator;
+use crate::graph::types::GraphNodeKind;
+
+fn mcg_scene_payload_registered(source_root: &Path, app_id: &str, target_file: &str) -> bool {
+    if !crate::graph::feature::graph_registry_dedup_enabled() {
+        return true;
+    }
+    let registry = crate::graph::mcg::registry::McgRegistryWriter::load(source_root, app_id);
+    mei_lang_kernel::app_source_rel_path_lookup_keys(target_file).into_iter().any(|key| {
+        registry.nodes.iter().any(|node| {
+            node.id.kind == GraphNodeKind::ScenePayload
+                && node.id.key == key
+                && node.state == crate::graph::types::MaterialState::Ready
+        })
+    })
+}
+
+fn scope_target_file(scope: &CompileScope, compiled: &mei_lang_kernel::CompiledApp) -> String {
+    scope
+        .canonicalized()
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| compiled.active_target_file.clone())
+}
+
+fn mcg_scene_payload_registered_for_scope(
+    source_root: &Path,
+    app_id: &str,
+    scope: &CompileScope,
+    compiled: &mei_lang_kernel::CompiledApp,
+) -> bool {
+    let target = scope_target_file(scope, compiled);
+    if target.trim().is_empty() {
+        return true;
+    }
+    mcg_scene_payload_registered(source_root, app_id, target.as_str())
+}
+
+fn is_home_assembly_target(target: &str) -> bool {
+    let canonical = mei_lang_kernel::canonical_app_source_rel_path(target.trim());
+    canonical.ends_with("home.mei")
+}
+
+fn enqueue_missing_embedded_capsule_scene_payloads(
+    source_root: &Path,
+    app_id: &str,
+    parent_scope: &CompileScope,
+    outcome: &SharedCompileOutcome,
+    compile_session: &Mutex<PrebuildCompileSession>,
+    seen_scopes: &mut BTreeSet<String>,
+    pending: &mut std::collections::VecDeque<CompileScope>,
+) {
+    if !is_home_assembly_target(outcome.compiled.active_target_file.as_str()) {
+        return;
+    }
+    let parent_scene = parent_scope
+        .requested_scene_id
+        .clone()
+        .or_else(|| outcome.compiled.active_scene.clone());
+    let capsules =
+        crate::graph::embedded_capsule_target_files(source_root, app_id, outcome.compiled.as_ref());
+    let mut candidate_scopes = Vec::new();
+    for capsule in capsules {
+        if mcg_scene_payload_registered(source_root, app_id, capsule.as_str()) {
+            continue;
+        }
+        candidate_scopes.push(
+            CompileScope {
+                requested_scene_id: parent_scene.clone(),
+                requested_target_file: Some(capsule),
+            }
+            .canonicalized(),
+        );
+    }
+    if candidate_scopes.is_empty() {
+        return;
+    }
+    let locked = compile_session
+        .lock()
+        .expect("prebuild compile session lock");
+    let filtered = locked.filter_hot_only_discovered(candidate_scopes);
+    let filtered = locked.filter_compile_scope(filtered);
+    drop(locked);
+    for scope in filtered {
+        if seen_scopes.insert(scope.key()) {
+            pending.push_back(scope);
+        }
+    }
+}
+
+fn ensure_mcg_scene_payload_for_scope(
+    source_root: &Path,
+    app_id: &str,
+    scope: &CompileScope,
+    outcome: &SharedCompileOutcome,
+    mode: PrebuildMode,
+) {
+    if mode != PrebuildMode::Build {
+        return;
+    }
+    let target = scope_target_file(scope, outcome.compiled.as_ref());
+    if target.trim().is_empty()
+        || mcg_scene_payload_registered(source_root, app_id, target.as_str())
+    {
+        return;
+    }
+    if outcome.compiled.active_target_file.trim() != target.trim() {
+        return;
+    }
+    let options = scope.to_options();
+    let payloads = crate::graph::runtime_payloads_from_compiled(&outcome.compiled);
+    crate::graph::maybe_update_graph_after_compile(
+        source_root,
+        app_id,
+        &options,
+        &outcome.compiled,
+        outcome.compile_revision.as_str(),
+        &payloads,
+    );
+}
 
 pub(crate) fn ensure_compile_scope_for_prebuild(
     session: &Mutex<PrebuildCompileSession>,
@@ -13,14 +135,21 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
 ) -> Result<SharedCompileOutcome> {
     let reused = session_try_reuse(session, source_root, app_id, scope);
     if let Some(reused) = reused {
-        diagnostics
-            .compile_preload_reuse_hits
-            .fetch_add(1, Ordering::Relaxed);
-        session
-            .lock()
-            .expect("prebuild compile session lock")
-            .note_scope_alias(scope, &reused);
-        return Ok(reused);
+        if mcg_scene_payload_registered_for_scope(
+            source_root,
+            app_id,
+            scope,
+            reused.compiled.as_ref(),
+        ) {
+            diagnostics
+                .compile_preload_reuse_hits
+                .fetch_add(1, Ordering::Relaxed);
+            session
+                .lock()
+                .expect("prebuild compile session lock")
+                .note_scope_alias(scope, &reused);
+            return Ok(reused);
+        }
     }
     diagnostics
         .compile_fallback_loads
@@ -50,6 +179,7 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
             };
             let mut locked = session.lock().expect("prebuild compile session lock");
             locked.register(source_root, app_id, scope, outcome.clone());
+            ensure_mcg_scene_payload_for_scope(source_root, app_id, scope, &outcome, mode);
             return Ok(outcome);
         }
     }
@@ -97,17 +227,27 @@ pub(crate) fn ensure_compile_scope_for_prebuild(
     let identity = compiled_scope_identity(&outcome);
     let mut locked = session.lock().expect("prebuild compile session lock");
     if let Some(existing) = locked.by_identity.get(&identity).cloned() {
-        diagnostics
-            .compile_postload_identity_collapses
-            .fetch_add(1, Ordering::Relaxed);
-        locked.register(source_root, app_id, scope, existing.clone());
-        return Ok(mark_prebuild_session_reuse(&existing));
+        if mcg_scene_payload_registered_for_scope(
+            source_root,
+            app_id,
+            scope,
+            existing.compiled.as_ref(),
+        ) {
+            diagnostics
+                .compile_postload_identity_collapses
+                .fetch_add(1, Ordering::Relaxed);
+            locked.register(source_root, app_id, scope, existing.clone());
+            return Ok(mark_prebuild_session_reuse(&existing));
+        }
     }
     locked.register(source_root, app_id, scope, outcome.clone());
+    ensure_mcg_scene_payload_for_scope(source_root, app_id, scope, &outcome, mode);
     Ok(outcome)
 }
 
 pub(crate) fn record_prebuild_scope_compile_with_discovered(
+    source_root: &Path,
+    app_id: &str,
     compile_session: &Mutex<PrebuildCompileSession>,
     scope: &CompileScope,
     outcome: &SharedCompileOutcome,
@@ -130,10 +270,33 @@ pub(crate) fn record_prebuild_scope_compile_with_discovered(
             .unwrap_or_else(|| discovered_compile_scopes(scope, &outcome.compiled));
         let filtered = locked.filter_board_discovered_scopes(scope, discovered_iter.as_slice());
         let filtered = locked.filter_hot_only_discovered(filtered);
+        let filtered = locked.filter_compile_scope(filtered);
+        let enqueue_discover = locked.discover_enqueue_compile;
         drop(locked);
-        for discovered in filtered {
-            if seen_scopes.insert(discovered.key()) {
-                pending.push_back(discovered);
+        if enqueue_discover {
+            for discovered in filtered {
+                if seen_scopes.insert(discovered.key()) {
+                    pending.push_back(discovered);
+                }
+            }
+        } else if !filtered.is_empty() {
+            let nav_scopes = filtered
+                .iter()
+                .filter_map(|discovered| compile_scope_to_nav(discovered, &outcome.compiled))
+                .collect::<Vec<_>>();
+            if !nav_scopes.is_empty() {
+                if let Err(error) = crate::graph::mrg::navigation::sync_navigation_for_compile_scopes(
+                    source_root,
+                    app_id,
+                    nav_scopes.as_slice(),
+                ) {
+                    tracing::debug!(
+                        app_id = %app_id,
+                        error = %error,
+                        "discover navigation sync skipped for {} scopes",
+                        nav_scopes.len()
+                    );
+                }
             }
         }
     } else {
@@ -143,12 +306,101 @@ pub(crate) fn record_prebuild_scope_compile_with_discovered(
         scope: scope.clone(),
         outcome: outcome.clone(),
     });
+    enqueue_missing_embedded_capsule_scene_payloads(
+        source_root,
+        app_id,
+        scope,
+        outcome,
+        compile_session,
+        seen_scopes,
+        pending,
+    );
     for _ in 1..observed_count.max(1) {
         compile_reports.push(scope_report_from_outcome(scope, outcome));
     }
 }
 
+fn compile_scope_to_nav(
+    scope: &CompileScope,
+    compiled: &mei_lang_kernel::CompiledApp,
+) -> Option<crate::graph::mrg::navigation::CompileScopeNav> {
+    let canonical = scope.canonicalized();
+    let scene_id = canonical
+        .requested_scene_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            compiled
+                .active_scene
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })?;
+    let target_file = canonical
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| compiled.active_target_file.clone());
+    if target_file.trim().is_empty() {
+        return None;
+    }
+    Some(crate::graph::mrg::navigation::CompileScopeNav {
+        scene_id,
+        target_file,
+    })
+}
+
+pub(crate) fn fill_manifest_prepared_outcomes(
+    source_root: &Path,
+    app_id: &str,
+    manifest_scopes: &[CompileScope],
+    compile_session: &Mutex<PrebuildCompileSession>,
+    prepared_outcomes: &mut Vec<PreparedCompileOutcome>,
+    compile_reports: &mut Vec<PrebuildScopeReport>,
+    seen_scopes: &mut BTreeSet<String>,
+) {
+    let prepared_keys = prepared_outcomes
+        .iter()
+        .map(|prepared| prepared.scope.key())
+        .collect::<BTreeSet<_>>();
+    let fallback_base = compile_session
+        .lock()
+        .expect("prebuild compile session lock")
+        .by_identity
+        .values()
+        .max_by_key(|outcome| (outcome.compile_ms, !outcome.cache_hit))
+        .cloned();
+    let Some(fallback_base) = fallback_base else {
+        return;
+    };
+    for scope in manifest_scopes {
+        if prepared_keys.contains(&scope.key()) {
+            continue;
+        }
+        if !seen_scopes.insert(scope.key()) {
+            continue;
+        }
+        let assembled = scope_assembled_outcome(source_root, app_id, &fallback_base, scope);
+        compile_session
+            .lock()
+            .expect("prebuild compile session lock")
+            .register(source_root, app_id, scope, assembled.clone());
+        compile_reports.push(scope_report_from_outcome(scope, &assembled));
+        prepared_outcomes.push(PreparedCompileOutcome {
+            scope: scope.clone(),
+            outcome: assembled,
+        });
+    }
+}
+
 pub(crate) fn record_prebuild_scope_compile(
+    source_root: &Path,
+    app_id: &str,
     compile_session: &Mutex<PrebuildCompileSession>,
     scope: &CompileScope,
     outcome: &SharedCompileOutcome,
@@ -158,6 +410,8 @@ pub(crate) fn record_prebuild_scope_compile(
     compile_reports: &mut Vec<PrebuildScopeReport>,
 ) {
     record_prebuild_scope_compile_with_discovered(
+        source_root,
+        app_id,
         compile_session,
         scope,
         outcome,

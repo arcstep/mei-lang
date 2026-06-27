@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn prebuild_dataframe_page_sizes_default_single_collect_all() {
+    assert_eq!(prebuild_dataframe_page_sizes(), &[PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE]);
+    let options = prebuild_dataframe_query_options(PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE);
+    assert!(options.collect_all);
+    assert_eq!(options.page_size, PREBUILD_DATAFRAME_CANONICAL_PAGE_SIZE);
+}
+
+#[test]
+fn discover_navigation_only_does_not_enqueue_pending() {
+    let session = Mutex::new(PrebuildCompileSession {
+        discover_enqueue_compile: false,
+        ..PrebuildCompileSession::default()
+    });
+    let scope = CompileScope {
+        requested_scene_id: Some("home".to_string()),
+        requested_target_file: Some("scenes/home.mei".to_string()),
+    };
+    let outcome = test_outcome("home", "scenes/home.mei");
+    let mut seen_scopes = BTreeSet::new();
+    let mut pending = std::collections::VecDeque::new();
+    let mut prepared_outcomes = Vec::new();
+    let mut compile_reports = Vec::new();
+
+    record_prebuild_scope_compile_with_discovered(
+        Path::new("/tmp/ws"),
+        "demo",
+        &session,
+        &scope,
+        &outcome,
+        None,
+        1,
+        &mut seen_scopes,
+        &mut pending,
+        &mut prepared_outcomes,
+        &mut compile_reports,
+    );
+
+    assert!(pending.is_empty());
+    assert_eq!(prepared_outcomes.len(), 1);
+}
+
+#[test]
 fn prebuild_dataframe_metric_selector_keeps_dataframe_metric() {
     let metric_defs = BTreeMap::from([(
         "warnings_realtime_cockpit_table".to_string(),
@@ -51,6 +93,8 @@ fn observed_count_replays_reports_without_dup_prepared_outcomes() {
     let mut compile_reports = Vec::new();
 
     record_prebuild_scope_compile_with_discovered(
+        Path::new("/tmp/ws"),
+        "demo",
         &session,
         &scope,
         &outcome,
@@ -138,6 +182,8 @@ fn alias_scope_does_not_expand_discover_queue() {
     let mut compile_reports = Vec::new();
 
     record_prebuild_scope_compile_with_discovered(
+        Path::new("/tmp/ws"),
+        "demo",
         &session,
         &representative,
         &outcome,
@@ -151,6 +197,8 @@ fn alias_scope_does_not_expand_discover_queue() {
     let pending_after_rep = pending.len();
 
     record_prebuild_scope_compile_with_discovered(
+        Path::new("/tmp/ws"),
+        "demo",
         &session,
         &alias,
         &outcome,

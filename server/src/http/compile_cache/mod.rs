@@ -252,17 +252,34 @@ pub(crate) fn resolve_runtime_compile_shared(
     }
 
     let policy = access_policies.legacy_runtime_artifact_policy();
-    if let Some(target) = options
+    let scene = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            gate.resolved_scene
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        });
+    let target = options
         .preview_target
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-    {
+        .or_else(|| {
+            gate.resolved_target
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        });
+    if let Some(target) = target {
         if let Some((compiled, compile_revision)) =
             crate::graph::try_assemble_scope_from_scene_payload(
                 state.source_root.as_path(),
                 app_id,
-                options.scene.as_deref(),
+                scene,
                 target,
             )
         {

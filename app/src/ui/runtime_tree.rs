@@ -62,20 +62,63 @@ fn tree_node(
     } else {
         "build-tree-link"
     };
-    let badge = node.badges.first().cloned();
+    let badges = node.badges.clone();
+    let short_label = shorten_tree_label(&node.label);
+    let title = if short_label == node.label {
+        None
+    } else {
+        Some(node.label.clone())
+    };
     view! {
         <li class="build-tree-node">
-            <a class=class href=href data-runtime-node=node.node_id.clone()>
+            <a class=class href=href data-runtime-node=node.node_id.clone() title=title.unwrap_or_default()>
                 <span class="build-tree-spacer" aria-hidden="true"></span>
-                <span class="build-tree-kind" aria-hidden="true">"·"</span>
+                <span class="build-tree-kind" aria-hidden="true">{runtime_kind_glyph(&node.node_id, &node.kind)}</span>
                 <span class="build-tree-label">
-                    {node.label.clone()}
-                    {badge.map(|value| view! {
+                    {short_label}
+                    {badges.into_iter().take(2).map(|value| view! {
                         <span class="build-tree-badge build-tree-badge--meta">{value}</span>
-                    })}
+                    }).collect_view()}
                 </span>
             </a>
         </li>
     }
     .into_any()
+}
+
+fn shorten_tree_label(label: &str) -> String {
+    const MAX: usize = 52;
+    let trimmed = label.trim();
+    if trimmed.chars().count() <= MAX {
+        return trimmed.to_string();
+    }
+    format!("{}…", trimmed.chars().take(MAX).collect::<String>())
+}
+
+fn runtime_kind_glyph(node_id: &str, kind: &str) -> &'static str {
+    if node_id.starts_with("overview-") {
+        return "◆";
+    }
+    if node_id.starts_with("l1-") {
+        return "◫";
+    }
+    if node_id.starts_with("l2-") {
+        return "⌁";
+    }
+    if node_id.starts_with("l3-") {
+        return "⬡";
+    }
+    if node_id.starts_with("l4-") || node_id.starts_with("mrg-slot:") {
+        return "▣";
+    }
+    if node_id.starts_with("build-") {
+        return "⚙";
+    }
+    if node_id.starts_with("log") {
+        return "!";
+    }
+    match kind {
+        "mrg_slot" => "▣",
+        _ => "·",
+    }
 }

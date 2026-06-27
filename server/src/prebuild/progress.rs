@@ -46,7 +46,7 @@ pub(crate) fn prebuild_progress_heartbeat_secs() -> u64 {
             .ok()
             .and_then(|value| value.trim().parse::<u64>().ok())
             .filter(|value| *value >= 5)
-            .unwrap_or(30)
+            .unwrap_or(10)
     })
 }
 
@@ -331,9 +331,9 @@ pub(crate) fn prebuild_emit_success_banner(title: &str, detail_lines: &[&str]) {
     }
     eprintln!("{}", ansi_wrap(&border, green));
     let _ = std::io::stderr().flush();
-    tracing::warn!(target: "mei.startup", title = %title, "prebuild status banner");
+    tracing::info!(target: "mei.startup", title = %title, "prebuild status banner");
     for line in detail_lines {
-        tracing::warn!(target: "mei.startup", "{}", line);
+        tracing::info!(target: "mei.startup", "{}", line);
     }
 }
 
@@ -349,7 +349,7 @@ pub(crate) fn prebuild_emit_notice(message: impl AsRef<str>) {
         None => "[PREBUILD]".to_string(),
     };
     prebuild_emit_stderr_line(&prefix, message.as_ref(), "1;32");
-    tracing::warn!(target: "mei.startup", "{prefix} {}", message.as_ref());
+    tracing::info!(target: "mei.startup", "{prefix} {}", message.as_ref());
 }
 
 pub(crate) fn prebuild_emit_progress(message: impl AsRef<str>) {

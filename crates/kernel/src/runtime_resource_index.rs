@@ -172,8 +172,17 @@ fn resolve_dataset_resource_id_with_index(
             }
 
             if let Some(capsule_path) = imported_capsule_path_from_world_metrics_resource_id(&key) {
-                let active_target = compiled.active_target_file.trim();
-                if active_target == capsule_path.trim()
+                if compiled
+                    .resources
+                    .iter()
+                    .any(|resource| resource.id == key && resource.dataset.is_some())
+                {
+                    return Ok(key.to_string());
+                }
+                let active_target =
+                    crate::canonical_app_source_rel_path(compiled.active_target_file.trim());
+                let capsule = crate::canonical_app_source_rel_path(capsule_path.trim());
+                if active_target == capsule
                     && compiled
                         .resources
                         .iter()
@@ -485,14 +494,52 @@ mod tests {
     }
 
     #[test]
-    fn resolves_namespaced_dataset_selector_to_local_id_on_board_capsule_compile() {
-        let capsule = "scenes/09-监督典型案例.mei";
-        let local_id = "typical_cases";
-        let namespaced = format!("{capsule}::{local_id}");
+    fn resolves_imported_world_metrics_owner_on_home_landing_assemble() {
+        let capsule = "scenes/07-问题办理.mei";
+        let owner = format!("__world_metrics__::{capsule}::metrics");
+        let metric_key = format!("{capsule}::effectiveness_completed_count");
+        let metric_key_for_defs = metric_key.clone();
         let mut compiled = sample_compiled();
-        compiled.active_target_file = "scenes/09-监督典型案例.board.mei".to_string();
-        compiled.resources = vec![sample_dataset_resource(local_id)];
-        let id = resolve_dataset_resource_id(&compiled, &namespaced, None).expect("resolve");
-        assert_eq!(id, local_id);
+        compiled.active_target_file = "scenes/home.mei".to_string();
+        compiled.resources.push(LoadedResource {
+            id: owner.clone(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: Some(DatasetView {
+                id: owner.clone(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                source: SourceDecl {
+                    kind: "world_metrics".to_string(),
+                    path: String::new(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: Default::default(),
+                runtime_metric_defs: BTreeMap::from([(
+                    metric_key_for_defs,
+                    json!({"id": metric_key, "shape": "scalar_map"}),
+                )]),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
+            }),
+        });
+        let id = resolve_dataset_resource_id(&compiled, owner.as_str(), None).expect("resolve");
+        assert_eq!(id, owner);
+        let resource = locate_dataset_resource(&compiled, owner.as_str()).expect("locate");
+        assert_eq!(resource.id, owner);
     }
 }

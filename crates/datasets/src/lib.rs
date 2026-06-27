@@ -198,6 +198,7 @@ pub fn metric_response_artifact_lookup_cache_keys(
     filter_intents: &[FilterIntent],
     prefer_prebuild_keys: bool,
     slot_revision: Option<&str>,
+    dependency_metric_defs: Option<&BTreeMap<String, serde_json::Value>>,
 ) -> Vec<String> {
     metric_cache_key::metric_response_artifact_lookup_cache_keys(
         app_id,
@@ -212,6 +213,7 @@ pub fn metric_response_artifact_lookup_cache_keys(
         filter_intents,
         prefer_prebuild_keys,
         slot_revision,
+        dependency_metric_defs,
     )
 }
 

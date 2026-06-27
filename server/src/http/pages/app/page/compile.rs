@@ -322,38 +322,36 @@ fn render_artifact_unavailable(
     scope_gate: crate::readiness::scope_gate::ScopeGateReport,
 ) -> Response {
     let is_build = route_mode == UiRouteMode::Build;
-    let mut actions = vec![HostShellAction {
-        href: "/".to_string(),
-        label: "返回首页".to_string(),
-        primary: !is_build,
-    }];
+    let mut actions = vec![
+        HostShellAction {
+            href: "/host".to_string(),
+            label: "打开宿主控制台".to_string(),
+            primary: !is_build,
+        },
+        HostShellAction {
+            href: "/login".to_string(),
+            label: "登录".to_string(),
+            primary: false,
+        },
+    ];
     if is_build {
-        actions.insert(
-            0,
-            HostShellAction {
-                href: format!("/apps/build/{app_id}?tab=overview"),
-                label: "打开构建概览".to_string(),
-                primary: false,
-            },
-        );
+        actions.push(HostShellAction {
+            href: format!("/apps/build/{app_id}?tab=overview"),
+            label: "打开构建概览".to_string(),
+            primary: false,
+        });
     } else if let Some(scene_id) = scene_hint.map(str::trim).filter(|value| !value.is_empty()) {
-        actions.insert(
-            0,
-            HostShellAction {
-                href: format!("/apps/app/{app_id}/scene/{scene_id}?chrome=none"),
-                label: "重试当前场景".to_string(),
-                primary: true,
-            },
-        );
+        actions.push(HostShellAction {
+            href: format!("/apps/app/{app_id}/scene/{scene_id}?chrome=none"),
+            label: "重试当前场景".to_string(),
+            primary: false,
+        });
     } else if let Some(target) = target_hint.map(str::trim).filter(|value| !value.is_empty()) {
-        actions.insert(
-            0,
-            HostShellAction {
-                href: format!("/apps/build/{app_id}?file={target}"),
-                label: "打开构建视图".to_string(),
-                primary: false,
-            },
-        );
+        actions.push(HostShellAction {
+            href: format!("/apps/build/{app_id}?file={target}"),
+            label: "打开构建视图".to_string(),
+            primary: false,
+        });
     }
     let gate = host_api::artifact_gate_status(app_id, scene_hint, target_hint);
     let blocker_detail = if scope_gate.blockers.is_empty() {
@@ -376,12 +374,13 @@ fn render_artifact_unavailable(
     } else {
         blocker_detail.as_deref().map_or_else(
             || {
-                "当前 access-only 宿主已切到 artifact-first 主路径，请先等待后台构建完成，或在构建视图中手动触发重建。"
-                    .to_string()
+                format!(
+                    "应用 `{app_id}` 访问态产物尚未就绪；宿主控制台仍可用（/host）。请先等待后台 prebuild，或在构建视图中手动重建。"
+                )
             },
             |error| {
                 format!(
-                    "当前访问请求命中了未就绪产物；宿主不会因访问触发编译。最近一次构建状态：{error}"
+                    "应用 `{app_id}` 命中未就绪产物；宿主不会因访问触发编译，但 /host 仍可进入。blocker：{error}"
                 )
             },
         )

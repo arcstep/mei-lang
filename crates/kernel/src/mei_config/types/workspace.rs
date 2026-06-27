@@ -270,6 +270,44 @@ pub struct WorkspaceBuildConfig {
     pub retain_build_generations: Option<u32>,
 }
 
+/// Prebuild / compile 范围过滤：按 target 路径 glob 与 scene export id 选择编译对象。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompileScopeFilterConfig {
+    /// 仅编译匹配的 target（相对 app `src/`，如 `scenes/home.mei`）。空 = 不限（仍受 exclude 约束）。
+    #[serde(default, rename = "includeTargets")]
+    pub include_targets: Vec<String>,
+    /// 排除的 target glob，如 `**/*.board.mei`、`scenes/_shared/**`。
+    #[serde(default, rename = "excludeTargets")]
+    pub exclude_targets: Vec<String>,
+    /// 排除的 scene export id glob，如 `*_analytics_board`。
+    #[serde(default, rename = "excludeSceneIds")]
+    pub exclude_scene_ids: Vec<String>,
+    /// 为 true 时不把 discover 展开项加入 compile 队列（仅同步 MRG navigation）。
+    #[serde(default, rename = "skipDiscover")]
+    pub skip_discover: Option<bool>,
+    /// 为 true 时不把 board autogen 推导的 `.board.mei` focus 注入 manifest。
+    #[serde(default, rename = "skipBoardAutogenFocus")]
+    pub skip_board_autogen_focus: Option<bool>,
+}
+
+impl CompileScopeFilterConfig {
+    pub fn is_active(&self) -> bool {
+        !self.include_targets.is_empty()
+            || !self.exclude_targets.is_empty()
+            || !self.exclude_scene_ids.is_empty()
+            || self.skip_discover == Some(true)
+            || self.skip_board_autogen_focus == Some(true)
+    }
+
+    pub fn should_skip_discover(&self) -> bool {
+        self.skip_discover.unwrap_or(false)
+    }
+
+    pub fn should_skip_board_autogen_focus(&self) -> bool {
+        self.skip_board_autogen_focus.unwrap_or(false)
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceDeployAccessEntry {
     #[serde(default, rename = "defaultApp")]
@@ -334,6 +372,9 @@ pub struct WorkspaceWarmupAppConfig {
     /// App-relative xlsx paths to preload into L3 table snapshot cache.
     #[serde(default, rename = "xlsxSources")]
     pub xlsx_sources: Vec<WorkspaceWarmupXlsxConfig>,
+    /// Prebuild 编译范围：include/exclude target 与 scene export，用于首页-only 等快速验证。
+    #[serde(default, rename = "compileScope")]
+    pub compile_scope: Option<CompileScopeFilterConfig>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -389,6 +430,8 @@ pub struct RuntimeWarmupApp {
     pub datasets: Vec<RuntimeWarmupDatasetRequest>,
     #[serde(default, rename = "xlsxSources")]
     pub xlsx_sources: Vec<RuntimeWarmupXlsxSource>,
+    #[serde(default, rename = "compileScope")]
+    pub compile_scope: Option<CompileScopeFilterConfig>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

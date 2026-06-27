@@ -230,14 +230,21 @@ pub(super) fn render_compiled_success(
     let mut scene_bundle_revision_header: Option<String> = None;
     let mut scene_bundle_probe_ms = 0u64;
     let mut scene_bundle_build_scheduled = false;
-    let runtime_observability_roots = if route_mode == UiRouteMode::Runtime {
-        crate::http::runtime_snapshot::build_runtime_observability_roots(
+    let runtime_snapshot = if route_mode == UiRouteMode::Runtime {
+        Some(crate::http::runtime_snapshot::build_runtime_observability_snapshot(
             state.source_root.as_path(),
             app_id,
-        )
+        ))
     } else {
-        Vec::new()
+        None
     };
+    let runtime_observability_roots = runtime_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.roots.as_slice())
+        .unwrap_or(&[]);
+    let runtime_snapshot_json = runtime_snapshot
+        .as_ref()
+        .and_then(|snapshot| serde_json::to_string(snapshot).ok());
     let (mut html, page_render_cache_hit, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
         let (h, cache_hit) = render_page_template_with_cache(render_cache_key, || {
@@ -305,10 +312,11 @@ pub(super) fn render_compiled_success(
                 scene_bundle_for_render,
                 body_theme_style.as_str(),
                 if route_mode == UiRouteMode::Runtime {
-                    Some(runtime_observability_roots.as_slice())
+                    Some(runtime_observability_roots)
                 } else {
                     None
                 },
+                runtime_snapshot_json.as_deref(),
             );
             fill_page_shell_placeholders(rendered, &gis, state.source_root.as_path())
         });

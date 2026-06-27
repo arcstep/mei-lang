@@ -96,6 +96,53 @@ pub(crate) fn collect_request_artifact_plans(
     Ok(())
 }
 
+fn is_world_metrics_warmup_dataset(dataset_id: &str) -> bool {
+    dataset_id.trim().starts_with("__world_metrics__")
+}
+
+fn collect_home_embedded_warmup_artifact_plans(
+    app_id: &str,
+    app_root: &Path,
+    scope: &CompileScope,
+    planning_outcome: &SharedCompileOutcome,
+    all_warmup_requests: &[AggregatedWarmupRequest],
+    metric_worksets: &mut BTreeMap<String, PlannedMetricWorkset>,
+    dataframe_tasks: &mut BTreeMap<String, PlannedDataframeArtifact>,
+) -> Result<()> {
+    for request in all_warmup_requests {
+        if request.scope.key() != scope.key() {
+            continue;
+        }
+        if is_world_metrics_warmup_dataset(request.dataset_id.as_str()) {
+            continue;
+        }
+        if mei_lang_kernel::locate_dataset_resource(
+            &planning_outcome.compiled,
+            request.dataset_id.as_str(),
+        )
+        .is_err()
+        {
+            tracing::debug!(
+                app_id = %app_id,
+                dataset_id = %request.dataset_id,
+                scope = %scope.key(),
+                "skip home embedded warmup artifact plan: dataset not locateable after MCG hydrate"
+            );
+            continue;
+        }
+        collect_request_artifact_plans(
+            app_id,
+            app_root,
+            planning_outcome,
+            request.dataset_id.as_str(),
+            request.metric_ids.as_slice(),
+            metric_worksets,
+            dataframe_tasks,
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn build_scope_artifact_plan(
     source_root: &Path,
     app_id: &str,
@@ -103,6 +150,8 @@ pub(crate) fn build_scope_artifact_plan(
     scope: &CompileScope,
     outcome: &SharedCompileOutcome,
     requests: &[&AggregatedWarmupRequest],
+    scope_profile: PrebuildScopeProfile,
+    all_warmup_requests: &[AggregatedWarmupRequest],
 ) -> Result<ScopeArtifactPlan> {
     let mut metric_worksets = BTreeMap::<String, PlannedMetricWorkset>::new();
     let mut dataframe_tasks = BTreeMap::<String, PlannedDataframeArtifact>::new();
@@ -135,33 +184,94 @@ pub(crate) fn build_scope_artifact_plan(
             compiled: Arc::new(planning_compiled),
             ..outcome.clone()
         };
-        let mut owners = crate::graph::discover_world_metrics_owner_ids(
-            source_root,
-            app_id,
-            &planning_outcome.compiled,
-        );
-        if owners.is_empty()
-            && compiled_has_world_metrics_runtime_defs(&planning_outcome.compiled)
-        {
-            owners.insert("__world_metrics__".to_string());
-        }
-        for owner in owners {
-            if mei_lang_kernel::locate_dataset_resource(&planning_outcome.compiled, owner.as_str())
-                .is_err()
-            {
-                tracing::debug!(
-                    app_id = %app_id,
-                    owner = %owner,
-                    "skip home embedded world_metrics artifact plan: owner not locateable after MCG hydrate"
-                );
-                continue;
+        if scope_profile == PrebuildScopeProfile::HotOnly {
+            let mut owners = BTreeMap::<String, Vec<String>>::new();
+            for request in all_warmup_requests {
+                let owner = request.dataset_id.trim();
+                if owner.is_empty() || !is_world_metrics_warmup_dataset(owner) {
+                    continue;
+                }
+                owners
+                    .entry(owner.to_string())
+                    .or_default()
+                    .extend(request.metric_ids.iter().cloned());
             }
-            collect_request_artifact_plans(
+            for (owner, mut metric_ids) in owners {
+                metric_ids.sort_unstable();
+                metric_ids.dedup();
+                if mei_lang_kernel::locate_dataset_resource(
+                    &planning_outcome.compiled,
+                    owner.as_str(),
+                )
+                .is_err()
+                {
+                    tracing::debug!(
+                        app_id = %app_id,
+                        owner = %owner,
+                        "skip hot-only world_metrics artifact plan: owner not locateable after MCG hydrate"
+                    );
+                    continue;
+                }
+                collect_request_artifact_plans(
+                    app_id,
+                    app_root,
+                    &planning_outcome,
+                    owner.as_str(),
+                    metric_ids.as_slice(),
+                    &mut metric_worksets,
+                    &mut dataframe_tasks,
+                )?;
+            }
+            collect_home_embedded_warmup_artifact_plans(
                 app_id,
                 app_root,
+                scope,
                 &planning_outcome,
-                owner.as_str(),
-                &[],
+                all_warmup_requests,
+                &mut metric_worksets,
+                &mut dataframe_tasks,
+            )?;
+        } else {
+            let mut owners = crate::graph::discover_world_metrics_owner_ids(
+                source_root,
+                app_id,
+                &planning_outcome.compiled,
+            );
+            if owners.is_empty()
+                && compiled_has_world_metrics_runtime_defs(&planning_outcome.compiled)
+            {
+                owners.insert("__world_metrics__".to_string());
+            }
+            for owner in owners {
+                if mei_lang_kernel::locate_dataset_resource(
+                    &planning_outcome.compiled,
+                    owner.as_str(),
+                )
+                .is_err()
+                {
+                    tracing::debug!(
+                        app_id = %app_id,
+                        owner = %owner,
+                        "skip home embedded world_metrics artifact plan: owner not locateable after MCG hydrate"
+                    );
+                    continue;
+                }
+                collect_request_artifact_plans(
+                    app_id,
+                    app_root,
+                    &planning_outcome,
+                    owner.as_str(),
+                    &[],
+                    &mut metric_worksets,
+                    &mut dataframe_tasks,
+                )?;
+            }
+            collect_home_embedded_warmup_artifact_plans(
+                app_id,
+                app_root,
+                scope,
+                &planning_outcome,
+                all_warmup_requests,
                 &mut metric_worksets,
                 &mut dataframe_tasks,
             )?;

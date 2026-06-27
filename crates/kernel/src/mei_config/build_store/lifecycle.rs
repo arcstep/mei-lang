@@ -16,6 +16,89 @@ use super::types::{
     read_links_state, write_links_state, BuildManifest, BUILD_MANIFEST_SCHEMA,
 };
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ContentStoreMergeStats {
+    pub copied_files: usize,
+    pub skipped_existing: usize,
+}
+
+fn build_content_store_dir(build_store_dir: &Path) -> PathBuf {
+    build_store_dir.join("store").join("content")
+}
+
+/// Copy missing CAS blobs from `from_build_store` into `to_build_store` (content-addressed, skip existing).
+pub fn merge_build_content_store(
+    from_build_store: &Path,
+    to_build_store: &Path,
+) -> Result<ContentStoreMergeStats> {
+    let from = build_content_store_dir(from_build_store);
+    if !from.is_dir() {
+        return Ok(ContentStoreMergeStats::default());
+    }
+    let to = build_content_store_dir(to_build_store);
+    let mut stats = ContentStoreMergeStats::default();
+    for kind_entry in fs::read_dir(&from)? {
+        let kind_entry = kind_entry?;
+        if !kind_entry.file_type()?.is_dir() {
+            continue;
+        }
+        let kind_name = kind_entry.file_name();
+        let to_kind = to.join(&kind_name);
+        fs::create_dir_all(&to_kind)?;
+        for blob_entry in fs::read_dir(kind_entry.path())? {
+            let blob_entry = blob_entry?;
+            if !blob_entry.file_type()?.is_file() {
+                continue;
+            }
+            let dest = to_kind.join(blob_entry.file_name());
+            if dest.exists() {
+                stats.skipped_existing += 1;
+                continue;
+            }
+            fs::copy(blob_entry.path(), &dest)?;
+            stats.copied_files += 1;
+        }
+    }
+    Ok(stats)
+}
+
+fn seed_build_content_store_from_active(
+    app_root: &Path,
+    active_build_id: &str,
+    target_store_dir: &Path,
+) -> Result<ContentStoreMergeStats> {
+    merge_build_content_store(
+        &app_build_store_dir(app_root, active_build_id),
+        target_store_dir,
+    )
+}
+
+fn union_historical_build_content_into_target(
+    app_root: &Path,
+    target_build_id: &str,
+) -> Result<ContentStoreMergeStats> {
+    let store_parent = app_root.join("build").join("store");
+    if !store_parent.is_dir() {
+        return Ok(ContentStoreMergeStats::default());
+    }
+    let target_dir = app_build_store_dir(app_root, target_build_id);
+    let mut total = ContentStoreMergeStats::default();
+    for entry in fs::read_dir(&store_parent)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == target_build_id {
+            continue;
+        }
+        let stats = merge_build_content_store(&entry.path(), &target_dir)?;
+        total.copied_files += stats.copied_files;
+        total.skipped_existing += stats.skipped_existing;
+    }
+    Ok(total)
+}
+
 pub struct PrebuildGeneration {
     pub build_id: String,
     pub toolchain_version: String,
@@ -25,11 +108,23 @@ pub struct PrebuildGeneration {
 pub fn begin_prebuild_generation(source_root: &Path, app_ids: &[String]) -> Result<PrebuildGeneration> {
     let toolchain_version = resolve_toolchain_version(source_root);
     let build_id = generate_build_id(&toolchain_version);
+    let previous_active = read_links_state(source_root)
+        .ok()
+        .and_then(|links| links.build.active);
     let mut store_dirs = BTreeMap::new();
     for app_id in app_ids {
         let app_root = resolve_app_root(source_root, app_id);
         let store_dir = app_build_store_dir(&app_root, &build_id);
         fs::create_dir_all(&store_dir)?;
+        if let Some(ref active_id) = previous_active {
+            if active_id != &build_id {
+                let _ = seed_build_content_store_from_active(
+                    app_root.as_path(),
+                    active_id.as_str(),
+                    store_dir.as_path(),
+                );
+            }
+        }
         let var_store = app_var_store_dir(&app_root, &build_id);
         fs::create_dir_all(var_store.join("cache"))?;
         fs::create_dir_all(var_store.join("eval-results"))?;
@@ -114,6 +209,16 @@ pub fn promote_build(source_root: &Path, build_id: Option<&str>) -> Result<Strin
         .map(str::to_string)
         .or_else(|| links.build.candidate.clone())
         .ok_or_else(|| anyhow::anyhow!("no build candidate to promote"))?;
+    let apps_root = resolve_apps_root(source_root);
+    if apps_root.is_dir() {
+        for entry in fs::read_dir(&apps_root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            union_historical_build_content_into_target(&entry.path(), target.as_str())?;
+        }
+    }
     if links.build.active.as_deref() == Some(target.as_str()) {
         return Ok(target);
     }

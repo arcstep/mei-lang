@@ -22,6 +22,8 @@ mod shell_presentation;
 mod shell_preview_layout;
 mod shell_runtime;
 mod shell_upload;
+mod runtime_panels;
+mod runtime_snapshot_view;
 mod runtime_tree;
 mod source_tree;
 mod statusbar;
@@ -171,6 +173,7 @@ pub fn render_page(
     scene_component_bundle_url: Option<&str>,
     shell_body_theme_style: &str,
     runtime_roots: Option<&[mei_lang_kernel::ReachabilityTreeRoot]>,
+    runtime_snapshot_json: Option<&str>,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -231,6 +234,8 @@ pub fn render_page(
             topbar_menu,
             runtime_roots.unwrap_or(&[]),
             node,
+            active_tab,
+            runtime_snapshot_json,
             upload_enabled,
             auth_enabled,
             auth_account,

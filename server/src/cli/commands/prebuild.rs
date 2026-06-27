@@ -10,7 +10,8 @@ use super::super::util::{
 };
 use crate::agent_runtime;
 use crate::prebuild::{
-    clean_workspace_prebuild_artifacts, persist_prebuild_report, prebuild_set_output_quiet,
+    clean_workspace_prebuild_artifacts, persist_prebuild_report, prebuild_emit_notice,
+    prebuild_set_output_quiet, PrebuildPhaseSession, PrebuildPhaseTracker, PrebuildProgressSession,
     run_prebuild, PrebuildMode, PrebuildOptions, PrebuildReport, PrebuildScopeProfile,
     PrebuildWarningSummary,
 };
@@ -28,7 +29,8 @@ pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
         anyhow::bail!("`--clean` without `--prebuild` only clears artifacts; remove --force-rebuild / --hot-only");
     }
     let json_mode = args.json || args.json_full;
-    prebuild_set_output_quiet(json_mode);
+    // `--json` 仅影响 stdout 摘要；stderr 仍输出分步进度，避免长时间无输出像卡死。
+    prebuild_set_output_quiet(false);
     let package_root = resolve_package_root()?;
     agent_runtime::runtime::load_repo_dotenv(&package_root);
     let raw_source_root =
@@ -48,18 +50,41 @@ pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
                 "schema_version": "mei-cli-v1",
                 "command": "prebuild_clean",
                 "ok": true,
+                "source_root": clean_report.source_root,
                 "cleaned_apps": clean_report.cleaned_apps,
+                "app_details": clean_report.app_details,
+                "workspace_artifacts_removed": clean_report.workspace_artifacts_removed,
+                "build_links_reset": clean_report.build_links_reset,
                 "clean_wall_ms": clean_report.clean_wall_ms,
             });
             print_json_output(&payload, false)?;
         } else {
             println!(
-                "prebuild artifacts cleaned in {:.2}s | workspace={}",
+                "cold-start clean done in {:.2}s | workspace={}",
                 clean_report.clean_wall_ms as f64 / 1000.0,
                 clean_report.source_root
             );
             if !clean_report.cleaned_apps.is_empty() {
                 println!("  apps: {}", clean_report.cleaned_apps.join(", "));
+            }
+            for detail in &clean_report.app_details {
+                println!(
+                    "  {} | build={} var={} graph={} compile_cache={}",
+                    detail.app_id,
+                    detail.removed_build_store,
+                    detail.removed_var_store,
+                    detail.removed_graph_registry,
+                    detail.compile_cache_entries,
+                );
+            }
+            if !clean_report.workspace_artifacts_removed.is_empty() {
+                println!(
+                    "  workspace: {}",
+                    clean_report.workspace_artifacts_removed.join(", ")
+                );
+            }
+            if clean_report.build_links_reset {
+                println!("  deploy/state/links.json build pointers reset");
             }
             crate::prebuild::prebuild_emit_success_banner(
                 "CLEAN OK",
@@ -76,10 +101,25 @@ pub fn prebuild_command(args: PrebuildArgs) -> Result<()> {
         return Ok(());
     }
 
+    let _progress_session = PrebuildProgressSession::begin();
+    let _phase_session = PrebuildPhaseSession::begin(source_root.as_path());
+    PrebuildPhaseTracker::global().set_phase(
+        source_root.as_path(),
+        "author_skill",
+        None,
+        Some("检查/安装 workspace author skill"),
+    );
+    let skill_started = std::time::Instant::now();
     let skill_report = mei_lang_toolchain::ensure_workspace_author_skill_package(
         source_root.as_path(),
         package_root.as_path(),
     )?;
+    prebuild_emit_notice(format!(
+        "✓ author_skill | files={} installed_now={} | {}ms",
+        skill_report.file_count,
+        skill_report.installed_now,
+        skill_started.elapsed().as_millis()
+    ));
     if skill_report.installed_now {
         eprintln!(
             "installed workspace-local author skill at {}",

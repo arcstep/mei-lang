@@ -11,8 +11,22 @@ pub(crate) struct PrebuildCompileSession {
     pub(crate) expanded_board_targets: BTreeSet<String>,
     /// When set, discover expansion only keeps scopes for these scene ids (+ target-only scopes).
     pub(crate) hot_only_scene_ids: Option<BTreeSet<String>>,
-    /// When set, discover expansion is skipped (block-scoped MCG pass).
+    /// When set, discover expansion is skipped (block-scoped MCG pass or compileScope.skipDiscover).
     pub(crate) skip_discover: bool,
+    /// When set, discover expansion only keeps scopes allowed by workspace compileScope.
+    pub(crate) compile_scope: Option<mei_lang_kernel::CompileScopeFilterConfig>,
+    /// When false (default), discover only syncs MRG navigation — no pending compile enqueue.
+    pub(crate) discover_enqueue_compile: bool,
+}
+
+pub(crate) fn prebuild_discover_enqueue_compile_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("MEI_PREBUILD_DISCOVER_ENQUEUE")
+            .ok()
+            .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+            .unwrap_or(false)
+    })
 }
 
 impl PrebuildCompileSession {
@@ -104,6 +118,22 @@ impl PrebuildCompileSession {
         self.expanded_board_targets
             .insert(board_target.clone());
         discovered.to_vec()
+    }
+
+    pub(crate) fn filter_compile_scope(&self, discovered: Vec<CompileScope>) -> Vec<CompileScope> {
+        let Some(config) = self.compile_scope.as_ref() else {
+            return discovered;
+        };
+        discovered
+            .into_iter()
+            .filter(|scope| {
+                mei_lang_kernel::compile_scope_entry_allowed(
+                    Some(config),
+                    scope.requested_scene_id.as_deref(),
+                    scope.requested_target_file.as_deref(),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn filter_hot_only_discovered(&self, discovered: Vec<CompileScope>) -> Vec<CompileScope> {

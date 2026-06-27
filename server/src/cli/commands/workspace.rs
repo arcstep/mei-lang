@@ -7,6 +7,7 @@ use super::super::args::{
     WorkspaceStockCommand,
 };
 use super::super::util::{print_json_output, resolve_cli_source_root, resolve_package_root};
+use crate::prebuild::clean_workspace_prebuild_artifacts;
 
 pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
@@ -224,6 +225,59 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
             print_json_output(&output, args.json)
         }
         WorkspaceCommand::Build(args) => match args.command {
+            WorkspaceBuildCommand::Clean(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let app_filter = args
+                    .app_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                let report =
+                    clean_workspace_prebuild_artifacts(source_root.as_path(), app_filter)?;
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.build.clean",
+                    "ok": true,
+                    "source_root": report.source_root,
+                    "cleaned_apps": report.cleaned_apps,
+                    "app_details": report.app_details,
+                    "workspace_artifacts_removed": report.workspace_artifacts_removed,
+                    "build_links_reset": report.build_links_reset,
+                    "clean_wall_ms": report.clean_wall_ms,
+                });
+                if args.json {
+                    print_json_output(&output, false)?;
+                } else {
+                    println!(
+                        "cold-start clean done in {:.2}s | workspace={}",
+                        report.clean_wall_ms as f64 / 1000.0,
+                        report.source_root
+                    );
+                    if !report.cleaned_apps.is_empty() {
+                        println!("  apps: {}", report.cleaned_apps.join(", "));
+                    }
+                    for detail in &report.app_details {
+                        println!(
+                            "  {} | build={} var={} graph={} compile_cache={}",
+                            detail.app_id,
+                            detail.removed_build_store,
+                            detail.removed_var_store,
+                            detail.removed_graph_registry,
+                            detail.compile_cache_entries,
+                        );
+                    }
+                    if !report.workspace_artifacts_removed.is_empty() {
+                        println!(
+                            "  workspace: {}",
+                            report.workspace_artifacts_removed.join(", ")
+                        );
+                    }
+                    if report.build_links_reset {
+                        println!("  deploy/state/links.json build pointers reset");
+                    }
+                }
+                Ok(())
+            }
             WorkspaceBuildCommand::Promote(args) => {
                 let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
                 let build_id = mei_lang_kernel::promote_build(

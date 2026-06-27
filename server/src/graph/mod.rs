@@ -23,9 +23,10 @@ pub use dedup::{
 };
 pub use integration::{
     app_graph_fingerprint, bundle_unchanged_owners, discover_world_metrics_owner_ids,
-    hydrate_compiled_for_prebuild_eval, maybe_update_graph_after_compile,
-    record_prebuild_dataframe_slot, record_prebuild_slot, record_prebuild_slot_failed,
-    runtime_payloads_from_compiled, schedule_warmup_frontier, try_assemble_scope_from_scene_payload,
+    embedded_capsule_target_files, hydrate_compiled_for_prebuild_eval,
+    maybe_update_graph_after_compile, record_prebuild_dataframe_slot, record_prebuild_slot,
+    record_prebuild_slot_failed, runtime_payloads_from_compiled, schedule_warmup_frontier,
+    try_assemble_scope_from_scene_payload,
 };
 pub use observability::{
     run_graph_doctor, run_graph_inspect, run_graph_status, run_scope_gate_check,

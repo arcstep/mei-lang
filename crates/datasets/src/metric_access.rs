@@ -4,8 +4,10 @@ use std::time::Instant;
 
 use anyhow::Result;
 use mei_lang_kernel::{
-    evaluate_runtime_metric_defs_with_scope, CompiledApp, DatasetView, FilterIntent,
-    MetricContract, QueryState, RuntimeMetricEvalReport, RuntimeMetricEvalScope,
+    capsule_path_from_namespaced_resource_id, evaluate_runtime_metric_defs_with_scope,
+    imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
+    CompiledApp, DatasetView, FilterIntent, MetricContract, QueryState, RuntimeMetricEvalReport,
+    RuntimeMetricEvalScope,
 };
 
 use super::agg_result_cache::{agg_result_cache_key, lookup_agg_result_cache, store_agg_result_cache};
@@ -58,6 +60,99 @@ pub struct RuntimeMetricEvalOutcome {
     pub eval_report: Option<RuntimeMetricEvalReport>,
 }
 
+fn capsule_path_aliases(capsule_path: &str) -> Vec<String> {
+    let capsule_path = capsule_path.trim();
+    if capsule_path.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![capsule_path.to_string()];
+    if let Some(stripped) = capsule_path.strip_prefix("src/") {
+        out.push(stripped.to_string());
+    } else {
+        out.push(format!("src/{capsule_path}"));
+    }
+    out
+}
+
+fn capsule_paths_for_dataset_binding(
+    primary_resource_id: &str,
+    referenced_dataset_ids: &BTreeSet<String>,
+    active_target_file: &str,
+) -> BTreeSet<String> {
+    let mut paths = BTreeSet::new();
+    if let Some(path) = imported_capsule_path_from_world_metrics_resource_id(primary_resource_id) {
+        paths.insert(path);
+    }
+    if let Some(path) = capsule_path_from_namespaced_resource_id(primary_resource_id) {
+        paths.insert(path.to_string());
+    }
+    for dataset_id in referenced_dataset_ids {
+        if let Some(path) = capsule_path_from_namespaced_resource_id(dataset_id) {
+            paths.insert(path.to_string());
+        }
+    }
+    let target = active_target_file.trim();
+    if !target.is_empty() {
+        paths.insert(target.to_string());
+        if let Some(stripped) = target.strip_prefix("src/") {
+            paths.insert(stripped.to_string());
+        } else {
+            paths.insert(format!("src/{target}"));
+        }
+    }
+    paths
+}
+
+fn resource_matches_capsule_paths(
+    resource_id: &str,
+    dataset_id: &str,
+    capsule_paths: &BTreeSet<String>,
+) -> bool {
+    capsule_paths.iter().any(|capsule_path| {
+        capsule_path_aliases(capsule_path).into_iter().any(|alias| {
+            resource_id == alias
+                || dataset_id == alias
+                || resource_id.starts_with(&format!("{alias}::"))
+                || dataset_id.starts_with(&format!("{alias}::"))
+        })
+    })
+}
+
+fn standalone_capsule_local_dataset(
+    resource_id: &str,
+    dataset_id: &str,
+    capsule_paths: &BTreeSet<String>,
+    active_target_file: &str,
+) -> bool {
+    if resource_id.contains("::") || dataset_id.contains("::") || resource_id != dataset_id {
+        return false;
+    }
+    let target = active_target_file.trim();
+    if target.is_empty() || !target.ends_with(".mei") {
+        return false;
+    }
+    capsule_paths.iter().any(|capsule_path| {
+        capsule_path_aliases(capsule_path).into_iter().any(|alias| alias == target)
+    })
+}
+
+fn insert_dataset_aliases(
+    datasets: &mut BTreeMap<String, DatasetView>,
+    resource_id: &str,
+    dataset: DatasetView,
+) {
+    let primary_alias_missing = !datasets.contains_key(&dataset.id);
+    datasets.insert(resource_id.to_string(), dataset.clone());
+    if primary_alias_missing {
+        datasets.insert(dataset.id.clone(), dataset.clone());
+    }
+    for token in [resource_id, dataset.id.as_str()] {
+        if let Some(local) = local_dataset_id_from_namespaced_token(token) {
+            datasets.entry(local.to_string()).or_insert_with(|| dataset.clone());
+        }
+    }
+}
+
 pub fn build_compiled_datasets_map(
     compiled: &CompiledApp,
     primary_resource_id: &str,
@@ -65,29 +160,42 @@ pub fn build_compiled_datasets_map(
     referenced_dataset_ids: &BTreeSet<String>,
 ) -> BTreeMap<String, DatasetView> {
     let runtime_dataset_id = runtime_dataset.id.clone();
-    let mut datasets = compiled
-        .resources
-        .iter()
-        .filter_map(|resource| {
-            resource
-                .dataset
-                .clone()
-                .map(|dataset| (resource.id.clone(), dataset))
-        })
-        .filter(|(resource_id, dataset)| {
-            resource_id == primary_resource_id
-                || dataset.id == runtime_dataset_id
-                || referenced_dataset_ids.contains(resource_id)
-                || referenced_dataset_ids.contains(&dataset.id)
-        })
-        .fold(BTreeMap::new(), |mut acc, (resource_id, dataset)| {
-            let primary_alias_missing = !acc.contains_key(&dataset.id);
-            acc.insert(resource_id, dataset.clone());
-            if primary_alias_missing {
-                acc.insert(dataset.id.clone(), dataset);
+    let capsule_paths = capsule_paths_for_dataset_binding(
+        primary_resource_id,
+        referenced_dataset_ids,
+        compiled.active_target_file.as_str(),
+    );
+    let mut datasets = BTreeMap::new();
+    for resource in &compiled.resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        let include = resource.id == primary_resource_id
+            || dataset.id == runtime_dataset_id
+            || referenced_dataset_ids.contains(&resource.id)
+            || referenced_dataset_ids.contains(&dataset.id)
+            || resource_matches_capsule_paths(&resource.id, &dataset.id, &capsule_paths)
+            || standalone_capsule_local_dataset(
+                &resource.id,
+                &dataset.id,
+                &capsule_paths,
+                compiled.active_target_file.as_str(),
+            );
+        if !include {
+            continue;
+        }
+        insert_dataset_aliases(&mut datasets, resource.id.as_str(), dataset.clone());
+    }
+    for dataset_id in referenced_dataset_ids {
+        if datasets.contains_key(dataset_id) {
+            continue;
+        }
+        if let Some(local) = local_dataset_id_from_namespaced_token(dataset_id) {
+            if let Some(view) = datasets.get(local).cloned() {
+                datasets.insert(dataset_id.clone(), view);
             }
-            acc
-        });
+        }
+    }
     datasets.insert(primary_resource_id.to_string(), runtime_dataset.clone());
     datasets.insert(runtime_dataset_id, runtime_dataset);
     datasets
@@ -393,4 +501,90 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         eval_scope,
         eval_report,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use mei_lang_kernel::{LoadedResource, SourceDecl};
+
+    use super::*;
+
+    fn minimal_dataset(id: &str) -> DatasetView {
+        DatasetView {
+            id: id.to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "inline".to_string(),
+                path: String::new(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn build_compiled_datasets_map_aliases_capsule_local_warning_list_for_world_metrics() {
+        let owner = "__world_metrics__::scenes/05-监督预警.mei::metrics".to_string();
+        let compiled = CompiledApp {
+            app_id: "data-demo".to_string(),
+            title: String::new(),
+            app_root: String::new(),
+            scene_routes: Vec::new(),
+            active_scene: None,
+            active_target_file: "src/scenes/05-监督预警.mei".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: vec![
+                LoadedResource {
+                    id: owner.clone(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(minimal_dataset(owner.as_str())),
+                },
+                LoadedResource {
+                    id: "warning_list".to_string(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(minimal_dataset("warning_list")),
+                },
+            ],
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
+        };
+        let referenced = BTreeSet::from(["scenes/05-监督预警.mei::warning_list".to_string()]);
+        let runtime = minimal_dataset(owner.as_str());
+        let datasets = build_compiled_datasets_map(&compiled, owner.as_str(), runtime, &referenced);
+        assert!(datasets.contains_key("warning_list"));
+        assert!(datasets.contains_key("scenes/05-监督预警.mei::warning_list"));
+    }
 }

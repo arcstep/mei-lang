@@ -128,14 +128,29 @@ fn stock_catalog_app_meta(source_root: &Path) -> Option<WorkspaceAppMeta> {
     })
 }
 
+fn perf_lab_app_meta(source_root: &Path) -> Option<WorkspaceAppMeta> {
+    let app_root = crate::mei_config::resolve_app_root(source_root, "_perf-lab");
+    if !is_v2_app_root(app_root.as_path()) {
+        return None;
+    }
+    Some(WorkspaceAppMeta {
+        id: "_perf-lab".to_string(),
+        title: "Perf Lab".to_string(),
+        root: app_root.to_string_lossy().to_string(),
+    })
+}
+
 /// Discover apps for Build/manage surfaces, including hidden `_stock-catalog` when present.
 pub fn discover_build_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
     let mut apps = discover_apps(source_root)?;
-    if let Some(catalog) = stock_catalog_app_meta(source_root) {
-        if !apps.iter().any(|app| app.id == catalog.id) {
-            apps.push(catalog);
-            apps.sort_by(|left, right| left.id.cmp(&right.id));
+    for hidden in [stock_catalog_app_meta(source_root), perf_lab_app_meta(source_root)]
+        .into_iter()
+        .flatten()
+    {
+        if !apps.iter().any(|app| app.id == hidden.id) {
+            apps.push(hidden);
         }
     }
+    apps.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(apps)
 }

@@ -1,6 +1,18 @@
 use super::prelude::*;
 use super::*;
 
+fn compile_scope_allows(
+    app: &RuntimeWarmupApp,
+    scene_id: Option<&str>,
+    target_file: Option<&str>,
+) -> bool {
+    mei_lang_kernel::compile_scope_entry_allowed(
+        app.compile_scope.as_ref(),
+        scene_id,
+        target_file,
+    )
+}
+
 pub(crate) fn compile_scopes_for_app(
     app: &RuntimeWarmupApp,
     scope_profile: PrebuildScopeProfile,
@@ -11,6 +23,13 @@ pub(crate) fn compile_scopes_for_app(
     let mut scopes = Vec::new();
     let mut seen = BTreeSet::new();
     let mut push_scope = |scope: CompileScope| {
+        if !compile_scope_allows(
+            app,
+            scope.requested_scene_id.as_deref(),
+            scope.requested_target_file.as_deref(),
+        ) {
+            return;
+        }
         let scope = scope.canonicalized();
         if seen.insert(scope.key()) {
             scopes.push(scope);
@@ -43,6 +62,14 @@ pub(crate) fn compile_scopes_for_app(
         .datasets
         .iter()
         .filter(|request| warmup_dataset_request_in_profile(app, request, scope_profile))
+        .filter(|request| {
+            let scope = warmup_request_scope(request);
+            compile_scope_allows(
+                app,
+                scope.requested_scene_id.as_deref(),
+                scope.requested_target_file.as_deref(),
+            )
+        })
     {
         push_scope(warmup_request_scope(request));
     }
@@ -208,6 +235,14 @@ pub(crate) fn aggregate_warmup_requests(
         .datasets
         .iter()
         .filter(|request| warmup_dataset_request_in_profile(app, request, scope_profile))
+        .filter(|request| {
+            let scope = warmup_request_scope(request);
+            compile_scope_allows(
+                app,
+                scope.requested_scene_id.as_deref(),
+                scope.requested_target_file.as_deref(),
+            )
+        })
     {
         let scope = warmup_request_scope(request);
         let priority = warmup_request_priority(app, request);
@@ -353,6 +388,33 @@ pub(crate) fn matching_warmup_requests_for_outcome<'a>(
     requests
         .iter()
         .filter(|request| warmup_request_matches_outcome(request, outcome))
+        .collect()
+}
+
+/// Hot-only MRG pass: keep default/home compile identity plus scopes with active warmup work.
+pub(crate) fn filter_hot_only_artifact_outcomes(
+    outcomes: Vec<PreparedCompileOutcome>,
+    manifest_plan: &PrebuildManifestPlan,
+    warmup_requests: &[AggregatedWarmupRequest],
+) -> Vec<PreparedCompileOutcome> {
+    let default_key = CompileScope::default_scope().key();
+    let hot_scope_keys = manifest_plan
+        .hot_scopes
+        .iter()
+        .map(|scope| scope.key())
+        .collect::<BTreeSet<_>>();
+    outcomes
+        .into_iter()
+        .filter(|prepared| {
+            let scope_key = prepared.scope.key();
+            if scope_key == default_key {
+                return true;
+            }
+            if hot_scope_keys.contains(scope_key.as_str()) {
+                return true;
+            }
+            !matching_warmup_requests_for_outcome(warmup_requests, &prepared.outcome).is_empty()
+        })
         .collect()
 }
 

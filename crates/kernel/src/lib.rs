@@ -2,6 +2,7 @@ mod auth_journal;
 mod cache_generation;
 mod catalog_app;
 mod compile;
+mod compile_scope_filter;
 mod compile_semantics;
 mod config_refs;
 mod eval;
@@ -31,6 +32,9 @@ pub use cache_generation::{
     load_cache_generation, resolve_app_data_generation, save_cache_generation,
     CacheGenerationRecord, SourceGenerationRecord, CACHE_GENERATION_REL,
     CACHE_GENERATION_SCHEMA_VERSION, DEFAULT_DATABASE_TTL_MS,
+};
+pub use compile_scope_filter::{
+    compile_scope_entry_allowed, compile_scope_scene_id_allowed, compile_scope_target_allowed,
 };
 pub use compile::{
     block_instance_id, build_experience_index, build_experience_path, build_overview_backing,
@@ -113,7 +117,8 @@ pub use mei_config::{
     toolchain_store_dir,
     app_build_store_dir, app_var_store_dir, promote_build, read_build_manifest, read_links_state,
     resolve_app_build_store_root, resolve_active_build_id, resolve_toolchain_version, rollback_build,
-    set_prebuild_build_root_override, write_build_manifest, write_links_state,
+    restore_prebuild_build_root_override, set_prebuild_build_root_override,
+    snapshot_prebuild_build_root_override, write_build_manifest, write_links_state,
     resolve_mei_config_path, resolve_templates_root, resolve_workspace_source_root_from_app_root,
     resolve_live_ops_theme_value,
     resolve_workspace_shell_theme,
@@ -130,7 +135,8 @@ pub use mei_config::{
     WorkspaceStockBootstrapConfig, WorkspaceStockCatalogAppConfig, WorkspaceStockCatalogConfig,
     WorkspaceStockCatalogKindConfig, WorkspaceStockConfig, WorkspaceStockPreviewConfig,
     WorkspaceStockSourceEntry, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
-    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, APP_BUILD_STORE_REL,
+    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, CompileScopeFilterConfig,
+    APP_BUILD_STORE_REL,
     APP_CONFIG_FILENAME, APP_VAR_STORE_REL, AUTH_JOURNAL_REL_PATH, BUILD_MANIFEST_FILENAME,
     BUILD_MANIFEST_SCHEMA, DEFAULT_APPS_REL, DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID,
     DEFAULT_STOCK_AUTHORING_REL, DEFAULT_STOCK_CATALOG_APP_ID, DEFAULT_STOCK_COMPONENTS_REL,

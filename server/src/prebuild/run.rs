@@ -1,28 +1,64 @@
 use super::prelude::*;
 use super::*;
 
+fn prebuild_timed_step<T, F>(
+    source_root: &Path,
+    phase: &str,
+    detail: &str,
+    step: F,
+) -> Result<T>
+where
+    F: FnOnce() -> Result<T>,
+{
+    PrebuildPhaseTracker::global().set_phase(source_root, phase, None, Some(detail));
+    let started = Instant::now();
+    let result = step();
+    let ms = started.elapsed().as_millis();
+    match &result {
+        Ok(_) => prebuild_emit_notice(format!("✓ {phase} | {detail} | {ms}ms")),
+        Err(error) => prebuild_emit_notice(format!(
+            "✗ {phase} | {detail} | {ms}ms | {error:#}"
+        )),
+    }
+    result
+}
+
 pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<PrebuildReport> {
-    let _progress_session = PrebuildProgressSession::begin();
     std::env::set_var("MEI_PREBUILD_ACTIVE", "1");
     if let Ok(package_root) = crate::cli::util::resolve_package_root() {
-        let _ = mei_lang_toolchain::ensure_workspace_stock_materialized(
-            source_root,
-            package_root.as_path(),
-        );
-        if let Ok(doctor) =
-            mei_lang_toolchain::doctor_workspace_stock(source_root, package_root.as_path())
-        {
-            if !doctor.ok {
-                tracing::warn!(
-                    missing_trees = doctor.missing_trees.len(),
-                    orphan_paths = doctor.orphan_paths.len(),
-                    manifest_drift = doctor.manifest_drift.len(),
-                    missing_component_previews = doctor.missing_component_previews.len(),
-                    catalog_app_drift = doctor.catalog_app_drift.len(),
-                    "workspace stock doctor reported issues before prebuild (run `mei-toolchain workspace stock doctor` for details)"
-                );
+        prebuild_timed_step(source_root, "stock_materialize", "检查/同步 platform stock", || {
+            mei_lang_toolchain::ensure_workspace_stock_materialized(
+                source_root,
+                package_root.as_path(),
+            )
+            .map(|_| ())
+            .map_err(Into::into)
+        })?;
+        prebuild_timed_step(source_root, "stock_doctor", "workspace stock 一致性检查", || {
+            if let Ok(doctor) =
+                mei_lang_toolchain::doctor_workspace_stock(source_root, package_root.as_path())
+            {
+                if !doctor.ok {
+                    tracing::warn!(
+                        missing_trees = doctor.missing_trees.len(),
+                        orphan_paths = doctor.orphan_paths.len(),
+                        manifest_drift = doctor.manifest_drift.len(),
+                        missing_component_previews = doctor.missing_component_previews.len(),
+                        catalog_app_drift = doctor.catalog_app_drift.len(),
+                        "workspace stock doctor reported issues before prebuild (run `mei-toolchain workspace stock doctor` for details)"
+                    );
+                    prebuild_emit_notice(format!(
+                        "stock doctor: missing_trees={} orphan_paths={} manifest_drift={} missing_previews={} catalog_drift={}",
+                        doctor.missing_trees.len(),
+                        doctor.orphan_paths.len(),
+                        doctor.manifest_drift.len(),
+                        doctor.missing_component_previews.len(),
+                        doctor.catalog_app_drift.len(),
+                    ));
+                }
             }
-        }
+            Ok(())
+        })?;
     }
     let started = Instant::now();
     let manifest_path = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
@@ -31,7 +67,13 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
     } else {
         "workspace_config_fallback"
     };
-    let Some(mut manifest) = resolve_runtime_warmup_manifest(source_root)? else {
+    let Some(mut manifest) = prebuild_timed_step(
+        source_root,
+        "warmup_manifest",
+        &format!("加载 warmup manifest ({manifest_source})"),
+        || resolve_runtime_warmup_manifest(source_root),
+    )?
+    else {
         return Ok(PrebuildReport {
             schema_version: PREBUILD_REPORT_SCHEMA_VERSION.to_string(),
             mode: options.mode,
@@ -61,6 +103,27 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             anyhow::bail!("app `{app_filter}` not found in runtime warmup manifest");
         }
     }
+    prebuild_emit_notice(format!(
+        "warmup plan | apps={} | scope={:?} | compileScope={}",
+        manifest
+            .apps
+            .iter()
+            .map(|app| app.app_id.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        effective_prebuild_scope_profile(options),
+        manifest
+            .apps
+            .iter()
+            .filter_map(|app| {
+                app.compile_scope
+                    .as_ref()
+                    .filter(|scope| scope.is_active())
+                    .map(|_| app.app_id.as_str())
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
     let clean_started = Instant::now();
     if options.clean {
         for app in &manifest.apps {
@@ -99,9 +162,12 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
         && !options.force_rebuild
         && options.app_filter.is_none()
     {
-        if let Some(fingerprint_match) =
-            crate::prebuild_fingerprint::try_match_prebuild_fingerprint(source_root)?
-        {
+        if let Some(fingerprint_match) = prebuild_timed_step(
+            source_root,
+            "fingerprint_check",
+            "对比 inputs fingerprint（决定是否跳过完整 prebuild）",
+            || crate::prebuild_fingerprint::try_match_prebuild_fingerprint(source_root),
+        )? {
             prebuild_emit_notice(format!(
                 "{} | fingerprint={} | 跳过完整 prebuild（输入未变）",
                 ansi_wrap("SKIP", "1;32"),
@@ -137,10 +203,27 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
     ));
     let prebuild_app_ids: Vec<String> = manifest.apps.iter().map(|app| app.app_id.clone()).collect();
     let build_generation = Arc::new(if options.mode == PrebuildMode::Build {
-        Some(begin_prebuild_generation(source_root, &prebuild_app_ids)?)
+        Some(prebuild_timed_step(
+            source_root,
+            "build_generation",
+            &format!(
+                "创建 build store 代次（apps: {}）",
+                prebuild_app_ids.join(", ")
+            ),
+            || begin_prebuild_generation(source_root, &prebuild_app_ids),
+        )?)
     } else {
         None
     });
+    PrebuildPhaseTracker::global().set_phase(
+        source_root,
+        "app_prebuild",
+        None,
+        Some(&format!(
+            "并行 prebuild {} 个 app（profile={effective_profile:?}）",
+            manifest.apps.len()
+        )),
+    );
     let app_results = run_limited_parallel_ordered(
         manifest.apps.clone(),
         prebuild_parallelism(manifest.apps.len()),
@@ -274,39 +357,126 @@ pub(crate) const RECENT_PREBUILD_SKIP_MAX_AGE_SECS: u64 = 4 * 3600;
 /// Trust a fresh CLI prebuild report without re-checking landing gate (avoid duplicate ~100s serve build).
 pub(crate) const RECENT_PREBUILD_TRUST_LANDING_SECS: u64 = 30 * 60;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+pub struct AppColdStartCleanDetail {
+    pub app_id: String,
+    pub compile_cache_entries: usize,
+    pub compiled_app_artifact_files: usize,
+    pub eval_artifact_files: usize,
+    pub removed_build_store: bool,
+    pub removed_var_store: bool,
+    pub removed_legacy_prebuild: bool,
+    pub removed_graph_registry: bool,
+    pub removed_legacy_mei: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct CleanPrebuildArtifactsReport {
     pub source_root: String,
     pub cleaned_apps: Vec<String>,
+    pub app_details: Vec<AppColdStartCleanDetail>,
+    pub workspace_artifacts_removed: Vec<String>,
+    pub build_links_reset: bool,
     pub clean_wall_ms: u64,
 }
 
+fn remove_path_if_exists(path: &Path) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    if path.is_dir() {
+        fs::remove_dir_all(path).with_context(|| format!("remove dir {}", path.display()))?;
+    } else {
+        fs::remove_file(path).with_context(|| format!("remove file {}", path.display()))?;
+    }
+    Ok(true)
+}
+
+fn resolve_clean_app_ids(source_root: &Path, app_filter: Option<&str>) -> Result<Vec<String>> {
+    if let Some(app_filter) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
+        let known = mei_lang_kernel::discover_apps(source_root)?
+            .into_iter()
+            .map(|app| app.id)
+            .collect::<BTreeSet<_>>();
+        if !known.contains(app_filter) {
+            anyhow::bail!("app `{app_filter}` not found in workspace");
+        }
+        return Ok(vec![app_filter.to_string()]);
+    }
+    if let Some(manifest) = resolve_runtime_warmup_manifest(source_root)? {
+        if !manifest.apps.is_empty() {
+            return Ok(manifest
+                .apps
+                .iter()
+                .map(|app| app.app_id.clone())
+                .collect());
+        }
+    }
+    Ok(mei_lang_kernel::discover_apps(source_root)?
+        .into_iter()
+        .map(|app| app.id)
+        .collect())
+}
+
+fn reset_workspace_build_links(source_root: &Path) -> Result<bool> {
+    let mut links = mei_lang_kernel::read_links_state(source_root)?;
+    if links.build.active.is_none()
+        && links.build.candidate.is_none()
+        && links.build.previous.is_none()
+    {
+        return Ok(false);
+    }
+    links.build.active = None;
+    links.build.candidate = None;
+    links.build.previous = None;
+    mei_lang_kernel::write_links_state(source_root, &links)?;
+    Ok(true)
+}
+
+fn clear_workspace_runtime_prebuild_artifacts(source_root: &Path) -> Result<Vec<String>> {
+    let runtime_root = mei_lang_kernel::resolve_workspace_runtime_root(source_root);
+    let mut removed = Vec::new();
+    for name in [
+        "prebuild-last.json",
+        "prebuild-progress.json",
+        "prebuild-state.json",
+    ] {
+        let path = runtime_root.join(name);
+        if remove_path_if_exists(path.as_path())? {
+            removed.push(format!("runtime/{name}"));
+        }
+    }
+    let cache_root = mei_lang_kernel::resolve_workspace_cache_root(source_root);
+    if cache_root.exists() {
+        fs::remove_dir_all(&cache_root)
+            .with_context(|| format!("remove runtime cache {}", cache_root.display()))?;
+        removed.push("runtime/cache".to_string());
+    }
+    Ok(removed)
+}
+
+/// 一次性清理编译缓存、build/var store、graph registry 与 prebuild 状态，用于冷启动基准。
 pub fn clean_workspace_prebuild_artifacts(
     source_root: &Path,
     app_filter: Option<&str>,
 ) -> Result<CleanPrebuildArtifactsReport> {
     let started = Instant::now();
-    let Some(mut manifest) = resolve_runtime_warmup_manifest(source_root)? else {
-        return Ok(CleanPrebuildArtifactsReport {
-            source_root: source_root.display().to_string(),
-            cleaned_apps: Vec::new(),
-            clean_wall_ms: started.elapsed().as_millis() as u64,
-        });
-    };
-    if let Some(app_filter) = app_filter.map(str::trim).filter(|value| !value.is_empty()) {
-        manifest.apps.retain(|app| app.app_id.trim() == app_filter);
-        if manifest.apps.is_empty() {
-            anyhow::bail!("app `{app_filter}` not found in runtime warmup manifest");
-        }
-    }
+    let app_ids = resolve_clean_app_ids(source_root, app_filter)?;
+    let mut app_details = Vec::new();
     let mut cleaned_apps = Vec::new();
-    for app in &manifest.apps {
-        clear_app_artifacts(source_root, app.app_id.as_str())?;
-        cleaned_apps.push(app.app_id.clone());
+    for app_id in app_ids {
+        let detail = clear_app_cold_start_artifacts(source_root, app_id.as_str())?;
+        cleaned_apps.push(app_id);
+        app_details.push(detail);
     }
+    let workspace_artifacts_removed = clear_workspace_runtime_prebuild_artifacts(source_root)?;
+    let build_links_reset = reset_workspace_build_links(source_root)?;
     Ok(CleanPrebuildArtifactsReport {
         source_root: source_root.display().to_string(),
         cleaned_apps,
+        app_details,
+        workspace_artifacts_removed,
+        build_links_reset,
         clean_wall_ms: started.elapsed().as_millis() as u64,
     })
 }
@@ -346,10 +516,18 @@ pub fn load_prebuild_report(source_root: &Path) -> Result<Option<PrebuildReport>
 }
 
 pub(crate) fn clear_app_artifacts(source_root: &Path, app_id: &str) -> Result<()> {
+    clear_app_cold_start_artifacts(source_root, app_id).map(|_| ())
+}
+
+fn clear_app_cold_start_artifacts(
+    source_root: &Path,
+    app_id: &str,
+) -> Result<AppColdStartCleanDetail> {
     let app_root = resolve_app_root(source_root, app_id);
-    let _ = toolchain::clear_compile_cache_for_app(source_root, app_id);
-    let _ = toolchain::clear_compiled_app_artifacts_for_app(source_root, app_id);
-    let _ = mei_lang_datasets::clear_eval_artifact_store(app_root.as_path());
+    let compile_cache_entries = toolchain::clear_compile_cache_for_app(source_root, app_id);
+    let compiled_app_artifact_files =
+        toolchain::clear_compiled_app_artifacts_for_app(source_root, app_id);
+    let eval_artifact_files = mei_lang_datasets::clear_eval_artifact_store(app_root.as_path());
     let _ = mei_lang_datasets::clear_all_metric_caches();
     if data_snapshot_store_root(app_root.as_path()).exists() {
         fs::remove_dir_all(data_snapshot_store_root(app_root.as_path())).with_context(|| {
@@ -359,7 +537,23 @@ pub(crate) fn clear_app_artifacts(source_root: &Path, app_id: &str) -> Result<()
             )
         })?;
     }
-    Ok(())
+    let removed_build_store = remove_path_if_exists(&app_root.join("build"))?;
+    let removed_var_store = remove_path_if_exists(&app_root.join("var"))?;
+    let removed_legacy_prebuild = remove_path_if_exists(&app_root.join("prebuild"))?;
+    let removed_legacy_mei = remove_path_if_exists(&app_root.join(".mei"))?;
+    let graph_dir = mei_lang_kernel::resolve_workspace_graph_root(source_root, app_id);
+    let removed_graph_registry = remove_path_if_exists(graph_dir.as_path())?;
+    Ok(AppColdStartCleanDetail {
+        app_id: app_id.to_string(),
+        compile_cache_entries,
+        compiled_app_artifact_files,
+        eval_artifact_files,
+        removed_build_store,
+        removed_var_store,
+        removed_legacy_prebuild,
+        removed_graph_registry,
+        removed_legacy_mei,
+    })
 }
 
 pub(crate) fn scope_report_from_outcome(

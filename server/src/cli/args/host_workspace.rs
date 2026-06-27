@@ -226,12 +226,24 @@ pub struct WorkspaceBuildArgs {
 
 #[derive(Subcommand)]
 pub enum WorkspaceBuildCommand {
+    /// 清理 build/var/graph/compile 缓存与 prebuild 状态（冷启动基准）
+    Clean(WorkspaceBuildCleanArgs),
     /// candidate → active；同步各 app build/var active symlink
     Promote(WorkspaceBuildPromoteArgs),
     /// active ← previous
     Rollback(WorkspaceBuildRollbackArgs),
     /// 打印 deploy/state/links.json 与各 app BUILD.json
     Status(WorkspaceBuildStatusArgs),
+}
+
+#[derive(Args)]
+pub struct WorkspaceBuildCleanArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long = "app")]
+    pub app_id: Option<String>,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args)]
