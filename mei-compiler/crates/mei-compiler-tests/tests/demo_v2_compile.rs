@@ -18,7 +18,7 @@ fn demo_v2_compiles_graph_blocks() {
         return;
     }
     let outcome = compile_app(&workspace, "data-demo").expect("compile data-demo");
-    assert_eq!(outcome.syntax_version, "2.0.0");
+    assert_eq!(outcome.syntax_version, "2.0.1");
     assert_eq!(outcome.files.len(), 26, "expected 26 v2 author files");
     assert!(
         outcome.blocks.len() >= 40,

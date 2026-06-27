@@ -127,7 +127,8 @@ pub fn begin_prebuild_generation(source_root: &Path, app_ids: &[String]) -> Resu
         }
         let var_store = app_var_store_dir(&app_root, &build_id);
         fs::create_dir_all(var_store.join("cache"))?;
-        fs::create_dir_all(var_store.join("eval-results"))?;
+        fs::create_dir_all(var_store.join("eval-cache"))?;
+        fs::create_dir_all(var_store.join("data-snapshots"))?;
         store_dirs.insert(app_id.clone(), store_dir);
     }
     Ok(PrebuildGeneration {

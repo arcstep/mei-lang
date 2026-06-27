@@ -6,7 +6,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    build_runtime_eval_plan, DatasetView, EvalPlan, MetricContract, RuntimeMetricEvalScope,
+    build_runtime_eval_plan, resolve_app_eval_cache_root, DatasetView, EvalPlan, MetricContract,
+    RuntimeMetricEvalScope,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -73,7 +74,7 @@ fn hash_key(value: &str) -> String {
 }
 
 fn eval_artifact_root(app_root: &Path) -> PathBuf {
-    mei_lang_kernel::resolve_app_var_root(app_root).join("eval-results")
+    resolve_app_eval_cache_root(app_root)
 }
 
 fn dataset_semantic_revision_key(owner_resource_id: &str, dataset: &DatasetView) -> String {
@@ -416,7 +417,7 @@ mod tests {
 
     fn workset_artifact_file(app_root: &Path) -> PathBuf {
         fs::read_dir(
-            mei_lang_kernel::resolve_app_var_root(app_root).join("eval-results/workset"),
+            mei_lang_kernel::resolve_app_eval_cache_root(app_root).join("workset"),
         )
             .expect("workset dir")
             .next()

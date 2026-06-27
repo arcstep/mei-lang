@@ -15,12 +15,12 @@ cargo test -p mei-compiler-tests
 mei-compiler emit-decl --file path/to/file.mei
 mei-compiler check --workspace ../workspaces/ws-hello --app hello
 
-# 编译（默认写 apps/{app}/.mei/compile/{app}.meibundle）
+# 编译（默认写 apps/{app}/build/active/exchange/{app}.meibundle）
 mei-compiler compile --workspace ../workspaces/ws-demo-v2 --app data-demo
 
 # 人类查看
-mei-compiler bundle inspect apps/data-demo/.mei/compile/data-demo.meibundle --pretty
-mei-compiler bundle stats apps/data-demo/.mei/compile/data-demo.meibundle
+mei-compiler bundle inspect apps/data-demo/build/active/exchange/data-demo.meibundle --pretty
+mei-compiler bundle stats apps/data-demo/build/active/exchange/data-demo.meibundle
 
 # 调试：stdout 去重 JSON
 mei-compiler compile --workspace ../workspaces/ws-demo-v2 --app data-demo --format json --pretty

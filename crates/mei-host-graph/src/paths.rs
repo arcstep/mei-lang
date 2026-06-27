@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use mei_lang_kernel::resolve_workspace_graph_root;
+use mei_lang_kernel::{resolve_app_root, resolve_app_registry_root};
 
 pub fn resolve_graph_root(source_root: &Path, app_id: &str) -> PathBuf {
-    resolve_workspace_graph_root(source_root, app_id)
+    resolve_app_registry_root(&resolve_app_root(source_root, app_id))
 }
 
 pub fn mcg_registry_path(source_root: &Path, app_id: &str) -> PathBuf {

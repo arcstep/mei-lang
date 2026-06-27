@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use mei_lang_kernel::{resolve_app_root, resolve_workspace_graph_root};
+use mei_lang_kernel::{resolve_app_root, resolve_app_registry_root};
 
 use crate::config::{load_app_config, AppConfig};
 
@@ -23,8 +23,13 @@ impl HostContext {
         self.workspace_root.join("runtime")
     }
 
+    pub fn registry_root(&self) -> PathBuf {
+        resolve_app_registry_root(self.app_root().as_path())
+    }
+
+    /// Deprecated alias: registry lives under `build/active/registry/`.
     pub fn platform_graph_root(&self) -> PathBuf {
-        resolve_workspace_graph_root(self.workspace_root.as_path(), self.app_id.as_str())
+        self.registry_root()
     }
 
     pub fn app_root(&self) -> PathBuf {

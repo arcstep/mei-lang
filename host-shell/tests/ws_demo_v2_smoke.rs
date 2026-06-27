@@ -20,7 +20,7 @@ fn ws_demo_v2_root() -> PathBuf {
 
 fn bundle_path() -> PathBuf {
     ws_demo_v2_root()
-        .join("apps/data-demo/.mei/compile/data-demo.meibundle")
+        .join("apps/data-demo/build/active/exchange/data-demo.meibundle")
 }
 
 fn ensure_imported() -> PathBuf {
@@ -162,5 +162,33 @@ fn ws_demo_v2_all_board_scenes_assemble() {
         let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", scene.as_str())
             .expect("assemble");
         assert!(outcome.is_some(), "missing assemble for scene {scene}");
+    }
+}
+
+#[test]
+fn ws_demo_v2_assemble_without_reimport() {
+    let workspace = ws_demo_v2_root();
+    if !bundle_path().is_file() {
+        return;
+    }
+    let result = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home");
+    match &result {
+        Ok(Some(_)) => {}
+        Ok(None) => panic!("assemble returned None without reimport"),
+        Err(e) => panic!("assemble error: {e:#}"),
+    }
+}
+
+#[test]
+fn ws_demo_v2_assemble_relative_workspace_path() {
+    let rel = std::path::PathBuf::from("../workspaces/ws-demo-v2");
+    if !rel.join("apps/data-demo/build/active/exchange/data-demo.meibundle").is_file() {
+        return;
+    }
+    let result = assemble_scope_from_registry(rel.as_path(), "data-demo", "home");
+    match &result {
+        Ok(Some(_)) => {}
+        Ok(None) => panic!("assemble None with relative workspace path"),
+        Err(e) => panic!("assemble error with relative path: {e:#}"),
     }
 }

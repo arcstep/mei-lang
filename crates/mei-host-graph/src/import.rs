@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use mei_bundle::{read_bundle, MeiCompileExchange};
 use mei_graph::GraphBlock;
 use mei_host_core::{HostContext, ImportReport};
-use mei_lang_kernel::resolve_app_root;
+use mei_lang_kernel::{resolve_app_root, resolve_app_registry_root, resolve_app_eval_cache_root};
 use serde_json::{json, Value};
 
 use crate::bridge::export_bridge_from_mcg;
@@ -42,6 +42,8 @@ pub fn import_exchange(ctx: &HostContext, exchange: &MeiCompileExchange) -> Resu
     let app_root = resolve_app_root(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     std::fs::create_dir_all(&app_root)?;
     std::fs::create_dir_all(app_root.join("build/active"))?;
+    std::fs::create_dir_all(resolve_app_registry_root(&app_root))?;
+    std::fs::create_dir_all(resolve_app_eval_cache_root(&app_root))?;
 
     let mut registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     let mut cas_upserts = 0usize;

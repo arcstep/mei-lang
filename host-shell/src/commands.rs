@@ -84,25 +84,19 @@ async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
 }
 
 async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace.clone());
     let package_root = resolve_package_root()?;
+    let ctx = mei_host_core::HostContext::new(workspace.clone(), args.app.clone());
+    ensure_registry_materialized(&ctx)?;
     let state: SharedState = Arc::new(RwLock::new(ShellState::new(
-        args.workspace.clone(),
-        args.app.clone(),
+        workspace,
+        args.app,
         package_root,
     )));
-    {
-        let mut guard = state.write().expect("state lock");
-        guard.imported = mei_host_graph::mcg_registry_path(
-            guard.ctx.workspace_root.as_path(),
-            guard.ctx.app_id.as_str(),
-        )
-        .is_file();
-        guard.warmed_up = mei_host_graph::mrg_registry_path(
-            guard.ctx.workspace_root.as_path(),
-            guard.ctx.app_id.as_str(),
-        )
-        .is_file();
-    }
+    refresh_host_materialization_flags(&state);
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     println!("mei-host-shell listening on http://{addr}");
@@ -111,6 +105,52 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     axum::serve(listener, app)
         .await
         .map_err(|e| anyhow::anyhow!(e))
+}
+
+fn ensure_registry_materialized(ctx: &mei_host_core::HostContext) -> anyhow::Result<()> {
+    let mcg_path = mei_host_graph::mcg_registry_path(
+        ctx.workspace_root.as_path(),
+        ctx.app_id.as_str(),
+    );
+    if mcg_path.is_file() {
+        let registry =
+            mei_host_graph::McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
+        if !registry.nodes.is_empty() {
+            return Ok(());
+        }
+    }
+    let bundle_path = ctx.bundle_path();
+    if !bundle_path.is_file() {
+        anyhow::bail!(
+            "MCG registry missing and bundle not found at {}; run prebuild or `mei-host-shell import`",
+            bundle_path.display()
+        );
+    }
+    tracing::info!(
+        bundle = %bundle_path.display(),
+        "auto-importing meibundle before serve"
+    );
+    mei_host_graph::import_bundle(
+        ctx,
+        &mei_host_graph::ImportOptions {
+            bundle_path: Some(bundle_path),
+        },
+    )?;
+    Ok(())
+}
+
+fn refresh_host_materialization_flags(state: &SharedState) {
+    let mut guard = state.write().expect("state lock");
+    guard.imported = mei_host_graph::mcg_registry_path(
+        guard.ctx.workspace_root.as_path(),
+        guard.ctx.app_id.as_str(),
+    )
+    .is_file();
+    guard.warmed_up = mei_host_graph::mrg_registry_path(
+        guard.ctx.workspace_root.as_path(),
+        guard.ctx.app_id.as_str(),
+    )
+    .is_file();
 }
 
 fn resolve_package_root() -> anyhow::Result<std::path::PathBuf> {

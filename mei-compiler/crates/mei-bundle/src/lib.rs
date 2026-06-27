@@ -105,7 +105,8 @@ pub fn default_bundle_path(workspace: &Path, app_id: &str) -> std::path::PathBuf
     workspace
         .join("apps")
         .join(app_id)
-        .join(".mei")
-        .join("compile")
+        .join("build")
+        .join("active")
+        .join("exchange")
         .join(format!("{app_id}.meibundle"))
 }

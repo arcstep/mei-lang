@@ -53,7 +53,7 @@ pub struct DataSnapshotImportEntry {
 }
 
 pub fn data_snapshot_store_root(app_root: &Path) -> PathBuf {
-    crate::mei_config::resolve_app_build_root(app_root).join("data-snapshots")
+    crate::mei_config::resolve_app_data_snapshot_root(app_root)
 }
 
 pub fn data_snapshot_import_manifest_path(app_root: &Path) -> PathBuf {

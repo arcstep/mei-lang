@@ -381,6 +381,21 @@ pub fn resolve_app_var_root(app_root: &Path) -> PathBuf {
     crate::mei_config::build_store::resolve_app_var_root_following_active(app_root)
 }
 
+/// 求值物化缓存根：`apps/{appId}/var/active/eval-cache/`。
+pub fn resolve_app_eval_cache_root(app_root: &Path) -> PathBuf {
+    resolve_app_var_root(app_root).join("eval-cache")
+}
+
+/// xlsx parquet 快照根：`apps/{appId}/var/active/data-snapshots/`。
+pub fn resolve_app_data_snapshot_root(app_root: &Path) -> PathBuf {
+    resolve_app_var_root(app_root).join("data-snapshots")
+}
+
+/// MCG/MRG registry 根：`apps/{appId}/build/active/registry/`。
+pub fn resolve_app_registry_root(app_root: &Path) -> PathBuf {
+    resolve_app_build_root(app_root).join("registry")
+}
+
 /// 兼容旧名：AOT artifact store = `build/active/`。
 pub fn resolve_app_mei_store_root(app_root: &Path) -> PathBuf {
     resolve_app_build_root(app_root)

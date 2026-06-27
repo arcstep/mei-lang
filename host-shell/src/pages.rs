@@ -36,15 +36,30 @@ pub async fn app_page(
             .into_response();
     }
     let scene_id = scene_id.unwrap_or_else(|| "home".to_string());
-    let Some(outcome) = mei_host_graph::assemble_scope_from_registry(
+    let assemble_result = mei_host_graph::assemble_scope_from_registry(
         guard.ctx.workspace_root.as_path(),
         app_id.as_str(),
         scene_id.as_str(),
-    )
-    .ok()
-    .flatten()
-    else {
-        return (StatusCode::NOT_FOUND, "scene not assembled").into_response();
+    );
+    let outcome = match assemble_result {
+        Ok(Some(outcome)) => outcome,
+        Ok(None) => {
+            tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
+            return (StatusCode::NOT_FOUND, "scene not assembled").into_response();
+        }
+        Err(error) => {
+            tracing::warn!(
+                app_id = %app_id,
+                scene_id = %scene_id,
+                error = %error,
+                "assemble failed"
+            );
+            return (
+                StatusCode::NOT_FOUND,
+                format!("scene not assembled: {error}"),
+            )
+                .into_response();
+        }
     };
     let workspace = load_workspace_config(guard.ctx.workspace_root.as_path());
     let theme_style = page_body_theme_style(&workspace, Some(&outcome.compiled), None);

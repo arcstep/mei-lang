@@ -104,6 +104,7 @@ pub use mei_config::{
     load_workspace_config, mei_config_compile_revision_digest, merge_ops_section, ops_themes_revision_digest,
     resolve_app_entry_main, resolve_app_main_path,
     resolve_app_id, resolve_app_mei_file_path, resolve_app_root, resolve_app_mei_store_root, resolve_app_build_root,
+    resolve_app_data_snapshot_root, resolve_app_eval_cache_root, resolve_app_registry_root,
     resolve_app_src_root, resolve_app_var_root, resolve_apps_root, resolve_deploy_root,
     resolve_authoring_helpers, resolve_authoring_root, resolve_components_root,
     resolve_stock_root, stock_catalog_app_id, stock_catalog_enabled, stock_path_excluded,

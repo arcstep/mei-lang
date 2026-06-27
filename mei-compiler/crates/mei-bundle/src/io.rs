@@ -79,6 +79,10 @@ pub fn write_bundle(
         std::fs::create_dir_all(parent)?;
     }
 
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
     let file = File::create(path)?;
     let mut zip = ZipWriter::new(file);
     let store = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
