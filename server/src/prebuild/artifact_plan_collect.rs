@@ -100,6 +100,58 @@ fn is_world_metrics_warmup_dataset(dataset_id: &str) -> bool {
     dataset_id.trim().starts_with("__world_metrics__")
 }
 
+fn is_home_route_scope(scope: &CompileScope) -> bool {
+    let canonical = scope.canonicalized();
+    if canonical.requested_scene_id.as_deref() != Some("home") {
+        return false;
+    }
+    match canonical
+        .requested_target_file
+        .as_deref()
+        .map(mei_lang_kernel::canonical_app_source_rel_path)
+        .filter(|target| !target.is_empty())
+    {
+        None => true,
+        Some(target) => target.ends_with("home.mei"),
+    }
+}
+
+fn home_embedded_warmup_request_matches_scope(
+    request: &AggregatedWarmupRequest,
+    scope: &CompileScope,
+) -> bool {
+    if request.scope.key() == scope.key() {
+        return true;
+    }
+    if !is_home_route_scope(scope) {
+        return false;
+    }
+    let request_scope = request.scope.canonicalized();
+    if request_scope.requested_scene_id.as_deref() != Some("home") {
+        return false;
+    }
+    if is_world_metrics_warmup_dataset(request.dataset_id.as_str()) {
+        return false;
+    }
+    // 仅放宽「scene=home 且 target 由 namespaced dataset 推导、无独立 focus」的嵌入 capsule，
+    // 例如 typical_cases；带 focus 的条目（如 06 实时预警 warning_list）仍走各自 scope。
+    let inferred_target = warmup_dataset_selector_target_file(request.dataset_id.as_str());
+    let Some(inferred_target) = inferred_target else {
+        return false;
+    };
+    let request_target = request_scope
+        .requested_target_file
+        .as_deref()
+        .map(mei_lang_kernel::canonical_app_source_rel_path)
+        .filter(|target| !target.is_empty());
+    let Some(request_target) = request_target else {
+        return false;
+    };
+    let inferred_target =
+        mei_lang_kernel::canonical_app_source_rel_path(inferred_target.as_str());
+    request_target == inferred_target && !request_target.ends_with("home.mei")
+}
+
 fn collect_home_embedded_warmup_artifact_plans(
     app_id: &str,
     app_root: &Path,
@@ -110,7 +162,7 @@ fn collect_home_embedded_warmup_artifact_plans(
     dataframe_tasks: &mut BTreeMap<String, PlannedDataframeArtifact>,
 ) -> Result<()> {
     for request in all_warmup_requests {
-        if request.scope.key() != scope.key() {
+        if !home_embedded_warmup_request_matches_scope(request, scope) {
             continue;
         }
         if is_world_metrics_warmup_dataset(request.dataset_id.as_str()) {
@@ -416,6 +468,77 @@ pub(crate) fn promote_prebuild_metric_response_slot(
             error = %error,
             "failed to promote MRG slot from existing metric response artifact"
         );
+    }
+}
+
+#[cfg(test)]
+mod home_embedded_warmup_tests {
+    use super::*;
+
+    #[test]
+    fn home_route_scope_matches_embedded_capsule_warmup_without_exact_target() {
+        let home_scope = CompileScope {
+            requested_scene_id: Some("home".to_string()),
+            requested_target_file: Some("scenes/home.mei".to_string()),
+        };
+        let embedded_request = AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: Some("scenes/09-监督典型案例.mei".to_string()),
+            },
+            dataset_id: "scenes/09-监督典型案例.mei::typical_cases".to_string(),
+            priority: WarmupRequestPriority::Critical,
+            metric_ids: vec![
+                "case_count".to_string(),
+                "case_highlights".to_string(),
+            ],
+        };
+        assert!(home_embedded_warmup_request_matches_scope(
+            &embedded_request,
+            &home_scope
+        ));
+    }
+
+    #[test]
+    fn home_route_scope_does_not_match_focused_warning_list_warmup() {
+        let home_scope = CompileScope {
+            requested_scene_id: Some("home".to_string()),
+            requested_target_file: Some("scenes/home.mei".to_string()),
+        };
+        let warning_list_request = AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: Some("scenes/06-实时预警.mei".to_string()),
+            },
+            dataset_id: "warning_list".to_string(),
+            priority: WarmupRequestPriority::Critical,
+            metric_ids: vec!["warnings_realtime_cockpit_table".to_string()],
+        };
+        assert!(!home_embedded_warmup_request_matches_scope(
+            &warning_list_request,
+            &home_scope
+        ));
+    }
+
+    #[test]
+    fn non_home_scope_does_not_match_embedded_capsule_warmup() {
+        let board_scope = CompileScope {
+            requested_scene_id: Some("typical_cases_detail_board".to_string()),
+            requested_target_file: Some("scenes/09-监督典型案例.board.mei".to_string()),
+        };
+        let embedded_request = AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: Some("scenes/09-监督典型案例.mei".to_string()),
+            },
+            dataset_id: "scenes/09-监督典型案例.mei::typical_cases".to_string(),
+            priority: WarmupRequestPriority::Critical,
+            metric_ids: vec!["case_highlights".to_string()],
+        };
+        assert!(!home_embedded_warmup_request_matches_scope(
+            &embedded_request,
+            &board_scope
+        ));
     }
 }
 
