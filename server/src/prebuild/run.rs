@@ -312,20 +312,20 @@ pub fn run_prebuild(source_root: &Path, options: &PrebuildOptions) -> Result<Pre
             prebuild_emit_notice(format!(
                 "{} candidate buildId={}",
                 ansi_wrap("STORE", "1;32"),
-                gen.build_id
+                gen.env_version
             ));
             if report.failed_apps.is_empty() {
-                match mei_lang_kernel::promote_build(source_root, Some(gen.build_id.as_str())) {
+                match mei_lang_kernel::promote_build(source_root, Some(gen.env_version.as_str())) {
                     Ok(active_id) => {
                         prebuild_emit_notice(format!(
-                            "{} build/active → store/{}",
+                            "{} build/active → env/{}/build",
                             ansi_wrap("PROMOTE", "1;32"),
                             active_id
                         ));
                     }
                     Err(error) => {
                         tracing::warn!(
-                            build_id = %gen.build_id,
+                            env_version = %gen.env_version,
                             error = %error,
                             "prebuild finished but build/active promote failed; run `mei-toolchain workspace build promote`"
                         );

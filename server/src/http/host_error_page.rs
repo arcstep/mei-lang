@@ -39,7 +39,10 @@ impl HostShellFooterInfo {
 }
 
 pub fn footer_info_from_source_root(source_root: &Path) -> HostShellFooterInfo {
-    HostShellFooterInfo::from_workspace(&load_workspace_config(source_root))
+    let cfg = load_workspace_config(source_root);
+    let mut info = HostShellFooterInfo::from_workspace(&cfg);
+    info.version_label = mei_lang_kernel::resolve_build_footer_label(source_root);
+    info
 }
 
 pub fn render_host_shell_footer_for_source_root(source_root: &Path) -> String {

@@ -480,6 +480,7 @@ fn initialize_standalone_workspace(
                 label: label.map(str::to_string),
                 deploy_host: None,
                 default_app: None,
+                version: None,
             },
             paths: mei_lang_kernel::WorkspacePathsConfig {
                 apps: Some(mei_lang_kernel::DEFAULT_APPS_REL.to_string()),

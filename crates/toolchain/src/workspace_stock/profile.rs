@@ -63,6 +63,7 @@ pub fn init_workspace_profile(
                 label: label.map(str::to_string),
                 deploy_host: None,
                 default_app: None,
+                version: None,
             },
             paths: WorkspacePathsConfig {
                 apps: Some(DEFAULT_APPS_REL.to_string()),
