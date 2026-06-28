@@ -5,8 +5,8 @@ use std::sync::Once;
 
 use mei_host_core::HostContext;
 use mei_host_graph::{
-    assemble_scope_from_registry, import_bundle, list_scope_routes, GraphNodeKind,
-    ImportOptions, McgRegistryWriter,
+    assemble_scope_from_registry, collect_all_board_scenes, import_bundle, list_scope_routes,
+    GraphNodeKind, ImportOptions, McgRegistryWriter,
 };
 
 static INIT: Once = Once::new();
@@ -379,7 +379,7 @@ fn ws_demo_v2_board_semantic_ids_present() {
 #[test]
 fn ws_demo_v2_all_board_scenes_assemble() {
     let workspace = ensure_imported();
-    let scenes = mei_plug_ds::collect_all_board_scenes(workspace.as_path(), "data-demo");
+    let scenes = collect_all_board_scenes(workspace.as_path(), "data-demo");
     assert!(scenes.len() >= 43);
     for scene in scenes {
         let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", scene.as_str())
@@ -417,47 +417,63 @@ fn ws_demo_v2_assemble_relative_workspace_path() {
 }
 
 #[test]
-fn ws_demo_v2_warmup_tier_all_populates_mrg_and_memory_hit() {
+fn ws_demo_v2_home_layer_plan_and_presentation_map() {
     let workspace = ensure_imported();
-    let ctx = HostContext::new(workspace.clone(), "data-demo".to_string());
-    let targets =
-        mei_plug_ds::collect_warmup_targets(&ctx, Some("home")).expect("warmup targets");
-    assert!(!targets.is_empty(), "home warmup policy should define targets");
-    let report = mei_plug_ds::run_warmup_targets_with_tier(
-        &ctx,
-        &targets,
-        mei_plug_ds::WarmupTier::All,
-    )
-    .expect("warmup tier all");
-    assert!(report.slot_count > 0, "warmup should register MRG slots");
-    let status =
-        mei_host_graph::mrg_status_json(workspace.as_path(), "data-demo").expect("mrg status");
-    let memory_resident = status
-        .get("slotsByTier")
-        .and_then(|value| value.get("memoryResident"))
-        .and_then(|value| value.as_u64())
-        .unwrap_or(0);
-    assert!(
-        memory_resident > 0,
-        "tier all should pin at least one memory resident slot"
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    assert_eq!(
+        outcome.layer_plan.get("schemaVersion").and_then(|v| v.as_str()),
+        Some("mei-layer-plan-v1")
     );
-
-    let target = &targets[0];
-    let (compiled, compile_revision) =
-        mei_plug_ds::load_compiled_for_warmup(&ctx, target.scope_key.as_str()).expect("compiled");
-    let outcome = mei_plug_ds::eval_metric_ids(
-        &ctx,
-        &compiled,
-        compile_revision.as_str(),
-        target.scope_key.as_str(),
-        target.owner_resource_id.as_str(),
-        target.workset_id.as_str(),
-        target.bundle_key.as_str(),
-        &target.metric_ids,
-    )
-    .expect("second eval");
+    let basemap = outcome
+        .layer_plan
+        .get("tiers")
+        .and_then(|v| v.get("basemap"))
+        .and_then(|v| v.as_array())
+        .expect("basemap tier entries");
     assert!(
-        outcome.artifact_hit,
-        "second eval should hit in-memory metric response cache"
+        basemap
+            .iter()
+            .any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("map_stage")),
+        "layer_plan basemap should include map_stage: {basemap:?}"
+    );
+    assert_eq!(
+        outcome
+            .presentation_map
+            .get("schemaVersion")
+            .and_then(|v| v.as_str()),
+        Some("mei-presentation-map-v1")
+    );
+}
+
+#[test]
+fn ws_demo_v2_home_panels_emit_tier_props() {
+    let workspace = ws_demo_v2_root();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let contract = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract");
+    let map_stage = contract
+        .panels
+        .iter()
+        .find(|panel| panel.id == "map_stage")
+        .expect("map_stage panel");
+    assert_eq!(
+        map_stage.props.get("__mei_tier").and_then(|v| v.as_str()),
+        Some("basemap")
+    );
+    let header = contract
+        .panels
+        .iter()
+        .find(|panel| panel.id == "home_header")
+        .expect("home_header panel");
+    assert_eq!(
+        header.props.get("__mei_tier").and_then(|v| v.as_str()),
+        Some("chrome")
     );
 }

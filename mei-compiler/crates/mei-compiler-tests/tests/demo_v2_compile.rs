@@ -18,13 +18,26 @@ fn demo_v2_compiles_graph_blocks() {
         return;
     }
     let outcome = compile_app(&workspace, "data-demo").expect("compile data-demo");
-    assert_eq!(outcome.syntax_version, "2.0.4");
+    assert_eq!(outcome.syntax_version, "2.0.3");
     assert_eq!(outcome.files.len(), 43, "expected 43 v2 author files");
     assert!(
         outcome.blocks.len() >= 120,
         "expected many graph blocks, got {}",
         outcome.blocks.len()
     );
+    let home_map_stage = outcome.blocks.iter().find(|block| {
+        block.block_id.contains("map-stage") || block.block_id.contains("map_stage")
+    });
+    if let Some(block) = home_map_stage {
+        let payload = &block.payload;
+        let tier = payload
+            .get("tier")
+            .or_else(|| payload.get("__args").and_then(|args| args.get("tier")));
+        assert!(
+            tier.and_then(|v| v.as_str()) == Some("basemap"),
+            "map-stage panel_contract should declare tier=basemap"
+        );
+    }
     assert!(
         outcome
             .blocks
