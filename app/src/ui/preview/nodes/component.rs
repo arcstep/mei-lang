@@ -114,6 +114,11 @@ pub(crate) fn block_view_for_decl(
                 .unwrap_or(block.use_key.as_str())
                 .to_string()
         });
+    let block_viewpoint = block
+        .props
+        .get("__mei_viewpoint")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let build_node_id = if runtime_ctx.build_inspect_enabled {
         parent_panel_id.map(|panel_id| {
             BuildNodeId::scene_block(scene_contract.scene.id.clone(), panel_id, block_id.as_str())
@@ -128,6 +133,7 @@ pub(crate) fn block_view_for_decl(
             style=block_style(block.area.as_deref(), block_layout)
             data-mei-block-id=block_id.to_string()
             data-mei-use-key=block.use_key.clone()
+            data-mei-viewpoint=block_viewpoint
             data-build-node=build_node_id.clone().unwrap_or_default()
             data-build-focus=build_node_id.clone().unwrap_or_default()
         >

@@ -54,6 +54,14 @@ pub(crate) fn panel_view(
     let head_props = resolve_shared_refs(&resolve_panel_head_props(theme, panel), &theme.shared);
     let body_props = resolve_shared_refs(&resolve_panel_body_props(theme, panel), &theme.shared);
     let chrome_bare = panel_chrome_bare(&card_props);
+    let panel_tier = card_props
+        .get("__mei_tier")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let panel_viewpoint = card_props
+        .get("__mei_viewpoint")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let has_head = panel_show_heading(&card_props);
     let heading = panel_heading_config(&theme.panel_head, &head_props, &card_props);
     let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
@@ -175,6 +183,8 @@ pub(crate) fn panel_view(
             class=card_class
             style=card_style.clone()
             data-mei-panel-id=panel_path.clone()
+            data-mei-tier=panel_tier
+            data-mei-viewpoint=panel_viewpoint
             data-build-node=build_node_id.clone().unwrap_or_default()
             data-preview-scope=panel_path.clone()
         >
@@ -228,6 +238,8 @@ pub(crate) fn panel_view(
                     class=card_class
                     style=scaled_section_style
                     data-mei-panel-id=panel_path.clone()
+                    data-mei-tier=panel_tier
+                    data-mei-viewpoint=panel_viewpoint
                     data-build-node=build_node_id.clone().unwrap_or_default()
                     data-preview-scope=panel_path.clone()
                 >
