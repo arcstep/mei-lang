@@ -158,7 +158,10 @@ fn compile_app_cmd(
                 stats.blocks_zstd_bytes,
             );
             if emit_debug {
-                let sidecar = out_path.parent().unwrap_or(out_path).join(format!(
+                let sidecar = out_path
+                    .parent()
+                    .unwrap_or_else(|| out_path.as_path())
+                    .join(format!(
                     "{}.blocks.pretty.json",
                     out_path
                         .file_stem()

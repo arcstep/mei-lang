@@ -70,6 +70,9 @@ pub fn lower_panel_payload(
 
     let mut props = json!({});
     merge_card_fields(&mut props, payload);
+    if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
+        deep_merge_value(&mut props, extra);
+    }
     apply_placement(payload.get("placement"), &mut props);
 
     Ok(PanelDecl {
@@ -100,6 +103,9 @@ fn lower_panel_with_slots(
 ) -> Result<PanelDecl> {
     let mut props = json!({});
     merge_card_fields(&mut props, payload);
+    if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
+        deep_merge_value(&mut props, extra);
+    }
     apply_placement(payload.get("placement"), &mut props);
 
     let mut blocks = Vec::new();
