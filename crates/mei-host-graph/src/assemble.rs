@@ -89,7 +89,7 @@ pub fn assemble_scope_from_registry(
         app_root.as_path(),
         &registry,
     )?);
-    let projection_map = load_projection_map(app_root.as_path(), &registry);
+    let projection_map = load_projection_map(app_root.as_path(), &registry, &resources);
     let scene_local_nav_by_target = load_scene_local_nav_by_target(app_root.as_path(), &registry);
     let mut panels = load_panels_for_assembly(
         app_root.as_path(),
@@ -336,7 +336,11 @@ fn expand_runtime_metric_resources(resources: Vec<LoadedResource>) -> Vec<Loaded
     expanded
 }
 
-fn load_projection_map(app_root: &Path, registry: &crate::mcg::registry::McgRegistry) -> BTreeMap<String, Value> {
+fn load_projection_map(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    resources: &[mei_lang_kernel::LoadedResource],
+) -> BTreeMap<String, Value> {
     let mut map = BTreeMap::new();
     for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
         if node.id.key.contains("home@") {
@@ -353,7 +357,15 @@ fn load_projection_map(app_root: &Path, registry: &crate::mcg::registry::McgRegi
                     .trim()
                     .to_string();
                 if !scene_id.is_empty() {
-                    map.insert(scene_id, normalize_board_assembly_payload(payload));
+                    let mut normalized = normalize_board_assembly_payload(payload);
+                    if let Some(assembly) = normalized.as_object_mut() {
+                        let _ = mei_lang_kernel::enrich_runtime_board_assembly_projection_slots(
+                            assembly,
+                            resources,
+                            scene_id.as_str(),
+                        );
+                    }
+                    map.insert(scene_id, normalized);
                 }
             }
         }

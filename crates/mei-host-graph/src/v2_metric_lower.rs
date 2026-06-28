@@ -17,34 +17,107 @@ const ISSUE_RESULT_DETAIL_FIELDS: &[&str] = &[
     "是否查实", "是否转问题线索", "核查情况", "处理结果",
 ];
 
-pub fn lower_v2_runtime_metric_defs(raw: BTreeMap<String, Value>) -> BTreeMap<String, Value> {
+#[derive(Debug, Default, Clone)]
+pub struct V2MetricLowerContext {
+    dataset_rowsets: BTreeMap<String, Value>,
+}
+
+impl V2MetricLowerContext {
+    pub fn from_bundle_datasets(datasets: &[Value]) -> Self {
+        let mut dataset_rowsets = BTreeMap::new();
+        for item in datasets {
+            let Some(name) = v2_call_name(item) else {
+                continue;
+            };
+            if name != "dataset" {
+                continue;
+            }
+            let Some(args) = item.get("__args").and_then(Value::as_object) else {
+                continue;
+            };
+            let Some(id) = args
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            dataset_rowsets.insert(id.to_string(), data_ref(id));
+        }
+        let ctx = Self { dataset_rowsets };
+        let mut resolved = ctx.dataset_rowsets.clone();
+        for item in datasets {
+            let Some(name) = v2_call_name(item) else {
+                continue;
+            };
+            if name != "dataset_view" {
+                continue;
+            }
+            let Some(args) = item.get("__args").and_then(Value::as_object) else {
+                continue;
+            };
+            let Some(id) = args
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            let rowset = args
+                .get("rowset")
+                .map(|value| lower_rowset(value, &V2MetricLowerContext {
+                    dataset_rowsets: resolved.clone(),
+                }))
+                .or_else(|| {
+                    args.get("from")
+                        .and_then(Value::as_str)
+                        .map(|from| resolve_data_ref(from, &resolved))
+                });
+            if let Some(rowset) = rowset {
+                resolved.insert(id.to_string(), rowset);
+            }
+        }
+        Self {
+            dataset_rowsets: resolved,
+        }
+    }
+}
+
+pub fn lower_v2_runtime_metric_defs(
+    raw: BTreeMap<String, Value>,
+    ctx: &V2MetricLowerContext,
+) -> BTreeMap<String, Value> {
     raw.into_iter()
-        .filter_map(|(id, metric)| lower_v2_metric(&id, &metric).map(|lowered| (id, lowered)))
+        .filter_map(|(id, metric)| {
+            lower_v2_metric(&id, &metric, ctx).map(|lowered| (id, lowered))
+        })
         .collect()
 }
 
-fn lower_v2_metric(id: &str, value: &Value) -> Option<Value> {
+fn lower_v2_metric(id: &str, value: &Value, ctx: &V2MetricLowerContext) -> Option<Value> {
     if value.get("__call").is_some() {
         let name = v2_call_name(value)?;
         let args = value.get("__args")?;
-        return lower_v2_metric_call(id, name.as_str(), args);
+        return lower_v2_metric_call(id, name.as_str(), args, ctx);
     }
     Some(value.clone())
 }
 
-fn lower_v2_metric_call(id: &str, name: &str, args: &Value) -> Option<Value> {
+fn lower_v2_metric_call(id: &str, name: &str, args: &Value, ctx: &V2MetricLowerContext) -> Option<Value> {
     match name {
-        "metric_scalar" => Some(lower_metric_scalar(id, args)),
-        "metric_dataframe" => Some(lower_metric_dataframe(id, args)),
+        "metric_scalar" => Some(lower_metric_scalar(id, args, ctx)),
+        "metric_dataframe" => Some(lower_metric_dataframe(id, args, ctx)),
         _ => None,
     }
 }
 
-fn lower_metric_scalar(id: &str, args: &Value) -> Value {
+fn lower_metric_scalar(id: &str, args: &Value, ctx: &V2MetricLowerContext) -> Value {
     let map = args.as_object().cloned().unwrap_or_default();
-    let base_rowset = base_rowset_from_scalar_args(&map);
+    let base_rowset = base_rowset_from_scalar_args(&map, ctx);
     let value_expr = if let Some(agg) = map.get("agg") {
-        lower_agg_on_rowset(agg, base_rowset.clone())
+        lower_agg_on_rowset(agg, base_rowset.clone(), ctx)
     } else {
         json!(null)
     };
@@ -73,15 +146,15 @@ fn lower_metric_scalar(id: &str, args: &Value) -> Value {
         json!([{"name": "value", "type": "number"}]),
     );
     if let Some(explain) = map.get("explain").and_then(Value::as_array) {
-        out.insert("explain".to_string(), lower_explain_items(explain));
+        out.insert("explain".to_string(), lower_explain_items(explain, ctx));
     }
     Value::Object(out)
 }
 
-fn lower_metric_dataframe(id: &str, args: &Value) -> Value {
+fn lower_metric_dataframe(id: &str, args: &Value, ctx: &V2MetricLowerContext) -> Value {
     let map = args.as_object().cloned().unwrap_or_default();
     let value_expr = if let Some(pipeline) = map.get("pipeline").and_then(Value::as_array) {
-        lower_pipeline(pipeline)
+        lower_pipeline(pipeline, ctx)
     } else {
         json!(null)
     };
@@ -97,65 +170,82 @@ fn lower_metric_dataframe(id: &str, args: &Value) -> Value {
         out.insert("schema".to_string(), schema.clone());
     }
     if let Some(explain) = map.get("explain").and_then(Value::as_array) {
-        out.insert("explain".to_string(), lower_explain_items(explain));
+        out.insert("explain".to_string(), lower_explain_items(explain, ctx));
     }
     Value::Object(out)
 }
 
-fn base_rowset_from_scalar_args(map: &Map<String, Value>) -> Value {
+fn base_rowset_from_scalar_args(map: &Map<String, Value>, ctx: &V2MetricLowerContext) -> Value {
     if let Some(rowset) = map.get("rowset") {
-        lower_rowset(rowset)
+        lower_rowset(rowset, ctx)
     } else if let Some(dataset) = map.get("dataset").and_then(Value::as_str) {
-        data_ref(dataset)
+        resolve_data_ref(dataset, &ctx.dataset_rowsets)
     } else {
         json!(null)
     }
 }
 
-fn lower_pipeline(steps: &[Value]) -> Value {
+fn lower_pipeline(steps: &[Value], ctx: &V2MetricLowerContext) -> Value {
     let mut rowset = json!(null);
     for step in steps {
-        rowset = lower_pipeline_step(&rowset, step);
+        rowset = lower_pipeline_step(&rowset, step, ctx);
     }
     rowset
 }
 
-fn lower_pipeline_step(input: &Value, step: &Value) -> Value {
+fn lower_pipeline_step(input: &Value, step: &Value, ctx: &V2MetricLowerContext) -> Value {
     let Some(name) = v2_call_name(step) else {
         return input.clone();
     };
     let args = step.get("__args").cloned().unwrap_or(json!({}));
     match name.as_str() {
-        "data_ref" => lower_rowset(step),
-        "where" => aek("where", &[("rowset", input.clone()), ("predicate", lower_predicate(arg0(&args)))],
+        "data_ref" => lower_rowset(step, ctx),
+        "where" => aek(
+            "where",
+            &[
+                ("rowset", input.clone()),
+                ("predicate", lower_predicate(arg0(&args))),
+            ],
         ),
-        "first_by" => aek("first_by", &[
+        "first_by" => aek(
+            "first_by",
+            &[
                 ("rowset", input.clone()),
                 ("field", json!(arg0_string(&args).unwrap_or_default())),
             ],
         ),
-        "select" => aek("select", &[
+        "select" => aek(
+            "select",
+            &[
                 ("rowset", input.clone()),
                 ("fields", arg0(&args).clone()),
             ],
         ),
-        "sort_by" => aek("sort_by", &[
+        "sort_by" => aek(
+            "sort_by",
+            &[
                 ("rowset", input.clone()),
                 ("field", json!(arg0_string(&args).unwrap_or_default())),
                 ("order", json!(args.get("order").and_then(Value::as_str).unwrap_or("asc"))),
             ],
         ),
-        "rename" => aek("rename", &[
+        "rename" => aek(
+            "rename",
+            &[
                 ("rowset", input.clone()),
                 ("mapping", arg0(&args).clone()),
             ],
         ),
-        "mutate" => aek("mutate", &[
+        "mutate" => aek(
+            "mutate",
+            &[
                 ("rowset", input.clone()),
                 ("updates", arg1(&args).clone()),
             ],
         ),
-        "limit" => aek("limit", &[
+        "limit" => aek(
+            "limit",
+            &[
                 ("rowset", input.clone()),
                 ("n", arg0(&args).clone()),
             ],
@@ -270,7 +360,7 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
     )
 }
 
-fn lower_agg_on_rowset(agg: &Value, base_rowset: Value) -> Value {
+fn lower_agg_on_rowset(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerContext) -> Value {
     if let Some(name) = v2_call_name(agg) {
         return match name.as_str() {
             "count" => ae("count", vec![("rowset".to_string(), base_rowset)]),
@@ -286,11 +376,13 @@ fn lower_agg_on_rowset(agg: &Value, base_rowset: Value) -> Value {
                     .and_then(|a| a.get("arg1"))
                     .map(|v| lower_sum_on_rowset(v, base_rowset.clone()))
                     .unwrap_or(json!(0));
-                aek("ratio", &[("numerator", num), ("denominator", den)],
+                aek(
+                    "ratio",
+                    &[("numerator", num), ("denominator", den)],
                 )
             }
-            "transfer_clue_count" => expand_transfer_clue_count(agg),
-            "mechanism_item_count" => expand_mechanism_item_count(agg),
+            "transfer_clue_count" => expand_transfer_clue_count(agg, ctx),
+            "mechanism_item_count" => expand_mechanism_item_count(agg, ctx),
             other => expand_known_agg_macro(other, agg, base_rowset.clone()).unwrap_or_else(|| {
                 ae("count", vec![("rowset".to_string(), base_rowset)])
             }),
@@ -417,11 +509,11 @@ fn expand_known_agg_macro(name: &str, agg: &Value, base_rowset: Value) -> Option
     }
 }
 
-fn expand_person_rowset(name: &str, value: &Value) -> Option<Value> {
+fn expand_person_rowset(name: &str, value: &Value, ctx: &V2MetricLowerContext) -> Option<Value> {
     let rowset = value
         .get("__args")
         .and_then(|a| a.get("arg0"))
-        .map(lower_rowset)?;
+        .map(|value| lower_rowset(value, ctx))?;
     let filtered = if name == "party_gov_sanction_rows" {
         ae(
             "where",
@@ -478,12 +570,12 @@ fn expand_person_rowset(name: &str, value: &Value) -> Option<Value> {
     ))
 }
 
-fn expand_transfer_clue_count(agg: &Value) -> Value {
+fn expand_transfer_clue_count(agg: &Value, ctx: &V2MetricLowerContext) -> Value {
     let rows = agg
         .get("__args")
         .and_then(|a| a.get("arg0"))
-        .map(lower_rowset)
-        .unwrap_or(data_ref("warning_list"));
+        .map(|value| lower_rowset(value, ctx))
+        .unwrap_or_else(|| resolve_data_ref("warning_list", &ctx.dataset_rowsets));
     let transfer_rows = aek("where", &[
             ("rowset", rows.clone()),
             (
@@ -511,12 +603,12 @@ fn expand_transfer_clue_count(agg: &Value) -> Value {
     )
 }
 
-fn expand_mechanism_item_count(agg: &Value) -> Value {
+fn expand_mechanism_item_count(agg: &Value, ctx: &V2MetricLowerContext) -> Value {
     let rows = agg
         .get("__args")
         .and_then(|a| a.get("arg0"))
-        .map(lower_rowset)
-        .unwrap_or(data_ref("issue_result_list"));
+        .map(|value| lower_rowset(value, ctx))
+        .unwrap_or_else(|| resolve_data_ref("issue_result_list", &ctx.dataset_rowsets));
     let source_rows = aek("where", &[
             ("rowset", rows),
             ("predicate", aek("not_empty", &[("field", json!("健全机制"))])),
@@ -537,32 +629,45 @@ fn expand_mechanism_item_count(agg: &Value) -> Value {
     aek("count", &[("rowset", split_items)])
 }
 
-fn lower_rowset(value: &Value) -> Value {
+fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
     if let Some(name) = v2_call_name(value) {
         let args = value.get("__args").cloned().unwrap_or(json!({}));
         return match name.as_str() {
-            "data_ref" => data_ref(
+            "data_ref" => resolve_data_ref(
                 arg0_string(&args)
                     .unwrap_or_default()
                     .as_str(),
+                &ctx.dataset_rowsets,
             ),
-            "where" => aek("where", &[
-                    ("rowset", lower_rowset(arg0(&args))),
+            "where" => aek(
+                "where",
+                &[
+                    ("rowset", lower_rowset(arg0(&args), ctx)),
                     ("predicate", lower_predicate(arg1(&args))),
                 ],
             ),
-            "first_by" => aek("first_by", &[
-                    ("rowset", lower_rowset(arg0(&args))),
+            "first_by" => aek(
+                "first_by",
+                &[
+                    ("rowset", lower_rowset(arg0(&args), ctx)),
                     ("field", json!(arg1_string(&args).unwrap_or_default())),
                 ],
             ),
             "party_gov_sanction_rows" | "handled_person_rows" => {
-                expand_person_rowset(name.as_str(), value).unwrap_or(json!(null))
+                expand_person_rowset(name.as_str(), value, ctx).unwrap_or(json!(null))
             }
-            _ => lower_expr(value),
+            _ => lower_expr(value, ctx),
         };
     }
-    lower_expr(value)
+    lower_expr(value, ctx)
+}
+
+fn resolve_data_ref(dataset_id: &str, dataset_rowsets: &BTreeMap<String, Value>) -> Value {
+    let dataset_id = dataset_id.trim();
+    if let Some(rowset) = dataset_rowsets.get(dataset_id) {
+        return rowset.clone();
+    }
+    data_ref(dataset_id)
 }
 
 fn lower_predicate(value: &Value) -> Value {
@@ -638,30 +743,51 @@ fn lower_predicate(value: &Value) -> Value {
     value.clone()
 }
 
-fn lower_expr(value: &Value) -> Value {
+fn lower_expr(value: &Value, ctx: &V2MetricLowerContext) -> Value {
     if value.get("__call").is_some() {
-        return lower_rowset(value);
+        return lower_rowset(value, ctx);
     }
     value.clone()
 }
 
-fn lower_explain_items(items: &[Value]) -> Value {
+fn lower_explain_items(items: &[Value], ctx: &V2MetricLowerContext) -> Value {
     Value::Array(
         items
             .iter()
-            .filter_map(|item| lower_explain_item(item))
+            .filter_map(|item| lower_explain_item(item, ctx))
             .collect(),
     )
 }
 
-fn lower_explain_item(value: &Value) -> Option<Value> {
+fn lower_explain_item(value: &Value, ctx: &V2MetricLowerContext) -> Option<Value> {
     let name = v2_call_name(value)?;
     let args = value.get("__args")?.as_object()?;
+    if name == "dataframe" {
+        let id = args
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("dataframe");
+        let mut product = Map::new();
+        product.insert("__kind".to_string(), json!("data_product"));
+        product.insert("shape".to_string(), json!("dataframe"));
+        product.insert("id".to_string(), json!(id));
+        if let Some(label) = args.get("label") {
+            product.insert("label".to_string(), label.clone());
+        }
+        if let Some(value_expr) = args.get("value") {
+            product.insert(
+                "value".to_string(),
+                lower_rowset(value_expr, ctx),
+            );
+        }
+        return Some(Value::Object(product));
+    }
     let kind = match name.as_str() {
         "detail" => "detail",
         "composition" => "composition",
         "ratio" => "ratio",
-        "dataframe" => "detail",
         _ => return None,
     };
     let mut out = Map::new();
@@ -797,11 +923,127 @@ mod tests {
                 "agg": {"__call": "count", "__args": {}}
             }
         });
-        let lowered = lower_v2_metric("realtime_warning_detail", &raw).expect("lower");
+        let ctx = V2MetricLowerContext::default();
+        let lowered = lower_v2_metric("realtime_warning_detail", &raw, &ctx).expect("lower");
         assert_eq!(lowered.get("shape").and_then(|v| v.as_str()), Some("scalar_map"));
         assert!(lowered
             .pointer("/values/value/type")
             .and_then(|v| v.as_str())
             == Some("count"));
+    }
+
+    #[test]
+    fn lower_issue_verification_rate_inlines_warning_detail_view() {
+        let bundle_datasets = json!([
+            {
+                "__call": "dataset",
+                "__args": {"id": "warning_list", "source": {"__ref": "source_ref", "__args": {"arg0": "alert_tracking"}}}
+            },
+            {
+                "__call": "dataset_view",
+                "__args": {
+                    "id": "warning_detail",
+                    "from": "warning_list",
+                    "rowset": {
+                        "__call": "where",
+                        "__args": {
+                            "arg0": {
+                                "__call": "first_by",
+                                "__args": {
+                                    "arg0": {"__call": "data_ref", "__args": {"arg0": "warning_list"}},
+                                    "arg1": "预警ID"
+                                }
+                            },
+                            "arg1": {
+                                "__call": "in_values",
+                                "__args": {"arg0": "是否查实", "values": ["是", "否"]}
+                            }
+                        }
+                    }
+                }
+            }
+        ]);
+        let ctx = V2MetricLowerContext::from_bundle_datasets(
+            bundle_datasets.as_array().expect("array"),
+        );
+        let raw = json!({
+            "__call": "metric_scalar",
+            "__args": {
+                "id": "effectiveness_issue_verification_rate",
+                "rowset": {"__call": "data_ref", "__args": {"arg0": "warning_detail"}},
+                "agg": {
+                    "__call": "ratio",
+                    "__args": {
+                        "arg0": {"__call": "sum", "__args": {"arg0": "查实条数"}},
+                        "arg1": {"__call": "sum", "__args": {"arg0": "预警条数"}}
+                    }
+                }
+            }
+        });
+        let lowered = lower_v2_metric("effectiveness_issue_verification_rate", &raw, &ctx).expect("lower");
+        let rowset = lowered
+            .pointer("/values/value/numerator/value/rowset")
+            .or_else(|| lowered.pointer("/values/value/numerator/value/source/rowset"));
+        assert!(
+            rowset.is_some(),
+            "ratio numerator should retain inlined warning_detail rowset, got {lowered}"
+        );
+        assert!(
+            !rowset
+                .and_then(|value| value.as_object())
+                .and_then(|map| map.get("id"))
+                .and_then(Value::as_str)
+                .is_some_and(|id| id == "warning_detail"),
+            "warning_detail data_ref should be inlined"
+        );
+    }
+
+    #[test]
+    fn lower_mechanism_documents_list_explain_as_data_product() {
+        let bundle_datasets = json!([
+            {
+                "__call": "dataset",
+                "__args": {
+                    "id": "mechanism_documents",
+                    "source": {"__ref": "source_ref", "__args": {"arg0": "mechanism_documents"}},
+                },
+            },
+        ]);
+        let ctx = V2MetricLowerContext::from_bundle_datasets(
+            bundle_datasets.as_array().expect("array"),
+        );
+        let raw = json!({
+            "__call": "metric_scalar",
+            "__args": {
+                "id": "effectiveness_mechanism_item_count",
+                "agg": {"__call": "count", "__args": {}},
+                "explain": [
+                    {
+                        "__call": "dataframe",
+                        "__args": {
+                            "id": "mechanism_documents_list",
+                            "label": "健全机制清单",
+                            "value": {"__call": "data_ref", "__args": {"arg0": "mechanism_documents"}},
+                        },
+                    },
+                ],
+            },
+        });
+        let lowered = lower_v2_metric("effectiveness_mechanism_item_count", &raw, &ctx).expect("lower");
+        let explain = lowered
+            .get("explain")
+            .and_then(Value::as_array)
+            .and_then(|items| items.first())
+            .and_then(Value::as_object)
+            .expect("explain item");
+        assert_eq!(
+            explain.get("__kind").and_then(Value::as_str),
+            Some("data_product")
+        );
+        assert_eq!(explain.get("id").and_then(Value::as_str), Some("mechanism_documents_list"));
+        assert_eq!(
+            explain.get("shape").and_then(Value::as_str),
+            Some("dataframe")
+        );
     }
 }

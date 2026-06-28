@@ -17,6 +17,7 @@ use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset}
 use crate::build_info::{self, BUILD_VERSION};
 use crate::pages::{app_page, index};
 use crate::state::SharedState;
+use crate::upload_download::upload_file_download_get;
 
 pub fn router(state: SharedState) -> Router {
     Router::new()
@@ -47,6 +48,10 @@ pub fn router(state: SharedState) -> Router {
             "/api/ops/theme/style/:app_id",
             get(api_ops_theme_style),
         )
+        .route(
+            "/api/upload/download/:app_id",
+            get(upload_file_download_get),
+        )
         .route("/apps/:mode/*app_id", get(app_page))
         .route("/app-bundles/:mode", get(app_bundle))
         .route("/app-assets/*path", get(app_asset))
@@ -60,7 +65,16 @@ pub fn router(state: SharedState) -> Router {
 
 async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoResponse {
     let guard = state.read().expect("state lock");
-    let access_ready = guard.imported && guard.warmed_up;
+    // V2 host-shell：MCG import 完成即可进入访问态；MRG warmup 为可选加速层。
+    let access_ready = guard.imported;
+    let warmup_ready = guard.warmed_up;
+    let phase = if !guard.imported {
+        "starting"
+    } else if warmup_ready {
+        "ready"
+    } else {
+        "bound"
+    };
     let app_id = guard.ctx.app_id.clone();
     let workspace_root = guard.ctx.workspace_root.as_path();
     let descriptor = build_info::version_descriptor(
@@ -81,13 +95,16 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
         "ready": access_ready,
         "hostReady": access_ready,
         "accessReady": access_ready,
+        "warmupReady": warmup_ready,
+        "fullWarmupReady": warmup_ready,
         "anyAppAccessReady": access_ready,
+        "phase": phase,
         "defaultAppId": app_id,
         "defaultAppAccessReady": access_ready,
         "apps": [{
             "appId": app_id,
             "accessReady": access_ready,
-            "phase": if access_ready { "ready" } else { "starting" },
+            "phase": phase,
         }],
     }))
 }
@@ -102,7 +119,7 @@ async fn api_host_version(State(state): State<SharedState>) -> impl IntoResponse
 
 async fn api_host_ready(State(state): State<SharedState>) -> impl IntoResponse {
     let guard = state.read().expect("state lock");
-    let ready = guard.imported && guard.warmed_up;
+    let ready = guard.imported;
     let status = if ready {
         StatusCode::OK
     } else {
@@ -112,8 +129,10 @@ async fn api_host_ready(State(state): State<SharedState>) -> impl IntoResponse {
         status,
         Json(json!({
             "hostReady": ready,
+            "accessReady": ready,
             "imported": guard.imported,
             "warmedUp": guard.warmed_up,
+            "warmupReady": guard.warmed_up,
         })),
     )
 }

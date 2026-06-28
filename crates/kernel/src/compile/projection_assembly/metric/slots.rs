@@ -396,13 +396,20 @@ fn analytics_filter_key_for_column(column: &str, label: Option<&str>) -> (String
     (key, label)
 }
 
-pub(super) fn parse_metric_ref_id(value: &Value) -> Option<&str> {
+pub(crate) fn parse_metric_ref_id(value: &Value) -> Option<&str> {
     let map = value.as_object()?;
-    if map.get("__ref").and_then(Value::as_str) != Some("metric") {
-        return None;
+    match map.get("__ref").and_then(Value::as_str) {
+        Some("metric") => map
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+        Some("metric_ref") => map
+            .get("__args")
+            .and_then(|args| args.get("arg0").or_else(|| args.get("id")))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty()),
+        _ => None,
     }
-    map.get("id")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
 }

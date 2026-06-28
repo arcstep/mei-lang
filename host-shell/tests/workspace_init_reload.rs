@@ -1,0 +1,79 @@
+//! workspace init + reload integration tests.
+
+use std::process::Command;
+
+use tempfile::tempdir;
+
+fn host_shell_bin() -> std::path::PathBuf {
+    std::env::var("CARGO_BIN_EXE_mei-host-shell")
+        .map(std::path::PathBuf::from)
+        .expect("CARGO_BIN_EXE_mei-host-shell")
+}
+
+#[test]
+fn workspace_init_creates_config_and_stock() {
+    let temp = tempdir().expect("tempdir");
+    let dir = temp.path().join("ws-test");
+    std::fs::create_dir_all(&dir).expect("mkdir");
+
+    let status = Command::new(host_shell_bin())
+        .args([
+            "workspace",
+            "init",
+            "--dir",
+            dir.to_str().expect("path"),
+            "--id",
+            "ws-test",
+            "--label",
+            "Test WS",
+            "--app",
+            "demo",
+        ])
+        .status()
+        .expect("spawn");
+    assert!(status.success(), "workspace init failed");
+
+    assert!(dir.join("workspace.json").is_file());
+    assert!(dir.join("mei.lang.json").is_file());
+    assert!(dir.join("stock/components").is_dir());
+    assert!(dir.join("apps/demo/src/app.mei").is_file());
+}
+
+fn ws_demo_v2() -> Option<std::path::PathBuf> {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../workspaces/ws-demo-v2");
+    path.canonicalize().ok().filter(|p| p.join("workspace.json").is_file())
+}
+
+#[test]
+fn reload_imports_ws_demo_v2_when_bundle_exists() {
+    let workspace = match ws_demo_v2() {
+        Some(ws) => ws,
+        None => return,
+    };
+    let bundle = workspace.join("apps/data-demo/build/active/exchange/data-demo.meibundle");
+    if !bundle.is_file() {
+        return;
+    }
+    let output = Command::new(host_shell_bin())
+        .args([
+            "reload",
+            "--workspace",
+            workspace.to_str().expect("path"),
+            "--app",
+            "data-demo",
+            "--bundle",
+            bundle.to_str().expect("bundle"),
+            "--json",
+        ])
+        .output()
+        .expect("spawn reload");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("reload json stdout");
+    assert_eq!(json.get("accepted").and_then(|v| v.as_bool()), Some(true));
+}

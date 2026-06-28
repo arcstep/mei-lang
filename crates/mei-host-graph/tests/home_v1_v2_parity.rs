@@ -234,3 +234,46 @@ fn home_v2_resolves_metric_card_link_ref_popup() {
         "unexpected popup {popup}"
     );
 }
+
+#[test]
+fn home_v2_analytics_board_assemblies_include_projection_slots() {
+    ensure_v2_imported();
+    let v2 = assemble_scope_from_registry(ws_demo_v2().as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home");
+    let assemblies = &v2.compiled.scene_projection_assembly_by_id;
+    let sample_ids = [
+        "supervision_items_analytics_board",
+        "warnings_analytics_board",
+        "effect_transfer_clue_analytics_board",
+        "issue_pending_analytics_board",
+        "typical_cases_detail_board",
+    ];
+    for scene_id in sample_ids {
+        let assembly = assemblies
+            .get(scene_id)
+            .unwrap_or_else(|| panic!("missing assembly for {scene_id}"));
+        let slots = assembly
+            .get("projection_slots")
+            .and_then(|value| value.as_array())
+            .filter(|items| !items.is_empty())
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected projection_slots for {scene_id}, assembly keys: {:?}",
+                    assembly.as_object().map(|map| map.keys().collect::<Vec<_>>())
+                )
+            });
+        assert!(
+            assembly
+                .get("shell_contract")
+                .and_then(|shell| shell.get("layout_mode"))
+                .and_then(|value| value.as_str())
+                .is_some(),
+            "shell_contract.layout_mode required for {scene_id}"
+        );
+        assert!(
+            !slots.is_empty(),
+            "projection_slots should not be empty for {scene_id}"
+        );
+    }
+}

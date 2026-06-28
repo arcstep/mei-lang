@@ -5,11 +5,20 @@ use std::path::PathBuf;
 pub enum Command {
     Version(VersionArgs),
     Import(ImportArgs),
+    Reload(ReloadArgs),
+    Prebuild(PrebuildArgs),
     PrebuildData(PrebuildDataArgs),
     Warmup(WarmupArgs),
     Serve(ServeArgs),
     #[command(subcommand)]
     Build(BuildCommand),
+    #[command(subcommand)]
+    Workspace(WorkspaceCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WorkspaceCommand {
+    Init(WorkspaceInitArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -80,6 +89,16 @@ pub struct BuildStatusArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct PrebuildArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: String,
+    #[arg(long, default_value = "home")]
+    pub policy: String,
+}
+
+#[derive(Args, Debug)]
 pub struct PrebuildDataArgs {
     #[arg(long)]
     pub workspace: PathBuf,
@@ -106,6 +125,18 @@ pub struct ImportArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct ReloadArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: String,
+    #[arg(long)]
+    pub bundle: Option<PathBuf>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct WarmupArgs {
     #[arg(long)]
     pub workspace: PathBuf,
@@ -125,4 +156,16 @@ pub struct ServeArgs {
     pub host: String,
     #[arg(long, default_value = "9527")]
     pub port: u16,
+}
+
+#[derive(Args, Debug)]
+pub struct WorkspaceInitArgs {
+    #[arg(long)]
+    pub dir: PathBuf,
+    #[arg(long)]
+    pub id: Option<String>,
+    #[arg(long)]
+    pub label: Option<String>,
+    #[arg(long)]
+    pub app: Option<String>,
 }

@@ -1,9 +1,12 @@
+use std::fs;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use crate::cli::{
     BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs,
-    BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs, PrebuildDataArgs,
-    ServeArgs, VersionArgs, WarmupArgs,
+    BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs, PrebuildArgs,
+    PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs, WarmupArgs, WorkspaceCommand,
+    WorkspaceInitArgs,
 };
 use crate::state::{SharedState, ShellState};
 
@@ -11,10 +14,19 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
     match command {
         Command::Version(args) => run_version(args),
         Command::Import(args) => run_import(args),
+        Command::Reload(args) => run_reload(args),
+        Command::Prebuild(args) => run_prebuild(args).await,
         Command::PrebuildData(args) => run_prebuild_data(args),
         Command::Warmup(args) => run_warmup(args).await,
         Command::Serve(args) => run_serve(args).await,
         Command::Build(sub) => run_build(sub),
+        Command::Workspace(sub) => run_workspace(sub),
+    }
+}
+
+fn run_workspace(command: WorkspaceCommand) -> anyhow::Result<()> {
+    match command {
+        WorkspaceCommand::Init(args) => run_workspace_init(args),
     }
 }
 
@@ -199,16 +211,54 @@ fn run_build_migrate_env(args: BuildMigrateEnvArgs) -> anyhow::Result<()> {
 }
 
 fn run_import(args: ImportArgs) -> anyhow::Result<()> {
+    let report = import_with_options(&args.workspace, &args.app, args.bundle)?;
+    print_import_report(&report);
+    Ok(())
+}
+
+fn run_reload(args: ReloadArgs) -> anyhow::Result<()> {
     let workspace = args
         .workspace
         .canonicalize()
         .unwrap_or(args.workspace.clone());
+    let prev_revision = mei_host_graph::McgRegistryWriter::load(workspace.as_path(), args.app.as_str())
+        .registry_revision
+        .clone();
+    let report = import_with_options(&workspace, &args.app, args.bundle)?;
+    let changed = report.registry_revision != prev_revision;
+    if args.json {
+        let payload = serde_json::json!({
+            "accepted": true,
+            "blocks_changed": changed,
+            "block_count": report.block_count,
+            "registry_revision": report.registry_revision,
+            "previous_revision": prev_revision,
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        print_import_report(&report);
+        if !changed {
+            println!("reload: registry unchanged (no structural diff)");
+        } else {
+            println!("reload: registry updated");
+        }
+    }
+    Ok(())
+}
+
+fn import_with_options(
+    workspace: &Path,
+    app: &str,
+    bundle: Option<std::path::PathBuf>,
+) -> anyhow::Result<mei_host_core::ImportReport> {
+    let workspace = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
     crate::build_info::log_host_identity(Some(workspace.as_path()), "import");
-    let ctx = mei_host_core::HostContext::new(workspace, args.app);
-    let options = mei_host_graph::ImportOptions {
-        bundle_path: args.bundle,
-    };
-    let report = mei_host_graph::import_bundle(&ctx, &options)?;
+    let ctx = mei_host_core::HostContext::new(workspace, app.to_string());
+    let options = mei_host_graph::ImportOptions { bundle_path: bundle };
+  mei_host_graph::import_bundle(&ctx, &options).map_err(|e| anyhow::anyhow!("{e}"))
+}
+
+fn print_import_report(report: &mei_host_core::ImportReport) {
     println!(
         "import ok: app={} blocks={} mcg_nodes={} cas_upserts={} revision={}",
         report.app_id,
@@ -222,6 +272,229 @@ fn run_import(args: ImportArgs) -> anyhow::Result<()> {
             eprintln!("warning: {warning}");
         }
     }
+}
+
+async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let app = args.app.as_str();
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), app);
+
+    println!("==> build prepare");
+    let generation =
+        mei_lang_kernel::prepare_dev_build_generation(workspace.as_path(), &[app.to_string()])?;
+    let build_id = generation.env_version.clone();
+    println!("envVersion={build_id}");
+
+    println!("==> compile");
+    compile_app_to_bundle(workspace.as_path(), app)?;
+
+    println!("==> import");
+    let report = import_with_options(workspace.as_path(), app, None)?;
+    print_import_report(&report);
+
+    println!("==> prebuild-data");
+    run_prebuild_data(PrebuildDataArgs {
+        workspace: workspace.clone(),
+        app: app.to_string(),
+    })?;
+
+    println!("==> clear eval-cache");
+    let eval_cache = mei_lang_kernel::resolve_app_eval_cache_root(app_root.as_path());
+    if eval_cache.exists() {
+        fs::remove_dir_all(&eval_cache)?;
+    }
+
+    println!("==> warmup policy={}", args.policy);
+    run_warmup(WarmupArgs {
+        workspace: workspace.clone(),
+        app: app.to_string(),
+        policy: args.policy.clone(),
+    })
+    .await?;
+
+    println!("==> build finalize");
+    run_build_finalize(BuildFinalizeArgs {
+        workspace,
+        app: vec![app.to_string()],
+        build_id: build_id.clone(),
+    })?;
+
+    println!("Prebuild complete (envVersion={build_id}).");
+    Ok(())
+}
+
+fn compile_app_to_bundle(workspace: &Path, app_id: &str) -> anyhow::Result<()> {
+    let outcome = mei_graph::compile_app(workspace, app_id)
+        .map_err(|e| anyhow::anyhow!("compile failed: {e}"))?;
+    let templates_rel = read_templates_rel(workspace);
+    let digest = mei_bundle::compute_workspace_digest(workspace, app_id, templates_rel.as_str());
+    let bundle_path = mei_bundle::default_bundle_path(workspace, app_id);
+    if let Some(parent) = bundle_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let stats = mei_bundle::write_bundle_from_outcome(
+        &outcome,
+        digest.as_str(),
+        env!("CARGO_PKG_VERSION"),
+        bundle_path.as_path(),
+        false,
+    )
+    .map_err(|e| anyhow::anyhow!("write bundle: {e}"))?;
+    println!(
+        "wrote {} ({} blocks, {} bytes)",
+        bundle_path.display(),
+        stats.manifest.block_count,
+        stats.bundle_bytes
+    );
+    Ok(())
+}
+
+fn read_templates_rel(workspace: &Path) -> String {
+    let cfg = mei_lang_kernel::load_workspace_config(workspace);
+    cfg.paths
+        .templates
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("stock/templates")
+        .to_string()
+}
+
+fn run_workspace_init(args: WorkspaceInitArgs) -> anyhow::Result<()> {
+    let dir = args
+        .dir
+        .canonicalize()
+        .unwrap_or(args.dir);
+    let package_root = resolve_package_root()?;
+    let profile_id = args
+        .id
+        .as_deref()
+        .or_else(|| dir.file_name().and_then(|n| n.to_str()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or("workspace");
+
+    fs::create_dir_all(&dir)?;
+    fs::create_dir_all(dir.join("apps"))?;
+    fs::create_dir_all(dir.join("deploy"))?;
+    fs::create_dir_all(dir.join("deploy/runtime"))?;
+    fs::create_dir_all(dir.join("deploy/state"))?;
+
+    let config_path = mei_lang_kernel::workspace_config_path(dir.as_path());
+    if !config_path.is_file() {
+        let pin = env!("CARGO_PKG_VERSION");
+        let config = mei_lang_kernel::WorkspaceConfig {
+            schema_version: 2,
+            workspace: mei_lang_kernel::WorkspaceProfile {
+                id: Some(profile_id.to_string()),
+                label: args.label.clone(),
+                deploy_host: None,
+                default_app: args.app.clone(),
+                version: None,
+            },
+            paths: mei_lang_kernel::WorkspacePathsConfig {
+                apps: Some(mei_lang_kernel::DEFAULT_APPS_REL.to_string()),
+                components: Some("stock/components".to_string()),
+                templates: Some("stock/templates".to_string()),
+                authoring: Some(mei_lang_kernel::DEFAULT_STOCK_AUTHORING_REL.to_string()),
+                runtime: Some("deploy/runtime".to_string()),
+                deploy: Some("deploy".to_string()),
+                stock: Some("stock".to_string()),
+                ..mei_lang_kernel::WorkspacePathsConfig::default()
+            },
+            stock: default_workspace_stock_config(),
+            toolchain: mei_lang_kernel::WorkspaceToolchainConfig {
+                pin: Some(pin.to_string()),
+            },
+            ..mei_lang_kernel::WorkspaceConfig::default()
+        };
+        mei_lang_kernel::write_workspace_config(&config_path, &config)?;
+        let mei_lang_path = dir.join("mei.lang.json");
+        if !mei_lang_path.is_file() {
+            fs::write(
+                mei_lang_path,
+                format!(r#"{{"syntaxVersion":"{pin}","surface":"graph-native"}}"#),
+            )?;
+        }
+    }
+
+    mei_lang_toolchain::ensure_workspace_stock_materialized(dir.as_path(), package_root.as_path())?;
+
+    if let Some(app_id) = args.app.as_deref().filter(|s| !s.trim().is_empty()) {
+        create_v2_app_skeleton(dir.as_path(), app_id.trim())?;
+    }
+
+    println!("workspace init ok: {}", dir.display());
+    Ok(())
+}
+
+fn default_workspace_stock_config() -> mei_lang_kernel::WorkspaceStockConfig {
+    mei_lang_kernel::WorkspaceStockConfig {
+        bootstrap: mei_lang_kernel::WorkspaceStockBootstrapConfig {
+            source: Some("platform-default".to_string()),
+        },
+        catalog: mei_lang_kernel::WorkspaceStockCatalogConfig {
+            components: mei_lang_kernel::WorkspaceStockCatalogKindConfig {
+                enabled: true,
+                exclude: Vec::new(),
+            },
+            templates: mei_lang_kernel::WorkspaceStockCatalogKindConfig {
+                enabled: true,
+                exclude: vec!["**/assets/**".to_string()],
+            },
+            authoring: mei_lang_kernel::WorkspaceStockCatalogKindConfig {
+                enabled: true,
+                exclude: Vec::new(),
+            },
+        },
+        preview: mei_lang_kernel::WorkspaceStockPreviewConfig {
+            workspace_only: true,
+            ..mei_lang_kernel::WorkspaceStockPreviewConfig::default()
+        },
+        catalog_app: mei_lang_kernel::WorkspaceStockCatalogAppConfig::default(),
+        sources: Vec::new(),
+    }
+}
+
+fn create_v2_app_skeleton(workspace: &Path, app_id: &str) -> anyhow::Result<()> {
+    let app_root = workspace.join("apps").join(app_id);
+    if app_root.exists() {
+        return Ok(());
+    }
+    fs::create_dir_all(app_root.join("src"))?;
+    fs::create_dir_all(app_root.join("upload"))?;
+    fs::write(
+        app_root.join("src/app.mei"),
+        format!(
+            r#"# BlockId: app_skeleton:{app_id}
+
+app_skeleton(
+    id = "{app_id}",
+    title = "{app_id}",
+    default_scene = "home",
+)
+
+navigation(
+    key = "default_access",
+    scene = "home",
+    url = "/apps/app/{app_id}/scene/home",
+    assembly = assembly_ref("home@src/scene/home/assembly.mei"),
+)
+"#
+        ),
+    )?;
+    fs::write(
+        app_root.join("app.config.json"),
+        r#"{
+  "schemaVersion": 1,
+  "entry": { "main": "src/app.mei" },
+  "paths": { "upload": "upload" }
+}
+"#,
+    )?;
+    println!("created app skeleton: apps/{app_id}");
     Ok(())
 }
 

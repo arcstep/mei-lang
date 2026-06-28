@@ -52,7 +52,7 @@ fn ws_demo_v2_build_store_layout() {
     {
         assert!(
             active.is_symlink(),
-            "build/active should be a symlink to env/{{ver}}/build after prebuild-v2"
+            "build/active should be a symlink to env/{{ver}}/build after prebuild"
         );
         let target = std::fs::read_link(&active).expect("read build/active symlink");
         assert!(

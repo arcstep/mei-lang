@@ -6,9 +6,8 @@ use serde_json::{Map, Value};
 use crate::model::{
     Diagnostic, SceneContract, Severity,
 };
-use crate::typed_refs::{decode_ref_value, RefKind};
-
 use super::super::metric::expand_board_assembly;
+use super::super::metric::parse_metric_ref_id;
 
 /// Manage/build 预览：用 scene `examples[0].params` 展开 projection_slots，供无 caller 时装配 filter/chart/detail。
 pub(crate) fn enrich_scene_projection_assembly_preview(
@@ -112,8 +111,6 @@ fn resolve_preview_example_params(contract: &SceneContract) -> Option<Map<String
         .cloned()?;
     params
         .get("metric")
-        .is_some_and(
-            |metric| matches!(decode_ref_value(metric), Some(expr) if expr.kind == RefKind::Metric),
-        )
+        .is_some_and(|metric| parse_metric_ref_id(metric).is_some())
         .then_some(params)
 }

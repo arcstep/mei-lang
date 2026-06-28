@@ -3,7 +3,7 @@ use std::path::Path;
 
 use mei_host_core::load_app_config;
 use mei_lang_kernel::{
-    build_runtime_analysis_contracts, build_runtime_analysis_graph, ops_source_entry_to_decl,
+    build_runtime_metric_artifacts, ops_source_entry_to_decl,
     ColumnSchema, DatasetView, LoadedResource, OpsSourceEntry, SourceDecl,
 };
 use serde_json::Value;
@@ -25,12 +25,20 @@ pub fn load_metric_resources_hydrated(
             continue;
         };
         let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
-        let runtime_metric_defs =
-            crate::v2_metric_lower::lower_v2_runtime_metric_defs(extract_runtime_metric_defs(&payload));
-        let runtime_analysis_graph =
-            build_runtime_analysis_graph(&runtime_metric_defs, owner.as_str());
-        let runtime_analysis_contracts =
-            build_runtime_analysis_contracts(&runtime_metric_defs, owner.as_str());
+        let raw_runtime_metric_defs = {
+            let bundle_datasets = payload
+                .get("datasets")
+                .and_then(Value::as_array)
+                .map(|items| items.as_slice())
+                .unwrap_or(&[]);
+            let ctx = crate::v2_metric_lower::V2MetricLowerContext::from_bundle_datasets(bundle_datasets);
+            crate::v2_metric_lower::lower_v2_runtime_metric_defs(
+                extract_runtime_metric_defs(&payload),
+                &ctx,
+            )
+        };
+        let (runtime_metric_defs, runtime_analysis_graph, runtime_analysis_contracts) =
+            build_runtime_metric_artifacts(&raw_runtime_metric_defs, owner.as_str());
         resources.push(LoadedResource {
             id: owner.clone(),
             kind: "world_metrics".to_string(),

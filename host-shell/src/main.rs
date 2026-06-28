@@ -7,11 +7,12 @@ mod http;
 mod pages;
 mod request_logging;
 mod state;
+mod upload_download;
 
 use clap::{CommandFactory, Parser};
 
 #[derive(Parser, Debug)]
-#[command(name = "mei-host-shell", about = "MeiLang v2 host shell (import / prebuild-data / warmup / serve)")]
+#[command(name = "mei-host-shell", about = "MeiLang v2 host (workspace init / prebuild / import / reload / serve)")]
 struct Cli {
     /// Print shell binary build identity and exit
     #[arg(short = 'V', long = "version", global = true)]
@@ -30,6 +31,7 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .with_target(false)
+        .with_writer(std::io::stderr)
         .compact()
         .init();
     if cli.print_version {

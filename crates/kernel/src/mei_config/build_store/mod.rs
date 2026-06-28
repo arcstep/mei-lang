@@ -11,7 +11,7 @@ mod tests;
 
 pub use env_clean::{
     clean_env_generations, migrate_apps_to_env_layout, migrate_build_var_store_to_env,
-    resolve_build_footer_label, CleanEnvPolicy, CleanEnvReport, MigrateEnvReport,
+    resolve_build_footer_label, resolve_workspace_footer_label, CleanEnvPolicy, CleanEnvReport, MigrateEnvReport,
 };
 pub use env_paths::*;
 pub use types::*;

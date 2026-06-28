@@ -35,6 +35,11 @@ pub fn record_slots_from_descriptors(
     for descriptor in descriptors {
         record_slot_from_descriptor(source_root, app_id, descriptor)?;
     }
+    if descriptors.is_empty() {
+        let mut registry = MrgRegistryWriter::load(source_root, app_id);
+        registry.finalize();
+        MrgRegistryWriter::save(source_root, &registry)?;
+    }
     Ok(())
 }
 

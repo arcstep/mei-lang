@@ -183,6 +183,18 @@ pub fn build_runtime_analysis_contracts(
     materialize::build_analysis_contracts(metric_defs, root_dataset_id)
 }
 
+/// Lowered bundle defs → expanded runtime defs + semantic graph + consumer contracts.
+pub fn build_runtime_metric_artifacts(
+    metric_defs: &BTreeMap<String, Value>,
+    root_dataset_id: &str,
+) -> (
+    BTreeMap<String, Value>,
+    crate::model::AnalysisGraph,
+    BTreeMap<String, Value>,
+) {
+    materialize::build_analysis_artifacts(metric_defs, root_dataset_id)
+}
+
 pub fn build_runtime_eval_plan(
     metric_defs: &BTreeMap<String, Value>,
     metric_ids: Option<&[String]>,
@@ -209,6 +221,7 @@ pub use materialize::{
     EvalPlanEdgeKind, EvalPlanNode,
     EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
 };
+pub use projection_assembly::enrich_runtime_board_assembly_projection_slots;
 
 #[cfg(test)]
 mod tests;

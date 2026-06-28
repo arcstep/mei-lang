@@ -257,6 +257,27 @@ pub fn clean_env_generations(
     Ok(report)
 }
 
+pub fn resolve_workspace_footer_label(source_root: &Path) -> String {
+    if let Ok(links) = read_links_state(source_root) {
+        if let Some(active) = links
+            .build
+            .active
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if let Some((tc, ws)) = parse_composite_env_generation_id(active) {
+                return format!("MeiLang {tc} · WS {ws}");
+            }
+        }
+    }
+    let identity = resolve_active_build_identity(source_root);
+    format!(
+        "MeiLang {} · WS {}",
+        identity.toolchain_version, identity.workspace_version
+    )
+}
+
 pub fn resolve_build_footer_label(source_root: &Path) -> String {
     if let Ok(links) = read_links_state(source_root) {
         if let Some(active) = links

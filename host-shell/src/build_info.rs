@@ -2,6 +2,7 @@ use std::path::Path;
 
 use mei_lang_kernel::{
     read_links_state, resolve_active_build_identity, resolve_build_footer_label,
+    resolve_workspace_footer_label,
 };
 use serde_json::{json, Value};
 
@@ -65,11 +66,7 @@ pub fn version_descriptor(workspace_root: Option<&Path>, host_started_at_ms: Opt
 }
 
 pub fn statusbar_version_label(workspace_root: &Path) -> String {
-    format!(
-        "{} · shell {}",
-        resolve_build_footer_label(workspace_root),
-        BUILD_VERSION
-    )
+    resolve_workspace_footer_label(workspace_root)
 }
 
 pub fn statusbar_version_title(workspace_root: &Path) -> String {
@@ -166,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn statusbar_label_includes_workspace_and_shell_build() {
+    fn statusbar_label_shows_toolchain_and_workspace_only() {
         let tmp = tempdir().expect("tempdir");
         let ws = tmp.path();
         fs::create_dir_all(ws.join("deploy/state")).expect("mkdir");
@@ -176,10 +173,9 @@ mod tests {
         links.build.active = Some("2.0.1-ws20260228".into());
         write_links_state(ws, &links).expect("write links");
         let label = statusbar_version_label(ws);
-        assert!(label.contains("MeiLang 2.0.1"));
-        assert!(label.contains("build 2.0.1-ws20260228"));
-        assert!(label.contains("shell "));
-        assert!(label.contains(BUILD_VERSION));
+        assert_eq!(label, "MeiLang 2.0.1 · WS 20260228");
+        let api_label = resolve_build_footer_label(ws);
+        assert!(api_label.contains("build 2.0.1-ws20260228"));
     }
 
     #[test]
@@ -195,6 +191,7 @@ mod tests {
         assert!(!html.contains("__MEI_HOST_VERSION__"));
         assert!(!html.contains("__MEI_HOST_VERSION_LABEL__"));
         assert!(html.contains(BUILD_VERSION));
-        assert!(html.contains("shell "));
+        assert!(!html.contains("shell "));
+        assert!(html.contains("MeiLang"));
     }
 }

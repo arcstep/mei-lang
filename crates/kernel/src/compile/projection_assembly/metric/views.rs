@@ -1,5 +1,6 @@
 use super::{build_slot_from_root, default_detail_entry, find_explain_block, lookup_metric_contract, lower_projection_slot, parse_metric_ref_id, slot_from_explain_block};
 
+use std::borrow::Cow;
 use serde_json::{Map, Value};
 
 use crate::model::{Diagnostic, Severity};
@@ -68,7 +69,8 @@ pub(super) fn slot_from_board_view(
     target_file: &str,
     zone: &str,
 ) -> Option<Map<String, Value>> {
-    let map = entry.as_object()?;
+    let normalized = normalize_v2_board_view(entry);
+    let map = normalized.as_object()?;
     if map.get("__kind").and_then(Value::as_str) != Some("board_view") {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -161,6 +163,49 @@ pub(super) fn slot_from_board_view(
     Some(slot)
 }
 
+fn normalize_v2_board_view(entry: &Value) -> Cow<'_, Value> {
+    let Some(obj) = entry.as_object() else {
+        return Cow::Borrowed(entry);
+    };
+    if obj.get("__kind").and_then(Value::as_str) == Some("board_view") {
+        return Cow::Borrowed(entry);
+    }
+    if obj.get("__call").and_then(Value::as_str) == Some("build_view") {
+        let Some(args) = obj.get("__args").and_then(Value::as_object) else {
+            return Cow::Borrowed(entry);
+        };
+        let mut view = Map::new();
+        view.insert(
+            "__kind".to_string(),
+            Value::String("board_view".to_string()),
+        );
+        for (key, value) in args {
+            view.insert(key.clone(), value.clone());
+        }
+        return Cow::Owned(Value::Object(view));
+    }
+    Cow::Borrowed(entry)
+}
+
+fn resolve_explain_source_id(source_map: &Map<String, Value>) -> Option<String> {
+    match source_map.get("__ref").and_then(Value::as_str) {
+        Some("explain_ref") => source_map
+            .get("__args")
+            .and_then(|args| args.get("arg0").or_else(|| args.get("id")))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        Some("explain_block") | Some("explain_metric") => source_map
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
 fn view_kind_to_component(view_kind: &str) -> Option<&'static str> {
     match view_kind {
         "chart" => Some("chart"),
@@ -184,13 +229,14 @@ fn resolve_view_source_to_slot(
 ) -> Option<Map<String, Value>> {
     if let Some(source_map) = source.as_object() {
         let source_ref = source_map.get("__ref").and_then(Value::as_str);
-        if matches!(source_ref, Some("explain_block") | Some("explain_metric")) {
-            let block_id = source_map
-                .get("id")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty())?;
-            let Some(block) = find_explain_block(contract, block_id) else {
+        if matches!(
+            source_ref,
+            Some("explain_block") | Some("explain_metric") | Some("explain_ref")
+        ) {
+            let Some(block_id) = resolve_explain_source_id(source_map) else {
+                return None;
+            };
+            let Some(block) = find_explain_block(contract, block_id.as_str()) else {
                 diagnostics.push(Diagnostic {
                     severity: Severity::Error,
                     code: "board_assembly_unknown_explain_block".to_string(),

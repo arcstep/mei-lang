@@ -18,10 +18,12 @@ anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true
 mei-bundle = { path = "../mei-compiler/crates/mei-bundle" }
+mei-graph = { path = "../mei-compiler/crates/mei-graph" }
 mei-host-core = { path = "../crates/mei-host-core" }
 mei-host-graph = { path = "../crates/mei-host-graph" }
 mei-lang-app = { path = "../app" }
 mei-lang-kernel = { path = "../crates/kernel" }
+mei-lang-toolchain = { path = "../crates/toolchain" }
 mei-plug-ds = { path = "../crates/mei-plug-ds", optional = true }
 serde.workspace = true
 serde_json.workspace = true
