@@ -13312,6 +13312,49 @@
 
 
 /* ===== spa-navigation/drilldown/config-open.js ===== */
+  const GLOBAL_LAYER2_DEFAULT = {
+    host: "layer2",
+    tab_policy: "append",
+    layout: "single",
+    close: "tab_then_stack",
+  };
+
+  function readOverlayDefaults() {
+    const mei = typeof window !== "undefined" ? window.__mei : null;
+    if (mei && mei.overlay_defaults && typeof mei.overlay_defaults === "object") {
+      return mei.overlay_defaults;
+    }
+    return {};
+  }
+
+  function resolveOverlayWorkspace(popup, detail) {
+    const popupObj = popup && typeof popup === "object" && !Array.isArray(popup) ? popup : {};
+    if (popupObj.overlay_workspace && typeof popupObj.overlay_workspace === "object") {
+      return { ...popupObj.overlay_workspace };
+    }
+    const linkKey = nonEmptyString(
+      popupObj.link_key,
+      popupObj.linkKey,
+      detail?.link_key,
+      detail?.linkKey,
+      detail?.projection_id,
+      detail?.projectionId,
+    );
+    if (linkKey) {
+      const defaults = readOverlayDefaults();
+      const workspace = defaults[linkKey];
+      if (workspace && typeof workspace === "object") {
+        return { ...workspace };
+      }
+    }
+    const overlaySize = nonEmptyString(popupObj.overlay_size, popupObj.overlaySize, "large");
+    return { ...GLOBAL_LAYER2_DEFAULT, size: overlaySize };
+  }
+
+  boot.resolveOverlayWorkspace = resolveOverlayWorkspace;
+  boot.readOverlayDefaults = readOverlayDefaults;
+  boot.GLOBAL_LAYER2_DEFAULT = GLOBAL_LAYER2_DEFAULT;
+
   function buildSceneOpenRequest(config, detail = {}) {
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
     return {
@@ -17565,11 +17608,13 @@
     const root = ensureLayer2WorkspaceRoot();
     const session = layer2Session();
     const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId, "board");
-    const tabPolicy = nonEmptyString(
-      config?.overlayWorkspace?.tab_policy,
-      config?.popup?.overlay_workspace?.tab_policy,
-      "append",
-    );
+    const overlayWorkspace =
+      (config?.overlayWorkspace && typeof config.overlayWorkspace === "object" && config.overlayWorkspace) ||
+      (typeof boot.resolveOverlayWorkspace === "function"
+        ? boot.resolveOverlayWorkspace(config?.popup, config)
+        : null) ||
+      {};
+    const tabPolicy = nonEmptyString(overlayWorkspace?.tab_policy, "append");
     let tab = session.tabs.find((entry) => entry.sceneId === sceneId);
     if (tab && tabPolicy === "focus") {
       session.activeTabId = tab.id;
@@ -17583,13 +17628,24 @@
       tab = {
         id: tabId,
         sceneId,
-        label: nonEmptyString(config?.title, sceneId),
+        label: nonEmptyString(
+          config?.title,
+          config?.mount?.title,
+          config?.popup?.title,
+          sceneId,
+        ),
         panel,
       };
       session.tabs.push(tab);
       session.activeTabId = tabId;
     }
-    const overlaySize = nonEmptyString(config?.overlaySize, "large");
+    const overlaySize = nonEmptyString(
+      config?.overlaySize,
+      overlayWorkspace?.size,
+      config?.popup?.overlay_size,
+      config?.popup?.overlaySize,
+      "large",
+    );
     tab.panel.classList.remove(
       "access-drilldown-overlay--size-comfortable",
       "access-drilldown-overlay--size-large",
@@ -17828,17 +17884,27 @@
     }
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
     const overlayWorkspace =
-      (popup.overlay_workspace && typeof popup.overlay_workspace === "object" && popup.overlay_workspace) ||
-      null;
+      typeof boot.resolveOverlayWorkspace === "function"
+        ? boot.resolveOverlayWorkspace(popup, detail)
+        : popup.overlay_workspace && typeof popup.overlay_workspace === "object"
+          ? popup.overlay_workspace
+          : null;
     const layer2Config = {
       ...config,
       overlayWorkspace,
-      overlaySize: nonEmptyString(config.overlaySize, popup?.overlay_size, popup?.overlaySize, "large"),
+      overlaySize: nonEmptyString(
+        config.overlaySize,
+        overlayWorkspace?.size,
+        popup?.overlay_size,
+        popup?.overlaySize,
+        "large",
+      ),
     };
     if (typeof boot.beginDrilldownLoadSession === "function") {
       boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
-    if (typeof boot.useUnifiedLayer2 === "function" && boot.useUnifiedLayer2()) {
+    const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
+    if (useLayer2 && typeof boot.openLayer2Tab === "function") {
       closeDrilldownOverlay();
       closeSceneBoardOverlay();
       const root = boot.openLayer2Tab(layer2Config);

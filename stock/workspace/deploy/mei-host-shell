@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Workspace-local entrypoint (deploy/bin is not on PATH by default).
+set -euo pipefail
+DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
+# shellcheck source=lib.sh
+source "${DEPLOY_DIR}/lib.sh"
+ensure_local_bins "${WORKSPACE_ROOT}"
+exec "${WORKSPACE_ROOT}/deploy/bin/mei-host-shell" "$@"

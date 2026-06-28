@@ -117,11 +117,13 @@
     const root = ensureLayer2WorkspaceRoot();
     const session = layer2Session();
     const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId, "board");
-    const tabPolicy = nonEmptyString(
-      config?.overlayWorkspace?.tab_policy,
-      config?.popup?.overlay_workspace?.tab_policy,
-      "append",
-    );
+    const overlayWorkspace =
+      (config?.overlayWorkspace && typeof config.overlayWorkspace === "object" && config.overlayWorkspace) ||
+      (typeof boot.resolveOverlayWorkspace === "function"
+        ? boot.resolveOverlayWorkspace(config?.popup, config)
+        : null) ||
+      {};
+    const tabPolicy = nonEmptyString(overlayWorkspace?.tab_policy, "append");
     let tab = session.tabs.find((entry) => entry.sceneId === sceneId);
     if (tab && tabPolicy === "focus") {
       session.activeTabId = tab.id;
@@ -135,13 +137,24 @@
       tab = {
         id: tabId,
         sceneId,
-        label: nonEmptyString(config?.title, sceneId),
+        label: nonEmptyString(
+          config?.title,
+          config?.mount?.title,
+          config?.popup?.title,
+          sceneId,
+        ),
         panel,
       };
       session.tabs.push(tab);
       session.activeTabId = tabId;
     }
-    const overlaySize = nonEmptyString(config?.overlaySize, "large");
+    const overlaySize = nonEmptyString(
+      config?.overlaySize,
+      overlayWorkspace?.size,
+      config?.popup?.overlay_size,
+      config?.popup?.overlaySize,
+      "large",
+    );
     tab.panel.classList.remove(
       "access-drilldown-overlay--size-comfortable",
       "access-drilldown-overlay--size-large",

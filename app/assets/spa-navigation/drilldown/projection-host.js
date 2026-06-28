@@ -69,17 +69,27 @@
     }
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
     const overlayWorkspace =
-      (popup.overlay_workspace && typeof popup.overlay_workspace === "object" && popup.overlay_workspace) ||
-      null;
+      typeof boot.resolveOverlayWorkspace === "function"
+        ? boot.resolveOverlayWorkspace(popup, detail)
+        : popup.overlay_workspace && typeof popup.overlay_workspace === "object"
+          ? popup.overlay_workspace
+          : null;
     const layer2Config = {
       ...config,
       overlayWorkspace,
-      overlaySize: nonEmptyString(config.overlaySize, popup?.overlay_size, popup?.overlaySize, "large"),
+      overlaySize: nonEmptyString(
+        config.overlaySize,
+        overlayWorkspace?.size,
+        popup?.overlay_size,
+        popup?.overlaySize,
+        "large",
+      ),
     };
     if (typeof boot.beginDrilldownLoadSession === "function") {
       boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
-    if (typeof boot.useUnifiedLayer2 === "function" && boot.useUnifiedLayer2()) {
+    const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
+    if (useLayer2 && typeof boot.openLayer2Tab === "function") {
       closeDrilldownOverlay();
       closeSceneBoardOverlay();
       const root = boot.openLayer2Tab(layer2Config);

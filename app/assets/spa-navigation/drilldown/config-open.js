@@ -1,3 +1,46 @@
+  const GLOBAL_LAYER2_DEFAULT = {
+    host: "layer2",
+    tab_policy: "append",
+    layout: "single",
+    close: "tab_then_stack",
+  };
+
+  function readOverlayDefaults() {
+    const mei = typeof window !== "undefined" ? window.__mei : null;
+    if (mei && mei.overlay_defaults && typeof mei.overlay_defaults === "object") {
+      return mei.overlay_defaults;
+    }
+    return {};
+  }
+
+  function resolveOverlayWorkspace(popup, detail) {
+    const popupObj = popup && typeof popup === "object" && !Array.isArray(popup) ? popup : {};
+    if (popupObj.overlay_workspace && typeof popupObj.overlay_workspace === "object") {
+      return { ...popupObj.overlay_workspace };
+    }
+    const linkKey = nonEmptyString(
+      popupObj.link_key,
+      popupObj.linkKey,
+      detail?.link_key,
+      detail?.linkKey,
+      detail?.projection_id,
+      detail?.projectionId,
+    );
+    if (linkKey) {
+      const defaults = readOverlayDefaults();
+      const workspace = defaults[linkKey];
+      if (workspace && typeof workspace === "object") {
+        return { ...workspace };
+      }
+    }
+    const overlaySize = nonEmptyString(popupObj.overlay_size, popupObj.overlaySize, "large");
+    return { ...GLOBAL_LAYER2_DEFAULT, size: overlaySize };
+  }
+
+  boot.resolveOverlayWorkspace = resolveOverlayWorkspace;
+  boot.readOverlayDefaults = readOverlayDefaults;
+  boot.GLOBAL_LAYER2_DEFAULT = GLOBAL_LAYER2_DEFAULT;
+
   function buildSceneOpenRequest(config, detail = {}) {
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
     return {
