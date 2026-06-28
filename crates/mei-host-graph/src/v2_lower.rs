@@ -11,6 +11,7 @@ use serde_json::{json, Map, Value};
 use crate::assemble::assembly_key_to_target;
 use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
+use crate::presentation_map::resolve_viewpoint_id;
 use crate::types::GraphNodeKind;
 
 pub struct PanelLowerContext<'a> {
@@ -142,7 +143,7 @@ pub fn lower_panel_payload(
     if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
         deep_merge_value(&mut props, extra);
     }
-    apply_placement(payload.get("placement"), &mut props);
+    apply_tier_and_placement(payload, &mut props);
 
     Ok(PanelDecl {
         kind: "panel".to_string(),
@@ -175,7 +176,7 @@ fn lower_panel_with_slots(
     if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
         deep_merge_value(&mut props, extra);
     }
-    apply_placement(payload.get("placement"), &mut props);
+    apply_tier_and_placement(payload, &mut props);
 
     let mut blocks = Vec::new();
     if let Some(slots) = payload.get("slots").and_then(Value::as_array) {
@@ -227,7 +228,7 @@ fn lower_panel_from_shell(
     ctx: &PanelLowerContext<'_>,
 ) -> Result<PanelDecl> {
     if shell_is_titled_panel_contract(shell) {
-        return lower_titled_shell_panel(shell, id, area, ctx, payload.get("placement"));
+        return lower_titled_shell_panel(shell, id, area, ctx, Some(payload));
     }
     match v2_call_name(shell) {
         Some("screen_header") => lower_screen_header_panel(payload, shell, id, area, ctx),
@@ -236,7 +237,7 @@ fn lower_panel_from_shell(
             id,
             area,
             ctx,
-            payload.get("placement"),
+            Some(payload),
         ),
         _ => lower_panel_from_generic_shell(payload, shell, id, area, ctx),
     }
@@ -285,7 +286,7 @@ fn lower_screen_header_panel(
         "box_sizing": "border-box",
         "overflow": "hidden"
     });
-    apply_placement(payload.get("placement"), &mut props);
+    apply_tier_and_placement(payload, &mut props);
 
     let block = BlockDecl {
         kind: "block".to_string(),
@@ -334,7 +335,7 @@ fn lower_titled_shell_panel(
     id: String,
     area: Option<String>,
     ctx: &PanelLowerContext<'_>,
-    outer_placement: Option<&Value>,
+    outer_payload: Option<&Value>,
 ) -> Result<PanelDecl> {
     let args = v2_call_args(shell).context("titled shell missing __args")?;
     let mut props = titled_shell_template_props(args);
@@ -342,8 +343,8 @@ fn lower_titled_shell_panel(
     if let Some(extra) = args.get("props").filter(|value| value.is_object()) {
         deep_merge_value(&mut props, extra);
     }
-    if let Some(placement) = outer_placement {
-        apply_placement(Some(placement), &mut props);
+    if let Some(outer) = outer_payload {
+        apply_tier_and_placement(outer, &mut props);
     }
 
     let mut head_props = titled_shell_template_head_props();
@@ -390,7 +391,7 @@ fn lower_panel_from_generic_shell(
         .cloned()
         .unwrap_or(json!({}));
     merge_card_fields(&mut props, args);
-    apply_placement(payload.get("placement"), &mut props);
+    apply_tier_and_placement(payload, &mut props);
 
     let mut head_props = lower_head_props(args);
     if let Some(heading) = args.get("heading") {
@@ -449,6 +450,42 @@ fn lower_head_props(source: &Value) -> Value {
         head.insert("heading".to_string(), value.clone());
     }
     Value::Object(head)
+}
+
+pub fn default_z_index_for_tier(tier: &str) -> i64 {
+    match tier {
+        "basemap" => 1,
+        "chrome" => 100,
+        "overlay" => 1000,
+        _ => 100,
+    }
+}
+
+fn apply_tier_and_placement(payload: &Value, props: &mut Value) {
+    let tier = payload.get("tier").and_then(|v| v.as_str());
+    if let Some(map) = props.as_object_mut() {
+        if let Some(tier) = tier {
+            map.insert("__mei_tier".to_string(), json!(tier));
+        }
+        if let Some(role) = payload.get("chrome_role").and_then(|v| v.as_str()) {
+            map.insert("__mei_chrome_role".to_string(), json!(role));
+        }
+    }
+    apply_placement(payload.get("placement"), props);
+    if let Some(tier) = tier {
+        if let Some(map) = props.as_object_mut() {
+            if map.get("z_index").is_none() {
+                let z = if tier == "chrome"
+                    && payload.get("chrome_role").and_then(|v| v.as_str()) == Some("header")
+                {
+                    110
+                } else {
+                    default_z_index_for_tier(tier)
+                };
+                map.insert("z_index".to_string(), json!(z));
+            }
+        }
+    }
 }
 
 fn apply_placement(placement: Option<&Value>, props: &mut Value) {
@@ -740,6 +777,16 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
         ))
     });
 
+    let mut panel_props = props;
+    if let Some(viewpoint) = args.get("viewpoint") {
+        if let Some(id) = resolve_viewpoint_id(viewpoint) {
+            panel_props
+                .as_object_mut()
+                .expect("metric card props")
+                .insert("__mei_viewpoint".to_string(), json!(id));
+        }
+    }
+
     Ok(UiNodeDecl::Panel(PanelDecl {
         kind: "panel".to_string(),
         id: args
@@ -753,7 +800,7 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
         layout,
         blocks,
         slot: None,
-        props,
+        props: panel_props,
         head_props: json!({}),
         body_props: json!({}),
         base: None,
@@ -1261,7 +1308,8 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         .get("overlay_size")
         .and_then(|v| v.as_str())
         .unwrap_or("large");
-    Some(json!({
+    let overlay_workspace = payload.get("overlay_workspace").cloned();
+    let mut popup = json!({
         "mode": "popup",
         "type": payload.get("type").cloned().unwrap_or(json!("popup")),
         "projection": payload.get("projection").cloned().unwrap_or(json!("overlay")),
@@ -1273,7 +1321,20 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
             "scene_file": scene_file,
         },
         "params": params,
-    }))
+    });
+    if let Some(workspace) = overlay_workspace.filter(|v| v.is_object()) {
+        if let Some(map) = popup.as_object_mut() {
+            if let Some(size) = workspace
+                .get("size")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                map.insert("overlay_size".to_string(), json!(size));
+            }
+            map.insert("overlay_workspace".to_string(), workspace);
+        }
+    }
+    Some(popup)
 }
 
 fn load_link_decl_payload(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option<Value> {

@@ -2,6 +2,8 @@
 
 mod projection_normalize;
 mod assemble;
+mod layer_plan;
+mod presentation_map;
 mod data_snapshot;
 mod v2_lower;
 mod v2_bundle_constants;
@@ -17,15 +19,23 @@ mod panel_constants;
 mod paths;
 mod types;
 
-pub use assemble::{assemble_scope_from_registry, list_scope_routes, AssembleOutcome, ScopeRoute};
+pub use assemble::{
+    assemble_scope_from_registry, collect_all_board_scenes, list_scope_routes, AssembleOutcome,
+    ScopeRoute,
+};
+pub use layer_plan::{build_layer_plan, layer_plan_to_value, LayerPlanDocument};
+pub use presentation_map::{
+    build_presentation_map, presentation_map_to_value, resolve_viewpoint_id, PresentationMapDocument,
+};
 pub use data_snapshot::{
     collect_app_xlsx_sources, publish_app_data_snapshots, PublishDataSnapshotsReport,
 };
 pub use import::{import_bundle, load_block_artifact, ImportOptions};
 pub use mcg::registry::{McgRegistry, McgRegistryWriter};
 pub use mrg::client_bootstrap::{
-    bootstrap_embed_allowed, clear_client_bootstrap_for_scope, clear_client_bootstraps_for_stale_scopes,
-    read_client_bootstrap, write_client_bootstrap, ClientBootstrapManifest,
+    bootstrap_embed_allowed, build_client_bootstrap_head_fragment, clear_client_bootstrap_for_scope,
+    clear_client_bootstraps_for_stale_scopes, read_client_bootstrap, write_client_bootstrap,
+    ClientBootstrapManifest,
 };
 pub use mrg::frontier::{
     collect_eval_frontier, collect_eval_frontier_with_hops, record_navigation_edges_for_scope,

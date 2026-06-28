@@ -9,6 +9,8 @@ use mei_lang_kernel::{
 use serde_json::{json, Value};
 
 use crate::import::load_block_artifact;
+use crate::layer_plan::{build_layer_plan, layer_plan_to_value};
+use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
 use crate::projection_normalize::normalize_board_assembly_payload;
 use crate::v2_lower::{find_panel_contract_node, lower_frame_from_assembly, lower_panel_payload, PanelLowerContext};
 use crate::mcg::registry::McgRegistryWriter;
@@ -19,6 +21,9 @@ pub struct AssembleOutcome {
     pub compiled: CompiledApp,
     pub compile_revision: String,
     pub assembly_key: String,
+    pub layer_plan: Value,
+    pub presentation_map: Value,
+    pub overlay_defaults: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -69,6 +74,24 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
     Ok(routes)
 }
 
+/// Collect scene ids for all board assembly views (warmup / smoke tests).
+pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
+    let registry = McgRegistryWriter::load(source_root, app_id);
+    registry
+        .nodes_of_kind(GraphNodeKind::AssemblyView)
+        .filter_map(|node| {
+            if node.id.key.contains("home@") {
+                return Some("home".to_string());
+            }
+            node.id
+                .key
+                .rsplit('#')
+                .next()
+                .map(|s: &str| s.trim_end_matches("_board").to_string())
+        })
+        .collect()
+}
+
 pub fn assemble_scope_from_registry(
     source_root: &Path,
     app_id: &str,
@@ -91,13 +114,20 @@ pub fn assemble_scope_from_registry(
     )?);
     let projection_map = load_projection_map(app_root.as_path(), &registry, &resources);
     let scene_local_nav_by_target = load_scene_local_nav_by_target(app_root.as_path(), &registry);
-    let mut panels = load_panels_for_assembly(
+    let (mut panels, panel_payloads) = load_panels_for_assembly(
         app_root.as_path(),
         app_id,
         &registry,
         &assembly_payload,
         scene_id,
     );
+    let layer_plan = layer_plan_to_value(&build_layer_plan(scene_id, &panels));
+    let presentation_map = presentation_map_to_value(&build_presentation_map(
+        scene_id,
+        &panels,
+        &panel_payloads,
+    ));
+    let overlay_defaults = load_overlay_defaults(app_root.as_path(), &registry);
     let active_target = assembly_key_to_target(&assembly_key);
     let mut panel_diagnostics = Vec::new();
     normalize_panel_slots(
@@ -181,6 +211,9 @@ pub fn assemble_scope_from_registry(
         compiled,
         compile_revision: registry.registry_revision.clone(),
         assembly_key,
+        layer_plan,
+        presentation_map,
+        overlay_defaults,
     }))
 }
 
@@ -420,13 +453,33 @@ fn load_link_bindings(app_root: &Path, registry: &crate::mcg::registry::McgRegis
     bindings
 }
 
+fn load_overlay_defaults(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+) -> BTreeMap<String, Value> {
+    let mut defaults = BTreeMap::new();
+    for node in registry.nodes.iter().filter(|n| n.id.kind == GraphNodeKind::Navigation) {
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Ok(Some(artifact)) = load_block_artifact(app_root, pref) else {
+            continue;
+        };
+        let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
+        if let Some(workspace) = payload.get("overlay_workspace").filter(|v| v.is_object()) {
+            defaults.insert(node.id.key.clone(), workspace.clone());
+        }
+    }
+    defaults
+}
+
 fn load_panels_for_assembly(
     app_root: &Path,
     app_id: &str,
     registry: &crate::mcg::registry::McgRegistry,
     assembly_payload: &Value,
     scene_id: &str,
-) -> Vec<mei_lang_kernel::PanelDecl> {
+) -> (Vec<mei_lang_kernel::PanelDecl>, BTreeMap<String, Value>) {
     let lower_ctx = PanelLowerContext {
         app_root,
         app_id,
@@ -435,6 +488,7 @@ fn load_panels_for_assembly(
         panel_constants: BTreeMap::new(),
     };
     let mut panels = Vec::new();
+    let mut panel_payloads = BTreeMap::new();
     let panel_refs = assembly_payload
         .get("panels")
         .and_then(|v| v.as_array())
@@ -459,11 +513,12 @@ fn load_panels_for_assembly(
         let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
         let panel_ctx = lower_ctx.with_panel_constants(contract_key.as_str());
         if let Ok(panel) = lower_panel_payload(&payload, contract_key.as_str(), &panel_ctx) {
+            panel_payloads.insert(panel.id.clone(), payload);
             panels.push(panel);
         }
     }
 
-    panels
+    (panels, panel_payloads)
 }
 
 fn theme_ref_to_id(value: &Value) -> Option<String> {
