@@ -461,6 +461,16 @@ pub fn default_z_index_for_tier(tier: &str) -> i64 {
     }
 }
 
+pub fn default_z_index_for_chrome_role(role: &str) -> Option<i64> {
+    match role {
+        "header" => Some(110),
+        "center_float" => Some(105),
+        "rail" => Some(102),
+        "center_panel" => Some(101),
+        _ => None,
+    }
+}
+
 fn apply_tier_and_placement(payload: &Value, props: &mut Value) {
     let tier = payload.get("tier").and_then(|v| v.as_str());
     if let Some(map) = props.as_object_mut() {
@@ -475,10 +485,12 @@ fn apply_tier_and_placement(payload: &Value, props: &mut Value) {
     if let Some(tier) = tier {
         if let Some(map) = props.as_object_mut() {
             if map.get("z_index").is_none() {
-                let z = if tier == "chrome"
-                    && payload.get("chrome_role").and_then(|v| v.as_str()) == Some("header")
-                {
-                    110
+                let z = if tier == "chrome" {
+                    payload
+                        .get("chrome_role")
+                        .and_then(|v| v.as_str())
+                        .and_then(default_z_index_for_chrome_role)
+                        .unwrap_or_else(|| default_z_index_for_tier(tier))
                 } else {
                     default_z_index_for_tier(tier)
                 };
@@ -1314,6 +1326,7 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         "type": payload.get("type").cloned().unwrap_or(json!("popup")),
         "projection": payload.get("projection").cloned().unwrap_or(json!("overlay")),
         "overlay_size": overlay_size,
+        "link_key": normalized_link_key(link_key),
         "scene_id": scene_id,
         "scene_file": scene_file,
         "scene": {
@@ -1335,6 +1348,15 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         }
     }
     Some(popup)
+}
+
+fn normalized_link_key(link_key: &str) -> String {
+    let trimmed = link_key.trim();
+    if trimmed.starts_with("overlay/links/") {
+        trimmed.to_string()
+    } else {
+        format!("overlay/links/{trimmed}")
+    }
 }
 
 fn load_link_decl_payload(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option<Value> {

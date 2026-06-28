@@ -438,12 +438,39 @@ fn ws_demo_v2_home_layer_plan_and_presentation_map() {
             .any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("map_stage")),
         "layer_plan basemap should include map_stage: {basemap:?}"
     );
+    let chrome = outcome
+        .layer_plan
+        .get("tiers")
+        .and_then(|v| v.get("chrome"))
+        .and_then(|v| v.as_array())
+        .expect("chrome tier entries");
+    let chrome_ids: Vec<&str> = chrome
+        .iter()
+        .filter_map(|entry| entry.get("panelId").and_then(|v| v.as_str()))
+        .collect();
+    for expected in [
+        "home_header",
+        "left_rail",
+        "center_top",
+        "realtime_center",
+        "right_rail",
+    ] {
+        assert!(
+            chrome_ids.contains(&expected),
+            "layer_plan chrome should include {expected}: {chrome_ids:?}"
+        );
+    }
     assert_eq!(
         outcome
             .presentation_map
             .get("schemaVersion")
             .and_then(|v| v.as_str()),
         Some("mei-presentation-map-v1")
+    );
+    assert!(
+        outcome.overlay_defaults.len() >= 36,
+        "overlay_defaults should include all link_decl entries: {}",
+        outcome.overlay_defaults.len()
     );
 }
 
@@ -475,5 +502,188 @@ fn ws_demo_v2_home_panels_emit_tier_props() {
     assert_eq!(
         header.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("chrome")
+    );
+    assert_eq!(
+        header.props.get("z_index").and_then(serde_json::Value::as_i64),
+        Some(110)
+    );
+}
+
+#[test]
+fn ws_demo_v2_serve_html_emits_data_mei_tier() {
+    let workspace = ws_demo_v2_root();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "data-demo");
+    let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
+        id: "data-demo".to_string(),
+        title: outcome.compiled.title.clone(),
+        root: app_root.display().to_string(),
+    }];
+    let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
+    let theme_style =
+        mei_lang_app::page_body_theme_style(&workspace_cfg, Some(&outcome.compiled), None);
+    let html = mei_lang_app::render_page(
+        &apps,
+        &outcome.compiled,
+        "data-demo",
+        None,
+        mei_lang_app::UiRouteMode::App,
+        Some(outcome.compiled.active_target_file.as_str()),
+        None,
+        None,
+        Some("home"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &[],
+        false,
+        None,
+        None,
+        theme_style.as_str(),
+        None,
+        None,
+    );
+    assert!(
+        html.contains("data-mei-tier=\"basemap\""),
+        "serve HTML should emit data-mei-tier for basemap panel"
+    );
+    assert!(
+        html.contains("data-mei-tier=\"chrome\""),
+        "serve HTML should emit data-mei-tier for chrome panels"
+    );
+}
+
+fn collect_lowered_viewpoint_ids(panels: &[mei_lang_kernel::PanelDecl]) -> Vec<String> {
+    let mut found = Vec::new();
+    fn walk(nodes: &[mei_lang_kernel::UiNodeDecl], found: &mut Vec<String>) {
+        for node in nodes {
+            match node {
+                mei_lang_kernel::UiNodeDecl::Panel(panel) => {
+                    if let Some(vp) = panel
+                        .props
+                        .get("__mei_viewpoint")
+                        .and_then(|v| v.as_str())
+                    {
+                        found.push(vp.to_string());
+                    }
+                    walk(&panel.blocks, found);
+                }
+                mei_lang_kernel::UiNodeDecl::Block(_) => {}
+                mei_lang_kernel::UiNodeDecl::PanelRefEmbed(_) => {}
+            }
+        }
+    }
+    for panel in panels {
+        if let Some(vp) = panel
+            .props
+            .get("__mei_viewpoint")
+            .and_then(|v| v.as_str())
+        {
+            found.push(vp.to_string());
+        }
+        walk(&panel.blocks, &mut found);
+    }
+    found
+}
+
+#[test]
+fn ws_demo_v2_presentation_map_viewpoints() {
+    let workspace = ensure_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let lowered = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .map(|contract| collect_lowered_viewpoint_ids(&contract.panels))
+        .unwrap_or_default();
+    let viewpoints = outcome
+        .presentation_map
+        .get("viewpoints")
+        .and_then(|v| v.as_object())
+        .expect("presentation_map viewpoints");
+    for expected in [
+        "warnings_total",
+        "enforcement_stats",
+        "inspection_stats",
+        "penalty_stats",
+        "indicator_system",
+    ] {
+        assert!(
+            viewpoints.contains_key(expected),
+            "presentation_map should include viewpoint {expected}: keys={:?}, lowered={lowered:?}",
+            viewpoints.keys().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn ws_demo_v2_serve_html_emits_data_mei_viewpoint() {
+    let workspace = ensure_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "data-demo");
+    let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
+        id: "data-demo".to_string(),
+        title: outcome.compiled.title.clone(),
+        root: app_root.display().to_string(),
+    }];
+    let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
+    let theme_style =
+        mei_lang_app::page_body_theme_style(&workspace_cfg, Some(&outcome.compiled), None);
+    let html = mei_lang_app::render_page(
+        &apps,
+        &outcome.compiled,
+        "data-demo",
+        None,
+        mei_lang_app::UiRouteMode::App,
+        Some(outcome.compiled.active_target_file.as_str()),
+        None,
+        None,
+        Some("home"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &[],
+        false,
+        None,
+        None,
+        theme_style.as_str(),
+        None,
+        None,
+    );
+    assert!(
+        html.contains("data-mei-viewpoint=\"warnings_total\""),
+        "serve HTML should emit data-mei-viewpoint for warnings_total"
+    );
+    assert!(
+        html.contains("data-mei-viewpoint=\"enforcement_stats\""),
+        "serve HTML should emit data-mei-viewpoint for enforcement_stats"
     );
 }

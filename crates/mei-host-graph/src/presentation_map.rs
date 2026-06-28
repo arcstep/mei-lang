@@ -54,7 +54,7 @@ fn collect_block_viewpoints(
                             ViewpointMapEntry {
                                 tier: panel_tier(panel),
                                 panel_id: panel.id.clone(),
-                                block_path: Some(block_path),
+                                block_path: Some(block_path.clone()),
                                 label: block
                                     .props
                                     .get("label")
@@ -66,6 +66,23 @@ fn collect_block_viewpoints(
                 }
             }
             UiNodeDecl::Panel(nested) => {
+                if let Some(vp) = nested
+                    .props
+                    .get("viewpoint")
+                    .or_else(|| nested.props.get("__mei_viewpoint"))
+                {
+                    if let Some(id) = resolve_viewpoint_id(vp) {
+                        out.insert(
+                            id.clone(),
+                            ViewpointMapEntry {
+                                tier: panel_tier(nested),
+                                panel_id: nested.id.clone(),
+                                block_path: Some(block_path.clone()),
+                                label: nested.title.clone(),
+                            },
+                        );
+                    }
+                }
                 collect_block_viewpoints(&nested.blocks, nested, &block_path, out);
             }
             _ => {}
@@ -81,11 +98,20 @@ pub fn resolve_viewpoint_id(value: &Value) -> Option<String> {
     if let Some(id) = obj.get("id").and_then(|v| v.as_str()) {
         return Some(id.to_string());
     }
+    if obj.get("__ref").and_then(|v| v.as_str()) == Some("viewpoint_ref") {
+        return obj
+            .get("__args")
+            .and_then(|args| args.get("arg0"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+    }
     if obj.get("__call").and_then(|v| v.as_str()) == Some("viewpoint_ref") {
         return obj
-            .get("id")
-            .or_else(|| obj.get("key"))
+            .get("__args")
+            .and_then(|args| args.get("arg0"))
             .and_then(|v| v.as_str())
+            .or_else(|| obj.get("id").and_then(|v| v.as_str()))
+            .or_else(|| obj.get("key").and_then(|v| v.as_str()))
             .map(str::to_string);
     }
     None
@@ -171,4 +197,73 @@ pub fn build_presentation_map(
 
 pub fn presentation_map_to_value(map: &PresentationMapDocument) -> Value {
     serde_json::to_value(map).unwrap_or(json!({}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+
+    #[test]
+    fn resolve_viewpoint_id_handles_compiler_viewpoint_ref_call() {
+        let vp = json!({
+            "__call": "viewpoint_ref",
+            "__args": { "arg0": "warnings_total" }
+        });
+        assert_eq!(
+            resolve_viewpoint_id(&vp).as_deref(),
+            Some("warnings_total")
+        );
+    }
+
+    #[test]
+    fn resolve_viewpoint_id_handles_v2_viewpoint_ref() {
+        let vp = json!({
+            "__ref": "viewpoint_ref",
+            "__args": { "arg0": "warnings_total" }
+        });
+        assert_eq!(
+            resolve_viewpoint_id(&vp).as_deref(),
+            Some("warnings_total")
+        );
+    }
+
+    #[test]
+    fn collect_metric_card_viewpoint_from_nested_panel() {
+        let card = PanelDecl {
+            kind: "panel".to_string(),
+            id: "warnings_total_card".to_string(),
+            title: None,
+            head: None,
+            area: Some("warnings".to_string()),
+            layout: None,
+            blocks: vec![],
+            slot: None,
+            props: json!({
+                "__mei_viewpoint": "warnings_total",
+                "__mei_metric_card": true
+            }),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let parent = PanelDecl {
+            kind: "panel".to_string(),
+            id: "supervision-stats".to_string(),
+            title: None,
+            head: None,
+            area: None,
+            layout: None,
+            blocks: vec![UiNodeDecl::Panel(card)],
+            slot: None,
+            props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let map = build_presentation_map("home", std::slice::from_ref(&parent), &BTreeMap::new());
+        assert!(map.viewpoints.contains_key("warnings_total"));
+    }
 }

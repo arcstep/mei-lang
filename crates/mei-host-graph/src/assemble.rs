@@ -122,11 +122,6 @@ pub fn assemble_scope_from_registry(
         scene_id,
     );
     let layer_plan = layer_plan_to_value(&build_layer_plan(scene_id, &panels));
-    let presentation_map = presentation_map_to_value(&build_presentation_map(
-        scene_id,
-        &panels,
-        &panel_payloads,
-    ));
     let overlay_defaults = load_overlay_defaults(app_root.as_path(), &registry);
     let active_target = assembly_key_to_target(&assembly_key);
     let mut panel_diagnostics = Vec::new();
@@ -135,6 +130,11 @@ pub fn assemble_scope_from_registry(
         &mut panel_diagnostics,
         active_target.as_str(),
     );
+    let presentation_map = presentation_map_to_value(&build_presentation_map(
+        scene_id,
+        &panels,
+        &panel_payloads,
+    ));
     let frame = Some(lower_frame_from_assembly(&assembly_payload));
     let component_assets = load_component_assets(source_root)?
         .into_values()
