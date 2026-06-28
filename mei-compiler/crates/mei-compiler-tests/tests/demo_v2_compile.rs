@@ -18,7 +18,7 @@ fn demo_v2_compiles_graph_blocks() {
         return;
     }
     let outcome = compile_app(&workspace, "data-demo").expect("compile data-demo");
-    assert_eq!(outcome.syntax_version, "2.0.1");
+    assert_eq!(outcome.syntax_version, "2.0.2");
     assert_eq!(outcome.files.len(), 26, "expected 26 v2 author files");
     assert!(
         outcome.blocks.len() >= 40,
@@ -66,7 +66,7 @@ fn demo_v2_meibundle_roundtrip_and_size() {
     let write_stats = write_bundle_from_outcome(
         &outcome,
         digest.as_str(),
-        "2.0.1",
+        "2.0.2",
         bundle_path.as_path(),
     )
     .expect("write bundle");

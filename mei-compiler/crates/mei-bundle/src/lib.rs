@@ -102,11 +102,8 @@ pub fn build_manifest(
 }
 
 pub fn default_bundle_path(workspace: &Path, app_id: &str) -> std::path::PathBuf {
-    workspace
-        .join("apps")
-        .join(app_id)
-        .join("build")
-        .join("active")
+    let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id);
+    mei_lang_kernel::resolve_app_build_root(app_root.as_path())
         .join("exchange")
         .join(format!("{app_id}.meibundle"))
 }

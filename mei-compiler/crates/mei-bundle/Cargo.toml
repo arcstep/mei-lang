@@ -1,11 +1,12 @@
 [package]
 name = "mei-bundle"
-version = "2.0.1"
+version = "2.0.2"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 mei-graph = { path = "../mei-graph" }
+mei-lang-kernel = { path = "../../../crates/kernel" }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
