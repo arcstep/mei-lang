@@ -41,7 +41,8 @@ pub fn import_bundle(ctx: &HostContext, options: &ImportOptions) -> Result<Impor
 pub fn import_exchange(ctx: &HostContext, exchange: &MeiCompileExchange) -> Result<ImportReport> {
     let app_root = resolve_app_root(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     std::fs::create_dir_all(&app_root)?;
-    std::fs::create_dir_all(app_root.join("build/active"))?;
+    let build_root = mei_lang_kernel::resolve_app_build_root(app_root.as_path());
+    std::fs::create_dir_all(build_root.join("exchange"))?;
     std::fs::create_dir_all(resolve_app_registry_root(&app_root))?;
     std::fs::create_dir_all(resolve_app_eval_cache_root(&app_root))?;
 

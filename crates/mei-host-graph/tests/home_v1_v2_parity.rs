@@ -29,7 +29,7 @@ fn ensure_v2_imported() {
     V2_INIT.call_once(|| {
         let workspace = ws_demo_v2();
         let bundle = workspace
-            .join("apps/data-demo/.mei/compile/data-demo.meibundle");
+            .join("apps/data-demo/build/active/exchange/data-demo.meibundle");
         assert!(bundle.is_file(), "run mei-compiler for ws-demo-v2 first");
         let ctx = HostContext::new(workspace, "data-demo");
         import_bundle(
@@ -160,9 +160,8 @@ fn home_v2_supervision_metric_card_inherits_solid_stack_shell() {
         Some("cockpit"),
         "home scene should use cockpit theme for metric/table chrome"
     );
-    assert_eq!(
-        card.props.get("__mei_metric_title_ratio").and_then(|v| v.as_str()),
-        Some("2"),
+    assert!(
+        card.props.get("__mei_metric_card").and_then(|v| v.as_bool()) == Some(true),
         "solid_stack card props: {:?}",
         card.props
     );

@@ -245,19 +245,25 @@ fn lower_titled_shell_panel(
     ctx: &PanelLowerContext<'_>,
     outer_placement: Option<&Value>,
 ) -> Result<PanelDecl> {
-    let args = v2_call_args(shell).context("titled_shell missing __args")?;
+    let args = v2_call_args(shell).context("titled shell missing __args")?;
     let mut props = titled_shell_template_props(args);
     merge_card_fields(&mut props, args);
+    if let Some(extra) = args.get("props").filter(|value| value.is_object()) {
+        deep_merge_value(&mut props, extra);
+    }
     if let Some(placement) = outer_placement {
         apply_placement(Some(placement), &mut props);
     }
 
     let mut head_props = titled_shell_template_head_props();
     merge_head_props_from_source(&mut head_props, args);
+    finalize_panel_head_props(&mut head_props);
 
     let mut blocks = Vec::new();
     if let Some(body) = args.get("body") {
         blocks.extend(lower_block_node(body, ctx)?);
+    } else {
+        blocks.extend(lower_blocks(args.get("blocks"), ctx)?);
     }
 
     Ok(PanelDecl {
@@ -301,13 +307,8 @@ fn lower_panel_from_generic_shell(
             map.insert("heading".to_string(), heading.clone());
         }
     }
-    for key in ["title_background", "title_decor", "title_align", "title_height"] {
-        if let Some(value) = args.get(key) {
-            if let Some(map) = head_props.as_object_mut() {
-                map.insert(key.to_string(), value.clone());
-            }
-        }
-    }
+    merge_head_props_from_source(&mut head_props, args);
+    finalize_panel_head_props(&mut head_props);
 
     Ok(PanelDecl {
         kind: "panel".to_string(),
@@ -471,20 +472,61 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
     Ok(Vec::new())
 }
 
+fn metric_expanded_template_args(template: Option<&Value>) -> Option<&Value> {
+    let template = template?;
+    if v2_call_name(template) == Some("panel_contract") {
+        v2_call_args(template)
+    } else {
+        None
+    }
+}
+
+fn metric_ratio_from_props(props: &Value, key: &str, fallback: u32) -> u32 {
+    props
+        .get(key)
+        .and_then(|value| {
+            value
+                .as_str()
+                .and_then(|raw| raw.parse().ok())
+                .or_else(|| value.as_u64().map(|n| n as u32))
+        })
+        .unwrap_or(fallback)
+}
+
 fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
     let args = v2_call_args(value).context("metric_card missing __args")?;
-    let template_name = metric_template_name(args.get("template"));
+    let expanded_template = metric_expanded_template_args(args.get("template"));
+    let template_name = if let Some(expanded) = expanded_template {
+        expanded
+            .get("props")
+            .and_then(|props| props.get("__mei_metric_template"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| metric_template_name(args.get("template")))
+    } else {
+        metric_template_name(args.get("template"))
+    };
     let preset = metric_template_preset(template_name.as_str());
     let layout_template = preset.layout_template;
     let height_px = args.get("height_px").and_then(Value::as_i64);
     let density = metric_density(height_px, layout_template);
     let mut props = metric_shell_props(height_px, layout_template, &density);
     deep_merge_value(&mut props, &preset.shell);
+    if let Some(expanded) = expanded_template {
+        if let Some(template_props) = expanded.get("props").filter(|value| value.is_object()) {
+            let resolved = resolve_config_refs_in_value(template_props, ctx);
+            deep_merge_value(&mut props, &resolved);
+        }
+    }
     if let Some(extra) = args.get("props").filter(|value| value.is_object()) {
         let resolved = resolve_config_refs_in_value(extra, ctx);
         deep_merge_value(&mut props, &resolved);
     }
     stamp_metric_vertical_align(&mut props, args);
+
+    let title_ratio = metric_ratio_from_props(&props, "__mei_metric_title_ratio", preset.title_ratio);
+    let content_ratio =
+        metric_ratio_from_props(&props, "__mei_metric_content_ratio", preset.content_ratio);
 
     let source = args.get("source").cloned().unwrap_or(json!({}));
     let map = args.get("map").cloned();
@@ -498,12 +540,30 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
         popup.as_ref(),
         args,
     );
-    let layout = preset.layout.clone().or_else(|| {
+    let layout = if let Some(expanded) = expanded_template {
+        if expanded
+            .get("layout")
+            .and_then(v2_call_name)
+            .is_some_and(|name| name == "layout_metric_stack")
+        {
+            Some(metric_layout_from_template(
+                layout_template,
+                &density,
+                title_ratio,
+                content_ratio,
+            ))
+        } else {
+            expanded.get("layout").and_then(lower_layout)
+        }
+    } else {
+        preset.layout.clone()
+    }
+    .or_else(|| {
         Some(metric_layout_from_template(
             layout_template,
             &density,
-            preset.title_ratio,
-            preset.content_ratio,
+            title_ratio,
+            content_ratio,
         ))
     });
 
@@ -871,6 +931,9 @@ fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> V
                     }
                 }
             }
+            if v2_ref_name(value) == Some("asset_ref") {
+                return resolve_asset_value(value, ctx.app_id);
+            }
             let mut out = Map::new();
             for (key, entry) in map {
                 out.insert(
@@ -981,22 +1044,53 @@ fn titled_shell_template_head_props() -> Value {
             "letter_spacing": "20px",
             "color": "panel_title"
         },
-        "title_background": {
+        "background": {
             "image": "panel_title_bar",
             "position": "center",
             "size": "100% 100%",
             "repeat": "no-repeat"
         },
-        "title_decor": {
+        "carets": {
             "url": "/workspace-app-assets/templates/cockpit/assets/panel/caret-left-filled@3x.svg",
             "left": "26.2%",
             "right": "71.2%",
             "left_rotate": "180deg",
             "size": "14px 24px"
         },
-        "title_height": "54px",
-        "title_align": "center"
+        "height": "54px",
+        "align": "center"
     })
+}
+
+/// Align v2 DSL `title_*` head fields with SSR chrome keys (`ui.star` `_panel_node` mapping).
+fn finalize_panel_head_props(head_props: &mut Value) {
+    let Some(map) = head_props.as_object_mut() else {
+        return;
+    };
+    if !map.contains_key("background") {
+        if let Some(value) = map.remove("title_background") {
+            map.insert("background".to_string(), value);
+        }
+    }
+    if !map.contains_key("carets") {
+        if let Some(value) = map.remove("title_decor") {
+            map.insert("carets".to_string(), value);
+        }
+    }
+    if !map.contains_key("height") {
+        if let Some(value) = map.remove("title_height") {
+            map.insert("height".to_string(), value);
+        }
+    }
+    if !map.contains_key("align") {
+        if let Some(value) = map.remove("title_align") {
+            map.insert("align".to_string(), value);
+        }
+    }
+    map.remove("title_background");
+    map.remove("title_decor");
+    map.remove("title_height");
+    map.remove("title_align");
 }
 
 fn merge_head_props_from_source(head_props: &mut Value, source: &Value) {
@@ -1150,6 +1244,7 @@ fn v2_ref_arg0(value: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
 
     #[test]
     fn lower_frame_builds_viewport_from_canvas() {
@@ -1256,6 +1351,190 @@ mod tests {
         };
         assert_eq!(block.use_key, "cockpit.header-brand");
         assert_eq!(block.props["title"], json!("预警与问题线索 Data Demo"));
+        assert_eq!(
+            block.props["assets"]["title_bg"],
+            json!("/workspace-app-assets/data-demo/assets/header/screen-title-bg@3x.svg")
+        );
+    }
+
+    #[test]
+    fn lower_component_resolves_asset_ref_in_props() {
+        let value = json!({
+            "__call": "component",
+            "__args": {
+                "arg0": "cockpit.header-brand",
+                "props": {
+                    "title": "Demo",
+                    "assets": {
+                        "title_bg": {
+                            "__ref": "asset_ref",
+                            "__args": { "arg0": "header/screen-title-bg@3x.svg" }
+                        }
+                    }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "data-demo",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "data-demo".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+        };
+        let block = lower_block_node(&value, &ctx)
+            .expect("component block")
+            .into_iter()
+            .next()
+            .expect("one block");
+        let UiNodeDecl::Block(block) = block else {
+            panic!("expected block");
+        };
+        assert_eq!(
+            block.props["assets"]["title_bg"],
+            json!("/workspace-app-assets/data-demo/assets/header/screen-title-bg@3x.svg")
+        );
+    }
+
+    #[test]
+    fn lower_titled_shell_maps_title_chrome_to_head_props() {
+        let payload = json!({
+            "id": "warning",
+            "shell": {
+                "__call": "panel_contract",
+                "__args": {
+                    "title": "监督预警",
+                    "title_background": {"image": "panel_title_bar"},
+                    "title_decor": {
+                        "url": "/workspace-app-assets/templates/cockpit/assets/panel/caret-left-filled@3x.svg",
+                        "left": "26.2%",
+                        "right": "71.2%"
+                    },
+                    "title_height": "54px",
+                    "title_align": "center",
+                    "blocks": []
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "data-demo",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "data-demo".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+        };
+        let panel = lower_panel_payload(&payload, "warning", &ctx).expect("panel");
+        assert_eq!(
+            panel.head_props["background"]["image"],
+            json!("panel_title_bar")
+        );
+        assert!(
+            panel
+                .head_props
+                .get("carets")
+                .and_then(|v| v.get("url"))
+                .is_some()
+        );
+        assert_eq!(panel.head_props["height"], json!("54px"));
+        assert_eq!(panel.head_props["align"], json!("center"));
+        assert!(panel.head_props.get("title_background").is_none());
+    }
+
+    #[test]
+    fn lower_expanded_titled_shell_macro_loads_blocks_not_body() {
+        let payload = json!({
+            "id": "warning",
+            "shell": {
+                "__call": "panel_contract",
+                "__args": {
+                    "title": "监督预警",
+                    "title_background": {"image": "panel_title_bar"},
+                    "heading_variant": "plain",
+                    "props": {"border": "1px solid rgba(52, 82, 108, 0.5)"},
+                    "blocks": [{
+                        "__ref": "panel_ref",
+                        "__args": { "arg0": "content/supervision-stats" }
+                    }]
+                }
+            }
+        });
+        let mut registry = McgRegistry {
+            schema_version: String::new(),
+            app_id: "data-demo".to_string(),
+            registry_revision: String::new(),
+            updated_at_ms: 0,
+            nodes: vec![crate::mcg::registry::McgNodeRecord {
+                id: GraphNodeId::new(
+                    GraphNodeKind::PanelContract,
+                    "panel_contract:supervision-stats".to_string(),
+                ),
+                revision: String::new(),
+                state: MaterialState::Ready,
+                layer: "test".to_string(),
+                payload_ref: None,
+                deps: Vec::new(),
+                owner_resource_id: None,
+                assembly_inputs: Vec::new(),
+            }],
+        };
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app_root = tmp.path().join("apps/data-demo");
+        let store = app_root.join("build/active/store/content/panel_contract");
+        std::fs::create_dir_all(&store).expect("mkdir");
+        let artifact = json!({
+            "payload": {
+                "id": "supervision-stats",
+                "blocks": [{
+                    "__call": "metric_card",
+                    "__args": {
+                        "id": "supervision_items_card",
+                        "template": {"__call": "solid_stack", "__args": {}},
+                        "source": {
+                            "__ref": "metric_ref",
+                            "__args": {
+                                "arg0": "supervision_items_count",
+                                "bundle": "metrics/supervision-warning.bundle.mei"
+                            }
+                        }
+                    }
+                }]
+            }
+        });
+        let hash = "abc123";
+        std::fs::write(
+            store.join(format!("{hash}.json")),
+            serde_json::to_string(&artifact).expect("json"),
+        )
+        .expect("write");
+        registry.nodes[0].payload_ref = Some(PayloadRef::new(
+            "panel_contract",
+            hash,
+            "mei-panel-contract-artifact-v1",
+        ));
+        let ctx = PanelLowerContext {
+            app_root: app_root.as_path(),
+            app_id: "data-demo",
+            registry: &registry,
+            scene_id: "home",
+        };
+        let panel = lower_panel_with_slots(&payload, "warning".into(), Some("warning".into()), &ctx)
+            .expect("slot panel");
+        assert_eq!(panel.title.as_deref(), Some("监督预警"));
+        assert_eq!(panel.blocks.len(), 1, "expanded titled_shell should lower blocks");
+        let nested = match &panel.blocks[0] {
+            UiNodeDecl::Panel(nested) => nested,
+            other => panic!("expected nested panel, got {other:?}"),
+        };
+        assert_eq!(nested.blocks.len(), 3, "metric_card expands to 3 mei.text slots");
     }
 
     #[test]
@@ -1320,5 +1599,66 @@ mod tests {
                 "from_dataset": "__world_metrics__::metrics/supervision-warning.bundle.mei",
             })
         );
+    }
+
+    #[test]
+    fn lower_metric_card_honors_compile_expanded_solid_stack_template() {
+        let value = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "supervision_items_card",
+                "area": "items",
+                "height_px": 86,
+                "template": {
+                    "__call": "panel_contract",
+                    "__args": {
+                        "layout": {
+                            "__call": "layout_metric_stack",
+                            "__args": { "title_ratio": 2, "content_ratio": 3 }
+                        },
+                        "props": {
+                            "__mei_metric_template": "stack",
+                            "__mei_metric_title_ratio": "2",
+                            "__mei_metric_content_ratio": "3",
+                            "border": "1px solid rgba(98,190,235,0.35)",
+                            "background": { "color": "rgba(98,190,235,0.10)" }
+                        }
+                    }
+                },
+                "source": {
+                    "__ref": "metric_ref",
+                    "__args": {
+                        "arg0": "supervision_items_count",
+                        "bundle": "metrics/supervision-warning.bundle.mei"
+                    }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "data-demo",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "data-demo".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+        };
+        let card = lower_metric_card(&value, &ctx).expect("metric card");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        assert!(
+            panel
+                .props
+                .get("border")
+                .and_then(Value::as_str)
+                .is_some_and(|value| value.contains("98,190,235")),
+            "expanded solid_stack template should preserve cockpit border"
+        );
+        assert_eq!(panel.props["__mei_metric_title_ratio"], json!("2"));
     }
 }
