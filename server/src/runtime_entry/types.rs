@@ -24,10 +24,19 @@ pub(crate) struct AppState {
     pub(crate) agent_preferred_mode: Arc<String>,
     pub(crate) agent_preferred_server_url: Arc<String>,
     pub(crate) agent_auto_start: bool,
-    pub(crate) auth_enforcement: crate::auth::AuthEnforcement,
+    pub(crate) auth_enforcement: mei_host_auth::AuthEnforcement,
     pub(crate) agent_runtime: Arc<Mutex<crate::agent_runtime::ManagedOpencodeRuntime>>,
     pub(crate) agent_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
     pub(crate) native_agent: Arc<crate::mei_agent::NativeAgent>,
+}
+
+impl axum::extract::FromRef<AppState> for mei_host_auth::AuthServeState {
+    fn from_ref(app: &AppState) -> mei_host_auth::AuthServeState {
+        mei_host_auth::AuthServeState {
+            source_root: app.source_root.clone(),
+            auth_enforcement: app.auth_enforcement,
+        }
+    }
 }
 
 #[derive(Clone)]

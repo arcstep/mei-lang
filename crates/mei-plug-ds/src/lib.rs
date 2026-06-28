@@ -1,13 +1,20 @@
 //! Data-source plugin: parquet import, dataset query, metric eval.
 
+mod cli;
+mod commands;
 mod dataset_api;
 mod eval;
 mod eval_pipeline;
+mod http;
 mod memory_warmup;
 mod plugin;
 mod smart_warmup;
 mod warmup;
 mod warmup_orchestrator;
+
+pub use cli::{Cli, Command, ServeArgs, WarmupArgs};
+pub use commands::{resolve_warmup_targets, run_serve, run_warmup};
+pub use http::router as http_router;
 
 pub use smart_warmup::{maybe_trigger_smart_warmup, run_smart_warmup};
 

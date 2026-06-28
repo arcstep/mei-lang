@@ -11,26 +11,40 @@ use serde_json::json;
 
 use crate::api_stubs::{
     api_agent_config_stub, api_agent_runtime_stub, api_agent_sessions_stub,
-    api_agent_skill_stub, api_auth_session_stub,
+    api_agent_skill_stub,
 };
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
-use crate::pages::{app_page, index};
-use crate::state::SharedState;
+use crate::pages::{app_page, api_presentation_map, index};
+use crate::state::{HostHttpState, SharedState};
 use crate::upload_download::upload_file_download_get;
 
-pub fn router(state: SharedState) -> Router {
+pub fn router(state: HostHttpState) -> Router {
     Router::new()
         .route(
             "/favicon.ico",
             get(|| async { Redirect::permanent("/app-assets/favicon.svg") }),
         )
         .route("/", get(index))
+        .route("/login", get(mei_host_auth::login_page))
+        .route("/logout", get(mei_host_auth::logout_page))
+        .route(
+            "/account/password",
+            get(mei_host_auth::account_change_password_page),
+        )
         .route("/api/host/heartbeat", get(api_host_heartbeat))
         .route("/api/host/version", get(api_host_version))
         .route("/api/host/ready", get(api_host_ready))
         .route("/api/host/readiness", get(api_host_ready))
-        .route("/api/auth/session", get(api_auth_session_stub))
+        .route("/api/auth/public-key", get(mei_host_auth::auth_public_key))
+        .route("/api/auth/session", get(mei_host_auth::auth_session))
+        .route("/api/auth/refresh", post(mei_host_auth::auth_refresh))
+        .route("/api/auth/login", post(mei_host_auth::auth_login))
+        .route("/api/auth/logout", post(mei_host_auth::auth_logout))
+        .route(
+            "/api/auth/change-password",
+            post(mei_host_auth::auth_change_password),
+        )
         .route("/api/agent/config", get(api_agent_config_stub))
         .route("/api/agent/runtime", get(api_agent_runtime_stub))
         .route("/api/agent/skill", get(api_agent_skill_stub))
@@ -47,6 +61,10 @@ pub fn router(state: SharedState) -> Router {
         .route(
             "/api/ops/theme/style/:app_id",
             get(api_ops_theme_style),
+        )
+        .route(
+            "/api/presentation/map/:app_id",
+            get(api_presentation_map),
         )
         .route(
             "/api/upload/download/:app_id",
@@ -158,27 +176,11 @@ async fn api_datasets_query_inner(
     state: SharedState,
     body: serde_json::Value,
 ) -> Response {
-    let guard = state.read().expect("state lock");
-    #[cfg(feature = "ds")]
-    {
-        match mei_plug_ds::query_dataset(&guard.ctx, &body) {
-            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-            Err(error) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": error.to_string()})),
-            )
-                .into_response(),
-        }
-    }
-    #[cfg(not(feature = "ds"))]
-    {
-        let _ = (guard, body);
-        (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(json!({"error": "ds feature disabled"})),
-        )
-            .into_response()
-    }
+    let ctx = {
+        let guard = state.read().expect("state lock");
+        guard.ctx.clone()
+    };
+    crate::plug_proxy::proxy_post_json(&ctx, "/api/datasets/query", body).await
 }
 
 async fn api_datasets_metrics(
@@ -186,34 +188,19 @@ async fn api_datasets_metrics(
     Path(app_id): Path<String>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> Response {
-    let guard = state.read().expect("state lock");
-    if guard.ctx.app_id != app_id {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "app mismatch"})),
-        )
-            .into_response();
-    }
-    #[cfg(feature = "ds")]
-    {
-        match mei_plug_ds::query_metrics(&guard.ctx, &body) {
-            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
-            Err(error) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": error.to_string()})),
+    let ctx = {
+        let guard = state.read().expect("state lock");
+        if guard.ctx.app_id != app_id {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "app mismatch"})),
             )
-                .into_response(),
+                .into_response();
         }
-    }
-    #[cfg(not(feature = "ds"))]
-    {
-        let _ = (guard, body);
-        (
-            StatusCode::NOT_IMPLEMENTED,
-            Json(json!({"error": "ds feature disabled"})),
-        )
-            .into_response()
-    }
+        guard.ctx.clone()
+    };
+    let path = format!("/api/datasets/metrics/{app_id}");
+    crate::plug_proxy::proxy_post_json(&ctx, path.as_str(), body).await
 }
 
 #[derive(serde::Deserialize)]
@@ -263,14 +250,21 @@ mod tests {
     use std::sync::{Arc, RwLock};
     use tower::ServiceExt;
 
-    fn test_state(workspace: std::path::PathBuf) -> SharedState {
-        Arc::new(RwLock::new(crate::state::ShellState {
-            ctx: HostContext::new(workspace, "data-demo".to_string()),
+    fn test_state(workspace: std::path::PathBuf) -> HostHttpState {
+        let shell = Arc::new(RwLock::new(crate::state::ShellState {
+            ctx: HostContext::new(workspace.clone(), "data-demo".to_string()),
             package_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
             imported: true,
             warmed_up: true,
             host_started_at_ms: 1,
-        }))
+        }));
+        HostHttpState {
+            shell,
+            auth: mei_host_auth::AuthServeState::new(
+                workspace,
+                mei_host_auth::AuthEnforcement::Disabled,
+            ),
+        }
     }
 
     #[tokio::test]

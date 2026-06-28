@@ -7,8 +7,10 @@ mod gis_config;
 mod gis_proxy;
 mod http;
 mod pages;
+mod plug_proxy;
 mod request_logging;
 mod state;
+mod tool_exec;
 mod upload_download;
 
 use clap::{CommandFactory, Parser};

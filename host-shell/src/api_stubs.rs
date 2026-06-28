@@ -26,17 +26,6 @@ fn agent_config_summary() -> Value {
     })
 }
 
-pub async fn api_auth_session_stub() -> impl IntoResponse {
-    Json(json!({
-        "enabled": false,
-        "authenticated": false,
-        "user": null,
-        "expires_at": null,
-        "jwt_ttl_seconds": null,
-        "refresh_lead_seconds": null,
-    }))
-}
-
 pub async fn api_agent_config_stub() -> impl IntoResponse {
     Json(agent_config_summary())
 }

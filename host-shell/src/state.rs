@@ -1,5 +1,7 @@
 use std::sync::{Arc, RwLock};
 
+use axum::extract::FromRef;
+use mei_host_auth::AuthServeState;
 use mei_host_core::HostContext;
 
 #[derive(Debug, Clone)]
@@ -24,6 +26,24 @@ impl ShellState {
 }
 
 pub type SharedState = Arc<RwLock<ShellState>>;
+
+#[derive(Clone)]
+pub struct HostHttpState {
+    pub shell: SharedState,
+    pub auth: AuthServeState,
+}
+
+impl FromRef<HostHttpState> for AuthServeState {
+    fn from_ref(input: &HostHttpState) -> Self {
+        input.auth.clone()
+    }
+}
+
+impl FromRef<HostHttpState> for SharedState {
+    fn from_ref(input: &HostHttpState) -> Self {
+        input.shell.clone()
+    }
+}
 
 pub fn current_time_ms() -> u64 {
     std::time::SystemTime::now()

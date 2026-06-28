@@ -5,10 +5,10 @@ use std::sync::{Arc, RwLock};
 use crate::cli::{
     BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs,
     BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs, MrgCommand,
-    MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs, WarmupArgs,
+    MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs,
     WorkspaceCommand, WorkspaceInitArgs,
 };
-use crate::state::{SharedState, ShellState};
+use crate::state::{HostHttpState, SharedState, ShellState};
 
 pub async fn dispatch(command: Command) -> anyhow::Result<()> {
     match command {
@@ -17,8 +17,10 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         Command::Reload(args) => run_reload(args),
         Command::Prebuild(args) => run_prebuild(args).await,
         Command::PrebuildData(args) => run_prebuild_data(args),
-        Command::Warmup(args) => run_warmup(args).await,
         Command::Mrg(sub) => run_mrg(sub),
+        Command::Auth(sub) => mei_host_auth::run_auth_command(mei_host_auth::cli_args::AuthArgs {
+            command: sub,
+        }),
         Command::Serve(args) => run_serve(args).await,
         Command::Build(sub) => run_build(sub),
         Command::Workspace(sub) => run_workspace(sub),
@@ -303,7 +305,7 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
     println!("envVersion={build_id}");
 
     println!("==> compile");
-    compile_app_to_bundle(workspace.as_path(), app)?;
+    crate::tool_exec::run_mei_compiler_compile(workspace.as_path(), app)?;
 
     println!("==> import");
     let report = import_with_options(workspace.as_path(), app, None)?;
@@ -322,16 +324,12 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
     }
 
     println!("==> warmup policy={}", args.policy);
-    run_warmup(WarmupArgs {
-        workspace: workspace.clone(),
-        app: app.to_string(),
-        policy: args.policy.clone(),
-        tier: "disk".to_string(),
-        board: None,
-        frontier: None,
-        hops: 0,
-    })
-    .await?;
+    crate::tool_exec::run_mei_plug_ds_warmup(
+        workspace.as_path(),
+        app,
+        args.policy.as_str(),
+        "all",
+    )?;
 
     println!("==> build finalize");
     run_build_finalize(BuildFinalizeArgs {
@@ -342,43 +340,6 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
 
     println!("Prebuild complete (envVersion={build_id}).");
     Ok(())
-}
-
-fn compile_app_to_bundle(workspace: &Path, app_id: &str) -> anyhow::Result<()> {
-    let outcome = mei_graph::compile_app(workspace, app_id)
-        .map_err(|e| anyhow::anyhow!("compile failed: {e}"))?;
-    let templates_rel = read_templates_rel(workspace);
-    let digest = mei_bundle::compute_workspace_digest(workspace, app_id, templates_rel.as_str());
-    let bundle_path = mei_bundle::default_bundle_path(workspace, app_id);
-    if let Some(parent) = bundle_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let stats = mei_bundle::write_bundle_from_outcome(
-        &outcome,
-        digest.as_str(),
-        env!("CARGO_PKG_VERSION"),
-        bundle_path.as_path(),
-        false,
-    )
-    .map_err(|e| anyhow::anyhow!("write bundle: {e}"))?;
-    println!(
-        "wrote {} ({} blocks, {} bytes)",
-        bundle_path.display(),
-        stats.manifest.block_count,
-        stats.bundle_bytes
-    );
-    Ok(())
-}
-
-fn read_templates_rel(workspace: &Path) -> String {
-    let cfg = mei_lang_kernel::load_workspace_config(workspace);
-    cfg.paths
-        .templates
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("stock/templates")
-        .to_string()
 }
 
 fn run_workspace_init(args: WorkspaceInitArgs) -> anyhow::Result<()> {
@@ -539,71 +500,6 @@ fn run_prebuild_data(args: PrebuildDataArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
-    let ctx = mei_host_core::HostContext::new(args.workspace.clone(), args.app.clone());
-    #[cfg(feature = "ds")]
-    {
-        let tier = mei_plug_ds::WarmupTier::parse(args.tier.as_str());
-        let targets = resolve_warmup_targets(&ctx, &args)?;
-        let report = mei_plug_ds::run_warmup_targets_with_tier(&ctx, &targets, tier)?;
-        if args.hops > 0 {
-            let scope = args
-                .frontier
-                .as_deref()
-                .or(Some(args.policy.as_str()))
-                .unwrap_or("home");
-            let edges =
-                mei_host_graph::record_navigation_edges_for_scope(&ctx, scope, args.hops)?;
-            if edges > 0 {
-                println!("warmup navigation edges added: {edges}");
-            }
-        }
-        println!(
-            "warmup ok: policy={} tier={} worksets={} slots={} memory_hydrated={} client_manifest={} failed={}",
-            args.policy,
-            args.tier,
-            targets.len(),
-            report.slot_count,
-            report.memory_hydrated,
-            report.client_manifest_written,
-            report.failed_count
-        );
-    }
-    #[cfg(not(feature = "ds"))]
-    {
-        let _ = (ctx, args);
-        anyhow::bail!("warmup requires feature ds");
-    }
-    Ok(())
-}
-
-#[cfg(feature = "ds")]
-fn resolve_warmup_targets(
-    ctx: &mei_host_core::HostContext,
-    args: &WarmupArgs,
-) -> anyhow::Result<Vec<mei_plug_ds::WarmupTarget>> {
-    if let Some(board) = args
-        .board
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let metrics = mei_host_graph::collect_eval_frontier(ctx, board)?;
-        return Ok(mei_plug_ds::frontier_targets_from_metrics(board, &metrics));
-    }
-    if let Some(frontier) = args
-        .frontier
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let metrics =
-            mei_host_graph::collect_eval_frontier_with_hops(ctx, frontier, args.hops)?;
-        return Ok(mei_plug_ds::frontier_targets_from_metrics(frontier, &metrics));
-    }
-    mei_plug_ds::collect_warmup_targets(ctx, Some(args.policy.as_str()))
-}
-
 fn run_mrg(command: MrgCommand) -> anyhow::Result<()> {
     match command {
         MrgCommand::Status(args) => run_mrg_status(args),
@@ -659,38 +555,42 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let package_root = resolve_package_root()?;
     let ctx = mei_host_core::HostContext::new(workspace.clone(), args.app.clone());
     ensure_registry_materialized(&ctx)?;
-    #[cfg(feature = "ds")]
-    if args.warm_on_start {
-        let tier = mei_plug_ds::WarmupTier::parse(args.warm_tier.as_str());
-        if tier == mei_plug_ds::WarmupTier::Memory {
-            let hydrated = mei_plug_ds::hydrate_existing_l1_slots(&ctx, "home")?;
-            tracing::info!(hydrated, "serve warm-on-start hydrated L1 slots to memory");
-        } else {
-            let targets = mei_plug_ds::collect_warmup_targets(&ctx, Some("home"))?;
-            let report = mei_plug_ds::run_warmup_targets_with_tier(&ctx, &targets, tier)?;
-            tracing::info!(
-                slots = report.slot_count,
-                memory_hydrated = report.memory_hydrated,
-                "serve warm-on-start completed"
-            );
-        }
-    }
-    let state: SharedState = Arc::new(RwLock::new(ShellState::new(
+    let auth_enforcement = if args.auth {
+        mei_host_auth::AuthEnforcement::Required
+    } else {
+        mei_host_auth::AuthEnforcement::Disabled
+    };
+    mei_host_auth::prepare_auth_for_serve(
+        workspace.as_path(),
+        auth_enforcement,
+        "mei-host-shell",
+    )?;
+    let shell: SharedState = Arc::new(RwLock::new(ShellState::new(
         workspace.clone(),
         args.app,
         package_root,
     )));
-    refresh_host_materialization_flags(&state);
+    refresh_host_materialization_flags(&shell);
+    let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
+    let state = HostHttpState {
+        shell,
+        auth: auth_state.clone(),
+    };
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let display = mei_lang_kernel::resolve_build_footer_label(workspace.as_path());
+    if args.auth {
+        println!("Auth:      enabled (login required for protected routes)");
+    }
     println!(
         "mei-host-shell listening on http://{addr} (shell {} · {})",
         crate::build_info::BUILD_VERSION,
         display
     );
-    let app = crate::http::router(state)
-        .layer(axum::middleware::from_fn(crate::request_logging::log_request));
+    let app = crate::http::router(state).layer(axum::middleware::from_fn_with_state(
+        auth_state,
+        mei_host_auth::auth_middleware,
+    )).layer(axum::middleware::from_fn(crate::request_logging::log_request));
     axum::serve(listener, app)
         .await
         .map_err(|e| anyhow::anyhow!(e))

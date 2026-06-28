@@ -8,9 +8,10 @@ pub enum Command {
     Reload(ReloadArgs),
     Prebuild(PrebuildArgs),
     PrebuildData(PrebuildDataArgs),
-    Warmup(WarmupArgs),
     #[command(subcommand)]
     Mrg(MrgCommand),
+    #[command(subcommand, name = "auth")]
+    Auth(mei_host_auth::cli_args::AuthCommand),
     Serve(ServeArgs),
     #[command(subcommand)]
     Build(BuildCommand),
@@ -139,21 +140,18 @@ pub struct ReloadArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct WarmupArgs {
+pub struct ServeArgs {
     #[arg(long)]
     pub workspace: PathBuf,
     #[arg(long)]
     pub app: String,
-    #[arg(long, default_value = "home")]
-    pub policy: String,
-    #[arg(long, default_value = "disk")]
-    pub tier: String,
+    #[arg(long, default_value = "127.0.0.1")]
+    pub host: String,
+    #[arg(long, default_value = "9527")]
+    pub port: u16,
+    /// 启用宿主登录鉴权（须已配置用户，否则启动失败）
     #[arg(long)]
-    pub board: Option<String>,
-    #[arg(long)]
-    pub frontier: Option<String>,
-    #[arg(long, default_value_t = 0)]
-    pub hops: usize,
+    pub auth: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -169,22 +167,6 @@ pub struct MrgStatusArgs {
     pub app: String,
     #[arg(long)]
     pub json: bool,
-}
-
-#[derive(Args, Debug)]
-pub struct ServeArgs {
-    #[arg(long)]
-    pub workspace: PathBuf,
-    #[arg(long)]
-    pub app: String,
-    #[arg(long, default_value = "127.0.0.1")]
-    pub host: String,
-    #[arg(long, default_value = "9527")]
-    pub port: u16,
-    #[arg(long, default_value_t = false)]
-    pub warm_on_start: bool,
-    #[arg(long, default_value = "memory")]
-    pub warm_tier: String,
 }
 
 #[derive(Args, Debug)]

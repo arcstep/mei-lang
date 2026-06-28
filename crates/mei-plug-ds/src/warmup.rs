@@ -88,20 +88,7 @@ fn parse_workset_slot(scope_key: &str, idx: usize, slot: &Value) -> Option<Warmu
 }
 
 pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
-    let registry = McgRegistryWriter::load(source_root, app_id);
-    registry
-        .nodes_of_kind(GraphNodeKind::AssemblyView)
-        .filter_map(|node| {
-            if node.id.key.contains("home@") {
-                return Some("home".to_string());
-            }
-            node.id
-                .key
-                .rsplit('#')
-                .next()
-                .map(|s: &str| s.trim_end_matches("_board").to_string())
-        })
-        .collect()
+    mei_host_graph::collect_all_board_scenes(source_root, app_id)
 }
 
 pub fn frontier_targets_from_metrics(

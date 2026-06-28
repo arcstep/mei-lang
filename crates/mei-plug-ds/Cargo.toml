@@ -4,8 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "mei-plug-ds"
+path = "src/bin/main.rs"
+
 [dependencies]
 anyhow.workspace = true
+axum.workspace = true
+clap.workspace = true
 mei-host-core = { path = "../mei-host-core" }
 mei-host-graph = { path = "../mei-host-graph" }
 mei-lang-datasets = { path = "../datasets" }
@@ -14,3 +20,8 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

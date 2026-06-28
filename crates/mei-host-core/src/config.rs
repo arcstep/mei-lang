@@ -11,6 +11,25 @@ pub struct AppConfig {
     pub schema_version: u32,
     #[serde(default)]
     pub ops: OpsSection,
+    #[serde(default)]
+    pub runtime: RuntimeSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct RuntimeSection {
+    #[serde(default)]
+    pub plugs: PlugsSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PlugsSection {
+    #[serde(default)]
+    pub ds: Option<PlugEndpoint>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PlugEndpoint {
+    pub endpoint: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

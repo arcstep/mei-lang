@@ -122,7 +122,7 @@ pub fn run_warmup_targets_with_tier(
         && !primary_scope.is_empty()
         && (client_scopes.is_empty() || client_scopes.contains(primary_scope.as_str()))
     {
-        if write_client_bootstrap(
+        if let Some(manifest) = write_client_bootstrap(
             ctx.app_root().as_path(),
             ctx.app_id.as_str(),
             primary_scope.as_str(),
@@ -130,10 +130,19 @@ pub fn run_warmup_targets_with_tier(
             &all_slots,
             &metrics_map,
             max_client,
-        )?
-        .is_some()
-        {
+        )? {
             client_manifest_written = true;
+            let revision = manifest.client_revision.clone();
+            for slot in all_slots.iter_mut() {
+                if slot.client_eligible && slot.cache_layers_ready.client {
+                    slot.client_revision = Some(revision.clone());
+                }
+            }
+            record_slots_from_descriptors(
+                ctx.workspace_root.as_path(),
+                ctx.app_id.as_str(),
+                &all_slots,
+            )?;
         }
     }
 

@@ -56,7 +56,11 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
     } else {
         crate::auth::AuthEnforcement::Disabled
     };
-    crate::auth::prepare_auth_for_serve(source_root.as_path(), auth_enforcement)?;
+    crate::auth::prepare_auth_for_serve(
+        source_root.as_path(),
+        auth_enforcement,
+        "mei-host-web",
+    )?;
     if let Err(error) = mei_lang_toolchain::ensure_workspace_stock_materialized(
         source_root.as_path(),
         package_root.as_path(),
@@ -136,11 +140,15 @@ pub(crate) async fn serve(args: ServeArgs) -> Result<()> {
         }
         Err(error) => tracing::warn!(%error, "failed to inspect workspace-local MeiLang skill"),
     }
+    let auth_state = mei_host_auth::AuthServeState {
+        source_root: state.source_root.clone(),
+        auth_enforcement,
+    };
     let app = Router::new()
         .merge(crate::http::router())
         .layer(middleware::from_fn_with_state(
-            state.clone(),
-            crate::auth::auth_middleware,
+            auth_state,
+            mei_host_auth::auth_middleware,
         ))
         .with_state(state)
         .layer(middleware::from_fn(super::request_logging::log_request));
