@@ -9,6 +9,7 @@ source "${DEPLOY_DIR}/lib.sh"
 APP="${MEI_APP:-data-demo}"
 HOST="${MEI_HOST:-127.0.0.1}"
 PORT="${MEI_PORT:-9527}"
+RUNTIME="${MEI_RUNTIME:-local}"
 SKIP_PREBUILD=0
 BACKGROUND=0
 WARMUP_POLICY="${MEI_WARMUP_POLICY:-home}"
@@ -25,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     --policy=*) WARMUP_POLICY="${1#*=}"; shift ;;
     --runtime) RUNTIME="$2"; shift 2 ;;
     --runtime=*) RUNTIME="${1#*=}"; shift ;;
+    --cargo) RUNTIME="cargo"; shift ;;
     *) break ;;
   esac
 done

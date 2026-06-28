@@ -10,9 +10,9 @@ use crate::mei_config::workspace_paths::{resolve_app_root, resolve_apps_root};
 
 use super::env_paths::{
     app_build_active_link, app_env_build_dir, app_env_dir, app_env_var_dir, app_var_active_link,
-    normalize_env_generation_id, resolve_env_generation_id, resolve_workspace_version,
+    format_env_generation_id, normalize_env_generation_id, resolve_workspace_version,
 };
-use super::paths::{civil_from_days, resolve_toolchain_version, write_build_manifest};
+use super::paths::{civil_from_days, resolve_toolchain_version_with_hint, write_build_manifest};
 use super::types::{
     read_links_state, write_links_state, BuildManifest, BUILD_MANIFEST_SCHEMA,
 };
@@ -137,9 +137,19 @@ impl PrebuildGeneration {
 }
 
 pub fn begin_prebuild_generation(source_root: &Path, app_ids: &[String]) -> Result<PrebuildGeneration> {
-    let toolchain_version = resolve_toolchain_version(source_root);
+    begin_prebuild_generation_with_hint(source_root, app_ids, None)
+}
+
+pub fn begin_prebuild_generation_with_hint(
+    source_root: &Path,
+    app_ids: &[String],
+    cli_toolchain_hint: Option<&str>,
+) -> Result<PrebuildGeneration> {
+    let toolchain_version =
+        resolve_toolchain_version_with_hint(source_root, cli_toolchain_hint);
     let workspace_version = resolve_workspace_version(source_root);
-    let env_version = resolve_env_generation_id(source_root);
+    let env_version =
+        format_env_generation_id(toolchain_version.as_str(), workspace_version.as_str());
     let previous_active = read_links_state(source_root)
         .ok()
         .and_then(|links| links.build.active)
@@ -194,16 +204,7 @@ pub fn finish_prebuild_generation(
     }
     let mut links = read_links_state(source_root).unwrap_or_default();
     links.build.candidate = Some(generation.env_version.clone());
-    if links
-        .toolchain
-        .active
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_none()
-    {
-        links.toolchain.active = Some(generation.toolchain_version.clone());
-    }
+    links.toolchain.active = Some(generation.toolchain_version.clone());
     if source_revision.is_some() {
         links.source_revision = source_revision.map(str::to_string);
     }
@@ -296,9 +297,30 @@ pub fn prepare_dev_build_generation(
     source_root: &Path,
     app_ids: &[String],
 ) -> Result<PrebuildGeneration> {
-    let generation = begin_prebuild_generation(source_root, app_ids)?;
+    prepare_dev_build_generation_with_hint(source_root, app_ids, None)
+}
+
+pub fn prepare_dev_build_generation_with_hint(
+    source_root: &Path,
+    app_ids: &[String],
+    cli_toolchain_hint: Option<&str>,
+) -> Result<PrebuildGeneration> {
+    let generation =
+        begin_prebuild_generation_with_hint(source_root, app_ids, cli_toolchain_hint)?;
     attach_build_generation(source_root, app_ids, generation.env_version.as_str())?;
+    sync_dev_links_for_generation(source_root, &generation)?;
     Ok(generation)
+}
+
+fn sync_dev_links_for_generation(
+    source_root: &Path,
+    generation: &PrebuildGeneration,
+) -> Result<()> {
+    let mut links = read_links_state(source_root).unwrap_or_default();
+    links.toolchain.active = Some(generation.toolchain_version.clone());
+    links.build.candidate = Some(generation.env_version.clone());
+    write_links_state(source_root, &links)?;
+    Ok(())
 }
 
 pub fn finalize_and_promote_build(

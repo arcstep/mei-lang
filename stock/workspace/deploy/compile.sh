@@ -9,5 +9,7 @@ source "${DEPLOY_DIR}/lib.sh"
 APP="${MEI_APP:-data-demo}"
 parse_common_args "$@"
 
+ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP}"
+
 run_mei_compiler "${WORKSPACE_ROOT}" \
-  compile --workspace "${WORKSPACE_ROOT}" --app "${APP}" "$@"
+  compile --workspace "${WORKSPACE_ROOT}" --app "${APP}" "${DEPLOY_CLI_ARGS[@]}"

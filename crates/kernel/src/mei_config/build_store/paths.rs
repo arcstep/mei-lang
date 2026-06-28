@@ -46,12 +46,27 @@ fn active_toolchain_manifest_path(source_root: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Toolchain version for env ver: active store MANIFEST → links.active → workspace pin → flat MANIFEST → `latest`.
+/// Toolchain version for env ver: store MANIFEST → workspace pin → CLI cargo hint → links.active → flat MANIFEST → `latest`.
 pub fn resolve_toolchain_version(source_root: &Path) -> String {
+    resolve_toolchain_version_with_hint(source_root, None)
+}
+
+/// Dev CLI passes its `CARGO_PKG_VERSION` so env generation follows rebuilt mei-lang binaries.
+pub fn resolve_toolchain_version_with_hint(
+    source_root: &Path,
+    cli_toolchain_hint: Option<&str>,
+) -> String {
     if let Some(manifest) = active_toolchain_manifest_path(source_root) {
         if let Some(version) = read_manifest_version(&manifest) {
             return version;
         }
+    }
+    let cfg = load_workspace_config(source_root);
+    if let Some(pin) = cfg.toolchain.pin.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        return pin.to_string();
+    }
+    if let Some(hint) = cli_toolchain_hint.map(str::trim).filter(|s| !s.is_empty()) {
+        return hint.to_string();
     }
     if let Ok(links) = read_links_state(source_root) {
         if let Some(active) = links
@@ -63,10 +78,6 @@ pub fn resolve_toolchain_version(source_root: &Path) -> String {
         {
             return active.to_string();
         }
-    }
-    let cfg = load_workspace_config(source_root);
-    if let Some(pin) = cfg.toolchain.pin.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        return pin.to_string();
     }
     let flat_manifest = resolve_toolchain_root(source_root).join("MANIFEST.json");
     if let Some(version) = read_manifest_version(&flat_manifest) {

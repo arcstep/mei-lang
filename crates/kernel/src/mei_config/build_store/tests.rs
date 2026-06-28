@@ -43,6 +43,42 @@ fn resolve_env_generation_id_uses_workspace_json_version() {
 }
 
 #[test]
+fn resolve_toolchain_version_prefers_workspace_pin_over_stale_links() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ws = tmp.path();
+    fs::create_dir_all(ws.join("deploy/state")).expect("mkdir deploy");
+    fs::write(
+        ws.join("workspace.json"),
+        r#"{"schemaVersion":2,"workspace":{"version":"20260628"},"toolchain":{"pin":"2.0.2"}}"#,
+    )
+    .expect("write workspace.json");
+    let mut links = LinksState::default();
+    links.toolchain.active = Some("2.0.1".into());
+    write_links_state(ws, &links).expect("write links");
+    assert_eq!(resolve_toolchain_version(ws), "2.0.2");
+    assert_eq!(resolve_env_generation_id(ws), "2.0.2-ws20260628");
+}
+
+#[test]
+fn resolve_toolchain_version_prefers_cli_hint_over_stale_links_without_pin() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ws = tmp.path();
+    fs::create_dir_all(ws.join("deploy/state")).expect("mkdir deploy");
+    write_ws(ws, "20260628");
+    let mut links = LinksState::default();
+    links.toolchain.active = Some("2.0.1".into());
+    write_links_state(ws, &links).expect("write links");
+    assert_eq!(
+        resolve_toolchain_version_with_hint(ws, Some("2.0.2")),
+        "2.0.2"
+    );
+    assert_eq!(
+        format_env_generation_id("2.0.2", "20260628"),
+        "2.0.2-ws20260628"
+    );
+}
+
+#[test]
 fn normalize_env_generation_id_upgrades_legacy_toolchain_only_ids() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let ws = tmp.path();

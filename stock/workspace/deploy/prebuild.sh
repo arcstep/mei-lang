@@ -11,4 +11,4 @@ POLICY="${MEI_WARMUP_POLICY:-home}"
 parse_common_args "$@"
 
 run_mei_host_shell "${WORKSPACE_ROOT}" \
-  prebuild --workspace "${WORKSPACE_ROOT}" --app "${APP}" --policy "${POLICY}" "$@"
+  prebuild --workspace "${WORKSPACE_ROOT}" --app "${APP}" --policy "${POLICY}" "${DEPLOY_CLI_ARGS[@]}"

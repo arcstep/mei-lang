@@ -35,9 +35,12 @@ parse_common_args() {
     case "$1" in
       --runtime) RUNTIME="$2"; shift 2 ;;
       --runtime=*) RUNTIME="${1#*=}"; shift ;;
+      --cargo) RUNTIME="cargo"; shift ;;
       *) break ;;
     esac
   done
+  # Caller $@ is unchanged after a function call; stash extras for forwarding.
+  DEPLOY_CLI_ARGS=("$@")
 }
 
 ensure_local_bins() {
@@ -78,4 +81,15 @@ run_mei_host_shell() {
   fi
   ensure_local_bins "${workspace_root}"
   "${workspace_root}/deploy/bin/mei-host-shell" "$@"
+}
+
+# Point build/active at env/{mei-lang-version}-ws{workspace.version} before compile/import.
+ensure_build_generation_aligned() {
+  local workspace_root="$1"
+  local app="${2:-data-demo}"
+  echo "==> align env generation with mei-lang CLI (runtime=${RUNTIME})"
+  local env_ver
+  env_ver="$(run_mei_host_shell "${workspace_root}" \
+    build prepare --workspace "${workspace_root}" --app "${app}")"
+  echo "envGeneration=${env_ver}"
 }

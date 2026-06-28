@@ -59,14 +59,21 @@ fn resolve_build_app_ids(workspace: &std::path::Path, apps: &[String]) -> anyhow
     anyhow::bail!("no --app specified and workspace has no defaultApp")
 }
 
+fn cli_toolchain_hint() -> &'static str {
+    crate::build_info::CARGO_PACKAGE_VERSION
+}
+
 fn run_build_prepare(args: BuildPrepareArgs) -> anyhow::Result<()> {
     let workspace = args
         .workspace
         .canonicalize()
         .unwrap_or(args.workspace);
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
-    let generation =
-        mei_lang_kernel::prepare_dev_build_generation(workspace.as_path(), &app_ids)?;
+    let generation = mei_lang_kernel::prepare_dev_build_generation_with_hint(
+        workspace.as_path(),
+        &app_ids,
+        Some(cli_toolchain_hint()),
+    )?;
     println!("{}", generation.env_version);
     Ok(())
 }
@@ -79,7 +86,10 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
     let generation = mei_lang_kernel::PrebuildGeneration {
         env_version: args.build_id.clone(),
-        toolchain_version: mei_lang_kernel::resolve_toolchain_version(workspace.as_path()),
+        toolchain_version: mei_lang_kernel::resolve_toolchain_version_with_hint(
+            workspace.as_path(),
+            Some(cli_toolchain_hint()),
+        ),
         workspace_version: mei_lang_kernel::resolve_workspace_version(workspace.as_path()),
         store_dirs: app_ids
             .iter()
@@ -283,8 +293,11 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
     let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), app);
 
     println!("==> build prepare");
-    let generation =
-        mei_lang_kernel::prepare_dev_build_generation(workspace.as_path(), &[app.to_string()])?;
+    let generation = mei_lang_kernel::prepare_dev_build_generation_with_hint(
+        workspace.as_path(),
+        &[app.to_string()],
+        Some(cli_toolchain_hint()),
+    )?;
     let build_id = generation.env_version.clone();
     println!("envVersion={build_id}");
 
