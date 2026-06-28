@@ -1,4 +1,3 @@
-use crate::http::host_error_page;
 
 fn html_escape(value: &str) -> String {
     value
@@ -182,7 +181,7 @@ pub(super) fn login_page_html(
         auth_rsa_bundle_script = auth_rsa_bundle_script,
         auth_rsa_client_script = auth_rsa_client_script,
     );
-    host_error_page::render_auth_card_page(
+    crate::shell_chrome::render_auth_card_page(
         "登录 - MeiLang",
         "MeiLang 登录",
         card_inner.as_str(),
@@ -271,7 +270,7 @@ pub(super) fn change_password_page_html(
         auth_rsa_bundle_script = auth_rsa_bundle_script,
         auth_rsa_client_script = auth_rsa_client_script,
     );
-    host_error_page::render_auth_card_page(
+    crate::shell_chrome::render_auth_card_page(
         "修改密码 - MeiLang",
         "修改密码",
         card_inner.as_str(),

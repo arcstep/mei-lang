@@ -15,6 +15,7 @@ members = [
   "mei-compiler/crates/mei-syntax",
   "crates/mei-host-core",
   "crates/mei-host-graph",
+  "crates/mei-host-auth",
   "crates/mei-plug-ds",
   "host-shell",
   "server",

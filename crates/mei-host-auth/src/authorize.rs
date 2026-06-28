@@ -12,11 +12,12 @@ use axum::{
 use mei_lang_kernel::{load_workspace_auth_bundle, WorkspaceAuthBundle};
 use serde_json::json;
 
-use super::crypto::extract_token_from_headers;
-use super::runtime::{load_auth_runtime, normalize_id};
-use super::types::{AuthEnforcement, AuthPrincipal, AuthRuntime};
-use super::workspace_users::ensure_workspace_auth_base;
-use crate::{http::host_error_page, AppState};
+use crate::crypto::extract_token_from_headers;
+use crate::runtime::{load_auth_runtime, normalize_id};
+use crate::shell_chrome;
+use crate::state::AuthServeState;
+use crate::types::{AuthEnforcement, AuthPrincipal, AuthRuntime};
+use crate::workspace_users::ensure_workspace_auth_base;
 
 fn is_public_path(path: &str) -> bool {
     path == "/login"
@@ -25,12 +26,13 @@ fn is_public_path(path: &str) -> bool {
         || path.starts_with("/app-assets/")
         || path.starts_with("/app-bundles/")
         || path.starts_with("/workspace-components/bundles/")
-        // 地图运行时：瓦片代理与 MapLibre vendor 资源为只读 GET，子请求常不带 session。
         || path == "/gis"
         || path.starts_with("/gis/")
         || path.starts_with("/workspace-components/vendor/")
         || path == "/api/host/ready"
         || path == "/api/host/heartbeat"
+        || path == "/api/host/readiness"
+        || path == "/api/host/version"
         || path == "/api/auth/public-key"
         || path == "/api/auth/login"
         || path == "/api/auth/session"
@@ -84,8 +86,8 @@ fn extract_api_app_id(path: &str) -> Option<String> {
         "/api/datasets/query/",
         "/api/datasets/metrics/",
         "/api/datasets/recompute/",
-        "/api/ops/config/",
-        "/api/ops/journal/",
+        "/api/presentation/map/",
+        "/api/ops/",
         "/api/upload/",
         "/workspace-app-assets/",
     ] {
@@ -172,7 +174,7 @@ fn forbidden_response(path: &str, message: &str) -> Response {
         )
             .into_response();
     }
-    host_error_page::forbidden_html_response(message)
+    shell_chrome::forbidden_html_response(message)
 }
 
 pub fn sanitize_next_path(next: Option<&str>) -> String {
@@ -187,7 +189,6 @@ pub fn sanitize_next_path(next: Option<&str>) -> String {
     }
 }
 
-/// 登录后 `next`：无权访问的目标回落到 `/`（由 index 按角色再选 landing）。
 pub fn authorize_next_path(next: Option<&str>, principal: &AuthPrincipal) -> String {
     let next = sanitize_next_path(next);
     if next == "/" {
@@ -201,7 +202,7 @@ pub fn authorize_next_path(next: Option<&str>, principal: &AuthPrincipal) -> Str
     }
 }
 
-pub(crate) fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
+pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
     let caps = principal.capabilities();
     if let Some((mode, app_id, scene_id)) = extract_app_route_context(path) {
         if !principal.can_access_app(app_id.as_str()) {
@@ -236,6 +237,12 @@ pub(crate) fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()
         }
         return Ok(());
     }
+    if path.starts_with("/api/ops/theme/") {
+        if !caps.access_view {
+            anyhow::bail!("current role cannot access theme api");
+        }
+        return Ok(());
+    }
     if path.starts_with("/api/ops/") || path.starts_with("/api/upload/") {
         if !caps.config_upload {
             anyhow::bail!("current role cannot access write api");
@@ -253,10 +260,11 @@ pub(crate) fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()
     Ok(())
 }
 
-pub(crate) fn format_auth_not_ready_message(
+fn format_auth_not_ready_message(
     source_root: &Path,
     bundle: &WorkspaceAuthBundle,
     runtime: &AuthRuntime,
+    cli_hint: &str,
 ) -> String {
     let root = source_root.display();
     let config = runtime.config_path.display();
@@ -284,7 +292,7 @@ pub(crate) fn format_auth_not_ready_message(
         }
         lines.push(format!("缺少密钥：{}。", missing.join("、")));
         lines.push("请先执行：".to_string());
-        lines.push(format!("  mei host auth ensure-keys --source-root {root}"));
+        lines.push(format!("  {cli_hint} auth ensure-keys --workspace {root}"));
         lines.push(String::new());
     }
 
@@ -304,15 +312,13 @@ pub(crate) fn format_auth_not_ready_message(
             "初始化 super / admin / guest（推荐，密码从 stdin 读取，勿写在命令行）：".to_string(),
         );
         lines.push(format!(
-            "  printf '%s' 'YourPwd1!complex' | mei host auth bootstrap-users --source-root {root} --default-password-stdin"
+            "  printf '%s' 'YourPwd1!complex' | {cli_hint} auth bootstrap-users --workspace {root} --default-password-stdin"
         ));
         lines.push("或生成随机临时密码（仅当次输出，适合首次部署）：".to_string());
-        lines.push(format!(
-            "  mei host auth bootstrap-users --source-root {root} --json"
-        ));
+        lines.push(format!("  {cli_hint} auth bootstrap-users --workspace {root} --json"));
         lines.push("仅新增单个用户：".to_string());
         lines.push(format!(
-            "  printf '%s' 'YourPwd1!complex' | mei host auth add-user --source-root {root} --username guest01 --role guest --password-stdin"
+            "  printf '%s' 'YourPwd1!complex' | {cli_hint} auth add-user --workspace {root} --username guest01 --role guest --password-stdin"
         ));
         lines.push(String::new());
         lines.push("密码规则：至少 8 位，且须含大写 / 小写 / 数字 / 符号。".to_string());
@@ -320,7 +326,7 @@ pub(crate) fn format_auth_not_ready_message(
 
     lines.push(String::new());
     lines.push(format!(
-        "完成后重新启动：mei serve --auth --source-root {root}"
+        "完成后重新启动：{cli_hint} serve --auth --workspace {root}"
     ));
     if keys_ready && active_user_count > 0 {
         lines
@@ -330,7 +336,11 @@ pub(crate) fn format_auth_not_ready_message(
     lines.join("\n")
 }
 
-pub fn prepare_auth_for_serve(source_root: &Path, enforcement: AuthEnforcement) -> Result<()> {
+pub fn prepare_auth_for_serve(
+    source_root: &Path,
+    enforcement: AuthEnforcement,
+    cli_hint: &str,
+) -> Result<()> {
     if enforcement != AuthEnforcement::Required {
         return Ok(());
     }
@@ -340,7 +350,7 @@ pub fn prepare_auth_for_serve(source_root: &Path, enforcement: AuthEnforcement) 
     if !runtime.enabled {
         anyhow::bail!(
             "{}",
-            format_auth_not_ready_message(source_root, &bundle, &runtime)
+            format_auth_not_ready_message(source_root, &bundle, &runtime, cli_hint)
         );
     }
     tracing::info!(
@@ -352,7 +362,7 @@ pub fn prepare_auth_for_serve(source_root: &Path, enforcement: AuthEnforcement) 
 }
 
 pub async fn auth_middleware(
-    State(state): State<AppState>,
+    State(state): State<AuthServeState>,
     mut request: Request<Body>,
     next: Next,
 ) -> Response {

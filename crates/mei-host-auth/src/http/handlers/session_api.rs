@@ -7,19 +7,15 @@ use axum::{
 use serde_json::json;
 
 use crate::{
-    auth::{
-        authorize_next_path, clear_cookie_header_value, cookie_header_value, hash_password,
-        load_auth_runtime, update_workspace_user_password,
-        AuthPrincipal,
-    },
-    AppState,
+    authorize_next_path, clear_cookie_header_value, cookie_header_value, hash_password,
+    load_auth_runtime, update_workspace_user_password, AuthPrincipal,
 };
-
+use crate::state::AuthServeState;
 
 use super::support::*;
 
 pub async fn auth_session(
-    State(state): State<AppState>,
+    State(state): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
 ) -> impl IntoResponse {
     if let Some(response) = reject_if_auth_disabled(&state) {
@@ -78,7 +74,7 @@ pub async fn auth_session(
 }
 
 pub async fn auth_refresh(
-    State(state): State<AppState>,
+    State(state): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
 ) -> impl IntoResponse {
     if let Some(response) = reject_if_auth_disabled(&state) {
@@ -94,7 +90,7 @@ pub async fn auth_refresh(
     if !runtime.enabled {
         return json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei host auth ensure-keys` and `mei host auth bootstrap-users` (or `add-user --password-stdin`)",
+            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei-host-shell auth ensure-keys` and `mei-host-shell auth bootstrap-users` (or `add-user --password-stdin`)",
         );
     }
     let claims = match runtime.refresh_claims_for_user(principal.username.as_str()) {
@@ -144,7 +140,7 @@ pub async fn auth_refresh(
 }
 
 pub async fn auth_login(
-    State(state): State<AppState>,
+    State(state): State<AuthServeState>,
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     if let Some(response) = reject_if_auth_disabled(&state) {
@@ -157,7 +153,7 @@ pub async fn auth_login(
     if !runtime.enabled {
         return json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei host auth ensure-keys` and `mei host auth bootstrap-users` (or `add-user --password-stdin`)",
+            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei-host-shell auth ensure-keys` and `mei-host-shell auth bootstrap-users` (or `add-user --password-stdin`)",
         );
     }
     if body
@@ -224,7 +220,7 @@ pub async fn auth_login(
     response
 }
 
-pub async fn auth_logout(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn auth_logout(State(state): State<AuthServeState>) -> impl IntoResponse {
     if let Some(response) = reject_if_auth_disabled(&state) {
         return response;
     }
@@ -243,7 +239,7 @@ pub async fn auth_logout(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 pub async fn auth_change_password(
-    State(state): State<AppState>,
+    State(state): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
     Json(body): Json<ChangePasswordRequest>,
 ) -> impl IntoResponse {
@@ -260,7 +256,7 @@ pub async fn auth_change_password(
     if !runtime.enabled {
         return json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei host auth ensure-keys` and `mei host auth bootstrap-users` (or `add-user --password-stdin`)",
+            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei-host-shell auth ensure-keys` and `mei-host-shell auth bootstrap-users` (or `add-user --password-stdin`)",
         );
     }
     let current_password =

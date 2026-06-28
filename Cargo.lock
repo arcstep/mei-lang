@@ -2421,6 +2421,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "mei-host-auth"
+version = "2.0.4"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "axum",
+ "base64",
+ "chrono",
+ "clap",
+ "jsonwebtoken",
+ "mei-lang-app",
+ "mei-lang-kernel",
+ "rand 0.8.6",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tower 0.5.3",
+ "tracing",
+]
+
+[[package]]
 name = "mei-host-core"
 version = "2.0.4"
 dependencies = [
@@ -2459,14 +2482,12 @@ dependencies = [
  "axum",
  "clap",
  "http-body-util",
- "mei-bundle",
- "mei-graph",
+ "mei-host-auth",
  "mei-host-core",
  "mei-host-graph",
  "mei-lang-app",
  "mei-lang-kernel",
  "mei-lang-toolchain",
- "mei-plug-ds",
  "reqwest",
  "serde",
  "serde_json",
@@ -2542,7 +2563,6 @@ name = "mei-lang-server"
 version = "2.0.4"
 dependencies = [
  "anyhow",
- "argon2",
  "async-stream",
  "axum",
  "base64",
@@ -2552,14 +2572,13 @@ dependencies = [
  "csv",
  "dotenvy",
  "http-body-util",
- "jsonwebtoken",
+ "mei-host-auth",
  "mei-lang-app",
  "mei-lang-datasets",
  "mei-lang-kernel",
  "mei-lang-toolchain",
  "rand 0.8.6",
  "reqwest",
- "rsa",
  "rusqlite",
  "serde",
  "serde_json",
@@ -2606,14 +2625,19 @@ name = "mei-plug-ds"
 version = "2.0.4"
 dependencies = [
  "anyhow",
+ "axum",
+ "clap",
  "mei-host-core",
  "mei-host-graph",
  "mei-lang-datasets",
  "mei-lang-kernel",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
+ "tower 0.5.3",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -7,21 +7,17 @@ use axum::{
 use serde_json::json;
 
 use crate::{
-    auth::{
-        authorize_next_path, clear_cookie_header_value,
-        load_auth_runtime, sanitize_next_path,
-        AuthPrincipal,
-    },
-    http::host_error_page,
-    AppState,
+    authorize_next_path, clear_cookie_header_value, load_auth_runtime, sanitize_next_path,
+    AuthPrincipal,
 };
-
-use crate::http::auth_api::pages::{change_password_page_html, login_page_html};
+use crate::http::pages::{change_password_page_html, login_page_html};
+use crate::shell_chrome;
+use crate::state::AuthServeState;
 
 use super::support::*;
 
 pub async fn login_page(
-    State(state): State<AppState>,
+    State(state): State<AuthServeState>,
     Query(query): Query<LoginPageQuery>,
     principal: Option<Extension<AuthPrincipal>>,
 ) -> impl IntoResponse {
@@ -39,8 +35,8 @@ pub async fn login_page(
         }
     }
     let footer_html =
-        host_error_page::render_host_shell_footer_for_source_root(state.source_root.as_path());
-    let shell_theme = host_error_page::host_shell_body_theme_style(state.source_root.as_path());
+        shell_chrome::render_host_shell_footer_for_source_root(state.source_root.as_path());
+    let shell_theme = shell_chrome::host_shell_body_theme_style(state.source_root.as_path());
     Html(login_page_html(
         sanitize_next_path(query.next.as_deref()).as_str(),
         auth_login_ready(&state, &runtime),
@@ -52,7 +48,7 @@ pub async fn login_page(
 }
 
 pub async fn logout_page(
-    State(state): State<AppState>,
+    State(state): State<AuthServeState>,
     Query(query): Query<LogoutQuery>,
 ) -> impl IntoResponse {
     if let Some(response) = reject_page_if_auth_disabled(&state) {
@@ -74,7 +70,7 @@ pub async fn logout_page(
 }
 
 pub async fn account_change_password_page(
-    State(state): State<AppState>,
+    State(state): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
 ) -> impl IntoResponse {
     if let Some(response) = reject_page_if_auth_disabled(&state) {
@@ -84,8 +80,8 @@ pub async fn account_change_password_page(
         return Redirect::temporary("/login").into_response();
     };
     let footer_html =
-        host_error_page::render_host_shell_footer_for_source_root(state.source_root.as_path());
-    let shell_theme = host_error_page::host_shell_body_theme_style(state.source_root.as_path());
+        shell_chrome::render_host_shell_footer_for_source_root(state.source_root.as_path());
+    let shell_theme = shell_chrome::host_shell_body_theme_style(state.source_root.as_path());
     Html(change_password_page_html(
         principal.username.as_str(),
         principal.role_slug(),
@@ -95,7 +91,7 @@ pub async fn account_change_password_page(
     .into_response()
 }
 
-pub async fn auth_public_key(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn auth_public_key(State(state): State<AuthServeState>) -> impl IntoResponse {
     if let Some(response) = reject_if_auth_disabled(&state) {
         return response;
     }
@@ -119,4 +115,3 @@ pub async fn auth_public_key(State(state): State<AppState>) -> impl IntoResponse
     )
         .into_response()
 }
-

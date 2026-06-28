@@ -6,19 +6,15 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::{
-    auth::{
-        AuthEnforcement, SESSION_REFRESH_LEAD_SECONDS,
-    },
-    AppState,
-};
+use crate::state::AuthServeState;
+use crate::types::{AuthEnforcement, AuthRuntime};
+use crate::SESSION_REFRESH_LEAD_SECONDS;
 
-
-pub(super) fn auth_login_ready(state: &AppState, _runtime: &crate::auth::AuthRuntime) -> bool {
+pub(super) fn auth_login_ready(state: &AuthServeState, _runtime: &AuthRuntime) -> bool {
     state.auth_enforcement == AuthEnforcement::Required
 }
 
-pub(super) fn reject_if_auth_disabled(state: &AppState) -> Option<Response> {
+pub(super) fn reject_if_auth_disabled(state: &AuthServeState) -> Option<Response> {
     if state.auth_enforcement != AuthEnforcement::Required {
         Some(json_error(StatusCode::NOT_FOUND, "host auth is disabled"))
     } else {
@@ -26,7 +22,7 @@ pub(super) fn reject_if_auth_disabled(state: &AppState) -> Option<Response> {
     }
 }
 
-pub(super) fn reject_page_if_auth_disabled(state: &AppState) -> Option<Response> {
+pub(super) fn reject_page_if_auth_disabled(state: &AuthServeState) -> Option<Response> {
     if state.auth_enforcement != AuthEnforcement::Required {
         Some(StatusCode::NOT_FOUND.into_response())
     } else {
