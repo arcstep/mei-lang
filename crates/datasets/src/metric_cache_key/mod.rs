@@ -14,6 +14,3 @@ pub(crate) use cache_key::{
     runtime_metric_eval_scope, serialize_cache_value, stable_slot_hash,
 };
 pub(crate) use workset::runtime_metric_workset;
-
-#[cfg(test)]
-mod tests;

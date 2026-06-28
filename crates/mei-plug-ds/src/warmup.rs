@@ -97,9 +97,38 @@ pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String>
             }
             node.id
                 .key
-                .split('#')
-                .next_back()
+                .rsplit('#')
+                .next()
                 .map(|s: &str| s.trim_end_matches("_board").to_string())
+        })
+        .collect()
+}
+
+pub fn frontier_targets_from_metrics(
+    scope_key: &str,
+    metrics: &[mei_host_graph::FrontierMetric],
+) -> Vec<WarmupTarget> {
+    let mut grouped: std::collections::BTreeMap<(String, String), Vec<String>> =
+        std::collections::BTreeMap::new();
+    for metric in metrics {
+        grouped
+            .entry((metric.owner_resource_id.clone(), metric.bundle_key.clone()))
+            .or_default()
+            .push(metric.metric_id.clone());
+    }
+    grouped
+        .into_iter()
+        .enumerate()
+        .map(|(idx, ((owner, bundle_key), mut metric_ids))| {
+            metric_ids.sort();
+            metric_ids.dedup();
+            WarmupTarget {
+                scope_key: scope_key.to_string(),
+                workset_id: format!("frontier:{scope_key}:{idx}"),
+                owner_resource_id: owner,
+                bundle_key,
+                metric_ids,
+            }
         })
         .collect()
 }

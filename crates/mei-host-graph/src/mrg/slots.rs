@@ -1,30 +1,20 @@
 use std::path::Path;
 
-use mei_host_core::EvalSlotDescriptor;
+use mei_host_core::{CacheLayersReady, EvalSlotDescriptor};
 
 use crate::content_store::METRIC_RESPONSE;
 use crate::mrg::registry::{MrgLastEval, MrgRegistryWriter, MrgSlotId, MrgSlotRecord};
+use crate::mrg::tier::compute_client_revision;
 use crate::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef, current_time_ms, stable_hash};
+
+pub const MRG_REGISTRY_SCHEMA_V3: &str = crate::mrg::registry::MRG_REGISTRY_SCHEMA_VERSION;
 
 pub fn record_slot_from_descriptor(
     source_root: &Path,
     app_id: &str,
     descriptor: &EvalSlotDescriptor,
 ) -> anyhow::Result<()> {
-    record_mrg_slot(
-        source_root,
-        app_id,
-        &descriptor.slot_key,
-        &descriptor.scope_key,
-        &descriptor.owner_resource_id,
-        &descriptor.metric_def_bundle_revision,
-        &descriptor.data_source_revision,
-        &descriptor.payload_kind,
-        &descriptor.content_hash,
-        &descriptor.schema_version,
-        descriptor.wall_ms,
-        descriptor.artifact_hit,
-    )
+    record_mrg_slot_from_descriptor(source_root, app_id, descriptor)
 }
 
 pub fn record_slots_from_descriptors(
@@ -32,30 +22,110 @@ pub fn record_slots_from_descriptors(
     app_id: &str,
     descriptors: &[EvalSlotDescriptor],
 ) -> anyhow::Result<()> {
-    for descriptor in descriptors {
-        record_slot_from_descriptor(source_root, app_id, descriptor)?;
-    }
     if descriptors.is_empty() {
         let mut registry = MrgRegistryWriter::load(source_root, app_id);
         registry.finalize();
         MrgRegistryWriter::save(source_root, &registry)?;
+        return Ok(());
     }
-    Ok(())
+    let mut registry = MrgRegistryWriter::load(source_root, app_id);
+    for descriptor in descriptors {
+        let record = build_slot_record(descriptor);
+        registry.upsert_slot(record);
+    }
+    registry.finalize();
+    MrgRegistryWriter::save(source_root, &registry)
 }
 
-fn record_mrg_slot(
+fn record_mrg_slot_from_descriptor(
     source_root: &Path,
     app_id: &str,
-    slot_node_key: &str,
+    descriptor: &EvalSlotDescriptor,
+) -> anyhow::Result<()> {
+    let mut registry = MrgRegistryWriter::load(source_root, app_id);
+    registry.upsert_slot(build_slot_record(descriptor));
+    registry.finalize();
+    MrgRegistryWriter::save(source_root, &registry)
+}
+
+fn build_slot_record(descriptor: &EvalSlotDescriptor) -> MrgSlotRecord {
+    let slot_revision = compute_slot_revision(
+        descriptor.metric_def_bundle_revision.as_str(),
+        descriptor.data_source_revision.as_str(),
+        descriptor.scope_key.as_str(),
+        "json_walk",
+    );
+    let client_revision = descriptor.client_revision.clone().or_else(|| {
+        Some(compute_client_revision(
+            slot_revision.as_str(),
+            descriptor.content_hash.as_str(),
+            descriptor.data_source_revision.as_str(),
+        ))
+    });
+    let cache_layer = if descriptor.cache_layer.is_empty() {
+        if descriptor.artifact_hit {
+            "disk".to_string()
+        } else {
+            "compute".to_string()
+        }
+    } else {
+        descriptor.cache_layer.clone()
+    };
+    MrgSlotRecord {
+        slot_id: MrgSlotId {
+            node: GraphNodeId::new(GraphNodeKind::MaterialSlot, descriptor.slot_key.clone()),
+            scope_key: descriptor.scope_key.clone(),
+        },
+        slot_revision,
+        state: MaterialState::Ready,
+        owner_resource_id: descriptor.owner_resource_id.clone(),
+        metric_def_bundle_revision: descriptor.metric_def_bundle_revision.clone(),
+        data_source_revision: descriptor.data_source_revision.clone(),
+        payload_ref: Some(PayloadRef::new(
+            descriptor.payload_kind.as_str(),
+            descriptor.content_hash.as_str(),
+            descriptor.schema_version.as_str(),
+        )),
+        cache_policy: "artifact_sealed".to_string(),
+        eval_engine: "json_walk".to_string(),
+        last_eval: Some(MrgLastEval {
+            at_ms: current_time_ms(),
+            wall_ms: descriptor.wall_ms,
+            artifact_hit: descriptor.artifact_hit,
+            cache_layer,
+        }),
+        resident_tier: if descriptor.resident_tier.is_empty() {
+            if descriptor.cache_layers_ready.memory {
+                "memory_resident".to_string()
+            } else {
+                "disk_only".to_string()
+            }
+        } else {
+            descriptor.resident_tier.clone()
+        },
+        client_eligible: descriptor.client_eligible,
+        client_revision,
+        payload_bytes: descriptor.payload_bytes,
+        tiers_ready: Some(descriptor.cache_layers_ready.clone()),
+        access_count: 0,
+        last_access_ms: None,
+        workset_id: if descriptor.workset_id.is_empty() {
+            None
+        } else {
+            Some(descriptor.workset_id.clone())
+        },
+    }
+}
+
+pub fn record_slot_failed(
+    source_root: &Path,
+    app_id: &str,
+    slot_key: &str,
     scope_key: &str,
     owner_resource_id: &str,
     metric_def_bundle_revision: &str,
     data_source_revision: &str,
-    payload_kind: &str,
-    content_hash: &str,
-    schema_version: &str,
-    wall_ms: u64,
-    artifact_hit: bool,
+    error_message: &str,
 ) -> anyhow::Result<()> {
     let slot_revision = compute_slot_revision(
         metric_def_bundle_revision,
@@ -66,30 +136,57 @@ fn record_mrg_slot(
     let mut registry = MrgRegistryWriter::load(source_root, app_id);
     registry.upsert_slot(MrgSlotRecord {
         slot_id: MrgSlotId {
-            node: GraphNodeId::new(GraphNodeKind::MaterialSlot, slot_node_key.to_string()),
+            node: GraphNodeId::new(GraphNodeKind::MaterialSlot, slot_key.to_string()),
             scope_key: scope_key.to_string(),
         },
         slot_revision,
-        state: MaterialState::Ready,
+        state: MaterialState::Failed,
         owner_resource_id: owner_resource_id.to_string(),
         metric_def_bundle_revision: metric_def_bundle_revision.to_string(),
         data_source_revision: data_source_revision.to_string(),
-        payload_ref: Some(PayloadRef::new(
-            payload_kind,
-            content_hash,
-            schema_version,
-        )),
+        payload_ref: None,
         cache_policy: "artifact_sealed".to_string(),
         eval_engine: "json_walk".to_string(),
         last_eval: Some(MrgLastEval {
             at_ms: current_time_ms(),
-            wall_ms,
-            artifact_hit,
-            cache_layer: if artifact_hit { "disk" } else { "compute" }.to_string(),
+            wall_ms: 0,
+            artifact_hit: false,
+            cache_layer: format!("failed:{error_message}"),
         }),
+        resident_tier: "disk_only".to_string(),
+        client_eligible: false,
+        client_revision: None,
+        payload_bytes: None,
+        tiers_ready: None,
+        access_count: 0,
+        last_access_ms: None,
+        workset_id: None,
     });
     registry.finalize();
     MrgRegistryWriter::save(source_root, &registry)
+}
+
+pub fn mark_slots_stale_for_bundles(
+    source_root: &Path,
+    app_id: &str,
+    bundle_owner_ids: &[String],
+) -> anyhow::Result<usize> {
+    let mut registry = MrgRegistryWriter::load(source_root, app_id);
+    let mut count = 0usize;
+    for slot in registry.slots.iter_mut() {
+        if bundle_owner_ids
+            .iter()
+            .any(|owner| slot.owner_resource_id == *owner)
+        {
+            slot.state = MaterialState::Stale;
+            count += 1;
+        }
+    }
+    if count > 0 {
+        registry.finalize();
+        MrgRegistryWriter::save(source_root, &registry)?;
+    }
+    Ok(count)
 }
 
 fn compute_slot_revision(
@@ -124,5 +221,12 @@ pub fn default_metric_response_descriptor(
         schema_version: "mei-metric-response-result-artifact-v1".to_string(),
         wall_ms,
         artifact_hit,
+        workset_id: String::new(),
+        cache_layer: String::new(),
+        cache_layers_ready: CacheLayersReady::default(),
+        client_revision: None,
+        resident_tier: String::new(),
+        client_eligible: false,
+        payload_bytes: None,
     }
 }

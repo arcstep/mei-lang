@@ -60,7 +60,9 @@ pub use metric_response_cache::{
     metric_response_cache_scope_key, metric_response_prebuild_dataset_key,
     metric_response_prebuild_shared_key, prebuild_metric_response_key_matches_dataset_query,
     store_cached_metric_response, store_cached_metric_response_aliases,
-    take_cached_metric_response, populate_l1_from_loaded_metric_artifact, CachedMetricResponse,
+    take_cached_metric_response, populate_l1_from_loaded_metric_artifact, warm_from_artifact,
+    enforce_memory_pin_limits, evict_metric_response_cache_key, record_scope_cache_miss,
+    should_trigger_smart_warmup, mark_smart_warmup_triggered, CachedMetricResponse,
 };
 pub use query::query_dataset_rows;
 pub use result_artifact::{

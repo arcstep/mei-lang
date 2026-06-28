@@ -138,6 +138,12 @@ pub struct RuntimeConfig {
     pub client_query_cache: ClientQueryCacheConfig,
     #[serde(default, rename = "serverEvalCache")]
     pub server_eval_cache: ServerEvalCacheConfig,
+    #[serde(default, rename = "memoryWarmup")]
+    pub memory_warmup: Option<MemoryWarmupConfig>,
+    #[serde(default, rename = "clientBootstrap")]
+    pub client_bootstrap: Option<ClientBootstrapConfig>,
+    #[serde(default, rename = "smartWarmup")]
+    pub smart_warmup: Option<SmartWarmupConfig>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -209,6 +215,70 @@ impl Default for ServerEvalCacheConfig {
         Self {
             ttl_ms: default_server_eval_cache_ttl_ms(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryWarmupConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_memory_pin_max_slots", rename = "maxPinnedSlots")]
+    pub max_pinned_slots: usize,
+    #[serde(default = "default_memory_pin_max_mb", rename = "maxPinnedMb")]
+    pub max_pinned_mb: usize,
+}
+
+fn default_memory_pin_max_slots() -> usize {
+    64
+}
+
+fn default_memory_pin_max_mb() -> usize {
+    128
+}
+
+impl Default for MemoryWarmupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_pinned_slots: default_memory_pin_max_slots(),
+            max_pinned_mb: default_memory_pin_max_mb(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientBootstrapConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub scopes: Vec<String>,
+    #[serde(default = "default_client_bootstrap_max_metrics", rename = "maxMetricsPerScope")]
+    pub max_metrics_per_scope: usize,
+}
+
+fn default_client_bootstrap_max_metrics() -> usize {
+    32
+}
+
+impl Default for ClientBootstrapConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            scopes: vec!["home".to_string()],
+            max_metrics_per_scope: default_client_bootstrap_max_metrics(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmartWarmupConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for SmartWarmupConfig {
+    fn default() -> Self {
+        Self { enabled: false }
     }
 }
 

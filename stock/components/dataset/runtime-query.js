@@ -1529,6 +1529,102 @@ function handlePreviewUpdatedRuntimeQueryCache(event) {
   }
 }
 
+function readHostMetricQueryApi() {
+  try {
+    const el = document.getElementById("mei-host-runtime-capabilities");
+    if (el) {
+      const parsed = JSON.parse(el.textContent || "{}");
+      return safeTrim(parsed?.metric_query?.api || parsed?.metric_batch_query?.api);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const caps = window.__meiHostRuntimeCapabilities;
+  if (caps && typeof caps === "object") {
+    return safeTrim(caps.metric_query?.api || caps.metric_batch_query?.api);
+  }
+  return "";
+}
+
+export function seedFromBootstrap(bootstrap = window.__mei) {
+  if (typeof window === "undefined" || !bootstrap || typeof bootstrap !== "object") {
+    return;
+  }
+  const metrics = bootstrap.bootstrap_metrics;
+  if (!Array.isArray(metrics) || metrics.length === 0) {
+    return;
+  }
+  const revision = String(bootstrap.client_revision || "").trim();
+  const prevRevision = String(window.__meiBootstrapRevision || "").trim();
+  if (revision && prevRevision && prevRevision !== revision) {
+    METRIC_QUERY_RESULT_CACHE.clear();
+    METRIC_QUERY_SCOPE_RESULT_CACHE.clear();
+  }
+  if (revision) {
+    window.__meiBootstrapRevision = revision;
+  }
+  const api = readHostMetricQueryApi();
+  if (!api) {
+    return;
+  }
+  const scope = safeTrim(bootstrap.bootstrap_scope || "home");
+  const queryFingerprint = `${readCompileEpochFromPage()}|${String(window.__meiRuntimeDataGeneration || "").trim()}`;
+  const byDataset = new Map();
+  for (const entry of metrics) {
+    const contract = entry?.contract && typeof entry.contract === "object" ? entry.contract : entry;
+    const metricId = safeTrim(contract?.id || entry?.id);
+    const datasetId = safeTrim(
+      contract?.dataset_id || contract?.owner_dataset_id || entry?.dataset_id,
+    );
+    if (!metricId || !datasetId) {
+      continue;
+    }
+    if (!byDataset.has(datasetId)) {
+      byDataset.set(datasetId, []);
+    }
+    byDataset.get(datasetId).push(contract);
+  }
+  const expiresAt = Date.now() + METRIC_QUERY_CACHE_TTL_MS;
+  const appId = String(window.__meiRuntimeAppId || "").trim();
+  const dataGen = String(window.__meiRuntimeDataGeneration || "").trim();
+  const cacheConfig = window.__meiClientQueryCacheConfig || clientQueryCacheConfig({});
+  for (const [datasetId, datasetMetrics] of byDataset.entries()) {
+    const metricIds = datasetMetrics
+      .map((metric) => safeTrim(metric?.id))
+      .filter(Boolean)
+      .sort();
+    const payload = {
+      scene_id: scope,
+      dataset_id: datasetId,
+      metric_ids: metricIds,
+      query_state: { filters: {} },
+    };
+    const cacheKey = metricQueryCacheKey(api, payload, queryFingerprint);
+    const scopeKey = metricQueryScopeCacheKey(api, payload, queryFingerprint);
+    const data = {
+      scene_id: scope,
+      dataset_id: datasetId,
+      total_rows: Number(datasetMetrics[0]?.total_rows || datasetMetrics[0]?.rows || 0) || 0,
+      metrics: datasetMetrics,
+      perf: { bootstrap: 1 },
+    };
+    METRIC_QUERY_RESULT_CACHE.set(cacheKey, { data, expiresAt });
+    rememberMetricScopeResult(scopeKey, metricIds, data, expiresAt);
+    if (appId && dataGen && String(cacheConfig.persist || "").toLowerCase() === "sessionstorage") {
+      writeSessionRuntimeQueryCache(
+        appId,
+        cacheKey,
+        dataGen,
+        "metric",
+        data,
+        METRIC_QUERY_CACHE_TTL_MS,
+        cacheConfig.maxEntries,
+      );
+    }
+  }
+  notifyClientRuntimeQueryCacheHit("bootstrap");
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener(MEI_ABORT_RUNTIME_QUERIES, (event) => {
     const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
@@ -1541,6 +1637,7 @@ if (typeof window !== "undefined") {
   window.addEventListener(MEI_PREFETCH_PANEL_METRICS, () => {
     prefetchVisiblePanelMetrics();
   });
+  seedFromBootstrap(window.__mei);
   window.dispatchEvent(
     new CustomEvent(MEI_RUNTIME_QUERY_READY, {
       detail: { source: "runtime-query" },

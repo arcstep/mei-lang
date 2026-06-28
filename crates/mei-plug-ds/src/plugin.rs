@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use mei_host_core::{DsPlugin, HostContext, MaterializeRequest, MaterializeResult, Plugin};
-use mei_host_graph::default_metric_response_descriptor;
 use tracing::info;
 
 use crate::eval::{eval_metric_ids, load_compiled_for_warmup};
@@ -27,34 +26,27 @@ pub fn materialize_with_context(
 ) -> anyhow::Result<MaterializeResult> {
     let started = Instant::now();
     let (compiled, compile_revision) = load_compiled_for_warmup(ctx, request.scope_key.as_str())?;
-    let results = eval_metric_ids(
+    let outcome = eval_metric_ids(
         ctx,
         &compiled,
         compile_revision.as_str(),
         request.scope_key.as_str(),
         request.owner_resource_id.as_str(),
+        request.workset_id.as_str(),
+        request.bundle_key.as_str(),
         &request.metric_ids,
     )?;
-    let wall_ms = started.elapsed().as_millis() as u64;
-    let mut slots = Vec::new();
-    for (metric_id, content_hash) in results {
-        slots.push(default_metric_response_descriptor(
-            &format!("{}::{}", request.workset_id, metric_id),
-            request.scope_key.as_str(),
-            request.owner_resource_id.as_str(),
-            &request.bundle_key,
-            "ds:v1",
-            &content_hash,
-            wall_ms,
-            false,
-        ));
+    for metric_id in &request.metric_ids {
         info!(
             metric_id = %metric_id,
             scope = %request.scope_key,
             "materialized metric"
         );
     }
-    Ok(MaterializeResult { slots })
+    let _ = started;
+    Ok(MaterializeResult {
+        slots: outcome.descriptors,
+    })
 }
 
 pub fn materialize_targets(

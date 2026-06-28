@@ -4,9 +4,9 @@ use std::sync::{Arc, RwLock};
 
 use crate::cli::{
     BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs,
-    BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs, PrebuildArgs,
-    PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs, WarmupArgs, WorkspaceCommand,
-    WorkspaceInitArgs,
+    BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs, MrgCommand,
+    MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs, WarmupArgs,
+    WorkspaceCommand, WorkspaceInitArgs,
 };
 use crate::state::{SharedState, ShellState};
 
@@ -18,6 +18,7 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         Command::Prebuild(args) => run_prebuild(args).await,
         Command::PrebuildData(args) => run_prebuild_data(args),
         Command::Warmup(args) => run_warmup(args).await,
+        Command::Mrg(sub) => run_mrg(sub),
         Command::Serve(args) => run_serve(args).await,
         Command::Build(sub) => run_build(sub),
         Command::Workspace(sub) => run_workspace(sub),
@@ -325,6 +326,10 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
         workspace: workspace.clone(),
         app: app.to_string(),
         policy: args.policy.clone(),
+        tier: "disk".to_string(),
+        board: None,
+        frontier: None,
+        hops: 0,
     })
     .await?;
 
@@ -535,27 +540,112 @@ fn run_prebuild_data(args: PrebuildDataArgs) -> anyhow::Result<()> {
 }
 
 async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
-    let ctx = mei_host_core::HostContext::new(args.workspace, args.app);
+    let ctx = mei_host_core::HostContext::new(args.workspace.clone(), args.app.clone());
     #[cfg(feature = "ds")]
     {
-        let targets = mei_plug_ds::collect_warmup_targets(&ctx, Some(args.policy.as_str()))?;
-        let result = mei_plug_ds::materialize_targets(&ctx, &targets)?;
-        mei_host_graph::record_slots_from_descriptors(
-            ctx.workspace_root.as_path(),
-            ctx.app_id.as_str(),
-            &result.slots,
-        )?;
+        let tier = mei_plug_ds::WarmupTier::parse(args.tier.as_str());
+        let targets = resolve_warmup_targets(&ctx, &args)?;
+        let report = mei_plug_ds::run_warmup_targets_with_tier(&ctx, &targets, tier)?;
+        if args.hops > 0 {
+            let scope = args
+                .frontier
+                .as_deref()
+                .or(Some(args.policy.as_str()))
+                .unwrap_or("home");
+            let edges =
+                mei_host_graph::record_navigation_edges_for_scope(&ctx, scope, args.hops)?;
+            if edges > 0 {
+                println!("warmup navigation edges added: {edges}");
+            }
+        }
         println!(
-            "warmup ok: policy={} worksets={} slots={}",
+            "warmup ok: policy={} tier={} worksets={} slots={} memory_hydrated={} client_manifest={} failed={}",
             args.policy,
+            args.tier,
             targets.len(),
-            result.slots.len()
+            report.slot_count,
+            report.memory_hydrated,
+            report.client_manifest_written,
+            report.failed_count
         );
     }
     #[cfg(not(feature = "ds"))]
     {
         let _ = (ctx, args);
         anyhow::bail!("warmup requires feature ds");
+    }
+    Ok(())
+}
+
+#[cfg(feature = "ds")]
+fn resolve_warmup_targets(
+    ctx: &mei_host_core::HostContext,
+    args: &WarmupArgs,
+) -> anyhow::Result<Vec<mei_plug_ds::WarmupTarget>> {
+    if let Some(board) = args
+        .board
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let metrics = mei_host_graph::collect_eval_frontier(ctx, board)?;
+        return Ok(mei_plug_ds::frontier_targets_from_metrics(board, &metrics));
+    }
+    if let Some(frontier) = args
+        .frontier
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let metrics =
+            mei_host_graph::collect_eval_frontier_with_hops(ctx, frontier, args.hops)?;
+        return Ok(mei_plug_ds::frontier_targets_from_metrics(frontier, &metrics));
+    }
+    mei_plug_ds::collect_warmup_targets(ctx, Some(args.policy.as_str()))
+}
+
+fn run_mrg(command: MrgCommand) -> anyhow::Result<()> {
+    match command {
+        MrgCommand::Status(args) => run_mrg_status(args),
+    }
+}
+
+fn run_mrg_status(args: MrgStatusArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace.clone());
+    let _ = mei_host_graph::flush_telemetry_to_registry(workspace.as_path(), args.app.as_str());
+    let status = mei_host_graph::mrg_status_json(workspace.as_path(), args.app.as_str())?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&status)?);
+    } else {
+        println!(
+            "mrg status: app={} slots={} disk_ready={} memory_resident={} client_eligible={}",
+            status
+                .get("appId")
+                .and_then(|value| value.as_str())
+                .unwrap_or("-"),
+            status
+                .get("slotCount")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0),
+            status
+                .get("slotsByTier")
+                .and_then(|value| value.get("diskReady"))
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0),
+            status
+                .get("slotsByTier")
+                .and_then(|value| value.get("memoryResident"))
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0),
+            status
+                .get("slotsByTier")
+                .and_then(|value| value.get("clientEligible"))
+                .and_then(|value| value.as_u64())
+                .unwrap_or(0),
+        );
     }
     Ok(())
 }
@@ -569,6 +659,22 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let package_root = resolve_package_root()?;
     let ctx = mei_host_core::HostContext::new(workspace.clone(), args.app.clone());
     ensure_registry_materialized(&ctx)?;
+    #[cfg(feature = "ds")]
+    if args.warm_on_start {
+        let tier = mei_plug_ds::WarmupTier::parse(args.warm_tier.as_str());
+        if tier == mei_plug_ds::WarmupTier::Memory {
+            let hydrated = mei_plug_ds::hydrate_existing_l1_slots(&ctx, "home")?;
+            tracing::info!(hydrated, "serve warm-on-start hydrated L1 slots to memory");
+        } else {
+            let targets = mei_plug_ds::collect_warmup_targets(&ctx, Some("home"))?;
+            let report = mei_plug_ds::run_warmup_targets_with_tier(&ctx, &targets, tier)?;
+            tracing::info!(
+                slots = report.slot_count,
+                memory_hydrated = report.memory_hydrated,
+                "serve warm-on-start completed"
+            );
+        }
+    }
     let state: SharedState = Arc::new(RwLock::new(ShellState::new(
         workspace.clone(),
         args.app,

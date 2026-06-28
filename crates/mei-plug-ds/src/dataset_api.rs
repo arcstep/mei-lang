@@ -3,14 +3,17 @@ use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 use mei_host_core::HostContext;
+use mei_host_graph::{record_access, record_slots_from_descriptors, MrgAccessKind};
 use mei_lang_datasets::{
-    evaluate_runtime_metrics, map_dataset_query_filters, normalize_query_filters,
+    map_dataset_query_filters, normalize_query_filters,
     normalize_query_search, query_dataset_rows, query_metric_dataframe,
-    query_state_from_request, RuntimeMetricEvalMode, DatasetQueryOptions,
+    query_state_from_request, DatasetQueryOptions,
 };
 use mei_lang_kernel::{
     locate_dataset_resource, FilterIntent, MetricContract, QueryState,
 };
+
+use crate::eval_pipeline::{eval_metrics_with_slots, EvalPipelineRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -204,7 +207,6 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
         scene_id,
     )?
     .ok_or_else(|| anyhow!("scene `{scene_id}` not assembled"))?;
-    let compiled = &outcome.compiled;
     let normalized_search = normalize_query_search(request.search.as_deref());
     let normalized_filters = normalize_query_filters(&request.filters);
     let effective_query_state = query_state_from_request(
@@ -212,12 +214,12 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
         normalized_search.as_deref(),
         request.query_state.as_ref(),
     );
-    let app_root = ctx.app_root();
 
     if groups.len() == 1 {
         let group = execute_metric_group(
-            compiled,
-            app_root.as_path(),
+            ctx,
+            &outcome.compiled,
+            outcome.compile_revision.as_str(),
             &groups[0],
             scene_id,
             target.as_deref(),
@@ -247,8 +249,9 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
     let mut batch_groups = Vec::new();
     for group in &groups {
         match execute_metric_group(
-            compiled,
-            app_root.as_path(),
+            ctx,
+            &outcome.compiled,
+            outcome.compile_revision.as_str(),
             group,
             scene_id,
             target.as_deref(),
@@ -288,8 +291,9 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
 }
 
 fn execute_metric_group(
+    ctx: &HostContext,
     compiled: &mei_lang_kernel::CompiledApp,
-    app_root: &std::path::Path,
+    compile_revision: &str,
     group: &MetricQueryGroupRequest,
     scene_id: &str,
     target: Option<&str>,
@@ -297,27 +301,61 @@ fn execute_metric_group(
     filter_intents: &[FilterIntent],
 ) -> Result<MetricQueryGroupResponse> {
     let started = Instant::now();
-    let eval = evaluate_runtime_metrics(
+    let bundle_key = bundle_key_for_dataset(group.dataset_id.as_str());
+    let workset_id = format!("jit:{scene_id}:{}", group.dataset_id.trim());
+    let pipeline = eval_metrics_with_slots(
+        ctx,
         compiled,
-        app_root,
-        group.dataset_id.trim(),
-        &group.metric_ids,
-        scene_id,
-        target,
-        query_state,
-        filter_intents,
-        RuntimeMetricEvalMode::WithDag,
+        compile_revision,
+        &EvalPipelineRequest {
+            scope_key: scene_id.to_string(),
+            target: target.map(str::to_string),
+            owner_resource_id: group.dataset_id.trim().to_string(),
+            metric_ids: group.metric_ids.clone(),
+            workset_id: workset_id.clone(),
+            bundle_key,
+            query_state: query_state.clone(),
+            filter_intents: filter_intents.to_vec(),
+        },
     )?;
-    let mut perf = eval.query_perf.clone();
-    perf.extend(eval.hydrate_perf.clone());
-    perf.insert("metric_eval_ms".to_string(), eval.metric_eval_ms);
+    record_access(MrgAccessKind::MetricsApi, pipeline.artifact_hit);
+    if !pipeline.artifact_hit {
+        mei_lang_datasets::record_scope_cache_miss(scene_id);
+        crate::smart_warmup::maybe_trigger_smart_warmup(ctx, scene_id);
+    }
+    if let Err(error) = record_slots_from_descriptors(
+        ctx.workspace_root.as_path(),
+        ctx.app_id.as_str(),
+        &pipeline.descriptors,
+    ) {
+        warn!(
+            app_id = %ctx.app_id,
+            scene_id = %scene_id,
+            cache_key = %pipeline.cache_key,
+            error = %error,
+            "failed to record MRG slots after metric query"
+        );
+    }
+    let mut perf = pipeline.query_perf.clone();
+    if pipeline.artifact_hit {
+        perf.insert("cache_layer".to_string(), 1);
+    } else {
+        perf.insert("metric_eval_ms".to_string(), pipeline.wall_ms);
+    }
     perf.insert("total_ms".to_string(), started.elapsed().as_millis() as u64);
     Ok(MetricQueryGroupResponse {
         dataset_id: group.dataset_id.clone(),
-        total_rows: eval.total_rows,
-        metrics: eval.metrics,
+        total_rows: pipeline.total_rows,
+        metrics: pipeline.metrics,
         perf,
     })
+}
+
+fn bundle_key_for_dataset(dataset_id: &str) -> String {
+    dataset_id
+        .strip_prefix("__world_metrics__::")
+        .unwrap_or("")
+        .to_string()
 }
 
 fn normalize_metric_query_groups(request: &MetricQueryRequest) -> Result<Vec<MetricQueryGroupRequest>> {

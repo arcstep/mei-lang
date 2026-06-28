@@ -95,6 +95,23 @@ pub fn import_exchange(ctx: &HostContext, exchange: &MeiCompileExchange) -> Resu
     let bridge = export_bridge_from_mcg(ctx.app_id.as_str(), &registry, &bundle_owners);
     crate::bridge::save_bridge(ctx.workspace_root.as_path(), &bridge)?;
 
+    let stale_count = crate::mrg::slots::mark_slots_stale_for_bundles(
+        ctx.workspace_root.as_path(),
+        ctx.app_id.as_str(),
+        &bundle_owners.keys().cloned().collect::<Vec<_>>(),
+    )?;
+    if stale_count > 0 {
+        let mrg = crate::mrg::registry::MrgRegistryWriter::load(
+            ctx.workspace_root.as_path(),
+            ctx.app_id.as_str(),
+        );
+        let cleared = crate::mrg::client_bootstrap::clear_client_bootstraps_for_stale_scopes(
+            app_root.as_path(),
+            &mrg,
+        );
+        let _ = (stale_count, cleared);
+    }
+
     Ok(ImportReport {
         app_id: exchange.app_id.clone(),
         block_count: exchange.blocks.len(),

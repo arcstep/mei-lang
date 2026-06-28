@@ -10,4 +10,4 @@ pub use config::{load_app_config, AppConfig, WarmupPolicyRef};
 pub use context::{load_app_config_for_ctx, resolve_bundle_path, HostContext};
 pub use plugin::{DsPlugin, MaterializeRequest, MaterializeResult, Plugin};
 pub use report::ImportReport;
-pub use slot::EvalSlotDescriptor;
+pub use slot::{CacheLayersReady, EvalSlotDescriptor};

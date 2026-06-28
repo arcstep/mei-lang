@@ -415,3 +415,49 @@ fn ws_demo_v2_assemble_relative_workspace_path() {
         Err(e) => panic!("assemble error with relative path: {e:#}"),
     }
 }
+
+#[test]
+fn ws_demo_v2_warmup_tier_all_populates_mrg_and_memory_hit() {
+    let workspace = ensure_imported();
+    let ctx = HostContext::new(workspace.clone(), "data-demo".to_string());
+    let targets =
+        mei_plug_ds::collect_warmup_targets(&ctx, Some("home")).expect("warmup targets");
+    assert!(!targets.is_empty(), "home warmup policy should define targets");
+    let report = mei_plug_ds::run_warmup_targets_with_tier(
+        &ctx,
+        &targets,
+        mei_plug_ds::WarmupTier::All,
+    )
+    .expect("warmup tier all");
+    assert!(report.slot_count > 0, "warmup should register MRG slots");
+    let status =
+        mei_host_graph::mrg_status_json(workspace.as_path(), "data-demo").expect("mrg status");
+    let memory_resident = status
+        .get("slotsByTier")
+        .and_then(|value| value.get("memoryResident"))
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    assert!(
+        memory_resident > 0,
+        "tier all should pin at least one memory resident slot"
+    );
+
+    let target = &targets[0];
+    let (compiled, compile_revision) =
+        mei_plug_ds::load_compiled_for_warmup(&ctx, target.scope_key.as_str()).expect("compiled");
+    let outcome = mei_plug_ds::eval_metric_ids(
+        &ctx,
+        &compiled,
+        compile_revision.as_str(),
+        target.scope_key.as_str(),
+        target.owner_resource_id.as_str(),
+        target.workset_id.as_str(),
+        target.bundle_key.as_str(),
+        &target.metric_ids,
+    )
+    .expect("second eval");
+    assert!(
+        outcome.artifact_hit,
+        "second eval should hit in-memory metric response cache"
+    );
+}

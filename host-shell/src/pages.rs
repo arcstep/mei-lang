@@ -74,8 +74,9 @@ pub async fn app_page(
         root: guard.ctx.app_root().display().to_string(),
     }];
     let html = crate::gis_config::fill_gis_tiles_placeholders(
-        fill_host_build_placeholders(
-            render_page(
+        inject_client_bootstrap_script(
+            fill_host_build_placeholders(
+                render_page(
                 &apps,
                 &outcome.compiled,
                 app_id.as_str(),
@@ -109,6 +110,10 @@ pub async fn app_page(
             ),
             guard.ctx.workspace_root.as_path(),
         ),
+            guard.ctx.workspace_root.as_path(),
+            app_id.as_str(),
+            scene_id.as_str(),
+        ),
         &gis,
     );
     Html(html).into_response()
@@ -134,4 +139,37 @@ fn parse_app_scene_path(app_tail: &str, scene_query: Option<&str>) -> (String, O
         scene_query.map(str::to_string)
     };
     (app_id, scene)
+}
+
+fn inject_client_bootstrap_script(
+    html: String,
+    workspace_root: &std::path::Path,
+    app_id: &str,
+    scene_id: &str,
+) -> String {
+    let Some(manifest) = mei_host_graph::read_client_bootstrap(workspace_root, app_id, scene_id)
+    else {
+        return html;
+    };
+    let registry =
+        mei_host_graph::MrgRegistryWriter::load(workspace_root, app_id);
+    if !mei_host_graph::bootstrap_embed_allowed(&registry, &manifest) {
+        return html;
+    }
+    let metrics_json = serde_json::to_string(&manifest.metrics).unwrap_or_else(|_| "[]".to_string());
+    let script = format!(
+        r#"<script>window.__mei=window.__mei||{{}};window.__mei.client_revision={client_revision:?};window.__mei.bootstrap_scope={scope:?};window.__mei.bootstrap_metrics={metrics_json};</script>"#,
+        client_revision = manifest.client_revision,
+        scope = manifest.scope,
+        metrics_json = metrics_json,
+    );
+    if let Some(pos) = html.find("</head>") {
+        let mut out = String::with_capacity(html.len() + script.len());
+        out.push_str(&html[..pos]);
+        out.push_str(&script);
+        out.push_str(&html[pos..]);
+        out
+    } else {
+        format!("{script}{html}")
+    }
 }

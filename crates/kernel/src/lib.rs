@@ -143,7 +143,7 @@ pub use mei_config::{
     write_workspace_config, AccessAiExternalConfig, AppEntryConfig, AppFeaturesConfig,
     AppPathsConfig, AuthKeyPairConfig,
     AuthUserConfig, AuthoringHelpers, DiscoverConfig, FileCacheConfig, FileCacheSettings,
-    MeiConfig, OpsBasemapEntry, OpsConfig, OpsConfigPatch, OpsSourceEntry, RuntimeConfig,
+    MeiConfig, MemoryWarmupConfig, SmartWarmupConfig, ClientBootstrapConfig, OpsBasemapEntry, OpsConfig, OpsConfigPatch, OpsSourceEntry, RuntimeConfig,
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
     WorkspaceAuthBundle, WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig,
     WorkspaceHostState, WorkspaceOpsConfig, WorkspacePathsConfig, WorkspaceProfile,

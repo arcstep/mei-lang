@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -23,6 +23,122 @@ pub struct CachedMetricResponse {
 struct MetricResponseCacheState {
     entries: BTreeMap<String, CachedMetricResponse>,
     next_prune_at: Option<Instant>,
+}
+
+#[derive(Debug, Clone)]
+struct PinnedCacheEntry {
+    key: String,
+    approx_bytes: usize,
+}
+
+#[derive(Default)]
+struct MemoryPinState {
+    pinned: VecDeque<PinnedCacheEntry>,
+    last_trigger_ms_by_scope: BTreeMap<String, u64>,
+    scope_miss_counts: BTreeMap<String, u64>,
+}
+
+fn memory_pin_state() -> &'static Mutex<MemoryPinState> {
+    static STATE: OnceLock<Mutex<MemoryPinState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(MemoryPinState::default()))
+}
+
+fn approx_artifact_bytes(artifact: &crate::result_artifact::LoadedMetricResponseArtifact) -> usize {
+    serde_json::to_string(&artifact.metrics_map)
+        .map(|value| value.len())
+        .unwrap_or(128)
+}
+
+pub fn warm_from_artifact(
+    cache_keys: &[String],
+    artifact: &crate::result_artifact::LoadedMetricResponseArtifact,
+) {
+    populate_l1_from_loaded_metric_artifact(cache_keys, artifact);
+}
+
+pub fn evict_metric_response_cache_key(key: &str) -> bool {
+    let Ok(mut cache) = metric_response_cache().lock() else {
+        return false;
+    };
+    cache.entries.remove(key).is_some()
+}
+
+pub fn enforce_memory_pin_limits(
+    cache_key: &str,
+    artifact: &crate::result_artifact::LoadedMetricResponseArtifact,
+    max_pinned_slots: usize,
+    max_pinned_mb: usize,
+) {
+    let Ok(mut pin_state) = memory_pin_state().lock() else {
+        return;
+    };
+    let approx_bytes = approx_artifact_bytes(artifact);
+    pin_state.pinned.retain(|entry| entry.key != cache_key);
+    pin_state.pinned.push_back(PinnedCacheEntry {
+        key: cache_key.to_string(),
+        approx_bytes,
+    });
+    let max_bytes = max_pinned_mb.saturating_mul(1024 * 1024);
+    loop {
+        let slot_overflow = max_pinned_slots > 0 && pin_state.pinned.len() > max_pinned_slots;
+        let total_bytes: usize = pin_state.pinned.iter().map(|entry| entry.approx_bytes).sum();
+        let byte_overflow = max_bytes > 0 && total_bytes > max_bytes;
+        if !slot_overflow && !byte_overflow {
+            break;
+        }
+        let Some(oldest) = pin_state.pinned.pop_front() else {
+            break;
+        };
+        let _ = evict_metric_response_cache_key(oldest.key.as_str());
+    }
+}
+
+pub fn record_scope_cache_miss(scope_key: &str) {
+    let Ok(mut pin_state) = memory_pin_state().lock() else {
+        return;
+    };
+    *pin_state
+        .scope_miss_counts
+        .entry(scope_key.to_string())
+        .or_insert(0) += 1;
+}
+
+pub fn should_trigger_smart_warmup(scope_key: &str, miss_threshold: u64, debounce_ms: u64) -> bool {
+    let Ok(pin_state) = memory_pin_state().lock() else {
+        return false;
+    };
+    let miss_count = pin_state
+        .scope_miss_counts
+        .get(scope_key)
+        .copied()
+        .unwrap_or(0);
+    if miss_count < miss_threshold {
+        return false;
+    }
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    let last_ms = pin_state
+        .last_trigger_ms_by_scope
+        .get(scope_key)
+        .copied()
+        .unwrap_or(0);
+    now_ms.saturating_sub(last_ms) >= debounce_ms
+}
+
+pub fn mark_smart_warmup_triggered(scope_key: &str) {
+    let Ok(mut pin_state) = memory_pin_state().lock() else {
+        return;
+    };
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0);
+    pin_state
+        .last_trigger_ms_by_scope
+        .insert(scope_key.to_string(), now_ms);
+    pin_state.scope_miss_counts.insert(scope_key.to_string(), 0);
 }
 
 impl MetricResponseCacheState {
@@ -336,6 +452,34 @@ mod tests {
         assert_eq!(cached.total_rows, 12);
         assert!(cached.covered_metric_ids.contains("metric.a"));
         assert!(cached.covered_metric_ids.contains("metric.b"));
+        clear_metric_response_cache();
+    }
+
+    #[test]
+    fn memory_pin_evicts_oldest_entry_when_slot_limit_exceeded() {
+        clear_metric_response_cache();
+        let artifact = crate::result_artifact::LoadedMetricResponseArtifact {
+            total_rows: 1,
+            metrics_map: BTreeMap::new(),
+            covered_metric_ids: BTreeSet::from(["metric.a".to_string()]),
+            complete: true,
+        };
+        warm_from_artifact(&["pin-a".to_string()], &artifact);
+        enforce_memory_pin_limits("pin-a", &artifact, 1, 128);
+        warm_from_artifact(&["pin-b".to_string()], &artifact);
+        enforce_memory_pin_limits("pin-b", &artifact, 1, 128);
+        assert!(take_cached_metric_response(
+            "pin-a",
+            &BTreeSet::from(["metric.a".to_string()]),
+            false
+        )
+        .is_none());
+        assert!(take_cached_metric_response(
+            "pin-b",
+            &BTreeSet::from(["metric.a".to_string()]),
+            false
+        )
+        .is_some());
         clear_metric_response_cache();
     }
 }

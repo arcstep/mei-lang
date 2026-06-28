@@ -56,7 +56,8 @@ pub use theme_overlay::{
 pub use types::{
     AccessAiExternalConfig, AppEntryConfig, AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig,
     AuthUserConfig,
-    DiscoverConfig, FileCacheConfig, FileCacheSettings, MeiConfig, OpsBasemapEntry, OpsConfig,
+    DiscoverConfig, FileCacheConfig, FileCacheSettings, MeiConfig, MemoryWarmupConfig,
+    ClientBootstrapConfig, SmartWarmupConfig, OpsBasemapEntry, OpsConfig,
     OpsSourceEntry, RuntimeConfig, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
     RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WorkspaceAuthConfig, WorkspaceComplianceConfig,
     WorkspaceConfig, WorkspaceHostState, WorkspaceOpsConfig, WorkspacePathsConfig,

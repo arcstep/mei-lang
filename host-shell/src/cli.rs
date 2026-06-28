@@ -9,6 +9,8 @@ pub enum Command {
     Prebuild(PrebuildArgs),
     PrebuildData(PrebuildDataArgs),
     Warmup(WarmupArgs),
+    #[command(subcommand)]
+    Mrg(MrgCommand),
     Serve(ServeArgs),
     #[command(subcommand)]
     Build(BuildCommand),
@@ -144,6 +146,29 @@ pub struct WarmupArgs {
     pub app: String,
     #[arg(long, default_value = "home")]
     pub policy: String,
+    #[arg(long, default_value = "disk")]
+    pub tier: String,
+    #[arg(long)]
+    pub board: Option<String>,
+    #[arg(long)]
+    pub frontier: Option<String>,
+    #[arg(long, default_value_t = 0)]
+    pub hops: usize,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MrgCommand {
+    Status(MrgStatusArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct MrgStatusArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: String,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -156,6 +181,10 @@ pub struct ServeArgs {
     pub host: String,
     #[arg(long, default_value = "9527")]
     pub port: u16,
+    #[arg(long, default_value_t = false)]
+    pub warm_on_start: bool,
+    #[arg(long, default_value = "memory")]
+    pub warm_tier: String,
 }
 
 #[derive(Args, Debug)]
