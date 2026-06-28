@@ -9,6 +9,7 @@ use mei_lang_kernel::{
 use serde_json::{json, Value};
 
 use crate::import::load_block_artifact;
+use crate::projection_normalize::normalize_board_assembly_payload;
 use crate::v2_lower::{find_panel_contract_node, lower_frame_from_assembly, lower_panel_payload, PanelLowerContext};
 use crate::mcg::registry::McgRegistryWriter;
 use crate::types::GraphNodeKind;
@@ -89,6 +90,7 @@ pub fn assemble_scope_from_registry(
         &registry,
     )?);
     let projection_map = load_projection_map(app_root.as_path(), &registry);
+    let scene_local_nav_by_target = load_scene_local_nav_by_target(app_root.as_path(), &registry);
     let mut panels = load_panels_for_assembly(
         app_root.as_path(),
         app_id,
@@ -135,7 +137,10 @@ pub fn assemble_scope_from_registry(
             goal: None,
             state: json!({}),
             shared: assembly_payload.get("shared").cloned().unwrap_or(json!({})),
-            local_nav: json!({}),
+            local_nav: assembly_payload
+                .get("local_nav")
+                .cloned()
+                .unwrap_or(json!({})),
             params: assembly_payload.get("params").cloned().unwrap_or(json!({})),
             bindings: assembly_payload.get("bindings").cloned().unwrap_or(json!({})),
             examples: json!({}),
@@ -158,7 +163,7 @@ pub fn assemble_scope_from_registry(
         active_target_file: active_target,
         file_tree: Vec::new(),
         scene_contract: Some(scene_contract),
-        scene_local_nav_by_target: BTreeMap::new(),
+        scene_local_nav_by_target,
         scene_bindings_by_id: load_link_bindings(app_root.as_path(), &registry),
         scene_examples_by_id: BTreeMap::new(),
         scene_projection_assembly_by_id: projection_map,
@@ -246,15 +251,24 @@ fn load_assembly_payload(
     Ok(artifact.get("payload").cloned().unwrap_or(json!({})))
 }
 
-fn assembly_key_to_target(assembly_key: &str) -> String {
-    if assembly_key.contains('@') {
-        assembly_key
-            .split('@')
-            .nth(1)
-            .unwrap_or(assembly_key)
-            .to_string()
+pub(crate) fn assembly_key_to_target(assembly_key: &str) -> String {
+    if let Some((_, path)) = assembly_key.split_once('@') {
+        return path.to_string();
+    }
+    if let Some((board_path, _scene)) = assembly_key.split_once('#') {
+        return overlay_board_path_to_source_file(board_path);
+    }
+    format!("src/{assembly_key}.mei")
+}
+
+fn overlay_board_path_to_source_file(board_path: &str) -> String {
+    let stem = board_path
+        .strip_prefix("overlay/boards/")
+        .unwrap_or(board_path);
+    if stem.contains(".card") || stem.ends_with("-detail") {
+        format!("src/overlay/boards/{stem}.mei")
     } else {
-        format!("src/{assembly_key}.mei")
+        format!("src/overlay/boards/{stem}.board.mei")
     }
 }
 
@@ -330,9 +344,45 @@ fn load_projection_map(app_root: &Path, registry: &crate::mcg::registry::McgRegi
         }
         if let Some(pref) = node.payload_ref.as_ref() {
             if let Ok(Some(artifact)) = load_block_artifact(app_root, pref) {
-                map.insert(node.id.key.clone(), artifact.get("payload").cloned().unwrap_or(json!({})));
+                let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
+                let scene_id = payload
+                    .get("scene")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| node.id.key.split('#').next_back())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if !scene_id.is_empty() {
+                    map.insert(scene_id, normalize_board_assembly_payload(payload));
+                }
             }
         }
+    }
+    map
+}
+
+fn load_scene_local_nav_by_target(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+) -> BTreeMap<String, Value> {
+    let mut map = BTreeMap::new();
+    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Ok(Some(artifact)) = load_block_artifact(app_root, pref) else {
+            continue;
+        };
+        let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
+        let local_nav = payload.get("local_nav").cloned().unwrap_or(json!({}));
+        let is_empty = local_nav
+            .as_object()
+            .map(|obj| obj.is_empty())
+            .unwrap_or(local_nav.is_null());
+        if is_empty {
+            continue;
+        }
+        map.insert(assembly_key_to_target(&node.id.key), local_nav);
     }
     map
 }
@@ -453,6 +503,20 @@ mod tests {
         assert_eq!(
             assembly_key_to_target("home@src/scene/home/assembly.mei"),
             "src/scene/home/assembly.mei"
+        );
+    }
+
+    #[test]
+    fn assembly_key_to_target_overlay_board() {
+        assert_eq!(
+            assembly_key_to_target(
+                "overlay/boards/supervision-warning#warnings_analytics_board"
+            ),
+            "src/overlay/boards/supervision-warning.board.mei"
+        );
+        assert_eq!(
+            assembly_key_to_target("overlay/boards/warning-detail.card#warning_detail_card_board"),
+            "src/overlay/boards/warning-detail.card.mei"
         );
     }
 }

@@ -1,5 +1,6 @@
 //! Graph registry, CAS, import-bundle, and v2 assemble for mei-host-shell.
 
+mod projection_normalize;
 mod assemble;
 mod data_snapshot;
 mod v2_lower;

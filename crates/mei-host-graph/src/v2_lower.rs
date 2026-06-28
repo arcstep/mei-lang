@@ -6,6 +6,7 @@ use mei_lang_kernel::{
 };
 use serde_json::{json, Map, Value};
 
+use crate::assemble::assembly_key_to_target;
 use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::types::GraphNodeKind;
@@ -114,13 +115,13 @@ fn lower_panel_with_slots(
                 .map(str::to_string);
             let slot_id = slot_area.clone().unwrap_or_else(|| "slot".to_string());
             if let Some(shell) = slot_args.get("shell") {
-                let slot_panel = lower_titled_shell_panel(
-                    shell,
-                    slot_id,
-                    slot_area,
-                    ctx,
-                    None,
-                )?;
+                let slot_panel = if shell_is_titled_panel_contract(shell)
+                    || v2_call_name(shell) == Some("titled_shell")
+                {
+                    lower_titled_shell_panel(shell, slot_id, slot_area, ctx, None)?
+                } else {
+                    lower_panel_from_generic_shell(payload, shell, slot_id, slot_area, ctx)?
+                };
                 blocks.push(UiNodeDecl::Panel(slot_panel));
             }
         }
@@ -150,6 +151,9 @@ fn lower_panel_from_shell(
     area: Option<String>,
     ctx: &PanelLowerContext<'_>,
 ) -> Result<PanelDecl> {
+    if shell_is_titled_panel_contract(shell) {
+        return lower_titled_shell_panel(shell, id, area, ctx, payload.get("placement"));
+    }
     match v2_call_name(shell) {
         Some("screen_header") => lower_screen_header_panel(payload, shell, id, area, ctx),
         Some("titled_shell") => lower_titled_shell_panel(
@@ -161,6 +165,18 @@ fn lower_panel_from_shell(
         ),
         _ => lower_panel_from_generic_shell(payload, shell, id, area, ctx),
     }
+}
+
+fn shell_is_titled_panel_contract(shell: &Value) -> bool {
+    if v2_call_name(shell) != Some("panel_contract") {
+        return false;
+    }
+    let Some(args) = v2_call_args(shell) else {
+        return false;
+    };
+    args.get("title")
+        .and_then(|v| v.as_str())
+        .is_some_and(|title| !title.trim().is_empty())
 }
 
 fn lower_screen_header_panel(
@@ -531,7 +547,9 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
     let source = args.get("source").cloned().unwrap_or(json!({}));
     let map = args.get("map").cloned();
     let patch = args.get("patch").cloned();
-    let popup = args.get("popup").cloned();
+    let popup = args
+        .get("popup")
+        .map(|popup| resolve_popup_config(popup, ctx, Some(&source)));
     let blocks = metric_runtime_blocks(
         &source,
         layout_template,
@@ -916,9 +934,109 @@ fn lower_v2_metric_ref(value: &Value) -> Option<Value> {
     Some(Value::Object(out))
 }
 
+fn resolve_popup_config(
+    popup: &Value,
+    ctx: &PanelLowerContext<'_>,
+    metric_source: Option<&Value>,
+) -> Value {
+    if v2_ref_name(popup) == Some("link_ref") {
+        if let Some(key) = v2_ref_arg0(popup) {
+            if let Some(mut resolved) = resolve_link_decl_popup(ctx, key.as_str()) {
+                merge_popup_metric_source(&mut resolved, metric_source);
+                return resolve_config_refs_in_value(&resolved, ctx);
+            }
+        }
+    }
+    let mut resolved = resolve_config_refs_in_value(popup, ctx);
+    merge_popup_metric_source(&mut resolved, metric_source);
+    resolved
+}
+
+fn merge_popup_metric_source(popup: &mut Value, metric_source: Option<&Value>) {
+    let Some(source) = metric_source else {
+        return;
+    };
+    let Some(metric) = lower_v2_metric_ref(source) else {
+        return;
+    };
+    let Some(params) = popup
+        .as_object_mut()
+        .and_then(|popup| popup.get_mut("params"))
+        .and_then(|params| params.as_object_mut())
+    else {
+        return;
+    };
+    if !params.contains_key("metric") {
+        params.insert("metric".to_string(), metric);
+    }
+}
+
+fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option<Value> {
+    let payload = load_link_decl_payload(ctx, link_key)?;
+    let board_ref = payload.get("board")?;
+    let board_key = v2_ref_arg0(board_ref)?;
+    let (scene_id, scene_file) = resolve_board_assembly_target(ctx, board_key.as_str())?;
+    let params = payload
+        .get("default_params")
+        .cloned()
+        .unwrap_or(json!({}));
+    let overlay_size = payload
+        .get("overlay_size")
+        .and_then(|v| v.as_str())
+        .unwrap_or("large");
+    Some(json!({
+        "mode": "popup",
+        "type": payload.get("type").cloned().unwrap_or(json!("popup")),
+        "projection": payload.get("projection").cloned().unwrap_or(json!("overlay")),
+        "overlay_size": overlay_size,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+        "scene": {
+            "scene_id": scene_id,
+            "scene_file": scene_file,
+        },
+        "params": params,
+    }))
+}
+
+fn load_link_decl_payload(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option<Value> {
+    let normalized = link_key.trim();
+    let node = ctx.registry.nodes.iter().find(|node| {
+        node.id.kind == GraphNodeKind::Navigation
+            && (node.id.key == normalized
+                || node.id.key.ends_with(&format!(":{normalized}"))
+                || node.id.key == format!("overlay/links/{normalized}"))
+    })?;
+    let pref = node.payload_ref.as_ref()?;
+    let artifact = load_block_artifact(ctx.app_root, pref).ok()??;
+    artifact.get("payload").cloned()
+}
+
+fn resolve_board_assembly_target(
+    ctx: &PanelLowerContext<'_>,
+    board_key: &str,
+) -> Option<(String, String)> {
+    let node = ctx.registry.nodes.iter().find(|node| {
+        node.id.kind == GraphNodeKind::AssemblyView && node.id.key == board_key
+    })?;
+    let pref = node.payload_ref.as_ref()?;
+    let artifact = load_block_artifact(ctx.app_root, pref).ok()??;
+    let payload = artifact.get("payload")?;
+    let scene_id = payload.get("scene").and_then(|v| v.as_str())?.to_string();
+    let scene_file = assembly_key_to_target(board_key);
+    Some((scene_id, scene_file))
+}
+
 fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> Value {
     match value {
         Value::Object(map) => {
+            if v2_ref_name(value) == Some("link_ref") {
+                if let Some(key) = v2_ref_arg0(value) {
+                    if let Some(resolved) = resolve_link_decl_popup(ctx, key.as_str()) {
+                        return resolve_config_refs_in_value(&resolved, ctx);
+                    }
+                }
+            }
             if v2_ref_name(value) == Some("metric_ref") {
                 if let Some(lowered) = lower_v2_metric_ref(value) {
                     return lowered;
@@ -1453,19 +1571,25 @@ mod tests {
     fn lower_expanded_titled_shell_macro_loads_blocks_not_body() {
         let payload = json!({
             "id": "warning",
-            "shell": {
-                "__call": "panel_contract",
+            "slots": [{
+                "__call": "panel_slot",
                 "__args": {
-                    "title": "监督预警",
-                    "title_background": {"image": "panel_title_bar"},
-                    "heading_variant": "plain",
-                    "props": {"border": "1px solid rgba(52, 82, 108, 0.5)"},
-                    "blocks": [{
-                        "__ref": "panel_ref",
-                        "__args": { "arg0": "content/supervision-stats" }
-                    }]
+                    "area": "warning",
+                    "shell": {
+                        "__call": "panel_contract",
+                        "__args": {
+                            "title": "监督预警",
+                            "title_background": {"image": "panel_title_bar"},
+                            "heading_variant": "plain",
+                            "props": {"border": "1px solid rgba(52, 82, 108, 0.5)"},
+                            "blocks": [{
+                                "__ref": "panel_ref",
+                                "__args": { "arg0": "content/supervision-stats" }
+                            }]
+                        }
+                    }
                 }
-            }
+            }]
         });
         let mut registry = McgRegistry {
             schema_version: String::new(),
@@ -1528,13 +1652,13 @@ mod tests {
         };
         let panel = lower_panel_with_slots(&payload, "warning".into(), Some("warning".into()), &ctx)
             .expect("slot panel");
-        assert_eq!(panel.title.as_deref(), Some("监督预警"));
         assert_eq!(panel.blocks.len(), 1, "expanded titled_shell should lower blocks");
         let nested = match &panel.blocks[0] {
             UiNodeDecl::Panel(nested) => nested,
             other => panic!("expected nested panel, got {other:?}"),
         };
-        assert_eq!(nested.blocks.len(), 3, "metric_card expands to 3 mei.text slots");
+        assert_eq!(nested.title.as_deref(), Some("监督预警"));
+        assert!(!nested.blocks.is_empty(), "titled shell should load body panel_ref");
     }
 
     #[test]

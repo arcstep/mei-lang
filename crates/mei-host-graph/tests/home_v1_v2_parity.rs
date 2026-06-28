@@ -174,3 +174,63 @@ fn home_v2_supervision_metric_card_inherits_solid_stack_shell() {
         card.props.get("border")
     );
 }
+
+#[test]
+fn home_v2_resolves_metric_card_link_ref_popup() {
+    ensure_v2_imported();
+    let v2 = assemble_scope_from_registry(ws_demo_v2().as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home");
+    let contract = v2.compiled.scene_contract.as_ref().expect("contract");
+    let mut popup = None;
+    fn walk(panel: &PanelDecl, target: &str, out: &mut Option<serde_json::Value>) {
+        if panel.id == target {
+            for node in &panel.blocks {
+                if let UiNodeDecl::Block(block) = node {
+                    if block.props.get("metric_role").and_then(|v| v.as_str()) == Some("value") {
+                        if let Some(p) = block.props.get("popup") {
+                            *out = Some(p.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for node in &panel.blocks {
+            if let UiNodeDecl::Panel(nested) = node {
+                walk(nested, target, out);
+            }
+        }
+    }
+    walk(&contract.panels[0], "supervision_items_card", &mut popup);
+    // search all panels if not found at top
+    if popup.is_none() {
+        fn walk_all(panels: &[PanelDecl], out: &mut Option<serde_json::Value>) {
+            for panel in panels {
+                for node in &panel.blocks {
+                    if let UiNodeDecl::Block(block) = node {
+                        if block.props.get("metric_role").and_then(|v| v.as_str()) == Some("value")
+                            && panel.id == "supervision_items_card"
+                        {
+                            *out = block.props.get("popup").cloned();
+                        }
+                    }
+                    if let UiNodeDecl::Panel(nested) = node {
+                        walk_all(std::slice::from_ref(nested), out);
+                    }
+                }
+            }
+        }
+        walk_all(&contract.panels, &mut popup);
+    }
+    let popup = popup.expect("value slot popup");
+    eprintln!("popup={}", serde_json::to_string_pretty(&popup).unwrap());
+    assert!(
+        popup.get("__ref").and_then(|v| v.as_str()) != Some("link_ref"),
+        "popup should be resolved, got {popup}"
+    );
+    assert!(
+        popup.get("scene_id").and_then(|v| v.as_str())
+            == Some("supervision_items_analytics_board"),
+        "unexpected popup {popup}"
+    );
+}
