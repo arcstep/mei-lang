@@ -4,7 +4,7 @@ import {
   fetchRuntimeMetrics,
   findRuntimeMetricInResults,
   isDrilldownOverlayOpen,
-  MEI_DRILLDOWN_OVERLAY_ID,
+  isRuntimeDrilldownOverlayElement,
   parseProps,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
@@ -539,10 +539,7 @@ class MeiText extends HTMLElement {
       refreshMetric();
     };
     const refreshFromQueryState = () => {
-      if (
-        isDrilldownOverlayOpen() &&
-        !this.closest(`#${MEI_DRILLDOWN_OVERLAY_ID}`)
-      ) {
+      if (isDrilldownOverlayOpen() && !isRuntimeDrilldownOverlayElement(this)) {
         return;
       }
       refreshMetric();

@@ -5,38 +5,67 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 
 PORT="${MEI_PORT:-9527}"
-PID_FILE="${WORKSPACE_ROOT}/deploy/state/host.pid"
+PLUG_PORT="${MEI_PLUG_DS_PORT:-9528}"
+HOST_PID_FILE="${WORKSPACE_ROOT}/deploy/state/host.pid"
+PLUG_PID_FILE="${WORKSPACE_ROOT}/deploy/state/plug-ds.pid"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) PORT="$2"; shift 2 ;;
     --port=*) PORT="${1#*=}"; shift ;;
+    --plug-port) PLUG_PORT="$2"; shift 2 ;;
+    --plug-port=*) PLUG_PORT="${1#*=}"; shift ;;
     *) shift ;;
   esac
 done
 
-stopped=0
-if [[ -f "${PID_FILE}" ]]; then
-  pid="$(cat "${PID_FILE}")"
+stop_pid_file() {
+  local label="$1"
+  local pid_file="$2"
+  if [[ ! -f "${pid_file}" ]]; then
+    return 1
+  fi
+  local pid
+  pid="$(cat "${pid_file}")"
   if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
     kill "${pid}" 2>/dev/null || true
     sleep 1
     kill -9 "${pid}" 2>/dev/null || true
-    echo "stopped pid=${pid}"
-    stopped=1
+    echo "stopped ${label} pid=${pid}"
+    rm -f "${pid_file}"
+    return 0
   fi
-  rm -f "${PID_FILE}"
-fi
+  rm -f "${pid_file}"
+  return 1
+}
 
-if [[ "${stopped}" -eq 0 ]]; then
-  pids="$(lsof -ti ":${PORT}" 2>/dev/null || true)"
+stop_port() {
+  local label="$1"
+  local port="$2"
+  local pids
+  pids="$(lsof -ti ":${port}" 2>/dev/null || true)"
   if [[ -n "${pids}" ]]; then
     echo "${pids}" | xargs kill 2>/dev/null || true
-    echo "stopped process(es) on port ${PORT}"
-    stopped=1
+    echo "stopped ${label} process(es) on port ${port}"
+    return 0
   fi
+  return 1
+}
+
+stopped=0
+if stop_pid_file "plug-ds" "${PLUG_PID_FILE}"; then
+  stopped=1
+fi
+if stop_pid_file "host-shell" "${HOST_PID_FILE}"; then
+  stopped=1
+fi
+if stop_port "plug-ds" "${PLUG_PORT}"; then
+  stopped=1
+fi
+if stop_port "host-shell" "${PORT}"; then
+  stopped=1
 fi
 
 if [[ "${stopped}" -eq 0 ]]; then
-  echo "no host process found (pid file or port ${PORT})"
+  echo "no host/plug-ds process found (pid files or ports ${PORT}/${PLUG_PORT})"
 fi

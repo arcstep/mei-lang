@@ -23,6 +23,18 @@ let sceneMetricBatchFlushTimer = null;
 const ACTIVE_RUNTIME_FETCH_CONTROLLERS = new Set();
 const PARSED_DATA_PROPS_CACHE = new WeakMap();
 export const MEI_DRILLDOWN_OVERLAY_ID = "mei-access-drilldown-overlay";
+export const MEI_SCENE_BOARD_OVERLAY_ID = "mei-access-scene-board-overlay";
+
+/** 元素是否位于任一运行时二级看板 overlay 内（含 scene-board 与 generic drilldown）。 */
+export function isRuntimeDrilldownOverlayElement(element) {
+  if (!(element instanceof Element)) {
+    return false;
+  }
+  return Boolean(
+    element.closest(`#${MEI_DRILLDOWN_OVERLAY_ID}`) ||
+      element.closest(`#${MEI_SCENE_BOARD_OVERLAY_ID}`),
+  );
+}
 export const MEI_PREFETCH_PANEL_METRICS = "meilang:prefetch-panel-metrics";
 export const MEI_RUNTIME_QUERY_READY = "meilang:runtime-query-ready";
 export const MEI_ABORT_RUNTIME_QUERIES = "mei:abort-runtime-queries";
@@ -398,9 +410,7 @@ export function shouldPauseHomeRuntimeMetricFetch(props) {
  */
 export function shouldReactToPreviewUpdated(event, element) {
   const scope = previewUpdatedScope(event);
-  const inOverlay =
-    element instanceof Element &&
-    Boolean(element.closest(`#${MEI_DRILLDOWN_OVERLAY_ID}`));
+  const inOverlay = isRuntimeDrilldownOverlayElement(element);
   if (scope === "drilldown") {
     return inOverlay;
   }
@@ -477,6 +487,7 @@ export function deferUntilDisplayed(el, fn) {
   let done = false;
   let canceled = false;
   let io = null;
+  let hiddenObserver = null;
   let fallbackTimer = null;
 
   const cleanupWatchers = () => {
@@ -491,6 +502,14 @@ export function deferUntilDisplayed(el, fn) {
         /* ignore */
       }
       io = null;
+    }
+    if (hiddenObserver) {
+      try {
+        hiddenObserver.disconnect();
+      } catch (_) {
+        /* ignore */
+      }
+      hiddenObserver = null;
     }
     if (fallbackTimer != null) {
       window.clearTimeout(fallbackTimer);
@@ -566,6 +585,25 @@ export function deferUntilDisplayed(el, fn) {
         { threshold: 0, root: null, rootMargin: "480px 480px 480px 480px" },
       );
       io.observe(el);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  // Safari 在祖先 `hidden` 切换后不一定重算 IntersectionObserver；监听 hidden 解除。
+  if (typeof MutationObserver !== "undefined") {
+    try {
+      hiddenObserver = new MutationObserver(() => {
+        requestAnimationFrame(() => tryRun());
+      });
+      let node = el;
+      while (node) {
+        hiddenObserver.observe(node, {
+          attributes: true,
+          attributeFilter: ["hidden"],
+        });
+        node = node.parentElement;
+      }
     } catch (_) {
       /* ignore */
     }
@@ -1574,7 +1612,10 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
     const contract = entry?.contract && typeof entry.contract === "object" ? entry.contract : entry;
     const metricId = safeTrim(contract?.id || entry?.id);
     const datasetId = safeTrim(
-      contract?.dataset_id || contract?.owner_dataset_id || entry?.dataset_id,
+      contract?.dataset_id ||
+        contract?.owner_dataset_id ||
+        contract?.dataset ||
+        entry?.dataset_id,
     );
     if (!metricId || !datasetId) {
       continue;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build mei-compiler + mei-host-shell from mei-lang source into deploy/bin/.
+# Build mei-compiler + mei-plug-ds + mei-host-shell from mei-lang source into deploy/bin/.
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,11 +19,12 @@ if [[ -x "${BIN_DIR}/mei-host-shell" ]]; then
   old_version="$("${BIN_DIR}/mei-host-shell" -V 2>/dev/null | head -1 || true)"
 fi
 
-echo "==> building mei-compiler + mei-host-shell (mei-lang=${MEI_LANG_ROOT})"
+echo "==> building mei-compiler + mei-plug-ds + mei-host-shell (mei-lang=${MEI_LANG_ROOT})"
 CARGO_TARGET_DIR="${TARGET_DIR}" cargo build --manifest-path "${MEI_LANG_ROOT}/Cargo.toml" \
-  -p mei-compiler -p mei-host-shell
+  -p mei-compiler -p mei-plug-ds -p mei-host-shell
 
 ln -sfn "${TARGET_DIR}/debug/mei-compiler" "${BIN_DIR}/mei-compiler"
+ln -sfn "${TARGET_DIR}/debug/mei-plug-ds" "${BIN_DIR}/mei-plug-ds"
 ln -sfn "${TARGET_DIR}/debug/mei-host-shell" "${BIN_DIR}/mei-host-shell"
 
 new_version="$("${BIN_DIR}/mei-host-shell" -V 2>/dev/null | head -1 || true)"
@@ -38,3 +39,10 @@ if [[ -n "${old_version}" && -n "${new_version}" && "${old_version}" != "${new_v
   echo "==> mei-lang version changed; aligning workspace env generation"
   ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP}"
 fi
+echo ""
+echo "CLI (from workspace root):"
+echo "  ./deploy/mei-host-shell -V"
+echo "  ./deploy/mei-host-shell auth ensure-keys --workspace ."
+echo "  ./deploy/mei-host-shell serve --workspace . --app ${APP} [--auth]"
+echo ""
+echo "Or: export PATH=\"${BIN_DIR}:\$PATH\"  # then mei-host-shell works globally in this shell"
