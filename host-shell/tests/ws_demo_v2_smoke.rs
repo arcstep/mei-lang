@@ -42,6 +42,60 @@ fn ensure_imported() -> PathBuf {
 }
 
 #[test]
+fn ws_demo_v2_build_store_layout() {
+    let workspace = ws_demo_v2_root();
+    let active = workspace.join("apps/data-demo/build/active");
+    if !active.exists() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        assert!(
+            active.is_symlink(),
+            "build/active should be a symlink to env/{{ver}}/build after prebuild-v2"
+        );
+        let target = std::fs::read_link(&active).expect("read build/active symlink");
+        assert!(
+            target.to_string_lossy().contains("/env/"),
+            "build/active should point under env/{{ver}}/build, got {}",
+            target.display()
+        );
+        let env_ver = target
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|name| name.to_str())
+            .unwrap_or("");
+        let manifest = workspace
+            .join("apps/data-demo/env")
+            .join(env_ver)
+            .join("BUILD.json");
+        assert!(
+            manifest.is_file(),
+            "BUILD.json missing at {}",
+            manifest.display()
+        );
+        let registry = workspace
+            .join("apps/data-demo/build/active/registry/mcg-registry.json");
+        assert!(registry.is_file(), "registry should live under build/active");
+    }
+}
+
+#[test]
+fn ws_demo_v2_upload_dir_separate_from_assets() {
+    let workspace = ws_demo_v2_root();
+    let upload = workspace.join("apps/data-demo/upload");
+    if !upload.is_dir() {
+        return;
+    }
+    let app_config = workspace.join("apps/data-demo/app.config.json");
+    let raw = std::fs::read_to_string(app_config).expect("read app.config");
+    assert!(
+        raw.contains(r#""upload": "upload""#),
+        "app.config paths.upload should be upload/"
+    );
+}
+
+#[test]
 fn ws_demo_v2_import_and_assemble_home() {
     let workspace = ensure_imported();
     let routes = list_scope_routes(workspace.as_path(), "data-demo").expect("routes");
@@ -67,6 +121,100 @@ fn ws_demo_v2_import_and_assemble_home() {
     assert!(
         !outcome.compiled.component_assets.is_empty(),
         "component assets should be loaded from workspace"
+    );
+}
+
+#[test]
+fn ws_demo_v2_home_contract_expands_rail_metric_panels() {
+    let workspace = ws_demo_v2_root();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let contract = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract");
+    fn panel_paths(panel: &mei_lang_kernel::PanelDecl, prefix: &str, out: &mut Vec<String>) {
+        let path = if prefix.is_empty() {
+            panel.id.clone()
+        } else {
+            format!("{prefix}/{}", panel.id)
+        };
+        out.push(path.clone());
+        for node in &panel.blocks {
+            if let mei_lang_kernel::UiNodeDecl::Panel(nested) = node {
+                panel_paths(nested, path.as_str(), out);
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    for panel in &contract.panels {
+        panel_paths(panel, "", &mut paths);
+    }
+    assert!(
+        paths.iter().any(|p| p.contains("supervision-stats")),
+        "home contract should expand rail slot panel_ref; got paths={paths:?}"
+    );
+}
+
+#[test]
+fn ws_demo_v2_serve_style_render_includes_rail_metric_panels() {
+    let workspace = ws_demo_v2_root();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let app_root =
+        mei_lang_kernel::resolve_app_root(workspace.as_path(), "data-demo");
+    let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
+        id: "data-demo".to_string(),
+        title: outcome.compiled.title.clone(),
+        root: app_root.display().to_string(),
+    }];
+    let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
+    let theme_style =
+        mei_lang_app::page_body_theme_style(&workspace_cfg, Some(&outcome.compiled), None);
+    let html = mei_lang_app::render_page(
+        &apps,
+        &outcome.compiled,
+        "data-demo",
+        None,
+        mei_lang_app::UiRouteMode::App,
+        Some(outcome.compiled.active_target_file.as_str()),
+        None,
+        None,
+        Some("home"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &[],
+        false,
+        None,
+        None,
+        theme_style.as_str(),
+        None,
+        None,
+    );
+    assert!(
+        html.contains("supervision-stats"),
+        "serve-style render should include nested supervision-stats; mei-text={}",
+        html.matches("<mei-text").count()
+    );
+    assert!(
+        html.matches("<mei-text").count() >= 10,
+        "serve-style render should SSR metric slots, got {} mei-text",
+        html.matches("<mei-text").count()
     );
 }
 
@@ -128,14 +276,22 @@ fn ws_demo_v2_home_page_renders_header_and_panel_titles() {
         html.len()
     );
     assert!(
-        html.contains("rgba(98,190,235,0.35)") || html.contains("98,190,235"),
-        "home page should SSR solid_stack metric card border; html_bytes={}",
-        html.len()
+        html.contains("data-mei-head-carets=\"true\"") || html.contains("--mei-head-caret-url"),
+        "home page should SSR panel title carets"
     );
     assert!(
-        html.contains("__mei_runtime_ref") && html.contains("supervision_items_count"),
-        "home page should inject metric runtime refs for client-side eval; html_bytes={}",
-        html.len()
+        html.contains("background-image:var(--mei-gradient-panel-title-bar)")
+            || html.contains("--mei-gradient-panel-title-bar"),
+        "home page should include panel title bar gradient token"
+    );
+    assert!(
+        html.contains("/workspace-app-assets/data-demo/assets/header/screen-title-bg"),
+        "home header should resolve screen title background asset"
+    );
+    assert!(
+        html.matches("<mei-text").count() >= 10,
+        "home should SSR metric card mei.text slots, got {} mei-text tags",
+        html.matches("<mei-text").count()
     );
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "mei-host-shell"
-version = "2.0.1"
+version = "2.0.2"
 edition.workspace = true
 license.workspace = true
 build = "build.rs"

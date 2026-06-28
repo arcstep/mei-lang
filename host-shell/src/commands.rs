@@ -1,6 +1,10 @@
 use std::sync::{Arc, RwLock};
 
-use crate::cli::{Command, ImportArgs, PrebuildDataArgs, ServeArgs, WarmupArgs};
+use crate::cli::{
+    BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs,
+    BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs, PrebuildDataArgs,
+    ServeArgs, WarmupArgs,
+};
 use crate::state::{SharedState, ShellState};
 
 pub async fn dispatch(command: Command) -> anyhow::Result<()> {
@@ -9,7 +13,180 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         Command::PrebuildData(args) => run_prebuild_data(args),
         Command::Warmup(args) => run_warmup(args).await,
         Command::Serve(args) => run_serve(args).await,
+        Command::Build(sub) => run_build(sub),
     }
+}
+
+fn run_build(command: BuildCommand) -> anyhow::Result<()> {
+    match command {
+        BuildCommand::Prepare(args) => run_build_prepare(args),
+        BuildCommand::Finalize(args) => run_build_finalize(args),
+        BuildCommand::Promote(args) => run_build_promote(args),
+        BuildCommand::Rollback(args) => run_build_rollback(args),
+        BuildCommand::Clean(args) => run_build_clean(args),
+        BuildCommand::MigrateEnv(args) => run_build_migrate_env(args),
+        BuildCommand::Status(args) => run_build_status(args),
+    }
+}
+
+fn resolve_build_app_ids(workspace: &std::path::Path, apps: &[String]) -> anyhow::Result<Vec<String>> {
+    if !apps.is_empty() {
+        return Ok(apps.to_vec());
+    }
+    let cfg = mei_lang_kernel::load_workspace_config(workspace);
+    if let Some(default) = cfg
+        .workspace
+        .default_app
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Ok(vec![default.to_string()]);
+    }
+    anyhow::bail!("no --app specified and workspace has no defaultApp")
+}
+
+fn run_build_prepare(args: BuildPrepareArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
+    let generation =
+        mei_lang_kernel::prepare_dev_build_generation(workspace.as_path(), &app_ids)?;
+    println!("{}", generation.env_version);
+    Ok(())
+}
+
+fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
+    let generation = mei_lang_kernel::PrebuildGeneration {
+        env_version: args.build_id.clone(),
+        toolchain_version: mei_lang_kernel::resolve_toolchain_version(workspace.as_path()),
+        workspace_version: mei_lang_kernel::resolve_workspace_version(workspace.as_path()),
+        store_dirs: app_ids
+            .iter()
+            .map(|app_id| {
+                let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), app_id);
+                (
+                    app_id.clone(),
+                    mei_lang_kernel::app_env_build_dir(app_root.as_path(), args.build_id.as_str()),
+                )
+            })
+            .collect(),
+    };
+    let promoted = mei_lang_kernel::finalize_and_promote_build(
+        workspace.as_path(),
+        &generation,
+        &app_ids,
+        None,
+        None,
+        true,
+    )?;
+    if let Some(build_id) = promoted {
+        println!("promoted {build_id}");
+    } else {
+        println!("finalized candidate {}", args.build_id);
+    }
+    Ok(())
+}
+
+fn run_build_promote(args: BuildPromoteArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let build_id = mei_lang_kernel::promote_build(
+        workspace.as_path(),
+        args.build_id.as_deref(),
+    )?;
+    println!("promoted {build_id}");
+    Ok(())
+}
+
+fn run_build_rollback(args: BuildRollbackArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let build_id = mei_lang_kernel::rollback_build(workspace.as_path())?;
+    println!("rollback active -> {build_id}");
+    Ok(())
+}
+
+fn run_build_status(args: BuildStatusArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let links = mei_lang_kernel::read_links_state(workspace.as_path())?;
+    let identity = mei_lang_kernel::resolve_active_build_identity(workspace.as_path());
+    let toolchain = links
+        .toolchain
+        .active
+        .as_deref()
+        .unwrap_or(identity.toolchain_version.as_str());
+    let build_active = links.build.active.as_deref().unwrap_or("-");
+    let build_candidate = links.build.candidate.as_deref().unwrap_or("-");
+    let build_previous = links.build.previous.as_deref().unwrap_or("-");
+    println!("toolchain.active={toolchain}");
+    println!("workspace.version={}", identity.workspace_version);
+    println!("env.active={build_active}");
+    println!("env.candidate={build_candidate}");
+    println!("env.previous={build_previous}");
+    println!("display={}", mei_lang_kernel::resolve_build_footer_label(workspace.as_path()));
+    Ok(())
+}
+
+fn run_build_clean(args: BuildCleanArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
+    let report = mei_lang_kernel::clean_env_generations(
+        workspace.as_path(),
+        &app_ids,
+        &mei_lang_kernel::CleanEnvPolicy {
+            dry_run: args.dry_run,
+        },
+    )?;
+    if report.dry_run {
+        println!("dry-run: would remove {} env dirs", report.removed.len());
+    } else {
+        println!("removed {} env dirs", report.removed.len());
+    }
+    for label in &report.removed {
+        println!("  remove {label}");
+    }
+    for label in &report.retained {
+        println!("  keep {label}");
+    }
+    Ok(())
+}
+
+fn run_build_migrate_env(args: BuildMigrateEnvArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
+    let reports = mei_lang_kernel::migrate_apps_to_env_layout(workspace.as_path(), &app_ids)?;
+    for (app_id, report) in reports {
+        println!(
+            "migrated app={app_id} build_dirs={} var_dirs={} vers={:?} removed_legacy={:?} upgraded={:?}",
+            report.migrated_build_dirs,
+            report.migrated_var_dirs,
+            report.env_versions,
+            report.removed_legacy_dirs,
+            report.upgraded_env_dirs
+        );
+    }
+    Ok(())
 }
 
 fn run_import(args: ImportArgs) -> anyhow::Result<()> {

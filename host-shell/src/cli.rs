@@ -7,6 +7,75 @@ pub enum Command {
     PrebuildData(PrebuildDataArgs),
     Warmup(WarmupArgs),
     Serve(ServeArgs),
+    #[command(subcommand)]
+    Build(BuildCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum BuildCommand {
+    Prepare(BuildPrepareArgs),
+    Finalize(BuildFinalizeArgs),
+    Promote(BuildPromoteArgs),
+    Rollback(BuildRollbackArgs),
+    Clean(BuildCleanArgs),
+    MigrateEnv(BuildMigrateEnvArgs),
+    Status(BuildStatusArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct BuildPrepareArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct BuildFinalizeArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: Vec<String>,
+    #[arg(long)]
+    pub build_id: String,
+}
+
+#[derive(Args, Debug)]
+pub struct BuildPromoteArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub build_id: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct BuildRollbackArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+}
+
+#[derive(Args, Debug)]
+pub struct BuildCleanArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: Vec<String>,
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct BuildMigrateEnvArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct BuildStatusArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
 }
 
 #[derive(Args, Debug)]
