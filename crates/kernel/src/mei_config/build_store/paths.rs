@@ -1,72 +1,82 @@
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
 use crate::mei_config::io::load_workspace_config;
-use crate::mei_config::types::{
-    APP_BUILD_ACTIVE_REL, APP_BUILD_STORE_REL, APP_VAR_ACTIVE_REL, APP_VAR_STORE_REL,
-    BUILD_MANIFEST_FILENAME,
-};
 use crate::mei_config::workspace_paths::{
     resolve_app_root, resolve_symlink_target_from_link, resolve_toolchain_root,
 };
 
 use super::prebuild_override::{prebuild_build_root_override, prebuild_var_root_override};
-use super::types::{read_links_state, BuildManifest, DEV_TOOLCHAIN_VERSION};
+use super::types::{
+    read_links_state, BuildManifest, DEV_TOOLCHAIN_ALIAS,
+};
 
 use std::fs;
 
+use crate::mei_config::types::TOOLCHAIN_ACTIVE_REL;
+
+use super::env_paths::{
+    app_build_active_link, app_var_active_link, build_manifest_path, env_version_from_build_root,
+};
+
+fn read_manifest_version(path: &Path) -> Option<String> {
+    if !path.is_file() {
+        return None;
+    }
+    let raw = fs::read_to_string(path).ok()?;
+    let json = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
+    let trimmed = json.get("version")?.as_str()?.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn active_toolchain_manifest_path(source_root: &Path) -> Option<PathBuf> {
+    let toolchain_root = resolve_toolchain_root(source_root);
+    let active = toolchain_root.join(TOOLCHAIN_ACTIVE_REL);
+    if active.is_symlink() {
+        return resolve_symlink_target(&active).map(|dir| dir.join("MANIFEST.json"));
+    }
+    if active.is_dir() {
+        return Some(active.join("MANIFEST.json"));
+    }
+    None
+}
+
+/// Toolchain version for env ver: active store MANIFEST → links.active → workspace pin → flat MANIFEST → `latest`.
 pub fn resolve_toolchain_version(source_root: &Path) -> String {
-    let manifest = resolve_toolchain_root(source_root).join("MANIFEST.json");
-    if manifest.is_file() {
-        let path = manifest;
-        if let Ok(raw) = fs::read_to_string(&path) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(v) = json.get("version").and_then(|v| v.as_str()) {
-                    let trimmed = v.trim();
-                    if !trimmed.is_empty() {
-                        return trimmed.to_string();
-                    }
-                }
-            }
+    if let Some(manifest) = active_toolchain_manifest_path(source_root) {
+        if let Some(version) = read_manifest_version(&manifest) {
+            return version;
+        }
+    }
+    if let Ok(links) = read_links_state(source_root) {
+        if let Some(active) = links
+            .toolchain
+            .active
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return active.to_string();
         }
     }
     let cfg = load_workspace_config(source_root);
     if let Some(pin) = cfg.toolchain.pin.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         return pin.to_string();
     }
-    let embedded = env!("CARGO_PKG_VERSION").trim();
-    if !embedded.is_empty() {
-        return embedded.to_string();
+    let flat_manifest = resolve_toolchain_root(source_root).join("MANIFEST.json");
+    if let Some(version) = read_manifest_version(&flat_manifest) {
+        return version;
     }
-    DEV_TOOLCHAIN_VERSION.to_string()
+    DEV_TOOLCHAIN_ALIAS.to_string()
 }
 
-pub fn generate_build_id(toolchain_version: &str) -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let utc = format_timestamp_utc(now);
-    let version = toolchain_version.trim();
-    if version.is_empty() {
-        format!("{utc}-{DEV_TOOLCHAIN_VERSION}")
-    } else {
-        format!("{utc}-{version}")
-    }
-}
-
-fn format_timestamp_utc(epoch_secs: u64) -> String {
-    let days_since_epoch = epoch_secs / 86400;
-    let time_of_day = epoch_secs % 86400;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    let seconds = time_of_day % 60;
-    let (year, month, day) = civil_from_days(days_since_epoch as i64);
-    format!(
-        "{year:04}{month:02}{day:02}T{hours:02}{minutes:02}{seconds:02}"
-    )
+pub fn resolve_dev_toolchain_version() -> &'static str {
+    DEV_TOOLCHAIN_ALIAS
 }
 
 pub(super) fn civil_from_days(z: i64) -> (i64, i64, i64) {
@@ -81,22 +91,6 @@ pub(super) fn civil_from_days(z: i64) -> (i64, i64, i64) {
     let m = mp + if mp < 10 { 3 } else { -9 };
     let year = y + if m <= 2 { 1 } else { 0 };
     (year, m, d)
-}
-
-pub fn app_build_store_dir(app_root: &Path, build_id: &str) -> PathBuf {
-    app_root.join(APP_BUILD_STORE_REL).join(build_id.trim())
-}
-
-pub fn app_var_store_dir(app_root: &Path, build_id: &str) -> PathBuf {
-    app_root.join(APP_VAR_STORE_REL).join(build_id.trim())
-}
-
-pub fn app_build_active_link(app_root: &Path) -> PathBuf {
-    app_root.join(APP_BUILD_ACTIVE_REL)
-}
-
-pub fn app_var_active_link(app_root: &Path) -> PathBuf {
-    app_root.join(APP_VAR_ACTIVE_REL)
 }
 
 pub fn resolve_symlink_target(link: &Path) -> Option<PathBuf> {
@@ -150,6 +144,11 @@ pub fn resolve_active_build_id(source_root: &Path, app_id: &str) -> Option<Strin
     let app_root = resolve_app_root(source_root, app_id);
     let active = app_build_active_link(&app_root);
     if active.is_symlink() {
+        if let Some(target) = resolve_symlink_target(&active) {
+            if let Some(ver) = env_version_from_build_root(target.as_path()) {
+                return Some(ver);
+            }
+        }
         return active
             .file_name()
             .and_then(|name| name.to_str())
@@ -158,20 +157,17 @@ pub fn resolve_active_build_id(source_root: &Path, app_id: &str) -> Option<Strin
     None
 }
 
-pub fn write_build_manifest(
-    store_dir: &Path,
-    manifest: &BuildManifest,
-) -> Result<()> {
-    fs::create_dir_all(store_dir)?;
-    let path = store_dir.join(BUILD_MANIFEST_FILENAME);
+pub fn write_build_manifest(env_dir: &Path, manifest: &BuildManifest) -> Result<()> {
+    fs::create_dir_all(env_dir)?;
+    let path = build_manifest_path(env_dir);
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, serde_json::to_string_pretty(manifest)?)?;
     fs::rename(&tmp, path)?;
     Ok(())
 }
 
-pub fn read_build_manifest(store_dir: &Path) -> Result<Option<BuildManifest>> {
-    let path = store_dir.join(BUILD_MANIFEST_FILENAME);
+pub fn read_build_manifest(env_dir: &Path) -> Result<Option<BuildManifest>> {
+    let path = build_manifest_path(env_dir);
     if !path.is_file() {
         return Ok(None);
     }

@@ -6,9 +6,9 @@ use anyhow::Result;
 use super::io::{write_string_atomically, write_workspace_config};
 use super::types::{
     MeiConfig, WorkspaceAuthConfig, WorkspaceConfig, WorkspaceHostState, DEFAULT_HOST_STATE_ID,
-    MEI_CONFIG_FILENAME, WORKSPACE_HOSTS_DIR_REL, WORKSPACE_HOST_STATE_SCHEMA_VERSION,
+    MEI_CONFIG_FILENAME, WORKSPACE_HOST_STATE_SCHEMA_VERSION,
 };
-use super::workspace_paths::workspace_config_path;
+use super::workspace_paths::{resolve_workspace_hosts_root, workspace_config_path};
 
 fn normalize_host_state_id(raw: Option<&str>) -> String {
     let trimmed = raw.unwrap_or("").trim();
@@ -45,7 +45,7 @@ pub fn workspace_auth_host_id(segment_root: &Path) -> String {
 }
 
 pub fn workspace_auth_state_dir(segment_root: &Path) -> PathBuf {
-    segment_root.join(WORKSPACE_HOSTS_DIR_REL)
+    resolve_workspace_hosts_root(segment_root)
 }
 
 /// 工作区 segment 根目录的 host-state auth 文件。

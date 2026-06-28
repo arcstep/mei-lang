@@ -12,8 +12,8 @@ const LEGACY_UPLOAD_PREFIX: &str = "upload/";
 
 fn upload_registry_candidate_paths(app_root: &Path) -> [PathBuf; 2] {
     [
-        app_root.join(LEGACY_UPLOAD_REGISTRY_REL_PATH),
         app_root.join(UPLOAD_REGISTRY_REL_PATH),
+        app_root.join(LEGACY_UPLOAD_REGISTRY_REL_PATH),
     ]
 }
 
@@ -21,15 +21,19 @@ fn resolve_upload_registry_path(app_root: &Path) -> PathBuf {
     upload_registry_candidate_paths(app_root)
         .into_iter()
         .find(|path| path.is_file())
-        .unwrap_or_else(|| app_root.join(LEGACY_UPLOAD_REGISTRY_REL_PATH))
+        .unwrap_or_else(|| app_root.join(UPLOAD_REGISTRY_REL_PATH))
 }
 
-/// Map legacy app-relative `upload/...` onto v2 `assets/upload/...` when the former is absent.
+/// Resolve logical `upload/...` to on-disk file (`apps/{id}/upload/` preferred, `assets/upload/` fallback).
 pub fn resolve_legacy_app_upload_path(app_root: &Path, rel: &str) -> Option<PathBuf> {
     let rel = normalize_path(rel);
     let tail = rel.strip_prefix(LEGACY_UPLOAD_PREFIX)?;
     if tail.is_empty() {
         return None;
+    }
+    let primary = app_root.join("upload").join(tail);
+    if primary.is_file() {
+        return Some(primary);
     }
     let under_assets = app_root.join("assets/upload").join(tail);
     under_assets.is_file().then_some(under_assets)

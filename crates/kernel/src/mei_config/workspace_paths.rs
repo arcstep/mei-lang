@@ -5,11 +5,13 @@ use super::io::load_workspace_config;
 use super::build_store::resolve_app_build_root_following_active;
 use super::stock_catalog::normalize_stock_relative_path;
 use super::types::{
-    WorkspaceConfig, APP_CONFIG_FILENAME, APP_BUILD_STORE_REL,
+    WorkspaceConfig, APP_CONFIG_FILENAME,
     DEFAULT_APPS_REL, DEFAULT_APP_SRC_REL, DEFAULT_DEPLOY_REL, DEFAULT_RUNTIME_REL,
     DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, DEFAULT_TOOLCHAIN_REL,
-    WORKSPACE_CONFIG_FILENAME, WORKSPACE_PLATFORM_DIR_REL, WORKSPACE_RUNTIME_CACHE_REL,
-    WORKSPACE_RUNTIME_LOGS_REL,
+    LEGACY_WORKSPACE_HOSTS_DIR_REL, LEGACY_WORKSPACE_PLATFORM_DIR_REL,
+    LEGACY_WORKSPACE_RUNTIME_DIR_REL,
+    WORKSPACE_CONFIG_FILENAME, WORKSPACE_HOSTS_DIR_REL, WORKSPACE_PLATFORM_DIR_REL,
+    WORKSPACE_RUNTIME_CACHE_REL, WORKSPACE_RUNTIME_LOGS_REL,
 };
 
 pub fn resolve_symlink_target_from_link(link: &Path) -> Option<PathBuf> {
@@ -108,19 +110,47 @@ pub fn resolve_workspace_runtime_root(source_root: &Path) -> PathBuf {
         .as_deref()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or(DEFAULT_RUNTIME_REL);
-    resolve_workspace_path(source_root, rel)
-}
-
-pub fn resolve_workspace_logs_root(source_root: &Path) -> PathBuf {
-    resolve_workspace_path(source_root, WORKSPACE_RUNTIME_LOGS_REL)
-}
-
-pub fn resolve_workspace_cache_root(source_root: &Path) -> PathBuf {
-    resolve_workspace_path(source_root, WORKSPACE_RUNTIME_CACHE_REL)
+    let primary = resolve_workspace_path(source_root, rel);
+    if primary.is_dir() {
+        return primary;
+    }
+    let legacy = source_root.join(LEGACY_WORKSPACE_RUNTIME_DIR_REL);
+    if legacy.is_dir() {
+        return legacy;
+    }
+    primary
 }
 
 pub fn resolve_workspace_platform_root(source_root: &Path) -> PathBuf {
-    resolve_workspace_path(source_root, WORKSPACE_PLATFORM_DIR_REL)
+    let primary = resolve_workspace_path(source_root, WORKSPACE_PLATFORM_DIR_REL);
+    if primary.is_dir() {
+        return primary;
+    }
+    resolve_workspace_path(source_root, LEGACY_WORKSPACE_PLATFORM_DIR_REL)
+}
+
+pub fn resolve_workspace_hosts_root(source_root: &Path) -> PathBuf {
+    let primary = resolve_workspace_path(source_root, WORKSPACE_HOSTS_DIR_REL);
+    if primary.is_dir() {
+        return primary;
+    }
+    resolve_workspace_path(source_root, LEGACY_WORKSPACE_HOSTS_DIR_REL)
+}
+
+pub fn resolve_workspace_logs_root(source_root: &Path) -> PathBuf {
+    let primary = resolve_workspace_path(source_root, WORKSPACE_RUNTIME_LOGS_REL);
+    if primary.is_dir() {
+        return primary;
+    }
+    resolve_workspace_runtime_root(source_root).join("logs")
+}
+
+pub fn resolve_workspace_cache_root(source_root: &Path) -> PathBuf {
+    let primary = resolve_workspace_path(source_root, WORKSPACE_RUNTIME_CACHE_REL);
+    if primary.is_dir() {
+        return primary;
+    }
+    resolve_workspace_runtime_root(source_root).join("cache")
 }
 
 pub fn resolve_deploy_root(source_root: &Path) -> PathBuf {
@@ -366,17 +396,17 @@ pub fn is_app_mei_source_rel(rel: &str) -> bool {
         || rel == "src/main.mei"
 }
 
-/// App AOT 读路径：`apps/{appId}/build/active/`（symlink 指向 `build/store/{buildId}/`）。
+/// App AOT 读路径：`apps/{appId}/build/active/`（symlink 指向 `env/{ver}/build/`）。
 pub fn resolve_app_build_root(app_root: &Path) -> PathBuf {
     resolve_app_build_root_following_active(app_root)
 }
 
-/// App build store 根：`apps/{appId}/build/store/{buildId}/`。
-pub fn resolve_app_build_store_root(app_root: &Path, build_id: &str) -> PathBuf {
-    app_root.join(APP_BUILD_STORE_REL).join(build_id.trim())
+/// App env build 根：`apps/{appId}/env/{ver}/build/`。
+pub fn resolve_app_build_store_root(app_root: &Path, env_version: &str) -> PathBuf {
+    crate::mei_config::build_store::app_env_build_dir(app_root, env_version)
 }
 
-/// App 运行时写路径：`apps/{appId}/var/active/`（symlink 指向 `var/store/{buildId}/`）。
+/// App 运行时写路径：`apps/{appId}/var/active/`（symlink 指向 `env/{ver}/var/`）。
 pub fn resolve_app_var_root(app_root: &Path) -> PathBuf {
     crate::mei_config::build_store::resolve_app_var_root_following_active(app_root)
 }

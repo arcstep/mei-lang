@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -8,17 +8,26 @@ use crate::compile::resolve_default_scene_from_root;
 use crate::mei_config::{
     canonical_app_source_rel_path, load_workspace_config, resolve_app_entry_main, resolve_app_root,
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
-    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig, LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use crate::workspace::discover_build_apps;
 
 pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION: &str = "mei-runtime-warmup-manifest-v2";
 
+fn resolve_warmup_manifest_path(source_root: &Path) -> PathBuf {
+    let primary = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
+    if primary.is_file() {
+        return primary;
+    }
+    source_root.join(LEGACY_WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL)
+}
+
 /// Load `.mei/runtime/warmup-manifest.json`, or synthesize from `.mei-workspace.json` when missing.
 pub fn resolve_runtime_warmup_manifest(
     source_root: &Path,
 ) -> Result<Option<RuntimeWarmupManifest>> {
-    let manifest_path = source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
+    let manifest_path = resolve_warmup_manifest_path(source_root);
     if manifest_path.is_file() {
         let raw = fs::read_to_string(&manifest_path)
             .with_context(|| format!("read warmup manifest {}", manifest_path.display()))?;

@@ -1,4 +1,4 @@
-//! v2 build store: `build/store/{buildId}/`, workspace `deploy/state/links.json`, promote/rollback.
+//! v2 env layout: `apps/{appId}/env/{ver}/build|var`, workspace `deploy/state/links.json`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,15 @@ use crate::mei_config::workspace_paths::resolve_deploy_root;
 pub const LINKS_STATE_SCHEMA: &str = "mei-workspace-links-v1";
 pub const BUILD_MANIFEST_SCHEMA: &str = "mei-build-manifest-v1";
 pub const DEV_TOOLCHAIN_VERSION: &str = "0.0.0-dev-local";
+/// Local cargo dev store directory name and buildId suffix (see doc 84 §4).
+pub const DEV_TOOLCHAIN_ALIAS: &str = "latest";
+
+pub fn is_dev_toolchain_alias(version: &str) -> bool {
+    matches!(
+        version.trim(),
+        DEV_TOOLCHAIN_ALIAS | DEV_TOOLCHAIN_VERSION
+    )
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolchainLinks {
@@ -53,12 +62,14 @@ fn default_links_schema() -> String {
 pub struct BuildManifest {
     #[serde(rename = "schemaVersion")]
     pub schema_version: String,
-    #[serde(rename = "buildId")]
-    pub build_id: String,
+    #[serde(rename = "buildId", alias = "envVersion")]
+    pub env_version: String,
     #[serde(rename = "appId")]
     pub app_id: String,
     #[serde(rename = "toolchainVersion")]
     pub toolchain_version: String,
+    #[serde(default, rename = "workspaceVersion")]
+    pub workspace_version: Option<String>,
     #[serde(default, rename = "sourceRevision")]
     pub source_revision: Option<String>,
     #[serde(default, rename = "stockRevision")]

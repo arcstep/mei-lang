@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 
 use crate::mei_config::types::{
     TOOLCHAIN_ACTIVE_REL, TOOLCHAIN_STORE_REL, WORKSPACE_AGENT_LOCAL_DIR_REL,
-    WORKSPACE_HOSTS_DIR_REL, WORKSPACE_PLATFORM_DIR_REL,
+    WORKSPACE_HOSTS_DIR_REL, WORKSPACE_PLATFORM_DIR_REL, LEGACY_WORKSPACE_RUNTIME_DIR_REL,
 };
 use crate::mei_config::workspace_paths::resolve_toolchain_root;
 
@@ -60,6 +60,26 @@ pub fn migrate_legacy_workspace_mei(source_root: &Path) -> Result<()> {
         .collect();
     if remaining.is_empty() {
         fs::remove_dir_all(&legacy).ok();
+    }
+    Ok(())
+}
+
+/// Move workspace root `runtime/` → `deploy/runtime/` when the new path is absent.
+pub fn migrate_legacy_workspace_runtime_dir(source_root: &Path) -> Result<()> {
+    let legacy = source_root.join(LEGACY_WORKSPACE_RUNTIME_DIR_REL);
+    if !legacy.is_dir() {
+        return Ok(());
+    }
+    let target = source_root.join(WORKSPACE_PLATFORM_DIR_REL)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| source_root.join("deploy/runtime"));
+    if target.is_dir() {
+        merge_dir_recursive(&legacy, &target)?;
+        fs::remove_dir_all(&legacy).ok();
+    } else {
+        fs::rename(&legacy, &target)
+            .with_context(|| format!("move {} → {}", legacy.display(), target.display()))?;
     }
     Ok(())
 }

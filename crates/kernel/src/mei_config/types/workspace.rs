@@ -20,6 +20,9 @@ pub struct WorkspaceProfile {
     /// 登录后 `/` 与无 `next` 时的默认应用（须为 discover 到的 app id 或 `discover.appAliases` 别名）。
     #[serde(default, rename = "defaultApp")]
     pub default_app: Option<String>,
+    /// 工作区对外发布版本（客户可读，如 `20260228`）；与 mei-lang toolchain 组合成 env 目录名。
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 /// 工作区合规展示信息（登录页与底栏备案号等）。
@@ -53,6 +56,15 @@ impl WorkspaceComplianceConfig {
 
     pub fn copyright_trimmed(&self) -> Option<&str> {
         self.copyright
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+}
+
+impl WorkspaceProfile {
+    pub fn version_trimmed(&self) -> Option<&str> {
+        self.version
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
