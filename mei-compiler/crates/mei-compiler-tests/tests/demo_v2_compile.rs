@@ -68,6 +68,7 @@ fn demo_v2_meibundle_roundtrip_and_size() {
         digest.as_str(),
         "2.0.2",
         bundle_path.as_path(),
+        false,
     )
     .expect("write bundle");
 

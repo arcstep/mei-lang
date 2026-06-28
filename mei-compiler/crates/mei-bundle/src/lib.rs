@@ -5,7 +5,8 @@ mod io;
 
 pub use digest::compute_workspace_digest;
 pub use io::{
-    bundle_stats, read_bundle, write_bundle, write_bundle_from_outcome, BundleStats,
+    bundle_stats, read_bundle, write_bundle, write_bundle_from_outcome, write_debug_sidecar,
+    BundleStats,
     ReadBundleError, WriteBundleError,
 };
 

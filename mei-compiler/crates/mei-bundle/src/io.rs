@@ -64,6 +64,7 @@ pub fn write_bundle(
     workspace_digest: &str,
     compiler_version: &str,
     path: &Path,
+    emit_debug_sidecar: bool,
 ) -> Result<BundleStats, WriteBundleError> {
     let compiled_at_ms = current_time_ms();
     let manifest = build_manifest(
@@ -97,6 +98,9 @@ pub fn write_bundle(
     zip.finish()?;
 
     let bundle_bytes = std::fs::metadata(path)?.len();
+    if emit_debug_sidecar {
+        write_debug_sidecar(path, &exchange.blocks)?;
+    }
     Ok(BundleStats {
         manifest,
         bundle_bytes,
@@ -110,9 +114,31 @@ pub fn write_bundle_from_outcome(
     workspace_digest: &str,
     compiler_version: &str,
     path: &Path,
+    emit_debug_sidecar: bool,
 ) -> Result<BundleStats, WriteBundleError> {
     let exchange = exchange_from_outcome(outcome);
-    write_bundle(&exchange, workspace_digest, compiler_version, path)
+    write_bundle(
+        &exchange,
+        workspace_digest,
+        compiler_version,
+        path,
+        emit_debug_sidecar,
+    )
+}
+
+/// Write human-readable compile blocks next to `.meibundle` for source→artifact debugging.
+pub fn write_debug_sidecar(bundle_path: &Path, blocks: &[GraphBlock]) -> Result<(), WriteBundleError> {
+    let file_name = bundle_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("bundle");
+    let sidecar = bundle_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{file_name}.blocks.pretty.json"));
+    let pretty = serde_json::to_vec_pretty(blocks)?;
+    std::fs::write(&sidecar, pretty)?;
+    Ok(())
 }
 
 pub fn read_bundle(path: &Path) -> Result<(MeiBundleManifest, Vec<GraphBlock>), ReadBundleError> {

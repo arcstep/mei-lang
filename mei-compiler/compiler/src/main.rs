@@ -38,6 +38,9 @@ enum Command {
         format: CompileFormat,
         #[arg(long, default_value_t = false)]
         pretty: bool,
+        /// Write `{app}.blocks.pretty.json` beside the bundle for debugging
+        #[arg(long, default_value_t = false)]
+        emit_debug: bool,
     },
     /// Inspect or summarize a .meibundle
     Bundle {
@@ -98,7 +101,8 @@ fn main() -> Result<()> {
             out,
             format,
             pretty,
-        } => compile_app_cmd(&workspace, &app, out.as_deref(), format, pretty),
+            emit_debug,
+        } => compile_app_cmd(&workspace, &app, out.as_deref(), format, pretty, emit_debug),
         Command::Bundle { command } => match command {
             BundleCommand::Inspect { path, pretty, kind } => bundle_inspect(&path, pretty, kind.as_deref()),
             BundleCommand::Stats { path } => bundle_stats_cmd(&path),
@@ -115,6 +119,7 @@ fn compile_app_cmd(
     out: Option<&Path>,
     format: CompileFormat,
     pretty: bool,
+    emit_debug: bool,
 ) -> Result<()> {
     let outcome = compile_app(workspace, app).map_err(|error| anyhow::anyhow!("{error}"))?;
     let exchange = exchange_from_outcome(&outcome);
@@ -141,6 +146,7 @@ fn compile_app_cmd(
                 digest.as_str(),
                 env!("CARGO_PKG_VERSION"),
                 out_path.as_path(),
+                emit_debug,
             )
             .map_err(|e| anyhow::anyhow!("{e}"))?;
             println!(
@@ -151,6 +157,16 @@ fn compile_app_cmd(
                 stats.blocks_json_bytes,
                 stats.blocks_zstd_bytes,
             );
+            if emit_debug {
+                let sidecar = out_path.parent().unwrap_or(out_path).join(format!(
+                    "{}.blocks.pretty.json",
+                    out_path
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .unwrap_or("bundle")
+                ));
+                println!("debug sidecar: {}", sidecar.display());
+            }
             Ok(())
         }
     }
