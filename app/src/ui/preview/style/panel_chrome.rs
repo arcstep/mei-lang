@@ -206,5 +206,15 @@ pub(crate) fn container_visual_style(props: &Value) -> String {
 pub(crate) fn append_string_style(style: &mut String, value: Option<&Value>, css_name: &str) {
     if let Some(value) = value.and_then(Value::as_str) {
         style.push_str(&format!("{css_name}:{value};"));
+        return;
+    }
+    if css_name == "z-index" {
+        if let Some(number) = value.and_then(Value::as_i64) {
+            style.push_str(&format!("{css_name}:{number};"));
+        } else if let Some(number) = value.and_then(Value::as_u64) {
+            style.push_str(&format!("{css_name}:{number};"));
+        } else if let Some(number) = value.and_then(Value::as_f64) {
+            style.push_str(&format!("{css_name}:{number};"));
+        }
     }
 }

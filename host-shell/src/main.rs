@@ -3,6 +3,8 @@ mod assets;
 mod build_info;
 mod cli;
 mod commands;
+mod gis_config;
+mod gis_proxy;
 mod http;
 mod pages;
 mod request_logging;

@@ -432,6 +432,7 @@ fn load_panels_for_assembly(
         app_id,
         registry,
         scene_id,
+        panel_constants: BTreeMap::new(),
     };
     let mut panels = Vec::new();
     let panel_refs = assembly_payload
@@ -456,7 +457,8 @@ fn load_panels_for_assembly(
             continue;
         };
         let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
-        if let Ok(panel) = lower_panel_payload(&payload, contract_key.as_str(), &lower_ctx) {
+        let panel_ctx = lower_ctx.with_panel_constants(contract_key.as_str());
+        if let Ok(panel) = lower_panel_payload(&payload, contract_key.as_str(), &panel_ctx) {
             panels.push(panel);
         }
     }

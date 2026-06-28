@@ -18,10 +18,10 @@ fn demo_v2_compiles_graph_blocks() {
         return;
     }
     let outcome = compile_app(&workspace, "data-demo").expect("compile data-demo");
-    assert_eq!(outcome.syntax_version, "2.0.3");
-    assert_eq!(outcome.files.len(), 26, "expected 26 v2 author files");
+    assert_eq!(outcome.syntax_version, "2.0.4");
+    assert_eq!(outcome.files.len(), 43, "expected 43 v2 author files");
     assert!(
-        outcome.blocks.len() >= 40,
+        outcome.blocks.len() >= 120,
         "expected many graph blocks, got {}",
         outcome.blocks.len()
     );
@@ -66,7 +66,7 @@ fn demo_v2_meibundle_roundtrip_and_size() {
     let write_stats = write_bundle_from_outcome(
         &outcome,
         digest.as_str(),
-        "2.0.3",
+        "2.0.4",
         bundle_path.as_path(),
         false,
     )

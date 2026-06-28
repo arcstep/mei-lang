@@ -111,7 +111,7 @@ fn ws_demo_v2_import_and_assemble_home() {
         .as_ref()
         .expect("scene contract");
     assert!(contract.frame.is_some(), "home frame should be lowered");
-    assert_eq!(contract.panels.len(), 3, "home assembly references 3 panels");
+    assert_eq!(contract.panels.len(), 6, "home assembly references 6 panels");
     let block_count: usize = contract
         .panels
         .iter()
@@ -155,6 +155,73 @@ fn ws_demo_v2_home_contract_expands_rail_metric_panels() {
     assert!(
         paths.iter().any(|p| p.contains("supervision-stats")),
         "home contract should expand rail slot panel_ref; got paths={paths:?}"
+    );
+}
+
+#[test]
+fn ws_demo_v2_home_gis_map_spec_resolves_config_refs() {
+    let workspace = ws_demo_v2_root();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let contract = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract");
+
+    fn find_map_spec_in_panel(panel: &mei_lang_kernel::PanelDecl) -> Option<serde_json::Value> {
+        for node in &panel.blocks {
+            match node {
+                mei_lang_kernel::UiNodeDecl::Block(block) if block.use_key == "map.maplibre" => {
+                    return block.props.get("mapSpec").cloned();
+                }
+                mei_lang_kernel::UiNodeDecl::Panel(nested) => {
+                    if let Some(spec) = find_map_spec_in_panel(nested) {
+                        return Some(spec);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    let mut map_spec = None;
+    for panel in &contract.panels {
+        if let Some(spec) = find_map_spec_in_panel(panel) {
+            map_spec = Some(spec);
+            break;
+        }
+    }
+    let map_spec = map_spec.expect("map.maplibre mapSpec should be lowered");
+    assert!(
+        !map_spec.to_string().contains("__var"),
+        "mapSpec should not contain unresolved panel constants: {map_spec}"
+    );
+    let basemap = map_spec.get("basemap").expect("basemap");
+    assert!(
+        basemap.get("tilesUrl").is_some() || basemap.get("tilesJsonPath").is_some(),
+        "basemap_ref should resolve to tiles config: {basemap}"
+    );
+    let first_layer_url = map_spec["layers"]
+        .as_array()
+        .and_then(|layers| layers.first())
+        .and_then(|layer| layer.get("url"))
+        .expect("first layer url");
+    assert!(
+        first_layer_url.as_str().is_some_and(|url| url.starts_with('/')),
+        "ops_param_ref layer url should resolve to path string: {first_layer_url}"
+    );
+
+    let header = contract
+        .panels
+        .iter()
+        .find(|panel| panel.id == "home_header")
+        .expect("home_header panel");
+    assert_eq!(
+        header.props.get("z_index").and_then(serde_json::Value::as_i64),
+        Some(110)
     );
 }
 
@@ -305,7 +372,7 @@ fn ws_demo_v2_board_semantic_ids_present() {
         .filter(|n| n.id.kind == GraphNodeKind::AssemblyView)
         .map(|n| n.id.key.clone())
         .collect();
-    assert_eq!(assembly_keys.len(), 20, "expected 20 assembly_view/board keys");
+    assert_eq!(assembly_keys.len(), 43, "expected 43 assembly_view/board keys");
     assert!(assembly_keys.iter().any(|k| k.contains("home@")));
 }
 
@@ -313,7 +380,7 @@ fn ws_demo_v2_board_semantic_ids_present() {
 fn ws_demo_v2_all_board_scenes_assemble() {
     let workspace = ensure_imported();
     let scenes = mei_plug_ds::collect_all_board_scenes(workspace.as_path(), "data-demo");
-    assert!(scenes.len() >= 20);
+    assert!(scenes.len() >= 43);
     for scene in scenes {
         let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", scene.as_str())
             .expect("assemble");

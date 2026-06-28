@@ -251,6 +251,11 @@ fn lower_pipeline_step(input: &Value, step: &Value, ctx: &V2MetricLowerContext) 
             ],
         ),
         "label_status_pending" => lower_label_status_pending(input, &args),
+        "group_by" => lower_group_by(Some(input), &args, ctx),
+        "lookup_value" => lower_lookup_value(Some(input), &args, ctx),
+        "party_year_aggregate" => lower_party_year_aggregate(Some(input), &args, ctx),
+        "trend_year_compare" => lower_trend_year_compare(&args, ctx, Some(input)),
+        "unpivot_columns" => lower_unpivot_columns(Some(input), &args, ctx),
         _ => input.clone(),
     }
 }
@@ -369,16 +374,39 @@ fn lower_agg_on_rowset(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerConte
                 let num = agg
                     .get("__args")
                     .and_then(|a| a.get("arg0"))
-                    .map(|v| lower_sum_on_rowset(v, base_rowset.clone()))
+                    .map(|v| lower_nested_agg(v, base_rowset.clone(), ctx))
                     .unwrap_or(json!(0));
                 let den = agg
                     .get("__args")
                     .and_then(|a| a.get("arg1"))
-                    .map(|v| lower_sum_on_rowset(v, base_rowset.clone()))
+                    .map(|v| lower_nested_agg(v, base_rowset.clone(), ctx))
                     .unwrap_or(json!(0));
                 aek(
                     "ratio",
                     &[("numerator", num), ("denominator", den)],
+                )
+            }
+            "change_rate" => {
+                let args = agg.get("__args").and_then(Value::as_object);
+                let current = args
+                    .and_then(|m| m.get("current"))
+                    .map(|v| lower_scalar_expr(v, ctx))
+                    .unwrap_or(json!(0));
+                let base = args
+                    .and_then(|m| m.get("base"))
+                    .map(|v| lower_scalar_expr(v, ctx))
+                    .unwrap_or(json!(0));
+                let mode = args
+                    .and_then(|m| m.get("mode"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("growth");
+                aek(
+                    "change_rate",
+                    &[
+                        ("current", current),
+                        ("base", base),
+                        ("mode", json!(mode)),
+                    ],
                 )
             }
             "transfer_clue_count" => expand_transfer_clue_count(agg, ctx),
@@ -445,7 +473,190 @@ fn lower_sum_on_rowset(agg: &Value, base_rowset: Value) -> Value {
             );
         }
     }
+    if v2_call_name(agg).as_deref() == Some("count") {
+        return ae("count", vec![("rowset".to_string(), base_rowset)]);
+    }
     json!(0)
+}
+
+fn lower_nested_agg(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerContext) -> Value {
+    if let Some(name) = v2_call_name(agg) {
+        let args = agg.get("__args").cloned().unwrap_or(json!({}));
+        return match name.as_str() {
+            "count" => {
+                let inner = arg0(&args);
+                if v2_call_name(inner).is_some() {
+                    ae(
+                        "count",
+                        vec![("rowset".to_string(), lower_rowset(inner, ctx))],
+                    )
+                } else {
+                    ae("count", vec![("rowset".to_string(), base_rowset)])
+                }
+            }
+            "sum" => lower_sum_on_rowset(agg, base_rowset),
+            _ => lower_scalar_expr(agg, ctx),
+        };
+    }
+    lower_sum_on_rowset(agg, base_rowset)
+}
+
+fn lower_scalar_expr(value: &Value, ctx: &V2MetricLowerContext) -> Value {
+    if let Some(name) = v2_call_name(value) {
+        let args = value.get("__args").cloned().unwrap_or(json!({}));
+        return match name.as_str() {
+            "year_count" => ae(
+                "count",
+                vec![(
+                    "rowset".to_string(),
+                    year_between_rowset(
+                        lower_rowset(arg0(&args), ctx),
+                        arg1_string(&args),
+                        arg2_from_args(&args),
+                    ),
+                )],
+            ),
+            "year_sum" => {
+                let rowset = year_between_rowset(
+                    lower_rowset(arg0(&args), ctx),
+                    arg1_string(&args),
+                    arg3_from_args(&args),
+                );
+                let value_field = args
+                    .get("arg2")
+                    .or_else(|| args.get("value_field"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                ae(
+                    "sum",
+                    vec![(
+                        "value".to_string(),
+                        ae(
+                            "number",
+                            vec![
+                                ("source".to_string(), rowset),
+                                ("field".to_string(), json!(value_field)),
+                            ],
+                        ),
+                    )],
+                )
+            }
+            "count" => lower_nested_agg(value, json!(null), ctx),
+            _ => json!(0),
+        };
+    }
+    json!(0)
+}
+
+fn arg2_from_args(args: &Value) -> Value {
+    args.get("arg2")
+        .or_else(|| args.get("year"))
+        .cloned()
+        .unwrap_or(json!(2025))
+}
+
+fn arg3_from_args(args: &Value) -> Value {
+    args.get("arg3")
+        .or_else(|| args.get("year"))
+        .cloned()
+        .unwrap_or(json!(2025))
+}
+
+fn year_between_rowset(rowset: Value, field: Option<String>, year: Value) -> Value {
+    let field = field.unwrap_or_default();
+    let year_text = year
+        .as_i64()
+        .or_else(|| year.as_u64().map(|v| v as i64))
+        .or_else(|| year.as_str().and_then(|s| s.parse::<i64>().ok()))
+        .unwrap_or(2025);
+    let year_str = year_text.to_string();
+    ae(
+        "where",
+        vec![
+            ("rowset".to_string(), rowset),
+            (
+                "predicate".to_string(),
+    ae(
+        "between",
+        vec![
+            ("field".to_string(), json!(field)),
+            ("lower".to_string(), json!(format!("{year_str}-01-01"))),
+            ("upper".to_string(), json!(format!("{year_str}-12-31"))),
+        ],
+    ),
+            ),
+        ],
+    )
+}
+
+fn lower_trend_year_compare(args: &Value, ctx: &V2MetricLowerContext, input: Option<&Value>) -> Value {
+    let map = args.as_object().cloned().unwrap_or_default();
+    let rowset = if let Some(inp) = input {
+        inp.clone()
+    } else {
+        map.get("arg0")
+            .map(|v| lower_rowset(v, ctx))
+            .unwrap_or(json!(null))
+    };
+    let date_field = map
+        .get("date_field")
+        .or_else(|| map.get("arg1"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let value_field = map.get("value").cloned().unwrap_or(Value::Null);
+    let agg = map
+        .get("agg")
+        .and_then(Value::as_str)
+        .unwrap_or("count");
+    let years = map.get("years").cloned().unwrap_or(json!([2024, 2025]));
+    let limit = map.get("limit").cloned().unwrap_or(json!(6));
+    let window = map
+        .get("window")
+        .and_then(Value::as_str)
+        .unwrap_or("rolling");
+    aek(
+        "trend_year_compare",
+        &[
+            ("rowset", rowset),
+            ("date_field", json!(date_field)),
+            ("value", value_field),
+            ("agg", json!(agg)),
+            ("years", years),
+            ("limit", limit),
+            ("window", json!(window)),
+        ],
+    )
+}
+
+fn lower_pivot_long(args: &Value, ctx: &V2MetricLowerContext) -> Value {
+    let map = args.as_object().cloned().unwrap_or_default();
+    let rowset = map
+        .get("arg0")
+        .map(|v| lower_rowset(v, ctx))
+        .unwrap_or(json!(null));
+    let row_field = map
+        .get("row_field")
+        .and_then(Value::as_str)
+        .unwrap_or("month");
+    let column_field = map
+        .get("column_field")
+        .and_then(Value::as_str)
+        .unwrap_or("year");
+    let value_field = map
+        .get("value_field")
+        .and_then(Value::as_str)
+        .unwrap_or("value");
+    let columns = map.get("columns").cloned().unwrap_or(json!([]));
+    aek(
+        "pivot_long",
+        &[
+            ("rowset", rowset),
+            ("row_field", json!(row_field)),
+            ("column_field", json!(column_field)),
+            ("value_field", json!(value_field)),
+            ("columns", columns),
+        ],
+    )
 }
 
 fn expand_known_agg_macro(name: &str, agg: &Value, base_rowset: Value) -> Option<Value> {
@@ -629,6 +840,145 @@ fn expand_mechanism_item_count(agg: &Value, ctx: &V2MetricLowerContext) -> Value
     aek("count", &[("rowset", split_items)])
 }
 
+fn is_rowset_expr(value: &Value) -> bool {
+    v2_call_name(value).is_some() || value.get("__ref").is_some()
+}
+
+fn kw_or_arg(args: &Value, name: &str, index: usize) -> Option<Value> {
+    args.get(name)
+        .cloned()
+        .or_else(|| args.get(&format!("arg{index}")).cloned())
+}
+
+fn lower_group_by(input: Option<&Value>, args: &Value, ctx: &V2MetricLowerContext) -> Value {
+    let rowset = if let Some(inp) = input {
+        inp.clone()
+    } else if is_rowset_expr(arg0(args)) {
+        lower_rowset(arg0(args), ctx)
+    } else {
+        json!(null)
+    };
+    let by = if input.is_some() || !is_rowset_expr(arg0(args)) {
+        kw_or_arg(args, "by", 0)
+    } else {
+        kw_or_arg(args, "by", 1)
+    };
+    let mut pairs = vec![("rowset", rowset)];
+    if let Some(by) = by {
+        pairs.push(("by", by));
+    }
+    if let Some(fields) = args.get("fields") {
+        pairs.push(("fields", fields.clone()));
+    }
+    if let Some(value) = args.get("value") {
+        pairs.push(("value", value.clone()));
+    }
+    if let Some(agg) = args.get("agg") {
+        pairs.push(("agg", agg.clone()));
+    }
+    if let Some(pivot_field) = args.get("pivot_field") {
+        pairs.push(("pivot_field", pivot_field.clone()));
+    }
+    if let Some(pivot_columns) = args.get("pivot_columns") {
+        pairs.push(("pivot_columns", pivot_columns.clone()));
+    }
+    if let Some(universe) = args.get("universe") {
+        pairs.push(("universe", lower_rowset(universe, ctx)));
+    }
+    aek("group_by", &pairs)
+}
+
+fn lower_lookup_value(input: Option<&Value>, args: &Value, ctx: &V2MetricLowerContext) -> Value {
+    let base_idx = if input.is_some() {
+        0usize
+    } else if is_rowset_expr(arg0(args)) {
+        1usize
+    } else {
+        0usize
+    };
+    let rowset = if let Some(inp) = input {
+        inp.clone()
+    } else if is_rowset_expr(arg0(args)) {
+        lower_rowset(arg0(args), ctx)
+    } else {
+        json!(null)
+    };
+    let field = kw_or_arg(args, "field", base_idx).unwrap_or(json!(""));
+    let lookup_rowset = kw_or_arg(args, "lookup_rowset", base_idx + 1)
+        .map(|value| lower_rowset(&value, ctx))
+        .unwrap_or(json!(null));
+    let lookup_field = kw_or_arg(args, "lookup_field", base_idx + 2).unwrap_or(json!(""));
+    let value_field = kw_or_arg(args, "value_field", base_idx + 3).unwrap_or(json!(""));
+    let as_field = args
+        .get("as_field")
+        .cloned()
+        .or_else(|| kw_or_arg(args, "as_field", base_idx + 4))
+        .unwrap_or_else(|| value_field.clone());
+    aek(
+        "lookup_value",
+        &[
+            ("rowset", rowset),
+            ("field", field),
+            ("lookup_rowset", lookup_rowset),
+            ("lookup_field", lookup_field),
+            ("value_field", value_field),
+            ("as_field", as_field),
+        ],
+    )
+}
+
+fn lower_party_year_aggregate(
+    input: Option<&Value>,
+    args: &Value,
+    ctx: &V2MetricLowerContext,
+) -> Value {
+    let rowset = if let Some(inp) = input {
+        inp.clone()
+    } else {
+        kw_or_arg(args, "rowset", 0)
+            .map(|value| lower_rowset(&value, ctx))
+            .unwrap_or(json!(null))
+    };
+    let party_field = kw_or_arg(args, "party_field", 0).unwrap_or(json!(""));
+    let date_field = kw_or_arg(args, "date_field", 1).unwrap_or(json!(""));
+    let value_field = kw_or_arg(args, "value_field", 2).unwrap_or(json!(""));
+    let years = args.get("years").cloned().unwrap_or(json!([]));
+    aek(
+        "party_year_aggregate",
+        &[
+            ("rowset", rowset),
+            ("party_field", party_field),
+            ("date_field", date_field),
+            ("value_field", value_field),
+            ("years", years),
+        ],
+    )
+}
+
+fn lower_unpivot_columns(input: Option<&Value>, args: &Value, ctx: &V2MetricLowerContext) -> Value {
+    let rowset = if let Some(inp) = input {
+        inp.clone()
+    } else {
+        kw_or_arg(args, "rowset", 0)
+            .map(|value| lower_rowset(&value, ctx))
+            .unwrap_or(json!(null))
+    };
+    let id_field = kw_or_arg(args, "id_field", 0).unwrap_or(json!(""));
+    let columns = args.get("columns").cloned().unwrap_or(json!([]));
+    let year_field = kw_or_arg(args, "year_field", 1).unwrap_or(json!("year"));
+    let value_field = kw_or_arg(args, "value_field", 2).unwrap_or(json!("value"));
+    aek(
+        "unpivot_columns",
+        &[
+            ("rowset", rowset),
+            ("id_field", id_field),
+            ("columns", columns),
+            ("year_field", year_field),
+            ("value_field", value_field),
+        ],
+    )
+}
+
 fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
     if let Some(name) = v2_call_name(value) {
         let args = value.get("__args").cloned().unwrap_or(json!({}));
@@ -653,13 +1003,32 @@ fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
                     ("field", json!(arg1_string(&args).unwrap_or_default())),
                 ],
             ),
+            "select" => aek(
+                "select",
+                &[
+                    ("rowset", lower_rowset(arg0(&args), ctx)),
+                    (
+                        "fields",
+                        args.get("fields")
+                            .cloned()
+                            .or_else(|| kw_or_arg(&args, "fields", 1))
+                            .unwrap_or(json!([])),
+                    ),
+                ],
+            ),
+            "group_by" => lower_group_by(None, &args, ctx),
+            "lookup_value" => lower_lookup_value(None, &args, ctx),
+            "party_year_aggregate" => lower_party_year_aggregate(None, &args, ctx),
+            "trend_year_compare" => lower_trend_year_compare(&args, ctx, None),
+            "pivot_long" => lower_pivot_long(&args, ctx),
+            "unpivot_columns" => lower_unpivot_columns(None, &args, ctx),
             "party_gov_sanction_rows" | "handled_person_rows" => {
                 expand_person_rowset(name.as_str(), value, ctx).unwrap_or(json!(null))
             }
-            _ => lower_expr(value, ctx),
+            _ => json!(null),
         };
     }
-    lower_expr(value, ctx)
+    value.clone()
 }
 
 fn resolve_data_ref(dataset_id: &str, dataset_rowsets: &BTreeMap<String, Value>) -> Value {
@@ -725,6 +1094,21 @@ fn lower_predicate(value: &Value) -> Value {
                     ("values", arg1(&args).clone()),
                 ],
             ),
+            "eq" => aek("eq", &[
+                    ("field", json!(arg0_string(&args).unwrap_or_default())),
+                    ("value", arg1(&args).clone()),
+                ],
+            ),
+            "gt" => aek("gt", &[
+                    ("field", json!(arg0_string(&args).unwrap_or_default())),
+                    ("value", arg1(&args).clone()),
+                ],
+            ),
+            "field_gt" => aek("field_gt", &[
+                    ("left_field", json!(arg0_string(&args).unwrap_or_default())),
+                    ("right_field", json!(arg1_string(&args).unwrap_or_default())),
+                ],
+            ),
             "is_yes" => aek("and", &[(
                     "predicates",
                     json!([
@@ -743,12 +1127,6 @@ fn lower_predicate(value: &Value) -> Value {
     value.clone()
 }
 
-fn lower_expr(value: &Value, ctx: &V2MetricLowerContext) -> Value {
-    if value.get("__call").is_some() {
-        return lower_rowset(value, ctx);
-    }
-    value.clone()
-}
 
 fn lower_explain_items(items: &[Value], ctx: &V2MetricLowerContext) -> Value {
     Value::Array(
@@ -1045,5 +1423,22 @@ mod tests {
             explain.get("shape").and_then(Value::as_str),
             Some("dataframe")
         );
+    }
+
+    #[test]
+    fn year_between_rowset_uses_lower_upper_bounds() {
+        let rowset = year_between_rowset(
+            json!({"__ref": "data", "id": "administrative_inspection"}),
+            Some("检查日期".to_string()),
+            json!(2024),
+        );
+        let predicate = rowset
+            .pointer("/predicate")
+            .expect("predicate");
+        assert_eq!(predicate.get("type").and_then(Value::as_str), Some("between"));
+        assert_eq!(predicate.get("lower").and_then(Value::as_str), Some("2024-01-01"));
+        assert_eq!(predicate.get("upper").and_then(Value::as_str), Some("2024-12-31"));
+        assert!(predicate.get("min").is_none());
+        assert!(predicate.get("max").is_none());
     }
 }

@@ -52,6 +52,7 @@ pub fn router(state: SharedState) -> Router {
             "/api/upload/download/:app_id",
             get(upload_file_download_get),
         )
+        .route("/gis/*path", get(crate::gis_proxy::gis_proxy))
         .route("/apps/:mode/*app_id", get(app_page))
         .route("/app-bundles/:mode", get(app_bundle))
         .route("/app-assets/*path", get(app_asset))

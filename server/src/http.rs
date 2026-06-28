@@ -70,8 +70,20 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/build/graph/mcg", get(build_api::api_build_graph_mcg))
         .route(
+            "/api/build/graph/mcg/node",
+            get(build_api::api_build_graph_mcg_node),
+        )
+        .route(
+            "/api/build/graph/mcg/artifact",
+            get(build_api::api_build_graph_mcg_artifact),
+        )
+        .route(
             "/api/build/panel-contract",
             get(build_api::api_build_panel_contract),
+        )
+        .route(
+            "/api/build/panel/render",
+            get(build_api::api_build_panel_render),
         )
         .route("/api/build/graph/mrg", get(build_api::api_build_graph_mrg))
         .route(

@@ -25,6 +25,13 @@ pub fn load_metric_resources_hydrated(
             continue;
         };
         let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
+        let bundle_rel = owner
+            .strip_prefix("__world_metrics__::")
+            .unwrap_or(owner.as_str());
+        let bundle_source_path = app_root.join("src/data").join(bundle_rel);
+        let bundle_constants = std::fs::read_to_string(bundle_source_path.as_path())
+            .map(|content| crate::v2_bundle_constants::parse_bundle_constants_from_source(&content))
+            .unwrap_or_default();
         let raw_runtime_metric_defs = {
             let bundle_datasets = payload
                 .get("datasets")
@@ -32,10 +39,17 @@ pub fn load_metric_resources_hydrated(
                 .map(|items| items.as_slice())
                 .unwrap_or(&[]);
             let ctx = crate::v2_metric_lower::V2MetricLowerContext::from_bundle_datasets(bundle_datasets);
-            crate::v2_metric_lower::lower_v2_runtime_metric_defs(
-                extract_runtime_metric_defs(&payload),
-                &ctx,
-            )
+            let raw_defs = extract_runtime_metric_defs(&payload);
+            let resolved_defs = raw_defs
+                .into_iter()
+                .map(|(id, metric)| {
+                    (
+                        id,
+                        crate::v2_bundle_constants::resolve_v2_constants(&metric, &bundle_constants),
+                    )
+                })
+                .collect();
+            crate::v2_metric_lower::lower_v2_runtime_metric_defs(resolved_defs, &ctx)
         };
         let (runtime_metric_defs, runtime_analysis_graph, runtime_analysis_contracts) =
             build_runtime_metric_artifacts(&raw_runtime_metric_defs, owner.as_str());

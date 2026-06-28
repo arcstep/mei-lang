@@ -280,3 +280,84 @@ fn mechanism_documents_board_has_list_preview_projection_slots() {
         list
     );
 }
+
+#[test]
+fn inspection_trend_year_compare_evaluates_after_bundle_constant_resolve() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    if !workspace.join("apps/data-demo/app.config.json").is_file() {
+        return;
+    }
+    let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home assembly");
+    let owner = "__world_metrics__::metrics/inspection-dashboard.bundle.mei";
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "data-demo");
+    let eval = evaluate_runtime_metrics(
+        &outcome.compiled,
+        app_root.as_path(),
+        owner,
+        &["inspections_6m_count_trend".to_string()],
+        "home",
+        None,
+        &QueryState::default(),
+        &[],
+        RuntimeMetricEvalMode::WithDag,
+    )
+    .expect("eval inspection trend");
+    let metric = eval
+        .metrics
+        .iter()
+        .find(|m| m.id == "inspections_6m_count_trend")
+        .expect("trend metric");
+    let encoded = metric.value.to_string();
+    assert!(
+        !encoded.contains("__var"),
+        "expected resolved constants in lowered metric, got {:?}",
+        metric.value
+    );
+    let rows = metric.value.as_array().expect("trend dataframe rows");
+    assert!(!rows.is_empty(), "expected trend rows, got {:?}", metric.value);
+}
+
+#[test]
+fn indicator_calendar_year_metrics_evaluate_non_zero() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+    if !workspace.join("apps/data-demo/app.config.json").is_file() {
+        return;
+    }
+    let _ = publish_app_data_snapshots(workspace.as_path(), "data-demo");
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home assembly");
+    let owner = "__world_metrics__::metrics/indicator-system.bundle.mei";
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "data-demo");
+    let eval = evaluate_runtime_metrics(
+        &outcome.compiled,
+        app_root.as_path(),
+        owner,
+        &[
+            "inspection_frequency_reduction_rate".to_string(),
+            "penalty_revenue_growth_rate".to_string(),
+        ],
+        "home",
+        None,
+        &QueryState::default(),
+        &[],
+        RuntimeMetricEvalMode::WithDag,
+    )
+    .expect("eval indicator calendar metrics");
+    for id in ["inspection_frequency_reduction_rate", "penalty_revenue_growth_rate"] {
+        let metric = eval.metrics.iter().find(|m| m.id == id).expect(id);
+        let value = metric
+            .value
+            .get("value")
+            .and_then(Value::as_f64)
+            .or_else(|| metric.value.as_f64())
+            .unwrap_or(0.0);
+        assert!(
+            value.is_finite() && value.abs() > f64::EPSILON,
+            "{id} should be non-zero, got {value:?}"
+        );
+    }
+}

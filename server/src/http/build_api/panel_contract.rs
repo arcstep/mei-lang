@@ -7,22 +7,27 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use mei_lang_kernel::resolve_app_root;
+use serde_json::{json, Value};
 
 use crate::graph::content_store::{self, PANEL_CONTRACT};
 use crate::graph::feature::graph_registry_enabled;
-use crate::graph::mcg::panel_contract::PanelContractRecord;
 use crate::graph::mcg::registry::McgRegistryWriter;
-use crate::graph::types::GraphNodeKind;
+use crate::graph::mcg::panel_contract::PanelContractRecord;
 use crate::AppState;
+
+use super::panel_lookup::find_panel_contract_node;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PanelContractQuery {
     #[serde(rename = "appId")]
     pub app_id: String,
-    #[serde(rename = "sceneId")]
-    pub scene_id: String,
-    #[serde(rename = "panelId")]
-    pub panel_id: String,
+    #[serde(rename = "sceneId", default)]
+    pub scene_id: Option<String>,
+    #[serde(rename = "panelId", default)]
+    pub panel_id: Option<String>,
+    /// Content ref (`content/inspection-stats`) or basename (`inspection-stats`).
+    #[serde(rename = "panelKey", default)]
+    pub panel_key: Option<String>,
 }
 
 pub async fn api_build_panel_contract(
@@ -32,7 +37,7 @@ pub async fn api_build_panel_contract(
     if !graph_registry_enabled() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "MEI_GRAPH_REGISTRY disabled"})),
+            Json(json!({"error": "MEI_GRAPH_REGISTRY disabled"})),
         )
             .into_response();
     }
@@ -40,30 +45,38 @@ pub async fn api_build_panel_contract(
     if app_id.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "appId is required"})),
+            Json(json!({"error": "appId is required"})),
         )
             .into_response();
     }
-    let scene_id = query.scene_id.trim();
-    let panel_id = query.panel_id.trim();
-    if scene_id.is_empty() || panel_id.is_empty() {
+
+    let scene_id = query
+        .scene_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home");
+
+    let lookup_key = resolve_lookup_key(&query, scene_id);
+    let Some(lookup_key) = lookup_key else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "sceneId and panelId are required"})),
+            Json(json!({"error": "panelKey or sceneId+panelId is required"})),
         )
             .into_response();
-    }
-    let panel_key = format!("{scene_id}:{panel_id}");
+    };
+
     let source_root = state.source_root.as_path();
     let mcg = McgRegistryWriter::load(source_root, app_id);
-    let node = mcg
-        .nodes
-        .iter()
-        .find(|node| node.id.kind == GraphNodeKind::PanelContract && node.id.key == panel_key);
+    let node = find_panel_contract_node(&mcg, lookup_key.as_str(), scene_id);
     let Some(node) = node else {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "panel contract not found", "panelKey": panel_key})),
+            Json(json!({
+                "error": "panel contract not found",
+                "panelKey": lookup_key,
+                "sceneId": scene_id,
+            })),
         )
             .into_response();
     };
@@ -75,7 +88,7 @@ pub async fn api_build_panel_contract(
     let Some(hash) = hash else {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "panel contract has no payload ref"})),
+            Json(json!({"error": "panel contract has no payload ref"})),
         )
             .into_response();
     };
@@ -84,31 +97,53 @@ pub async fn api_build_panel_contract(
     let Some(path) = path else {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "panel contract blob missing"})),
+            Json(json!({"error": "panel contract blob missing"})),
         )
             .into_response();
     };
-    match load_panel_record(path.as_path()) {
-        Ok(record) => (
+    match load_panel_payload(path.as_path()) {
+        Ok(payload) => (
             StatusCode::OK,
-            Json(serde_json::json!({
-                "panelKey": record.panel_key,
-                "sceneId": record.scene_id,
-                "panelId": record.panel_id,
-                "revision": record.revision,
-                "panel": record.panel,
+            Json(json!({
+                "panelKey": lookup_key,
+                "sceneId": scene_id,
+                "mcgNode": node,
+                "contentHash": hash,
+                "panel": payload,
             })),
         )
             .into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": error.to_string()})),
+            Json(json!({"error": error.to_string()})),
         )
             .into_response(),
     }
 }
 
-fn load_panel_record(path: &Path) -> anyhow::Result<PanelContractRecord> {
+fn resolve_lookup_key(query: &PanelContractQuery, scene_id: &str) -> Option<String> {
+    if let Some(panel_key) = query
+        .panel_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(panel_key.to_string());
+    }
+    let panel_id = query.panel_id.as_deref().map(str::trim).filter(|v| !v.is_empty());
+    panel_id.map(|panel_id| format!("{scene_id}:{panel_id}"))
+}
+
+fn load_panel_payload(path: &Path) -> anyhow::Result<Value> {
     let raw = std::fs::read_to_string(path)?;
-    Ok(serde_json::from_str(&raw)?)
+    if let Ok(record) = serde_json::from_str::<PanelContractRecord>(&raw) {
+        if let Some(panel) = record.panel {
+            return Ok(panel);
+        }
+    }
+    let value: Value = serde_json::from_str(&raw)?;
+    if let Some(payload) = value.get("payload") {
+        return Ok(payload.clone());
+    }
+    Ok(value)
 }

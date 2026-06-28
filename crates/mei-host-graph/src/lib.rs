@@ -4,6 +4,7 @@ mod projection_normalize;
 mod assemble;
 mod data_snapshot;
 mod v2_lower;
+mod v2_bundle_constants;
 mod v2_metric_lower;
 mod bridge;
 mod content_store;
@@ -12,6 +13,7 @@ mod io;
 mod mcg;
 mod metric_hydrate;
 mod mrg;
+mod panel_constants;
 mod paths;
 mod types;
 

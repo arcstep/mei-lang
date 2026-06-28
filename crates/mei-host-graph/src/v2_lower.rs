@@ -1,8 +1,10 @@
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    load_mei_config_for_app, BlockDecl, FrameDecl, LayoutDecl, PanelDecl, UiNodeDecl,
+    decode_config_ref_value, load_mei_config_for_app, BlockDecl, ConfigRefKind, FrameDecl,
+    LayoutDecl, PanelDecl, UiNodeDecl,
 };
 use serde_json::{json, Map, Value};
 
@@ -16,6 +18,73 @@ pub struct PanelLowerContext<'a> {
     pub app_id: &'a str,
     pub registry: &'a McgRegistry,
     pub scene_id: &'a str,
+    /// Top-level `NAME = expr` constants from the panel `.mei` source file.
+    pub panel_constants: BTreeMap<String, Value>,
+}
+
+impl<'a> PanelLowerContext<'a> {
+    pub fn with_panel_constants(&self, panel_key: &str) -> Self {
+        Self {
+            app_root: self.app_root,
+            app_id: self.app_id,
+            registry: self.registry,
+            scene_id: self.scene_id,
+            panel_constants: load_panel_file_constants(self.app_root, panel_key),
+        }
+    }
+}
+
+fn normalize_panel_key_for_source(panel_key: &str) -> &str {
+    panel_key
+        .split_once(':')
+        .map(|(_, rest)| rest)
+        .unwrap_or(panel_key)
+}
+
+fn panel_source_relative_path(panel_key: &str) -> String {
+    let key = normalize_panel_key_for_source(panel_key);
+    let basename = key.rsplit('/').next().unwrap_or(key);
+    format!("src/content/panels/{basename}.panel.mei")
+}
+
+fn load_panel_file_constants(app_root: &Path, panel_key: &str) -> BTreeMap<String, Value> {
+    let path = app_root.join(panel_source_relative_path(panel_key));
+    std::fs::read_to_string(path.as_path())
+        .map(|content| crate::panel_constants::parse_panel_constants_from_source(&content))
+        .unwrap_or_default()
+}
+
+fn metric_card_macro_constants_path(app_root: &Path) -> PathBuf {
+    let workspace = app_root
+        .parent()
+        .and_then(|apps| apps.parent())
+        .unwrap_or(app_root);
+    workspace.join("stock/templates/cockpit/metric-card/macros.mei")
+}
+
+fn load_metric_card_macro_constants(app_root: &Path) -> BTreeMap<String, Value> {
+    let path = metric_card_macro_constants_path(app_root);
+    std::fs::read_to_string(path.as_path())
+        .map(|content| crate::v2_bundle_constants::parse_bundle_constants_from_source(&content))
+        .unwrap_or_default()
+}
+
+fn combined_panel_constants(ctx: &PanelLowerContext<'_>) -> BTreeMap<String, Value> {
+    let mut constants = load_metric_card_macro_constants(ctx.app_root);
+    constants.extend(
+        ctx.panel_constants
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
+    constants
+}
+
+fn resolve_panel_constant_exprs(value: &Value, ctx: &PanelLowerContext<'_>) -> Value {
+    let constants = combined_panel_constants(ctx);
+    if constants.is_empty() {
+        return value.clone();
+    }
+    crate::v2_bundle_constants::resolve_v2_constants(value, &constants)
 }
 
 pub fn lower_frame_from_assembly(payload: &Value) -> FrameDecl {
@@ -476,7 +545,8 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
     if v2_ref_name(value) == Some("panel_ref") {
         let ref_path = v2_ref_arg0(value).context("panel_ref missing arg0")?;
         let payload = load_panel_contract_payload(ctx, ref_path.as_str())?;
-        let panel = lower_panel_payload(&payload, ref_path.as_str(), ctx)?;
+        let panel_ctx = ctx.with_panel_constants(ref_path.as_str());
+        let panel = lower_panel_payload(&payload, ref_path.as_str(), &panel_ctx)?;
         return Ok(vec![UiNodeDecl::Panel(panel)]);
     }
     if v2_call_name(value).as_deref() == Some("component") {
@@ -485,6 +555,9 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
     if v2_call_name(value).as_deref() == Some("metric_card") {
         return Ok(vec![lower_metric_card(value, ctx)?]);
     }
+    if v2_call_name(value).as_deref() == Some("panel") {
+        return Ok(vec![UiNodeDecl::Panel(lower_inline_panel(value, ctx)?)]);
+    }
     if value.get("use_key").is_some() || value.get("kind").and_then(|v| v.as_str()) == Some("block")
     {
         return Ok(vec![UiNodeDecl::Block(
@@ -492,6 +565,63 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
         )]);
     }
     Ok(Vec::new())
+}
+
+fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<PanelDecl> {
+    let args = v2_call_args(value).context("panel missing __args")?;
+    let expanded_template = metric_expanded_template_args(args.get("template"));
+    let id = args
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("panel")
+        .to_string();
+    let area = args.get("area").and_then(|v| v.as_str()).map(str::to_string);
+
+    let mut props = json!({});
+    if let Some(expanded) = expanded_template {
+        merge_card_fields(&mut props, expanded);
+        if let Some(template_props) = expanded.get("props").filter(|value| value.is_object()) {
+            let resolved = resolve_config_refs_in_value(template_props, ctx);
+            deep_merge_value(&mut props, &resolved);
+        }
+    }
+    merge_card_fields(&mut props, args);
+    if let Some(extra) = args.get("props").filter(|value| value.is_object()) {
+        let resolved = resolve_config_refs_in_value(extra, ctx);
+        deep_merge_value(&mut props, &resolved);
+    }
+    for key in ["variant", "chrome", "show_heading"] {
+        if let Some(value) = args.get(key) {
+            props.as_object_mut()
+                .expect("panel props object")
+                .insert(key.to_string(), value.clone());
+        } else if let Some(expanded) = expanded_template.and_then(|t| t.get(key)) {
+            props.as_object_mut()
+                .expect("panel props object")
+                .insert(key.to_string(), expanded.clone());
+        }
+    }
+
+    let layout = args
+        .get("layout")
+        .or_else(|| expanded_template.and_then(|t| t.get("layout")))
+        .and_then(lower_layout);
+
+    Ok(PanelDecl {
+        kind: "panel".to_string(),
+        id,
+        title: args.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        head: None,
+        area,
+        layout,
+        blocks: lower_blocks(args.get("blocks"), ctx)?,
+        slot: None,
+        props,
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    })
 }
 
 fn metric_expanded_template_args(template: Option<&Value>) -> Option<&Value> {
@@ -545,25 +675,42 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
         deep_merge_value(&mut props, &resolved);
     }
     stamp_metric_vertical_align(&mut props, args);
+    props = resolve_panel_constant_exprs(&props, ctx);
 
     let title_ratio = metric_ratio_from_props(&props, "__mei_metric_title_ratio", preset.title_ratio);
     let content_ratio =
         metric_ratio_from_props(&props, "__mei_metric_content_ratio", preset.content_ratio);
 
-    let source = args.get("source").cloned().unwrap_or(json!({}));
+    let source = resolve_config_refs_in_value(
+        &args.get("source").cloned().unwrap_or(json!({})),
+        ctx,
+    );
     let map = args.get("map").cloned();
     let patch = args.get("patch").cloned();
     let popup = args
         .get("popup")
         .map(|popup| resolve_popup_config(popup, ctx, Some(&source)));
-    let blocks = metric_runtime_blocks(
+    let template_desc = args
+        .get("template")
+        .and_then(v2_call_args)
+        .and_then(|template| template.get("desc"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let mut blocks = metric_runtime_blocks(
         &source,
         layout_template,
         map.as_ref(),
         patch.as_ref(),
         popup.as_ref(),
         args,
+        ctx,
     );
+    if layout_template == "stack_desc" {
+        let desc_text = template_desc.or_else(|| metric_template_desc_text(args.get("template")));
+        if let Some(desc) = desc_text.as_deref() {
+            blocks.push(UiNodeDecl::Block(metric_desc_slot_block(desc)));
+        }
+    }
     let layout = if let Some(expanded) = expanded_template {
         if expanded
             .get("layout")
@@ -579,6 +726,8 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
         } else {
             expanded.get("layout").and_then(lower_layout)
         }
+    } else if layout_template == "stack_desc" {
+        Some(metric_stack_desc_layout())
     } else {
         preset.layout.clone()
     }
@@ -612,6 +761,97 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
     }))
 }
 
+fn metric_template_desc_text(template: Option<&Value>) -> Option<String> {
+    let expanded = metric_expanded_template_args(template)?;
+    expanded
+        .get("blocks")
+        .and_then(Value::as_array)
+        .and_then(|blocks| {
+            for block in blocks {
+                let props = if v2_call_name(block) == Some("component") {
+                    v2_call_args(block).and_then(|args| args.get("props"))
+                } else {
+                    block.get("props")
+                };
+                let role = props.and_then(|p| p.get("metric_role")).and_then(Value::as_str);
+                if role == Some("desc") {
+                    return props
+                        .and_then(|p| p.get("content"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
+            }
+            None
+        })
+}
+
+fn metric_stack_desc_layout() -> LayoutDecl {
+    LayoutDecl {
+        layout_type: "grid".to_string(),
+        direction: None,
+        columns: Some(vec!["auto".to_string(), "auto".to_string()]),
+        rows: Some(vec![
+            "14px".to_string(),
+            "auto".to_string(),
+            "54px".to_string(),
+            "6px".to_string(),
+            "20px".to_string(),
+            "14px".to_string(),
+        ]),
+        areas: Some(vec![
+            vec![".".to_string(), ".".to_string()],
+            vec!["label".to_string(), "label".to_string()],
+            vec!["value".to_string(), "unit".to_string()],
+            vec![".".to_string(), ".".to_string()],
+            vec!["desc".to_string(), "desc".to_string()],
+            vec![".".to_string(), ".".to_string()],
+        ]),
+        gap: Some("0".to_string()),
+        padding: None,
+        align: Some("stretch".to_string()),
+        justify: Some("center".to_string()),
+    }
+}
+
+fn metric_desc_slot_block(desc: &str) -> BlockDecl {
+    let mut props = Map::new();
+    props.insert("content".to_string(), json!(desc));
+    props.insert("metric_role".to_string(), json!("desc"));
+    props.insert("metric_v_align".to_string(), json!("center"));
+    props.insert("align".to_string(), json!("center"));
+    props.insert(
+        "desc_shell".to_string(),
+        json!({
+            "width": "80px",
+            "height": "20px",
+            "background": "rgba(201, 233, 248, 0.2)",
+            "border_radius": "2px",
+            "font_family": "Microsoft YaHei, MicrosoftYaHei, PingFang SC, sans-serif",
+            "font_size": "12px",
+            "color": "rgba(255, 255, 255, 0.8)",
+            "letter_spacing": "0",
+            "font_weight": "400",
+        }),
+    );
+    BlockDecl {
+        kind: "block".to_string(),
+        use_key: "mei.text".to_string(),
+        id: None,
+        title: None,
+        area: Some("desc".to_string()),
+        props: Value::Object(props),
+        base: None,
+        layout: None,
+        blocks: Vec::new(),
+        component: None,
+        placement: None,
+        interactions: Vec::new(),
+        lifecycle: None,
+        constraints: None,
+        data: None,
+    }
+}
+
 fn metric_runtime_blocks(
     source: &Value,
     template: &str,
@@ -619,13 +859,23 @@ fn metric_runtime_blocks(
     patch: Option<&Value>,
     popup: Option<&Value>,
     args: &Value,
+    ctx: &PanelLowerContext<'_>,
 ) -> Vec<UiNodeDecl> {
+    let constants = combined_panel_constants(ctx);
     let roles = ["label", "value", "unit"];
     roles
         .into_iter()
         .map(|role| {
             UiNodeDecl::Block(metric_runtime_slot_block(
-                source, role, role, template, map, patch, popup, args,
+                source,
+                role,
+                role,
+                template,
+                map,
+                patch,
+                popup,
+                args,
+                &constants,
             ))
         })
         .collect()
@@ -640,12 +890,15 @@ fn metric_runtime_slot_block(
     patch: Option<&Value>,
     popup: Option<&Value>,
     args: &Value,
+    constants: &BTreeMap<String, Value>,
 ) -> BlockDecl {
     let mut props = Map::new();
-    props.insert(
-        "content".to_string(),
-        lower_v2_metric_ref(source).unwrap_or_else(|| source.clone()),
-    );
+    let content = if v2_ref_name(source) == Some("metric") {
+        source.clone()
+    } else {
+        lower_v2_metric_ref(source, constants).unwrap_or_else(|| source.clone())
+    };
+    props.insert("content".to_string(), content);
     props.insert("metric_role".to_string(), json!(role));
     props.insert(
         "align".to_string(),
@@ -914,7 +1167,23 @@ fn deep_merge_value(base: &mut Value, overlay: &Value) {
     }
 }
 
-fn lower_v2_metric_ref(value: &Value) -> Option<Value> {
+fn resolve_metric_ref_bundle_arg(
+    bundle: &Value,
+    constants: &BTreeMap<String, Value>,
+) -> Option<String> {
+    let resolved = if constants.is_empty() {
+        bundle.clone()
+    } else {
+        crate::v2_bundle_constants::resolve_v2_constants(bundle, constants)
+    };
+    resolved
+        .as_str()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+}
+
+fn lower_v2_metric_ref(value: &Value, constants: &BTreeMap<String, Value>) -> Option<Value> {
     if v2_ref_name(value) != Some("metric_ref") {
         return None;
     }
@@ -927,9 +1196,7 @@ fn lower_v2_metric_ref(value: &Value) -> Option<Value> {
         .filter(|id| !id.is_empty())?;
     let bundle = args
         .get("bundle")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|path| !path.is_empty())?;
+        .and_then(|bundle| resolve_metric_ref_bundle_arg(bundle, constants))?;
     let mut out = Map::new();
     out.insert("__ref".to_string(), Value::String("metric".to_string()));
     out.insert("id".to_string(), Value::String(metric_id.to_string()));
@@ -948,21 +1215,25 @@ fn resolve_popup_config(
     if v2_ref_name(popup) == Some("link_ref") {
         if let Some(key) = v2_ref_arg0(popup) {
             if let Some(mut resolved) = resolve_link_decl_popup(ctx, key.as_str()) {
-                merge_popup_metric_source(&mut resolved, metric_source);
+                merge_popup_metric_source(&mut resolved, metric_source, ctx);
                 return resolve_config_refs_in_value(&resolved, ctx);
             }
         }
     }
     let mut resolved = resolve_config_refs_in_value(popup, ctx);
-    merge_popup_metric_source(&mut resolved, metric_source);
+    merge_popup_metric_source(&mut resolved, metric_source, ctx);
     resolved
 }
 
-fn merge_popup_metric_source(popup: &mut Value, metric_source: Option<&Value>) {
+fn merge_popup_metric_source(
+    popup: &mut Value,
+    metric_source: Option<&Value>,
+    ctx: &PanelLowerContext<'_>,
+) {
     let Some(source) = metric_source else {
         return;
     };
-    let Some(metric) = lower_v2_metric_ref(source) else {
+    let Some(metric) = lower_v2_metric_ref(source, &combined_panel_constants(ctx)) else {
         return;
     };
     let Some(params) = popup
@@ -1033,36 +1304,91 @@ fn resolve_board_assembly_target(
     Some((scene_id, scene_file))
 }
 
+fn resolve_basemap_value(ctx: &PanelLowerContext<'_>, id: &str) -> Option<Value> {
+    let config = load_mei_config_for_app(ctx.app_root, None);
+    let entry = config.ops.basemaps.get(id)?;
+    let mut map = Map::new();
+    if let Some(base_url) = entry
+        .tiles_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        map.insert("tilesUrl".to_string(), Value::String(base_url.to_string()));
+    }
+    if let Some(path) = entry
+        .tilejson_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let normalized = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{path}")
+        };
+        map.insert("tilesJsonPath".to_string(), Value::String(normalized));
+    }
+    if let Some(style) = entry.style.as_ref().and_then(Value::as_object) {
+        for (key, value) in style {
+            map.insert(key.clone(), value.clone());
+        }
+    }
+    if let Some(layer_spec) = &entry.layer_spec {
+        map.insert("layerSpec".to_string(), layer_spec.clone());
+    }
+    Some(Value::Object(map))
+}
+
 fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> Value {
+    let value = resolve_panel_constant_exprs(value, ctx);
+    if let Some(expr) = decode_config_ref_value(&value) {
+        if let Some(resolved) = resolve_config_ref_expr(expr, ctx) {
+            return resolve_config_refs_in_value(&resolved, ctx);
+        }
+    }
     match value {
-        Value::Object(map) => {
-            if v2_ref_name(value) == Some("link_ref") {
-                if let Some(key) = v2_ref_arg0(value) {
+        Value::Object(ref map) => {
+            if v2_ref_name(&value) == Some("link_ref") {
+                if let Some(key) = v2_ref_arg0(&value) {
                     if let Some(resolved) = resolve_link_decl_popup(ctx, key.as_str()) {
                         return resolve_config_refs_in_value(&resolved, ctx);
                     }
                 }
             }
-            if v2_ref_name(value) == Some("metric_ref") {
-                if let Some(lowered) = lower_v2_metric_ref(value) {
+            if v2_ref_name(&value) == Some("metric_ref") {
+                if let Some(lowered) =
+                    lower_v2_metric_ref(&value, &combined_panel_constants(ctx))
+                {
                     return lowered;
                 }
             }
-            if v2_ref_name(value) == Some("ops_param_ref") {
-                if let Some(key) = v2_ref_arg0(value) {
+            if v2_ref_name(&value) == Some("basemap_ref")
+                || v2_call_name(&value) == Some("basemap_ref")
+            {
+                if let Some(key) = v2_ref_arg0(&value) {
+                    if let Some(resolved) = resolve_basemap_value(ctx, key.as_str()) {
+                        return resolve_config_refs_in_value(&resolved, ctx);
+                    }
+                }
+            }
+            if v2_ref_name(&value) == Some("ops_param_ref")
+                || v2_call_name(&value) == Some("ops_param_ref")
+            {
+                if let Some(key) = v2_ref_arg0(&value) {
                     if let Some(resolved) = resolve_ops_param(ctx, key.as_str()) {
                         return resolved;
                     }
                 }
             }
-            if v2_ref_name(value) == Some("asset_ref") {
-                return resolve_asset_value(value, ctx.app_id);
+            if v2_ref_name(&value) == Some("asset_ref") {
+                return resolve_asset_value(&value, ctx.app_id);
             }
             let mut out = Map::new();
             for (key, entry) in map {
                 out.insert(
                     key.clone(),
-                    resolve_config_refs_in_value(entry, ctx),
+                    resolve_config_refs_in_value(&entry, ctx),
                 );
             }
             Value::Object(out)
@@ -1073,13 +1399,24 @@ fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> V
                 .map(|item| resolve_config_refs_in_value(item, ctx))
                 .collect(),
         ),
-        other => other.clone(),
+        other => other,
     }
 }
 
 fn resolve_ops_param(ctx: &PanelLowerContext<'_>, key: &str) -> Option<Value> {
     let config = load_mei_config_for_app(ctx.app_root, None);
     config.ops.params.get(key).cloned()
+}
+
+fn resolve_config_ref_expr(
+    expr: mei_lang_kernel::ConfigRefExpr,
+    ctx: &PanelLowerContext<'_>,
+) -> Option<Value> {
+    match expr.kind {
+        ConfigRefKind::Basemap => resolve_basemap_value(ctx, expr.id.as_str()),
+        ConfigRefKind::OpsParam => resolve_ops_param(ctx, expr.id.as_str()),
+        _ => None,
+    }
 }
 
 fn metric_shell_props(height_px: Option<i64>, template: &str, density: &str) -> Value {
@@ -1421,6 +1758,7 @@ mod tests {
                 nodes: Vec::new(),
             },
             scene_id: "home",
+            panel_constants: BTreeMap::new(),
         };
         let block = lower_component(&value, &ctx).expect("component");
         assert_eq!(block.use_key, "cockpit.header-brand");
@@ -1466,6 +1804,7 @@ mod tests {
                 nodes: Vec::new(),
             },
             scene_id: "home",
+            panel_constants: BTreeMap::new(),
         };
         let panel = lower_panel_payload(&payload, "home:home_header", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 1);
@@ -1509,6 +1848,7 @@ mod tests {
                 nodes: Vec::new(),
             },
             scene_id: "home",
+            panel_constants: BTreeMap::new(),
         };
         let block = lower_block_node(&value, &ctx)
             .expect("component block")
@@ -1555,6 +1895,7 @@ mod tests {
                 nodes: Vec::new(),
             },
             scene_id: "home",
+            panel_constants: BTreeMap::new(),
         };
         let panel = lower_panel_payload(&payload, "warning", &ctx).expect("panel");
         assert_eq!(
@@ -1655,6 +1996,7 @@ mod tests {
             app_id: "data-demo",
             registry: &registry,
             scene_id: "home",
+            panel_constants: BTreeMap::new(),
         };
         let panel = lower_panel_with_slots(&payload, "warning".into(), Some("warning".into()), &ctx)
             .expect("slot panel");
@@ -1665,6 +2007,110 @@ mod tests {
         };
         assert_eq!(nested.title.as_deref(), Some("监督预警"));
         assert!(!nested.blocks.is_empty(), "titled shell should load body panel_ref");
+    }
+
+    #[test]
+    fn lower_inline_panel_expands_nested_blocks() {
+        let payload = json!({
+            "id": "inspection-stats",
+            "layout": {
+                "__call": "grid",
+                "__args": {
+                    "rows": ["250px", "80px"],
+                    "columns": ["1fr"],
+                    "areas": [["block_upper"], ["block_ai"]],
+                    "gap": "6px"
+                }
+            },
+            "blocks": [
+                {
+                    "__call": "panel",
+                    "__args": {
+                        "id": "block_upper",
+                        "area": "block_upper",
+                        "variant": "container",
+                        "show_heading": false,
+                        "chrome": "bare",
+                        "blocks": [{
+                            "__call": "metric_card",
+                            "__args": {
+                                "id": "inspection_total_card",
+                                "area": "total",
+                                "template": { "__call": "solid_row_accent", "__args": {"width": "165px"} },
+                                "source": {
+                                    "__ref": "metric_ref",
+                                    "__args": {
+                                        "arg0": "inspections_total_count",
+                                        "bundle": "metrics/inspection-dashboard.bundle.mei"
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                },
+                {
+                    "__call": "panel",
+                    "__args": {
+                        "id": "block_ai",
+                        "area": "block_ai",
+                        "template": {
+                            "__call": "panel_contract",
+                            "__args": {
+                                "variant": "container",
+                                "show_heading": false,
+                                "chrome": "bare",
+                                "props": {"height": "80px"}
+                            }
+                        },
+                        "blocks": [{
+                            "__call": "metric_card",
+                            "__args": {
+                                "id": "ai_compound_main",
+                                "area": "main",
+                                "template": { "__call": "plain_metric", "__args": {} },
+                                "source": {
+                                    "__ref": "metric_ref",
+                                    "__args": {
+                                        "arg0": "ai_recognition_warnings_count",
+                                        "bundle": "metrics/inspection-dashboard.bundle.mei"
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                }
+            ]
+        });
+        let ctx = PanelLowerContext {
+            app_root: std::path::Path::new("/tmp"),
+            app_id: "data-demo",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "data-demo".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+        };
+        let panel = lower_panel_payload(&payload, "inspection-stats", &ctx).expect("panel");
+        assert_eq!(panel.blocks.len(), 2, "top-level inline panels");
+        let upper = match &panel.blocks[0] {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel block_upper, got {other:?}"),
+        };
+        assert_eq!(upper.id, "block_upper");
+        assert!(
+            !upper.blocks.is_empty(),
+            "block_upper should contain lowered metric_card blocks"
+        );
+        let ai = match &panel.blocks[1] {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel block_ai, got {other:?}"),
+        };
+        assert_eq!(ai.id, "block_ai");
+        assert!(!ai.blocks.is_empty(), "block_ai should contain lowered metric cards");
     }
 
     #[test]
@@ -1693,6 +2139,7 @@ mod tests {
                 nodes: Vec::new(),
             },
             scene_id: "home",
+            panel_constants: BTreeMap::new(),
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -1775,6 +2222,7 @@ mod tests {
                 nodes: Vec::new(),
             },
             scene_id: "home",
+            panel_constants: BTreeMap::new(),
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -1790,5 +2238,85 @@ mod tests {
             "expanded solid_stack template should preserve cockpit border"
         );
         assert_eq!(panel.props["__mei_metric_title_ratio"], json!("2"));
+    }
+
+    #[test]
+    fn lower_v2_metric_ref_resolves_panel_bundle_constant() {
+        let mut constants = BTreeMap::new();
+        constants.insert(
+            "INSPECTION_BUNDLE".to_string(),
+            json!("metrics/inspection-dashboard.bundle.mei"),
+        );
+        let value = json!({
+            "__ref": "metric_ref",
+            "__args": {
+                "arg0": "inspections_total_count",
+                "bundle": { "__var": "INSPECTION_BUNDLE" }
+            }
+        });
+        let lowered = lower_v2_metric_ref(&value, &constants).expect("metric ref");
+        assert_eq!(
+            lowered,
+            json!({
+                "__ref": "metric",
+                "id": "inspections_total_count",
+                "from_dataset": "__world_metrics__::metrics/inspection-dashboard.bundle.mei",
+            })
+        );
+    }
+
+    #[test]
+    fn lower_metric_card_resolves_bundle_var_from_panel_constants() {
+        let mut constants = BTreeMap::new();
+        constants.insert(
+            "INSPECTION_BUNDLE".to_string(),
+            json!("metrics/inspection-dashboard.bundle.mei"),
+        );
+        let value = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "inspection_total_card",
+                "area": "total",
+                "height_px": 86,
+                "template": { "__call": "solid_stack", "__args": {} },
+                "source": {
+                    "__ref": "metric_ref",
+                    "__args": {
+                        "arg0": "inspections_total_count",
+                        "bundle": { "__var": "INSPECTION_BUNDLE" }
+                    }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "data-demo",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "data-demo".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: constants,
+        };
+        let card = lower_metric_card(&value, &ctx).expect("metric card");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        let value_block = match &panel.blocks[1] {
+            UiNodeDecl::Block(block) => block,
+            other => panic!("expected value slot block, got {other:?}"),
+        };
+        assert_eq!(
+            value_block.props["content"],
+            json!({
+                "__ref": "metric",
+                "id": "inspections_total_count",
+                "from_dataset": "__world_metrics__::metrics/inspection-dashboard.bundle.mei",
+            })
+        );
     }
 }

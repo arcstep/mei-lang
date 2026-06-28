@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 mei-bundle = { path = "../../mei-compiler/crates/mei-bundle" }
 mei-graph = { path = "../../mei-compiler/crates/mei-graph" }
+mei-syntax = { path = "../../mei-compiler/crates/mei-syntax" }
 mei-host-core = { path = "../mei-host-core" }
 mei-lang-kernel = { path = "../kernel" }
 serde.workspace = true
