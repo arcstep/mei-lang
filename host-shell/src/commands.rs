@@ -3,12 +3,13 @@ use std::sync::{Arc, RwLock};
 use crate::cli::{
     BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs,
     BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs, PrebuildDataArgs,
-    ServeArgs, WarmupArgs,
+    ServeArgs, VersionArgs, WarmupArgs,
 };
 use crate::state::{SharedState, ShellState};
 
 pub async fn dispatch(command: Command) -> anyhow::Result<()> {
     match command {
+        Command::Version(args) => run_version(args),
         Command::Import(args) => run_import(args),
         Command::PrebuildData(args) => run_prebuild_data(args),
         Command::Warmup(args) => run_warmup(args).await,
@@ -139,7 +140,15 @@ fn run_build_status(args: BuildStatusArgs) -> anyhow::Result<()> {
     println!("env.candidate={build_candidate}");
     println!("env.previous={build_previous}");
     println!("display={}", mei_lang_kernel::resolve_build_footer_label(workspace.as_path()));
+    println!("shell.build_version={}", crate::build_info::BUILD_VERSION);
     Ok(())
+}
+
+fn run_version(args: VersionArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .map(|path| path.canonicalize().unwrap_or(path));
+    crate::build_info::print_cli_version(workspace.as_deref(), args.json)
 }
 
 fn run_build_clean(args: BuildCleanArgs) -> anyhow::Result<()> {
@@ -190,7 +199,12 @@ fn run_build_migrate_env(args: BuildMigrateEnvArgs) -> anyhow::Result<()> {
 }
 
 fn run_import(args: ImportArgs) -> anyhow::Result<()> {
-    let ctx = mei_host_core::HostContext::new(args.workspace, args.app);
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace.clone());
+    crate::build_info::log_host_identity(Some(workspace.as_path()), "import");
+    let ctx = mei_host_core::HostContext::new(workspace, args.app);
     let options = mei_host_graph::ImportOptions {
         bundle_path: args.bundle,
     };
@@ -265,18 +279,24 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         .workspace
         .canonicalize()
         .unwrap_or(args.workspace.clone());
+    crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
     let package_root = resolve_package_root()?;
     let ctx = mei_host_core::HostContext::new(workspace.clone(), args.app.clone());
     ensure_registry_materialized(&ctx)?;
     let state: SharedState = Arc::new(RwLock::new(ShellState::new(
-        workspace,
+        workspace.clone(),
         args.app,
         package_root,
     )));
     refresh_host_materialization_flags(&state);
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    println!("mei-host-shell listening on http://{addr}");
+    let display = mei_lang_kernel::resolve_build_footer_label(workspace.as_path());
+    println!(
+        "mei-host-shell listening on http://{addr} (shell {} · {})",
+        crate::build_info::BUILD_VERSION,
+        display
+    );
     let app = crate::http::router(state)
         .layer(axum::middleware::from_fn(crate::request_logging::log_request));
     axum::serve(listener, app)

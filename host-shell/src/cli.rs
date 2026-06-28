@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    Version(VersionArgs),
     Import(ImportArgs),
     PrebuildData(PrebuildDataArgs),
     Warmup(WarmupArgs),
@@ -84,6 +85,14 @@ pub struct PrebuildDataArgs {
     pub workspace: PathBuf,
     #[arg(long)]
     pub app: String,
+}
+
+#[derive(Args, Debug)]
+pub struct VersionArgs {
+    #[arg(long)]
+    pub workspace: Option<PathBuf>,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

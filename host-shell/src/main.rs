@@ -8,13 +8,17 @@ mod pages;
 mod request_logging;
 mod state;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 #[derive(Parser, Debug)]
 #[command(name = "mei-host-shell", about = "MeiLang v2 host shell (import / prebuild-data / warmup / serve)")]
 struct Cli {
+    /// Print shell binary build identity and exit
+    #[arg(short = 'V', long = "version", global = true)]
+    print_version: bool,
+
     #[command(subcommand)]
-    command: cli::Command,
+    command: Option<cli::Command>,
 }
 
 #[tokio::main]
@@ -28,5 +32,12 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .compact()
         .init();
-    commands::dispatch(cli.command).await
+    if cli.print_version {
+        return crate::build_info::print_cli_version(None, false);
+    }
+    let Some(command) = cli.command else {
+        Cli::command().print_help()?;
+        return Ok(());
+    };
+    commands::dispatch(command).await
 }

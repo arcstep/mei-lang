@@ -58,7 +58,7 @@ pub(crate) fn statusbar_view(
                     class="status-chip status-chip-host statusbar-right-anchor"
                     id="mei-status-host-version"
                     data-tone="neutral"
-                    title="__MEI_HOST_VERSION_LABEL__"
+                    title="__MEI_HOST_VERSION_TITLE__"
                 >
                     "__MEI_HOST_VERSION_LABEL__"
                 </span>

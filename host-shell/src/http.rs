@@ -14,7 +14,7 @@ use crate::api_stubs::{
     api_agent_skill_stub, api_auth_session_stub,
 };
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
-use crate::build_info::BUILD_VERSION;
+use crate::build_info::{self, BUILD_VERSION};
 use crate::pages::{app_page, index};
 use crate::state::SharedState;
 
@@ -26,6 +26,7 @@ pub fn router(state: SharedState) -> Router {
         )
         .route("/", get(index))
         .route("/api/host/heartbeat", get(api_host_heartbeat))
+        .route("/api/host/version", get(api_host_version))
         .route("/api/host/ready", get(api_host_ready))
         .route("/api/host/readiness", get(api_host_ready))
         .route("/api/auth/session", get(api_auth_session_stub))
@@ -61,8 +62,21 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
     let guard = state.read().expect("state lock");
     let access_ready = guard.imported && guard.warmed_up;
     let app_id = guard.ctx.app_id.clone();
+    let workspace_root = guard.ctx.workspace_root.as_path();
+    let descriptor = build_info::version_descriptor(
+        Some(workspace_root),
+        Some(guard.host_started_at_ms),
+    );
+    let display_label = descriptor
+        .get("displayLabel")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .to_string();
     Json(json!({
         "buildVersion": BUILD_VERSION,
+        "buildDescriptor": build_info::binary_descriptor(),
+        "displayLabel": display_label,
+        "version": descriptor,
         "hostStartedAtMs": guard.host_started_at_ms,
         "ready": access_ready,
         "hostReady": access_ready,
@@ -76,6 +90,14 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
             "phase": if access_ready { "ready" } else { "starting" },
         }],
     }))
+}
+
+async fn api_host_version(State(state): State<SharedState>) -> impl IntoResponse {
+    let guard = state.read().expect("state lock");
+    Json(build_info::version_descriptor(
+        Some(guard.ctx.workspace_root.as_path()),
+        Some(guard.host_started_at_ms),
+    ))
 }
 
 async fn api_host_ready(State(state): State<SharedState>) -> impl IntoResponse {
@@ -209,4 +231,59 @@ async fn api_ops_theme_style(
         css,
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use http_body_util::BodyExt;
+    use mei_host_core::HostContext;
+    use std::sync::{Arc, RwLock};
+    use tower::ServiceExt;
+
+    fn test_state(workspace: std::path::PathBuf) -> SharedState {
+        Arc::new(RwLock::new(crate::state::ShellState {
+            ctx: HostContext::new(workspace, "data-demo".to_string()),
+            package_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            imported: true,
+            warmed_up: true,
+            host_started_at_ms: 1,
+        }))
+    }
+
+    #[tokio::test]
+    async fn api_host_version_returns_binary_and_workspace_descriptor() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":1,"workspace":{"id":"test","version":"20260628"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/version")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(
+            value["binary"]["build_version"].as_str(),
+            Some(crate::build_info::BUILD_VERSION)
+        );
+        assert_eq!(value["hostStartedAtMs"], 1);
+        assert!(value.get("workspace").is_some());
+    }
 }

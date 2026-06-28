@@ -311,11 +311,10 @@ pub(crate) fn fill_gis_tiles_placeholders(
 }
 
 pub(crate) fn fill_host_build_placeholders(mut html: String) -> String {
+    let version_label = crate::build_info::version_label_with_target();
     html = html.replace("__MEI_HOST_VERSION__", crate::build_info::BUILD_VERSION);
-    html = html.replace(
-        "__MEI_HOST_VERSION_LABEL__",
-        &crate::build_info::version_label_with_target(),
-    );
+    html = html.replace("__MEI_HOST_VERSION_LABEL__", version_label.as_str());
+    html = html.replace("__MEI_HOST_VERSION_TITLE__", version_label.as_str());
     html
 }
 

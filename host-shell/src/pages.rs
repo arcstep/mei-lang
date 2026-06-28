@@ -68,7 +68,8 @@ pub async fn app_page(
         title: outcome.compiled.title.clone(),
         root: guard.ctx.app_root().display().to_string(),
     }];
-    let html = fill_host_build_placeholders(render_page(
+    let html = fill_host_build_placeholders(
+        render_page(
         &apps,
         &outcome.compiled,
         app_id.as_str(),
@@ -99,7 +100,9 @@ pub async fn app_page(
         theme_style.as_str(),
         None,
         None,
-    ));
+    ),
+        guard.ctx.workspace_root.as_path(),
+    );
     Html(html).into_response()
 }
 

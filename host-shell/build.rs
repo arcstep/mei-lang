@@ -46,12 +46,23 @@ fn main() {
     let internal_version = if git_dirty {
         format!("{git_commit_short}-dirty")
     } else {
-        git_commit_short
+        git_commit_short.clone()
     };
+    let git_branch = env::var("MEI_GIT_BRANCH")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| run_git(&repo_root, &["rev-parse", "--abbrev-ref", "HEAD"]))
+        .unwrap_or_else(|| "unknown".to_string());
     let build_version = format!("{cargo_package_version}+{internal_version}");
 
     println!("cargo:rustc-env=MEI_BUILD_VERSION={build_version}");
     println!("cargo:rustc-env=MEI_CARGO_PACKAGE_VERSION={cargo_package_version}");
+    println!("cargo:rustc-env=MEI_GIT_COMMIT_SHORT={git_commit_short}");
+    println!("cargo:rustc-env=MEI_GIT_BRANCH={git_branch}");
+    println!(
+        "cargo:rustc-env=MEI_GIT_DIRTY={}",
+        if git_dirty { "true" } else { "false" }
+    );
     println!("cargo:rerun-if-changed=../Cargo.toml");
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/index");
