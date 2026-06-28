@@ -79,7 +79,7 @@ fn demo_v2_meibundle_roundtrip_and_size() {
     let write_stats = write_bundle_from_outcome(
         &outcome,
         digest.as_str(),
-        "2.0.4",
+        "2.0.5",
         bundle_path.as_path(),
         false,
     )
