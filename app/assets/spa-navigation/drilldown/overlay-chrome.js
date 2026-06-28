@@ -129,6 +129,12 @@
   }
 
   function closeDrilldownOverlay() {
+    if (typeof boot.useUnifiedLayer2 === "function" && boot.useUnifiedLayer2()) {
+      if (typeof boot.closeLayer2Stack === "function") {
+        boot.closeLayer2Stack();
+      }
+      return;
+    }
     const root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (!root) return;
     abortDrilldownLoadIfNeeded(root);
@@ -184,6 +190,12 @@
   }
 
   function closeSceneBoardOverlay() {
+    if (typeof boot.useUnifiedLayer2 === "function" && boot.useUnifiedLayer2()) {
+      if (typeof boot.closeLayer2Stack === "function") {
+        boot.closeLayer2Stack();
+      }
+      return;
+    }
     const root = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
     if (!root) return;
     abortDrilldownLoadIfNeeded(root);

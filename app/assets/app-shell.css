@@ -1937,6 +1937,61 @@ body > .mei-floating-text-pop-backdrop {
 .access-drilldown-overlay--size-fullscreen {
   padding: 6px;
 }
+.mei-layer2-workspace {
+  z-index: 1100;
+}
+.mei-layer2-workspace-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+}
+.mei-layer2-tab-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px 0;
+  flex-wrap: wrap;
+}
+.mei-layer2-tab {
+  border: 1px solid rgba(98, 190, 235, 0.35);
+  background: rgba(8, 24, 40, 0.72);
+  color: rgba(255, 255, 255, 0.88);
+  border-radius: 4px 4px 0 0;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.mei-layer2-tab.is-active {
+  background: rgba(98, 190, 235, 0.18);
+  border-bottom-color: transparent;
+}
+.mei-layer2-tab-panels {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.mei-layer2-tab-panel {
+  width: 100%;
+  height: 100%;
+}
+.mei-layer2-tab-panel[hidden] {
+  display: none !important;
+}
+html.mei-tier-dim .preview-card-scale-wrap,
+html.mei-tier-dim .panel-card {
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
+}
+html.mei-tier-dim .mei-viewpoint-focus,
+html.mei-tier-dim .mei-viewpoint-focus .panel-card,
+html.mei-tier-dim .mei-viewpoint-focus.preview-card-scale-wrap {
+  opacity: 1;
+  outline: 2px solid rgba(113, 241, 234, 0.85);
+  outline-offset: 2px;
+}
+.mei-viewpoint-focus {
+  position: relative;
+  z-index: 2;
+}
 .access-drilldown-overlay-panel--size-comfortable {
   width: min(1080px, 82vw);
   height: min(620px, 72vh);

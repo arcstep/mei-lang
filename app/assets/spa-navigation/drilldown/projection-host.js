@@ -67,8 +67,31 @@
       }
       return;
     }
+    const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
+    const overlayWorkspace =
+      (popup.overlay_workspace && typeof popup.overlay_workspace === "object" && popup.overlay_workspace) ||
+      null;
+    const layer2Config = {
+      ...config,
+      overlayWorkspace,
+      overlaySize: nonEmptyString(config.overlaySize, popup?.overlay_size, popup?.overlaySize, "large"),
+    };
     if (typeof boot.beginDrilldownLoadSession === "function") {
       boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
+    }
+    if (typeof boot.useUnifiedLayer2 === "function" && boot.useUnifiedLayer2()) {
+      closeDrilldownOverlay();
+      closeSceneBoardOverlay();
+      const root = boot.openLayer2Tab(layer2Config);
+      if (config.structuredBoard || useSceneBoardOverlay(config)) {
+        await renderStructuredDrilldownContent(root, detail, config);
+        return;
+      }
+      const activeTab = renderDrilldownTabs(root, detail, config);
+      if (!renderDrilldownContent(root, detail, config, activeTab)) {
+        return;
+      }
+      return;
     }
     if (useSceneBoardOverlay(config)) {
       closeDrilldownOverlay();
@@ -130,6 +153,15 @@
     document.addEventListener(POPUP_OPEN_EVENT, openByEvent);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
+        if (typeof boot.useUnifiedLayer2 === "function" && boot.useUnifiedLayer2()) {
+          if (typeof boot.closeLayer2Tab === "function" && boot.closeLayer2Tab()) {
+            return;
+          }
+          if (typeof boot.closeLayer2Stack === "function") {
+            boot.closeLayer2Stack();
+          }
+          return;
+        }
         closeDrilldownOverlay();
         closeSceneBoardOverlay();
       }
