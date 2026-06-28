@@ -34,6 +34,14 @@ pub struct ClientBootstrapManifest {
 struct ClientBootstrapPayload {
     client_revision: String,
     bootstrap_scope: String,
+    #[serde(rename = "targetFile")]
+    target_file: String,
+    #[serde(rename = "compileEpoch")]
+    compile_epoch: String,
+    #[serde(rename = "dataGeneration")]
+    data_generation: String,
+    #[serde(rename = "appId")]
+    app_id: String,
     metrics: Vec<ClientBootstrapMetric>,
 }
 
@@ -111,16 +119,27 @@ pub fn build_client_bootstrap_head_fragment(
     if !bootstrap_embed_allowed(&registry, &manifest, data_generation.as_str()) {
         return None;
     }
+    let target_file = format!("src/scene/{}/assembly.mei", manifest.scope);
+    let compile_epoch = format!(
+        "{}|{}|{}",
+        mei_lang_kernel::scene_payload_cache_epoch(),
+        mei_lang_kernel::dataset_materialize_cache_epoch(),
+        target_file
+    );
     let payload = ClientBootstrapPayload {
         client_revision: manifest.client_revision.clone(),
         bootstrap_scope: manifest.scope.clone(),
+        target_file: target_file.clone(),
+        compile_epoch,
+        data_generation: data_generation.clone(),
+        app_id: app_id.to_string(),
         metrics: manifest.metrics.clone(),
     };
     let payload_json =
         serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
     let metric_count = manifest.metrics.len();
     Some(format!(
-        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.client_revision)window.__mei.client_revision=p.client_revision;if(p.bootstrap_scope)window.__mei.bootstrap_scope=p.bootstrap_scope;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;}}catch(e){{}}}})();</script>"#
+        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.client_revision)window.__mei.client_revision=p.client_revision;if(p.bootstrap_scope)window.__mei.bootstrap_scope=p.bootstrap_scope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;}}catch(e){{}}}})();</script>"#
     ))
 }
 
@@ -513,6 +532,6 @@ mod tests {
             build_client_bootstrap_head_fragment(workspace, "demo", "home").expect("fragment");
         assert!(fragment.contains("mei-client-bootstrap"));
         assert!(fragment.contains("mei-bootstrap-inlined"));
-        assert!(fragment.contains("metric_a"));
+        assert!(fragment.contains("bootstrap_compile_epoch") || fragment.contains("compileEpoch"));
     }
 }

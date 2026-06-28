@@ -50,20 +50,23 @@ pub fn sync_workspace_stock(
     materialize_workspace_stock(source_root, package_root, force)
 }
 
-/// Idempotent stock bootstrap: copy platform `stock/*` into the workspace when trees are missing.
+/// Idempotent stock bootstrap: copy platform `stock/*` into the workspace when trees are missing,
+/// and on later runs refresh workspace copies when the platform source file is newer.
 /// Called from workspace init, runtime install, prebuild, and host startup — not a standalone user workflow.
 pub fn ensure_workspace_stock_materialized(
     source_root: &Path,
     package_root: &Path,
 ) -> Result<Option<MaterializeReport>> {
-    if !workspace_stock_needs_materialize(source_root) {
+    let needs_initial = workspace_stock_needs_materialize(source_root);
+    let report = materialize_workspace_stock(source_root, package_root, false)?;
+    if !needs_initial
+        && report.components.copied_files == 0
+        && report.templates.copied_files == 0
+        && report.authoring.copied_files == 0
+    {
         return Ok(None);
     }
-    Ok(Some(materialize_workspace_stock(
-        source_root,
-        package_root,
-        false,
-    )?))
+    Ok(Some(report))
 }
 pub(crate) fn workspace_stock_needs_materialize(source_root: &Path) -> bool {
     !stock_tree_ready(&resolve_authoring_root(source_root))
@@ -104,8 +107,17 @@ pub(crate) fn materialize_tree(from: &Path, to: &Path, force: bool) -> Result<Ma
             continue;
         }
         if dest.exists() && !force {
-            skipped_files += 1;
-            continue;
+            let should_refresh = match (fs::metadata(src), fs::metadata(&dest)) {
+                (Ok(src_meta), Ok(dest_meta)) => match (src_meta.modified(), dest_meta.modified()) {
+                    (Ok(src_mtime), Ok(dest_mtime)) => src_mtime > dest_mtime,
+                    _ => false,
+                },
+                _ => false,
+            };
+            if !should_refresh {
+                skipped_files += 1;
+                continue;
+            }
         }
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)

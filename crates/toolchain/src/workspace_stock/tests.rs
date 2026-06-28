@@ -23,6 +23,44 @@ mod tests {
     }
 
     #[test]
+    fn ensure_materialize_refreshes_when_platform_source_is_newer() {
+        let temp = std::env::temp_dir().join(format!(
+            "mei-ensure-stock-refresh-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp);
+        let package_root = temp.join("package");
+        let workspace_root = temp.join("workspace");
+        let src = package_root.join("stock/components/demo/refresh-marker.txt");
+        fs::create_dir_all(src.parent().expect("parent")).expect("create src dir");
+        fs::write(&src, "v1").expect("write src v1");
+        materialize_workspace_stock(workspace_root.as_path(), package_root.as_path(), false)
+            .expect("initial materialize");
+        let dest = workspace_root.join("stock/components/demo/refresh-marker.txt");
+        assert_eq!(fs::read_to_string(&dest).expect("read dest"), "v1");
+        std::process::Command::new("touch")
+            .args(["-t", "202001010000", &dest.to_string_lossy()])
+            .status()
+            .expect("touch dest to past");
+        fs::write(&src, "v2").expect("write src v2");
+        let report = ensure_workspace_stock_materialized(
+            workspace_root.as_path(),
+            package_root.as_path(),
+        )
+        .expect("ensure refresh")
+        .expect("should refresh newer platform file");
+        assert!(
+            report.components.copied_files > 0,
+            "expected copied_files > 0 when platform source is newer"
+        );
+        assert_eq!(
+            fs::read_to_string(&dest).expect("read refreshed"),
+            "v2"
+        );
+        let _ = fs::remove_dir_all(&temp);
+    }
+
+    #[test]
     fn materialize_report_includes_authoring_tree() {
         let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let temp = std::env::temp_dir().join(format!(
