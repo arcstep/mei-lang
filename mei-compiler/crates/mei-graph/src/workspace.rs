@@ -60,7 +60,7 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         )));
     }
 
-    let syntax_version = read_syntax_version(&app_root).unwrap_or_else(|| "2.0.2".to_string());
+    let syntax_version = read_syntax_version(&app_root).unwrap_or_else(|| "2.0.3".to_string());
 
     let registry = MacroRegistry::load_dir(&stock_templates)?;
 

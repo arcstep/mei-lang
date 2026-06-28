@@ -33,7 +33,7 @@ fn main() {
         .to_path_buf();
 
     let cargo_package_version =
-        env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "2.0.2".to_string());
+        env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "2.0.3".to_string());
     let git_commit_short = env::var("MEI_GIT_COMMIT_SHORT")
         .ok()
         .filter(|value| !value.trim().is_empty())
