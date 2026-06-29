@@ -5,7 +5,7 @@ MeiLang 2.0 编译器。**`.meibundle` 交换产物仅由此二进制产生**，
 - **v0 遗留**：`emit-decl` / `check`（ws-hello Decl IR golden）
 - **主路径**：`.mei` → `compile` → `.meibundle`（parse → 宏展开 → lower → manifest + zstd）
 
-设计与路线图见 monorepo 文档：`docs/mei-compiler/`。
+设计与路线图见 monorepo 文档：`docs/mei-lang-v2-draft/`。
 
 ```bash
 cargo build -p mei-compiler

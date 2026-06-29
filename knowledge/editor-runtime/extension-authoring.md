@@ -79,5 +79,5 @@ If any of these are true, stop pretending the public author chain is enough:
 
 For extension work, continue with:
 
-- `docs/mei-lang/basic/06-extension-capability-provider-profile.md`
-- component/template pack implementation docs under `docs/mei-lang/implementation/extensions/`
+- `docs/mei-lang-v1/basic/06-extension-capability-provider-profile.md`
+- component/template pack implementation docs under `docs/mei-lang-v1/implementation/extensions/`

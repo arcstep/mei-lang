@@ -8,7 +8,7 @@ PROJECTS_ROOT="$(cd "${MEI_LANG_ROOT}/.." && pwd)"
 
 BASE_URL="${MEI_SERVER_URL:-http://127.0.0.1:9527}"
 SCENARIO_FILE="${MEI_SCENARIO_FILE:-${SCRIPT_DIR}/perf-scenarios/template.app.json}"
-LEDGER_PATH="${MEI_LEDGER_PATH:-${PROJECTS_ROOT}/docs/mei-lang/benchmarks/template-app-perf-ledger.jsonl}"
+LEDGER_PATH="${MEI_LEDGER_PATH:-${PROJECTS_ROOT}/docs/mei-lang-v1/benchmarks/template-app-perf-ledger.jsonl}"
 BASELINE_FILE="${MEI_BASELINE_FILE:-}"
 ENVIRONMENT_NAME="${MEI_ENV:-local_release_noauth}"
 COMPARE_MODE="${MEI_COMPARE_MODE:-auto}"
@@ -54,7 +54,7 @@ PROJECTS_ROOT="$(cd "${MEI_LANG_ROOT}/.." && pwd)"
 
 BASE_URL="${MEI_SERVER_URL:-http://127.0.0.1:9527}"
 SCENARIO_FILE="${MEI_SCENARIO_FILE:-${SCRIPT_DIR}/perf-scenarios/template.app.json}"
-LEDGER_PATH="${MEI_LEDGER_PATH:-${PROJECTS_ROOT}/docs/mei-lang/benchmarks/template-app-perf-ledger.jsonl}"
+LEDGER_PATH="${MEI_LEDGER_PATH:-${PROJECTS_ROOT}/docs/mei-lang-v1/benchmarks/template-app-perf-ledger.jsonl}"
 ENVIRONMENT_NAME="${MEI_ENV:-local_release_noauth}"
 
 TMP_SAMPLE="$(mktemp)"

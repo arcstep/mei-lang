@@ -39,7 +39,7 @@ TARGET_DIR="$(cd "${TARGET_DIR}" && pwd)"
 if [[ -z "${MEI_LANG_ROOT}" ]]; then
   if [[ -f "${SCRIPT_DIR}/../../../Cargo.toml" ]]; then
     MEI_LANG_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-  elif [[ -f "${TARGET_DIR}/../../mei-lang/Cargo.toml" ]]; then
+  elif [[ -f "${TARGET_DIR}/../../mei-lang-v1/Cargo.toml" ]]; then
     MEI_LANG_ROOT="$(cd "${TARGET_DIR}/../../mei-lang" && pwd)"
   fi
 fi

@@ -3,8 +3,8 @@
   "workspace_id": "your-workspace",
   "app_id": "your-app",
   "environment": "local_release_noauth",
-  "ledger_path": "../../../docs/mei-lang/benchmarks/your-app-perf-ledger.jsonl",
-  "pinned_baseline_path": "../../../docs/mei-lang/benchmarks/your-app-perf-baseline-pinned.jsonl",
+  "ledger_path": "../../../docs/mei-lang-v1/benchmarks/your-app-perf-ledger.jsonl",
+  "pinned_baseline_path": "../../../docs/mei-lang-v1/benchmarks/your-app-perf-baseline-pinned.jsonl",
   "default_repeat": 3,
   "tiers": {
     "l0": "smoke",

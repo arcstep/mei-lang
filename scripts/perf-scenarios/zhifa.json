@@ -3,8 +3,8 @@
   "workspace_id": "ws-spbjw",
   "app_id": "zhifa",
   "environment": "local_release",
-  "ledger_path": "../../../docs/mei-lang/benchmarks/zhifa-perf-ledger.jsonl",
-  "pinned_baseline_path": "../../../docs/mei-lang/benchmarks/zhifa-perf-baseline-pinned.jsonl",
+  "ledger_path": "../../../docs/mei-lang-v1/benchmarks/zhifa-perf-ledger.jsonl",
+  "pinned_baseline_path": "../../../docs/mei-lang-v1/benchmarks/zhifa-perf-baseline-pinned.jsonl",
   "default_repeat": 1,
   "tiers": {
     "l0": "smoke",

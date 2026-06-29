@@ -26,7 +26,7 @@ use binding_scan::{
 use imported_refs::{scan_panel_imported_refs, scan_ui_node_imported_refs};
 
 pub(crate) const IMPORTED_RESOURCE_DOC: &str =
-    "see docs/mei-lang/implementation/syntax/12-public-scene-capsule-migration-and-diagnostics.md";
+    "see docs/mei-lang-v1/implementation/syntax/12-public-scene-capsule-migration-and-diagnostics.md";
 
 pub(super) fn validate_imported_catalog_world_refs(
     contract: &SceneContract,

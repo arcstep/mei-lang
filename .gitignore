@@ -8,13 +8,13 @@ node_modules/
 /vendor/
 /.cargo/config.toml
 
-# Host perf：本地 ad-hoc 采样/报告（正式台账见 docs/mei-lang/benchmarks/*.jsonl）
+# Host perf：本地 ad-hoc 采样/报告（正式台账见 docs/mei-lang-v1/benchmarks/*.jsonl）
 /scripts/perf-wave*.jsonl
 /scripts/perf-wave*-report.md
 # scenario 目录只保留 *.json 配置，采样输出勿落盘到此
 /scripts/perf-scenarios/**/*.jsonl
 
-# workspace runtime install 输出（见 docs/mei-lang/implementation/toolchain/14-workspace-local-environment-mode1-contract.md）
+# workspace runtime install 输出（见 docs/mei-lang-v1/implementation/toolchain/14-workspace-local-environment-mode1-contract.md）
 /.mei/
 /runtime/
 /start.sh

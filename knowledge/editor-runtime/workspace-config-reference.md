@@ -144,7 +144,7 @@ mei-toolchain workspace stock doctor --source-root /path/to/workspace --json
 mei-toolchain workspace stock migrate-paths --source-root /path/to/workspace --json
 ```
 
-See `docs/mei-lang/implementation/host/87-workspace-stock-ssot-and-catalog.md` for SSOT invariants.
+See `docs/mei-lang-v1/implementation/host/87-workspace-stock-ssot-and-catalog.md` for SSOT invariants.
 
 ## Legacy `.mei-workspace.json` note
 
@@ -162,7 +162,7 @@ Common fields:
 - `ops.shellTheme` — id of workspace shell theme (host chrome)
 - `ops.themes` — shell theme definitions (e.g. `host`); injected on `<body>`
 
-Shell theme shape (see `docs/mei-lang/topics/theme-token-contract.md`):
+Shell theme shape (see `docs/mei-lang-v1/topics/theme-token-contract.md`):
 
 ```json
 {
@@ -314,7 +314,7 @@ Use this when:
 
 ### Theme token rules
 
-Shell and scene use **separate** token tracks (see `docs/mei-lang/topics/29-shell-scene-theme-separation.md`):
+Shell and scene use **separate** token tracks (see `docs/mei-lang-v1/topics/29-shell-scene-theme-separation.md`):
 
 - **Shell** (workspace `ops.themes[shellTheme]`): literals in `tokens.shell`, `tokens.color`, `font` → `--mei-shell-*`, `--mei-shell-color-*`, `--mei-shell-font-*` on `<body>`.
 - **Scene** (app `ops.themes` + `theme_ref`): literals in `theme.tokens.color`, `tokens.gradient`, `theme.font` → `--mei-color-*`, `--mei-font-*` on preview viewport only.
@@ -325,7 +325,7 @@ Shell and scene use **separate** token tracks (see `docs/mei-lang/topics/29-shel
 
 **Consumption layer** (CSS/JS): `var(--mei-*)` only; no `var(--mei-*, #hex)` fallbacks.
 
-Required token keys: `docs/mei-lang/topics/theme-token-contract.md`.
+Required token keys: `docs/mei-lang-v1/topics/theme-token-contract.md`.
 
 ## Source refs and upload-backed datasets
 
