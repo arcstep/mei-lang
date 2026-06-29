@@ -3,22 +3,25 @@ use std::collections::BTreeSet;
 
 use mei_host_core::{CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{
-    record_slot_failed, record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter,
-    WarmupTier,
+    collect_eval_frontier_with_hops, linked_board_scenes_for_scope, record_slot_failed,
+    record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter, WarmupTier,
 };
-use mei_lang_kernel::{load_mei_config_for_app, MemoryWarmupConfig, MetricContract};
+use mei_lang_kernel::{
+    load_mei_config_for_app, ClientBootstrapConfig, MemoryWarmupConfig, MetricContract,
+};
 
 use crate::eval::{eval_metric_ids, load_compiled_for_warmup};
 use crate::memory_warmup::{
     hydrate_slots_to_memory, mark_descriptors_client_ready, mark_descriptors_memory_ready,
 };
-use crate::warmup::WarmupTarget;
+use crate::warmup::{frontier_targets_from_metrics, WarmupTarget};
 
 #[derive(Debug, Clone, Default)]
 pub struct WarmupOrchestratorReport {
     pub slot_count: usize,
     pub memory_hydrated: usize,
     pub client_manifest_written: bool,
+    pub client_manifest_scopes: Vec<String>,
     pub failed_count: usize,
 }
 
@@ -30,6 +33,7 @@ pub fn run_warmup_targets_with_tier(
     let config = load_mei_config_for_app(ctx.app_root().as_path(), None);
     let memory_cfg = memory_warmup_config(&config.runtime.memory_warmup);
     let client_cfg = config.runtime.client_bootstrap.as_ref();
+    let targets = expand_targets_for_client_neighbors(ctx, targets, client_cfg)?;
 
     let mut all_slots = Vec::new();
     let mut metrics_map: BTreeMap<String, MetricContract> = BTreeMap::new();
@@ -38,7 +42,7 @@ pub fn run_warmup_targets_with_tier(
     let mut failed_count = 0usize;
 
     if tier.wants_disk() {
-        for target in targets {
+        for target in &targets {
             let (compiled, compile_revision) =
                 load_compiled_for_warmup(ctx, target.scope_key.as_str())?;
             match eval_metric_ids(
@@ -73,7 +77,7 @@ pub fn run_warmup_targets_with_tier(
         memory_hydrated = hydrate_slots_to_memory(ctx, &all_slots, &memory_cfg)?;
         mark_descriptors_memory_ready(&mut all_slots);
         if memory_hydrated == 0 && tier == WarmupTier::Memory {
-            for target in targets {
+            for target in &targets {
                 let (compiled, compile_revision) =
                     load_compiled_for_warmup(ctx, target.scope_key.as_str())?;
                 if let Ok(outcome) = eval_metric_ids(
@@ -117,25 +121,41 @@ pub fn run_warmup_targets_with_tier(
     )?;
 
     let mut client_manifest_written = false;
-    if tier.wants_client()
-        && client_enabled
-        && !primary_scope.is_empty()
-        && (client_scopes.is_empty() || client_scopes.contains(primary_scope.as_str()))
-    {
-        if let Some(manifest) = write_client_bootstrap(
-            ctx.app_root().as_path(),
-            ctx.app_id.as_str(),
-            primary_scope.as_str(),
-            primary_workset.as_str(),
-            &all_slots,
-            &metrics_map,
-            max_client,
-        )? {
-            client_manifest_written = true;
-            let revision = manifest.client_revision.clone();
+    let mut client_manifest_scopes = Vec::new();
+    let allowed_client_scopes = allowed_client_manifest_scopes(
+        &targets,
+        &client_scopes,
+        client_cfg,
+        primary_scope.as_str(),
+    );
+    if tier.wants_client() && client_enabled && !allowed_client_scopes.is_empty() {
+        let scope_worksets = preferred_workset_by_scope(&targets);
+        let mut scope_revisions = BTreeMap::new();
+        for scope in &allowed_client_scopes {
+            let workset_id = scope_worksets
+                .get(scope)
+                .map(String::as_str)
+                .unwrap_or(primary_workset.as_str());
+            if let Some(manifest) = write_client_bootstrap(
+                ctx.app_root().as_path(),
+                ctx.app_id.as_str(),
+                scope.as_str(),
+                workset_id,
+                &all_slots,
+                &metrics_map,
+                max_client,
+            )? {
+                client_manifest_written = true;
+                client_manifest_scopes.push(scope.clone());
+                scope_revisions.insert(scope.clone(), manifest.client_revision.clone());
+            }
+        }
+        if !scope_revisions.is_empty() {
             for slot in all_slots.iter_mut() {
                 if slot.client_eligible && slot.cache_layers_ready.client {
-                    slot.client_revision = Some(revision.clone());
+                    if let Some(revision) = scope_revisions.get(slot.scope_key.as_str()) {
+                        slot.client_revision = Some(revision.clone());
+                    }
                 }
             }
             record_slots_from_descriptors(
@@ -150,14 +170,92 @@ pub fn run_warmup_targets_with_tier(
         slot_count: all_slots.len(),
         memory_hydrated,
         client_manifest_written,
+        client_manifest_scopes,
         failed_count,
     })
 }
 
-pub fn hydrate_existing_l1_slots(
+fn expand_targets_for_client_neighbors(
     ctx: &HostContext,
-    scope_key: &str,
-) -> anyhow::Result<usize> {
+    targets: &[WarmupTarget],
+    client_cfg: Option<&ClientBootstrapConfig>,
+) -> anyhow::Result<Vec<WarmupTarget>> {
+    let Some(cfg) = client_cfg else {
+        return Ok(targets.to_vec());
+    };
+    if cfg.neighbor_hops == 0 || targets.is_empty() {
+        return Ok(targets.to_vec());
+    }
+    let root_scope = targets[0].scope_key.as_str();
+    let linked_scopes = linked_board_scenes_for_scope(ctx, root_scope, cfg.neighbor_hops)?
+        .into_iter()
+        .take(cfg.max_neighbor_scopes)
+        .collect::<Vec<_>>();
+    if linked_scopes.is_empty() {
+        return Ok(targets.to_vec());
+    }
+    let linked_scope_set: BTreeSet<String> = linked_scopes.into_iter().collect();
+    let frontier = collect_eval_frontier_with_hops(ctx, root_scope, cfg.neighbor_hops)?;
+    let neighbor_frontier = frontier
+        .into_iter()
+        .filter(|metric| metric.scope_key != root_scope)
+        .filter(|metric| linked_scope_set.contains(metric.scope_key.as_str()))
+        .collect::<Vec<_>>();
+    if neighbor_frontier.is_empty() {
+        return Ok(targets.to_vec());
+    }
+    let mut expanded = targets.to_vec();
+    expanded.extend(frontier_targets_from_metrics(
+        root_scope,
+        &neighbor_frontier,
+    ));
+    Ok(expanded)
+}
+
+fn preferred_workset_by_scope(targets: &[WarmupTarget]) -> BTreeMap<String, String> {
+    let mut worksets = BTreeMap::new();
+    for target in targets {
+        worksets
+            .entry(target.scope_key.clone())
+            .or_insert_with(|| target.workset_id.clone());
+    }
+    worksets
+}
+
+fn allowed_client_manifest_scopes(
+    targets: &[WarmupTarget],
+    client_scopes: &BTreeSet<String>,
+    client_cfg: Option<&ClientBootstrapConfig>,
+    primary_scope: &str,
+) -> BTreeSet<String> {
+    if targets.is_empty() {
+        return BTreeSet::new();
+    }
+    if client_scopes.is_empty() {
+        return targets
+            .iter()
+            .map(|target| target.scope_key.clone())
+            .collect();
+    }
+    let mut allowed = client_scopes.clone();
+    if !primary_scope.is_empty() {
+        allowed.insert(primary_scope.to_string());
+    }
+    if let Some(cfg) = client_cfg {
+        if cfg.neighbor_hops > 0 {
+            for target in targets {
+                allowed.insert(target.scope_key.clone());
+            }
+        }
+    }
+    targets
+        .iter()
+        .filter(|target| allowed.contains(target.scope_key.as_str()))
+        .map(|target| target.scope_key.clone())
+        .collect()
+}
+
+pub fn hydrate_existing_l1_slots(ctx: &HostContext, scope_key: &str) -> anyhow::Result<usize> {
     let config = load_mei_config_for_app(ctx.app_root().as_path(), None);
     let memory_cfg = memory_warmup_config(&config.runtime.memory_warmup);
     if !memory_cfg.enabled {
@@ -178,7 +276,11 @@ pub fn hydrate_existing_l1_slots(
                 payload_kind: pref.kind.clone(),
                 content_hash: pref.content_hash.clone(),
                 schema_version: pref.schema_version.clone(),
-                wall_ms: slot.last_eval.as_ref().map(|eval| eval.wall_ms).unwrap_or(0),
+                wall_ms: slot
+                    .last_eval
+                    .as_ref()
+                    .map(|eval| eval.wall_ms)
+                    .unwrap_or(0),
                 artifact_hit: true,
                 workset_id: slot.workset_id.clone().unwrap_or_default(),
                 cache_layer: "disk".to_string(),

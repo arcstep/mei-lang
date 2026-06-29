@@ -129,6 +129,31 @@ async function main() {
     ],
   };
   assertKeysAlign(synthetic, "synthetic");
+  const syntheticMultiScope = {
+    ...synthetic,
+    bootstrapScopes: [
+      {
+        clientRevision: synthetic.clientRevision || "rev-home",
+        bootstrapScope: synthetic.bootstrap_scope,
+        targetFile: synthetic.targetFile,
+        compileEpoch: synthetic.compileEpoch,
+        dataGeneration: synthetic.dataGeneration,
+        appId: synthetic.appId,
+        metrics: synthetic.metrics,
+      },
+      {
+        clientRevision: "rev-board",
+        bootstrapScope: "supervision-warning",
+        targetFile: "src/overlay/boards/supervision-warning.board.mei",
+        compileEpoch:
+          "scene-epoch|data-epoch|src/overlay/boards/supervision-warning.board.mei",
+        dataGeneration: synthetic.dataGeneration,
+        appId: synthetic.appId,
+        metrics: synthetic.metrics,
+      },
+    ],
+  };
+  assertKeysAlign(syntheticMultiScope.bootstrapScopes[1], "synthetic-multi-scope");
 
   const html = await loadHomeHtml();
   if (html) {

@@ -150,6 +150,7 @@ mod tests {
                 shared: serde_json::Value::Null,
                 local_nav: serde_json::Value::Null,
                 params: serde_json::Value::Null,
+                capabilities: serde_json::Value::Null,
                 bindings: serde_json::Value::Null,
                 examples: serde_json::Value::Null,
                 access_export: true,

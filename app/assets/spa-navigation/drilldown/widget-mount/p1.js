@@ -62,6 +62,7 @@
 
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   const DRILLDOWN_FILTER_BAR_SCRIPT = "/workspace-components/dataset/filter-bar.js";
+  const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
 
   async function waitForCustomElementTag(tagName) {
@@ -96,6 +97,15 @@
       softFail: false,
     });
     return waitForCustomElementTag(tag);
+  }
+
+  async function ensureDrilldownChartVendorLoaded() {
+    if (window.echarts) return true;
+    await loadScript(DRILLDOWN_ECHARTS_VENDOR_SCRIPT, {
+      persistentKey: DRILLDOWN_ECHARTS_VENDOR_SCRIPT,
+      softFail: false,
+    });
+    return Boolean(window.echarts);
   }
 
   async function ensureDrilldownTableRegistered() {
@@ -142,6 +152,9 @@
       });
     }
     chartTags.forEach((tag) => tasks.push(ensureDrilldownChartRegistered(tag)));
+    if (chartTags.size > 0) {
+      tasks.push(ensureDrilldownChartVendorLoaded());
+    }
     await Promise.all(tasks);
   }
 

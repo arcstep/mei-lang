@@ -21,9 +21,17 @@ pub struct McgNodeRecord {
     pub payload_ref: Option<PayloadRef>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deps: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "ownerResourceId")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "ownerResourceId"
+    )]
     pub owner_resource_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "assemblyInputs")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "assemblyInputs"
+    )]
     pub assembly_inputs: Vec<AssemblyInputRef>,
 }
 
@@ -77,7 +85,10 @@ impl McgRegistry {
         self.registry_revision = stable_hash(&keys.join("\n"));
     }
 
-    pub fn nodes_of_kind(&self, kind: crate::types::GraphNodeKind) -> impl Iterator<Item = &McgNodeRecord> {
+    pub fn nodes_of_kind(
+        &self,
+        kind: crate::types::GraphNodeKind,
+    ) -> impl Iterator<Item = &McgNodeRecord> {
         self.nodes.iter().filter(move |node| node.id.kind == kind)
     }
 }
@@ -94,6 +105,9 @@ impl McgRegistryWriter {
     }
 
     pub fn save(source_root: &std::path::Path, registry: &McgRegistry) -> anyhow::Result<()> {
-        write_json_registry(&mcg_registry_path(source_root, registry.app_id.as_str()), registry)
+        write_json_registry(
+            &mcg_registry_path(source_root, registry.app_id.as_str()),
+            registry,
+        )
     }
 }

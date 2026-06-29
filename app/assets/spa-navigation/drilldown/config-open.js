@@ -43,6 +43,8 @@
 
   function buildSceneOpenRequest(config, detail = {}) {
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
+    const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
     return {
       sceneId: nonEmptyString(config.boardSceneId, config.sceneId, popup?.scene_id, popup?.sceneId),
       sceneFile: nonEmptyString(config.boardSceneFile, popup?.scene_file, popup?.sceneFile),
@@ -54,7 +56,19 @@
         hostSceneId: nonEmptyString(config.hostSceneId, detail?.scene_id),
         hostSceneFile: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
         queryStateId: nonEmptyString(config.queryStateId, detail?.query_state_id, detail?.queryStateId),
-        metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+        sceneOpenKind: nonEmptyString(detail?.kind, popup?.kind, "scene_open"),
+        metricId,
+        datasetId,
+        metricContext: metricId
+          ? {
+              metricId,
+              datasetId,
+              analysisContract:
+                detail?.analysis_contract && typeof detail.analysis_contract === "object"
+                  ? detail.analysis_contract
+                  : null,
+            }
+          : null,
       },
       projectionSlots: normalizeProjectionSlots(config.projectionSlots || popup?.projection_slots || popup?.projectionSlots),
       filterSchema: config.filterSchema || normalizeAnalyticsFilterSchema(popup?.filter_schema || popup?.filterSchema),
@@ -70,7 +84,12 @@
       mode: normalizeProjection(nonEmptyString(config.projection, popup?.projection, detail?.projection, "overlay")),
       title: hideTitle
         ? ""
-        : nonEmptyString(config.title, popup?.title, detail?.label, "指标明细"),
+        : nonEmptyString(
+            config.title,
+            popup?.title,
+            detail?.label,
+            popup?.kind === "scene_open" && !nonEmptyString(detail?.metric_id) ? "看板" : "指标明细",
+          ),
       overlaySize: nonEmptyString(config.overlaySize, popup?.overlay_size, popup?.overlaySize, "large"),
       restoreContext: {
         hostSceneId: nonEmptyString(config.hostSceneId, detail?.scene_id),

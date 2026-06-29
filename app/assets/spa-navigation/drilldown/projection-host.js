@@ -51,6 +51,49 @@
     };
   }
 
+  async function prewarmProjectionScope(config) {
+    try {
+      if (
+        (config?.structuredBoard || useSceneBoardOverlay(config)) &&
+        typeof prefetchStructuredDrilldownWidgets === "function"
+      ) {
+        await prefetchStructuredDrilldownWidgets(config);
+      }
+    } catch (_) {
+      /* ignore widget prewarm failures; render path will retry */
+    }
+    try {
+      if (typeof seedFromBootstrap === "function") {
+        seedFromBootstrap(window.__mei);
+      }
+    } catch (_) {
+      /* ignore bootstrap seed failures */
+    }
+  }
+
+  function triggerScopeActivationWarmup(config) {
+    const scope = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    if (!scope || typeof fetch !== "function") {
+      return;
+    }
+    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=1`;
+    void fetch(url, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((result) => {
+        const payload =
+          result?.payload && typeof result.payload === "object" ? result.payload : null;
+        if (payload && typeof seedFromBootstrap === "function") {
+          seedFromBootstrap(payload);
+        }
+      })
+      .catch(() => {
+        /* ignore activation warmup failures; runtime API path remains fallback */
+      });
+  }
+
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
@@ -85,6 +128,7 @@
         "large",
       ),
     };
+    await prewarmProjectionScope(layer2Config);
     if (typeof boot.beginDrilldownLoadSession === "function") {
       boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
@@ -93,6 +137,7 @@
       closeDrilldownOverlay();
       closeSceneBoardOverlay();
       const root = boot.openLayer2Tab(layer2Config);
+      triggerScopeActivationWarmup(layer2Config);
       if (config.boardFrameScene) {
         await renderFrameBoardSceneContent(root, detail, config);
         return;
@@ -114,6 +159,7 @@
       root.removeAttribute("hidden");
       root.classList.add("is-open");
       document.body.classList.add("access-scene-board-open");
+      triggerScopeActivationWarmup(layer2Config);
       await renderStructuredDrilldownContent(root, detail, config);
       return;
     }
@@ -123,6 +169,7 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-drilldown-open");
+    triggerScopeActivationWarmup(layer2Config);
     if (config.boardFrameScene) {
       if (!(await renderFrameBoardSceneContent(root, detail, config))) {
         return;
@@ -171,6 +218,7 @@
     document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
     document.addEventListener(ANALYSIS_OPEN_EVENT, openByEvent);
     document.addEventListener(POPUP_OPEN_EVENT, openByEvent);
+    document.addEventListener(SCENE_OPEN_EVENT, openByEvent);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         if (typeof boot.useUnifiedLayer2 === "function" && boot.useUnifiedLayer2()) {

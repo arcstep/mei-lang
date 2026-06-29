@@ -6,25 +6,21 @@ use super::{
 };
 
 #[test]
-fn compile_collects_scene_params_for_scene_contracts() {
+fn compile_collects_scene_accepts_and_capabilities_for_scene_contracts() {
     let root = temp_root("scene-params-scene-contract");
     let app_root = root.join("params-app");
     write_file(
-        &app_root.join("main.mei"),
+        &app_root.join("src/main.mei"),
         r#"
-app(id = "params-app", scene = scene_ref(scene_file = "home.mei"))
-"#,
-    );
-    write_file(
-        &app_root.join("home.mei"),
-        r#"
+app(id = "params-app", default_scene = "home")
 scene(
     id = "home",
     profile = "page",
-    params = {
+    accepts = {
         "metric": param(type = "metric", required = True),
         "entry": param(type = "string"),
     },
+    capabilities = ["narrative", "overlay"],
 )
 world(resources = [])
 frame(layout = flex(direction = "column"))
@@ -32,12 +28,22 @@ frame(layout = flex(direction = "column"))
     );
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile scene params");
-    let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(
-        contract
-            .scene
-            .params
-            .get("metric")
+        compiled
+            .scene_projection_assembly_by_id
+            .get("home")
+            .and_then(|value| value.get("accepts"))
+            .and_then(|value| value.get("entry"))
+            .and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str()),
+        Some("string")
+    );
+    assert_eq!(
+        compiled
+            .scene_projection_assembly_by_id
+            .get("home")
+            .and_then(|value| value.get("params"))
+            .and_then(|value| value.get("metric"))
             .and_then(|value| value.get("__kind"))
             .and_then(|value| value.as_str()),
         Some("scene_param")
@@ -51,6 +57,15 @@ frame(layout = flex(direction = "column"))
             .and_then(|value| value.get("type"))
             .and_then(|value| value.as_str()),
         Some("string")
+    );
+    assert_eq!(
+        compiled
+            .scene_projection_assembly_by_id
+            .get("home")
+            .and_then(|value| value.get("capabilities"))
+            .and_then(|value| value.as_array())
+            .map(|items| items.iter().filter_map(|value| value.as_str()).collect::<Vec<_>>()),
+        Some(vec!["narrative", "overlay"])
     );
 
     let _ = fs::remove_dir_all(&root);

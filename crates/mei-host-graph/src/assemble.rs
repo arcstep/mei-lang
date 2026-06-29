@@ -3,21 +3,21 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    load_component_assets, normalize_panel_slots, resolve_app_root, CompiledApp, CompiledSceneRoute,
-    LoadedResource, SceneContract, SceneDecl,
+    load_component_assets, normalize_panel_slots, resolve_app_root, CompiledApp,
+    CompiledSceneRoute, LoadedResource, SceneContract, SceneDecl,
 };
 use serde_json::{json, Value};
 
 use crate::import::load_block_artifact;
 use crate::layer_plan::{build_layer_plan, layer_plan_to_value};
+use crate::mcg::registry::McgRegistryWriter;
 use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
 use crate::projection_normalize::normalize_board_assembly_payload;
+use crate::types::GraphNodeKind;
 use crate::v2_lower::{
     find_panel_contract_node, lower_frame_from_assembly, lower_panel_payload,
     lower_v2_inline_panels_from_assembly, PanelLowerContext,
 };
-use crate::mcg::registry::McgRegistryWriter;
-use crate::types::GraphNodeKind;
 
 #[derive(Debug, Clone)]
 pub struct AssembleOutcome {
@@ -115,10 +115,9 @@ pub fn assemble_scope_from_registry(
         &assembly_key,
     )?);
     let scene_routes = build_scene_routes(source_root, app_id, &registry)?;
-    let resources = expand_runtime_metric_resources(crate::metric_hydrate::load_metric_resources_hydrated(
-        app_root.as_path(),
-        &registry,
-    )?);
+    let resources = expand_runtime_metric_resources(
+        crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?,
+    );
     let projection_map = load_projection_map(app_root.as_path(), &registry, &resources);
     let scene_local_nav_by_target = load_scene_local_nav_by_target(app_root.as_path(), &registry);
     let (mut panels, panel_payloads) = load_panels_for_assembly(
@@ -132,16 +131,9 @@ pub fn assemble_scope_from_registry(
     let overlay_defaults = load_overlay_defaults(app_root.as_path(), &registry);
     let active_target = assembly_key_to_target(&assembly_key);
     let mut panel_diagnostics = Vec::new();
-    normalize_panel_slots(
-        &mut panels,
-        &mut panel_diagnostics,
-        active_target.as_str(),
-    );
-    let presentation_map = presentation_map_to_value(&build_presentation_map(
-        scene_id,
-        &panels,
-        &panel_payloads,
-    ));
+    normalize_panel_slots(&mut panels, &mut panel_diagnostics, active_target.as_str());
+    let presentation_map =
+        presentation_map_to_value(&build_presentation_map(scene_id, &panels, &panel_payloads));
     let frame = Some(lower_frame_from_assembly(&assembly_payload));
     let component_assets = load_component_assets(source_root)?
         .into_values()
@@ -179,7 +171,14 @@ pub fn assemble_scope_from_registry(
                 .cloned()
                 .unwrap_or(json!({})),
             params: assembly_payload.get("params").cloned().unwrap_or(json!({})),
-            bindings: assembly_payload.get("bindings").cloned().unwrap_or(json!({})),
+            capabilities: assembly_payload
+                .get("capabilities")
+                .cloned()
+                .unwrap_or(Value::Null),
+            bindings: assembly_payload
+                .get("bindings")
+                .cloned()
+                .unwrap_or(json!({})),
             examples: json!({}),
             access_export: true,
         },
@@ -224,7 +223,10 @@ pub fn assemble_scope_from_registry(
     }))
 }
 
-fn load_app_meta(app_root: &Path, registry: &crate::mcg::registry::McgRegistry) -> Result<(String, String)> {
+fn load_app_meta(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+) -> Result<(String, String)> {
     let skeleton_node = registry
         .nodes
         .iter()
@@ -255,9 +257,7 @@ fn resolve_assembly_key(registry: &crate::mcg::registry::McgRegistry, scene_id: 
         return registry
             .nodes
             .iter()
-            .find(|n| {
-                n.id.kind == GraphNodeKind::AssemblyView && n.id.key.contains("home@")
-            })
+            .find(|n| n.id.kind == GraphNodeKind::AssemblyView && n.id.key.contains("home@"))
             .map(|n| n.id.key.clone())
             .unwrap_or_else(|| "home@src/scene/home/assembly.mei".to_string());
     }
@@ -439,20 +439,37 @@ fn load_scene_local_nav_by_target(
     map
 }
 
-fn load_link_bindings(app_root: &Path, registry: &crate::mcg::registry::McgRegistry) -> BTreeMap<String, Value> {
+fn load_link_bindings(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+) -> BTreeMap<String, Value> {
     let mut bindings = BTreeMap::new();
-    for node in registry.nodes.iter().filter(|n| n.id.kind == GraphNodeKind::Navigation && n.id.key.starts_with("overlay/")) {
+    for node in registry
+        .nodes
+        .iter()
+        .filter(|n| n.id.kind == GraphNodeKind::Navigation && n.id.key.starts_with("overlay/"))
+    {
         if let Some(pref) = node.payload_ref.as_ref() {
             if let Ok(Some(artifact)) = load_block_artifact(app_root, pref) {
-                bindings.insert(node.id.key.clone(), artifact.get("payload").cloned().unwrap_or(json!({})));
+                bindings.insert(
+                    node.id.key.clone(),
+                    artifact.get("payload").cloned().unwrap_or(json!({})),
+                );
             }
         }
     }
-    for node in registry.nodes.iter().filter(|n| n.id.kind == GraphNodeKind::Navigation) {
+    for node in registry
+        .nodes
+        .iter()
+        .filter(|n| n.id.kind == GraphNodeKind::Navigation)
+    {
         if node.id.key.contains("link") {
             if let Some(pref) = node.payload_ref.as_ref() {
                 if let Ok(Some(artifact)) = load_block_artifact(app_root, pref) {
-                    bindings.insert(node.id.key.clone(), artifact.get("payload").cloned().unwrap_or(json!({})));
+                    bindings.insert(
+                        node.id.key.clone(),
+                        artifact.get("payload").cloned().unwrap_or(json!({})),
+                    );
                 }
             }
         }
@@ -465,7 +482,11 @@ fn load_overlay_defaults(
     registry: &crate::mcg::registry::McgRegistry,
 ) -> BTreeMap<String, Value> {
     let mut defaults = BTreeMap::new();
-    for node in registry.nodes.iter().filter(|n| n.id.kind == GraphNodeKind::Navigation) {
+    for node in registry
+        .nodes
+        .iter()
+        .filter(|n| n.id.kind == GraphNodeKind::Navigation)
+    {
         let Some(pref) = node.payload_ref.as_ref() else {
             continue;
         };
@@ -525,9 +546,7 @@ fn load_panels_for_assembly(
         }
     }
 
-    if let Ok(inline_panels) =
-        lower_v2_inline_panels_from_assembly(assembly_payload, &lower_ctx)
-    {
+    if let Ok(inline_panels) = lower_v2_inline_panels_from_assembly(assembly_payload, &lower_ctx) {
         for panel in inline_panels {
             if panels.iter().any(|existing| existing.id == panel.id) {
                 continue;
@@ -571,15 +590,15 @@ fn normalize_panel_contract_key(panel_key: &str, assembly_payload: &Value) -> St
 }
 
 fn extract_assembly_ref(payload: &Value) -> Option<String> {
-    payload
-        .get("assembly")
-        .and_then(|v| {
-            if let Some(args) = v.get("__args").and_then(|o| o.as_object()) {
-                args.get("arg0").and_then(|a| a.as_str()).map(str::to_string)
-            } else {
-                v.as_str().map(str::to_string)
-            }
-        })
+    payload.get("assembly").and_then(|v| {
+        if let Some(args) = v.get("__args").and_then(|o| o.as_object()) {
+            args.get("arg0")
+                .and_then(|a| a.as_str())
+                .map(str::to_string)
+        } else {
+            v.as_str().map(str::to_string)
+        }
+    })
 }
 
 #[cfg(test)]
@@ -597,9 +616,7 @@ mod tests {
     #[test]
     fn assembly_key_to_target_overlay_board() {
         assert_eq!(
-            assembly_key_to_target(
-                "overlay/boards/supervision-warning#warnings_analytics_board"
-            ),
+            assembly_key_to_target("overlay/boards/supervision-warning#warnings_analytics_board"),
             "src/overlay/boards/supervision-warning.board.mei"
         );
         assert_eq!(

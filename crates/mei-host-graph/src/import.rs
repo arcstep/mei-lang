@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use mei_bundle::{read_bundle, MeiCompileExchange};
 use mei_graph::GraphBlock;
 use mei_host_core::{HostContext, ImportReport};
-use mei_lang_kernel::{resolve_app_root, resolve_app_registry_root, resolve_app_eval_cache_root};
+use mei_lang_kernel::{resolve_app_eval_cache_root, resolve_app_registry_root, resolve_app_root};
 use serde_json::{json, Value};
 
 use crate::bridge::export_bridge_from_mcg;
@@ -14,7 +14,7 @@ use crate::content_store::{
     WARMUP_POLICY,
 };
 use crate::mcg::registry::{McgNodeRecord, McgRegistryWriter};
-use crate::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef, stable_hash};
+use crate::types::{stable_hash, GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
 
 #[derive(Debug, Clone, Default)]
 pub struct ImportOptions {
@@ -147,7 +147,10 @@ fn cas_kind_for_block(block: &GraphBlock) -> (&'static str, &'static str) {
 
 fn block_revision(block: &GraphBlock) -> String {
     let payload_text = serde_json::to_string(&block.payload).unwrap_or_default();
-    format!("blk:{}", stable_hash(&format!("{}\n{}", block.block_id, payload_text)))
+    format!(
+        "blk:{}",
+        stable_hash(&format!("{}\n{}", block.block_id, payload_text))
+    )
 }
 
 fn node_key_for_block(block: &GraphBlock) -> String {
@@ -168,10 +171,7 @@ fn owner_resource_for_block(block: &GraphBlock) -> Option<String> {
     }
 }
 
-pub fn load_block_artifact(
-    app_root: &Path,
-    pref: &PayloadRef,
-) -> Result<Option<Value>> {
+pub fn load_block_artifact(app_root: &Path, pref: &PayloadRef) -> Result<Option<Value>> {
     content_store::read_payload_json(app_root, pref)
 }
 

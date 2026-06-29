@@ -6,8 +6,7 @@ use std::sync::Once;
 use mei_host_core::HostContext;
 use mei_host_graph::{import_bundle, ImportOptions, WarmupTier};
 use mei_plug_ds::{
-    collect_warmup_targets, eval_metric_ids, load_compiled_for_warmup,
-    run_warmup_targets_with_tier,
+    collect_warmup_targets, eval_metric_ids, load_compiled_for_warmup, run_warmup_targets_with_tier,
 };
 
 static INIT: Once = Once::new();
@@ -20,8 +19,7 @@ fn ws_demo_v2_root() -> PathBuf {
 }
 
 fn bundle_path() -> PathBuf {
-    ws_demo_v2_root()
-        .join("apps/data-demo/build/active/exchange/data-demo.meibundle")
+    ws_demo_v2_root().join("apps/data-demo/build/active/exchange/data-demo.meibundle")
 }
 
 fn ensure_imported() -> PathBuf {
@@ -46,11 +44,13 @@ fn ensure_imported() -> PathBuf {
 fn ws_demo_v2_warmup_tier_all_populates_mrg_and_memory_hit() {
     let workspace = ensure_imported();
     let ctx = HostContext::new(workspace.clone(), "data-demo".to_string());
-    let targets =
-        collect_warmup_targets(&ctx, Some("home")).expect("warmup targets");
-    assert!(!targets.is_empty(), "home warmup policy should define targets");
-    let report = run_warmup_targets_with_tier(&ctx, &targets, WarmupTier::All)
-        .expect("warmup tier all");
+    let targets = collect_warmup_targets(&ctx, Some("home")).expect("warmup targets");
+    assert!(
+        !targets.is_empty(),
+        "home warmup policy should define targets"
+    );
+    let report =
+        run_warmup_targets_with_tier(&ctx, &targets, WarmupTier::All).expect("warmup tier all");
     assert!(report.slot_count > 0, "warmup should register MRG slots");
     let status =
         mei_host_graph::mrg_status_json(workspace.as_path(), "data-demo").expect("mrg status");
@@ -74,13 +74,23 @@ fn ws_demo_v2_warmup_tier_all_populates_mrg_and_memory_hit() {
         "home manifest should cover critical metrics, got {}",
         manifest.metrics.len()
     );
-    let manifest_path = ctx
-        .app_root()
-        .join("var/active/client-bootstrap/home.json");
+    let manifest_path = ctx.app_root().join("var/active/client-bootstrap/home.json");
     assert!(
         manifest_path.is_file(),
         "client-bootstrap manifest file should exist at {}",
         manifest_path.display()
+    );
+    let bootstrap_dir = ctx.app_root().join("var/active/client-bootstrap");
+    let bootstrap_files = std::fs::read_dir(&bootstrap_dir)
+        .expect("read bootstrap dir")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .count();
+    assert!(
+        bootstrap_files >= 2,
+        "multi-scope warmup should emit neighbor bootstrap manifests, got {} in {}",
+        bootstrap_files,
+        bootstrap_dir.display()
     );
 
     let target = &targets[0];

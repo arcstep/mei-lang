@@ -5,16 +5,58 @@ use std::collections::BTreeMap;
 use serde_json::{json, Map, Value};
 
 const WARNING_LIST_DETAIL_FIELDS: &[&str] = &[
-    "序号", "监督领域", "监督类别", "预警ID", "预警条数", "主责单位", "问题分类名称", "问题描述",
-    "预警类型", "预警等级", "预警时间", "问题跟踪ID", "承办部门", "分办时间", "办结时间", "是否查实",
-    "查实条数", "是否转问题线索", "核查情况", "处理结果",
+    "序号",
+    "监督领域",
+    "监督类别",
+    "预警ID",
+    "预警条数",
+    "主责单位",
+    "问题分类名称",
+    "问题描述",
+    "预警类型",
+    "预警等级",
+    "预警时间",
+    "问题跟踪ID",
+    "承办部门",
+    "分办时间",
+    "办结时间",
+    "是否查实",
+    "查实条数",
+    "是否转问题线索",
+    "核查情况",
+    "处理结果",
 ];
 
 const ISSUE_RESULT_DETAIL_FIELDS: &[&str] = &[
-    "序号", "处理结果ID", "监督领域名称", "监督类别", "问题线索编号", "是否立案", "姓名/单位", "工作单位",
-    "职务", "职级", "政治面貌", "处理处分", "挽回资金", "健全机制", "预警ID", "主责单位", "问题分类名称",
-    "问题描述", "预警类型", "预警等级", "预警时间", "问题跟踪ID", "承办部门", "分办时间", "办结时间",
-    "是否查实", "是否转问题线索", "核查情况", "处理结果",
+    "序号",
+    "处理结果ID",
+    "监督领域名称",
+    "监督类别",
+    "问题线索编号",
+    "是否立案",
+    "姓名/单位",
+    "工作单位",
+    "职务",
+    "职级",
+    "政治面貌",
+    "处理处分",
+    "挽回资金",
+    "健全机制",
+    "预警ID",
+    "主责单位",
+    "问题分类名称",
+    "问题描述",
+    "预警类型",
+    "预警等级",
+    "预警时间",
+    "问题跟踪ID",
+    "承办部门",
+    "分办时间",
+    "办结时间",
+    "是否查实",
+    "是否转问题线索",
+    "核查情况",
+    "处理结果",
 ];
 
 #[derive(Debug, Default, Clone)]
@@ -67,9 +109,14 @@ impl V2MetricLowerContext {
             };
             let rowset = args
                 .get("rowset")
-                .map(|value| lower_rowset(value, &V2MetricLowerContext {
-                    dataset_rowsets: resolved.clone(),
-                }))
+                .map(|value| {
+                    lower_rowset(
+                        value,
+                        &V2MetricLowerContext {
+                            dataset_rowsets: resolved.clone(),
+                        },
+                    )
+                })
                 .or_else(|| {
                     args.get("from")
                         .and_then(Value::as_str)
@@ -90,9 +137,7 @@ pub fn lower_v2_runtime_metric_defs(
     ctx: &V2MetricLowerContext,
 ) -> BTreeMap<String, Value> {
     raw.into_iter()
-        .filter_map(|(id, metric)| {
-            lower_v2_metric(&id, &metric, ctx).map(|lowered| (id, lowered))
-        })
+        .filter_map(|(id, metric)| lower_v2_metric(&id, &metric, ctx).map(|lowered| (id, lowered)))
         .collect()
 }
 
@@ -105,7 +150,12 @@ fn lower_v2_metric(id: &str, value: &Value, ctx: &V2MetricLowerContext) -> Optio
     Some(value.clone())
 }
 
-fn lower_v2_metric_call(id: &str, name: &str, args: &Value, ctx: &V2MetricLowerContext) -> Option<Value> {
+fn lower_v2_metric_call(
+    id: &str,
+    name: &str,
+    args: &Value,
+    ctx: &V2MetricLowerContext,
+) -> Option<Value> {
     match name {
         "metric_scalar" => Some(lower_metric_scalar(id, args, ctx)),
         "metric_dataframe" => Some(lower_metric_dataframe(id, args, ctx)),
@@ -137,10 +187,7 @@ fn lower_metric_scalar(id: &str, args: &Value, ctx: &V2MetricLowerContext) -> Va
         out.insert("value_format".to_string(), value_format.clone());
     }
     out.insert("shape".to_string(), json!("scalar_map"));
-    out.insert(
-        "values".to_string(),
-        json!({"value": value_expr}),
-    );
+    out.insert("values".to_string(), json!({"value": value_expr}));
     out.insert(
         "schema".to_string(),
         json!([{"name": "value", "type": "number"}]),
@@ -216,39 +263,30 @@ fn lower_pipeline_step(input: &Value, step: &Value, ctx: &V2MetricLowerContext) 
         ),
         "select" => aek(
             "select",
-            &[
-                ("rowset", input.clone()),
-                ("fields", arg0(&args).clone()),
-            ],
+            &[("rowset", input.clone()), ("fields", arg0(&args).clone())],
         ),
         "sort_by" => aek(
             "sort_by",
             &[
                 ("rowset", input.clone()),
                 ("field", json!(arg0_string(&args).unwrap_or_default())),
-                ("order", json!(args.get("order").and_then(Value::as_str).unwrap_or("asc"))),
+                (
+                    "order",
+                    json!(args.get("order").and_then(Value::as_str).unwrap_or("asc")),
+                ),
             ],
         ),
         "rename" => aek(
             "rename",
-            &[
-                ("rowset", input.clone()),
-                ("mapping", arg0(&args).clone()),
-            ],
+            &[("rowset", input.clone()), ("mapping", arg0(&args).clone())],
         ),
         "mutate" => aek(
             "mutate",
-            &[
-                ("rowset", input.clone()),
-                ("updates", arg1(&args).clone()),
-            ],
+            &[("rowset", input.clone()), ("updates", arg1(&args).clone())],
         ),
         "limit" => aek(
             "limit",
-            &[
-                ("rowset", input.clone()),
-                ("n", arg0(&args).clone()),
-            ],
+            &[("rowset", input.clone()), ("n", arg0(&args).clone())],
         ),
         "label_status_pending" => lower_label_status_pending(input, &args),
         "group_by" => lower_group_by(Some(input), &args, ctx),
@@ -269,17 +307,20 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
         .get("default")
         .and_then(Value::as_str)
         .unwrap_or("待办");
-    let pending = aek("mutate", &[
+    let pending = aek(
+        "mutate",
+        &[
             (
                 "rowset",
-                aek("where", &[
-                        (
-                            "rowset",
-                            input.clone(),
-                        ),
+                aek(
+                    "where",
+                    &[
+                        ("rowset", input.clone()),
                         (
                             "predicate",
-                            aek("and", &[(
+                            aek(
+                                "and",
+                                &[(
                                     "predicates",
                                     json!([
                                         aek("present", &[("field", json!("问题跟踪ID"))]),
@@ -291,17 +332,26 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                     ],
                 ),
             ),
-            ("updates", json!({"当前状态": aek("lit", &[("value", json!(default))])})),
+            (
+                "updates",
+                json!({"当前状态": aek("lit", &[("value", json!(default))])}),
+            ),
         ],
     );
-    let in_progress_rows = aek("mutate", &[
+    let in_progress_rows = aek(
+        "mutate",
+        &[
             (
                 "rowset",
-                aek("where", &[
+                aek(
+                    "where",
+                    &[
                         ("rowset", input.clone()),
                         (
                             "predicate",
-                            aek("and", &[(
+                            aek(
+                                "and",
+                                &[(
                                     "predicates",
                                     json!([
                                         aek("present", &[("field", json!("问题跟踪ID"))]),
@@ -320,32 +370,59 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
             ),
         ],
     );
-    let other = aek("mutate", &[
+    let other = aek(
+        "mutate",
+        &[
             (
                 "rowset",
-                aek("where", &[
+                aek(
+                    "where",
+                    &[
                         ("rowset", input.clone()),
                         (
                             "predicate",
-                            aek("not", &[(
+                            aek(
+                                "not",
+                                &[(
                                     "predicate",
-                                    aek("or", &[(
+                                    aek(
+                                        "or",
+                                        &[(
                                             "predicates",
                                             json!([
-                                                aek("and", &[(
+                                                aek(
+                                                    "and",
+                                                    &[(
                                                         "predicates",
                                                         json!([
-                                                            aek("present", &[("field", json!("问题跟踪ID"))]),
-                                                            aek("blank", &[("field", json!("承办部门"))]),
+                                                            aek(
+                                                                "present",
+                                                                &[("field", json!("问题跟踪ID"))]
+                                                            ),
+                                                            aek(
+                                                                "blank",
+                                                                &[("field", json!("承办部门"))]
+                                                            ),
                                                         ]),
                                                     )],
                                                 ),
-                                                aek("and", &[(
+                                                aek(
+                                                    "and",
+                                                    &[(
                                                         "predicates",
                                                         json!([
-                                                            aek("present", &[("field", json!("问题跟踪ID"))]),
-                                                            aek("present", &[("field", json!("承办部门"))]),
-                                                            aek("blank", &[("field", json!("办结时间"))]),
+                                                            aek(
+                                                                "present",
+                                                                &[("field", json!("问题跟踪ID"))]
+                                                            ),
+                                                            aek(
+                                                                "present",
+                                                                &[("field", json!("承办部门"))]
+                                                            ),
+                                                            aek(
+                                                                "blank",
+                                                                &[("field", json!("办结时间"))]
+                                                            ),
                                                         ]),
                                                     )],
                                                 ),
@@ -358,10 +435,15 @@ fn lower_label_status_pending(input: &Value, args: &Value) -> Value {
                     ],
                 ),
             ),
-            ("updates", json!({"当前状态": aek("lit", &[("value", json!(default))])})),
+            (
+                "updates",
+                json!({"当前状态": aek("lit", &[("value", json!(default))])}),
+            ),
         ],
     );
-    aek("concat_rowsets", &[("rowsets", json!([pending, in_progress_rows, other]))],
+    aek(
+        "concat_rowsets",
+        &[("rowsets", json!([pending, in_progress_rows, other]))],
     )
 }
 
@@ -381,10 +463,7 @@ fn lower_agg_on_rowset(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerConte
                     .and_then(|a| a.get("arg1"))
                     .map(|v| lower_nested_agg(v, base_rowset.clone(), ctx))
                     .unwrap_or(json!(0));
-                aek(
-                    "ratio",
-                    &[("numerator", num), ("denominator", den)],
-                )
+                aek("ratio", &[("numerator", num), ("denominator", den)])
             }
             "change_rate" => {
                 let args = agg.get("__args").and_then(Value::as_object);
@@ -402,18 +481,13 @@ fn lower_agg_on_rowset(agg: &Value, base_rowset: Value, ctx: &V2MetricLowerConte
                     .unwrap_or("growth");
                 aek(
                     "change_rate",
-                    &[
-                        ("current", current),
-                        ("base", base),
-                        ("mode", json!(mode)),
-                    ],
+                    &[("current", current), ("base", base), ("mode", json!(mode))],
                 )
             }
             "transfer_clue_count" => expand_transfer_clue_count(agg, ctx),
             "mechanism_item_count" => expand_mechanism_item_count(agg, ctx),
-            other => expand_known_agg_macro(other, agg, base_rowset.clone()).unwrap_or_else(|| {
-                ae("count", vec![("rowset".to_string(), base_rowset)])
-            }),
+            other => expand_known_agg_macro(other, agg, base_rowset.clone())
+                .unwrap_or_else(|| ae("count", vec![("rowset".to_string(), base_rowset)])),
         };
     }
     json!(null)
@@ -426,9 +500,7 @@ fn lower_sum_agg(agg: &Value, base_rowset: Value) -> Value {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let group_by = args
-        .and_then(|m| m.get("group_by"))
-        .and_then(Value::as_str);
+    let group_by = args.and_then(|m| m.get("group_by")).and_then(Value::as_str);
     let rowset = if let Some(group_field) = group_by {
         ae(
             "first_by",
@@ -576,20 +648,24 @@ fn year_between_rowset(rowset: Value, field: Option<String>, year: Value) -> Val
             ("rowset".to_string(), rowset),
             (
                 "predicate".to_string(),
-    ae(
-        "between",
-        vec![
-            ("field".to_string(), json!(field)),
-            ("lower".to_string(), json!(format!("{year_str}-01-01"))),
-            ("upper".to_string(), json!(format!("{year_str}-12-31"))),
-        ],
-    ),
+                ae(
+                    "between",
+                    vec![
+                        ("field".to_string(), json!(field)),
+                        ("lower".to_string(), json!(format!("{year_str}-01-01"))),
+                        ("upper".to_string(), json!(format!("{year_str}-12-31"))),
+                    ],
+                ),
             ),
         ],
     )
 }
 
-fn lower_trend_year_compare(args: &Value, ctx: &V2MetricLowerContext, input: Option<&Value>) -> Value {
+fn lower_trend_year_compare(
+    args: &Value,
+    ctx: &V2MetricLowerContext,
+    input: Option<&Value>,
+) -> Value {
     let map = args.as_object().cloned().unwrap_or_default();
     let rowset = if let Some(inp) = input {
         inp.clone()
@@ -604,10 +680,7 @@ fn lower_trend_year_compare(args: &Value, ctx: &V2MetricLowerContext, input: Opt
         .and_then(Value::as_str)
         .unwrap_or("");
     let value_field = map.get("value").cloned().unwrap_or(Value::Null);
-    let agg = map
-        .get("agg")
-        .and_then(Value::as_str)
-        .unwrap_or("count");
+    let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
     let years = map.get("years").cloned().unwrap_or(json!([2024, 2025]));
     let limit = map.get("limit").cloned().unwrap_or(json!(6));
     let window = map
@@ -787,30 +860,47 @@ fn expand_transfer_clue_count(agg: &Value, ctx: &V2MetricLowerContext) -> Value 
         .and_then(|a| a.get("arg0"))
         .map(|value| lower_rowset(value, ctx))
         .unwrap_or_else(|| resolve_data_ref("warning_list", &ctx.dataset_rowsets));
-    let transfer_rows = aek("where", &[
+    let transfer_rows = aek(
+        "where",
+        &[
             ("rowset", rows.clone()),
             (
                 "predicate",
-                aek("and", &[(
+                aek(
+                    "and",
+                    &[(
                         "predicates",
                         json!([
                             aek("present", &[("field", json!("问题跟踪ID"))]),
-                            aek("contains", &[("field", json!("是否转问题线索")), ("value", json!("是"))]),
+                            aek(
+                                "contains",
+                                &[("field", json!("是否转问题线索")), ("value", json!("是"))]
+                            ),
                         ]),
                     )],
                 ),
             ),
         ],
     );
-    let paren_rows = aek("where", &[
+    let paren_rows = aek(
+        "where",
+        &[
             ("rowset", transfer_rows.clone()),
             (
                 "predicate",
-                aek("matches", &[("field", json!("是否转问题线索")), ("pattern", json!("[（(]\\s*\\d+\\s*[）)]"))]),
+                aek(
+                    "matches",
+                    &[
+                        ("field", json!("是否转问题线索")),
+                        ("pattern", json!("[（(]\\s*\\d+\\s*[）)]")),
+                    ],
+                ),
             ),
         ],
     );
-    aek("sum_rowset_counts", &[("rowsets", json!([transfer_rows, paren_rows]))],
+    aek(
+        "sum_rowset_counts",
+        &[("rowsets", json!([transfer_rows, paren_rows]))],
     )
 }
 
@@ -820,18 +910,27 @@ fn expand_mechanism_item_count(agg: &Value, ctx: &V2MetricLowerContext) -> Value
         .and_then(|a| a.get("arg0"))
         .map(|value| lower_rowset(value, ctx))
         .unwrap_or_else(|| resolve_data_ref("issue_result_list", &ctx.dataset_rowsets));
-    let source_rows = aek("where", &[
+    let source_rows = aek(
+        "where",
+        &[
             ("rowset", rows),
-            ("predicate", aek("not_empty", &[("field", json!("健全机制"))])),
+            (
+                "predicate",
+                aek("not_empty", &[("field", json!("健全机制"))]),
+            ),
         ],
     );
-    let split_comma = aek("split_text", &[
+    let split_comma = aek(
+        "split_text",
+        &[
             ("rowset", source_rows),
             ("field", json!("健全机制")),
             ("delimiter", json!("、")),
         ],
     );
-    let split_items = aek("split_text", &[
+    let split_items = aek(
+        "split_text",
+        &[
             ("rowset", split_comma),
             ("field", json!("健全机制")),
             ("delimiter", json!("》《")),
@@ -984,9 +1083,7 @@ fn lower_rowset(value: &Value, ctx: &V2MetricLowerContext) -> Value {
         let args = value.get("__args").cloned().unwrap_or(json!({}));
         return match name.as_str() {
             "data_ref" => resolve_data_ref(
-                arg0_string(&args)
-                    .unwrap_or_default()
-                    .as_str(),
+                arg0_string(&args).unwrap_or_default().as_str(),
                 &ctx.dataset_rowsets,
             ),
             "where" => aek(
@@ -1064,10 +1161,21 @@ fn lower_predicate(value: &Value) -> Value {
                 )],
             ),
             "not_" | "not" => aek("not", &[("predicate", lower_predicate(arg0(&args)))]),
-            "not_empty" => aek("not_empty", &[("field", json!(arg0_string(&args).unwrap_or_default()))]),
-            "present" => aek("present", &[("field", json!(arg0_string(&args).unwrap_or_default()))]),
-            "blank" => aek("blank", &[("field", json!(arg0_string(&args).unwrap_or_default()))]),
-            "contains" => aek("contains", &[
+            "not_empty" => aek(
+                "not_empty",
+                &[("field", json!(arg0_string(&args).unwrap_or_default()))],
+            ),
+            "present" => aek(
+                "present",
+                &[("field", json!(arg0_string(&args).unwrap_or_default()))],
+            ),
+            "blank" => aek(
+                "blank",
+                &[("field", json!(arg0_string(&args).unwrap_or_default()))],
+            ),
+            "contains" => aek(
+                "contains",
+                &[
                     ("field", json!(arg0_string(&args).unwrap_or_default())),
                     (
                         "value",
@@ -1078,42 +1186,60 @@ fn lower_predicate(value: &Value) -> Value {
                     ),
                 ],
             ),
-            "matches" => aek("matches", &[
+            "matches" => aek(
+                "matches",
+                &[
                     ("field", json!(arg0_string(&args).unwrap_or_default())),
                     (
                         "pattern",
-                        json!(args.get("pattern")
+                        json!(args
+                            .get("pattern")
                             .or_else(|| args.get("arg1"))
                             .and_then(Value::as_str)
                             .unwrap_or("")),
                     ),
                 ],
             ),
-            "in_values" => aek("in_values", &[
+            "in_values" => aek(
+                "in_values",
+                &[
                     ("field", json!(arg0_string(&args).unwrap_or_default())),
                     ("values", arg1(&args).clone()),
                 ],
             ),
-            "eq" => aek("eq", &[
+            "eq" => aek(
+                "eq",
+                &[
                     ("field", json!(arg0_string(&args).unwrap_or_default())),
                     ("value", arg1(&args).clone()),
                 ],
             ),
-            "gt" => aek("gt", &[
+            "gt" => aek(
+                "gt",
+                &[
                     ("field", json!(arg0_string(&args).unwrap_or_default())),
                     ("value", arg1(&args).clone()),
                 ],
             ),
-            "field_gt" => aek("field_gt", &[
+            "field_gt" => aek(
+                "field_gt",
+                &[
                     ("left_field", json!(arg0_string(&args).unwrap_or_default())),
                     ("right_field", json!(arg1_string(&args).unwrap_or_default())),
                 ],
             ),
-            "is_yes" => aek("and", &[(
+            "is_yes" => aek(
+                "and",
+                &[(
                     "predicates",
                     json!([
-                        aek("not_empty", &[("field", json!(arg0_string(&args).unwrap_or_default()))]),
-                        aek("contains", &[
+                        aek(
+                            "not_empty",
+                            &[("field", json!(arg0_string(&args).unwrap_or_default()))]
+                        ),
+                        aek(
+                            "contains",
+                            &[
                                 ("field", json!(arg0_string(&args).unwrap_or_default())),
                                 ("value", json!("是")),
                             ],
@@ -1126,7 +1252,6 @@ fn lower_predicate(value: &Value) -> Value {
     }
     value.clone()
 }
-
 
 fn lower_explain_items(items: &[Value], ctx: &V2MetricLowerContext) -> Value {
     Value::Array(
@@ -1155,10 +1280,7 @@ fn lower_explain_item(value: &Value, ctx: &V2MetricLowerContext) -> Option<Value
             product.insert("label".to_string(), label.clone());
         }
         if let Some(value_expr) = args.get("value") {
-            product.insert(
-                "value".to_string(),
-                lower_rowset(value_expr, ctx),
-            );
+            product.insert("value".to_string(), lower_rowset(value_expr, ctx));
         }
         return Some(Value::Object(product));
     }
@@ -1243,7 +1365,10 @@ fn aek(type_name: &str, fields: &[(&str, Value)]) -> Value {
 }
 
 fn v2_call_name(value: &Value) -> Option<String> {
-    value.get("__call").and_then(Value::as_str).map(str::to_string)
+    value
+        .get("__call")
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn arg0(args: &Value) -> &Value {
@@ -1289,7 +1414,7 @@ fn positional_args(args: &Value) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-        #[test]
+    #[test]
     fn lower_realtime_warning_detail_has_count_rowset() {
         let raw = json!({
             "__call": "metric_scalar",
@@ -1303,11 +1428,16 @@ mod tests {
         });
         let ctx = V2MetricLowerContext::default();
         let lowered = lower_v2_metric("realtime_warning_detail", &raw, &ctx).expect("lower");
-        assert_eq!(lowered.get("shape").and_then(|v| v.as_str()), Some("scalar_map"));
-        assert!(lowered
-            .pointer("/values/value/type")
-            .and_then(|v| v.as_str())
-            == Some("count"));
+        assert_eq!(
+            lowered.get("shape").and_then(|v| v.as_str()),
+            Some("scalar_map")
+        );
+        assert!(
+            lowered
+                .pointer("/values/value/type")
+                .and_then(|v| v.as_str())
+                == Some("count")
+        );
     }
 
     #[test]
@@ -1341,9 +1471,8 @@ mod tests {
                 }
             }
         ]);
-        let ctx = V2MetricLowerContext::from_bundle_datasets(
-            bundle_datasets.as_array().expect("array"),
-        );
+        let ctx =
+            V2MetricLowerContext::from_bundle_datasets(bundle_datasets.as_array().expect("array"));
         let raw = json!({
             "__call": "metric_scalar",
             "__args": {
@@ -1358,7 +1487,8 @@ mod tests {
                 }
             }
         });
-        let lowered = lower_v2_metric("effectiveness_issue_verification_rate", &raw, &ctx).expect("lower");
+        let lowered =
+            lower_v2_metric("effectiveness_issue_verification_rate", &raw, &ctx).expect("lower");
         let rowset = lowered
             .pointer("/values/value/numerator/value/rowset")
             .or_else(|| lowered.pointer("/values/value/numerator/value/source/rowset"));
@@ -1387,9 +1517,8 @@ mod tests {
                 },
             },
         ]);
-        let ctx = V2MetricLowerContext::from_bundle_datasets(
-            bundle_datasets.as_array().expect("array"),
-        );
+        let ctx =
+            V2MetricLowerContext::from_bundle_datasets(bundle_datasets.as_array().expect("array"));
         let raw = json!({
             "__call": "metric_scalar",
             "__args": {
@@ -1407,7 +1536,8 @@ mod tests {
                 ],
             },
         });
-        let lowered = lower_v2_metric("effectiveness_mechanism_item_count", &raw, &ctx).expect("lower");
+        let lowered =
+            lower_v2_metric("effectiveness_mechanism_item_count", &raw, &ctx).expect("lower");
         let explain = lowered
             .get("explain")
             .and_then(Value::as_array)
@@ -1418,7 +1548,10 @@ mod tests {
             explain.get("__kind").and_then(Value::as_str),
             Some("data_product")
         );
-        assert_eq!(explain.get("id").and_then(Value::as_str), Some("mechanism_documents_list"));
+        assert_eq!(
+            explain.get("id").and_then(Value::as_str),
+            Some("mechanism_documents_list")
+        );
         assert_eq!(
             explain.get("shape").and_then(Value::as_str),
             Some("dataframe")
@@ -1432,12 +1565,19 @@ mod tests {
             Some("检查日期".to_string()),
             json!(2024),
         );
-        let predicate = rowset
-            .pointer("/predicate")
-            .expect("predicate");
-        assert_eq!(predicate.get("type").and_then(Value::as_str), Some("between"));
-        assert_eq!(predicate.get("lower").and_then(Value::as_str), Some("2024-01-01"));
-        assert_eq!(predicate.get("upper").and_then(Value::as_str), Some("2024-12-31"));
+        let predicate = rowset.pointer("/predicate").expect("predicate");
+        assert_eq!(
+            predicate.get("type").and_then(Value::as_str),
+            Some("between")
+        );
+        assert_eq!(
+            predicate.get("lower").and_then(Value::as_str),
+            Some("2024-01-01")
+        );
+        assert_eq!(
+            predicate.get("upper").and_then(Value::as_str),
+            Some("2024-12-31")
+        );
         assert!(predicate.get("min").is_none());
         assert!(predicate.get("max").is_none());
     }

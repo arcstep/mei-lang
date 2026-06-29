@@ -24,10 +24,7 @@ pub fn router(ctx: HostContext) -> Router {
             post(api_datasets_query_with_app),
         )
         .route("/api/datasets/query", post(api_datasets_query))
-        .route(
-            "/api/datasets/metrics/:app_id",
-            post(api_datasets_metrics),
-        )
+        .route("/api/datasets/metrics/:app_id", post(api_datasets_metrics))
         .with_state(state)
 }
 

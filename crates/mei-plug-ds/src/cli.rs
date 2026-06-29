@@ -2,7 +2,10 @@ use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "mei-plug-ds", about = "MeiLang data-source plugin (warmup + datasets API)")]
+#[command(
+    name = "mei-plug-ds",
+    about = "MeiLang data-source plugin (warmup + datasets API)"
+)]
 pub struct Cli {
     #[arg(short = 'V', long = "version", global = true)]
     pub print_version: bool,

@@ -114,7 +114,7 @@ def frame_file_ref(path, id = None):
         "id": id,
     })
 
-def app_add_scene(scene = None, id = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, bindings = None, examples = None):
+def app_add_scene(scene = None, id = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, params = None, accepts = None, capabilities = None, bindings = None, examples = None):
     if scene != None:
         return _declare({
             "kind": "app_scene_ref",
@@ -128,11 +128,15 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         goal = goal,
         state = state,
         shared = shared,
+        params = params,
+        accepts = accepts,
+        capabilities = capabilities,
         bindings = bindings,
         examples = examples,
     )
 
-def _scene_payload(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, access_export = None, bindings = None, examples = None, base = None):
+def _scene_payload(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, accepts = None, capabilities = None, access_export = None, bindings = None, examples = None, base = None):
+    resolved_params = params if params != None else accepts
     payload = {
         "kind": "scene",
         "id": id,
@@ -146,7 +150,8 @@ def _scene_payload(id = None, world = None, flow = None, frame = None, profile =
         "state": state if state != None else {},
         "shared": shared if shared != None else {},
         "local_nav": local_nav,
-        "params": params if params != None else {},
+        "params": resolved_params if resolved_params != None else {},
+        "capabilities": capabilities,
         "access_export": access_export,
         "bindings": bindings if bindings != None else {},
         "examples": examples if examples != None else [],
@@ -163,7 +168,7 @@ def _finalize_scene_payload(payload, access_export = None):
         cleaned["access_export"] = False
     return cleaned
 
-def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, access_export = None, bindings = None, examples = None, base = None):
+def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, accepts = None, capabilities = None, access_export = None, bindings = None, examples = None, base = None):
     return _declare(_finalize_scene_payload(
         _scene_payload(
             id = id,
@@ -178,6 +183,8 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
             shared = shared,
             local_nav = local_nav,
             params = params,
+            accepts = accepts,
+            capabilities = capabilities,
             access_export = access_export,
             bindings = bindings,
             examples = examples,
@@ -186,7 +193,7 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         access_export = access_export,
     ))
 
-def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, access_export = None, bindings = None, examples = None, base = None):
+def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, accepts = None, capabilities = None, access_export = None, bindings = None, examples = None, base = None):
     return scene_decl(
         id = id,
         world = world,
@@ -200,13 +207,15 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         shared = shared,
         local_nav = local_nav,
         params = params,
+        accepts = accepts,
+        capabilities = capabilities,
         access_export = access_export,
         bindings = bindings,
         examples = examples,
         base = base,
     )
 
-def scene_export(id, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, access_export = None, bindings = None, examples = None, base = None):
+def scene_export(id, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, accepts = None, capabilities = None, access_export = None, bindings = None, examples = None, base = None):
     export_id = str(id).strip() if id != None else ""
     if export_id == "":
         fail("scene_export(...) requires `id`")
@@ -224,6 +233,8 @@ def scene_export(id, world = None, flow = None, frame = None, profile = None, th
             shared = shared,
             local_nav = local_nav,
             params = params,
+            accepts = accepts,
+            capabilities = capabilities,
             access_export = access_export,
             bindings = bindings,
             examples = examples,

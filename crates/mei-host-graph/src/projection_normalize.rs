@@ -108,11 +108,7 @@ fn collect_v2_shell_zones(panels: &[Value], parent: &str, out: &mut Vec<Value>) 
         let slot = args.get("slot");
         let role = slot
             .and_then(v2_slot_kind)
-            .or_else(|| {
-                args.get("role")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
+            .or_else(|| args.get("role").and_then(Value::as_str).map(str::to_string))
             .unwrap_or_default();
         if !panel_id.is_empty() && !role.is_empty() {
             let slot_map = slot.and_then(v2_slot_object);
@@ -161,7 +157,11 @@ fn collect_v2_shell_zones(panels: &[Value], parent: &str, out: &mut Vec<Value>) 
                     .collect()
             })
             .unwrap_or_default();
-        let next_parent = if panel_id.is_empty() { parent } else { panel_id.as_str() };
+        let next_parent = if panel_id.is_empty() {
+            parent
+        } else {
+            panel_id.as_str()
+        };
         collect_v2_shell_zones(&child_panels, next_parent, out);
     }
 }
@@ -209,7 +209,12 @@ fn build_shell_contract(payload: &Map<String, Value>) -> Option<Value> {
     let layout = payload
         .get("layout")
         .cloned()
-        .or_else(|| payload.get("frame").and_then(|frame| frame.get("layout")).cloned())
+        .or_else(|| {
+            payload
+                .get("frame")
+                .and_then(|frame| frame.get("layout"))
+                .cloned()
+        })
         .and_then(|layout| v2_layout_to_value(&layout));
     if zones.is_empty() && layout.is_none() {
         return None;
@@ -266,20 +271,19 @@ mod tests {
         }
         let raw = fs::read_to_string(path).expect("read fixture");
         let artifact: Value = serde_json::from_str(&raw).expect("parse fixture");
-        let payload = artifact
-            .get("payload")
-            .cloned()
-            .expect("payload");
+        let payload = artifact.get("payload").cloned().expect("payload");
         let normalized = normalize_board_assembly_payload(payload);
-        let shell = normalized
-            .get("shell_contract")
-            .expect("shell_contract");
+        let shell = normalized.get("shell_contract").expect("shell_contract");
         assert_eq!(
             shell.get("layout_mode").and_then(Value::as_str),
             Some("analytics")
         );
         let zones = shell.get("zones").and_then(Value::as_array).expect("zones");
-        assert!(zones.iter().any(|zone| zone.get("role") == Some(&json!("filter"))));
-        assert!(zones.iter().any(|zone| zone.get("role") == Some(&json!("slots"))));
+        assert!(zones
+            .iter()
+            .any(|zone| zone.get("role") == Some(&json!("filter"))));
+        assert!(zones
+            .iter()
+            .any(|zone| zone.get("role") == Some(&json!("slots"))));
     }
 }

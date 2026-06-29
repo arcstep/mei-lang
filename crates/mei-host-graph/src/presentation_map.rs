@@ -46,7 +46,10 @@ fn collect_block_viewpoints(
         };
         match node {
             UiNodeDecl::Block(block) => {
-                if let Some(vp) = block.props.get("viewpoint").or_else(|| block.props.get("__mei_viewpoint"))
+                if let Some(vp) = block
+                    .props
+                    .get("viewpoint")
+                    .or_else(|| block.props.get("__mei_viewpoint"))
                 {
                     if let Some(id) = resolve_viewpoint_id(vp) {
                         out.insert(
@@ -184,7 +187,12 @@ pub fn build_presentation_map(
             }
         }
         if let Some(payload) = panel_payloads.get(panel.id.as_str()) {
-            merge_panel_contract_viewpoints(payload, panel.id.as_str(), tier.as_str(), &mut viewpoints);
+            merge_panel_contract_viewpoints(
+                payload,
+                panel.id.as_str(),
+                tier.as_str(),
+                &mut viewpoints,
+            );
         }
         collect_block_viewpoints(&panel.blocks, panel, "", &mut viewpoints);
     }
@@ -210,10 +218,7 @@ mod tests {
             "__call": "viewpoint_ref",
             "__args": { "arg0": "warnings_total" }
         });
-        assert_eq!(
-            resolve_viewpoint_id(&vp).as_deref(),
-            Some("warnings_total")
-        );
+        assert_eq!(resolve_viewpoint_id(&vp).as_deref(), Some("warnings_total"));
     }
 
     #[test]
@@ -222,10 +227,7 @@ mod tests {
             "__ref": "viewpoint_ref",
             "__args": { "arg0": "warnings_total" }
         });
-        assert_eq!(
-            resolve_viewpoint_id(&vp).as_deref(),
-            Some("warnings_total")
-        );
+        assert_eq!(resolve_viewpoint_id(&vp).as_deref(), Some("warnings_total"));
     }
 
     #[test]

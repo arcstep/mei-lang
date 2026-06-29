@@ -71,10 +71,13 @@ fn eval_panel_const_expr(
         V2Expr::Dict(entries) => {
             let mut out = Vec::new();
             for (key, value) in entries {
-                out.push((key.clone(), eval_panel_const_expr(value, all_consts, evaluated)?));
+                out.push((
+                    key.clone(),
+                    eval_panel_const_expr(value, all_consts, evaluated)?,
+                ));
             }
             Ok(V2Expr::Dict(out))
-        },
+        }
         V2Expr::RefCall { .. } | V2Expr::Call { .. } => Ok(expr.clone()),
         other => Ok(other.clone()),
     }
@@ -156,7 +159,10 @@ MAP_SPEC = {
 panel_contract(id = "gis-map")
 "#;
         let constants = parse_panel_constants_from_source(src);
-        assert_eq!(constants.get("MAP_BUNDLE"), Some(&json!("metrics/map.bundle.mei")));
+        assert_eq!(
+            constants.get("MAP_BUNDLE"),
+            Some(&json!("metrics/map.bundle.mei"))
+        );
         let outline = constants.get("GEO_OUTLINE").expect("GEO_OUTLINE");
         assert_eq!(outline["__ref"], json!("ops_param_ref"));
         let map_spec = constants.get("MAP_SPEC").expect("MAP_SPEC");

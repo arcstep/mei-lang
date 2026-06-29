@@ -119,6 +119,7 @@ fn scene_contracts_from_compiled(compiled: &CompiledApp) -> BTreeMap<String, Sce
                     shared: Value::Null,
                     local_nav,
                     params: Value::Null,
+                    capabilities: Value::Null,
                     bindings: Value::Null,
                     examples: Value::Null,
                     access_export: true,

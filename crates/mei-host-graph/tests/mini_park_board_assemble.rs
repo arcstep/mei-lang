@@ -17,26 +17,26 @@ fn ensure_imported() {
     INIT.call_once(|| {
         let workspace = ws_demo_v2();
         let bundle = workspace.join(
-            "apps/layout-basic/env/2.0.5-ws20260628/build/exchange/layout-basic.meibundle",
+            "apps/mini-park/env/2.0.5-ws20260628/build/exchange/mini-park.meibundle",
         );
-        assert!(bundle.is_file(), "compile layout-basic first");
-        let ctx = HostContext::new(workspace, "layout-basic");
+        assert!(bundle.is_file(), "compile mini-park first");
+        let ctx = HostContext::new(workspace, "mini-park");
         import_bundle(
             &ctx,
             &ImportOptions {
                 bundle_path: Some(bundle),
             },
         )
-        .expect("import layout-basic bundle");
+        .expect("import mini-park bundle");
     });
 }
 
 #[test]
-fn layout_basic_park_point_board_assembles_inline_panels() {
+fn mini_park_park_point_board_assembles_inline_panels() {
     ensure_imported();
     let outcome = assemble_scope_from_registry(
         ws_demo_v2().as_path(),
-        "layout-basic",
+        "mini-park",
         "park_point_1_board",
     )
     .expect("assemble")

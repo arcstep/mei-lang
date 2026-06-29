@@ -155,7 +155,10 @@ pub fn lower_panel_payload(
         .and_then(|v| v.as_str())
         .unwrap_or(panel_key)
         .to_string();
-    let area = payload.get("area").and_then(|v| v.as_str()).map(str::to_string);
+    let area = payload
+        .get("area")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
 
     if payload.get("slots").and_then(Value::as_array).is_some() {
         return lower_panel_with_slots(payload, id, area, ctx);
@@ -175,7 +178,10 @@ pub fn lower_panel_payload(
     Ok(PanelDecl {
         kind: "panel".to_string(),
         id,
-        title: payload.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        title: payload
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         head: None,
         area,
         layout: payload.get("layout").and_then(lower_layout),
@@ -183,10 +189,7 @@ pub fn lower_panel_payload(
         slot: None,
         props,
         head_props: lower_head_props(payload),
-        body_props: payload
-            .get("body_props")
-            .cloned()
-            .unwrap_or(json!({})),
+        body_props: payload.get("body_props").cloned().unwrap_or(json!({})),
         base: None,
         import_scope: None,
     })
@@ -259,13 +262,7 @@ fn lower_panel_from_shell(
     }
     match v2_call_name(shell) {
         Some("screen_header") => lower_screen_header_panel(payload, shell, id, area, ctx),
-        Some("titled_shell") => lower_titled_shell_panel(
-            shell,
-            id,
-            area,
-            ctx,
-            Some(payload),
-        ),
+        Some("titled_shell") => lower_titled_shell_panel(shell, id, area, ctx, Some(payload)),
         _ => lower_panel_from_generic_shell(payload, shell, id, area, ctx),
     }
 }
@@ -388,7 +385,10 @@ fn lower_titled_shell_panel(
     Ok(PanelDecl {
         kind: "panel".to_string(),
         id,
-        title: args.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        title: args
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         head: None,
         area,
         layout: args.get("layout").and_then(lower_layout),
@@ -396,10 +396,7 @@ fn lower_titled_shell_panel(
         slot: None,
         props,
         head_props,
-        body_props: args
-            .get("body_props")
-            .cloned()
-            .unwrap_or(json!({})),
+        body_props: args.get("body_props").cloned().unwrap_or(json!({})),
         base: None,
         import_scope: None,
     })
@@ -413,10 +410,7 @@ fn lower_panel_from_generic_shell(
     ctx: &PanelLowerContext<'_>,
 ) -> Result<PanelDecl> {
     let args = v2_call_args(shell).context("panel shell missing __args")?;
-    let mut props = args
-        .get("props")
-        .cloned()
-        .unwrap_or(json!({}));
+    let mut props = args.get("props").cloned().unwrap_or(json!({}));
     merge_card_fields(&mut props, args);
     apply_tier_and_placement(payload, &mut props);
 
@@ -432,7 +426,10 @@ fn lower_panel_from_generic_shell(
     Ok(PanelDecl {
         kind: "panel".to_string(),
         id,
-        title: args.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        title: args
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         head: None,
         area,
         layout: args.get("layout").and_then(lower_layout),
@@ -440,10 +437,7 @@ fn lower_panel_from_generic_shell(
         slot: None,
         props,
         head_props,
-        body_props: args
-            .get("body_props")
-            .cloned()
-            .unwrap_or(json!({})),
+        body_props: args.get("body_props").cloned().unwrap_or(json!({})),
         base: None,
         import_scope: None,
     })
@@ -552,25 +546,22 @@ fn lower_layout(value: &Value) -> Option<LayoutDecl> {
     let obj = args.as_object()?;
     Some(LayoutDecl {
         layout_type,
-        direction: obj.get("direction").and_then(|v| v.as_str()).map(str::to_string),
-        columns: obj
-            .get("columns")
-            .and_then(|v| v.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            }),
-        rows: obj
-            .get("rows")
-            .and_then(|v| v.as_array())
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect()
-            }),
+        direction: obj
+            .get("direction")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        columns: obj.get("columns").and_then(|v| v.as_array()).map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        }),
+        rows: obj.get("rows").and_then(|v| v.as_array()).map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        }),
         areas: obj.get("areas").and_then(|v| v.as_array()).map(|rows| {
             rows.iter()
                 .filter_map(|row| {
@@ -588,7 +579,10 @@ fn lower_layout(value: &Value) -> Option<LayoutDecl> {
             .get("padding")
             .and_then(|v| v.as_str())
             .map(str::to_string),
-        align: obj.get("align").and_then(|v| v.as_str()).map(str::to_string),
+        align: obj
+            .get("align")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         justify: obj
             .get("justify")
             .and_then(|v| v.as_str())
@@ -670,7 +664,10 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
         .and_then(|v| v.as_str())
         .unwrap_or("panel")
         .to_string();
-    let area = args.get("area").and_then(|v| v.as_str()).map(str::to_string);
+    let area = args
+        .get("area")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
 
     let mut props = json!({});
     if let Some(expanded) = expanded_template {
@@ -687,11 +684,13 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
     }
     for key in ["variant", "chrome", "show_heading"] {
         if let Some(value) = args.get(key) {
-            props.as_object_mut()
+            props
+                .as_object_mut()
                 .expect("panel props object")
                 .insert(key.to_string(), value.clone());
         } else if let Some(expanded) = expanded_template.and_then(|t| t.get(key)) {
-            props.as_object_mut()
+            props
+                .as_object_mut()
                 .expect("panel props object")
                 .insert(key.to_string(), expanded.clone());
         }
@@ -705,7 +704,10 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
     Ok(PanelDecl {
         kind: "panel".to_string(),
         id,
-        title: args.get("title").and_then(|v| v.as_str()).map(str::to_string),
+        title: args
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         head: None,
         area,
         layout,
@@ -772,14 +774,13 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
     stamp_metric_vertical_align(&mut props, args);
     props = resolve_panel_constant_exprs(&props, ctx);
 
-    let title_ratio = metric_ratio_from_props(&props, "__mei_metric_title_ratio", preset.title_ratio);
+    let title_ratio =
+        metric_ratio_from_props(&props, "__mei_metric_title_ratio", preset.title_ratio);
     let content_ratio =
         metric_ratio_from_props(&props, "__mei_metric_content_ratio", preset.content_ratio);
 
-    let source = resolve_config_refs_in_value(
-        &args.get("source").cloned().unwrap_or(json!({})),
-        ctx,
-    );
+    let source =
+        resolve_config_refs_in_value(&args.get("source").cloned().unwrap_or(json!({})), ctx);
     let map = args.get("map").cloned();
     let patch = args.get("patch").cloned();
     let popup = args
@@ -854,7 +855,10 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
             .to_string(),
         title: None,
         head: None,
-        area: args.get("area").and_then(|v| v.as_str()).map(str::to_string),
+        area: args
+            .get("area")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         layout,
         blocks,
         slot: None,
@@ -878,7 +882,9 @@ fn metric_template_desc_text(template: Option<&Value>) -> Option<String> {
                 } else {
                     block.get("props")
                 };
-                let role = props.and_then(|p| p.get("metric_role")).and_then(Value::as_str);
+                let role = props
+                    .and_then(|p| p.get("metric_role"))
+                    .and_then(Value::as_str);
                 if role == Some("desc") {
                     return props
                         .and_then(|p| p.get("content"))
@@ -972,15 +978,7 @@ fn metric_runtime_blocks(
         .into_iter()
         .map(|role| {
             UiNodeDecl::Block(metric_runtime_slot_block(
-                source,
-                role,
-                role,
-                template,
-                map,
-                patch,
-                popup,
-                args,
-                &constants,
+                source, role, role, template, map, patch, popup, args, &constants,
             ))
         })
         .collect()
@@ -1099,7 +1097,11 @@ fn metric_layout_from_template(
         return LayoutDecl {
             layout_type: "grid".to_string(),
             direction: None,
-            columns: Some(vec!["auto".to_string(), "auto".to_string(), "auto".to_string()]),
+            columns: Some(vec![
+                "auto".to_string(),
+                "auto".to_string(),
+                "auto".to_string(),
+            ]),
             rows: Some(vec!["1fr".to_string()]),
             areas: Some(vec![vec![
                 "label".to_string(),
@@ -1206,7 +1208,11 @@ fn metric_template_preset(name: &str) -> MetricTemplatePreset {
             layout: Some(LayoutDecl {
                 layout_type: "grid".to_string(),
                 direction: None,
-                columns: Some(vec!["auto".to_string(), "auto".to_string(), "auto".to_string()]),
+                columns: Some(vec![
+                    "auto".to_string(),
+                    "auto".to_string(),
+                    "auto".to_string(),
+                ]),
                 rows: Some(vec!["1fr".to_string()]),
                 areas: Some(vec![vec![
                     "label".to_string(),
@@ -1353,34 +1359,97 @@ fn merge_popup_metric_source(
     }
 }
 
+struct BoardSceneTarget {
+    scene_id: String,
+    scene_file: String,
+    accepts: Option<Value>,
+    capabilities: Option<Value>,
+}
+
 fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option<Value> {
     let payload = load_link_decl_payload(ctx, link_key)?;
-    let board_ref = payload.get("board")?;
-    let board_key = v2_ref_arg0(board_ref)?;
-    let (scene_id, scene_file) = resolve_board_assembly_target(ctx, board_key.as_str())?;
+    let target_ref = payload.get("target").or_else(|| payload.get("board"))?;
+    let board_key = v2_ref_arg0(target_ref)?;
+    let target = resolve_board_assembly_target(ctx, board_key.as_str())?;
     let params = payload
-        .get("default_params")
+        .get("params")
         .cloned()
+        .or_else(|| payload.get("default_params").cloned())
         .unwrap_or(json!({}));
+    let overlay_projection = payload
+        .get("projection")
+        .cloned()
+        .unwrap_or(json!("overlay"));
+    let popup_type = payload.get("type").cloned().unwrap_or(json!("popup"));
     let overlay_size = payload
         .get("overlay_size")
         .and_then(|v| v.as_str())
         .unwrap_or("large");
     let overlay_workspace = payload.get("overlay_workspace").cloned();
+    let target_scene_id = target.scene_id.clone();
+    let target_scene_file = target.scene_file.clone();
+    let mut target_json = json!({
+        "kind": "board",
+        "scene_id": target_scene_id,
+        "scene_file": target_scene_file,
+    });
+    if let Some(map) = target_json.as_object_mut() {
+        if let Some(accepts) = target.accepts.filter(|value| !value.is_null()) {
+            map.insert("accepts".to_string(), accepts);
+        }
+        if let Some(capabilities) = target.capabilities.filter(|value| !value.is_null()) {
+            map.insert("capabilities".to_string(), capabilities);
+        }
+    }
+    let mut presentation = json!({
+        "kind": "overlay_board",
+        "projection": overlay_projection.clone(),
+        "type": popup_type.clone(),
+        "overlay_size": overlay_size,
+    });
+    if let Some(workspace) = overlay_workspace.clone().filter(|v| v.is_object()) {
+        if let Some(map) = presentation.as_object_mut() {
+            map.insert("overlay_workspace".to_string(), workspace);
+        }
+    }
     let mut popup = json!({
+        "kind": "scene_open",
         "mode": "popup",
-        "type": payload.get("type").cloned().unwrap_or(json!("popup")),
-        "projection": payload.get("projection").cloned().unwrap_or(json!("overlay")),
+        "type": popup_type.clone(),
+        "projection": overlay_projection.clone(),
         "overlay_size": overlay_size,
         "link_key": normalized_link_key(link_key),
-        "scene_id": scene_id,
-        "scene_file": scene_file,
+        "scene_id": target_scene_id.clone(),
+        "scene_file": target_scene_file.clone(),
         "scene": {
-            "scene_id": scene_id,
-            "scene_file": scene_file,
+            "scene_id": target_scene_id,
+            "scene_file": target_scene_file,
         },
-        "params": params,
+        "params": params.clone(),
+        "context": {
+            "params": params,
+        },
+        "target": target_json,
+        "presentation": presentation,
     });
+    if let Some(map) = popup.as_object_mut() {
+        if let Some(accepts) = map
+            .get("target")
+            .and_then(Value::as_object)
+            .and_then(|target| target.get("accepts"))
+            .cloned()
+        {
+            map.insert("accepts".to_string(), accepts);
+        }
+        if let Some(capabilities) = map
+            .get("target")
+            .and_then(Value::as_object)
+            .and_then(|target| target.get("capabilities"))
+            .cloned()
+        {
+            map.insert("capabilities".to_string(), capabilities);
+        }
+    }
     if let Some(workspace) = overlay_workspace.filter(|v| v.is_object()) {
         if let Some(map) = popup.as_object_mut() {
             if let Some(size) = workspace
@@ -1421,16 +1490,24 @@ fn load_link_decl_payload(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option
 fn resolve_board_assembly_target(
     ctx: &PanelLowerContext<'_>,
     board_key: &str,
-) -> Option<(String, String)> {
-    let node = ctx.registry.nodes.iter().find(|node| {
-        node.id.kind == GraphNodeKind::AssemblyView && node.id.key == board_key
-    })?;
+) -> Option<BoardSceneTarget> {
+    let node = ctx
+        .registry
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::AssemblyView && node.id.key == board_key)?;
     let pref = node.payload_ref.as_ref()?;
     let artifact = load_block_artifact(ctx.app_root, pref).ok()??;
     let payload = artifact.get("payload")?;
-    let scene_id = payload.get("scene").and_then(|v| v.as_str())?.to_string();
-    let scene_file = assembly_key_to_target(board_key);
-    Some((scene_id, scene_file))
+    Some(BoardSceneTarget {
+        scene_id: payload.get("scene").and_then(|v| v.as_str())?.to_string(),
+        scene_file: assembly_key_to_target(board_key),
+        accepts: payload
+            .get("accepts")
+            .cloned()
+            .or_else(|| payload.get("params").cloned()),
+        capabilities: payload.get("capabilities").cloned(),
+    })
 }
 
 fn resolve_basemap_value(ctx: &PanelLowerContext<'_>, id: &str) -> Option<Value> {
@@ -1486,9 +1563,7 @@ fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> V
                 }
             }
             if v2_ref_name(&value) == Some("metric_ref") {
-                if let Some(lowered) =
-                    lower_v2_metric_ref(&value, &combined_panel_constants(ctx))
-                {
+                if let Some(lowered) = lower_v2_metric_ref(&value, &combined_panel_constants(ctx)) {
                     return lowered;
                 }
             }
@@ -1515,10 +1590,7 @@ fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> V
             }
             let mut out = Map::new();
             for (key, entry) in map {
-                out.insert(
-                    key.clone(),
-                    resolve_config_refs_in_value(&entry, ctx),
-                );
+                out.insert(key.clone(), resolve_config_refs_in_value(&entry, ctx));
             }
             Value::Object(out)
         }
@@ -1553,11 +1625,14 @@ fn metric_shell_props(height_px: Option<i64>, template: &str, density: &str) -> 
     props.insert("chrome".to_string(), json!("bare"));
     props.insert("variant".to_string(), json!("container"));
     props.insert("show_heading".to_string(), json!(false));
-    props.insert("padding".to_string(), json!(match density {
-        "compact" => "4px 3px",
-        "roomy" => "8px 5px",
-        _ => "6px 4px",
-    }));
+    props.insert(
+        "padding".to_string(),
+        json!(match density {
+            "compact" => "4px 3px",
+            "roomy" => "8px 5px",
+            _ => "6px 4px",
+        }),
+    );
     props.insert("width".to_string(), json!("100%"));
     props.insert("box_sizing".to_string(), json!("border-box"));
     props.insert("overflow".to_string(), json!("hidden"));
@@ -1715,9 +1790,7 @@ fn resolve_assets_map(value: Option<&Value>, app_id: &str) -> Value {
 fn resolve_asset_value(value: &Value, app_id: &str) -> Value {
     if v2_ref_name(value) == Some("asset_ref") {
         if let Some(path) = v2_ref_arg0(value) {
-            return json!(format!(
-                "/workspace-app-assets/{app_id}/assets/{path}"
-            ));
+            return json!(format!("/workspace-app-assets/{app_id}/assets/{path}"));
         }
     }
     value.clone()
@@ -1738,8 +1811,14 @@ fn lower_component(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<BlockDe
         kind: "block".to_string(),
         use_key,
         id: args.get("id").and_then(|v| v.as_str()).map(str::to_string),
-        title: args.get("title").and_then(|v| v.as_str()).map(str::to_string),
-        area: args.get("area").and_then(|v| v.as_str()).map(str::to_string),
+        title: args
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        area: args
+            .get("area")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
         props,
         base: None,
         layout: args.get("layout").and_then(lower_layout),
@@ -1790,9 +1869,11 @@ pub fn find_panel_contract_node<'a>(
     scene_id: &str,
 ) -> Option<&'a crate::mcg::registry::McgNodeRecord> {
     for key in panel_contract_lookup_keys(panel_key, scene_id) {
-        if let Some(node) = registry.nodes.iter().find(|node| {
-            node.id.kind == GraphNodeKind::PanelContract && node.id.key == key
-        }) {
+        if let Some(node) = registry
+            .nodes
+            .iter()
+            .find(|node| node.id.kind == GraphNodeKind::PanelContract && node.id.key == key)
+        {
             return Some(node);
         }
     }
@@ -1861,10 +1942,7 @@ mod tests {
         let frame = lower_frame_from_assembly(&payload);
         assert_eq!(frame.kind, "frame");
         assert_eq!(frame.layout.as_ref().unwrap().layout_type, "grid");
-        assert_eq!(
-            frame.props["viewport"]["design_width"].as_i64(),
-            Some(1920)
-        );
+        assert_eq!(frame.props["viewport"]["design_width"].as_i64(), Some(1920));
     }
 
     #[test]
@@ -1897,7 +1975,9 @@ mod tests {
     #[test]
     fn panel_contract_lookup_resolves_content_ref_basename() {
         let keys = panel_contract_lookup_keys("content/realtime-table", "home");
-        assert!(keys.iter().any(|key| key == "panel_contract:realtime-table"));
+        assert!(keys
+            .iter()
+            .any(|key| key == "panel_contract:realtime-table"));
     }
 
     #[test]
@@ -2031,13 +2111,11 @@ mod tests {
             panel.head_props["background"]["image"],
             json!("panel_title_bar")
         );
-        assert!(
-            panel
-                .head_props
-                .get("carets")
-                .and_then(|v| v.get("url"))
-                .is_some()
-        );
+        assert!(panel
+            .head_props
+            .get("carets")
+            .and_then(|v| v.get("url"))
+            .is_some());
         assert_eq!(panel.head_props["height"], json!("54px"));
         assert_eq!(panel.head_props["align"], json!("center"));
         assert!(panel.head_props.get("title_background").is_none());
@@ -2127,15 +2205,23 @@ mod tests {
             scene_id: "home",
             panel_constants: BTreeMap::new(),
         };
-        let panel = lower_panel_with_slots(&payload, "warning".into(), Some("warning".into()), &ctx)
-            .expect("slot panel");
-        assert_eq!(panel.blocks.len(), 1, "expanded titled_shell should lower blocks");
+        let panel =
+            lower_panel_with_slots(&payload, "warning".into(), Some("warning".into()), &ctx)
+                .expect("slot panel");
+        assert_eq!(
+            panel.blocks.len(),
+            1,
+            "expanded titled_shell should lower blocks"
+        );
         let nested = match &panel.blocks[0] {
             UiNodeDecl::Panel(nested) => nested,
             other => panic!("expected nested panel, got {other:?}"),
         };
         assert_eq!(nested.title.as_deref(), Some("监督预警"));
-        assert!(!nested.blocks.is_empty(), "titled shell should load body panel_ref");
+        assert!(
+            !nested.blocks.is_empty(),
+            "titled shell should load body panel_ref"
+        );
     }
 
     #[test]
@@ -2239,7 +2325,10 @@ mod tests {
             other => panic!("expected panel block_ai, got {other:?}"),
         };
         assert_eq!(ai.id, "block_ai");
-        assert!(!ai.blocks.is_empty(), "block_ai should contain lowered metric cards");
+        assert!(
+            !ai.blocks.is_empty(),
+            "block_ai should contain lowered metric cards"
+        );
     }
 
     #[test]
@@ -2453,7 +2542,9 @@ mod tests {
     fn panel_constant_paths_include_scene_home_panels() {
         let paths = panel_constant_candidate_paths("home:basemap");
         assert!(
-            paths.iter().any(|path| path == "src/scene/home/basemap.panel.mei"),
+            paths
+                .iter()
+                .any(|path| path == "src/scene/home/basemap.panel.mei"),
             "expected scene panel path, got {paths:?}"
         );
         let content_paths = panel_constant_candidate_paths("content/gis-map");

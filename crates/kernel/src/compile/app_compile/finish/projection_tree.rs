@@ -108,6 +108,10 @@ pub(super) fn build_scene_projection_maps(
                 }
                 if !contract.scene.params.is_null() {
                     assembly_map.insert("params".to_string(), contract.scene.params.clone());
+                    assembly_map.insert("accepts".to_string(), contract.scene.params.clone());
+                }
+                if !contract.scene.capabilities.is_null() {
+                    assembly_map.insert("capabilities".to_string(), contract.scene.capabilities.clone());
                 }
                 if let Some(frame) = contract.frame.as_ref() {
                     assembly_map.insert(

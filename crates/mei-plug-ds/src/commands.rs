@@ -57,8 +57,7 @@ pub fn resolve_warmup_targets(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        let metrics =
-            mei_host_graph::collect_eval_frontier_with_hops(ctx, frontier, args.hops)?;
+        let metrics = mei_host_graph::collect_eval_frontier_with_hops(ctx, frontier, args.hops)?;
         return Ok(frontier_targets_from_metrics(frontier, &metrics));
     }
     collect_warmup_targets(ctx, Some(args.policy.as_str()))

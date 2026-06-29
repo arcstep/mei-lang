@@ -25,6 +25,7 @@ pub(super) fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
             shared: json!({}),
             local_nav: serde_json::json!({}),
             params: serde_json::json!({}),
+            capabilities: Value::Null,
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,

@@ -33,6 +33,7 @@
   const METRIC_DRILLDOWN_EVENT = "mei:metric-drilldown";
   const ANALYSIS_OPEN_EVENT = "mei:analysis-open";
   const POPUP_OPEN_EVENT = "mei:popup-open";
+  const SCENE_OPEN_EVENT = "mei:scene-open";
   const PREFETCH_PANEL_METRICS_EVENT = "meilang:prefetch-panel-metrics";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const SCENE_BOARD_OVERLAY_ROOT_ID = "mei-access-scene-board-overlay";

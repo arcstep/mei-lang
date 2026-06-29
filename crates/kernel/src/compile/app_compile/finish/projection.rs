@@ -253,6 +253,10 @@ pub(super) fn insert_scene_projection_assembly_entry(
     }
     if !contract.scene.params.is_null() {
         assembly.insert("params".to_string(), contract.scene.params.clone());
+        assembly.insert("accepts".to_string(), contract.scene.params.clone());
+    }
+    if !contract.scene.capabilities.is_null() {
+        assembly.insert("capabilities".to_string(), contract.scene.capabilities.clone());
     }
     if let Some(frame) = contract.frame.as_ref() {
         assembly.insert(

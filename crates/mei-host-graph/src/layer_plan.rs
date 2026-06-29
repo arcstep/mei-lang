@@ -12,7 +12,11 @@ pub struct LayerPlanPanelEntry {
     pub z_index: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "chromeRole")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "chromeRole"
+    )]
     pub chrome_role: Option<String>,
 }
 
@@ -55,7 +59,11 @@ pub fn build_layer_plan(scene_id: &str, panels: &[PanelDecl]) -> LayerPlanDocume
             });
     }
     for entries in tiers.values_mut() {
-        entries.sort_by(|a, b| a.z_index.cmp(&b.z_index).then_with(|| a.panel_id.cmp(&b.panel_id)));
+        entries.sort_by(|a, b| {
+            a.z_index
+                .cmp(&b.z_index)
+                .then_with(|| a.panel_id.cmp(&b.panel_id))
+        });
     }
     LayerPlanDocument {
         schema_version: "mei-layer-plan-v1".to_string(),

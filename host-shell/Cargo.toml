@@ -16,6 +16,7 @@ clap.workspace = true
 mei-host-auth = { path = "../crates/mei-host-auth" }
 mei-host-core = { path = "../crates/mei-host-core" }
 mei-host-graph = { path = "../crates/mei-host-graph" }
+mei-plug-ds = { path = "../crates/mei-plug-ds" }
 mei-lang-app = { path = "../app" }
 mei-lang-kernel = { path = "../crates/kernel" }
 mei-lang-toolchain = { path = "../crates/toolchain" }

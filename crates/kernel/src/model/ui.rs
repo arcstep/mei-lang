@@ -191,8 +191,12 @@ pub struct SceneDecl {
     #[serde(default)]
     pub local_nav: Value,
     /// Scene 级显式输入声明；供 caller 通过 link.params / route params 传值。
-    #[serde(default)]
+    /// `accepts` 作为作者态别名，强调“参数化目标”的心智。
+    #[serde(default, alias = "accepts")]
     pub params: Value,
+    /// Scene / board 的可选能力声明；用于表达运行时能力而非强制作者分型。
+    #[serde(default)]
+    pub capabilities: Value,
     /// Scene 级装配默认绑定；用于把可复用 scene 壳接到本地 world 资源。
     #[serde(default)]
     pub bindings: Value,

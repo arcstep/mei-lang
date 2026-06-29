@@ -9,11 +9,7 @@ pub struct WarmupFrontierOutcome {
     pub navigation_edges_added: usize,
 }
 
-pub fn record_navigation_edge(
-    mrg: &mut MrgRegistry,
-    from_scene: &str,
-    to_scene: &str,
-) -> usize {
+pub fn record_navigation_edge(mrg: &mut MrgRegistry, from_scene: &str, to_scene: &str) -> usize {
     let from = format!("navigation:{from_scene}");
     let to = format!("navigation:{to_scene}");
     if mrg
@@ -31,7 +27,11 @@ pub fn record_navigation_edge(
     1
 }
 
-pub fn warm_frontier_slots(mrg: &MrgRegistry, node_key: &str, k_hops: usize) -> WarmupFrontierOutcome {
+pub fn warm_frontier_slots(
+    mrg: &MrgRegistry,
+    node_key: &str,
+    k_hops: usize,
+) -> WarmupFrontierOutcome {
     let mut visited = BTreeSet::new();
     let mut frontier = vec![node_key.to_string()];
     let mut scheduled = Vec::new();

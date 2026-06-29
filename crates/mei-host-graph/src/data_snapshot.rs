@@ -4,8 +4,8 @@ use std::path::Path;
 use anyhow::Result;
 use mei_host_core::load_app_config;
 use mei_lang_kernel::{
-    data_snapshot_import_manifest_path, ops_source_entry_to_decl, publish_xlsx_data_snapshots_for_paths,
-    resolve_app_root, OpsSourceEntry,
+    data_snapshot_import_manifest_path, ops_source_entry_to_decl,
+    publish_xlsx_data_snapshots_for_paths, resolve_app_root, OpsSourceEntry,
 };
 use serde::Serialize;
 
@@ -19,7 +19,10 @@ pub struct PublishDataSnapshotsReport {
 }
 
 /// Collect xlsx/xls sources from `app.config.json` ops.sources and imported metric bundles.
-pub fn collect_app_xlsx_sources(source_root: &Path, app_id: &str) -> Result<Vec<(String, Option<String>, usize)>> {
+pub fn collect_app_xlsx_sources(
+    source_root: &Path,
+    app_id: &str,
+) -> Result<Vec<(String, Option<String>, usize)>> {
     let app_root = resolve_app_root(source_root, app_id);
     let mut out = BTreeSet::new();
 
@@ -32,7 +35,8 @@ pub fn collect_app_xlsx_sources(source_root: &Path, app_id: &str) -> Result<Vec<
     }
 
     let registry = crate::mcg::registry::McgRegistryWriter::load(source_root, app_id);
-    let resources = crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?;
+    let resources =
+        crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?;
     for resource in resources {
         let Some(dataset) = resource.dataset.as_ref() else {
             continue;
@@ -68,7 +72,10 @@ fn push_xlsx_source(
 }
 
 /// Generate `.mei/data-snapshots` parquet sidecars for configured xlsx sources.
-pub fn publish_app_data_snapshots(source_root: &Path, app_id: &str) -> Result<PublishDataSnapshotsReport> {
+pub fn publish_app_data_snapshots(
+    source_root: &Path,
+    app_id: &str,
+) -> Result<PublishDataSnapshotsReport> {
     let app_root = resolve_app_root(source_root, app_id);
     let required = collect_app_xlsx_sources(source_root, app_id)?;
     let discovered_sources = required
@@ -114,7 +121,8 @@ mod tests {
 
     #[test]
     fn collect_xlsx_sources_from_ws_demo_v2_config() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
+        let workspace =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../workspaces/ws-demo-v2");
         if !workspace.join("apps/data-demo/app.config.json").is_file() {
             return;
         }

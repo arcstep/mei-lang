@@ -78,4 +78,5 @@ fn ssr_bootstrap_head_fragment_contains_json_script_and_meta() {
     assert!(fragment.contains("mei-bootstrap-metric-count"));
     assert!(fragment.contains("metric_a"));
     assert!(fragment.contains("bootstrap_metrics"));
+    assert!(fragment.contains("bootstrapScopes"));
 }

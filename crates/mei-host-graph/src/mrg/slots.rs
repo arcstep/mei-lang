@@ -5,7 +5,9 @@ use mei_host_core::{CacheLayersReady, EvalSlotDescriptor};
 use crate::content_store::METRIC_RESPONSE;
 use crate::mrg::registry::{MrgLastEval, MrgRegistryWriter, MrgSlotId, MrgSlotRecord};
 use crate::mrg::tier::compute_client_revision;
-use crate::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef, current_time_ms, stable_hash};
+use crate::types::{
+    current_time_ms, stable_hash, GraphNodeId, GraphNodeKind, MaterialState, PayloadRef,
+};
 
 pub const MRG_REGISTRY_SCHEMA_V3: &str = crate::mrg::registry::MRG_REGISTRY_SCHEMA_VERSION;
 

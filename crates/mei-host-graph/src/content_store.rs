@@ -21,7 +21,9 @@ pub struct PutResult {
 }
 
 pub fn content_store_root(app_root: &Path) -> PathBuf {
-    resolve_app_build_root(app_root).join("store").join("content")
+    resolve_app_build_root(app_root)
+        .join("store")
+        .join("content")
 }
 
 pub fn content_hash_bytes(bytes: &[u8]) -> String {
@@ -69,7 +71,10 @@ pub fn resolve_payload_ref(app_root: &Path, pref: &PayloadRef) -> Option<PathBuf
     get(app_root, pref.kind.as_str(), hash)
 }
 
-pub fn read_payload_json(app_root: &Path, pref: &PayloadRef) -> anyhow::Result<Option<serde_json::Value>> {
+pub fn read_payload_json(
+    app_root: &Path,
+    pref: &PayloadRef,
+) -> anyhow::Result<Option<serde_json::Value>> {
     let Some(path) = resolve_payload_ref(app_root, pref) else {
         return Ok(None);
     };

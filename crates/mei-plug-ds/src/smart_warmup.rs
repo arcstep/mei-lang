@@ -1,7 +1,7 @@
 use mei_host_core::HostContext;
 use mei_host_graph::{
-    collect_eval_frontier_with_hops, flush_telemetry_to_registry, record_navigation_edges_for_scope,
-    warm_frontier_slots, MrgRegistryWriter, WarmupTier,
+    collect_eval_frontier_with_hops, flush_telemetry_to_registry,
+    record_navigation_edges_for_scope, warm_frontier_slots, MrgRegistryWriter, WarmupTier,
 };
 use mei_lang_datasets::{mark_smart_warmup_triggered, should_trigger_smart_warmup};
 use mei_lang_kernel::load_mei_config_for_app;
@@ -36,23 +36,47 @@ pub fn maybe_trigger_smart_warmup(ctx: &HostContext, scope_key: &str) {
 }
 
 pub fn run_smart_warmup(ctx: &HostContext, scope_key: &str) -> anyhow::Result<()> {
-    let metrics = collect_eval_frontier_with_hops(ctx, scope_key, 1)?;
+    run_frontier_warmup(ctx, scope_key, 1, "smart warmup completed")
+}
+
+pub fn run_activation_warmup(
+    ctx: &HostContext,
+    scope_key: &str,
+    hops: usize,
+) -> anyhow::Result<()> {
+    let clamped_hops = hops.max(1);
+    run_frontier_warmup(
+        ctx,
+        scope_key,
+        clamped_hops,
+        "scope activation warmup completed",
+    )
+}
+
+fn run_frontier_warmup(
+    ctx: &HostContext,
+    scope_key: &str,
+    hops: usize,
+    log_message: &str,
+) -> anyhow::Result<()> {
+    let metrics = collect_eval_frontier_with_hops(ctx, scope_key, hops)?;
     let targets = frontier_targets_from_metrics(scope_key, &metrics);
     if targets.is_empty() {
         return Ok(());
     }
     let report = run_warmup_targets_with_tier(ctx, &targets, WarmupTier::All)?;
-    let edges = record_navigation_edges_for_scope(ctx, scope_key, 1)?;
+    let edges = record_navigation_edges_for_scope(ctx, scope_key, hops)?;
     let registry = MrgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
-    let frontier = warm_frontier_slots(&registry, scope_key, 1);
+    let frontier = warm_frontier_slots(&registry, scope_key, hops);
     tracing::info!(
         app_id = %ctx.app_id,
         scope = %scope_key,
         slots = report.slot_count,
         memory_hydrated = report.memory_hydrated,
+        client_manifest_scopes = ?report.client_manifest_scopes,
         navigation_edges = edges,
         scheduled_frontier = frontier.scheduled_slots.len(),
-        "smart warmup completed"
+        "{log_message}"
     );
     flush_telemetry_to_registry(ctx.workspace_root.as_path(), ctx.app_id.as_str())?;
     Ok(())

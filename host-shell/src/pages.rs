@@ -19,6 +19,7 @@ use crate::state::SharedState;
 pub struct AppQuery {
     pub tab: Option<String>,
     pub scene: Option<String>,
+    pub node: Option<String>,
 }
 
 pub async fn app_page(
@@ -85,8 +86,29 @@ pub async fn app_page(
     }];
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
+    let runtime_snapshot_json_owned;
+    let runtime_roots_owned;
+    if route_mode == UiRouteMode::Runtime {
+        let snapshot = crate::runtime_snapshot::build_runtime_snapshot(&guard);
+        runtime_snapshot_json_owned =
+            serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string());
+        runtime_roots_owned = crate::runtime_snapshot::management_roots_from_snapshot(&snapshot);
+    } else {
+        runtime_snapshot_json_owned = String::new();
+        runtime_roots_owned = Vec::new();
+    }
+    let runtime_roots_ref = if route_mode == UiRouteMode::Runtime {
+        Some(runtime_roots_owned.as_slice())
+    } else {
+        None
+    };
+    let runtime_json_ref = if route_mode == UiRouteMode::Runtime {
+        Some(runtime_snapshot_json_owned.as_str())
+    } else {
+        None
+    };
     let html = crate::gis_config::fill_gis_tiles_placeholders(
-        inject_host_shell_ops_mount(inject_layer_plane_scripts(
+        inject_layer_plane_scripts(
             inject_client_bootstrap_script(
                 fill_host_build_placeholders(
                     render_page(
@@ -104,7 +126,7 @@ pub async fn app_page(
                 None,
                 None,
                 None,
-                None,
+                query.node.as_deref(),
                 None,
                 None,
                 None,
@@ -118,8 +140,8 @@ pub async fn app_page(
                 account_view.as_ref(),
                 None,
                 theme_style.as_str(),
-                None,
-                None,
+                runtime_roots_ref,
+                runtime_json_ref,
                     ),
                     guard.ctx.workspace_root.as_path(),
                 ),
@@ -128,7 +150,7 @@ pub async fn app_page(
                 scene_id.as_str(),
             ),
             &outcome,
-        ), route_mode.is_build()),
+        ),
         &gis,
     );
     Html(html).into_response()
@@ -203,24 +225,6 @@ fn parse_app_scene_path(app_tail: &str, scene_query: Option<&str>) -> (String, O
         scene_query.map(str::to_string)
     };
     (app_id, scene)
-}
-
-fn inject_host_shell_ops_mount(html: String, enabled: bool) -> String {
-    if !enabled {
-        return html;
-    }
-    let mount = r#"<div id="host-shell-ops-mount" class="host-shell-ops-mount"></div>"#;
-    if let Some(pos) = html.find("<body") {
-        if let Some(close) = html[pos..].find('>') {
-            let insert_at = pos + close + 1;
-            let mut out = String::with_capacity(html.len() + mount.len());
-            out.push_str(&html[..insert_at]);
-            out.push_str(mount);
-            out.push_str(&html[insert_at..]);
-            return out;
-        }
-    }
-    format!("{mount}{html}")
 }
 
 fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph::AssembleOutcome) -> String {

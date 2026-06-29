@@ -166,6 +166,15 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-layer2-open");
+    document.dispatchEvent(
+      new CustomEvent("meilang:scope-activation", {
+        detail: {
+          scope: sceneId,
+          source: "layer2",
+          overlaySize,
+        },
+      }),
+    );
     return tab.panel;
   }
 

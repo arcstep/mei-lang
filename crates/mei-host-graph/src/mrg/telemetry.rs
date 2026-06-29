@@ -1,6 +1,9 @@
 use std::path::Path;
 use std::sync::Mutex;
 
+use mei_lang_kernel::resolve_app_root;
+
+use crate::mrg::client_bootstrap::client_bootstrap_root;
 use crate::mrg::registry::{MrgRegistryWriter, MrgTelemetrySummary};
 
 static TELEMETRY: Mutex<MrgTelemetrySummary> = Mutex::new(MrgTelemetrySummary {
@@ -45,6 +48,21 @@ pub fn flush_telemetry_to_registry(source_root: &Path, app_id: &str) -> anyhow::
 pub fn mrg_status_json(source_root: &Path, app_id: &str) -> anyhow::Result<serde_json::Value> {
     let registry = MrgRegistryWriter::load(source_root, app_id);
     let (disk_ready, memory_resident, client_eligible) = registry.tier_counts();
+    let app_root = resolve_app_root(source_root, app_id);
+    let bootstrap_root = client_bootstrap_root(app_root.as_path());
+    let mut bootstrap_scopes = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&bootstrap_root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            if let Some(scope) = path.file_stem().and_then(|stem| stem.to_str()) {
+                bootstrap_scopes.push(scope.to_string());
+            }
+        }
+    }
+    bootstrap_scopes.sort();
     let mut scope_counts = std::collections::BTreeMap::<String, usize>::new();
     for slot in &registry.slots {
         *scope_counts
@@ -67,5 +85,7 @@ pub fn mrg_status_json(source_root: &Path, app_id: &str) -> anyhow::Result<serde
         }).collect::<Vec<_>>(),
         "telemetry": registry.telemetry_summary,
         "edgeCount": registry.edges.len(),
+        "bootstrapManifestCount": bootstrap_scopes.len(),
+        "bootstrapScopes": bootstrap_scopes,
     }))
 }

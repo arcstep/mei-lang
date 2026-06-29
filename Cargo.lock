@@ -2488,6 +2488,7 @@ dependencies = [
  "mei-lang-app",
  "mei-lang-kernel",
  "mei-lang-toolchain",
+ "mei-plug-ds",
  "reqwest",
  "serde",
  "serde_json",

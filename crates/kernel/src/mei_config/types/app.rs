@@ -174,7 +174,10 @@ pub struct ClientQueryCacheConfig {
     pub persist: String,
     #[serde(default = "default_client_query_cache_ttl_ms", rename = "ttlMs")]
     pub ttl_ms: u64,
-    #[serde(default = "default_client_query_cache_max_entries", rename = "maxEntries")]
+    #[serde(
+        default = "default_client_query_cache_max_entries",
+        rename = "maxEntries"
+    )]
     pub max_entries: usize,
 }
 
@@ -252,12 +255,26 @@ pub struct ClientBootstrapConfig {
     pub enabled: bool,
     #[serde(default)]
     pub scopes: Vec<String>,
-    #[serde(default = "default_client_bootstrap_max_metrics", rename = "maxMetricsPerScope")]
+    #[serde(
+        default = "default_client_bootstrap_max_metrics",
+        rename = "maxMetricsPerScope"
+    )]
     pub max_metrics_per_scope: usize,
+    #[serde(default, rename = "neighborHops")]
+    pub neighbor_hops: usize,
+    #[serde(
+        default = "default_client_bootstrap_max_neighbor_scopes",
+        rename = "maxNeighborScopes"
+    )]
+    pub max_neighbor_scopes: usize,
 }
 
 fn default_client_bootstrap_max_metrics() -> usize {
     32
+}
+
+fn default_client_bootstrap_max_neighbor_scopes() -> usize {
+    4
 }
 
 impl Default for ClientBootstrapConfig {
@@ -266,6 +283,8 @@ impl Default for ClientBootstrapConfig {
             enabled: true,
             scopes: vec!["home".to_string()],
             max_metrics_per_scope: default_client_bootstrap_max_metrics(),
+            neighbor_hops: 0,
+            max_neighbor_scopes: default_client_bootstrap_max_neighbor_scopes(),
         }
     }
 }

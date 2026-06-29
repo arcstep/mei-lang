@@ -24,6 +24,7 @@ fn sample_scene_contract(panels: Vec<PanelDecl>) -> SceneContract {
             shared: Value::Null,
             local_nav: Value::Null,
             params: Value::Null,
+            capabilities: Value::Null,
             bindings: Value::Null,
             examples: Value::Null,
             access_export: true,

@@ -10,13 +10,14 @@ use mei_lang_kernel::{decode_theme_ref_token, load_mei_config_for_app};
 use serde_json::json;
 
 use crate::api_stubs::{
-    api_agent_config_stub, api_agent_runtime_stub, api_agent_sessions_stub,
-    api_agent_skill_stub,
+    api_agent_config_stub, api_agent_context_preview_stub, api_agent_runtime_stub,
+    api_agent_sessions_stub, api_agent_skill_stub,
 };
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
 use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
-use crate::pages::{app_page, api_presentation_map, index};
+use crate::pages::{api_presentation_map, app_page, index};
+use crate::runtime_api::{api_host_mrg_activate, api_host_mrg_status, api_runtime_snapshot};
 use crate::state::{HostHttpState, SharedState};
 use crate::upload_download::upload_file_download_get;
 
@@ -40,6 +41,13 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/ops/status", get(api_host_ops_status))
         .route("/api/host/ops/reload", post(api_host_ops_reload))
         .route("/api/host/ops/prebuild", post(api_host_ops_prebuild))
+        .route("/api/runtime/snapshot", get(api_runtime_snapshot))
+        .route("/api/host/mrg/status", get(api_host_mrg_status))
+        .route("/api/host/mrg/activate", post(api_host_mrg_activate))
+        .route(
+            "/api/agent/context/preview",
+            get(api_agent_context_preview_stub),
+        )
         .route("/api/auth/public-key", get(mei_host_auth::auth_public_key))
         .route("/api/auth/session", get(mei_host_auth::auth_session))
         .route("/api/auth/refresh", post(mei_host_auth::auth_refresh))
@@ -58,18 +66,9 @@ pub fn router(state: HostHttpState) -> Router {
             post(api_datasets_query_with_app),
         )
         .route("/api/datasets/query", post(api_datasets_query))
-        .route(
-            "/api/datasets/metrics/:app_id",
-            post(api_datasets_metrics),
-        )
-        .route(
-            "/api/ops/theme/style/:app_id",
-            get(api_ops_theme_style),
-        )
-        .route(
-            "/api/presentation/map/:app_id",
-            get(api_presentation_map),
-        )
+        .route("/api/datasets/metrics/:app_id", post(api_datasets_metrics))
+        .route("/api/ops/theme/style/:app_id", get(api_ops_theme_style))
+        .route("/api/presentation/map/:app_id", get(api_presentation_map))
         .route(
             "/api/upload/download/:app_id",
             get(upload_file_download_get),
@@ -100,10 +99,8 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
     };
     let app_id = guard.ctx.app_id.clone();
     let workspace_root = guard.ctx.workspace_root.as_path();
-    let descriptor = build_info::version_descriptor(
-        Some(workspace_root),
-        Some(guard.host_started_at_ms),
-    );
+    let descriptor =
+        build_info::version_descriptor(Some(workspace_root), Some(guard.host_started_at_ms));
     let display_label = descriptor
         .get("displayLabel")
         .and_then(|value| value.as_str())
@@ -176,10 +173,7 @@ async fn api_datasets_query_with_app(
     api_datasets_query_inner(state, body).await
 }
 
-async fn api_datasets_query_inner(
-    state: SharedState,
-    body: serde_json::Value,
-) -> Response {
+async fn api_datasets_query_inner(state: SharedState, body: serde_json::Value) -> Response {
     let ctx = {
         let guard = state.read().expect("state lock");
         guard.ctx.clone()
@@ -226,7 +220,8 @@ async fn api_ops_theme_style(
             .into_response();
     }
     let app_root = guard.ctx.app_root();
-    let live_config = load_mei_config_for_app(app_root.as_path(), Some(guard.ctx.workspace_root.as_path()));
+    let live_config =
+        load_mei_config_for_app(app_root.as_path(), Some(guard.ctx.workspace_root.as_path()));
     let theme_id = query
         .theme
         .as_deref()
@@ -235,10 +230,7 @@ async fn api_ops_theme_style(
     let css = scene_theme_style_for_theme_id(theme_id.as_str(), Some(&live_config));
     (
         StatusCode::OK,
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "text/css; charset=utf-8",
-        )],
+        [(axum::http::header::CONTENT_TYPE, "text/css; charset=utf-8")],
         css,
     )
         .into_response()

@@ -65,3 +65,11 @@ pub async fn api_agent_skill_stub() -> impl IntoResponse {
 pub async fn api_agent_sessions_stub() -> impl IntoResponse {
     Json(json!([]))
 }
+
+pub async fn api_agent_context_preview_stub() -> impl IntoResponse {
+    Json(json!({
+        "available": false,
+        "reason": "agent context preview is not available in mei-host-shell",
+        "sections": [],
+    }))
+}

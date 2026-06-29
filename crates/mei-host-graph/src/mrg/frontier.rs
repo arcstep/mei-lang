@@ -11,6 +11,7 @@ use crate::types::GraphNodeKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FrontierMetric {
+    pub scope_key: String,
     pub metric_id: String,
     pub owner_resource_id: String,
     pub bundle_key: String,
@@ -20,13 +21,10 @@ pub fn collect_eval_frontier(
     ctx: &HostContext,
     scope_key: &str,
 ) -> anyhow::Result<Vec<FrontierMetric>> {
-    let outcome = assemble_scope_from_registry(
-        ctx.workspace_root.as_path(),
-        ctx.app_id.as_str(),
-        scope_key,
-    )?
-    .ok_or_else(|| anyhow::anyhow!("scene `{scope_key}` not assembled"))?;
-    Ok(collect_metrics_from_compiled(&outcome.compiled))
+    let outcome =
+        assemble_scope_from_registry(ctx.workspace_root.as_path(), ctx.app_id.as_str(), scope_key)?
+            .ok_or_else(|| anyhow::anyhow!("scene `{scope_key}` not assembled"))?;
+    Ok(collect_metrics_from_compiled(scope_key, &outcome.compiled))
 }
 
 pub fn collect_eval_frontier_with_hops(
@@ -38,24 +36,24 @@ pub fn collect_eval_frontier_with_hops(
     if hops == 0 {
         return Ok(metrics);
     }
-    let linked = linked_board_scenes(ctx, scope_key)?;
-    for board_scene in linked.into_iter().take(hops) {
+    let linked = linked_board_scenes_for_scope(ctx, scope_key, hops)?;
+    for board_scene in linked {
         let mut board_metrics = collect_eval_frontier(ctx, board_scene.as_str())?;
         metrics.append(&mut board_metrics);
     }
     dedupe_frontier(metrics)
 }
 
-fn collect_metrics_from_compiled(compiled: &CompiledApp) -> Vec<FrontierMetric> {
+fn collect_metrics_from_compiled(scope_key: &str, compiled: &CompiledApp) -> Vec<FrontierMetric> {
     let mut out = Vec::new();
     if let Some(contract) = compiled.scene_contract.as_ref() {
         for panel in &contract.panels {
             if let Ok(value) = serde_json::to_value(&panel.blocks) {
-                walk_value_for_metrics(&value, compiled, &mut out);
+                walk_value_for_metrics(scope_key, &value, compiled, &mut out);
             }
             if let Some(head) = panel.head.as_ref() {
                 if let Ok(value) = serde_json::to_value(head.as_ref()) {
-                    walk_value_for_metrics(&value, compiled, &mut out);
+                    walk_value_for_metrics(scope_key, &value, compiled, &mut out);
                 }
             }
         }
@@ -63,7 +61,12 @@ fn collect_metrics_from_compiled(compiled: &CompiledApp) -> Vec<FrontierMetric> 
     dedupe_frontier(out).unwrap_or_default()
 }
 
-fn walk_value_for_metrics(value: &Value, compiled: &CompiledApp, out: &mut Vec<FrontierMetric>) {
+fn walk_value_for_metrics(
+    scope_key: &str,
+    value: &Value,
+    compiled: &CompiledApp,
+    out: &mut Vec<FrontierMetric>,
+) {
     match value {
         Value::Object(map) => {
             if map.get("__ref").and_then(Value::as_str) == Some("metric_ref") {
@@ -77,9 +80,11 @@ fn walk_value_for_metrics(value: &Value, compiled: &CompiledApp, out: &mut Vec<F
                         .and_then(|args| args.get("bundle"))
                         .and_then(Value::as_str)
                         .unwrap_or("");
-                    if let Some((owner, bundle)) = resolve_metric_owner(compiled, metric_id, bundle_key)
+                    if let Some((owner, bundle)) =
+                        resolve_metric_owner(compiled, metric_id, bundle_key)
                     {
                         out.push(FrontierMetric {
+                            scope_key: scope_key.to_string(),
                             metric_id: metric_id.to_string(),
                             owner_resource_id: owner,
                             bundle_key: bundle,
@@ -88,12 +93,12 @@ fn walk_value_for_metrics(value: &Value, compiled: &CompiledApp, out: &mut Vec<F
                 }
             }
             for entry in map.values() {
-                walk_value_for_metrics(entry, compiled, out);
+                walk_value_for_metrics(scope_key, entry, compiled, out);
             }
         }
         Value::Array(items) => {
             for item in items {
-                walk_value_for_metrics(item, compiled, out);
+                walk_value_for_metrics(scope_key, item, compiled, out);
             }
         }
         _ => {}
@@ -121,7 +126,7 @@ fn resolve_metric_owner(
     None
 }
 
-fn linked_board_scenes(ctx: &HostContext, scope_key: &str) -> anyhow::Result<Vec<String>> {
+fn direct_linked_board_scenes(ctx: &HostContext, scope_key: &str) -> anyhow::Result<Vec<String>> {
     let registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     let mut scenes = Vec::new();
     for node in registry.nodes_of_kind(GraphNodeKind::Navigation) {
@@ -155,6 +160,35 @@ fn linked_board_scenes(ctx: &HostContext, scope_key: &str) -> anyhow::Result<Vec
     Ok(scenes)
 }
 
+pub fn linked_board_scenes_for_scope(
+    ctx: &HostContext,
+    scope_key: &str,
+    hops: usize,
+) -> anyhow::Result<Vec<String>> {
+    if hops == 0 {
+        return Ok(Vec::new());
+    }
+    let mut seen = std::collections::BTreeSet::from([scope_key.to_string()]);
+    let mut frontier = vec![scope_key.to_string()];
+    let mut out = Vec::new();
+    for _ in 0..hops {
+        let mut next = Vec::new();
+        for scope in frontier {
+            for linked in direct_linked_board_scenes(ctx, scope.as_str())? {
+                if seen.insert(linked.clone()) {
+                    out.push(linked.clone());
+                    next.push(linked);
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
+    Ok(out)
+}
+
 pub fn record_navigation_edges_for_scope(
     ctx: &HostContext,
     scope_key: &str,
@@ -163,18 +197,15 @@ pub fn record_navigation_edges_for_scope(
     if hops == 0 {
         return Ok(0);
     }
-    let linked = linked_board_scenes(ctx, scope_key)?;
+    let linked = direct_linked_board_scenes(ctx, scope_key)?;
     let mut registry = crate::mrg::registry::MrgRegistryWriter::load(
         ctx.workspace_root.as_path(),
         ctx.app_id.as_str(),
     );
     let mut added = 0usize;
-    for scene in linked.into_iter().take(hops) {
-        added += crate::mrg::warmup::record_navigation_edge(
-            &mut registry,
-            scope_key,
-            scene.as_str(),
-        );
+    for scene in linked {
+        added +=
+            crate::mrg::warmup::record_navigation_edge(&mut registry, scope_key, scene.as_str());
     }
     if added > 0 {
         registry.finalize();
@@ -188,6 +219,7 @@ fn dedupe_frontier(metrics: Vec<FrontierMetric>) -> anyhow::Result<Vec<FrontierM
     for metric in metrics {
         map.insert(
             (
+                metric.scope_key.clone(),
                 metric.metric_id.clone(),
                 metric.owner_resource_id.clone(),
             ),

@@ -1,53 +1,57 @@
 //! Graph registry, CAS, import-bundle, and v2 assemble for mei-host-shell.
 
-mod projection_normalize;
 mod assemble;
-mod layer_plan;
-mod presentation_map;
-mod data_snapshot;
-mod v2_lower;
-mod v2_bundle_constants;
-mod v2_metric_lower;
 mod bridge;
 mod content_store;
+mod data_snapshot;
 mod import;
 mod io;
+mod layer_plan;
 mod mcg;
 mod metric_hydrate;
 mod mrg;
 mod panel_constants;
 mod paths;
+mod presentation_map;
+mod projection_normalize;
 mod types;
+mod v2_bundle_constants;
+mod v2_lower;
+mod v2_metric_lower;
 
 pub use assemble::{
     assemble_scope_from_registry, collect_all_board_scenes, list_scope_routes, AssembleOutcome,
     ScopeRoute,
 };
-pub use layer_plan::{build_layer_plan, layer_plan_to_value, LayerPlanDocument};
-pub use presentation_map::{
-    build_presentation_map, presentation_map_to_value, resolve_viewpoint_id, PresentationMapDocument,
-};
 pub use data_snapshot::{
     collect_app_xlsx_sources, publish_app_data_snapshots, PublishDataSnapshotsReport,
 };
 pub use import::{import_bundle, load_block_artifact, ImportOptions};
+pub use layer_plan::{build_layer_plan, layer_plan_to_value, LayerPlanDocument};
 pub use mcg::registry::{McgRegistry, McgRegistryWriter};
 pub use mrg::client_bootstrap::{
-    bootstrap_embed_allowed, build_client_bootstrap_head_fragment, clear_client_bootstrap_for_scope,
-    clear_client_bootstraps_for_stale_scopes, read_client_bootstrap, write_client_bootstrap,
-    ClientBootstrapManifest,
+    bootstrap_embed_allowed, build_client_bootstrap_head_fragment, build_client_bootstrap_payload,
+    clear_client_bootstrap_for_scope, clear_client_bootstraps_for_stale_scopes,
+    read_client_bootstrap, write_client_bootstrap, ClientBootstrapManifest, ClientBootstrapPayload,
+    ClientBootstrapScopePayload,
 };
 pub use mrg::frontier::{
-    collect_eval_frontier, collect_eval_frontier_with_hops, record_navigation_edges_for_scope,
-    FrontierMetric,
+    collect_eval_frontier, collect_eval_frontier_with_hops, linked_board_scenes_for_scope,
+    record_navigation_edges_for_scope, FrontierMetric,
 };
 pub use mrg::registry::{MrgRegistry, MrgRegistryWriter};
 pub use mrg::slots::{
     default_metric_response_descriptor, mark_slots_stale_for_bundles, record_slot_failed,
     record_slot_from_descriptor, record_slots_from_descriptors, MRG_REGISTRY_SCHEMA_V3,
 };
-pub use mrg::telemetry::{flush_telemetry_to_registry, mrg_status_json, record_access, MrgAccessKind};
+pub use mrg::telemetry::{
+    flush_telemetry_to_registry, mrg_status_json, record_access, MrgAccessKind,
+};
 pub use mrg::tier::{compute_client_revision, WarmupTier};
 pub use mrg::warmup::{record_navigation_edge, warm_frontier_slots, WarmupFrontierOutcome};
 pub use paths::{bridge_path, mcg_registry_path, mrg_registry_path, resolve_graph_root};
+pub use presentation_map::{
+    build_presentation_map, presentation_map_to_value, resolve_viewpoint_id,
+    PresentationMapDocument,
+};
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};

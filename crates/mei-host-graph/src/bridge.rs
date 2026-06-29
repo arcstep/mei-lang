@@ -42,19 +42,17 @@ pub fn export_bridge_from_mcg(
     let exports = bundle_owners
         .iter()
         .map(|(owner, (_rev, fingerprint))| BridgeExportEntry {
-            mcg_node: crate::types::GraphNodeId::new(
-                GraphNodeKind::MetricDefBundle,
-                owner.clone(),
-            ),
-            mrg_node: crate::types::GraphNodeId::new(
-                GraphNodeKind::EvalPlan,
-                owner.clone(),
-            ),
+            mcg_node: crate::types::GraphNodeId::new(GraphNodeKind::MetricDefBundle, owner.clone()),
+            mrg_node: crate::types::GraphNodeId::new(GraphNodeKind::EvalPlan, owner.clone()),
             defs_fingerprint: fingerprint.clone(),
         })
         .collect();
 
-    for node in registry.nodes.iter().filter(|n| n.id.kind == GraphNodeKind::MetricDefBundle) {
+    for node in registry
+        .nodes
+        .iter()
+        .filter(|n| n.id.kind == GraphNodeKind::MetricDefBundle)
+    {
         if bundle_owners.contains_key(&node.id.key) {
             continue;
         }
@@ -79,5 +77,8 @@ pub fn export_bridge_from_mcg(
 }
 
 pub fn save_bridge(source_root: &std::path::Path, bridge: &BridgeExport) -> anyhow::Result<()> {
-    crate::io::write_json_registry(&crate::paths::bridge_path(source_root, bridge.app_id.as_str()), bridge)
+    crate::io::write_json_registry(
+        &crate::paths::bridge_path(source_root, bridge.app_id.as_str()),
+        bridge,
+    )
 }

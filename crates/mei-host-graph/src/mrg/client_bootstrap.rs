@@ -3,8 +3,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use mei_host_core::EvalSlotDescriptor;
-use mei_lang_kernel::{load_cache_generation, resolve_app_root, MetricContract};
+use mei_host_core::{EvalSlotDescriptor, HostContext};
+use mei_lang_kernel::{
+    load_cache_generation, load_mei_config_for_app, resolve_app_root, MetricContract,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::mrg::registry::MrgRegistry;
@@ -31,8 +33,23 @@ pub struct ClientBootstrapManifest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ClientBootstrapPayload {
+pub struct ClientBootstrapScopePayload {
+    #[serde(rename = "clientRevision")]
     client_revision: String,
+    #[serde(rename = "bootstrapScope")]
+    bootstrap_scope: String,
+    #[serde(rename = "targetFile")]
+    target_file: String,
+    #[serde(rename = "compileEpoch")]
+    compile_epoch: String,
+    metrics: Vec<ClientBootstrapMetric>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientBootstrapPayload {
+    #[serde(rename = "clientRevision")]
+    client_revision: String,
+    #[serde(rename = "bootstrapScope")]
     bootstrap_scope: String,
     #[serde(rename = "targetFile")]
     target_file: String,
@@ -43,6 +60,12 @@ struct ClientBootstrapPayload {
     #[serde(rename = "appId")]
     app_id: String,
     metrics: Vec<ClientBootstrapMetric>,
+    #[serde(
+        rename = "bootstrapScopes",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    bootstrap_scopes: Vec<ClientBootstrapScopePayload>,
 }
 
 pub fn client_bootstrap_root(app_root: &Path) -> PathBuf {
@@ -58,11 +81,7 @@ pub fn compute_scope_client_revision(
     content_hashes: &[&str],
     data_generation: &str,
 ) -> String {
-    crate::mrg::tier::compute_client_revision(
-        scope,
-        &content_hashes.join("|"),
-        data_generation,
-    )
+    crate::mrg::tier::compute_client_revision(scope, &content_hashes.join("|"), data_generation)
 }
 
 pub fn manifest_revision_from_registry(
@@ -101,7 +120,8 @@ pub fn bootstrap_embed_allowed(
     {
         return false;
     }
-    let Some(expected) = manifest_revision_from_registry(registry, manifest, data_generation) else {
+    let Some(expected) = manifest_revision_from_registry(registry, manifest, data_generation)
+    else {
         return false;
     };
     expected == manifest.client_revision
@@ -112,35 +132,72 @@ pub fn build_client_bootstrap_head_fragment(
     app_id: &str,
     scene_id: &str,
 ) -> Option<String> {
-    let manifest = read_client_bootstrap(workspace_root, app_id, scene_id)?;
-    let registry = crate::mrg::registry::MrgRegistryWriter::load(workspace_root, app_id);
+    let payload = build_client_bootstrap_payload(workspace_root, app_id, scene_id)?;
+    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+    let metric_count = payload
+        .bootstrap_scopes
+        .iter()
+        .map(|scope| scope.metrics.len())
+        .sum::<usize>();
+    Some(format!(
+        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.clientRevision)window.__mei.client_revision=p.clientRevision;if(p.bootstrapScope)window.__mei.bootstrap_scope=p.bootstrapScope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;if(Array.isArray(p.bootstrapScopes))window.__mei.bootstrap_scopes=p.bootstrapScopes;}}catch(e){{}}}})();</script>"#
+    ))
+}
+
+pub fn build_client_bootstrap_payload(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Option<ClientBootstrapPayload> {
     let app_root = resolve_app_root(workspace_root, app_id);
+    let config = load_mei_config_for_app(app_root.as_path(), None);
+    let client_cfg = config.runtime.client_bootstrap.unwrap_or_default();
+    let registry = crate::mrg::registry::MrgRegistryWriter::load(workspace_root, app_id);
     let data_generation = load_cache_generation(app_root.as_path(), app_id).data_generation;
-    if !bootstrap_embed_allowed(&registry, &manifest, data_generation.as_str()) {
-        return None;
+    let mut candidate_scopes = vec![scene_id.to_string()];
+    if client_cfg.neighbor_hops > 0 {
+        let ctx = HostContext::new(workspace_root.to_path_buf(), app_id.to_string());
+        let linked = crate::mrg::frontier::linked_board_scenes_for_scope(
+            &ctx,
+            scene_id,
+            client_cfg.neighbor_hops,
+        )
+        .unwrap_or_default();
+        for scope in linked.into_iter().take(client_cfg.max_neighbor_scopes) {
+            if !candidate_scopes.contains(&scope) {
+                candidate_scopes.push(scope);
+            }
+        }
     }
-    let target_file = format!("src/scene/{}/assembly.mei", manifest.scope);
-    let compile_epoch = format!(
-        "{}|{}|{}",
-        mei_lang_kernel::scene_payload_cache_epoch(),
-        mei_lang_kernel::dataset_materialize_cache_epoch(),
-        target_file
-    );
-    let payload = ClientBootstrapPayload {
-        client_revision: manifest.client_revision.clone(),
-        bootstrap_scope: manifest.scope.clone(),
-        target_file: target_file.clone(),
-        compile_epoch,
+    let mut scope_payloads = Vec::new();
+    for scope in candidate_scopes {
+        let Some(manifest) = read_client_bootstrap(workspace_root, app_id, scope.as_str()) else {
+            continue;
+        };
+        if !bootstrap_embed_allowed(&registry, &manifest, data_generation.as_str()) {
+            continue;
+        }
+        scope_payloads.push(scope_payload_from_manifest(
+            workspace_root,
+            app_id,
+            &manifest,
+        ));
+    }
+    let primary = scope_payloads
+        .iter()
+        .find(|scope| scope.bootstrap_scope == scene_id)
+        .cloned()
+        .or_else(|| scope_payloads.first().cloned())?;
+    Some(ClientBootstrapPayload {
+        client_revision: primary.client_revision.clone(),
+        bootstrap_scope: primary.bootstrap_scope.clone(),
+        target_file: primary.target_file.clone(),
+        compile_epoch: primary.compile_epoch.clone(),
         data_generation: data_generation.clone(),
         app_id: app_id.to_string(),
-        metrics: manifest.metrics.clone(),
-    };
-    let payload_json =
-        serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
-    let metric_count = manifest.metrics.len();
-    Some(format!(
-        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.client_revision)window.__mei.client_revision=p.client_revision;if(p.bootstrap_scope)window.__mei.bootstrap_scope=p.bootstrap_scope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;}}catch(e){{}}}})();</script>"#
-    ))
+        metrics: primary.metrics.clone(),
+        bootstrap_scopes: scope_payloads,
+    })
 }
 
 pub fn clear_client_bootstrap_for_scope(app_root: &Path, scope: &str) -> bool {
@@ -152,10 +209,7 @@ pub fn clear_client_bootstrap_for_scope(app_root: &Path, scope: &str) -> bool {
     }
 }
 
-pub fn clear_client_bootstraps_for_stale_scopes(
-    app_root: &Path,
-    registry: &MrgRegistry,
-) -> usize {
+pub fn clear_client_bootstraps_for_stale_scopes(app_root: &Path, registry: &MrgRegistry) -> usize {
     let mut scopes = BTreeSet::new();
     for slot in &registry.slots {
         if slot.client_eligible && matches!(slot.state, MaterialState::Stale) {
@@ -180,7 +234,9 @@ pub fn write_client_bootstrap(
     let mut eligible: Vec<_> = descriptors
         .iter()
         .filter(|descriptor| {
-            descriptor.client_eligible && descriptor.cache_layers_ready.client
+            descriptor.scope_key == scope
+                && descriptor.client_eligible
+                && descriptor.cache_layers_ready.client
         })
         .collect();
     eligible.sort_by(|left, right| left.slot_key.cmp(&right.slot_key));
@@ -252,7 +308,11 @@ fn content_hashes_for_manifest_metrics(
     registry: &MrgRegistry,
     manifest: &ClientBootstrapManifest,
 ) -> Vec<String> {
-    let metric_ids: BTreeSet<&str> = manifest.metrics.iter().map(|metric| metric.id.as_str()).collect();
+    let metric_ids: BTreeSet<&str> = manifest
+        .metrics
+        .iter()
+        .map(|metric| metric.id.as_str())
+        .collect();
     let mut slots: Vec<_> = registry
         .slots
         .iter()
@@ -265,13 +325,7 @@ fn content_hashes_for_manifest_metrics(
     slots.sort_by(|left, right| left.slot_id.node.key.cmp(&right.slot_id.node.key));
     let mut hashes = Vec::new();
     for slot in slots {
-        let metric_id = slot
-            .slot_id
-            .node
-            .key
-            .rsplit("::")
-            .next()
-            .unwrap_or("");
+        let metric_id = slot.slot_id.node.key.rsplit("::").next().unwrap_or("");
         if !metric_ids.contains(metric_id) {
             continue;
         }
@@ -282,6 +336,47 @@ fn content_hashes_for_manifest_metrics(
     hashes
 }
 
+fn scope_payload_from_manifest(
+    workspace_root: &Path,
+    app_id: &str,
+    manifest: &ClientBootstrapManifest,
+) -> ClientBootstrapScopePayload {
+    let target_file =
+        resolve_target_file_for_scope(workspace_root, app_id, manifest.scope.as_str());
+    let compile_epoch = format!(
+        "{}|{}|{}",
+        mei_lang_kernel::scene_payload_cache_epoch(),
+        mei_lang_kernel::dataset_materialize_cache_epoch(),
+        target_file
+    );
+    ClientBootstrapScopePayload {
+        client_revision: manifest.client_revision.clone(),
+        bootstrap_scope: manifest.scope.clone(),
+        target_file,
+        compile_epoch,
+        metrics: manifest.metrics.clone(),
+    }
+}
+
+fn resolve_target_file_for_scope(workspace_root: &Path, app_id: &str, scope: &str) -> String {
+    if let Ok(routes) = crate::assemble::list_scope_routes(workspace_root, app_id) {
+        if let Some(route) = routes.into_iter().find(|route| route.scene_id == scope) {
+            return crate::assemble::assembly_key_to_target(route.assembly_key.as_str());
+        }
+    }
+    let registry = crate::mcg::registry::McgRegistryWriter::load(workspace_root, app_id);
+    if let Some(node) = registry
+        .nodes_of_kind(crate::types::GraphNodeKind::AssemblyView)
+        .into_iter()
+        .find(|node| {
+            node.id.key.contains(&format!("#{scope}")) || node.id.key.contains(&format!("{scope}@"))
+        })
+    {
+        return crate::assemble::assembly_key_to_target(node.id.key.as_str());
+    }
+    format!("src/scene/{scope}/assembly.mei")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,11 +384,7 @@ mod tests {
     use crate::types::{GraphNodeId, GraphNodeKind, PayloadRef};
     use mei_lang_kernel::MetricShape;
 
-    fn sample_slot(
-        state: MaterialState,
-        slot_key: &str,
-        content_hash: &str,
-    ) -> MrgSlotRecord {
+    fn sample_slot(state: MaterialState, slot_key: &str, content_hash: &str) -> MrgSlotRecord {
         MrgSlotRecord {
             slot_id: MrgSlotId {
                 node: GraphNodeId::new(GraphNodeKind::MaterialSlot, slot_key.to_string()),
@@ -419,7 +510,11 @@ mod tests {
             "workset:home:0::metric_a",
             "hash-a",
         ));
-        assert!(bootstrap_embed_allowed(&registry, &manifest, data_generation));
+        assert!(bootstrap_embed_allowed(
+            &registry,
+            &manifest,
+            data_generation
+        ));
         let mut stale_manifest = manifest.clone();
         stale_manifest.client_revision = "stale".to_string();
         assert!(!bootstrap_embed_allowed(
@@ -469,8 +564,15 @@ mod tests {
             "hash-a",
         ));
         let data_generation = load_cache_generation(app_root.as_path(), "demo").data_generation;
-        assert!(bootstrap_embed_allowed(&registry, &manifest, data_generation.as_str()));
-        assert_eq!(manifest.metrics[0].dataset_id.as_deref(), Some("__world_metrics__::metrics/demo.bundle.mei"));
+        assert!(bootstrap_embed_allowed(
+            &registry,
+            &manifest,
+            data_generation.as_str()
+        ));
+        assert_eq!(
+            manifest.metrics[0].dataset_id.as_deref(),
+            Some("__world_metrics__::metrics/demo.bundle.mei")
+        );
     }
 
     #[test]

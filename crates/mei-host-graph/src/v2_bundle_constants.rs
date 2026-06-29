@@ -101,9 +101,7 @@ fn eval_bundle_const_expr(expr: &str, constants: &BTreeMap<String, Value>) -> Op
             .split(',')
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(|item| {
-                eval_bundle_const_expr(item, constants).unwrap_or_else(|| json!(item))
-            })
+            .map(|item| eval_bundle_const_expr(item, constants).unwrap_or_else(|| json!(item)))
             .collect::<Vec<_>>();
         return Some(json!(items));
     }

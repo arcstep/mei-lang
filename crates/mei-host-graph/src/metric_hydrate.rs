@@ -3,8 +3,8 @@ use std::path::Path;
 
 use mei_host_core::load_app_config;
 use mei_lang_kernel::{
-    build_runtime_metric_artifacts, ops_source_entry_to_decl,
-    ColumnSchema, DatasetView, LoadedResource, OpsSourceEntry, SourceDecl,
+    build_runtime_metric_artifacts, ops_source_entry_to_decl, ColumnSchema, DatasetView,
+    LoadedResource, OpsSourceEntry, SourceDecl,
 };
 use serde_json::Value;
 
@@ -38,14 +38,18 @@ pub fn load_metric_resources_hydrated(
                 .and_then(Value::as_array)
                 .map(|items| items.as_slice())
                 .unwrap_or(&[]);
-            let ctx = crate::v2_metric_lower::V2MetricLowerContext::from_bundle_datasets(bundle_datasets);
+            let ctx =
+                crate::v2_metric_lower::V2MetricLowerContext::from_bundle_datasets(bundle_datasets);
             let raw_defs = extract_runtime_metric_defs(&payload);
             let resolved_defs = raw_defs
                 .into_iter()
                 .map(|(id, metric)| {
                     (
                         id,
-                        crate::v2_bundle_constants::resolve_v2_constants(&metric, &bundle_constants),
+                        crate::v2_bundle_constants::resolve_v2_constants(
+                            &metric,
+                            &bundle_constants,
+                        ),
                     )
                 })
                 .collect();
@@ -222,7 +226,10 @@ fn lower_bundle_schema(value: Option<&Value>) -> Vec<ColumnSchema> {
                 .get("source")
                 .and_then(Value::as_str)
                 .map(str::to_string),
-            optional: args.get("optional").and_then(Value::as_bool).unwrap_or(false),
+            optional: args
+                .get("optional")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             unit: None,
         });
     }

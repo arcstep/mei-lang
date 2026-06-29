@@ -93,14 +93,15 @@ pub(crate) fn runtime_shell(
                 inner_html=snapshot_json
             ></script>
             {topbar}
-            <div class="workspace manage-workspace runtime-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0" id="workspace-root">
-                <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
-                    <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
+            <div class="workspace manage-workspace runtime-workspace host-runtime-console-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0" id="workspace-root">
+                <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5" id="host-runtime-nav-aside">
+                    <div class="sidebar-scroll flex-1 min-h-0 overflow-auto" id="host-runtime-nav-scroll">
                         <div class="runtime-tree-toolbar mb-2 flex items-center justify-between gap-2">
-                            <span class="mei-font-1 mei-text-muted">"运行态资源"</span>
+                            <span class="mei-font-1 mei-text-muted">"Host 管理"</span>
                             <button type="button" id="runtime-refresh-btn" class="build-toolbar-btn" data-app-path=app_path.to_string()>"刷新"</button>
                         </div>
-                        {tree}
+                        <div id="host-runtime-nav-mount" class="host-runtime-nav-mount"></div>
+                        <div class="host-runtime-legacy-tree" data-host-runtime-legacy-tree="1">{tree}</div>
                     </div>
                 </aside>
                 <div class="splitter splitter-left" data-workspace-splitter="left" role="separator" aria-orientation="vertical" aria-label="调整左侧资源栏宽度"></div>
@@ -142,7 +143,8 @@ pub(crate) fn runtime_shell(
                                 data-runtime-tab-panel=RUNTIME_TAB_OVERVIEW
                                 hidden=!overview_active
                             >
-                                {overview_panel}
+                                <div id="host-runtime-detail-mount" class="host-runtime-detail-mount"></div>
+                                <div class="host-runtime-legacy-overview" data-host-runtime-legacy-overview="1">{overview_panel}</div>
                             </section>
                             <section
                                 class="manage-tab-panel min-h-0 min-w-0 overflow-auto"

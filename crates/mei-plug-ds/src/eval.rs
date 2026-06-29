@@ -7,12 +7,9 @@ pub fn load_compiled_for_warmup(
     ctx: &HostContext,
     scope_key: &str,
 ) -> anyhow::Result<(mei_lang_kernel::CompiledApp, String)> {
-    let outcome = assemble_scope_from_registry(
-        ctx.workspace_root.as_path(),
-        ctx.app_id.as_str(),
-        scope_key,
-    )?
-    .ok_or_else(|| anyhow::anyhow!("scene `{scope_key}` not assembled"))?;
+    let outcome =
+        assemble_scope_from_registry(ctx.workspace_root.as_path(), ctx.app_id.as_str(), scope_key)?
+            .ok_or_else(|| anyhow::anyhow!("scene `{scope_key}` not assembled"))?;
     Ok((outcome.compiled, outcome.compile_revision))
 }
 

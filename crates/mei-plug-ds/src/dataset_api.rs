@@ -5,13 +5,10 @@ use anyhow::{anyhow, Context, Result};
 use mei_host_core::HostContext;
 use mei_host_graph::{record_access, record_slots_from_descriptors, MrgAccessKind};
 use mei_lang_datasets::{
-    map_dataset_query_filters, normalize_query_filters,
-    normalize_query_search, query_dataset_rows, query_metric_dataframe,
-    query_state_from_request, DatasetQueryOptions,
+    map_dataset_query_filters, normalize_query_filters, normalize_query_search, query_dataset_rows,
+    query_metric_dataframe, query_state_from_request, DatasetQueryOptions,
 };
-use mei_lang_kernel::{
-    locate_dataset_resource, FilterIntent, MetricContract, QueryState,
-};
+use mei_lang_kernel::{locate_dataset_resource, FilterIntent, MetricContract, QueryState};
 
 use crate::eval_pipeline::{eval_metrics_with_slots, EvalPipelineRequest};
 use serde::{Deserialize, Serialize};
@@ -55,7 +52,10 @@ struct MetricQueryRequest {
     metric_groups: Vec<MetricQueryGroupRequest>,
     #[serde(default)]
     search: Option<String>,
-    #[serde(default, deserialize_with = "mei_lang_datasets::serde_lenient::string_map")]
+    #[serde(
+        default,
+        deserialize_with = "mei_lang_datasets::serde_lenient::string_map"
+    )]
     filters: BTreeMap<String, String>,
     #[serde(default)]
     query_state: Option<QueryState>,
@@ -147,8 +147,7 @@ pub fn query_dataset(ctx: &HostContext, body: &Value) -> Result<Value> {
             .as_ref()
             .ok_or_else(|| anyhow!("resource `{}` is not a dataset", resource.id))?;
         let mut row_options = options;
-        row_options.filters =
-            map_dataset_query_filters(&effective_query_state, dataset);
+        row_options.filters = map_dataset_query_filters(&effective_query_state, dataset);
         query_dataset_rows(app_root.as_path(), dataset, row_options)?
     };
 
@@ -283,7 +282,11 @@ pub fn query_metrics(ctx: &HostContext, body: &Value) -> Result<Value> {
         scene_id: scene_id.to_string(),
         scene_path: target,
         dataset_id: "__scene_batch__".to_string(),
-        total_rows: batch_groups.iter().map(|group| group.total_rows).max().unwrap_or(0),
+        total_rows: batch_groups
+            .iter()
+            .map(|group| group.total_rows)
+            .max()
+            .unwrap_or(0),
         metrics: Vec::new(),
         perf: BTreeMap::from([("total_ms".to_string(), latency_ms)]),
         groups: batch_groups,
@@ -358,7 +361,9 @@ fn bundle_key_for_dataset(dataset_id: &str) -> String {
         .to_string()
 }
 
-fn normalize_metric_query_groups(request: &MetricQueryRequest) -> Result<Vec<MetricQueryGroupRequest>> {
+fn normalize_metric_query_groups(
+    request: &MetricQueryRequest,
+) -> Result<Vec<MetricQueryGroupRequest>> {
     let mut groups = if request.metric_groups.is_empty() {
         vec![MetricQueryGroupRequest {
             dataset_id: request.dataset_id.trim().to_string(),

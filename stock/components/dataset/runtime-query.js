@@ -1604,28 +1604,66 @@ function readBootstrapSeedPageContext(bootstrap = window.__mei) {
   return {
     scene_id: safeTrim(
       boot.bootstrap_scope ||
+        boot.bootstrapScope ||
         shell?.getAttribute("data-compile-scene") ||
         hostMeta.active_scene_id ||
         "home",
     ),
     target: safeTrim(
       boot.bootstrap_target_file ||
+        boot.targetFile ||
         shell?.getAttribute("data-compile-target") ||
         hostMeta.active_target_file ||
         hostMeta.entry_target ||
         "",
     ),
     compile_epoch: safeTrim(
-      boot.bootstrap_compile_epoch || hostMeta.compile_epoch || readCompileEpochFromPage(),
+      boot.bootstrap_compile_epoch ||
+        boot.compileEpoch ||
+        hostMeta.compile_epoch ||
+        readCompileEpochFromPage(),
     ),
     data_generation: safeTrim(
       boot.bootstrap_data_generation ||
+        boot.dataGeneration ||
         hostMeta.data_generation ||
         window.__meiRuntimeDataGeneration ||
         "",
     ),
-    app_id: safeTrim(boot.bootstrap_app_id || hostMeta.app_id || window.__meiRuntimeAppId || ""),
+    app_id: safeTrim(
+      boot.bootstrap_app_id || boot.appId || hostMeta.app_id || window.__meiRuntimeAppId || "",
+    ),
   };
+}
+
+function bootstrapScopeEntries(bootstrap = window.__mei) {
+  const boot = bootstrap && typeof bootstrap === "object" ? bootstrap : {};
+  const scopes = Array.isArray(boot.bootstrap_scopes)
+    ? boot.bootstrap_scopes
+    : Array.isArray(boot.bootstrapScopes)
+      ? boot.bootstrapScopes
+      : [];
+  const normalized = scopes.filter((entry) => entry && typeof entry === "object");
+  if (normalized.length > 0) {
+    return normalized;
+  }
+  return [boot];
+}
+
+function bootstrapScopeName(scopeBootstrap, fallbackPageCtx) {
+  return safeTrim(
+    scopeBootstrap?.bootstrap_scope || scopeBootstrap?.bootstrapScope || fallbackPageCtx?.scene_id || "home",
+  );
+}
+
+function bootstrapScopeRevision(scopeBootstrap, bootstrap = window.__mei) {
+  return safeTrim(
+    scopeBootstrap?.client_revision ||
+      scopeBootstrap?.clientRevision ||
+      bootstrap?.client_revision ||
+      bootstrap?.clientRevision ||
+      "",
+  );
 }
 
 function bootstrapQueryFingerprint(pageCtx) {
@@ -1764,99 +1802,131 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
   if (typeof window === "undefined" || !bootstrap || typeof bootstrap !== "object") {
     return 0;
   }
-  const metrics = bootstrap.bootstrap_metrics;
-  if (!Array.isArray(metrics) || metrics.length === 0) {
+  const scopeBootstraps = bootstrapScopeEntries(bootstrap);
+  if (!scopeBootstraps.length) {
     return 0;
   }
-  const revision = String(bootstrap.client_revision || "").trim();
-  const prevRevision = String(window.__meiBootstrapRevision || "").trim();
-  if (revision && prevRevision && prevRevision !== revision) {
+  const fallbackPageCtx = readBootstrapSeedPageContext(bootstrap);
+  const revisionByScope =
+    window.__meiBootstrapRevisionByScope && typeof window.__meiBootstrapRevisionByScope === "object"
+      ? window.__meiBootstrapRevisionByScope
+      : {};
+  let shouldReset = false;
+  scopeBootstraps.forEach((scopeBootstrap) => {
+    const scope = bootstrapScopeName(scopeBootstrap, fallbackPageCtx);
+    const revision = bootstrapScopeRevision(scopeBootstrap, bootstrap);
+    if (!scope || !revision) {
+      return;
+    }
+    const prevRevision = String(revisionByScope[scope] || "").trim();
+    if (prevRevision && prevRevision !== revision) {
+      shouldReset = true;
+    }
+  });
+  if (shouldReset) {
     METRIC_QUERY_RESULT_CACHE.clear();
     METRIC_QUERY_SCOPE_RESULT_CACHE.clear();
     DATASET_QUERY_RESULT_CACHE.clear();
-  }
-  if (revision) {
-    window.__meiBootstrapRevision = revision;
   }
   const metricApi = readBootstrapMetricQueryApi();
   const rowsApi = readBootstrapRowsQueryApi();
   if (!metricApi) {
     return 0;
   }
-  const pageCtx = readBootstrapSeedPageContext(bootstrap);
-  if (!pageCtx.compile_epoch || !pageCtx.target) {
-    return 0;
-  }
-  if (pageCtx.app_id) {
-    window.__meiRuntimeAppId = pageCtx.app_id;
-  }
-  if (pageCtx.data_generation) {
-    window.__meiRuntimeDataGeneration = pageCtx.data_generation;
-  }
-  const scope = safeTrim(bootstrap.bootstrap_scope || pageCtx.scene_id || "home");
-  const queryFingerprint = bootstrapQueryFingerprint(pageCtx);
-  const queryStatePayload = buildBootstrapQueryStatePayload();
-  const byDataset = new Map();
-  for (const entry of metrics) {
-    const contract = entry?.contract && typeof entry.contract === "object" ? entry.contract : entry;
-    const metricId = safeTrim(contract?.id || entry?.id);
-    const datasetId = safeTrim(
-      contract?.dataset_id ||
-        contract?.owner_dataset_id ||
-        contract?.dataset ||
-        entry?.dataset_id,
-    );
-    if (!metricId || !datasetId) {
-      continue;
-    }
-    if (!byDataset.has(datasetId)) {
-      byDataset.set(datasetId, []);
-    }
-    byDataset.get(datasetId).push(contract);
-  }
-  const expiresAt = Date.now() + METRIC_QUERY_CACHE_TTL_MS;
-  const cacheConfig = window.__meiClientQueryCacheConfig || clientQueryCacheConfig({});
   let seededCount = 0;
-  for (const [datasetId, datasetMetrics] of byDataset.entries()) {
-    const metricIds = datasetMetrics
-      .map((metric) => safeTrim(metric?.id))
-      .filter(Boolean)
-      .sort();
-    const payload = buildBootstrapMetricQueryPayload(
-      pageCtx,
-      datasetId,
-      metricIds,
-      queryStatePayload,
-    );
-    const cacheKey = metricQueryCacheKey(metricApi, payload, queryFingerprint);
-    const scopeKey = metricQueryScopeCacheKey(metricApi, payload, queryFingerprint);
-    const data = {
-      scene_id: scope,
-      dataset_id: datasetId,
-      total_rows: Number(datasetMetrics[0]?.total_rows || datasetMetrics[0]?.rows || 0) || 0,
-      metrics: datasetMetrics,
-      perf: { bootstrap: 1 },
-    };
-    METRIC_QUERY_RESULT_CACHE.set(cacheKey, { data, expiresAt });
-    rememberMetricScopeResult(scopeKey, metricIds, data, expiresAt);
-    seededCount += 1;
-    if (
-      pageCtx.app_id &&
-      pageCtx.data_generation &&
-      String(cacheConfig.persist || "").toLowerCase() === "sessionstorage"
-    ) {
-      writeSessionRuntimeQueryCache(
-        pageCtx.app_id,
-        cacheKey,
-        pageCtx.data_generation,
-        "metric",
-        data,
-        METRIC_QUERY_CACHE_TTL_MS,
-        cacheConfig.maxEntries,
-      );
+  const cacheConfig = window.__meiClientQueryCacheConfig || clientQueryCacheConfig({});
+  const expiresAt = Date.now() + METRIC_QUERY_CACHE_TTL_MS;
+  scopeBootstraps.forEach((scopeBootstrap) => {
+    const metrics = Array.isArray(scopeBootstrap?.metrics) ? scopeBootstrap.metrics : [];
+    if (!metrics.length) {
+      return;
     }
-  }
-  if (rowsApi) {
+    const pageCtx = readBootstrapSeedPageContext({
+      ...bootstrap,
+      ...scopeBootstrap,
+      bootstrap_scope: scopeBootstrap.bootstrap_scope || scopeBootstrap.bootstrapScope,
+      bootstrap_target_file: scopeBootstrap.target_file || scopeBootstrap.targetFile,
+      bootstrap_compile_epoch: scopeBootstrap.compile_epoch || scopeBootstrap.compileEpoch,
+    });
+    if (!pageCtx.compile_epoch || !pageCtx.target) {
+      return;
+    }
+    if (pageCtx.app_id) {
+      window.__meiRuntimeAppId = pageCtx.app_id;
+    }
+    if (pageCtx.data_generation) {
+      window.__meiRuntimeDataGeneration = pageCtx.data_generation;
+    }
+    const scope = bootstrapScopeName(scopeBootstrap, pageCtx);
+    const revision = bootstrapScopeRevision(scopeBootstrap, bootstrap);
+    if (scope && revision) {
+      revisionByScope[scope] = revision;
+      if (!window.__meiBootstrapRevision) {
+        window.__meiBootstrapRevision = revision;
+      }
+    }
+    const queryFingerprint = bootstrapQueryFingerprint(pageCtx);
+    const queryStatePayload = buildBootstrapQueryStatePayload();
+    const byDataset = new Map();
+    for (const entry of metrics) {
+      const contract = entry?.contract && typeof entry.contract === "object" ? entry.contract : entry;
+      const metricId = safeTrim(contract?.id || entry?.id);
+      const datasetId = safeTrim(
+        contract?.dataset_id ||
+          contract?.owner_dataset_id ||
+          contract?.dataset ||
+          entry?.dataset_id,
+      );
+      if (!metricId || !datasetId) {
+        continue;
+      }
+      if (!byDataset.has(datasetId)) {
+        byDataset.set(datasetId, []);
+      }
+      byDataset.get(datasetId).push(contract);
+    }
+    for (const [datasetId, datasetMetrics] of byDataset.entries()) {
+      const metricIds = datasetMetrics
+        .map((metric) => safeTrim(metric?.id))
+        .filter(Boolean)
+        .sort();
+      const payload = buildBootstrapMetricQueryPayload(
+        pageCtx,
+        datasetId,
+        metricIds,
+        queryStatePayload,
+      );
+      const cacheKey = metricQueryCacheKey(metricApi, payload, queryFingerprint);
+      const scopeKey = metricQueryScopeCacheKey(metricApi, payload, queryFingerprint);
+      const data = {
+        scene_id: scope,
+        dataset_id: datasetId,
+        total_rows: Number(datasetMetrics[0]?.total_rows || datasetMetrics[0]?.rows || 0) || 0,
+        metrics: datasetMetrics,
+        perf: { bootstrap: 1 },
+      };
+      METRIC_QUERY_RESULT_CACHE.set(cacheKey, { data, expiresAt });
+      rememberMetricScopeResult(scopeKey, metricIds, data, expiresAt);
+      seededCount += 1;
+      if (
+        pageCtx.app_id &&
+        pageCtx.data_generation &&
+        String(cacheConfig.persist || "").toLowerCase() === "sessionstorage"
+      ) {
+        writeSessionRuntimeQueryCache(
+          pageCtx.app_id,
+          cacheKey,
+          pageCtx.data_generation,
+          "metric",
+          data,
+          METRIC_QUERY_CACHE_TTL_MS,
+          cacheConfig.maxEntries,
+        );
+      }
+    }
+    if (!rowsApi) {
+      return;
+    }
     for (const entry of metrics) {
       const contract = entry?.contract && typeof entry.contract === "object" ? entry.contract : entry;
       const metricId = safeTrim(contract?.id || entry?.id);
@@ -1883,7 +1953,10 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
           pageSize,
         );
         const cacheKey = datasetQueryCacheKey(rowsApi, payload, queryFingerprint);
-        DATASET_QUERY_RESULT_CACHE.set(cacheKey, { data: { ...rowsData, page_size: pageSize }, expiresAt });
+        DATASET_QUERY_RESULT_CACHE.set(cacheKey, {
+          data: { ...rowsData, page_size: pageSize },
+          expiresAt,
+        });
         seededCount += 1;
         if (
           pageCtx.app_id &&
@@ -1902,7 +1975,8 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
         }
       }
     }
-  }
+  });
+  window.__meiBootstrapRevisionByScope = revisionByScope;
   if (seededCount > 0) {
     notifyClientRuntimeQueryCacheHit("bootstrap");
   }

@@ -3,7 +3,9 @@ import {
   POPUP_OPEN_EVENT_NAME,
   ANALYSIS_OPEN_EVENT_NAME,
   DRILLDOWN_EVENT_NAME,
+  SCENE_OPEN_EVENT_NAME,
   popupConfigOf,
+  sceneOpenMeta,
   sceneDrilldownContextValue,
   tableDrilldownMeta,
 } from "./drilldown-meta.js";
@@ -21,7 +23,7 @@ function actionDrilldownProps(props) {
       value: String(p.action_text ?? p.actionText ?? "详细介绍"),
       ...patch,
     },
-    popup: p.popup ?? p.action_popup ?? p.actionPopup,
+    popup: p.popup ?? p.action_link ?? p.actionLink ?? p.action_popup ?? p.actionPopup,
   };
 }
 
@@ -32,6 +34,8 @@ function hasAction(props) {
       p.action_metric ||
       p.action_content ||
       p.actionMetric ||
+      p.action_link ||
+      p.actionLink ||
       p.popup ||
       p.action_popup,
   );
@@ -75,6 +79,13 @@ class MeiCockpitOpinionPanel extends HTMLElement {
       return;
     }
     this.dispatchEvent(
+      new CustomEvent(SCENE_OPEN_EVENT_NAME, {
+        bubbles: true,
+        composed: true,
+        detail,
+      }),
+    );
+    this.dispatchEvent(
       new CustomEvent(DRILLDOWN_EVENT_NAME, {
         bubbles: true,
         composed: true,
@@ -103,33 +114,15 @@ class MeiCockpitOpinionPanel extends HTMLElement {
     const props = actionDrilldownProps(this.props);
     let meta = tableDrilldownMeta(props);
     if (!meta) {
+      meta = sceneOpenMeta(props);
+    }
+    if (!meta) {
       const popup = popupConfigOf(props);
-      const boardSceneId = String(
-        popup?.scene_id ?? popup?.sceneId ?? popup?.scene?.scene_id ?? "",
-      ).trim();
-      if (!popup || !boardSceneId) {
+      if (!popup) {
         return;
       }
-      const panelId =
-        this.closest?.("[data-mei-panel-id]")?.getAttribute?.("data-mei-panel-id") || "";
       meta = {
         popup,
-        board_scene_id: boardSceneId,
-        board_scene_file: String(popup.scene_file ?? popup.sceneFile ?? "").trim(),
-        projection: String(popup.projection || "overlay").trim() || "overlay",
-        metric_id: String(
-          props?.action_metric?.__mei_runtime_ref?.metric_id ??
-            props?.content?.__mei_runtime_ref?.metric_id ??
-            "",
-        ).trim(),
-        dataset_id: String(
-          props?.action_metric?.__mei_runtime_ref?.dataset_id ??
-            props?.content?.__mei_runtime_ref?.dataset_id ??
-            "",
-        ).trim(),
-        panel_id: panelId,
-        host_scene_id: String(props?._mei?.active_scene_id || "").trim(),
-        host_scene_file: String(props?._mei?.active_target_file || "").trim(),
         scene_projection_assembly_by_id: sceneDrilldownContextValue(
           props,
           "scene_projection_assembly_by_id",
@@ -164,10 +157,7 @@ class MeiCockpitOpinionPanel extends HTMLElement {
     const actionText = String(p.action_text ?? p.actionText ?? "详细介绍").trim();
     const actionInteractive =
       Boolean(tableDrilldownMeta(actionDrilldownProps(p))) ||
-      Boolean(
-        popupConfigOf(actionDrilldownProps(p))?.scene_id ||
-          popupConfigOf(actionDrilldownProps(p))?.sceneId,
-      );
+      Boolean(sceneOpenMeta(actionDrilldownProps(p)));
 
     const gridRows = showAction ? "auto 1fr auto" : "auto 1fr";
     const gridAreas = showAction

@@ -3,6 +3,7 @@
 export const DRILLDOWN_EVENT_NAME = "mei:metric-drilldown";
 export const ANALYSIS_OPEN_EVENT_NAME = "mei:analysis-open";
 export const POPUP_OPEN_EVENT_NAME = "mei:popup-open";
+export const SCENE_OPEN_EVENT_NAME = "mei:scene-open";
 
 function nonEmptyString(...values) {
   for (const value of values) {
@@ -88,6 +89,25 @@ export function boardLinkPassthroughFields(raw) {
   if (params && typeof params === "object" && !Array.isArray(params)) {
     out.params = params;
   }
+  const context = raw.context;
+  if (context && typeof context === "object" && !Array.isArray(context)) {
+    out.context = context;
+  }
+  const target = raw.target;
+  if (target && typeof target === "object" && !Array.isArray(target)) {
+    out.target = target;
+  }
+  const presentation = raw.presentation;
+  if (presentation && typeof presentation === "object" && !Array.isArray(presentation)) {
+    out.presentation = presentation;
+  }
+  const accepts = raw.accepts;
+  if (accepts && typeof accepts === "object" && !Array.isArray(accepts)) {
+    out.accepts = accepts;
+  }
+  if (Array.isArray(raw.capabilities)) {
+    out.capabilities = raw.capabilities;
+  }
   return out;
 }
 
@@ -131,30 +151,68 @@ export function popupConfigOf(props) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
+  const targetRaw =
+    raw.target && typeof raw.target === "object" && !Array.isArray(raw.target)
+      ? raw.target
+      : null;
+  const presentationRaw =
+    raw.presentation && typeof raw.presentation === "object" && !Array.isArray(raw.presentation)
+      ? raw.presentation
+      : null;
+  const contextRaw =
+    raw.context && typeof raw.context === "object" && !Array.isArray(raw.context)
+      ? raw.context
+      : null;
   const sceneRef = raw.scene && typeof raw.scene === "object" && !Array.isArray(raw.scene) ? raw.scene : null;
   const isBoardLink =
     raw.__kind === "board_link" || String(raw.mode || "").trim() === "board_link";
   const isPanelPopup =
     !isBoardLink &&
     (raw.__kind === "popup_panel" || String(raw.mode || "").trim() === "popup_panel");
+  const isSceneOpen = String(raw.kind || "").trim() === "scene_open";
   const mode = isBoardLink ? "board_link" : isPanelPopup ? "popup_panel" : String(raw.mode || "").trim();
   let template = String(raw.template || raw.legacy_template || "").trim();
   if (template === "metric_default") {
     template = "metric_board_default";
   }
   const sceneFile = String(
-    raw.scene_file || raw.sceneFile || sceneRef?.scene_file || sceneRef?.sceneFile || "",
+    raw.scene_file ||
+      raw.sceneFile ||
+      targetRaw?.scene_file ||
+      targetRaw?.sceneFile ||
+      sceneRef?.scene_file ||
+      sceneRef?.sceneFile ||
+      "",
   ).trim();
   const sceneId = String(
     raw.scene_id ||
       raw.sceneId ||
+      targetRaw?.scene_id ||
+      targetRaw?.sceneId ||
       sceneRef?.scene_id ||
       sceneRef?.sceneId ||
       sceneRef?.scene?.id ||
       "",
   ).trim();
-  const projection = String(raw.projection || "overlay").trim() || "overlay";
-  const popupType = String(raw.type || "").trim();
+  const projection = String(raw.projection || presentationRaw?.projection || "overlay").trim() || "overlay";
+  const popupType = String(raw.type || presentationRaw?.type || "").trim();
+  const overlaySize = String(
+    raw.overlay_size || raw.overlaySize || presentationRaw?.overlay_size || presentationRaw?.overlaySize || "",
+  ).trim();
+  const overlayWorkspace =
+    raw.overlay_workspace && typeof raw.overlay_workspace === "object" && !Array.isArray(raw.overlay_workspace)
+      ? raw.overlay_workspace
+      : raw.overlayWorkspace && typeof raw.overlayWorkspace === "object" && !Array.isArray(raw.overlayWorkspace)
+        ? raw.overlayWorkspace
+        : presentationRaw?.overlay_workspace &&
+            typeof presentationRaw.overlay_workspace === "object" &&
+            !Array.isArray(presentationRaw.overlay_workspace)
+          ? presentationRaw.overlay_workspace
+          : presentationRaw?.overlayWorkspace &&
+              typeof presentationRaw.overlayWorkspace === "object" &&
+              !Array.isArray(presentationRaw.overlayWorkspace)
+            ? presentationRaw.overlayWorkspace
+            : null;
   const entry = String(
     raw.entry ||
       raw.entry_tab ||
@@ -214,6 +272,7 @@ export function popupConfigOf(props) {
     raw.world_scene_id || raw.worldSceneId || worldRaw?.scene_id || worldRaw?.sceneId || "",
   ).trim();
   if (
+    !isSceneOpen &&
     !mode &&
     !template &&
     !focus &&
@@ -227,8 +286,53 @@ export function popupConfigOf(props) {
   ) {
     return null;
   }
+  const scene = sceneRef || (sceneId || sceneFile ? { scene_id: sceneId, scene_file: sceneFile } : null);
+  const params =
+    raw.params && typeof raw.params === "object" && !Array.isArray(raw.params)
+      ? raw.params
+      : contextRaw?.params && typeof contextRaw.params === "object" && !Array.isArray(contextRaw.params)
+        ? contextRaw.params
+        : null;
+  const accepts =
+    raw.accepts && typeof raw.accepts === "object" && !Array.isArray(raw.accepts)
+      ? raw.accepts
+      : targetRaw?.accepts && typeof targetRaw.accepts === "object" && !Array.isArray(targetRaw.accepts)
+        ? targetRaw.accepts
+        : assemblyEntry?.accepts && typeof assemblyEntry.accepts === "object" && !Array.isArray(assemblyEntry.accepts)
+          ? assemblyEntry.accepts
+          : assemblyEntry?.params && typeof assemblyEntry.params === "object" && !Array.isArray(assemblyEntry.params)
+            ? assemblyEntry.params
+            : null;
+  const capabilities = Array.isArray(raw.capabilities)
+    ? raw.capabilities
+    : Array.isArray(targetRaw?.capabilities)
+      ? targetRaw.capabilities
+      : Array.isArray(assemblyEntry?.capabilities)
+        ? assemblyEntry.capabilities
+        : [];
+  const target =
+    targetRaw ||
+    (sceneId || sceneFile
+      ? {
+          kind: "board",
+          scene_id: sceneId,
+          scene_file: sceneFile,
+          ...(accepts ? { accepts } : {}),
+          ...(capabilities.length ? { capabilities } : {}),
+        }
+      : null);
+  const presentation =
+    presentationRaw ||
+    {
+      kind: "overlay_board",
+      projection,
+      type: popupType || "popup",
+      ...(overlaySize ? { overlay_size: overlaySize } : {}),
+      ...(overlayWorkspace ? { overlay_workspace: overlayWorkspace } : {}),
+    };
   return {
     ...boardLinkPassthroughFields(raw),
+    kind: isSceneOpen ? "scene_open" : String(raw.kind || "").trim(),
     mode: mode || (isBoardLink ? "board_link" : isPanelPopup ? "popup_panel" : "popup"),
     type: popupType || "popup",
     template,
@@ -237,17 +341,88 @@ export function popupConfigOf(props) {
     entry_tab: entry,
     scene_file: nonEmptyString(sceneFile, assemblyEntry?.target_file, assemblyEntry?.targetFile),
     scene_id: sceneId,
-    scene: sceneRef,
+    scene,
     projection,
+    ...(overlaySize ? { overlay_size: overlaySize } : {}),
+    ...(overlayWorkspace ? { overlay_workspace: overlayWorkspace } : {}),
     local_nav: localNav || assemblyEntry?.local_nav || assemblyEntry?.localNav || null,
     entry_overrides: entryOverrides,
     bindings: entryOverrides,
     slots: entryOverrides,
     metrics: entryOverrides,
     title,
+    params,
+    context: contextRaw || (params ? { params } : null),
+    target,
+    presentation,
+    accepts,
+    capabilities,
     projection_slots: projectionSlots,
     world_scene_file: worldSceneFile,
     world_scene_id: worldSceneId,
+  };
+}
+
+export function sceneOpenMeta(props) {
+  const popup = popupConfigOf(props);
+  const boardSceneId = nonEmptyString(
+    popup?.scene_id,
+    popup?.sceneId,
+    popup?.scene?.scene_id,
+    popup?.target?.scene_id,
+    popup?.target?.sceneId,
+  );
+  const boardSceneFile = nonEmptyString(
+    popup?.scene_file,
+    popup?.sceneFile,
+    popup?.scene?.scene_file,
+    popup?.scene?.sceneFile,
+    popup?.target?.scene_file,
+    popup?.target?.sceneFile,
+  );
+  if (!popup || !boardSceneId || !boardSceneFile) {
+    return null;
+  }
+  const params =
+    popup?.params && typeof popup.params === "object" && !Array.isArray(popup.params)
+      ? popup.params
+      : popup?.context?.params && typeof popup.context.params === "object" && !Array.isArray(popup.context.params)
+        ? popup.context.params
+        : {};
+  return {
+    kind: "scene_open",
+    popup,
+    scene_open: {
+      target:
+        popup.target ||
+        {
+          kind: "board",
+          scene_id: boardSceneId,
+          scene_file: boardSceneFile,
+        },
+      params,
+      presentation:
+        popup.presentation ||
+        {
+          kind: "overlay_board",
+          projection: String(popup.projection || "overlay").trim() || "overlay",
+          type: String(popup.type || "popup").trim() || "popup",
+          ...(popup.overlay_size ? { overlay_size: popup.overlay_size } : {}),
+          ...(popup.overlay_workspace ? { overlay_workspace: popup.overlay_workspace } : {}),
+        },
+    },
+    board_scene_id: boardSceneId,
+    board_scene_file: boardSceneFile,
+    projection: String(popup.projection || "overlay").trim() || "overlay",
+    host_scene_id: String(props?._mei?.active_scene_id || "").trim(),
+    host_scene_file: String(props?._mei?.active_target_file || "").trim(),
+    scene_local_nav_by_target: sceneDrilldownContextValue(props, "scene_local_nav_by_target"),
+    scene_bindings_by_id: sceneDrilldownContextValue(props, "scene_bindings_by_id"),
+    scene_examples_by_id: sceneDrilldownContextValue(props, "scene_examples_by_id"),
+    scene_projection_assembly_by_id: sceneDrilldownContextValue(
+      props,
+      "scene_projection_assembly_by_id",
+    ),
   };
 }
 
@@ -276,10 +451,11 @@ function drilldownMetricRuntimeRef(props) {
 }
 
 export function tableDrilldownMeta(props) {
-  const popup = popupConfigOf(props);
+  const base = sceneOpenMeta(props);
+  const popup = base?.popup || null;
   const queryStateId = String(props?.query_state || props?.queryState || "").trim();
   const ref = drilldownMetricRuntimeRef(props);
-  if (!ref) {
+  if (!base || !ref) {
     return null;
   }
   if (!popup || (popup.mode !== "board_link" && popup.mode !== "popup_panel" && popup.mode !== "popup")) {
@@ -366,12 +542,13 @@ export function tableDrilldownMeta(props) {
       null,
   };
   return {
+    ...base,
     popup: enrichedPopup,
     analysis_contract: contract,
     metric_id: metricId,
     dataset_id: datasetId,
-    host_scene_id: String(ref.scene_id || props?._mei?.active_scene_id || "").trim(),
-    host_scene_file: String(ref.scene_path || props?._mei?.active_target_file || "").trim(),
+    host_scene_id: String(ref.scene_id || base.host_scene_id || "").trim(),
+    host_scene_file: String(ref.scene_path || base.host_scene_file || "").trim(),
     page_scene_id: String(props?._mei?.active_scene_id || "").trim(),
     page_scene_file: String(
       props?._mei?.active_target_file || props?._mei?.entry_target || "",
@@ -382,13 +559,6 @@ export function tableDrilldownMeta(props) {
     board_scene_file: nonEmptyString(enrichedPopup.scene_file, popupOut.scene_file || ""),
     board_scene_id: boardSceneId,
     projection: String(popup.projection || "overlay").trim() || "overlay",
-    scene_local_nav_by_target: sceneDrilldownContextValue(props, "scene_local_nav_by_target"),
-    scene_bindings_by_id: sceneDrilldownContextValue(props, "scene_bindings_by_id"),
-    scene_examples_by_id: sceneDrilldownContextValue(props, "scene_examples_by_id"),
-    scene_projection_assembly_by_id: sceneDrilldownContextValue(
-      props,
-      "scene_projection_assembly_by_id"
-    ),
   };
 }
 
@@ -500,6 +670,13 @@ export function emitTableRowDrilldown(host, detail) {
   if (!host || !detail) {
     return;
   }
+  host.dispatchEvent(
+    new CustomEvent(SCENE_OPEN_EVENT_NAME, {
+      bubbles: true,
+      composed: true,
+      detail,
+    }),
+  );
   host.dispatchEvent(
     new CustomEvent(DRILLDOWN_EVENT_NAME, {
       bubbles: true,

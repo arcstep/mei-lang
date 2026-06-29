@@ -6957,11 +6957,137 @@ a.tree-link {
 }
 
 .host-shell-ops-mount {
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  z-index: 1200;
-  max-width: min(420px, calc(100vw - 24px));
+  width: 100%;
+  max-width: none;
+}
+
+.host-runtime-console-active .host-runtime-legacy-tree,
+.host-runtime-console-active .host-runtime-legacy-overview {
+  display: none !important;
+}
+
+.host-runtime-nav-mount,
+.host-runtime-detail-mount {
+  width: 100%;
+}
+
+.host-runtime-nav {
+  display: grid;
+  gap: 12px;
+}
+
+.host-runtime-nav-section {
+  display: grid;
+  gap: 4px;
+}
+
+.host-runtime-nav-heading {
+  font-size: var(--mei-font-1, 12px);
+  opacity: 0.65;
+  padding: 4px 0;
+}
+
+.host-runtime-nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  text-decoration: none;
+  color: inherit;
+  font-size: var(--mei-font-2, 13px);
+}
+
+.host-runtime-nav-link:hover {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.25);
+}
+
+.host-runtime-nav-link.is-active {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(14, 116, 144, 0.18);
+}
+
+.host-runtime-nav-meta {
+  font-size: var(--mei-font-1, 12px);
+  opacity: 0.7;
+}
+
+.host-runtime-detail-panel {
+  display: grid;
+  gap: 14px;
+  padding: 4px 2px 16px;
+}
+
+.host-runtime-detail-head {
+  display: grid;
+  gap: 4px;
+}
+
+.host-runtime-detail-title {
+  margin: 0;
+  font-size: var(--mei-font-3, 15px);
+}
+
+.host-runtime-detail-sub {
+  margin: 0;
+  font-size: var(--mei-font-1, 12px);
+  opacity: 0.75;
+}
+
+.host-runtime-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+  font-size: var(--mei-font-1, 12px);
+}
+
+.host-runtime-kv dt {
+  opacity: 0.65;
+}
+
+.host-runtime-kv dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+.host-runtime-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.host-runtime-hint {
+  margin: 0;
+}
+
+.host-runtime-table-wrap {
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.host-runtime-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--mei-font-1, 12px);
+}
+
+.host-runtime-table th,
+.host-runtime-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  text-align: left;
+  vertical-align: top;
+}
+
+.host-runtime-table th {
+  opacity: 0.75;
+  font-weight: 600;
 }
 
 .host-shell-ops-panel {
@@ -6971,7 +7097,10 @@ a.tree-link {
   border-radius: 12px;
   border-width: 1px;
   border-style: solid;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+}
+
+.host-shell-ops-lead {
+  margin: 0;
 }
 
 .host-shell-ops-head {

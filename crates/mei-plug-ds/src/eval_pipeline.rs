@@ -6,8 +6,8 @@ use mei_host_graph::{default_metric_response_descriptor, record_slot_failed};
 use mei_lang_datasets::{
     collect_all_query_options, evaluate_runtime_metrics,
     metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
-    project_requested_metrics, store_metric_response_result_artifact,
-    take_cached_metric_response, RuntimeMetricEvalMode,
+    project_requested_metrics, store_metric_response_result_artifact, take_cached_metric_response,
+    RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{CompiledApp, FilterIntent, MetricContract, QueryState};
 
@@ -49,10 +49,7 @@ pub fn eval_metrics_with_slots(
         .find(|resource| resource.id == request.owner_resource_id)
         .and_then(|resource| resource.dataset.as_ref())
         .ok_or_else(|| {
-            anyhow::anyhow!(
-                "owner resource `{}` not found",
-                request.owner_resource_id
-            )
+            anyhow::anyhow!("owner resource `{}` not found", request.owner_resource_id)
         })?;
     let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
         app_root.as_path(),
@@ -72,11 +69,7 @@ pub fn eval_metrics_with_slots(
         None,
     );
     let requested: BTreeSet<String> = request.metric_ids.iter().cloned().collect();
-    if let Some(cached) = take_cached_metric_response(
-        cache_key.as_str(),
-        &requested,
-        false,
-    ) {
+    if let Some(cached) = take_cached_metric_response(cache_key.as_str(), &requested, false) {
         let wall_ms = started.elapsed().as_millis() as u64;
         let metrics = project_requested_metrics(
             request.owner_resource_id.as_str(),

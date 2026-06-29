@@ -38,7 +38,11 @@ pub struct MrgSlotRecord {
     pub metric_def_bundle_revision: String,
     #[serde(rename = "dataSourceRevision")]
     pub data_source_revision: String,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "payloadRef")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "payloadRef"
+    )]
     pub payload_ref: Option<PayloadRef>,
     #[serde(rename = "cachePolicy")]
     pub cache_policy: String,
@@ -50,15 +54,31 @@ pub struct MrgSlotRecord {
     pub resident_tier: String,
     #[serde(default, rename = "clientEligible")]
     pub client_eligible: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "clientRevision")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "clientRevision"
+    )]
     pub client_revision: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "payloadBytes")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "payloadBytes"
+    )]
     pub payload_bytes: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "tiersReady")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "tiersReady"
+    )]
     pub tiers_ready: Option<CacheLayersReady>,
     #[serde(default, rename = "accessCount")]
     pub access_count: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "lastAccessMs")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "lastAccessMs"
+    )]
     pub last_access_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "worksetId")]
     pub workset_id: Option<String>,
@@ -96,7 +116,11 @@ pub struct MrgRegistry {
     pub slots: Vec<MrgSlotRecord>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edges: Vec<MrgEdgeRecord>,
-    #[serde(default, skip_serializing_if = "Option::is_none", rename = "telemetrySummary")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "telemetrySummary"
+    )]
     pub telemetry_summary: Option<MrgTelemetrySummary>,
 }
 
@@ -126,11 +150,9 @@ impl MrgRegistry {
     }
 
     pub fn upsert_edge(&mut self, edge: MrgEdgeRecord) {
-        if self
-            .edges
-            .iter()
-            .any(|existing| existing.from == edge.from && existing.to == edge.to && existing.kind == edge.kind)
-        {
+        if self.edges.iter().any(|existing| {
+            existing.from == edge.from && existing.to == edge.to && existing.kind == edge.kind
+        }) {
             return;
         }
         self.edges.push(edge);
@@ -195,6 +217,9 @@ impl MrgRegistryWriter {
     }
 
     pub fn save(source_root: &std::path::Path, registry: &MrgRegistry) -> anyhow::Result<()> {
-        write_json_registry(&mrg_registry_path(source_root, registry.app_id.as_str()), registry)
+        write_json_registry(
+            &mrg_registry_path(source_root, registry.app_id.as_str()),
+            registry,
+        )
     }
 }
