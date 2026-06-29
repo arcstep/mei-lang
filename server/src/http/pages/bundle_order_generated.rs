@@ -4,6 +4,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
+    "host-shell-ops.js",
     "frame-stage/preamble.js",
     "frame-stage/util.js",
     "frame-stage/viewport/p1.js",

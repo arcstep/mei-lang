@@ -15,6 +15,7 @@ use crate::api_stubs::{
 };
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
+use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
 use crate::pages::{app_page, api_presentation_map, index};
 use crate::state::{HostHttpState, SharedState};
 use crate::upload_download::upload_file_download_get;
@@ -36,6 +37,9 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/version", get(api_host_version))
         .route("/api/host/ready", get(api_host_ready))
         .route("/api/host/readiness", get(api_host_ready))
+        .route("/api/host/ops/status", get(api_host_ops_status))
+        .route("/api/host/ops/reload", post(api_host_ops_reload))
+        .route("/api/host/ops/prebuild", post(api_host_ops_prebuild))
         .route("/api/auth/public-key", get(mei_host_auth::auth_public_key))
         .route("/api/auth/session", get(mei_host_auth::auth_session))
         .route("/api/auth/refresh", post(mei_host_auth::auth_refresh))
@@ -257,6 +261,8 @@ mod tests {
             imported: true,
             warmed_up: true,
             host_started_at_ms: 1,
+            ops_job: None,
+            last_ops_job: None,
         }));
         HostHttpState {
             shell,
@@ -299,5 +305,36 @@ mod tests {
         );
         assert_eq!(value["hostStartedAtMs"], 1);
         assert!(value.get("workspace").is_some());
+    }
+
+    #[tokio::test]
+    async fn api_host_ops_status_exposes_host_shell_ops_flag() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":1,"workspace":{"id":"test","version":"20260628"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/ops/status")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["hostShellOps"], true);
+        assert!(value.get("phase").is_some());
+        assert!(value.get("env").is_some());
     }
 }

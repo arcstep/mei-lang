@@ -4,6 +4,8 @@ use axum::extract::FromRef;
 use mei_host_auth::AuthServeState;
 use mei_host_core::HostContext;
 
+use crate::build_ops::OpsJobState;
+
 #[derive(Debug, Clone)]
 pub struct ShellState {
     pub ctx: HostContext,
@@ -11,6 +13,8 @@ pub struct ShellState {
     pub imported: bool,
     pub warmed_up: bool,
     pub host_started_at_ms: u64,
+    pub ops_job: Option<OpsJobState>,
+    pub last_ops_job: Option<OpsJobState>,
 }
 
 impl ShellState {
@@ -21,6 +25,8 @@ impl ShellState {
             imported: false,
             warmed_up: false,
             host_started_at_ms: current_time_ms(),
+            ops_job: None,
+            last_ops_job: None,
         }
     }
 }

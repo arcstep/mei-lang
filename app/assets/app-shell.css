@@ -6952,3 +6952,89 @@ a.tree-link {
   border-color: rgba(56, 189, 248, 0.55);
   background: rgba(14, 116, 144, 0.35);
 }
+
+.host-shell-ops-mount {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 1200;
+  max-width: min(420px, calc(100vw - 24px));
+}
+
+.host-shell-ops-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border-width: 1px;
+  border-style: solid;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.35);
+}
+
+.host-shell-ops-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.host-shell-ops-title {
+  font-size: var(--mei-font-2, 13px);
+}
+
+.host-shell-ops-sub {
+  font-size: var(--mei-font-1, 12px);
+  opacity: 0.75;
+}
+
+.host-shell-ops-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin: 0;
+  font-size: var(--mei-font-1, 12px);
+}
+
+.host-shell-ops-meta dt {
+  opacity: 0.65;
+}
+
+.host-shell-ops-meta dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+.host-shell-ops-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.host-shell-ops-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: var(--mei-font-1, 12px);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.host-shell-ops-badge.is-ready {
+  border-color: rgba(52, 211, 153, 0.45);
+  color: rgb(52, 211, 153);
+}
+
+.host-shell-ops-job {
+  margin: 0;
+  font-size: var(--mei-font-1, 12px);
+  opacity: 0.85;
+}
+
+.host-shell-ops-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+

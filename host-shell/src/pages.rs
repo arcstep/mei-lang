@@ -35,7 +35,10 @@ pub async fn app_page(
     if guard.ctx.app_id != app_id {
         return (StatusCode::NOT_FOUND, "app not found").into_response();
     }
-    if !route_mode.is_access_like() && route_mode != UiRouteMode::Runtime {
+    if !route_mode.is_access_like()
+        && route_mode != UiRouteMode::Runtime
+        && !route_mode.is_build()
+    {
         return (
             StatusCode::NOT_IMPLEMENTED,
             format!("route mode `{}` not supported in mei-host-shell yet", mode),
@@ -83,7 +86,7 @@ pub async fn app_page(
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
     let html = crate::gis_config::fill_gis_tiles_placeholders(
-        inject_layer_plane_scripts(
+        inject_host_shell_ops_mount(inject_layer_plane_scripts(
             inject_client_bootstrap_script(
                 fill_host_build_placeholders(
                     render_page(
@@ -125,7 +128,7 @@ pub async fn app_page(
                 scene_id.as_str(),
             ),
             &outcome,
-        ),
+        ), route_mode.is_build()),
         &gis,
     );
     Html(html).into_response()
@@ -200,6 +203,24 @@ fn parse_app_scene_path(app_tail: &str, scene_query: Option<&str>) -> (String, O
         scene_query.map(str::to_string)
     };
     (app_id, scene)
+}
+
+fn inject_host_shell_ops_mount(html: String, enabled: bool) -> String {
+    if !enabled {
+        return html;
+    }
+    let mount = r#"<div id="host-shell-ops-mount" class="host-shell-ops-mount"></div>"#;
+    if let Some(pos) = html.find("<body") {
+        if let Some(close) = html[pos..].find('>') {
+            let insert_at = pos + close + 1;
+            let mut out = String::with_capacity(html.len() + mount.len());
+            out.push_str(&html[..insert_at]);
+            out.push_str(mount);
+            out.push_str(&html[insert_at..]);
+            return out;
+        }
+    }
+    format!("{mount}{html}")
 }
 
 fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph::AssembleOutcome) -> String {

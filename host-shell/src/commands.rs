@@ -8,6 +8,9 @@ use crate::cli::{
     MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs,
     WorkspaceCommand, WorkspaceInitArgs,
 };
+use crate::build_ops::{
+    import_with_options, prebuild_pipeline, resolve_app_id, toolchain_hint,
+};
 use crate::state::{HostHttpState, SharedState, ShellState};
 
 pub async fn dispatch(command: Command) -> anyhow::Result<()> {
@@ -49,21 +52,11 @@ fn resolve_build_app_ids(workspace: &std::path::Path, apps: &[String]) -> anyhow
     if !apps.is_empty() {
         return Ok(apps.to_vec());
     }
-    let cfg = mei_lang_kernel::load_workspace_config(workspace);
-    if let Some(default) = cfg
-        .workspace
-        .default_app
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return Ok(vec![default.to_string()]);
-    }
-    anyhow::bail!("no --app specified and workspace has no defaultApp")
+    Ok(vec![resolve_app_id(workspace, None)?])
 }
 
 fn cli_toolchain_hint() -> &'static str {
-    crate::build_info::CARGO_PACKAGE_VERSION
+    toolchain_hint()
 }
 
 fn run_build_prepare(args: BuildPrepareArgs) -> anyhow::Result<()> {
@@ -259,18 +252,6 @@ fn run_reload(args: ReloadArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn import_with_options(
-    workspace: &Path,
-    app: &str,
-    bundle: Option<std::path::PathBuf>,
-) -> anyhow::Result<mei_host_core::ImportReport> {
-    let workspace = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
-    crate::build_info::log_host_identity(Some(workspace.as_path()), "import");
-    let ctx = mei_host_core::HostContext::new(workspace, app.to_string());
-    let options = mei_host_graph::ImportOptions { bundle_path: bundle };
-  mei_host_graph::import_bundle(&ctx, &options).map_err(|e| anyhow::anyhow!("{e}"))
-}
-
 fn print_import_report(report: &mei_host_core::ImportReport) {
     println!(
         "import ok: app={} blocks={} mcg_nodes={} cas_upserts={} revision={}",
@@ -293,51 +274,9 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
         .canonicalize()
         .unwrap_or(args.workspace);
     let app = args.app.as_str();
-    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), app);
 
-    println!("==> build prepare");
-    let generation = mei_lang_kernel::prepare_dev_build_generation_with_hint(
-        workspace.as_path(),
-        &[app.to_string()],
-        Some(cli_toolchain_hint()),
-    )?;
-    let build_id = generation.env_version.clone();
-    println!("envVersion={build_id}");
-
-    println!("==> compile");
-    crate::tool_exec::run_mei_compiler_compile(workspace.as_path(), app)?;
-
-    println!("==> import");
-    let report = import_with_options(workspace.as_path(), app, None)?;
-    print_import_report(&report);
-
-    println!("==> prebuild-data");
-    run_prebuild_data(PrebuildDataArgs {
-        workspace: workspace.clone(),
-        app: app.to_string(),
-    })?;
-
-    println!("==> clear eval-cache");
-    let eval_cache = mei_lang_kernel::resolve_app_eval_cache_root(app_root.as_path());
-    if eval_cache.exists() {
-        fs::remove_dir_all(&eval_cache)?;
-    }
-
-    println!("==> warmup policy={}", args.policy);
-    crate::tool_exec::run_mei_plug_ds_warmup(
-        workspace.as_path(),
-        app,
-        args.policy.as_str(),
-        "all",
-    )?;
-
-    println!("==> build finalize");
-    run_build_finalize(BuildFinalizeArgs {
-        workspace,
-        app: vec![app.to_string()],
-        build_id: build_id.clone(),
-    })?;
-
+    println!("==> build prepare + compile + import + prebuild-data + warmup + finalize");
+    let build_id = prebuild_pipeline(workspace.as_path(), app, args.policy.as_str())?;
     println!("Prebuild complete (envVersion={build_id}).");
     Ok(())
 }
@@ -630,16 +569,7 @@ fn ensure_registry_materialized(ctx: &mei_host_core::HostContext) -> anyhow::Res
 
 fn refresh_host_materialization_flags(state: &SharedState) {
     let mut guard = state.write().expect("state lock");
-    guard.imported = mei_host_graph::mcg_registry_path(
-        guard.ctx.workspace_root.as_path(),
-        guard.ctx.app_id.as_str(),
-    )
-    .is_file();
-    guard.warmed_up = mei_host_graph::mrg_registry_path(
-        guard.ctx.workspace_root.as_path(),
-        guard.ctx.app_id.as_str(),
-    )
-    .is_file();
+    crate::build_ops::refresh_materialization_flags(&mut guard);
 }
 
 fn resolve_package_root() -> anyhow::Result<std::path::PathBuf> {

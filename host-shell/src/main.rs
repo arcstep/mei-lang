@@ -1,11 +1,13 @@
 mod api_stubs;
 mod assets;
 mod build_info;
+mod build_ops;
 mod cli;
 mod commands;
 mod gis_config;
 mod gis_proxy;
 mod http;
+mod ops_api;
 mod pages;
 mod plug_proxy;
 mod request_logging;
