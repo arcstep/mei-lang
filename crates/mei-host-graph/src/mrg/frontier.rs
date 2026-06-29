@@ -24,7 +24,11 @@ pub fn collect_eval_frontier(
     let outcome =
         assemble_scope_from_registry(ctx.workspace_root.as_path(), ctx.app_id.as_str(), scope_key)?
             .ok_or_else(|| anyhow::anyhow!("scene `{scope_key}` not assembled"))?;
-    Ok(collect_metrics_from_compiled(scope_key, &outcome.compiled))
+    let metrics = collect_metrics_from_compiled(scope_key, &outcome.compiled);
+    if !metrics.is_empty() {
+        return Ok(metrics);
+    }
+    collect_metrics_from_assembly_view(ctx, scope_key)
 }
 
 pub fn collect_eval_frontier_with_hops(
@@ -49,11 +53,11 @@ fn collect_metrics_from_compiled(scope_key: &str, compiled: &CompiledApp) -> Vec
     if let Some(contract) = compiled.scene_contract.as_ref() {
         for panel in &contract.panels {
             if let Ok(value) = serde_json::to_value(&panel.blocks) {
-                walk_value_for_metrics(scope_key, &value, compiled, &mut out);
+                walk_value_for_metrics(scope_key, &value, Some(compiled), &mut out);
             }
             if let Some(head) = panel.head.as_ref() {
                 if let Ok(value) = serde_json::to_value(head.as_ref()) {
-                    walk_value_for_metrics(scope_key, &value, compiled, &mut out);
+                    walk_value_for_metrics(scope_key, &value, Some(compiled), &mut out);
                 }
             }
         }
@@ -61,10 +65,42 @@ fn collect_metrics_from_compiled(scope_key: &str, compiled: &CompiledApp) -> Vec
     dedupe_frontier(out).unwrap_or_default()
 }
 
+fn collect_metrics_from_assembly_view(
+    ctx: &HostContext,
+    scope_key: &str,
+) -> anyhow::Result<Vec<FrontierMetric>> {
+    let registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
+    let app_root = ctx.app_root();
+    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        let is_match = if scope_key == "home" {
+            node.id.key.contains("home@")
+        } else {
+            node.id.key.contains(&format!("#{scope_key}"))
+        };
+        if !is_match {
+            continue;
+        }
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Some(artifact) = load_block_artifact(app_root.as_path(), pref)? else {
+            continue;
+        };
+        let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
+        let mut out = Vec::new();
+        walk_value_for_metrics(scope_key, &payload, None, &mut out);
+        let deduped = dedupe_frontier(out)?;
+        if !deduped.is_empty() {
+            return Ok(deduped);
+        }
+    }
+    Ok(Vec::new())
+}
+
 fn walk_value_for_metrics(
     scope_key: &str,
     value: &Value,
-    compiled: &CompiledApp,
+    compiled: Option<&CompiledApp>,
     out: &mut Vec<FrontierMetric>,
 ) {
     match value {
@@ -78,7 +114,7 @@ fn walk_value_for_metrics(
                     let bundle_key = map
                         .get("__args")
                         .and_then(|args| args.get("bundle"))
-                        .and_then(Value::as_str)
+                        .and_then(value_as_metric_bundle)
                         .unwrap_or("");
                     if let Some((owner, bundle)) =
                         resolve_metric_owner(compiled, metric_id, bundle_key)
@@ -106,7 +142,7 @@ fn walk_value_for_metrics(
 }
 
 fn resolve_metric_owner(
-    compiled: &CompiledApp,
+    compiled: Option<&CompiledApp>,
     metric_id: &str,
     bundle_key: &str,
 ) -> Option<(String, String)> {
@@ -116,6 +152,7 @@ fn resolve_metric_owner(
             bundle_key.to_string(),
         ));
     }
+    let compiled = compiled?;
     for resource in &compiled.resources {
         if let Some(dataset) = resource.dataset.as_ref() {
             if dataset.runtime_metric_defs.contains_key(metric_id) {
@@ -124,6 +161,16 @@ fn resolve_metric_owner(
         }
     }
     None
+}
+
+fn value_as_metric_bundle(value: &Value) -> Option<&str> {
+    value.as_str().or_else(|| {
+        value
+            .get("__args")
+            .and_then(Value::as_object)
+            .and_then(|args| args.get("arg0"))
+            .and_then(Value::as_str)
+    })
 }
 
 fn direct_linked_board_scenes(ctx: &HostContext, scope_key: &str) -> anyhow::Result<Vec<String>> {
@@ -142,9 +189,16 @@ fn direct_linked_board_scenes(ctx: &HostContext, scope_key: &str) -> anyhow::Res
             .or_else(|| payload.get("scope"))
             .and_then(Value::as_str)
             .unwrap_or("");
-        if from_scope != scope_key && !node.id.key.contains(scope_key) {
+        let is_home_popup = scope_key == "home"
+            && matches!(payload.get("type").and_then(Value::as_str), Some("popup"))
+            && matches!(
+                payload.get("projection").and_then(Value::as_str),
+                Some("overlay") | None
+            );
+        if !is_home_popup && from_scope != scope_key && !node.id.key.contains(scope_key) {
             continue;
         }
+        collect_scene_targets(&payload, &mut scenes);
         if let Some(board) = payload
             .get("board")
             .or_else(|| payload.get("target_scene"))
@@ -155,6 +209,7 @@ fn direct_linked_board_scenes(ctx: &HostContext, scope_key: &str) -> anyhow::Res
             scenes.push(scene.to_string());
         }
     }
+    scenes.extend(linked_board_scenes_from_scope_contract(ctx, scope_key)?);
     scenes.sort();
     scenes.dedup();
     Ok(scenes)
@@ -227,4 +282,116 @@ fn dedupe_frontier(metrics: Vec<FrontierMetric>) -> anyhow::Result<Vec<FrontierM
         );
     }
     Ok(map.into_values().collect())
+}
+
+fn linked_board_scenes_from_scope_contract(
+    ctx: &HostContext,
+    scope_key: &str,
+) -> anyhow::Result<Vec<String>> {
+    let outcome =
+        assemble_scope_from_registry(ctx.workspace_root.as_path(), ctx.app_id.as_str(), scope_key)?
+            .ok_or_else(|| anyhow::anyhow!("scene `{scope_key}` not assembled"))?;
+    let registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
+    let app_root = ctx.app_root();
+    let contract = outcome.compiled.scene_contract.as_ref();
+    let mut refs = Vec::new();
+    if let Some(contract) = contract {
+        if let Ok(value) = serde_json::to_value(contract) {
+            collect_navigation_refs(&value, &mut refs);
+        }
+    }
+    let mut scenes = Vec::new();
+    for ref_key in refs {
+        if let Some(scene) = scene_id_from_reference(ref_key.as_str()) {
+            scenes.push(scene);
+            continue;
+        }
+        for node in registry.nodes_of_kind(GraphNodeKind::Navigation) {
+            if node.id.key != ref_key {
+                continue;
+            }
+            let Some(pref) = node.payload_ref.as_ref() else {
+                continue;
+            };
+            let Some(artifact) = load_block_artifact(app_root.as_path(), pref)? else {
+                continue;
+            };
+            let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
+            collect_scene_targets(&payload, &mut scenes);
+        }
+    }
+    scenes.sort();
+    scenes.dedup();
+    Ok(scenes)
+}
+
+fn collect_navigation_refs(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            if let Some(reference) = map.get("__ref").and_then(Value::as_str) {
+                if matches!(
+                    reference,
+                    "link_ref" | "scene_ref" | "board_ref" | "assembly_ref"
+                ) {
+                    if let Some(arg0) = map
+                        .get("__args")
+                        .and_then(Value::as_object)
+                        .and_then(|args| args.get("arg0"))
+                        .and_then(Value::as_str)
+                    {
+                        out.push(arg0.to_string());
+                    }
+                }
+            }
+            for entry in map.values() {
+                collect_navigation_refs(entry, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_navigation_refs(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_scene_targets(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::String(raw) => {
+            if let Some(scene) = scene_id_from_reference(raw.as_str()) {
+                out.push(scene);
+            }
+        }
+        Value::Object(map) => {
+            if let Some(scene) = map.get("scene").and_then(Value::as_str) {
+                out.push(scene.to_string());
+            }
+            for entry in map.values() {
+                collect_scene_targets(entry, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_scene_targets(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scene_id_from_reference(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Some((_, scene_id)) = trimmed.split_once('#') {
+        return Some(scene_id.to_string());
+    }
+    trimmed
+        .rsplit("/scene/")
+        .next()
+        .map(str::trim)
+        .filter(|scene_id: &&str| !scene_id.is_empty() && *scene_id != trimmed)
+        .map(|scene_id| scene_id.to_string())
 }

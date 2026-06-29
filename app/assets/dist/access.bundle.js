@@ -14728,6 +14728,7 @@
 
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   const DRILLDOWN_FILTER_BAR_SCRIPT = "/workspace-components/dataset/filter-bar.js";
+  const DRILLDOWN_ECHARTS_VENDOR_SCRIPT = "/workspace-components/vendor/echarts/echarts.min.js";
   const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
 
   async function waitForCustomElementTag(tagName) {
@@ -14762,6 +14763,15 @@
       softFail: false,
     });
     return waitForCustomElementTag(tag);
+  }
+
+  async function ensureDrilldownChartVendorLoaded() {
+    if (window.echarts) return true;
+    await loadScript(DRILLDOWN_ECHARTS_VENDOR_SCRIPT, {
+      persistentKey: DRILLDOWN_ECHARTS_VENDOR_SCRIPT,
+      softFail: false,
+    });
+    return Boolean(window.echarts);
   }
 
   async function ensureDrilldownTableRegistered() {
@@ -14808,6 +14818,9 @@
       });
     }
     chartTags.forEach((tag) => tasks.push(ensureDrilldownChartRegistered(tag)));
+    if (chartTags.size > 0) {
+      tasks.push(ensureDrilldownChartVendorLoaded());
+    }
     await Promise.all(tasks);
   }
 
@@ -17800,6 +17813,15 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-layer2-open");
+    document.dispatchEvent(
+      new CustomEvent("meilang:scope-activation", {
+        detail: {
+          scope: sceneId,
+          source: "layer2",
+          overlaySize,
+        },
+      }),
+    );
     return tab.panel;
   }
 
@@ -18009,6 +18031,49 @@
     };
   }
 
+  async function prewarmProjectionScope(config) {
+    try {
+      if (
+        (config?.structuredBoard || useSceneBoardOverlay(config)) &&
+        typeof prefetchStructuredDrilldownWidgets === "function"
+      ) {
+        await prefetchStructuredDrilldownWidgets(config);
+      }
+    } catch (_) {
+      /* ignore widget prewarm failures; render path will retry */
+    }
+    try {
+      if (typeof seedFromBootstrap === "function") {
+        seedFromBootstrap(window.__mei);
+      }
+    } catch (_) {
+      /* ignore bootstrap seed failures */
+    }
+  }
+
+  function triggerScopeActivationWarmup(config) {
+    const scope = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    if (!scope || typeof fetch !== "function") {
+      return;
+    }
+    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=1`;
+    void fetch(url, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((result) => {
+        const payload =
+          result?.payload && typeof result.payload === "object" ? result.payload : null;
+        if (payload && typeof seedFromBootstrap === "function") {
+          seedFromBootstrap(payload);
+        }
+      })
+      .catch(() => {
+        /* ignore activation warmup failures; runtime API path remains fallback */
+      });
+  }
+
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
@@ -18043,6 +18108,7 @@
         "large",
       ),
     };
+    await prewarmProjectionScope(layer2Config);
     if (typeof boot.beginDrilldownLoadSession === "function") {
       boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
@@ -18051,6 +18117,7 @@
       closeDrilldownOverlay();
       closeSceneBoardOverlay();
       const root = boot.openLayer2Tab(layer2Config);
+      triggerScopeActivationWarmup(layer2Config);
       if (config.boardFrameScene) {
         await renderFrameBoardSceneContent(root, detail, config);
         return;
@@ -18072,6 +18139,7 @@
       root.removeAttribute("hidden");
       root.classList.add("is-open");
       document.body.classList.add("access-scene-board-open");
+      triggerScopeActivationWarmup(layer2Config);
       await renderStructuredDrilldownContent(root, detail, config);
       return;
     }
@@ -18081,6 +18149,7 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-drilldown-open");
+    triggerScopeActivationWarmup(layer2Config);
     if (config.boardFrameScene) {
       if (!(await renderFrameBoardSceneContent(root, detail, config))) {
         return;
