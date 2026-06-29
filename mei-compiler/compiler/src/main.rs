@@ -212,7 +212,7 @@ fn bundle_stats_cmd(path: &Path) -> Result<()> {
 }
 
 fn read_templates_rel(workspace: &Path) -> String {
-    let workspace_json = workspace.join("workspace.json");
+    let workspace_json = mei_graph::resolve_workspace_config_path(workspace);
     let raw = std::fs::read_to_string(&workspace_json).unwrap_or_default();
     serde_json::from_str::<JsonValue>(&raw)
         .ok()

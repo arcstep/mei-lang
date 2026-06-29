@@ -41,9 +41,14 @@ pub struct CompileOutcome {
 }
 
 pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, CompileAppError> {
-    let workspace_json = workspace.join("workspace.json");
-    let ws_config: WorkspaceJson = serde_json::from_str(&std::fs::read_to_string(&workspace_json)?)
-        .map_err(|e| CompileAppError::Config(format!("workspace.json: {e}")))?;
+    let workspace_json = resolve_workspace_config_path(workspace);
+    let ws_config: WorkspaceJson = serde_json::from_str(
+        &std::fs::read_to_string(&workspace_json).map_err(|e| CompileAppError::Config(format!(
+            "{}: {e}",
+            workspace_json.display()
+        )))?,
+    )
+    .map_err(|e| CompileAppError::Config(format!("{}: {e}", workspace_json.display())))?;
 
     let templates_rel = ws_config
         .paths
@@ -106,6 +111,23 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
         files,
         blocks,
     })
+}
+
+pub fn resolve_workspace_config_path(workspace: &Path) -> PathBuf {
+    if let Ok(raw) = std::env::var("MEI_WORKSPACE_CONFIG") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let candidate = PathBuf::from(trimmed);
+            if candidate.is_file() {
+                return candidate;
+            }
+            let joined = workspace.join(&candidate);
+            if joined.is_file() {
+                return joined;
+            }
+        }
+    }
+    workspace.join("workspace.json")
 }
 
 fn read_syntax_version(app_root: &Path) -> Option<String> {

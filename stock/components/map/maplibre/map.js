@@ -36,6 +36,12 @@ import {
 } from "../../gis/layer-spec.js";
 import { createComponentTracer } from "../../perf/render-trace.js";
 import { COCKPIT_Z_INDEX } from "../../cockpit/tokens.js";
+import {
+  focusInsetCssVars,
+  resolveCockpitStageMetrics,
+  resolveMapFocusInset,
+  applyFocusFrameGuide,
+} from "../../cockpit/map-focus-inset.js";
 import { ensureMapLibreGlobal } from "../../vendor/runtime-libs.js";
 
 const TAG = "mei-map-maplibre";
@@ -1290,9 +1296,7 @@ if (!customElements.get(TAG)) {
         wrap.classList.toggle("wrap-cockpit-bleed", Boolean(layout?.cockpitBleed));
       }
       const guide = this.shadowRoot?.querySelector(".focus-guide");
-      if (guide) {
-        guide.hidden = !layout?.cockpitBleed || !layout?.showFocusGuide;
-      }
+      applyFocusFrameGuide(guide, layout);
       if (!layout?.cockpitBleed) {
         this.restoreCockpitMapToolsLayer();
       }
@@ -1317,105 +1321,6 @@ function stablePropsSignature(props) {
   }
 }
 
-/** 访问态 contain 缩放后，将设计稿 focusInset 换算为视口坐标 */
-function resolveCockpitStageMetrics(host) {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  const stage =
-    host?.closest?.(".preview-stage.preview-surface") ||
-    document.querySelector(".preview-stage.preview-surface");
-  if (!stage) {
-    return null;
-  }
-  const rect = stage.getBoundingClientRect();
-  const stageStyle = window.getComputedStyle(stage);
-  const rootStyle = window.getComputedStyle(document.documentElement);
-  const designW =
-    Number.parseFloat(stageStyle.getPropertyValue("--mei-viewport-design-width")) ||
-    Number.parseFloat(rootStyle.getPropertyValue("--mei-viewport-design-width")) ||
-    1920;
-  const designH =
-    Number.parseFloat(stageStyle.getPropertyValue("--mei-viewport-design-height")) ||
-    Number.parseFloat(rootStyle.getPropertyValue("--mei-viewport-design-height")) ||
-    1080;
-  const scale = Math.min(rect.width / designW, rect.height / designH);
-  const contentW = designW * scale;
-  const contentH = designH * scale;
-  return {
-    scale,
-    designW,
-    designH,
-    offsetX: rect.left + (rect.width - contentW) / 2,
-    offsetY: rect.top + (rect.height - contentH) / 2,
-  };
-}
-
-/** 驾驶舱全幅底图 + 中间观察区：地图铺满，控件落在 focusInset 内 */
-function resolveMapFocusInset(props, basemap = {}) {
-  const mapSpec = props.mapSpec || props.map || {};
-  const raw =
-    props.mapViewport ||
-    props.map_viewport ||
-    props.mapFocusInset ||
-    props.map_focus_inset ||
-    mapSpec.mapViewport ||
-    mapSpec.map_viewport ||
-    mapSpec.focusInset ||
-    mapSpec.focus_inset ||
-    basemap.mapViewport ||
-    basemap.focusInset;
-  if (!raw || typeof raw !== "object") {
-    return null;
-  }
-  const inset = raw.focusInset || raw.focus_inset || raw;
-  const top = cssLength(inset.top ?? raw.top, "0px");
-  const right = cssLength(inset.right ?? raw.right, "0px");
-  const bottom = cssLength(inset.bottom ?? raw.bottom, "0px");
-  const left = cssLength(inset.left ?? raw.left, "0px");
-  if (top === "0px" && right === "0px" && bottom === "0px" && left === "0px") {
-    return null;
-  }
-  const mode = String(raw.mode || raw.layoutMode || raw.layout_mode || "").trim();
-  return {
-    mode,
-    top,
-    right,
-    bottom,
-    left,
-    showFocusGuide:
-      raw.showFocusGuide === true ||
-      raw.show_focus_guide === true ||
-      raw.showFocusFrame === true,
-    focusInsetPx: {
-      top: cssLengthToPx(top),
-      right: cssLengthToPx(right),
-      bottom: cssLengthToPx(bottom),
-      left: cssLengthToPx(left),
-    },
-  };
-}
-
-function cssLength(value, fallback) {
-  if (value == null || value === "") {
-    return fallback;
-  }
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return `${value}px`;
-  }
-  const text = String(value).trim();
-  return text || fallback;
-}
-
-function cssLengthToPx(length) {
-  const text = String(length || "").trim();
-  const match = text.match(/^([\d.]+)px$/);
-  if (match) {
-    return Number(match[1]);
-  }
-  return 0;
-}
-
 function resolveMapLayout(props, basemap = {}) {
   const focusInset = resolveMapFocusInset(props, basemap);
   const fill =
@@ -1434,18 +1339,15 @@ function resolveMapLayout(props, basemap = {}) {
     (focusInset != null && fill);
 
   if (cockpitBleed && focusInset) {
-    const vars = [
-      `--map-focus-top:${focusInset.top}`,
-      `--map-focus-right:${focusInset.right}`,
-      `--map-focus-bottom:${focusInset.bottom}`,
-      `--map-focus-left:${focusInset.left}`,
-    ].join(";");
+    const vars = focusInsetCssVars(focusInset);
     return {
       fill: true,
       cockpitBleed: true,
       focusInset,
       focusInsetPx: focusInset.focusInsetPx,
       showFocusGuide: focusInset.showFocusGuide,
+      focusFrameBorder: focusInset.focusFrameBorder,
+      focusFrameRadius: focusInset.focusFrameRadius,
       host: `display:block;width:100%;height:100%;min-height:0;${vars}`,
       wrap: "position:relative;width:100%;height:100%;min-height:0;overflow:hidden;",
       mapWrap: "position:absolute;inset:0;",
@@ -1562,11 +1464,9 @@ function shellHtml(props) {
         right: var(--map-focus-right);
         bottom: var(--map-focus-bottom);
         left: var(--map-focus-left);
-        border: 1px dashed rgba(56,189,248,.28);
-        border-radius: 8px;
         pointer-events: none;
         z-index: 3;
-        box-shadow: inset 0 0 0 1px rgba(15,23,42,.15);
+        box-sizing: border-box;
       }
       .map .maplibregl-ctrl-group button.mei-layer-toggle {
         display: inline-flex;

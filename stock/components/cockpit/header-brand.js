@@ -80,6 +80,17 @@ class MeiCockpitHeaderBrand extends HTMLElement {
         ? String(p.titleLetterSpacing)
         : "0";
     const titleFontSize = p.titleFontSize || "36px";
+    const bandBg =
+      p.bandBackground === false ||
+      p.bandBackground === "false" ||
+      p.band_background === false ||
+      p.band_background === "false"
+        ? "transparent"
+        : String(
+            p.bandBackground ??
+              p.band_background ??
+              "rgba(10, 36, 72, 0.68)",
+          );
 
     this._ro?.disconnect();
     this._ro = null;
@@ -98,7 +109,7 @@ class MeiCockpitHeaderBrand extends HTMLElement {
           min-height: ${HEADER_HEIGHT_PX}px;
           max-height: ${HEADER_HEIGHT_PX}px;
           overflow: hidden;
-          background: transparent;
+          background: ${bandBg};
         }
         .band-bg {
           position: absolute;

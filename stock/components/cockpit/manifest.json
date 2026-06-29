@@ -23,6 +23,17 @@
     "cockpit.metric-progress": {
       "tag": "mei-cockpit-metric-progress",
       "script": "metric-progress.js"
+    },
+    "cockpit.basemap-stage": {
+      "tag": "mei-cockpit-basemap-stage",
+      "script": "basemap-stage.js"
+    },
+    "cockpit.opinion-panel": {
+      "tag": "mei-cockpit-opinion-panel",
+      "script": "opinion-panel.js"
     }
+  },
+  "_reserved": {
+    "cockpit.filter-board": "过滤看板容器（后续）"
   }
 }

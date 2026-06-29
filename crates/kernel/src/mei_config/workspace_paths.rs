@@ -42,6 +42,33 @@ pub fn app_mei_config_path(app_root: &Path) -> PathBuf {
 }
 
 pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
+    resolve_workspace_config_path(segment_root, None)
+}
+
+/// Resolve workspace config file: `MEI_WORKSPACE_CONFIG` (absolute or relative to segment root), else `workspace.json`.
+pub fn resolve_workspace_config_path(
+    segment_root: &Path,
+    override_path: Option<&Path>,
+) -> PathBuf {
+    let candidates = override_path
+        .map(|path| vec![path.to_path_buf()])
+        .unwrap_or_else(|| {
+            std::env::var("MEI_WORKSPACE_CONFIG")
+                .ok()
+                .map(|raw| vec![PathBuf::from(raw.trim())])
+                .unwrap_or_default()
+        });
+    for candidate in candidates {
+        if candidate.is_file() {
+            return candidate;
+        }
+        if candidate.is_relative() {
+            let joined = segment_root.join(&candidate);
+            if joined.is_file() {
+                return joined;
+            }
+        }
+    }
     segment_root.join(WORKSPACE_CONFIG_FILENAME)
 }
 
