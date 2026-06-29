@@ -93,6 +93,10 @@
       closeDrilldownOverlay();
       closeSceneBoardOverlay();
       const root = boot.openLayer2Tab(layer2Config);
+      if (config.boardFrameScene) {
+        await renderFrameBoardSceneContent(root, detail, config);
+        return;
+      }
       if (config.structuredBoard || useSceneBoardOverlay(config)) {
         await renderStructuredDrilldownContent(root, detail, config);
         return;
@@ -119,6 +123,12 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-drilldown-open");
+    if (config.boardFrameScene) {
+      if (!(await renderFrameBoardSceneContent(root, detail, config))) {
+        return;
+      }
+      return;
+    }
     if (config.structuredBoard) {
       await renderStructuredDrilldownContent(root, detail, config);
       return;

@@ -256,6 +256,10 @@ function drilldownMetricRuntimeRef(props) {
     props?.drilldownMetric ??
     props?.drilldown_metric ??
     props?.drilldown ??
+    props?.action_metric ??
+    props?.actionMetric ??
+    props?.action_content ??
+    props?.actionContent ??
     props?.content ??
     props?.dataset;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -314,7 +318,12 @@ export function tableDrilldownMeta(props) {
       ? popup.params
       : null;
   const hasPopupMetricParams = Boolean(metricRefId(popupParams?.metric));
-  if (!contract && !hasProjectionSlots && !hasPopupMetricParams) {
+  if (
+    !contract &&
+    !hasProjectionSlots &&
+    !hasPopupMetricParams &&
+    !boardSceneId
+  ) {
     return null;
   }
   const filterSchema =

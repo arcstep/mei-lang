@@ -35,24 +35,51 @@ impl<'a> PanelLowerContext<'a> {
     }
 }
 
-fn normalize_panel_key_for_source(panel_key: &str) -> &str {
-    panel_key
-        .split_once(':')
-        .map(|(_, rest)| rest)
-        .unwrap_or(panel_key)
+fn panel_key_segments(panel_key: &str) -> (Option<&str>, String) {
+    let key = panel_key
+        .strip_prefix("panel_contract:")
+        .unwrap_or(panel_key);
+    if let Some((scope, id)) = key.split_once(':') {
+        return (Some(scope), id.to_string());
+    }
+    if let Some((scope, id)) = key.split_once('/') {
+        return (Some(scope), id.to_string());
+    }
+    (None, key.to_string())
 }
 
-fn panel_source_relative_path(panel_key: &str) -> String {
-    let key = normalize_panel_key_for_source(panel_key);
-    let basename = key.rsplit('/').next().unwrap_or(key);
-    format!("src/content/panels/{basename}.panel.mei")
+fn underscore_to_kebab(id: &str) -> String {
+    id.replace('_', "-")
+}
+
+fn panel_constant_candidate_paths(panel_key: &str) -> Vec<String> {
+    let (scope, local_id) = panel_key_segments(panel_key);
+    let kebab = underscore_to_kebab(local_id.as_str());
+    let mut paths = Vec::new();
+
+    paths.push(format!("src/content/panels/{kebab}.panel.mei"));
+    if kebab != local_id {
+        paths.push(format!("src/content/panels/{local_id}.panel.mei"));
+    }
+
+    if let Some(scope) = scope {
+        paths.push(format!("src/scene/{scope}/{kebab}.panel.mei"));
+        if kebab != local_id {
+            paths.push(format!("src/scene/{scope}/{local_id}.panel.mei"));
+        }
+    }
+
+    paths
 }
 
 fn load_panel_file_constants(app_root: &Path, panel_key: &str) -> BTreeMap<String, Value> {
-    let path = app_root.join(panel_source_relative_path(panel_key));
-    std::fs::read_to_string(path.as_path())
-        .map(|content| crate::panel_constants::parse_panel_constants_from_source(&content))
-        .unwrap_or_default()
+    for rel in panel_constant_candidate_paths(panel_key) {
+        let path = app_root.join(rel);
+        if let Ok(content) = std::fs::read_to_string(path.as_path()) {
+            return crate::panel_constants::parse_panel_constants_from_source(&content);
+        }
+    }
+    BTreeMap::new()
 }
 
 fn metric_card_macro_constants_path(app_root: &Path) -> PathBuf {
@@ -614,6 +641,25 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
         )]);
     }
     Ok(Vec::new())
+}
+
+pub(crate) fn lower_v2_inline_panels_from_assembly(
+    payload: &Value,
+    ctx: &PanelLowerContext<'_>,
+) -> Result<Vec<PanelDecl>> {
+    let panels_value = payload
+        .get("panels")
+        .or_else(|| payload.get("frame").and_then(|frame| frame.get("panels")));
+    let Some(array) = panels_value.and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let mut panels = Vec::new();
+    for item in array {
+        if v2_call_name(item) == Some("panel") {
+            panels.push(lower_inline_panel(item, ctx)?);
+        }
+    }
+    Ok(panels)
 }
 
 fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<PanelDecl> {
@@ -2400,6 +2446,22 @@ mod tests {
                 "id": "inspections_total_count",
                 "from_dataset": "__world_metrics__::metrics/inspection-dashboard.bundle.mei",
             })
+        );
+    }
+
+    #[test]
+    fn panel_constant_paths_include_scene_home_panels() {
+        let paths = panel_constant_candidate_paths("home:basemap");
+        assert!(
+            paths.iter().any(|path| path == "src/scene/home/basemap.panel.mei"),
+            "expected scene panel path, got {paths:?}"
+        );
+        let content_paths = panel_constant_candidate_paths("content/gis-map");
+        assert!(
+            content_paths
+                .iter()
+                .any(|path| path == "src/content/panels/gis-map.panel.mei"),
+            "expected content panel path, got {content_paths:?}"
         );
     }
 }

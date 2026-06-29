@@ -9153,6 +9153,70 @@
 
 
 /* ===== spa-navigation/drilldown/config-legacy.js ===== */
+  function resolveSimpleBoardPopupDrilldownConfig(detail, popup, boardFields) {
+    const boardSceneId = nonEmptyString(
+      detail?.board_scene_id,
+      boardFields?.sceneId,
+      popup?.scene_id,
+      popup?.sceneId,
+      popup?.scene?.scene_id,
+      popup?.scene?.sceneId,
+    );
+    const boardSceneFile = nonEmptyString(
+      detail?.board_scene_file,
+      boardFields?.sceneFile,
+      popup?.scene_file,
+      popup?.sceneFile,
+      popup?.scene?.scene_file,
+      popup?.scene?.sceneFile,
+    );
+    const popupMode = nonEmptyString(popup?.mode, popup?.type);
+    if (popupMode !== "popup" && popup?.type !== "popup") {
+      return null;
+    }
+    if (!boardSceneId || !boardSceneFile) {
+      return null;
+    }
+    const assemblyHint = sceneProjectionAssembly(
+      boardSceneId,
+      sceneDrilldownAssemblyById(detail),
+    );
+    const sceneShell = resolveSceneShell(assemblyHint);
+    const structuredBoard = Boolean(sceneShell?.layoutMode) && sceneShell.layoutMode !== "generic_tabs";
+    const overlaySize = resolveDrilldownOverlaySize({ popup, boardFields, structuredBoard, sceneShell });
+    const projection = normalizeProjection(
+      nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
+    );
+    const hostSceneId = nonEmptyString(detail?.host_scene_id, detail?.scene_id);
+    return {
+      enabled: true,
+      boardFrameScene: !structuredBoard,
+      genericDrilldown: false,
+      structuredBoard,
+      sceneShell,
+      overlaySize,
+      boardSceneId,
+      boardSceneFile,
+      boardLink: false,
+      panelPopup: false,
+      sceneId: hostSceneId,
+      hostSceneId,
+      hostSceneFile: nonEmptyString(detail?.host_scene_file, detail?.scene_path),
+      projection,
+      params: normalizeSceneParams(popup?.params),
+      title: nonEmptyString(popup?.title, detail?.label, boardSceneId, "看板"),
+      tabs: [],
+      tabMetrics: {},
+      popup: {
+        ...popup,
+        mode: "popup",
+        scene_id: boardSceneId,
+        scene_file: boardSceneFile,
+        projection,
+      },
+    };
+  }
+
   function resolveLegacySceneProjectionConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
     const popup =
@@ -9178,6 +9242,10 @@
     );
     if (projectionSlots.length) {
       return resolveProjectionSlotsDrilldownConfig(detail, popup, boardFields, projectionSlots);
+    }
+    const simpleBoardPopup = resolveSimpleBoardPopupDrilldownConfig(detail, popup, boardFields);
+    if (simpleBoardPopup) {
+      return simpleBoardPopup;
     }
     const runtime = runtimeDrilldownConfig(detail);
     if (!Object.keys(runtime).length) {
@@ -13429,6 +13497,61 @@
 
 
 
+/* ===== spa-navigation/drilldown/render-frame-board.js ===== */
+  async function renderFrameBoardSceneContent(root, detail, config) {
+    applyDrilldownOverlayMeta(root, config);
+    setDrilldownOverlayStatus(root, "loading");
+    const appId = resolvePreviewAppId();
+    const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    const host = root.querySelector('[data-drilldown-table-host="true"]');
+    if (!appId || !sceneId || !(host instanceof HTMLElement)) {
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+    const url = `/apps/app/${appId}/scene/${encodeURIComponent(sceneId)}`;
+    try {
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "x-mei-spa-nav": "1" },
+      });
+      if (!response.ok) {
+        throw new Error(`scene fetch failed: ${response.status}`);
+      }
+      const html = await response.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const surface = doc.querySelector(
+        "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
+      );
+      if (!(surface instanceof HTMLElement)) {
+        throw new Error("board scene preview surface missing");
+      }
+      host.replaceChildren();
+      const mount = document.createElement("div");
+      mount.className = "access-drilldown-frame-board-mount";
+      mount.style.cssText =
+        "width:100%;height:100%;min-height:320px;overflow:auto;box-sizing:border-box;";
+      mount.appendChild(surface.cloneNode(true));
+      host.appendChild(mount);
+      setDrilldownOverlayStatus(root, "ready");
+      dispatchPreviewUpdated("drilldown", { resetRuntimeQueryCache: false });
+      if (typeof boot.scheduleFrameViewportRelayout === "function") {
+        boot.scheduleFrameViewportRelayout();
+      }
+      return true;
+    } catch (error) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: String(error?.message || error || "frame board scene mount failed"),
+        phase: "frame_board_scene_mount",
+        detail,
+        config,
+      });
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+  }
+
+
 /* ===== spa-navigation/drilldown/overlay-chrome.js ===== */
   function drilldownLoadingStatusHtml(fallbackText) {
     return (
@@ -14066,6 +14189,10 @@
       closeDrilldownOverlay();
       closeSceneBoardOverlay();
       const root = boot.openLayer2Tab(layer2Config);
+      if (config.boardFrameScene) {
+        await renderFrameBoardSceneContent(root, detail, config);
+        return;
+      }
       if (config.structuredBoard || useSceneBoardOverlay(config)) {
         await renderStructuredDrilldownContent(root, detail, config);
         return;
@@ -14092,6 +14219,12 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-drilldown-open");
+    if (config.boardFrameScene) {
+      if (!(await renderFrameBoardSceneContent(root, detail, config))) {
+        return;
+      }
+      return;
+    }
     if (config.structuredBoard) {
       await renderStructuredDrilldownContent(root, detail, config);
       return;

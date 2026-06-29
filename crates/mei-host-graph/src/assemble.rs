@@ -12,7 +12,10 @@ use crate::import::load_block_artifact;
 use crate::layer_plan::{build_layer_plan, layer_plan_to_value};
 use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
 use crate::projection_normalize::normalize_board_assembly_payload;
-use crate::v2_lower::{find_panel_contract_node, lower_frame_from_assembly, lower_panel_payload, PanelLowerContext};
+use crate::v2_lower::{
+    find_panel_contract_node, lower_frame_from_assembly, lower_panel_payload,
+    lower_v2_inline_panels_from_assembly, PanelLowerContext,
+};
 use crate::mcg::registry::McgRegistryWriter;
 use crate::types::GraphNodeKind;
 
@@ -106,7 +109,11 @@ pub fn assemble_scope_from_registry(
 
     let (title, _default_scene) = load_app_meta(app_root.as_path(), &registry)?;
     let assembly_key = resolve_assembly_key(&registry, scene_id);
-    let assembly_payload = load_assembly_payload(app_root.as_path(), &registry, &assembly_key)?;
+    let assembly_payload = normalize_board_assembly_payload(load_assembly_payload(
+        app_root.as_path(),
+        &registry,
+        &assembly_key,
+    )?);
     let scene_routes = build_scene_routes(source_root, app_id, &registry)?;
     let resources = expand_runtime_metric_resources(crate::metric_hydrate::load_metric_resources_hydrated(
         app_root.as_path(),
@@ -514,6 +521,18 @@ fn load_panels_for_assembly(
         let panel_ctx = lower_ctx.with_panel_constants(contract_key.as_str());
         if let Ok(panel) = lower_panel_payload(&payload, contract_key.as_str(), &panel_ctx) {
             panel_payloads.insert(panel.id.clone(), payload);
+            panels.push(panel);
+        }
+    }
+
+    if let Ok(inline_panels) =
+        lower_v2_inline_panels_from_assembly(assembly_payload, &lower_ctx)
+    {
+        for panel in inline_panels {
+            if panels.iter().any(|existing| existing.id == panel.id) {
+                continue;
+            }
+            panel_payloads.insert(panel.id.clone(), json!({ "id": panel.id }));
             panels.push(panel);
         }
     }

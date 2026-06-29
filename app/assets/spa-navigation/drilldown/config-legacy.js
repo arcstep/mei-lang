@@ -1,3 +1,67 @@
+  function resolveSimpleBoardPopupDrilldownConfig(detail, popup, boardFields) {
+    const boardSceneId = nonEmptyString(
+      detail?.board_scene_id,
+      boardFields?.sceneId,
+      popup?.scene_id,
+      popup?.sceneId,
+      popup?.scene?.scene_id,
+      popup?.scene?.sceneId,
+    );
+    const boardSceneFile = nonEmptyString(
+      detail?.board_scene_file,
+      boardFields?.sceneFile,
+      popup?.scene_file,
+      popup?.sceneFile,
+      popup?.scene?.scene_file,
+      popup?.scene?.sceneFile,
+    );
+    const popupMode = nonEmptyString(popup?.mode, popup?.type);
+    if (popupMode !== "popup" && popup?.type !== "popup") {
+      return null;
+    }
+    if (!boardSceneId || !boardSceneFile) {
+      return null;
+    }
+    const assemblyHint = sceneProjectionAssembly(
+      boardSceneId,
+      sceneDrilldownAssemblyById(detail),
+    );
+    const sceneShell = resolveSceneShell(assemblyHint);
+    const structuredBoard = Boolean(sceneShell?.layoutMode) && sceneShell.layoutMode !== "generic_tabs";
+    const overlaySize = resolveDrilldownOverlaySize({ popup, boardFields, structuredBoard, sceneShell });
+    const projection = normalizeProjection(
+      nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
+    );
+    const hostSceneId = nonEmptyString(detail?.host_scene_id, detail?.scene_id);
+    return {
+      enabled: true,
+      boardFrameScene: !structuredBoard,
+      genericDrilldown: false,
+      structuredBoard,
+      sceneShell,
+      overlaySize,
+      boardSceneId,
+      boardSceneFile,
+      boardLink: false,
+      panelPopup: false,
+      sceneId: hostSceneId,
+      hostSceneId,
+      hostSceneFile: nonEmptyString(detail?.host_scene_file, detail?.scene_path),
+      projection,
+      params: normalizeSceneParams(popup?.params),
+      title: nonEmptyString(popup?.title, detail?.label, boardSceneId, "看板"),
+      tabs: [],
+      tabMetrics: {},
+      popup: {
+        ...popup,
+        mode: "popup",
+        scene_id: boardSceneId,
+        scene_file: boardSceneFile,
+        projection,
+      },
+    };
+  }
+
   function resolveLegacySceneProjectionConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
     const popup =
@@ -23,6 +87,10 @@
     );
     if (projectionSlots.length) {
       return resolveProjectionSlotsDrilldownConfig(detail, popup, boardFields, projectionSlots);
+    }
+    const simpleBoardPopup = resolveSimpleBoardPopupDrilldownConfig(detail, popup, boardFields);
+    if (simpleBoardPopup) {
+      return simpleBoardPopup;
     }
     const runtime = runtimeDrilldownConfig(detail);
     if (!Object.keys(runtime).length) {
