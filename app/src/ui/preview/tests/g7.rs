@@ -84,8 +84,8 @@ fn default_viewport_page_flow_is_top_left_and_fluid() {
     assert_eq!(vp.align_x, "start");
     assert_eq!(vp.align_y, "start");
     assert_eq!(vp.design_width, 1280.0);
-    assert_eq!(vp.edit_safe_left, 24.0);
-    assert_eq!(vp.edit_safe_right, 24.0);
+    assert_eq!(vp.edit_safe_left, 0.0);
+    assert_eq!(vp.edit_safe_right, 0.0);
 }
 
 #[test]

@@ -190,7 +190,7 @@ pub(crate) fn default_viewport_page_flow() -> FrameViewportConfig {
             "edit_scale_mode": "fit-width",
             "show_design_bounds": true,
             "safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 },
-            "edit_safe_inset": { "top": 32, "right": 24, "bottom": 16, "left": 24 }
+            "edit_safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 }
         }
     }))
     .expect("default page-flow viewport")
@@ -210,7 +210,7 @@ pub(crate) fn default_viewport_stage_lock() -> FrameViewportConfig {
             "edit_scale_mode": "contain",
             "show_design_bounds": true,
             "safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 },
-            "edit_safe_inset": { "top": 32, "right": 16, "bottom": 12, "left": 16 }
+            "edit_safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 }
         }
     }))
     .expect("default stage-lock viewport")

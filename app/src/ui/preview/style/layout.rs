@@ -2,7 +2,7 @@ use serde_json::Value;
 
 pub(crate) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
     let Some(layout) = layout else {
-        return "display:grid;gap:16px;".to_string();
+        return "display:grid;gap:0;".to_string();
     };
     match layout.layout_type.as_str() {
         "flex" => format!(
@@ -17,7 +17,7 @@ pub(crate) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .gap
                 .as_deref()
                 .map(normalize_css_length)
-                .unwrap_or_else(|| "16px".to_string()),
+                .unwrap_or_else(|| "0".to_string()),
             layout
                 .padding
                 .as_deref()
@@ -44,7 +44,7 @@ pub(crate) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .gap
                 .as_deref()
                 .map(normalize_css_length)
-                .unwrap_or_else(|| "16px".to_string()),
+                .unwrap_or_else(|| "0".to_string()),
             layout
                 .padding
                 .as_deref()
