@@ -46,22 +46,8 @@ pub(crate) fn topbar_view(
         .and_then(|menu| menu.workspace_label.as_deref())
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("工作区");
-    let in_stock_catalog = topbar_menu
-        .and_then(|menu| menu.stock_catalog_app_id.as_deref())
-        .is_some_and(|catalog_id| catalog_id.trim() == active_app_path.trim());
-    let breadcrumb_root_label = if in_stock_catalog {
-        topbar_menu
-            .and_then(|menu| menu.stock_catalog_app_title.as_deref())
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or("组件库")
-    } else {
-        workspace_label
-    };
-    let breadcrumb_kind = if in_stock_catalog {
-        "当前组件库"
-    } else {
-        "当前应用"
-    };
+    let breadcrumb_root_label = workspace_label;
+    let breadcrumb_kind = "当前应用";
     let app_tabs = menu_groups
         .into_iter()
         .map(|group| {
@@ -170,7 +156,7 @@ pub(crate) fn topbar_view(
     let breadcrumb_aria = format!("{breadcrumb_kind}：{breadcrumb_root_label} / {active_app_label}");
     let active_item_breadcrumb = view! {
         <div class="app-current-path inline-flex min-w-0 max-w-[min(300px,30vw)] items-center gap-1 pl-2 mei-font-1 mei-text-muted" aria-label=breadcrumb_aria>
-            <span class="app-current-path-prefix shrink-0 mei-text-muted">{if in_stock_catalog { "库：" } else { "应用：" }}</span>
+            <span class="app-current-path-prefix shrink-0 mei-text-muted">{"应用："}</span>
             <span class="app-current-path-trail inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
                 <span class="app-current-path-workspace shrink-0 mei-text-muted">{breadcrumb_root_label}</span>
                 <span class="app-current-path-separator shrink-0 mei-text-muted/70" aria-hidden="true">"/"</span>

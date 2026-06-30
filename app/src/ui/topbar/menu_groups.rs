@@ -120,7 +120,9 @@ pub(crate) fn build_topbar_menu_groups(
         }
         if let Some(override_item) = override_item {
             if let Some(override_group) = &override_item.group {
-                group = override_group.clone();
+                if !is_aggregate_menu_group(override_group.as_str()) {
+                    group = override_group.clone();
+                }
             }
             if override_item.subgroup.is_some() {
                 subgroup = override_item.subgroup.clone();
@@ -146,63 +148,7 @@ pub(crate) fn build_topbar_menu_groups(
             },
         );
     }
-    inject_stock_pack_menu_groups(
-        &mut groups,
-        menus,
-        catalog_app_id,
-        &group_overrides,
-    );
-    if let Some(cfg) = root_menu {
-        for item in &cfg.items {
-            let catalog = item
-                .catalog
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string);
-            let pack = item
-                .pack
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string);
-            if catalog.is_none() || pack.is_none() {
-                continue;
-            }
-            if !menu_item_visible_for_route(Some(item), route_mode) {
-                continue;
-            }
-            let group = item
-                .group
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| {
-                    if catalog.as_deref() == Some("templates") {
-                        "templates".to_string()
-                    } else {
-                        "components".to_string()
-                    }
-                });
-            let label = item
-                .label
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| pack.clone().unwrap_or_else(|| item.app_id.clone()));
-            push_menu_item(
-                &mut groups,
-                &group,
-                &group_overrides,
-                TopbarMenuItem {
-                    app_id: item.app_id.clone(),
-                    subgroup: item.subgroup.clone(),
-                    label,
-                    order: item.order.unwrap_or(i32::MAX / 2),
-                    catalog,
-                    pack,
-                },
-            );
-        }
-    }
+    let _ = catalog_app_id;
     let mut ordered = groups.into_values().collect::<Vec<_>>();
     for group in &mut ordered {
         group.items.sort_by(|left, right| {
@@ -222,39 +168,8 @@ pub(crate) fn build_topbar_menu_groups(
     ordered
 }
 
-fn inject_stock_pack_menu_groups(
-    groups: &mut BTreeMap<String, TopbarMenuGroup>,
-    menus: Option<&TopbarMenuContext>,
-    catalog_app_id: &str,
-    group_overrides: &BTreeMap<String, (Option<String>, i32)>,
-) {
-    let Some(menus) = menus else {
-        return;
-    };
-    let facets = [
-        ("components", "components", menus.stock_component_packs.as_slice()),
-        ("templates", "templates", menus.stock_template_packs.as_slice()),
-    ];
-    for (group_id, catalog, packs) in facets {
-        if packs.is_empty() {
-            continue;
-        }
-        for (index, pack) in packs.iter().enumerate() {
-            push_menu_item(
-                groups,
-                group_id,
-                group_overrides,
-                TopbarMenuItem {
-                    app_id: catalog_app_id.to_string(),
-                    subgroup: None,
-                    label: pack.clone(),
-                    order: (index as i32 + 1) * 10,
-                    catalog: Some(catalog.to_string()),
-                    pack: Some(pack.clone()),
-                },
-            );
-        }
-    }
+fn is_aggregate_menu_group(group: &str) -> bool {
+    matches!(group.trim().to_ascii_lowercase().as_str(), "apps" | "应用")
 }
 
 fn push_menu_item(
@@ -350,32 +265,54 @@ fn infer_order_from_label(label: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::{TopbarMenuConfig, TopbarMenuConfigGroup, TopbarMenuContext};
+    use crate::ui::{TopbarMenuConfig, TopbarMenuConfigGroup, TopbarMenuConfigItem, TopbarMenuContext};
 
     #[test]
-    fn stock_pack_groups_visible_in_all_route_modes() {
+    fn single_segment_apps_without_aggregate_group_land_in_misc() {
+        let apps = vec![
+            WorkspaceAppMeta {
+                id: "data-demo".to_string(),
+                title: "Data Demo".to_string(),
+                root: "apps/data-demo".to_string(),
+            },
+            WorkspaceAppMeta {
+                id: "mini-park".to_string(),
+                title: "Mini Park".to_string(),
+                root: "apps/mini-park".to_string(),
+            },
+        ];
+        let groups = build_topbar_menu_groups(apps.as_slice(), None, UiRouteMode::App);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].id, "misc");
+        assert_eq!(groups[0].items.len(), 2);
+    }
+
+    #[test]
+    fn nested_app_paths_map_to_group_and_subgroup() {
+        let apps = vec![WorkspaceAppMeta {
+            id: "cockpit/multi-entry/02-demo".to_string(),
+            title: "Demo".to_string(),
+            root: "apps/cockpit/multi-entry/02-demo".to_string(),
+        }];
+        let groups = build_topbar_menu_groups(apps.as_slice(), None, UiRouteMode::App);
+        let group = groups
+            .iter()
+            .find(|group| group.id == "cockpit")
+            .expect("cockpit group");
+        assert_eq!(group.items.len(), 1);
+        assert_eq!(group.items[0].subgroup.as_deref(), Some("multi-entry"));
+        assert_eq!(group.items[0].label, "02-demo");
+    }
+
+    #[test]
+    fn stock_pack_groups_are_not_injected_into_topbar() {
         let apps = vec![WorkspaceAppMeta {
             id: "hello".to_string(),
             title: "Hello".to_string(),
             root: "apps/hello".to_string(),
         }];
         let menus = TopbarMenuContext {
-            root: Some(TopbarMenuConfig {
-                groups: vec![
-                    TopbarMenuConfigGroup {
-                        id: "components".to_string(),
-                        label: Some("组件".to_string()),
-                        order: Some(5),
-                    },
-                    TopbarMenuConfigGroup {
-                        id: "templates".to_string(),
-                        label: Some("模板".to_string()),
-                        order: Some(6),
-                    },
-                ],
-                items: vec![],
-                skip_prefixes: vec![],
-            }),
+            root: None,
             by_segment: Default::default(),
             workspace_label: Some("Hello".to_string()),
             stock_catalog_app_id: Some("_stock-catalog".to_string()),
@@ -383,23 +320,75 @@ mod tests {
             stock_component_packs: vec!["chart/echarts".to_string()],
             stock_template_packs: vec!["cockpit".to_string()],
         };
-        for mode in [
-            UiRouteMode::Build,
-            UiRouteMode::App,
-            UiRouteMode::Runtime,
-            UiRouteMode::Config,
-        ] {
-            let groups = build_topbar_menu_groups(apps.as_slice(), Some(&menus), mode);
-            assert!(
-                groups.iter().any(|group| group.id == "components"),
-                "components group missing in {:?}",
-                mode
-            );
-            assert!(
-                groups.iter().any(|group| group.id == "templates"),
-                "templates group missing in {:?}",
-                mode
-            );
-        }
+        let groups = build_topbar_menu_groups(apps.as_slice(), Some(&menus), UiRouteMode::App);
+        assert!(!groups.iter().any(|group| group.id == "components"));
+        assert!(!groups.iter().any(|group| group.id == "templates"));
+    }
+
+    #[test]
+    fn aggregate_menu_group_override_is_ignored() {
+        let apps = vec![WorkspaceAppMeta {
+            id: "data-demo".to_string(),
+            title: "Data Demo".to_string(),
+            root: "apps/data-demo".to_string(),
+        }];
+        let menus = TopbarMenuContext {
+            root: Some(TopbarMenuConfig {
+                groups: vec![TopbarMenuConfigGroup {
+                    id: "apps".to_string(),
+                    label: Some("应用".to_string()),
+                    order: Some(10),
+                }],
+                items: vec![TopbarMenuConfigItem {
+                    app_id: "data-demo".to_string(),
+                    group: Some("apps".to_string()),
+                    subgroup: None,
+                    label: Some("Data Demo v2".to_string()),
+                    order: Some(10),
+                    modes: vec![],
+                    catalog: None,
+                    pack: None,
+                }],
+                skip_prefixes: vec![],
+            }),
+            by_segment: Default::default(),
+            workspace_label: None,
+            stock_catalog_app_id: None,
+            stock_catalog_app_title: None,
+            stock_component_packs: vec![],
+            stock_template_packs: vec![],
+        };
+        let groups = build_topbar_menu_groups(apps.as_slice(), Some(&menus), UiRouteMode::App);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].id, "misc");
+        assert_eq!(groups[0].items[0].label, "Data Demo v2");
+    }
+
+    #[test]
+    fn skip_prefixes_strip_container_segments_before_placement() {
+        let apps = vec![WorkspaceAppMeta {
+            id: "examples/core/04-mini-shell".to_string(),
+            title: "Mini Shell".to_string(),
+            root: "apps/examples/core/04-mini-shell".to_string(),
+        }];
+        let menus = TopbarMenuContext {
+            root: Some(TopbarMenuConfig {
+                groups: vec![],
+                items: vec![],
+                skip_prefixes: vec!["examples".to_string()],
+            }),
+            by_segment: Default::default(),
+            workspace_label: None,
+            stock_catalog_app_id: None,
+            stock_catalog_app_title: None,
+            stock_component_packs: vec![],
+            stock_template_packs: vec![],
+        };
+        let groups = build_topbar_menu_groups(apps.as_slice(), Some(&menus), UiRouteMode::App);
+        let group = groups
+            .iter()
+            .find(|group| group.id == "core")
+            .expect("core group after skip");
+        assert_eq!(group.items[0].label, "04-mini-shell");
     }
 }

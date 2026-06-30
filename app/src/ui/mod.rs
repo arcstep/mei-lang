@@ -47,6 +47,7 @@ pub use preview::{
     shell_body_theme_style,
 };
 pub use shell_manage::{render_build_preview_fragment, BuildPreviewFragment};
+pub use topbar::load_topbar_menu_context;
 use shell_runtime::runtime_shell;
 
 use document::render_document;
