@@ -5,8 +5,50 @@
 
   const PANEL_ID = "mei-presenter-assistant";
   const CAPTION_ID = "mei-presenter-caption";
+  const TOUR_STORAGE_KEY = "mei_speaker_tour_v1";
 
-  function readTour() {
+  const state = {
+    tour: null,
+    steps: [],
+    stepIndex: 0,
+    captionVisible: true,
+    selectMode: false,
+    sessionActive: false,
+  };
+
+  function isSpeakerRoute() {
+    return /^\/apps\/speaker\//.test(String(window.location.pathname || ""));
+  }
+
+  function hasSpeakerShell() {
+    return Boolean(document.getElementById("speaker-shell") || document.getElementById("mei-speaker-tour"));
+  }
+
+  function hasActiveTourSession() {
+    return state.sessionActive && state.steps.length > 0;
+  }
+
+  function persistTour(tour) {
+    if (!tour || typeof tour !== "object") return;
+    try {
+      sessionStorage.setItem(TOUR_STORAGE_KEY, JSON.stringify(tour));
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function readStoredTour() {
+    try {
+      const raw = sessionStorage.getItem(TOUR_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function readTourFromDom() {
     const node = document.getElementById("mei-speaker-tour");
     if (!(node instanceof HTMLScriptElement) || !node.textContent) return null;
     try {
@@ -16,8 +58,23 @@
     }
   }
 
-  function isSpeakerRoute() {
-    return /^\/apps\/speaker\//.test(String(window.location.pathname || ""));
+  function readTour() {
+    return readTourFromDom() || readStoredTour();
+  }
+
+  function loadTourState(tour) {
+    if (!tour || !Array.isArray(tour.steps) || !tour.steps.length) return false;
+    state.tour = tour;
+    state.steps = tour.steps;
+    state.sessionActive = true;
+    persistTour(tour);
+    return true;
+  }
+
+  function ensureTourLoaded() {
+    if (state.steps.length) return true;
+    const tour = readTour();
+    return loadTourState(tour);
   }
 
   function focusApi() {
@@ -32,15 +89,15 @@
   }
 
   function applyHighlight(viewpointId) {
-    if (!viewpointId) return;
+    if (!viewpointId) return false;
     const api = focusApi();
     if (api && typeof api.dispatch === "function") {
-      api.dispatch({ type: "highlight", viewpoint: viewpointId });
-      return;
+      return Boolean(api.dispatch({ type: "highlight", viewpoint: viewpointId }));
     }
     if (api && typeof api.focus === "function") {
-      api.focus(viewpointId);
+      return Boolean(api.focus(viewpointId));
     }
+    return false;
   }
 
   function applyActions(actions) {
@@ -118,14 +175,6 @@
     return panel;
   }
 
-  const state = {
-    tour: null,
-    steps: [],
-    stepIndex: 0,
-    captionVisible: true,
-    selectMode: false,
-  };
-
   function currentStep() {
     return state.steps[state.stepIndex] || null;
   }
@@ -134,7 +183,7 @@
     const caption = ensureCaption();
     const step = currentStep();
     const text = step ? String(step.caption || step.title || "") : "";
-    if (!text || !state.captionVisible) {
+    if (!text || !state.captionVisible || !hasActiveTourSession()) {
       caption.setAttribute("hidden", "hidden");
       caption.textContent = "";
       return;
@@ -144,6 +193,7 @@
   }
 
   function renderPanel() {
+    if (!hasActiveTourSession()) return;
     const panel = ensurePanel();
     const step = currentStep();
     const title = panel.querySelector("[data-presenter-title]");
@@ -159,19 +209,23 @@
   }
 
   async function applyStep() {
+    if (!ensureTourLoaded()) return false;
     const step = currentStep();
-    if (!step) return;
+    if (!step) return false;
     clearFocus();
     await navigateToStep(step);
     applyActions(step.actions);
     renderPanel();
+    return true;
   }
 
   function bindSelectMode() {
+    if (boot.presenterSelectBound) return;
+    boot.presenterSelectBound = true;
     document.addEventListener(
       "click",
       (event) => {
-        if (!state.selectMode) return;
+        if (!state.selectMode || !hasActiveTourSession()) return;
         const target = event.target;
         if (!(target instanceof Element)) return;
         const host = target.closest("[data-mei-viewpoint]");
@@ -186,37 +240,89 @@
     );
   }
 
+  function shouldAutoStart() {
+    return isSpeakerRoute() || hasSpeakerShell();
+  }
+
+  function startPresenter(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    if (!ensureTourLoaded()) {
+      console.warn(
+        "[presenter-assistant] 未找到 tour 配置。请从 /apps/speaker/<app>/tour/<tour_id> 进入，或确保页面包含 #mei-speaker-tour。",
+      );
+      return false;
+    }
+    if (Number.isFinite(Number(opts.stepIndex))) {
+      state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(opts.stepIndex)));
+    }
+    ensurePanel();
+    bindSelectMode();
+    renderPanel();
+    if (opts.apply !== false) {
+      void applyStep();
+    }
+    return true;
+  }
+
   function exposeConsoleApi() {
     const root = window;
-    root.MeiSpeaker = root.MeiSpeaker || {};
-    root.MeiSpeaker.applyStep = (index) => {
-      if (!Number.isFinite(Number(index))) return;
-      state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(index)));
-      void applyStep();
+    root.MeiSpeaker = {
+      start: (options) => startPresenter(options),
+      applyStep: (index) => {
+        if (!ensureTourLoaded()) return false;
+        if (!Number.isFinite(Number(index))) return false;
+        state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(index)));
+        void applyStep();
+        return true;
+      },
+      highlight: (viewpointId) => applyHighlight(String(viewpointId || "").trim()),
+      next: () => {
+        if (!ensureTourLoaded()) return false;
+        state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
+        void applyStep();
+        return true;
+      },
+      prev: () => {
+        if (!ensureTourLoaded()) return false;
+        state.stepIndex = Math.max(0, state.stepIndex - 1);
+        void applyStep();
+        return true;
+      },
+      stepIndex: () => state.stepIndex,
+      steps: () => state.steps.slice(),
+      isActive: () => hasActiveTourSession(),
     };
-    root.MeiSpeaker.highlight = applyHighlight;
-    root.MeiSpeaker.next = () => {
-      state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
-      void applyStep();
-    };
-    root.MeiSpeaker.prev = () => {
-      state.stepIndex = Math.max(0, state.stepIndex - 1);
-      void applyStep();
-    };
+    boot.startPresenterAssistant = startPresenter;
+  }
+
+  function onSpaNavigationComplete() {
+    if (!hasActiveTourSession() && shouldAutoStart()) {
+      startPresenter({ apply: state.stepIndex === 0 && !document.getElementById(PANEL_ID) });
+      return;
+    }
+    if (!hasActiveTourSession()) return;
+    ensurePanel();
+    renderPanel();
+    const step = currentStep();
+    if (step) {
+      applyActions(step.actions);
+    }
   }
 
   function init() {
-    if (!isSpeakerRoute()) return;
-    const tour = readTour();
-    if (!tour || !Array.isArray(tour.steps) || !tour.steps.length) return;
-    state.tour = tour;
-    state.steps = tour.steps;
-    state.stepIndex = 0;
-    ensurePanel();
-    bindSelectMode();
     exposeConsoleApi();
-    void applyStep();
+    bindSelectMode();
+    if (shouldAutoStart()) {
+      startPresenter();
+      return;
+    }
+    if (hasActiveTourSession()) {
+      ensurePanel();
+      renderPanel();
+    }
   }
+
+  exposeConsoleApi();
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init, { once: true });
@@ -224,12 +330,5 @@
     init();
   }
 
-  document.addEventListener("mei:spa-navigation-complete", () => {
-    if (!isSpeakerRoute()) return;
-    const step = currentStep();
-    if (step) {
-      applyActions(step.actions);
-      renderPanel();
-    }
-  });
+  document.addEventListener("mei:spa-navigation-complete", onSpaNavigationComplete);
 })();
