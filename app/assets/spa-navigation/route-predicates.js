@@ -3,6 +3,7 @@
     "app",
     "access",
     "run",
+    "speaker",
     "access-only",
     "access_only",
     "presentation",

@@ -59,6 +59,9 @@
       kind: "drilldown",
       label: String(opts.label || "下钻看板"),
       path: String(opts.path || ""),
+      url: String(opts.url || opts.pathname || ""),
+      scene: String(opts.scene || opts.path || ""),
+      pathname: String(opts.pathname || ""),
     });
     setPhaseStatus(session, "render", "active");
     return session;

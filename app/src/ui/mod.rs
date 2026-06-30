@@ -19,6 +19,7 @@ mod shell_access;
 mod shell_config;
 mod shell_manage;
 mod shell_presentation;
+mod shell_speaker;
 mod shell_preview_layout;
 mod shell_runtime;
 mod shell_upload;
@@ -39,6 +40,7 @@ use shell_access::access_shell;
 use shell_config::config_shell;
 use shell_manage::manage_shell;
 use shell_presentation::presentation_shell;
+use shell_speaker::speaker_shell;
 use shell_upload::upload_shell;
 
 pub use preview::{
@@ -191,7 +193,20 @@ pub fn render_page(
             auth_enabled,
             auth_account,
         ),
-        UiRouteMode::Presentation => presentation_shell(
+        UiRouteMode::Run => presentation_shell(
+            apps,
+            compiled,
+            app_path,
+            topbar_menu,
+            selected_scene,
+            target,
+            source,
+            active_tab,
+            upload_enabled,
+            auth_enabled,
+            auth_account,
+        ),
+        UiRouteMode::Speaker => speaker_shell(
             apps,
             compiled,
             app_path,

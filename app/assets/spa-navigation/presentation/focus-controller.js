@@ -42,6 +42,32 @@
     return true;
   }
 
+  function dispatchPresentationAction(action) {
+    if (!action || typeof action !== "object") return false;
+    const type = String(action.type || action.kind || "").trim();
+    switch (type) {
+      case "highlight":
+      case "focus":
+        return focusViewpoint(String(action.viewpoint || action.viewpointId || "").trim());
+      case "clear_focus":
+      case "clearFocus":
+        clearViewpointFocus();
+        return true;
+      case "open_board": {
+        const sceneId = String(action.boardSceneId || action.sceneId || "").trim();
+        if (!sceneId || typeof boot.openScene !== "function") return false;
+        boot.openScene({
+          scene_id: sceneId,
+          kind: "scene_open",
+          projection: String(action.projection || "overlay"),
+        });
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
   function installFocusController() {
     if (boot.focusControllerMounted) return;
     boot.focusControllerMounted = true;
@@ -49,8 +75,10 @@
     root.MeiPresentation = root.MeiPresentation || {};
     root.MeiPresentation.focus = focusViewpoint;
     root.MeiPresentation.clearFocus = clearViewpointFocus;
+    root.MeiPresentation.dispatch = dispatchPresentationAction;
     root.MeiPresentation.map = readPresentationMap;
     root.MeiPresentation.zTiers = PRESENTATION_Z_TIERS;
+    boot.dispatchPresentationAction = dispatchPresentationAction;
   }
 
   installFocusController();

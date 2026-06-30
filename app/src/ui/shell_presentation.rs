@@ -8,7 +8,7 @@ use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::shell_preview_layout::{
     access_shell_grid_class, presentation_main_preview_class, presentation_preview_panel_class,
 };
-use super::view_routing::{app_scene_href, presentation_scene_href};
+use super::view_routing::{app_scene_href, run_scene_href};
 use super::{HostAccountView, TopbarMenuContext};
 
 const PRESENTATION_KEYBOARD_SCRIPT: &str = r#"
@@ -112,10 +112,10 @@ pub(crate) fn presentation_shell(
         return view! {
             <div class="shell shell-surface min-h-screen mei-surface-shell px-6 py-10 mei-text-inverse">
                 <section class="mx-auto max-w-3xl rounded-3xl border mei-border-default mei-surface-panel-muted p-6 shadow-2xl">
-                    <p class="text-sm uppercase tracking-[0.18em] mei-text-muted">"Presentation"</p>
+                    <p class="text-sm uppercase tracking-[0.18em] mei-text-muted">"独立运行"</p>
                     <h1 class="mt-3 text-2xl font-semibold">{compiled.title.clone()}</h1>
                     <p class="mt-4 text-sm leading-7 mei-text-body">
-                        "当前应用没有可用于演示的导出 scene。请先为至少一个 scene 保持默认 access export。"
+                        "当前应用没有可用于独立运行的导出 scene。请先为至少一个 scene 保持默认 access export。"
                     </p>
                 </section>
             </div>
@@ -140,10 +140,10 @@ pub(crate) fn presentation_shell(
     let total = deck.len();
     let prev_href = current_index
         .checked_sub(1)
-        .map(|index| presentation_scene_href(app_path, Some(deck[index].scene_id.as_str())));
+        .map(|index| run_scene_href(app_path, Some(deck[index].scene_id.as_str())));
     let next_href = deck
         .get(current_index + 1)
-        .map(|route| presentation_scene_href(app_path, Some(route.scene_id.as_str())));
+        .map(|route| run_scene_href(app_path, Some(route.scene_id.as_str())));
     let exit_href = app_scene_href(app_path, Some(current_scene_id), None, None);
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = concat_presentation_shell_class(stage_enabled);
@@ -153,7 +153,7 @@ pub(crate) fn presentation_shell(
         compiled,
         app_path,
         current_target,
-        super::route::UiRouteMode::Presentation,
+        super::route::UiRouteMode::Run,
         WorldSemanticQuery::default(),
         None,
         None,
@@ -178,7 +178,7 @@ pub(crate) fn presentation_shell(
                 <div class="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 sm:p-6">
                     <header class="pointer-events-auto mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-white/10 mei-surface-panel-muted px-4 py-3 shadow-lg backdrop-blur-md">
                         <div class="min-w-0">
-                            <div class="text-[11px] uppercase tracking-[0.18em] mei-text-muted">"Slides Projection MVP"</div>
+                            <div class="text-[11px] uppercase tracking-[0.18em] mei-text-muted">"独立运行"</div>
                             <div class="mt-1 truncate text-sm font-semibold mei-text-inverse">{compiled.title.clone()}</div>
                             <div class="truncate text-xs mei-text-muted">{current_title.to_string()}</div>
                         </div>

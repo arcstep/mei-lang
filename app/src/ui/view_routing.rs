@@ -74,11 +74,24 @@ pub fn app_scene_href(
     app_href(app_path, &access_scene_route_suffix(scene_id, tab, chrome))
 }
 
-pub fn presentation_scene_href(app_path: &str, scene_id: Option<&str>) -> String {
+pub fn run_scene_href(app_path: &str, scene_id: Option<&str>) -> String {
     format!(
         "{}{}",
-        view_base_href(UiRouteMode::Presentation, app_path),
+        view_base_href(UiRouteMode::Run, app_path),
         access_scene_route_suffix(scene_id, None, None)
+    )
+}
+
+/// 兼容旧链接：`/apps/presentation/...` 与 `/apps/run/...` 等价。
+pub fn presentation_scene_href(app_path: &str, scene_id: Option<&str>) -> String {
+    run_scene_href(app_path, scene_id)
+}
+
+pub fn speaker_tour_href(app_path: &str, tour_id: &str) -> String {
+    format!(
+        "{}/tour/{}",
+        view_base_href(UiRouteMode::Speaker, app_path),
+        encode_query_value(tour_id.trim())
     )
 }
 
@@ -98,7 +111,8 @@ pub fn cross_app_href(
     }
     match view {
         UiRouteMode::App => app_scene_href(app_path, None, None, None),
-        UiRouteMode::Presentation => presentation_scene_href(app_path, None),
+        UiRouteMode::Run => run_scene_href(app_path, None),
+        UiRouteMode::Speaker => speaker_tour_href(app_path, "intro"),
         UiRouteMode::Build => build_href_with_catalog(app_path, None, None, catalog, pack),
         UiRouteMode::Config => config_href(app_path),
         UiRouteMode::Upload => upload_href(app_path, None),

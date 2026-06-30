@@ -63,9 +63,12 @@ pub(super) fn render_compiled_success(
     account_view: Option<&HostAccountView>,
     discover_ms: u64,
     app_started: Instant,
+    speaker_tour_id: Option<&str>,
 ) -> Response {
     let manage_scene_resolved = if access_static_file.is_some() {
         None
+    } else if route_mode == UiRouteMode::Speaker {
+        speaker_tour_id.map(str::to_string)
     } else if route_mode.uses_scene_route() {
         access_path_scene.map(str::to_string)
     } else {
@@ -174,10 +177,15 @@ pub(super) fn render_compiled_success(
         Some(state.source_root.as_path()),
         None,
     );
-    let scene_id = manage_scene_resolved
-        .as_deref()
-        .or(compiled.active_scene.as_deref())
-        .unwrap_or("home");
+    let assembly_scene_id = if route_mode == UiRouteMode::Speaker && speaker_tour_id.is_some() {
+        "home"
+    } else {
+        manage_scene_resolved
+            .as_deref()
+            .or(compiled.active_scene.as_deref())
+            .unwrap_or("home")
+    };
+    let scene_id = assembly_scene_id;
     let scene_bundle_enabled = should_build_scene_bundle(app_root.as_path(), route_mode, scene_id);
     let scene_bundle_marker = scene_bundle_cache_marker(app_root.as_path(), route_mode, scene_id);
     let live_config = load_mei_config_for_app(&app_root, Some(state.source_root.as_path()));

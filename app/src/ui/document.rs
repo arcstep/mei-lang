@@ -21,7 +21,8 @@ pub(crate) fn render_document(
     let shell_mode_class = match route_mode {
         UiRouteMode::App if chrome_hidden => "app-view chrome-none",
         UiRouteMode::App => "app-view",
-        UiRouteMode::Presentation => "presentation-view chrome-none",
+        UiRouteMode::Run => "run-view chrome-none",
+        UiRouteMode::Speaker => "speaker-view chrome-none",
         UiRouteMode::Build => "build-view",
         UiRouteMode::Runtime => "runtime-view",
         UiRouteMode::Config => "config-view",

@@ -32,7 +32,8 @@ impl ScopeCoords {
 pub enum UiMode {
     Build,
     App,
-    Presentation,
+    Run,
+    Speaker,
     Config,
     Upload,
     Other,
@@ -43,7 +44,8 @@ impl UiMode {
         match route_mode {
             UiRouteMode::Build => Self::Build,
             UiRouteMode::App => Self::App,
-            UiRouteMode::Presentation => Self::Presentation,
+            UiRouteMode::Run => Self::Run,
+            UiRouteMode::Speaker => Self::Speaker,
             UiRouteMode::Config => Self::Config,
             UiRouteMode::Upload => Self::Upload,
             UiRouteMode::Runtime => Self::Build,
@@ -53,7 +55,7 @@ impl UiMode {
     pub fn default_navigation_key(self) -> &'static str {
         match self {
             Self::Build => "default_build",
-            Self::App | Self::Presentation => "default_access",
+            Self::App | Self::Run | Self::Speaker => "default_access",
             _ => "default_access",
         }
     }
@@ -61,7 +63,7 @@ impl UiMode {
     pub fn scene_navigation_key(self, scene_id: &str) -> String {
         match self {
             Self::Build => format!("build:{scene_id}"),
-            Self::App | Self::Presentation => format!("access:{scene_id}"),
+            Self::App | Self::Run | Self::Speaker => format!("access:{scene_id}"),
             _ => format!("access:{scene_id}"),
         }
     }

@@ -3,7 +3,9 @@
   function parseAccessSceneContext(urlLike) {
     try {
       const url = new URL(urlLike, window.location.href);
-      const match = url.pathname.match(/^\/apps\/(?:app|access|presentation)\/([^/]+)\/scene\/([^/]+)/);
+      const match = url.pathname.match(
+        /^\/apps\/(?:app|access|run|presentation|slides)\/([^/]+)\/scene\/([^/]+)/,
+      );
       if (!match) return null;
       const mode = url.pathname.split("/")[2] || "app";
       return {

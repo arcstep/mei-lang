@@ -46,11 +46,7 @@ fn percent_encode_query_component(value: &str) -> String {
 }
 
 fn projection_base_path(route_mode: UiRouteMode, app_id: &str) -> String {
-    let mode = match route_mode {
-        UiRouteMode::App => "app",
-        UiRouteMode::Presentation => "presentation",
-        _ => "app",
-    };
+    let mode = route_mode.slug();
     format!("/apps/{mode}/{}", app_id.trim_start_matches('/'))
 }
 
@@ -72,7 +68,7 @@ fn projection_query_parts(
     parts
 }
 
-/// 从 `/apps/app/<app_path>/scene/<scene_id>` 或 `/apps/presentation/<app_path>/scene/<scene_id>` 形态解析 app 与 scene。
+/// 从 `/apps/app/<app>/scene/<scene>` 或 `/apps/run/<app>/scene/<scene>` 解析路径。
 pub(crate) fn parse_access_scene_path(raw_app_path: &str) -> Result<Option<(String, String)>, ()> {
     let raw = raw_app_path.trim_start_matches('/');
     if !raw.contains(ACCESS_SCENE_PATH_MARK) {
@@ -89,6 +85,27 @@ pub(crate) fn parse_access_scene_path(raw_app_path: &str) -> Result<Option<(Stri
         return Err(());
     }
     Ok(Some((app, scene)))
+}
+
+const SPEAKER_TOUR_PATH_MARK: &str = "/tour/";
+
+/// `/apps/speaker/<app>/tour/<tour_id>` → `(app_id, tour_id)`；`tour_id` 经 `selected_scene` 传给演说壳。
+pub(crate) fn parse_speaker_tour_tail(raw_app_path: &str) -> Option<(String, String)> {
+    let raw = raw_app_path.trim_start_matches('/');
+    if !raw.contains(SPEAKER_TOUR_PATH_MARK) {
+        return None;
+    }
+    let Some(idx) = raw.find(SPEAKER_TOUR_PATH_MARK) else {
+        return None;
+    };
+    let app = raw[..idx].trim_end_matches('/').to_string();
+    let tour = raw[idx + SPEAKER_TOUR_PATH_MARK.len()..]
+        .trim_matches('/')
+        .to_string();
+    if app.is_empty() || tour.is_empty() || tour.contains('/') {
+        return None;
+    }
+    Some((app, tour))
 }
 
 pub(crate) fn scene_projection_canonical_location(
@@ -156,7 +173,7 @@ pub(crate) fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery)
 }
 
 pub(crate) fn presentation_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
-    scene_projection_sanitized_redirect_location(UiRouteMode::Presentation, app_id, query)
+    scene_projection_sanitized_redirect_location(UiRouteMode::Run, app_id, query)
 }
 
 fn build_query_suffix(query: &AppQuery) -> String {

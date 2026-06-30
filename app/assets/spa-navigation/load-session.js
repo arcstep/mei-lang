@@ -312,8 +312,8 @@
     const enriched =
       typeof boot.enrichVisitHistoryRecord === "function"
         ? boot.enrichVisitHistoryRecord(record, {
-            url: session.url || session.path,
-            scene: session.kind === "drilldown" ? session.path : "",
+            url: session.url || session.pathname || session.path,
+            scene: session.scene || (session.kind === "drilldown" ? session.path : ""),
             scope: session.kind === "drilldown" ? session.path : "",
             apiCalls: record.apiCalls,
             apiFailed: record.apiFailed,

@@ -476,6 +476,11 @@
     }
     if (structuredLayout instanceof HTMLElement) {
       structuredLayout.dataset.shellLayoutMode = String(config?.sceneShell?.layoutMode || "");
+      if (config?.boardFrameScene) {
+        structuredLayout.classList.add("mei-layer2-viewport-stage");
+        structuredLayout.style.setProperty("--mei-viewport-design-width", "1920px");
+        structuredLayout.style.setProperty("--mei-viewport-design-height", "1080px");
+      }
     }
     applyDrilldownOverlaySize(root, config);
     if (headMetaEl) {

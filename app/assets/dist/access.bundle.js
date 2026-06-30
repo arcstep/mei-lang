@@ -10200,6 +10200,8 @@
       "/apps/manage/",
       "/apps/app/",
       "/apps/access/",
+      "/apps/run/",
+      "/apps/speaker/",
       "/apps/presentation/",
       "/apps/slides/",
       "/apps/upload/",
@@ -10208,10 +10210,11 @@
     for (const prefix of prefixes) {
       if (!path.startsWith(prefix)) continue;
       let rest = path.slice(prefix.length);
-      const sceneSeg = "/scene/";
-      const sceneIdx = rest.indexOf(sceneSeg);
-      if (sceneIdx >= 0) {
-        rest = rest.slice(0, sceneIdx);
+      for (const marker of ["/scene/", "/tour/"]) {
+        const idx = rest.indexOf(marker);
+        if (idx >= 0) {
+          rest = rest.slice(0, idx);
+        }
       }
       const slashQ = rest.indexOf("/?");
       if (slashQ >= 0) rest = rest.slice(0, slashQ);
@@ -10226,6 +10229,8 @@
       "access",
       "manage",
       "build",
+      "run",
+      "speaker",
       "presentation",
       "slides",
       "upload",
@@ -10380,14 +10385,25 @@
       (base.kind === "drilldown"
         ? String(opts.scope || base.scope || base.path || base.label || "").trim()
         : "");
+    const pathname =
+      String(opts.pathname || base.pathname || ctx.pathname || "").trim() ||
+      (base.kind === "drilldown" && opts.url
+        ? (() => {
+            try {
+              return new URL(String(opts.url), ctx.href || window.location.href).pathname;
+            } catch (_) {
+              return "";
+            }
+          })()
+        : "");
     return {
       ...base,
       workspace: base.workspace || ctx.workspace,
       routeMode: base.routeMode || ctx.routeMode,
       appId: base.appId || ctx.appId,
       appTitle: base.appTitle || ctx.appTitle,
-      pathname: base.pathname || ctx.pathname,
-      href: base.href || ctx.href,
+      pathname: pathname || base.pathname || ctx.pathname,
+      href: String(opts.url || base.href || ctx.href || "").trim() || base.href || ctx.href,
       scene,
       file: String(opts.file || base.file || ctx.file || "").trim(),
       authUser: base.authUser || ctx.authUser,
@@ -10815,8 +10831,8 @@
     const enriched =
       typeof boot.enrichVisitHistoryRecord === "function"
         ? boot.enrichVisitHistoryRecord(record, {
-            url: session.url || session.path,
-            scene: session.kind === "drilldown" ? session.path : "",
+            url: session.url || session.pathname || session.path,
+            scene: session.scene || (session.kind === "drilldown" ? session.path : ""),
             scope: session.kind === "drilldown" ? session.path : "",
             apiCalls: record.apiCalls,
             apiFailed: record.apiFailed,
@@ -10864,6 +10880,7 @@
     "app",
     "access",
     "run",
+    "speaker",
     "access-only",
     "access_only",
     "presentation",
@@ -12556,6 +12573,11 @@
     }
     if (structuredLayout instanceof HTMLElement) {
       structuredLayout.dataset.shellLayoutMode = String(config?.sceneShell?.layoutMode || "");
+      if (config?.boardFrameScene) {
+        structuredLayout.classList.add("mei-layer2-viewport-stage");
+        structuredLayout.style.setProperty("--mei-viewport-design-width", "1920px");
+        structuredLayout.style.setProperty("--mei-viewport-design-height", "1080px");
+      }
     }
     applyDrilldownOverlaySize(root, config);
     if (headMetaEl) {
@@ -17990,6 +18012,19 @@
     } catch (_) {
       return "";
     }
+    const routeSlug = appRouteSlugFromPathname(url.pathname);
+    const accessLike =
+      ACCESS_LIKE_ROUTE_SLUGS.has(routeSlug) && !BUILD_ROUTE_SLUGS.has(routeSlug);
+    if (accessLike) {
+      url.pathname = `/apps/app/${encodeURIComponent(appId)}/scene/${encodeURIComponent(boardSceneId)}`;
+      url.searchParams.delete("node");
+      url.searchParams.delete("file");
+      url.searchParams.delete("scene");
+      url.searchParams.delete("tab");
+      url.searchParams.delete("mei_projection");
+      url.searchParams.delete("mei_entry_tab");
+      return url.toString();
+    }
     url.pathname = `/apps/build/${appId}`;
     url.searchParams.set("node", `board-file:${boardFile}#${boardSceneId}`);
     url.searchParams.set("tab", "preview");
@@ -18088,9 +18123,23 @@
   }
 
   function drilldownSessionMeta(config) {
+    const boardSceneId = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    const canonicalUrl =
+      typeof resolveBoardRouteUrl === "function" ? resolveBoardRouteUrl(config) : "";
+    let canonicalPathname = "";
+    if (canonicalUrl) {
+      try {
+        canonicalPathname = new URL(canonicalUrl, window.location.href).pathname;
+      } catch (_) {
+        canonicalPathname = "";
+      }
+    }
     return {
-      label: nonEmptyString(config?.title, config?.boardSceneId, config?.sceneId, "下钻看板"),
-      path: nonEmptyString(config?.boardSceneFile, config?.boardSceneId, config?.sceneId),
+      label: nonEmptyString(config?.title, boardSceneId, "下钻看板"),
+      path: boardSceneId,
+      scene: boardSceneId,
+      url: canonicalUrl || undefined,
+      pathname: canonicalPathname || undefined,
     };
   }
 
@@ -18392,6 +18441,32 @@
     return true;
   }
 
+  function dispatchPresentationAction(action) {
+    if (!action || typeof action !== "object") return false;
+    const type = String(action.type || action.kind || "").trim();
+    switch (type) {
+      case "highlight":
+      case "focus":
+        return focusViewpoint(String(action.viewpoint || action.viewpointId || "").trim());
+      case "clear_focus":
+      case "clearFocus":
+        clearViewpointFocus();
+        return true;
+      case "open_board": {
+        const sceneId = String(action.boardSceneId || action.sceneId || "").trim();
+        if (!sceneId || typeof boot.openScene !== "function") return false;
+        boot.openScene({
+          scene_id: sceneId,
+          kind: "scene_open",
+          projection: String(action.projection || "overlay"),
+        });
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
   function installFocusController() {
     if (boot.focusControllerMounted) return;
     boot.focusControllerMounted = true;
@@ -18399,11 +18474,251 @@
     root.MeiPresentation = root.MeiPresentation || {};
     root.MeiPresentation.focus = focusViewpoint;
     root.MeiPresentation.clearFocus = clearViewpointFocus;
+    root.MeiPresentation.dispatch = dispatchPresentationAction;
     root.MeiPresentation.map = readPresentationMap;
     root.MeiPresentation.zTiers = PRESENTATION_Z_TIERS;
+    boot.dispatchPresentationAction = dispatchPresentationAction;
   }
 
   installFocusController();
+
+
+/* ===== spa-navigation/presentation/presenter-assistant.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (boot.presenterAssistantMounted) return;
+  boot.presenterAssistantMounted = true;
+
+  const PANEL_ID = "mei-presenter-assistant";
+  const CAPTION_ID = "mei-presenter-caption";
+
+  function readTour() {
+    const node = document.getElementById("mei-speaker-tour");
+    if (!(node instanceof HTMLScriptElement) || !node.textContent) return null;
+    try {
+      return JSON.parse(node.textContent);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function isSpeakerRoute() {
+    return /^\/apps\/speaker\//.test(String(window.location.pathname || ""));
+  }
+
+  function focusApi() {
+    return window.MeiPresentation || null;
+  }
+
+  function clearFocus() {
+    const api = focusApi();
+    if (api && typeof api.clearFocus === "function") {
+      api.clearFocus();
+    }
+  }
+
+  function applyHighlight(viewpointId) {
+    if (!viewpointId) return;
+    const api = focusApi();
+    if (api && typeof api.dispatch === "function") {
+      api.dispatch({ type: "highlight", viewpoint: viewpointId });
+      return;
+    }
+    if (api && typeof api.focus === "function") {
+      api.focus(viewpointId);
+    }
+  }
+
+  function applyActions(actions) {
+    if (!Array.isArray(actions)) return;
+    actions.forEach((action) => {
+      if (!action || typeof action !== "object") return;
+      const type = String(action.type || "").trim();
+      if (type === "highlight") {
+        applyHighlight(String(action.viewpoint || "").trim());
+      }
+    });
+  }
+
+  async function navigateToStep(step) {
+    const route = String(step?.route || "").trim();
+    if (!route) return;
+    if (typeof boot.navigateInternal === "function") {
+      await boot.navigateInternal(route, false);
+      return;
+    }
+    window.location.href = route;
+  }
+
+  function ensureCaption() {
+    let node = document.getElementById(CAPTION_ID);
+    if (node) return node;
+    node = document.createElement("div");
+    node.id = CAPTION_ID;
+    node.className = "mei-presenter-caption";
+    node.setAttribute("hidden", "hidden");
+    document.body.appendChild(node);
+    return node;
+  }
+
+  function ensurePanel() {
+    let panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    panel = document.createElement("aside");
+    panel.id = PANEL_ID;
+    panel.className = "mei-presenter-assistant";
+    panel.innerHTML =
+      '<header class="mei-presenter-assistant-head">' +
+      '<strong class="mei-presenter-assistant-title" data-presenter-title="true">演说助手</strong>' +
+      '<span class="mei-presenter-assistant-progress" data-presenter-progress="true"></span>' +
+      "</header>" +
+      '<div class="mei-presenter-assistant-toolbar">' +
+      '<button type="button" class="mei-presenter-btn" data-presenter-prev="true">上一步</button>' +
+      '<button type="button" class="mei-presenter-btn" data-presenter-next="true">下一步</button>' +
+      '<button type="button" class="mei-presenter-btn" data-presenter-caption-toggle="true">气泡</button>' +
+      '<button type="button" class="mei-presenter-btn" data-presenter-select-toggle="true">组件选择</button>' +
+      "</div>";
+    panel.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.dataset.presenterPrev === "true") {
+        state.stepIndex = Math.max(0, state.stepIndex - 1);
+        void applyStep();
+      }
+      if (target.dataset.presenterNext === "true") {
+        state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
+        void applyStep();
+      }
+      if (target.dataset.presenterCaptionToggle === "true") {
+        state.captionVisible = !state.captionVisible;
+        renderCaption();
+      }
+      if (target.dataset.presenterSelectToggle === "true") {
+        state.selectMode = !state.selectMode;
+        document.body.classList.toggle("mei-presenter-select-mode", state.selectMode);
+        target.classList.toggle("is-active", state.selectMode);
+      }
+    });
+    document.body.appendChild(panel);
+    ensureCaption();
+    return panel;
+  }
+
+  const state = {
+    tour: null,
+    steps: [],
+    stepIndex: 0,
+    captionVisible: true,
+    selectMode: false,
+  };
+
+  function currentStep() {
+    return state.steps[state.stepIndex] || null;
+  }
+
+  function renderCaption() {
+    const caption = ensureCaption();
+    const step = currentStep();
+    const text = step ? String(step.caption || step.title || "") : "";
+    if (!text || !state.captionVisible) {
+      caption.setAttribute("hidden", "hidden");
+      caption.textContent = "";
+      return;
+    }
+    caption.removeAttribute("hidden");
+    caption.textContent = text;
+  }
+
+  function renderPanel() {
+    const panel = ensurePanel();
+    const step = currentStep();
+    const title = panel.querySelector("[data-presenter-title]");
+    const progress = panel.querySelector("[data-presenter-progress]");
+    if (title instanceof HTMLElement) {
+      title.textContent = step?.title || state.tour?.title || "演说助手";
+    }
+    if (progress instanceof HTMLElement) {
+      progress.textContent =
+        state.steps.length > 0 ? `${state.stepIndex + 1} / ${state.steps.length}` : "";
+    }
+    renderCaption();
+  }
+
+  async function applyStep() {
+    const step = currentStep();
+    if (!step) return;
+    clearFocus();
+    await navigateToStep(step);
+    applyActions(step.actions);
+    renderPanel();
+  }
+
+  function bindSelectMode() {
+    document.addEventListener(
+      "click",
+      (event) => {
+        if (!state.selectMode) return;
+        const target = event.target;
+        if (!(target instanceof Element)) return;
+        const host = target.closest("[data-mei-viewpoint]");
+        if (!(host instanceof HTMLElement)) return;
+        const viewpointId = String(host.dataset.meiViewpoint || "").trim();
+        if (!viewpointId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        applyHighlight(viewpointId);
+      },
+      true,
+    );
+  }
+
+  function exposeConsoleApi() {
+    const root = window;
+    root.MeiSpeaker = root.MeiSpeaker || {};
+    root.MeiSpeaker.applyStep = (index) => {
+      if (!Number.isFinite(Number(index))) return;
+      state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(index)));
+      void applyStep();
+    };
+    root.MeiSpeaker.highlight = applyHighlight;
+    root.MeiSpeaker.next = () => {
+      state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
+      void applyStep();
+    };
+    root.MeiSpeaker.prev = () => {
+      state.stepIndex = Math.max(0, state.stepIndex - 1);
+      void applyStep();
+    };
+  }
+
+  function init() {
+    if (!isSpeakerRoute()) return;
+    const tour = readTour();
+    if (!tour || !Array.isArray(tour.steps) || !tour.steps.length) return;
+    state.tour = tour;
+    state.steps = tour.steps;
+    state.stepIndex = 0;
+    ensurePanel();
+    bindSelectMode();
+    exposeConsoleApi();
+    void applyStep();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  } else {
+    init();
+  }
+
+  document.addEventListener("mei:spa-navigation-complete", () => {
+    if (!isSpeakerRoute()) return;
+    const step = currentStep();
+    if (step) {
+      applyActions(step.actions);
+      renderPanel();
+    }
+  });
+})();
 
 
 /* ===== spa-navigation/drilldown/context-banner.js ===== */
@@ -18912,6 +19227,9 @@
       kind: "drilldown",
       label: String(opts.label || "下钻看板"),
       path: String(opts.path || ""),
+      url: String(opts.url || opts.pathname || ""),
+      scene: String(opts.scene || opts.path || ""),
+      pathname: String(opts.pathname || ""),
     });
     setPhaseStatus(session, "render", "active");
     return session;
@@ -20394,7 +20712,9 @@
   function parseAccessSceneContext(urlLike) {
     try {
       const url = new URL(urlLike, window.location.href);
-      const match = url.pathname.match(/^\/apps\/(?:app|access|presentation)\/([^/]+)\/scene\/([^/]+)/);
+      const match = url.pathname.match(
+        /^\/apps\/(?:app|access|run|presentation|slides)\/([^/]+)\/scene\/([^/]+)/,
+      );
       if (!match) return null;
       const mode = url.pathname.split("/")[2] || "app";
       return {

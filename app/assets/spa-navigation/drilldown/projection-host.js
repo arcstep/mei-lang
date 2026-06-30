@@ -45,9 +45,23 @@
   }
 
   function drilldownSessionMeta(config) {
+    const boardSceneId = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    const canonicalUrl =
+      typeof resolveBoardRouteUrl === "function" ? resolveBoardRouteUrl(config) : "";
+    let canonicalPathname = "";
+    if (canonicalUrl) {
+      try {
+        canonicalPathname = new URL(canonicalUrl, window.location.href).pathname;
+      } catch (_) {
+        canonicalPathname = "";
+      }
+    }
     return {
-      label: nonEmptyString(config?.title, config?.boardSceneId, config?.sceneId, "下钻看板"),
-      path: nonEmptyString(config?.boardSceneFile, config?.boardSceneId, config?.sceneId),
+      label: nonEmptyString(config?.title, boardSceneId, "下钻看板"),
+      path: boardSceneId,
+      scene: boardSceneId,
+      url: canonicalUrl || undefined,
+      pathname: canonicalPathname || undefined,
     };
   }
 

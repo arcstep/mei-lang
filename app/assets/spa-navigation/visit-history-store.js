@@ -19,6 +19,8 @@
       "/apps/manage/",
       "/apps/app/",
       "/apps/access/",
+      "/apps/run/",
+      "/apps/speaker/",
       "/apps/presentation/",
       "/apps/slides/",
       "/apps/upload/",
@@ -27,10 +29,11 @@
     for (const prefix of prefixes) {
       if (!path.startsWith(prefix)) continue;
       let rest = path.slice(prefix.length);
-      const sceneSeg = "/scene/";
-      const sceneIdx = rest.indexOf(sceneSeg);
-      if (sceneIdx >= 0) {
-        rest = rest.slice(0, sceneIdx);
+      for (const marker of ["/scene/", "/tour/"]) {
+        const idx = rest.indexOf(marker);
+        if (idx >= 0) {
+          rest = rest.slice(0, idx);
+        }
       }
       const slashQ = rest.indexOf("/?");
       if (slashQ >= 0) rest = rest.slice(0, slashQ);
@@ -45,6 +48,8 @@
       "access",
       "manage",
       "build",
+      "run",
+      "speaker",
       "presentation",
       "slides",
       "upload",
@@ -199,14 +204,25 @@
       (base.kind === "drilldown"
         ? String(opts.scope || base.scope || base.path || base.label || "").trim()
         : "");
+    const pathname =
+      String(opts.pathname || base.pathname || ctx.pathname || "").trim() ||
+      (base.kind === "drilldown" && opts.url
+        ? (() => {
+            try {
+              return new URL(String(opts.url), ctx.href || window.location.href).pathname;
+            } catch (_) {
+              return "";
+            }
+          })()
+        : "");
     return {
       ...base,
       workspace: base.workspace || ctx.workspace,
       routeMode: base.routeMode || ctx.routeMode,
       appId: base.appId || ctx.appId,
       appTitle: base.appTitle || ctx.appTitle,
-      pathname: base.pathname || ctx.pathname,
-      href: base.href || ctx.href,
+      pathname: pathname || base.pathname || ctx.pathname,
+      href: String(opts.url || base.href || ctx.href || "").trim() || base.href || ctx.href,
       scene,
       file: String(opts.file || base.file || ctx.file || "").trim(),
       authUser: base.authUser || ctx.authUser,

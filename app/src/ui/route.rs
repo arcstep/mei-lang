@@ -1,7 +1,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiRouteMode {
     App,
-    Presentation,
+    /// 单 scene 脱离宿主控制壳独立运行（原 `presentation` / `slides` 路由）。
+    Run,
+    /// 演说模式：tour 步进、助手壳、文案与 cockpit 动作编排。
+    Speaker,
     Build,
     Config,
     Upload,
@@ -11,8 +14,9 @@ pub enum UiRouteMode {
 impl UiRouteMode {
     pub fn from_slug(value: &str) -> Self {
         match value {
-            "app" | "access" | "run" | "access-only" | "access_only" => Self::App,
-            "presentation" | "slides" => Self::Presentation,
+            "app" | "access" | "access-only" | "access_only" => Self::App,
+            "run" | "presentation" | "slides" => Self::Run,
+            "speaker" => Self::Speaker,
             "build" | "manage" => Self::Build,
             "config" => Self::Config,
             "upload" => Self::Upload,
@@ -24,7 +28,8 @@ impl UiRouteMode {
     pub fn slug(self) -> &'static str {
         match self {
             Self::App => "app",
-            Self::Presentation => "presentation",
+            Self::Run => "run",
+            Self::Speaker => "speaker",
             Self::Build => "build",
             Self::Config => "config",
             Self::Upload => "upload",
@@ -35,7 +40,8 @@ impl UiRouteMode {
     pub fn label(self) -> &'static str {
         match self {
             Self::App => "访问",
-            Self::Presentation => "演示",
+            Self::Run => "独立运行",
+            Self::Speaker => "演说",
             Self::Build => "构建",
             Self::Config => "配置",
             Self::Upload => "上传",
@@ -48,7 +54,15 @@ impl UiRouteMode {
     }
 
     pub fn is_access_like(self) -> bool {
-        matches!(self, Self::App | Self::Presentation)
+        matches!(self, Self::App | Self::Run | Self::Speaker)
+    }
+
+    pub fn is_run_like(self) -> bool {
+        self == Self::Run
+    }
+
+    pub fn is_speaker_like(self) -> bool {
+        self == Self::Speaker
     }
 
     pub fn is_build(self) -> bool {
@@ -79,11 +93,14 @@ mod tests {
     }
 
     #[test]
-    fn presentation_aliases_map_to_presentation_mode() {
-        assert_eq!(
-            UiRouteMode::from_slug("presentation"),
-            UiRouteMode::Presentation
-        );
-        assert_eq!(UiRouteMode::from_slug("slides"), UiRouteMode::Presentation);
+    fn run_aliases_map_to_run_mode() {
+        assert_eq!(UiRouteMode::from_slug("run"), UiRouteMode::Run);
+        assert_eq!(UiRouteMode::from_slug("presentation"), UiRouteMode::Run);
+        assert_eq!(UiRouteMode::from_slug("slides"), UiRouteMode::Run);
+    }
+
+    #[test]
+    fn speaker_slug_maps_to_speaker_mode() {
+        assert_eq!(UiRouteMode::from_slug("speaker"), UiRouteMode::Speaker);
     }
 }

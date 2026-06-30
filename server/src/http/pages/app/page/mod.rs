@@ -33,7 +33,7 @@ use super::page_render::{
 };
 use super::query::{
     access_canonical_location, access_sanitized_redirect_location, legacy_access_redirect_location,
-    legacy_manage_redirect_location, parse_access_scene_path,
+    legacy_manage_redirect_location, parse_access_scene_path, parse_speaker_tour_tail,
     presentation_sanitized_redirect_location, AppQuery,
 };
 
@@ -73,25 +73,33 @@ pub async fn app_page(
     }
     let route_mode = UiRouteMode::from_slug(&mode);
     let app_id_trimmed = app_id_raw.trim_start_matches('/').to_string();
-    let (app_id, url_path_scene) = match parse_access_scene_path(&app_id_trimmed) {
-        Ok(None) => (app_id_trimmed, None),
-        Ok(Some((app, scene))) => (app, Some(scene)),
-        Err(()) => {
-            return Ok((
-                StatusCode::NOT_FOUND,
-                Html(host_error_page::render_error_page(
+    let (app_id, url_path_scene, speaker_tour_id) = if route_mode == UiRouteMode::Speaker {
+        if let Some((app, tour)) = parse_speaker_tour_tail(&app_id_trimmed) {
+            (app, None, Some(tour))
+        } else {
+            (app_id_trimmed, None, None)
+        }
+    } else {
+        match parse_access_scene_path(&app_id_trimmed) {
+            Ok(None) => (app_id_trimmed, None, None),
+            Ok(Some((app, scene))) => (app, Some(scene), None),
+            Err(()) => {
+                return Ok((
                     StatusCode::NOT_FOUND,
-                    "场景路径无效",
-                    "地址中的 /scene/<id> 格式无效，请检查链接是否正确。",
-                    Some("/apps/app/.../scene/<id>"),
-                    &[HostShellAction {
-                        href: "/".to_string(),
-                        label: "返回首页".to_string(),
-                        primary: true,
-                    }],
-                )),
-            )
-                .into_response());
+                    Html(host_error_page::render_error_page(
+                        StatusCode::NOT_FOUND,
+                        "场景路径无效",
+                        "地址中的 /scene/<id> 格式无效，请检查链接是否正确。",
+                        Some("/apps/app/.../scene/<id>"),
+                        &[HostShellAction {
+                            href: "/".to_string(),
+                            label: "返回首页".to_string(),
+                            primary: true,
+                        }],
+                    )),
+                )
+                    .into_response());
+            }
         }
     };
     let access_path_scene = if route_mode.uses_scene_route() {
@@ -202,10 +210,14 @@ pub async fn app_page(
         None
     };
     let mut compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
-        url_path_scene
-            .clone()
-            .or_else(|| query.scene.clone())
-            .or_else(|| build_node_compile_scene.clone())
+        if speaker_tour_id.is_some() {
+            Some("home".to_string())
+        } else {
+            url_path_scene
+                .clone()
+                .or_else(|| query.scene.clone())
+                .or_else(|| build_node_compile_scene.clone())
+        }
     } else {
         query.scene.clone()
     };
@@ -267,7 +279,7 @@ pub async fn app_page(
     ) {
         return Ok(response);
     }
-    if route_mode == UiRouteMode::Presentation && request_file.is_some() {
+    if route_mode == UiRouteMode::Run && request_file.is_some() {
         return Ok(
             Redirect::temporary(&presentation_sanitized_redirect_location(&app_id, &query))
                 .into_response(),
@@ -285,7 +297,7 @@ pub async fn app_page(
     if route_mode.uses_scene_route() {
         if let Some(ref file) = request_file {
             if is_script_target(file) {
-                let location = if route_mode == UiRouteMode::Presentation {
+                let location = if route_mode == UiRouteMode::Run {
                     presentation_sanitized_redirect_location(&app_id, &query)
                 } else {
                     access_sanitized_redirect_location(&app_id, &query)
@@ -333,7 +345,8 @@ pub async fn app_page(
     }
     let discover_ms = elapsed_ms(discover_started);
     let app_title = app_title_for(&apps, &app_id);
-    let chrome_hidden = route_mode == UiRouteMode::Presentation
+    let chrome_hidden = route_mode == UiRouteMode::Run
+        || route_mode == UiRouteMode::Speaker
         || access_only_surface
         || query
             .chrome
@@ -450,5 +463,6 @@ pub async fn app_page(
         account_view.as_ref(),
         discover_ms,
         app_started,
+        speaker_tour_id.as_deref(),
     ))
 }

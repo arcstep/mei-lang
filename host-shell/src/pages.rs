@@ -43,11 +43,11 @@ pub async fn app_page(
 ) -> Response {
     let route_mode = UiRouteMode::from_slug(mode.as_str());
     let app_tail = app_tail.trim_start_matches('/').to_string();
-    let (app_id, scene_id) = parse_app_scene_path(&app_tail, query.scene.as_deref());
+    let (app_id, scene_id, tour_id) = parse_app_scene_path(&app_tail, query.scene.as_deref(), route_mode);
     if app_id.is_empty() {
         return (StatusCode::NOT_FOUND, "app not found").into_response();
     }
-    let scene_id = scene_id.unwrap_or_else(|| "home".to_string());
+    let speaker_selected_scene = tour_id.as_deref();
     if route_mode.is_access_like() {
         let starting_location = {
             let mut guard = state.write().expect("state lock");
@@ -147,6 +147,7 @@ pub async fn app_page(
                     &query,
                     auth_enabled,
                     account_view.as_ref(),
+                    speaker_selected_scene,
                 ) {
                     Ok(template) => {
                         let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
@@ -187,6 +188,7 @@ pub async fn app_page(
                 &query,
                 auth_enabled,
                 account_view.as_ref(),
+                speaker_selected_scene,
             ) {
                 Ok(template) => (template, render_started.elapsed().as_millis() as u64),
                 Err(error) => {
@@ -835,6 +837,7 @@ pub async fn api_scene_fragment(
         &AppQuery::default(),
         auth_enabled,
         account_view.as_ref(),
+        None,
     ) {
         Ok(value) => value,
         Err(error) => {
@@ -949,18 +952,33 @@ pub async fn index(
     Redirect::temporary(&location).into_response()
 }
 
-fn parse_app_scene_path(app_tail: &str, scene_query: Option<&str>) -> (String, Option<String>) {
+fn parse_app_scene_path(
+    app_tail: &str,
+    scene_query: Option<&str>,
+    route_mode: UiRouteMode,
+) -> (String, String, Option<String>) {
     let parts: Vec<&str> = app_tail.split('/').filter(|part| !part.is_empty()).collect();
     if parts.is_empty() {
-        return (String::new(), scene_query.map(str::to_string));
+        return (String::new(), "home".to_string(), None);
     }
     let app_id = parts[0].to_string();
+    if route_mode == UiRouteMode::Speaker
+        && parts.len() >= 3
+        && parts[1] == "tour"
+    {
+        let tour_id = parts[2].to_string();
+        return (app_id, "home".to_string(), Some(tour_id));
+    }
     let scene = if parts.len() >= 3 && parts[1] == "scene" {
-        Some(parts[2].to_string())
+        parts[2].to_string()
     } else {
-        scene_query.map(str::to_string)
+        scene_query
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("home")
+            .to_string()
     };
-    (app_id, scene)
+    (app_id, scene, None)
 }
 
 pub(crate) fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph::AssembleOutcome) -> String {

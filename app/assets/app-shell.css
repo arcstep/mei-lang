@@ -1988,6 +1988,87 @@ html.mei-tier-dim .mei-viewpoint-focus.preview-card-scale-wrap {
   outline: 2px solid rgba(113, 241, 234, 0.85);
   outline-offset: 2px;
 }
+.mei-layer2-viewport-stage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 16 / 9;
+  max-width: min(100%, var(--mei-viewport-design-width, 1920px));
+  max-height: min(100%, var(--mei-viewport-design-height, 1080px));
+  margin: 0 auto;
+}
+.mei-presenter-assistant {
+  position: fixed;
+  right: 20px;
+  bottom: 88px;
+  z-index: 3600;
+  width: min(320px, calc(100vw - 32px));
+  border-radius: 14px;
+  border: 1px solid rgba(56, 160, 240, 0.35);
+  background: rgba(8, 28, 58, 0.94);
+  color: #e8f0ff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  padding: 12px;
+}
+.mei-presenter-assistant-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.mei-presenter-assistant-title {
+  font-size: 14px;
+}
+.mei-presenter-assistant-progress {
+  font-size: 12px;
+  color: #7dd3fc;
+}
+.mei-presenter-assistant-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mei-presenter-btn {
+  border: 1px solid rgba(56, 160, 240, 0.35);
+  background: rgba(14, 52, 96, 0.72);
+  color: #e8f0ff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mei-presenter-btn.is-active {
+  border-color: rgba(113, 241, 234, 0.85);
+  background: rgba(14, 72, 110, 0.9);
+}
+.mei-presenter-caption {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 3550;
+  max-width: min(720px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(8, 28, 58, 0.92);
+  border: 1px solid rgba(56, 160, 240, 0.35);
+  color: #e8f0ff;
+  font-size: 14px;
+  line-height: 1.5;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+body.mei-presenter-select-mode [data-mei-viewpoint] {
+  cursor: crosshair;
+  outline: 1px dashed rgba(113, 241, 234, 0.45);
+  outline-offset: 2px;
+}
+.speaker-shell .mei-presenter-assistant {
+  bottom: 24px;
+}
 .mei-viewpoint-focus {
   position: relative;
   z-index: 2;
