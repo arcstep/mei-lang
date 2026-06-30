@@ -687,3 +687,105 @@ fn ws_demo_v2_serve_html_emits_data_mei_viewpoint() {
         "serve HTML should emit data-mei-viewpoint for enforcement_stats"
     );
 }
+
+#[test]
+fn ws_demo_v2_discovers_data_demo_and_mini_park() {
+    let workspace = ws_demo_v2_root();
+    let apps = mei_lang_kernel::discover_apps(workspace.as_path()).expect("discover");
+    let ids: Vec<&str> = apps.iter().map(|app| app.id.as_str()).collect();
+    assert!(ids.contains(&"data-demo"), "discover apps: {ids:?}");
+    assert!(ids.contains(&"mini-park"), "discover apps: {ids:?}");
+}
+
+#[test]
+fn ws_demo_v2_topbar_renders_multi_app_menu_labels() {
+    let workspace = ensure_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let discovered = mei_lang_kernel::discover_apps(workspace.as_path()).expect("discover");
+    let topbar_menu = mei_lang_app::load_topbar_menu_context(workspace.as_path());
+    let apps: Vec<_> = discovered
+        .iter()
+        .map(|app| {
+            let mut enriched = app.clone();
+            if app.id == "data-demo" {
+                enriched.title = "Data Demo v2".to_string();
+            } else if app.id == "mini-park" {
+                enriched.title = "迷你公园 · Mini Park".to_string();
+            }
+            enriched
+        })
+        .collect();
+    let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
+    let theme_style =
+        mei_lang_app::page_body_theme_style(&workspace_cfg, Some(&outcome.compiled), None);
+    let html = mei_lang_app::render_page(
+        &apps,
+        &outcome.compiled,
+        "data-demo",
+        Some(&topbar_menu),
+        mei_lang_app::UiRouteMode::App,
+        Some(outcome.compiled.active_target_file.as_str()),
+        None,
+        None,
+        Some("home"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &[],
+        false,
+        None,
+        None,
+        theme_style.as_str(),
+        None,
+        None,
+    );
+    assert!(
+        html.contains("Data Demo v2"),
+        "topbar should list data-demo menu label"
+    );
+    assert!(
+        html.contains("迷你公园"),
+        "topbar should list mini-park menu label"
+    );
+    assert!(
+        !html.contains(r#"data-topbar-menu-group="apps""#),
+        "topbar should not force apps into aggregate group"
+    );
+    assert!(
+        !html.contains(r#"data-topbar-menu-group="components""#),
+        "stock components should not appear as topbar group"
+    );
+    assert!(
+        !html.contains(r#"data-topbar-menu-group="templates""#),
+        "stock templates should not appear as topbar group"
+    );
+}
+
+#[test]
+fn ws_demo_v2_mini_park_home_assembles_when_prebuilt() {
+    let workspace = ws_demo_v2_root();
+    let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
+    if !bundle.is_file() {
+        return;
+    }
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home")
+        .expect("assemble mini-park")
+        .expect("mini-park home outcome");
+    assert_eq!(
+        outcome.compiled.app_id, "mini-park",
+        "mini-park home should assemble when bundle exists"
+    );
+}

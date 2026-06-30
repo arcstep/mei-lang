@@ -78,9 +78,8 @@ struct PersistedLastBuildSummary {
     dataframe_eval_skips: usize,
 }
 
-pub fn build_runtime_snapshot(shell: &ShellState) -> Value {
+pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
     let workspace = shell.ctx.workspace_root.as_path();
-    let app_id = shell.ctx.app_id.as_str();
     let app_root = resolve_app_root(workspace, app_id);
     let build_root = resolve_app_build_root(app_root.as_path());
     let ops = build_status_aggregate(shell);
@@ -91,8 +90,14 @@ pub fn build_runtime_snapshot(shell: &ShellState) -> Value {
     let mrg_status = mrg_status_json(workspace, app_id).unwrap_or_else(|_| json!({}));
     let scope_routes = list_scope_routes(workspace, app_id).unwrap_or_default();
 
-    let access_ready = shell.imported;
-    let warmup_ready = shell.warmed_up;
+    let registry_ready = !mcg.nodes.is_empty();
+    let is_default_app = app_id == shell.ctx.app_id.as_str();
+    let access_ready = if is_default_app {
+        shell.imported || registry_ready
+    } else {
+        registry_ready
+    };
+    let warmup_ready = is_default_app && shell.warmed_up;
     let phase = if !access_ready {
         "starting"
     } else if warmup_ready {

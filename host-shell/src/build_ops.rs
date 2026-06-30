@@ -11,6 +11,7 @@ use mei_lang_kernel::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::landing::build_discovered_app_summaries;
 use crate::state::ShellState;
 
 pub fn toolchain_hint() -> &'static str {
@@ -187,6 +188,9 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
         "version": version,
         "displayLabel": resolve_build_footer_label(workspace),
         "appId": shell.ctx.app_id,
+        "defaultAppId": shell.ctx.app_id,
+        "scopeNote": "ops materialization and plug-ds primary endpoint are default-app scoped",
+        "discoveredApps": build_discovered_app_summaries(shell),
         "accessReady": access_ready,
         "warmupReady": warmup_ready,
         "phase": phase,
@@ -203,6 +207,7 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
         },
         "plugDs": {
             "endpoint": shell.plug_ds_endpoint.clone(),
+            "endpoints": shell.plug_ds_by_app,
             "managed": shell.plug_ds_managed,
         },
         "workspaceVersion": identity.workspace_version,

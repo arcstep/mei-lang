@@ -885,7 +885,9 @@
   async function postActivateScope(root, scopeKey) {
     setBusy(root, true);
     try {
-      const url = `${ACTIVATE_SCOPE_URL}?scope=${encodeURIComponent(scopeKey)}&hops=1`;
+      const appId = appIdFromShell();
+      const appQuery = appId ? `&appId=${encodeURIComponent(appId)}` : "";
+      const url = `${ACTIVATE_SCOPE_URL}?scope=${encodeURIComponent(scopeKey)}&hops=1${appQuery}`;
       const res = await fetch(url, { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || res.statusText || "scope activation failed");

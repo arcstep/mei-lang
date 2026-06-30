@@ -1,8 +1,8 @@
+use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::process::Stdio;
 use std::time::Duration;
 
-use mei_host_core::HostContext;
 use tokio::process::{Child, Command};
 use tokio::time::{sleep, timeout};
 
@@ -30,16 +30,70 @@ impl ManagedPlugDs {
     }
 }
 
-pub async fn spawn_managed_plug_ds(ctx: &HostContext) -> anyhow::Result<ManagedPlugDs> {
+pub struct ManagedPlugDsPool {
+    pub endpoints: BTreeMap<String, String>,
+    sidecars: BTreeMap<String, ManagedPlugDs>,
+}
+
+impl ManagedPlugDsPool {
+    pub async fn shutdown(&mut self) -> anyhow::Result<()> {
+        for (app_id, sidecar) in self.sidecars.iter_mut() {
+            if let Err(error) = sidecar.shutdown().await {
+                tracing::warn!(app_id = %app_id, detail = %error, "managed plug-ds shutdown failed");
+            }
+        }
+        Ok(())
+    }
+}
+
+pub async fn spawn_managed_plug_ds_pool(
+    workspace_root: &std::path::Path,
+    app_ids: &[String],
+) -> anyhow::Result<ManagedPlugDsPool> {
+    let mut endpoints = BTreeMap::new();
+    let mut sidecars = BTreeMap::new();
+    for app_id in app_ids {
+        match spawn_managed_plug_ds_for_app(workspace_root, app_id.as_str()).await {
+            Ok(sidecar) => {
+                tracing::info!(
+                    app_id = %app_id,
+                    endpoint = %sidecar.endpoint,
+                    "managed plug-ds started"
+                );
+                endpoints.insert(app_id.clone(), sidecar.endpoint.clone());
+                sidecars.insert(app_id.clone(), sidecar);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    app_id = %app_id,
+                    error = %error,
+                    "managed plug-ds failed to start; app data APIs may be unavailable"
+                );
+            }
+        }
+    }
+    if endpoints.is_empty() && !app_ids.is_empty() {
+        anyhow::bail!("failed to start managed plug-ds for any app");
+    }
+    Ok(ManagedPlugDsPool {
+        endpoints,
+        sidecars,
+    })
+}
+
+async fn spawn_managed_plug_ds_for_app(
+    workspace_root: &std::path::Path,
+    app_id: &str,
+) -> anyhow::Result<ManagedPlugDs> {
     let port = reserve_loopback_port()?;
     let endpoint = format!("http://{MANAGED_PLUG_DS_HOST}:{port}");
-    let binary = crate::tool_exec::resolve_mei_plug_ds(Some(ctx.workspace_root.as_path()))?;
+    let binary = crate::tool_exec::resolve_mei_plug_ds(Some(workspace_root))?;
     let mut child = Command::new(&binary)
         .arg("serve")
         .arg("--workspace")
-        .arg(&ctx.workspace_root)
+        .arg(workspace_root)
         .arg("--app")
-        .arg(&ctx.app_id)
+        .arg(app_id)
         .arg("--host")
         .arg(MANAGED_PLUG_DS_HOST)
         .arg("--port")

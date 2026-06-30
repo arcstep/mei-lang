@@ -17,6 +17,7 @@ use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset}
 use crate::build_info::{self, BUILD_VERSION};
 use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
 use crate::pages::{api_presentation_map, app_page, index};
+use crate::landing::build_discovered_app_summaries;
 use crate::runtime_api::{api_host_mrg_activate, api_host_mrg_status, api_runtime_snapshot};
 use crate::state::{HostHttpState, SharedState};
 use crate::upload_download::upload_file_download_get;
@@ -88,17 +89,21 @@ pub fn router(state: HostHttpState) -> Router {
 async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoResponse {
     let guard = state.read().expect("state lock");
     // V2 host-shell：MCG import 完成即可进入访问态；MRG warmup 为可选加速层。
-    let access_ready = guard.imported;
-    let warmup_ready = guard.warmed_up;
-    let phase = if !guard.imported {
+    let default_access_ready = guard.imported;
+    let default_warmup_ready = guard.warmed_up;
+    let default_phase = if !guard.imported {
         "starting"
-    } else if warmup_ready {
+    } else if default_warmup_ready {
         "ready"
     } else {
         "bound"
     };
-    let app_id = guard.ctx.app_id.clone();
+    let default_app_id = guard.ctx.app_id.clone();
     let workspace_root = guard.ctx.workspace_root.as_path();
+    let discovered_apps = build_discovered_app_summaries(&guard);
+    let any_app_access_ready = discovered_apps
+        .iter()
+        .any(|app| app.get("accessReady").and_then(|value| value.as_bool()) == Some(true));
     let descriptor =
         build_info::version_descriptor(Some(workspace_root), Some(guard.host_started_at_ms));
     let display_label = descriptor
@@ -112,20 +117,19 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
         "displayLabel": display_label,
         "version": descriptor,
         "hostStartedAtMs": guard.host_started_at_ms,
-        "ready": access_ready,
-        "hostReady": access_ready,
-        "accessReady": access_ready,
-        "warmupReady": warmup_ready,
-        "fullWarmupReady": warmup_ready,
-        "anyAppAccessReady": access_ready,
-        "phase": phase,
-        "defaultAppId": app_id,
-        "defaultAppAccessReady": access_ready,
-        "apps": [{
-            "appId": app_id,
-            "accessReady": access_ready,
-            "phase": phase,
-        }],
+        "ready": default_access_ready,
+        "hostReady": default_access_ready,
+        "accessReady": default_access_ready,
+        "warmupReady": default_warmup_ready,
+        "fullWarmupReady": default_warmup_ready,
+        "defaultAppId": default_app_id,
+        "defaultAppAccessReady": default_access_ready,
+        "defaultAppWarmupReady": default_warmup_ready,
+        "anyAppAccessReady": any_app_access_ready,
+        "phase": default_phase,
+        "scopeNote": "materialization flags reflect default app; discoveredApps lists all apps",
+        "discoveredApps": discovered_apps,
+        "apps": discovered_apps,
     }))
 }
 
@@ -157,28 +161,45 @@ async fn api_host_ready(State(state): State<SharedState>) -> impl IntoResponse {
     )
 }
 
-async fn api_datasets_query(
-    State(state): State<SharedState>,
-    axum::Json(body): axum::Json<serde_json::Value>,
-) -> Response {
-    api_datasets_query_inner(state, body).await
-}
-
 async fn api_datasets_query_with_app(
     State(state): State<SharedState>,
     Path(app_id): Path<String>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> Response {
-    let _ = app_id;
-    api_datasets_query_inner(state, body).await
+    api_datasets_query_inner(state, app_id.as_str(), body).await
 }
 
-async fn api_datasets_query_inner(state: SharedState, body: serde_json::Value) -> Response {
+async fn api_datasets_query_inner(
+    state: SharedState,
+    app_id: &str,
+    body: serde_json::Value,
+) -> Response {
     let endpoint = {
         let guard = state.read().expect("state lock");
-        guard.plug_ds_endpoint.clone()
+        match guard.plug_ds_endpoint_for(app_id) {
+            Some(endpoint) => endpoint.to_string(),
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": format!("plug-ds endpoint missing for app `{app_id}`")})),
+                )
+                    .into_response();
+            }
+        }
     };
-    crate::plug_proxy::proxy_post_json(endpoint.as_str(), "/api/datasets/query", body).await
+    let path = format!("/api/datasets/query/{app_id}");
+    crate::plug_proxy::proxy_post_json(endpoint.as_str(), path.as_str(), body).await
+}
+
+async fn api_datasets_query(
+    State(state): State<SharedState>,
+    axum::Json(body): axum::Json<serde_json::Value>,
+) -> Response {
+    let app_id = {
+        let guard = state.read().expect("state lock");
+        guard.ctx.app_id.clone()
+    };
+    api_datasets_query_inner(state, app_id.as_str(), body).await
 }
 
 async fn api_datasets_metrics(
@@ -188,14 +209,16 @@ async fn api_datasets_metrics(
 ) -> Response {
     let endpoint = {
         let guard = state.read().expect("state lock");
-        if guard.ctx.app_id != app_id {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "app mismatch"})),
-            )
-                .into_response();
+        match guard.plug_ds_endpoint_for(app_id.as_str()) {
+            Some(endpoint) => endpoint.to_string(),
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error": format!("plug-ds endpoint missing for app `{app_id}`")})),
+                )
+                    .into_response();
+            }
         }
-        guard.plug_ds_endpoint.clone()
     };
     let path = format!("/api/datasets/metrics/{app_id}");
     crate::plug_proxy::proxy_post_json(endpoint.as_str(), path.as_str(), body).await
@@ -212,14 +235,8 @@ async fn api_ops_theme_style(
     Query(query): Query<ThemeStyleQuery>,
 ) -> impl IntoResponse {
     let guard = state.read().expect("state lock");
-    if guard.ctx.app_id != app_id {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "app mismatch"})),
-        )
-            .into_response();
-    }
-    let app_root = guard.ctx.app_root();
+    let app_ctx = guard.host_ctx_for_app(app_id.as_str());
+    let app_root = app_ctx.app_root();
     let live_config =
         load_mei_config_for_app(app_root.as_path(), Some(guard.ctx.workspace_root.as_path()));
     let theme_id = query
@@ -254,10 +271,30 @@ mod tests {
         workspace: std::path::PathBuf,
         plug_ds_endpoint: &str,
     ) -> HostHttpState {
+        test_state_with_plug_apps(workspace, &[("data-demo", plug_ds_endpoint)])
+    }
+
+    fn test_state_with_plug_apps(
+        workspace: std::path::PathBuf,
+        apps: &[(&str, &str)],
+    ) -> HostHttpState {
+        let mut plug_ds_by_app = std::collections::BTreeMap::new();
+        for (app_id, endpoint) in apps {
+            plug_ds_by_app.insert(app_id.to_string(), endpoint.to_string());
+        }
+        let default_app = apps
+            .first()
+            .map(|(app_id, _)| app_id.to_string())
+            .unwrap_or_else(|| "data-demo".to_string());
+        let plug_ds_endpoint = apps
+            .first()
+            .map(|(_, endpoint)| endpoint.to_string())
+            .unwrap_or_default();
         let shell = Arc::new(RwLock::new(crate::state::ShellState {
-            ctx: HostContext::new(workspace.clone(), "data-demo".to_string()),
+            ctx: HostContext::new(workspace.clone(), default_app),
             package_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
-            plug_ds_endpoint: plug_ds_endpoint.to_string(),
+            plug_ds_endpoint,
+            plug_ds_by_app,
             plug_ds_managed: false,
             imported: true,
             warmed_up: true,
@@ -387,5 +424,83 @@ mod tests {
             .as_str()
             .unwrap_or("")
             .contains("plug-ds unreachable"));
+    }
+
+    #[tokio::test]
+    async fn api_datasets_metrics_routes_by_url_app_not_default_ctx() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = router(test_state_with_plug_apps(
+            tmp.path().to_path_buf(),
+            &[
+                ("data-demo", "http://127.0.0.1:9001"),
+                ("mini-park", "http://127.0.0.1:1"),
+            ],
+        ));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/datasets/metrics/mini-park")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"metricId":"test"}"#))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_ne!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "mini-park metrics should route to its plug-ds pool entry, not reject as unknown app"
+        );
+    }
+
+    #[tokio::test]
+    async fn api_host_heartbeat_lists_discovered_apps() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join("apps/data-demo")).expect("mkdir app");
+        std::fs::create_dir_all(tmp.path().join("apps/mini-park")).expect("mkdir app");
+        std::fs::write(
+            tmp.path().join("apps/data-demo/app.config.json"),
+            r#"{"schemaVersion":1,"app":{"id":"data-demo"}}"#,
+        )
+        .expect("write app.config");
+        std::fs::write(
+            tmp.path().join("apps/mini-park/app.config.json"),
+            r#"{"schemaVersion":1,"app":{"id":"mini-park"}}"#,
+        )
+        .expect("write app.config");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":1,"workspace":{"id":"test","version":"20260628","defaultApp":"data-demo"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state_with_plug_apps(
+            tmp.path().to_path_buf(),
+            &[
+                ("data-demo", "http://127.0.0.1:9001"),
+                ("mini-park", "http://127.0.0.1:9002"),
+            ],
+        ));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/heartbeat")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["defaultAppId"], "data-demo");
+        let apps = value["discoveredApps"].as_array().expect("discoveredApps");
+        assert_eq!(apps.len(), 2);
+        assert!(apps.iter().any(|app| app["appId"] == "mini-park"));
     }
 }

@@ -1746,7 +1746,9 @@
   async function postActivateScope(root, scopeKey) {
     setBusy(root, true);
     try {
-      const url = `${ACTIVATE_SCOPE_URL}?scope=${encodeURIComponent(scopeKey)}&hops=1`;
+      const appId = appIdFromShell();
+      const appQuery = appId ? `&appId=${encodeURIComponent(appId)}` : "";
+      const url = `${ACTIVATE_SCOPE_URL}?scope=${encodeURIComponent(scopeKey)}&hops=1${appQuery}`;
       const res = await fetch(url, { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || res.statusText || "scope activation failed");
@@ -15276,7 +15278,10 @@
     if (!scope || typeof fetch !== "function") {
       return;
     }
-    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=1`;
+    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+    const appId = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+    const appQuery = appId ? `&appId=${encodeURIComponent(appId)}` : "";
+    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=1${appQuery}`;
     void fetch(url, {
       method: "POST",
       headers: { Accept: "application/json" },

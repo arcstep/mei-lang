@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use axum::extract::FromRef;
@@ -10,7 +11,9 @@ use crate::build_ops::OpsJobState;
 pub struct ShellState {
     pub ctx: HostContext,
     pub package_root: std::path::PathBuf,
+    /// Default-app plug-ds endpoint (ops banner / backward compat).
     pub plug_ds_endpoint: String,
+    pub plug_ds_by_app: BTreeMap<String, String>,
     pub plug_ds_managed: bool,
     pub imported: bool,
     pub warmed_up: bool,
@@ -24,13 +27,18 @@ impl ShellState {
         workspace: std::path::PathBuf,
         app_id: String,
         package_root: std::path::PathBuf,
-        plug_ds_endpoint: String,
+        plug_ds_by_app: BTreeMap<String, String>,
         plug_ds_managed: bool,
     ) -> Self {
+        let plug_ds_endpoint = plug_ds_by_app
+            .get(app_id.as_str())
+            .cloned()
+            .unwrap_or_default();
         Self {
             ctx: HostContext::new(workspace, app_id),
             package_root,
             plug_ds_endpoint,
+            plug_ds_by_app,
             plug_ds_managed,
             imported: false,
             warmed_up: false,
@@ -38,6 +46,14 @@ impl ShellState {
             ops_job: None,
             last_ops_job: None,
         }
+    }
+
+    pub fn host_ctx_for_app(&self, app_id: &str) -> HostContext {
+        HostContext::new(self.ctx.workspace_root.clone(), app_id.to_string())
+    }
+
+    pub fn plug_ds_endpoint_for(&self, app_id: &str) -> Option<&str> {
+        self.plug_ds_by_app.get(app_id).map(String::as_str)
     }
 }
 
@@ -66,4 +82,48 @@ pub fn current_time_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
+    #[test]
+    fn plug_ds_endpoint_for_routes_per_app() {
+        let mut plug_ds_by_app = BTreeMap::new();
+        plug_ds_by_app.insert("data-demo".to_string(), "http://127.0.0.1:9001".to_string());
+        plug_ds_by_app.insert("mini-park".to_string(), "http://127.0.0.1:9002".to_string());
+        let state = ShellState::new(
+            Path::new("/tmp/ws").to_path_buf(),
+            "data-demo".to_string(),
+            Path::new("/tmp/pkg").to_path_buf(),
+            plug_ds_by_app,
+            false,
+        );
+        assert_eq!(
+            state.plug_ds_endpoint_for("data-demo"),
+            Some("http://127.0.0.1:9001")
+        );
+        assert_eq!(
+            state.plug_ds_endpoint_for("mini-park"),
+            Some("http://127.0.0.1:9002")
+        );
+        assert_eq!(state.plug_ds_endpoint_for("missing"), None);
+    }
+
+    #[test]
+    fn host_ctx_for_app_uses_requested_app_id() {
+        let state = ShellState::new(
+            Path::new("/tmp/ws").to_path_buf(),
+            "data-demo".to_string(),
+            Path::new("/tmp/pkg").to_path_buf(),
+            BTreeMap::new(),
+            false,
+        );
+        let ctx = state.host_ctx_for_app("mini-park");
+        assert_eq!(ctx.app_id, "mini-park");
+        assert_eq!(ctx.workspace_root, Path::new("/tmp/ws"));
+    }
 }

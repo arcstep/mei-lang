@@ -17,6 +17,21 @@ pub enum Command {
     Build(BuildCommand),
     #[command(subcommand)]
     Workspace(WorkspaceCommand),
+    #[command(subcommand, name = "apps")]
+    Apps(AppsCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum AppsCommand {
+    List(AppsListArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct AppsListArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Debug)]

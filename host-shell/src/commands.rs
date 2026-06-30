@@ -3,9 +3,9 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 
 use crate::cli::{
-    BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs, BuildPrepareArgs,
-    BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs, MrgCommand,
-    MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs,
+    AppsCommand, AppsListArgs, BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs,
+    BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs,
+    MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs,
     WorkspaceCommand, WorkspaceInitArgs,
 };
 use crate::build_ops::{
@@ -27,7 +27,31 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         Command::Serve(args) => run_serve(args).await,
         Command::Build(sub) => run_build(sub),
         Command::Workspace(sub) => run_workspace(sub),
+        Command::Apps(sub) => run_apps(sub),
     }
+}
+
+fn run_apps(command: AppsCommand) -> anyhow::Result<()> {
+    match command {
+        AppsCommand::List(args) => run_apps_list(args),
+    }
+}
+
+fn run_apps_list(args: AppsListArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let apps = crate::landing::discover_workspace_apps(workspace.as_path())?;
+    if args.json {
+        let ids: Vec<&str> = apps.iter().map(|app| app.id.as_str()).collect();
+        println!("{}", serde_json::to_string(&ids)?);
+    } else {
+        for app in &apps {
+            println!("{}", app.id);
+        }
+    }
+    Ok(())
 }
 
 fn run_workspace(command: WorkspaceCommand) -> anyhow::Result<()> {
@@ -499,25 +523,41 @@ fn run_mrg_status(args: MrgStatusArgs) -> anyhow::Result<()> {
 }
 
 async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
+    use std::collections::BTreeMap;
+
     let workspace = args
         .workspace
         .canonicalize()
         .unwrap_or(args.workspace.clone());
     crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
     let package_root = resolve_package_root()?;
-    let ctx = mei_host_core::HostContext::new(workspace.clone(), args.app.clone());
-    ensure_registry_materialized(&ctx)?;
-    let external_plug_ds = crate::plug_proxy::configured_plug_ds_endpoint(&ctx);
-    let mut managed_plug_ds = if external_plug_ds.is_none() {
-        Some(crate::managed_plug::spawn_managed_plug_ds(&ctx).await?)
+    let default_app_id = args.app.clone();
+    let default_ctx =
+        mei_host_core::HostContext::new(workspace.clone(), default_app_id.clone());
+    ensure_registry_materialized(&default_ctx)?;
+    let discovered = crate::landing::discover_workspace_apps(workspace.as_path())?;
+    let app_ids: Vec<String> = if discovered.is_empty() {
+        vec![default_app_id.clone()]
     } else {
-        None
+        discovered.into_iter().map(|app| app.id).collect()
     };
-    let plug_ds_endpoint = managed_plug_ds
-        .as_ref()
-        .map(|sidecar| sidecar.endpoint.clone())
-        .or(external_plug_ds.clone())
-        .expect("plug-ds endpoint resolved");
+    let external_plug_ds = crate::plug_proxy::configured_plug_ds_endpoint(&default_ctx);
+    let mut managed_pool = None;
+    let mut plug_ds_by_app = BTreeMap::new();
+    if let Some(endpoint) = external_plug_ds.as_ref() {
+        plug_ds_by_app.insert(default_app_id.clone(), endpoint.clone());
+    } else {
+        let pool = crate::managed_plug::spawn_managed_plug_ds_pool(
+            workspace.as_path(),
+            app_ids.as_slice(),
+        )
+        .await?;
+        plug_ds_by_app = pool.endpoints.clone();
+        managed_pool = Some(pool);
+    }
+    if plug_ds_by_app.is_empty() {
+        anyhow::bail!("no plug-ds endpoints available for serve");
+    }
     let auth_enforcement = if args.auth {
         mei_host_auth::AuthEnforcement::Required
     } else {
@@ -530,10 +570,10 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     )?;
     let shell: SharedState = Arc::new(RwLock::new(ShellState::new(
         workspace.clone(),
-        args.app,
+        default_app_id.clone(),
         package_root,
-        plug_ds_endpoint.clone(),
-        managed_plug_ds.is_some(),
+        plug_ds_by_app.clone(),
+        managed_pool.is_some(),
     )));
     refresh_host_materialization_flags(&shell);
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
@@ -547,10 +587,16 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     if args.auth {
         println!("Auth:      enabled (login required for protected routes)");
     }
-    if let Some(endpoint) = external_plug_ds.as_deref() {
-        println!("Plug-ds:   external {endpoint}");
+    if external_plug_ds.is_some() {
+        println!(
+            "Plug-ds:   external {} (default app {default_app_id})",
+            external_plug_ds.as_deref().unwrap_or("-")
+        );
     } else {
-        println!("Plug-ds:   managed by host-shell at {plug_ds_endpoint}");
+        println!("Plug-ds:   managed by host-shell ({} app(s))", plug_ds_by_app.len());
+        for (app_id, endpoint) in &plug_ds_by_app {
+            println!("           {app_id} -> {endpoint}");
+        }
     }
     println!(
         "mei-host-shell listening on http://{addr} (shell {} · {})",
@@ -564,9 +610,9 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let serve_result = axum::serve(listener, app)
         .await
         .map_err(|e| anyhow::anyhow!(e));
-    if let Some(sidecar) = managed_plug_ds.as_mut() {
-        if let Err(error) = sidecar.shutdown().await {
-            tracing::warn!(detail = %error, "managed plug-ds shutdown failed");
+    if let Some(pool) = managed_pool.as_mut() {
+        if let Err(error) = pool.shutdown().await {
+            tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
         }
     }
     serve_result

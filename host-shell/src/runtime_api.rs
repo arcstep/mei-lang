@@ -6,6 +6,8 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
+use mei_lang_kernel::discover_apps;
+
 use crate::runtime_snapshot::build_runtime_snapshot;
 use crate::state::SharedState;
 
@@ -19,6 +21,8 @@ pub struct RuntimeSnapshotQuery {
 pub struct ScopeActivationQuery {
     pub scope: String,
     pub hops: Option<usize>,
+    #[serde(rename = "appId")]
+    pub app_id: Option<String>,
 }
 
 pub async fn api_runtime_snapshot(
@@ -34,22 +38,38 @@ pub async fn api_runtime_snapshot(
             .into_response();
     }
     let guard = state.read().expect("state lock");
-    if guard.ctx.app_id != app_id {
+    let discovered = discover_apps(guard.ctx.workspace_root.as_path()).unwrap_or_default();
+    if !discovered.iter().any(|app| app.id == app_id) {
         return (
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "app mismatch"})),
+            Json(json!({"error": format!("unknown app `{app_id}`")})),
         )
             .into_response();
     }
-    let snapshot = build_runtime_snapshot(&guard);
+    let snapshot = build_runtime_snapshot(&guard, app_id);
     (StatusCode::OK, Json(snapshot)).into_response()
 }
 
-pub async fn api_host_mrg_status(State(state): State<SharedState>) -> impl IntoResponse {
+#[derive(Debug, Deserialize)]
+pub struct MrgStatusQuery {
+    #[serde(rename = "appId")]
+    pub app_id: Option<String>,
+}
+
+pub async fn api_host_mrg_status(
+    State(state): State<SharedState>,
+    Query(params): Query<MrgStatusQuery>,
+) -> impl IntoResponse {
     let guard = state.read().expect("state lock");
+    let app_id = params
+        .app_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(guard.ctx.app_id.as_str());
     match mei_host_graph::mrg_status_json(
         guard.ctx.workspace_root.as_path(),
-        guard.ctx.app_id.as_str(),
+        app_id,
     ) {
         Ok(status) => (StatusCode::OK, Json(status)).into_response(),
         Err(error) => (
@@ -72,13 +92,33 @@ pub async fn api_host_mrg_activate(
         )
             .into_response();
     }
-    let (endpoint, workspace, app_id, hops) = {
+    let (workspace, app_id, hops, endpoint) = {
         let guard = state.read().expect("state lock");
+        let app_id = params
+            .app_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(guard.ctx.app_id.as_str())
+            .to_string();
+        let endpoint = match guard.plug_ds_endpoint_for(app_id.as_str()) {
+            Some(endpoint) => endpoint.to_string(),
+            None => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({
+                        "error": format!("plug-ds endpoint missing for app `{app_id}`"),
+                        "scope": scope,
+                    })),
+                )
+                    .into_response();
+            }
+        };
         (
-            guard.plug_ds_endpoint.clone(),
             guard.ctx.workspace_root.clone(),
-            guard.ctx.app_id.clone(),
+            app_id,
             params.hops.unwrap_or(1).max(1),
+            endpoint,
         )
     };
 
@@ -87,7 +127,7 @@ pub async fn api_host_mrg_activate(
     {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": error, "scope": scope, "hops": hops})),
+            Json(json!({"error": error, "scope": scope, "hops": hops, "appId": app_id})),
         )
             .into_response();
     }
@@ -101,6 +141,7 @@ pub async fn api_host_mrg_activate(
         Json(json!({
             "scope": scope,
             "hops": hops,
+            "appId": app_id,
             "payload": payload,
         })),
     )

@@ -4,15 +4,16 @@ use axum::{
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
 use mei_host_auth::{
-    account_view_for_principal, v2_index_landing_location, AuthEnforcement, AuthPrincipal,
-    AuthServeState,
+    account_view_for_principal, filter_apps_for_principal, v2_index_landing_location,
+    AuthEnforcement, AuthPrincipal, AuthServeState,
 };
-use mei_lang_app::{page_body_theme_style, render_page, UiRouteMode};
-use mei_lang_kernel::{load_workspace_config, WorkspaceAppMeta};
+use mei_lang_app::{load_topbar_menu_context, page_body_theme_style, render_page, UiRouteMode};
+use mei_lang_kernel::load_workspace_config;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::build_info::fill_host_build_placeholders;
+use crate::build_info::fill_page_shell_placeholders;
+use crate::landing::{choose_default_app, discover_workspace_apps, enrich_discovered_apps};
 use crate::state::SharedState;
 
 #[derive(Debug, Deserialize, Default)]
@@ -32,8 +33,26 @@ pub async fn app_page(
     let route_mode = UiRouteMode::from_slug(mode.as_str());
     let app_tail = app_tail.trim_start_matches('/').to_string();
     let (app_id, scene_id) = parse_app_scene_path(&app_tail, query.scene.as_deref());
+    if app_id.is_empty() {
+        return (StatusCode::NOT_FOUND, "app not found").into_response();
+    }
     let guard = state.read().expect("state lock");
-    if guard.ctx.app_id != app_id {
+    let workspace_root = guard.ctx.workspace_root.as_path();
+    let discovered = match discover_workspace_apps(workspace_root) {
+        Ok(apps) => apps,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("discover apps failed: {error}"),
+            )
+                .into_response();
+        }
+    };
+    let apps = filter_apps_for_principal(
+        discovered.as_slice(),
+        principal.as_ref().map(|Extension(p)| p),
+    );
+    if !apps.iter().any(|app| app.id == app_id) {
         return (StatusCode::NOT_FOUND, "app not found").into_response();
     }
     if !route_mode.is_access_like()
@@ -48,7 +67,7 @@ pub async fn app_page(
     }
     let scene_id = scene_id.unwrap_or_else(|| "home".to_string());
     let assemble_result = mei_host_graph::assemble_scope_from_registry(
-        guard.ctx.workspace_root.as_path(),
+        workspace_root,
         app_id.as_str(),
         scene_id.as_str(),
     );
@@ -56,7 +75,13 @@ pub async fn app_page(
         Ok(Some(outcome)) => outcome,
         Ok(None) => {
             tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
-            return (StatusCode::NOT_FOUND, "scene not assembled").into_response();
+            return (
+                StatusCode::NOT_FOUND,
+                format!(
+                    "scene not assembled for app `{app_id}`; run prebuild for this app"
+                ),
+            )
+                .into_response();
         }
         Err(error) => {
             tracing::warn!(
@@ -72,24 +97,22 @@ pub async fn app_page(
                 .into_response();
         }
     };
-    let workspace = load_workspace_config(guard.ctx.workspace_root.as_path());
+    let topbar_menu = load_topbar_menu_context(workspace_root);
+    let apps = enrich_discovered_apps(apps.as_slice(), &topbar_menu);
+    let workspace = load_workspace_config(workspace_root);
     let theme_style = page_body_theme_style(&workspace, Some(&outcome.compiled), None);
+    let app_ctx = guard.host_ctx_for_app(app_id.as_str());
     let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
-        guard.ctx.app_root().as_path(),
-        Some(guard.ctx.workspace_root.as_path()),
+        app_ctx.app_root().as_path(),
+        Some(workspace_root),
         None,
     );
-    let apps = vec![WorkspaceAppMeta {
-        id: app_id.clone(),
-        title: outcome.compiled.title.clone(),
-        root: guard.ctx.app_root().display().to_string(),
-    }];
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
     let runtime_snapshot_json_owned;
     let runtime_roots_owned;
     if route_mode == UiRouteMode::Runtime {
-        let snapshot = crate::runtime_snapshot::build_runtime_snapshot(&guard);
+        let snapshot = crate::runtime_snapshot::build_runtime_snapshot(&guard, app_id.as_str());
         runtime_snapshot_json_owned =
             serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string());
         runtime_roots_owned = crate::runtime_snapshot::management_roots_from_snapshot(&snapshot);
@@ -110,42 +133,42 @@ pub async fn app_page(
     let html = crate::gis_config::fill_gis_tiles_placeholders(
         inject_layer_plane_scripts(
             inject_client_bootstrap_script(
-                fill_host_build_placeholders(
+                fill_page_shell_placeholders(
                     render_page(
-                &apps,
-                &outcome.compiled,
-                app_id.as_str(),
-                None,
-                route_mode,
-                Some(outcome.compiled.active_target_file.as_str()),
-                None,
-                None,
-                Some(scene_id.as_str()),
-                None,
-                query.tab.as_deref(),
-                None,
-                None,
-                None,
-                query.node.as_deref(),
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                false,
-                None,
-                &[],
-                auth_enabled,
-                account_view.as_ref(),
-                None,
-                theme_style.as_str(),
-                runtime_roots_ref,
-                runtime_json_ref,
+                        apps.as_slice(),
+                        &outcome.compiled,
+                        app_id.as_str(),
+                        Some(&topbar_menu),
+                        route_mode,
+                        Some(outcome.compiled.active_target_file.as_str()),
+                        None,
+                        None,
+                        Some(scene_id.as_str()),
+                        None,
+                        query.tab.as_deref(),
+                        None,
+                        None,
+                        None,
+                        query.node.as_deref(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        false,
+                        false,
+                        None,
+                        &[],
+                        auth_enabled,
+                        account_view.as_ref(),
+                        None,
+                        theme_style.as_str(),
+                        runtime_roots_ref,
+                        runtime_json_ref,
                     ),
-                    guard.ctx.workspace_root.as_path(),
+                    workspace_root,
                 ),
-                guard.ctx.workspace_root.as_path(),
+                workspace_root,
                 app_id.as_str(),
                 scene_id.as_str(),
             ),
@@ -167,9 +190,6 @@ pub async fn api_presentation_map(
     Query(query): Query<PresentationMapQuery>,
 ) -> Response {
     let guard = state.read().expect("state lock");
-    if guard.ctx.app_id != app_id {
-        return (StatusCode::NOT_FOUND, Json(json!({"error": "app mismatch"}))).into_response();
-    }
     let scene_id = query.scene.unwrap_or_else(|| "home".to_string());
     let outcome = match mei_host_graph::assemble_scope_from_registry(
         guard.ctx.workspace_root.as_path(),
@@ -200,17 +220,26 @@ pub async fn index(
     principal: Option<Extension<AuthPrincipal>>,
 ) -> impl IntoResponse {
     let guard = state.read().expect("state lock");
-    let app = WorkspaceAppMeta {
-        id: guard.ctx.app_id.clone(),
-        title: guard.ctx.app_id.clone(),
-        root: guard.ctx.app_root().display().to_string(),
-    };
-    let location = v2_index_landing_location(
-        guard.ctx.workspace_root.as_path(),
-        &app,
+    let workspace_root = guard.ctx.workspace_root.as_path();
+    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
+    let apps = filter_apps_for_principal(
+        discovered.as_slice(),
         principal.as_ref().map(|Extension(p)| p),
     );
-    Redirect::temporary(&location)
+    let app = choose_default_app(workspace_root, apps.as_slice()).or_else(|| apps.first());
+    let Some(app) = app else {
+        return (
+            StatusCode::NOT_FOUND,
+            "no discoverable app with prebuilt access entry; run prebuild",
+        )
+            .into_response();
+    };
+    let location = v2_index_landing_location(
+        workspace_root,
+        app,
+        principal.as_ref().map(|Extension(p)| p),
+    );
+    Redirect::temporary(&location).into_response()
 }
 
 fn parse_app_scene_path(app_tail: &str, scene_query: Option<&str>) -> (String, Option<String>) {

@@ -7,6 +7,7 @@ mod cli;
 mod commands;
 mod gis_config;
 mod gis_proxy;
+mod landing;
 mod http;
 mod managed_plug;
 mod ops_api;

@@ -87,6 +87,37 @@ pub fn fill_host_build_placeholders(mut html: String, workspace_root: &Path) -> 
     html
 }
 
+pub fn fill_host_compliance_placeholders(mut html: String, workspace_root: &Path) -> String {
+    let workspace = mei_lang_kernel::load_workspace_config(workspace_root);
+    html = html.replace(
+        "__MEI_HOST_ICP_RECORD__",
+        workspace.compliance.icp_record_trimmed().unwrap_or(""),
+    );
+    html = html.replace(
+        "__MEI_HOST_PSB_RECORD__",
+        workspace.compliance.psb_record_trimmed().unwrap_or(""),
+    );
+    html = html.replace(
+        "__MEI_HOST_COPYRIGHT__",
+        workspace.compliance.copyright_trimmed().unwrap_or(""),
+    );
+    html = html.replace(
+        "__MEI_WORKSPACE_LABEL__",
+        workspace
+            .workspace
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(""),
+    );
+    html
+}
+
+pub fn fill_page_shell_placeholders(html: String, workspace_root: &Path) -> String {
+    fill_host_compliance_placeholders(fill_host_build_placeholders(html, workspace_root), workspace_root)
+}
+
 pub fn log_host_identity(workspace_root: Option<&Path>, event: &str) {
     let display_label = workspace_root
         .map(resolve_build_footer_label)
@@ -182,7 +213,7 @@ mod tests {
     fn fill_placeholders_replaces_version_meta_and_statusbar() {
         let tmp = tempdir().expect("tempdir");
         write_ws(tmp.path(), "1");
-        let html = fill_host_build_placeholders(
+        let html = fill_page_shell_placeholders(
             r#"<meta name="mei-host-version" content="__MEI_HOST_VERSION__"/>
             <span id="mei-status-host-version" title="__MEI_HOST_VERSION_TITLE__">__MEI_HOST_VERSION_LABEL__</span>"#
                 .to_string(),
@@ -193,5 +224,37 @@ mod tests {
         assert!(html.contains(BUILD_VERSION));
         assert!(!html.contains("shell "));
         assert!(html.contains("MeiLang"));
+    }
+
+    #[test]
+    fn fill_compliance_placeholders_replaces_icp_psb_copyright_and_workspace_label() {
+        let tmp = tempdir().expect("tempdir");
+        fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{
+                "schemaVersion": 1,
+                "workspace": { "id": "test", "label": "Demo Workspace" },
+                "compliance": {
+                    "icpRecord": "京ICP备00000000号",
+                    "psbRecord": "京公网安备110000000000号",
+                    "copyright": "© 2026 Example"
+                }
+            }"#,
+        )
+        .expect("write workspace.json");
+        let html = fill_page_shell_placeholders(
+            r#"<meta name="mei-host-icp-record" content="__MEI_HOST_ICP_RECORD__"/>
+            <meta name="mei-host-psb-record" content="__MEI_HOST_PSB_RECORD__"/>
+            <meta name="mei-host-copyright" content="__MEI_HOST_COPYRIGHT__"/>
+            <meta name="mei-workspace-label" content="__MEI_WORKSPACE_LABEL__"/>"#
+                .to_string(),
+            tmp.path(),
+        );
+        assert!(!html.contains("__MEI_HOST_ICP_RECORD__"));
+        assert!(!html.contains("__MEI_HOST_PSB_RECORD__"));
+        assert!(!html.contains("__MEI_HOST_COPYRIGHT__"));
+        assert!(!html.contains("__MEI_WORKSPACE_LABEL__"));
+        assert!(html.contains("京ICP备00000000号"));
+        assert!(html.contains("Demo Workspace"));
     }
 }

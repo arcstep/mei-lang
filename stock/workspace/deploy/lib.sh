@@ -296,6 +296,20 @@ run_mei_host_shell() {
   "$(resolve_bin_path "${workspace_root}" "mei-host-shell")" "$@"
 }
 
+discovered_app_ids() {
+  local workspace_root="$1"
+  local raw
+  if ! raw="$(run_mei_host_shell "${workspace_root}" \
+    apps list --workspace "${workspace_root}" --json 2>/dev/null)"; then
+    return 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "error: jq is required to parse discovered app ids" >&2
+    return 1
+  fi
+  jq -r '.[]' <<<"${raw}"
+}
+
 ensure_build_generation_aligned() {
   local workspace_root="$1"
   local app="${2:-data-demo}"
