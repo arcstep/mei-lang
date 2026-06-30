@@ -431,6 +431,27 @@ pub async fn host_starting_page(
             crate::startup::parse_warm_poll_from_path(return_path.as_str(), default_app.as_str());
         (app, scene, mode)
     };
+    let route_mode = UiRouteMode::from_slug(poll_mode.as_str());
+    let already_ready = {
+        let mut guard = state.write().expect("state lock");
+        crate::build_ops::refresh_materialization_flags(&mut guard);
+        crate::startup::evaluate_access_readiness(
+            &guard,
+            poll_app.as_str(),
+            poll_scene.as_str(),
+            route_mode,
+        )
+        .ready
+    };
+    if already_ready {
+        tracing::info!(
+            app_id = %poll_app,
+            scene_id = %poll_scene,
+            return_path = %return_path,
+            "access already ready — redirecting from starting page"
+        );
+        return Redirect::temporary(return_path.as_str()).into_response();
+    }
     mei_host_auth::host_starting_html_response(
         workspace.as_path(),
         detail.as_deref().unwrap_or(phase.as_str()),
@@ -500,6 +521,17 @@ pub async fn api_host_access_readiness(
             bootstrap_reason,
         )
     };
+    if readiness.ready {
+        tracing::info!(
+            target: "mei.startup",
+            app_id = %app_id,
+            scene_id = %scene_id,
+            startup_phase = %startup_phase,
+            gate_reason = %readiness.reason,
+            bootstrap_reason = bootstrap_reason.as_deref().unwrap_or("-"),
+            "app access ready for requests"
+        );
+    }
     Json(json!({
         "ready": readiness.ready,
         "reason": readiness.reason,

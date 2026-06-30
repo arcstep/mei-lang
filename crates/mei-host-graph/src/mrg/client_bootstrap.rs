@@ -239,6 +239,15 @@ pub fn bootstrap_embed_status(
 ) -> BootstrapEmbedStatus {
     let app_root = resolve_app_root(workspace_root, app_id);
     let Some(manifest) = read_client_bootstrap(workspace_root, app_id, scene_id) else {
+        if !scene_requires_client_bootstrap(workspace_root, app_id, scene_id) {
+            return BootstrapEmbedStatus {
+                allowed: true,
+                reason: "no_client_bootstrap_required".to_string(),
+                metric_count: 0,
+                client_revision: None,
+                expected_revision: None,
+            };
+        }
         return BootstrapEmbedStatus {
             allowed: false,
             reason: "manifest_missing".to_string(),
@@ -258,6 +267,17 @@ pub fn bootstrap_embed_allowed(
     data_generation: &str,
 ) -> bool {
     bootstrap_embed_status_for_manifest(registry, manifest, data_generation).allowed
+}
+
+pub fn scene_requires_client_bootstrap(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> bool {
+    let registry = crate::mrg::registry::MrgRegistryWriter::load(workspace_root, app_id);
+    registry.slots.iter().any(|slot| {
+        slot.client_eligible && slot.slot_id.scope_key == scene_id
+    })
 }
 
 pub fn build_client_bootstrap_head_fragment(

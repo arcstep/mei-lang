@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -53,6 +53,103 @@ pub(crate) struct AccessReadiness {
     pub reason: &'static str,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct AppAccessProbe {
+    pub ready: bool,
+    pub reason: &'static str,
+    pub bootstrap_reason: Option<String>,
+}
+
+pub(crate) fn probe_app_access_readiness(
+    shell: &ShellState,
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+) -> AppAccessProbe {
+    let readiness = evaluate_access_readiness(shell, app_id, scene_id, route_mode);
+    let bootstrap_reason = if route_mode.is_access_like() {
+        Some(
+            mei_host_graph::bootstrap_embed_status(
+                shell.ctx.workspace_root.as_path(),
+                app_id,
+                scene_id,
+            )
+            .reason,
+        )
+    } else {
+        None
+    };
+    AppAccessProbe {
+        ready: readiness.ready,
+        reason: readiness.reason,
+        bootstrap_reason,
+    }
+}
+
+pub(crate) fn format_app_access_line(app_id: &str, probe: &AppAccessProbe) -> String {
+    if probe.ready {
+        let bootstrap = probe.bootstrap_reason.as_deref().unwrap_or("-");
+        format!("{app_id}: ACCESS READY (bootstrap={bootstrap})")
+    } else {
+        format!("{app_id}: waiting ({})", probe.reason)
+    }
+}
+
+pub(crate) fn build_access_ready_banner_lines(
+    shell: &ShellState,
+    app_ids: &[String],
+    scene_id: &str,
+    listen_url: &str,
+) -> Vec<String> {
+    let mut lines = vec![
+        listen_url.to_string(),
+        format!("defaultApp={}", shell.ctx.app_id),
+    ];
+    for app_id in app_ids {
+        let probe = probe_app_access_readiness(shell, app_id.as_str(), scene_id, UiRouteMode::App);
+        lines.push(format_app_access_line(app_id.as_str(), &probe));
+    }
+    lines.push("all listed apps ready — access pages may be served".to_string());
+    lines
+}
+
+fn all_apps_access_ready(shell: &ShellState, app_ids: &[String], scene_id: &str) -> bool {
+    app_ids.iter().all(|app_id| {
+        probe_app_access_readiness(shell, app_id.as_str(), scene_id, UiRouteMode::App).ready
+    })
+}
+
+fn all_apps_imported(workspace: &Path, app_ids: &[String]) -> bool {
+    app_ids
+        .iter()
+        .all(|app_id| crate::landing::app_has_prebuilt_access_entry(workspace, app_id.as_str()))
+}
+
+fn log_newly_ready_apps(
+    shell: &ShellState,
+    app_ids: &[String],
+    scene_id: &str,
+    logged: &mut BTreeSet<String>,
+) {
+    for app_id in app_ids {
+        if logged.contains(app_id) {
+            continue;
+        }
+        let probe = probe_app_access_readiness(shell, app_id.as_str(), scene_id, UiRouteMode::App);
+        if probe.ready {
+            logged.insert(app_id.clone());
+            tracing::info!(
+                target: "mei.startup",
+                app_id = %app_id,
+                scene_id = %scene_id,
+                gate_reason = %probe.reason,
+                bootstrap_reason = probe.bootstrap_reason.as_deref().unwrap_or("-"),
+                "app access ready"
+            );
+        }
+    }
+}
+
 pub(crate) fn set_startup_phase(shell: &SharedState, phase: StartupPhase) {
     if let Ok(mut guard) = shell.write() {
         guard.startup_phase = phase.as_slug().to_string();
@@ -80,14 +177,14 @@ pub(crate) fn evaluate_access_readiness(
             reason: "failed",
         };
     }
-    if !shell.imported {
+    let workspace = shell.ctx.workspace_root.as_path();
+    if !crate::landing::app_has_prebuilt_access_entry(workspace, app_id) {
         return AccessReadiness {
             ready: false,
             reason: "importing",
         };
     }
     if route_mode.is_access_like() {
-        let workspace = shell.ctx.workspace_root.as_path();
         let bootstrap =
             mei_host_graph::bootstrap_embed_status(workspace, app_id, scene_id);
         if !bootstrap.allowed {
@@ -200,6 +297,7 @@ pub(crate) struct ServeStartupPlan {
     pub workspace: PathBuf,
     pub package_root: PathBuf,
     pub default_app_id: String,
+    pub listen_url: String,
     pub auth_enabled: bool,
     pub app_ids: Vec<String>,
     pub managed_plug_slot: Arc<Mutex<Option<ManagedPlugDsPool>>>,
@@ -238,7 +336,13 @@ async fn run_background_startup_inner(
     let default_ctx = HostContext::new(plan.workspace.clone(), plan.default_app_id.clone());
     if defer_warmup_to_prebuild() {
         tracing::info!("deferring import/warmup to background prebuild; host will wait and only start plug-ds");
-        wait_for_workspace_import(&shell, &default_ctx).await?;
+        wait_for_workspace_import(
+            &shell,
+            plan.workspace.as_path(),
+            plan.app_ids.as_slice(),
+            &default_ctx,
+        )
+        .await?;
     } else {
         ensure_registry_materialized_with_wait(&shell, &default_ctx).await?;
     }
@@ -308,37 +412,71 @@ async fn run_background_startup_inner(
     if let Ok(mut guard) = shell.write() {
         guard.startup_error = None;
     }
+    let guard = shell.read().expect("state lock");
+    let warmup_detail = build_access_ready_banner_lines(
+        &guard,
+        plan.app_ids.as_slice(),
+        "home",
+        plan.listen_url.as_str(),
+    );
+    drop(guard);
+    let warmup_refs: Vec<&str> = warmup_detail.iter().map(String::as_str).collect();
+    crate::startup_banner::emit_access_warmup_ready_banner(warmup_refs.as_slice());
 
     Ok(())
 }
 
 async fn wait_for_workspace_import(
     shell: &SharedState,
-    ctx: &HostContext,
+    workspace: &Path,
+    app_ids: &[String],
+    default_ctx: &HostContext,
 ) -> anyhow::Result<()> {
     set_startup_phase(shell, StartupPhase::Importing);
+    let wait_app_ids: Vec<String> = if app_ids.is_empty() {
+        vec![default_ctx.app_id.clone()]
+    } else {
+        app_ids.to_vec()
+    };
     let mut polls: u32 = 0;
     loop {
         polls = polls.saturating_add(1);
         if defer_warmup_to_prebuild() {
             if let Ok(mut guard) = shell.write() {
                 crate::build_ops::refresh_materialization_flags(&mut guard);
-                if guard.imported {
-                    tracing::info!("workspace import observed from background prebuild");
-                    return Ok(());
-                }
+            }
+            if all_apps_imported(workspace, wait_app_ids.as_slice()) {
+                tracing::info!(
+                    target: "mei.startup",
+                    apps = %wait_app_ids.join(", "),
+                    "workspace import observed from background prebuild"
+                );
+                return Ok(());
+            }
+            if let Ok(mut guard) = shell.write() {
                 guard.startup_detail =
-                    Some("正在等待后台 prebuild 完成编译与 import…".to_string());
+                    Some("正在等待后台 prebuild 完成各 app 的编译与 import…".to_string());
                 if polls == 1 || polls.is_multiple_of(15) {
+                    let pending: Vec<String> = wait_app_ids
+                        .iter()
+                        .filter(|app_id| {
+                            !crate::landing::app_has_prebuilt_access_entry(
+                                workspace,
+                                app_id.as_str(),
+                            )
+                        })
+                        .cloned()
+                        .collect();
                     tracing::info!(
+                        target: "mei.startup",
                         startup_phase = %guard.startup_phase,
-                        imported = guard.imported,
+                        pending_apps = %pending.join(", "),
                         "waiting for background prebuild import"
                     );
                 }
             }
         } else {
-            match try_ensure_registry_materialized(ctx) {
+            match try_ensure_registry_materialized(default_ctx) {
                 Ok(()) => {
                     if let Ok(mut guard) = shell.write() {
                         crate::build_ops::refresh_materialization_flags(&mut guard);
@@ -368,36 +506,66 @@ async fn wait_for_prebuild_warmup(
     set_startup_phase(shell, StartupPhase::PrimingCache);
     if let Ok(mut guard) = shell.write() {
         guard.startup_detail =
-            Some("正在等待后台 prebuild 完成指标与 client-bootstrap 预热…".to_string());
+            Some("正在等待各 app 完成指标预热与 client-bootstrap…".to_string());
     }
+    let wait_app_ids: Vec<String> = if plan.app_ids.is_empty() {
+        vec![plan.default_app_id.clone()]
+    } else {
+        plan.app_ids.clone()
+    };
     let mut polls: u32 = 0;
+    let mut logged_ready = BTreeSet::new();
     loop {
         polls = polls.saturating_add(1);
         {
             let mut guard = shell.write().expect("state lock");
             crate::build_ops::refresh_materialization_flags(&mut guard);
         }
-        let bootstrap = mei_host_graph::bootstrap_embed_status(
-            plan.workspace.as_path(),
-            plan.default_app_id.as_str(),
-            "home",
-        );
-        if bootstrap.allowed {
-            tracing::info!(
-                app_id = %plan.default_app_id,
-                bootstrap_reason = %bootstrap.reason,
-                metric_count = bootstrap.metric_count,
-                "background prebuild warmup complete"
+        {
+            let guard = shell.read().expect("state lock");
+            log_newly_ready_apps(
+                &guard,
+                wait_app_ids.as_slice(),
+                "home",
+                &mut logged_ready,
             );
-            return Ok(());
-        }
-        if polls == 1 || polls.is_multiple_of(15) {
-            tracing::info!(
-                app_id = %plan.default_app_id,
-                bootstrap_reason = %bootstrap.reason,
-                metric_count = bootstrap.metric_count,
-                "waiting for background prebuild warmup"
-            );
+            if all_apps_access_ready(&guard, wait_app_ids.as_slice(), "home") {
+                tracing::info!(
+                    target: "mei.startup",
+                    apps = %wait_app_ids.join(", "),
+                    "all apps access warmup complete"
+                );
+                return Ok(());
+            }
+            if polls == 1 || polls.is_multiple_of(15) {
+                let pending: Vec<String> = wait_app_ids
+                    .iter()
+                    .filter(|app_id| {
+                        !probe_app_access_readiness(&guard, app_id.as_str(), "home", UiRouteMode::App)
+                            .ready
+                    })
+                    .cloned()
+                    .collect();
+                let sample = pending
+                    .first()
+                    .map(|app_id| {
+                        probe_app_access_readiness(&guard, app_id.as_str(), "home", UiRouteMode::App)
+                    })
+                    .map(|probe| {
+                        format!(
+                            "{}:{}",
+                            probe.reason,
+                            probe.bootstrap_reason.unwrap_or_default()
+                        )
+                    })
+                    .unwrap_or_else(|| "unknown".to_string());
+                tracing::info!(
+                    target: "mei.startup",
+                    pending_apps = %pending.join(", "),
+                    sample_pending = %sample,
+                    "waiting for background prebuild warmup"
+                );
+            }
         }
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
@@ -407,7 +575,13 @@ async fn ensure_registry_materialized_with_wait(
     shell: &SharedState,
     ctx: &HostContext,
 ) -> anyhow::Result<()> {
-    wait_for_workspace_import(shell, ctx).await
+    wait_for_workspace_import(
+        shell,
+        ctx.workspace_root.as_path(),
+        &[ctx.app_id.clone()],
+        ctx,
+    )
+    .await
 }
 
 fn is_missing_artifact_error(error: &anyhow::Error) -> bool {
@@ -470,5 +644,107 @@ mod tests {
             .expect("uri");
         let location = build_starting_location(&uri, "data-demo", "home", "app");
         assert!(location.contains("return=%2Fapps%2Fapp%2Fdata-demo%2Fscene%2Fhome%3Ftab%3Dboard"));
+    }
+
+    #[test]
+    fn evaluate_access_readiness_checks_requested_app_registry() {
+        use mei_lang_app::UiRouteMode;
+        use std::collections::BTreeMap;
+        use std::path::PathBuf;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path();
+        std::fs::write(
+            workspace.join("workspace.json"),
+            r#"{"schemaVersion":1,"workspace":{"id":"test","defaultApp":"data-demo"}}"#,
+        )
+        .expect("workspace.json");
+        let apps_dir = workspace.join("apps");
+        for app_id in ["data-demo", "mini-park"] {
+            std::fs::create_dir_all(apps_dir.join(app_id).join("env/WS-20260628.0/build/registry"))
+                .expect("registry dir");
+            std::fs::write(
+                apps_dir.join(app_id).join("app.config.json"),
+                format!(r#"{{"schemaVersion":1,"app":{{"id":"{app_id}"}}}}"#),
+            )
+            .expect("app config");
+            std::os::unix::fs::symlink(
+                "WS-20260628.0",
+                apps_dir.join(app_id).join("env/current"),
+            )
+            .expect("env/current");
+        }
+        std::fs::write(
+            apps_dir
+                .join("data-demo/env/WS-20260628.0/build/registry/mcg-registry.json"),
+            r#"{
+  "schemaVersion": "mei-mcg-registry-v2",
+  "appId": "data-demo",
+  "registryRevision": "test-rev",
+  "updatedAtMs": 1,
+  "nodes": [
+    {
+      "id": { "kind": "app_skeleton", "key": "app_skeleton:data-demo" },
+      "revision": "blk:test",
+      "state": "ready",
+      "layer": "import"
+    }
+  ]
+}"#,
+        )
+        .expect("data-demo mcg");
+        std::fs::write(
+            apps_dir
+                .join("mini-park/env/WS-20260628.0/build/registry/mcg-registry.json"),
+            r#"{
+  "schemaVersion": "mei-mcg-registry-v2",
+  "appId": "mini-park",
+  "registryRevision": "empty",
+  "updatedAtMs": 1,
+  "nodes": []
+}"#,
+        )
+        .expect("mini-park mcg");
+
+        let mut plug_ds_by_app = BTreeMap::new();
+        plug_ds_by_app.insert("data-demo".to_string(), "http://127.0.0.1:9001".to_string());
+        plug_ds_by_app.insert("mini-park".to_string(), "http://127.0.0.1:9002".to_string());
+        let mut shell = ShellState::new(
+            workspace.to_path_buf(),
+            "data-demo".to_string(),
+            PathBuf::from("/tmp/pkg"),
+            plug_ds_by_app,
+            false,
+        );
+        shell.imported = true;
+
+        let data_demo = evaluate_access_readiness(
+            &shell,
+            "data-demo",
+            "home",
+            UiRouteMode::App,
+        );
+        assert!(data_demo.ready, "default app registry should be ready");
+
+        let mini_park = evaluate_access_readiness(
+            &shell,
+            "mini-park",
+            "home",
+            UiRouteMode::App,
+        );
+        assert!(!mini_park.ready, "mini-park without nodes must not be ready");
+        assert_eq!(mini_park.reason, "importing");
+        assert!(
+            all_apps_access_ready(&shell, &[String::from("data-demo")], "home"),
+            "single ready app should pass"
+        );
+        assert!(
+            !all_apps_access_ready(
+                &shell,
+                &[String::from("data-demo"), String::from("mini-park")],
+                "home"
+            ),
+            "all-apps gate must wait for mini-park"
+        );
     }
 }

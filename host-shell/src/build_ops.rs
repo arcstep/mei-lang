@@ -179,6 +179,15 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::R
         true,
     )?;
 
+    let prebuild_lines = vec![
+        format!("app={app} | envVersion={build_id}"),
+        format!("warmup policy={policy}"),
+        "compile/import/warmup script finished for this app".to_string(),
+        "host emits green ACCESS READY only after every discovered app is ready".to_string(),
+    ];
+    let prebuild_refs: Vec<&str> = prebuild_lines.iter().map(String::as_str).collect();
+    crate::startup_banner::emit_prebuild_pipeline_complete_banner(prebuild_refs.as_slice());
+
     Ok(build_id)
 }
 

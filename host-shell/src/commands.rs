@@ -355,8 +355,7 @@ async fn run_prebuild(args: PrebuildArgs) -> anyhow::Result<()> {
     let app = args.app.as_str();
 
     println!("==> build prepare + compile + import + prebuild-data + warmup + finalize");
-    let build_id = prebuild_pipeline(workspace.as_path(), app, args.policy.as_str())?;
-    println!("Prebuild complete (envVersion={build_id}).");
+    prebuild_pipeline(workspace.as_path(), app, args.policy.as_str())?;
     Ok(())
 }
 
@@ -675,6 +674,21 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     if primed > 0 {
         println!("Page SSR cache: primed {primed} access scene(s) from warmup manifest");
     }
+    let addr = format!("{}:{}", args.host, args.port);
+    let listen_url = format!("http://{addr}");
+    let cache_line = if primed > 0 {
+        format!("page SSR cache primed: {primed} scene(s)")
+    } else {
+        "page SSR cache: skipped or empty".to_string()
+    };
+    let guard = shell.read().expect("state lock");
+    let mut warmup_lines =
+        crate::startup::build_access_ready_banner_lines(&guard, app_ids.as_slice(), "home", listen_url.as_str());
+    warmup_lines.push(cache_line);
+    warmup_lines.push("blocking serve — port opens after warmup".to_string());
+    drop(guard);
+    let warmup_refs: Vec<&str> = warmup_lines.iter().map(String::as_str).collect();
+    crate::startup_banner::emit_access_warmup_ready_banner(warmup_refs.as_slice());
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
     let managed_plug = Arc::new(Mutex::new(managed_pool));
     let state = HostHttpState {
@@ -682,7 +696,6 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         auth: auth_state.clone(),
         managed_plug: managed_plug.clone(),
     };
-    let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let display = mei_lang_kernel::resolve_build_footer_label(workspace.as_path());
     if args.auth {
@@ -699,11 +712,16 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
             println!("           {app_id} -> {endpoint}");
         }
     }
-    println!(
-        "mei-host-shell listening on http://{addr} (shell {} · {})",
+    let version_line = format!(
+        "mei-host-shell {} · {}",
         crate::build_info::BUILD_VERSION,
         display
     );
+    let listen_detail = vec![
+        version_line.as_str(),
+        "blocking serve — access pages ready immediately",
+    ];
+    crate::startup_banner::emit_host_listening_banner(listen_url.as_str(), listen_detail.as_slice());
     let app = crate::http::router(state).layer(axum::middleware::from_fn_with_state(
         auth_state,
         mei_host_auth::auth_middleware,
@@ -766,19 +784,29 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let display = mei_lang_kernel::resolve_build_footer_label(workspace.as_path());
+    let listen_url = format!("http://{addr}");
     if args.auth {
         println!("Auth:      enabled (login required for protected routes)");
     }
-    println!(
-        "mei-host-shell listening on http://{addr} (shell {} · {})",
+    let version_line = format!(
+        "mei-host-shell {} · {}",
         crate::build_info::BUILD_VERSION,
         display
     );
-    println!("Startup:   port open — warming page shown until workspace import completes");
+    let defer_line = if crate::startup::defer_warmup_to_prebuild() {
+        "early bind — unready routes redirect to /host/starting until ACCESS READY"
+    } else {
+        "early bind — background startup in progress"
+    };
+    crate::startup_banner::emit_host_listening_banner(
+        listen_url.as_str(),
+        &[version_line.as_str(), defer_line],
+    );
     let startup_plan = crate::startup::ServeStartupPlan {
         workspace: workspace.clone(),
         package_root: package_root.clone(),
         default_app_id: default_app_id.clone(),
+        listen_url,
         auth_enabled: args.auth,
         app_ids: app_ids.clone(),
         managed_plug_slot: managed_plug,

@@ -455,3 +455,40 @@ run_workspace_serve() {
     serve --workspace "${workspace_root}" --app "${app}" \
     --host "${host}" --port "${port}" ${auth_flag} "$@"
 }
+
+emit_deploy_status_banner() {
+  local title="$1"
+  local border_color="$2"
+  local title_color="$3"
+  shift 3
+  local width=58
+  local border
+  border="$(printf '═%.0s' $(seq 1 "${width}"))"
+  if [[ -t 1 ]]; then
+    echo -e "\033[${border_color}m${border}\033[0m"
+    echo -e "\033[${title_color}m  ✓ ${title}\033[0m"
+    for line in "$@"; do
+      echo "  ${line}"
+    done
+    echo -e "\033[${border_color}m${border}\033[0m"
+  else
+    echo "==> ${title}"
+    for line in "$@"; do
+      echo "    ${line}"
+    done
+  fi
+}
+
+emit_prebuild_pipeline_complete_banner() {
+  local build_id="$1"
+  shift
+  local app_list
+  app_list="$(printf '%s, ' "$@")"
+  app_list="${app_list%, }"
+  emit_deploy_status_banner \
+    "编译流水线结束 · PREBUILD PIPELINE OK" \
+    "1;33" "1;33;1" \
+    "envVersion=${build_id} | apps=${app_list}" \
+    "compile / import / plug-ds script finished" \
+    "green ACCESS READY is emitted by host after every app is ready"
+}

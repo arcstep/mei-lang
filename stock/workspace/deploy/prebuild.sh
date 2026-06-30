@@ -76,4 +76,4 @@ for app_id in "${APP_IDS[@]}"; do
     --build-id "${BUILD_ID}" "${DEPLOY_CLI_ARGS[@]}"
 done
 
-echo "Prebuild complete for ${#APP_IDS[@]} app(s) (envVersion=${BUILD_ID})."
+emit_prebuild_pipeline_complete_banner "${BUILD_ID}" "${APP_IDS[@]}"
