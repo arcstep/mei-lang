@@ -315,13 +315,15 @@ pub fn query_metric_dataframe(
         } else {
             scalar_metric_to_rowset(metric)
         }
+    } else if metric.shape == MetricShape::Scalar {
+        // Tables/charts may request scalar metrics via /query without `::__scalar_rowset__`.
+        scalar_metric_to_rowset(metric)
+    } else if metric.shape != MetricShape::Dataframe {
+        return Err(anyhow!(
+            "metric `{metric_id}` shape is {:?}, expected dataframe",
+            metric.shape
+        ));
     } else {
-        if metric.shape != MetricShape::Dataframe {
-            return Err(anyhow!(
-                "metric `{metric_id}` shape is {:?}, expected dataframe",
-                metric.shape
-            ));
-        }
         let columns = metric
             .schema
             .iter()

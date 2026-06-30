@@ -3,7 +3,6 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
-use mei_host_core::HostContext;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -65,7 +64,7 @@ pub async fn api_host_mrg_activate(
     State(state): State<SharedState>,
     Query(params): Query<ScopeActivationQuery>,
 ) -> impl IntoResponse {
-    let scope = params.scope.trim();
+    let scope = params.scope.trim().to_string();
     if scope.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -73,20 +72,29 @@ pub async fn api_host_mrg_activate(
         )
             .into_response();
     }
-    let guard = state.read().expect("state lock");
-    let ctx = HostContext::new(guard.ctx.workspace_root.clone(), guard.ctx.app_id.clone());
-    let hops = params.hops.unwrap_or(1).max(1);
-    if let Err(error) = mei_plug_ds::run_activation_warmup(&ctx, scope, hops) {
+    let (endpoint, workspace, app_id, hops) = {
+        let guard = state.read().expect("state lock");
+        (
+            guard.plug_ds_endpoint.clone(),
+            guard.ctx.workspace_root.clone(),
+            guard.ctx.app_id.clone(),
+            params.hops.unwrap_or(1).max(1),
+        )
+    };
+
+    if let Err(error) =
+        crate::plug_proxy::proxy_plug_ds_activate(endpoint.as_str(), scope.as_str(), hops).await
+    {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": error.to_string(), "scope": scope, "hops": hops})),
+            Json(json!({"error": error, "scope": scope, "hops": hops})),
         )
             .into_response();
     }
     let payload = mei_host_graph::build_client_bootstrap_payload(
-        guard.ctx.workspace_root.as_path(),
-        guard.ctx.app_id.as_str(),
-        scope,
+        workspace.as_path(),
+        app_id.as_str(),
+        scope.as_str(),
     );
     (
         StatusCode::OK,

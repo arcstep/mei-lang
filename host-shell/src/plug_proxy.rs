@@ -4,13 +4,11 @@ use axum::response::Response;
 use mei_host_core::{load_app_config_for_ctx, HostContext};
 use serde_json::json;
 
-const DEFAULT_PLUG_DS_URL: &str = "http://127.0.0.1:9528";
-
-pub fn resolve_plug_ds_endpoint(ctx: &HostContext) -> String {
+pub fn configured_plug_ds_endpoint(ctx: &HostContext) -> Option<String> {
     if let Ok(url) = std::env::var("MEI_PLUG_DS_URL") {
         let trimmed = url.trim();
         if !trimmed.is_empty() {
-            return trimmed.to_string();
+            return Some(trimmed.to_string());
         }
     }
     if let Ok(config) = load_app_config_for_ctx(ctx) {
@@ -22,19 +20,14 @@ pub fn resolve_plug_ds_endpoint(ctx: &HostContext) -> String {
             .map(|plug| plug.endpoint.trim())
             .filter(|value| !value.is_empty())
         {
-            return endpoint.to_string();
+            return Some(endpoint.to_string());
         }
     }
-    DEFAULT_PLUG_DS_URL.to_string()
+    None
 }
 
-pub async fn proxy_post_json(
-    ctx: &HostContext,
-    path: &str,
-    body: serde_json::Value,
-) -> Response {
-    let endpoint = resolve_plug_ds_endpoint(ctx);
-    let url = join_url(endpoint.as_str(), path);
+pub async fn proxy_post_json(endpoint: &str, path: &str, body: serde_json::Value) -> Response {
+    let url = join_url(endpoint, path);
     let client = plug_proxy_client();
     let response = match client.post(url.as_str()).json(&body).send().await {
         Ok(response) => response,
@@ -72,6 +65,45 @@ pub async fn proxy_post_json(
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
+/// Call plug-ds scope activation warmup via sidecar HTTP.
+pub async fn proxy_plug_ds_activate(
+    endpoint: &str,
+    scope: &str,
+    hops: usize,
+) -> Result<(), String> {
+    let path = format!(
+        "/api/plug-ds/activate?scope={}&hops={}",
+        urlencoding_encode(scope),
+        hops
+    );
+    let url = join_url(endpoint, path.as_str());
+    let client = plug_proxy_client();
+    let response = client
+        .post(url.as_str())
+        .send()
+        .await
+        .map_err(|error| format!("plug-ds unreachable at {endpoint}: {error}"))?;
+    if response.status().is_success() {
+        return Ok(());
+    }
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .unwrap_or_else(|_| "<unreadable body>".to_string());
+    Err(format!("plug-ds activate failed ({status}): {body}"))
+}
+
+fn urlencoding_encode(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => ch.to_string(),
+            _ => format!("%{:02X}", ch as u8),
+        })
+        .collect()
+}
+
 fn join_url(base: &str, path: &str) -> String {
     let base = base.trim_end_matches('/');
     let path = path.trim_start_matches('/');
@@ -92,12 +124,39 @@ use axum::response::IntoResponse;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mei_host_core::HostContext;
 
     #[test]
     fn join_url_normalizes_slashes() {
         assert_eq!(
             join_url("http://127.0.0.1:9528", "/api/datasets/query"),
             "http://127.0.0.1:9528/api/datasets/query"
+        );
+    }
+
+    #[test]
+    fn urlencoding_encode_escapes_scope_query() {
+        assert_eq!(super::urlencoding_encode("a b/c"), "a%20b%2Fc");
+    }
+
+    #[test]
+    fn configured_endpoint_reads_app_config_override() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":1,"workspace":{"id":"test","defaultApp":"data-demo"}}"#,
+        )
+        .expect("write workspace");
+        std::fs::create_dir_all(tmp.path().join("apps/data-demo")).expect("create app dir");
+        std::fs::write(
+            tmp.path().join("apps/data-demo/app.config.json"),
+            r#"{"schemaVersion":1,"runtime":{"plugs":{"ds":{"endpoint":"http://127.0.0.1:9999"}}}}"#,
+        )
+        .expect("write app config");
+        let ctx = HostContext::new(tmp.path().to_path_buf(), "data-demo".to_string());
+        assert_eq!(
+            configured_plug_ds_endpoint(&ctx).as_deref(),
+            Some("http://127.0.0.1:9999")
         );
     }
 }

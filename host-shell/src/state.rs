@@ -10,6 +10,8 @@ use crate::build_ops::OpsJobState;
 pub struct ShellState {
     pub ctx: HostContext,
     pub package_root: std::path::PathBuf,
+    pub plug_ds_endpoint: String,
+    pub plug_ds_managed: bool,
     pub imported: bool,
     pub warmed_up: bool,
     pub host_started_at_ms: u64,
@@ -18,10 +20,18 @@ pub struct ShellState {
 }
 
 impl ShellState {
-    pub fn new(workspace: std::path::PathBuf, app_id: String, package_root: std::path::PathBuf) -> Self {
+    pub fn new(
+        workspace: std::path::PathBuf,
+        app_id: String,
+        package_root: std::path::PathBuf,
+        plug_ds_endpoint: String,
+        plug_ds_managed: bool,
+    ) -> Self {
         Self {
             ctx: HostContext::new(workspace, app_id),
             package_root,
+            plug_ds_endpoint,
+            plug_ds_managed,
             imported: false,
             warmed_up: false,
             host_started_at_ms: current_time_ms(),

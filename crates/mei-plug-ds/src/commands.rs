@@ -1,4 +1,4 @@
-use mei_host_core::HostContext;
+use mei_host_core::{format_bytes_human, log_timestamp_rfc3339, HostContext};
 use mei_host_graph::WarmupTier;
 
 use crate::cli::WarmupArgs;
@@ -13,6 +13,14 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
     let ctx = HostContext::new(workspace, app);
     let tier = WarmupTier::parse(args.tier.as_str());
     let targets = resolve_warmup_targets(&ctx, &args)?;
+    println!(
+        "[{}] warmup start: app={} policy={} tier={} worksets={}",
+        log_timestamp_rfc3339(),
+        ctx.app_id,
+        args.policy,
+        args.tier,
+        targets.len()
+    );
     let report = run_warmup_targets_with_tier(&ctx, &targets, tier)?;
     if args.hops > 0 {
         let scope = args
@@ -22,18 +30,30 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
             .unwrap_or("home");
         let edges = mei_host_graph::record_navigation_edges_for_scope(&ctx, scope, args.hops)?;
         if edges > 0 {
-            println!("warmup navigation edges added: {edges}");
+            println!(
+                "[{}] warmup navigation edges added: {edges}",
+                log_timestamp_rfc3339()
+            );
         }
     }
     println!(
-        "warmup ok: policy={} tier={} worksets={} slots={} memory_hydrated={} client_manifest={} failed={}",
+        "[{}] warmup ok: policy={} tier={} worksets={} slots={} memory_hydrated={} client_manifest={} failed={} elapsed_ms={} disk_tier_ms={} memory_tier_ms={} client_tier_ms={} disk_bytes={} ({}) eval_compute={} cache_hit={}",
+        log_timestamp_rfc3339(),
         args.policy,
         args.tier,
         targets.len(),
         report.slot_count,
         report.memory_hydrated,
         report.client_manifest_written,
-        report.failed_count
+        report.failed_count,
+        report.elapsed_ms,
+        report.disk_tier_ms,
+        report.memory_tier_ms,
+        report.client_tier_ms,
+        report.disk_bytes,
+        format_bytes_human(report.disk_bytes),
+        report.eval_compute_count,
+        report.eval_cache_hit_count
     );
     Ok(())
 }

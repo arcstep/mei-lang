@@ -417,17 +417,30 @@ navigation(
 }
 
 fn run_prebuild_data(args: PrebuildDataArgs) -> anyhow::Result<()> {
-    let report = mei_host_graph::publish_app_data_snapshots(args.workspace.as_path(), args.app.as_str())?;
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let report =
+        mei_host_graph::publish_app_data_snapshots(workspace.as_path(), args.app.as_str())?;
     println!(
-        "prebuild-data ok: app={} discovered={} written={} skipped={} manifest={}",
+        "[{}] prebuild-data ok: app={} discovered={} written={} skipped={} total_bytes={} ({}) manifest={}",
+        mei_host_core::log_timestamp_rfc3339(),
         report.app_id,
         report.discovered_sources.len(),
         report.written.len(),
         report.skipped.len(),
+        report.total_written_bytes,
+        mei_host_core::format_bytes_human(report.total_written_bytes),
         report.manifest_path
     );
     for path in &report.written {
-        println!("  wrote {path}");
+        let full = workspace.join(path);
+        let size_label = full
+            .metadata()
+            .map(|metadata| mei_host_core::format_bytes_human(metadata.len()))
+            .unwrap_or_else(|_| "?".to_string());
+        println!("  wrote {path} ({size_label})");
     }
     for skip in &report.skipped {
         eprintln!("warning: skipped {skip}");
@@ -494,6 +507,17 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let package_root = resolve_package_root()?;
     let ctx = mei_host_core::HostContext::new(workspace.clone(), args.app.clone());
     ensure_registry_materialized(&ctx)?;
+    let external_plug_ds = crate::plug_proxy::configured_plug_ds_endpoint(&ctx);
+    let mut managed_plug_ds = if external_plug_ds.is_none() {
+        Some(crate::managed_plug::spawn_managed_plug_ds(&ctx).await?)
+    } else {
+        None
+    };
+    let plug_ds_endpoint = managed_plug_ds
+        .as_ref()
+        .map(|sidecar| sidecar.endpoint.clone())
+        .or(external_plug_ds.clone())
+        .expect("plug-ds endpoint resolved");
     let auth_enforcement = if args.auth {
         mei_host_auth::AuthEnforcement::Required
     } else {
@@ -508,6 +532,8 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         workspace.clone(),
         args.app,
         package_root,
+        plug_ds_endpoint.clone(),
+        managed_plug_ds.is_some(),
     )));
     refresh_host_materialization_flags(&shell);
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
@@ -521,6 +547,11 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     if args.auth {
         println!("Auth:      enabled (login required for protected routes)");
     }
+    if let Some(endpoint) = external_plug_ds.as_deref() {
+        println!("Plug-ds:   external {endpoint}");
+    } else {
+        println!("Plug-ds:   managed by host-shell at {plug_ds_endpoint}");
+    }
     println!(
         "mei-host-shell listening on http://{addr} (shell {} · {})",
         crate::build_info::BUILD_VERSION,
@@ -530,9 +561,15 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         auth_state,
         mei_host_auth::auth_middleware,
     )).layer(axum::middleware::from_fn(crate::request_logging::log_request));
-    axum::serve(listener, app)
+    let serve_result = axum::serve(listener, app)
         .await
-        .map_err(|e| anyhow::anyhow!(e))
+        .map_err(|e| anyhow::anyhow!(e));
+    if let Some(sidecar) = managed_plug_ds.as_mut() {
+        if let Err(error) = sidecar.shutdown().await {
+            tracing::warn!(detail = %error, "managed plug-ds shutdown failed");
+        }
+    }
+    serve_result
 }
 
 fn ensure_registry_materialized(ctx: &mei_host_core::HostContext) -> anyhow::Result<()> {
@@ -551,11 +588,11 @@ fn ensure_registry_materialized(ctx: &mei_host_core::HostContext) -> anyhow::Res
     if !bundle_path.is_file() {
         anyhow::bail!(
             "MCG registry missing and bundle not found at {}; run prebuild or `mei-host-shell import`",
-            bundle_path.display()
+            mei_host_core::path_for_log(ctx.workspace_root.as_path(), bundle_path.as_path())
         );
     }
     tracing::info!(
-        bundle = %bundle_path.display(),
+        bundle = %mei_host_core::path_for_log(ctx.workspace_root.as_path(), bundle_path.as_path()),
         "auto-importing meibundle before serve"
     );
     mei_host_graph::import_bundle(

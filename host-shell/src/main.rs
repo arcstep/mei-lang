@@ -8,6 +8,7 @@ mod commands;
 mod gis_config;
 mod gis_proxy;
 mod http;
+mod managed_plug;
 mod ops_api;
 mod runtime_api;
 mod runtime_snapshot;

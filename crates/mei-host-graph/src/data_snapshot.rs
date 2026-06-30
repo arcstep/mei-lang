@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::Result;
-use mei_host_core::load_app_config;
+use mei_host_core::{load_app_config, path_for_log};
 use mei_lang_kernel::{
     data_snapshot_import_manifest_path, ops_source_entry_to_decl,
     publish_xlsx_data_snapshots_for_paths, resolve_app_root, OpsSourceEntry,
@@ -16,6 +16,7 @@ pub struct PublishDataSnapshotsReport {
     pub written: Vec<String>,
     pub skipped: Vec<String>,
     pub manifest_path: String,
+    pub total_written_bytes: u64,
 }
 
 /// Collect xlsx/xls sources from `app.config.json` ops.sources and imported metric bundles.
@@ -92,11 +93,22 @@ pub fn publish_app_data_snapshots(
 
     let mut written = Vec::new();
     let mut skipped = Vec::new();
+    let mut total_written_bytes = 0u64;
     for (path, sheet, header_row) in required {
         let refs = [(path.as_str(), sheet.as_deref(), header_row)];
         match publish_xlsx_data_snapshots_for_paths(app_root.as_path(), &refs) {
             Ok(paths) => {
-                written.extend(paths.into_iter().map(|p| p.display().to_string()));
+                for snapshot_path in paths {
+                    if snapshot_path.is_file() {
+                        if let Ok(metadata) = snapshot_path.metadata() {
+                            total_written_bytes += metadata.len();
+                        }
+                    }
+                    written.push(path_for_log(
+                        source_root,
+                        snapshot_path.as_path(),
+                    ));
+                }
             }
             Err(error) => {
                 skipped.push(format!("{path}: {error:#}"));
@@ -109,9 +121,11 @@ pub fn publish_app_data_snapshots(
         discovered_sources,
         written,
         skipped,
-        manifest_path: data_snapshot_import_manifest_path(app_root.as_path())
-            .display()
-            .to_string(),
+        manifest_path: path_for_log(
+            source_root,
+            data_snapshot_import_manifest_path(app_root.as_path()).as_path(),
+        ),
+        total_written_bytes,
     })
 }
 

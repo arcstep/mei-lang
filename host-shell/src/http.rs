@@ -174,11 +174,11 @@ async fn api_datasets_query_with_app(
 }
 
 async fn api_datasets_query_inner(state: SharedState, body: serde_json::Value) -> Response {
-    let ctx = {
+    let endpoint = {
         let guard = state.read().expect("state lock");
-        guard.ctx.clone()
+        guard.plug_ds_endpoint.clone()
     };
-    crate::plug_proxy::proxy_post_json(&ctx, "/api/datasets/query", body).await
+    crate::plug_proxy::proxy_post_json(endpoint.as_str(), "/api/datasets/query", body).await
 }
 
 async fn api_datasets_metrics(
@@ -186,7 +186,7 @@ async fn api_datasets_metrics(
     Path(app_id): Path<String>,
     axum::Json(body): axum::Json<serde_json::Value>,
 ) -> Response {
-    let ctx = {
+    let endpoint = {
         let guard = state.read().expect("state lock");
         if guard.ctx.app_id != app_id {
             return (
@@ -195,10 +195,10 @@ async fn api_datasets_metrics(
             )
                 .into_response();
         }
-        guard.ctx.clone()
+        guard.plug_ds_endpoint.clone()
     };
     let path = format!("/api/datasets/metrics/{app_id}");
-    crate::plug_proxy::proxy_post_json(&ctx, path.as_str(), body).await
+    crate::plug_proxy::proxy_post_json(endpoint.as_str(), path.as_str(), body).await
 }
 
 #[derive(serde::Deserialize)]
@@ -247,9 +247,18 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_state(workspace: std::path::PathBuf) -> HostHttpState {
+        test_state_with_plug_endpoint(workspace, "http://127.0.0.1:9528")
+    }
+
+    fn test_state_with_plug_endpoint(
+        workspace: std::path::PathBuf,
+        plug_ds_endpoint: &str,
+    ) -> HostHttpState {
         let shell = Arc::new(RwLock::new(crate::state::ShellState {
             ctx: HostContext::new(workspace.clone(), "data-demo".to_string()),
             package_root: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            plug_ds_endpoint: plug_ds_endpoint.to_string(),
+            plug_ds_managed: false,
             imported: true,
             warmed_up: true,
             host_started_at_ms: 1,
@@ -328,5 +337,55 @@ mod tests {
         assert_eq!(value["hostShellOps"], true);
         assert!(value.get("phase").is_some());
         assert!(value.get("env").is_some());
+    }
+
+    #[tokio::test]
+    async fn api_host_mrg_activate_requires_scope() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/mrg/activate?scope=")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn api_host_mrg_activate_reports_unreachable_plug_ds() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = router(test_state_with_plug_endpoint(
+            tmp.path().to_path_buf(),
+            "http://127.0.0.1:1",
+        ));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/mrg/activate?scope=home&hops=1")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["scope"], "home");
+        assert_eq!(value["hops"], 1);
+        assert!(value["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("plug-ds unreachable"));
     }
 }

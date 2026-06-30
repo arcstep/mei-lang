@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::time::Instant;
 
-use mei_host_core::{CacheLayersReady, EvalSlotDescriptor, HostContext};
+use mei_host_core::{dir_tree_bytes, CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{
     collect_eval_frontier_with_hops, linked_board_scenes_for_scope, record_slot_failed,
     record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter, WarmupTier,
 };
 use mei_lang_kernel::{
-    load_mei_config_for_app, ClientBootstrapConfig, MemoryWarmupConfig, MetricContract,
+    load_mei_config_for_app, resolve_app_eval_cache_root, ClientBootstrapConfig, MemoryWarmupConfig,
+    MetricContract,
 };
 
 use crate::eval::{eval_metric_ids, load_compiled_for_warmup};
@@ -23,6 +25,13 @@ pub struct WarmupOrchestratorReport {
     pub client_manifest_written: bool,
     pub client_manifest_scopes: Vec<String>,
     pub failed_count: usize,
+    pub elapsed_ms: u64,
+    pub disk_tier_ms: u64,
+    pub memory_tier_ms: u64,
+    pub client_tier_ms: u64,
+    pub disk_bytes: u64,
+    pub eval_compute_count: usize,
+    pub eval_cache_hit_count: usize,
 }
 
 pub fn run_warmup_targets_with_tier(
@@ -30,6 +39,7 @@ pub fn run_warmup_targets_with_tier(
     targets: &[WarmupTarget],
     tier: WarmupTier,
 ) -> anyhow::Result<WarmupOrchestratorReport> {
+    let started = Instant::now();
     let config = load_mei_config_for_app(ctx.app_root().as_path(), None);
     let memory_cfg = memory_warmup_config(&config.runtime.memory_warmup);
     let client_cfg = config.runtime.client_bootstrap.as_ref();
@@ -40,8 +50,12 @@ pub fn run_warmup_targets_with_tier(
     let mut primary_scope = String::new();
     let mut primary_workset = String::new();
     let mut failed_count = 0usize;
+    let mut disk_tier_ms = 0u64;
+    let mut eval_compute_count = 0usize;
+    let mut eval_cache_hit_count = 0usize;
 
     if tier.wants_disk() {
+        let disk_started = Instant::now();
         for target in &targets {
             let (compiled, compile_revision) =
                 load_compiled_for_warmup(ctx, target.scope_key.as_str())?;
@@ -56,6 +70,11 @@ pub fn run_warmup_targets_with_tier(
                 &target.metric_ids,
             ) {
                 Ok(outcome) => {
+                    if outcome.artifact_hit {
+                        eval_cache_hit_count += 1;
+                    } else {
+                        eval_compute_count += 1;
+                    }
                     for metric in &outcome.metrics {
                         metrics_map.insert(metric.id.clone(), metric.clone());
                     }
@@ -70,10 +89,13 @@ pub fn run_warmup_targets_with_tier(
                 }
             }
         }
+        disk_tier_ms = disk_started.elapsed().as_millis() as u64;
     }
 
     let mut memory_hydrated = 0usize;
+    let mut memory_tier_ms = 0u64;
     if tier.wants_memory() && memory_cfg.enabled && !all_slots.is_empty() {
+        let memory_started = Instant::now();
         memory_hydrated = hydrate_slots_to_memory(ctx, &all_slots, &memory_cfg)?;
         mark_descriptors_memory_ready(&mut all_slots);
         if memory_hydrated == 0 && tier == WarmupTier::Memory {
@@ -90,6 +112,11 @@ pub fn run_warmup_targets_with_tier(
                     target.bundle_key.as_str(),
                     &target.metric_ids,
                 ) {
+                    if outcome.artifact_hit {
+                        eval_cache_hit_count += 1;
+                    } else {
+                        eval_compute_count += 1;
+                    }
                     for metric in &outcome.metrics {
                         metrics_map.insert(metric.id.clone(), metric.clone());
                     }
@@ -99,6 +126,7 @@ pub fn run_warmup_targets_with_tier(
             memory_hydrated = hydrate_slots_to_memory(ctx, &all_slots, &memory_cfg)?;
             mark_descriptors_memory_ready(&mut all_slots);
         }
+        memory_tier_ms = memory_started.elapsed().as_millis() as u64;
     }
 
     let max_client = client_cfg
@@ -122,6 +150,7 @@ pub fn run_warmup_targets_with_tier(
 
     let mut client_manifest_written = false;
     let mut client_manifest_scopes = Vec::new();
+    let mut client_tier_ms = 0u64;
     let allowed_client_scopes = allowed_client_manifest_scopes(
         &targets,
         &client_scopes,
@@ -129,6 +158,7 @@ pub fn run_warmup_targets_with_tier(
         primary_scope.as_str(),
     );
     if tier.wants_client() && client_enabled && !allowed_client_scopes.is_empty() {
+        let client_started = Instant::now();
         let scope_worksets = preferred_workset_by_scope(&targets);
         let mut scope_revisions = BTreeMap::new();
         for scope in &allowed_client_scopes {
@@ -164,7 +194,10 @@ pub fn run_warmup_targets_with_tier(
                 &all_slots,
             )?;
         }
+        client_tier_ms = client_started.elapsed().as_millis() as u64;
     }
+
+    let disk_bytes = warmup_disk_bytes(ctx);
 
     Ok(WarmupOrchestratorReport {
         slot_count: all_slots.len(),
@@ -172,6 +205,13 @@ pub fn run_warmup_targets_with_tier(
         client_manifest_written,
         client_manifest_scopes,
         failed_count,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+        disk_tier_ms,
+        memory_tier_ms,
+        client_tier_ms,
+        disk_bytes,
+        eval_compute_count,
+        eval_cache_hit_count,
     })
 }
 
@@ -301,6 +341,13 @@ pub fn hydrate_existing_l1_slots(ctx: &HostContext, scope_key: &str) -> anyhow::
 
 fn memory_warmup_config(config: &Option<MemoryWarmupConfig>) -> MemoryWarmupConfig {
     config.clone().unwrap_or_default()
+}
+
+fn warmup_disk_bytes(ctx: &HostContext) -> u64 {
+    let app_root = ctx.app_root();
+    let eval_cache = resolve_app_eval_cache_root(app_root.as_path());
+    let client_bootstrap = app_root.join("var/active/client-bootstrap");
+    dir_tree_bytes(eval_cache.as_path()) + dir_tree_bytes(client_bootstrap.as_path())
 }
 
 fn record_warmup_target_failure(

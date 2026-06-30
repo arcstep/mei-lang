@@ -201,6 +201,10 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
                 .and_then(|state| state.toolchain.active.clone())
                 .unwrap_or_else(|| identity.toolchain_version.clone()),
         },
+        "plugDs": {
+            "endpoint": shell.plug_ds_endpoint.clone(),
+            "managed": shell.plug_ds_managed,
+        },
         "workspaceVersion": identity.workspace_version,
         "job": shell.ops_job,
         "lastJob": shell.last_ops_job,

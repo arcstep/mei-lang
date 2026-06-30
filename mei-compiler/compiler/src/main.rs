@@ -151,7 +151,7 @@ fn compile_app_cmd(
             .map_err(|e| anyhow::anyhow!("{e}"))?;
             println!(
                 "wrote {} ({} blocks, bundle {} bytes, blocks json {} -> zstd {} bytes)",
-                out_path.display(),
+                path_for_log(workspace, out_path.as_path()),
                 stats.manifest.block_count,
                 stats.bundle_bytes,
                 stats.blocks_json_bytes,
@@ -168,7 +168,10 @@ fn compile_app_cmd(
                         .and_then(|stem| stem.to_str())
                         .unwrap_or("bundle")
                 ));
-                println!("debug sidecar: {}", sidecar.display());
+                println!(
+                    "debug sidecar: {}",
+                    path_for_log(workspace, sidecar.as_path())
+                );
             }
             Ok(())
         }
@@ -358,4 +361,16 @@ fn normalize_decl_ir(value: &JsonValue) -> JsonValue {
 #[allow(dead_code)]
 fn decl_ir_equal(left: &JsonValue, right: &JsonValue) -> bool {
     normalize_decl_ir(left) == normalize_decl_ir(right)
+}
+
+fn path_for_log(workspace: &Path, path: &Path) -> String {
+    if let Ok(relative) = path.strip_prefix(workspace) {
+        return relative.display().to_string();
+    }
+    if let (Ok(workspace), Ok(path)) = (workspace.canonicalize(), path.canonicalize()) {
+        if let Ok(relative) = path.strip_prefix(&workspace) {
+            return relative.display().to_string();
+        }
+    }
+    path.display().to_string()
 }
