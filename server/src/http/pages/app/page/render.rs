@@ -63,12 +63,12 @@ pub(super) fn render_compiled_success(
     account_view: Option<&HostAccountView>,
     discover_ms: u64,
     app_started: Instant,
-    speaker_tour_id: Option<&str>,
+    copilot_presentation_id: Option<&str>,
 ) -> Response {
     let manage_scene_resolved = if access_static_file.is_some() {
         None
-    } else if route_mode == UiRouteMode::Speaker {
-        speaker_tour_id.map(str::to_string)
+    } else if route_mode == UiRouteMode::Copilot {
+        copilot_presentation_id.map(str::to_string)
     } else if route_mode.uses_scene_route() {
         access_path_scene.map(str::to_string)
     } else {
@@ -177,7 +177,7 @@ pub(super) fn render_compiled_success(
         Some(state.source_root.as_path()),
         None,
     );
-    let assembly_scene_id = if route_mode == UiRouteMode::Speaker && speaker_tour_id.is_some() {
+    let assembly_scene_id = if route_mode == UiRouteMode::Copilot && copilot_presentation_id.is_some() {
         "home"
     } else {
         manage_scene_resolved

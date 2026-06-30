@@ -87,25 +87,51 @@ pub(crate) fn parse_access_scene_path(raw_app_path: &str) -> Result<Option<(Stri
     Ok(Some((app, scene)))
 }
 
+const PRESENTATION_PATH_MARK: &str = "/presentation/";
 const SPEAKER_TOUR_PATH_MARK: &str = "/tour/";
 
-/// `/apps/speaker/<app>/tour/<tour_id>` → `(app_id, tour_id)`；`tour_id` 经 `selected_scene` 传给演说壳。
-pub(crate) fn parse_speaker_tour_tail(raw_app_path: &str) -> Option<(String, String)> {
+fn parse_presentation_tail_with_mark(raw_app_path: &str, mark: &str) -> Option<(String, String)> {
     let raw = raw_app_path.trim_start_matches('/');
-    if !raw.contains(SPEAKER_TOUR_PATH_MARK) {
+    if !raw.contains(mark) {
         return None;
     }
-    let Some(idx) = raw.find(SPEAKER_TOUR_PATH_MARK) else {
+    let Some(idx) = raw.find(mark) else {
         return None;
     };
     let app = raw[..idx].trim_end_matches('/').to_string();
-    let tour = raw[idx + SPEAKER_TOUR_PATH_MARK.len()..]
+    let presentation_id = raw[idx + mark.len()..]
         .trim_matches('/')
         .to_string();
-    if app.is_empty() || tour.is_empty() || tour.contains('/') {
+    if app.is_empty() || presentation_id.is_empty() || presentation_id.contains('/') {
         return None;
     }
-    Some((app, tour))
+    Some((app, presentation_id))
+}
+
+/// `/apps/copilot/<app>/presentation/<id>` → `(app_id, presentation_id)`。
+pub(crate) fn parse_copilot_presentation_tail(raw_app_path: &str) -> Option<(String, String)> {
+    parse_presentation_tail_with_mark(raw_app_path, PRESENTATION_PATH_MARK)
+}
+
+/// 兼容旧 `/apps/speaker/<app>/tour/<tour_id>`。
+pub(crate) fn parse_speaker_tour_tail(raw_app_path: &str) -> Option<(String, String)> {
+    parse_presentation_tail_with_mark(raw_app_path, SPEAKER_TOUR_PATH_MARK)
+}
+
+/// `/apps/speaker/...` → `/apps/copilot/...`；`/tour/` → `/presentation/`。
+pub(crate) fn legacy_speaker_redirect_location(app_tail: &str) -> String {
+    let tail = app_tail.trim_start_matches('/');
+    let normalized = tail.replace(SPEAKER_TOUR_PATH_MARK, PRESENTATION_PATH_MARK);
+    format!("/apps/copilot/{normalized}")
+}
+
+/// Copilot 演说稿 canonical URL。
+pub(crate) fn copilot_presentation_canonical_location(app_id: &str, presentation_id: &str) -> String {
+    format!(
+        "/apps/copilot/{}/{PRESENTATION_PATH_MARK}{}",
+        app_id.trim_start_matches('/'),
+        percent_encode_query_component(presentation_id.trim())
+    )
 }
 
 pub(crate) fn scene_projection_canonical_location(

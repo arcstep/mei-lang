@@ -41,15 +41,37 @@ pub async fn app_page(
     Path((mode, app_tail)): Path<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Response {
+    if mode == "speaker" {
+        let tail = app_tail.trim_start_matches('/');
+        let location = format!(
+            "/apps/copilot/{}",
+            tail.replace("/tour/", "/presentation/")
+        );
+        return Redirect::temporary(location.as_str()).into_response();
+    }
     let route_mode = UiRouteMode::from_slug(mode.as_str());
     let app_tail = app_tail.trim_start_matches('/').to_string();
     let (app_id, scene_id, tour_id) = parse_app_scene_path(&app_tail, query.scene.as_deref(), route_mode);
     if app_id.is_empty() {
         return (StatusCode::NOT_FOUND, "app not found").into_response();
     }
-    let speaker_selected_scene = tour_id.as_deref();
+    let copilot_presentation_id = tour_id.as_deref();
     if route_mode.is_access_like() {
         let starting_location = {
+            let workspace_root = {
+                let guard = state.read().expect("state lock");
+                guard.ctx.workspace_root.clone()
+            };
+            if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
+                workspace_root.as_path(),
+                app_id.as_str(),
+            ) {
+                tracing::warn!(
+                    app_id = %app_id,
+                    error = %error,
+                    "lazy app import before access gate failed"
+                );
+            }
             let mut guard = state.write().expect("state lock");
             crate::build_ops::refresh_materialization_flags(&mut guard);
             let readiness = crate::startup::evaluate_access_readiness(
@@ -147,7 +169,7 @@ pub async fn app_page(
                     &query,
                     auth_enabled,
                     account_view.as_ref(),
-                    speaker_selected_scene,
+                    copilot_presentation_id,
                 ) {
                     Ok(template) => {
                         let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
@@ -188,7 +210,7 @@ pub async fn app_page(
                 &query,
                 auth_enabled,
                 account_view.as_ref(),
-                speaker_selected_scene,
+                copilot_presentation_id,
             ) {
                 Ok(template) => (template, render_started.elapsed().as_millis() as u64),
                 Err(error) => {
@@ -435,6 +457,16 @@ pub async fn host_starting_page(
     };
     let route_mode = UiRouteMode::from_slug(poll_mode.as_str());
     let already_ready = {
+        if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
+            workspace.as_path(),
+            poll_app.as_str(),
+        ) {
+            tracing::warn!(
+                app_id = %poll_app,
+                error = %error,
+                "lazy app import on starting page failed"
+            );
+        }
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
         crate::startup::evaluate_access_readiness(
@@ -495,6 +527,20 @@ pub async fn api_host_access_readiness(
         .map(UiRouteMode::from_slug)
         .unwrap_or(UiRouteMode::App);
     let (readiness, startup_phase, startup_detail, startup_error, bootstrap_reason) = {
+        let workspace_root = {
+            let guard = state.read().expect("state lock");
+            guard.ctx.workspace_root.clone()
+        };
+        if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
+            workspace_root.as_path(),
+            app_id,
+        ) {
+            tracing::warn!(
+                app_id = %app_id,
+                error = %error,
+                "lazy app import on access-readiness failed"
+            );
+        }
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
         let readiness = crate::startup::evaluate_access_readiness(
@@ -962,12 +1008,12 @@ fn parse_app_scene_path(
         return (String::new(), "home".to_string(), None);
     }
     let app_id = parts[0].to_string();
-    if route_mode == UiRouteMode::Speaker
+    if route_mode == UiRouteMode::Copilot
         && parts.len() >= 3
-        && parts[1] == "tour"
+        && (parts[1] == "presentation" || parts[1] == "tour")
     {
-        let tour_id = parts[2].to_string();
-        return (app_id, "home".to_string(), Some(tour_id));
+        let presentation_id = parts[2].to_string();
+        return (app_id, "home".to_string(), Some(presentation_id));
     }
     let scene = if parts.len() >= 3 && parts[1] == "scene" {
         parts[2].to_string()

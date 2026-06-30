@@ -3,8 +3,8 @@ pub enum UiRouteMode {
     App,
     /// 单 scene 脱离宿主控制壳独立运行（原 `presentation` / `slides` 路由）。
     Run,
-    /// 演说模式：tour 步进、助手壳、文案与 cockpit 动作编排。
-    Speaker,
+    /// Copilot 演说宿主：presentation 步进、工具条、气泡与 cockpit 动作编排。
+    Copilot,
     Build,
     Config,
     Upload,
@@ -16,7 +16,7 @@ impl UiRouteMode {
         match value {
             "app" | "access" | "access-only" | "access_only" => Self::App,
             "run" | "presentation" | "slides" => Self::Run,
-            "speaker" => Self::Speaker,
+            "copilot" | "speaker" => Self::Copilot,
             "build" | "manage" => Self::Build,
             "config" => Self::Config,
             "upload" => Self::Upload,
@@ -29,7 +29,7 @@ impl UiRouteMode {
         match self {
             Self::App => "app",
             Self::Run => "run",
-            Self::Speaker => "speaker",
+            Self::Copilot => "copilot",
             Self::Build => "build",
             Self::Config => "config",
             Self::Upload => "upload",
@@ -41,7 +41,7 @@ impl UiRouteMode {
         match self {
             Self::App => "访问",
             Self::Run => "独立运行",
-            Self::Speaker => "演说",
+            Self::Copilot => "Copilot",
             Self::Build => "构建",
             Self::Config => "配置",
             Self::Upload => "上传",
@@ -54,15 +54,20 @@ impl UiRouteMode {
     }
 
     pub fn is_access_like(self) -> bool {
-        matches!(self, Self::App | Self::Run | Self::Speaker)
+        matches!(self, Self::App | Self::Run | Self::Copilot)
     }
 
     pub fn is_run_like(self) -> bool {
         self == Self::Run
     }
 
+    pub fn is_copilot_like(self) -> bool {
+        self == Self::Copilot
+    }
+
+    /// 兼容旧命名。
     pub fn is_speaker_like(self) -> bool {
-        self == Self::Speaker
+        self.is_copilot_like()
     }
 
     pub fn is_build(self) -> bool {
@@ -100,7 +105,8 @@ mod tests {
     }
 
     #[test]
-    fn speaker_slug_maps_to_speaker_mode() {
-        assert_eq!(UiRouteMode::from_slug("speaker"), UiRouteMode::Speaker);
+    fn copilot_and_speaker_slug_map_to_copilot_mode() {
+        assert_eq!(UiRouteMode::from_slug("copilot"), UiRouteMode::Copilot);
+        assert_eq!(UiRouteMode::from_slug("speaker"), UiRouteMode::Copilot);
     }
 }

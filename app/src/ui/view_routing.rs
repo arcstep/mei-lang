@@ -87,12 +87,18 @@ pub fn presentation_scene_href(app_path: &str, scene_id: Option<&str>) -> String
     run_scene_href(app_path, scene_id)
 }
 
-pub fn speaker_tour_href(app_path: &str, tour_id: &str) -> String {
+pub fn copilot_presentation_href(app_path: &str, presentation_id: &str) -> String {
     format!(
-        "{}/tour/{}",
-        view_base_href(UiRouteMode::Speaker, app_path),
-        encode_query_value(tour_id.trim())
+        "{}/presentation/{}",
+        view_base_href(UiRouteMode::Copilot, app_path),
+        encode_query_value(presentation_id.trim())
     )
+}
+
+/// 兼容旧链接：`/apps/speaker/.../tour/...`。
+#[allow(dead_code)] // 稳定对外别名；运行时由服务端 307 重定向，保留供测试与外部引用。
+pub fn speaker_tour_href(app_path: &str, tour_id: &str) -> String {
+    copilot_presentation_href(app_path, tour_id)
 }
 
 pub fn cross_app_href(
@@ -112,7 +118,7 @@ pub fn cross_app_href(
     match view {
         UiRouteMode::App => app_scene_href(app_path, None, None, None),
         UiRouteMode::Run => run_scene_href(app_path, None),
-        UiRouteMode::Speaker => speaker_tour_href(app_path, "intro"),
+        UiRouteMode::Copilot => copilot_presentation_href(app_path, "intro"),
         UiRouteMode::Build => build_href_with_catalog(app_path, None, None, catalog, pack),
         UiRouteMode::Config => config_href(app_path),
         UiRouteMode::Upload => upload_href(app_path, None),
@@ -149,5 +155,19 @@ pub fn runtime_href_with_catalog(
         base
     } else {
         format!("{base}?{}", parts.join("&"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{copilot_presentation_href, speaker_tour_href};
+
+    #[test]
+    fn speaker_tour_href_aliases_copilot_presentation() {
+        assert_eq!(
+            speaker_tour_href("mini-park", "intro"),
+            copilot_presentation_href("mini-park", "intro")
+        );
+        assert!(speaker_tour_href("mini-park", "intro").contains("/apps/copilot/mini-park/presentation/intro"));
     }
 }

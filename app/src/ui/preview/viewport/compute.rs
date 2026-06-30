@@ -60,7 +60,7 @@ pub(crate) fn effective_viewport_overflow(
         UiRouteMode::Build | UiRouteMode::Config | UiRouteMode::Upload | UiRouteMode::Runtime => {
             "debug".to_string()
         }
-        UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Speaker => "clip".to_string(),
+        UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot => "clip".to_string(),
     }
 }
 
@@ -169,7 +169,7 @@ pub(crate) fn effective_viewport_safe_inset(
             viewport.edit_safe_bottom,
             viewport.edit_safe_left,
         ),
-        UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Speaker => (
+        UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot => (
             viewport.safe_top,
             viewport.safe_right,
             viewport.safe_bottom,

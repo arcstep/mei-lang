@@ -1,6 +1,9 @@
-use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
+use std::path::Path;
 
+use leptos::prelude::*;
+use mei_lang_kernel::{read_source_file, CompiledApp, WorkspaceAppMeta};
+
+use super::access_ai_entry::access_ai_floating_entry;
 use super::manage_routing::WorldSemanticQuery;
 use super::preview;
 use super::route::UiRouteMode;
@@ -10,51 +13,31 @@ use super::shell_preview_layout::{
 };
 use super::{HostAccountView, TopbarMenuContext};
 
-const MINI_PARK_INTRO_TOUR_JSON: &str = r#"{
-  "id": "intro",
-  "title": "迷你公园导览",
-  "steps": [
-    {
-      "id": "home_intro",
-      "title": "公园总览",
-      "caption": "迷你公园驾驶舱以观察窗对准湖心区域，左右 rail 承载四个叙事观点入口。",
-      "scene": "home",
-      "actions": [
-        { "type": "highlight", "viewpoint": "park_overview_stage" }
-      ]
-    },
-    {
-      "id": "point_1_story",
-      "title": "① 湖心亭",
-      "caption": "湖心亭是观景核心，二层论据板展开空间焦点与停留数据。",
-      "scene": "park_point_1_board",
-      "route": "/apps/app/mini-park/scene/park_point_1_board",
-      "actions": [
-        { "type": "highlight", "viewpoint": "park_point_1_entry" }
-      ]
-    },
-    {
-      "id": "point_2_story",
-      "title": "② 樱花道",
-      "caption": "樱花道承担动线引导，串联湖心、游乐与配套区。",
-      "scene": "park_point_2_board",
-      "route": "/apps/app/mini-park/scene/park_point_2_board",
-      "actions": [
-        { "type": "highlight", "viewpoint": "park_point_2_entry" }
-      ]
-    }
-  ]
-}"#;
+fn presentation_manifest_candidates(presentation_id: &str) -> [String; 2] {
+    [
+        format!("src/presentation/{presentation_id}.presentation.json"),
+        format!("presentation/{presentation_id}.presentation.json"),
+    ]
+}
 
-fn speaker_tour_json(app_path: &str, tour_id: Option<&str>) -> Option<&'static str> {
-    let tour = tour_id.map(str::trim).filter(|value| !value.is_empty())?;
-    if app_path == "mini-park" && tour == "intro" {
-        return Some(MINI_PARK_INTRO_TOUR_JSON);
+fn load_presentation_manifest_json(
+    compiled: &CompiledApp,
+    presentation_id: &str,
+) -> Option<String> {
+    let app_root = Path::new(compiled.app_root.as_str());
+    for rel in presentation_manifest_candidates(presentation_id) {
+        let path = app_root.join(&rel);
+        if let Ok(content) = read_source_file(&path) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                return Some(content);
+            }
+        }
     }
     None
 }
 
-pub(crate) fn speaker_shell(
+pub(crate) fn copilot_shell(
     _apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
     app_path: &str,
@@ -67,12 +50,13 @@ pub(crate) fn speaker_shell(
     _auth_enabled: bool,
     _auth_account: Option<&HostAccountView>,
 ) -> AnyView {
-    let tour_id = selected_scene
+    let presentation_id = selected_scene
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("intro");
-    let tour_json = speaker_tour_json(app_path, Some(tour_id));
-    let active_scene = tour_json
+    let manifest_json = load_presentation_manifest_json(compiled, presentation_id);
+    let active_scene = manifest_json
+        .as_ref()
         .and_then(|_| {
             compiled
                 .scene_routes
@@ -82,9 +66,10 @@ pub(crate) fn speaker_shell(
         })
         .unwrap_or(compiled.active_target_file.as_str());
     let bootstrap_scene = Some("home");
+    let panel_tab = "preview";
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = format!(
-        "{} speaker-shell mei-surface-shell mei-text-inverse",
+        "{} copilot-shell mei-surface-shell mei-text-inverse",
         access_shell_grid_class(true, stage_enabled)
     );
     let main_class = access_main_preview_class(true, stage_enabled);
@@ -93,25 +78,32 @@ pub(crate) fn speaker_shell(
         compiled,
         app_path,
         active_scene,
-        UiRouteMode::Speaker,
+        UiRouteMode::Copilot,
         WorldSemanticQuery::default(),
         None,
         None,
     );
-    let tour_script = tour_json.map(|json| {
+    let manifest_script = manifest_json.map(|json| {
         view! {
-            <script type="application/json" id="mei-speaker-tour">{json}</script>
+            <script type="application/json" id="mei-presentation-manifest">{json}</script>
         }
     });
+    let floating_entry =
+        access_ai_floating_entry(compiled, app_path, active_scene, panel_tab);
 
     view! {
-        <div id="speaker-shell" class=shell_class data-speaker-tour=tour_id>
+        <div
+            id="copilot-shell"
+            class=shell_class
+            data-copilot-presentation=presentation_id
+        >
             {host_ssr_bootstrap_scripts(compiled, app_path, bootstrap_scene)}
-            {tour_script}
+            {manifest_script}
             <main class=main_class>
                 <section class=preview_panel_class>
                     {preview}
                 </section>
+                {floating_entry}
             </main>
         </div>
     }

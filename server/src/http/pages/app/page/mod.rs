@@ -32,8 +32,9 @@ use super::page_render::{
     lightweight_access_scene, list_upload_files, upload_rel_from_config,
 };
 use super::query::{
-    access_canonical_location, access_sanitized_redirect_location, legacy_access_redirect_location,
-    legacy_manage_redirect_location, parse_access_scene_path, parse_speaker_tour_tail,
+    access_canonical_location, access_sanitized_redirect_location, copilot_presentation_canonical_location,
+    legacy_access_redirect_location, legacy_manage_redirect_location, legacy_speaker_redirect_location,
+    parse_access_scene_path, parse_copilot_presentation_tail, parse_speaker_tour_tail,
     presentation_sanitized_redirect_location, AppQuery,
 };
 
@@ -71,11 +72,18 @@ pub async fn app_page(
         let location = legacy_manage_redirect_location(&app_id_raw, &query);
         return Ok(Redirect::temporary(&location).into_response());
     }
+    if mode == "speaker" {
+        let location = legacy_speaker_redirect_location(&app_id_raw);
+        return Ok(Redirect::temporary(&location).into_response());
+    }
     let route_mode = UiRouteMode::from_slug(&mode);
     let app_id_trimmed = app_id_raw.trim_start_matches('/').to_string();
-    let (app_id, url_path_scene, speaker_tour_id) = if route_mode == UiRouteMode::Speaker {
-        if let Some((app, tour)) = parse_speaker_tour_tail(&app_id_trimmed) {
-            (app, None, Some(tour))
+    let (app_id, url_path_scene, copilot_presentation_id) = if route_mode == UiRouteMode::Copilot {
+        if let Some((app, presentation_id)) = parse_copilot_presentation_tail(&app_id_trimmed) {
+            (app, None, Some(presentation_id))
+        } else if let Some((app, tour)) = parse_speaker_tour_tail(&app_id_trimmed) {
+            let location = copilot_presentation_canonical_location(&app, &tour);
+            return Ok(Redirect::temporary(&location).into_response());
         } else {
             (app_id_trimmed, None, None)
         }
@@ -210,7 +218,7 @@ pub async fn app_page(
         None
     };
     let mut compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
-        if speaker_tour_id.is_some() {
+        if copilot_presentation_id.is_some() {
             Some("home".to_string())
         } else {
             url_path_scene
@@ -346,7 +354,7 @@ pub async fn app_page(
     let discover_ms = elapsed_ms(discover_started);
     let app_title = app_title_for(&apps, &app_id);
     let chrome_hidden = route_mode == UiRouteMode::Run
-        || route_mode == UiRouteMode::Speaker
+        || route_mode == UiRouteMode::Copilot
         || access_only_surface
         || query
             .chrome
@@ -463,6 +471,6 @@ pub async fn app_page(
         account_view.as_ref(),
         discover_ms,
         app_started,
-        speaker_tour_id.as_deref(),
+        copilot_presentation_id.as_deref(),
     ))
 }

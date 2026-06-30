@@ -58,7 +58,7 @@ pub(crate) fn build_preview_runtime_context(
         resources: build_runtime_resource_map(compiled),
         host_ssr_slim_payload: matches!(
             route_mode,
-            UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Speaker | UiRouteMode::Build
+            UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Build
         ),
         build_inspect_enabled: route_mode == UiRouteMode::Build,
         build_preview_scope: build_preview_scope

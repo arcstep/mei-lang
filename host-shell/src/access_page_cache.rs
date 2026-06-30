@@ -256,7 +256,7 @@ pub fn resolve_access_page_html(
     query: &AppQuery,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
-    speaker_tour_id: Option<&str>,
+    copilot_presentation_id: Option<&str>,
 ) -> anyhow::Result<ResolvedAccessPageHtml> {
     let app_ctx = mei_host_core::HostContext::new(workspace_root.to_path_buf(), app_id.to_string());
     let gis = GisTilesConfig::resolve_for_app(
@@ -295,7 +295,7 @@ pub fn resolve_access_page_html(
                 query,
                 auth_enabled,
                 account_view,
-                speaker_tour_id,
+                copilot_presentation_id,
             )?;
             let _ = store_access_page_template(
                 workspace_root,
@@ -318,7 +318,7 @@ pub fn resolve_access_page_html(
             query,
             auth_enabled,
             account_view,
-            speaker_tour_id,
+            copilot_presentation_id,
         )?
     };
     Ok(ResolvedAccessPageHtml {
@@ -338,7 +338,7 @@ pub fn render_access_page_template(
     query: &AppQuery,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
-    speaker_tour_id: Option<&str>,
+    copilot_presentation_id: Option<&str>,
 ) -> anyhow::Result<String> {
     let outcome = mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)?
         .ok_or_else(|| anyhow::anyhow!("scene `{scene_id}` not assembled for app `{app_id}`"))?;
@@ -372,8 +372,8 @@ pub fn render_access_page_template(
     } else {
         None
     };
-    let selected_scene = if route_mode == UiRouteMode::Speaker {
-        speaker_tour_id.or(Some(scene_id))
+    let selected_scene = if route_mode == UiRouteMode::Copilot {
+        copilot_presentation_id.or(Some(scene_id))
     } else {
         Some(scene_id)
     };

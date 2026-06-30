@@ -8,6 +8,16 @@ use mei_host_core::HostContext;
 use crate::build_ops::OpsJobState;
 use crate::managed_plug::ManagedPlugDsPool;
 
+/// Per-app lazy import state (avoids infinite retry when bundle is missing).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AppMaterializationState {
+    InProgress,
+    Failed {
+        message: String,
+        missing_artifacts: bool,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct ShellState {
     pub ctx: HostContext,
@@ -25,6 +35,7 @@ pub struct ShellState {
     pub startup_phase: String,
     pub startup_detail: Option<String>,
     pub startup_error: Option<String>,
+    pub app_materialization: BTreeMap<String, AppMaterializationState>,
 }
 
 impl ShellState {
@@ -53,6 +64,7 @@ impl ShellState {
             startup_phase: "preparing".to_string(),
             startup_detail: Some("正在启动 MeiLang 宿主服务…".to_string()),
             startup_error: None,
+            app_materialization: BTreeMap::new(),
         }
     }
 

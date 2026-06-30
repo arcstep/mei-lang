@@ -19,7 +19,7 @@ mod shell_access;
 mod shell_config;
 mod shell_manage;
 mod shell_presentation;
-mod shell_speaker;
+mod shell_copilot;
 mod shell_preview_layout;
 mod shell_runtime;
 mod shell_upload;
@@ -40,7 +40,7 @@ use shell_access::access_shell;
 use shell_config::config_shell;
 use shell_manage::manage_shell;
 use shell_presentation::presentation_shell;
-use shell_speaker::speaker_shell;
+use shell_copilot::copilot_shell;
 use shell_upload::upload_shell;
 
 pub use preview::{
@@ -206,7 +206,7 @@ pub fn render_page(
             auth_enabled,
             auth_account,
         ),
-        UiRouteMode::Speaker => speaker_shell(
+        UiRouteMode::Copilot => copilot_shell(
             apps,
             compiled,
             app_path,

@@ -591,6 +591,18 @@ fn is_missing_artifact_error(error: &anyhow::Error) -> bool {
         || text.contains("run prebuild")
 }
 
+/// Import the app's meibundle when MCG registry is missing or empty (e.g. after `--skip-prebuild`).
+pub(crate) fn try_ensure_app_registry_materialized(
+    workspace: &std::path::Path,
+    app_id: &str,
+) -> anyhow::Result<()> {
+    if crate::landing::app_has_prebuilt_access_entry(workspace, app_id) {
+        return Ok(());
+    }
+    let ctx = HostContext::new(workspace.to_path_buf(), app_id.to_string());
+    try_ensure_registry_materialized(&ctx)
+}
+
 fn try_ensure_registry_materialized(ctx: &HostContext) -> anyhow::Result<()> {
     let mcg_path = mei_host_graph::mcg_registry_path(
         ctx.workspace_root.as_path(),
@@ -611,8 +623,9 @@ fn try_ensure_registry_materialized(ctx: &HostContext) -> anyhow::Result<()> {
         );
     }
     tracing::info!(
+        app_id = %ctx.app_id,
         bundle = %mei_host_core::path_for_log(ctx.workspace_root.as_path(), bundle_path.as_path()),
-        "auto-importing meibundle during startup"
+        "auto-importing meibundle for app access"
     );
     mei_host_graph::import_bundle(
         ctx,
