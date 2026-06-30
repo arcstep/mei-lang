@@ -83,7 +83,12 @@ pub fn import_with_options(
     crate::build_info::log_host_identity(Some(workspace.as_path()), "import");
     let ctx = mei_host_core::HostContext::new(workspace, app.to_string());
     let options = mei_host_graph::ImportOptions { bundle_path: bundle };
-    mei_host_graph::import_bundle(&ctx, &options).map_err(|e| anyhow::anyhow!("{e}"))
+    let report = mei_host_graph::import_bundle(&ctx, &options).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let _ = crate::access_page_cache::clear_access_page_render_cache_for_app(
+        ctx.workspace_root.as_path(),
+        app,
+    );
+    Ok(report)
 }
 
 pub fn reload_pipeline(workspace: &Path, app: &str) -> anyhow::Result<ReloadOutcome> {

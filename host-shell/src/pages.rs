@@ -15,6 +15,10 @@ use std::time::Instant;
 
 use crate::build_info::fill_page_shell_placeholders;
 use crate::landing::{choose_default_app, discover_workspace_apps, enrich_discovered_apps};
+use crate::access_page_cache::{
+    access_page_cache_key, insert_page_render_cache_hit_header, render_access_page_template,
+    store_access_page_template, take_access_page_template,
+};
 use crate::page_observability::{
     fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
     measure_page_html_payload,
@@ -72,41 +76,8 @@ pub async fn app_page(
     }
     let scene_id = scene_id.unwrap_or_else(|| "home".to_string());
     let request_started = Instant::now();
-    let assemble_result = mei_host_graph::assemble_scope_from_registry(
-        workspace_root,
-        app_id.as_str(),
-        scene_id.as_str(),
-    );
-    let outcome = match assemble_result {
-        Ok(Some(outcome)) => outcome,
-        Ok(None) => {
-            tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
-            return (
-                StatusCode::NOT_FOUND,
-                format!(
-                    "scene not assembled for app `{app_id}`; run prebuild for this app"
-                ),
-            )
-                .into_response();
-        }
-        Err(error) => {
-            tracing::warn!(
-                app_id = %app_id,
-                scene_id = %scene_id,
-                error = %error,
-                "assemble failed"
-            );
-            return (
-                StatusCode::NOT_FOUND,
-                format!("scene not assembled: {error}"),
-            )
-                .into_response();
-        }
-    };
     let topbar_menu = load_topbar_menu_context(workspace_root);
     let apps = enrich_discovered_apps(apps.as_slice(), &topbar_menu);
-    let workspace = load_workspace_config(workspace_root);
-    let theme_style = page_body_theme_style(&workspace, Some(&outcome.compiled), None);
     let app_ctx = guard.host_ctx_for_app(app_id.as_str());
     let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
         app_ctx.app_root().as_path(),
@@ -115,82 +86,205 @@ pub async fn app_page(
     );
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
-    let runtime_snapshot_json_owned;
-    let runtime_roots_owned;
-    if route_mode == UiRouteMode::Runtime {
-        let snapshot = crate::runtime_snapshot::build_runtime_snapshot(&guard, app_id.as_str());
-        runtime_snapshot_json_owned =
-            serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string());
-        runtime_roots_owned = crate::runtime_snapshot::management_roots_from_snapshot(&snapshot);
-    } else {
-        runtime_snapshot_json_owned = String::new();
-        runtime_roots_owned = Vec::new();
-    }
-    let runtime_roots_ref = if route_mode == UiRouteMode::Runtime {
-        Some(runtime_roots_owned.as_slice())
-    } else {
-        None
-    };
-    let runtime_json_ref = if route_mode == UiRouteMode::Runtime {
-        Some(runtime_snapshot_json_owned.as_str())
-    } else {
-        None
-    };
-    let render_started = Instant::now();
-    let mut html = crate::gis_config::fill_gis_tiles_placeholders(
-        inject_layer_plane_scripts(
-            inject_client_bootstrap_script(
-                fill_page_shell_placeholders(
-                    render_page(
-                        apps.as_slice(),
-                        &outcome.compiled,
-                        app_id.as_str(),
-                        Some(&topbar_menu),
-                        route_mode,
-                        Some(outcome.compiled.active_target_file.as_str()),
-                        None,
-                        None,
-                        Some(scene_id.as_str()),
-                        None,
-                        query.tab.as_deref(),
-                        None,
-                        None,
-                        None,
-                        query.node.as_deref(),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        false,
-                        false,
-                        None,
-                        &[],
-                        auth_enabled,
-                        account_view.as_ref(),
-                        None,
-                        theme_style.as_str(),
-                        runtime_roots_ref,
-                        runtime_json_ref,
-                    ),
-                    workspace_root,
-                ),
+    let cache_key = access_page_cache_key(
+        workspace_root,
+        app_id.as_str(),
+        scene_id.as_str(),
+        route_mode,
+        auth_enabled,
+        account_view.as_ref(),
+        &gis,
+    );
+    let mut page_render_cache_hit = false;
+    let (mut html, ssr_emit_ms) = if route_mode.is_access_like() {
+        if let Some(ref key) = cache_key {
+            if let Some(cached) = take_access_page_template(
                 workspace_root,
                 app_id.as_str(),
                 scene_id.as_str(),
+                key.as_str(),
+            ) {
+                page_render_cache_hit = true;
+                (cached, 0)
+            } else {
+                let render_started = Instant::now();
+                match render_access_page_template(
+                    workspace_root,
+                    apps.as_slice(),
+                    &topbar_menu,
+                    app_id.as_str(),
+                    scene_id.as_str(),
+                    route_mode,
+                    &query,
+                    auth_enabled,
+                    account_view.as_ref(),
+                ) {
+                    Ok(template) => {
+                        let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
+                        let _ = store_access_page_template(
+                            workspace_root,
+                            app_id.as_str(),
+                            scene_id.as_str(),
+                            key.as_str(),
+                            template.as_str(),
+                        );
+                        (template, ssr_emit_ms)
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            app_id = %app_id,
+                            scene_id = %scene_id,
+                            error = %error,
+                            "access page render failed"
+                        );
+                        return (
+                            StatusCode::NOT_FOUND,
+                            format!("scene not assembled: {error}"),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+        } else {
+            let render_started = Instant::now();
+            match render_access_page_template(
+                workspace_root,
+                apps.as_slice(),
+                &topbar_menu,
+                app_id.as_str(),
+                scene_id.as_str(),
+                route_mode,
+                &query,
+                auth_enabled,
+                account_view.as_ref(),
+            ) {
+                Ok(template) => (template, render_started.elapsed().as_millis() as u64),
+                Err(error) => {
+                    tracing::warn!(
+                        app_id = %app_id,
+                        scene_id = %scene_id,
+                        error = %error,
+                        "access page render failed"
+                    );
+                    return (
+                        StatusCode::NOT_FOUND,
+                        format!("scene not assembled: {error}"),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    } else {
+        let assemble_result = mei_host_graph::assemble_scope_from_registry(
+            workspace_root,
+            app_id.as_str(),
+            scene_id.as_str(),
+        );
+        let outcome = match assemble_result {
+            Ok(Some(outcome)) => outcome,
+            Ok(None) => {
+                tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
+                return (
+                    StatusCode::NOT_FOUND,
+                    format!(
+                        "scene not assembled for app `{app_id}`; run prebuild for this app"
+                    ),
+                )
+                    .into_response();
+            }
+            Err(error) => {
+                tracing::warn!(
+                    app_id = %app_id,
+                    scene_id = %scene_id,
+                    error = %error,
+                    "assemble failed"
+                );
+                return (
+                    StatusCode::NOT_FOUND,
+                    format!("scene not assembled: {error}"),
+                )
+                    .into_response();
+            }
+        };
+        let workspace = load_workspace_config(workspace_root);
+        let theme_style = page_body_theme_style(&workspace, Some(&outcome.compiled), None);
+        let runtime_snapshot_json_owned;
+        let runtime_roots_owned;
+        if route_mode == UiRouteMode::Runtime {
+            let snapshot = crate::runtime_snapshot::build_runtime_snapshot(&guard, app_id.as_str());
+            runtime_snapshot_json_owned =
+                serde_json::to_string(&snapshot).unwrap_or_else(|_| "{}".to_string());
+            runtime_roots_owned = crate::runtime_snapshot::management_roots_from_snapshot(&snapshot);
+        } else {
+            runtime_snapshot_json_owned = String::new();
+            runtime_roots_owned = Vec::new();
+        }
+        let runtime_roots_ref = if route_mode == UiRouteMode::Runtime {
+            Some(runtime_roots_owned.as_slice())
+        } else {
+            None
+        };
+        let runtime_json_ref = if route_mode == UiRouteMode::Runtime {
+            Some(runtime_snapshot_json_owned.as_str())
+        } else {
+            None
+        };
+        let render_started = Instant::now();
+        let html = crate::gis_config::fill_gis_tiles_placeholders(
+            inject_layer_plane_scripts(
+                inject_client_bootstrap_script(
+                    fill_page_shell_placeholders(
+                        render_page(
+                            apps.as_slice(),
+                            &outcome.compiled,
+                            app_id.as_str(),
+                            Some(&topbar_menu),
+                            route_mode,
+                            Some(outcome.compiled.active_target_file.as_str()),
+                            None,
+                            None,
+                            Some(scene_id.as_str()),
+                            None,
+                            query.tab.as_deref(),
+                            None,
+                            None,
+                            None,
+                            query.node.as_deref(),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            false,
+                            false,
+                            None,
+                            &[],
+                            auth_enabled,
+                            account_view.as_ref(),
+                            None,
+                            theme_style.as_str(),
+                            runtime_roots_ref,
+                            runtime_json_ref,
+                        ),
+                        workspace_root,
+                    ),
+                    workspace_root,
+                    app_id.as_str(),
+                    scene_id.as_str(),
+                ),
+                &outcome,
             ),
-            &outcome,
-        ),
-        &gis,
-    );
-    let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
+            &gis,
+        );
+        (html, render_started.elapsed().as_millis() as u64)
+    };
     let handler_html_ready_ms = request_started.elapsed().as_millis() as u64;
     html = fill_manage_wall_clock_placeholders(html, ssr_emit_ms, handler_html_ready_ms);
     let payload_stats = measure_page_html_payload(html.as_str());
     html = fill_page_load_observability_placeholders(
         html,
         ssr_emit_ms,
-        false,
+        page_render_cache_hit,
         payload_stats.html_bytes,
         payload_stats.data_props_bytes,
         payload_stats.data_props_count,
@@ -219,6 +313,7 @@ pub async fn app_page(
             .headers_mut()
             .insert(HeaderName::from_static("x-mei-data-props-count"), value);
     }
+    insert_page_render_cache_hit_header(&mut response, page_render_cache_hit);
     response
 }
 
@@ -299,7 +394,7 @@ fn parse_app_scene_path(app_tail: &str, scene_query: Option<&str>) -> (String, O
     (app_id, scene)
 }
 
-fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph::AssembleOutcome) -> String {
+pub(crate) fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph::AssembleOutcome) -> String {
     let layer_plan =
         serde_json::to_string(&outcome.layer_plan).unwrap_or_else(|_| "{}".to_string());
     let presentation_map =
@@ -320,7 +415,7 @@ fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph::AssembleOu
     }
 }
 
-fn inject_client_bootstrap_script(
+pub(crate) fn inject_client_bootstrap_script(
     html: String,
     workspace_root: &std::path::Path,
     app_id: &str,

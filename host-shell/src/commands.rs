@@ -49,14 +49,20 @@ fn run_eval_cache_invalidate(args: EvalCacheInvalidateArgs) -> anyhow::Result<()
         args.app.as_str(),
         args.force,
     )?;
+    let page_cache_cleared =
+        crate::access_page_cache::clear_access_page_render_cache_for_app(
+            workspace.as_path(),
+            args.app.as_str(),
+        );
     println!(
-        "[{}] eval-cache invalidate ok: app={} force={} removed={} retained={} cleared_bootstrap_scopes={} removed_bytes={} ({})",
+        "[{}] eval-cache invalidate ok: app={} force={} removed={} retained={} cleared_bootstrap_scopes={} cleared_page_render_cache={} removed_bytes={} ({})",
         mei_host_core::log_timestamp_rfc3339(),
         args.app,
         report.force_cleared,
         report.removed_artifact_files,
         report.retained_artifact_files,
         report.cleared_bootstrap_scopes,
+        page_cache_cleared,
         report.removed_bytes,
         mei_host_core::format_bytes_human(report.removed_bytes),
     );
@@ -167,6 +173,12 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
         println!("promoted {build_id}");
     } else {
         println!("finalized candidate {}", args.build_id);
+    }
+    let auth_enabled = false;
+    let primed =
+        crate::access_page_cache::warm_access_page_render_caches(workspace.as_path(), &app_ids, auth_enabled);
+    if primed > 0 {
+        println!("page-render-cache primed={primed}");
     }
     Ok(())
 }
@@ -569,6 +581,21 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         .unwrap_or(args.workspace.clone());
     crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
     let package_root = resolve_package_root()?;
+    if let Some(report) =
+        mei_host_core::ensure_workspace_stock_materialized(workspace.as_path(), package_root.as_path())?
+    {
+        if report.components.copied_files > 0
+            || report.templates.copied_files > 0
+            || report.authoring.copied_files > 0
+        {
+            println!(
+                "Stock:     refreshed workspace stock (components={} templates={} authoring={})",
+                report.components.copied_files,
+                report.templates.copied_files,
+                report.authoring.copied_files,
+            );
+        }
+    }
     let default_app_id = args.app.clone();
     let default_ctx =
         mei_host_core::HostContext::new(workspace.clone(), default_app_id.clone());
@@ -614,6 +641,20 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         managed_pool.is_some(),
     )));
     refresh_host_materialization_flags(&shell);
+    let discovered = crate::landing::discover_workspace_apps(workspace.as_path()).unwrap_or_default();
+    let app_ids: Vec<String> = if discovered.is_empty() {
+        vec![default_app_id.clone()]
+    } else {
+        discovered.into_iter().map(|app| app.id).collect()
+    };
+    let primed = crate::access_page_cache::warm_access_page_render_caches(
+        workspace.as_path(),
+        app_ids.as_slice(),
+        args.auth,
+    );
+    if primed > 0 {
+        println!("Page SSR cache: primed {primed} access scene(s) from warmup manifest");
+    }
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
     let state = HostHttpState {
         shell,
