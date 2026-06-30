@@ -51,12 +51,30 @@
     };
   }
 
-  function markProjectionOpenHandled(detail) {
+  function projectionOpenDedupeKey(detail, config) {
+    const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId, detail?.scene_id);
+    const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
+    const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    return [sceneId, datasetId, metricId].filter(Boolean).join("|");
+  }
+
+  function markProjectionOpenHandled(detail, config) {
     if (!detail || typeof detail !== "object") {
       return false;
     }
     if (detail.__meiProjectionOpenHandled === true) {
       return true;
+    }
+    const key = projectionOpenDedupeKey(detail, config);
+    const now = Date.now();
+    const lastKey = boot.__meiLastProjectionOpenKey || "";
+    const lastAt = Number(boot.__meiLastProjectionOpenAt || 0);
+    if (key && key === lastKey && now - lastAt < 600) {
+      return true;
+    }
+    if (key) {
+      boot.__meiLastProjectionOpenKey = key;
+      boot.__meiLastProjectionOpenAt = now;
     }
     try {
       Object.defineProperty(detail, "__meiProjectionOpenHandled", {
@@ -151,14 +169,13 @@
       ),
     };
     await prewarmProjectionScope(layer2Config);
-    if (typeof boot.beginDrilldownLoadSession === "function") {
-      boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
-    }
     const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
     if (useLayer2 && typeof boot.openLayer2Tab === "function") {
-      closeDrilldownOverlay();
       closeSceneBoardOverlay();
       const root = boot.openLayer2Tab(layer2Config);
+      if (typeof boot.beginDrilldownLoadSession === "function") {
+        boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
+      }
       triggerScopeActivationWarmup(layer2Config);
       if (config.boardFrameScene) {
         await renderFrameBoardSceneContent(root, detail, config);
@@ -181,6 +198,9 @@
       root.removeAttribute("hidden");
       root.classList.add("is-open");
       document.body.classList.add("access-scene-board-open");
+      if (typeof boot.beginDrilldownLoadSession === "function") {
+        boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
+      }
       triggerScopeActivationWarmup(layer2Config);
       await renderStructuredDrilldownContent(root, detail, config);
       return;
@@ -191,6 +211,9 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-drilldown-open");
+    if (typeof boot.beginDrilldownLoadSession === "function") {
+      boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
+    }
     triggerScopeActivationWarmup(layer2Config);
     if (config.boardFrameScene) {
       if (!(await renderFrameBoardSceneContent(root, detail, config))) {
@@ -221,8 +244,8 @@
       if (!shouldMountDrilldownHost()) return;
       if (typeof isBuildRoute === "function" && isBuildRoute()) return;
       const detail = event?.detail || {};
-      if (markProjectionOpenHandled(detail)) return;
       const config = resolveSceneOpenRequest(detail);
+      if (markProjectionOpenHandled(detail, config)) return;
       if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
         if (config.errorMessage) {
           recordPopupDebugIssue({

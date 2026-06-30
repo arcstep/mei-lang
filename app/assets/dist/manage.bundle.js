@@ -7611,7 +7611,9 @@
     const ctx = collectVisitContext(opts.url || base.href || base.path);
     const scene =
       String(opts.scene || base.scene || ctx.scene || "").trim() ||
-      (base.kind === "drilldown" ? String(base.path || base.label || "").trim() : "");
+      (base.kind === "drilldown"
+        ? String(opts.scope || base.scope || base.path || base.label || "").trim()
+        : "");
     return {
       ...base,
       workspace: base.workspace || ctx.workspace,
@@ -7640,6 +7642,10 @@
 
   function formatRecordForAgent(item) {
     if (!item || typeof item !== "object") return "";
+    const normalized =
+      typeof boot.normalizeVisitPerfTotals === "function"
+        ? boot.normalizeVisitPerfTotals(item)
+        : item;
     const atIso = new Date(Number(item.at) || 0).toISOString();
     const lines = [
       `## 访问记录 ${item.id || ""}`.trim(),
@@ -7654,7 +7660,7 @@
       `- 场景: ${item.scene || "—"}`,
       `- 文件: ${item.file || "—"}`,
       `- 标签: ${item.label || "—"}`,
-      `- 性能: 渲染 ${item.renderMs}ms · 求值 ${item.evalMs}ms · 总计 ${item.totalMs}ms`,
+      `- 性能: 渲染 ${normalized.renderMs}ms · 求值 ${normalized.evalMs}ms · 总计 ${normalized.totalMs}ms`,
       `- 后台 API: ${item.apiTotal || 0} 次${item.apiFailed ? `（失败 ${item.apiFailed}）` : ""}`,
       `- SSR 就绪: ${item.handlerReadyMs ? `${item.handlerReadyMs}ms` : "—"}`,
       `- 进度 UI: ${item.uiShown ? "已显示" : "未提示(<1s)"}`,
@@ -7870,6 +7876,40 @@
     return Math.max(0, Math.round(evalMs));
   }
 
+  function computeTotalMs(session, atMs) {
+    if (!session) return 0;
+    const now = Number.isFinite(Number(atMs)) ? Number(atMs) : Date.now();
+    const renderMs = computeRenderMs(session);
+    const evalMs = computeEvalMs(session);
+    const wallMs = Math.max(0, Math.round(now - session.wallStartedAt));
+    const handlerReadyMs = Number(session.compile?.handlerReadyMs);
+    // Initial/SSR loads create the client session after HTML is ready; handlerReadyMs
+    // is measured from navigation start on the server, so wallMs only covers client eval.
+    if (Number.isFinite(handlerReadyMs) && handlerReadyMs > 0 && handlerReadyMs > wallMs) {
+      return Math.max(wallMs, Math.round(handlerReadyMs + evalMs));
+    }
+    return Math.max(wallMs, renderMs + evalMs);
+  }
+
+  function normalizeVisitPerfTotals(item) {
+    if (!item || typeof item !== "object") return item;
+    const renderMs = Math.max(0, Math.round(Number(item.renderMs) || 0));
+    const evalMs = Math.max(0, Math.round(Number(item.evalMs) || 0));
+    const handlerReadyMs = Math.max(0, Math.round(Number(item.handlerReadyMs) || 0));
+    let totalMs = Math.max(0, Math.round(Number(item.totalMs) || 0));
+    const sequentialTotal =
+      handlerReadyMs > 0 && handlerReadyMs > totalMs
+        ? handlerReadyMs + evalMs
+        : renderMs + evalMs;
+    if (sequentialTotal > totalMs) {
+      totalMs = sequentialTotal;
+    }
+    if (totalMs === item.totalMs) {
+      return item;
+    }
+    return { ...item, totalMs };
+  }
+
   function ensureApiKindSummary(session, kind) {
     if (!session) return null;
     if (!session.api || typeof session.api !== "object") session.api = {};
@@ -7924,7 +7964,7 @@
     } else if (session.phases.eval.status === "done" && session.phases.eval.detail !== "无运行时 API") {
       parts.push(`求值 ${formatLoadMs(evalMs)}`);
     }
-    parts.push(`总计 ${formatLoadMs(Date.now() - session.wallStartedAt)}`);
+    parts.push(`总计 ${formatLoadMs(computeTotalMs(session))}`);
     return [parts.join(" · ")];
   }
 
@@ -7989,7 +8029,7 @@
       path: session.path || session.url || "",
       renderMs: computeRenderMs(session),
       evalMs: computeEvalMs(session),
-      totalMs: Math.max(0, Date.now() - session.wallStartedAt),
+      totalMs: computeTotalMs(session),
       apiTotal: session.api.total,
       apiFailed: session.api.failed,
       apiBytes: Number(session.api.bytes) || 0,
@@ -8011,6 +8051,7 @@
         ? boot.enrichVisitHistoryRecord(record, {
             url: session.url || session.path,
             scene: session.kind === "drilldown" ? session.path : "",
+            scope: session.kind === "drilldown" ? session.path : "",
             apiCalls: record.apiCalls,
             apiFailed: record.apiFailed,
             handlerReadyMs: record.handlerReadyMs,
@@ -8044,6 +8085,8 @@
   boot.resolveActiveLoadPhase = resolveActiveLoadPhase;
   boot.computeRenderMs = computeRenderMs;
   boot.computeEvalMs = computeEvalMs;
+  boot.computeTotalMs = computeTotalMs;
+  boot.normalizeVisitPerfTotals = normalizeVisitPerfTotals;
   boot.ensureApiKindSummary = ensureApiKindSummary;
   boot.loadNowMs = loadNowMs;
   boot.loadPhaseProgress = loadPhaseProgress;
@@ -15269,12 +15312,30 @@
     };
   }
 
-  function markProjectionOpenHandled(detail) {
+  function projectionOpenDedupeKey(detail, config) {
+    const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId, detail?.scene_id);
+    const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
+    const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    return [sceneId, datasetId, metricId].filter(Boolean).join("|");
+  }
+
+  function markProjectionOpenHandled(detail, config) {
     if (!detail || typeof detail !== "object") {
       return false;
     }
     if (detail.__meiProjectionOpenHandled === true) {
       return true;
+    }
+    const key = projectionOpenDedupeKey(detail, config);
+    const now = Date.now();
+    const lastKey = boot.__meiLastProjectionOpenKey || "";
+    const lastAt = Number(boot.__meiLastProjectionOpenAt || 0);
+    if (key && key === lastKey && now - lastAt < 600) {
+      return true;
+    }
+    if (key) {
+      boot.__meiLastProjectionOpenKey = key;
+      boot.__meiLastProjectionOpenAt = now;
     }
     try {
       Object.defineProperty(detail, "__meiProjectionOpenHandled", {
@@ -15369,14 +15430,13 @@
       ),
     };
     await prewarmProjectionScope(layer2Config);
-    if (typeof boot.beginDrilldownLoadSession === "function") {
-      boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
-    }
     const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
     if (useLayer2 && typeof boot.openLayer2Tab === "function") {
-      closeDrilldownOverlay();
       closeSceneBoardOverlay();
       const root = boot.openLayer2Tab(layer2Config);
+      if (typeof boot.beginDrilldownLoadSession === "function") {
+        boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
+      }
       triggerScopeActivationWarmup(layer2Config);
       if (config.boardFrameScene) {
         await renderFrameBoardSceneContent(root, detail, config);
@@ -15399,6 +15459,9 @@
       root.removeAttribute("hidden");
       root.classList.add("is-open");
       document.body.classList.add("access-scene-board-open");
+      if (typeof boot.beginDrilldownLoadSession === "function") {
+        boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
+      }
       triggerScopeActivationWarmup(layer2Config);
       await renderStructuredDrilldownContent(root, detail, config);
       return;
@@ -15409,6 +15472,9 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-drilldown-open");
+    if (typeof boot.beginDrilldownLoadSession === "function") {
+      boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
+    }
     triggerScopeActivationWarmup(layer2Config);
     if (config.boardFrameScene) {
       if (!(await renderFrameBoardSceneContent(root, detail, config))) {
@@ -15439,8 +15505,8 @@
       if (!shouldMountDrilldownHost()) return;
       if (typeof isBuildRoute === "function" && isBuildRoute()) return;
       const detail = event?.detail || {};
-      if (markProjectionOpenHandled(detail)) return;
       const config = resolveSceneOpenRequest(detail);
+      if (markProjectionOpenHandled(detail, config)) return;
       if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
         if (config.errorMessage) {
           recordPopupDebugIssue({
@@ -16049,6 +16115,16 @@
 
   function beginDrilldownLoadSession(options) {
     installLoadingProgressFetchHook();
+    const prev = typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
+    if (prev && !prev.finalized && typeof boot.finalizeLoadSession === "function") {
+      boot.finalizeLoadSession(prev, {
+        uiShown: Boolean(prev.uiShown),
+        outcome: prev.kind === "drilldown" ? "aborted" : "ready",
+      });
+      if (typeof boot.clearActiveLoadSession === "function") {
+        boot.clearActiveLoadSession(prev.navigationId);
+      }
+    }
     const opts = options && typeof options === "object" ? options : {};
     const session = boot.createLoadSession({
       kind: "drilldown",

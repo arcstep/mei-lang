@@ -45,11 +45,15 @@
   }
 
   function buildPerfLine(item) {
-    const parts = [`渲染 ${formatMs(item.renderMs)}`];
-    if (Number(item.apiTotal) > 0 || Number(item.evalMs) > 0) {
-      parts.push(`求值 ${formatMs(item.evalMs)}`);
+    const normalized =
+      typeof boot.normalizeVisitPerfTotals === "function"
+        ? boot.normalizeVisitPerfTotals(item)
+        : item;
+    const parts = [`渲染 ${formatMs(normalized.renderMs)}`];
+    if (Number(normalized.apiTotal) > 0 || Number(normalized.evalMs) > 0) {
+      parts.push(`求值 ${formatMs(normalized.evalMs)}`);
     }
-    parts.push(`总计 ${formatMs(item.totalMs)}`);
+    parts.push(`总计 ${formatMs(normalized.totalMs)}`);
     return parts.join(" · ");
   }
 

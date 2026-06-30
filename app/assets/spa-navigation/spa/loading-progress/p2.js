@@ -44,6 +44,16 @@
 
   function beginDrilldownLoadSession(options) {
     installLoadingProgressFetchHook();
+    const prev = typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
+    if (prev && !prev.finalized && typeof boot.finalizeLoadSession === "function") {
+      boot.finalizeLoadSession(prev, {
+        uiShown: Boolean(prev.uiShown),
+        outcome: prev.kind === "drilldown" ? "aborted" : "ready",
+      });
+      if (typeof boot.clearActiveLoadSession === "function") {
+        boot.clearActiveLoadSession(prev.navigationId);
+      }
+    }
     const opts = options && typeof options === "object" ? options : {};
     const session = boot.createLoadSession({
       kind: "drilldown",

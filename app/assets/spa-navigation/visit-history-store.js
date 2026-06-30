@@ -196,7 +196,9 @@
     const ctx = collectVisitContext(opts.url || base.href || base.path);
     const scene =
       String(opts.scene || base.scene || ctx.scene || "").trim() ||
-      (base.kind === "drilldown" ? String(base.path || base.label || "").trim() : "");
+      (base.kind === "drilldown"
+        ? String(opts.scope || base.scope || base.path || base.label || "").trim()
+        : "");
     return {
       ...base,
       workspace: base.workspace || ctx.workspace,
@@ -225,6 +227,10 @@
 
   function formatRecordForAgent(item) {
     if (!item || typeof item !== "object") return "";
+    const normalized =
+      typeof boot.normalizeVisitPerfTotals === "function"
+        ? boot.normalizeVisitPerfTotals(item)
+        : item;
     const atIso = new Date(Number(item.at) || 0).toISOString();
     const lines = [
       `## 访问记录 ${item.id || ""}`.trim(),
@@ -239,7 +245,7 @@
       `- 场景: ${item.scene || "—"}`,
       `- 文件: ${item.file || "—"}`,
       `- 标签: ${item.label || "—"}`,
-      `- 性能: 渲染 ${item.renderMs}ms · 求值 ${item.evalMs}ms · 总计 ${item.totalMs}ms`,
+      `- 性能: 渲染 ${normalized.renderMs}ms · 求值 ${normalized.evalMs}ms · 总计 ${normalized.totalMs}ms`,
       `- 后台 API: ${item.apiTotal || 0} 次${item.apiFailed ? `（失败 ${item.apiFailed}）` : ""}`,
       `- SSR 就绪: ${item.handlerReadyMs ? `${item.handlerReadyMs}ms` : "—"}`,
       `- 进度 UI: ${item.uiShown ? "已显示" : "未提示(<1s)"}`,

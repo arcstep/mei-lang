@@ -139,6 +139,40 @@
     return Math.max(0, Math.round(evalMs));
   }
 
+  function computeTotalMs(session, atMs) {
+    if (!session) return 0;
+    const now = Number.isFinite(Number(atMs)) ? Number(atMs) : Date.now();
+    const renderMs = computeRenderMs(session);
+    const evalMs = computeEvalMs(session);
+    const wallMs = Math.max(0, Math.round(now - session.wallStartedAt));
+    const handlerReadyMs = Number(session.compile?.handlerReadyMs);
+    // Initial/SSR loads create the client session after HTML is ready; handlerReadyMs
+    // is measured from navigation start on the server, so wallMs only covers client eval.
+    if (Number.isFinite(handlerReadyMs) && handlerReadyMs > 0 && handlerReadyMs > wallMs) {
+      return Math.max(wallMs, Math.round(handlerReadyMs + evalMs));
+    }
+    return Math.max(wallMs, renderMs + evalMs);
+  }
+
+  function normalizeVisitPerfTotals(item) {
+    if (!item || typeof item !== "object") return item;
+    const renderMs = Math.max(0, Math.round(Number(item.renderMs) || 0));
+    const evalMs = Math.max(0, Math.round(Number(item.evalMs) || 0));
+    const handlerReadyMs = Math.max(0, Math.round(Number(item.handlerReadyMs) || 0));
+    let totalMs = Math.max(0, Math.round(Number(item.totalMs) || 0));
+    const sequentialTotal =
+      handlerReadyMs > 0 && handlerReadyMs > totalMs
+        ? handlerReadyMs + evalMs
+        : renderMs + evalMs;
+    if (sequentialTotal > totalMs) {
+      totalMs = sequentialTotal;
+    }
+    if (totalMs === item.totalMs) {
+      return item;
+    }
+    return { ...item, totalMs };
+  }
+
   function ensureApiKindSummary(session, kind) {
     if (!session) return null;
     if (!session.api || typeof session.api !== "object") session.api = {};
@@ -193,7 +227,7 @@
     } else if (session.phases.eval.status === "done" && session.phases.eval.detail !== "无运行时 API") {
       parts.push(`求值 ${formatLoadMs(evalMs)}`);
     }
-    parts.push(`总计 ${formatLoadMs(Date.now() - session.wallStartedAt)}`);
+    parts.push(`总计 ${formatLoadMs(computeTotalMs(session))}`);
     return [parts.join(" · ")];
   }
 
@@ -258,7 +292,7 @@
       path: session.path || session.url || "",
       renderMs: computeRenderMs(session),
       evalMs: computeEvalMs(session),
-      totalMs: Math.max(0, Date.now() - session.wallStartedAt),
+      totalMs: computeTotalMs(session),
       apiTotal: session.api.total,
       apiFailed: session.api.failed,
       apiBytes: Number(session.api.bytes) || 0,
@@ -280,6 +314,7 @@
         ? boot.enrichVisitHistoryRecord(record, {
             url: session.url || session.path,
             scene: session.kind === "drilldown" ? session.path : "",
+            scope: session.kind === "drilldown" ? session.path : "",
             apiCalls: record.apiCalls,
             apiFailed: record.apiFailed,
             handlerReadyMs: record.handlerReadyMs,
@@ -313,6 +348,8 @@
   boot.resolveActiveLoadPhase = resolveActiveLoadPhase;
   boot.computeRenderMs = computeRenderMs;
   boot.computeEvalMs = computeEvalMs;
+  boot.computeTotalMs = computeTotalMs;
+  boot.normalizeVisitPerfTotals = normalizeVisitPerfTotals;
   boot.ensureApiKindSummary = ensureApiKindSummary;
   boot.loadNowMs = loadNowMs;
   boot.loadPhaseProgress = loadPhaseProgress;
