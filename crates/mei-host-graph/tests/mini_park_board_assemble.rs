@@ -17,7 +17,7 @@ fn ensure_imported() {
     INIT.call_once(|| {
         let workspace = ws_demo_v2();
         let bundle = workspace.join(
-            "apps/mini-park/env/2.0.5-ws20260628/build/exchange/mini-park.meibundle",
+            "apps/mini-park/env/2.0.6-ws20260628/build/exchange/mini-park.meibundle",
         );
         assert!(bundle.is_file(), "compile mini-park first");
         let ctx = HostContext::new(workspace, "mini-park");

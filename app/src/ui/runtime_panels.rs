@@ -65,7 +65,7 @@ pub(crate) fn runtime_overview_panel(
             {snapshot.map(|snap| runtime_layer_metrics_grid(snap, selected)).unwrap_or_else(|| view! {
                 <p class="mei-font-1 mei-text-muted" id="runtime-layer-metrics-loading">"正在加载 L1–L4 指标…"</p>
             }.into_any())}
-            <p class="mei-text-muted mei-font-1">"左侧树按 L1–L4 分层列出运行态资源；选择节点在此查看摘要，完整字段见「原始 JSON」页。"</p>
+            <p class="mei-text-muted mei-font-1">"左侧树按运行对象与证据链分层列出；选择节点在此查看摘要，并可切到「当前节点 JSON / 完整快照 JSON」继续排障。"</p>
         </section>
     }
 }
@@ -179,7 +179,15 @@ fn runtime_layer_metrics_grid(
     .into_any()
 }
 
-pub(crate) fn runtime_json_panel(snapshot_json: &str) -> impl IntoView {
+pub(crate) fn runtime_json_panel(
+    title: &str,
+    panel_id: &str,
+    snapshot_json: &str,
+    hint: Option<&str>,
+) -> impl IntoView {
+    let title = title.to_string();
+    let panel_id = panel_id.to_string();
+    let hint = hint.map(str::to_string);
     let body = if snapshot_json.trim().is_empty() {
         "{}".to_string()
     } else {
@@ -190,8 +198,13 @@ pub(crate) fn runtime_json_panel(snapshot_json: &str) -> impl IntoView {
     };
     view! {
         <section class="build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 mei-text-body min-h-0 flex flex-col">
-            <strong class="build-panel-title mei-text-primary">"原始 JSON · /api/runtime/snapshot"</strong>
-            <pre class="runtime-detail-json min-h-0 flex-1 overflow-auto rounded bg-black/20 p-3 font-mono mei-font-1 leading-5 mei-text-body" id="runtime-detail-json">{body}</pre>
+            <div class="grid gap-1">
+                <strong class="build-panel-title mei-text-primary">{title}</strong>
+                {hint.map(|text| view! {
+                    <p class="mei-font-1 mei-text-muted">{text}</p>
+                })}
+            </div>
+            <pre class="runtime-detail-json min-h-0 flex-1 overflow-auto rounded bg-black/20 p-3 font-mono mei-font-1 leading-5 mei-text-body" id=panel_id>{body}</pre>
         </section>
     }
 }
@@ -199,6 +212,11 @@ pub(crate) fn runtime_json_panel(snapshot_json: &str) -> impl IntoView {
 fn mcg_build_href_for_runtime_node(app_path: &str, runtime_node_id: &str) -> Option<String> {
     let raw_key = runtime_node_id
         .strip_prefix("l3-scene:")
+        .or_else(|| {
+            runtime_node_id
+                .strip_prefix("mrg:slot:")
+                .and_then(|rest| rest.split('@').next())
+        })
         .or_else(|| {
             runtime_node_id
                 .strip_prefix("mrg-slot:")

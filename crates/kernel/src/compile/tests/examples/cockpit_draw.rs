@@ -1,10 +1,7 @@
-use std::fs;
-
 use serde_json::Value;
 
-use super::super::super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
-use super::super::harness::{build_regression_workspace_root, dev_examples_root, dev_workspace_root};
-use crate::evaluate_mei_file;
+use super::super::super::{compile_app_from_root_with_options, CompileOptions};
+use super::super::harness::dev_examples_root;
 
 #[test]
 fn compile_cockpit_metric_data_example() {

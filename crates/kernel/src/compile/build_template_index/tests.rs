@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::model::{
-    BlockDecl, ComponentAsset, PanelDecl, SceneContract, TemplateConsumerAnchor, UiNodeDecl,
+    BlockDecl, ComponentAsset, PanelDecl, SceneContract, TemplateConsumerAnchor,
 };
 use std::collections::BTreeMap;
 use std::path::Path;

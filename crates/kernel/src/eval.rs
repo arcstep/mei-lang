@@ -3,11 +3,6 @@ use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value as JsonValue};
-use starlark::{
-    environment::{GlobalsBuilder, Module},
-    eval::Evaluator,
-    syntax::{AstModule, Dialect},
-};
 
 use crate::mei_config::{forbidden_authoring_tokens, validate_authoring_policy, AuthoringHelpers};
 const PRELUDE_SOURCE_FILES: &[&str] = &[
@@ -116,8 +111,8 @@ pub fn describe_dsl_with_helpers(helpers: Option<&AuthoringHelpers>) -> JsonValu
         "schema_version": "0.1.0",
         "source": source,
         "runtime": {
-            "evaluator": "starlark",
-            "dialect": "starlark::syntax::Dialect::Standard",
+            "evaluator": "mei-lower",
+            "dialect": "mei-surface/native-v2",
         },
         "forbidden_tokens": forbidden_authoring_tokens(),
         "public_surface": merged_public_surface(helpers),
@@ -126,46 +121,6 @@ pub fn describe_dsl_with_helpers(helpers: Option<&AuthoringHelpers>) -> JsonValu
 
 fn validate_policy(source: &str) -> Result<()> {
     validate_authoring_policy(source)
-}
-
-fn rewrite_namespaces(source: &str) -> String {
-    source
-        .replace("app.add_scene(", "app_add_scene(")
-        .replace("scene.set_world(", "world(")
-        .replace("scene.set_flow(", "flow(")
-        .replace("scene.set_frame(", "frame(")
-        .replace("world.add_resource(", "world_add_resource(")
-        .replace("world.add_dataset(", "world_add_dataset(")
-        .replace("world.add_dataset_view(", "world_add_dataset_view(")
-        .replace("world.add_metric(", "world_add_metric(")
-        .replace("world.add_metric_pack(", "world_add_metric_pack(")
-        .replace("world.add_entity(", "world_add_entity(")
-        .replace("world.set_topology(", "world_set_topology(")
-        .replace("frame.set_layout(", "frame_set_layout(")
-        .replace("frame.add_panel(", "panel_decl(")
-        .replace("doc.", "")
-        .replace("ds.", "")
-        .replace("ui.", "")
-}
-
-fn normalize_output(raw: &str) -> Result<JsonValue> {
-    let value: JsonValue =
-        serde_json::from_str(raw).context("Starlark output was not valid JSON")?;
-    match value {
-        JsonValue::Array(items) => Ok(JsonValue::Array(items)),
-        other => Ok(json!([other])),
-    }
-}
-
-fn compose_prelude(helpers: Option<&AuthoringHelpers>) -> String {
-    let mut prelude = MEILANG_PRELUDE.to_string();
-    if let Some(helpers) = helpers {
-        if !helpers.prelude_suffix.trim().is_empty() {
-            prelude.push_str("\n\n");
-            prelude.push_str(helpers.prelude_suffix.trim());
-        }
-    }
-    prelude
 }
 
 pub fn evaluate_mei_source(filename: &str, source: &str) -> Result<JsonValue> {
@@ -178,23 +133,21 @@ pub fn evaluate_mei_source_with_helpers(
     helpers: Option<&AuthoringHelpers>,
 ) -> Result<JsonValue> {
     validate_policy(source)?;
-    let source = rewrite_namespaces(source);
-    let prelude = compose_prelude(helpers);
-    let source = format!("{prelude}\n\n{source}");
-    let ast = AstModule::parse(filename, source, &Dialect::Standard)
-        .map_err(|error| anyhow::anyhow!("failed to parse {filename}: {error}"))?;
-    let globals = GlobalsBuilder::standard().build();
-    let module = Module::new();
-    let mut eval = Evaluator::new(&module);
-    eval.eval_module(ast, &globals)
-        .map_err(|error| anyhow::anyhow!("failed to evaluate {filename}: {error}"))?;
-    let exports = module
-        .get("exports")
-        .context("Starlark file did not produce exports")?;
-    let raw_json = exports
-        .to_json()
-        .context("failed to convert exports to JSON")?;
-    normalize_output(&raw_json)
+    if let Some(helpers) = helpers {
+        if !helpers.fingerprint.trim().is_empty()
+            || !helpers.prelude_suffix.trim().is_empty()
+            || !helpers.public_functions.is_empty()
+        {
+            eprintln!(
+                "warning: native v2 evaluator ignores workspace authoring helpers (file={}, fingerprint={})",
+                filename,
+                helpers.fingerprint
+            );
+        }
+    }
+    let lowered = mei_lower::lower_source(source)
+        .with_context(|| format!("failed to lower {filename} with native v2 pipeline"))?;
+    Ok(JsonValue::Array(lowered.exports))
 }
 
 pub fn evaluate_mei_file(path: impl AsRef<Path>) -> Result<JsonValue> {
@@ -212,5 +165,29 @@ mod tests {
     fn validate_authoring_policy_rejects_import_token() {
         let err = validate_authoring_policy("import foo").expect_err("import should be rejected");
         assert!(err.to_string().contains("import"));
+    }
+
+    #[test]
+    fn evaluate_mei_source_lowers_native_v2_app_decl() {
+        let source = r#"
+app(
+    id = "minimal-app",
+    title = "Minimal App",
+    default_scene = "home",
+    scene = scene_ref(scene_file = "scenes/home.mei"),
+)
+"#;
+        let value = evaluate_mei_source("minimal-app.mei", source).expect("lower v2 source");
+        let exports = value.as_array().expect("exports array");
+        assert_eq!(exports.len(), 1);
+        assert_eq!(exports[0].get("kind").and_then(JsonValue::as_str), Some("app"));
+        assert_eq!(
+            exports[0].get("id").and_then(JsonValue::as_str),
+            Some("minimal-app")
+        );
+        assert_eq!(
+            exports[0].get("default_scene").and_then(JsonValue::as_str),
+            Some("home")
+        );
     }
 }

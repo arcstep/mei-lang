@@ -19491,7 +19491,7 @@
       if (!(item instanceof HTMLElement) || !item.matches) continue;
       if (
         item.matches(
-          "a.host-runtime-nav-link, a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
+          "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;

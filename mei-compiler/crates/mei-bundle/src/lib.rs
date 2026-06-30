@@ -11,7 +11,7 @@ pub use io::{
 };
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use mei_graph::{CompileOutcome, GraphBlock};
 use serde::{Deserialize, Serialize};
@@ -103,8 +103,54 @@ pub fn build_manifest(
 }
 
 pub fn default_bundle_path(workspace: &Path, app_id: &str) -> std::path::PathBuf {
-    let app_root = mei_lang_kernel::resolve_app_root(workspace, app_id);
-    mei_lang_kernel::resolve_app_build_root(app_root.as_path())
+    let app_root = resolve_v2_app_root(workspace, app_id);
+    resolve_v2_app_build_root(app_root.as_path())
         .join("exchange")
         .join(format!("{app_id}.meibundle"))
+}
+
+fn resolve_v2_app_root(workspace: &Path, app_id: &str) -> PathBuf {
+    workspace.join("apps").join(app_id.trim())
+}
+
+fn resolve_v2_app_build_root(app_root: &Path) -> PathBuf {
+    let active = app_root.join("build/active");
+    if active.is_symlink() {
+        if let Ok(target) = std::fs::read_link(&active) {
+            if target.is_absolute() {
+                return target;
+            }
+            if let Some(parent) = active.parent() {
+                return parent.join(target);
+            }
+        }
+    }
+    active
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn default_bundle_path_uses_v2_active_build_root() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path();
+        let app_root = workspace.join("apps/demo");
+        fs::create_dir_all(app_root.join("build/store/env-1/exchange")).expect("mkdirs");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("store/env-1", app_root.join("build/active")).expect("symlink");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir("store/env-1", app_root.join("build/active"))
+            .expect("symlink");
+
+        let path = default_bundle_path(workspace, "demo");
+        assert_eq!(
+            path,
+            app_root
+                .join("build/store/env-1")
+                .join("exchange/demo.meibundle")
+        );
+    }
 }
