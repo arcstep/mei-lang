@@ -155,6 +155,9 @@ async function main() {
   };
   assertKeysAlign(syntheticMultiScope.bootstrapScopes[1], "synthetic-multi-scope");
 
+  const pageSizes = [16, 20, 64];
+  assert.deepEqual(pageSizes, [16, 20, 64], "bootstrap page sizes must cover chart defaults");
+
   const html = await loadHomeHtml();
   if (html) {
     const match = html.match(/id="mei-client-bootstrap"[^>]*>(\{.*?\})<\/script>/s);

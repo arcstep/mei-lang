@@ -1,6 +1,7 @@
 import {
   clearSessionRuntimeQueryCaches,
   clientQueryCacheConfig,
+  enumerateSessionRuntimeQueryCaches,
   persistMemoryRuntimeQueryCaches,
   readSessionRuntimeQueryCache,
   writeSessionRuntimeQueryCache,
@@ -1584,7 +1585,7 @@ function readHostMetricQueryApi() {
   return "";
 }
 
-const BOOTSTRAP_DATASET_PAGE_SIZES = [20, 64];
+const BOOTSTRAP_DATASET_PAGE_SIZES = [16, 20, 64];
 
 function readBootstrapSeedPageContext(bootstrap = window.__mei) {
   const shell = document.querySelector(".shell[data-compile-target]");
@@ -1714,8 +1715,25 @@ function inferColumnsFromRows(rows) {
   return Object.keys(rows[0] || {}).filter(Boolean);
 }
 
-function buildBootstrapDatasetRowsData(contract, pageCtx) {
-  const rows = contract?.value;
+function extractBootstrapDatasetRows(contract) {
+  if (!contract || typeof contract !== "object") {
+    return null;
+  }
+  const value = contract.value;
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value && typeof value === "object" && Array.isArray(value.rows)) {
+    return value.rows;
+  }
+  if (Array.isArray(contract.rows)) {
+    return contract.rows;
+  }
+  return null;
+}
+
+function buildBootstrapDatasetRowsData(contract, pageCtx, entryMeta = null) {
+  const rows = extractBootstrapDatasetRows(contract);
   if (!Array.isArray(rows)) {
     return null;
   }
@@ -1725,13 +1743,15 @@ function buildBootstrapDatasetRowsData(contract, pageCtx) {
         .filter(Boolean)
     : [];
   const columns = schemaCols.length > 0 ? schemaCols : inferColumnsFromRows(rows);
+  const total =
+    Number(entryMeta?.total_rows ?? contract?.total_rows ?? rows.length) || rows.length;
   return {
     scene_id: pageCtx.scene_id,
     rows,
     columns,
-    total: rows.length,
+    total,
     page: 1,
-    has_more: false,
+    has_more: total > rows.length,
     perf: { bootstrap: 1 },
   };
 }
@@ -1887,9 +1907,10 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
       if (!byDataset.has(datasetId)) {
         byDataset.set(datasetId, []);
       }
-      byDataset.get(datasetId).push(contract);
+      byDataset.get(datasetId).push({ contract, entry });
     }
-    for (const [datasetId, datasetMetrics] of byDataset.entries()) {
+    for (const [datasetId, datasetMetricEntries] of byDataset.entries()) {
+      const datasetMetrics = datasetMetricEntries.map((item) => item.contract);
       const metricIds = datasetMetrics
         .map((metric) => safeTrim(metric?.id))
         .filter(Boolean)
@@ -1902,12 +1923,14 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
       );
       const cacheKey = metricQueryCacheKey(metricApi, payload, queryFingerprint);
       const scopeKey = metricQueryScopeCacheKey(metricApi, payload, queryFingerprint);
+      const totalRows = datasetMetricEntries.reduce(
+        (max, item) => Math.max(max, Number(item.entry?.total_rows) || 0),
+        0,
+      );
       const data = {
         scene_id: scope,
         dataset_id: datasetId,
-        total_rows:
-          Number(entry?.total_rows ?? datasetMetrics[0]?.total_rows ?? datasetMetrics[0]?.rows ?? 0) ||
-          0,
+        total_rows: totalRows,
         metrics: datasetMetrics,
         perf: { bootstrap: 1 },
       };
@@ -1946,7 +1969,7 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
       if (!metricId || !datasetId || shape !== "dataframe") {
         continue;
       }
-      const rowsData = buildBootstrapDatasetRowsData(contract, pageCtx);
+      const rowsData = buildBootstrapDatasetRowsData(contract, pageCtx, entry);
       if (!rowsData) {
         continue;
       }
@@ -1989,8 +2012,74 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
   return seededCount;
 }
 
+function primeBootstrapRuntimeContext(bootstrap = window.__mei) {
+  if (typeof window === "undefined" || !bootstrap || typeof bootstrap !== "object") {
+    return;
+  }
+  const pageCtx = readBootstrapSeedPageContext(bootstrap);
+  if (pageCtx.app_id) {
+    window.__meiRuntimeAppId = pageCtx.app_id;
+  }
+  if (pageCtx.data_generation) {
+    window.__meiRuntimeDataGeneration = pageCtx.data_generation;
+  }
+  if (pageCtx.compile_epoch) {
+    window.__meiLastCompileEpoch = pageCtx.compile_epoch;
+  }
+  if (pageCtx.data_generation) {
+    window.__meiLastDataGeneration = pageCtx.data_generation;
+  }
+  window.__meiClientQueryCacheConfig = clientQueryCacheConfig({});
+}
+
+function hydrateSessionRuntimeQueryCaches() {
+  if (typeof window === "undefined") {
+    return 0;
+  }
+  const appId = String(window.__meiRuntimeAppId || "").trim();
+  if (!appId) {
+    return 0;
+  }
+  const config = window.__meiClientQueryCacheConfig || clientQueryCacheConfig({});
+  if (String(config.persist || "").trim().toLowerCase() !== "sessionstorage") {
+    return 0;
+  }
+  const dataGen = String(window.__meiRuntimeDataGeneration || "").trim();
+  const now = Date.now();
+  let hydrated = 0;
+  for (const entry of enumerateSessionRuntimeQueryCaches(appId, dataGen, now)) {
+    if (entry.kind === "dataset") {
+      const existing = DATASET_QUERY_RESULT_CACHE.get(entry.cacheKey);
+      if (existing && existing.expiresAt > now) {
+        continue;
+      }
+      DATASET_QUERY_RESULT_CACHE.set(entry.cacheKey, {
+        data: entry.data,
+        expiresAt: entry.expiresAt,
+      });
+      hydrated += 1;
+      continue;
+    }
+    const existing = METRIC_QUERY_RESULT_CACHE.get(entry.cacheKey);
+    if (existing && existing.expiresAt > now) {
+      continue;
+    }
+    METRIC_QUERY_RESULT_CACHE.set(entry.cacheKey, {
+      data: entry.data,
+      expiresAt: entry.expiresAt,
+    });
+    hydrated += 1;
+  }
+  if (hydrated > 0) {
+    notifyClientRuntimeQueryCacheHit("session-hydrate");
+  }
+  return hydrated;
+}
+
 let bootstrapSeedScheduled = false;
 function scheduleBootstrapSeed() {
+  primeBootstrapRuntimeContext(window.__mei);
+  hydrateSessionRuntimeQueryCaches();
   if (window.__meiBootstrapSeeded) {
     return window.__meiBootstrapSeedCount || 0;
   }
@@ -2027,6 +2116,14 @@ function scheduleBootstrapSeed() {
     return 0;
   }
   return run();
+}
+
+export function bootstrapDatasetRowsDataForTest(contract, pageCtx, entryMeta = null) {
+  return buildBootstrapDatasetRowsData(contract, pageCtx, entryMeta);
+}
+
+export function bootstrapDatasetPageSizesForTest() {
+  return [...BOOTSTRAP_DATASET_PAGE_SIZES];
 }
 
 export function bootstrapMetricCacheKeyForTest(api, pageCtx, datasetId, metricIds) {

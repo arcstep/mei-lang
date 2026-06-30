@@ -18031,6 +18031,25 @@
     };
   }
 
+  function markProjectionOpenHandled(detail) {
+    if (!detail || typeof detail !== "object") {
+      return false;
+    }
+    if (detail.__meiProjectionOpenHandled === true) {
+      return true;
+    }
+    try {
+      Object.defineProperty(detail, "__meiProjectionOpenHandled", {
+        value: true,
+        configurable: true,
+        enumerable: false,
+      });
+    } catch (_) {
+      detail.__meiProjectionOpenHandled = true;
+    }
+    return false;
+  }
+
   async function prewarmProjectionScope(config) {
     try {
       if (
@@ -18182,6 +18201,7 @@
       if (!shouldMountDrilldownHost()) return;
       if (typeof isBuildRoute === "function" && isBuildRoute()) return;
       const detail = event?.detail || {};
+      if (markProjectionOpenHandled(detail)) return;
       const config = resolveSceneOpenRequest(detail);
       if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
         if (config.errorMessage) {
@@ -21061,6 +21081,7 @@
     }
     const shellOverlay = document.getElementById("mei-page-load-progress");
     if (shellOverlay && shellOverlay.classList.contains("is-visible")) return true;
+    if (Number.isFinite(perf.handlerReadyMs) && perf.handlerReadyMs > 0) return true;
     if (Number.isFinite(perf.dataPropsBytes) && perf.dataPropsBytes >= 20 * 1024 * 1024) return true;
     if (Number.isFinite(perf.handlerReadyMs) && perf.handlerReadyMs >= 1000) return true;
     return false;

@@ -80,6 +80,34 @@ function dataGenMatches(expectedDataGen, entryDataGen) {
   return expected === stored;
 }
 
+export function enumerateSessionRuntimeQueryCaches(appId, expectedDataGen, now = Date.now()) {
+  const results = [];
+  for (const key of listSessionKeys(appId)) {
+    const entry = readJson(key);
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    if (!dataGenMatches(expectedDataGen, entry.dataGen)) {
+      continue;
+    }
+    const expiresAt = Number(entry.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+      continue;
+    }
+    const cacheKey = String(entry.cacheKey || "").trim();
+    if (!cacheKey || !entry.data) {
+      continue;
+    }
+    results.push({
+      cacheKey,
+      kind: String(entry.kind || "metric").trim() || "metric",
+      data: entry.data,
+      expiresAt,
+    });
+  }
+  return results;
+}
+
 export function readSessionRuntimeQueryCache(appId, cacheKey, expectedDataGen, now = Date.now()) {
   const normalizedKey = String(cacheKey || "").trim();
   if (!normalizedKey) {
