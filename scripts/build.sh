@@ -22,6 +22,10 @@ if [[ "${PROFILE}" == "release" ]]; then
     -p mei-compiler -p mei-plug-ds -p mei-host-shell)
 fi
 
+# shellcheck source=cargo-target-gc.sh
+source "${SCRIPT_DIR}/cargo-target-gc.sh"
+maybe_cargo_target_gc "${MEI_LANG_ROOT}"
+
 echo "==> mei-lang build (profile=${PROFILE}, root=${MEI_LANG_ROOT})"
 CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}"
 echo "==> binaries at ${TARGET_DIR}/${PROFILE}/mei-{compiler,host-shell,plug-ds}"

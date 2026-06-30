@@ -240,6 +240,9 @@ ensure_runtime_binaries() {
       CARGO_TARGET_DIR="${target_dir}" "${build_script}" --debug
     fi
   else
+    # shellcheck source=/dev/null
+    source "${mei_lang_root}/scripts/cargo-target-gc.sh"
+    maybe_cargo_target_gc "${mei_lang_root}"
     local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
       -p mei-compiler -p mei-plug-ds -p mei-host-shell)
     if [[ "${PROFILE}" == "release" ]]; then
