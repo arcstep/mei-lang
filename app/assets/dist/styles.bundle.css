@@ -3389,7 +3389,7 @@ html.mei-tier-dim .mei-viewpoint-focus.preview-card-scale-wrap {
   color: var(--mei-shell-color-text-primary);
   font-size: var(--mei-shell-font-2);
 }
-/* 设计区外 / 信纸区：低调灰斜纹（与溢出区一致） */
+/* 设计区外 / 信纸区：棋盘格半透明块（界外含义） */
 .preview-viewport.preview-viewport-edit-debug,
 .preview-viewport.preview-viewport-access-clip {
   --mei-preview-excluded-stripe-a: var(--mei-shell-color-preview-excluded-stripe-a);
@@ -3405,6 +3405,10 @@ html.mei-tier-dim .mei-viewpoint-focus.preview-card-scale-wrap {
   display: grid;
   overflow: hidden;
   background-color: var(--mei-frame-letterbox);
+}
+/* 视窗即物理屏幕隐喻：舞台矩形铺满，禁止 theme.frame.radius 圆角裁切 */
+.preview-viewport .preview-stage.preview-surface {
+  border-radius: 0;
 }
 /* 管理端调试：viewport 随 shell 撑高，由 preview-pane-scroll 统一滚动 */
 .frame-stage-enabled .preview-pane-scroll > .preview-viewport.preview-viewport-edit-debug {
@@ -3437,6 +3441,27 @@ html.mei-tier-dim .mei-viewpoint-focus.preview-card-scale-wrap {
   justify-items: start;
 }
 .preview-viewport.preview-viewport-access-clip {
+  background-image:
+    linear-gradient(
+      45deg,
+      var(--mei-preview-excluded-stripe-a) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--mei-preview-excluded-stripe-a) 75%,
+      var(--mei-preview-excluded-stripe-a)
+    ),
+    linear-gradient(
+      45deg,
+      var(--mei-preview-excluded-stripe-a) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--mei-preview-excluded-stripe-a) 75%,
+      var(--mei-preview-excluded-stripe-a)
+    );
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+.preview-viewport.preview-viewport-edit-debug {
   background-image: repeating-linear-gradient(
     -45deg,
     var(--mei-preview-excluded-stripe-a),

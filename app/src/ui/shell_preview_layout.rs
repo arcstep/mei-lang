@@ -14,7 +14,7 @@ pub(crate) fn access_main_preview_class(chrome_hidden: bool, stage_enabled: bool
     if chrome_hidden {
         "min-h-0 min-w-0 h-full overflow-hidden p-0 max-[1200px]:h-auto max-[1200px]:overflow-visible"
     } else if stage_enabled {
-        "min-h-0 min-w-0 h-full overflow-hidden p-4 self-stretch max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "min-h-0 min-w-0 h-full overflow-hidden p-0 self-stretch max-[1200px]:h-auto max-[1200px]:overflow-visible"
     } else {
         "min-w-0 h-auto overflow-visible p-4 self-start"
     }

@@ -18,5 +18,5 @@ pub use parse::{
 pub(crate) use parse::{resolve_theme, ThemeResolved};
 pub(crate) use parse_tokens::theme_css_vars_style;
 pub(crate) use resolve_literals::{
-    resolve_color_token, resolve_font_token, resolve_gradient_token,
+    resolve_color_token, resolve_font_token, resolve_gradient_token, resolve_style_value,
 };

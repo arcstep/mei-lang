@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use super::layout::normalize_background_image;
-use crate::ui::preview::theme::{resolve_color_token, resolve_gradient_token};
+use crate::ui::preview::theme::{resolve_color_token, resolve_gradient_token, resolve_style_value};
 
 fn resolve_background_image_value(raw: &str) -> String {
     let trimmed = raw.trim();
@@ -114,42 +114,57 @@ pub(crate) fn frame_background_color(props: &Value) -> Option<String> {
     }
 }
 
+const DEFAULT_FRAME_LETTERBOX: &str = "#070d14";
+
+/// 视口外 letterbox 底色：与舞台 `frame.background` 分离，默认可搭配棋盘格纹。
+pub(crate) fn frame_letterbox_color(props: &Value) -> String {
+    let Some(map) = props.as_object() else {
+        return DEFAULT_FRAME_LETTERBOX.to_string();
+    };
+    let Some(letterbox) = map.get("letterbox") else {
+        return DEFAULT_FRAME_LETTERBOX.to_string();
+    };
+    match letterbox {
+        Value::String(value) if !value.trim().is_empty() => resolve_color_token(value.trim()),
+        Value::Object(lb) => lb
+            .get("color")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(resolve_color_token)
+            .unwrap_or_else(|| DEFAULT_FRAME_LETTERBOX.to_string()),
+        _ => DEFAULT_FRAME_LETTERBOX.to_string(),
+    }
+}
+
 pub(crate) fn frame_viewport_letterbox_style(props: &Value) -> String {
-    frame_background_color(props)
-        .map(|color| format!("background:{color};"))
-        .unwrap_or_default()
+    format!("--mei-frame-letterbox:{};", frame_letterbox_color(props))
 }
 
 pub(crate) fn frame_backdrop_css_vars(props: &Value) -> String {
     let Some(map) = props.as_object() else {
         return String::new();
     };
-    let Some(background) = map.get("background") else {
-        return String::new();
-    };
-    let mut style = String::new();
-    append_background_css_vars(&mut style, "mei-frame", background);
-    if let Some(color) = frame_background_color(props) {
-        style.push_str(&format!("--mei-frame-letterbox:{color};"));
+    let mut style = format!("--mei-frame-letterbox:{};", frame_letterbox_color(props));
+    if let Some(background) = map.get("background") {
+        append_background_css_vars(&mut style, "mei-frame", background);
     }
     style
 }
 
 pub(crate) fn has_frame_backdrop(props: &Value) -> bool {
+    if frame_background_color(props).is_some() {
+        return true;
+    }
     props
         .as_object()
         .and_then(|map| map.get("background"))
         .is_some_and(|background| match background {
             Value::String(value) => !value.trim().is_empty(),
-            Value::Object(bg) => {
-                bg.get("color")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty())
-                    || bg
-                        .get("image")
-                        .and_then(Value::as_str)
-                        .is_some_and(|value| !value.trim().is_empty())
-            }
+            Value::Object(bg) => bg
+                .get("image")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty()),
             _ => false,
         })
 }
@@ -205,7 +220,12 @@ pub(crate) fn container_visual_style(props: &Value) -> String {
 
 pub(crate) fn append_string_style(style: &mut String, value: Option<&Value>, css_name: &str) {
     if let Some(value) = value.and_then(Value::as_str) {
-        style.push_str(&format!("{css_name}:{value};"));
+        let resolved = if matches!(css_name, "border" | "box-shadow") {
+            resolve_style_value(value)
+        } else {
+            value.to_string()
+        };
+        style.push_str(&format!("{css_name}:{resolved};"));
         return;
     }
     if css_name == "z-index" {

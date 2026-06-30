@@ -444,3 +444,83 @@
     transform: translateY(0);
   }
 }
+
+.mei-host-shell--warming .mei-host-shell__coin--spin svg {
+  animation: mei-host-coin-spin 2.8s ease-in-out infinite;
+}
+
+.mei-host-shell__watermark--pulse svg {
+  animation: mei-host-coin-pulse 3.6s ease-in-out infinite;
+}
+
+@keyframes mei-host-coin-spin {
+  0% {
+    transform: rotate(0deg) scale(1);
+  }
+  45% {
+    transform: rotate(180deg) scale(1.06);
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+  }
+}
+
+@keyframes mei-host-coin-pulse {
+  0%,
+  100% {
+    opacity: 0.06;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.11;
+    transform: scale(1.03);
+  }
+}
+
+.mei-host-shell__tagline {
+  margin: 0 0 12px;
+  font-size: var(--mei-shell-font-2);
+  letter-spacing: 0.12em;
+  color: var(--mei-shell-color-accent-muted);
+}
+
+.mei-host-shell__startup-status {
+  margin: 0 0 14px;
+  font-size: var(--mei-shell-font-2);
+  color: var(--mei-shell-color-link);
+}
+
+.mei-host-shell__progress {
+  display: inline-flex;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.mei-host-shell__progress span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--mei-shell-color-accent);
+  animation: mei-host-progress-dot 1.2s ease-in-out infinite;
+}
+
+.mei-host-shell__progress span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.mei-host-shell__progress span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes mei-host-progress-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}

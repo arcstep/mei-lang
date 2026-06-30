@@ -67,11 +67,20 @@ fn normalize_background_image_none_is_not_wrapped_as_url() {
 }
 
 #[test]
-fn frame_viewport_letterbox_style_uses_background_color() {
+fn frame_viewport_letterbox_style_sets_letterbox_var_only() {
     let style = frame_viewport_letterbox_style(&json!({
-        "background": { "color": "rgb(29, 47, 65)" }
+        "letterbox": { "color": "rgb(29, 47, 65)" }
     }));
-    assert!(style.contains("background:rgb(29, 47, 65);"));
+    assert!(style.contains("--mei-frame-letterbox:rgb(29, 47, 65);"));
+    assert!(!style.contains("background:rgb(29, 47, 65);"));
+}
+
+#[test]
+fn frame_letterbox_defaults_when_frame_has_only_background() {
+    let style = frame_viewport_letterbox_style(&json!({
+        "background": { "color": "rgb(10, 36, 72)" }
+    }));
+    assert!(style.contains("--mei-frame-letterbox:#070d14;"));
 }
 
 #[test]
@@ -87,6 +96,7 @@ fn frame_backdrop_css_vars_exports_layer_tokens_without_inline_background() {
     assert!(vars.contains("--mei-frame-bg-color:#182f42;"));
     assert!(vars.contains("--mei-frame-bg-image:linear-gradient(180deg, #1a3348, #0a1824);"));
     assert!(vars.contains("--mei-frame-bg-size:100% 100%;"));
+    assert!(vars.contains("--mei-frame-letterbox:#070d14;"));
     assert!(has_frame_backdrop(&props));
     let stage = container_visual_style_without_background(&props);
     assert!(!stage.contains("background-color"));
