@@ -5,7 +5,6 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 
 PORT="${MEI_PORT:-9527}"
-PLUG_PORT="${MEI_PLUG_DS_PORT:-9528}"
 HOST_PID_FILE="${WORKSPACE_ROOT}/deploy/state/host.pid"
 PLUG_PID_FILE="${WORKSPACE_ROOT}/deploy/state/plug-ds.pid"
 
@@ -13,8 +12,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --port) PORT="$2"; shift 2 ;;
     --port=*) PORT="${1#*=}"; shift ;;
-    --plug-port) PLUG_PORT="$2"; shift 2 ;;
-    --plug-port=*) PLUG_PORT="${1#*=}"; shift ;;
     *) shift ;;
   esac
 done
@@ -53,13 +50,10 @@ stop_port() {
 }
 
 stopped=0
-if stop_pid_file "plug-ds" "${PLUG_PID_FILE}"; then
+if stop_pid_file "legacy plug-ds" "${PLUG_PID_FILE}"; then
   stopped=1
 fi
 if stop_pid_file "host-shell" "${HOST_PID_FILE}"; then
-  stopped=1
-fi
-if stop_port "plug-ds" "${PLUG_PORT}"; then
   stopped=1
 fi
 if stop_port "host-shell" "${PORT}"; then
@@ -67,5 +61,5 @@ if stop_port "host-shell" "${PORT}"; then
 fi
 
 if [[ "${stopped}" -eq 0 ]]; then
-  echo "no host/plug-ds process found (pid files or ports ${PORT}/${PLUG_PORT})"
+  echo "no host-shell process found (pid file or port ${PORT})"
 fi

@@ -9,8 +9,8 @@ source "${DEPLOY_DIR}/lib.sh"
 APP="${MEI_APP:-data-demo}"
 POLICY="${MEI_WARMUP_POLICY:-home}"
 parse_common_args "$@"
-if [[ "${RUNTIME}" == "cargo" ]]; then
-  ensure_cargo_runtime_binaries "${WORKSPACE_ROOT}"
+if [[ "${SOURCE}" == "lang" ]]; then
+  ensure_runtime_binaries "${WORKSPACE_ROOT}"
 fi
 
 ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP}"

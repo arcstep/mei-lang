@@ -72,7 +72,7 @@ run_mei_host_shell "${TARGET_DIR}" "${INIT_ARGS[@]}"
 
 echo "==> copy deploy scripts"
 mkdir -p "${TARGET_DIR}/deploy"
-for f in lib.sh install.sh init.sh start.sh stop.sh compile.sh reload.sh prebuild.sh status.sh; do
+for f in lib.sh install.sh init.sh dev.sh prod.sh build.sh start.sh stop.sh compile.sh reload.sh prebuild.sh status.sh; do
   if [[ -f "${SCRIPT_DIR}/${f}" ]]; then
     cp "${SCRIPT_DIR}/${f}" "${TARGET_DIR}/deploy/${f}"
     chmod +x "${TARGET_DIR}/deploy/${f}"
@@ -96,4 +96,4 @@ if [[ "${DO_INSTALL}" -eq 1 ]]; then
 fi
 
 echo "Workspace ready: ${TARGET_DIR}"
-echo "Next: cd ${TARGET_DIR} && ./deploy/start.sh"
+echo "Next: cd ${TARGET_DIR} && ./deploy/dev.sh"
