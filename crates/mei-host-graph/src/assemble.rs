@@ -213,6 +213,8 @@ pub fn assemble_scope_from_registry(
         build_template_index: Default::default(),
     };
 
+    crate::mrg::telemetry::record_access(crate::mrg::telemetry::MrgAccessKind::Assemble, true);
+
     Ok(Some(AssembleOutcome {
         compiled,
         compile_revision: registry.registry_revision.clone(),

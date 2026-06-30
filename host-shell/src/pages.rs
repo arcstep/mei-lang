@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Path, Query, State},
-    http::StatusCode,
+    http::{HeaderName, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
 use mei_host_auth::{
@@ -11,9 +11,14 @@ use mei_lang_app::{load_topbar_menu_context, page_body_theme_style, render_page,
 use mei_lang_kernel::load_workspace_config;
 use serde::Deserialize;
 use serde_json::json;
+use std::time::Instant;
 
 use crate::build_info::fill_page_shell_placeholders;
 use crate::landing::{choose_default_app, discover_workspace_apps, enrich_discovered_apps};
+use crate::page_observability::{
+    fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
+    measure_page_html_payload,
+};
 use crate::state::SharedState;
 
 #[derive(Debug, Deserialize, Default)]
@@ -66,6 +71,7 @@ pub async fn app_page(
             .into_response();
     }
     let scene_id = scene_id.unwrap_or_else(|| "home".to_string());
+    let request_started = Instant::now();
     let assemble_result = mei_host_graph::assemble_scope_from_registry(
         workspace_root,
         app_id.as_str(),
@@ -130,7 +136,8 @@ pub async fn app_page(
     } else {
         None
     };
-    let html = crate::gis_config::fill_gis_tiles_placeholders(
+    let render_started = Instant::now();
+    let mut html = crate::gis_config::fill_gis_tiles_placeholders(
         inject_layer_plane_scripts(
             inject_client_bootstrap_script(
                 fill_page_shell_placeholders(
@@ -176,7 +183,43 @@ pub async fn app_page(
         ),
         &gis,
     );
-    Html(html).into_response()
+    let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
+    let handler_html_ready_ms = request_started.elapsed().as_millis() as u64;
+    html = fill_manage_wall_clock_placeholders(html, ssr_emit_ms, handler_html_ready_ms);
+    let payload_stats = measure_page_html_payload(html.as_str());
+    html = fill_page_load_observability_placeholders(
+        html,
+        ssr_emit_ms,
+        false,
+        payload_stats.html_bytes,
+        payload_stats.data_props_bytes,
+        payload_stats.data_props_count,
+    );
+    let _ = mei_host_graph::flush_telemetry_to_registry(workspace_root, app_id.as_str());
+    let mut response = Html(html).into_response();
+    if let Ok(value) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
+        response.headers_mut().insert(
+            HeaderName::from_static("x-mei-handler-html-ready-ms"),
+            value,
+        );
+    }
+    if let Ok(value) = HeaderValue::from_str(&ssr_emit_ms.to_string()) {
+        response.headers_mut().insert(
+            HeaderName::from_static("x-mei-ssr-http-response-body-ms"),
+            value,
+        );
+    }
+    if let Ok(value) = HeaderValue::from_str(&payload_stats.data_props_bytes.to_string()) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-mei-data-props-bytes"), value);
+    }
+    if let Ok(value) = HeaderValue::from_str(&payload_stats.data_props_count.to_string()) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-mei-data-props-count"), value);
+    }
+    response
 }
 
 #[derive(Debug, Deserialize, Default)]

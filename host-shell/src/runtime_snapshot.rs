@@ -87,6 +87,7 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
     let identity = resolve_active_build_identity(workspace);
     let mcg = McgRegistryWriter::load(workspace, app_id);
     let mrg = MrgRegistryWriter::load(workspace, app_id);
+    let _ = mei_host_graph::flush_telemetry_to_registry(workspace, app_id);
     let mrg_status = mrg_status_json(workspace, app_id).unwrap_or_else(|_| json!({}));
     let scope_routes = list_scope_routes(workspace, app_id).unwrap_or_default();
 

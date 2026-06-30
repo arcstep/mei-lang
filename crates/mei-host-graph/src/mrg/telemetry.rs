@@ -25,13 +25,19 @@ pub fn record_access(kind: MrgAccessKind, cache_hit: bool) {
     };
     match kind {
         MrgAccessKind::Assemble => summary.assemble_count += 1,
-        MrgAccessKind::MetricsApi => summary.metrics_api_count += 1,
-    };
-    if cache_hit {
-        summary.cache_hits += 1;
-    } else {
-        summary.cache_misses += 1;
+        MrgAccessKind::MetricsApi => {
+            summary.metrics_api_count += 1;
+            if cache_hit {
+                summary.cache_hits += 1;
+            } else {
+                summary.cache_misses += 1;
+            }
+        }
     }
+}
+
+pub fn record_scope_activation() {
+    record_access(MrgAccessKind::Assemble, true);
 }
 
 pub fn flush_telemetry_to_registry(source_root: &Path, app_id: &str) -> anyhow::Result<()> {

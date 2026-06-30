@@ -50,7 +50,8 @@ pub use mrg::slots::{
     record_slot_from_descriptor, record_slots_from_descriptors, MRG_REGISTRY_SCHEMA_V3,
 };
 pub use mrg::telemetry::{
-    flush_telemetry_to_registry, mrg_status_json, record_access, MrgAccessKind,
+    flush_telemetry_to_registry, mrg_status_json, record_access, record_scope_activation,
+    MrgAccessKind,
 };
 pub use mrg::tier::{compute_client_revision, WarmupTier};
 pub use mrg::warmup::{record_navigation_edge, warm_frontier_slots, WarmupFrontierOutcome};

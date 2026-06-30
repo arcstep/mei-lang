@@ -1,6 +1,7 @@
 //! SSR client-bootstrap head fragment injection.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use mei_host_core::EvalSlotDescriptor;
 use mei_host_graph::{
@@ -35,12 +36,28 @@ fn sample_descriptor(slot_key: &str, content_hash: &str) -> EvalSlotDescriptor {
     }
 }
 
+fn seed_test_app_env(app_root: &Path) {
+    std::fs::create_dir_all(app_root.join("var/active")).expect("var/active");
+    let env_id = "WS-20260228.0";
+    let env_dir = app_root.join("env").join(env_id);
+    std::fs::create_dir_all(env_dir.join("build")).expect("build");
+    std::fs::create_dir_all(env_dir.join("var")).expect("var");
+    let current = app_root.join("env/current");
+    if current.exists() {
+        std::fs::remove_file(&current).ok();
+    }
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(env_id, &current).expect("symlink env/current");
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(env_id, &current).expect("symlink env/current");
+}
+
 #[test]
 fn ssr_bootstrap_head_fragment_contains_json_script_and_meta() {
     let temp = tempfile::tempdir().expect("tempdir");
     let workspace = temp.path();
     let app_root = workspace.join("apps").join("demo");
-    std::fs::create_dir_all(app_root.join("var/active")).expect("var");
+    seed_test_app_env(app_root.as_path());
 
     let mut metrics = BTreeMap::new();
     metrics.insert(
@@ -88,7 +105,7 @@ fn bootstrap_embed_status_reports_revision_mismatch() {
     let temp = tempfile::tempdir().expect("tempdir");
     let workspace = temp.path();
     let app_root = workspace.join("apps").join("demo");
-    std::fs::create_dir_all(app_root.join("var/active")).expect("var");
+    seed_test_app_env(app_root.as_path());
     let mut metrics = BTreeMap::new();
     metrics.insert(
         "metric_a".to_string(),
@@ -136,6 +153,8 @@ fn bootstrap_embed_status_reports_revision_mismatch() {
 #[test]
 fn bootstrap_embed_status_reports_manifest_missing() {
     let temp = tempfile::tempdir().expect("tempdir");
+    let app_root = temp.path().join("apps").join("demo");
+    seed_test_app_env(app_root.as_path());
     let status = bootstrap_embed_status(temp.path(), "demo", "home");
     assert!(!status.allowed);
     assert_eq!(status.reason, "manifest_missing");

@@ -46,6 +46,8 @@ pub async fn api_runtime_snapshot(
         )
             .into_response();
     }
+    let workspace = guard.ctx.workspace_root.as_path();
+    let _ = mei_host_graph::flush_telemetry_to_registry(workspace, app_id);
     let snapshot = build_runtime_snapshot(&guard, app_id);
     (StatusCode::OK, Json(snapshot)).into_response()
 }
@@ -67,10 +69,9 @@ pub async fn api_host_mrg_status(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(guard.ctx.app_id.as_str());
-    match mei_host_graph::mrg_status_json(
-        guard.ctx.workspace_root.as_path(),
-        app_id,
-    ) {
+    let workspace = guard.ctx.workspace_root.as_path();
+    let _ = mei_host_graph::flush_telemetry_to_registry(workspace, app_id);
+    match mei_host_graph::mrg_status_json(workspace, app_id) {
         Ok(status) => (StatusCode::OK, Json(status)).into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -131,6 +132,8 @@ pub async fn api_host_mrg_activate(
         )
             .into_response();
     }
+    mei_host_graph::record_scope_activation();
+    let _ = mei_host_graph::flush_telemetry_to_registry(workspace.as_path(), app_id.as_str());
     let payload = mei_host_graph::build_client_bootstrap_payload(
         workspace.as_path(),
         app_id.as_str(),

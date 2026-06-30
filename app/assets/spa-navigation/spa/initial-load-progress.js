@@ -52,6 +52,7 @@
     }
     const shellOverlay = document.getElementById("mei-page-load-progress");
     if (shellOverlay && shellOverlay.classList.contains("is-visible")) return true;
+    if (Number.isFinite(perf.handlerReadyMs) && perf.handlerReadyMs > 0) return true;
     if (Number.isFinite(perf.dataPropsBytes) && perf.dataPropsBytes >= 20 * 1024 * 1024) return true;
     if (Number.isFinite(perf.handlerReadyMs) && perf.handlerReadyMs >= 1000) return true;
     return false;

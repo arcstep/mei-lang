@@ -1,6 +1,7 @@
 mod api_stubs;
 mod assets;
 mod build_info;
+mod page_observability;
 mod build_ops;
 mod cache_diagnostics;
 mod cli;
