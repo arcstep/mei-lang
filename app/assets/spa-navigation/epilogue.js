@@ -4,6 +4,29 @@
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();
   applySceneProjectionContextFromStorage();
+  void (async () => {
+    const ctx =
+      typeof boot.parseAccessSceneContext === "function"
+        ? boot.parseAccessSceneContext(window.location.href)
+        : null;
+    if (!ctx) return;
+    try {
+      if (typeof boot.fetchSceneRevision !== "function") return;
+      const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: 4000 });
+      if (typeof boot.ensureSceneBootstrapPayload === "function") {
+        await boot.ensureSceneBootstrapPayload(ctx, revision);
+      }
+      const sceneCtx = ctx;
+      if (sceneCtx?.appId && typeof window.__meiDatasetRuntime === "undefined") {
+        /* runtime-query module may load later via component bundle */
+      }
+      if (typeof boot.saveCurrentSceneShellSnapshot === "function") {
+        await boot.saveCurrentSceneShellSnapshot(ctx, revision, document);
+      }
+    } catch (error) {
+      console.warn("[spa-navigation] initial scene cache bootstrap skipped", error);
+    }
+  })();
 
   document.addEventListener(
     "click",

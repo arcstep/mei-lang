@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
     load_component_assets, normalize_panel_slots, resolve_app_root, CompiledApp,
-    CompiledSceneRoute, LoadedResource, SceneContract, SceneDecl,
+    CompiledSceneRoute, ComponentAsset, LoadedResource, PanelDecl, SceneContract, SceneDecl,
+    UiNodeDecl,
 };
 use serde_json::{json, Value};
 
@@ -135,9 +136,8 @@ pub fn assemble_scope_from_registry(
     let presentation_map =
         presentation_map_to_value(&build_presentation_map(scene_id, &panels, &panel_payloads));
     let frame = Some(lower_frame_from_assembly(&assembly_payload));
-    let component_assets = load_component_assets(source_root)?
-        .into_values()
-        .collect::<Vec<_>>();
+    let component_assets =
+        collect_component_assets_for_panels(source_root, &panels)?;
 
     let scene_contract = SceneContract {
         scene: SceneDecl {
@@ -601,6 +601,40 @@ fn extract_assembly_ref(payload: &Value) -> Option<String> {
             v.as_str().map(str::to_string)
         }
     })
+}
+
+fn collect_component_assets_for_panels(
+    source_root: &Path,
+    panels: &[PanelDecl],
+) -> Result<Vec<ComponentAsset>> {
+    let asset_map = load_component_assets(source_root)?;
+    let mut asset_keys = BTreeSet::new();
+    for panel in panels {
+        collect_asset_keys_from_panel(panel, &mut asset_keys);
+    }
+    Ok(asset_keys
+        .into_iter()
+        .filter_map(|key| asset_map.get(&key).cloned())
+        .collect())
+}
+
+fn collect_asset_keys_from_panel(panel: &PanelDecl, asset_keys: &mut BTreeSet<String>) {
+    collect_asset_keys_from_nodes(&panel.blocks, asset_keys);
+    if let Some(head) = panel.head.as_ref() {
+        collect_asset_keys_from_nodes(std::slice::from_ref(head.as_ref()), asset_keys);
+    }
+}
+
+fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &mut BTreeSet<String>) {
+    for node in nodes {
+        match node {
+            UiNodeDecl::Panel(panel) => collect_asset_keys_from_panel(panel, asset_keys),
+            UiNodeDecl::Block(block) => {
+                asset_keys.insert(block.use_key.clone());
+            }
+            UiNodeDecl::PanelRefEmbed(_) => {}
+        }
+    }
 }
 
 #[cfg(test)]

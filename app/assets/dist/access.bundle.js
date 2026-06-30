@@ -17431,19 +17431,35 @@
       return false;
     }
     const url = `/apps/app/${appId}/scene/${encodeURIComponent(sceneId)}`;
+    const fragmentUrl = `/api/host/scene-fragment?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
     try {
-      const response = await fetch(url, {
+      let surface = null;
+      const fragmentResponse = await fetch(fragmentUrl, {
         credentials: "same-origin",
-        headers: { "x-mei-spa-nav": "1" },
+        headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
       });
-      if (!response.ok) {
-        throw new Error(`scene fetch failed: ${response.status}`);
+      if (fragmentResponse.ok) {
+        const fragment = await fragmentResponse.json();
+        if (fragment?.surfaceHtml) {
+          const mountFromFragment = document.createElement("div");
+          mountFromFragment.innerHTML = fragment.surfaceHtml;
+          surface = mountFromFragment.firstElementChild;
+        }
       }
-      const html = await response.text();
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const surface = doc.querySelector(
-        "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
-      );
+      if (!(surface instanceof HTMLElement)) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          headers: { "x-mei-spa-nav": "1" },
+        });
+        if (!response.ok) {
+          throw new Error(`scene fetch failed: ${response.status}`);
+        }
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        surface = doc.querySelector(
+          "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
+        );
+      }
       if (!(surface instanceof HTMLElement)) {
         throw new Error("board scene preview surface missing");
       }
@@ -20372,6 +20388,384 @@
   installManagePreviewBoard();
 
 
+/* ===== spa-navigation/spa/scene-revision.js ===== */
+  const SCENE_REVISION_API = "/api/host/scene-revision";
+
+  function parseAccessSceneContext(urlLike) {
+    try {
+      const url = new URL(urlLike, window.location.href);
+      const match = url.pathname.match(/^\/apps\/(?:app|access|presentation)\/([^/]+)\/scene\/([^/]+)/);
+      if (!match) return null;
+      const mode = url.pathname.split("/")[2] || "app";
+      return {
+        appId: decodeURIComponent(match[1]),
+        sceneId: decodeURIComponent(match[2]),
+        mode,
+        url: url.href,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function sceneRevisionCacheKey(ctx) {
+    return [ctx.appId, ctx.sceneId, ctx.mode].join(":");
+  }
+
+  function revisionsMatch(localRevision, remoteRevision) {
+    if (!localRevision || !remoteRevision) return false;
+    if (localRevision.revision_digest && remoteRevision.revision_digest) {
+      return localRevision.revision_digest === remoteRevision.revision_digest;
+    }
+    if (localRevision.cache_key && remoteRevision.cache_key) {
+      return localRevision.cache_key === remoteRevision.cache_key;
+    }
+    return (
+      localRevision.registry_revision === remoteRevision.registry_revision &&
+      localRevision.client_revision === remoteRevision.client_revision &&
+      localRevision.data_generation === remoteRevision.data_generation &&
+      localRevision.scene_bundle_revision === remoteRevision.scene_bundle_revision
+    );
+  }
+
+  async function fetchSceneRevision(ctx, options) {
+    const opts = options || {};
+    const params = new URLSearchParams({
+      app: ctx.appId,
+      scene: ctx.sceneId,
+      mode: ctx.mode || "app",
+    });
+    const controller = opts.signal ? null : new AbortController();
+    const signal = opts.signal || controller?.signal;
+    const timer =
+      controller && Number.isFinite(opts.timeoutMs)
+        ? setTimeout(() => controller.abort(), opts.timeoutMs)
+        : null;
+    try {
+      const response = await fetch(`${SCENE_REVISION_API}?${params.toString()}`, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+        signal,
+      });
+      if (!response.ok) {
+        throw new Error(`scene revision failed: ${response.status}`);
+      }
+      return await response.json();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  boot.parseAccessSceneContext = parseAccessSceneContext;
+  boot.fetchSceneRevision = fetchSceneRevision;
+  boot.revisionsMatch = revisionsMatch;
+  boot.sceneRevisionCacheKey = sceneRevisionCacheKey;
+
+
+/* ===== spa-navigation/spa/scene-shell-cache.js ===== */
+  const SCENE_SHELL_DB = "mei-scene-shell-cache-v1";
+  const SCENE_SHELL_STORE = "snapshots";
+  const SCENE_SHELL_DB_VERSION = 1;
+  const SCENE_SHELL_LS_PREFIX = "mei:scene-shell:v1:";
+
+  function openSceneShellDb() {
+    if (typeof indexedDB === "undefined") {
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      try {
+        const request = indexedDB.open(SCENE_SHELL_DB, SCENE_SHELL_DB_VERSION);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(SCENE_SHELL_STORE)) {
+            db.createObjectStore(SCENE_SHELL_STORE, { keyPath: "key" });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => resolve(null);
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  function snapshotStorageKey(ctx) {
+    return `${ctx.appId}:${ctx.sceneId}:${ctx.mode || "app"}`;
+  }
+
+  function collectHeadJsonScripts() {
+    const scripts = {};
+    for (const id of ["mei-scene-drilldown-context", "mei-host-runtime-capabilities", "mei-layer-plan", "mei-presentation-map"]) {
+      const node = document.getElementById(id);
+      if (node) {
+        scripts[id] = node.textContent || "";
+      }
+    }
+    return scripts;
+  }
+
+  function collectSceneBundleMeta(doc) {
+    const source = doc || document;
+    const bundle = source.querySelector('script[data-mei-scene-bundle="true"]');
+    if (!bundle) return null;
+    return {
+      src: bundle.getAttribute("src") || "",
+      revision: bundle.getAttribute("data-mei-persistent-script") || bundle.getAttribute("src") || "",
+    };
+  }
+
+  function buildSceneShellSnapshot(ctx, revision, doc) {
+    const sourceDoc = doc || document;
+    const shell = sourceDoc.querySelector(".shell");
+    if (!shell) return null;
+    return {
+      key: snapshotStorageKey(ctx),
+      appId: ctx.appId,
+      sceneId: ctx.sceneId,
+      mode: ctx.mode || "app",
+      revision,
+      savedAtMs: Date.now(),
+      title: sourceDoc.title || document.title,
+      bodyClassName: sourceDoc.body?.className || document.body.className,
+      shellHtml: shell.innerHTML,
+      headScripts: collectHeadJsonScripts(),
+      sceneBundle: collectSceneBundleMeta(sourceDoc),
+      url: ctx.url || window.location.href,
+    };
+  }
+
+  async function persistSceneShellSnapshot(snapshot) {
+    if (!snapshot || !snapshot.key) return false;
+    const db = await openSceneShellDb();
+    if (db) {
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readwrite");
+          tx.objectStore(SCENE_SHELL_STORE).put(snapshot);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+      try {
+        db.close();
+      } catch (_) {}
+      return true;
+    }
+    try {
+      const compact = {
+        key: snapshot.key,
+        revision_digest: snapshot.revision?.revision_digest,
+        cache_key: snapshot.revision?.cache_key,
+        savedAtMs: snapshot.savedAtMs,
+        title: snapshot.title,
+        bodyClassName: snapshot.bodyClassName,
+        shellHtml: snapshot.shellHtml,
+      };
+      sessionStorage.setItem(`${SCENE_SHELL_LS_PREFIX}${snapshot.key}`, JSON.stringify(compact));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function loadSceneShellSnapshot(ctx) {
+    const key = snapshotStorageKey(ctx);
+    const db = await openSceneShellDb();
+    if (db) {
+      const snapshot = await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readonly");
+          const request = tx.objectStore(SCENE_SHELL_STORE).get(key);
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => resolve(null);
+        } catch (_) {
+          resolve(null);
+        }
+      });
+      try {
+        db.close();
+      } catch (_) {}
+      if (snapshot) return snapshot;
+    }
+    try {
+      const raw = sessionStorage.getItem(`${SCENE_SHELL_LS_PREFIX}${key}`);
+      if (!raw) return null;
+      const compact = JSON.parse(raw);
+      return compact && compact.shellHtml ? compact : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function applyHeadJsonScripts(scripts) {
+    if (!scripts || typeof scripts !== "object") return;
+    for (const [id, content] of Object.entries(scripts)) {
+      const node = document.getElementById(id);
+      if (!node) continue;
+      node.textContent = content || "";
+    }
+    try {
+      delete window.__meiSceneDrilldownContext;
+      delete window.__meiHostRuntimeCapabilities;
+    } catch (_) {}
+  }
+
+  function restoreSceneShellSnapshot(snapshot, url, replaceHistory) {
+    const shell = document.querySelector(".shell");
+    if (!shell || !snapshot?.shellHtml) return false;
+    shell.innerHTML = snapshot.shellHtml;
+    if (snapshot.title) {
+      document.title = snapshot.title;
+    }
+    if (snapshot.bodyClassName) {
+      document.body.className = snapshot.bodyClassName;
+    }
+    applyHeadJsonScripts(snapshot.headScripts);
+    if (url) {
+      if (replaceHistory) {
+        window.history.replaceState({}, "", url);
+      } else {
+        window.history.pushState({}, "", url);
+      }
+    }
+    window.__meiShellRestoredFromCache = 1;
+    return true;
+  }
+
+  function buildDocFromSceneShellSnapshot(snapshot) {
+    if (!snapshot?.shellHtml) return null;
+    const html = `<!DOCTYPE html><html><head><title>${snapshot.title || ""}</title></head><body><div class="shell">${snapshot.shellHtml}</div></body></html>`;
+    return new DOMParser().parseFromString(html, "text/html");
+  }
+
+  async function tryRestoreSceneShellFromCache(ctx, revision, url, replaceHistory) {
+    const snapshot = await loadSceneShellSnapshot(ctx);
+    if (!snapshot) return null;
+    if (!boot.revisionsMatch(snapshot.revision, revision)) return null;
+    const restored = restoreSceneShellSnapshot(snapshot, url, replaceHistory);
+    if (!restored) return null;
+    return buildDocFromSceneShellSnapshot(snapshot);
+  }
+
+  async function saveCurrentSceneShellSnapshot(ctx, revision, doc) {
+    const snapshot = buildSceneShellSnapshot(ctx, revision, doc);
+    if (!snapshot) return false;
+    return persistSceneShellSnapshot(snapshot);
+  }
+
+  boot.buildSceneShellSnapshot = buildSceneShellSnapshot;
+  boot.loadSceneShellSnapshot = loadSceneShellSnapshot;
+  boot.persistSceneShellSnapshot = persistSceneShellSnapshot;
+  boot.restoreSceneShellSnapshot = restoreSceneShellSnapshot;
+  boot.tryRestoreSceneShellFromCache = tryRestoreSceneShellFromCache;
+  boot.saveCurrentSceneShellSnapshot = saveCurrentSceneShellSnapshot;
+
+
+/* ===== spa-navigation/spa/scene-bootstrap-loader.js ===== */
+  const SCENE_BOOTSTRAP_API = "/api/host/scene-bootstrap";
+  const BOOTSTRAP_ARTIFACT_LS_PREFIX = "mei:scene-bootstrap:v1:";
+
+  function bootstrapArtifactStorageKey(appId, sceneId, revision) {
+    return `${appId}:${sceneId}:${revision || ""}`;
+  }
+
+  function applyBootstrapPayload(payload) {
+    if (!payload || typeof payload !== "object") return false;
+    window.__mei = window.__mei || {};
+    if (payload.clientRevision) window.__mei.client_revision = payload.clientRevision;
+    if (payload.bootstrapScope) window.__mei.bootstrap_scope = payload.bootstrapScope;
+    if (payload.targetFile) window.__mei.bootstrap_target_file = payload.targetFile;
+    if (payload.compileEpoch) window.__mei.bootstrap_compile_epoch = payload.compileEpoch;
+    if (payload.dataGeneration) window.__mei.bootstrap_data_generation = payload.dataGeneration;
+    if (payload.appId) window.__mei.bootstrap_app_id = payload.appId;
+    if (Array.isArray(payload.metrics)) window.__mei.bootstrap_metrics = payload.metrics;
+    if (Array.isArray(payload.bootstrapScopes)) {
+      window.__mei.bootstrap_scopes = payload.bootstrapScopes;
+    }
+    window.__meiBootstrapPayloadReady = 1;
+    try {
+      document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));
+    } catch (_) {}
+    return true;
+  }
+
+  function readLocalBootstrapArtifact(appId, sceneId, revision) {
+    try {
+      const raw = localStorage.getItem(
+        `${BOOTSTRAP_ARTIFACT_LS_PREFIX}${bootstrapArtifactStorageKey(appId, sceneId, revision)}`,
+      );
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeLocalBootstrapArtifact(appId, sceneId, revision, payload) {
+    try {
+      localStorage.setItem(
+        `${BOOTSTRAP_ARTIFACT_LS_PREFIX}${bootstrapArtifactStorageKey(appId, sceneId, revision)}`,
+        JSON.stringify(payload),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function ensureSceneBootstrapPayload(ctx, revision) {
+    const appId = ctx?.appId;
+    const sceneId = ctx?.sceneId;
+    const clientRevision = revision?.client_revision;
+    if (!appId || !sceneId) return null;
+    if (window.__meiBootstrapSeeded && window.__meiBootstrapPayloadReady) {
+      return window.__mei;
+    }
+    const inline = document.getElementById("mei-client-bootstrap");
+    if (inline && inline.textContent) {
+      try {
+        const payload = JSON.parse(inline.textContent || "{}");
+        applyBootstrapPayload(payload);
+        if (clientRevision) {
+          writeLocalBootstrapArtifact(appId, sceneId, clientRevision, payload);
+        }
+        return payload;
+      } catch (_) {}
+    }
+    if (clientRevision) {
+      const cached = readLocalBootstrapArtifact(appId, sceneId, clientRevision);
+      if (cached) {
+        applyBootstrapPayload(cached);
+        return cached;
+      }
+    }
+    const params = new URLSearchParams({ app: appId, scene: sceneId });
+    const response = await fetch(`${SCENE_BOOTSTRAP_API}?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`scene bootstrap failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    applyBootstrapPayload(payload);
+    if (clientRevision || payload?.clientRevision) {
+      writeLocalBootstrapArtifact(
+        appId,
+        sceneId,
+        clientRevision || payload.clientRevision,
+        payload,
+      );
+    }
+    return payload;
+  }
+
+  boot.ensureSceneBootstrapPayload = ensureSceneBootstrapPayload;
+  boot.applyBootstrapPayload = applyBootstrapPayload;
+
+
 /* ===== spa-navigation/spa/dom-swap.js ===== */
   function replaceShellFromDoc(doc, url, replaceHistory) {
     const currentShell = document.querySelector(".shell");
@@ -20925,6 +21319,23 @@
         }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
+        const sceneCtx =
+          typeof boot.parseAccessSceneContext === "function"
+            ? boot.parseAccessSceneContext(url)
+            : null;
+        if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+          try {
+            const revision =
+              typeof boot.fetchSceneRevision === "function"
+                ? await boot.fetchSceneRevision(sceneCtx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
+                : null;
+            if (revision) {
+              await boot.saveCurrentSceneShellSnapshot(sceneCtx, revision, doc);
+            }
+          } catch (error) {
+            console.warn("[spa-navigation] post-spa shell snapshot save skipped", error);
+          }
+        }
         if (typeof boot.markLoadingPostSpaDone === "function") {
           boot.markLoadingPostSpaDone(navigationId);
         }
@@ -20942,6 +21353,32 @@
 
 /* ===== spa-navigation/spa/navigation.js ===== */
   async function loadAndSwap(url, replaceHistory, navigationId) {
+    const ctx = typeof boot.parseAccessSceneContext === "function" ? boot.parseAccessSceneContext(url) : null;
+    if (ctx && typeof boot.fetchSceneRevision === "function" && typeof boot.tryRestoreSceneShellFromCache === "function") {
+      try {
+        const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS });
+        if (navigationId !== currentNavigationId) return false;
+        const restoredDoc = await boot.tryRestoreSceneShellFromCache(
+          ctx,
+          revision,
+          url,
+          replaceHistory,
+        );
+        if (restoredDoc) {
+          if (typeof boot.ensureSceneBootstrapPayload === "function") {
+            await boot.ensureSceneBootstrapPayload(ctx, revision);
+          }
+          if (navigationId !== currentNavigationId) return false;
+          if (typeof boot.markLoadingRenderSwapDone === "function") {
+            boot.markLoadingRenderSwapDone(navigationId);
+          }
+          runPostSpaWork(restoredDoc, url, navigationId, null, new URL(url, window.location.href));
+          return true;
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] cache-first restore skipped", error);
+      }
+    }
     const fetchController = new AbortController();
     const fetchTimer = setTimeout(() => fetchController.abort(), SPA_FETCH_TIMEOUT_MS);
     let response;
@@ -21005,6 +21442,19 @@
     if (navigationId !== currentNavigationId) return false;
     if (typeof boot.markLoadingRenderSwapDone === "function") {
       boot.markLoadingRenderSwapDone(navigationId);
+    }
+    if (ctx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+      try {
+        const revision =
+          typeof boot.fetchSceneRevision === "function"
+            ? await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
+            : null;
+        if (revision) {
+          await boot.saveCurrentSceneShellSnapshot(ctx, revision, doc);
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] scene shell snapshot save skipped", error);
+      }
     }
     runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);
     return true;
@@ -21249,6 +21699,29 @@
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();
   applySceneProjectionContextFromStorage();
+  void (async () => {
+    const ctx =
+      typeof boot.parseAccessSceneContext === "function"
+        ? boot.parseAccessSceneContext(window.location.href)
+        : null;
+    if (!ctx) return;
+    try {
+      if (typeof boot.fetchSceneRevision !== "function") return;
+      const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: 4000 });
+      if (typeof boot.ensureSceneBootstrapPayload === "function") {
+        await boot.ensureSceneBootstrapPayload(ctx, revision);
+      }
+      const sceneCtx = ctx;
+      if (sceneCtx?.appId && typeof window.__meiDatasetRuntime === "undefined") {
+        /* runtime-query module may load later via component bundle */
+      }
+      if (typeof boot.saveCurrentSceneShellSnapshot === "function") {
+        await boot.saveCurrentSceneShellSnapshot(ctx, revision, document);
+      }
+    } catch (error) {
+      console.warn("[spa-navigation] initial scene cache bootstrap skipped", error);
+    }
+  })();
 
   document.addEventListener(
     "click",

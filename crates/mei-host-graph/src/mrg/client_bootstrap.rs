@@ -78,6 +78,64 @@ pub fn client_bootstrap_path(app_root: &Path, scope: &str) -> PathBuf {
     client_bootstrap_root(app_root).join(format!("{scope}.json"))
 }
 
+pub fn scene_bootstrap_artifact_root(app_root: &Path) -> PathBuf {
+    mei_lang_kernel::resolve_app_var_root(app_root).join("scene-bootstrap")
+}
+
+pub fn scene_bootstrap_artifact_path(
+    app_root: &Path,
+    scope: &str,
+    client_revision: &str,
+) -> PathBuf {
+    scene_bootstrap_artifact_root(app_root)
+        .join(format!("{scope}.{client_revision}.json"))
+}
+
+pub fn scene_bootstrap_artifact_public_url(
+    app_id: &str,
+    scope: &str,
+    client_revision: &str,
+) -> String {
+    format!(
+        "/api/host/scene-bootstrap?app={app_id}&scene={scope}&revision={client_revision}"
+    )
+}
+
+pub fn write_scene_bootstrap_artifact(
+    workspace_root: &Path,
+    app_id: &str,
+    scope: &str,
+    payload: &ClientBootstrapPayload,
+) -> Option<PathBuf> {
+    let revision = payload.client_revision.trim();
+    if revision.is_empty() {
+        return None;
+    }
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let path = scene_bootstrap_artifact_path(app_root.as_path(), scope, revision);
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let written = fs::write(path.as_path(), serde_json::to_string_pretty(payload).ok()?).is_ok();
+    if written {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+pub fn read_scene_bootstrap_artifact(
+    workspace_root: &Path,
+    app_id: &str,
+    scope: &str,
+    client_revision: &str,
+) -> Option<ClientBootstrapPayload> {
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let path = scene_bootstrap_artifact_path(app_root.as_path(), scope, client_revision);
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
 pub fn compute_scope_client_revision(
     scope: &str,
     content_hashes: &[&str],
@@ -214,8 +272,10 @@ pub fn build_client_bootstrap_head_fragment(
         .iter()
         .map(|scope| scope.metrics.len())
         .sum::<usize>();
+    let artifact_url = scene_bootstrap_artifact_public_url(app_id, scene_id, payload.client_revision.as_str());
+    let _ = write_scene_bootstrap_artifact(workspace_root, app_id, scene_id, &payload);
     Some(format!(
-        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.clientRevision)window.__mei.client_revision=p.clientRevision;if(p.bootstrapScope)window.__mei.bootstrap_scope=p.bootstrapScope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;if(Array.isArray(p.bootstrapScopes))window.__mei.bootstrap_scopes=p.bootstrapScopes;window.__meiBootstrapPayloadReady=1;}}catch(e){{window.__meiBootstrapSeedError="bootstrap_parse_failed";}}try{{document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));}}catch(e){{}}}})();</script>"#
+        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><meta name="mei-bootstrap-artifact-url" content="{artifact_url}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.clientRevision)window.__mei.client_revision=p.clientRevision;if(p.bootstrapScope)window.__mei.bootstrap_scope=p.bootstrapScope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;if(Array.isArray(p.bootstrapScopes))window.__mei.bootstrap_scopes=p.bootstrapScopes;window.__mei.bootstrap_artifact_url="{artifact_url}";window.__meiBootstrapPayloadReady=1;}}catch(e){{window.__meiBootstrapSeedError="bootstrap_parse_failed";}}try{{document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));}}catch(e){{}}}})();</script>"#
     ))
 }
 

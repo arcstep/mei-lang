@@ -26,7 +26,7 @@ fn is_noisy_success_request(method: &Method, path: &str) -> bool {
     }
     matches!(
         path,
-        "/api/host/ready" | "/api/host/readiness" | "/api/host/heartbeat" | "/api/host/version" | "/favicon.ico"
+        "/api/host/ready" | "/api/host/readiness" | "/api/host/heartbeat" | "/api/host/version" | "/api/host/scene-revision" | "/favicon.ico"
     ) || path.starts_with("/app-assets/")
         || path.starts_with("/workspace-components/")
         || path.starts_with("/workspace-app-assets/")

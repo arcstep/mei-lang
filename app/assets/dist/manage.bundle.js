@@ -14665,19 +14665,35 @@
       return false;
     }
     const url = `/apps/app/${appId}/scene/${encodeURIComponent(sceneId)}`;
+    const fragmentUrl = `/api/host/scene-fragment?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
     try {
-      const response = await fetch(url, {
+      let surface = null;
+      const fragmentResponse = await fetch(fragmentUrl, {
         credentials: "same-origin",
-        headers: { "x-mei-spa-nav": "1" },
+        headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
       });
-      if (!response.ok) {
-        throw new Error(`scene fetch failed: ${response.status}`);
+      if (fragmentResponse.ok) {
+        const fragment = await fragmentResponse.json();
+        if (fragment?.surfaceHtml) {
+          const mountFromFragment = document.createElement("div");
+          mountFromFragment.innerHTML = fragment.surfaceHtml;
+          surface = mountFromFragment.firstElementChild;
+        }
       }
-      const html = await response.text();
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const surface = doc.querySelector(
-        "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
-      );
+      if (!(surface instanceof HTMLElement)) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          headers: { "x-mei-spa-nav": "1" },
+        });
+        if (!response.ok) {
+          throw new Error(`scene fetch failed: ${response.status}`);
+        }
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        surface = doc.querySelector(
+          "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
+        );
+      }
       if (!(surface instanceof HTMLElement)) {
         throw new Error("board scene preview surface missing");
       }
@@ -18218,6 +18234,23 @@
         }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
+        const sceneCtx =
+          typeof boot.parseAccessSceneContext === "function"
+            ? boot.parseAccessSceneContext(url)
+            : null;
+        if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+          try {
+            const revision =
+              typeof boot.fetchSceneRevision === "function"
+                ? await boot.fetchSceneRevision(sceneCtx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
+                : null;
+            if (revision) {
+              await boot.saveCurrentSceneShellSnapshot(sceneCtx, revision, doc);
+            }
+          } catch (error) {
+            console.warn("[spa-navigation] post-spa shell snapshot save skipped", error);
+          }
+        }
         if (typeof boot.markLoadingPostSpaDone === "function") {
           boot.markLoadingPostSpaDone(navigationId);
         }
@@ -18235,6 +18268,32 @@
 
 /* ===== spa-navigation/spa/navigation.js ===== */
   async function loadAndSwap(url, replaceHistory, navigationId) {
+    const ctx = typeof boot.parseAccessSceneContext === "function" ? boot.parseAccessSceneContext(url) : null;
+    if (ctx && typeof boot.fetchSceneRevision === "function" && typeof boot.tryRestoreSceneShellFromCache === "function") {
+      try {
+        const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS });
+        if (navigationId !== currentNavigationId) return false;
+        const restoredDoc = await boot.tryRestoreSceneShellFromCache(
+          ctx,
+          revision,
+          url,
+          replaceHistory,
+        );
+        if (restoredDoc) {
+          if (typeof boot.ensureSceneBootstrapPayload === "function") {
+            await boot.ensureSceneBootstrapPayload(ctx, revision);
+          }
+          if (navigationId !== currentNavigationId) return false;
+          if (typeof boot.markLoadingRenderSwapDone === "function") {
+            boot.markLoadingRenderSwapDone(navigationId);
+          }
+          runPostSpaWork(restoredDoc, url, navigationId, null, new URL(url, window.location.href));
+          return true;
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] cache-first restore skipped", error);
+      }
+    }
     const fetchController = new AbortController();
     const fetchTimer = setTimeout(() => fetchController.abort(), SPA_FETCH_TIMEOUT_MS);
     let response;
@@ -18298,6 +18357,19 @@
     if (navigationId !== currentNavigationId) return false;
     if (typeof boot.markLoadingRenderSwapDone === "function") {
       boot.markLoadingRenderSwapDone(navigationId);
+    }
+    if (ctx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+      try {
+        const revision =
+          typeof boot.fetchSceneRevision === "function"
+            ? await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
+            : null;
+        if (revision) {
+          await boot.saveCurrentSceneShellSnapshot(ctx, revision, doc);
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] scene shell snapshot save skipped", error);
+      }
     }
     runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);
     return true;
@@ -18542,6 +18614,29 @@
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();
   applySceneProjectionContextFromStorage();
+  void (async () => {
+    const ctx =
+      typeof boot.parseAccessSceneContext === "function"
+        ? boot.parseAccessSceneContext(window.location.href)
+        : null;
+    if (!ctx) return;
+    try {
+      if (typeof boot.fetchSceneRevision !== "function") return;
+      const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: 4000 });
+      if (typeof boot.ensureSceneBootstrapPayload === "function") {
+        await boot.ensureSceneBootstrapPayload(ctx, revision);
+      }
+      const sceneCtx = ctx;
+      if (sceneCtx?.appId && typeof window.__meiDatasetRuntime === "undefined") {
+        /* runtime-query module may load later via component bundle */
+      }
+      if (typeof boot.saveCurrentSceneShellSnapshot === "function") {
+        await boot.saveCurrentSceneShellSnapshot(ctx, revision, document);
+      }
+    } catch (error) {
+      console.warn("[spa-navigation] initial scene cache bootstrap skipped", error);
+    }
+  })();
 
   document.addEventListener(
     "click",

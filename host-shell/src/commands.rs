@@ -175,8 +175,13 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
         println!("finalized candidate {}", args.build_id);
     }
     let auth_enabled = false;
-    let primed =
-        crate::access_page_cache::warm_access_page_render_caches(workspace.as_path(), &app_ids, auth_enabled);
+    let package_root = resolve_package_root()?;
+    let primed = crate::access_page_cache::warm_access_page_render_caches(
+        workspace.as_path(),
+        package_root.as_path(),
+        &app_ids,
+        auth_enabled,
+    );
     if primed > 0 {
         println!("page-render-cache primed={primed}");
     }
@@ -636,7 +641,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let shell: SharedState = Arc::new(RwLock::new(ShellState::new(
         workspace.clone(),
         default_app_id.clone(),
-        package_root,
+        package_root.clone(),
         plug_ds_by_app.clone(),
         managed_pool.is_some(),
     )));
@@ -649,6 +654,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     };
     let primed = crate::access_page_cache::warm_access_page_render_caches(
         workspace.as_path(),
+        package_root.as_path(),
         app_ids.as_slice(),
         args.auth,
     );

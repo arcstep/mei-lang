@@ -16,8 +16,8 @@ use std::time::Instant;
 use crate::build_info::fill_page_shell_placeholders;
 use crate::landing::{choose_default_app, discover_workspace_apps, enrich_discovered_apps};
 use crate::access_page_cache::{
-    access_page_cache_key, insert_page_render_cache_hit_header, render_access_page_template,
-    store_access_page_template, take_access_page_template,
+    access_page_cache_key, build_scene_revision_payload, insert_page_render_cache_hit_header,
+    render_access_page_template, store_access_page_template, take_access_page_template,
 };
 use crate::page_observability::{
     fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
@@ -47,6 +47,7 @@ pub async fn app_page(
     }
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
+    let package_root = guard.package_root.as_path();
     let discovered = match discover_workspace_apps(workspace_root) {
         Ok(apps) => apps,
         Err(error) => {
@@ -110,6 +111,7 @@ pub async fn app_page(
                 let render_started = Instant::now();
                 match render_access_page_template(
                     workspace_root,
+                    package_root,
                     apps.as_slice(),
                     &topbar_menu,
                     app_id.as_str(),
@@ -149,6 +151,7 @@ pub async fn app_page(
             let render_started = Instant::now();
             match render_access_page_template(
                 workspace_root,
+                package_root,
                 apps.as_slice(),
                 &topbar_menu,
                 app_id.as_str(),
@@ -351,6 +354,306 @@ pub async fn api_presentation_map(
         }
     };
     Json(outcome.presentation_map).into_response()
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct SceneRevisionQuery {
+    pub app: String,
+    pub scene: Option<String>,
+    pub mode: Option<String>,
+}
+
+pub async fn api_scene_revision(
+    State(state): State<SharedState>,
+    State(auth): State<AuthServeState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    Query(query): Query<SceneRevisionQuery>,
+) -> Response {
+    let app_id = query.app.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app is required"})),
+        )
+            .into_response();
+    }
+    let scene_id = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home")
+        .to_string();
+    let route_mode = query
+        .mode
+        .as_deref()
+        .map(UiRouteMode::from_slug)
+        .unwrap_or(UiRouteMode::App);
+    if !route_mode.is_access_like() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "mode must be access-like"})),
+        )
+            .into_response();
+    }
+    let guard = state.read().expect("state lock");
+    let workspace_root = guard.ctx.workspace_root.as_path();
+    let package_root = guard.package_root.as_path();
+    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
+    let apps = filter_apps_for_principal(
+        discovered.as_slice(),
+        principal.as_ref().map(|Extension(p)| p),
+    );
+    if !apps.iter().any(|app| app.id == app_id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    }
+    let app_ctx = guard.host_ctx_for_app(app_id);
+    let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
+        app_ctx.app_root().as_path(),
+        Some(workspace_root),
+        None,
+    );
+    let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
+    let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
+    let outcome = match mei_host_graph::assemble_scope_from_registry(
+        workspace_root,
+        app_id,
+        scene_id.as_str(),
+    ) {
+        Ok(Some(outcome)) => outcome,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "scene not assembled"})),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": format!("assemble failed: {error}")})),
+            )
+                .into_response();
+        }
+    };
+    let Some(payload) = build_scene_revision_payload(
+        workspace_root,
+        package_root,
+        app_id,
+        scene_id.as_str(),
+        route_mode,
+        auth_enabled,
+        account_view.as_ref(),
+        &gis,
+        outcome.compiled.component_assets.as_slice(),
+    ) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "revision unavailable; warmup bootstrap first"})),
+        )
+            .into_response();
+    };
+    Json(payload).into_response()
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct SceneBootstrapQuery {
+    pub app: String,
+    pub scene: Option<String>,
+}
+
+pub async fn api_scene_bootstrap(
+    State(state): State<SharedState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    Query(query): Query<SceneBootstrapQuery>,
+) -> Response {
+    let app_id = query.app.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app is required"})),
+        )
+            .into_response();
+    }
+    let scene_id = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home")
+        .to_string();
+    let guard = state.read().expect("state lock");
+    let workspace_root = guard.ctx.workspace_root.as_path();
+    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
+    let apps = filter_apps_for_principal(
+        discovered.as_slice(),
+        principal.as_ref().map(|Extension(p)| p),
+    );
+    if !apps.iter().any(|app| app.id == app_id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    }
+    let Some(payload) =
+        mei_host_graph::build_client_bootstrap_payload(workspace_root, app_id, scene_id.as_str())
+    else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "bootstrap unavailable"})),
+        )
+            .into_response();
+    };
+    let _ = mei_host_graph::write_scene_bootstrap_artifact(
+        workspace_root,
+        app_id,
+        scene_id.as_str(),
+        &payload,
+    );
+    Json(payload).into_response()
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct SceneFragmentQuery {
+    pub app: String,
+    pub scene: Option<String>,
+}
+
+pub async fn api_scene_fragment(
+    State(state): State<SharedState>,
+    State(auth): State<AuthServeState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    Query(query): Query<SceneFragmentQuery>,
+) -> Response {
+    let app_id = query.app.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app is required"})),
+        )
+            .into_response();
+    }
+    let scene_id = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home")
+        .to_string();
+    let guard = state.read().expect("state lock");
+    let workspace_root = guard.ctx.workspace_root.as_path();
+    let package_root = guard.package_root.as_path();
+    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
+    let apps = filter_apps_for_principal(
+        discovered.as_slice(),
+        principal.as_ref().map(|Extension(p)| p),
+    );
+    if !apps.iter().any(|app| app.id == app_id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    }
+    let topbar_menu = load_topbar_menu_context(workspace_root);
+    let apps = enrich_discovered_apps(apps.as_slice(), &topbar_menu);
+    let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
+    let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
+    let html = match render_access_page_template(
+        workspace_root,
+        package_root,
+        apps.as_slice(),
+        &topbar_menu,
+        app_id,
+        scene_id.as_str(),
+        UiRouteMode::App,
+        &AppQuery::default(),
+        auth_enabled,
+        account_view.as_ref(),
+    ) {
+        Ok(template) => template,
+        Err(error) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": format!("render failed: {error}")})),
+            )
+                .into_response();
+        }
+    };
+    let surface_html = extract_preview_surface_html(html.as_str());
+    let shell_html = extract_shell_inner_html(html.as_str());
+    let title = extract_document_title(html.as_str());
+    Json(json!({
+        "appId": app_id,
+        "sceneId": scene_id,
+        "title": title,
+        "shellHtml": shell_html,
+        "surfaceHtml": surface_html,
+    }))
+    .into_response()
+}
+
+fn extract_document_title(html: &str) -> String {
+    let start = match html.find("<title>") {
+        Some(value) => value + "<title>".len(),
+        None => return String::new(),
+    };
+    let end = match html[start..].find("</title>") {
+        Some(value) => start + value,
+        None => return String::new(),
+    };
+    html[start..end].trim().to_string()
+}
+
+fn extract_shell_inner_html(html: &str) -> Option<String> {
+    let marker = r#"class="shell""#;
+    let start = html.find(marker)?;
+    let open_end = html[start..].find('>')? + start + 1;
+    let mut depth = 1usize;
+    let mut cursor = open_end;
+    while cursor < html.len() {
+        if html[cursor..].starts_with("<div") {
+            depth += 1;
+            cursor += 4;
+            continue;
+        }
+        if html[cursor..].starts_with("</div>") {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(html[open_end..cursor].to_string());
+            }
+            cursor += 6;
+            continue;
+        }
+        cursor += 1;
+    }
+    None
+}
+
+fn extract_preview_surface_html(html: &str) -> Option<String> {
+    for selector in [
+        r#"data-mei-frame-viewport"#,
+        r#"class="preview-surface preview-stage""#,
+        r#"class="preview-surface""#,
+    ] {
+        let Some(pos) = html.find(selector) else {
+            continue;
+        };
+        let fragment = &html[pos.saturating_sub(120)..];
+        let Some(start) = fragment.rfind('<') else {
+            continue;
+        };
+        let tail = &html[pos.saturating_sub(120) + start..];
+        if let Some(end_rel) = tail.find("</div>") {
+            return Some(tail[..end_rel + "</div>".len()].to_string());
+        }
+    }
+    None
 }
 
 pub async fn index(

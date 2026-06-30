@@ -10,6 +10,7 @@ use axum::{
 };
 use mei_lang_kernel::{resolve_app_root, resolve_components_root, resolve_templates_root};
 
+use crate::scene_bundle::parse_scene_bundle_request_path;
 use crate::state::SharedState;
 
 use static_serve::{asset_not_found, serve_static_asset_with_cache};
@@ -17,7 +18,8 @@ use static_serve::{asset_not_found, serve_static_asset_with_cache};
 const PUBLIC_REVALIDATE_CACHE_CONTROL: &str = "public, no-cache";
 const PRIVATE_REVALIDATE_CACHE_CONTROL: &str = "private, no-cache";
 const COMPONENT_REVALIDATE_CACHE_CONTROL: &str = "private, no-cache";
-const VENDOR_REVALIDATE_CACHE_CONTROL: &str = "public, no-cache";
+const VENDOR_IMMUTABLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+const IMMUTABLE_BUNDLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -67,7 +69,7 @@ pub async fn app_bundle(
                 dist_path,
                 "app dist bundle",
                 &headers,
-                PUBLIC_REVALIDATE_CACHE_CONTROL,
+                IMMUTABLE_BUNDLE_CACHE_CONTROL,
             )
             .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response());
         }
@@ -77,7 +79,7 @@ pub async fn app_bundle(
             assets_root.join("shoelace-local.js"),
             "shoelace fallback bundle",
             &headers,
-            PUBLIC_REVALIDATE_CACHE_CONTROL,
+            IMMUTABLE_BUNDLE_CACHE_CONTROL,
         )
         .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response());
     }
@@ -101,11 +103,21 @@ pub async fn workspace_app_asset(
     } else {
         resolve_app_root(workspace_root.as_path(), &app_id).join(&path)
     };
+    let cache_control = if path.ends_with(".svg")
+        || path.ends_with(".png")
+        || path.ends_with(".webp")
+        || path.ends_with(".jpg")
+        || path.ends_with(".jpeg")
+    {
+        IMMUTABLE_BUNDLE_CACHE_CONTROL
+    } else {
+        PRIVATE_REVALIDATE_CACHE_CONTROL
+    };
     serve_static_asset_with_cache(
         asset_root,
         "workspace app asset",
         &headers,
-        PRIVATE_REVALIDATE_CACHE_CONTROL,
+        cache_control,
     )
     .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response())
 }
@@ -115,6 +127,22 @@ pub async fn component_asset(
     headers: HeaderMap,
     AxumPath(path): AxumPath<String>,
 ) -> Response {
+    if let Some((app_id, scene_id, revision)) = parse_scene_bundle_request_path(path.as_str()) {
+        let workspace_root = state.read().expect("state lock").ctx.workspace_root.clone();
+        let app_root = resolve_app_root(workspace_root.as_path(), &app_id);
+        let bundle_path = crate::scene_bundle::resolve_scene_bundle_cache_path(
+            app_root.as_path(),
+            scene_id.as_str(),
+            revision.as_str(),
+        );
+        return serve_static_asset_with_cache(
+            bundle_path,
+            "scene component bundle",
+            &headers,
+            IMMUTABLE_BUNDLE_CACHE_CONTROL,
+        )
+        .unwrap_or_else(|error| (StatusCode::NOT_FOUND, error.to_string()).into_response());
+    }
     let workspace_root = state.read().expect("state lock").ctx.workspace_root.clone();
     let components_root = resolve_components_root(workspace_root.as_path());
     let asset_path = resolve_component_asset_path(&components_root, &path);
@@ -122,7 +150,7 @@ pub async fn component_asset(
         return StatusCode::NO_CONTENT.into_response();
     }
     let cache_control = if path.starts_with("vendor/") {
-        VENDOR_REVALIDATE_CACHE_CONTROL
+        VENDOR_IMMUTABLE_CACHE_CONTROL
     } else {
         COMPONENT_REVALIDATE_CACHE_CONTROL
     };
@@ -159,7 +187,7 @@ fn merged_styles_response(assets_root: &Path, headers: &HeaderMap) -> Response {
     );
     response.headers_mut().insert(
         HeaderName::from_static("cache-control"),
-        HeaderValue::from_static(PRIVATE_REVALIDATE_CACHE_CONTROL),
+        HeaderValue::from_static(IMMUTABLE_BUNDLE_CACHE_CONTROL),
     );
     let _ = headers;
     response
@@ -190,7 +218,7 @@ fn merged_scripts_response(
     );
     response.headers_mut().insert(
         HeaderName::from_static("cache-control"),
-        HeaderValue::from_static(PRIVATE_REVALIDATE_CACHE_CONTROL),
+        HeaderValue::from_static(IMMUTABLE_BUNDLE_CACHE_CONTROL),
     );
     let _ = headers;
     response

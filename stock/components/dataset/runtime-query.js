@@ -6,6 +6,10 @@ import {
   readSessionRuntimeQueryCache,
   writeSessionRuntimeQueryCache,
 } from "./runtime-query-session-cache.js";
+import {
+  hydrateQueryStateStore,
+  installQueryStatePersistence,
+} from "./query-state-store.js";
 
 const STORE_KEY = "__meiQueryStateStore";
 const EVENT_NAME = "mei:query-state-change";
@@ -2111,6 +2115,15 @@ function hydrateSessionRuntimeQueryCaches() {
 
 function rehydrateClientRuntimeQueryCaches(bootstrap = window.__mei) {
   primeBootstrapRuntimeContext(bootstrap);
+  const appId = readRuntimeQueryAppId();
+  const sceneId =
+    String(bootstrap?.bootstrap_scope || "").trim() ||
+    String(window.__meiRuntimeSceneId || "").trim() ||
+    "home";
+  if (appId) {
+    hydrateQueryStateStore(appId, sceneId);
+    installQueryStatePersistence(appId, sceneId);
+  }
   return hydrateSessionRuntimeQueryCaches();
 }
 

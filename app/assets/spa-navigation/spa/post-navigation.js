@@ -65,6 +65,23 @@
         }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
+        const sceneCtx =
+          typeof boot.parseAccessSceneContext === "function"
+            ? boot.parseAccessSceneContext(url)
+            : null;
+        if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+          try {
+            const revision =
+              typeof boot.fetchSceneRevision === "function"
+                ? await boot.fetchSceneRevision(sceneCtx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
+                : null;
+            if (revision) {
+              await boot.saveCurrentSceneShellSnapshot(sceneCtx, revision, doc);
+            }
+          } catch (error) {
+            console.warn("[spa-navigation] post-spa shell snapshot save skipped", error);
+          }
+        }
         if (typeof boot.markLoadingPostSpaDone === "function") {
           boot.markLoadingPostSpaDone(navigationId);
         }

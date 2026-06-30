@@ -241,6 +241,7 @@ pub fn store_access_page_template(
 
 pub fn render_access_page_template(
     workspace_root: &Path,
+    package_root: &Path,
     apps: &[WorkspaceAppMeta],
     topbar_menu: &TopbarMenuContext,
     app_id: &str,
@@ -260,6 +261,28 @@ pub fn render_access_page_template(
         Some(workspace_root),
         None,
     );
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let scene_bundle_url: Option<String> = if route_mode.is_access_like()
+        && crate::scene_bundle::should_build_scene_bundle(app_root.as_path(), route_mode, scene_id)
+    {
+        let probe = crate::scene_bundle::probe_scene_component_bundle(
+            package_root,
+            workspace_root,
+            app_id,
+            scene_id,
+            &outcome.compiled.component_assets,
+        );
+        if let Some(build) = probe.build.as_ref() {
+            crate::scene_bundle::schedule_scene_component_bundle_build(
+                package_root,
+                workspace_root,
+                build,
+            );
+        }
+        probe.bundle.map(|bundle| bundle.url)
+    } else {
+        None
+    };
     let html = render_page(
         apps,
         &outcome.compiled,
@@ -287,7 +310,7 @@ pub fn render_access_page_template(
         &[],
         auth_enabled,
         account_view,
-        None,
+        scene_bundle_url.as_deref(),
         theme_style.as_str(),
         None,
         None,
@@ -316,6 +339,7 @@ pub fn hot_scenes_for_app(workspace_root: &Path, app_id: &str) -> Vec<String> {
 
 pub fn prime_access_page_render_cache(
     workspace_root: &Path,
+    package_root: &Path,
     app_id: &str,
     scene_id: &str,
     auth_enabled: bool,
@@ -342,6 +366,7 @@ pub fn prime_access_page_render_cache(
     let apps = crate::landing::enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
     let template = render_access_page_template(
         workspace_root,
+        package_root,
         apps.as_slice(),
         &topbar_menu,
         app_id,
@@ -357,6 +382,7 @@ pub fn prime_access_page_render_cache(
 
 pub fn warm_access_page_render_caches(
     workspace_root: &Path,
+    package_root: &Path,
     app_ids: &[String],
     auth_enabled: bool,
 ) -> usize {
@@ -365,6 +391,7 @@ pub fn warm_access_page_render_caches(
         for scene_id in hot_scenes_for_app(workspace_root, app_id.as_str()) {
             match prime_access_page_render_cache(
                 workspace_root,
+                package_root,
                 app_id.as_str(),
                 scene_id.as_str(),
                 auth_enabled,
@@ -392,4 +419,121 @@ pub fn insert_page_render_cache_hit_header(response: &mut axum::response::Respon
             value,
         );
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneRevisionPayload {
+    pub app_id: String,
+    pub scene_id: String,
+    pub route_mode: String,
+    pub registry_revision: String,
+    pub client_revision: String,
+    pub data_generation: String,
+    pub ops_themes_revision: String,
+    pub host_ssr_payload_revision: String,
+    pub scene_bundle_revision: Option<String>,
+    pub scene_bundle_url: Option<String>,
+    pub scene_bundle_status: String,
+    pub auth_enabled: bool,
+    pub auth_sig: u64,
+    pub revision_digest: String,
+    pub cache_key: Option<String>,
+}
+
+pub fn build_scene_revision_payload(
+    workspace_root: &Path,
+    package_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    auth_enabled: bool,
+    account_view: Option<&HostAccountView>,
+    gis: &GisTilesConfig,
+    component_assets: &[mei_lang_kernel::ComponentAsset],
+) -> Option<SceneRevisionPayload> {
+    let registry = mei_host_graph::McgRegistryWriter::load(workspace_root, app_id);
+    let registry_revision = registry.registry_revision.trim().to_string();
+    if registry_revision.is_empty() {
+        return None;
+    }
+    let bootstrap = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
+    let client_revision = bootstrap
+        .client_revision
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if client_revision.is_empty() {
+        return None;
+    }
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let data_generation = mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id)
+        .data_generation;
+    let ops_themes_revision = ops_themes_revision_digest(workspace_root, app_id);
+    let auth_sig = account_view.map(serialized_signature).unwrap_or(0);
+    let cache_key = access_page_cache_key(
+        workspace_root,
+        app_id,
+        scene_id,
+        route_mode,
+        auth_enabled,
+        account_view,
+        gis,
+    );
+    let bundle_probe = if route_mode.is_access_like()
+        && crate::scene_bundle::should_build_scene_bundle(app_root.as_path(), route_mode, scene_id)
+    {
+        crate::scene_bundle::probe_scene_component_bundle(
+            package_root,
+            workspace_root,
+            app_id,
+            scene_id,
+            component_assets,
+        )
+    } else {
+        crate::scene_bundle::SceneBundleProbe {
+            bundle: None,
+            cache_marker: crate::scene_bundle::scene_bundle_cache_marker(
+                app_root.as_path(),
+                route_mode,
+                scene_id,
+            ),
+            build: None,
+        }
+    };
+    if let Some(build) = bundle_probe.build.as_ref() {
+        crate::scene_bundle::schedule_scene_component_bundle_build(
+            package_root,
+            workspace_root,
+            build,
+        );
+    }
+    let scene_bundle_status = crate::scene_bundle::scene_bundle_status(&bundle_probe).to_string();
+    let (scene_bundle_revision, scene_bundle_url) = bundle_probe
+        .bundle
+        .as_ref()
+        .map(|bundle| (Some(bundle.revision.clone()), Some(bundle.url.clone())))
+        .unwrap_or((None, None));
+    let revision_digest = cache_key
+        .as_deref()
+        .map(hash_signature)
+        .map(|digest| format!("{digest:016x}"))
+        .unwrap_or_else(|| "0".to_string());
+    Some(SceneRevisionPayload {
+        app_id: app_id.to_string(),
+        scene_id: scene_id.to_string(),
+        route_mode: route_mode.slug().to_string(),
+        registry_revision,
+        client_revision,
+        data_generation,
+        ops_themes_revision,
+        host_ssr_payload_revision: HOST_SSR_PAYLOAD_REVISION.to_string(),
+        scene_bundle_revision,
+        scene_bundle_url,
+        scene_bundle_status,
+        auth_enabled,
+        auth_sig,
+        revision_digest,
+        cache_key,
+    })
 }

@@ -16,7 +16,7 @@ use crate::api_stubs::{
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
 use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
-use crate::pages::{api_presentation_map, app_page, index};
+use crate::pages::{api_presentation_map, api_scene_bootstrap, api_scene_fragment, api_scene_revision, app_page, index};
 use crate::landing::build_discovered_app_summaries;
 use crate::runtime_api::{api_host_mrg_activate, api_host_mrg_status, api_runtime_snapshot};
 use crate::state::{HostHttpState, SharedState};
@@ -45,6 +45,9 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/runtime/snapshot", get(api_runtime_snapshot))
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
+        .route("/api/host/scene-revision", get(api_scene_revision))
+        .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
+        .route("/api/host/scene-fragment", get(api_scene_fragment))
         .route(
             "/api/agent/context/preview",
             get(api_agent_context_preview_stub),

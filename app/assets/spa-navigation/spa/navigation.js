@@ -1,4 +1,30 @@
   async function loadAndSwap(url, replaceHistory, navigationId) {
+    const ctx = typeof boot.parseAccessSceneContext === "function" ? boot.parseAccessSceneContext(url) : null;
+    if (ctx && typeof boot.fetchSceneRevision === "function" && typeof boot.tryRestoreSceneShellFromCache === "function") {
+      try {
+        const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS });
+        if (navigationId !== currentNavigationId) return false;
+        const restoredDoc = await boot.tryRestoreSceneShellFromCache(
+          ctx,
+          revision,
+          url,
+          replaceHistory,
+        );
+        if (restoredDoc) {
+          if (typeof boot.ensureSceneBootstrapPayload === "function") {
+            await boot.ensureSceneBootstrapPayload(ctx, revision);
+          }
+          if (navigationId !== currentNavigationId) return false;
+          if (typeof boot.markLoadingRenderSwapDone === "function") {
+            boot.markLoadingRenderSwapDone(navigationId);
+          }
+          runPostSpaWork(restoredDoc, url, navigationId, null, new URL(url, window.location.href));
+          return true;
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] cache-first restore skipped", error);
+      }
+    }
     const fetchController = new AbortController();
     const fetchTimer = setTimeout(() => fetchController.abort(), SPA_FETCH_TIMEOUT_MS);
     let response;
@@ -62,6 +88,19 @@
     if (navigationId !== currentNavigationId) return false;
     if (typeof boot.markLoadingRenderSwapDone === "function") {
       boot.markLoadingRenderSwapDone(navigationId);
+    }
+    if (ctx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+      try {
+        const revision =
+          typeof boot.fetchSceneRevision === "function"
+            ? await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
+            : null;
+        if (revision) {
+          await boot.saveCurrentSceneShellSnapshot(ctx, revision, doc);
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] scene shell snapshot save skipped", error);
+      }
     }
     runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);
     return true;

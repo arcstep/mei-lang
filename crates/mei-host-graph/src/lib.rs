@@ -37,8 +37,9 @@ pub use mrg::client_bootstrap::{
     bootstrap_embed_allowed, bootstrap_embed_status, bootstrap_embed_status_for_manifest,
     build_client_bootstrap_head_fragment, build_client_bootstrap_payload, BootstrapEmbedStatus,
     clear_client_bootstrap_for_scope, clear_client_bootstraps_for_stale_scopes,
-    client_bootstrap_path, read_client_bootstrap, write_client_bootstrap, ClientBootstrapManifest, ClientBootstrapPayload,
-    ClientBootstrapScopePayload,
+    client_bootstrap_path, read_client_bootstrap, read_scene_bootstrap_artifact,
+    scene_bootstrap_artifact_public_url, write_client_bootstrap, write_scene_bootstrap_artifact,
+    ClientBootstrapManifest, ClientBootstrapPayload, ClientBootstrapScopePayload,
 };
 pub use mrg::frontier::{
     collect_eval_frontier, collect_eval_frontier_with_hops, linked_board_scenes_for_scope,

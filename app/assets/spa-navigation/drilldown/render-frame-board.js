@@ -9,19 +9,35 @@
       return false;
     }
     const url = `/apps/app/${appId}/scene/${encodeURIComponent(sceneId)}`;
+    const fragmentUrl = `/api/host/scene-fragment?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
     try {
-      const response = await fetch(url, {
+      let surface = null;
+      const fragmentResponse = await fetch(fragmentUrl, {
         credentials: "same-origin",
-        headers: { "x-mei-spa-nav": "1" },
+        headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
       });
-      if (!response.ok) {
-        throw new Error(`scene fetch failed: ${response.status}`);
+      if (fragmentResponse.ok) {
+        const fragment = await fragmentResponse.json();
+        if (fragment?.surfaceHtml) {
+          const mountFromFragment = document.createElement("div");
+          mountFromFragment.innerHTML = fragment.surfaceHtml;
+          surface = mountFromFragment.firstElementChild;
+        }
       }
-      const html = await response.text();
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      const surface = doc.querySelector(
-        "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
-      );
+      if (!(surface instanceof HTMLElement)) {
+        const response = await fetch(url, {
+          credentials: "same-origin",
+          headers: { "x-mei-spa-nav": "1" },
+        });
+        if (!response.ok) {
+          throw new Error(`scene fetch failed: ${response.status}`);
+        }
+        const html = await response.text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        surface = doc.querySelector(
+          "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
+        );
+      }
       if (!(surface instanceof HTMLElement)) {
         throw new Error("board scene preview surface missing");
       }
