@@ -1,5 +1,7 @@
 use mei_host_core::{format_bytes_human, log_timestamp_rfc3339, HostContext};
 use mei_host_graph::WarmupTier;
+use mei_lang_datasets::configure_metric_response_cache_ttl_ms;
+use mei_lang_kernel::load_mei_config_for_app;
 
 use crate::cli::WarmupArgs;
 use crate::{collect_warmup_targets, frontier_targets_from_metrics, run_warmup_targets_with_tier};
@@ -12,6 +14,8 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
     let app = args.app.clone();
     let ctx = HostContext::new(workspace, app);
     let tier = WarmupTier::parse(args.tier.as_str());
+    let app_config = load_mei_config_for_app(ctx.app_root().as_path(), None);
+    configure_metric_response_cache_ttl_ms(app_config.runtime.server_eval_cache.ttl_ms);
     let targets = resolve_warmup_targets(&ctx, &args)?;
     println!(
         "[{}] warmup start: app={} policy={} tier={} worksets={}",
@@ -37,7 +41,7 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         }
     }
     println!(
-        "[{}] warmup ok: policy={} tier={} worksets={} slots={} memory_hydrated={} client_manifest={} failed={} elapsed_ms={} disk_tier_ms={} memory_tier_ms={} client_tier_ms={} disk_bytes={} ({}) eval_compute={} cache_hit={}",
+        "[{}] warmup ok: policy={} tier={} worksets={} slots={} memory_hydrated={} client_manifest={} failed={} elapsed_ms={} disk_tier_ms={} memory_tier_ms={} client_tier_ms={} disk_bytes={} ({}) eval_compute={} cache_hit={} disk_hit={} l1_hit={}",
         log_timestamp_rfc3339(),
         args.policy,
         args.tier,
@@ -53,7 +57,9 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         report.disk_bytes,
         format_bytes_human(report.disk_bytes),
         report.eval_compute_count,
-        report.eval_cache_hit_count
+        report.eval_cache_hit_count,
+        report.disk_artifact_hit_count,
+        report.l1_cache_hit_count
     );
     Ok(())
 }

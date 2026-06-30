@@ -8,8 +8,8 @@ use mei_host_graph::{
     record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter, WarmupTier,
 };
 use mei_lang_kernel::{
-    load_mei_config_for_app, resolve_app_eval_cache_root, ClientBootstrapConfig, MemoryWarmupConfig,
-    MetricContract,
+    load_mei_config_for_app, resolve_app_eval_cache_root, resolve_app_var_root,
+    ClientBootstrapConfig, MemoryWarmupConfig, MetricContract,
 };
 
 use crate::eval::{eval_metric_ids, load_compiled_for_warmup};
@@ -32,6 +32,8 @@ pub struct WarmupOrchestratorReport {
     pub disk_bytes: u64,
     pub eval_compute_count: usize,
     pub eval_cache_hit_count: usize,
+    pub disk_artifact_hit_count: usize,
+    pub l1_cache_hit_count: usize,
 }
 
 pub fn run_warmup_targets_with_tier(
@@ -53,6 +55,9 @@ pub fn run_warmup_targets_with_tier(
     let mut disk_tier_ms = 0u64;
     let mut eval_compute_count = 0usize;
     let mut eval_cache_hit_count = 0usize;
+    let mut disk_artifact_hit_count = 0usize;
+    let mut l1_cache_hit_count = 0usize;
+    let mut metric_total_rows: BTreeMap<String, usize> = BTreeMap::new();
 
     if tier.wants_disk() {
         let disk_started = Instant::now();
@@ -71,9 +76,17 @@ pub fn run_warmup_targets_with_tier(
             ) {
                 Ok(outcome) => {
                     if outcome.artifact_hit {
+                        if outcome.cache_layer == "memory" {
+                            l1_cache_hit_count += 1;
+                        } else {
+                            disk_artifact_hit_count += 1;
+                        }
                         eval_cache_hit_count += 1;
                     } else {
                         eval_compute_count += 1;
+                    }
+                    for metric_id in &target.metric_ids {
+                        metric_total_rows.insert(metric_id.clone(), outcome.total_rows);
                     }
                     for metric in &outcome.metrics {
                         metrics_map.insert(metric.id.clone(), metric.clone());
@@ -113,9 +126,17 @@ pub fn run_warmup_targets_with_tier(
                     &target.metric_ids,
                 ) {
                     if outcome.artifact_hit {
+                        if outcome.cache_layer == "memory" {
+                            l1_cache_hit_count += 1;
+                        } else {
+                            disk_artifact_hit_count += 1;
+                        }
                         eval_cache_hit_count += 1;
                     } else {
                         eval_compute_count += 1;
+                    }
+                    for metric_id in &target.metric_ids {
+                        metric_total_rows.insert(metric_id.clone(), outcome.total_rows);
                     }
                     for metric in &outcome.metrics {
                         metrics_map.insert(metric.id.clone(), metric.clone());
@@ -173,6 +194,7 @@ pub fn run_warmup_targets_with_tier(
                 workset_id,
                 &all_slots,
                 &metrics_map,
+                &metric_total_rows,
                 max_client,
             )? {
                 client_manifest_written = true;
@@ -195,6 +217,20 @@ pub fn run_warmup_targets_with_tier(
             )?;
         }
         client_tier_ms = client_started.elapsed().as_millis() as u64;
+        if client_manifest_written {
+            for scope in &client_manifest_scopes {
+                let status =
+                    mei_host_graph::bootstrap_embed_status(ctx.workspace_root.as_path(), ctx.app_id.as_str(), scope.as_str());
+                tracing::info!(
+                    app_id = %ctx.app_id,
+                    scope = %scope,
+                    allowed = status.allowed,
+                    reason = %status.reason,
+                    metric_count = status.metric_count,
+                    "warmup client-bootstrap revision gate"
+                );
+            }
+        }
     }
 
     let disk_bytes = warmup_disk_bytes(ctx);
@@ -212,6 +248,8 @@ pub fn run_warmup_targets_with_tier(
         disk_bytes,
         eval_compute_count,
         eval_cache_hit_count,
+        disk_artifact_hit_count,
+        l1_cache_hit_count,
     })
 }
 
@@ -346,7 +384,7 @@ fn memory_warmup_config(config: &Option<MemoryWarmupConfig>) -> MemoryWarmupConf
 fn warmup_disk_bytes(ctx: &HostContext) -> u64 {
     let app_root = ctx.app_root();
     let eval_cache = resolve_app_eval_cache_root(app_root.as_path());
-    let client_bootstrap = app_root.join("var/active/client-bootstrap");
+    let client_bootstrap = resolve_app_var_root(app_root.as_path()).join("client-bootstrap");
     dir_tree_bytes(eval_cache.as_path()) + dir_tree_bytes(client_bootstrap.as_path())
 }
 

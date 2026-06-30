@@ -3,6 +3,7 @@ mod csv_dataset;
 mod dataset_rows_cache;
 mod db_dataset;
 mod eval_artifact;
+mod eval_cache_invalidation;
 mod eval_execute;
 mod file_cache;
 mod geojson_dataset;
@@ -37,6 +38,10 @@ use mei_lang_kernel::{
 use serde::Serialize;
 use serde_json::Value;
 
+pub use eval_cache_invalidation::{
+    invalidate_stale_eval_artifacts, metric_eval_artifact_reusable, EvalCacheInvalidationPlan,
+    EvalCacheInvalidationReport,
+};
 pub use idempotency_key::{
     canonical_metric_idempotency_key, canonical_metric_shared_cache_key,
     metric_shared_cache_key_with_data_generation, resolve_metric_data_generation,
@@ -61,6 +66,7 @@ pub use metric_response_cache::{
     metric_response_prebuild_shared_key, prebuild_metric_response_key_matches_dataset_query,
     store_cached_metric_response, store_cached_metric_response_aliases,
     take_cached_metric_response, populate_l1_from_loaded_metric_artifact, warm_from_artifact,
+    configure_metric_response_cache_ttl_ms,
     enforce_memory_pin_limits, evict_metric_response_cache_key, record_scope_cache_miss,
     should_trigger_smart_warmup, mark_smart_warmup_triggered, CachedMetricResponse,
 };

@@ -288,17 +288,24 @@ fn inject_client_bootstrap_script(
         app_id,
         scene_id,
     ) else {
-        if mei_host_graph::read_client_bootstrap(workspace_root, app_id, scene_id).is_some() {
-            tracing::debug!(
+        let status = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
+        if status.allowed {
+            tracing::info!(
                 app_id = %app_id,
                 scope = %scene_id,
-                "client bootstrap embed rejected by MRG revision gate"
+                reason = %status.reason,
+                metric_count = status.metric_count,
+                "client bootstrap SSR inject skipped despite allowed status"
             );
         } else {
-            tracing::debug!(
+            tracing::info!(
                 app_id = %app_id,
                 scope = %scene_id,
-                "client bootstrap manifest missing for SSR inject"
+                reason = %status.reason,
+                metric_count = status.metric_count,
+                client_revision = ?status.client_revision,
+                expected_revision = ?status.expected_revision,
+                "client bootstrap SSR inject rejected"
             );
         }
         return html;

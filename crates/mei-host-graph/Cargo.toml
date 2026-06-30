@@ -11,6 +11,7 @@ mei-graph = { path = "../../mei-compiler/crates/mei-graph" }
 mei-syntax = { path = "../../mei-compiler/crates/mei-syntax" }
 mei-host-core = { path = "../mei-host-core" }
 mei-lang-kernel = { path = "../kernel" }
+mei-lang-datasets = { path = "../datasets" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

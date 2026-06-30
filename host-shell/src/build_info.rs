@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use mei_lang_kernel::{
-    read_links_state, resolve_active_build_identity, resolve_build_footer_label,
-    resolve_workspace_footer_label,
+    discover_apps, read_links_state, resolve_active_build_identity_with_hint,
+    resolve_build_footer_label_with_hint, resolve_version_display_identity_with_hint,
+    resolve_workspace_app_build_generations, VersionDisplayIdentity,
 };
 use serde_json::{json, Value};
 
@@ -12,11 +13,16 @@ pub const GIT_COMMIT_SHORT: &str = env!("MEI_GIT_COMMIT_SHORT");
 pub const GIT_DIRTY: &str = env!("MEI_GIT_DIRTY");
 pub const GIT_BRANCH: &str = env!("MEI_GIT_BRANCH");
 
+pub fn meilang_version_hint() -> &'static str {
+    CARGO_PACKAGE_VERSION
+}
+
 pub fn binary_descriptor() -> Value {
     json!({
         "crate": "mei-host-shell",
         "build_version": BUILD_VERSION,
         "cargo_package_version": CARGO_PACKAGE_VERSION,
+        "meilangVersion": CARGO_PACKAGE_VERSION,
         "git": {
             "commit_short": GIT_COMMIT_SHORT,
             "branch": GIT_BRANCH,
@@ -25,16 +31,39 @@ pub fn binary_descriptor() -> Value {
     })
 }
 
+fn version_display(workspace_root: &Path) -> VersionDisplayIdentity {
+    resolve_version_display_identity_with_hint(workspace_root, Some(meilang_version_hint()))
+        .unwrap_or_else(|err| panic!("{err}"))
+}
+
 pub fn workspace_descriptor(workspace_root: &Path) -> Value {
-    let identity = resolve_active_build_identity(workspace_root);
+    let identity = resolve_active_build_identity_with_hint(
+        workspace_root,
+        Some(meilang_version_hint()),
+    )
+    .unwrap_or_else(|err| panic!("{err}"));
+    let display = version_display(workspace_root);
     let links = read_links_state(workspace_root).ok();
-    let display_label = resolve_build_footer_label(workspace_root);
+    let app_ids: Vec<String> = discover_apps(workspace_root)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|app| app.id)
+        .collect();
+    let current_by_app = resolve_workspace_app_build_generations(workspace_root, &app_ids)
+        .unwrap_or_default();
+    let display_label = resolve_build_footer_label_with_hint(
+        workspace_root,
+        Some(meilang_version_hint()),
+    );
     json!({
-        "toolchain_version": identity.toolchain_version,
+        "meilangVersion": display.meilang_version,
+        "buildGeneration": display.build_generation,
+        "buildDisplayTag": display.build_display_tag,
+        "toolchain_version": identity.meilang_version,
         "workspace_version": identity.workspace_version,
         "display_label": display_label,
         "env": {
-            "active": links.as_ref().and_then(|state| state.build.active.clone()),
+            "currentByApp": current_by_app,
             "candidate": links.as_ref().and_then(|state| state.build.candidate.clone()),
             "previous": links.as_ref().and_then(|state| state.build.previous.clone()),
         },
@@ -57,6 +86,15 @@ pub fn version_descriptor(workspace_root: Option<&Path>, host_started_at_ms: Opt
         {
             value["displayLabel"] = Value::String(display_label);
         }
+        if let Some(meilang) = workspace.get("meilangVersion").cloned() {
+            value["meilangVersion"] = meilang;
+        }
+        if let Some(build_generation) = workspace.get("buildGeneration").cloned() {
+            value["buildGeneration"] = build_generation;
+        }
+        if let Some(build_display_tag) = workspace.get("buildDisplayTag").cloned() {
+            value["buildDisplayTag"] = build_display_tag;
+        }
         value["workspace"] = workspace;
     }
     if let Some(host_started_at_ms) = host_started_at_ms {
@@ -66,7 +104,10 @@ pub fn version_descriptor(workspace_root: Option<&Path>, host_started_at_ms: Opt
 }
 
 pub fn statusbar_version_label(workspace_root: &Path) -> String {
-    resolve_workspace_footer_label(workspace_root)
+    mei_lang_kernel::resolve_workspace_footer_label_with_hint(
+        workspace_root,
+        Some(meilang_version_hint()),
+    )
 }
 
 pub fn statusbar_version_title(workspace_root: &Path) -> String {
@@ -120,12 +161,15 @@ pub fn fill_page_shell_placeholders(html: String, workspace_root: &Path) -> Stri
 
 pub fn log_host_identity(workspace_root: Option<&Path>, event: &str) {
     let display_label = workspace_root
-        .map(resolve_build_footer_label)
+        .map(|root| {
+            resolve_build_footer_label_with_hint(root, Some(meilang_version_hint()))
+        })
         .unwrap_or_else(|| "workspace=n/a".to_string());
     tracing::info!(
         event = event,
         build_version = %BUILD_VERSION,
         cargo_version = %CARGO_PACKAGE_VERSION,
+        meilang_version = %CARGO_PACKAGE_VERSION,
         git_commit = %GIT_COMMIT_SHORT,
         git_dirty = %(GIT_DIRTY == "true"),
         display_label = %display_label,
@@ -141,16 +185,17 @@ pub fn print_cli_version(workspace_root: Option<&Path>, json_output: bool) -> an
     }
     println!("shell.build_version={BUILD_VERSION}");
     println!("shell.cargo_version={CARGO_PACKAGE_VERSION}");
+    println!("shell.meilang_version={CARGO_PACKAGE_VERSION}");
     println!("shell.git_commit={GIT_COMMIT_SHORT}");
     println!("shell.git_branch={GIT_BRANCH}");
     println!("shell.git_dirty={}", GIT_DIRTY == "true");
     if let Some(workspace_root) = workspace_root {
         let workspace = workspace_descriptor(workspace_root);
-        if let Some(toolchain) = workspace
-            .get("toolchain_version")
-            .and_then(Value::as_str)
-        {
-            println!("workspace.toolchain_version={toolchain}");
+        if let Some(meilang) = workspace.get("meilangVersion").and_then(Value::as_str) {
+            println!("workspace.meilang_version={meilang}");
+        }
+        if let Some(build_generation) = workspace.get("buildGeneration").and_then(Value::as_str) {
+            println!("workspace.build_generation={build_generation}");
         }
         if let Some(ws_ver) = workspace
             .get("workspace_version")
@@ -159,14 +204,18 @@ pub fn print_cli_version(workspace_root: Option<&Path>, json_output: bool) -> an
             println!("workspace.version={ws_ver}");
         }
         if let Some(env) = workspace.get("env") {
-            if let Some(active) = env.get("active").and_then(Value::as_str) {
-                println!("env.active={active}");
+            if let Some(current_by_app) = env.get("currentByApp").and_then(Value::as_object) {
+                for (app_id, current) in current_by_app {
+                    if let Some(current) = current.as_str() {
+                        println!("app={app_id} current={current}");
+                    }
+                }
             }
             if let Some(candidate) = env.get("candidate").and_then(Value::as_str) {
-                println!("env.candidate={candidate}");
+                println!("links.candidate={candidate}");
             }
             if let Some(previous) = env.get("previous").and_then(Value::as_str) {
-                println!("env.previous={previous}");
+                println!("links.previous={previous}");
             }
         }
         if let Some(display) = workspace.get("display_label").and_then(Value::as_str) {
@@ -187,32 +236,56 @@ mod tests {
         fs::write(
             ws.join("workspace.json"),
             format!(
-                r#"{{"schemaVersion":1,"workspace":{{"id":"test","version":"{version}"}}}}"#
+                r#"{{"schemaVersion":2,"workspace":{{"id":"test","version":"{version}"}},"build":{{"generation":{{"dateSource":"manual","date":"{version}","fixver":0}}}}}}"#
             ),
         )
         .expect("write workspace.json");
     }
 
+    fn write_ws_with_default_app(ws: &Path, version: &str, app_id: &str) {
+        fs::write(
+            ws.join("workspace.json"),
+            format!(
+                r#"{{"schemaVersion":2,"workspace":{{"id":"test","version":"{version}","defaultApp":"{app_id}"}},"build":{{"generation":{{"dateSource":"manual","date":"{version}","fixver":0}}}}}}"#
+            ),
+        )
+        .expect("write workspace.json");
+    }
+
+    fn setup_demo_app(ws: &Path) {
+        fs::create_dir_all(ws.join("apps/demo/src")).expect("mkdir app");
+        fs::write(
+            ws.join("apps/demo/app.config.json"),
+            r#"{"schemaVersion":1,"entry":{"main":"main.mei"}}"#,
+        )
+        .expect("write app config");
+    }
+
     #[test]
-    fn statusbar_label_shows_toolchain_and_workspace_only() {
+    fn statusbar_label_shows_meilang_and_build_generation() {
         let tmp = tempdir().expect("tempdir");
         let ws = tmp.path();
         fs::create_dir_all(ws.join("deploy/state")).expect("mkdir");
-        write_ws(ws, "20260228");
+        write_ws_with_default_app(ws, "20260228", "demo");
+        setup_demo_app(ws);
+        mei_lang_kernel::attach_build_generation(ws, &[String::from("demo")], "WS-20260228.0")
+            .expect("attach");
         let mut links = LinksState::default();
         links.toolchain.active = Some("2.0.1".into());
-        links.build.active = Some("2.0.1-ws20260228".into());
         write_links_state(ws, &links).expect("write links");
         let label = statusbar_version_label(ws);
-        assert_eq!(label, "MeiLang 2.0.1 · WS 20260228");
-        let api_label = resolve_build_footer_label(ws);
-        assert!(api_label.contains("build 2.0.1-ws20260228"));
+        assert!(label.contains("MeiLang"));
+        assert!(label.contains("Build WS-20260228.0"));
+        let api_label = resolve_build_footer_label_with_hint(ws, Some("2.0.8"));
+        assert!(api_label.contains("MeiLang"));
+        assert!(api_label.contains("Build WS-20260228.0"));
+        assert!(!api_label.contains("build WS-20260228.0 · build"));
     }
 
     #[test]
     fn fill_placeholders_replaces_version_meta_and_statusbar() {
         let tmp = tempdir().expect("tempdir");
-        write_ws(tmp.path(), "1");
+        write_ws(tmp.path(), "20260228");
         let html = fill_page_shell_placeholders(
             r#"<meta name="mei-host-version" content="__MEI_HOST_VERSION__"/>
             <span id="mei-status-host-version" title="__MEI_HOST_VERSION_TITLE__">__MEI_HOST_VERSION_LABEL__</span>"#

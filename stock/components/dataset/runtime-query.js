@@ -1802,8 +1802,10 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
   if (typeof window === "undefined" || !bootstrap || typeof bootstrap !== "object") {
     return 0;
   }
+  delete window.__meiBootstrapSeedError;
   const scopeBootstraps = bootstrapScopeEntries(bootstrap);
   if (!scopeBootstraps.length) {
+    window.__meiBootstrapSeedError = "bootstrap_scopes_missing";
     return 0;
   }
   const fallbackPageCtx = readBootstrapSeedPageContext(bootstrap);
@@ -1831,6 +1833,7 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
   const metricApi = readBootstrapMetricQueryApi();
   const rowsApi = readBootstrapRowsQueryApi();
   if (!metricApi) {
+    window.__meiBootstrapSeedError = "metric_api_missing";
     return 0;
   }
   let seededCount = 0;
@@ -1849,6 +1852,7 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
       bootstrap_compile_epoch: scopeBootstrap.compile_epoch || scopeBootstrap.compileEpoch,
     });
     if (!pageCtx.compile_epoch || !pageCtx.target) {
+      window.__meiBootstrapSeedError = "bootstrap_page_context_incomplete";
       return;
     }
     if (pageCtx.app_id) {
@@ -1901,7 +1905,9 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
       const data = {
         scene_id: scope,
         dataset_id: datasetId,
-        total_rows: Number(datasetMetrics[0]?.total_rows || datasetMetrics[0]?.rows || 0) || 0,
+        total_rows:
+          Number(entry?.total_rows ?? datasetMetrics[0]?.total_rows ?? datasetMetrics[0]?.rows ?? 0) ||
+          0,
         metrics: datasetMetrics,
         perf: { bootstrap: 1 },
       };
@@ -1993,9 +1999,19 @@ function scheduleBootstrapSeed() {
     if (count > 0) {
       window.__meiBootstrapSeeded = true;
       window.__meiBootstrapSeedCount = count;
+      delete window.__meiBootstrapSeedError;
     }
     return count;
   };
+  if (typeof document !== "undefined") {
+    document.addEventListener(
+      "mei-bootstrap-ready",
+      () => {
+        run();
+      },
+      { once: true },
+    );
+  }
   if (document.readyState === "loading") {
     if (!bootstrapSeedScheduled) {
       bootstrapSeedScheduled = true;

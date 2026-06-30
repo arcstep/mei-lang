@@ -54,7 +54,7 @@ impl Default for CacheGenerationRecord {
 }
 
 pub fn cache_generation_path(app_root: &Path) -> PathBuf {
-    app_root.join(CACHE_GENERATION_REL)
+    crate::mei_config::resolve_app_var_root(app_root).join("cache-generation.json")
 }
 
 pub fn current_time_ms() -> u64 {

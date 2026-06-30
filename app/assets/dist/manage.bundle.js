@@ -1142,23 +1142,39 @@
   function renderVersionDetail(ops, snapshot) {
     const binary = ops?.binary || {};
     const build = snapshot?.diagnostics?.build || {};
+    const meilang =
+      ops?.version?.meilangVersion ||
+      ops?.version?.workspace?.meilangVersion ||
+      binary.meilangVersion ||
+      binary.cargo_package_version ||
+      "-";
+    const buildGeneration =
+      ops?.version?.buildGeneration ||
+      ops?.version?.workspace?.buildGeneration ||
+      build.buildGeneration ||
+      "-";
+    const buildDisplayTag =
+      ops?.version?.buildDisplayTag ||
+      ops?.version?.workspace?.buildDisplayTag ||
+      (buildGeneration !== "-" ? `Build ${buildGeneration}` : "-");
     return detailSection(
       "运行版本",
       kvTable([
+        ["MeiLang", escapeHtml(meilang)],
+        ["Build generation", escapeHtml(buildGeneration)],
         ["Shell build", escapeHtml(binary.build_version || "-")],
-        ["Cargo package", escapeHtml(binary.cargo_package_version || "-")],
-        ["Toolchain", escapeHtml(ops?.toolchain?.active || build.toolchainVersion || "-")],
-        ["Workspace", escapeHtml(ops?.workspaceVersion || build.workspaceVersion || "-")],
-        ["Env active", escapeHtml(ops?.env?.active || build.envActive || "-")],
+        ["Build tag", escapeHtml(buildDisplayTag)],
+        ["Workspace date", escapeHtml(ops?.workspaceVersion || build.workspaceVersion || "-")],
+        ["Env active (ops)", escapeHtml(ops?.env?.active || build.envActive || "-")],
         ["Env candidate", escapeHtml(ops?.env?.candidate || "-")],
         ["Env previous", escapeHtml(ops?.env?.previous || "-")],
         ["Git", escapeHtml(`${binary.git?.commit_short || "-"} @ ${binary.git?.branch || "-"}`)],
       ]) +
         hintBlock([
-          "这是宿主与当前活跃 build 的版本视角，不等同于单个 scope/slot 的运行结果。",
-          "更细的 MCG 节点与编译证据请继续在构建视图 drill-down。",
+          "MeiLang 版本表示工具链；Build generation 表示当前工作区构建代。",
+          "Env active 为内部目录指针，供运维诊断使用。",
         ]),
-      ops?.displayLabel || "",
+      ops?.version?.displayLabel || ops?.displayLabel || "",
     );
   }
 

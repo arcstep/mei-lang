@@ -20,6 +20,7 @@ pub struct PlugState {
 }
 
 pub fn router(ctx: HostContext) -> Router {
+    crate::client_bootstrap_refresh::configure_runtime_eval_cache(&ctx);
     let state = Arc::new(PlugState {
         ctx,
         activation_lock: Arc::new(Mutex::new(())),

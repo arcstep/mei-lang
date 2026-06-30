@@ -4,10 +4,11 @@ use std::time::Instant;
 use mei_host_core::{CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{default_metric_response_descriptor, record_slot_failed};
 use mei_lang_datasets::{
-    collect_all_query_options, evaluate_runtime_metrics,
-    metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
-    project_requested_metrics, store_metric_response_result_artifact, take_cached_metric_response,
-    RuntimeMetricEvalMode,
+    collect_all_query_options, default_result_artifact_scope, evaluate_runtime_metrics,
+    load_metric_response_result_artifact, metric_request_revision_fingerprint_for_compiled,
+    metric_response_cache_scope_key, populate_l1_from_loaded_metric_artifact,
+    project_requested_metrics, store_cached_metric_response, store_metric_response_result_artifact,
+    take_cached_metric_response, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{CompiledApp, FilterIntent, MetricContract, QueryState};
 
@@ -28,6 +29,8 @@ pub struct EvalPipelineOutcome {
     pub descriptors: Vec<EvalSlotDescriptor>,
     pub cache_key: String,
     pub artifact_hit: bool,
+    pub cache_layer: String,
+    pub result_artifact_hit: bool,
     pub wall_ms: u64,
     pub metrics: Vec<MetricContract>,
     pub total_rows: usize,
@@ -69,36 +72,71 @@ pub fn eval_metrics_with_slots(
         None,
     );
     let requested: BTreeSet<String> = request.metric_ids.iter().cloned().collect();
-    if let Some(cached) = take_cached_metric_response(cache_key.as_str(), &requested, false) {
-        let wall_ms = started.elapsed().as_millis() as u64;
-        let metrics = project_requested_metrics(
-            request.owner_resource_id.as_str(),
-            &request.metric_ids,
-            &BTreeMap::new(),
-            &cached.metrics_map,
-        );
-        let descriptors = build_descriptors_for_metrics(
+    let request_all_metrics = request.metric_ids.is_empty();
+    let result_artifact_candidate =
+        default_result_artifact_scope(&request.query_state, &request.filter_intents);
+
+    if let Some(cached) = take_cached_metric_response(cache_key.as_str(), &requested, request_all_metrics)
+    {
+        return Ok(build_outcome_from_cached(
             request,
             dependency_revision_key.as_str(),
             cache_key.as_str(),
-            wall_ms,
-            true,
+            started,
+            cached.total_rows,
+            &cached.metrics_map,
             "memory",
-            CacheLayersReady {
-                disk: true,
-                memory: true,
-                client: false,
-            },
-        );
-        return Ok(EvalPipelineOutcome {
-            descriptors,
-            cache_key,
-            artifact_hit: true,
-            wall_ms,
-            metrics,
-            total_rows: cached.total_rows,
-            query_perf: BTreeMap::from([("cache_layer".to_string(), 1)]),
-        });
+            true,
+            false,
+        ));
+    }
+
+    if result_artifact_candidate {
+        if let Some((artifact, artifact_load_ms)) =
+            load_metric_response_result_artifact(app_root.as_path(), cache_key.as_str())?
+        {
+            let artifact_covers_request = if request_all_metrics {
+                artifact.complete
+            } else {
+                requested
+                    .iter()
+                    .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
+            };
+            if artifact_covers_request {
+                populate_l1_from_loaded_metric_artifact(std::slice::from_ref(&cache_key), &artifact);
+                let query_perf = BTreeMap::from([("result_artifact_load_ms".to_string(), artifact_load_ms)]);
+                let metrics = project_requested_metrics(
+                    request.owner_resource_id.as_str(),
+                    &request.metric_ids,
+                    &BTreeMap::new(),
+                    &artifact.metrics_map,
+                );
+                let descriptors = build_descriptors_for_metrics(
+                    request,
+                    dependency_revision_key.as_str(),
+                    cache_key.as_str(),
+                    artifact_load_ms,
+                    true,
+                    "disk",
+                    CacheLayersReady {
+                        disk: true,
+                        memory: true,
+                        client: false,
+                    },
+                );
+                return Ok(EvalPipelineOutcome {
+                    descriptors,
+                    cache_key: cache_key.clone(),
+                    artifact_hit: true,
+                    cache_layer: "disk".to_string(),
+                    result_artifact_hit: true,
+                    wall_ms: started.elapsed().as_millis() as u64,
+                    metrics,
+                    total_rows: artifact.total_rows,
+                    query_perf,
+                });
+            }
+        }
     }
 
     let eval = match evaluate_runtime_metrics(
@@ -131,6 +169,13 @@ pub fn eval_metrics_with_slots(
         &requested,
         requested.len() == request.metric_ids.len(),
     )?;
+    store_cached_metric_response(
+        cache_key.clone(),
+        eval.total_rows,
+        &eval.metrics_map,
+        &requested,
+        requested.len() == request.metric_ids.len(),
+    );
     let wall_ms = started.elapsed().as_millis() as u64;
     let descriptors = build_descriptors_for_metrics(
         request,
@@ -141,7 +186,7 @@ pub fn eval_metrics_with_slots(
         "compute",
         CacheLayersReady {
             disk: true,
-            memory: false,
+            memory: true,
             client: false,
         },
     );
@@ -149,11 +194,57 @@ pub fn eval_metrics_with_slots(
         descriptors,
         cache_key,
         artifact_hit: false,
+        cache_layer: "compute".to_string(),
+        result_artifact_hit: false,
         wall_ms,
         metrics: eval.metrics,
         total_rows: eval.total_rows,
         query_perf: eval.query_perf,
     })
+}
+
+fn build_outcome_from_cached(
+    request: &EvalPipelineRequest,
+    data_source_revision: &str,
+    cache_key: &str,
+    started: Instant,
+    total_rows: usize,
+    metrics_map: &BTreeMap<String, MetricContract>,
+    cache_layer: &str,
+    artifact_hit: bool,
+    result_artifact_hit: bool,
+) -> EvalPipelineOutcome {
+    let wall_ms = started.elapsed().as_millis() as u64;
+    let metrics = project_requested_metrics(
+        request.owner_resource_id.as_str(),
+        &request.metric_ids,
+        &BTreeMap::new(),
+        metrics_map,
+    );
+    let descriptors = build_descriptors_for_metrics(
+        request,
+        data_source_revision,
+        cache_key,
+        wall_ms,
+        artifact_hit,
+        cache_layer,
+        CacheLayersReady {
+            disk: true,
+            memory: cache_layer == "memory",
+            client: false,
+        },
+    );
+    EvalPipelineOutcome {
+        descriptors,
+        cache_key: cache_key.to_string(),
+        artifact_hit,
+        cache_layer: cache_layer.to_string(),
+        result_artifact_hit,
+        wall_ms,
+        metrics,
+        total_rows,
+        query_perf: BTreeMap::from([("cache_layer".to_string(), 1)]),
+    }
 }
 
 fn record_eval_failures(

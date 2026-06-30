@@ -339,11 +339,22 @@ fn execute_metric_group(
             "failed to record MRG slots after metric query"
         );
     }
+    crate::client_bootstrap_refresh::maybe_refresh_client_bootstrap_after_eval(
+        ctx,
+        scene_id,
+        workset_id.as_str(),
+        &pipeline,
+        query_state,
+        filter_intents,
+    );
     let mut perf = pipeline.query_perf.clone();
     if pipeline.artifact_hit {
         perf.insert("cache_layer".to_string(), 1);
     } else {
         perf.insert("metric_eval_ms".to_string(), pipeline.wall_ms);
+    }
+    if pipeline.result_artifact_hit {
+        perf.insert("result_artifact_hit".to_string(), 1);
     }
     perf.insert("total_ms".to_string(), started.elapsed().as_millis() as u64);
     Ok(MetricQueryGroupResponse {

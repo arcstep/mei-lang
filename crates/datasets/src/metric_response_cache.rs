@@ -10,6 +10,20 @@ use super::types::DatasetQueryOptions;
 const METRIC_RESPONSE_CACHE_TTL_MS: u64 = 300_000;
 const METRIC_RESPONSE_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
 
+static METRIC_RESPONSE_CACHE_TTL_OVERRIDE: OnceLock<u64> = OnceLock::new();
+
+pub fn configure_metric_response_cache_ttl_ms(ttl_ms: u64) {
+    let _ = METRIC_RESPONSE_CACHE_TTL_OVERRIDE.set(ttl_ms.max(1));
+}
+
+fn metric_response_cache_ttl() -> Duration {
+    let ms = METRIC_RESPONSE_CACHE_TTL_OVERRIDE
+        .get()
+        .copied()
+        .unwrap_or(METRIC_RESPONSE_CACHE_TTL_MS);
+    Duration::from_millis(ms)
+}
+
 #[derive(Debug, Clone)]
 pub struct CachedMetricResponse {
     pub total_rows: usize,
@@ -155,10 +169,6 @@ impl MetricResponseCacheState {
 fn metric_response_cache() -> &'static Mutex<MetricResponseCacheState> {
     static CACHE: OnceLock<Mutex<MetricResponseCacheState>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(MetricResponseCacheState::default()))
-}
-
-fn metric_response_cache_ttl() -> Duration {
-    Duration::from_millis(METRIC_RESPONSE_CACHE_TTL_MS)
 }
 
 pub fn metric_response_prebuild_query_tail(query: &DatasetQueryOptions) -> String {

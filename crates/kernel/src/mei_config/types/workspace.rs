@@ -277,9 +277,24 @@ pub struct WorkspaceToolchainConfig {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceBuildGenerationConfig {
+    /// `auto` (default) uses today's date at prebuild; `manual` uses `date`.
+    #[serde(default, rename = "dateSource")]
+    pub date_source: Option<String>,
+    /// `yyyymmdd` when `dateSource=manual`.
+    #[serde(default)]
+    pub date: Option<String>,
+    /// Same-day retention slot; default `0` (overwrite same-day generation).
+    #[serde(default)]
+    pub fixver: Option<u32>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceBuildConfig {
     #[serde(default, rename = "retainBuildGenerations")]
     pub retain_build_generations: Option<u32>,
+    #[serde(default)]
+    pub generation: WorkspaceBuildGenerationConfig,
 }
 
 /// Prebuild / compile 范围过滤：按 target 路径 glob 与 scene export id 选择编译对象。

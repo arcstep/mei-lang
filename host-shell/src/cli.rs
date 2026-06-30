@@ -19,6 +19,8 @@ pub enum Command {
     Workspace(WorkspaceCommand),
     #[command(subcommand, name = "apps")]
     Apps(AppsCommand),
+    #[command(subcommand, name = "eval-cache")]
+    EvalCache(EvalCacheCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -167,6 +169,21 @@ pub struct ServeArgs {
     /// 启用宿主登录鉴权（须已配置用户，否则启动失败）
     #[arg(long)]
     pub auth: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum EvalCacheCommand {
+    Invalidate(EvalCacheInvalidateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct EvalCacheInvalidateArgs {
+    #[arg(long)]
+    pub workspace: PathBuf,
+    #[arg(long)]
+    pub app: String,
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Subcommand, Debug)]

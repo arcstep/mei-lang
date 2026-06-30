@@ -1,12 +1,11 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use mei_host_core::ImportReport;
 use mei_lang_kernel::{
     finalize_and_promote_build, prepare_dev_build_generation_with_hint, read_links_state,
-    resolve_active_build_identity, resolve_app_root, resolve_app_eval_cache_root,
-    resolve_build_footer_label, resolve_toolchain_version_with_hint, resolve_workspace_version,
-    PrebuildGeneration,
+    discover_apps, resolve_active_build_identity, resolve_app_build_generation_from_current,
+    resolve_app_root, resolve_build_footer_label, resolve_toolchain_version_with_hint,
+    resolve_workspace_version, PrebuildGeneration,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -115,7 +114,6 @@ pub fn reload_pipeline(workspace: &Path, app: &str) -> anyhow::Result<ReloadOutc
 pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::Result<String> {
     let workspace = canonical_workspace(workspace);
     crate::build_info::log_host_identity(Some(workspace.as_path()), "prebuild");
-    let app_root = resolve_app_root(workspace.as_path(), app);
 
     let generation = prepare_dev_build_generation_with_hint(
         workspace.as_path(),
@@ -129,15 +127,29 @@ pub fn prebuild_pipeline(workspace: &Path, app: &str, policy: &str) -> anyhow::R
 
     let _ = mei_host_graph::publish_app_data_snapshots(workspace.as_path(), app)?;
 
-    let eval_cache = resolve_app_eval_cache_root(app_root.as_path());
-    if eval_cache.exists() {
-        fs::remove_dir_all(&eval_cache)?;
-    }
+    let force_clear = std::env::var("MEI_FORCE_EVAL_CACHE_CLEAR")
+        .ok()
+        .map(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false);
+    let invalidation = mei_host_graph::invalidate_app_eval_cache(
+        workspace.as_path(),
+        app,
+        force_clear,
+    )?;
+    tracing::info!(
+        app_id = %app,
+        force_cleared = invalidation.force_cleared,
+        removed_artifact_files = invalidation.removed_artifact_files,
+        retained_artifact_files = invalidation.retained_artifact_files,
+        cleared_bootstrap_scopes = invalidation.cleared_bootstrap_scopes,
+        "eval-cache incremental invalidation"
+    );
 
     crate::tool_exec::run_mei_plug_ds_warmup(workspace.as_path(), app, policy, "all")?;
 
     let generation = PrebuildGeneration {
         env_version: build_id.clone(),
+        build_generation: build_id.clone(),
         toolchain_version: resolve_toolchain_version_with_hint(
             workspace.as_path(),
             Some(toolchain_hint()),
@@ -182,6 +194,18 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
     } else {
         "bound"
     };
+    let app_ids: Vec<String> = discover_apps(workspace)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|app| app.id)
+        .collect();
+    let mut current_by_app = serde_json::Map::new();
+    for app_id in &app_ids {
+        let app_root = resolve_app_root(workspace, app_id.as_str());
+        if let Ok(current) = resolve_app_build_generation_from_current(app_root.as_path()) {
+            current_by_app.insert(app_id.clone(), json!(current));
+        }
+    }
     json!({
         "hostShellOps": true,
         "binary": crate::build_info::binary_descriptor(),
@@ -195,7 +219,7 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
         "warmupReady": warmup_ready,
         "phase": phase,
         "env": {
-            "active": links.as_ref().and_then(|state| state.build.active.clone()),
+            "currentByApp": current_by_app,
             "candidate": links.as_ref().and_then(|state| state.build.candidate.clone()),
             "previous": links.as_ref().and_then(|state| state.build.previous.clone()),
         },
@@ -203,7 +227,7 @@ pub fn build_status_aggregate(shell: &ShellState) -> Value {
             "active": links
                 .as_ref()
                 .and_then(|state| state.toolchain.active.clone())
-                .unwrap_or_else(|| identity.toolchain_version.clone()),
+                .unwrap_or_else(|| identity.meilang_version.clone()),
         },
         "plugDs": {
             "endpoint": shell.plug_ds_endpoint.clone(),

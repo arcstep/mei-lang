@@ -33,8 +33,6 @@ pub struct ToolchainLinks {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BuildLinks {
     #[serde(default)]
-    pub active: Option<String>,
-    #[serde(default)]
     pub candidate: Option<String>,
     #[serde(default)]
     pub previous: Option<String>,
@@ -68,6 +66,8 @@ pub struct BuildManifest {
     pub app_id: String,
     #[serde(rename = "toolchainVersion")]
     pub toolchain_version: String,
+    #[serde(default, rename = "buildGeneration")]
+    pub build_generation: Option<String>,
     #[serde(default, rename = "workspaceVersion")]
     pub workspace_version: Option<String>,
     #[serde(default, rename = "sourceRevision")]
@@ -89,6 +89,19 @@ pub fn read_links_state(source_root: &Path) -> Result<LinksState> {
     }
     let raw = fs::read_to_string(&path)
         .with_context(|| format!("read deploy links {}", path.display()))?;
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if value
+            .get("build")
+            .and_then(|build| build.get("active"))
+            .and_then(|active| active.as_str())
+            .is_some_and(|active| !active.trim().is_empty())
+        {
+            eprintln!(
+                "warning: {} contains deprecated build.active (ignored; use apps/*/env/current)",
+                path.display()
+            );
+        }
+    }
     serde_json::from_str(&raw).with_context(|| format!("parse deploy links {}", path.display()))
 }
 

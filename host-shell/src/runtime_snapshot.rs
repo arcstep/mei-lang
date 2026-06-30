@@ -9,10 +9,11 @@ use mei_host_graph::{
     ScopeRoute,
 };
 use mei_lang_kernel::{
-    load_cache_generation, read_links_state, resolve_active_build_identity, resolve_app_build_root,
-    resolve_app_data_snapshot_root, resolve_app_eval_cache_root, resolve_app_root,
-    resolve_runtime_warmup_manifest, ReachabilityTreeNode, ReachabilityTreeRoot,
-    PREBUILD_COMPILE_INDEX_REL, PREBUILD_LAST_BUILD_SUMMARY_REL,
+    load_cache_generation, resolve_active_build_identity, resolve_app_build_root,
+    resolve_app_build_generation_from_current, resolve_app_data_snapshot_root,
+    resolve_app_eval_cache_root, resolve_app_root, resolve_runtime_warmup_manifest,
+    ReachabilityTreeNode, ReachabilityTreeRoot, PREBUILD_COMPILE_INDEX_REL,
+    PREBUILD_LAST_BUILD_SUMMARY_REL,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -84,7 +85,6 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
     let build_root = resolve_app_build_root(app_root.as_path());
     let ops = build_status_aggregate(shell);
     let identity = resolve_active_build_identity(workspace);
-    let links = read_links_state(workspace).ok();
     let mcg = McgRegistryWriter::load(workspace, app_id);
     let mrg = MrgRegistryWriter::load(workspace, app_id);
     let mrg_status = mrg_status_json(workspace, app_id).unwrap_or_else(|_| json!({}));
@@ -122,7 +122,7 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
         build_scope_summaries(app_id, &route_entries, &slot_values, access_ready, warmup_ready);
     let scope_values = scope_summaries
         .iter()
-        .map(|scope| scope_summary_to_json(scope, access_ready, warmup_ready))
+        .map(|scope| scope_summary_to_json(workspace, app_id, scope, access_ready, warmup_ready))
         .collect::<Vec<_>>();
     let default_scope = scope_summaries
         .first()
@@ -178,13 +178,14 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
 
     let compile_index = load_compile_index_meta(app_root.as_path());
     let last_build_summary = load_last_build_summary(app_root.as_path(), app_id);
+    let env_current = resolve_app_build_generation_from_current(app_root.as_path()).ok();
     let build_diag = build_diagnostics_json(
         workspace,
         app_root.as_path(),
-        identity.toolchain_version.as_str(),
+        identity.meilang_version.as_str(),
+        identity.build_generation.as_str(),
         identity.workspace_version.as_str(),
-        links.as_ref()
-            .and_then(|state| state.build.active.clone()),
+        env_current,
         compile_index.as_ref(),
         last_build_summary.as_ref(),
     );
@@ -318,7 +319,7 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
             "scopeGateSweep": diagnostics.get("scopeGateSweep").cloned().unwrap_or_else(|| json!({})),
             "selectedScopeSummary": default_scope_summary
                 .as_ref()
-                .map(|scope| scope_summary_to_json(scope, access_ready, warmup_ready))
+                .map(|scope| scope_summary_to_json(workspace, app_id, scope, access_ready, warmup_ready))
                 .unwrap_or_else(|| json!({})),
             "note": "host-shell 当前展示的是轻量 gate 摘要，用于解释入口、装配与物化是否可用；更深的 parity 仍以 CLI/readiness 为准。"
         },
@@ -519,8 +520,15 @@ fn build_scope_summaries(
     summaries.into_values().collect()
 }
 
-fn scope_summary_to_json(scope: &ScopeSummary, access_ready: bool, warmup_ready: bool) -> Value {
+fn scope_summary_to_json(
+    workspace: &Path,
+    app_id: &str,
+    scope: &ScopeSummary,
+    access_ready: bool,
+    warmup_ready: bool,
+) -> Value {
     let blockers = scope_blockers(scope, access_ready, warmup_ready);
+    let bootstrap_embed = mei_host_graph::bootstrap_embed_status(workspace, app_id, scope.scope_key.as_str());
     json!({
         "nodeId": format!("scope:{}", scope.scope_key),
         "scopeKey": scope.scope_key,
@@ -536,6 +544,13 @@ fn scope_summary_to_json(scope: &ScopeSummary, access_ready: bool, warmup_ready:
         "routeNodeIds": scope.route_node_ids,
         "worksetIds": scope.workset_ids.iter().cloned().collect::<Vec<_>>(),
         "blockers": blockers,
+        "bootstrapEmbed": {
+            "allowed": bootstrap_embed.allowed,
+            "reason": bootstrap_embed.reason,
+            "metricCount": bootstrap_embed.metric_count,
+            "clientRevision": bootstrap_embed.client_revision,
+            "expectedRevision": bootstrap_embed.expected_revision,
+        },
     })
 }
 
@@ -736,7 +751,8 @@ fn build_management_roots(
 fn build_diagnostics_json(
     workspace: &Path,
     app_root: &Path,
-    toolchain_version: &str,
+    meilang_version: &str,
+    build_generation: &str,
     workspace_version: &str,
     env_active: Option<String>,
     compile_index: Option<&PersistedCompileIndex>,
@@ -759,9 +775,11 @@ fn build_diagnostics_json(
         "dataframeEvalSkips": last_build_summary.map(|summary| summary.dataframe_eval_skips),
         "compileIndexEntries": compile_index.map(|index| index.entries.len()),
         "compileIndexGeneratedAtMs": compile_index.map(|index| index.generated_at_ms),
-        "toolchainVersion": toolchain_version,
+        "meilangVersion": meilang_version,
+        "buildGeneration": build_generation,
+        "toolchainVersion": meilang_version,
         "workspaceVersion": workspace_version,
-        "envActive": env_active,
+        "envCurrent": env_active,
         "warmupManifestPresent": resolve_runtime_warmup_manifest(workspace).ok().flatten().is_some(),
     })
 }

@@ -423,7 +423,7 @@ pub fn is_app_mei_source_rel(rel: &str) -> bool {
         || rel == "src/main.mei"
 }
 
-/// App AOT 读路径：`apps/{appId}/build/active/`（symlink 指向 `env/{ver}/build/`）。
+/// App AOT 读路径：`apps/{appId}/env/current/build/`（经 `env/current` 解析）。
 pub fn resolve_app_build_root(app_root: &Path) -> PathBuf {
     resolve_app_build_root_following_active(app_root)
 }
@@ -433,7 +433,7 @@ pub fn resolve_app_build_store_root(app_root: &Path, env_version: &str) -> PathB
     crate::mei_config::build_store::app_env_build_dir(app_root, env_version)
 }
 
-/// App 运行时写路径：`apps/{appId}/var/active/`（symlink 指向 `env/{ver}/var/`）。
+/// App 运行时写路径：`apps/{appId}/env/current/var/`（经 `env/current` 解析）。
 pub fn resolve_app_var_root(app_root: &Path) -> PathBuf {
     crate::mei_config::build_store::resolve_app_var_root_following_active(app_root)
 }
@@ -448,12 +448,12 @@ pub fn resolve_app_data_snapshot_root(app_root: &Path) -> PathBuf {
     resolve_app_var_root(app_root).join("data-snapshots")
 }
 
-/// MCG/MRG registry 根：`apps/{appId}/build/active/registry/`。
+/// MCG/MRG registry 根：`apps/{appId}/env/current/build/registry/`。
 pub fn resolve_app_registry_root(app_root: &Path) -> PathBuf {
     resolve_app_build_root(app_root).join("registry")
 }
 
-/// 兼容旧名：AOT artifact store = `build/active/`。
+/// AOT artifact store = active env build root。
 pub fn resolve_app_mei_store_root(app_root: &Path) -> PathBuf {
     resolve_app_build_root(app_root)
 }
@@ -516,9 +516,14 @@ mod tests {
             resolve_app_main_path(&app),
             app.join("src/main.mei")
         );
+        let env_dir = app.join("env/WS-20260228.0");
+        fs::create_dir_all(env_dir.join("build")).expect("mkdir build");
+        fs::create_dir_all(env_dir.join("var")).expect("mkdir var");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("WS-20260228.0", app.join("env/current")).expect("symlink");
         assert_eq!(
             resolve_app_build_root(&app),
-            app.join("build/active")
+            env_dir.join("build")
         );
     }
 

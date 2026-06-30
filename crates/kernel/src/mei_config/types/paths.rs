@@ -15,11 +15,10 @@ pub const WORKSPACE_RUNTIME_DIR_REL: &str = "deploy/runtime";
 pub const DEFAULT_RUNTIME_REL: &str = WORKSPACE_RUNTIME_DIR_REL;
 pub const DEFAULT_DEPLOY_REL: &str = "deploy";
 pub const APP_ENV_REL: &str = "env";
-pub const APP_BUILD_ACTIVE_REL: &str = "build/active";
-/// Legacy layout; migration reads `build/store/{buildId}/` only.
+pub const APP_ENV_CURRENT_REL: &str = "env/current";
+/// Legacy layout; reject if non-empty (see migrate).
 pub const APP_BUILD_STORE_REL: &str = "build/store";
-pub const APP_VAR_ACTIVE_REL: &str = "var/active";
-/// Legacy layout; migration reads `var/store/{buildId}/` only.
+/// Legacy layout; reject if non-empty (see migrate).
 pub const APP_VAR_STORE_REL: &str = "var/store";
 pub const APP_ENV_BUILD_REL: &str = "build";
 pub const APP_ENV_VAR_REL: &str = "var";

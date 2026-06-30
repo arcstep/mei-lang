@@ -4,17 +4,17 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::mei_config::workspace_paths::resolve_app_root;
+use crate::mei_config::workspace_paths::{resolve_app_root, resolve_apps_root};
 use crate::mei_config::types::{APP_BUILD_STORE_REL, APP_VAR_STORE_REL};
 
-use super::env_paths::{
-    app_env_root, format_env_generation_id, format_build_identity_display,
-    is_composite_env_generation_id, normalize_env_generation_id, parse_composite_env_generation_id,
-    parse_ver_from_legacy_build_id, resolve_active_build_identity, resolve_env_generation_id,
-    resolve_workspace_version,
+use super::build_generation::{
+    format_version_footer_full, format_version_footer_short, is_build_generation_tag,
+    resolve_version_display_identity_with_hint,
 };
-use super::lifecycle::apply_build_symlinks_for_all_apps;
-use super::migrate::merge_dir_recursive;
+use super::env_paths::{
+    app_env_root, env_generation_from_env_dir, normalize_env_generation_id,
+    resolve_app_env_dir_following_current,
+};
 use super::types::{read_links_state, write_links_state};
 
 #[derive(Debug, Clone, Default)]
@@ -38,121 +38,61 @@ pub struct CleanEnvReport {
     pub dry_run: bool,
 }
 
-pub fn migrate_build_var_store_to_env(source_root: &Path, app_root: &Path) -> Result<MigrateEnvReport> {
+pub fn migrate_build_var_store_to_env(_source_root: &Path, app_root: &Path) -> Result<MigrateEnvReport> {
     let mut report = MigrateEnvReport::default();
-    let ws_ver = resolve_workspace_version(source_root);
     let build_store = app_root.join(APP_BUILD_STORE_REL);
     if build_store.is_dir() {
-        for entry in fs::read_dir(&build_store)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let legacy_id = entry.file_name().to_string_lossy().to_string();
-            let Some(tc) = parse_ver_from_legacy_build_id(legacy_id.as_str()) else {
-                continue;
-            };
-            let composite = format_env_generation_id(tc.as_str(), ws_ver.as_str());
-            let target_build = app_env_root(app_root).join(&composite).join("build");
-            fs::create_dir_all(app_env_root(app_root))?;
-            if target_build.exists() {
-                merge_dir_recursive(&entry.path(), &target_build)?;
-                fs::remove_dir_all(entry.path())?;
-            } else {
-                fs::create_dir_all(target_build.parent().unwrap_or(app_root))?;
-                fs::rename(entry.path(), &target_build)?;
-            }
-            report.migrated_build_dirs += 1;
-            push_env_version(&mut report.env_versions, composite);
-        }
-        if fs::read_dir(&build_store)?.next().is_none() {
-            fs::remove_dir_all(&build_store).ok();
+        let mut entries = fs::read_dir(&build_store)?.peekable();
+        if entries.peek().is_some() {
+            anyhow::bail!(
+                "legacy build/store layout at {} — remove it and run build prepare",
+                build_store.display()
+            );
         }
     }
 
     let var_store = app_root.join(APP_VAR_STORE_REL);
     if var_store.is_dir() {
-        for entry in fs::read_dir(&var_store)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let legacy_id = entry.file_name().to_string_lossy().to_string();
-            let Some(tc) = parse_ver_from_legacy_build_id(legacy_id.as_str()) else {
-                continue;
-            };
-            let composite = format_env_generation_id(tc.as_str(), ws_ver.as_str());
-            let target_var = app_env_root(app_root).join(&composite).join("var");
-            fs::create_dir_all(app_env_root(app_root))?;
-            if target_var.exists() {
-                merge_dir_recursive(&entry.path(), &target_var)?;
-                fs::remove_dir_all(entry.path())?;
-            } else {
-                fs::create_dir_all(target_var.parent().unwrap_or(app_root))?;
-                fs::rename(entry.path(), &target_var)?;
-            }
-            report.migrated_var_dirs += 1;
-            push_env_version(&mut report.env_versions, composite);
-        }
-        if fs::read_dir(&var_store)?.next().is_none() {
-            fs::remove_dir_all(&var_store).ok();
+        let mut entries = fs::read_dir(&var_store)?.peekable();
+        if entries.peek().is_some() {
+            anyhow::bail!(
+                "legacy var/store layout at {} — remove it and run build prepare",
+                var_store.display()
+            );
         }
     }
 
     report.removed_legacy_dirs = cleanup_legacy_app_store_dirs(app_root)?;
-    report.upgraded_env_dirs = upgrade_non_composite_env_dirs(source_root, app_root)?;
+    report.upgraded_env_dirs = reject_non_build_generation_env_dirs(app_root)?;
 
     Ok(report)
 }
 
-fn push_env_version(out: &mut Vec<String>, ver: String) {
-    if !out.contains(&ver) {
-        out.push(ver);
-    }
-}
-
-fn upgrade_non_composite_env_dirs(source_root: &Path, app_root: &Path) -> Result<Vec<String>> {
+fn reject_non_build_generation_env_dirs(app_root: &Path) -> Result<Vec<String>> {
     let env_root = app_env_root(app_root);
     if !env_root.is_dir() {
         return Ok(Vec::new());
     }
-    let ws_ver = resolve_workspace_version(source_root);
-    let mut upgraded = Vec::new();
+    let mut invalid = Vec::new();
     for entry in fs::read_dir(&env_root)? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.contains("-wsws") {
-            let fixed = name.replace("-wsws", "-ws");
-            let target = env_root.join(&fixed);
-            if target.exists() {
-                merge_dir_recursive(&entry.path(), target.as_path())?;
-                fs::remove_dir_all(entry.path())?;
-            } else {
-                fs::rename(entry.path(), &target)?;
-            }
-            upgraded.push(format!("{name} -> {fixed}"));
+        if name == "current" || is_build_generation_tag(name.as_str()) {
             continue;
         }
-        if is_composite_env_generation_id(name.as_str()) {
-            continue;
-        }
-        let composite = format_env_generation_id(name.as_str(), ws_ver.as_str());
-        let target = env_root.join(&composite);
-        if target.as_path() == entry.path() {
-            continue;
-        }
-        if target.exists() {
-            merge_dir_recursive(&entry.path(), target.as_path())?;
-            fs::remove_dir_all(entry.path())?;
-        } else {
-            fs::rename(entry.path(), &target)?;
-        }
-        upgraded.push(format!("{name} -> {composite}"));
+        invalid.push(name);
     }
-    Ok(upgraded)
+    if !invalid.is_empty() {
+        anyhow::bail!(
+            "legacy env directories at {}: {} — remove them and run build prepare",
+            env_root.display(),
+            invalid.join(", ")
+        );
+    }
+    Ok(Vec::new())
 }
 
 fn cleanup_legacy_app_store_dirs(app_root: &Path) -> Result<Vec<String>> {
@@ -179,12 +119,6 @@ pub fn migrate_apps_to_env_layout(source_root: &Path, app_ids: &[String]) -> Res
         let report = migrate_build_var_store_to_env(source_root, app_root.as_path())?;
         out.push((app_id.clone(), report));
     }
-    let active = read_links_state(source_root)
-        .ok()
-        .and_then(|links| links.build.active)
-        .map(|v| normalize_env_generation_id(source_root, v.as_str()))
-        .unwrap_or_else(|| resolve_env_generation_id(source_root));
-    apply_build_symlinks_for_all_apps(source_root, active.as_str())?;
     let mut links = read_links_state(source_root).unwrap_or_default();
     normalize_links_build_fields(source_root, &mut links);
     write_links_state(source_root, &links)?;
@@ -192,27 +126,40 @@ pub fn migrate_apps_to_env_layout(source_root: &Path, app_ids: &[String]) -> Res
 }
 
 fn normalize_links_build_fields(source_root: &Path, links: &mut super::types::LinksState) {
-    if let Some(v) = links.build.active.take() {
-        links.build.active = Some(normalize_env_generation_id(source_root, v.as_str()));
-    }
     if let Some(v) = links.build.candidate.take() {
-        links.build.candidate = Some(normalize_env_generation_id(source_root, v.as_str()));
+        links.build.candidate = normalize_env_generation_id(source_root, v.as_str()).ok();
     }
     if let Some(v) = links.build.previous.take() {
-        links.build.previous = Some(normalize_env_generation_id(source_root, v.as_str()));
+        links.build.previous = normalize_env_generation_id(source_root, v.as_str()).ok();
     }
 }
 
 fn protected_env_versions(source_root: &Path) -> BTreeSet<String> {
     let mut keep = BTreeSet::new();
+    let apps_root = resolve_apps_root(source_root);
+    if apps_root.is_dir() {
+        if let Ok(entries) = fs::read_dir(&apps_root) {
+            for entry in entries.flatten() {
+                if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                if let Some(env_dir) = resolve_app_env_dir_following_current(&entry.path()) {
+                    if let Some(ver) = env_generation_from_env_dir(env_dir.as_path()) {
+                        keep.insert(ver);
+                    }
+                }
+            }
+        }
+    }
     if let Ok(links) = read_links_state(source_root) {
         for ver in [
-            links.build.active.as_deref(),
             links.build.candidate.as_deref(),
             links.build.previous.as_deref(),
         ] {
             if let Some(v) = ver.map(str::trim).filter(|s| !s.is_empty()) {
-                keep.insert(normalize_env_generation_id(source_root, v));
+                if let Ok(normalized) = normalize_env_generation_id(source_root, v) {
+                    keep.insert(normalized);
+                }
             }
         }
     }
@@ -258,39 +205,35 @@ pub fn clean_env_generations(
 }
 
 pub fn resolve_workspace_footer_label(source_root: &Path) -> String {
-    if let Ok(links) = read_links_state(source_root) {
-        if let Some(active) = links
-            .build
-            .active
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            if let Some((tc, ws)) = parse_composite_env_generation_id(active) {
-                return format!("MeiLang {tc} · WS {ws}");
-            }
-        }
-    }
-    let identity = resolve_active_build_identity(source_root);
-    format!(
-        "MeiLang {} · WS {}",
-        identity.toolchain_version, identity.workspace_version
+    format_version_footer_short(
+        &resolve_version_display_identity_with_hint(source_root, None)
+            .unwrap_or_else(|err| panic!("{err}")),
     )
 }
 
 pub fn resolve_build_footer_label(source_root: &Path) -> String {
-    if let Ok(links) = read_links_state(source_root) {
-        if let Some(active) = links
-            .build
-            .active
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            if let Some((tc, ws)) = parse_composite_env_generation_id(active) {
-                return format!("MeiLang {tc} · WS {ws} · build {active}");
-            }
-        }
-    }
-    format_build_identity_display(&resolve_active_build_identity(source_root))
+    format_version_footer_full(
+        &resolve_version_display_identity_with_hint(source_root, None)
+            .unwrap_or_else(|err| panic!("{err}")),
+    )
+}
+
+pub fn resolve_workspace_footer_label_with_hint(
+    source_root: &Path,
+    meilang_hint: Option<&str>,
+) -> String {
+    format_version_footer_short(
+        &resolve_version_display_identity_with_hint(source_root, meilang_hint)
+            .unwrap_or_else(|err| panic!("{err}")),
+    )
+}
+
+pub fn resolve_build_footer_label_with_hint(
+    source_root: &Path,
+    meilang_hint: Option<&str>,
+) -> String {
+    format_version_footer_full(
+        &resolve_version_display_identity_with_hint(source_root, meilang_hint)
+            .unwrap_or_else(|err| panic!("{err}")),
+    )
 }

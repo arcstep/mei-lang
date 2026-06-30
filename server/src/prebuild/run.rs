@@ -420,13 +420,9 @@ fn resolve_clean_app_ids(source_root: &Path, app_filter: Option<&str>) -> Result
 
 fn reset_workspace_build_links(source_root: &Path) -> Result<bool> {
     let mut links = mei_lang_kernel::read_links_state(source_root)?;
-    if links.build.active.is_none()
-        && links.build.candidate.is_none()
-        && links.build.previous.is_none()
-    {
+    if links.build.candidate.is_none() && links.build.previous.is_none() {
         return Ok(false);
     }
-    links.build.active = None;
     links.build.candidate = None;
     links.build.previous = None;
     mei_lang_kernel::write_links_state(source_root, &links)?;

@@ -1,6 +1,7 @@
 //! Data-source plugin: parquet import, dataset query, metric eval.
 
 mod cli;
+mod client_bootstrap_refresh;
 mod commands;
 mod dataset_api;
 mod eval;

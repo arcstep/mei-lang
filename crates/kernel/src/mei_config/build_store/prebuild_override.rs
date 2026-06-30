@@ -1,4 +1,5 @@
-use super::env_paths::{app_env_var_dir, env_version_from_build_root};
+use super::build_generation::is_build_generation_tag;
+use super::env_paths::app_env_var_dir;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -14,17 +15,23 @@ thread_local! {
 }
 
 fn resolve_var_dir_for_build_root(app_root: &Path, build: &Path) -> Option<PathBuf> {
-    if let Some(ver) = env_version_from_build_root(build) {
-        return Some(app_env_var_dir(app_root, ver.as_str()));
-    }
     if build.file_name().and_then(|n| n.to_str()) == Some("build") {
-        return build.parent().map(|parent| parent.join("var"));
+        if let Some(env_dir) = build.parent() {
+            if let Some(ver) = env_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|s| is_build_generation_tag(s))
+            {
+                return Some(app_env_var_dir(app_root, ver));
+            }
+            return Some(env_dir.join("var"));
+        }
     }
     let ver = build
         .file_name()
         .and_then(|n| n.to_str())
         .map(str::trim)
-        .filter(|s| !s.is_empty())?;
+        .filter(|s| !s.is_empty() && is_build_generation_tag(s))?;
     Some(app_env_var_dir(app_root, ver))
 }
 

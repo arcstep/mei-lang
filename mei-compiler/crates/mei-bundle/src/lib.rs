@@ -114,18 +114,26 @@ fn resolve_v2_app_root(workspace: &Path, app_id: &str) -> PathBuf {
 }
 
 fn resolve_v2_app_build_root(app_root: &Path) -> PathBuf {
-    let active = app_root.join("build/active");
-    if active.is_symlink() {
-        if let Ok(target) = std::fs::read_link(&active) {
-            if target.is_absolute() {
-                return target;
-            }
-            if let Some(parent) = active.parent() {
-                return parent.join(target);
+    let current = app_root.join("env/current");
+    if current.is_symlink() {
+        if let Ok(target) = std::fs::read_link(&current) {
+            let env_dir = if target.is_absolute() {
+                target
+            } else if let Some(parent) = current.parent() {
+                parent.join(target)
+            } else {
+                target
+            };
+            let build = env_dir.join("build");
+            if build.is_dir() {
+                return build;
             }
         }
     }
-    active
+    panic!(
+        "missing env/current for app {} (run build prepare first)",
+        app_root.display()
+    );
 }
 
 #[cfg(test)]
@@ -134,23 +142,27 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn default_bundle_path_uses_v2_active_build_root() {
+    fn default_bundle_path_uses_env_current_build_root() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let workspace = tmp.path();
         let app_root = workspace.join("apps/demo");
-        fs::create_dir_all(app_root.join("build/store/env-1/exchange")).expect("mkdirs");
+        let env_dir = app_root.join("env/WS-20260228.0");
+        fs::create_dir_all(env_dir.join("build/exchange")).expect("mkdirs");
         #[cfg(unix)]
-        std::os::unix::fs::symlink("store/env-1", app_root.join("build/active")).expect("symlink");
+        {
+            std::os::unix::fs::symlink("WS-20260228.0", app_root.join("env/current"))
+                .expect("symlink current");
+        }
         #[cfg(windows)]
-        std::os::windows::fs::symlink_dir("store/env-1", app_root.join("build/active"))
-            .expect("symlink");
+        {
+            std::os::windows::fs::symlink_dir("WS-20260228.0", app_root.join("env/current"))
+                .expect("symlink current");
+        }
 
         let path = default_bundle_path(workspace, "demo");
         assert_eq!(
             path,
-            app_root
-                .join("build/store/env-1")
-                .join("exchange/demo.meibundle")
+            env_dir.join("build/exchange/demo.meibundle")
         );
     }
 }

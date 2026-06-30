@@ -17,6 +17,8 @@ pub struct ClientBootstrapMetric {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_rows: Option<usize>,
     pub contract: MetricContract,
 }
 
@@ -101,30 +103,103 @@ pub fn manifest_revision_from_registry(
     ))
 }
 
-pub fn bootstrap_embed_allowed(
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BootstrapEmbedStatus {
+    pub allowed: bool,
+    pub reason: String,
+    pub metric_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_revision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_revision: Option<String>,
+}
+
+pub fn bootstrap_embed_status_for_manifest(
     registry: &MrgRegistry,
     manifest: &ClientBootstrapManifest,
     data_generation: &str,
-) -> bool {
+) -> BootstrapEmbedStatus {
+    let metric_count = manifest.metrics.len();
+    let client_revision = Some(manifest.client_revision.clone());
     let client_slots: Vec<_> = registry
         .slots
         .iter()
         .filter(|slot| slot.slot_id.scope_key == manifest.scope && slot.client_eligible)
         .collect();
     if client_slots.is_empty() {
-        return true;
+        return BootstrapEmbedStatus {
+            allowed: true,
+            reason: "no_client_slots".to_string(),
+            metric_count,
+            client_revision,
+            expected_revision: None,
+        };
     }
     if client_slots
         .iter()
         .any(|slot| !matches!(slot.state, MaterialState::Ready))
     {
-        return false;
+        return BootstrapEmbedStatus {
+            allowed: false,
+            reason: "slots_not_ready".to_string(),
+            metric_count,
+            client_revision,
+            expected_revision: None,
+        };
     }
-    let Some(expected) = manifest_revision_from_registry(registry, manifest, data_generation)
-    else {
-        return false;
+    let Some(expected) = manifest_revision_from_registry(registry, manifest, data_generation) else {
+        return BootstrapEmbedStatus {
+            allowed: false,
+            reason: "revision_unavailable".to_string(),
+            metric_count,
+            client_revision,
+            expected_revision: None,
+        };
     };
-    expected == manifest.client_revision
+    if expected != manifest.client_revision {
+        return BootstrapEmbedStatus {
+            allowed: false,
+            reason: "revision_mismatch".to_string(),
+            metric_count,
+            client_revision,
+            expected_revision: Some(expected),
+        };
+    }
+    BootstrapEmbedStatus {
+        allowed: true,
+        reason: "allowed".to_string(),
+        metric_count,
+        client_revision,
+        expected_revision: Some(expected),
+    }
+}
+
+pub fn bootstrap_embed_status(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> BootstrapEmbedStatus {
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let Some(manifest) = read_client_bootstrap(workspace_root, app_id, scene_id) else {
+        return BootstrapEmbedStatus {
+            allowed: false,
+            reason: "manifest_missing".to_string(),
+            metric_count: 0,
+            client_revision: None,
+            expected_revision: None,
+        };
+    };
+    let registry = crate::mrg::registry::MrgRegistryWriter::load(workspace_root, app_id);
+    let data_generation = load_cache_generation(app_root.as_path(), app_id).data_generation;
+    bootstrap_embed_status_for_manifest(&registry, &manifest, data_generation.as_str())
+}
+
+pub fn bootstrap_embed_allowed(
+    registry: &MrgRegistry,
+    manifest: &ClientBootstrapManifest,
+    data_generation: &str,
+) -> bool {
+    bootstrap_embed_status_for_manifest(registry, manifest, data_generation).allowed
 }
 
 pub fn build_client_bootstrap_head_fragment(
@@ -140,7 +215,7 @@ pub fn build_client_bootstrap_head_fragment(
         .map(|scope| scope.metrics.len())
         .sum::<usize>();
     Some(format!(
-        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.clientRevision)window.__mei.client_revision=p.clientRevision;if(p.bootstrapScope)window.__mei.bootstrap_scope=p.bootstrapScope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;if(Array.isArray(p.bootstrapScopes))window.__mei.bootstrap_scopes=p.bootstrapScopes;}}catch(e){{}}}})();</script>"#
+        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.clientRevision)window.__mei.client_revision=p.clientRevision;if(p.bootstrapScope)window.__mei.bootstrap_scope=p.bootstrapScope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;if(Array.isArray(p.bootstrapScopes))window.__mei.bootstrap_scopes=p.bootstrapScopes;window.__meiBootstrapPayloadReady=1;}}catch(e){{window.__meiBootstrapSeedError="bootstrap_parse_failed";}}try{{document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));}}catch(e){{}}}})();</script>"#
     ))
 }
 
@@ -229,6 +304,7 @@ pub fn write_client_bootstrap(
     workset_id: &str,
     descriptors: &[EvalSlotDescriptor],
     metrics: &BTreeMap<String, MetricContract>,
+    metric_total_rows: &BTreeMap<String, usize>,
     max_metrics: usize,
 ) -> anyhow::Result<Option<ClientBootstrapManifest>> {
     let mut eligible: Vec<_> = descriptors
@@ -272,6 +348,7 @@ pub fn write_client_bootstrap(
         manifest_metrics.push(ClientBootstrapMetric {
             id: metric_id.to_string(),
             dataset_id,
+            total_rows: metric_total_rows.get(metric_id).copied(),
             contract: contract.clone(),
         });
     }
@@ -446,6 +523,42 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_embed_status_rejects_stale_client_slots() {
+        let manifest = ClientBootstrapManifest {
+            schema_version: "mei-client-bootstrap-v1".to_string(),
+            scope: "home".to_string(),
+            client_revision: "rev".to_string(),
+            workset_id: "workset:home:0".to_string(),
+            metrics: vec![ClientBootstrapMetric {
+                id: "metric_a".to_string(),
+                dataset_id: None,
+                total_rows: None,
+                contract: MetricContract {
+                    id: "metric_a".to_string(),
+                    label: None,
+                    unit: None,
+                    value_format: None,
+                    purpose: None,
+                    shape: MetricShape::Scalar,
+                    schema: vec![],
+                    dataset: None,
+                    transforms: vec![],
+                    value: serde_json::json!(1),
+                },
+            }],
+        };
+        let mut registry = MrgRegistry::empty("demo");
+        registry.upsert_slot(sample_slot(
+            MaterialState::Stale,
+            "workset:home:0::metric_a",
+            "hash-a",
+        ));
+        let status = bootstrap_embed_status_for_manifest(&registry, &manifest, "gen-1");
+        assert!(!status.allowed);
+        assert_eq!(status.reason, "slots_not_ready");
+    }
+
+    #[test]
     fn bootstrap_embed_allowed_rejects_stale_client_slots() {
         let manifest = ClientBootstrapManifest {
             schema_version: "mei-client-bootstrap-v1".to_string(),
@@ -455,6 +568,7 @@ mod tests {
             metrics: vec![ClientBootstrapMetric {
                 id: "metric_a".to_string(),
                 dataset_id: None,
+                total_rows: None,
                 contract: MetricContract {
                     id: "metric_a".to_string(),
                     label: None,
@@ -490,6 +604,7 @@ mod tests {
             metrics: vec![ClientBootstrapMetric {
                 id: "metric_a".to_string(),
                 dataset_id: Some("__world_metrics__::metrics/demo.bundle.mei".to_string()),
+                total_rows: None,
                 contract: MetricContract {
                     id: "metric_a".to_string(),
                     label: None,
@@ -553,6 +668,7 @@ mod tests {
             "workset:home:0",
             std::slice::from_ref(&descriptor),
             &metrics,
+            &BTreeMap::from([("metric_a".to_string(), 42usize)]),
             32,
         )
         .expect("write")
@@ -573,6 +689,7 @@ mod tests {
             manifest.metrics[0].dataset_id.as_deref(),
             Some("__world_metrics__::metrics/demo.bundle.mei")
         );
+        assert_eq!(manifest.metrics[0].total_rows, Some(42));
     }
 
     #[test]
@@ -620,6 +737,7 @@ mod tests {
             "workset:home:0",
             std::slice::from_ref(&descriptor),
             &metrics,
+            &BTreeMap::new(),
             32,
         )
         .expect("write");

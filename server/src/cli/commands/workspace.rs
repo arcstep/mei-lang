@@ -309,19 +309,19 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                 let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
                 let links = mei_lang_kernel::read_links_state(source_root.as_path())?;
                 let apps = mei_lang_kernel::discover_apps(source_root.as_path())?;
-                let build_id = links
-                    .build
-                    .active
-                    .as_deref()
-                    .or(links.build.candidate.as_deref());
                 let mut app_manifests = serde_json::Map::new();
-                if let Some(build_id) = build_id.map(str::trim).filter(|value| !value.is_empty()) {
-                    for app in &apps {
-                        let app_root =
-                            mei_lang_kernel::resolve_app_root(source_root.as_path(), app.id.as_str());
-                        let store = mei_lang_kernel::app_build_store_dir(app_root.as_path(), build_id);
+                let mut current_by_app = serde_json::Map::new();
+                for app in &apps {
+                    let app_root =
+                        mei_lang_kernel::resolve_app_root(source_root.as_path(), app.id.as_str());
+                    if let Ok(current) =
+                        mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
+                    {
+                        current_by_app.insert(app.id.clone(), json!(current));
+                        let env_dir =
+                            mei_lang_kernel::app_env_dir(app_root.as_path(), current.as_str());
                         if let Ok(Some(manifest)) =
-                            mei_lang_kernel::read_build_manifest(store.as_path())
+                            mei_lang_kernel::read_build_manifest(env_dir.as_path())
                         {
                             app_manifests.insert(app.id.clone(), serde_json::to_value(manifest)?);
                         }
@@ -331,6 +331,7 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
                     "schema_version": "mei-cli-v1",
                     "command": "workspace.build.status",
                     "links": links,
+                    "current_by_app": current_by_app,
                     "app_manifests": app_manifests,
                 });
                 print_json_output(&output, args.json)

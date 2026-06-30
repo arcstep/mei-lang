@@ -4,7 +4,8 @@ use std::sync::{Arc, RwLock};
 
 use crate::cli::{
     AppsCommand, AppsListArgs, BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs,
-    BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command, ImportArgs,
+    BuildPrepareArgs, BuildPromoteArgs, BuildRollbackArgs, BuildStatusArgs, Command,
+    EvalCacheCommand, EvalCacheInvalidateArgs, ImportArgs,
     MrgCommand, MrgStatusArgs, PrebuildArgs, PrebuildDataArgs, ReloadArgs, ServeArgs, VersionArgs,
     WorkspaceCommand, WorkspaceInitArgs,
 };
@@ -28,7 +29,38 @@ pub async fn dispatch(command: Command) -> anyhow::Result<()> {
         Command::Build(sub) => run_build(sub),
         Command::Workspace(sub) => run_workspace(sub),
         Command::Apps(sub) => run_apps(sub),
+        Command::EvalCache(sub) => run_eval_cache(sub),
     }
+}
+
+fn run_eval_cache(command: EvalCacheCommand) -> anyhow::Result<()> {
+    match command {
+        EvalCacheCommand::Invalidate(args) => run_eval_cache_invalidate(args),
+    }
+}
+
+fn run_eval_cache_invalidate(args: EvalCacheInvalidateArgs) -> anyhow::Result<()> {
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace);
+    let report = mei_host_graph::invalidate_app_eval_cache(
+        workspace.as_path(),
+        args.app.as_str(),
+        args.force,
+    )?;
+    println!(
+        "[{}] eval-cache invalidate ok: app={} force={} removed={} retained={} cleared_bootstrap_scopes={} removed_bytes={} ({})",
+        mei_host_core::log_timestamp_rfc3339(),
+        args.app,
+        report.force_cleared,
+        report.removed_artifact_files,
+        report.retained_artifact_files,
+        report.cleared_bootstrap_scopes,
+        report.removed_bytes,
+        mei_host_core::format_bytes_human(report.removed_bytes),
+    );
+    Ok(())
 }
 
 fn run_apps(command: AppsCommand) -> anyhow::Result<()> {
@@ -106,6 +138,7 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
     let app_ids = resolve_build_app_ids(workspace.as_path(), &args.app)?;
     let generation = mei_lang_kernel::PrebuildGeneration {
         env_version: args.build_id.clone(),
+        build_generation: args.build_id.clone(),
         toolchain_version: mei_lang_kernel::resolve_toolchain_version_with_hint(
             workspace.as_path(),
             Some(cli_toolchain_hint()),
@@ -172,15 +205,20 @@ fn run_build_status(args: BuildStatusArgs) -> anyhow::Result<()> {
         .toolchain
         .active
         .as_deref()
-        .unwrap_or(identity.toolchain_version.as_str());
-    let build_active = links.build.active.as_deref().unwrap_or("-");
+        .unwrap_or(identity.meilang_version.as_str());
     let build_candidate = links.build.candidate.as_deref().unwrap_or("-");
     let build_previous = links.build.previous.as_deref().unwrap_or("-");
     println!("toolchain.active={toolchain}");
     println!("workspace.version={}", identity.workspace_version);
-    println!("env.active={build_active}");
-    println!("env.candidate={build_candidate}");
-    println!("env.previous={build_previous}");
+    println!("links.candidate={build_candidate}");
+    println!("links.previous={build_previous}");
+    let apps = mei_lang_kernel::discover_apps(workspace.as_path())?;
+    for app in &apps {
+        let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), app.id.as_str());
+        let current = mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
+            .unwrap_or_else(|_| "-".to_string());
+        println!("app={} current={current}", app.id);
+    }
     println!("display={}", mei_lang_kernel::resolve_build_footer_label(workspace.as_path()));
     println!("shell.build_version={}", crate::build_info::BUILD_VERSION);
     Ok(())

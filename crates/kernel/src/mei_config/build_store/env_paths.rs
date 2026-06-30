@@ -1,15 +1,20 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+use anyhow::Result;
 
 use crate::mei_config::io::load_workspace_config;
 use crate::mei_config::types::{
-    APP_BUILD_ACTIVE_REL, APP_ENV_BUILD_REL, APP_ENV_REL, APP_ENV_VAR_REL, APP_VAR_ACTIVE_REL,
-    BUILD_MANIFEST_FILENAME,
+    APP_ENV_BUILD_REL, APP_ENV_CURRENT_REL, APP_ENV_REL, APP_ENV_VAR_REL, BUILD_MANIFEST_FILENAME,
 };
+use crate::mei_config::workspace_paths::{resolve_app_root, resolve_symlink_target_from_link};
 
-use super::paths::resolve_toolchain_version;
+use super::build_generation::{
+    is_build_generation_tag, require_build_generation_tag,
+    resolve_build_generation_config, resolve_build_generation_for_prebuild,
+    resolve_version_display_identity_for_app,
+};
 use super::types::{DEV_TOOLCHAIN_ALIAS, DEV_TOOLCHAIN_VERSION, is_dev_toolchain_alias};
-
-const ENV_COMPOSITE_SEP: &str = "-ws";
 
 /// Toolchain segment only (dev alias → `latest`).
 pub fn resolve_toolchain_segment(toolchain_version: &str) -> String {
@@ -29,81 +34,27 @@ pub fn resolve_env_version(toolchain_version: &str) -> String {
 }
 
 pub fn resolve_workspace_version(source_root: &Path) -> String {
-    let cfg = load_workspace_config(source_root);
-    cfg.workspace
-        .version_trimmed()
-        .map(normalize_workspace_version_segment)
-        .unwrap_or_else(|| "dev".to_string())
-}
-
-pub fn normalize_workspace_version_segment(raw: &str) -> String {
-    let trimmed = raw.trim();
-    let stripped = trimmed
-        .strip_prefix("WS")
-        .or_else(|| trimmed.strip_prefix("ws"))
-        .unwrap_or(trimmed)
-        .trim();
-    if stripped.is_empty() {
-        "dev".to_string()
-    } else {
-        stripped.to_string()
-    }
-}
-
-/// Composite env directory id: `{toolchain}-ws{workspace}` (e.g. `2.0.1-ws20260228`).
-pub fn format_env_generation_id(toolchain_version: &str, workspace_version: &str) -> String {
-    format!(
-        "{}-ws{}",
-        resolve_toolchain_segment(toolchain_version),
-        normalize_workspace_version_segment(workspace_version)
-    )
+    resolve_build_generation_config(source_root).date
 }
 
 pub fn resolve_env_generation_id(source_root: &Path) -> String {
-    format_env_generation_id(
-        resolve_toolchain_version(source_root).as_str(),
-        resolve_workspace_version(source_root).as_str(),
-    )
+    resolve_build_generation_config(source_root).tag
 }
 
-/// Script-compat: returns composite env generation id for the workspace.
+pub fn resolve_env_generation_id_for_prebuild(source_root: &Path) -> String {
+    resolve_build_generation_for_prebuild(source_root).tag
+}
+
 pub fn generate_build_id(source_root: &Path) -> String {
     resolve_env_generation_id(source_root)
 }
 
-pub fn is_composite_env_generation_id(raw: &str) -> bool {
-    raw.contains(ENV_COMPOSITE_SEP)
-}
-
-pub fn parse_composite_env_generation_id(raw: &str) -> Option<(String, String)> {
-    let trimmed = raw.trim();
-    let idx = trimmed.rfind(ENV_COMPOSITE_SEP)?;
-    let toolchain = trimmed[..idx].trim();
-    let ws = normalize_workspace_version_segment(trimmed[idx + ENV_COMPOSITE_SEP.len()..].trim());
-    if toolchain.is_empty() || ws.is_empty() {
-        return None;
-    }
-    Some((toolchain.to_string(), ws))
-}
-
-pub fn normalize_env_generation_id(source_root: &Path, raw: &str) -> String {
+pub fn normalize_env_generation_id(source_root: &Path, raw: &str) -> Result<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return resolve_env_generation_id(source_root);
+        return Ok(resolve_env_generation_id(source_root));
     }
-    if trimmed.contains("-wsws") {
-        return normalize_env_generation_id(source_root, trimmed.replace("-wsws", "-ws").as_str());
-    }
-    if is_composite_env_generation_id(trimmed) {
-        return trimmed.to_string();
-    }
-    if let Some(legacy) = parse_ver_from_legacy_build_id(trimmed) {
-        return format_env_generation_id(
-            legacy.as_str(),
-            resolve_workspace_version(source_root).as_str(),
-        );
-    }
-    format_env_generation_id(trimmed, resolve_workspace_version(source_root).as_str())
+    Ok(require_build_generation_tag(trimmed)?.tag)
 }
 
 pub fn app_env_dir(app_root: &Path, env_version: &str) -> PathBuf {
@@ -126,12 +77,8 @@ pub fn app_var_store_dir(app_root: &Path, env_version: &str) -> PathBuf {
     app_env_var_dir(app_root, env_version)
 }
 
-pub fn app_build_active_link(app_root: &Path) -> PathBuf {
-    app_root.join(APP_BUILD_ACTIVE_REL)
-}
-
-pub fn app_var_active_link(app_root: &Path) -> PathBuf {
-    app_root.join(APP_VAR_ACTIVE_REL)
+pub fn app_env_current_link(app_root: &Path) -> PathBuf {
+    app_root.join(APP_ENV_CURRENT_REL)
 }
 
 pub fn app_env_root(app_root: &Path) -> PathBuf {
@@ -142,59 +89,111 @@ pub fn build_manifest_path(env_dir: &Path) -> PathBuf {
     env_dir.join(BUILD_MANIFEST_FILENAME)
 }
 
-/// Parse composite `env/{id}` from a resolved `build/active` target (`…/env/{id}/build`).
-pub fn env_version_from_build_root(build_root: &Path) -> Option<String> {
-    if build_root.file_name()?.to_str()? != APP_ENV_BUILD_REL {
-        return None;
+pub fn env_generation_from_env_dir(env_dir: &Path) -> Option<String> {
+    let name = env_dir.file_name()?.to_str()?.trim();
+    if is_build_generation_tag(name) {
+        Some(name.to_string())
+    } else {
+        None
     }
-    let env_dir = build_root.parent()?;
-    if env_dir.parent()?.file_name()?.to_str()? != APP_ENV_REL {
-        return None;
+}
+
+/// Follow `env/current` symlink to the active env directory (`…/env/{id}`).
+pub fn resolve_app_env_dir_following_current(app_root: &Path) -> Option<PathBuf> {
+    let current = app_env_current_link(app_root);
+    if current.is_symlink() {
+        return resolve_symlink_target_from_link(&current);
     }
-    env_dir
-        .file_name()
-        .and_then(|name| name.to_str())
+    #[cfg(not(unix))]
+    if current.is_dir() {
+        let marker = current.join(".mei-build-target");
+        if marker.is_file() {
+            if let Ok(raw) = std::fs::read_to_string(marker) {
+                let target = PathBuf::from(raw.trim());
+                if target.is_absolute() {
+                    return Some(target);
+                }
+                return current.parent().map(|parent| parent.join(target));
+            }
+        }
+    }
+    None
+}
+
+pub fn require_app_env_dir_following_current(app_root: &Path) -> Result<PathBuf> {
+    resolve_app_env_dir_following_current(app_root).ok_or_else(|| {
+        anyhow::anyhow!(
+            "missing env/current for app {} (run build prepare / promote first)",
+            app_root.display()
+        )
+    })
+}
+
+/// Active build generation for one app, from `env/current` only.
+pub fn resolve_app_build_generation_from_current(app_root: &Path) -> Result<String> {
+    let env_dir = require_app_env_dir_following_current(app_root)?;
+    env_generation_from_env_dir(env_dir.as_path()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "invalid env/current target for app {} (expected WS-yyyymmdd.fixver)",
+            app_root.display()
+        )
+    })
+}
+
+pub fn resolve_workspace_default_app_id(source_root: &Path) -> Option<String> {
+    let cfg = load_workspace_config(source_root);
+    cfg.workspace
+        .default_app
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .map(str::to_string)
 }
 
-/// Parse ver suffix from legacy store dir name `YYYYMMDDTHHMMSS-{ver}`.
-pub fn parse_ver_from_legacy_build_id(legacy_build_id: &str) -> Option<String> {
-    let trimmed = legacy_build_id.trim();
-    let t_pos = trimmed.find('T')?;
-    let rest = &trimmed[t_pos + 1..];
-    let dash = rest.find('-')?;
-    let ver = rest[dash + 1..].trim();
-    if ver.is_empty() {
-        None
-    } else {
-        Some(ver.to_string())
+pub fn resolve_workspace_app_build_generations(
+    source_root: &Path,
+    app_ids: &[String],
+) -> Result<BTreeMap<String, String>> {
+    let mut out = BTreeMap::new();
+    for app_id in app_ids {
+        let app_root = resolve_app_root(source_root, app_id);
+        let generation = resolve_app_build_generation_from_current(app_root.as_path())?;
+        out.insert(app_id.clone(), generation);
     }
+    Ok(out)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveBuildIdentity {
-    pub toolchain_version: String,
+    pub meilang_version: String,
+    pub build_generation: String,
     pub workspace_version: String,
     pub env_generation_id: String,
 }
 
 pub fn resolve_active_build_identity(source_root: &Path) -> ActiveBuildIdentity {
-    let toolchain_version = resolve_toolchain_version(source_root);
-    let workspace_version = resolve_workspace_version(source_root);
-    let env_generation_id = format_env_generation_id(
-        toolchain_version.as_str(),
-        workspace_version.as_str(),
-    );
-    ActiveBuildIdentity {
-        toolchain_version,
-        workspace_version,
-        env_generation_id,
-    }
+    resolve_active_build_identity_for_app(source_root, None, None)
+        .unwrap_or_else(|err| panic!("{err}"))
 }
 
-pub fn format_build_identity_display(identity: &ActiveBuildIdentity) -> String {
-    format!(
-        "MeiLang {} · WS {} · build {}",
-        identity.toolchain_version, identity.workspace_version, identity.env_generation_id
-    )
+pub fn resolve_active_build_identity_with_hint(
+    source_root: &Path,
+    meilang_hint: Option<&str>,
+) -> Result<ActiveBuildIdentity> {
+    resolve_active_build_identity_for_app(source_root, None, meilang_hint)
+}
+
+pub fn resolve_active_build_identity_for_app(
+    source_root: &Path,
+    app_id: Option<&str>,
+    meilang_hint: Option<&str>,
+) -> Result<ActiveBuildIdentity> {
+    let display = resolve_version_display_identity_for_app(source_root, app_id, meilang_hint)?;
+    let date = require_build_generation_tag(display.build_generation.as_str())?.date;
+    Ok(ActiveBuildIdentity {
+        meilang_version: display.meilang_version,
+        build_generation: display.build_generation.clone(),
+        workspace_version: date,
+        env_generation_id: display.env_generation_id,
+    })
 }

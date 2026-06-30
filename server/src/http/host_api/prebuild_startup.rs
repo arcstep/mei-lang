@@ -72,14 +72,23 @@ fn startup_prebuild_skip_reason(source_root: &Path) -> Option<String> {
     if !default_landing_ready(source_root) {
         return None;
     }
-    let links = mei_lang_kernel::read_links_state(source_root).ok()?;
-    let active = links.build.active.filter(|value| !value.trim().is_empty())?;
+    let workspace = mei_lang_kernel::load_workspace_config(source_root);
+    let default_app = workspace
+        .workspace
+        .default_app
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let app_root = mei_lang_kernel::resolve_app_root(source_root, default_app);
+    let current = mei_lang_kernel::resolve_app_build_generation_from_current(app_root.as_path())
+        .ok()
+        .filter(|value| !value.trim().is_empty())?;
     let matched = crate::prebuild_fingerprint::try_match_prebuild_fingerprint(source_root).ok()??;
     if matched.stored.artifact_coverage_summary.total_missing_artifacts > 0 {
         return None;
     }
     Some(format!(
-        "fingerprint match + build/active={active} + default landing ready"
+        "fingerprint match + env/current={current} + default landing ready"
     ))
 }
 

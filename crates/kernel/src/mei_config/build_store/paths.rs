@@ -14,10 +14,11 @@ use super::types::{
 
 use std::fs;
 
-use crate::mei_config::types::TOOLCHAIN_ACTIVE_REL;
+use crate::mei_config::types::{APP_ENV_BUILD_REL, APP_ENV_VAR_REL, TOOLCHAIN_ACTIVE_REL};
 
 use super::env_paths::{
-    app_build_active_link, app_var_active_link, build_manifest_path, env_version_from_build_root,
+    build_manifest_path, env_generation_from_env_dir,
+    require_app_env_dir_following_current, resolve_app_env_dir_following_current,
 };
 
 fn read_manifest_version(path: &Path) -> Option<String> {
@@ -46,12 +47,11 @@ fn active_toolchain_manifest_path(source_root: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Toolchain version for env ver: store MANIFEST → workspace pin → CLI cargo hint → links.active → flat MANIFEST → `latest`.
+/// Toolchain version: store MANIFEST → workspace pin → CLI cargo hint → links.active → flat MANIFEST → `latest`.
 pub fn resolve_toolchain_version(source_root: &Path) -> String {
     resolve_toolchain_version_with_hint(source_root, None)
 }
 
-/// Dev CLI passes its `CARGO_PKG_VERSION` so env generation follows rebuilt mei-lang binaries.
 pub fn resolve_toolchain_version_with_hint(
     source_root: &Path,
     cli_toolchain_hint: Option<&str>,
@@ -90,7 +90,7 @@ pub fn resolve_dev_toolchain_version() -> &'static str {
     DEV_TOOLCHAIN_ALIAS
 }
 
-pub(super) fn civil_from_days(z: i64) -> (i64, i64, i64) {
+pub(crate) fn civil_from_days(z: i64) -> (i64, i64, i64) {
     let z = z + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = z - era * 146097;
@@ -112,60 +112,28 @@ pub fn resolve_app_build_root_following_active(app_root: &Path) -> PathBuf {
     if let Some(override_root) = prebuild_build_root_override() {
         return override_root;
     }
-    let active = app_build_active_link(app_root);
-    if active.is_symlink() {
-        if let Some(target) = resolve_symlink_target(&active) {
-            return target;
-        }
-    }
-    if active.is_dir() {
-        return active;
-    }
-    active
+    require_app_env_dir_following_current(app_root)
+        .map(|env_dir| env_dir.join(APP_ENV_BUILD_REL))
+        .unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
 }
 
 pub fn resolve_app_var_root_following_active(app_root: &Path) -> PathBuf {
     if let Some(override_root) = prebuild_var_root_override() {
         return override_root;
     }
-    let active = app_var_active_link(app_root);
-    if active.is_symlink() {
-        if let Some(target) = resolve_symlink_target(&active) {
-            return target;
-        }
-    }
-    if active.is_dir() {
-        return active;
-    }
-    active
+    require_app_env_dir_following_current(app_root)
+        .map(|env_dir| env_dir.join(APP_ENV_VAR_REL))
+        .unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
 }
 
 pub fn resolve_active_build_id(source_root: &Path, app_id: &str) -> Option<String> {
-    if let Ok(links) = read_links_state(source_root) {
-        if let Some(id) = links
-            .build
-            .active
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            return Some(id.to_string());
-        }
-    }
     let app_root = resolve_app_root(source_root, app_id);
-    let active = app_build_active_link(&app_root);
-    if active.is_symlink() {
-        if let Some(target) = resolve_symlink_target(&active) {
-            if let Some(ver) = env_version_from_build_root(target.as_path()) {
-                return Some(ver);
-            }
-        }
-        return active
-            .file_name()
-            .and_then(|name| name.to_str())
-            .map(str::to_string);
-    }
-    None
+    resolve_app_env_dir_following_current(&app_root)
+        .and_then(|env_dir| env_generation_from_env_dir(env_dir.as_path()))
 }
 
 pub fn write_build_manifest(env_dir: &Path, manifest: &BuildManifest) -> Result<()> {

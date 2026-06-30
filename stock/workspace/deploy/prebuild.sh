@@ -44,9 +44,13 @@ for app_id in "${APP_IDS[@]}"; do
   run_mei_host_shell "${WORKSPACE_ROOT}" \
     prebuild-data --workspace "${WORKSPACE_ROOT}" --app "${app_id}" "${DEPLOY_CLI_ARGS[@]}"
 
-  echo "==> clear eval-cache (${app_id})"
-  EVAL_CACHE="${WORKSPACE_ROOT}/apps/${app_id}/var/active/eval-cache"
-  rm -rf "${EVAL_CACHE}"
+  echo "==> invalidate eval-cache (${app_id})"
+  INVALIDATE_ARGS=(eval-cache invalidate --workspace "${WORKSPACE_ROOT}" --app "${app_id}")
+  if [[ "${MEI_FORCE_EVAL_CACHE_CLEAR:-0}" == "1" ]]; then
+    INVALIDATE_ARGS+=(--force)
+  fi
+  run_mei_host_shell "${WORKSPACE_ROOT}" \
+    "${INVALIDATE_ARGS[@]}" "${DEPLOY_CLI_ARGS[@]}"
 
   APP_POLICY="${POLICY}"
   if command -v jq >/dev/null 2>&1; then

@@ -1,5 +1,6 @@
 mod types;
 mod prebuild_override;
+mod build_generation;
 mod env_paths;
 mod paths;
 mod lifecycle;
@@ -9,9 +10,15 @@ mod env_clean;
 #[cfg(test)]
 mod tests;
 
+pub use build_generation::{
+    resolve_version_display_identity, resolve_version_display_identity_for_app,
+    resolve_version_display_identity_with_hint, BuildGenerationSpec, VersionDisplayIdentity,
+};
 pub use env_clean::{
     clean_env_generations, migrate_apps_to_env_layout, migrate_build_var_store_to_env,
-    resolve_build_footer_label, resolve_workspace_footer_label, CleanEnvPolicy, CleanEnvReport, MigrateEnvReport,
+    resolve_build_footer_label, resolve_build_footer_label_with_hint,
+    resolve_workspace_footer_label, resolve_workspace_footer_label_with_hint,
+    CleanEnvPolicy, CleanEnvReport, MigrateEnvReport,
 };
 pub use env_paths::*;
 pub use types::*;

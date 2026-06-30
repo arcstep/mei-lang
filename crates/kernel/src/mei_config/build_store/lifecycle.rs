@@ -8,10 +8,14 @@ use anyhow::Result;
 
 use crate::mei_config::workspace_paths::{resolve_app_root, resolve_apps_root};
 
+use super::build_generation::require_build_generation_tag;
 use super::env_paths::{
-    app_build_active_link, app_env_build_dir, app_env_dir, app_env_var_dir, app_var_active_link,
-    format_env_generation_id, normalize_env_generation_id, resolve_workspace_version,
+    app_env_build_dir, app_env_current_link, app_env_dir, app_env_var_dir,
+    env_generation_from_env_dir, normalize_env_generation_id,
+    resolve_app_build_generation_from_current, resolve_app_env_dir_following_current,
+    resolve_env_generation_id_for_prebuild, resolve_workspace_default_app_id,
 };
+use super::build_generation::resolve_build_generation_for_prebuild;
 use super::paths::{civil_from_days, resolve_toolchain_version_with_hint, write_build_manifest};
 use super::types::{
     read_links_state, write_links_state, BuildManifest, BUILD_MANIFEST_SCHEMA,
@@ -124,6 +128,7 @@ pub fn replace_env_generation(app_root: &Path, env_version: &str) -> Result<(Pat
 
 pub struct PrebuildGeneration {
     pub env_version: String,
+    pub build_generation: String,
     pub toolchain_version: String,
     pub workspace_version: String,
     pub store_dirs: BTreeMap<String, PathBuf>,
@@ -147,16 +152,14 @@ pub fn begin_prebuild_generation_with_hint(
 ) -> Result<PrebuildGeneration> {
     let toolchain_version =
         resolve_toolchain_version_with_hint(source_root, cli_toolchain_hint);
-    let workspace_version = resolve_workspace_version(source_root);
-    let env_version =
-        format_env_generation_id(toolchain_version.as_str(), workspace_version.as_str());
-    let previous_active = read_links_state(source_root)
-        .ok()
-        .and_then(|links| links.build.active)
-        .map(|v| normalize_env_generation_id(source_root, v.as_str()));
+    let build_spec = resolve_build_generation_for_prebuild(source_root);
+    let env_version = resolve_env_generation_id_for_prebuild(source_root);
+    let workspace_version = build_spec.date.clone();
     let mut store_dirs = BTreeMap::new();
     for app_id in app_ids {
         let app_root = resolve_app_root(source_root, app_id);
+        let previous_active = resolve_app_env_dir_following_current(app_root.as_path())
+            .and_then(|env_dir| env_generation_from_env_dir(env_dir.as_path()));
         let (build_dir, _var_dir) = replace_env_generation(app_root.as_path(), env_version.as_str())?;
         if let Some(ref active_ver) = previous_active {
             if active_ver != &env_version {
@@ -171,6 +174,7 @@ pub fn begin_prebuild_generation_with_hint(
     }
     Ok(PrebuildGeneration {
         env_version,
+        build_generation: build_spec.tag,
         toolchain_version,
         workspace_version,
         store_dirs,
@@ -195,6 +199,7 @@ pub fn finish_prebuild_generation(
                 env_version: generation.env_version.clone(),
                 app_id: app_id.clone(),
                 toolchain_version: generation.toolchain_version.clone(),
+                build_generation: Some(generation.build_generation.clone()),
                 workspace_version: Some(generation.workspace_version.clone()),
                 source_revision: source_revision.map(str::to_string),
                 stock_revision: stock_revision.map(str::to_string),
@@ -230,20 +235,50 @@ fn chrono_like_rfc3339() -> String {
     )
 }
 
+fn snapshot_default_app_current_generation(source_root: &Path) -> Option<String> {
+    let app_id = resolve_workspace_default_app_id(source_root)?;
+    let app_root = resolve_app_root(source_root, app_id.as_str());
+    resolve_app_build_generation_from_current(app_root.as_path()).ok()
+}
+
+fn all_apps_at_generation(source_root: &Path, env_version: &str) -> bool {
+    let apps_root = resolve_apps_root(source_root);
+    if !apps_root.is_dir() {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(&apps_root) else {
+        return false;
+    };
+    let mut found = false;
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        found = true;
+        let current = resolve_app_env_dir_following_current(&entry.path())
+            .and_then(|env_dir| env_generation_from_env_dir(env_dir.as_path()));
+        if current.as_deref() != Some(env_version) {
+            return false;
+        }
+    }
+    found
+}
+
 pub fn promote_build(source_root: &Path, build_id: Option<&str>) -> Result<String> {
     let mut links = read_links_state(source_root)?;
-    let target = build_id
+    let target = if let Some(id) = build_id.map(str::trim).filter(|s| !s.is_empty()) {
+        normalize_env_generation_id(source_root, id)?
+    } else if let Some(candidate) = links
+        .build
+        .candidate
+        .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|id| normalize_env_generation_id(source_root, id))
-        .or_else(|| {
-            links
-                .build
-                .candidate
-                .as_deref()
-                .map(|id| normalize_env_generation_id(source_root, id))
-        })
-        .ok_or_else(|| anyhow::anyhow!("no build candidate to promote"))?;
+    {
+        normalize_env_generation_id(source_root, candidate)?
+    } else {
+        anyhow::bail!("no build candidate to promote");
+    };
     let apps_root = resolve_apps_root(source_root);
     if apps_root.is_dir() {
         for entry in fs::read_dir(&apps_root)? {
@@ -254,41 +289,39 @@ pub fn promote_build(source_root: &Path, build_id: Option<&str>) -> Result<Strin
             union_historical_build_content_into_target(&entry.path(), target.as_str())?;
         }
     }
-    if links.build.active.as_deref() == Some(target.as_str()) {
+    if all_apps_at_generation(source_root, target.as_str()) {
         return Ok(target);
     }
-    links.build.previous = links
-        .build
-        .active
-        .take()
-        .map(|v| normalize_env_generation_id(source_root, v.as_str()));
-    links.build.active = Some(target.clone());
+    if let Some(current) = snapshot_default_app_current_generation(source_root) {
+        if current != target {
+            links.build.previous = Some(current);
+        }
+    }
     links.build.candidate = None;
     apply_build_symlinks_for_all_apps(source_root, &target)?;
     write_links_state(source_root, &links)?;
     Ok(target)
 }
 
-/// Point `build/active` and `var/active` at `env/{ver}/build|var` for listed apps.
+/// Point `env/current` at `env/{ver}` for listed apps.
 pub fn attach_build_generation(
     source_root: &Path,
     app_ids: &[String],
     env_version: &str,
 ) -> Result<()> {
-    let env_version = env_version.trim();
-    if env_version.is_empty() {
-        anyhow::bail!("attach_build_generation: empty env_version");
-    }
+    let env_version = require_build_generation_tag(env_version)?.tag;
     for app_id in app_ids {
         let app_root = resolve_app_root(source_root, app_id);
-        let build_dir = app_env_build_dir(&app_root, env_version);
+        let build_dir = app_env_build_dir(&app_root, env_version.as_str());
         fs::create_dir_all(build_dir.join("exchange"))?;
-        let var_dir = app_env_var_dir(&app_root, env_version);
+        let var_dir = app_env_var_dir(&app_root, env_version.as_str());
         fs::create_dir_all(var_dir.join("cache"))?;
         fs::create_dir_all(var_dir.join("eval-cache"))?;
         fs::create_dir_all(var_dir.join("data-snapshots"))?;
-        set_active_symlink(&app_build_active_link(&app_root), &build_dir)?;
-        set_active_symlink(&app_var_active_link(&app_root), &var_dir)?;
+        set_active_symlink(
+            &app_env_current_link(&app_root),
+            &app_env_dir(&app_root, env_version.as_str()),
+        )?;
     }
     Ok(())
 }
@@ -348,52 +381,26 @@ pub fn finalize_and_promote_build(
     }
 }
 
-/// Move flat `build/active` (directory) into `env/{ver}/build` and symlink active.
-pub fn migrate_flat_build_to_store(app_root: &Path, env_version: &str) -> Result<bool> {
-    use super::migrate::merge_dir_recursive;
-    let env_version = env_version.trim();
-    if env_version.is_empty() {
-        return Ok(false);
+/// Legacy flat build/active migration is no longer supported.
+pub fn migrate_flat_build_to_store(app_root: &Path, _env_version: &str) -> Result<bool> {
+    let flat_build = app_root.join("build").join("active");
+    if flat_build.is_dir() && !flat_build.is_symlink() {
+        anyhow::bail!(
+            "legacy flat build/active at {} — remove it and run build prepare",
+            flat_build.display()
+        );
     }
-    let active = app_build_active_link(app_root);
-    if active.is_symlink() || !active.is_dir() {
-        return Ok(false);
-    }
-    let build_dir = app_env_build_dir(app_root, env_version);
-    fs::create_dir_all(app_env_dir(app_root, env_version))?;
-    if build_dir.exists() {
-        merge_dir_recursive(&active, &build_dir)?;
-        fs::remove_dir_all(&active)?;
-    } else {
-        fs::create_dir_all(build_dir.parent().unwrap_or(app_root))?;
-        fs::rename(&active, &build_dir)?;
-    }
-    set_active_symlink(&active, &build_dir)?;
-
-    let var_active = app_var_active_link(app_root);
-    if var_active.is_dir() && !var_active.is_symlink() {
-        let var_dir = app_env_var_dir(app_root, env_version);
-        fs::create_dir_all(app_env_dir(app_root, env_version))?;
-        if var_dir.exists() {
-            merge_dir_recursive(&var_active, &var_dir)?;
-            fs::remove_dir_all(&var_active)?;
-        } else {
-            fs::rename(&var_active, &var_dir)?;
-        }
-        set_active_symlink(&var_active, &var_dir)?;
-    }
-    Ok(true)
+    Ok(false)
 }
 
 pub fn rollback_build(source_root: &Path) -> Result<String> {
-    let mut links = read_links_state(source_root)?;
+    let links = read_links_state(source_root)?;
     let target = links
         .build
         .previous
         .clone()
         .ok_or_else(|| anyhow::anyhow!("no previous build to rollback"))?;
-    let target = normalize_env_generation_id(source_root, target.as_str());
-    links.build.active = Some(target.clone());
+    let target = normalize_env_generation_id(source_root, target.as_str())?;
     apply_build_symlinks_for_all_apps(source_root, target.as_str())?;
     write_links_state(source_root, &links)?;
     Ok(target)
@@ -410,14 +417,8 @@ pub(crate) fn apply_build_symlinks_for_all_apps(source_root: &Path, env_version:
             continue;
         }
         let app_root = entry.path();
-        set_active_symlink(
-            &app_build_active_link(&app_root),
-            &app_env_build_dir(&app_root, env_version),
-        )?;
-        set_active_symlink(
-            &app_var_active_link(&app_root),
-            &app_env_var_dir(&app_root, env_version),
-        )?;
+        let env_dir = app_env_dir(&app_root, env_version);
+        set_active_symlink(&app_env_current_link(&app_root), &env_dir)?;
     }
     Ok(())
 }

@@ -29,10 +29,15 @@ pub use data_snapshot::{
 pub use import::{import_bundle, load_block_artifact, ImportOptions};
 pub use layer_plan::{build_layer_plan, layer_plan_to_value, LayerPlanDocument};
 pub use mcg::registry::{McgRegistry, McgRegistryWriter};
+pub use mrg::eval_cache_plan::{
+    build_eval_cache_invalidation_plan, build_eval_cache_invalidation_plan_from_registry,
+    invalidate_app_eval_cache,
+};
 pub use mrg::client_bootstrap::{
-    bootstrap_embed_allowed, build_client_bootstrap_head_fragment, build_client_bootstrap_payload,
+    bootstrap_embed_allowed, bootstrap_embed_status, bootstrap_embed_status_for_manifest,
+    build_client_bootstrap_head_fragment, build_client_bootstrap_payload, BootstrapEmbedStatus,
     clear_client_bootstrap_for_scope, clear_client_bootstraps_for_stale_scopes,
-    read_client_bootstrap, write_client_bootstrap, ClientBootstrapManifest, ClientBootstrapPayload,
+    client_bootstrap_path, read_client_bootstrap, write_client_bootstrap, ClientBootstrapManifest, ClientBootstrapPayload,
     ClientBootstrapScopePayload,
 };
 pub use mrg::frontier::{
