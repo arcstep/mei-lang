@@ -508,6 +508,8 @@ pub fn insert_page_render_cache_hit_header(response: &mut axum::response::Respon
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneRevisionPayload {
+    #[serde(default)]
+    pub ready: bool,
     pub app_id: String,
     pub scene_id: String,
     pub route_mode: String,
@@ -605,6 +607,7 @@ pub fn build_scene_revision_payload(
         .map(|digest| format!("{digest:016x}"))
         .unwrap_or_else(|| "0".to_string());
     Some(SceneRevisionPayload {
+        ready: true,
         app_id: app_id.to_string(),
         scene_id: scene_id.to_string(),
         route_mode: route_mode.slug().to_string(),

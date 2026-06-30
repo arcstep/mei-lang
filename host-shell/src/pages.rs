@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{Extension, OriginalUri, Path, Query, State},
     http::{HeaderName, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
@@ -37,6 +37,7 @@ pub async fn app_page(
     State(state): State<SharedState>,
     State(auth): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
+    OriginalUri(uri): OriginalUri,
     Path((mode, app_tail)): Path<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Response {
@@ -45,6 +46,32 @@ pub async fn app_page(
     let (app_id, scene_id) = parse_app_scene_path(&app_tail, query.scene.as_deref());
     if app_id.is_empty() {
         return (StatusCode::NOT_FOUND, "app not found").into_response();
+    }
+    let scene_id = scene_id.unwrap_or_else(|| "home".to_string());
+    if route_mode.is_access_like() {
+        let starting_location = {
+            let mut guard = state.write().expect("state lock");
+            crate::build_ops::refresh_materialization_flags(&mut guard);
+            let readiness = crate::startup::evaluate_access_readiness(
+                &guard,
+                app_id.as_str(),
+                scene_id.as_str(),
+                route_mode,
+            );
+            if readiness.ready {
+                None
+            } else {
+                Some(crate::startup::build_starting_location(
+                    &uri,
+                    app_id.as_str(),
+                    scene_id.as_str(),
+                    mode.as_str(),
+                ))
+            }
+        };
+        if let Some(location) = starting_location {
+            return Redirect::temporary(location.as_str()).into_response();
+        }
     }
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
@@ -76,7 +103,6 @@ pub async fn app_page(
         )
             .into_response();
     }
-    let scene_id = scene_id.unwrap_or_else(|| "home".to_string());
     let request_started = Instant::now();
     let topbar_menu = load_topbar_menu_context(workspace_root);
     let apps = enrich_discovered_apps(apps.as_slice(), &topbar_menu);
@@ -358,6 +384,136 @@ pub async fn api_presentation_map(
 }
 
 #[derive(Debug, Deserialize, Default)]
+pub struct HostStartingQuery {
+    #[serde(default, rename = "return")]
+    pub return_path: String,
+    pub app: Option<String>,
+    pub scene: Option<String>,
+    pub mode: Option<String>,
+}
+
+pub async fn host_starting_page(
+    State(state): State<SharedState>,
+    Query(query): Query<HostStartingQuery>,
+) -> Response {
+    let (workspace, default_app, phase, detail, error) = {
+        let mut guard = state.write().expect("state lock");
+        crate::build_ops::refresh_materialization_flags(&mut guard);
+        (
+            guard.ctx.workspace_root.clone(),
+            guard.ctx.app_id.clone(),
+            guard.startup_phase.clone(),
+            guard.startup_detail.clone(),
+            guard.startup_error.clone(),
+        )
+    };
+    if let Some(message) = error {
+        return mei_host_auth::startup_failed_html_response(workspace.as_path(), message.as_str());
+    }
+    let return_path = {
+        let raw = query.return_path.trim();
+        crate::startup::sanitize_return_path(if raw.is_empty() { "/" } else { raw })
+    };
+    let (poll_app, poll_scene, poll_mode) = if query.app.as_deref().is_some_and(|value| !value.trim().is_empty()) {
+        (
+            query.app.unwrap_or(default_app.clone()),
+            query
+                .scene
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "home".to_string()),
+            query
+                .mode
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "app".to_string()),
+        )
+    } else {
+        let (app, scene, mode) =
+            crate::startup::parse_warm_poll_from_path(return_path.as_str(), default_app.as_str());
+        (app, scene, mode)
+    };
+    mei_host_auth::host_starting_html_response(
+        workspace.as_path(),
+        detail.as_deref().unwrap_or(phase.as_str()),
+        return_path.as_str(),
+        poll_app.as_str(),
+        poll_scene.as_str(),
+        poll_mode.as_str(),
+    )
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct AccessReadinessQuery {
+    pub app: String,
+    pub scene: Option<String>,
+    pub mode: Option<String>,
+}
+
+pub async fn api_host_access_readiness(
+    State(state): State<SharedState>,
+    Query(query): Query<AccessReadinessQuery>,
+) -> Response {
+    let app_id = query.app.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app is required"})),
+        )
+            .into_response();
+    }
+    let scene_id = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home");
+    let route_mode = query
+        .mode
+        .as_deref()
+        .map(UiRouteMode::from_slug)
+        .unwrap_or(UiRouteMode::App);
+    let (readiness, startup_phase, startup_detail, startup_error, bootstrap_reason) = {
+        let mut guard = state.write().expect("state lock");
+        crate::build_ops::refresh_materialization_flags(&mut guard);
+        let readiness = crate::startup::evaluate_access_readiness(
+            &guard,
+            app_id,
+            scene_id,
+            route_mode,
+        );
+        let bootstrap_reason = if route_mode.is_access_like() {
+            Some(
+                mei_host_graph::bootstrap_embed_status(
+                    guard.ctx.workspace_root.as_path(),
+                    app_id,
+                    scene_id,
+                )
+                .reason,
+            )
+        } else {
+            None
+        };
+        (
+            readiness,
+            guard.startup_phase.clone(),
+            guard.startup_detail.clone(),
+            guard.startup_error.clone(),
+            bootstrap_reason,
+        )
+    };
+    Json(json!({
+        "ready": readiness.ready,
+        "reason": readiness.reason,
+        "bootstrapReason": bootstrap_reason,
+        "startupPhase": startup_phase,
+        "startupDetail": startup_detail,
+        "startupError": startup_error,
+        "appId": app_id,
+        "sceneId": scene_id,
+    }))
+    .into_response()
+}
+
+#[derive(Debug, Deserialize, Default)]
 pub struct SceneRevisionQuery {
     pub app: String,
     pub scene: Option<String>,
@@ -390,12 +546,45 @@ pub async fn api_scene_revision(
         .as_deref()
         .map(UiRouteMode::from_slug)
         .unwrap_or(UiRouteMode::App);
+    {
+        let mut guard = state.write().expect("state lock");
+        crate::build_ops::refresh_materialization_flags(&mut guard);
+        if !guard.imported {
+            return Json(json!({
+                "ready": false,
+                "startup_phase": guard.startup_phase,
+                "startup_detail": guard.startup_detail,
+                "app_id": app_id,
+                "scene_id": scene_id,
+            }))
+            .into_response();
+        }
+    }
     if !route_mode.is_access_like() {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({"error": "mode must be access-like"})),
         )
             .into_response();
+    }
+    let bootstrap = mei_host_graph::bootstrap_embed_status(
+        state
+            .read()
+            .expect("state lock")
+            .ctx
+            .workspace_root
+            .as_path(),
+        app_id,
+        scene_id.as_str(),
+    );
+    if !bootstrap.allowed {
+        return Json(json!({
+            "ready": false,
+            "reason": bootstrap.reason,
+            "app_id": app_id,
+            "scene_id": scene_id,
+        }))
+        .into_response();
     }
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();

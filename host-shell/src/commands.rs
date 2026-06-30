@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use crate::cli::{
     AppsCommand, AppsListArgs, BuildCleanArgs, BuildCommand, BuildFinalizeArgs, BuildMigrateEnvArgs,
@@ -578,6 +578,20 @@ fn run_mrg_status(args: MrgStatusArgs) -> anyhow::Result<()> {
 }
 
 async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
+    let early_bind = std::env::var("MEI_SERVE_EARLY_BIND")
+        .map(|value| {
+            let trimmed = value.trim();
+            trimmed == "1" || trimmed.eq_ignore_ascii_case("true")
+        })
+        .unwrap_or(false);
+    if early_bind {
+        run_serve_early_bind(args).await
+    } else {
+        run_serve_blocking_init(args).await
+    }
+}
+
+async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     use std::collections::BTreeMap;
 
     let workspace = args
@@ -662,9 +676,11 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
         println!("Page SSR cache: primed {primed} access scene(s) from warmup manifest");
     }
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
+    let managed_plug = Arc::new(Mutex::new(managed_pool));
     let state = HostHttpState {
         shell,
         auth: auth_state.clone(),
+        managed_plug: managed_plug.clone(),
     };
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -695,7 +711,94 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     let serve_result = axum::serve(listener, app)
         .await
         .map_err(|e| anyhow::anyhow!(e));
-    if let Some(pool) = managed_pool.as_mut() {
+    if let Some(mut pool) = managed_plug
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
+    {
+        if let Err(error) = pool.shutdown().await {
+            tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
+        }
+    }
+    serve_result
+}
+
+async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
+    use std::collections::BTreeMap;
+
+    let workspace = args
+        .workspace
+        .canonicalize()
+        .unwrap_or(args.workspace.clone());
+    crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
+    let package_root = resolve_package_root()?;
+    let default_app_id = args.app.clone();
+    let discovered = crate::landing::discover_workspace_apps(workspace.as_path())?;
+    let app_ids: Vec<String> = if discovered.is_empty() {
+        vec![default_app_id.clone()]
+    } else {
+        discovered.into_iter().map(|app| app.id).collect()
+    };
+    let auth_enforcement = if args.auth {
+        mei_host_auth::AuthEnforcement::Required
+    } else {
+        mei_host_auth::AuthEnforcement::Disabled
+    };
+    mei_host_auth::prepare_auth_for_serve(
+        workspace.as_path(),
+        auth_enforcement,
+        "mei-host-shell",
+    )?;
+    let shell: SharedState = Arc::new(RwLock::new(ShellState::new(
+        workspace.clone(),
+        default_app_id.clone(),
+        package_root.clone(),
+        BTreeMap::new(),
+        false,
+    )));
+    let managed_plug = Arc::new(Mutex::new(None::<crate::managed_plug::ManagedPlugDsPool>));
+    let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
+    let state = HostHttpState {
+        shell: shell.clone(),
+        auth: auth_state.clone(),
+        managed_plug: managed_plug.clone(),
+    };
+    let addr = format!("{}:{}", args.host, args.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let display = mei_lang_kernel::resolve_build_footer_label(workspace.as_path());
+    if args.auth {
+        println!("Auth:      enabled (login required for protected routes)");
+    }
+    println!(
+        "mei-host-shell listening on http://{addr} (shell {} · {})",
+        crate::build_info::BUILD_VERSION,
+        display
+    );
+    println!("Startup:   port open — warming page shown until workspace import completes");
+    let startup_plan = crate::startup::ServeStartupPlan {
+        workspace: workspace.clone(),
+        package_root: package_root.clone(),
+        default_app_id: default_app_id.clone(),
+        auth_enabled: args.auth,
+        app_ids: app_ids.clone(),
+        managed_plug_slot: managed_plug,
+    };
+    tokio::spawn(crate::startup::run_background_startup(shell, startup_plan));
+    let managed_plug_for_shutdown = state.managed_plug.clone();
+    let app = crate::http::router(state)
+        .layer(axum::middleware::from_fn(crate::request_logging::log_request))
+        .layer(axum::middleware::from_fn_with_state(
+            auth_state,
+            mei_host_auth::auth_middleware,
+        ));
+    let serve_result = axum::serve(listener, app)
+        .await
+        .map_err(|e| anyhow::anyhow!(e));
+    if let Some(mut pool) = managed_plug_for_shutdown
+        .lock()
+        .ok()
+        .and_then(|mut guard| guard.take())
+    {
         if let Err(error) = pool.shutdown().await {
             tracing::warn!(detail = %error, "managed plug-ds pool shutdown failed");
         }

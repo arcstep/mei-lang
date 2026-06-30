@@ -209,6 +209,134 @@ pub fn render_auth_card_page(
     )
 }
 
+const STARTUP_WARMING_SCRIPT_TEMPLATE: &str = r#"<script>(function(){var delay=2000;var returnTo=__RETURN_TO__;var poll={app:"__APP__",scene:"__SCENE__",mode:"__MODE__"};function readinessUrl(){return"/api/host/access-readiness?app="+encodeURIComponent(poll.app)+"&scene="+encodeURIComponent(poll.scene)+"&mode="+encodeURIComponent(poll.mode);}function updateStatus(text){var el=document.querySelector(".mei-host-shell__startup-status");if(el&&text)el.textContent=text;}function tick(){fetch(readinessUrl(),{cache:"no-store",headers:{Accept:"application/json"}}).then(function(res){return res.json().then(function(body){return {res:res,body:body};});}).then(function(ctx){var body=ctx.body||{};if(body.startupError){updateStatus(body.startupError);setTimeout(tick,delay*2);return;}if(body.startupDetail)updateStatus(body.startupDetail);if(body.ready===true){location.replace(returnTo);return;}setTimeout(tick,delay);}).catch(function(){setTimeout(tick,delay);});}setTimeout(tick,delay);})();</script>"#;
+
+pub fn render_startup_warming_page(
+    source_root: &Path,
+    status_line: &str,
+    return_path: &str,
+    poll_app_id: &str,
+    poll_scene_id: &str,
+    poll_mode: &str,
+) -> String {
+    let footer = render_host_shell_footer_for_source_root(source_root);
+    let body_theme = host_shell_body_theme_style(source_root);
+    let status_esc = html_escape(status_line.trim());
+    let return_to_js = serde_json::to_string(return_path.trim()).unwrap_or_else(|_| "\"/\"".to_string());
+    let script = STARTUP_WARMING_SCRIPT_TEMPLATE
+        .replace("__RETURN_TO__", return_to_js.as_str())
+        .replace("__APP__", poll_app_id.trim())
+        .replace("__SCENE__", poll_scene_id.trim())
+        .replace("__MODE__", poll_mode.trim());
+    let body = format!(
+        r#"<p class="mei-host-shell__message">服务正在准备启动中，请耐心等候。MeiLang 正在装载工作区、装配场景并预热访问态。</p>
+<p class="mei-host-shell__tagline">梅花铜钱 · 以数据之形，载业务之实</p>
+<p class="mei-host-shell__startup-status" aria-live="polite">{status_esc}</p>
+<div class="mei-host-shell__progress" aria-hidden="true"><span></span><span></span><span></span></div>
+<p class="mei-host-shell__hint">目标页面就绪后将自动返回 <code>{return_esc}</code>；亦可查看 <a class="mei-host-shell__link" href="{readiness_href}">access-readiness</a> 接口。</p>
+{script}"#,
+        return_esc = html_escape(return_path.trim()),
+        readiness_href = html_escape(
+            format!(
+                "/api/host/access-readiness?app={}&scene={}&mode={}",
+                poll_app_id.trim(),
+                poll_scene_id.trim(),
+                poll_mode.trim()
+            )
+            .as_str(),
+        ),
+        script = script,
+    );
+    format!(
+        r#"<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>服务准备中 - MeiLang</title>
+    <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/app-assets/host-shell.css" />
+  </head>
+  <body class="mei-host-shell mei-host-shell--warming" style="{body_style}">
+    <div class="mei-host-shell__stage">
+      <div class="mei-host-shell__watermark mei-host-shell__watermark--pulse" aria-hidden="true">{mei_coin}</div>
+      <main class="mei-host-shell__card" role="main">
+        <div class="mei-host-shell__brand">
+          <span class="mei-host-shell__coin mei-host-shell__coin--spin">{mei_coin}</span>
+          <span class="mei-host-shell__brand-text">MeiLang</span>
+        </div>
+        <h1 class="mei-host-shell__title">服务正在准备中</h1>
+        {body}
+      </main>
+    </div>
+    {footer}
+  </body>
+</html>"#,
+        mei_coin = MEI_COIN_SVG,
+        body_style = html_escape(body_theme.as_str()),
+        body = body,
+        footer = footer,
+    )
+}
+
+pub fn render_startup_failed_page(source_root: &Path, message: &str) -> String {
+    render_error_page_with_footer(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "启动未完成",
+        "宿主未能完成工作区装载，请查看下方详情或重新执行 prebuild。",
+        Some(message),
+        &[HostShellAction {
+            href: "/".to_string(),
+            label: "重试".to_string(),
+            primary: true,
+        }],
+        &render_host_shell_footer_for_source_root(source_root),
+        &host_shell_body_theme_style(source_root),
+    )
+}
+
+pub fn host_starting_html_response(
+    source_root: &Path,
+    status_line: &str,
+    return_path: &str,
+    poll_app_id: &str,
+    poll_scene_id: &str,
+    poll_mode: &str,
+) -> Response {
+    let html = render_startup_warming_page(
+        source_root,
+        status_line,
+        return_path,
+        poll_app_id,
+        poll_scene_id,
+        poll_mode,
+    );
+    (StatusCode::OK, Html(html)).into_response()
+}
+
+pub fn startup_warming_html_response(
+    source_root: &Path,
+    status_line: &str,
+    return_path: &str,
+    poll_app_id: &str,
+    poll_scene_id: &str,
+    poll_mode: &str,
+) -> Response {
+    host_starting_html_response(
+        source_root,
+        status_line,
+        return_path,
+        poll_app_id,
+        poll_scene_id,
+        poll_mode,
+    )
+}
+
+pub fn startup_failed_html_response(source_root: &Path, message: &str) -> Response {
+    let html = render_startup_failed_page(source_root, message);
+    (StatusCode::SERVICE_UNAVAILABLE, Html(html)).into_response()
+}
+
 pub fn forbidden_html_response(message: &str) -> Response {
     let html = render_error_page_with_footer(
         StatusCode::FORBIDDEN,

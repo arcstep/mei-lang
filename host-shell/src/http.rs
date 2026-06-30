@@ -16,7 +16,10 @@ use crate::api_stubs::{
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
 use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
-use crate::pages::{api_presentation_map, api_scene_bootstrap, api_scene_fragment, api_scene_revision, app_page, index};
+use crate::pages::{
+    api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_fragment,
+    api_scene_revision, app_page, host_starting_page, index,
+};
 use crate::landing::build_discovered_app_summaries;
 use crate::runtime_api::{api_host_mrg_activate, api_host_mrg_status, api_runtime_snapshot};
 use crate::state::{HostHttpState, SharedState};
@@ -29,6 +32,7 @@ pub fn router(state: HostHttpState) -> Router {
             get(|| async { Redirect::permanent("/app-assets/favicon.svg") }),
         )
         .route("/", get(index))
+        .route("/host/starting", get(host_starting_page))
         .route("/login", get(mei_host_auth::login_page))
         .route("/logout", get(mei_host_auth::logout_page))
         .route(
@@ -39,6 +43,7 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/version", get(api_host_version))
         .route("/api/host/ready", get(api_host_ready))
         .route("/api/host/readiness", get(api_host_ready))
+        .route("/api/host/access-readiness", get(api_host_access_readiness))
         .route("/api/host/ops/status", get(api_host_ops_status))
         .route("/api/host/ops/reload", post(api_host_ops_reload))
         .route("/api/host/ops/prebuild", post(api_host_ops_prebuild))
@@ -90,8 +95,8 @@ pub fn router(state: HostHttpState) -> Router {
 }
 
 async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoResponse {
-    let guard = state.read().expect("state lock");
-    // V2 host-shell：MCG import 完成即可进入访问态；MRG warmup 为可选加速层。
+    let mut guard = state.write().expect("state lock");
+    crate::build_ops::refresh_materialization_flags(&mut guard);
     let default_access_ready = guard.imported;
     let default_warmup_ready = guard.warmed_up;
     let default_phase = if !guard.imported {
@@ -130,6 +135,8 @@ async fn api_host_heartbeat(State(state): State<SharedState>) -> impl IntoRespon
         "defaultAppWarmupReady": default_warmup_ready,
         "anyAppAccessReady": any_app_access_ready,
         "phase": default_phase,
+        "startupPhase": guard.startup_phase,
+        "startupDetail": guard.startup_detail,
         "scopeNote": "materialization flags reflect default app; discoveredApps lists all apps",
         "discoveredApps": discovered_apps,
         "apps": discovered_apps,
@@ -145,21 +152,28 @@ async fn api_host_version(State(state): State<SharedState>) -> impl IntoResponse
 }
 
 async fn api_host_ready(State(state): State<SharedState>) -> impl IntoResponse {
-    let guard = state.read().expect("state lock");
-    let ready = guard.imported;
-    let status = if ready {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
+    let (imported, warmed_up, startup_phase, startup_detail, startup_error) = {
+        let mut guard = state.write().expect("state lock");
+        crate::build_ops::refresh_materialization_flags(&mut guard);
+        (
+            guard.imported,
+            guard.warmed_up,
+            guard.startup_phase.clone(),
+            guard.startup_detail.clone(),
+            guard.startup_error.clone(),
+        )
     };
     (
-        status,
+        StatusCode::OK,
         Json(json!({
-            "hostReady": ready,
-            "accessReady": ready,
-            "imported": guard.imported,
-            "warmedUp": guard.warmed_up,
-            "warmupReady": guard.warmed_up,
+            "hostReady": imported,
+            "accessReady": imported,
+            "imported": imported,
+            "warmedUp": warmed_up,
+            "warmupReady": warmed_up,
+            "startupPhase": startup_phase,
+            "startupDetail": startup_detail,
+            "startupError": startup_error,
         })),
     )
 }
@@ -259,11 +273,12 @@ async fn api_ops_theme_style(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex, RwLock};
+
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
     use mei_host_core::HostContext;
-    use std::sync::{Arc, RwLock};
     use tower::ServiceExt;
 
     fn test_state(workspace: std::path::PathBuf) -> HostHttpState {
@@ -304,6 +319,9 @@ mod tests {
             host_started_at_ms: 1,
             ops_job: None,
             last_ops_job: None,
+            startup_phase: "ready".to_string(),
+            startup_detail: None,
+            startup_error: None,
         }));
         HostHttpState {
             shell,
@@ -311,6 +329,7 @@ mod tests {
                 workspace,
                 mei_host_auth::AuthEnforcement::Disabled,
             ),
+            managed_plug: Arc::new(Mutex::new(None)),
         }
     }
 

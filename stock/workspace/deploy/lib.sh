@@ -334,10 +334,11 @@ run_workspace_serve() {
   local workspace_root="$1"
   shift
   local deploy_dir="${DEPLOY_DIR:?set DEPLOY_DIR before calling run_workspace_serve}"
-  local host port skip_prebuild background warmup_policy auth_flag app
+  local host port skip_prebuild prebuild_before_serve background warmup_policy auth_flag app
   host="${MEI_SERVE_HOST:-127.0.0.1}"
   port="${MEI_PORT:-9527}"
   skip_prebuild="${MEI_SKIP_PREBUILD:-0}"
+  prebuild_before_serve="${MEI_PREBUILD_BEFORE_SERVE:-0}"
   background="${MEI_SERVE_BACKGROUND:-0}"
   warmup_policy="${MEI_WARMUP_POLICY:-home}"
   auth_flag=""
@@ -349,6 +350,7 @@ run_workspace_serve() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --skip-prebuild) skip_prebuild=1; shift ;;
+      --prebuild-first) prebuild_before_serve=1; shift ;;
       --background) background=1; shift ;;
       --auth) auth_flag="--auth"; shift ;;
       --config) DEPLOY_CONFIG_ARG="$2"; shift 2 ;;
@@ -379,8 +381,15 @@ run_workspace_serve() {
 
   ensure_runtime_binaries "${workspace_root}"
 
-  if [[ "${skip_prebuild}" -eq 0 ]]; then
-    echo "==> prebuild (policy=${warmup_policy}, app=${app})"
+  local state_dir="${workspace_root}/deploy/state"
+  mkdir -p "${state_dir}"
+
+  if [[ "${skip_prebuild}" -eq 1 ]]; then
+    prebuild_before_serve=0
+  elif [[ "${prebuild_before_serve}" -eq 1 ]]; then
+    export MEI_SERVE_EARLY_BIND=0
+    unset MEI_DEFER_WARMUP_TO_PREBUILD
+    echo "==> prebuild (policy=${warmup_policy}, app=${app}) — blocking before serve"
     local prebuild_args=(--runtime "${RUNTIME}")
     if [[ "${PROFILE}" == "release" ]]; then
       prebuild_args+=(--release)
@@ -390,6 +399,22 @@ run_workspace_serve() {
       MEI_WORKSPACE_CONFIG="${MEI_WORKSPACE_CONFIG:-}" \
       "${deploy_dir}/prebuild.sh" "${prebuild_args[@]}"
     echo ""
+  else
+    echo "==> prebuild deferred — host binds first; warmup logs stream below"
+    echo "    (also saved: deploy/state/prebuild.log)"
+    export MEI_SERVE_EARLY_BIND=1
+    export MEI_DEFER_WARMUP_TO_PREBUILD=1
+    local prebuild_args=(--runtime "${RUNTIME}")
+    if [[ "${PROFILE}" == "release" ]]; then
+      prebuild_args+=(--release)
+    fi
+    (
+      MEI_WARMUP_POLICY="${warmup_policy}" MEI_RUNTIME="${RUNTIME}" MEI_PROFILE="${PROFILE}" \
+        MEI_SOURCE="${SOURCE}" MEI_APP="${app}" \
+        MEI_WORKSPACE_CONFIG="${MEI_WORKSPACE_CONFIG:-}" \
+        "${deploy_dir}/prebuild.sh" "${prebuild_args[@]}" 2>&1 | tee -a "${state_dir}/prebuild.log"
+    ) &
+    echo $! >"${state_dir}/prebuild.pid"
   fi
 
   local url="http://${host}:${port}/apps/app/${app}/scene/home"
@@ -407,8 +432,6 @@ run_workspace_serve() {
   echo "Open:      ${url}"
   echo ""
 
-  local state_dir="${workspace_root}/deploy/state"
-  mkdir -p "${state_dir}"
   local host_pid_file="${state_dir}/host.pid"
 
   if [[ "${background}" -eq 1 ]]; then

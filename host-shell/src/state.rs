@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use axum::extract::FromRef;
 use mei_host_auth::AuthServeState;
 use mei_host_core::HostContext;
 
 use crate::build_ops::OpsJobState;
+use crate::managed_plug::ManagedPlugDsPool;
 
 #[derive(Debug, Clone)]
 pub struct ShellState {
@@ -20,6 +21,10 @@ pub struct ShellState {
     pub host_started_at_ms: u64,
     pub ops_job: Option<OpsJobState>,
     pub last_ops_job: Option<OpsJobState>,
+    /// `preparing` / `waiting_artifacts` / `importing` / `plug_ds` / `priming_cache` / `ready` / `failed`
+    pub startup_phase: String,
+    pub startup_detail: Option<String>,
+    pub startup_error: Option<String>,
 }
 
 impl ShellState {
@@ -45,6 +50,9 @@ impl ShellState {
             host_started_at_ms: current_time_ms(),
             ops_job: None,
             last_ops_job: None,
+            startup_phase: "preparing".to_string(),
+            startup_detail: Some("正在启动 MeiLang 宿主服务…".to_string()),
+            startup_error: None,
         }
     }
 
@@ -63,6 +71,7 @@ pub type SharedState = Arc<RwLock<ShellState>>;
 pub struct HostHttpState {
     pub shell: SharedState,
     pub auth: AuthServeState,
+    pub managed_plug: Arc<Mutex<Option<ManagedPlugDsPool>>>,
 }
 
 impl FromRef<HostHttpState> for AuthServeState {

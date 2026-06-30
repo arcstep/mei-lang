@@ -31,6 +31,9 @@ pub use landing::{
     access_landing_location, filter_apps_for_principal, v2_index_landing_location,
 };
 pub use runtime::{load_auth_runtime, normalize_id, SESSION_REFRESH_LEAD_SECONDS};
+pub use shell_chrome::{
+    host_starting_html_response, startup_failed_html_response, startup_warming_html_response,
+};
 pub use state::AuthServeState;
 pub use types::{AuthEnforcement, AuthPrincipal, AuthRole, AuthRuntime};
 pub use workspace_users::{

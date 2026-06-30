@@ -3,12 +3,7 @@ use super::*;
 
 pub async fn api_host_ready() -> impl IntoResponse {
     let response = registry_snapshot();
-    let status = if response.host_ready {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
-    (status, Json(response))
+    (StatusCode::OK, Json(response))
 }
 
 pub async fn api_host_readiness(State(state): State<AppState>) -> impl IntoResponse {
