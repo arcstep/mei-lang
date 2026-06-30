@@ -32,8 +32,7 @@ fn main() {
         .expect("mei-lang repo root")
         .to_path_buf();
 
-    let cargo_package_version =
-        env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "2.0.6".to_string());
+    let cargo_package_version = env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION");
     let git_commit_short = env::var("MEI_GIT_COMMIT_SHORT")
         .ok()
         .filter(|value| !value.trim().is_empty())
