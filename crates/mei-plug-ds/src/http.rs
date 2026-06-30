@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::{
     extract::{Path, Query, State},
@@ -14,10 +14,16 @@ use serde_json::json;
 #[derive(Clone)]
 pub struct PlugState {
     pub ctx: HostContext,
+    /// Serializes scope activation warmups so concurrent MRG activate requests
+    /// do not race on shared registry / bootstrap writes.
+    activation_lock: Arc<Mutex<()>>,
 }
 
 pub fn router(ctx: HostContext) -> Router {
-    let state = Arc::new(PlugState { ctx });
+    let state = Arc::new(PlugState {
+        ctx,
+        activation_lock: Arc::new(Mutex::new(())),
+    });
     Router::new()
         .route("/api/plug-ds/health", get(api_health))
         .route(
@@ -89,6 +95,10 @@ async fn api_plug_ds_activate(
             .into_response();
     }
     let hops = params.hops.unwrap_or(1).max(1);
+    let _activation_guard = state
+        .activation_lock
+        .lock()
+        .expect("activation lock poisoned");
     match crate::smart_warmup::run_activation_warmup(&state.ctx, scope, hops) {
         Ok(()) => (
             StatusCode::OK,
