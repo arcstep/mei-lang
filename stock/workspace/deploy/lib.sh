@@ -53,15 +53,42 @@ ensure_local_bins() {
   "${workspace_root}/deploy/install.sh"
 }
 
+cargo_target_dir() {
+  local workspace_root="$1"
+  local mei_lang_root
+  mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
+  printf '%s' "${CARGO_TARGET_DIR:-${mei_lang_root}/target}"
+}
+
+cargo_runtime_bin_path() {
+  local workspace_root="$1"
+  local bin_name="$2"
+  printf '%s/debug/%s' "$(cargo_target_dir "${workspace_root}")" "${bin_name}"
+}
+
+ensure_cargo_runtime_binaries() {
+  local workspace_root="$1"
+  if [[ "${RUNTIME}" != "cargo" ]]; then
+    return 0
+  fi
+  if [[ "${MEI_CARGO_RUNTIME_READY:-0}" == "1" ]]; then
+    return 0
+  fi
+  local mei_lang_root target_dir
+  mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
+  target_dir="$(cargo_target_dir "${workspace_root}")"
+  echo "==> building cargo runtime binaries (mei-lang=${mei_lang_root})" >&2
+  CARGO_TARGET_DIR="${target_dir}" cargo build --manifest-path "${mei_lang_root}/Cargo.toml" \
+    -p mei-compiler -p mei-plug-ds -p mei-host-shell
+  export MEI_CARGO_RUNTIME_READY=1
+}
+
 run_mei_plug_ds() {
   local workspace_root="$1"
   shift
   if [[ "${RUNTIME}" == "cargo" ]]; then
-    local mei_lang_root target_dir
-    mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
-    target_dir="${CARGO_TARGET_DIR:-${mei_lang_root}/target}"
-    CARGO_TARGET_DIR="${target_dir}" cargo run --manifest-path "${mei_lang_root}/Cargo.toml" \
-      -p mei-plug-ds -- "$@"
+    ensure_cargo_runtime_binaries "${workspace_root}"
+    "$(cargo_runtime_bin_path "${workspace_root}" "mei-plug-ds")" "$@"
     return
   fi
   ensure_local_bins "${workspace_root}"
@@ -87,11 +114,8 @@ run_mei_compiler() {
   local workspace_root="$1"
   shift
   if [[ "${RUNTIME}" == "cargo" ]]; then
-    local mei_lang_root target_dir
-    mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
-    target_dir="${CARGO_TARGET_DIR:-${mei_lang_root}/target}"
-    CARGO_TARGET_DIR="${target_dir}" cargo run --manifest-path "${mei_lang_root}/Cargo.toml" \
-      -p mei-compiler -- "$@"
+    ensure_cargo_runtime_binaries "${workspace_root}"
+    "$(cargo_runtime_bin_path "${workspace_root}" "mei-compiler")" "$@"
     return
   fi
   ensure_local_bins "${workspace_root}"
@@ -102,11 +126,8 @@ run_mei_host_shell() {
   local workspace_root="$1"
   shift
   if [[ "${RUNTIME}" == "cargo" ]]; then
-    local mei_lang_root target_dir
-    mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
-    target_dir="${CARGO_TARGET_DIR:-${mei_lang_root}/target}"
-    CARGO_TARGET_DIR="${target_dir}" cargo run --manifest-path "${mei_lang_root}/Cargo.toml" \
-      -p mei-host-shell -- "$@"
+    ensure_cargo_runtime_binaries "${workspace_root}"
+    "$(cargo_runtime_bin_path "${workspace_root}" "mei-host-shell")" "$@"
     return
   fi
   ensure_local_bins "${workspace_root}"
@@ -118,8 +139,8 @@ ensure_build_generation_aligned() {
   local workspace_root="$1"
   local app="${2:-data-demo}"
   echo "==> align env generation with mei-lang CLI (runtime=${RUNTIME})"
-  local env_ver
-  env_ver="$(run_mei_host_shell "${workspace_root}" \
+  MEI_ENV_GENERATION="$(run_mei_host_shell "${workspace_root}" \
     build prepare --workspace "${workspace_root}" --app "${app}")"
-  echo "envGeneration=${env_ver}"
+  export MEI_ENV_GENERATION
+  echo "envGeneration=${MEI_ENV_GENERATION}"
 }

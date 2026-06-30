@@ -39,7 +39,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "${RUNTIME}" == "local" ]]; then
+if [[ "${RUNTIME}" == "cargo" ]]; then
+  ensure_cargo_runtime_binaries "${WORKSPACE_ROOT}"
+elif [[ "${RUNTIME}" == "local" ]]; then
   ensure_local_bins "${WORKSPACE_ROOT}"
 fi
 

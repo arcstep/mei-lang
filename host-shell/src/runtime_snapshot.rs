@@ -14,13 +14,13 @@ use mei_lang_kernel::{
     resolve_runtime_warmup_manifest, ReachabilityTreeNode, ReachabilityTreeRoot,
     PREBUILD_COMPILE_INDEX_REL, PREBUILD_LAST_BUILD_SUMMARY_REL,
 };
-use mei_lang_toolchain::{
-    access_slim_artifacts_enabled, canonical_artifact_persist_enabled, locked_cache_env_overrides,
-};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::build_ops::build_status_aggregate;
+use crate::cache_diagnostics::{
+    access_slim_artifacts_enabled, canonical_artifact_persist_enabled, locked_cache_env_overrides,
+};
 use crate::state::ShellState;
 
 #[derive(Debug, Clone)]

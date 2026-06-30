@@ -2,6 +2,7 @@ mod api_stubs;
 mod assets;
 mod build_info;
 mod build_ops;
+mod cache_diagnostics;
 mod cli;
 mod commands;
 mod gis_config;

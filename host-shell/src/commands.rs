@@ -338,7 +338,7 @@ fn run_workspace_init(args: WorkspaceInitArgs) -> anyhow::Result<()> {
         }
     }
 
-    mei_lang_toolchain::ensure_workspace_stock_materialized(dir.as_path(), package_root.as_path())?;
+    mei_host_core::ensure_workspace_stock_materialized(dir.as_path(), package_root.as_path())?;
 
     if let Some(app_id) = args.app.as_deref().filter(|s| !s.trim().is_empty()) {
         create_v2_app_skeleton(dir.as_path(), app_id.trim())?;

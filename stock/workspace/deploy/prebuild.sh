@@ -9,11 +9,17 @@ source "${DEPLOY_DIR}/lib.sh"
 APP="${MEI_APP:-data-demo}"
 POLICY="${MEI_WARMUP_POLICY:-home}"
 parse_common_args "$@"
+if [[ "${RUNTIME}" == "cargo" ]]; then
+  ensure_cargo_runtime_binaries "${WORKSPACE_ROOT}"
+fi
 
 ensure_build_generation_aligned "${WORKSPACE_ROOT}" "${APP}"
 
-BUILD_ID="$(run_mei_host_shell "${WORKSPACE_ROOT}" \
-  build prepare --workspace "${WORKSPACE_ROOT}" --app "${APP}" "${DEPLOY_CLI_ARGS[@]}")"
+BUILD_ID="${MEI_ENV_GENERATION:-}"
+if [[ -z "${BUILD_ID}" ]]; then
+  BUILD_ID="$(run_mei_host_shell "${WORKSPACE_ROOT}" \
+    build prepare --workspace "${WORKSPACE_ROOT}" --app "${APP}" "${DEPLOY_CLI_ARGS[@]}")"
+fi
 echo "envVersion=${BUILD_ID}"
 
 echo "==> compile"
