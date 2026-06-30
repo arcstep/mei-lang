@@ -13,9 +13,8 @@
   }
 
   function resolveHostSurface(routeMode) {
-    return String(routeMode || "").trim().toLowerCase() === "access"
-      ? "access_host"
-      : "authoring_host";
+    const mode = String(routeMode || "").trim().toLowerCase();
+    return mode === "access" || mode === "copilot" ? "access_host" : "authoring_host";
   }
 
   function buildHostProtocol(routeMode, mode) {
@@ -69,6 +68,18 @@
     if (browserContext) {
       coords.browser_context = browserContext;
     }
+    const copilot =
+      typeof g !== "undefined" && g.MeiCopilot && typeof g.MeiCopilot.context === "function"
+        ? g.MeiCopilot.context()
+        : null;
+    if (copilot && typeof copilot === "object") {
+      coords.presentation_id = String(copilot.presentationId || "").trim();
+      coords.presentation_step_id = String(copilot.stepId || "").trim();
+      coords.presentation_composition = String(copilot.composition || "").trim();
+      coords.presentation_viewpoint = String(copilot.viewpoint || "").trim();
+      if (!coords.browser_context) coords.browser_context = {};
+      coords.browser_context.copilot = copilot;
+    }
     return coords;
   }
 
@@ -91,6 +102,14 @@
       try {
         params.set("host_protocol", JSON.stringify(coords.host_protocol));
       } catch (_) {}
+    }
+    if (coords.presentation_id) params.set("presentation_id", coords.presentation_id);
+    if (coords.presentation_step_id) params.set("presentation_step_id", coords.presentation_step_id);
+    if (coords.presentation_composition) {
+      params.set("presentation_composition", coords.presentation_composition);
+    }
+    if (coords.presentation_viewpoint) {
+      params.set("presentation_viewpoint", coords.presentation_viewpoint);
     }
     if (coords.host_contract_schema) {
       params.set("host_contract_schema", String(coords.host_contract_schema));
@@ -116,6 +135,12 @@
     if (coords.host_protocol && typeof coords.host_protocol === "object") {
       body.host_protocol = coords.host_protocol;
     }
+    if (coords.presentation_id) body.presentation_id = coords.presentation_id;
+    if (coords.presentation_step_id) body.presentation_step_id = coords.presentation_step_id;
+    if (coords.presentation_composition) {
+      body.presentation_composition = coords.presentation_composition;
+    }
+    if (coords.presentation_viewpoint) body.presentation_viewpoint = coords.presentation_viewpoint;
     if (coords.host_contract_schema) {
       body.host_contract_schema = String(coords.host_contract_schema);
     }

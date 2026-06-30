@@ -17,8 +17,10 @@
     let accessFloatingDragState = null;
 
     function isAccessFloatingMode() {
+      const mode = normalizeRouteMode(root.dataset.mode);
+      const accessLike = mode === "access" || mode === "copilot";
       return (
-        normalizeRouteMode(root.dataset.mode) === "access" &&
+        accessLike &&
         !!els.accessFloatingRoot &&
         !!els.accessFab &&
         !!els.accessPanel

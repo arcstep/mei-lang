@@ -3,6 +3,7 @@
     "app",
     "access",
     "run",
+    "copilot",
     "speaker",
     "access-only",
     "access_only",

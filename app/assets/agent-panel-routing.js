@@ -81,7 +81,9 @@
 
     function normalizeRouteMode(value) {
       const mode = String(value || "").trim().toLowerCase();
-      if (mode === "access" || mode === "app" || mode === "run") return "access";
+      if (mode === "access" || mode === "app" || mode === "run" || mode === "copilot" || mode === "speaker") {
+        return mode === "copilot" || mode === "speaker" ? "copilot" : "access";
+      }
       return "manage";
     }
 
@@ -146,7 +148,7 @@
         })
         .filter(Boolean);
       if (!allowed.length) {
-        if (normalizedRoute === "access") {
+        if (normalizedRoute === "access" || normalizedRoute === "copilot") {
           allowed.push("ask");
         } else {
           allowed.push("build");

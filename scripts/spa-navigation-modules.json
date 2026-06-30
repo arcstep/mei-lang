@@ -34,6 +34,8 @@
   "spa-navigation/drilldown/storage.js",
   "spa-navigation/drilldown/projection-host.js",
   "spa-navigation/presentation/focus-controller.js",
+  "spa-navigation/presentation/presentation-step-engine.js",
+  "spa-navigation/presentation/copilot-toolbar.js",
   "spa-navigation/presentation/presenter-assistant.js",
   "spa-navigation/drilldown/context-banner.js",
   "spa-navigation/spa/loading-progress.js",

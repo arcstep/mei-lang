@@ -20,6 +20,7 @@
       "/apps/app/",
       "/apps/access/",
       "/apps/run/",
+      "/apps/copilot/",
       "/apps/speaker/",
       "/apps/presentation/",
       "/apps/slides/",
@@ -29,7 +30,7 @@
     for (const prefix of prefixes) {
       if (!path.startsWith(prefix)) continue;
       let rest = path.slice(prefix.length);
-      for (const marker of ["/scene/", "/tour/"]) {
+      for (const marker of ["/scene/", "/tour/", "/presentation/"]) {
         const idx = rest.indexOf(marker);
         if (idx >= 0) {
           rest = rest.slice(0, idx);

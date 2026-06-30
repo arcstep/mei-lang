@@ -3310,9 +3310,8 @@
   }
 
   function resolveHostSurface(routeMode) {
-    return String(routeMode || "").trim().toLowerCase() === "access"
-      ? "access_host"
-      : "authoring_host";
+    const mode = String(routeMode || "").trim().toLowerCase();
+    return mode === "access" || mode === "copilot" ? "access_host" : "authoring_host";
   }
 
   function buildHostProtocol(routeMode, mode) {
@@ -3366,6 +3365,18 @@
     if (browserContext) {
       coords.browser_context = browserContext;
     }
+    const copilot =
+      typeof g !== "undefined" && g.MeiCopilot && typeof g.MeiCopilot.context === "function"
+        ? g.MeiCopilot.context()
+        : null;
+    if (copilot && typeof copilot === "object") {
+      coords.presentation_id = String(copilot.presentationId || "").trim();
+      coords.presentation_step_id = String(copilot.stepId || "").trim();
+      coords.presentation_composition = String(copilot.composition || "").trim();
+      coords.presentation_viewpoint = String(copilot.viewpoint || "").trim();
+      if (!coords.browser_context) coords.browser_context = {};
+      coords.browser_context.copilot = copilot;
+    }
     return coords;
   }
 
@@ -3388,6 +3399,14 @@
       try {
         params.set("host_protocol", JSON.stringify(coords.host_protocol));
       } catch (_) {}
+    }
+    if (coords.presentation_id) params.set("presentation_id", coords.presentation_id);
+    if (coords.presentation_step_id) params.set("presentation_step_id", coords.presentation_step_id);
+    if (coords.presentation_composition) {
+      params.set("presentation_composition", coords.presentation_composition);
+    }
+    if (coords.presentation_viewpoint) {
+      params.set("presentation_viewpoint", coords.presentation_viewpoint);
     }
     if (coords.host_contract_schema) {
       params.set("host_contract_schema", String(coords.host_contract_schema));
@@ -3413,6 +3432,12 @@
     if (coords.host_protocol && typeof coords.host_protocol === "object") {
       body.host_protocol = coords.host_protocol;
     }
+    if (coords.presentation_id) body.presentation_id = coords.presentation_id;
+    if (coords.presentation_step_id) body.presentation_step_id = coords.presentation_step_id;
+    if (coords.presentation_composition) {
+      body.presentation_composition = coords.presentation_composition;
+    }
+    if (coords.presentation_viewpoint) body.presentation_viewpoint = coords.presentation_viewpoint;
     if (coords.host_contract_schema) {
       body.host_contract_schema = String(coords.host_contract_schema);
     }
@@ -4268,7 +4293,9 @@
 
     function normalizeRouteMode(value) {
       const mode = String(value || "").trim().toLowerCase();
-      if (mode === "access" || mode === "app" || mode === "run") return "access";
+      if (mode === "access" || mode === "app" || mode === "run" || mode === "copilot" || mode === "speaker") {
+        return mode === "copilot" || mode === "speaker" ? "copilot" : "access";
+      }
       return "manage";
     }
 
@@ -4333,7 +4360,7 @@
         })
         .filter(Boolean);
       if (!allowed.length) {
-        if (normalizedRoute === "access") {
+        if (normalizedRoute === "access" || normalizedRoute === "copilot") {
           allowed.push("ask");
         } else {
           allowed.push("build");
@@ -4440,8 +4467,10 @@
     let accessFloatingDragState = null;
 
     function isAccessFloatingMode() {
+      const mode = normalizeRouteMode(root.dataset.mode);
+      const accessLike = mode === "access" || mode === "copilot";
       return (
-        normalizeRouteMode(root.dataset.mode) === "access" &&
+        accessLike &&
         !!els.accessFloatingRoot &&
         !!els.accessFab &&
         !!els.accessPanel
@@ -9139,6 +9168,8 @@
     );
     return;
   }
+  boot.toggleAccessFloatingPanel = AF.toggleAccessFloatingPanel.bind(AF);
+  boot.agentPanelState = state;
 
   let SES = null;
 
@@ -9470,10 +9501,35 @@
     });
   }
 
+  function copilotPresentationFabContext() {
+    if (/^\/apps\/(copilot|speaker)\//.test(String(window.location.pathname || ""))) {
+      return true;
+    }
+    if (
+      document.getElementById("copilot-shell") ||
+      document.getElementById("mei-presentation-manifest")
+    ) {
+      return true;
+    }
+    const eng = boot.presentationStepEngine;
+    return !!(eng && typeof eng.hasManifest === "function" && eng.hasManifest());
+  }
+
   if (els.accessFab) {
-    els.accessFab.addEventListener("click", function () {
+    els.accessFab.addEventListener("click", function (event) {
       if (state.accessFloatingDragMoved) {
         state.accessFloatingDragMoved = false;
+        return;
+      }
+      const toolbar = boot.copilotToolbar;
+      if (
+        copilotPresentationFabContext() &&
+        toolbar &&
+        typeof toolbar.toggleToolbar === "function"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        toolbar.toggleToolbar();
         return;
       }
       AF.toggleAccessFloatingPanel();
@@ -10201,6 +10257,7 @@
       "/apps/app/",
       "/apps/access/",
       "/apps/run/",
+      "/apps/copilot/",
       "/apps/speaker/",
       "/apps/presentation/",
       "/apps/slides/",
@@ -10210,7 +10267,7 @@
     for (const prefix of prefixes) {
       if (!path.startsWith(prefix)) continue;
       let rest = path.slice(prefix.length);
-      for (const marker of ["/scene/", "/tour/"]) {
+      for (const marker of ["/scene/", "/tour/", "/presentation/"]) {
         const idx = rest.indexOf(marker);
         if (idx >= 0) {
           rest = rest.slice(0, idx);
@@ -10880,6 +10937,7 @@
     "app",
     "access",
     "run",
+    "copilot",
     "speaker",
     "access-only",
     "access_only",
@@ -18483,84 +18541,86 @@
   installFocusController();
 
 
-/* ===== spa-navigation/presentation/presenter-assistant.js ===== */
+/* ===== spa-navigation/presentation/presentation-step-engine.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
-  if (boot.presenterAssistantMounted) return;
-  boot.presenterAssistantMounted = true;
 
-  const PANEL_ID = "mei-presenter-assistant";
-  const CAPTION_ID = "mei-presenter-caption";
-  const TOUR_STORAGE_KEY = "mei_speaker_tour_v1";
+  const MANIFEST_DOM_IDS = [
+    "mei-presentation-manifest",
+    "mei-copilot-tour",
+    "mei-speaker-tour",
+  ];
+  const STORAGE_KEY = "mei_copilot_presentation_v1";
+  const STORAGE_KEY_LEGACY = "mei_copilot_tour_v1";
+  const SLIDE_LAYER_ID = "mei-copilot-slide-layer";
 
   const state = {
-    tour: null,
+    manifest: null,
     steps: [],
     stepIndex: 0,
-    captionVisible: true,
-    selectMode: false,
     sessionActive: false,
+    everStarted: false,
   };
 
-  function isSpeakerRoute() {
-    return /^\/apps\/speaker\//.test(String(window.location.pathname || ""));
+  function readManifestFromDom() {
+    for (const id of MANIFEST_DOM_IDS) {
+      const node = document.getElementById(id);
+      if (!(node instanceof HTMLScriptElement) || !node.textContent) continue;
+      try {
+        return JSON.parse(node.textContent);
+      } catch (_) {
+        /* try next */
+      }
+    }
+    return null;
   }
 
-  function hasSpeakerShell() {
-    return Boolean(document.getElementById("speaker-shell") || document.getElementById("mei-speaker-tour"));
+  function readStoredManifest() {
+    for (const key of [STORAGE_KEY, STORAGE_KEY_LEGACY, "mei_speaker_tour_v1"]) {
+      try {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch (_) {
+        /* try next */
+      }
+    }
+    return null;
   }
 
-  function hasActiveTourSession() {
-    return state.sessionActive && state.steps.length > 0;
-  }
-
-  function persistTour(tour) {
-    if (!tour || typeof tour !== "object") return;
+  function persistManifest(manifest) {
+    if (!manifest || typeof manifest !== "object") return;
     try {
-      sessionStorage.setItem(TOUR_STORAGE_KEY, JSON.stringify(tour));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(manifest));
     } catch (_) {
       /* ignore */
     }
   }
 
-  function readStoredTour() {
-    try {
-      const raw = sessionStorage.getItem(TOUR_STORAGE_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : null;
-    } catch (_) {
-      return null;
-    }
+  function normalizeSteps(manifest) {
+    if (!manifest || !Array.isArray(manifest.steps)) return [];
+    return manifest.steps.filter((step) => step && typeof step === "object");
   }
 
-  function readTourFromDom() {
-    const node = document.getElementById("mei-speaker-tour");
-    if (!(node instanceof HTMLScriptElement) || !node.textContent) return null;
-    try {
-      return JSON.parse(node.textContent);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function readTour() {
-    return readTourFromDom() || readStoredTour();
-  }
-
-  function loadTourState(tour) {
-    if (!tour || !Array.isArray(tour.steps) || !tour.steps.length) return false;
-    state.tour = tour;
-    state.steps = tour.steps;
+  function loadManifest(manifest) {
+    const steps = normalizeSteps(manifest);
+    if (!steps.length) return false;
+    state.manifest = manifest;
+    state.steps = steps;
     state.sessionActive = true;
-    persistTour(tour);
+    persistManifest(manifest);
     return true;
   }
 
-  function ensureTourLoaded() {
+  function ensureLoaded() {
     if (state.steps.length) return true;
-    const tour = readTour();
-    return loadTourState(tour);
+    const manifest = readManifestFromDom() || readStoredManifest();
+    return loadManifest(manifest);
+  }
+
+  function hasManifest() {
+    return Boolean(readManifestFromDom() || state.steps.length || readStoredManifest());
   }
 
   function focusApi() {
@@ -18586,19 +18646,87 @@
     return false;
   }
 
-  function applyActions(actions) {
-    if (!Array.isArray(actions)) return;
-    actions.forEach((action) => {
-      if (!action || typeof action !== "object") return;
-      const type = String(action.type || "").trim();
-      if (type === "highlight") {
-        applyHighlight(String(action.viewpoint || "").trim());
-      }
+  function applyPresentationAction(action) {
+    if (!action || typeof action !== "object") return false;
+    const type = String(action.type || "").trim();
+    const api = focusApi();
+    if (!api || typeof api.dispatch !== "function") {
+      if (type === "highlight") return applyHighlight(String(action.viewpoint || "").trim());
+      return false;
+    }
+    return Boolean(api.dispatch(action));
+  }
+
+  function collectCockpitActions(step) {
+    const fromCockpit = step?.cockpit?.actions;
+    if (Array.isArray(fromCockpit) && fromCockpit.length) return fromCockpit;
+    if (Array.isArray(step?.actions) && step.actions.length) return step.actions;
+    return [];
+  }
+
+  function applyCockpitActions(step) {
+    collectCockpitActions(step).forEach((action) => {
+      applyPresentationAction(action);
     });
   }
 
-  async function navigateToStep(step) {
-    const route = String(step?.route || "").trim();
+  function resolveComposition(step) {
+    const raw = String(step?.composition || "").trim();
+    if (raw === "slides_only" || raw === "cockpit_only" || raw === "slides_over_cockpit") {
+      return raw;
+    }
+    if (step?.slide && step?.cockpit) return "slides_over_cockpit";
+    if (step?.slide) return "slides_only";
+    return "cockpit_only";
+  }
+
+  function slideHtml(step) {
+    const slide = step?.slide;
+    if (!slide || typeof slide !== "object") return "";
+    if (slide.html) return String(slide.html);
+    if (slide.markdown) return String(slide.markdown);
+    if (slide.document) return `<p class="mei-copilot-slide-doc">${String(slide.document)}</p>`;
+    return "";
+  }
+
+  function ensureSlideLayer() {
+    let layer = document.getElementById(SLIDE_LAYER_ID);
+    if (layer) return layer;
+    layer = document.createElement("div");
+    layer.id = SLIDE_LAYER_ID;
+    layer.className = "mei-copilot-slide-layer";
+    layer.setAttribute("hidden", "hidden");
+    document.body.appendChild(layer);
+    return layer;
+  }
+
+  function hideSlideLayer() {
+    const layer = document.getElementById(SLIDE_LAYER_ID);
+    if (!layer) return;
+    layer.setAttribute("hidden", "hidden");
+    layer.innerHTML = "";
+    document.body.classList.remove("mei-copilot-slide-active");
+  }
+
+  function showSlideLayer(step, composition) {
+    const html = slideHtml(step);
+    if (!html) {
+      hideSlideLayer();
+      return;
+    }
+    const layer = ensureSlideLayer();
+    layer.innerHTML = `<div class="mei-copilot-slide-inner">${html}</div>`;
+    layer.removeAttribute("hidden");
+    document.body.classList.add("mei-copilot-slide-active");
+    if (composition === "slides_over_cockpit") {
+      layer.classList.add("mei-copilot-slide-layer--overlay");
+    } else {
+      layer.classList.remove("mei-copilot-slide-layer--overlay");
+    }
+  }
+
+  async function navigateToStepRoute(step) {
+    const route = String(step?.route || step?.cockpit?.route || "").trim();
     if (!route) return;
     if (typeof boot.navigateInternal === "function") {
       await boot.navigateInternal(route, false);
@@ -18607,69 +18735,376 @@
     window.location.href = route;
   }
 
+  function currentStep() {
+    return state.steps[state.stepIndex] || null;
+  }
+
+  function currentViewpoint(step) {
+    const actions = collectCockpitActions(step || currentStep());
+    for (const action of actions) {
+      if (action && String(action.type || "") === "highlight" && action.viewpoint) {
+        return String(action.viewpoint).trim();
+      }
+    }
+    return "";
+  }
+
+  async function applyStep() {
+    if (!ensureLoaded()) return false;
+    const step = currentStep();
+    if (!step) return false;
+    const composition = resolveComposition(step);
+    clearFocus();
+    if (composition === "slides_only") {
+      hideSlideLayer();
+      showSlideLayer(step, composition);
+    } else if (composition === "cockpit_only") {
+      hideSlideLayer();
+      await navigateToStepRoute(step);
+      applyCockpitActions(step);
+    } else {
+      await navigateToStepRoute(step);
+      applyCockpitActions(step);
+      showSlideLayer(step, composition);
+    }
+    if (boot.copilotToolbar && typeof boot.copilotToolbar.onStepApplied === "function") {
+      boot.copilotToolbar.onStepApplied(step, composition, state);
+    }
+    return true;
+  }
+
+  function contextSnapshot() {
+    const step = currentStep();
+    const composition = step ? resolveComposition(step) : "";
+    return {
+      presentationId: String(state.manifest?.id || "").trim(),
+      stepId: String(step?.id || "").trim(),
+      stepIndex: state.stepIndex,
+      composition,
+      viewpoint: currentViewpoint(step),
+      caption: step ? String(step.caption || step.title || "") : "",
+    };
+  }
+
+  const engine = {
+    hasManifest,
+    ensureLoaded,
+    loadManifest,
+    applyStep,
+    currentStep,
+    currentViewpoint,
+    resolveComposition,
+    contextSnapshot,
+    get state() {
+      return state;
+    },
+    get steps() {
+      return state.steps.slice();
+    },
+    get stepIndex() {
+      return state.stepIndex;
+    },
+    set stepIndex(value) {
+      if (!Number.isFinite(Number(value))) return;
+      state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(value)));
+    },
+    isActive() {
+      return state.sessionActive && state.steps.length > 0;
+    },
+    isPaused() {
+      return state.everStarted && !state.sessionActive && state.steps.length > 0;
+    },
+    pause() {
+      if (!ensureLoaded()) return false;
+      state.sessionActive = false;
+      hideSlideLayer();
+      clearFocus();
+      return true;
+    },
+    resume() {
+      if (!ensureLoaded() || !state.everStarted) return false;
+      state.sessionActive = true;
+      void applyStep();
+      return true;
+    },
+    stop() {
+      state.sessionActive = false;
+      state.everStarted = false;
+      state.stepIndex = 0;
+      hideSlideLayer();
+      clearFocus();
+      return true;
+    },
+    start(options) {
+      const opts = options && typeof options === "object" ? options : {};
+      if (!ensureLoaded()) return false;
+      if (Number.isFinite(Number(opts.stepIndex))) {
+        state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(opts.stepIndex)));
+      }
+      state.everStarted = true;
+      state.sessionActive = true;
+      if (opts.apply !== false) {
+        void applyStep();
+      }
+      return true;
+    },
+    next() {
+      if (!ensureLoaded()) return false;
+      state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
+      if (state.everStarted) state.sessionActive = true;
+      void applyStep();
+      return true;
+    },
+    prev() {
+      if (!ensureLoaded()) return false;
+      state.stepIndex = Math.max(0, state.stepIndex - 1);
+      if (state.everStarted) state.sessionActive = true;
+      void applyStep();
+      return true;
+    },
+    applyStepAt(index) {
+      if (!ensureLoaded()) return false;
+      if (!Number.isFinite(Number(index))) return false;
+      state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(index)));
+      void applyStep();
+      return true;
+    },
+    highlight(viewpointId) {
+      return applyHighlight(String(viewpointId || "").trim());
+    },
+  };
+
+  boot.presentationStepEngine = engine;
+})();
+
+
+/* ===== spa-navigation/presentation/copilot-toolbar.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  const TOOLBAR_ID = "copilot-toolbar";
+  const CAPTION_ID = "mei-copilot-caption";
+  const DRAWER_ID = "copilot-script-drawer";
+  const COPILOT_TITLE = "Copilot";
+
+  const uiState = {
+    toolbarOpen: false,
+    captionVisible: true,
+    selectMode: false,
+    drawerOpen: false,
+    mounted: false,
+  };
+
+  function engine() {
+    return boot.presentationStepEngine || null;
+  }
+
+  function isCopilotRoute() {
+    return /^\/apps\/copilot\//.test(String(window.location.pathname || ""));
+  }
+
+  function hasCopilotShell() {
+    return Boolean(
+      document.getElementById("copilot-shell") ||
+        document.getElementById("speaker-shell") ||
+        document.getElementById("mei-presentation-manifest") ||
+        document.getElementById("mei-copilot-tour"),
+    );
+  }
+
+  function floatingRoot() {
+    return document.getElementById("access-chat-floating-root");
+  }
+
+  /** FAB 与工具条整体抬到 body 顶层，避免 slides_only 全屏层遮挡。 */
+  function ensureCopilotFabElevation() {
+    if (!copilotFabContextActive()) return;
+    const root = floatingRoot();
+    if (!root) return;
+    if (root.parentElement !== document.body) {
+      document.body.appendChild(root);
+    }
+    root.classList.add("copilot-fab-elevated");
+    document.body.classList.add("mei-copilot-fab-mounted");
+  }
+
+  function refreshFabChrome() {
+    const fab = document.getElementById("access-chat-fab");
+    if (!fab) return;
+    const eng = engine();
+    const active = eng && eng.isActive();
+    const paused = eng && typeof eng.isPaused === "function" && eng.isPaused();
+    let label = "展开 Copilot 工具条";
+    if (uiState.toolbarOpen) {
+      if (active) label = "收起工具条（演说进行中）";
+      else if (paused) label = "收起工具条（演说已暂停）";
+      else label = "收起 Copilot 工具条";
+    }
+    fab.title = label;
+    fab.setAttribute("aria-label", label);
+  }
+
   function ensureCaption() {
     let node = document.getElementById(CAPTION_ID);
     if (node) return node;
     node = document.createElement("div");
     node.id = CAPTION_ID;
-    node.className = "mei-presenter-caption";
+    node.className = "mei-copilot-caption mei-presenter-caption";
     node.setAttribute("hidden", "hidden");
     document.body.appendChild(node);
     return node;
   }
 
-  function ensurePanel() {
-    let panel = document.getElementById(PANEL_ID);
-    if (panel) return panel;
-    panel = document.createElement("aside");
-    panel.id = PANEL_ID;
-    panel.className = "mei-presenter-assistant";
-    panel.innerHTML =
-      '<header class="mei-presenter-assistant-head">' +
-      '<strong class="mei-presenter-assistant-title" data-presenter-title="true">演说助手</strong>' +
-      '<span class="mei-presenter-assistant-progress" data-presenter-progress="true"></span>' +
+  function ensureDrawer() {
+    let drawer = document.getElementById(DRAWER_ID);
+    if (drawer) return drawer;
+    drawer = document.createElement("aside");
+    drawer.id = DRAWER_ID;
+    drawer.className = "copilot-script-drawer";
+    drawer.setAttribute("hidden", "hidden");
+    drawer.innerHTML =
+      '<header class="copilot-script-drawer-head">' +
+      '<strong class="copilot-script-drawer-title">演说稿</strong>' +
+      '<button type="button" class="copilot-script-drawer-close" data-copilot-drawer-close="true" aria-label="关闭演说稿">×</button>' +
       "</header>" +
-      '<div class="mei-presenter-assistant-toolbar">' +
-      '<button type="button" class="mei-presenter-btn" data-presenter-prev="true">上一步</button>' +
-      '<button type="button" class="mei-presenter-btn" data-presenter-next="true">下一步</button>' +
-      '<button type="button" class="mei-presenter-btn" data-presenter-caption-toggle="true">气泡</button>' +
-      '<button type="button" class="mei-presenter-btn" data-presenter-select-toggle="true">组件选择</button>' +
-      "</div>";
-    panel.addEventListener("click", (event) => {
+      '<div class="copilot-script-drawer-body" data-copilot-script-body="true"></div>';
+    drawer.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.dataset.presenterPrev === "true") {
-        state.stepIndex = Math.max(0, state.stepIndex - 1);
-        void applyStep();
-      }
-      if (target.dataset.presenterNext === "true") {
-        state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
-        void applyStep();
-      }
-      if (target.dataset.presenterCaptionToggle === "true") {
-        state.captionVisible = !state.captionVisible;
-        renderCaption();
-      }
-      if (target.dataset.presenterSelectToggle === "true") {
-        state.selectMode = !state.selectMode;
-        document.body.classList.toggle("mei-presenter-select-mode", state.selectMode);
-        target.classList.toggle("is-active", state.selectMode);
+      if (target.dataset.copilotDrawerClose === "true") {
+        uiState.drawerOpen = false;
+        renderDrawer();
       }
     });
-    document.body.appendChild(panel);
-    ensureCaption();
-    return panel;
+    document.body.appendChild(drawer);
+    return drawer;
   }
 
-  function currentStep() {
-    return state.steps[state.stepIndex] || null;
+  function ensureToolbar() {
+    let toolbar = document.getElementById(TOOLBAR_ID);
+    if (toolbar) return toolbar;
+    const root = floatingRoot();
+    toolbar = document.createElement("nav");
+    toolbar.id = TOOLBAR_ID;
+    toolbar.className = "copilot-toolbar";
+    toolbar.setAttribute("aria-label", "Copilot 工具条");
+    toolbar.innerHTML =
+      '<div class="copilot-toolbar-inner">' +
+      '<button type="button" class="copilot-toolbar-btn" data-copilot-session="true">开始</button>' +
+      '<button type="button" class="copilot-toolbar-btn" data-copilot-prev="true">上一步</button>' +
+      '<button type="button" class="copilot-toolbar-btn" data-copilot-next="true">下一步</button>' +
+      '<button type="button" class="copilot-toolbar-btn" data-copilot-caption-toggle="true">气泡</button>' +
+      '<button type="button" class="copilot-toolbar-btn" data-copilot-script="true">演说稿</button>' +
+      '<button type="button" class="copilot-toolbar-btn" data-copilot-select-toggle="true">组件选择</button>' +
+      '<button type="button" class="copilot-toolbar-btn" data-copilot-tts="true" disabled title="语音播报即将支持">播放</button>' +
+      '<button type="button" class="copilot-toolbar-btn copilot-toolbar-btn--exit" data-copilot-exit="true">退出演说</button>' +
+      '<button type="button" class="copilot-toolbar-btn copilot-toolbar-btn--ai" data-copilot-ai="true">AI 对话</button>' +
+      "</div>";
+    toolbar.addEventListener("click", onToolbarClick);
+    if (root) {
+      root.appendChild(toolbar);
+    } else {
+      document.body.appendChild(toolbar);
+    }
+    return toolbar;
+  }
+
+  function toggleAccessAiPanel(open) {
+    const toggle = boot.toggleAccessFloatingPanel;
+    if (typeof toggle === "function") {
+      toggle(open);
+      return;
+    }
+    const panel = document.getElementById("access-chat-overlay-panel");
+    const fabRoot = floatingRoot();
+    if (!panel || !fabRoot) return;
+    const next = typeof open === "boolean" ? open : panel.hidden;
+    panel.hidden = !next;
+    fabRoot.dataset.open = next ? "true" : "false";
+  }
+
+  function exitPresentation() {
+    const eng = engine();
+    if (eng && typeof eng.stop === "function") {
+      eng.stop();
+    }
+    uiState.drawerOpen = false;
+    uiState.selectMode = false;
+    document.body.classList.remove("mei-presenter-select-mode");
+    renderAll();
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:copilot|speaker)\/([^/]+)/,
+    );
+    if (match && match[1]) {
+      window.location.href = `/apps/app/${encodeURIComponent(match[1])}/scene/home`;
+    }
+  }
+
+  function sessionButtonLabel(eng) {
+    if (!eng) return "开始";
+    if (typeof eng.isActive === "function" && eng.isActive()) return "暂停";
+    if (typeof eng.isPaused === "function" && eng.isPaused()) return "继续";
+    return "开始";
+  }
+
+  function onToolbarClick(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const eng = engine();
+    if (target.dataset.copilotSession === "true") {
+      if (!eng) return;
+      if (typeof eng.isActive === "function" && eng.isActive()) {
+        eng.pause();
+      } else if (typeof eng.isPaused === "function" && eng.isPaused()) {
+        eng.resume();
+      } else {
+        eng.start({ apply: true });
+      }
+      renderAll();
+      return;
+    }
+    if (target.dataset.copilotExit === "true") {
+      exitPresentation();
+      return;
+    }
+    if (target.dataset.copilotPrev === "true") {
+      if (eng) eng.prev();
+      renderAll();
+      return;
+    }
+    if (target.dataset.copilotNext === "true") {
+      if (eng) eng.next();
+      renderAll();
+      return;
+    }
+    if (target.dataset.copilotCaptionToggle === "true") {
+      uiState.captionVisible = !uiState.captionVisible;
+      target.classList.toggle("is-active", uiState.captionVisible);
+      renderCaption();
+      return;
+    }
+    if (target.dataset.copilotScript === "true") {
+      uiState.drawerOpen = !uiState.drawerOpen;
+      renderDrawer();
+      return;
+    }
+    if (target.dataset.copilotSelectToggle === "true") {
+      uiState.selectMode = !uiState.selectMode;
+      document.body.classList.toggle("mei-presenter-select-mode", uiState.selectMode);
+      target.classList.toggle("is-active", uiState.selectMode);
+      return;
+    }
+    if (target.dataset.copilotAi === "true") {
+      toggleAccessAiPanel(true);
+    }
   }
 
   function renderCaption() {
     const caption = ensureCaption();
-    const step = currentStep();
+    const eng = engine();
+    const step = eng ? eng.currentStep() : null;
     const text = step ? String(step.caption || step.title || "") : "";
-    if (!text || !state.captionVisible || !hasActiveTourSession()) {
+    if (!text || !uiState.captionVisible || !(eng && eng.isActive())) {
       caption.setAttribute("hidden", "hidden");
       caption.textContent = "";
       return;
@@ -18678,40 +19113,87 @@
     caption.textContent = text;
   }
 
-  function renderPanel() {
-    if (!hasActiveTourSession()) return;
-    const panel = ensurePanel();
-    const step = currentStep();
-    const title = panel.querySelector("[data-presenter-title]");
-    const progress = panel.querySelector("[data-presenter-progress]");
-    if (title instanceof HTMLElement) {
-      title.textContent = step?.title || state.tour?.title || "演说助手";
+  function renderDrawer() {
+    const drawer = ensureDrawer();
+    const eng = engine();
+    const step = eng ? eng.currentStep() : null;
+    const body = drawer.querySelector("[data-copilot-script-body]");
+    const notes = step ? String(step.speaker_notes || step.notes || "") : "";
+    if (!uiState.drawerOpen || !notes) {
+      drawer.setAttribute("hidden", "hidden");
+      if (body) body.textContent = "";
+      return;
     }
-    if (progress instanceof HTMLElement) {
-      progress.textContent =
-        state.steps.length > 0 ? `${state.stepIndex + 1} / ${state.steps.length}` : "";
-    }
-    renderCaption();
+    drawer.removeAttribute("hidden");
+    if (body) body.textContent = notes;
   }
 
-  async function applyStep() {
-    if (!ensureTourLoaded()) return false;
-    const step = currentStep();
-    if (!step) return false;
-    clearFocus();
-    await navigateToStep(step);
-    applyActions(step.actions);
-    renderPanel();
-    return true;
+  function renderToolbar() {
+    const toolbar = ensureToolbar();
+    const eng = engine();
+    const step = eng ? eng.currentStep() : null;
+    const manifest = eng ? eng.state.manifest : null;
+    const sessionBtn = toolbar.querySelector("[data-copilot-session]");
+    if (sessionBtn) {
+      sessionBtn.textContent = sessionButtonLabel(eng);
+    }
+    toolbar.dataset.progress =
+      eng && eng.steps.length ? `${eng.stepIndex + 1} / ${eng.steps.length}` : "";
+    toolbar.title = step?.title || manifest?.title || COPILOT_TITLE;
+    if (uiState.toolbarOpen) {
+      toolbar.removeAttribute("hidden");
+      floatingRoot()?.classList.add("copilot-toolbar-active");
+    } else {
+      toolbar.setAttribute("hidden", "hidden");
+      floatingRoot()?.classList.remove("copilot-toolbar-active");
+    }
+    refreshFabChrome();
+  }
+
+  function renderAll() {
+    renderToolbar();
+    renderCaption();
+    if (uiState.drawerOpen) renderDrawer();
+  }
+
+  function copilotFabContextActive() {
+    const eng = engine();
+    return Boolean(
+      isCopilotRoute() ||
+        hasCopilotShell() ||
+        (eng && typeof eng.hasManifest === "function" && eng.hasManifest()),
+    );
+  }
+
+  function bindFabBehavior() {
+    if (boot.copilotFabBound) return;
+    const fab = document.getElementById("access-chat-fab");
+    const eng = engine();
+    if (!fab || !eng || !copilotFabContextActive()) return;
+    boot.copilotFabBound = true;
+    fab.addEventListener(
+      "click",
+      (event) => {
+        if (!eng.hasManifest()) return;
+        if (boot.agentPanelState && boot.agentPanelState.accessFloatingDragMoved) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        uiState.toolbarOpen = !uiState.toolbarOpen;
+        renderToolbar();
+      },
+      true,
+    );
+    refreshFabChrome();
   }
 
   function bindSelectMode() {
-    if (boot.presenterSelectBound) return;
-    boot.presenterSelectBound = true;
+    if (boot.copilotSelectBound) return;
+    boot.copilotSelectBound = true;
     document.addEventListener(
       "click",
       (event) => {
-        if (!state.selectMode || !hasActiveTourSession()) return;
+        const eng = engine();
+        if (!uiState.selectMode || !(eng && eng.isActive())) return;
         const target = event.target;
         if (!(target instanceof Element)) return;
         const host = target.closest("[data-mei-viewpoint]");
@@ -18720,91 +19202,140 @@
         if (!viewpointId) return;
         event.preventDefault();
         event.stopPropagation();
-        applyHighlight(viewpointId);
+        eng.highlight(viewpointId);
       },
       true,
     );
   }
 
-  function shouldAutoStart() {
-    return isSpeakerRoute() || hasSpeakerShell();
+  function shouldMount() {
+    const eng = engine();
+    return Boolean((eng && eng.hasManifest()) || isCopilotRoute() || hasCopilotShell());
   }
 
-  function startPresenter(options) {
+  function mount(options) {
     const opts = options && typeof options === "object" ? options : {};
-    if (!ensureTourLoaded()) {
-      console.warn(
-        "[presenter-assistant] 未找到 tour 配置。请从 /apps/speaker/<app>/tour/<tour_id> 进入，或确保页面包含 #mei-speaker-tour。",
-      );
-      return false;
-    }
-    if (Number.isFinite(Number(opts.stepIndex))) {
-      state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(opts.stepIndex)));
-    }
-    ensurePanel();
+    const eng = engine();
+    if (!eng || !shouldMount()) return false;
+    const force = opts.force === true;
+    if (!eng.ensureLoaded() && !force && !isCopilotRoute() && !hasCopilotShell()) return false;
+    ensureToolbar();
+    ensureCaption();
+    ensureCopilotFabElevation();
     bindSelectMode();
-    renderPanel();
-    if (opts.apply !== false) {
-      void applyStep();
+    bindFabBehavior();
+    uiState.mounted = true;
+    uiState.toolbarOpen = opts.toolbarOpen === true;
+    if (opts.autoStart === true && (isCopilotRoute() || hasCopilotShell())) {
+      eng.start({ apply: opts.apply !== false });
     }
+    renderAll();
     return true;
   }
 
-  function exposeConsoleApi() {
-    const root = window;
-    root.MeiSpeaker = {
-      start: (options) => startPresenter(options),
-      applyStep: (index) => {
-        if (!ensureTourLoaded()) return false;
-        if (!Number.isFinite(Number(index))) return false;
-        state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(index)));
-        void applyStep();
-        return true;
-      },
-      highlight: (viewpointId) => applyHighlight(String(viewpointId || "").trim()),
-      next: () => {
-        if (!ensureTourLoaded()) return false;
-        state.stepIndex = Math.min(state.steps.length - 1, state.stepIndex + 1);
-        void applyStep();
-        return true;
-      },
-      prev: () => {
-        if (!ensureTourLoaded()) return false;
-        state.stepIndex = Math.max(0, state.stepIndex - 1);
-        void applyStep();
-        return true;
-      },
-      stepIndex: () => state.stepIndex,
-      steps: () => state.steps.slice(),
-      isActive: () => hasActiveTourSession(),
-    };
-    boot.startPresenterAssistant = startPresenter;
+  const toolbar = {
+    mount,
+    renderAll,
+    onStepApplied() {
+      ensureCopilotFabElevation();
+      renderAll();
+    },
+    toggleToolbar(next) {
+      if (typeof next === "boolean") uiState.toolbarOpen = next;
+      else uiState.toolbarOpen = !uiState.toolbarOpen;
+      renderToolbar();
+    },
+    exitPresentation,
+    uiState,
+  };
+
+  boot.copilotToolbar = toolbar;
+  boot.toggleAccessFloatingPanel = boot.toggleAccessFloatingPanel || toggleAccessAiPanel;
+})();
+
+
+/* ===== spa-navigation/presentation/presenter-assistant.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  function engine() {
+    return boot.presentationStepEngine || null;
   }
 
-  function onSpaNavigationComplete() {
-    if (!hasActiveTourSession() && shouldAutoStart()) {
-      startPresenter({ apply: state.stepIndex === 0 && !document.getElementById(PANEL_ID) });
-      return;
-    }
-    if (!hasActiveTourSession()) return;
-    ensurePanel();
-    renderPanel();
-    const step = currentStep();
-    if (step) {
-      applyActions(step.actions);
-    }
+  function isCopilotRoute() {
+    return /^\/apps\/(copilot|speaker)\//.test(String(window.location.pathname || ""));
+  }
+
+  function hasCopilotShell() {
+    return Boolean(
+      document.getElementById("copilot-shell") ||
+        document.getElementById("speaker-shell") ||
+        document.getElementById("mei-presentation-manifest") ||
+        document.getElementById("mei-copilot-tour") ||
+        document.getElementById("mei-speaker-tour"),
+    );
+  }
+
+  function shouldAutoStart() {
+    const eng = engine();
+    return Boolean((eng && eng.hasManifest()) || isCopilotRoute() || hasCopilotShell());
+  }
+
+  function exposeConsoleApi() {
+    const eng = engine();
+    if (!eng) return;
+    const api = {
+      start: (options) => eng.start(options),
+      applyStep: (index) => eng.applyStepAt(index),
+      highlight: (viewpointId) => eng.highlight(viewpointId),
+      next: () => eng.next(),
+      prev: () => eng.prev(),
+      stepIndex: () => eng.stepIndex,
+      steps: () => eng.steps,
+      isActive: () => eng.isActive(),
+      isPaused: () => eng.isPaused(),
+      pause: () => eng.pause(),
+      resume: () => eng.resume(),
+      stop: () => eng.stop(),
+      context: () => eng.contextSnapshot(),
+      hasManifest: () => eng.hasManifest(),
+    };
+    window.MeiCopilot = api;
+    window.MeiSpeaker = api;
+    boot.startCopilot = (options) => {
+      const toolbar = boot.copilotToolbar;
+      if (toolbar && typeof toolbar.mount === "function") {
+        toolbar.mount({ autoStart: false, apply: false });
+      }
+      return eng.start(options);
+    };
+    boot.startPresenterAssistant = boot.startCopilot;
   }
 
   function init() {
     exposeConsoleApi();
-    bindSelectMode();
-    if (shouldAutoStart()) {
-      startPresenter();
-      return;
+    const toolbar = boot.copilotToolbar;
+    if (toolbar && typeof toolbar.mount === "function" && shouldAutoStart()) {
+      toolbar.mount({ autoStart: false, apply: false, toolbarOpen: false });
+      exposeConsoleApi();
     }
-    if (hasActiveTourSession()) {
-      ensurePanel();
-      renderPanel();
+  }
+
+  function onSpaNavigationComplete() {
+    const eng = engine();
+    const toolbar = boot.copilotToolbar;
+    if (!eng) return;
+    if (toolbar && typeof toolbar.mount === "function" && shouldAutoStart()) {
+      toolbar.mount({ autoStart: false, toolbarOpen: false });
+      exposeConsoleApi();
+    }
+    if (!eng.isActive()) return;
+    if (toolbar && typeof toolbar.renderAll === "function") {
+      toolbar.renderAll();
+    }
+    const step = eng.currentStep();
+    if (step) {
+      void eng.applyStep();
     }
   }
 

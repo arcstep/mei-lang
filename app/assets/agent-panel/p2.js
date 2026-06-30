@@ -109,10 +109,35 @@
     });
   }
 
+  function copilotPresentationFabContext() {
+    if (/^\/apps\/(copilot|speaker)\//.test(String(window.location.pathname || ""))) {
+      return true;
+    }
+    if (
+      document.getElementById("copilot-shell") ||
+      document.getElementById("mei-presentation-manifest")
+    ) {
+      return true;
+    }
+    const eng = boot.presentationStepEngine;
+    return !!(eng && typeof eng.hasManifest === "function" && eng.hasManifest());
+  }
+
   if (els.accessFab) {
-    els.accessFab.addEventListener("click", function () {
+    els.accessFab.addEventListener("click", function (event) {
       if (state.accessFloatingDragMoved) {
         state.accessFloatingDragMoved = false;
+        return;
+      }
+      const toolbar = boot.copilotToolbar;
+      if (
+        copilotPresentationFabContext() &&
+        toolbar &&
+        typeof toolbar.toggleToolbar === "function"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        toolbar.toggleToolbar();
         return;
       }
       AF.toggleAccessFloatingPanel();

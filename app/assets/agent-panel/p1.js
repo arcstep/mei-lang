@@ -127,6 +127,8 @@
     );
     return;
   }
+  boot.toggleAccessFloatingPanel = AF.toggleAccessFloatingPanel.bind(AF);
+  boot.agentPanelState = state;
 
   let SES = null;
 

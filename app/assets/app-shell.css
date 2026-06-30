@@ -1592,6 +1592,13 @@ a.status-chip-link:focus-visible {
   bottom: clamp(68px, 9vh, 98px);
   z-index: 1200;
 }
+/* Copilot 演说：FAB + 工具条整体抬至全站最上层，压在 slide 全屏层之上。 */
+.access-chat-floating-root.copilot-fab-elevated {
+  z-index: 4000;
+}
+body.mei-copilot-fab-mounted .access-chat-overlay-panel {
+  z-index: 4001;
+}
 .access-chat-fab {
   width: clamp(58px, 6vw, 72px);
   height: clamp(58px, 6vw, 72px);
@@ -2066,8 +2073,127 @@ body.mei-presenter-select-mode [data-mei-viewpoint] {
   outline: 1px dashed rgba(113, 241, 234, 0.45);
   outline-offset: 2px;
 }
-.speaker-shell .mei-presenter-assistant {
+.speaker-shell .mei-presenter-assistant,
+.copilot-shell .mei-presenter-assistant {
   bottom: 24px;
+}
+.access-chat-floating-root.copilot-toolbar-active {
+  width: auto;
+  min-width: 68px;
+}
+.copilot-toolbar {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 2;
+  max-width: min(92vw, 720px);
+}
+.copilot-toolbar-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(56, 160, 240, 0.35);
+  background: rgba(8, 28, 58, 0.94);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+.copilot-toolbar-btn {
+  border: 1px solid rgba(56, 160, 240, 0.35);
+  background: rgba(14, 52, 96, 0.72);
+  color: #e8f0ff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.copilot-toolbar-btn:hover:not(:disabled),
+.copilot-toolbar-btn:focus-visible:not(:disabled) {
+  border-color: rgba(113, 241, 234, 0.65);
+}
+.copilot-toolbar-btn.is-active {
+  border-color: rgba(113, 241, 234, 0.85);
+  background: rgba(14, 72, 110, 0.9);
+}
+.copilot-toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.copilot-toolbar-btn--ai {
+  border-color: rgba(167, 139, 250, 0.55);
+}
+.copilot-toolbar-btn--exit {
+  border-color: rgba(248, 113, 113, 0.45);
+}
+.copilot-script-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 3650;
+  width: min(360px, 92vw);
+  height: 100vh;
+  border-left: 1px solid rgba(56, 160, 240, 0.35);
+  background: rgba(8, 28, 58, 0.97);
+  color: #e8f0ff;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+}
+.copilot-script-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(56, 160, 240, 0.2);
+}
+.copilot-script-drawer-body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.copilot-script-drawer-close {
+  border: 0;
+  background: transparent;
+  color: #e8f0ff;
+  font-size: 20px;
+  cursor: pointer;
+}
+.mei-copilot-slide-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 3400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(4, 16, 36, 0.92);
+}
+.mei-copilot-slide-layer--overlay {
+  background: rgba(4, 16, 36, 0.45);
+  pointer-events: none;
+}
+.mei-copilot-slide-layer--overlay .mei-copilot-slide-inner {
+  pointer-events: auto;
+  max-width: min(720px, 90vw);
+  background: rgba(8, 28, 58, 0.94);
+  border: 1px solid rgba(56, 160, 240, 0.35);
+  border-radius: 14px;
+  padding: 24px 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.mei-copilot-slide-inner {
+  max-width: min(960px, 92vw);
+  color: #e8f0ff;
+  font-size: clamp(18px, 2.4vw, 28px);
+  line-height: 1.5;
+}
+body.mei-copilot-slide-active:not(.mei-copilot-slide-active .mei-copilot-slide-layer--overlay) {
+  overflow: hidden;
 }
 .mei-viewpoint-focus {
   position: relative;
