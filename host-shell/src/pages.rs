@@ -17,7 +17,8 @@ use crate::build_info::fill_page_shell_placeholders;
 use crate::landing::{choose_default_app, discover_workspace_apps, enrich_discovered_apps};
 use crate::access_page_cache::{
     access_page_cache_key, build_scene_revision_payload, insert_page_render_cache_hit_header,
-    render_access_page_template, store_access_page_template, take_access_page_template,
+    render_access_page_template, resolve_access_page_html, store_access_page_template,
+    take_access_page_template,
 };
 use crate::page_observability::{
     fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
@@ -564,7 +565,45 @@ pub async fn api_scene_fragment(
     let apps = enrich_discovered_apps(apps.as_slice(), &topbar_menu);
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
-    let html = match render_access_page_template(
+    let app_ctx = guard.host_ctx_for_app(app_id);
+    let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
+        app_ctx.app_root().as_path(),
+        Some(workspace_root),
+        None,
+    );
+    let outcome = match mei_host_graph::assemble_scope_from_registry(
+        workspace_root,
+        app_id,
+        scene_id.as_str(),
+    ) {
+        Ok(Some(outcome)) => outcome,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "scene not assembled"})),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": format!("assemble failed: {error}")})),
+            )
+                .into_response();
+        }
+    };
+    let revision_payload = build_scene_revision_payload(
+        workspace_root,
+        package_root,
+        app_id,
+        scene_id.as_str(),
+        UiRouteMode::App,
+        auth_enabled,
+        account_view.as_ref(),
+        &gis,
+        outcome.compiled.component_assets.as_slice(),
+    );
+    let resolved = match resolve_access_page_html(
         workspace_root,
         package_root,
         apps.as_slice(),
@@ -576,7 +615,7 @@ pub async fn api_scene_fragment(
         auth_enabled,
         account_view.as_ref(),
     ) {
-        Ok(template) => template,
+        Ok(value) => value,
         Err(error) => {
             return (
                 StatusCode::NOT_FOUND,
@@ -585,17 +624,23 @@ pub async fn api_scene_fragment(
                 .into_response();
         }
     };
+    let html = resolved.html;
     let surface_html = extract_preview_surface_html(html.as_str());
     let shell_html = extract_shell_inner_html(html.as_str());
     let title = extract_document_title(html.as_str());
-    Json(json!({
+    let mut response = Json(json!({
         "appId": app_id,
         "sceneId": scene_id,
         "title": title,
         "shellHtml": shell_html,
         "surfaceHtml": surface_html,
+        "revisionDigest": revision_payload.as_ref().map(|payload| payload.revision_digest.clone()),
+        "clientRevision": revision_payload.as_ref().map(|payload| payload.client_revision.clone()),
+        "pageRenderCacheHit": resolved.page_render_cache_hit,
     }))
-    .into_response()
+    .into_response();
+    insert_page_render_cache_hit_header(&mut response, resolved.page_render_cache_hit);
+    response
 }
 
 fn extract_document_title(html: &str) -> String {

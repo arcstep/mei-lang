@@ -18269,25 +18269,22 @@
 /* ===== spa-navigation/spa/navigation.js ===== */
   async function loadAndSwap(url, replaceHistory, navigationId) {
     const ctx = typeof boot.parseAccessSceneContext === "function" ? boot.parseAccessSceneContext(url) : null;
-    if (ctx && typeof boot.fetchSceneRevision === "function" && typeof boot.tryRestoreSceneShellFromCache === "function") {
+    if (ctx && typeof boot.tryCacheFirstSceneAccess === "function") {
       try {
-        const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS });
-        if (navigationId !== currentNavigationId) return false;
-        const restoredDoc = await boot.tryRestoreSceneShellFromCache(
-          ctx,
-          revision,
+        const outcome = await boot.tryCacheFirstSceneAccess(ctx, {
           url,
           replaceHistory,
-        );
-        if (restoredDoc) {
-          if (typeof boot.ensureSceneBootstrapPayload === "function") {
-            await boot.ensureSceneBootstrapPayload(ctx, revision);
-          }
-          if (navigationId !== currentNavigationId) return false;
+          navigationId,
+          timeoutMs: SPA_FETCH_TIMEOUT_MS,
+          allowFragment: true,
+          hydrateBootstrapOnly: false,
+        });
+        if (navigationId !== currentNavigationId) return false;
+        if (outcome.restored && outcome.doc) {
           if (typeof boot.markLoadingRenderSwapDone === "function") {
             boot.markLoadingRenderSwapDone(navigationId);
           }
-          runPostSpaWork(restoredDoc, url, navigationId, null, new URL(url, window.location.href));
+          runPostSpaWork(outcome.doc, url, navigationId, null, new URL(url, window.location.href));
           return true;
         }
       } catch (error) {
@@ -18619,19 +18616,19 @@
       typeof boot.parseAccessSceneContext === "function"
         ? boot.parseAccessSceneContext(window.location.href)
         : null;
-    if (!ctx) return;
+    if (!ctx || typeof boot.tryCacheFirstSceneAccess !== "function") return;
     try {
-      if (typeof boot.fetchSceneRevision !== "function") return;
-      const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: 4000 });
-      if (typeof boot.ensureSceneBootstrapPayload === "function") {
-        await boot.ensureSceneBootstrapPayload(ctx, revision);
+      const outcome = await boot.tryCacheFirstSceneAccess(ctx, {
+        replaceHistory: true,
+        timeoutMs: 4000,
+        allowFragment: false,
+        hydrateBootstrapOnly: true,
+      });
+      if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
+        runPostSpaWork(outcome.doc, window.location.href, null, null, new URL(window.location.href));
       }
-      const sceneCtx = ctx;
-      if (sceneCtx?.appId && typeof window.__meiDatasetRuntime === "undefined") {
-        /* runtime-query module may load later via component bundle */
-      }
-      if (typeof boot.saveCurrentSceneShellSnapshot === "function") {
-        await boot.saveCurrentSceneShellSnapshot(ctx, revision, document);
+      if (outcome.revision && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+        await boot.saveCurrentSceneShellSnapshot(ctx, outcome.revision, document);
       }
     } catch (error) {
       console.warn("[spa-navigation] initial scene cache bootstrap skipped", error);

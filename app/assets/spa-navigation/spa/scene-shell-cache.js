@@ -191,8 +191,10 @@
   }
 
   boot.buildSceneShellSnapshot = buildSceneShellSnapshot;
+  boot.collectHeadJsonScripts = collectHeadJsonScripts;
   boot.loadSceneShellSnapshot = loadSceneShellSnapshot;
   boot.persistSceneShellSnapshot = persistSceneShellSnapshot;
   boot.restoreSceneShellSnapshot = restoreSceneShellSnapshot;
   boot.tryRestoreSceneShellFromCache = tryRestoreSceneShellFromCache;
+  boot.buildDocFromSceneShellSnapshot = buildDocFromSceneShellSnapshot;
   boot.saveCurrentSceneShellSnapshot = saveCurrentSceneShellSnapshot;

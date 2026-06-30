@@ -9,19 +9,19 @@
       typeof boot.parseAccessSceneContext === "function"
         ? boot.parseAccessSceneContext(window.location.href)
         : null;
-    if (!ctx) return;
+    if (!ctx || typeof boot.tryCacheFirstSceneAccess !== "function") return;
     try {
-      if (typeof boot.fetchSceneRevision !== "function") return;
-      const revision = await boot.fetchSceneRevision(ctx, { timeoutMs: 4000 });
-      if (typeof boot.ensureSceneBootstrapPayload === "function") {
-        await boot.ensureSceneBootstrapPayload(ctx, revision);
+      const outcome = await boot.tryCacheFirstSceneAccess(ctx, {
+        replaceHistory: true,
+        timeoutMs: 4000,
+        allowFragment: false,
+        hydrateBootstrapOnly: true,
+      });
+      if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
+        runPostSpaWork(outcome.doc, window.location.href, null, null, new URL(window.location.href));
       }
-      const sceneCtx = ctx;
-      if (sceneCtx?.appId && typeof window.__meiDatasetRuntime === "undefined") {
-        /* runtime-query module may load later via component bundle */
-      }
-      if (typeof boot.saveCurrentSceneShellSnapshot === "function") {
-        await boot.saveCurrentSceneShellSnapshot(ctx, revision, document);
+      if (outcome.revision && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+        await boot.saveCurrentSceneShellSnapshot(ctx, outcome.revision, document);
       }
     } catch (error) {
       console.warn("[spa-navigation] initial scene cache bootstrap skipped", error);

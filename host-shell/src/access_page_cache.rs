@@ -239,6 +239,91 @@ pub fn store_access_page_template(
     persist_disk_template(app_root.as_path(), scene_id, cache_key, html)
 }
 
+#[derive(Debug, Clone)]
+pub struct ResolvedAccessPageHtml {
+    pub html: String,
+    pub page_render_cache_hit: bool,
+}
+
+pub fn resolve_access_page_html(
+    workspace_root: &Path,
+    package_root: &Path,
+    apps: &[WorkspaceAppMeta],
+    topbar_menu: &TopbarMenuContext,
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    query: &AppQuery,
+    auth_enabled: bool,
+    account_view: Option<&HostAccountView>,
+) -> anyhow::Result<ResolvedAccessPageHtml> {
+    let app_ctx = mei_host_core::HostContext::new(workspace_root.to_path_buf(), app_id.to_string());
+    let gis = GisTilesConfig::resolve_for_app(
+        app_ctx.app_root().as_path(),
+        Some(workspace_root),
+        None,
+    );
+    let cache_key = access_page_cache_key(
+        workspace_root,
+        app_id,
+        scene_id,
+        route_mode,
+        auth_enabled,
+        account_view,
+        &gis,
+    );
+    let mut page_render_cache_hit = false;
+    let html = if let Some(ref key) = cache_key {
+        if let Some(cached) = take_access_page_template(
+            workspace_root,
+            app_id,
+            scene_id,
+            key.as_str(),
+        ) {
+            page_render_cache_hit = true;
+            cached
+        } else {
+            let template = render_access_page_template(
+                workspace_root,
+                package_root,
+                apps,
+                topbar_menu,
+                app_id,
+                scene_id,
+                route_mode,
+                query,
+                auth_enabled,
+                account_view,
+            )?;
+            let _ = store_access_page_template(
+                workspace_root,
+                app_id,
+                scene_id,
+                key.as_str(),
+                template.as_str(),
+            );
+            template
+        }
+    } else {
+        render_access_page_template(
+            workspace_root,
+            package_root,
+            apps,
+            topbar_menu,
+            app_id,
+            scene_id,
+            route_mode,
+            query,
+            auth_enabled,
+            account_view,
+        )?
+    };
+    Ok(ResolvedAccessPageHtml {
+        html,
+        page_render_cache_hit,
+    })
+}
+
 pub fn render_access_page_template(
     workspace_root: &Path,
     package_root: &Path,
