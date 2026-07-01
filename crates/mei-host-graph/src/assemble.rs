@@ -109,7 +109,7 @@ pub fn assemble_scope_from_registry(
     let app_root_str = app_root.display().to_string();
 
     let (title, _default_scene) = load_app_meta(app_root.as_path(), &registry)?;
-    let assembly_key = resolve_assembly_key(&registry, scene_id);
+    let assembly_key = resolve_assembly_key(source_root, app_id, &registry, scene_id);
     let assembly_payload = normalize_board_assembly_payload(load_assembly_payload(
         app_root.as_path(),
         &registry,
@@ -254,7 +254,43 @@ fn load_app_meta(
     Ok((registry.app_id.clone(), "home".to_string()))
 }
 
-fn resolve_assembly_key(registry: &crate::mcg::registry::McgRegistry, scene_id: &str) -> String {
+fn canonical_scene_id(scene_id: &str) -> String {
+    let trimmed = scene_id.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Some((_, tail)) = trimmed.split_once("/scene/") {
+        let head = tail
+            .split('/')
+            .next()
+            .unwrap_or(tail)
+            .trim_end_matches(".mei");
+        if !head.is_empty() {
+            return head.to_string();
+        }
+    }
+    if let Some(parent) = trimmed.strip_suffix("/assembly.mei") {
+        if let Some(head) = parent.rsplit('/').next() {
+            if !head.is_empty() {
+                return head.to_string();
+            }
+        }
+    }
+    if let Some((head, _)) = trimmed.split_once('/') {
+        if !head.is_empty() {
+            return head.to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+fn resolve_assembly_key(
+    source_root: &Path,
+    app_id: &str,
+    registry: &crate::mcg::registry::McgRegistry,
+    scene_id: &str,
+) -> String {
+    let scene_id = canonical_scene_id(scene_id);
     if scene_id == "home" {
         return registry
             .nodes
@@ -263,12 +299,17 @@ fn resolve_assembly_key(registry: &crate::mcg::registry::McgRegistry, scene_id: 
             .map(|n| n.id.key.clone())
             .unwrap_or_else(|| "home@src/scene/home/assembly.mei".to_string());
     }
+    if let Ok(routes) = list_scope_routes(source_root, app_id) {
+        if let Some(route) = routes.into_iter().find(|route| route.scene_id == scene_id) {
+            return route.assembly_key;
+        }
+    }
     registry
         .nodes
         .iter()
         .find(|n| {
             n.id.kind == GraphNodeKind::AssemblyView
-                && (n.id.key.contains(scene_id) || n.id.key.contains(&format!("#{scene_id}")))
+                && n.id.key.split('#').next_back() == Some(scene_id.as_str())
         })
         .map(|n| n.id.key.clone())
         .unwrap_or_else(|| format!("overlay/boards/{scene_id}"))
@@ -659,5 +700,20 @@ mod tests {
             assembly_key_to_target("overlay/boards/warning-detail.card#warning_detail_card_board"),
             "src/overlay/boards/warning-detail.card.mei"
         );
+    }
+
+    #[test]
+    fn canonical_scene_id_normalizes_assembly_paths() {
+        assert_eq!(canonical_scene_id("home"), "home");
+        assert_eq!(canonical_scene_id("home/assembly.mei"), "home");
+        assert_eq!(
+            canonical_scene_id("src/scene/home/assembly.mei"),
+            "home"
+        );
+        assert_eq!(
+            canonical_scene_id("home@src/scene/home/assembly.mei"),
+            "home"
+        );
+        assert_eq!(canonical_scene_id("park_point_1_board"), "park_point_1_board");
     }
 }

@@ -388,10 +388,19 @@ fn scene_id_from_reference(raw: &str) -> Option<String> {
     if let Some((_, scene_id)) = trimmed.split_once('#') {
         return Some(scene_id.to_string());
     }
-    trimmed
-        .rsplit("/scene/")
-        .next()
-        .map(str::trim)
-        .filter(|scene_id: &&str| !scene_id.is_empty() && *scene_id != trimmed)
-        .map(|scene_id| scene_id.to_string())
+    let path = trimmed
+        .split_once('@')
+        .map(|(_, tail)| tail)
+        .unwrap_or(trimmed);
+    if let Some((_, tail)) = path.split_once("/scene/") {
+        let scene = tail
+            .split('/')
+            .next()
+            .unwrap_or(tail)
+            .trim_end_matches(".mei");
+        if !scene.is_empty() {
+            return Some(scene.to_string());
+        }
+    }
+    None
 }

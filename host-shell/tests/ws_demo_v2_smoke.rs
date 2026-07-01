@@ -221,7 +221,7 @@ fn ws_demo_v2_home_gis_map_spec_resolves_config_refs() {
         .expect("home_header panel");
     assert_eq!(
         header.props.get("z_index").and_then(serde_json::Value::as_i64),
-        Some(110)
+        Some(mei_host_graph::Z_T1_HEADER)
     );
 }
 
@@ -429,21 +429,21 @@ fn ws_demo_v2_home_layer_plan_and_presentation_map() {
     let basemap = outcome
         .layer_plan
         .get("tiers")
-        .and_then(|v| v.get("basemap"))
+        .and_then(|v| v.get("t0"))
         .and_then(|v| v.as_array())
-        .expect("basemap tier entries");
+        .expect("t0 tier entries");
     assert!(
         basemap
             .iter()
             .any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("map_stage")),
-        "layer_plan basemap should include map_stage: {basemap:?}"
+        "layer_plan t0 should include map_stage: {basemap:?}"
     );
     let chrome = outcome
         .layer_plan
         .get("tiers")
-        .and_then(|v| v.get("chrome"))
+        .and_then(|v| v.get("t1"))
         .and_then(|v| v.as_array())
-        .expect("chrome tier entries");
+        .expect("t1 tier entries");
     let chrome_ids: Vec<&str> = chrome
         .iter()
         .filter_map(|entry| entry.get("panelId").and_then(|v| v.as_str()))
@@ -457,7 +457,7 @@ fn ws_demo_v2_home_layer_plan_and_presentation_map() {
     ] {
         assert!(
             chrome_ids.contains(&expected),
-            "layer_plan chrome should include {expected}: {chrome_ids:?}"
+            "layer_plan t1 should include {expected}: {chrome_ids:?}"
         );
     }
     assert_eq!(
@@ -476,7 +476,7 @@ fn ws_demo_v2_home_layer_plan_and_presentation_map() {
 
 #[test]
 fn ws_demo_v2_home_panels_emit_tier_props() {
-    let workspace = ws_demo_v2_root();
+    let workspace = ensure_imported();
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -492,7 +492,7 @@ fn ws_demo_v2_home_panels_emit_tier_props() {
         .expect("map_stage panel");
     assert_eq!(
         map_stage.props.get("__mei_tier").and_then(|v| v.as_str()),
-        Some("basemap")
+        Some("t0")
     );
     let header = contract
         .panels
@@ -501,17 +501,17 @@ fn ws_demo_v2_home_panels_emit_tier_props() {
         .expect("home_header panel");
     assert_eq!(
         header.props.get("__mei_tier").and_then(|v| v.as_str()),
-        Some("chrome")
+        Some("t1")
     );
     assert_eq!(
         header.props.get("z_index").and_then(serde_json::Value::as_i64),
-        Some(110)
+        Some(mei_host_graph::Z_T1_HEADER)
     );
 }
 
 #[test]
 fn ws_demo_v2_serve_html_emits_data_mei_tier() {
-    let workspace = ws_demo_v2_root();
+    let workspace = ensure_imported();
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -557,12 +557,12 @@ fn ws_demo_v2_serve_html_emits_data_mei_tier() {
         None,
     );
     assert!(
-        html.contains("data-mei-tier=\"basemap\""),
-        "serve HTML should emit data-mei-tier for basemap panel"
+        html.contains("data-mei-tier=\"t0\""),
+        "serve HTML should emit data-mei-tier for t0 panel"
     );
     assert!(
-        html.contains("data-mei-tier=\"chrome\""),
-        "serve HTML should emit data-mei-tier for chrome panels"
+        html.contains("data-mei-tier=\"t1\""),
+        "serve HTML should emit data-mei-tier for t1 panels"
     );
 }
 
@@ -771,6 +771,76 @@ fn ws_demo_v2_topbar_renders_multi_app_menu_labels() {
     assert!(
         !html.contains(r#"data-topbar-menu-group="templates""#),
         "stock templates should not appear as topbar group"
+    );
+}
+
+fn ensure_mini_park_imported() -> PathBuf {
+    let workspace = ws_demo_v2_root();
+    let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
+    if bundle.is_file() {
+        let ctx = HostContext::new(workspace.clone(), "mini-park");
+        let _ = import_bundle(
+            &ctx,
+            &ImportOptions {
+                bundle_path: Some(bundle),
+            },
+        );
+    }
+    workspace
+}
+
+#[test]
+fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
+    let workspace = ensure_mini_park_imported();
+    let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
+    if !bundle.is_file() {
+        return;
+    }
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home")
+        .expect("assemble mini-park")
+        .expect("mini-park home outcome");
+    let contract = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract");
+    let t0_panel = contract
+        .panels
+        .iter()
+        .find(|panel| {
+            panel.props.get("__mei_tier").and_then(|v| v.as_str()) == Some("t0")
+        })
+        .expect("t0 panel");
+    assert!(
+        t0_panel.id == "basemap" || t0_panel.id == "viewport_canvas",
+        "expected basemap or viewport_canvas as t0, got {}",
+        t0_panel.id
+    );
+    let header = contract
+        .panels
+        .iter()
+        .find(|panel| panel.id == "home_header")
+        .expect("home_header panel");
+    assert_eq!(
+        header.props.get("__mei_tier").and_then(|v| v.as_str()),
+        Some("t1")
+    );
+    assert_eq!(
+        header.props.get("z_index").and_then(serde_json::Value::as_i64),
+        Some(mei_host_graph::Z_T1_HEADER)
+    );
+    let t0_tier = outcome
+        .layer_plan
+        .get("tiers")
+        .and_then(|v| v.get("t0"))
+        .and_then(|v| v.as_array())
+        .expect("t0 tier entries");
+    assert!(
+        t0_tier.iter().any(|entry| {
+            entry.get("panelId").and_then(|v| v.as_str()) == Some("basemap")
+                || entry.get("panelId").and_then(|v| v.as_str()) == Some("viewport_canvas")
+        }),
+        "mini-park layer_plan t0 should include basemap or viewport_canvas: {t0_tier:?}"
     );
 }
 

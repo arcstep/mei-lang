@@ -12,6 +12,7 @@ use crate::assemble::assembly_key_to_target;
 use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::presentation_map::resolve_viewpoint_id;
+use crate::tier::{canonical_tier, default_z_index_for_chrome_role, default_z_index_for_tier, TIER_T1};
 use crate::types::GraphNodeKind;
 
 pub struct PanelLowerContext<'a> {
@@ -173,7 +174,7 @@ pub fn lower_panel_payload(
     if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
         deep_merge_value(&mut props, extra);
     }
-    apply_tier_and_placement(payload, &mut props);
+    apply_tier_and_placement(payload, &mut props)?;
 
     Ok(PanelDecl {
         kind: "panel".to_string(),
@@ -206,7 +207,7 @@ fn lower_panel_with_slots(
     if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
         deep_merge_value(&mut props, extra);
     }
-    apply_tier_and_placement(payload, &mut props);
+    apply_tier_and_placement(payload, &mut props)?;
 
     let mut blocks = Vec::new();
     if let Some(slots) = payload.get("slots").and_then(Value::as_array) {
@@ -310,7 +311,7 @@ fn lower_screen_header_panel(
         "box_sizing": "border-box",
         "overflow": "hidden"
     });
-    apply_tier_and_placement(payload, &mut props);
+    apply_tier_and_placement(payload, &mut props)?;
 
     let block = BlockDecl {
         kind: "block".to_string(),
@@ -368,7 +369,7 @@ fn lower_titled_shell_panel(
         deep_merge_value(&mut props, extra);
     }
     if let Some(outer) = outer_payload {
-        apply_tier_and_placement(outer, &mut props);
+        apply_tier_and_placement(outer, &mut props)?;
     }
 
     let mut head_props = titled_shell_template_head_props();
@@ -412,7 +413,7 @@ fn lower_panel_from_generic_shell(
     let args = v2_call_args(shell).context("panel shell missing __args")?;
     let mut props = args.get("props").cloned().unwrap_or(json!({}));
     merge_card_fields(&mut props, args);
-    apply_tier_and_placement(payload, &mut props);
+    apply_tier_and_placement(payload, &mut props)?;
 
     let mut head_props = lower_head_props(args);
     if let Some(heading) = args.get("heading") {
@@ -473,27 +474,15 @@ fn lower_head_props(source: &Value) -> Value {
     Value::Object(head)
 }
 
-pub fn default_z_index_for_tier(tier: &str) -> i64 {
-    match tier {
-        "basemap" => 1,
-        "chrome" => 100,
-        "overlay" => 1000,
-        _ => 100,
-    }
-}
-
-pub fn default_z_index_for_chrome_role(role: &str) -> Option<i64> {
-    match role {
-        "header" => Some(110),
-        "center_float" => Some(105),
-        "rail" => Some(102),
-        "center_panel" => Some(101),
-        _ => None,
-    }
-}
-
-fn apply_tier_and_placement(payload: &Value, props: &mut Value) {
-    let tier = payload.get("tier").and_then(|v| v.as_str());
+fn apply_tier_and_placement(payload: &Value, props: &mut Value) -> Result<()> {
+    let raw_tier = payload.get("tier").and_then(|v| v.as_str());
+    let tier = match raw_tier {
+        Some(t) => Some(
+            canonical_tier(t)
+                .map_err(|message| anyhow::anyhow!("invalid panel tier \"{t}\": {message}"))?,
+        ),
+        None => None,
+    };
     if let Some(map) = props.as_object_mut() {
         if let Some(tier) = tier {
             map.insert("__mei_tier".to_string(), json!(tier));
@@ -506,7 +495,7 @@ fn apply_tier_and_placement(payload: &Value, props: &mut Value) {
     if let Some(tier) = tier {
         if let Some(map) = props.as_object_mut() {
             if map.get("z_index").is_none() {
-                let z = if tier == "chrome" {
+                let z = if tier == TIER_T1 {
                     payload
                         .get("chrome_role")
                         .and_then(|v| v.as_str())
@@ -519,6 +508,7 @@ fn apply_tier_and_placement(payload: &Value, props: &mut Value) {
             }
         }
     }
+    Ok(())
 }
 
 fn apply_placement(placement: Option<&Value>, props: &mut Value) {

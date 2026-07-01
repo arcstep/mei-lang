@@ -2,7 +2,7 @@ use mei_lang_kernel::PanelDecl;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::v2_lower::default_z_index_for_tier;
+use crate::tier::{default_z_index_for_tier, DEFAULT_PANEL_TIER};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayerPlanPanelEntry {
@@ -36,7 +36,7 @@ pub fn build_layer_plan(scene_id: &str, panels: &[PanelDecl]) -> LayerPlanDocume
             .props
             .get("__mei_tier")
             .and_then(|v| v.as_str())
-            .unwrap_or("chrome")
+            .unwrap_or(DEFAULT_PANEL_TIER)
             .to_string();
         let chrome_role = panel
             .props

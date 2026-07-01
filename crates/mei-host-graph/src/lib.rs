@@ -14,6 +14,7 @@ mod panel_constants;
 mod paths;
 mod presentation_map;
 mod projection_normalize;
+mod tier;
 mod types;
 mod v2_bundle_constants;
 mod v2_lower;
@@ -61,5 +62,10 @@ pub use paths::{bridge_path, mcg_registry_path, mrg_registry_path, resolve_graph
 pub use presentation_map::{
     build_presentation_map, presentation_map_to_value, resolve_viewpoint_id,
     PresentationMapDocument,
+};
+pub use tier::{
+    canonical_tier, default_z_index_for_chrome_role, default_z_index_for_tier,
+    runtime_overlay_z_index, z_index_in_named_plane, z_index_in_tier_band, DEFAULT_PANEL_TIER,
+    Z_T1_HEADER, TIER_T0, TIER_T1, TIER_T2,
 };
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};

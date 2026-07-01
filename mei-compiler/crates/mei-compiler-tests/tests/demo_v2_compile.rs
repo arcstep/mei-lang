@@ -34,8 +34,8 @@ fn demo_v2_compiles_graph_blocks() {
             .get("tier")
             .or_else(|| payload.get("__args").and_then(|args| args.get("tier")));
         assert!(
-            tier.and_then(|v| v.as_str()) == Some("basemap"),
-            "map-stage panel_contract should declare tier=basemap"
+            tier.and_then(|v| v.as_str()) == Some("t0"),
+            "map-stage panel_contract should declare tier=t0"
         );
     }
     assert!(

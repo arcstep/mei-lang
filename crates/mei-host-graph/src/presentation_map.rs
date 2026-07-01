@@ -4,6 +4,8 @@ use mei_lang_kernel::{PanelDecl, UiNodeDecl};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::tier::DEFAULT_PANEL_TIER;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ViewpointMapEntry {
     pub tier: String,
@@ -28,7 +30,7 @@ fn panel_tier(panel: &PanelDecl) -> String {
         .props
         .get("__mei_tier")
         .and_then(|v| v.as_str())
-        .unwrap_or("chrome")
+        .unwrap_or(DEFAULT_PANEL_TIER)
         .to_string()
 }
 
