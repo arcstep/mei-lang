@@ -70,6 +70,28 @@ pub struct ClientBootstrapPayload {
     bootstrap_scopes: Vec<ClientBootstrapScopePayload>,
 }
 
+/// Revision token used when the app/scene does not require client bootstrap artifacts.
+pub const NO_CLIENT_BOOTSTRAP_REVISION: &str = "__no_client_bootstrap__";
+
+pub fn empty_client_bootstrap_payload(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> ClientBootstrapPayload {
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let data_generation = load_cache_generation(app_root.as_path(), app_id).data_generation;
+    ClientBootstrapPayload {
+        client_revision: NO_CLIENT_BOOTSTRAP_REVISION.to_string(),
+        bootstrap_scope: scene_id.to_string(),
+        target_file: String::new(),
+        compile_epoch: String::new(),
+        data_generation,
+        app_id: app_id.to_string(),
+        metrics: Vec::new(),
+        bootstrap_scopes: Vec::new(),
+    }
+}
+
 pub fn client_bootstrap_root(app_root: &Path) -> PathBuf {
     mei_lang_kernel::resolve_app_var_root(app_root).join("client-bootstrap")
 }

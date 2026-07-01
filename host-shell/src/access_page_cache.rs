@@ -25,6 +25,26 @@ const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v1";
 const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
 const MAX_PAGE_RENDER_CACHE_ENTRIES: usize = 64;
 
+fn resolve_scene_client_revision(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Option<String> {
+    let bootstrap = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
+    if let Some(revision) = bootstrap
+        .client_revision
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(revision.to_string());
+    }
+    if bootstrap.allowed && bootstrap.reason == "no_client_bootstrap_required" {
+        return Some(mei_host_graph::NO_CLIENT_BOOTSTRAP_REVISION.to_string());
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 struct CachedPageTemplate {
     expires_at: Instant,
@@ -120,15 +140,7 @@ pub fn access_page_cache_key(
     if registry_revision.is_empty() {
         return None;
     }
-    let bootstrap = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
-    let client_revision = bootstrap
-        .client_revision
-        .as_deref()
-        .unwrap_or("")
-        .trim();
-    if client_revision.is_empty() {
-        return None;
-    }
+    let client_revision = resolve_scene_client_revision(workspace_root, app_id, scene_id)?;
     let app_root = resolve_app_root(workspace_root, app_id);
     let data_generation = mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id)
         .data_generation;
@@ -553,16 +565,8 @@ pub fn build_scene_revision_payload(
     if registry_revision.is_empty() {
         return None;
     }
-    let bootstrap = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
-    let client_revision = bootstrap
-        .client_revision
-        .as_deref()
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    if client_revision.is_empty() {
-        return None;
-    }
+    let client_revision =
+        resolve_scene_client_revision(workspace_root, app_id, scene_id)?;
     let app_root = resolve_app_root(workspace_root, app_id);
     let data_generation = mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id)
         .data_generation;

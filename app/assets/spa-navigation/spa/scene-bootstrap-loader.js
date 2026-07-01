@@ -1,5 +1,6 @@
   const SCENE_BOOTSTRAP_API = "/api/host/scene-bootstrap";
   const BOOTSTRAP_ARTIFACT_LS_PREFIX = "mei:scene-bootstrap:v1:";
+  const NO_CLIENT_BOOTSTRAP_REVISION = "__no_client_bootstrap__";
 
   function bootstrapArtifactStorageKey(appId, sceneId, revision) {
     return `${appId}:${sceneId}:${revision || ""}`;
@@ -54,6 +55,10 @@
     const sceneId = ctx?.sceneId;
     const clientRevision = revision?.client_revision;
     if (!appId || !sceneId) return null;
+    if (clientRevision === NO_CLIENT_BOOTSTRAP_REVISION) {
+      window.__meiBootstrapPayloadReady = 1;
+      return window.__mei || null;
+    }
     if (window.__meiBootstrapSeeded && window.__meiBootstrapPayloadReady) {
       return window.__mei;
     }

@@ -770,6 +770,15 @@ pub async fn api_scene_bootstrap(
         )
             .into_response();
     }
+    let bootstrap = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id.as_str());
+    if bootstrap.allowed && bootstrap.reason == "no_client_bootstrap_required" {
+        return Json(mei_host_graph::empty_client_bootstrap_payload(
+            workspace_root,
+            app_id,
+            scene_id.as_str(),
+        ))
+        .into_response();
+    }
     let Some(payload) =
         mei_host_graph::build_client_bootstrap_payload(workspace_root, app_id, scene_id.as_str())
     else {
