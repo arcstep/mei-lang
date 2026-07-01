@@ -1033,6 +1033,10 @@
     requestAnimationFrame(() => {
       viewportUpdateQueued.delete(root);
       updateViewport(root);
+      try {
+        window.__meiLangBoot?.relocateStageOverlaysInViewport?.() ||
+          window.__meiLangBoot?.relocateCopilotInViewport?.();
+      } catch (_) {}
     });
   }
 
@@ -3105,18 +3109,42 @@
     let dragState = null;
     let dragMoved = false;
 
+    function floatingBoundsHost() {
+      const bootApi = w.__meiLangBoot || {};
+      if (typeof bootApi.copilotFloatingOffsetParent === "function") {
+        const host = bootApi.copilotFloatingOffsetParent(root);
+        if (host) return host;
+      }
+      return null;
+    }
+
+    function floatingBoundsSize() {
+      const bootApi = w.__meiLangBoot || {};
+      if (typeof bootApi.copilotFloatingBoundsSize === "function") {
+        const size = bootApi.copilotFloatingBoundsSize();
+        if (size && size.width > 0 && size.height > 0) {
+          return size;
+        }
+      }
+      return {
+        width: Number(window.innerWidth || 0),
+        height: Number(window.innerHeight || 0),
+      };
+    }
+
     function clampPosition(left, top) {
       const width = Math.max(48, Number(root.offsetWidth || 68));
       const height = Math.max(48, Number(root.offsetHeight || 68));
+      const bounds = floatingBoundsSize();
       const minLeft = MARGIN_PX;
       const minTop = MARGIN_PX;
       const maxLeft = Math.max(
         minLeft,
-        Number(window.innerWidth || 0) - width - MARGIN_PX,
+        Number(bounds.width || 0) - width - MARGIN_PX,
       );
       const maxTop = Math.max(
         minTop,
-        Number(window.innerHeight || 0) - height - MARGIN_PX,
+        Number(bounds.height || 0) - height - MARGIN_PX,
       );
       return {
         left: Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0))),
@@ -3172,13 +3200,17 @@
 
     function beginDrag(event) {
       if (event && event.button != null && event.button !== 0) return;
+      const host = floatingBoundsHost();
+      const hostRect = host
+        ? host.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const rect = root.getBoundingClientRect();
       dragState = {
         pointerId: event ? event.pointerId : null,
         startX: Number(event && event.clientX),
         startY: Number(event && event.clientY),
-        baseLeft: Number(rect.left || 0),
-        baseTop: Number(rect.top || 0),
+        baseLeft: Number(rect.left || 0) - Number(hostRect.left || 0),
+        baseTop: Number(rect.top || 0) - Number(hostRect.top || 0),
         moved: false,
         lastLeft: Number(rect.left || 0),
         lastTop: Number(rect.top || 0),
@@ -3260,9 +3292,38 @@
 
     function onWindowResize() {
       if (root.dataset.positioned !== "true") return;
+      const host = floatingBoundsHost();
+      const hostRect = host
+        ? host.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const rect = root.getBoundingClientRect();
-      const pos = applyPosition(rect.left, rect.top);
+      const pos = applyPosition(rect.left - hostRect.left, rect.top - hostRect.top);
       rememberPosition(pos.left, pos.top);
+    }
+
+    function syncViewportMount() {
+      const bootApi = w.__meiLangBoot || {};
+      if (typeof bootApi.relocateStageOverlaysInViewport === "function") {
+        bootApi.relocateStageOverlaysInViewport();
+      } else if (typeof bootApi.relocateCopilotInViewport === "function") {
+        bootApi.relocateCopilotInViewport();
+      }
+      if (root.dataset.positioned === "true") {
+        const left = Number(root.style.left);
+        const top = Number(root.style.top);
+        if (Number.isFinite(left) && Number.isFinite(top)) {
+          applyPosition(left, top);
+        }
+      } else if (root.classList.contains("mei-copilot-in-viewport")) {
+        root.style.left = "";
+        root.style.top = "";
+        root.style.right = "";
+        root.style.bottom = "";
+      }
+    }
+
+    function onPreviewUpdated() {
+      syncViewportMount();
     }
 
     fab.addEventListener("click", onFabClick);
@@ -3271,7 +3332,10 @@
     document.addEventListener("pointerup", endDrag);
     document.addEventListener("pointercancel", endDrag);
     window.addEventListener("resize", onWindowResize);
+    window.addEventListener("meilang:preview-updated", onPreviewUpdated);
+    syncViewportMount();
     restorePosition();
+    syncViewportMount();
 
     return function dispose() {
       fab.removeEventListener("click", onFabClick);
@@ -3280,6 +3344,7 @@
       document.removeEventListener("pointerup", endDrag);
       document.removeEventListener("pointercancel", endDrag);
       window.removeEventListener("resize", onWindowResize);
+      window.removeEventListener("meilang:preview-updated", onPreviewUpdated);
     };
   }
 
@@ -4477,19 +4542,43 @@
       );
     }
 
+    function floatingBoundsHost() {
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.copilotFloatingOffsetParent === "function") {
+        const host = bootApi.copilotFloatingOffsetParent(els.accessFloatingRoot);
+        if (host) return host;
+      }
+      return null;
+    }
+
+    function floatingBoundsSize() {
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.copilotFloatingBoundsSize === "function") {
+        const size = bootApi.copilotFloatingBoundsSize();
+        if (size && size.width > 0 && size.height > 0) {
+          return size;
+        }
+      }
+      return {
+        width: Number(window.innerWidth || 0),
+        height: Number(window.innerHeight || 0),
+      };
+    }
+
     function clampAccessFloatingPosition(left, top) {
       if (!isAccessFloatingMode()) return null;
       const width = Math.max(48, Number(els.accessFloatingRoot.offsetWidth || 68));
       const height = Math.max(48, Number(els.accessFloatingRoot.offsetHeight || 68));
+      const bounds = floatingBoundsSize();
       const minLeft = ACCESS_FLOATING_MARGIN_PX;
       const minTop = ACCESS_FLOATING_MARGIN_PX;
       const maxLeft = Math.max(
         minLeft,
-        Number(window.innerWidth || 0) - width - ACCESS_FLOATING_MARGIN_PX,
+        Number(bounds.width || 0) - width - ACCESS_FLOATING_MARGIN_PX,
       );
       const maxTop = Math.max(
         minTop,
-        Number(window.innerHeight || 0) - height - ACCESS_FLOATING_MARGIN_PX,
+        Number(bounds.height || 0) - height - ACCESS_FLOATING_MARGIN_PX,
       );
       const nextLeft = Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0)));
       const nextTop = Math.min(maxTop, Math.max(minTop, Math.round(Number(top) || 0)));
@@ -4555,6 +4644,10 @@
       els.accessPanel.hidden = !open;
       els.accessFab.title = open ? "关闭助手对话框" : "打开助手对话框";
       els.accessFab.setAttribute("aria-label", open ? "关闭助手对话框" : "打开助手对话框");
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.relocateAccessChatOverlayInViewport === "function") {
+        bootApi.relocateAccessChatOverlayInViewport();
+      }
     }
 
     function rememberAccessFloatingPanel() {
@@ -4564,8 +4657,51 @@
       } catch (_) {}
     }
 
+    function reclampAccessFloatingInViewport() {
+      if (!isAccessFloatingMode()) return;
+      if (!els.accessFloatingRoot?.classList.contains("mei-copilot-in-viewport")) {
+        return;
+      }
+      if (els.accessFloatingRoot.dataset.positioned === "true") {
+        const left = Number(els.accessFloatingRoot.style.left);
+        const top = Number(els.accessFloatingRoot.style.top);
+        if (Number.isFinite(left) && Number.isFinite(top)) {
+          const pos = clampAccessFloatingPosition(left, top);
+          if (pos) {
+            applyAccessFloatingPosition(pos.left, pos.top);
+          } else {
+            clearAccessFloatingPosition();
+          }
+        }
+      } else {
+        els.accessFloatingRoot.style.left = "";
+        els.accessFloatingRoot.style.top = "";
+      }
+    }
+
+    function syncAccessFloatingViewportMount() {
+      if (!isAccessFloatingMode()) return;
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.relocateStageOverlaysInViewport === "function") {
+        bootApi.relocateStageOverlaysInViewport();
+      } else if (typeof bootApi.relocateCopilotInViewport === "function") {
+        bootApi.relocateCopilotInViewport();
+      }
+      reclampAccessFloatingInViewport();
+      const layout = bootApi.copilotFabLayout;
+      if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+        layout.scheduleCopilotFabToolbarLayout();
+      }
+    }
+
     function restoreAccessFloatingPanel() {
       if (!isAccessFloatingMode()) return;
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.relocateStageOverlaysInViewport === "function") {
+        bootApi.relocateStageOverlaysInViewport();
+      } else if (typeof bootApi.relocateCopilotInViewport === "function") {
+        bootApi.relocateCopilotInViewport();
+      }
       restoreAccessFloatingPosition();
       try {
         const saved = localStorage.getItem(accessFloatingStorageKey());
@@ -4574,6 +4710,7 @@
         state.accessFloatingOpen = false;
       }
       renderAccessFloatingPanel();
+      reclampAccessFloatingInViewport();
     }
 
     function toggleAccessFloatingPanel(next) {
@@ -4597,13 +4734,17 @@
     function beginAccessFloatingDrag(event) {
       if (!isAccessFloatingMode()) return;
       if (event && event.button != null && event.button !== 0) return;
+      const host = floatingBoundsHost();
+      const hostRect = host
+        ? host.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const rect = els.accessFloatingRoot.getBoundingClientRect();
       accessFloatingDragState = {
         pointerId: event ? event.pointerId : null,
         startX: Number(event && event.clientX),
         startY: Number(event && event.clientY),
-        baseLeft: Number(rect.left || 0),
-        baseTop: Number(rect.top || 0),
+        baseLeft: Number(rect.left || 0) - Number(hostRect.left || 0),
+        baseTop: Number(rect.top || 0) - Number(hostRect.top || 0),
         moved: false,
         lastLeft: Number(rect.left || 0),
         lastTop: Number(rect.top || 0),
@@ -4683,6 +4824,15 @@
           state.accessFloatingDragMoved = false;
         }, 0);
       }
+      const layout = (window.__meiLangBoot || {}).copilotFabLayout;
+      if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+        layout.scheduleCopilotFabToolbarLayout();
+      } else {
+        const toolbar = (window.__meiLangBoot || {}).copilotToolbar;
+        if (toolbar && typeof toolbar.syncLayout === "function") {
+          toolbar.syncLayout({ toolbarOpenChanged: true });
+        }
+      }
     }
 
     return {
@@ -4695,6 +4845,8 @@
       renderAccessFloatingPanel,
       rememberAccessFloatingPanel,
       restoreAccessFloatingPanel,
+      reclampAccessFloatingInViewport,
+      syncAccessFloatingViewportMount,
       toggleAccessFloatingPanel,
       beginAccessFloatingDrag,
       continueAccessFloatingDrag,
@@ -9169,6 +9321,8 @@
     return;
   }
   boot.toggleAccessFloatingPanel = AF.toggleAccessFloatingPanel.bind(AF);
+  boot.syncAccessFloatingViewportMount = AF.syncAccessFloatingViewportMount.bind(AF);
+  boot.reclampAccessFloatingInViewport = AF.reclampAccessFloatingInViewport.bind(AF);
   boot.agentPanelState = state;
 
   let SES = null;
@@ -9389,6 +9543,50 @@
           $U.unblockAgentRequests();
 
 
+/* ===== spa-navigation/presentation/copilot-fab-context.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  function isExternalAiFab() {
+    return Boolean(document.getElementById("access-external-ai-fab"));
+  }
+
+  function isAccessLikeRoute() {
+    const path = String(window.location.pathname || "");
+    return /^\/apps\/(app|access|access-only|access_only|copilot|speaker|run)\//.test(path);
+  }
+
+  function hasCopilotShellMarkers() {
+    return Boolean(
+      document.getElementById("copilot-shell") ||
+        document.getElementById("speaker-shell") ||
+        document.getElementById("mei-presentation-manifest") ||
+        document.getElementById("mei-copilot-tour") ||
+        document.getElementById("mei-speaker-tour"),
+    );
+  }
+
+  /** 内置 FAB 默认走 Copilot 演说工具条；仅外链 FAB（access_ai_external）例外。 */
+  function copilotFabContextActive() {
+    if (isExternalAiFab()) return false;
+    if (!document.getElementById("access-chat-fab")) return false;
+    if (isAccessLikeRoute() || hasCopilotShellMarkers()) return true;
+    const eng = boot.presentationStepEngine;
+    return !!(eng && typeof eng.hasManifest === "function" && eng.hasManifest());
+  }
+
+  function shouldMountCopilotToolbar() {
+    return copilotFabContextActive();
+  }
+
+  boot.copilotFabContext = {
+    isExternalAiFab,
+    copilotFabContextActive,
+    shouldMountCopilotToolbar,
+  };
+})();
+
+
 /* ===== agent-panel/p2.js ===== */
           return MSG.refreshAll();
         })
@@ -9473,9 +9671,27 @@
       els.accessFloatingRoot &&
       els.accessFloatingRoot.dataset.positioned === "true"
     ) {
+      const bootApi = window.__meiLangBoot || {};
+      const offsetParent =
+        typeof bootApi.copilotFloatingOffsetParent === "function"
+          ? bootApi.copilotFloatingOffsetParent(els.accessFloatingRoot)
+          : null;
+      const hostRect = offsetParent
+        ? offsetParent.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const rect = els.accessFloatingRoot.getBoundingClientRect();
-      const pos = AF.applyAccessFloatingPosition(rect.left, rect.top);
+      const pos = AF.applyAccessFloatingPosition(
+        rect.left - hostRect.left,
+        rect.top - hostRect.top,
+      );
       if (pos) AF.rememberAccessFloatingPosition(pos.left, pos.top);
+    }
+    if (typeof boot.reclampAccessFloatingInViewport === "function") {
+      boot.reclampAccessFloatingInViewport();
+    }
+    const layout = boot.copilotFabLayout;
+    if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+      layout.scheduleCopilotFabToolbarLayout();
     }
   };
   window.addEventListener("resize", onComposerInputWindowResize);
@@ -9502,6 +9718,10 @@
   }
 
   function copilotPresentationFabContext() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.copilotFabContextActive === "function") {
+      return ctx.copilotFabContextActive();
+    }
     if (/^\/apps\/(copilot|speaker)\//.test(String(window.location.pathname || ""))) {
       return true;
     }
@@ -9521,15 +9741,7 @@
         state.accessFloatingDragMoved = false;
         return;
       }
-      const toolbar = boot.copilotToolbar;
-      if (
-        copilotPresentationFabContext() &&
-        toolbar &&
-        typeof toolbar.toggleToolbar === "function"
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        toolbar.toggleToolbar();
+      if (copilotPresentationFabContext()) {
         return;
       }
       AF.toggleAccessFloatingPanel();
@@ -9693,6 +9905,11 @@
   AF.restoreAccessFloatingPanel();
   MSG.restoreSession();
   restoreDeltaDebugLog(state.sessionId);
+  window.requestAnimationFrame(function () {
+    if (typeof boot.syncAccessFloatingViewportMount === "function") {
+      boot.syncAccessFloatingViewportMount();
+    }
+  });
   const initialTab = RT.currentManageTab();
   SRC.initSourceEditor();
   SRC.renderSourceViewMode(initialTab === "diff" ? "diff" : "source");
@@ -12587,6 +12804,16 @@
     }
   }
 
+  function syncLayer2ViewportDesignVars(target) {
+    if (!(target instanceof HTMLElement)) return;
+    const viewport = document.querySelector('[data-mei-frame-viewport="true"]');
+    if (!(viewport instanceof HTMLElement)) return;
+    const designWidth = String(viewport.dataset.designWidth || "1920").trim() || "1920";
+    const designHeight = String(viewport.dataset.designHeight || "1080").trim() || "1080";
+    target.style.setProperty("--mei-viewport-design-width", `${designWidth}px`);
+    target.style.setProperty("--mei-viewport-design-height", `${designHeight}px`);
+  }
+
   function applyDrilldownOverlayMeta(root, config) {
     syncDrilldownOverlayThemeVars(root);
     const titleEl = root.querySelector('[data-drilldown-title="true"]');
@@ -12633,8 +12860,7 @@
       structuredLayout.dataset.shellLayoutMode = String(config?.sceneShell?.layoutMode || "");
       if (config?.boardFrameScene) {
         structuredLayout.classList.add("mei-layer2-viewport-stage");
-        structuredLayout.style.setProperty("--mei-viewport-design-width", "1920px");
-        structuredLayout.style.setProperty("--mei-viewport-design-height", "1080px");
+        syncLayer2ViewportDesignVars(structuredLayout);
       }
     }
     applyDrilldownOverlaySize(root, config);
@@ -17787,6 +18013,279 @@
 
 
 
+/* ===== spa-navigation/presentation/viewport-stage-host.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  const PRESENTATION_PLANE_ID = "mei-presentation-plane";
+  const COPILOT_PLANE_ID = "mei-copilot-plane";
+  const PRESENTATION_NODE_IDS = ["mei-copilot-slide-layer"];
+  const COPILOT_NODE_IDS = [
+    "access-chat-floating-root",
+    "access-external-ai-floating-root",
+    "mei-copilot-caption",
+    "copilot-script-drawer",
+  ];
+  const ACCESS_CHAT_ROOT_ID = "access-chat-floating-root";
+  const ACCESS_CHAT_OVERLAY_ID = "access-chat-overlay-panel";
+
+  function accessChatOverlayOpen() {
+    const root = document.getElementById(ACCESS_CHAT_ROOT_ID);
+    const panel = document.getElementById(ACCESS_CHAT_OVERLAY_ID);
+    if (!(root instanceof HTMLElement) || !(panel instanceof HTMLElement)) {
+      return false;
+    }
+    return root.dataset.open === "true" && !panel.hidden;
+  }
+
+  function relocateAccessChatOverlayInViewport() {
+    const root = document.getElementById(ACCESS_CHAT_ROOT_ID);
+    const panel = document.getElementById(ACCESS_CHAT_OVERLAY_ID);
+    const active = viewportCopilotActive();
+    const open = accessChatOverlayOpen();
+    const plane = active ? ensureCopilotPlane() : null;
+
+    document.body.classList.toggle("mei-copilot-ai-overlay-open", active && open);
+    document.body.classList.toggle("mei-copilot-fab-mounted", active && open);
+
+    if (!(panel instanceof HTMLElement) || !(root instanceof HTMLElement)) {
+      return;
+    }
+
+    if (active && open && plane) {
+      panel.classList.add("mei-copilot-in-viewport", "mei-copilot-ai-overlay-panel");
+      if (panel.parentElement !== plane) {
+        plane.appendChild(panel);
+      }
+      return;
+    }
+
+    panel.classList.remove("mei-copilot-ai-overlay-panel");
+    if (root.classList.contains("mei-copilot-in-viewport")) {
+      panel.classList.add("mei-copilot-in-viewport");
+    } else {
+      panel.classList.remove("mei-copilot-in-viewport");
+    }
+    if (panel.parentElement !== root) {
+      root.appendChild(panel);
+    }
+  }
+
+  function resolveViewportStageHost() {
+    const viewport = document.querySelector('[data-mei-frame-viewport="true"]');
+    if (viewport instanceof HTMLElement) {
+      const stage = viewport.querySelector(".preview-stage-shell");
+      if (stage instanceof HTMLElement) {
+        return stage;
+      }
+    }
+    return document.body;
+  }
+
+  function viewportCopilotActive() {
+    return resolveViewportStageHost() !== document.body;
+  }
+
+  function ensurePresentationPlane() {
+    const host = resolveViewportStageHost();
+    if (host === document.body) {
+      return null;
+    }
+    let plane = document.getElementById(PRESENTATION_PLANE_ID);
+    if (!plane) {
+      plane = document.createElement("div");
+      plane.id = PRESENTATION_PLANE_ID;
+      plane.className = "mei-presentation-plane";
+      const copilotPlane = document.getElementById(COPILOT_PLANE_ID);
+      if (copilotPlane && copilotPlane.parentElement === host) {
+        host.insertBefore(plane, copilotPlane);
+      } else {
+        host.appendChild(plane);
+      }
+    } else if (plane.parentElement !== host) {
+      host.appendChild(plane);
+    }
+    return plane;
+  }
+
+  function ensureCopilotPlane() {
+    const host = resolveViewportStageHost();
+    if (host === document.body) {
+      return null;
+    }
+    ensurePresentationPlane();
+    let plane = document.getElementById(COPILOT_PLANE_ID);
+    if (!plane) {
+      plane = document.createElement("div");
+      plane.id = COPILOT_PLANE_ID;
+      plane.className = "mei-copilot-plane";
+      host.appendChild(plane);
+    } else if (plane.parentElement !== host) {
+      host.appendChild(plane);
+    }
+    return plane;
+  }
+
+  function mountPresentationInViewport(node) {
+    if (!(node instanceof HTMLElement)) {
+      return false;
+    }
+    const plane = ensurePresentationPlane();
+    if (!plane) {
+      node.classList.remove("mei-presentation-in-viewport");
+      return false;
+    }
+    if (node.parentElement !== plane) {
+      plane.appendChild(node);
+    }
+    node.classList.add("mei-presentation-in-viewport");
+    document.body.classList.toggle(
+      "mei-presentation-viewport-mounted",
+      Boolean(document.querySelector(".mei-presentation-in-viewport")),
+    );
+    return true;
+  }
+
+  function updateCopilotViewportMountedClass() {
+    const fab = document.getElementById("access-chat-floating-root");
+    const external = document.getElementById("access-external-ai-floating-root");
+    const mounted = Boolean(
+      (fab instanceof HTMLElement && fab.classList.contains("mei-copilot-in-viewport")) ||
+        (external instanceof HTMLElement && external.classList.contains("mei-copilot-in-viewport")),
+    );
+    document.body.classList.toggle("mei-copilot-viewport-mounted", mounted);
+  }
+
+  function mountCopilotInViewport(node) {
+    if (!(node instanceof HTMLElement)) {
+      return false;
+    }
+    const plane = ensureCopilotPlane();
+    if (!plane) {
+      node.classList.remove("mei-copilot-in-viewport");
+      updateCopilotViewportMountedClass();
+      return false;
+    }
+    if (node.parentElement !== plane) {
+      plane.appendChild(node);
+    }
+    node.classList.add("mei-copilot-in-viewport");
+    if (node.dataset.positioned === "true") {
+      node.style.right = "";
+      node.style.bottom = "";
+    } else {
+      node.style.left = "";
+      node.style.top = "";
+    }
+    updateCopilotViewportMountedClass();
+    return true;
+  }
+
+  function copilotFloatingBoundsSize() {
+    const host = resolveViewportStageHost();
+    if (host === document.body) {
+      return {
+        width: Number(window.innerWidth || 0),
+        height: Number(window.innerHeight || 0),
+      };
+    }
+    return {
+      width: Math.max(0, host.clientWidth || host.offsetWidth || 0),
+      height: Math.max(0, host.clientHeight || host.offsetHeight || 0),
+    };
+  }
+
+  function copilotFloatingOffsetParent(node) {
+    if (!(node instanceof HTMLElement)) {
+      return null;
+    }
+    return (
+      node.closest(".mei-copilot-plane") ||
+      node.closest(".preview-stage-shell") ||
+      null
+    );
+  }
+
+  function relocatePresentationInViewport() {
+    if (!viewportCopilotActive()) {
+      return;
+    }
+    ensurePresentationPlane();
+    PRESENTATION_NODE_IDS.forEach((id) => {
+      const node = document.getElementById(id);
+      if (node) {
+        mountPresentationInViewport(node);
+      }
+    });
+  }
+
+  function relocateCopilotInViewport() {
+    if (!viewportCopilotActive()) {
+      COPILOT_NODE_IDS.forEach((id) => {
+        const node = document.getElementById(id);
+        if (node instanceof HTMLElement) {
+          node.classList.remove("mei-copilot-in-viewport");
+        }
+      });
+      updateCopilotViewportMountedClass();
+      relocateAccessChatOverlayInViewport();
+      return;
+    }
+    ensureCopilotPlane();
+    COPILOT_NODE_IDS.forEach((id) => {
+      const node = document.getElementById(id);
+      if (node) {
+        mountCopilotInViewport(node);
+      }
+    });
+    updateCopilotViewportMountedClass();
+    relocateAccessChatOverlayInViewport();
+  }
+
+  function relocateStageOverlaysInViewport() {
+    relocatePresentationInViewport();
+    relocateCopilotInViewport();
+    const bootApi = window.__meiLangBoot || {};
+    if (typeof bootApi.reclampAccessFloatingInViewport === "function") {
+      bootApi.reclampAccessFloatingInViewport();
+    }
+    if (
+      bootApi.copilotFabLayout &&
+      typeof bootApi.copilotFabLayout.scheduleCopilotFabToolbarLayout === "function"
+    ) {
+      bootApi.copilotFabLayout.scheduleCopilotFabToolbarLayout();
+    }
+  }
+
+  boot.resolveViewportStageHost = resolveViewportStageHost;
+  boot.ensurePresentationPlane = ensurePresentationPlane;
+  boot.ensureCopilotPlane = ensureCopilotPlane;
+  boot.mountPresentationInViewport = mountPresentationInViewport;
+  boot.mountCopilotInViewport = mountCopilotInViewport;
+  boot.copilotFloatingBoundsSize = copilotFloatingBoundsSize;
+  boot.copilotFloatingOffsetParent = copilotFloatingOffsetParent;
+  boot.relocatePresentationInViewport = relocatePresentationInViewport;
+  boot.relocateCopilotInViewport = relocateCopilotInViewport;
+  boot.relocateAccessChatOverlayInViewport = relocateAccessChatOverlayInViewport;
+  boot.relocateStageOverlaysInViewport = relocateStageOverlaysInViewport;
+
+  function scheduleRelocate() {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        relocateStageOverlaysInViewport();
+      });
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scheduleRelocate, { once: true });
+  } else {
+    scheduleRelocate();
+  }
+  document.addEventListener("mei:spa-navigation-complete", scheduleRelocate);
+  window.addEventListener("meilang:preview-updated", scheduleRelocate);
+})();
+
+
 /* ===== spa-navigation/presentation/layer2-workspace.js ===== */
   const LAYER2_WORKSPACE_ROOT_ID = "mei-layer2-workspace";
 
@@ -17831,14 +18330,36 @@
     );
   }
 
+  function resolveViewportStageHost() {
+    if (typeof boot.resolveViewportStageHost === "function") {
+      return boot.resolveViewportStageHost();
+    }
+    const viewport = document.querySelector('[data-mei-frame-viewport="true"]');
+    if (viewport instanceof HTMLElement) {
+      const stage = viewport.querySelector(".preview-stage-shell");
+      if (stage instanceof HTMLElement) {
+        return stage;
+      }
+    }
+    return document.body;
+  }
+
   function ensureLayer2WorkspaceRoot() {
     let root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
+    const stageHost = resolveViewportStageHost();
     if (root) {
+      if (root.parentElement !== stageHost) {
+        stageHost.appendChild(root);
+      }
+      root.classList.toggle("mei-layer2-in-viewport", stageHost !== document.body);
       return root;
     }
     root = document.createElement("div");
     root.id = LAYER2_WORKSPACE_ROOT_ID;
     root.className = "mei-layer2-workspace access-drilldown-overlay";
+    if (stageHost !== document.body) {
+      root.classList.add("mei-layer2-in-viewport");
+    }
     root.setAttribute("hidden", "hidden");
     root.innerHTML =
       '<div class="mei-layer2-workspace-shell">' +
@@ -17856,7 +18377,7 @@
         activateLayer2Tab(tabBtn.dataset.layer2TabId);
       }
     });
-    document.body.appendChild(root);
+    stageHost.appendChild(root);
     return root;
   }
 
@@ -18456,11 +18977,12 @@
 
 /* ===== spa-navigation/presentation/focus-controller.js ===== */
   const PRESENTATION_Z_TIERS = {
-    basemap: { min: 0, max: 9, default: 1 },
-    chrome: { min: 100, max: 199, default: 100 },
-    overlay: { min: 1000, max: 1999, default: 1000 },
-    slide_layer: { min: 2000, max: 2999, default: 2000 },
-    assistant: { min: 3000, max: 3999, default: 3000 },
+    t0: { min: 0, max: 1000, default: 1 },
+    t1: { min: 1001, max: 2000, default: 1001 },
+    t2: { min: 2001, max: 3000, default: 2001 },
+    presentation: { min: 5000, max: 5399, default: 5000 },
+    copilot: { min: 5400, max: 5799, default: 5400 },
+    host: { min: 5800, max: 99999, default: 5800 },
   };
 
   function readPresentationMap() {
@@ -18689,15 +19211,35 @@
     return "";
   }
 
+  function mountSlideLayer(layer) {
+    if (!(layer instanceof HTMLElement)) {
+      return layer;
+    }
+    if (typeof boot.mountPresentationInViewport === "function" && boot.mountPresentationInViewport(layer)) {
+      return layer;
+    }
+    if (typeof boot.relocatePresentationInViewport === "function") {
+      boot.relocatePresentationInViewport();
+      if (layer.classList.contains("mei-presentation-in-viewport")) {
+        return layer;
+      }
+    }
+    if (layer.parentElement !== document.body) {
+      document.body.appendChild(layer);
+    }
+    layer.classList.remove("mei-presentation-in-viewport");
+    return layer;
+  }
+
   function ensureSlideLayer() {
     let layer = document.getElementById(SLIDE_LAYER_ID);
-    if (layer) return layer;
-    layer = document.createElement("div");
-    layer.id = SLIDE_LAYER_ID;
-    layer.className = "mei-copilot-slide-layer";
-    layer.setAttribute("hidden", "hidden");
-    document.body.appendChild(layer);
-    return layer;
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.id = SLIDE_LAYER_ID;
+      layer.className = "mei-copilot-slide-layer";
+      layer.setAttribute("hidden", "hidden");
+    }
+    return mountSlideLayer(layer);
   }
 
   function hideSlideLayer() {
@@ -18717,7 +19259,9 @@
     const layer = ensureSlideLayer();
     layer.innerHTML = `<div class="mei-copilot-slide-inner">${html}</div>`;
     layer.removeAttribute("hidden");
-    document.body.classList.add("mei-copilot-slide-active");
+    if (!layer.classList.contains("mei-presentation-in-viewport")) {
+      document.body.classList.add("mei-copilot-slide-active");
+    }
     if (composition === "slides_over_cockpit") {
       layer.classList.add("mei-copilot-slide-layer--overlay");
     } else {
@@ -18878,6 +19422,132 @@
 })();
 
 
+/* ===== spa-navigation/presentation/copilot-fab-context.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  function isExternalAiFab() {
+    return Boolean(document.getElementById("access-external-ai-fab"));
+  }
+
+  function isAccessLikeRoute() {
+    const path = String(window.location.pathname || "");
+    return /^\/apps\/(app|access|access-only|access_only|copilot|speaker|run)\//.test(path);
+  }
+
+  function hasCopilotShellMarkers() {
+    return Boolean(
+      document.getElementById("copilot-shell") ||
+        document.getElementById("speaker-shell") ||
+        document.getElementById("mei-presentation-manifest") ||
+        document.getElementById("mei-copilot-tour") ||
+        document.getElementById("mei-speaker-tour"),
+    );
+  }
+
+  /** 内置 FAB 默认走 Copilot 演说工具条；仅外链 FAB（access_ai_external）例外。 */
+  function copilotFabContextActive() {
+    if (isExternalAiFab()) return false;
+    if (!document.getElementById("access-chat-fab")) return false;
+    if (isAccessLikeRoute() || hasCopilotShellMarkers()) return true;
+    const eng = boot.presentationStepEngine;
+    return !!(eng && typeof eng.hasManifest === "function" && eng.hasManifest());
+  }
+
+  function shouldMountCopilotToolbar() {
+    return copilotFabContextActive();
+  }
+
+  boot.copilotFabContext = {
+    isExternalAiFab,
+    copilotFabContextActive,
+    shouldMountCopilotToolbar,
+  };
+})();
+
+
+/* ===== spa-navigation/presentation/copilot-fab-layout.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  const DOCK_CLASS = "copilot-fab-dock";
+
+  function floatingRoot() {
+    return document.getElementById("access-chat-floating-root");
+  }
+
+  function layoutHost(root) {
+    if (!(root instanceof HTMLElement)) return null;
+    if (typeof boot.copilotFloatingOffsetParent === "function") {
+      return boot.copilotFloatingOffsetParent(root);
+    }
+    return root.parentElement;
+  }
+
+  /** dock 仅包裹 FAB；工具栏 absolute 挂在 dock 外侧，不参与 root 尺寸。 */
+  function ensureFabDock() {
+    const root = floatingRoot();
+    const fab = document.getElementById("access-chat-fab");
+    if (!(root instanceof HTMLElement) || !(fab instanceof HTMLElement)) return null;
+    let dock = root.querySelector(`.${DOCK_CLASS}`);
+    if (!(dock instanceof HTMLElement)) {
+      dock = document.createElement("div");
+      dock.className = DOCK_CLASS;
+      root.insertBefore(dock, fab);
+      dock.appendChild(fab);
+    } else if (fab.parentElement !== dock) {
+      dock.appendChild(fab);
+    }
+    return dock;
+  }
+
+  /** 助手靠右 → end（工具栏在左）；靠左 → start（工具栏在右）。 */
+  function detectToolbarSide(fab, hostRect) {
+    const fabRect = fab.getBoundingClientRect();
+    const fabCenterX = fabRect.left + fabRect.width / 2;
+    const hostCenterX = hostRect.left + hostRect.width / 2;
+    return fabCenterX >= hostCenterX ? "end" : "start";
+  }
+
+  function syncCopilotFabToolbarLayout() {
+    const root = floatingRoot();
+    const fab = document.getElementById("access-chat-fab");
+    if (!(root instanceof HTMLElement) || !(fab instanceof HTMLElement)) return false;
+    if (root.dataset.open === "true") return false;
+
+    ensureFabDock();
+
+    const host = layoutHost(root);
+    const hostRect = host
+      ? host.getBoundingClientRect()
+      : {
+          left: 0,
+          top: 0,
+          width: Number(window.innerWidth || 0),
+          height: Number(window.innerHeight || 0),
+        };
+
+    root.dataset.copilotToolbarSide = detectToolbarSide(fab, hostRect);
+    return true;
+  }
+
+  function scheduleCopilotFabToolbarLayout() {
+    if (boot._copilotFabLayoutRaf) {
+      cancelAnimationFrame(boot._copilotFabLayoutRaf);
+    }
+    boot._copilotFabLayoutRaf = requestAnimationFrame(() => {
+      boot._copilotFabLayoutRaf = 0;
+      syncCopilotFabToolbarLayout();
+    });
+  }
+
+  boot.copilotFabLayout = {
+    ensureFabDock,
+    syncCopilotFabToolbarLayout,
+    scheduleCopilotFabToolbarLayout,
+  };
+})();
+
+
 /* ===== spa-navigation/presentation/copilot-toolbar.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
@@ -18916,16 +19586,56 @@
     return document.getElementById("access-chat-floating-root");
   }
 
-  /** FAB 与工具条整体抬到 body 顶层，避免 slides_only 全屏层遮挡。 */
-  function ensureCopilotFabElevation() {
-    if (!copilotFabContextActive()) return;
-    const root = floatingRoot();
-    if (!root) return;
-    if (root.parentElement !== document.body) {
-      document.body.appendChild(root);
+  function fabLayout() {
+    return boot.copilotFabLayout || null;
+  }
+
+  function scheduleFabLayout(options) {
+    const layout = fabLayout();
+    if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+      layout.scheduleCopilotFabToolbarLayout(options);
+      return;
     }
-    root.classList.add("copilot-fab-elevated");
-    document.body.classList.add("mei-copilot-fab-mounted");
+    if (layout && typeof layout.syncCopilotFabToolbarLayout === "function") {
+      layout.syncCopilotFabToolbarLayout(options);
+    }
+  }
+
+  function ensureFabDock() {
+    const layout = fabLayout();
+    if (layout && typeof layout.ensureFabDock === "function") {
+      return layout.ensureFabDock();
+    }
+    return null;
+  }
+
+  function mountCopilotNode(node) {
+    if (!(node instanceof HTMLElement)) {
+      return node;
+    }
+    if (typeof boot.mountCopilotInViewport === "function" && boot.mountCopilotInViewport(node)) {
+      return node;
+    }
+    if (node.parentElement !== document.body) {
+      document.body.appendChild(node);
+    }
+    return node;
+  }
+
+  /** C 层 / FAB 挂入 viewport stage，与 T0/T1/T2 共用 letterbox 画布。 */
+  function ensureCopilotInViewport() {
+    if (typeof boot.relocateStageOverlaysInViewport === "function") {
+      boot.relocateStageOverlaysInViewport();
+      return;
+    }
+    if (typeof boot.relocateCopilotInViewport === "function") {
+      boot.relocateCopilotInViewport();
+      return;
+    }
+    const root = floatingRoot();
+    if (root) {
+      mountCopilotNode(root);
+    }
   }
 
   function refreshFabChrome() {
@@ -18951,7 +19661,7 @@
     node.id = CAPTION_ID;
     node.className = "mei-copilot-caption mei-presenter-caption";
     node.setAttribute("hidden", "hidden");
-    document.body.appendChild(node);
+    mountCopilotNode(node);
     return node;
   }
 
@@ -18976,36 +19686,36 @@
         renderDrawer();
       }
     });
-    document.body.appendChild(drawer);
+    mountCopilotNode(drawer);
     return drawer;
   }
 
   function ensureToolbar() {
     let toolbar = document.getElementById(TOOLBAR_ID);
-    if (toolbar) return toolbar;
-    const root = floatingRoot();
+    const dock = ensureFabDock();
+    if (toolbar) {
+      if (dock && toolbar.parentElement !== dock) {
+        dock.appendChild(toolbar);
+      }
+      return toolbar;
+    }
     toolbar = document.createElement("nav");
     toolbar.id = TOOLBAR_ID;
     toolbar.className = "copilot-toolbar";
     toolbar.setAttribute("aria-label", "Copilot 工具条");
-    toolbar.innerHTML =
-      '<div class="copilot-toolbar-inner">' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-session="true">开始</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-prev="true">上一步</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-next="true">下一步</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-caption-toggle="true">气泡</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-script="true">演说稿</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-select-toggle="true">组件选择</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-tts="true" disabled title="语音播报即将支持">播放</button>' +
-      '<button type="button" class="copilot-toolbar-btn copilot-toolbar-btn--exit" data-copilot-exit="true">退出演说</button>' +
-      '<button type="button" class="copilot-toolbar-btn copilot-toolbar-btn--ai" data-copilot-ai="true">AI 对话</button>' +
-      "</div>";
+    toolbar.setAttribute("hidden", "hidden");
+    toolbar.innerHTML = toolbarInnerHtml();
     toolbar.addEventListener("click", onToolbarClick);
-    if (root) {
+    const root = floatingRoot();
+    if (dock) {
+      dock.appendChild(toolbar);
+    } else if (root) {
+      mountCopilotNode(root);
       root.appendChild(toolbar);
     } else {
       document.body.appendChild(toolbar);
     }
+    ensureCopilotInViewport();
     return toolbar;
   }
 
@@ -19041,10 +19751,93 @@
   }
 
   function sessionButtonLabel(eng) {
-    if (!eng) return "开始";
-    if (typeof eng.isActive === "function" && eng.isActive()) return "暂停";
-    if (typeof eng.isPaused === "function" && eng.isPaused()) return "继续";
-    return "开始";
+    if (!eng) return "演";
+    if (typeof eng.isActive === "function" && eng.isActive()) return "停";
+    if (typeof eng.isPaused === "function" && eng.isPaused()) return "续";
+    return "演";
+  }
+
+  function sessionButtonTitle(eng) {
+    if (!eng) return "开始演说";
+    if (typeof eng.isActive === "function" && eng.isActive()) return "暂停演说";
+    if (typeof eng.isPaused === "function" && eng.isPaused()) return "继续演说";
+    return "开始演说";
+  }
+
+  function toolbarGlyphButton(attrs) {
+    const a = attrs && typeof attrs === "object" ? attrs : {};
+    const classes = ["copilot-toolbar-btn", "copilot-toolbar-btn--glyph"];
+    if (a.className) classes.push(a.className);
+    const parts = [
+      `<button type="button" class="${classes.join(" ")}"`,
+      a.dataset ? ` data-${a.dataset.key}="true"` : "",
+      a.disabled ? " disabled" : "",
+      ` aria-label="${a.label || ""}"`,
+      ` title="${a.title || a.label || ""}"`,
+      ">",
+      a.glyph || "",
+      "</button>",
+    ];
+    return parts.join("");
+  }
+
+  function toolbarInnerHtml() {
+    return (
+      '<div class="copilot-toolbar-inner">' +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-session" },
+        glyph: "演",
+        label: "开始演说",
+        title: "开始演说",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-prev" },
+        glyph: "上",
+        label: "上一步",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-next" },
+        glyph: "下",
+        label: "下一步",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-caption-toggle" },
+        glyph: "泡",
+        label: "字幕气泡",
+        title: "显示/隐藏字幕气泡",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-script" },
+        glyph: "稿",
+        label: "演说稿",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-select-toggle" },
+        glyph: "选",
+        label: "组件选择",
+        title: "点选场景组件",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-tts" },
+        glyph: "音",
+        label: "语音播报",
+        title: "语音播报即将支持",
+        disabled: true,
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-exit" },
+        glyph: "完",
+        label: "退出演说",
+        className: "copilot-toolbar-btn--exit",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-ai" },
+        glyph: "问",
+        label: "AI 对话",
+        className: "copilot-toolbar-btn--ai",
+      }) +
+      "</div>"
+    );
   }
 
   function onToolbarClick(event) {
@@ -19133,14 +19926,22 @@
     const eng = engine();
     const step = eng ? eng.currentStep() : null;
     const manifest = eng ? eng.state.manifest : null;
+    const layout = fabLayout();
+    if (layout && typeof layout.syncCopilotFabToolbarLayout === "function") {
+      layout.syncCopilotFabToolbarLayout();
+    }
     const sessionBtn = toolbar.querySelector("[data-copilot-session]");
     if (sessionBtn) {
       sessionBtn.textContent = sessionButtonLabel(eng);
+      const sessionTitle = sessionButtonTitle(eng);
+      sessionBtn.setAttribute("title", sessionTitle);
+      sessionBtn.setAttribute("aria-label", sessionTitle);
     }
     toolbar.dataset.progress =
       eng && eng.steps.length ? `${eng.stepIndex + 1} / ${eng.steps.length}` : "";
     toolbar.title = step?.title || manifest?.title || COPILOT_TITLE;
-    if (uiState.toolbarOpen) {
+    const nextOpen = uiState.toolbarOpen;
+    if (nextOpen) {
       toolbar.removeAttribute("hidden");
       floatingRoot()?.classList.add("copilot-toolbar-active");
     } else {
@@ -19157,6 +19958,10 @@
   }
 
   function copilotFabContextActive() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.copilotFabContextActive === "function") {
+      return ctx.copilotFabContextActive();
+    }
     const eng = engine();
     return Boolean(
       isCopilotRoute() ||
@@ -19168,13 +19973,11 @@
   function bindFabBehavior() {
     if (boot.copilotFabBound) return;
     const fab = document.getElementById("access-chat-fab");
-    const eng = engine();
-    if (!fab || !eng || !copilotFabContextActive()) return;
+    if (!fab || !copilotFabContextActive()) return;
     boot.copilotFabBound = true;
     fab.addEventListener(
       "click",
       (event) => {
-        if (!eng.hasManifest()) return;
         if (boot.agentPanelState && boot.agentPanelState.accessFloatingDragMoved) return;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -19209,6 +20012,10 @@
   }
 
   function shouldMount() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.shouldMountCopilotToolbar === "function") {
+      return ctx.shouldMountCopilotToolbar();
+    }
     const eng = engine();
     return Boolean((eng && eng.hasManifest()) || isCopilotRoute() || hasCopilotShell());
   }
@@ -19216,29 +20023,33 @@
   function mount(options) {
     const opts = options && typeof options === "object" ? options : {};
     const eng = engine();
-    if (!eng || !shouldMount()) return false;
-    const force = opts.force === true;
-    if (!eng.ensureLoaded() && !force && !isCopilotRoute() && !hasCopilotShell()) return false;
+    if (!shouldMount()) return false;
     ensureToolbar();
     ensureCaption();
-    ensureCopilotFabElevation();
+    ensureCopilotInViewport();
     bindSelectMode();
     bindFabBehavior();
     uiState.mounted = true;
     uiState.toolbarOpen = opts.toolbarOpen === true;
-    if (opts.autoStart === true && (isCopilotRoute() || hasCopilotShell())) {
+    if (opts.autoStart === true && eng && (isCopilotRoute() || hasCopilotShell())) {
+      if (typeof eng.ensureLoaded === "function") {
+        eng.ensureLoaded();
+      }
       eng.start({ apply: opts.apply !== false });
     }
     renderAll();
+    scheduleFabLayout();
     return true;
   }
 
   const toolbar = {
     mount,
     renderAll,
+    syncLayout: scheduleFabLayout,
     onStepApplied() {
-      ensureCopilotFabElevation();
+      ensureCopilotInViewport();
       renderAll();
+      scheduleFabLayout();
     },
     toggleToolbar(next) {
       if (typeof next === "boolean") uiState.toolbarOpen = next;
@@ -19277,6 +20088,10 @@
   }
 
   function shouldAutoStart() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.shouldMountCopilotToolbar === "function") {
+      return ctx.shouldMountCopilotToolbar();
+    }
     const eng = engine();
     return Boolean((eng && eng.hasManifest()) || isCopilotRoute() || hasCopilotShell());
   }
@@ -22405,6 +23220,7 @@
         if (typeof boot.markLoadingPostSpaDone === "function") {
           boot.markLoadingPostSpaDone(navigationId);
         }
+        document.dispatchEvent(new CustomEvent("mei:spa-navigation-complete"));
       } catch (err) {
         console.warn("[spa-navigation] post-spa work failed", err);
       }

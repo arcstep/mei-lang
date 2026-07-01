@@ -1,7 +1,7 @@
 import { COCKPIT_Z_INDEX } from "../cockpit/tokens.js";
 import { color } from "./theme-style.js";
 
-/** 高于二级看板（1620）与 GIS tooltip（1550） */
+/** 高于 T2 board 与 T2 tooltip 子带 */
 export const FLOATING_TEXT_POPOVER_Z = COCKPIT_Z_INDEX.textPopover;
 
 let stylesReady = false;
@@ -74,7 +74,7 @@ export function textPopoverStyleBlock(variant = "large") {
     .cell-pop-backdrop {
       position: fixed;
       inset: 0;
-      z-index: var(--mei-z-cockpit-text-popover, 1700);
+      z-index: var(--mei-z-cockpit-text-popover, 2350);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -84,7 +84,7 @@ export function textPopoverStyleBlock(variant = "large") {
     }
     .cell-pop {
       position: fixed;
-      z-index: var(--mei-z-cockpit-text-popover, 1700);
+      z-index: var(--mei-z-cockpit-text-popover, 2350);
       min-width: ${large ? "420px" : "360px"};
       max-width: min(96vw, ${large ? "920px" : "800px"});
       max-height: min(88vh, ${large ? "760px" : "700px"});

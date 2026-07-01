@@ -20,6 +20,10 @@
   }
 
   function shouldAutoStart() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.shouldMountCopilotToolbar === "function") {
+      return ctx.shouldMountCopilotToolbar();
+    }
     const eng = engine();
     return Boolean((eng && eng.hasManifest()) || isCopilotRoute() || hasCopilotShell());
   }

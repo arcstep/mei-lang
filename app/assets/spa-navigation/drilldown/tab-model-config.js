@@ -432,6 +432,16 @@
     }
   }
 
+  function syncLayer2ViewportDesignVars(target) {
+    if (!(target instanceof HTMLElement)) return;
+    const viewport = document.querySelector('[data-mei-frame-viewport="true"]');
+    if (!(viewport instanceof HTMLElement)) return;
+    const designWidth = String(viewport.dataset.designWidth || "1920").trim() || "1920";
+    const designHeight = String(viewport.dataset.designHeight || "1080").trim() || "1080";
+    target.style.setProperty("--mei-viewport-design-width", `${designWidth}px`);
+    target.style.setProperty("--mei-viewport-design-height", `${designHeight}px`);
+  }
+
   function applyDrilldownOverlayMeta(root, config) {
     syncDrilldownOverlayThemeVars(root);
     const titleEl = root.querySelector('[data-drilldown-title="true"]');
@@ -478,8 +488,7 @@
       structuredLayout.dataset.shellLayoutMode = String(config?.sceneShell?.layoutMode || "");
       if (config?.boardFrameScene) {
         structuredLayout.classList.add("mei-layer2-viewport-stage");
-        structuredLayout.style.setProperty("--mei-viewport-design-width", "1920px");
-        structuredLayout.style.setProperty("--mei-viewport-design-height", "1080px");
+        syncLayer2ViewportDesignVars(structuredLayout);
       }
     }
     applyDrilldownOverlaySize(root, config);

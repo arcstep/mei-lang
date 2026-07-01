@@ -4,6 +4,10 @@
     requestAnimationFrame(() => {
       viewportUpdateQueued.delete(root);
       updateViewport(root);
+      try {
+        window.__meiLangBoot?.relocateStageOverlaysInViewport?.() ||
+          window.__meiLangBoot?.relocateCopilotInViewport?.();
+      } catch (_) {}
     });
   }
 

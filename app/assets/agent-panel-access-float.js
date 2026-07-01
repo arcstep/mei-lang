@@ -27,19 +27,43 @@
       );
     }
 
+    function floatingBoundsHost() {
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.copilotFloatingOffsetParent === "function") {
+        const host = bootApi.copilotFloatingOffsetParent(els.accessFloatingRoot);
+        if (host) return host;
+      }
+      return null;
+    }
+
+    function floatingBoundsSize() {
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.copilotFloatingBoundsSize === "function") {
+        const size = bootApi.copilotFloatingBoundsSize();
+        if (size && size.width > 0 && size.height > 0) {
+          return size;
+        }
+      }
+      return {
+        width: Number(window.innerWidth || 0),
+        height: Number(window.innerHeight || 0),
+      };
+    }
+
     function clampAccessFloatingPosition(left, top) {
       if (!isAccessFloatingMode()) return null;
       const width = Math.max(48, Number(els.accessFloatingRoot.offsetWidth || 68));
       const height = Math.max(48, Number(els.accessFloatingRoot.offsetHeight || 68));
+      const bounds = floatingBoundsSize();
       const minLeft = ACCESS_FLOATING_MARGIN_PX;
       const minTop = ACCESS_FLOATING_MARGIN_PX;
       const maxLeft = Math.max(
         minLeft,
-        Number(window.innerWidth || 0) - width - ACCESS_FLOATING_MARGIN_PX,
+        Number(bounds.width || 0) - width - ACCESS_FLOATING_MARGIN_PX,
       );
       const maxTop = Math.max(
         minTop,
-        Number(window.innerHeight || 0) - height - ACCESS_FLOATING_MARGIN_PX,
+        Number(bounds.height || 0) - height - ACCESS_FLOATING_MARGIN_PX,
       );
       const nextLeft = Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0)));
       const nextTop = Math.min(maxTop, Math.max(minTop, Math.round(Number(top) || 0)));
@@ -105,6 +129,10 @@
       els.accessPanel.hidden = !open;
       els.accessFab.title = open ? "关闭助手对话框" : "打开助手对话框";
       els.accessFab.setAttribute("aria-label", open ? "关闭助手对话框" : "打开助手对话框");
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.relocateAccessChatOverlayInViewport === "function") {
+        bootApi.relocateAccessChatOverlayInViewport();
+      }
     }
 
     function rememberAccessFloatingPanel() {
@@ -114,8 +142,51 @@
       } catch (_) {}
     }
 
+    function reclampAccessFloatingInViewport() {
+      if (!isAccessFloatingMode()) return;
+      if (!els.accessFloatingRoot?.classList.contains("mei-copilot-in-viewport")) {
+        return;
+      }
+      if (els.accessFloatingRoot.dataset.positioned === "true") {
+        const left = Number(els.accessFloatingRoot.style.left);
+        const top = Number(els.accessFloatingRoot.style.top);
+        if (Number.isFinite(left) && Number.isFinite(top)) {
+          const pos = clampAccessFloatingPosition(left, top);
+          if (pos) {
+            applyAccessFloatingPosition(pos.left, pos.top);
+          } else {
+            clearAccessFloatingPosition();
+          }
+        }
+      } else {
+        els.accessFloatingRoot.style.left = "";
+        els.accessFloatingRoot.style.top = "";
+      }
+    }
+
+    function syncAccessFloatingViewportMount() {
+      if (!isAccessFloatingMode()) return;
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.relocateStageOverlaysInViewport === "function") {
+        bootApi.relocateStageOverlaysInViewport();
+      } else if (typeof bootApi.relocateCopilotInViewport === "function") {
+        bootApi.relocateCopilotInViewport();
+      }
+      reclampAccessFloatingInViewport();
+      const layout = bootApi.copilotFabLayout;
+      if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+        layout.scheduleCopilotFabToolbarLayout();
+      }
+    }
+
     function restoreAccessFloatingPanel() {
       if (!isAccessFloatingMode()) return;
+      const bootApi = window.__meiLangBoot || {};
+      if (typeof bootApi.relocateStageOverlaysInViewport === "function") {
+        bootApi.relocateStageOverlaysInViewport();
+      } else if (typeof bootApi.relocateCopilotInViewport === "function") {
+        bootApi.relocateCopilotInViewport();
+      }
       restoreAccessFloatingPosition();
       try {
         const saved = localStorage.getItem(accessFloatingStorageKey());
@@ -124,6 +195,7 @@
         state.accessFloatingOpen = false;
       }
       renderAccessFloatingPanel();
+      reclampAccessFloatingInViewport();
     }
 
     function toggleAccessFloatingPanel(next) {
@@ -147,13 +219,17 @@
     function beginAccessFloatingDrag(event) {
       if (!isAccessFloatingMode()) return;
       if (event && event.button != null && event.button !== 0) return;
+      const host = floatingBoundsHost();
+      const hostRect = host
+        ? host.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const rect = els.accessFloatingRoot.getBoundingClientRect();
       accessFloatingDragState = {
         pointerId: event ? event.pointerId : null,
         startX: Number(event && event.clientX),
         startY: Number(event && event.clientY),
-        baseLeft: Number(rect.left || 0),
-        baseTop: Number(rect.top || 0),
+        baseLeft: Number(rect.left || 0) - Number(hostRect.left || 0),
+        baseTop: Number(rect.top || 0) - Number(hostRect.top || 0),
         moved: false,
         lastLeft: Number(rect.left || 0),
         lastTop: Number(rect.top || 0),
@@ -233,6 +309,15 @@
           state.accessFloatingDragMoved = false;
         }, 0);
       }
+      const layout = (window.__meiLangBoot || {}).copilotFabLayout;
+      if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+        layout.scheduleCopilotFabToolbarLayout();
+      } else {
+        const toolbar = (window.__meiLangBoot || {}).copilotToolbar;
+        if (toolbar && typeof toolbar.syncLayout === "function") {
+          toolbar.syncLayout({ toolbarOpenChanged: true });
+        }
+      }
     }
 
     return {
@@ -245,6 +330,8 @@
       renderAccessFloatingPanel,
       rememberAccessFloatingPanel,
       restoreAccessFloatingPanel,
+      reclampAccessFloatingInViewport,
+      syncAccessFloatingViewportMount,
       toggleAccessFloatingPanel,
       beginAccessFloatingDrag,
       continueAccessFloatingDrag,

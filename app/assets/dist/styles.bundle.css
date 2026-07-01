@@ -39,16 +39,31 @@
   --mei-splitter-active-line-right: var(--mei-shell-color-splitter-line, var(--mei-shell-color-border-default));
   --mei-splitter-active-track-right: var(--mei-shell-color-panel-bg);
 
-  /* 首屏驾驶舱叠层（低→高）：底图 < 板块 < GIS工具 < 飘窗 < 二级看板 */
+  /* Scene tiers T0/T1/T2 + P/C/Host planes (SSOT: docs/mei-lang-v2/03-ui/0301) */
   --mei-z-cockpit-map: 1;
-  --mei-z-cockpit-panel: 100;
-  --mei-z-cockpit-header: 110;
-  --mei-z-cockpit-map-tools: 1520;
-  --mei-z-cockpit-tooltip: 1550;
-  --mei-z-drilldown: 1600;
-  --mei-z-drilldown-board: 1620;
-  --mei-z-cockpit-tooltip-in-board: 1650;
-  --mei-z-cockpit-text-popover: 1700;
+  --mei-z-cockpit-panel: 1001;
+  --mei-z-cockpit-header: 1110;
+  --mei-z-cockpit-map-tools: 1210;
+  --mei-z-cockpit-tooltip: 1300;
+  --mei-z-drilldown: 2001;
+  --mei-z-drilldown-board: 2010;
+  --mei-z-layer2-workspace: 2001;
+  --mei-z-drilldown-context: 2210;
+  --mei-z-cockpit-tooltip-in-board: 2300;
+  --mei-z-cockpit-text-popover: 2350;
+  --mei-z-presentation-slide: 5000;
+  --mei-z-presentation-caption: 5100;
+  --mei-z-spa-loading: 5050;
+  --mei-z-copilot-assistant: 5400;
+  --mei-z-copilot-drawer: 5450;
+  --mei-z-copilot-fab: 5500;
+  --mei-z-copilot-fab-elevated: 5510;
+  --mei-z-copilot-overlay: 5520;
+  --mei-z-access-chat: 5410;
+  --mei-z-access-chat-overlay: 5420;
+  --mei-z-host-feedback: 5800;
+  --mei-z-host-heartbeat: 5810;
+  --mei-z-host-overlay: 5820;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -82,7 +97,7 @@ body {
 .spa-loading-overlay {
   position: fixed;
   inset: 0;
-  z-index: 5000;
+  z-index: var(--mei-z-spa-loading);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -233,7 +248,7 @@ body {
 .visit-history-popover {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  z-index: var(--mei-z-host-overlay);
   pointer-events: none;
 }
 .visit-history-popover.is-open {
@@ -1590,21 +1605,44 @@ a.status-chip-link:focus-visible {
 /* shell chrome end — body/scene overlays below use scene track (--mei-color-*) */
 /* 访问侧：悬浮按钮 + 悬浮对话框模式，不依赖主布局宽度。 */
 .access-chat-floating-root {
+  z-index: var(--mei-z-access-chat);
+}
+body:not(.mei-copilot-viewport-mounted) > main .access-chat-floating-root,
+body:not(.mei-copilot-viewport-mounted) > .access-chat-floating-root {
   position: fixed;
-  right: clamp(14px, 2.6vw, 30px);
   bottom: clamp(68px, 9vh, 98px);
-  z-index: 1200;
+  display: block;
+  width: fit-content;
+  height: fit-content;
+  overflow: visible;
+  max-width: none;
+}
+body:not(.mei-copilot-viewport-mounted) > main .access-chat-floating-root:not([data-positioned="true"]),
+body:not(.mei-copilot-viewport-mounted) > .access-chat-floating-root:not([data-positioned="true"]) {
+  right: clamp(14px, 2.6vw, 30px);
+  left: auto;
+}
+/* FAB 尚未挂入 stage 时的兜底：避免仅有 viewport-mounted 标记却失去 fixed 定位 */
+.access-chat-floating-root:not(.mei-copilot-in-viewport),
+.access-external-ai-floating-root:not(.mei-copilot-in-viewport) {
+  position: fixed;
+  bottom: clamp(68px, 9vh, 98px);
+}
+.access-chat-floating-root:not(.mei-copilot-in-viewport):not([data-positioned="true"]) {
+  right: clamp(14px, 2.6vw, 30px);
+  left: auto;
 }
 /* Copilot 演说：FAB + 工具条整体抬至全站最上层，压在 slide 全屏层之上。 */
 .access-chat-floating-root.copilot-fab-elevated {
-  z-index: 4000;
+  z-index: var(--mei-z-copilot-fab-elevated);
 }
 body.mei-copilot-fab-mounted .access-chat-overlay-panel {
-  z-index: 4001;
+  z-index: var(--mei-z-copilot-overlay);
 }
 .access-chat-fab {
   width: clamp(58px, 6vw, 72px);
   height: clamp(58px, 6vw, 72px);
+  flex: 0 0 auto;
   border-radius: 999px;
   border: 1px solid rgba(45, 212, 191, 0.42);
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(6, 13, 24, 0.96));
@@ -1653,6 +1691,9 @@ body.mei-copilot-fab-mounted .access-chat-overlay-panel {
   object-fit: contain;
 }
 .access-chat-overlay-panel {
+  z-index: var(--mei-z-access-chat-overlay);
+}
+body:not(.mei-copilot-viewport-mounted) .access-chat-overlay-panel {
   position: fixed;
   right: clamp(12px, 2vw, 24px);
   top: clamp(72px, 10vh, 96px);
@@ -1664,7 +1705,7 @@ body.mei-copilot-fab-mounted .access-chat-overlay-panel {
   background: linear-gradient(180deg, rgba(8, 15, 25, 0.97), rgba(5, 10, 18, 0.98));
   box-shadow: 0 18px 48px rgba(2, 6, 23, 0.6);
   overflow: hidden;
-  z-index: 1210;
+  z-index: var(--mei-z-access-chat-overlay);
 }
 .access-chat-overlay-head {
   height: 34px;
@@ -1948,7 +1989,244 @@ body > .mei-floating-text-pop-backdrop {
   padding: 6px;
 }
 .mei-layer2-workspace {
-  z-index: 1100;
+  z-index: var(--mei-z-layer2-workspace);
+}
+.mei-layer2-in-viewport {
+  position: absolute;
+  inset: 0;
+  z-index: var(--mei-z-layer2-workspace);
+  box-sizing: border-box;
+}
+/* T2 挂在 preview-stage-shell 内：禁止 fixed/vw/vh，与 T0/T1 共用 letterbox 画布 */
+.mei-layer2-in-viewport.mei-layer2-workspace,
+.mei-layer2-in-viewport .mei-layer2-tab-panel.access-drilldown-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  display: grid;
+  align-items: stretch;
+  justify-items: stretch;
+}
+.mei-layer2-in-viewport.access-drilldown-overlay--size-comfortable,
+.mei-layer2-in-viewport.access-drilldown-overlay--size-large,
+.mei-layer2-in-viewport.access-drilldown-overlay--size-fullscreen,
+.mei-layer2-in-viewport .access-drilldown-overlay--size-comfortable,
+.mei-layer2-in-viewport .access-drilldown-overlay--size-large,
+.mei-layer2-in-viewport .access-drilldown-overlay--size-fullscreen {
+  padding: 0;
+}
+.mei-layer2-in-viewport .access-drilldown-overlay-panel {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  border-radius: 0;
+}
+.mei-layer2-in-viewport .mei-layer2-viewport-stage {
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+/* P 层：演说 slide，挂在 preview-stage-shell 内与 T0–T2 共用 letterbox 画布 */
+.mei-presentation-plane {
+  position: absolute;
+  inset: 0;
+  z-index: var(--mei-z-presentation-slide);
+  pointer-events: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.mei-presentation-in-viewport.mei-copilot-slide-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(4, 16, 36, 0.92);
+  pointer-events: auto;
+}
+.mei-presentation-in-viewport.mei-copilot-slide-layer--overlay {
+  background: rgba(4, 16, 36, 0.45);
+  pointer-events: none;
+}
+.mei-presentation-in-viewport.mei-copilot-slide-layer--overlay .mei-copilot-slide-inner {
+  pointer-events: auto;
+  width: min(720px, 90%);
+  max-width: min(720px, 90%);
+  min-width: min(280px, 70%);
+  background: rgba(8, 28, 58, 0.94);
+  border: 1px solid rgba(56, 160, 240, 0.35);
+  border-radius: 14px;
+  padding: 24px 28px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.mei-presentation-in-viewport .mei-copilot-slide-inner {
+  width: min(960px, 92%);
+  max-width: min(960px, 92%);
+  min-width: min(320px, 72%);
+  box-sizing: border-box;
+  text-align: center;
+  color: #e8f0ff;
+  font-size: clamp(18px, 2.8vmin, 28px);
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+/* C 层：Copilot / FAB / 助手对话，挂在 preview-stage-shell 内与 T0–T2 同画布 */
+.mei-copilot-plane {
+  position: absolute;
+  inset: 0;
+  z-index: var(--mei-z-copilot-assistant);
+  pointer-events: none;
+  box-sizing: border-box;
+  overflow: visible;
+}
+.mei-copilot-plane > * {
+  pointer-events: auto;
+}
+.mei-copilot-in-viewport.access-chat-floating-root,
+.mei-copilot-in-viewport.access-external-ai-floating-root {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  left: auto;
+  top: auto;
+  z-index: var(--mei-z-copilot-fab);
+  display: block;
+  width: fit-content;
+  height: fit-content;
+  overflow: visible;
+  max-width: none;
+}
+.mei-copilot-in-viewport.access-chat-floating-root:not([data-positioned="true"]) {
+  right: 24px;
+  left: auto;
+  bottom: 24px;
+}
+.mei-copilot-in-viewport .access-chat-fab {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+}
+.access-chat-floating-root > .access-chat-overlay-panel {
+  position: absolute;
+  pointer-events: none;
+}
+.access-chat-floating-root > .access-chat-overlay-panel:not([hidden]) {
+  pointer-events: auto;
+}
+.copilot-fab-dock {
+  position: relative;
+  display: block;
+  width: fit-content;
+  height: fit-content;
+  overflow: visible;
+  flex: none;
+}
+.copilot-fab-dock .copilot-toolbar {
+  position: absolute;
+  bottom: 0;
+  z-index: 2;
+  display: block;
+  width: max-content;
+  max-width: min(calc(100vw - 120px), 720px);
+  box-sizing: border-box;
+}
+.access-chat-floating-root[data-copilot-toolbar-side="end"] .copilot-fab-dock .copilot-toolbar,
+.access-chat-floating-root:not([data-copilot-toolbar-side]) .copilot-fab-dock .copilot-toolbar {
+  right: 100%;
+  left: auto;
+  margin-right: 8px;
+}
+.access-chat-floating-root[data-copilot-toolbar-side="start"] .copilot-fab-dock .copilot-toolbar {
+  left: 100%;
+  right: auto;
+  margin-left: 8px;
+}
+.mei-copilot-in-viewport.access-chat-floating-root[data-open="true"] {
+  inset: 0;
+  right: auto;
+  bottom: auto;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.mei-copilot-in-viewport.access-chat-floating-root[data-open="true"] .access-chat-fab {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  pointer-events: auto;
+}
+.mei-copilot-in-viewport .access-chat-overlay-panel {
+  position: absolute;
+  right: 12px;
+  top: 72px;
+  bottom: 88px;
+  left: auto;
+  width: min(540px, 50%);
+  min-width: 280px;
+  pointer-events: auto;
+}
+.mei-copilot-plane > .access-chat-overlay-panel.mei-copilot-ai-overlay-panel {
+  position: absolute;
+  right: 12px;
+  top: 72px;
+  bottom: 88px;
+  left: auto;
+  width: min(540px, 50%);
+  min-width: 280px;
+  z-index: var(--mei-z-copilot-overlay);
+  pointer-events: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(71, 85, 105, 0.55);
+  background: linear-gradient(180deg, rgba(8, 15, 25, 0.97), rgba(5, 10, 18, 0.98));
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.6);
+  overflow: hidden;
+}
+body.mei-copilot-viewport-mounted.mei-copilot-ai-overlay-open .mei-copilot-plane > .access-chat-overlay-panel {
+  z-index: var(--mei-z-copilot-overlay);
+}
+.mei-copilot-in-viewport.copilot-script-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(360px, 30%);
+  height: 100%;
+  z-index: var(--mei-z-copilot-drawer);
+}
+.mei-copilot-in-viewport.mei-copilot-caption,
+.mei-copilot-in-viewport.mei-presenter-caption {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: var(--mei-z-presentation-caption);
+  width: min(720px, 68%);
+  min-width: min(240px, 50%);
+  max-width: min(720px, 68%);
+  box-sizing: border-box;
+  text-align: center;
+}
+.mei-copilot-in-viewport .copilot-toolbar {
+  position: absolute;
+  width: max-content;
+  max-width: min(720px, calc(100vw - 160px));
+}
+.mei-copilot-viewport-mounted .access-chat-floating-root.copilot-fab-elevated {
+  position: absolute;
+}
+body.mei-copilot-viewport-mounted.mei-copilot-fab-mounted .access-chat-overlay-panel {
+  z-index: var(--mei-z-copilot-overlay);
 }
 .mei-layer2-workspace-shell {
   display: flex;
@@ -2014,7 +2292,7 @@ html.mei-tier-dim .mei-viewpoint-focus.preview-card-scale-wrap {
   position: fixed;
   right: 20px;
   bottom: 88px;
-  z-index: 3600;
+  z-index: var(--mei-z-copilot-assistant);
   width: min(320px, calc(100vw - 32px));
   border-radius: 14px;
   border: 1px solid rgba(56, 160, 240, 0.35);
@@ -2060,7 +2338,7 @@ html.mei-tier-dim .mei-viewpoint-focus.preview-card-scale-wrap {
   left: 50%;
   bottom: 24px;
   transform: translateX(-50%);
-  z-index: 3550;
+  z-index: var(--mei-z-presentation-caption);
   max-width: min(720px, calc(100vw - 32px));
   padding: 12px 16px;
   border-radius: 12px;
@@ -2081,25 +2359,34 @@ body.mei-presenter-select-mode [data-mei-viewpoint] {
   bottom: 24px;
 }
 .access-chat-floating-root.copilot-toolbar-active {
-  width: auto;
-  min-width: 68px;
+  width: fit-content;
+  min-width: 0;
 }
 .copilot-toolbar {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
   z-index: 2;
-  max-width: min(92vw, 720px);
+  width: max-content;
+  max-width: min(calc(100vw - 120px), 720px);
+}
+.copilot-toolbar[hidden] {
+  display: none !important;
 }
 .copilot-toolbar-inner {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
   border-radius: 12px;
   border: 1px solid rgba(56, 160, 240, 0.35);
   background: rgba(8, 28, 58, 0.94);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  width: max-content;
+  max-width: inherit;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 .copilot-toolbar-btn {
   border: 1px solid rgba(56, 160, 240, 0.35);
@@ -2110,6 +2397,18 @@ body.mei-presenter-select-mode [data-mei-viewpoint] {
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
+  flex: 0 0 auto;
+}
+.copilot-toolbar-btn--glyph {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mei-font-family-ui, system-ui, sans-serif);
 }
 .copilot-toolbar-btn:hover:not(:disabled),
 .copilot-toolbar-btn:focus-visible:not(:disabled) {
@@ -2133,7 +2432,7 @@ body.mei-presenter-select-mode [data-mei-viewpoint] {
   position: fixed;
   top: 0;
   right: 0;
-  z-index: 3650;
+  z-index: var(--mei-z-copilot-drawer);
   width: min(360px, 92vw);
   height: 100vh;
   border-left: 1px solid rgba(56, 160, 240, 0.35);
@@ -2169,7 +2468,7 @@ body.mei-presenter-select-mode [data-mei-viewpoint] {
 .mei-copilot-slide-layer {
   position: fixed;
   inset: 0;
-  z-index: 3400;
+  z-index: var(--mei-z-presentation-slide);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2195,7 +2494,9 @@ body.mei-presenter-select-mode [data-mei-viewpoint] {
   font-size: clamp(18px, 2.4vw, 28px);
   line-height: 1.5;
 }
-body.mei-copilot-slide-active:not(.mei-copilot-slide-active .mei-copilot-slide-layer--overlay) {
+body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
+    .mei-copilot-slide-active .mei-copilot-slide-layer--overlay
+  ) {
   overflow: hidden;
 }
 .mei-viewpoint-focus {
@@ -3567,7 +3868,7 @@ body.mei-copilot-slide-active:not(.mei-copilot-slide-active .mei-copilot-slide-l
   left: 50%;
   top: 14px;
   transform: translateX(-50%);
-  z-index: 1500;
+  z-index: var(--mei-z-drilldown-context);
   width: min(980px, calc(100vw - 40px));
   padding: 10px 14px;
   border-radius: 12px;
@@ -5560,7 +5861,7 @@ a.tree-link {
   background: var(--mei-color-surface-bg, rgba(15, 23, 42, 0.65));
 }
 .author-panel {
-  --sl-z-index-dropdown: 2200;
+  --sl-z-index-dropdown: var(--mei-z-cockpit-tooltip-in-board);
   transition: opacity 140ms ease, filter 140ms ease;
 }
 .author-panel.is-soft-refresh {
@@ -6968,7 +7269,7 @@ a.tree-link {
   position: fixed;
   top: 12px;
   right: 12px;
-  z-index: 10050;
+  z-index: var(--mei-z-host-feedback);
   display: grid;
   gap: 8px;
   width: min(92vw, 420px);
@@ -7102,7 +7403,7 @@ a.tree-link {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 10060;
+  z-index: var(--mei-z-host-heartbeat);
   display: grid;
   justify-items: center;
   padding: 10px 12px 0;

@@ -49,21 +49,55 @@ export const COCKPIT_LAYOUT = {
 };
 
 /**
- * 首屏驾驶舱叠层（自低到高）：底图 / GIS 图层 < 各板块 < GIS 工具 < 飘窗提示 < 二级看板
- * 与 app-shell.css `--mei-z-cockpit-*` 保持一致。
+ * MeiLang viewport Z bands (SSOT with app-shell.css --mei-z-*).
+ * T0: 0–1000 | T1: 1001–2000 | T2: 2001–3000 | P: 5000–5399 | C: 5400–5799 | Host: 5800+
  */
 export const COCKPIT_Z_INDEX = {
   map: 1,
-  panel: 100,
-  header: 110,
-  mapTools: 1520,
-  tooltip: 1550,
-  drilldown: 1600,
-  drilldownBoard: 1620,
-  /** 二级看板内 ECharts / 地图飘窗（高于看板面板，低于「查看全文」） */
-  tooltipInBoard: 1650,
-  /** 长文本「查看全文」飘窗（高于二级看板） */
-  textPopover: 1700,
+  panel: 1001,
+  header: 1110,
+  mapTools: 1210,
+  tooltip: 1300,
+  drilldown: 2001,
+  drilldownBoard: 2010,
+  layer2Workspace: 2001,
+  drilldownContext: 2210,
+  filterFloatingPanel: 2250,
+  /** T2 board 内 ECharts / 地图飘窗 */
+  tooltipInBoard: 2300,
+  /** 长文本「查看全文」飘窗 */
+  textPopover: 2350,
+};
+
+export const PRESENTATION_Z_INDEX = {
+  slide: 5000,
+  caption: 5100,
+  spaLoading: 5050,
+};
+
+export const COPILOT_Z_INDEX = {
+  assistant: 5400,
+  drawer: 5450,
+  fab: 5500,
+  fabElevated: 5510,
+  overlay: 5520,
+  accessChat: 5410,
+  accessChatOverlay: 5420,
+};
+
+export const HOST_Z_INDEX = {
+  feedback: 5800,
+  heartbeat: 5810,
+};
+
+/** @deprecated use COCKPIT_Z_INDEX + PRESENTATION_Z_INDEX + COPILOT_Z_INDEX */
+export const MEI_Z_LAYERS = {
+  t0: { min: 0, max: 1000, default: COCKPIT_Z_INDEX.map },
+  t1: { min: 1001, max: 2000, default: COCKPIT_Z_INDEX.panel },
+  t2: { min: 2001, max: 3000, default: COCKPIT_Z_INDEX.drilldown },
+  presentation: { min: 5000, max: 5399, default: PRESENTATION_Z_INDEX.slide },
+  copilot: { min: 5400, max: 5799, default: COPILOT_Z_INDEX.assistant },
+  host: { min: 5800, max: 99999, default: HOST_Z_INDEX.feedback },
 };
 
 /** 字号由 theme 语义角色（--mei-metric-*）与 font 档位（--mei-font-*）驱动，此处仅作 fallback */
@@ -220,6 +254,53 @@ export function resolveRuntimeColor(host, value, tokenName) {
     return readThemeColor(host, text);
   }
   return readThemeColor(host, String(tokenName ?? "").trim());
+}
+
+const STYLE_CSS_KEYWORDS = new Set([
+  "solid",
+  "dashed",
+  "dotted",
+  "double",
+  "none",
+  "hidden",
+  "inset",
+  "outset",
+]);
+
+function isStyleWordLiteral(word) {
+  if (!word) {
+    return true;
+  }
+  if (/^#([0-9a-f]{3,8})$/i.test(word)) {
+    return true;
+  }
+  if (/^rgba?\([^)]*\)$/i.test(word) || /^hsla?\([^)]*\)$/i.test(word)) {
+    return true;
+  }
+  if (/^var\([^)]*\)$/i.test(word)) {
+    return true;
+  }
+  if (/^[\d.]+(px|rem|%)?$/.test(word)) {
+    return true;
+  }
+  return false;
+}
+
+/** border / box-shadow 等复合值：逐词解析颜色 token */
+export function resolveRuntimeStyleValue(host, value) {
+  const text = String(value ?? "").trim();
+  if (!text) {
+    return text;
+  }
+  return text
+    .split(/\s+/)
+    .map((word) => {
+      if (!word || STYLE_CSS_KEYWORDS.has(word) || isStyleWordLiteral(word)) {
+        return word;
+      }
+      return resolveRuntimeColor(host, word, word);
+    })
+    .join(" ");
 }
 
 /** ECharts 文本 fontFamily：解析 --mei-font-family-ui */

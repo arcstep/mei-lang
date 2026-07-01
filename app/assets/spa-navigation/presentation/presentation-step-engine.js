@@ -145,15 +145,35 @@
     return "";
   }
 
+  function mountSlideLayer(layer) {
+    if (!(layer instanceof HTMLElement)) {
+      return layer;
+    }
+    if (typeof boot.mountPresentationInViewport === "function" && boot.mountPresentationInViewport(layer)) {
+      return layer;
+    }
+    if (typeof boot.relocatePresentationInViewport === "function") {
+      boot.relocatePresentationInViewport();
+      if (layer.classList.contains("mei-presentation-in-viewport")) {
+        return layer;
+      }
+    }
+    if (layer.parentElement !== document.body) {
+      document.body.appendChild(layer);
+    }
+    layer.classList.remove("mei-presentation-in-viewport");
+    return layer;
+  }
+
   function ensureSlideLayer() {
     let layer = document.getElementById(SLIDE_LAYER_ID);
-    if (layer) return layer;
-    layer = document.createElement("div");
-    layer.id = SLIDE_LAYER_ID;
-    layer.className = "mei-copilot-slide-layer";
-    layer.setAttribute("hidden", "hidden");
-    document.body.appendChild(layer);
-    return layer;
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.id = SLIDE_LAYER_ID;
+      layer.className = "mei-copilot-slide-layer";
+      layer.setAttribute("hidden", "hidden");
+    }
+    return mountSlideLayer(layer);
   }
 
   function hideSlideLayer() {
@@ -173,7 +193,9 @@
     const layer = ensureSlideLayer();
     layer.innerHTML = `<div class="mei-copilot-slide-inner">${html}</div>`;
     layer.removeAttribute("hidden");
-    document.body.classList.add("mei-copilot-slide-active");
+    if (!layer.classList.contains("mei-presentation-in-viewport")) {
+      document.body.classList.add("mei-copilot-slide-active");
+    }
     if (composition === "slides_over_cockpit") {
       layer.classList.add("mei-copilot-slide-layer--overlay");
     } else {

@@ -1,5 +1,7 @@
 /** 驾驶舱底图观察窗：focusInset 解析与 cockpitBleed 布局（map / basemap-stage 共用）。 */
 
+import { resolveRuntimeStyleValue } from "./tokens.js";
+
 export function cssLength(value, fallback) {
   if (value == null || value === "") {
     return fallback;
@@ -151,16 +153,18 @@ export function focusInsetCssVars(focusInset) {
 }
 
 /** 观察窗描边（basemap 组件内）：实线/虚线均用 border + border-box。首层 chrome 框见 stage-aperture-frame。 */
-export function focusFrameGuideStyle(border, radius = "4px") {
+export function focusFrameGuideStyle(border, radius = "4px", host = null) {
   const text = String(border || "").trim();
   if (!text || text === "none" || text === "false") {
     return "";
   }
+  const resolvedBorder =
+    host instanceof Element ? resolveRuntimeStyleValue(host, text) : text;
   const radiusText = String(radius || "4px").trim() || "4px";
-  return `border:${text};border-radius:${radiusText};box-sizing:border-box;background:transparent;`;
+  return `border:${resolvedBorder};border-radius:${radiusText};box-sizing:border-box;background:transparent;`;
 }
 
-export function applyFocusFrameGuide(guide, layout) {
+export function applyFocusFrameGuide(guide, layout, host = null) {
   if (!guide || !layout) {
     return;
   }
@@ -172,6 +176,7 @@ export function applyFocusFrameGuide(guide, layout) {
   guide.style.cssText = focusFrameGuideStyle(
     layout.focusFrameBorder,
     layout.focusFrameRadius,
+    host ?? guide.parentElement,
   );
 }
 

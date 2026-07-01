@@ -46,16 +46,31 @@ const ROOT_ALIAS = `:root {
   --mei-splitter-active-line-right: var(--mei-shell-color-border-default);
   --mei-splitter-active-track-right: var(--mei-shell-color-panel-bg);
 
-  /* 首屏驾驶舱叠层（低→高）：底图 < 板块 < GIS工具 < 飘窗 < 二级看板 */
+  /* Scene tiers T0/T1/T2 + P/C/Host planes (SSOT: docs/mei-lang-v2/03-ui/0301) */
   --mei-z-cockpit-map: 1;
-  --mei-z-cockpit-panel: 100;
-  --mei-z-cockpit-header: 110;
-  --mei-z-cockpit-map-tools: 1520;
-  --mei-z-cockpit-tooltip: 1550;
-  --mei-z-drilldown: 1600;
-  --mei-z-drilldown-board: 1620;
-  --mei-z-cockpit-tooltip-in-board: 1650;
-  --mei-z-cockpit-text-popover: 1700;
+  --mei-z-cockpit-panel: 1001;
+  --mei-z-cockpit-header: 1110;
+  --mei-z-cockpit-map-tools: 1210;
+  --mei-z-cockpit-tooltip: 1300;
+  --mei-z-drilldown: 2001;
+  --mei-z-drilldown-board: 2010;
+  --mei-z-layer2-workspace: 2001;
+  --mei-z-drilldown-context: 2210;
+  --mei-z-cockpit-tooltip-in-board: 2300;
+  --mei-z-cockpit-text-popover: 2350;
+  --mei-z-presentation-slide: 5000;
+  --mei-z-presentation-caption: 5100;
+  --mei-z-spa-loading: 5050;
+  --mei-z-copilot-assistant: 5400;
+  --mei-z-copilot-drawer: 5450;
+  --mei-z-copilot-fab: 5500;
+  --mei-z-copilot-fab-elevated: 5510;
+  --mei-z-copilot-overlay: 5520;
+  --mei-z-access-chat: 5410;
+  --mei-z-access-chat-overlay: 5420;
+  --mei-z-host-feedback: 5800;
+  --mei-z-host-heartbeat: 5810;
+  --mei-z-host-overlay: 5820;
 }
 `;
 

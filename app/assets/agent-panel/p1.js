@@ -128,6 +128,8 @@
     return;
   }
   boot.toggleAccessFloatingPanel = AF.toggleAccessFloatingPanel.bind(AF);
+  boot.syncAccessFloatingViewportMount = AF.syncAccessFloatingViewportMount.bind(AF);
+  boot.reclampAccessFloatingInViewport = AF.reclampAccessFloatingInViewport.bind(AF);
   boot.agentPanelState = state;
 
   let SES = null;

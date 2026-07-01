@@ -362,7 +362,7 @@
   position: fixed;
   top: 12px;
   right: 12px;
-  z-index: 10050;
+  z-index: var(--mei-z-host-feedback);
   display: grid;
   gap: 8px;
   width: min(92vw, 420px);

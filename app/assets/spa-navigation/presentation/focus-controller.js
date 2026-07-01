@@ -1,9 +1,10 @@
   const PRESENTATION_Z_TIERS = {
-    basemap: { min: 0, max: 9, default: 1 },
-    chrome: { min: 100, max: 199, default: 100 },
-    overlay: { min: 1000, max: 1999, default: 1000 },
-    slide_layer: { min: 2000, max: 2999, default: 2000 },
-    assistant: { min: 3000, max: 3999, default: 3000 },
+    t0: { min: 0, max: 1000, default: 1 },
+    t1: { min: 1001, max: 2000, default: 1001 },
+    t2: { min: 2001, max: 3000, default: 2001 },
+    presentation: { min: 5000, max: 5399, default: 5000 },
+    copilot: { min: 5400, max: 5799, default: 5400 },
+    host: { min: 5800, max: 99999, default: 5800 },
   };
 
   function readPresentationMap() {

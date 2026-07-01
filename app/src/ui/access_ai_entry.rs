@@ -67,8 +67,8 @@ pub(crate) fn builtin_access_ai_floating_entry(
                 id="access-chat-fab"
                 class="access-chat-fab"
                 type="button"
-                aria-label="打开助手对话框"
-                title="打开助手对话框"
+                aria-label="展开 Copilot 工具条"
+                title="展开 Copilot 工具条"
             >
                 <img class="access-chat-fab-icon" src="/app-assets/favicon.svg" alt="" />
             </button>

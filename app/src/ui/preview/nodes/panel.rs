@@ -57,7 +57,7 @@ pub(crate) fn panel_view(
     let panel_tier = card_props
         .get("__mei_tier")
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .unwrap_or("t1");
     let panel_viewpoint = card_props
         .get("__mei_viewpoint")
         .and_then(|v| v.as_str())

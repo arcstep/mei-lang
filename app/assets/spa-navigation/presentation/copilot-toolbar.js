@@ -35,16 +35,56 @@
     return document.getElementById("access-chat-floating-root");
   }
 
-  /** FAB 与工具条整体抬到 body 顶层，避免 slides_only 全屏层遮挡。 */
-  function ensureCopilotFabElevation() {
-    if (!copilotFabContextActive()) return;
-    const root = floatingRoot();
-    if (!root) return;
-    if (root.parentElement !== document.body) {
-      document.body.appendChild(root);
+  function fabLayout() {
+    return boot.copilotFabLayout || null;
+  }
+
+  function scheduleFabLayout(options) {
+    const layout = fabLayout();
+    if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+      layout.scheduleCopilotFabToolbarLayout(options);
+      return;
     }
-    root.classList.add("copilot-fab-elevated");
-    document.body.classList.add("mei-copilot-fab-mounted");
+    if (layout && typeof layout.syncCopilotFabToolbarLayout === "function") {
+      layout.syncCopilotFabToolbarLayout(options);
+    }
+  }
+
+  function ensureFabDock() {
+    const layout = fabLayout();
+    if (layout && typeof layout.ensureFabDock === "function") {
+      return layout.ensureFabDock();
+    }
+    return null;
+  }
+
+  function mountCopilotNode(node) {
+    if (!(node instanceof HTMLElement)) {
+      return node;
+    }
+    if (typeof boot.mountCopilotInViewport === "function" && boot.mountCopilotInViewport(node)) {
+      return node;
+    }
+    if (node.parentElement !== document.body) {
+      document.body.appendChild(node);
+    }
+    return node;
+  }
+
+  /** C 层 / FAB 挂入 viewport stage，与 T0/T1/T2 共用 letterbox 画布。 */
+  function ensureCopilotInViewport() {
+    if (typeof boot.relocateStageOverlaysInViewport === "function") {
+      boot.relocateStageOverlaysInViewport();
+      return;
+    }
+    if (typeof boot.relocateCopilotInViewport === "function") {
+      boot.relocateCopilotInViewport();
+      return;
+    }
+    const root = floatingRoot();
+    if (root) {
+      mountCopilotNode(root);
+    }
   }
 
   function refreshFabChrome() {
@@ -70,7 +110,7 @@
     node.id = CAPTION_ID;
     node.className = "mei-copilot-caption mei-presenter-caption";
     node.setAttribute("hidden", "hidden");
-    document.body.appendChild(node);
+    mountCopilotNode(node);
     return node;
   }
 
@@ -95,36 +135,36 @@
         renderDrawer();
       }
     });
-    document.body.appendChild(drawer);
+    mountCopilotNode(drawer);
     return drawer;
   }
 
   function ensureToolbar() {
     let toolbar = document.getElementById(TOOLBAR_ID);
-    if (toolbar) return toolbar;
-    const root = floatingRoot();
+    const dock = ensureFabDock();
+    if (toolbar) {
+      if (dock && toolbar.parentElement !== dock) {
+        dock.appendChild(toolbar);
+      }
+      return toolbar;
+    }
     toolbar = document.createElement("nav");
     toolbar.id = TOOLBAR_ID;
     toolbar.className = "copilot-toolbar";
     toolbar.setAttribute("aria-label", "Copilot 工具条");
-    toolbar.innerHTML =
-      '<div class="copilot-toolbar-inner">' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-session="true">开始</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-prev="true">上一步</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-next="true">下一步</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-caption-toggle="true">气泡</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-script="true">演说稿</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-select-toggle="true">组件选择</button>' +
-      '<button type="button" class="copilot-toolbar-btn" data-copilot-tts="true" disabled title="语音播报即将支持">播放</button>' +
-      '<button type="button" class="copilot-toolbar-btn copilot-toolbar-btn--exit" data-copilot-exit="true">退出演说</button>' +
-      '<button type="button" class="copilot-toolbar-btn copilot-toolbar-btn--ai" data-copilot-ai="true">AI 对话</button>' +
-      "</div>";
+    toolbar.setAttribute("hidden", "hidden");
+    toolbar.innerHTML = toolbarInnerHtml();
     toolbar.addEventListener("click", onToolbarClick);
-    if (root) {
+    const root = floatingRoot();
+    if (dock) {
+      dock.appendChild(toolbar);
+    } else if (root) {
+      mountCopilotNode(root);
       root.appendChild(toolbar);
     } else {
       document.body.appendChild(toolbar);
     }
+    ensureCopilotInViewport();
     return toolbar;
   }
 
@@ -160,10 +200,93 @@
   }
 
   function sessionButtonLabel(eng) {
-    if (!eng) return "开始";
-    if (typeof eng.isActive === "function" && eng.isActive()) return "暂停";
-    if (typeof eng.isPaused === "function" && eng.isPaused()) return "继续";
-    return "开始";
+    if (!eng) return "演";
+    if (typeof eng.isActive === "function" && eng.isActive()) return "停";
+    if (typeof eng.isPaused === "function" && eng.isPaused()) return "续";
+    return "演";
+  }
+
+  function sessionButtonTitle(eng) {
+    if (!eng) return "开始演说";
+    if (typeof eng.isActive === "function" && eng.isActive()) return "暂停演说";
+    if (typeof eng.isPaused === "function" && eng.isPaused()) return "继续演说";
+    return "开始演说";
+  }
+
+  function toolbarGlyphButton(attrs) {
+    const a = attrs && typeof attrs === "object" ? attrs : {};
+    const classes = ["copilot-toolbar-btn", "copilot-toolbar-btn--glyph"];
+    if (a.className) classes.push(a.className);
+    const parts = [
+      `<button type="button" class="${classes.join(" ")}"`,
+      a.dataset ? ` data-${a.dataset.key}="true"` : "",
+      a.disabled ? " disabled" : "",
+      ` aria-label="${a.label || ""}"`,
+      ` title="${a.title || a.label || ""}"`,
+      ">",
+      a.glyph || "",
+      "</button>",
+    ];
+    return parts.join("");
+  }
+
+  function toolbarInnerHtml() {
+    return (
+      '<div class="copilot-toolbar-inner">' +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-session" },
+        glyph: "演",
+        label: "开始演说",
+        title: "开始演说",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-prev" },
+        glyph: "上",
+        label: "上一步",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-next" },
+        glyph: "下",
+        label: "下一步",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-caption-toggle" },
+        glyph: "泡",
+        label: "字幕气泡",
+        title: "显示/隐藏字幕气泡",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-script" },
+        glyph: "稿",
+        label: "演说稿",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-select-toggle" },
+        glyph: "选",
+        label: "组件选择",
+        title: "点选场景组件",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-tts" },
+        glyph: "音",
+        label: "语音播报",
+        title: "语音播报即将支持",
+        disabled: true,
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-exit" },
+        glyph: "完",
+        label: "退出演说",
+        className: "copilot-toolbar-btn--exit",
+      }) +
+      toolbarGlyphButton({
+        dataset: { key: "copilot-ai" },
+        glyph: "问",
+        label: "AI 对话",
+        className: "copilot-toolbar-btn--ai",
+      }) +
+      "</div>"
+    );
   }
 
   function onToolbarClick(event) {
@@ -252,14 +375,22 @@
     const eng = engine();
     const step = eng ? eng.currentStep() : null;
     const manifest = eng ? eng.state.manifest : null;
+    const layout = fabLayout();
+    if (layout && typeof layout.syncCopilotFabToolbarLayout === "function") {
+      layout.syncCopilotFabToolbarLayout();
+    }
     const sessionBtn = toolbar.querySelector("[data-copilot-session]");
     if (sessionBtn) {
       sessionBtn.textContent = sessionButtonLabel(eng);
+      const sessionTitle = sessionButtonTitle(eng);
+      sessionBtn.setAttribute("title", sessionTitle);
+      sessionBtn.setAttribute("aria-label", sessionTitle);
     }
     toolbar.dataset.progress =
       eng && eng.steps.length ? `${eng.stepIndex + 1} / ${eng.steps.length}` : "";
     toolbar.title = step?.title || manifest?.title || COPILOT_TITLE;
-    if (uiState.toolbarOpen) {
+    const nextOpen = uiState.toolbarOpen;
+    if (nextOpen) {
       toolbar.removeAttribute("hidden");
       floatingRoot()?.classList.add("copilot-toolbar-active");
     } else {
@@ -276,6 +407,10 @@
   }
 
   function copilotFabContextActive() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.copilotFabContextActive === "function") {
+      return ctx.copilotFabContextActive();
+    }
     const eng = engine();
     return Boolean(
       isCopilotRoute() ||
@@ -287,13 +422,11 @@
   function bindFabBehavior() {
     if (boot.copilotFabBound) return;
     const fab = document.getElementById("access-chat-fab");
-    const eng = engine();
-    if (!fab || !eng || !copilotFabContextActive()) return;
+    if (!fab || !copilotFabContextActive()) return;
     boot.copilotFabBound = true;
     fab.addEventListener(
       "click",
       (event) => {
-        if (!eng.hasManifest()) return;
         if (boot.agentPanelState && boot.agentPanelState.accessFloatingDragMoved) return;
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -328,6 +461,10 @@
   }
 
   function shouldMount() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.shouldMountCopilotToolbar === "function") {
+      return ctx.shouldMountCopilotToolbar();
+    }
     const eng = engine();
     return Boolean((eng && eng.hasManifest()) || isCopilotRoute() || hasCopilotShell());
   }
@@ -335,29 +472,33 @@
   function mount(options) {
     const opts = options && typeof options === "object" ? options : {};
     const eng = engine();
-    if (!eng || !shouldMount()) return false;
-    const force = opts.force === true;
-    if (!eng.ensureLoaded() && !force && !isCopilotRoute() && !hasCopilotShell()) return false;
+    if (!shouldMount()) return false;
     ensureToolbar();
     ensureCaption();
-    ensureCopilotFabElevation();
+    ensureCopilotInViewport();
     bindSelectMode();
     bindFabBehavior();
     uiState.mounted = true;
     uiState.toolbarOpen = opts.toolbarOpen === true;
-    if (opts.autoStart === true && (isCopilotRoute() || hasCopilotShell())) {
+    if (opts.autoStart === true && eng && (isCopilotRoute() || hasCopilotShell())) {
+      if (typeof eng.ensureLoaded === "function") {
+        eng.ensureLoaded();
+      }
       eng.start({ apply: opts.apply !== false });
     }
     renderAll();
+    scheduleFabLayout();
     return true;
   }
 
   const toolbar = {
     mount,
     renderAll,
+    syncLayout: scheduleFabLayout,
     onStepApplied() {
-      ensureCopilotFabElevation();
+      ensureCopilotInViewport();
       renderAll();
+      scheduleFabLayout();
     },
     toggleToolbar(next) {
       if (typeof next === "boolean") uiState.toolbarOpen = next;

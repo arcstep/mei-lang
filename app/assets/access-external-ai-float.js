@@ -17,18 +17,42 @@
     let dragState = null;
     let dragMoved = false;
 
+    function floatingBoundsHost() {
+      const bootApi = w.__meiLangBoot || {};
+      if (typeof bootApi.copilotFloatingOffsetParent === "function") {
+        const host = bootApi.copilotFloatingOffsetParent(root);
+        if (host) return host;
+      }
+      return null;
+    }
+
+    function floatingBoundsSize() {
+      const bootApi = w.__meiLangBoot || {};
+      if (typeof bootApi.copilotFloatingBoundsSize === "function") {
+        const size = bootApi.copilotFloatingBoundsSize();
+        if (size && size.width > 0 && size.height > 0) {
+          return size;
+        }
+      }
+      return {
+        width: Number(window.innerWidth || 0),
+        height: Number(window.innerHeight || 0),
+      };
+    }
+
     function clampPosition(left, top) {
       const width = Math.max(48, Number(root.offsetWidth || 68));
       const height = Math.max(48, Number(root.offsetHeight || 68));
+      const bounds = floatingBoundsSize();
       const minLeft = MARGIN_PX;
       const minTop = MARGIN_PX;
       const maxLeft = Math.max(
         minLeft,
-        Number(window.innerWidth || 0) - width - MARGIN_PX,
+        Number(bounds.width || 0) - width - MARGIN_PX,
       );
       const maxTop = Math.max(
         minTop,
-        Number(window.innerHeight || 0) - height - MARGIN_PX,
+        Number(bounds.height || 0) - height - MARGIN_PX,
       );
       return {
         left: Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0))),
@@ -84,13 +108,17 @@
 
     function beginDrag(event) {
       if (event && event.button != null && event.button !== 0) return;
+      const host = floatingBoundsHost();
+      const hostRect = host
+        ? host.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const rect = root.getBoundingClientRect();
       dragState = {
         pointerId: event ? event.pointerId : null,
         startX: Number(event && event.clientX),
         startY: Number(event && event.clientY),
-        baseLeft: Number(rect.left || 0),
-        baseTop: Number(rect.top || 0),
+        baseLeft: Number(rect.left || 0) - Number(hostRect.left || 0),
+        baseTop: Number(rect.top || 0) - Number(hostRect.top || 0),
         moved: false,
         lastLeft: Number(rect.left || 0),
         lastTop: Number(rect.top || 0),
@@ -172,9 +200,38 @@
 
     function onWindowResize() {
       if (root.dataset.positioned !== "true") return;
+      const host = floatingBoundsHost();
+      const hostRect = host
+        ? host.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const rect = root.getBoundingClientRect();
-      const pos = applyPosition(rect.left, rect.top);
+      const pos = applyPosition(rect.left - hostRect.left, rect.top - hostRect.top);
       rememberPosition(pos.left, pos.top);
+    }
+
+    function syncViewportMount() {
+      const bootApi = w.__meiLangBoot || {};
+      if (typeof bootApi.relocateStageOverlaysInViewport === "function") {
+        bootApi.relocateStageOverlaysInViewport();
+      } else if (typeof bootApi.relocateCopilotInViewport === "function") {
+        bootApi.relocateCopilotInViewport();
+      }
+      if (root.dataset.positioned === "true") {
+        const left = Number(root.style.left);
+        const top = Number(root.style.top);
+        if (Number.isFinite(left) && Number.isFinite(top)) {
+          applyPosition(left, top);
+        }
+      } else if (root.classList.contains("mei-copilot-in-viewport")) {
+        root.style.left = "";
+        root.style.top = "";
+        root.style.right = "";
+        root.style.bottom = "";
+      }
+    }
+
+    function onPreviewUpdated() {
+      syncViewportMount();
     }
 
     fab.addEventListener("click", onFabClick);
@@ -183,7 +240,10 @@
     document.addEventListener("pointerup", endDrag);
     document.addEventListener("pointercancel", endDrag);
     window.addEventListener("resize", onWindowResize);
+    window.addEventListener("meilang:preview-updated", onPreviewUpdated);
+    syncViewportMount();
     restorePosition();
+    syncViewportMount();
 
     return function dispose() {
       fab.removeEventListener("click", onFabClick);
@@ -192,6 +252,7 @@
       document.removeEventListener("pointerup", endDrag);
       document.removeEventListener("pointercancel", endDrag);
       window.removeEventListener("resize", onWindowResize);
+      window.removeEventListener("meilang:preview-updated", onPreviewUpdated);
     };
   }
 

@@ -81,9 +81,27 @@
       els.accessFloatingRoot &&
       els.accessFloatingRoot.dataset.positioned === "true"
     ) {
+      const bootApi = window.__meiLangBoot || {};
+      const offsetParent =
+        typeof bootApi.copilotFloatingOffsetParent === "function"
+          ? bootApi.copilotFloatingOffsetParent(els.accessFloatingRoot)
+          : null;
+      const hostRect = offsetParent
+        ? offsetParent.getBoundingClientRect()
+        : { left: 0, top: 0 };
       const rect = els.accessFloatingRoot.getBoundingClientRect();
-      const pos = AF.applyAccessFloatingPosition(rect.left, rect.top);
+      const pos = AF.applyAccessFloatingPosition(
+        rect.left - hostRect.left,
+        rect.top - hostRect.top,
+      );
       if (pos) AF.rememberAccessFloatingPosition(pos.left, pos.top);
+    }
+    if (typeof boot.reclampAccessFloatingInViewport === "function") {
+      boot.reclampAccessFloatingInViewport();
+    }
+    const layout = boot.copilotFabLayout;
+    if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+      layout.scheduleCopilotFabToolbarLayout();
     }
   };
   window.addEventListener("resize", onComposerInputWindowResize);
@@ -110,6 +128,10 @@
   }
 
   function copilotPresentationFabContext() {
+    const ctx = boot.copilotFabContext;
+    if (ctx && typeof ctx.copilotFabContextActive === "function") {
+      return ctx.copilotFabContextActive();
+    }
     if (/^\/apps\/(copilot|speaker)\//.test(String(window.location.pathname || ""))) {
       return true;
     }
@@ -129,15 +151,7 @@
         state.accessFloatingDragMoved = false;
         return;
       }
-      const toolbar = boot.copilotToolbar;
-      if (
-        copilotPresentationFabContext() &&
-        toolbar &&
-        typeof toolbar.toggleToolbar === "function"
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        toolbar.toggleToolbar();
+      if (copilotPresentationFabContext()) {
         return;
       }
       AF.toggleAccessFloatingPanel();
@@ -301,6 +315,11 @@
   AF.restoreAccessFloatingPanel();
   MSG.restoreSession();
   restoreDeltaDebugLog(state.sessionId);
+  window.requestAnimationFrame(function () {
+    if (typeof boot.syncAccessFloatingViewportMount === "function") {
+      boot.syncAccessFloatingViewportMount();
+    }
+  });
   const initialTab = RT.currentManageTab();
   SRC.initSourceEditor();
   SRC.renderSourceViewMode(initialTab === "diff" ? "diff" : "source");

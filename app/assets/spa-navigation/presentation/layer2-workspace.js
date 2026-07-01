@@ -41,14 +41,36 @@
     );
   }
 
+  function resolveViewportStageHost() {
+    if (typeof boot.resolveViewportStageHost === "function") {
+      return boot.resolveViewportStageHost();
+    }
+    const viewport = document.querySelector('[data-mei-frame-viewport="true"]');
+    if (viewport instanceof HTMLElement) {
+      const stage = viewport.querySelector(".preview-stage-shell");
+      if (stage instanceof HTMLElement) {
+        return stage;
+      }
+    }
+    return document.body;
+  }
+
   function ensureLayer2WorkspaceRoot() {
     let root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
+    const stageHost = resolveViewportStageHost();
     if (root) {
+      if (root.parentElement !== stageHost) {
+        stageHost.appendChild(root);
+      }
+      root.classList.toggle("mei-layer2-in-viewport", stageHost !== document.body);
       return root;
     }
     root = document.createElement("div");
     root.id = LAYER2_WORKSPACE_ROOT_ID;
     root.className = "mei-layer2-workspace access-drilldown-overlay";
+    if (stageHost !== document.body) {
+      root.classList.add("mei-layer2-in-viewport");
+    }
     root.setAttribute("hidden", "hidden");
     root.innerHTML =
       '<div class="mei-layer2-workspace-shell">' +
@@ -66,7 +88,7 @@
         activateLayer2Tab(tabBtn.dataset.layer2TabId);
       }
     });
-    document.body.appendChild(root);
+    stageHost.appendChild(root);
     return root;
   }
 

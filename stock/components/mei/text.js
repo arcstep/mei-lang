@@ -175,6 +175,21 @@ function metricContentObject(props) {
   return content;
 }
 
+function isPlainStaticMetricDisplay(content) {
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return false;
+  }
+  if (content.__mei_runtime_ref || content.shape) {
+    return false;
+  }
+  return (
+    content.label != null ||
+    content.value != null ||
+    content.unit != null ||
+    content.desc != null
+  );
+}
+
 function metricDisplayFromContent(props) {
   const content = metricContentObject(props);
   if (!content) {
@@ -182,6 +197,17 @@ function metricDisplayFromContent(props) {
   }
   if (content.shape === "scalar") {
     return metricDisplayFromScalar(content, props);
+  }
+  if (isPlainStaticMetricDisplay(content)) {
+    return applyMetricPatch(
+      {
+        label: String(content.label ?? ""),
+        value: String(content.value ?? "--"),
+        unit: String(content.unit ?? ""),
+        desc: String(content.desc ?? ""),
+      },
+      props,
+    );
   }
   return applyMetricPatch({ label: "", value: "--", unit: "", desc: "" }, props);
 }
