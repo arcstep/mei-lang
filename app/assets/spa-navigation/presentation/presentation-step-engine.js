@@ -401,6 +401,12 @@
     return state.steps[state.stepIndex] || null;
   }
 
+  function findStepIndexById(stepId) {
+    const normalized = String(stepId || "").trim();
+    if (!normalized) return -1;
+    return state.steps.findIndex((step) => String(step?.id || "").trim() === normalized);
+  }
+
   function currentViewpoint(step) {
     const actions = collectCockpitActions(step || currentStep());
     for (const action of actions) {
@@ -591,6 +597,15 @@
       if (!ensureLoaded()) return false;
       if (!Number.isFinite(Number(index))) return false;
       state.stepIndex = Math.max(0, Math.min(state.steps.length - 1, Number(index)));
+      void applyStep();
+      return true;
+    },
+    applyStepId(stepId) {
+      if (!ensureLoaded()) return false;
+      const nextIndex = findStepIndexById(stepId);
+      if (nextIndex < 0) return false;
+      state.stepIndex = nextIndex;
+      if (state.everStarted) state.sessionActive = true;
       void applyStep();
       return true;
     },

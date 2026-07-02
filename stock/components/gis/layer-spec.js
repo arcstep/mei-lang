@@ -220,24 +220,61 @@ export function rowsToPointFeatureCollection(rows, geometryMapping = {}, layerSp
   };
 }
 
+function resolveLayerFeatureMatch(layerSpec, props = {}) {
+  return (
+    layerSpec?.featureMatch ||
+    layerSpec?.feature_match ||
+    resolveLayerBoundValue(props, layerSpec, ["featureMatch", "feature_match"])
+  );
+}
+
+function featureMatches(feature, matcher) {
+  if (!matcher || typeof matcher !== "object" || Array.isArray(matcher)) {
+    return true;
+  }
+  const props = feature?.properties && typeof feature.properties === "object" ? feature.properties : {};
+  return Object.entries(matcher).every(([key, expected]) => {
+    const actual = props[key];
+    if (Array.isArray(expected)) {
+      return expected.some((value) => String(actual ?? "").trim() === String(value ?? "").trim());
+    }
+    return String(actual ?? "").trim() === String(expected ?? "").trim();
+  });
+}
+
+function filterFeatureCollection(featureCollection, matcher) {
+  if (!matcher || typeof matcher !== "object" || Array.isArray(matcher)) {
+    return featureCollection;
+  }
+  const features = Array.isArray(featureCollection?.features) ? featureCollection.features : [];
+  return {
+    ...featureCollection,
+    features: features.filter((feature) => featureMatches(feature, matcher)),
+  };
+}
+
 export async function resolveLayerSource(layerSpec, props = {}) {
+  const featureMatch = resolveLayerFeatureMatch(layerSpec, props);
   const inlineFeatureCollection =
     layerSpec?.featureCollection ||
     layerSpec?.feature_collection ||
     resolveLayerBoundValue(props, layerSpec, ["featureCollection", "feature_collection"]);
   if (inlineFeatureCollection) {
-    return ensureFeatureCollection(inlineFeatureCollection);
+    return filterFeatureCollection(ensureFeatureCollection(inlineFeatureCollection), featureMatch);
   }
   const type = String(layerSpec?.type || "polygon").trim().toLowerCase();
   // `addLayerSpec` 已先调用 `resolveLayerDataPayload`；此处直接消费 layer payload。
   const rows = resolveMetricRows(props);
   const geometryMapping = layerSpec?.geometryMapping || layerSpec?.geometry_mapping || {};
   if (type === "point" && rows.length > 0) {
-    return rowsToPointFeatureCollection(rows, geometryMapping, layerSpec);
+    return filterFeatureCollection(
+      rowsToPointFeatureCollection(rows, geometryMapping, layerSpec),
+      featureMatch,
+    );
   }
   const url = String(layerSpec?.url || "").trim();
   if (url) {
-    return fetchGeoJson(url);
+    return filterFeatureCollection(await fetchGeoJson(url), featureMatch);
   }
   return {
     type: "FeatureCollection",

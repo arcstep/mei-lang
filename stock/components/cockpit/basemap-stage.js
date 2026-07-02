@@ -25,20 +25,53 @@ class MeiCockpitBasemapStage extends HTMLElement {
     this._hiddenGroups = new Set();
     this._activeGroupId = "";
     this._lastWorldTarget = null;
+    this._viewAnimationFrame = null;
+    this._propsSignature = "";
+    this._onPreviewUpdated = null;
   }
 
   connectedCallback() {
-    this.props = parseProps(this);
-    if (!this.shadowRoot) {
-      this.attachShadow({ mode: "open" });
+    this.refreshFromProps({ forceReload: true });
+    if (!this._onPreviewUpdated) {
+      this._onPreviewUpdated = () => {
+        this.refreshFromProps({ forceReload: true });
+      };
+      window.addEventListener("meilang:preview-updated", this._onPreviewUpdated);
     }
-    this.render();
-    this.loadContent();
-    this.bindInteractions();
   }
 
   disconnectedCallback() {
+    this.cancelViewAnimation();
     this.unbindInteractions();
+    if (this._onPreviewUpdated) {
+      window.removeEventListener("meilang:preview-updated", this._onPreviewUpdated);
+      this._onPreviewUpdated = null;
+    }
+  }
+
+  refreshFromProps(options = {}) {
+    this.props = parseProps(this);
+    const nextSignature = String(this.getAttribute("data-props") || "");
+    const shouldReload = options.forceReload === true || nextSignature !== this._propsSignature;
+    this._propsSignature = nextSignature;
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+    }
+    if (shouldReload) {
+      this.cancelViewAnimation();
+      this.unbindInteractions();
+      this.render();
+      this.loadContent();
+      this.bindInteractions();
+      return;
+    }
+    if (this._lastWorldTarget) {
+      requestAnimationFrame(() => {
+        if (this.isConnected && this._lastWorldTarget) {
+          this.applyWorldTarget(this._lastWorldTarget);
+        }
+      });
+    }
   }
 
   unbindInteractions() {
@@ -66,6 +99,7 @@ class MeiCockpitBasemapStage extends HTMLElement {
       if (event.button !== 0) {
         return;
       }
+      this.cancelViewAnimation();
       this._drag = {
         x: event.clientX,
         y: event.clientY,
@@ -104,17 +138,66 @@ class MeiCockpitBasemapStage extends HTMLElement {
   }
 
   zoomBy(factor) {
+    this.cancelViewAnimation();
     this._zoom = clamp(this._zoom * factor, 0.35, 4);
     this.applyTransform();
     this.updateStatus();
   }
 
   resetView() {
+    this.cancelViewAnimation();
     this._zoom = 1;
     this._panX = 0;
     this._panY = 0;
     this.applyTransform();
     this.updateStatus();
+  }
+
+  cancelViewAnimation() {
+    if (this._viewAnimationFrame) {
+      cancelAnimationFrame(this._viewAnimationFrame);
+      this._viewAnimationFrame = null;
+    }
+  }
+
+  easeOutCubic(progress) {
+    const p = clamp(progress, 0, 1);
+    return 1 - Math.pow(1 - p, 3);
+  }
+
+  animateViewportTo(nextPanX, nextPanY, nextZoom, options = {}) {
+    const targetZoom = Number.isFinite(Number(nextZoom)) ? clamp(Number(nextZoom), 0.35, 4) : this._zoom;
+    const animate = options.animate !== false;
+    const duration = Number.isFinite(Number(options.duration))
+      ? Math.max(0, Number(options.duration))
+      : 420;
+    this.cancelViewAnimation();
+    if (!animate || duration === 0) {
+      this._panX = nextPanX;
+      this._panY = nextPanY;
+      this._zoom = targetZoom;
+      this.applyTransform();
+      this.updateStatus();
+      return;
+    }
+    const startPanX = this._panX;
+    const startPanY = this._panY;
+    const startZoom = this._zoom;
+    const startAt = performance.now();
+    const tick = (now) => {
+      const progress = this.easeOutCubic((now - startAt) / duration);
+      this._panX = startPanX + (nextPanX - startPanX) * progress;
+      this._panY = startPanY + (nextPanY - startPanY) * progress;
+      this._zoom = startZoom + (targetZoom - startZoom) * progress;
+      this.applyTransform();
+      this.updateStatus();
+      if (progress < 1) {
+        this._viewAnimationFrame = requestAnimationFrame(tick);
+      } else {
+        this._viewAnimationFrame = null;
+      }
+    };
+    this._viewAnimationFrame = requestAnimationFrame(tick);
   }
 
   applyTransform() {
@@ -177,7 +260,7 @@ class MeiCockpitBasemapStage extends HTMLElement {
       .filter(Boolean);
   }
 
-  focusAnchor(anchorLike, zoom) {
+  focusAnchor(anchorLike, zoom, options = {}) {
     const anchor = this.readAnchor(anchorLike);
     if (!anchor) return false;
     const viewport = this.shadowRoot?.querySelector(".viewport");
@@ -190,11 +273,7 @@ class MeiCockpitBasemapStage extends HTMLElement {
     const baseY = (anchor.y / Math.max(1, box.height)) * height;
     const centerX = width / 2;
     const centerY = height / 2;
-    this._zoom = nextZoom;
-    this._panX = (centerX - baseX) * nextZoom;
-    this._panY = (centerY - baseY) * nextZoom;
-    this.applyTransform();
-    this.updateStatus();
+    this.animateViewportTo((centerX - baseX) * nextZoom, (centerY - baseY) * nextZoom, nextZoom, options);
     return true;
   }
 
@@ -272,6 +351,10 @@ class MeiCockpitBasemapStage extends HTMLElement {
       cameraPreset:
         String(target.cameraPreset || preset?.id || presetFromEntity || "").trim(),
     };
+    const animate = target.animate !== false && resolved.animate !== false;
+    const duration = Number.isFinite(Number(target.duration ?? resolved.duration))
+      ? Number(target.duration ?? resolved.duration)
+      : 420;
     const shapeIds = this.normalizeIdList(
       resolved.shapeIds || resolved.shape_ids || entity?.shapeIds || group?.shapeIds,
     );
@@ -295,11 +378,13 @@ class MeiCockpitBasemapStage extends HTMLElement {
     const didFocus = this.focusAnchor(
       resolved.anchor || resolved.anchorId || resolved.anchor_id,
       resolved.zoom,
+      { animate, duration },
     );
     if (!didFocus && Number.isFinite(Number(resolved.zoom))) {
-      this._zoom = clamp(Number(resolved.zoom), 0.35, 4);
-      this.applyTransform();
-      this.updateStatus();
+      this.animateViewportTo(this._panX, this._panY, Number(resolved.zoom), {
+        animate,
+        duration,
+      });
     }
     this.refreshWorldState();
     return true;
@@ -372,15 +457,60 @@ class MeiCockpitBasemapStage extends HTMLElement {
         continue;
       }
       const label = String(spot.label || spot.id || "").trim();
-      const pin = document.createElement("div");
+      const pin = document.createElement("button");
       pin.className = "hotspot";
+      pin.type = "button";
       pin.setAttribute("data-hotspot-id", String(spot.id || "").trim());
+      pin.setAttribute("aria-label", String(spot.ariaLabel || label || spot.id || "热点"));
       pin.style.left = `${x}%`;
       pin.style.top = `${y}%`;
       pin.textContent = label;
+      pin.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+      });
+      pin.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.activateHotspot(spot);
+      });
       box.appendChild(pin);
     }
     layer.appendChild(box);
+  }
+
+  activateHotspot(spot) {
+    if (!spot || typeof spot !== "object") {
+      return false;
+    }
+    const boot = window.__meiLangBoot || {};
+    const stepId = String(spot.stepId || spot.presentationStepId || spot.step_id || "").trim();
+    if (
+      stepId &&
+      boot.presentationStepEngine &&
+      typeof boot.presentationStepEngine.applyStepId === "function"
+    ) {
+      return Boolean(boot.presentationStepEngine.applyStepId(stepId));
+    }
+    const viewpointId = String(spot.viewpointId || spot.viewpoint || "").trim();
+    const actionType = String(
+      spot.actionType || spot.action || (viewpointId ? "highlight" : "focus_entity"),
+    ).trim();
+    const action = {
+      type: actionType,
+      viewpoint: viewpointId,
+      viewFamily: String(spot.viewFamily || spot.view_family || "").trim(),
+      worldRef: String(spot.worldRef || spot.world_ref || "").trim(),
+      entityId: String(spot.entityId || spot.entity_id || "").trim(),
+      groupId: String(spot.groupId || spot.group_id || "").trim(),
+      cameraPreset: String(spot.cameraPreset || spot.camera_preset || "").trim(),
+    };
+    if (window.MeiPresentation && typeof window.MeiPresentation.dispatch === "function") {
+      return Boolean(window.MeiPresentation.dispatch(action));
+    }
+    if (boot.worldStageRuntime && typeof boot.worldStageRuntime.applyWorldTarget === "function") {
+      return Boolean(boot.worldStageRuntime.applyWorldTarget(action));
+    }
+    return false;
   }
 
   render() {
@@ -449,6 +579,7 @@ class MeiCockpitBasemapStage extends HTMLElement {
           min-width: 28px;
           height: 28px;
           padding: 0 6px;
+          border: 0;
           border-radius: 14px;
           background: rgba(56, 160, 240, 0.92);
           color: #fff;
@@ -456,14 +587,21 @@ class MeiCockpitBasemapStage extends HTMLElement {
           text-align: center;
           box-shadow: 0 0 12px rgba(56, 160, 240, 0.55);
           transition: transform 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+          pointer-events: auto;
+          cursor: pointer;
         }
         .hotspot-active {
           transform: translate(-50%, -50%) scale(1.12);
           box-shadow: 0 0 18px rgba(125, 211, 252, 0.85);
           background: rgba(14, 165, 233, 1);
         }
+        .hotspot:focus-visible {
+          outline: 2px solid rgba(191, 219, 254, 0.95);
+          outline-offset: 2px;
+        }
         .hotspot-hidden {
           opacity: 0.18;
+          pointer-events: none;
         }
         .svg-wrap [data-shape-id] {
           transition: opacity 160ms ease, filter 160ms ease, stroke-width 160ms ease;

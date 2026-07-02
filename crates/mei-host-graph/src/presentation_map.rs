@@ -167,10 +167,25 @@ fn merge_viewpoint_entry(existing: Option<ViewpointMapEntry>, candidate: Viewpoi
     let Some(existing) = existing else {
         return candidate;
     };
+    let existing_score = viewpoint_entry_specificity(&existing);
+    let candidate_score = viewpoint_entry_specificity(&candidate);
+    let preserve_existing_carrier = existing_score > candidate_score;
     ViewpointMapEntry {
-        tier: candidate.tier,
-        panel_id: candidate.panel_id,
-        block_path: candidate.block_path.or(existing.block_path),
+        tier: if preserve_existing_carrier {
+            existing.tier.clone()
+        } else {
+            candidate.tier.clone()
+        },
+        panel_id: if preserve_existing_carrier {
+            existing.panel_id.clone()
+        } else {
+            candidate.panel_id.clone()
+        },
+        block_path: if preserve_existing_carrier {
+            existing.block_path.clone().or(candidate.block_path)
+        } else {
+            candidate.block_path.or(existing.block_path)
+        },
         label: candidate.label.or(existing.label),
         view_family: candidate.view_family.or(existing.view_family),
         stage_kind: candidate.stage_kind.or(existing.stage_kind),
@@ -179,6 +194,29 @@ fn merge_viewpoint_entry(existing: Option<ViewpointMapEntry>, candidate: Viewpoi
         group_id: candidate.group_id.or(existing.group_id),
         camera_preset: candidate.camera_preset.or(existing.camera_preset),
     }
+}
+
+fn viewpoint_entry_specificity(entry: &ViewpointMapEntry) -> usize {
+    let mut score = 0usize;
+    if entry.view_family.is_some() {
+        score += 2;
+    }
+    if entry.stage_kind.is_some() {
+        score += 2;
+    }
+    if entry.world_ref.is_some() {
+        score += 2;
+    }
+    if entry.entity_id.is_some() {
+        score += 1;
+    }
+    if entry.group_id.is_some() {
+        score += 1;
+    }
+    if entry.camera_preset.is_some() {
+        score += 1;
+    }
+    score
 }
 
 fn upsert_viewpoint(
@@ -556,5 +594,37 @@ mod tests {
         assert_eq!(entry.camera_preset.as_deref(), Some("lake_pavilion_focus"));
         assert_eq!(entry.panel_id, "basemap");
         assert_eq!(entry.block_path.as_deref(), Some("0"));
+    }
+
+    #[test]
+    fn merge_viewpoint_entry_keeps_more_specific_stage_carrier() {
+        let existing = ViewpointMapEntry {
+            tier: "t0".to_string(),
+            panel_id: "basemap".to_string(),
+            block_path: Some("0".to_string()),
+            label: Some("湖心亭".to_string()),
+            view_family: Some("map".to_string()),
+            stage_kind: Some("map-stage".to_string()),
+            world_ref: Some("park_world".to_string()),
+            entity_id: Some("lake_pavilion".to_string()),
+            group_id: Some("lake_pavilion_story".to_string()),
+            camera_preset: Some("lake_pavilion_focus".to_string()),
+        };
+        let candidate = ViewpointMapEntry {
+            tier: "t1".to_string(),
+            panel_id: "lake_visitors_card".to_string(),
+            block_path: Some("0/1".to_string()),
+            label: None,
+            view_family: None,
+            stage_kind: None,
+            world_ref: None,
+            entity_id: None,
+            group_id: None,
+            camera_preset: None,
+        };
+        let merged = merge_viewpoint_entry(Some(existing), candidate);
+        assert_eq!(merged.panel_id, "basemap");
+        assert_eq!(merged.tier, "t0");
+        assert_eq!(merged.world_ref.as_deref(), Some("park_world"));
     }
 }

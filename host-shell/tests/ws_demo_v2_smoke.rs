@@ -919,6 +919,10 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
         Some("map")
     );
     assert_eq!(
+        overview.get("panelId").and_then(|v| v.as_str()),
+        Some("basemap")
+    );
+    assert_eq!(
         overview.get("stageKind").and_then(|v| v.as_str()),
         Some("map-stage")
     );
@@ -937,6 +941,7 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
     let point_one = viewpoints
         .get("park_point_1_entry")
         .expect("park_point_1_entry viewpoint");
+    assert_eq!(point_one.get("panelId").and_then(|v| v.as_str()), Some("basemap"));
     assert_eq!(point_one.get("viewFamily").and_then(|v| v.as_str()), Some("map"));
     assert_eq!(point_one.get("stageKind").and_then(|v| v.as_str()), Some("map-stage"));
     assert_eq!(point_one.get("worldRef").and_then(|v| v.as_str()), Some("park_world"));
@@ -1057,11 +1062,131 @@ fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
         all_actions.iter().any(|action| action.get("type").and_then(|v| v.as_str()) == Some("show_group")),
         "mini-park presentation should emit show_group action"
     );
+    assert!(
+        steps.iter().any(|step| step.get("id").and_then(|v| v.as_str()) == Some("dual_view_bridge")),
+        "mini-park presentation should include dual_view_bridge step"
+    );
+}
+
+#[test]
+fn ws_demo_v2_mini_park_dual_view_bridge_fixtures_align_with_presentation_map() {
+    let workspace = ensure_mini_park_imported();
+    let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
+    if !bundle.is_file() {
+        return;
+    }
+    let identity_path = workspace.join("apps/mini-park/prototype/world/park-identity-map.fixture.json");
+    let bridge_path = workspace.join("apps/mini-park/prototype/world/park-dual-view-bridge.fixture.json");
+    if !identity_path.is_file() || !bridge_path.is_file() {
+        return;
+    }
+    let identity: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&identity_path).expect("read identity fixture"))
+            .expect("parse identity fixture");
+    let bridge: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&bridge_path).expect("read bridge fixture"))
+            .expect("parse bridge fixture");
+    let home_outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home")
+        .expect("assemble mini-park home")
+        .expect("mini-park home outcome");
+    let home_2d_outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home_2d")
+        .expect("assemble mini-park home_2d")
+        .expect("mini-park home_2d outcome");
+    let viewpoints = home_outcome
+        .presentation_map
+        .get("viewpoints")
+        .and_then(|v| v.as_object())
+        .expect("home presentation_map viewpoints");
+    let overview_id = identity
+        .get("overview")
+        .and_then(|v| v.get("viewpointId"))
+        .and_then(|v| v.as_str())
+        .expect("identity overview viewpointId");
+    assert!(viewpoints.contains_key(overview_id));
+    let points = identity
+        .get("points")
+        .and_then(|v| v.as_array())
+        .expect("identity points");
+    for point in points {
+        let viewpoint_id = point
+            .get("viewpointId")
+            .and_then(|v| v.as_str())
+            .expect("point viewpointId");
+        let entry = viewpoints
+            .get(viewpoint_id)
+            .unwrap_or_else(|| panic!("missing viewpoint {viewpoint_id} in presentation_map"));
+        assert_eq!(
+            entry.get("entityId").and_then(|v| v.as_str()),
+            point.get("entityId").and_then(|v| v.as_str()),
+            "entityId drift for viewpoint {viewpoint_id}"
+        );
+        assert_eq!(
+            entry.get("cameraPreset").and_then(|v| v.as_str()),
+            point.get("cameraPreset").and_then(|v| v.as_str()),
+            "cameraPreset drift for viewpoint {viewpoint_id}"
+        );
+    }
+    let map_track = bridge
+        .get("tracks")
+        .and_then(|v| v.get("map_2_5d"))
+        .expect("map_2_5d track");
+    let svg_track = bridge
+        .get("tracks")
+        .and_then(|v| v.get("svg_2d"))
+        .expect("svg_2d track");
+    assert_eq!(
+        map_track.get("panelId").and_then(|v| v.as_str()),
+        Some("basemap")
+    );
+    assert_eq!(
+        svg_track.get("panelId").and_then(|v| v.as_str()),
+        Some("svg_basemap")
+    );
+    let home_t0 = home_outcome
+        .layer_plan
+        .get("tiers")
+        .and_then(|v| v.get("t0"))
+        .and_then(|v| v.as_array())
+        .expect("home t0 tier");
+    let home_2d_t0 = home_2d_outcome
+        .layer_plan
+        .get("tiers")
+        .and_then(|v| v.get("t0"))
+        .and_then(|v| v.as_array())
+        .expect("home_2d t0 tier");
+    assert!(
+        home_t0.iter().any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("basemap")),
+        "home t0 should include map basemap"
+    );
+    assert!(
+        home_2d_t0
+            .iter()
+            .any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("svg_basemap")),
+        "home_2d t0 should include svg_basemap"
+    );
+    let lake = bridge
+        .get("objects")
+        .and_then(|v| v.get("lake_pavilion"))
+        .expect("lake_pavilion bridge object");
+    assert_eq!(
+        lake.get("projections")
+            .and_then(|v| v.get("map_2_5d"))
+            .and_then(|v| v.get("extrusionHeight"))
+            .and_then(serde_json::Value::as_f64),
+        Some(8.6)
+    );
+    assert_eq!(
+        lake.get("projections")
+            .and_then(|v| v.get("world_3d"))
+            .and_then(|v| v.get("renderFamily"))
+            .and_then(|v| v.as_str()),
+        Some("extrude_shell")
+    );
 }
 
 #[test]
 fn ws_demo_v2_mini_park_home_assembles_when_prebuilt() {
-    let workspace = ws_demo_v2_root();
+    let workspace = ensure_mini_park_imported();
     let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
     if !bundle.is_file() {
         return;
