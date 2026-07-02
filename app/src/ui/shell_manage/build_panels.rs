@@ -72,7 +72,7 @@ pub(crate) fn build_overview_view(
                                 {entry.scope_path.iter().skip(1).cloned().collect::<Vec<_>>().join(" / ")}
                             </dd>
                         </div>
-                        {(entry.role == UiScopeRole::MicroLayout || entry.role == UiScopeRole::Budget).then(|| entry.budget.as_ref()).flatten().map(|budget| view! {
+                        {(entry.role == UiScopeRole::Slot || entry.role == UiScopeRole::Budget).then(|| entry.budget.as_ref()).flatten().map(|budget| view! {
                             <div class="flex flex-col gap-0.5">
                                 <dt class="mei-text-muted">"Budget"</dt>
                                 <dd class="font-mono mei-font-1 leading-5">
@@ -87,7 +87,7 @@ pub(crate) fn build_overview_view(
                             || entry.role == UiScopeRole::Region)
                         .then(|| format_ui_scope_technical_detail(compiled, &ctx.node)).flatten().map(|md| view! {
                             <details class="rounded-lg border border-white/10 bg-black/10 p-3">
-                                <summary class="cursor-pointer mei-font-2 mei-text-primary">"技术配置（micro / slot / budget）"</summary>
+                                <summary class="cursor-pointer mei-font-2 mei-text-primary">"技术配置（slot / budget）"</summary>
                                 <pre class="mt-2 whitespace-pre-wrap font-mono mei-font-1 leading-5">{md}</pre>
                             </details>
                         })}

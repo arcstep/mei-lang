@@ -12,7 +12,6 @@ pub enum UiScopeRole {
     Plane,
     Region,
     Section,
-    MicroLayout,
     Slot,
     Content,
     Budget,
@@ -25,7 +24,6 @@ impl UiScopeRole {
             Self::Plane => "plane",
             Self::Region => "region",
             Self::Section => "section",
-            Self::MicroLayout => "micro_layout",
             Self::Slot => "slot",
             Self::Content => "content",
             Self::Budget => "budget",
@@ -38,7 +36,6 @@ impl UiScopeRole {
             Self::Plane => "P",
             Self::Region => "R",
             Self::Section => "§",
-            Self::MicroLayout => "M",
             Self::Slot => "L",
             Self::Content => "C",
             Self::Budget => "B",
@@ -51,7 +48,6 @@ impl UiScopeRole {
             Self::Plane => "plane",
             Self::Region => "region",
             Self::Section => "section",
-            Self::MicroLayout => "micro_layout",
             Self::Slot => "slot",
             Self::Content => "content",
             Self::Budget => "budget",
@@ -67,7 +63,7 @@ pub struct UiSourceAnchor {
     pub symbol_id: String,
 }
 
-/// Typography / spacing budget attached to a micro-layout or section.
+/// Typography / spacing budget attached to a slot or section.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct UiBudgetSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]

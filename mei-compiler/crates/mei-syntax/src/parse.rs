@@ -3,7 +3,7 @@ use std::path::Path;
 use chumsky::prelude::*;
 
 use crate::ast::*;
-use crate::policy::validate_authoring_policy;
+use crate::policy::{validate_authoring_policy, validate_authoring_policy_for_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
@@ -26,6 +26,13 @@ pub fn parse_source_file(path: &Path) -> Result<SourceFile, ParseError> {
         span_start: 0,
         span_end: 0,
     })?;
+    if let Err(forbidden) = validate_authoring_policy_for_path(path, &source) {
+        return Err(ParseError {
+            message: forbidden.to_string(),
+            span_start: 0,
+            span_end: source.len().min(1),
+        });
+    }
     parse_source(&source)
 }
 

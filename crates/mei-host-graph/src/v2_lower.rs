@@ -666,6 +666,17 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
         .and_then(|v| v.as_str())
         .map(str::to_string);
 
+    if args.get("slots").and_then(Value::as_array).is_some() {
+        return lower_panel_with_slots(args, id, area, ctx);
+    }
+
+    if let Some(shell) = args
+        .get("shell")
+        .or_else(|| expanded_template.and_then(|template| template.get("shell")))
+    {
+        return lower_panel_from_shell(args, shell, id, area, ctx);
+    }
+
     let mut props = json!({});
     if let Some(expanded) = expanded_template {
         merge_card_fields(&mut props, expanded);
@@ -2167,8 +2178,15 @@ mod tests {
         };
         let tmp = tempfile::tempdir().expect("tempdir");
         let app_root = tmp.path().join("apps/data-demo");
-        let store = app_root.join("build/active/store/content/panel_contract");
+        let env_dir = app_root.join("env/WS-20260101.0");
+        let current = app_root.join("env/current");
+        let store = env_dir.join("build/store/content/panel_contract");
         std::fs::create_dir_all(&store).expect("mkdir");
+        std::fs::create_dir_all(current.parent().expect("env parent")).expect("env root");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&env_dir, &current).expect("symlink env/current");
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(&current).expect("mkdir env/current");
         let artifact = json!({
             "payload": {
                 "id": "supervision-stats",

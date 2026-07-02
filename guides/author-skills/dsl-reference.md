@@ -24,12 +24,18 @@ world(
 
 frame(
     id = "home_frame",
-    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["main"]],
+        gap = "16px",
+        padding = "20px",
+    ),
 )
 
 frame.add_panel(
     id = "main",
-    area = "auto",
+    area = "main",
     blocks = [],
 )
 ```
@@ -177,10 +183,19 @@ panel(
 4. 多文件时 `app_add_scene(scene = scene_ref(...))`
 5. `world(id=...)`
 6. `flow(id=...)`（按需）
-7. `frame(id=...)`
-8. `frame.add_panel(...)`
-9. `component(...)`
-10. `panel(base = panel_ref(...))` / `metric_card(base = metric_card_ref(...))`
+7. `frame(id=..., layout = grid(...))`
+8. `frame.add_panel(area = "...")`
+9. `panel(...)` 中继续使用 `grid + slot + content`
+10. `component(...)`
+11. `panel(base = panel_ref(...))` / `metric_card(base = metric_card_ref(...))`
+
+## 布局冻结口径
+
+- MeiLang 作者 DSL 统一使用 `grid(...)`
+- `absolute(...)` 只用于 placement，不再作为与 `grid` 并列的布局范式
+- `slot` 负责占位、背景、皮肤、padding、gap 与 typography budget
+- `metric_card(...)` 保留 `label / value / unit / desc` 等内容语义，但不再承担背景壳
+- 历史上的 `micro-layout`、`flex(...)`、`panel_slot(...)`、`layout_policy` 都不再作为新脚本默认写法
 
 ## 当前 typed ref 主线
 

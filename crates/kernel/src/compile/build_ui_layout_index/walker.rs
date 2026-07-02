@@ -304,7 +304,7 @@ fn walk_micro_layout(
     let preview_scope = format!("{preview_prefix}/{micro_key}");
     let budget = budget_from_panel(micro);
     let micro_node = builder.make_node(
-        UiScopeRole::MicroLayout,
+        UiScopeRole::Slot,
         micro_label,
         &micro_segments,
         preview_scope.clone(),
@@ -720,14 +720,16 @@ fn sections_in_region(region: &PanelDecl) -> Vec<(String, PanelDecl)> {
         for area_row in areas {
             for area in area_row {
                 if let Some(panel) = find_nested_panel_by_area(region, area.as_str()) {
-                    sections.push((area.clone(), panel.clone()));
+                    if panel_is_section(panel) {
+                        sections.push((area.clone(), panel.clone()));
+                    }
                 }
             }
         }
     }
     for ui_node in &region.blocks {
         if let UiNodeDecl::Panel(panel) = ui_node {
-            if panel.title.as_deref().is_some_and(|t| !t.trim().is_empty()) {
+            if panel_is_section(panel) {
                 let key = panel
                     .area
                     .clone()
@@ -740,6 +742,16 @@ fn sections_in_region(region: &PanelDecl) -> Vec<(String, PanelDecl)> {
         }
     }
     sections
+}
+
+fn panel_is_section(panel: &PanelDecl) -> bool {
+    ui_role_from_props(&panel.props) == Some("section")
+        || panel
+            .props
+            .get("__mei_section_title")
+            .and_then(|value| value.as_str())
+            .is_some_and(|value| !value.trim().is_empty())
+        || panel.title.as_deref().is_some_and(|title| !title.trim().is_empty())
 }
 
 fn find_nested_panel_by_area<'a>(region: &'a PanelDecl, area: &str) -> Option<&'a PanelDecl> {
@@ -882,7 +894,7 @@ fn is_micro_layout_panel(panel: &PanelDecl) -> bool {
     if ui_role_from_props(&panel.props) == Some("micro_layout") {
         return true;
     }
-    if panel.props.get("__mei_macro").is_some() {
+    if layout_macro_hint(panel).is_some_and(macro_implies_micro_layout) {
         return true;
     }
     let id = panel.id.as_str();
@@ -951,17 +963,8 @@ fn is_progress_triptych_panel(panel: &PanelDecl) -> bool {
 }
 
 fn is_metric_list_panel(panel: &PanelDecl) -> bool {
-    if layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("metric_list")) {
-        return true;
-    }
-    if panel.id.contains("metric_list") {
-        return true;
-    }
-    panel
-        .layout
-        .as_ref()
-        .is_some_and(|layout| layout.layout_type == "flex")
-        && metric_card_panels_in(panel).len() >= 3
+    layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("metric_list"))
+        || panel.id.contains("metric_list")
 }
 
 fn content_group_kind(panel: &PanelDecl) -> Option<&'static str> {
@@ -1003,6 +1006,10 @@ fn layout_macro_hint(panel: &PanelDecl) -> Option<&str> {
 
 fn micro_macro_hint(panel: &PanelDecl) -> Option<&str> {
     layout_macro_hint(panel)
+}
+
+fn macro_implies_micro_layout(macro_name: &str) -> bool {
+    macro_name == "micro_panel" || macro_name.ends_with("_body")
 }
 
 fn layout_has_areas(panel: &PanelDecl, required: &[&str]) -> bool {

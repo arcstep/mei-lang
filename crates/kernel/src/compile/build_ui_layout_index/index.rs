@@ -276,10 +276,7 @@ fn merge_build_result(
 }
 
 fn ui_scope_to_tree_node(node: &UiScopeNode, index: &UiLayoutIndex) -> Option<ReachabilityTreeNode> {
-    if matches!(
-        node.role,
-        UiScopeRole::MicroLayout | UiScopeRole::Slot | UiScopeRole::Budget
-    ) {
+    if matches!(node.role, UiScopeRole::Budget) {
         return None;
     }
     let parsed = BuildNodeId::parse(&node.node_id)?;
@@ -323,7 +320,6 @@ fn display_children_for_tree<'a>(
     index: &'a UiLayoutIndex,
 ) -> Vec<&'a UiScopeNode> {
     match node.role {
-        UiScopeRole::Section => collect_descendant_contents(node, index),
         UiScopeRole::Content if content_has_content_children(node, index) => node
             .children
             .iter()
@@ -334,12 +330,7 @@ fn display_children_for_tree<'a>(
             .children
             .iter()
             .filter_map(|child_id| index.nodes.get(child_id))
-            .flat_map(|child| match child.role {
-                UiScopeRole::MicroLayout | UiScopeRole::Slot | UiScopeRole::Budget => {
-                    display_children_for_tree(child, index)
-                }
-                _ => vec![child],
-            })
+            .filter(|child| child.role != UiScopeRole::Budget)
             .collect(),
     }
 }
@@ -351,26 +342,6 @@ fn content_has_content_children(node: &UiScopeNode, index: &UiLayoutIndex) -> bo
             .get(child_id)
             .is_some_and(|child| child.role == UiScopeRole::Content)
     })
-}
-
-fn collect_descendant_contents<'a>(
-    node: &UiScopeNode,
-    index: &'a UiLayoutIndex,
-) -> Vec<&'a UiScopeNode> {
-    let mut contents = Vec::new();
-    for child_id in &node.children {
-        let Some(child) = index.nodes.get(child_id) else {
-            continue;
-        };
-        match child.role {
-            UiScopeRole::Content => contents.push(child),
-            UiScopeRole::MicroLayout | UiScopeRole::Slot | UiScopeRole::Budget => {
-                contents.extend(collect_descendant_contents(child, index));
-            }
-            _ => contents.extend(collect_descendant_contents(child, index)),
-        }
-    }
-    contents
 }
 
 fn scene_contracts_from_compiled(

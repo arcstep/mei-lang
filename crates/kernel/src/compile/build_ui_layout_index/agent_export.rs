@@ -359,7 +359,7 @@ fn block_match_keys(block_key: &str) -> Vec<String> {
     keys
 }
 
-/// Technical micro/slot/budget metadata for section/content inspector.
+/// Technical slot/budget metadata for region/section/content inspector.
 pub fn format_ui_scope_technical_detail(compiled: &CompiledApp, node: &BuildNodeId) -> Option<String> {
     let entry = compiled.ui_layout_index.lookup(node)?;
     if !matches!(
@@ -410,7 +410,7 @@ fn collect_technical_nodes<'a>(
 ) {
     if matches!(
         entry.role,
-        UiScopeRole::MicroLayout | UiScopeRole::Slot | UiScopeRole::Budget
+        UiScopeRole::Slot | UiScopeRole::Budget
     ) {
         out.push(entry);
     }

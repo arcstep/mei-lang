@@ -199,17 +199,7 @@ fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, sou
                 inject_default_layout(panel, has_head, has_body);
             }
             None => {
-                if should_inject_metrics_strip(panel, has_head) {
-                    let spacing = policy_spacing(
-                        panel,
-                        DEFAULT_METRICS_STRIP_GAP,
-                        DEFAULT_METRICS_STRIP_PADDING,
-                    );
-                    inject_default_metrics_strip_layout(panel, &spacing);
-                    stamp_layout_policy(panel, LAYOUT_POLICY_METRICS_STRIP);
-                } else {
-                    inject_default_layout(panel, has_head, has_body);
-                }
+                inject_default_layout(panel, has_head, has_body);
             }
         }
     }

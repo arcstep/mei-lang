@@ -211,7 +211,7 @@ fn ui_layout_index_builds_section_micro_and_slots() {
     )
     .encode();
     let micro = index.lookup_by_encoded(&micro_id).expect("micro node");
-    assert_eq!(micro.role, UiScopeRole::MicroLayout);
+    assert_eq!(micro.role, UiScopeRole::Slot);
 
     let compound_slot_id = BuildNodeId::ui_scope(
         "home",
@@ -233,22 +233,20 @@ fn ui_layout_index_builds_section_micro_and_slots() {
     let section_tree = find_tree_node(&tree.children, &section_tree_id).expect("section in tree");
     assert!(
         !section_tree.children.is_empty(),
-        "section should list content children"
+        "section should list slot or content children"
     );
-    for child in &section_tree.children {
-        assert_eq!(
-            child.badges.first().map(String::as_str),
-            Some("content"),
-            "section tree children should be content nodes"
-        );
-    }
+    let slot_children = collect_tree_nodes_with_role(&section_tree.children, "slot");
+    assert!(
+        !slot_children.is_empty(),
+        "section tree should expose slot nodes in the new structure chain"
+    );
     assert!(
         !tree_contains_role(&tree.children, "micro_layout"),
         "micro_layout should not appear in structure tree"
     );
     assert!(
-        !tree_contains_role(&tree.children, "slot"),
-        "slot should not appear in structure tree"
+        tree_contains_role(&tree.children, "slot"),
+        "slot should appear in structure tree"
     );
 }
 
@@ -477,8 +475,13 @@ fn ui_layout_index_penetrates_panel_ref_wrapper_for_metric_card_content() {
     let section_tree_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/enforcement").encode();
     let section_tree = find_tree_node(&result.tree_root.children, &section_tree_id)
         .expect("section in structure tree");
-    assert_eq!(section_tree.children.len(), 4, "section should expose metric cards as content");
-    for child in &section_tree.children {
+    let content_children = collect_tree_nodes_with_role(&section_tree.children, "content");
+    assert_eq!(
+        content_children.len(),
+        4,
+        "section should expose metric cards as descendant content"
+    );
+    for child in content_children {
         assert_eq!(
             child.badges.first().map(String::as_str),
             Some("content"),
@@ -514,6 +517,28 @@ fn tree_contains_role(
         node.badges.first().map(String::as_str) == Some(role)
             || tree_contains_role(&node.children, role)
     })
+}
+
+fn collect_tree_nodes_with_role<'a>(
+    nodes: &'a [crate::compile::reachability_tree::ReachabilityTreeNode],
+    role: &str,
+) -> Vec<&'a crate::compile::reachability_tree::ReachabilityTreeNode> {
+    let mut out = Vec::new();
+    collect_tree_nodes_with_role_into(nodes, role, &mut out);
+    out
+}
+
+fn collect_tree_nodes_with_role_into<'a>(
+    nodes: &'a [crate::compile::reachability_tree::ReachabilityTreeNode],
+    role: &str,
+    out: &mut Vec<&'a crate::compile::reachability_tree::ReachabilityTreeNode>,
+) {
+    for node in nodes {
+        if node.badges.first().map(String::as_str) == Some(role) {
+            out.push(node);
+        }
+        collect_tree_nodes_with_role_into(&node.children, role, out);
+    }
 }
 
 #[test]
@@ -990,7 +1015,7 @@ fn ui_scope_annotation_matches_compound_metric_cards() {
         ),
     ] {
         let role = if label == "enforcement_strip_layout" {
-            UiScopeRole::MicroLayout
+            UiScopeRole::Slot
         } else {
             UiScopeRole::Content
         };
@@ -1418,8 +1443,14 @@ fn ui_layout_index_cross_section_duplicate_labels_disambiguate_in_tree() {
         &BuildNodeId::ui_scope("home", "home/T1/left_rail/penalty").encode(),
     )
     .expect("penalty section");
-    let inspection_primary = &inspection_section.children[0].children[0];
-    let penalty_primary = &penalty_section.children[0].children[0];
+    let inspection_primary = collect_tree_nodes_with_role(&inspection_section.children, "content")
+        .into_iter()
+        .next()
+        .expect("inspection primary content");
+    let penalty_primary = collect_tree_nodes_with_role(&penalty_section.children, "content")
+        .into_iter()
+        .next()
+        .expect("penalty primary content");
     assert!(
         inspection_primary.label.contains('·') || penalty_primary.label.contains('·'),
         "duplicate metric labels should be disambiguated with section prefix"

@@ -3,7 +3,7 @@ use std::path::Path;
 use chumsky::prelude::*;
 
 use super::ast::*;
-use crate::policy::validate_authoring_policy;
+use crate::policy::{validate_authoring_policy, validate_authoring_policy_for_path};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct V2ParseError {
@@ -26,6 +26,13 @@ pub fn parse_v2_source_file(path: &Path) -> Result<V2SourceFile, V2ParseError> {
         span_start: 0,
         span_end: 0,
     })?;
+    if let Err(forbidden) = validate_authoring_policy_for_path(path, &source) {
+        return Err(V2ParseError {
+            message: forbidden.to_string(),
+            span_start: 0,
+            span_end: source.len().min(1),
+        });
+    }
     parse_v2_source(&source)
 }
 
@@ -386,5 +393,25 @@ template panel_title_decor(
         let file = parse_v2_source(source).expect("parse header.panel.mei");
         assert!(file.items.iter().any(|item| matches!(item, V2Item::UseTemplate { .. })));
         assert!(file.items.iter().any(|item| matches!(item, V2Item::TopLevel { name, .. } if name == "panel_contract")));
+    }
+
+    #[test]
+    fn parses_cockpit_metric_gallery_scene() {
+        let source = include_str!(
+            "../../../../../../workspaces/ws-demo-v2/stock/templates/cockpit/metric-card.mei"
+        );
+        let file = parse_v2_source(source).expect("parse cockpit metric-card.mei");
+        assert!(file.items.iter().any(|item| matches!(item, V2Item::UseTemplate { .. })));
+        assert!(!file.items.is_empty(), "metric gallery should produce AST items");
+    }
+
+    #[test]
+    fn parses_grid_only_authoring_example() {
+        let source = include_str!(
+            "../../../../../../workspaces/ws-demo-v2/stock/authoring/examples/frame-layout-advanced.mei"
+        );
+        let file = parse_v2_source(source).expect("parse frame-layout-advanced.mei");
+        assert!(file.items.iter().any(|item| matches!(item, V2Item::UseTemplate { .. })));
+        assert!(!file.items.is_empty(), "authoring example should produce AST items");
     }
 }
