@@ -129,6 +129,8 @@
     relaxPageFlowStageGrid(stage);
     root.dataset.meiFrameScale = "1";
     root.dataset.meiAppliedZoom = "1";
+    root.style.setProperty("--mei-frame-scale", "1");
+    shell.style.setProperty("--mei-frame-scale", "1");
     root.dataset.meiManageRelayout = "";
     delete root.dataset.meiLayoutKey;
     root.scrollLeft = 0;
@@ -149,7 +151,7 @@
   ) {
     removeDesignBounds(shell);
     const mode = String(scaleMode || "contain").trim().toLowerCase();
-    const scale = computeScale(mode, hostWidth, hostHeight, designWidth, designHeight);
+    const scale = computeScale(mode, hostWidth, hostHeight, designWidth, designHeight, root);
     const scaleText = round(scale);
     const shellWidth = round(designWidth * scale);
     const shellHeight = round(designHeight * scale);
@@ -178,6 +180,8 @@
 
     root.dataset.meiFrameScale = String(scaleText);
     root.dataset.meiManageRelayout = "";
+    root.style.setProperty("--mei-frame-scale", String(scaleText));
+    shell.style.setProperty("--mei-frame-scale", String(scaleText));
   }
 
   function syncChromeNoneViewportBox(root) {

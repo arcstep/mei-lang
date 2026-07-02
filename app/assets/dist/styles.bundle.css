@@ -1814,16 +1814,39 @@ body > .maplibregl-popup.mei-cockpit-floating-tip .popup-value {
   text-align: right;
   word-break: break-all;
 }
-/* 首屏地图 GIS 工具（挂到 body 后高于各板块） */
-body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools {
-  position: fixed;
+/* 首屏地图 GIS 工具（挂到 preview-stage 后与 T0/T1 共用 transform scale） */
+.preview-stage > .mei-cockpit-map-tools-plane,
+.preview-stage-shell > .mei-cockpit-map-tools-plane {
+  position: absolute;
+  inset: 0;
   z-index: var(--mei-z-cockpit-map-tools);
-  /* MapLibre 控件容器默认横跨父级宽度；挂 body 后须保持 none，仅按钮组可点 */
+  pointer-events: none;
+  overflow: visible;
+  box-sizing: border-box;
+}
+.preview-stage > .mei-cockpit-map-tools-plane > *,
+.preview-stage-shell > .mei-cockpit-map-tools-plane > * {
+  pointer-events: auto;
+}
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools {
+  position: absolute;
+  z-index: var(--mei-z-cockpit-map-tools);
   pointer-events: none;
   width: max-content;
   height: max-content;
   margin: 0;
 }
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools {
+  position: fixed;
+  z-index: var(--mei-z-cockpit-map-tools);
+  pointer-events: none;
+  width: max-content;
+  height: max-content;
+  margin: 0;
+}
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group,
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group {
   pointer-events: auto;
   border: 1px solid rgba(84, 160, 255, 0.35);
@@ -1832,6 +1855,8 @@ body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctr
   background: linear-gradient(180deg, rgba(11, 31, 56, 0.94) 0%, rgba(8, 22, 40, 0.96) 100%);
   box-shadow: 0 10px 26px rgba(0, 8, 20, 0.42);
 }
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button {
   width: 32px;
   height: 32px;
@@ -1839,21 +1864,35 @@ body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctr
   color: var(--mei-color-text-primary);
   border: 0;
 }
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button + button,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button + button,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button + button {
   border-top: 1px solid rgba(84, 160, 255, 0.18);
 }
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button:hover,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button:hover,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button:hover {
   background: var(--mei-color-surface-bg);
 }
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button:focus-visible,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button:focus-visible,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button:focus-visible {
   outline: 1px solid rgba(125, 211, 252, 0.75);
   outline-offset: -1px;
 }
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon,
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon {
   filter: brightness(1.55) saturate(0.72) hue-rotate(180deg);
 }
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle {
   display: inline-flex;
   align-items: center;
@@ -1864,18 +1903,23 @@ body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctr
   color: var(--mei-color-text-primary);
   cursor: pointer;
 }
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle[aria-pressed="true"],
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle[aria-pressed="true"],
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle[aria-pressed="true"] {
   background: var(--mei-color-surface-bg);
   box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.35);
 }
+.preview-stage .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle svg,
+.preview-stage-shell .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle svg,
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle svg {
   width: 18px;
   height: 18px;
   pointer-events: none;
   filter: brightness(1.55) saturate(0.72) hue-rotate(180deg);
 }
-body > .mei-cockpit-floating-layer-control {
-  position: fixed;
+.preview-stage .mei-cockpit-floating-layer-control,
+.preview-stage-shell .mei-cockpit-floating-layer-control {
+  position: absolute;
   z-index: calc(var(--mei-z-cockpit-map-tools) + 1);
   min-width: 220px;
   max-width: 280px;
@@ -1890,6 +1934,24 @@ body > .mei-cockpit-floating-layer-control {
   max-height: min(360px, calc(100% - 24px));
   overflow: auto;
 }
+body > .mei-cockpit-floating-layer-control {
+  position: fixed;
+  z-index: calc(var(--mei-z-cockpit-map-tools) + 1);
+  min-width: 220px;
+  max-width: 280px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: var(--mei-color-surface-bg);
+  color: var(--mei-color-text-primary);
+  font-size: var(--mei-font-1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  max-height: min(360px, calc(100vh - 24px));
+  overflow: auto;
+}
+.preview-stage .mei-cockpit-floating-layer-control .layer-control-head,
+.preview-stage-shell .mei-cockpit-floating-layer-control .layer-control-head,
 body > .mei-cockpit-floating-layer-control .layer-control-head {
   display: flex;
   align-items: center;
@@ -1897,12 +1959,16 @@ body > .mei-cockpit-floating-layer-control .layer-control-head {
   gap: 8px;
   margin-bottom: 8px;
 }
+.preview-stage .mei-cockpit-floating-layer-control .layer-control-title,
+.preview-stage-shell .mei-cockpit-floating-layer-control .layer-control-title,
 body > .mei-cockpit-floating-layer-control .layer-control-title {
   font-weight: 600;
   margin: 0;
   color: var(--mei-color-text-inverse);
   font-size: var(--mei-font-2);
 }
+.preview-stage .mei-cockpit-floating-layer-control .layer-control-close,
+.preview-stage-shell .mei-cockpit-floating-layer-control .layer-control-close,
 body > .mei-cockpit-floating-layer-control .layer-control-close {
   flex: 0 0 auto;
   display: inline-flex;
@@ -1919,10 +1985,14 @@ body > .mei-cockpit-floating-layer-control .layer-control-close {
   line-height: 1;
   cursor: pointer;
 }
+.preview-stage .mei-cockpit-floating-layer-control .layer-control-list,
+.preview-stage-shell .mei-cockpit-floating-layer-control .layer-control-list,
 body > .mei-cockpit-floating-layer-control .layer-control-list {
   display: grid;
   gap: 6px;
 }
+.preview-stage .mei-cockpit-floating-layer-control .layer-item,
+.preview-stage-shell .mei-cockpit-floating-layer-control .layer-item,
 body > .mei-cockpit-floating-layer-control .layer-item {
   display: flex;
   align-items: flex-start;
@@ -1996,6 +2066,51 @@ body > .mei-floating-text-pop-backdrop {
   inset: 0;
   z-index: var(--mei-z-layer2-workspace);
   box-sizing: border-box;
+}
+/* T0–C 上下文浮层：挂在 preview-stage 内，继承 contain transform */
+.preview-stage > .mei-viewport-context-plane,
+.preview-stage > .mei-cockpit-map-tools-plane {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  box-sizing: border-box;
+}
+.preview-stage > .mei-viewport-context-plane {
+  z-index: var(--mei-z-cockpit-text-popover);
+}
+.preview-stage > .mei-cockpit-map-tools-plane {
+  z-index: var(--mei-z-cockpit-map-tools);
+}
+.preview-stage > .mei-viewport-context-plane > *,
+.preview-stage > .mei-cockpit-map-tools-plane > * {
+  pointer-events: auto;
+}
+.preview-stage > .mei-cockpit-map-tools-plane .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools {
+  position: absolute;
+  pointer-events: none;
+  width: max-content;
+  height: max-content;
+  margin: 0;
+}
+.preview-stage > .mei-cockpit-map-tools-plane .mei-cockpit-floating-layer-control {
+  position: absolute;
+}
+/* T0–C 上下文浮层（layer2 内） */
+#mei-layer2-workspace > .mei-viewport-context-plane {
+  position: absolute;
+  inset: 0;
+  z-index: var(--mei-z-cockpit-text-popover);
+  pointer-events: none;
+  overflow: visible;
+  box-sizing: border-box;
+}
+.preview-stage .mei-viewport-context-plane .mei-cockpit-echarts-tooltip,
+.preview-stage .mei-viewport-context-plane .maplibregl-popup.mei-cockpit-floating-tip {
+  z-index: var(--mei-z-cockpit-tooltip-in-board);
+}
+.mei-viewport-context-plane > * {
+  pointer-events: auto;
 }
 /* T2 挂在 preview-stage-shell 内：禁止 fixed/vw/vh，与 T0/T1 共用 letterbox 画布 */
 .mei-layer2-in-viewport.mei-layer2-workspace,
@@ -2080,7 +2195,9 @@ body > .mei-floating-text-pop-backdrop {
   overflow-wrap: break-word;
   word-break: normal;
 }
-/* C 层：Copilot / FAB / 助手对话，挂在 preview-stage-shell 内与 T0–T2 同画布 */
+/* C 层：Copilot / FAB / 助手对话，挂在 preview-stage 内与 T0–T2 共用 transform scale */
+.preview-stage > .mei-copilot-plane,
+.preview-stage-shell > .mei-copilot-plane,
 .mei-copilot-plane {
   position: absolute;
   inset: 0;
@@ -2092,11 +2209,30 @@ body > .mei-floating-text-pop-backdrop {
 .mei-copilot-plane > * {
   pointer-events: auto;
 }
-.mei-copilot-in-viewport.access-chat-floating-root,
+.mei-copilot-plane > .access-chat-floating-root,
+.mei-copilot-plane > .access-external-ai-floating-root,
+.mei-copilot-plane > .mei-copilot-caption,
+.mei-copilot-plane > .copilot-script-drawer,
+.mei-copilot-plane > .access-chat-overlay-panel.mei-copilot-ai-overlay-panel {
+  pointer-events: auto;
+}
+/* FAB 信纸框锚定：body+fixed，与 T0/T1 同比例但不参与 shell plane 命中竞争 */
+body.mei-copilot-viewport-mounted .access-chat-floating-root.mei-copilot-letterbox-fixed {
+  position: fixed;
+  z-index: var(--mei-z-copilot-fab-elevated);
+  pointer-events: auto;
+  touch-action: none;
+}
+body.mei-copilot-viewport-mounted .access-chat-floating-root.mei-copilot-letterbox-fixed .access-chat-fab,
+body.mei-copilot-viewport-mounted .access-chat-floating-root.mei-copilot-letterbox-fixed .copilot-fab-dock,
+body.mei-copilot-viewport-mounted .access-chat-floating-root.mei-copilot-letterbox-fixed .copilot-toolbar {
+  pointer-events: auto;
+}
+.mei-copilot-in-viewport.access-chat-floating-root:not(.mei-copilot-letterbox-fixed),
 .mei-copilot-in-viewport.access-external-ai-floating-root {
   position: absolute;
-  right: 24px;
-  bottom: 24px;
+  right: calc(24px * var(--mei-frame-scale, 1));
+  bottom: calc(24px * var(--mei-frame-scale, 1));
   left: auto;
   top: auto;
   z-index: var(--mei-z-copilot-fab);
@@ -2105,15 +2241,20 @@ body > .mei-floating-text-pop-backdrop {
   height: fit-content;
   overflow: visible;
   max-width: none;
+  pointer-events: auto;
 }
 .mei-copilot-in-viewport.access-chat-floating-root:not([data-positioned="true"]) {
-  right: 24px;
+  right: calc(24px * var(--mei-frame-scale, 1));
   left: auto;
-  bottom: 24px;
+  bottom: calc(24px * var(--mei-frame-scale, 1));
+}
+.mei-copilot-in-viewport .access-chat-fab,
+.mei-copilot-in-viewport .copilot-fab-dock {
+  pointer-events: auto;
 }
 .mei-copilot-in-viewport .access-chat-fab {
-  width: 64px;
-  height: 64px;
+  width: calc(64px * var(--mei-frame-scale, 1));
+  height: calc(64px * var(--mei-frame-scale, 1));
   flex: 0 0 auto;
 }
 .access-chat-floating-root > .access-chat-overlay-panel {
@@ -2137,8 +2278,11 @@ body > .mei-floating-text-pop-backdrop {
   z-index: 2;
   display: block;
   width: max-content;
-  max-width: min(calc(100vw - 120px), 720px);
+  max-width: min(720px, calc(100vw - 120px));
   box-sizing: border-box;
+}
+.mei-copilot-in-viewport .copilot-fab-dock .copilot-toolbar {
+  max-width: min(720px, calc(100% - 16px));
 }
 .access-chat-floating-root[data-copilot-toolbar-side="end"] .copilot-fab-dock .copilot-toolbar,
 .access-chat-floating-root:not([data-copilot-toolbar-side]) .copilot-fab-dock .copilot-toolbar {
@@ -2163,8 +2307,8 @@ body > .mei-floating-text-pop-backdrop {
 }
 .mei-copilot-in-viewport.access-chat-floating-root[data-open="true"] .access-chat-fab {
   position: absolute;
-  right: 24px;
-  bottom: 24px;
+  right: calc(24px * var(--mei-frame-scale, 1));
+  bottom: calc(24px * var(--mei-frame-scale, 1));
   pointer-events: auto;
 }
 .mei-copilot-in-viewport .access-chat-overlay-panel {
@@ -5510,7 +5654,8 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 /* Build 预览 scoped 蒙版：同步压住 portal 到 body 的 GIS 浮层控件 */
 body.build-preview-scoped-active > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools,
 body.build-preview-scoped-active > .mei-cockpit-floating-layer-control,
-body.build-preview-scoped-active > .maplibregl-popup.mei-cockpit-floating-tip {
+body.build-preview-scoped-active > .maplibregl-popup.mei-cockpit-floating-tip,
+body.build-preview-scoped-active .preview-stage-shell > .mei-cockpit-map-tools-plane {
   opacity: 0.22;
   pointer-events: none;
   filter: saturate(0.55);
@@ -6188,6 +6333,24 @@ a.tree-link {
     justify-self: end;
   }
   .sidebar, .main { height: auto; }
+}
+/* 访问态 stage-lock：窄屏仍保持 shell/main 高度链，contain 才能纵向 letterbox */
+@media (max-width: 1200px) {
+  body.app-view .shell.shell-surface {
+    height: 100dvh;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    overflow: hidden;
+  }
+  body.app-view .main {
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+  body.app-view [data-mei-frame-viewport="true"].preview-viewport-access-clip {
+    height: 100%;
+    min-height: 0;
+  }
 }
 
 /* config/upload 轻量页：消费 shell 轨 token（与 build/manage 顶栏底栏一致） */

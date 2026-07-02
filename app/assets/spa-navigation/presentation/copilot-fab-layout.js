@@ -47,17 +47,40 @@
 
     ensureFabDock();
 
+    const letterboxLayout =
+      root.classList.contains("mei-copilot-letterbox-fixed") &&
+      typeof boot.resolveAccessFabLetterboxLayout === "function"
+        ? boot.resolveAccessFabLetterboxLayout(root)
+        : null;
     const host = layoutHost(root);
-    const hostRect = host
-      ? host.getBoundingClientRect()
-      : {
-          left: 0,
-          top: 0,
-          width: Number(window.innerWidth || 0),
-          height: Number(window.innerHeight || 0),
-        };
+    const bounds =
+      typeof boot.resolveViewportOverlayBounds === "function"
+        ? boot.resolveViewportOverlayBounds(root)
+        : null;
+    const hostRect = letterboxLayout
+      ? letterboxLayout.shellRect
+      : host
+        ? host.getBoundingClientRect()
+        : bounds?.shellRect || {
+            left: 0,
+            top: 0,
+            width: Number(window.innerWidth || 0),
+            height: Number(window.innerHeight || 0),
+          };
 
     root.dataset.copilotToolbarSide = detectToolbarSide(fab, hostRect);
+
+    const toolbar = root.querySelector(".copilot-toolbar");
+    if (toolbar instanceof HTMLElement) {
+      const hostWidth = letterboxLayout
+        ? letterboxLayout.width
+        : host
+          ? host.clientWidth || host.offsetWidth || 0
+          : 0;
+      if (hostWidth > 0) {
+        toolbar.style.maxWidth = `${Math.min(720, Math.max(200, hostWidth - 96))}px`;
+      }
+    }
     return true;
   }
 

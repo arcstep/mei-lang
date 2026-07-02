@@ -16,6 +16,10 @@
     const ACCESS_FLOATING_DRAG_THRESHOLD_PX = 4;
     let accessFloatingDragState = null;
 
+    function canUseAccessFab() {
+      return !!(els.accessFloatingRoot && els.accessFab);
+    }
+
     function isAccessFloatingMode() {
       const mode = normalizeRouteMode(root.dataset.mode);
       const accessLike = mode === "access" || mode === "copilot";
@@ -38,6 +42,18 @@
 
     function floatingBoundsSize() {
       const bootApi = window.__meiLangBoot || {};
+      if (isLetterboxFab() && typeof bootApi.resolveAccessFabLetterboxLayout === "function") {
+        const layout = bootApi.resolveAccessFabLetterboxLayout(els.accessFloatingRoot);
+        if (layout?.width > 0 && layout?.height > 0) {
+          return { width: layout.width, height: layout.height };
+        }
+      }
+      if (typeof bootApi.resolveViewportOverlayBounds === "function") {
+        const bounds = bootApi.resolveViewportOverlayBounds(els.accessFloatingRoot);
+        if (bounds?.width > 0 && bounds?.height > 0) {
+          return { width: bounds.width, height: bounds.height };
+        }
+      }
       if (typeof bootApi.copilotFloatingBoundsSize === "function") {
         const size = bootApi.copilotFloatingBoundsSize();
         if (size && size.width > 0 && size.height > 0) {
@@ -51,6 +67,21 @@
     }
 
     function clampAccessFloatingPosition(left, top) {
+      if (isLetterboxFab()) {
+        const bootApi = window.__meiLangBoot || {};
+        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
+        if (layout) {
+          const width = Math.max(
+            layout.fabSize,
+            Number(els.accessFloatingRoot.offsetWidth || 0) || layout.fabSize,
+          );
+          const height = Math.max(
+            layout.fabSize,
+            Number(els.accessFloatingRoot.offsetHeight || 0) || layout.fabSize,
+          );
+          return layout.clampLocal(left, top, width, height);
+        }
+      }
       if (!isAccessFloatingMode()) return null;
       const width = Math.max(48, Number(els.accessFloatingRoot.offsetWidth || 68));
       const height = Math.max(48, Number(els.accessFloatingRoot.offsetHeight || 68));
@@ -70,7 +101,31 @@
       return { left: nextLeft, top: nextTop };
     }
 
+    function isLetterboxFab() {
+      return !!els.accessFloatingRoot?.classList.contains("mei-copilot-letterbox-fixed");
+    }
+
     function applyAccessFloatingPosition(left, top) {
+      if (isLetterboxFab()) {
+        const bootApi = window.__meiLangBoot || {};
+        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
+        if (layout && typeof bootApi.applyAccessFabLetterboxPosition === "function") {
+          const width = Math.max(
+            layout.fabSize,
+            Number(els.accessFloatingRoot.offsetWidth || 0) || layout.fabSize,
+          );
+          const height = Math.max(
+            layout.fabSize,
+            Number(els.accessFloatingRoot.offsetHeight || 0) || layout.fabSize,
+          );
+          const pos = layout.clampLocal(left, top, width, height);
+          return bootApi.applyAccessFabLetterboxPosition(
+            els.accessFloatingRoot,
+            pos.left,
+            pos.top,
+          );
+        }
+      }
       if (!isAccessFloatingMode()) return null;
       const pos = clampAccessFloatingPosition(left, top);
       if (!pos) return null;
@@ -83,12 +138,24 @@
     }
 
     function clearAccessFloatingPosition() {
+      if (isLetterboxFab()) {
+        delete els.accessFloatingRoot.dataset.positioned;
+        delete els.accessFloatingRoot.dataset.letterboxLeft;
+        delete els.accessFloatingRoot.dataset.letterboxTop;
+        const bootApi = window.__meiLangBoot || {};
+        if (typeof bootApi.relocateAccessFabInLetterbox === "function") {
+          bootApi.relocateAccessFabInLetterbox();
+        }
+        return;
+      }
       if (!isAccessFloatingMode()) return;
       els.accessFloatingRoot.style.left = "";
       els.accessFloatingRoot.style.top = "";
       els.accessFloatingRoot.style.right = "";
       els.accessFloatingRoot.style.bottom = "";
       delete els.accessFloatingRoot.dataset.positioned;
+      delete els.accessFloatingRoot.dataset.letterboxLeft;
+      delete els.accessFloatingRoot.dataset.letterboxTop;
     }
 
     function rememberAccessFloatingPosition(left, top) {
@@ -109,11 +176,23 @@
           return;
         }
         const parsed = JSON.parse(raw);
-        const left = Number(parsed && parsed.left);
-        const top = Number(parsed && parsed.top);
+        let left = Number(parsed && parsed.left);
+        let top = Number(parsed && parsed.top);
         if (!Number.isFinite(left) || !Number.isFinite(top)) {
           clearAccessFloatingPosition();
           return;
+        }
+        if (isLetterboxFab()) {
+          const bootApi = window.__meiLangBoot || {};
+          const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
+          if (
+            layout &&
+            (left > layout.width || top > layout.height || left < 0 || top < 0)
+          ) {
+            const local = layout.screenToLocal(left, top);
+            left = local.left;
+            top = local.top;
+          }
         }
         const pos = applyAccessFloatingPosition(left, top);
         if (pos) rememberAccessFloatingPosition(pos.left, pos.top);
@@ -144,6 +223,22 @@
 
     function reclampAccessFloatingInViewport() {
       if (!isAccessFloatingMode()) return;
+      const bootApi = window.__meiLangBoot || {};
+      if (isLetterboxFab()) {
+        if (els.accessFloatingRoot.dataset.positioned === "true") {
+          const left = Number(els.accessFloatingRoot.dataset.letterboxLeft);
+          const top = Number(els.accessFloatingRoot.dataset.letterboxTop);
+          if (Number.isFinite(left) && Number.isFinite(top)) {
+            applyAccessFloatingPosition(left, top);
+          } else {
+            clearAccessFloatingPosition();
+          }
+        }
+        if (typeof bootApi.relocateAccessFabInLetterbox === "function") {
+          bootApi.relocateAccessFabInLetterbox();
+        }
+        return;
+      }
       if (!els.accessFloatingRoot?.classList.contains("mei-copilot-in-viewport")) {
         return;
       }
@@ -216,38 +311,90 @@
       }
     }
 
+    function shouldUseCopilotToolbar() {
+      const bootApi = window.__meiLangBoot || {};
+      const ctx = bootApi.copilotFabContext;
+      if (ctx && typeof ctx.copilotFabContextActive === "function") {
+        return ctx.copilotFabContextActive();
+      }
+      return false;
+    }
+
+    let lastFabTapAt = 0;
+
+    function activateAccessFabTap() {
+      if (!canUseAccessFab()) return;
+      const now = Date.now();
+      if (now - lastFabTapAt < 280) return;
+      lastFabTapAt = now;
+      const bootApi = window.__meiLangBoot || {};
+      if (shouldUseCopilotToolbar()) {
+        const toolbar = bootApi.copilotToolbar;
+        if (toolbar && typeof toolbar.mount === "function") {
+          toolbar.mount({ autoStart: false, apply: false, toolbarOpen: false });
+        }
+        if (toolbar && typeof toolbar.toggleToolbar === "function") {
+          toolbar.toggleToolbar();
+          return;
+        }
+      }
+      if (isAccessFloatingMode()) {
+        toggleAccessFloatingPanel();
+      }
+    }
+
     function beginAccessFloatingDrag(event) {
-      if (!isAccessFloatingMode()) return;
+      if (!canUseAccessFab()) return;
       if (event && event.button != null && event.button !== 0) return;
-      const host = floatingBoundsHost();
-      const hostRect = host
-        ? host.getBoundingClientRect()
-        : { left: 0, top: 0 };
-      const rect = els.accessFloatingRoot.getBoundingClientRect();
+      let baseLeft = 0;
+      let baseTop = 0;
+      if (isLetterboxFab()) {
+        const bootApi = window.__meiLangBoot || {};
+        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
+        if (layout) {
+          if (els.accessFloatingRoot.dataset.positioned === "true") {
+            const savedLeft = Number(els.accessFloatingRoot.dataset.letterboxLeft);
+            const savedTop = Number(els.accessFloatingRoot.dataset.letterboxTop);
+            if (Number.isFinite(savedLeft) && Number.isFinite(savedTop)) {
+              baseLeft = savedLeft;
+              baseTop = savedTop;
+            } else {
+              const rect = els.accessFloatingRoot.getBoundingClientRect();
+              const local = layout.screenToLocal(rect.left, rect.top);
+              baseLeft = local.left;
+              baseTop = local.top;
+            }
+          } else {
+            const def = layout.defaultLocal();
+            baseLeft = def.left;
+            baseTop = def.top;
+          }
+        }
+      } else {
+        const host = floatingBoundsHost();
+        const hostRect = host
+          ? host.getBoundingClientRect()
+          : { left: 0, top: 0 };
+        const rect = els.accessFloatingRoot.getBoundingClientRect();
+        baseLeft = Number(rect.left || 0) - Number(hostRect.left || 0);
+        baseTop = Number(rect.top || 0) - Number(hostRect.top || 0);
+      }
       accessFloatingDragState = {
         pointerId: event ? event.pointerId : null,
         startX: Number(event && event.clientX),
         startY: Number(event && event.clientY),
-        baseLeft: Number(rect.left || 0) - Number(hostRect.left || 0),
-        baseTop: Number(rect.top || 0) - Number(hostRect.top || 0),
+        baseLeft,
+        baseTop,
         moved: false,
-        lastLeft: Number(rect.left || 0),
-        lastTop: Number(rect.top || 0),
+        lastLeft: baseLeft,
+        lastTop: baseTop,
       };
       state.accessFloatingDragMoved = false;
       els.accessFloatingRoot.dataset.dragging = "true";
-      try {
-        if (els.accessFab && event && event.pointerId != null) {
-          els.accessFab.setPointerCapture(event.pointerId);
-        }
-      } catch (_) {}
-      if (event && typeof event.preventDefault === "function") {
-        event.preventDefault();
-      }
     }
 
     function continueAccessFloatingDrag(event) {
-      if (!accessFloatingDragState || !isAccessFloatingMode()) return;
+      if (!accessFloatingDragState || !canUseAccessFab()) return;
       if (
         accessFloatingDragState.pointerId != null &&
         event &&
@@ -267,8 +414,15 @@
       ) {
         return;
       }
-      accessFloatingDragState.moved = true;
-      state.accessFloatingDragMoved = true;
+      if (!accessFloatingDragState.moved) {
+        accessFloatingDragState.moved = true;
+        state.accessFloatingDragMoved = true;
+        try {
+          if (els.accessFab && event && event.pointerId != null) {
+            els.accessFab.setPointerCapture(event.pointerId);
+          }
+        } catch (_) {}
+      }
       const pos = applyAccessFloatingPosition(
         accessFloatingDragState.baseLeft + dx,
         accessFloatingDragState.baseTop + dy,
@@ -308,20 +462,24 @@
         window.setTimeout(function () {
           state.accessFloatingDragMoved = false;
         }, 0);
-      }
-      const layout = (window.__meiLangBoot || {}).copilotFabLayout;
-      if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
-        layout.scheduleCopilotFabToolbarLayout();
-      } else {
-        const toolbar = (window.__meiLangBoot || {}).copilotToolbar;
-        if (toolbar && typeof toolbar.syncLayout === "function") {
-          toolbar.syncLayout({ toolbarOpenChanged: true });
+        const layout = (window.__meiLangBoot || {}).copilotFabLayout;
+        if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+          layout.scheduleCopilotFabToolbarLayout();
+        } else {
+          const toolbar = (window.__meiLangBoot || {}).copilotToolbar;
+          if (toolbar && typeof toolbar.syncLayout === "function") {
+            toolbar.syncLayout({ toolbarOpenChanged: true });
+          }
         }
+        return;
       }
+      activateAccessFabTap();
     }
 
     return {
       isAccessFloatingMode,
+      canUseAccessFab,
+      activateAccessFabTap,
       clampAccessFloatingPosition,
       applyAccessFloatingPosition,
       clearAccessFloatingPosition,
@@ -338,4 +496,39 @@
       endAccessFloatingDrag,
     };
   };
+
+  function onAccessFloatingWindowResize() {
+    const bootApi = window.__meiLangBoot || {};
+    if (typeof bootApi.relocateStageOverlaysInViewport === "function") {
+      bootApi.relocateStageOverlaysInViewport();
+      return;
+    }
+    if (typeof bootApi.reclampAccessFloatingInViewport === "function") {
+      bootApi.reclampAccessFloatingInViewport();
+    }
+    const layout = bootApi.copilotFabLayout;
+    if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+      layout.scheduleCopilotFabToolbarLayout();
+    }
+  }
+  window.addEventListener("resize", onAccessFloatingWindowResize, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", onAccessFloatingWindowResize);
+  }
+  window.addEventListener("meilang:viewport-stage-ready", () => {
+    const bootApi = window.__meiLangBoot || {};
+    if (typeof bootApi.syncAccessFloatingViewportMount === "function") {
+      bootApi.syncAccessFloatingViewportMount();
+    }
+  });
+  window.addEventListener("meilang:viewport-stage-layout", () => {
+    const bootApi = window.__meiLangBoot || {};
+    if (typeof bootApi.reclampAccessFloatingInViewport === "function") {
+      bootApi.reclampAccessFloatingInViewport();
+    }
+    const layout = bootApi.copilotFabLayout;
+    if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+      layout.scheduleCopilotFabToolbarLayout();
+    }
+  });
 })(window);

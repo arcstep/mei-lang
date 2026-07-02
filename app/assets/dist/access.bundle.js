@@ -860,15 +860,32 @@
     return Math.round(value * 1000) / 1000;
   }
 
-  function computeScale(mode, hostWidth, hostHeight, designWidth, designHeight) {
+  function computeScale(mode, hostWidth, hostHeight, designWidth, designHeight, root) {
     if (hostWidth <= 0 || hostHeight <= 0 || designWidth <= 0 || designHeight <= 0) {
       return 1;
     }
     const sx = hostWidth / designWidth;
     const sy = hostHeight / designHeight;
-    const fit = Math.min(sx, sy);
-    if (mode === "cover") return Math.max(sx, sy);
-    return fit;
+    const normalized = String(mode || "contain").trim().toLowerCase();
+    if (normalized === "cover") {
+      return Math.max(sx, sy);
+    }
+    if (
+      normalized === "fit-width" ||
+      normalized === "fit_width" ||
+      normalized === "width"
+    ) {
+      return sx;
+    }
+    // 访问态 contain：优先按宽度适配，高度不足时再缩小（纵向 letterbox）
+    if (normalized === "contain" && root && !isManagePreviewRoute(root)) {
+      const heightAtWidth = designHeight * sx;
+      if (heightAtWidth <= hostHeight + 0.5) {
+        return sx;
+      }
+      return Math.min(sx, sy);
+    }
+    return Math.min(sx, sy);
   }
 
   function overflowModeIsDebug(mode) {
@@ -931,6 +948,15 @@
         hostHeight: Math.max(1, height - safe.top - safe.bottom),
       };
     }
+    if (root && !isManagePreviewRoute(root)) {
+      const accessHost = resolveAccessPreviewHost(root);
+      if (accessHost) {
+        return {
+          hostWidth: Math.max(1, accessHost.width - safe.left - safe.right),
+          hostHeight: Math.max(1, accessHost.height - safe.top - safe.bottom),
+        };
+      }
+    }
     const rect = root.getBoundingClientRect();
     if (rect.width >= 1 && rect.height >= 1) {
       return {
@@ -942,6 +968,37 @@
       hostWidth: Math.max(1, window.innerWidth - safe.left - safe.right),
       hostHeight: Math.max(1, window.innerHeight - safe.top - safe.bottom),
     };
+  }
+
+  /** 访问态：用 main / 滚动宿主可见区，避免窄屏断点下 viewport rect 高度塌缩。 */
+  function resolveAccessPreviewHost(root) {
+    const candidates = [
+      root.closest(".main"),
+      root.closest(".preview-pane-scroll"),
+      root.parentElement,
+      root,
+    ];
+    for (const node of candidates) {
+      if (!(node instanceof HTMLElement)) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width >= 1 && rect.height >= 1) {
+        return { width: rect.width, height: rect.height };
+      }
+      if (node.clientWidth >= 1 && node.clientHeight >= 1) {
+        return { width: node.clientWidth, height: node.clientHeight };
+      }
+    }
+    const topbar = document.querySelector(".topbar");
+    const statusbar = document.querySelector(".statusbar");
+    const topH = topbar?.getBoundingClientRect().height || 0;
+    const bottomH = statusbar?.getBoundingClientRect().height || 0;
+    const vv = window.visualViewport;
+    const width = vv?.width ?? window.innerWidth;
+    const height = (vv?.height ?? window.innerHeight) - topH - bottomH;
+    if (width >= 1 && height >= 1) {
+      return { width, height };
+    }
+    return null;
   }
 
   /**
@@ -1034,8 +1091,22 @@
       viewportUpdateQueued.delete(root);
       updateViewport(root);
       try {
+        const scale = Number(root?.dataset?.meiFrameScale || 1);
+        window.dispatchEvent(
+          new CustomEvent("meilang:viewport-stage-layout", {
+            detail: { root, scale },
+          }),
+        );
+        if (scale > 0 && root?.dataset?.meiFrameScale) {
+          window.dispatchEvent(
+            new CustomEvent("meilang:viewport-stage-ready", {
+              detail: { root, scale },
+            }),
+          );
+        }
         window.__meiLangBoot?.relocateStageOverlaysInViewport?.() ||
           window.__meiLangBoot?.relocateCopilotInViewport?.();
+        window.__meiLangBoot?.syncCockpitMapToolsOverlays?.();
       } catch (_) {}
     });
   }
@@ -2585,6 +2656,8 @@
     relaxPageFlowStageGrid(stage);
     root.dataset.meiFrameScale = "1";
     root.dataset.meiAppliedZoom = "1";
+    root.style.setProperty("--mei-frame-scale", "1");
+    shell.style.setProperty("--mei-frame-scale", "1");
     root.dataset.meiManageRelayout = "";
     delete root.dataset.meiLayoutKey;
     root.scrollLeft = 0;
@@ -2605,7 +2678,7 @@
   ) {
     removeDesignBounds(shell);
     const mode = String(scaleMode || "contain").trim().toLowerCase();
-    const scale = computeScale(mode, hostWidth, hostHeight, designWidth, designHeight);
+    const scale = computeScale(mode, hostWidth, hostHeight, designWidth, designHeight, root);
     const scaleText = round(scale);
     const shellWidth = round(designWidth * scale);
     const shellHeight = round(designHeight * scale);
@@ -2634,6 +2707,8 @@
 
     root.dataset.meiFrameScale = String(scaleText);
     root.dataset.meiManageRelayout = "";
+    root.style.setProperty("--mei-frame-scale", String(scaleText));
+    shell.style.setProperty("--mei-frame-scale", String(scaleText));
   }
 
   function syncChromeNoneViewportBox(root) {
@@ -4531,6 +4606,10 @@
     const ACCESS_FLOATING_DRAG_THRESHOLD_PX = 4;
     let accessFloatingDragState = null;
 
+    function canUseAccessFab() {
+      return !!(els.accessFloatingRoot && els.accessFab);
+    }
+
     function isAccessFloatingMode() {
       const mode = normalizeRouteMode(root.dataset.mode);
       const accessLike = mode === "access" || mode === "copilot";
@@ -4553,6 +4632,18 @@
 
     function floatingBoundsSize() {
       const bootApi = window.__meiLangBoot || {};
+      if (isLetterboxFab() && typeof bootApi.resolveAccessFabLetterboxLayout === "function") {
+        const layout = bootApi.resolveAccessFabLetterboxLayout(els.accessFloatingRoot);
+        if (layout?.width > 0 && layout?.height > 0) {
+          return { width: layout.width, height: layout.height };
+        }
+      }
+      if (typeof bootApi.resolveViewportOverlayBounds === "function") {
+        const bounds = bootApi.resolveViewportOverlayBounds(els.accessFloatingRoot);
+        if (bounds?.width > 0 && bounds?.height > 0) {
+          return { width: bounds.width, height: bounds.height };
+        }
+      }
       if (typeof bootApi.copilotFloatingBoundsSize === "function") {
         const size = bootApi.copilotFloatingBoundsSize();
         if (size && size.width > 0 && size.height > 0) {
@@ -4566,6 +4657,21 @@
     }
 
     function clampAccessFloatingPosition(left, top) {
+      if (isLetterboxFab()) {
+        const bootApi = window.__meiLangBoot || {};
+        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
+        if (layout) {
+          const width = Math.max(
+            layout.fabSize,
+            Number(els.accessFloatingRoot.offsetWidth || 0) || layout.fabSize,
+          );
+          const height = Math.max(
+            layout.fabSize,
+            Number(els.accessFloatingRoot.offsetHeight || 0) || layout.fabSize,
+          );
+          return layout.clampLocal(left, top, width, height);
+        }
+      }
       if (!isAccessFloatingMode()) return null;
       const width = Math.max(48, Number(els.accessFloatingRoot.offsetWidth || 68));
       const height = Math.max(48, Number(els.accessFloatingRoot.offsetHeight || 68));
@@ -4585,7 +4691,31 @@
       return { left: nextLeft, top: nextTop };
     }
 
+    function isLetterboxFab() {
+      return !!els.accessFloatingRoot?.classList.contains("mei-copilot-letterbox-fixed");
+    }
+
     function applyAccessFloatingPosition(left, top) {
+      if (isLetterboxFab()) {
+        const bootApi = window.__meiLangBoot || {};
+        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
+        if (layout && typeof bootApi.applyAccessFabLetterboxPosition === "function") {
+          const width = Math.max(
+            layout.fabSize,
+            Number(els.accessFloatingRoot.offsetWidth || 0) || layout.fabSize,
+          );
+          const height = Math.max(
+            layout.fabSize,
+            Number(els.accessFloatingRoot.offsetHeight || 0) || layout.fabSize,
+          );
+          const pos = layout.clampLocal(left, top, width, height);
+          return bootApi.applyAccessFabLetterboxPosition(
+            els.accessFloatingRoot,
+            pos.left,
+            pos.top,
+          );
+        }
+      }
       if (!isAccessFloatingMode()) return null;
       const pos = clampAccessFloatingPosition(left, top);
       if (!pos) return null;
@@ -4598,12 +4728,24 @@
     }
 
     function clearAccessFloatingPosition() {
+      if (isLetterboxFab()) {
+        delete els.accessFloatingRoot.dataset.positioned;
+        delete els.accessFloatingRoot.dataset.letterboxLeft;
+        delete els.accessFloatingRoot.dataset.letterboxTop;
+        const bootApi = window.__meiLangBoot || {};
+        if (typeof bootApi.relocateAccessFabInLetterbox === "function") {
+          bootApi.relocateAccessFabInLetterbox();
+        }
+        return;
+      }
       if (!isAccessFloatingMode()) return;
       els.accessFloatingRoot.style.left = "";
       els.accessFloatingRoot.style.top = "";
       els.accessFloatingRoot.style.right = "";
       els.accessFloatingRoot.style.bottom = "";
       delete els.accessFloatingRoot.dataset.positioned;
+      delete els.accessFloatingRoot.dataset.letterboxLeft;
+      delete els.accessFloatingRoot.dataset.letterboxTop;
     }
 
     function rememberAccessFloatingPosition(left, top) {
@@ -4624,11 +4766,23 @@
           return;
         }
         const parsed = JSON.parse(raw);
-        const left = Number(parsed && parsed.left);
-        const top = Number(parsed && parsed.top);
+        let left = Number(parsed && parsed.left);
+        let top = Number(parsed && parsed.top);
         if (!Number.isFinite(left) || !Number.isFinite(top)) {
           clearAccessFloatingPosition();
           return;
+        }
+        if (isLetterboxFab()) {
+          const bootApi = window.__meiLangBoot || {};
+          const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
+          if (
+            layout &&
+            (left > layout.width || top > layout.height || left < 0 || top < 0)
+          ) {
+            const local = layout.screenToLocal(left, top);
+            left = local.left;
+            top = local.top;
+          }
         }
         const pos = applyAccessFloatingPosition(left, top);
         if (pos) rememberAccessFloatingPosition(pos.left, pos.top);
@@ -4659,6 +4813,22 @@
 
     function reclampAccessFloatingInViewport() {
       if (!isAccessFloatingMode()) return;
+      const bootApi = window.__meiLangBoot || {};
+      if (isLetterboxFab()) {
+        if (els.accessFloatingRoot.dataset.positioned === "true") {
+          const left = Number(els.accessFloatingRoot.dataset.letterboxLeft);
+          const top = Number(els.accessFloatingRoot.dataset.letterboxTop);
+          if (Number.isFinite(left) && Number.isFinite(top)) {
+            applyAccessFloatingPosition(left, top);
+          } else {
+            clearAccessFloatingPosition();
+          }
+        }
+        if (typeof bootApi.relocateAccessFabInLetterbox === "function") {
+          bootApi.relocateAccessFabInLetterbox();
+        }
+        return;
+      }
       if (!els.accessFloatingRoot?.classList.contains("mei-copilot-in-viewport")) {
         return;
       }
@@ -4731,38 +4901,90 @@
       }
     }
 
+    function shouldUseCopilotToolbar() {
+      const bootApi = window.__meiLangBoot || {};
+      const ctx = bootApi.copilotFabContext;
+      if (ctx && typeof ctx.copilotFabContextActive === "function") {
+        return ctx.copilotFabContextActive();
+      }
+      return false;
+    }
+
+    let lastFabTapAt = 0;
+
+    function activateAccessFabTap() {
+      if (!canUseAccessFab()) return;
+      const now = Date.now();
+      if (now - lastFabTapAt < 280) return;
+      lastFabTapAt = now;
+      const bootApi = window.__meiLangBoot || {};
+      if (shouldUseCopilotToolbar()) {
+        const toolbar = bootApi.copilotToolbar;
+        if (toolbar && typeof toolbar.mount === "function") {
+          toolbar.mount({ autoStart: false, apply: false, toolbarOpen: false });
+        }
+        if (toolbar && typeof toolbar.toggleToolbar === "function") {
+          toolbar.toggleToolbar();
+          return;
+        }
+      }
+      if (isAccessFloatingMode()) {
+        toggleAccessFloatingPanel();
+      }
+    }
+
     function beginAccessFloatingDrag(event) {
-      if (!isAccessFloatingMode()) return;
+      if (!canUseAccessFab()) return;
       if (event && event.button != null && event.button !== 0) return;
-      const host = floatingBoundsHost();
-      const hostRect = host
-        ? host.getBoundingClientRect()
-        : { left: 0, top: 0 };
-      const rect = els.accessFloatingRoot.getBoundingClientRect();
+      let baseLeft = 0;
+      let baseTop = 0;
+      if (isLetterboxFab()) {
+        const bootApi = window.__meiLangBoot || {};
+        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
+        if (layout) {
+          if (els.accessFloatingRoot.dataset.positioned === "true") {
+            const savedLeft = Number(els.accessFloatingRoot.dataset.letterboxLeft);
+            const savedTop = Number(els.accessFloatingRoot.dataset.letterboxTop);
+            if (Number.isFinite(savedLeft) && Number.isFinite(savedTop)) {
+              baseLeft = savedLeft;
+              baseTop = savedTop;
+            } else {
+              const rect = els.accessFloatingRoot.getBoundingClientRect();
+              const local = layout.screenToLocal(rect.left, rect.top);
+              baseLeft = local.left;
+              baseTop = local.top;
+            }
+          } else {
+            const def = layout.defaultLocal();
+            baseLeft = def.left;
+            baseTop = def.top;
+          }
+        }
+      } else {
+        const host = floatingBoundsHost();
+        const hostRect = host
+          ? host.getBoundingClientRect()
+          : { left: 0, top: 0 };
+        const rect = els.accessFloatingRoot.getBoundingClientRect();
+        baseLeft = Number(rect.left || 0) - Number(hostRect.left || 0);
+        baseTop = Number(rect.top || 0) - Number(hostRect.top || 0);
+      }
       accessFloatingDragState = {
         pointerId: event ? event.pointerId : null,
         startX: Number(event && event.clientX),
         startY: Number(event && event.clientY),
-        baseLeft: Number(rect.left || 0) - Number(hostRect.left || 0),
-        baseTop: Number(rect.top || 0) - Number(hostRect.top || 0),
+        baseLeft,
+        baseTop,
         moved: false,
-        lastLeft: Number(rect.left || 0),
-        lastTop: Number(rect.top || 0),
+        lastLeft: baseLeft,
+        lastTop: baseTop,
       };
       state.accessFloatingDragMoved = false;
       els.accessFloatingRoot.dataset.dragging = "true";
-      try {
-        if (els.accessFab && event && event.pointerId != null) {
-          els.accessFab.setPointerCapture(event.pointerId);
-        }
-      } catch (_) {}
-      if (event && typeof event.preventDefault === "function") {
-        event.preventDefault();
-      }
     }
 
     function continueAccessFloatingDrag(event) {
-      if (!accessFloatingDragState || !isAccessFloatingMode()) return;
+      if (!accessFloatingDragState || !canUseAccessFab()) return;
       if (
         accessFloatingDragState.pointerId != null &&
         event &&
@@ -4782,8 +5004,15 @@
       ) {
         return;
       }
-      accessFloatingDragState.moved = true;
-      state.accessFloatingDragMoved = true;
+      if (!accessFloatingDragState.moved) {
+        accessFloatingDragState.moved = true;
+        state.accessFloatingDragMoved = true;
+        try {
+          if (els.accessFab && event && event.pointerId != null) {
+            els.accessFab.setPointerCapture(event.pointerId);
+          }
+        } catch (_) {}
+      }
       const pos = applyAccessFloatingPosition(
         accessFloatingDragState.baseLeft + dx,
         accessFloatingDragState.baseTop + dy,
@@ -4823,20 +5052,24 @@
         window.setTimeout(function () {
           state.accessFloatingDragMoved = false;
         }, 0);
-      }
-      const layout = (window.__meiLangBoot || {}).copilotFabLayout;
-      if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
-        layout.scheduleCopilotFabToolbarLayout();
-      } else {
-        const toolbar = (window.__meiLangBoot || {}).copilotToolbar;
-        if (toolbar && typeof toolbar.syncLayout === "function") {
-          toolbar.syncLayout({ toolbarOpenChanged: true });
+        const layout = (window.__meiLangBoot || {}).copilotFabLayout;
+        if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+          layout.scheduleCopilotFabToolbarLayout();
+        } else {
+          const toolbar = (window.__meiLangBoot || {}).copilotToolbar;
+          if (toolbar && typeof toolbar.syncLayout === "function") {
+            toolbar.syncLayout({ toolbarOpenChanged: true });
+          }
         }
+        return;
       }
+      activateAccessFabTap();
     }
 
     return {
       isAccessFloatingMode,
+      canUseAccessFab,
+      activateAccessFabTap,
       clampAccessFloatingPosition,
       applyAccessFloatingPosition,
       clearAccessFloatingPosition,
@@ -4853,6 +5086,41 @@
       endAccessFloatingDrag,
     };
   };
+
+  function onAccessFloatingWindowResize() {
+    const bootApi = window.__meiLangBoot || {};
+    if (typeof bootApi.relocateStageOverlaysInViewport === "function") {
+      bootApi.relocateStageOverlaysInViewport();
+      return;
+    }
+    if (typeof bootApi.reclampAccessFloatingInViewport === "function") {
+      bootApi.reclampAccessFloatingInViewport();
+    }
+    const layout = bootApi.copilotFabLayout;
+    if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+      layout.scheduleCopilotFabToolbarLayout();
+    }
+  }
+  window.addEventListener("resize", onAccessFloatingWindowResize, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", onAccessFloatingWindowResize);
+  }
+  window.addEventListener("meilang:viewport-stage-ready", () => {
+    const bootApi = window.__meiLangBoot || {};
+    if (typeof bootApi.syncAccessFloatingViewportMount === "function") {
+      bootApi.syncAccessFloatingViewportMount();
+    }
+  });
+  window.addEventListener("meilang:viewport-stage-layout", () => {
+    const bootApi = window.__meiLangBoot || {};
+    if (typeof bootApi.reclampAccessFloatingInViewport === "function") {
+      bootApi.reclampAccessFloatingInViewport();
+    }
+    const layout = bootApi.copilotFabLayout;
+    if (layout && typeof layout.scheduleCopilotFabToolbarLayout === "function") {
+      layout.scheduleCopilotFabToolbarLayout();
+    }
+  });
 })(window);
 
 
@@ -9323,6 +9591,7 @@
   boot.toggleAccessFloatingPanel = AF.toggleAccessFloatingPanel.bind(AF);
   boot.syncAccessFloatingViewportMount = AF.syncAccessFloatingViewportMount.bind(AF);
   boot.reclampAccessFloatingInViewport = AF.reclampAccessFloatingInViewport.bind(AF);
+  boot.activateAccessFabTap = AF.activateAccessFabTap.bind(AF);
   boot.agentPanelState = state;
 
   let SES = null;
@@ -9736,16 +10005,6 @@
   }
 
   if (els.accessFab) {
-    els.accessFab.addEventListener("click", function (event) {
-      if (state.accessFloatingDragMoved) {
-        state.accessFloatingDragMoved = false;
-        return;
-      }
-      if (copilotPresentationFabContext()) {
-        return;
-      }
-      AF.toggleAccessFloatingPanel();
-    });
     els.accessFab.addEventListener("pointerdown", AF.beginAccessFloatingDrag);
   }
 
@@ -18013,14 +18272,290 @@
 
 
 
+/* ===== spa-navigation/presentation/viewport-overlay-bounds.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  const CONTEXT_PLANE_ID = "mei-viewport-context-plane";
+  const VIEWPORT_ROOT_SELECTOR = '[data-mei-frame-viewport="true"]';
+
+  function resolveViewportFrameRoot() {
+    const node = document.querySelector(VIEWPORT_ROOT_SELECTOR);
+    return node instanceof HTMLElement ? node : null;
+  }
+
+  function readViewportFrameScale() {
+    const root = resolveViewportFrameRoot();
+    const scale = Number(root?.dataset?.meiFrameScale || 1);
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
+  }
+
+  function resolveViewportStageShell() {
+    if (typeof boot.resolveViewportStageHost === "function") {
+      const host = boot.resolveViewportStageHost();
+      if (host instanceof HTMLElement && host !== document.body) {
+        return host;
+      }
+    }
+    const viewport = resolveViewportFrameRoot();
+    const shell = viewport?.querySelector(".preview-stage-shell");
+    return shell instanceof HTMLElement ? shell : null;
+  }
+
+  function resolveViewportStageSurface() {
+    const shell = resolveViewportStageShell();
+    const stage = shell?.querySelector(".preview-stage.preview-surface");
+    return stage instanceof HTMLElement ? stage : null;
+  }
+
+  function clientPointToStageLocal(stage, clientX, clientY) {
+    if (!(stage instanceof HTMLElement)) {
+      return { left: clientX, top: clientY };
+    }
+    const rect = stage.getBoundingClientRect();
+    const designW = stage.offsetWidth || 1920;
+    const designH = stage.offsetHeight || 1080;
+    const scaleX = rect.width > 0 ? designW / rect.width : 1;
+    const scaleY = rect.height > 0 ? designH / rect.height : 1;
+    return {
+      left: (clientX - rect.left) * scaleX,
+      top: (clientY - rect.top) * scaleY,
+    };
+  }
+
+  function viewportOverlayActive() {
+    return Boolean(resolveViewportStageShell());
+  }
+
+  function windowBounds(padding = 10) {
+    const width = Number(window.innerWidth || 0);
+    const height = Number(window.innerHeight || 0);
+    return {
+      mode: "window",
+      scale: 1,
+      width,
+      height,
+      padding,
+      shell: null,
+      shellRect: null,
+      stage: null,
+      clientToLocal(clientLeft, clientTop) {
+        return { left: clientLeft, top: clientTop };
+      },
+      clampClientRect(left, top, width, height) {
+        const maxW = Math.max(0, this.width - padding * 2);
+        const maxH = Math.max(0, this.height - padding * 2);
+        const w = Math.min(width, maxW);
+        const h = Math.min(height, maxH);
+        let nextLeft = Math.min(
+          Math.max(padding, left),
+          Math.max(padding, this.width - w - padding),
+        );
+        let nextTop = Math.min(
+          Math.max(padding, top),
+          Math.max(padding, this.height - h - padding),
+        );
+        return { left: nextLeft, top: nextTop, width: w, height: h };
+      },
+      clampLocalRect(left, top, width, height) {
+        return this.clampClientRect(left, top, width, height);
+      },
+      maxWidth(defaultMax) {
+        return Math.min(defaultMax, Math.max(0, this.width - padding * 2));
+      },
+      maxHeight(defaultMax) {
+        return Math.min(defaultMax, Math.max(0, this.height - padding * 2));
+      },
+    };
+  }
+
+  function resolveViewportOverlayBounds(anchorEl, padding = 10) {
+    const shell = resolveViewportStageShell();
+    if (!shell) {
+      return windowBounds(padding);
+    }
+    const shellRect = shell.getBoundingClientRect();
+    const stage = resolveViewportStageSurface();
+    const scale = readViewportFrameScale();
+    if (stage) {
+      const designW = stage.offsetWidth || 1920;
+      const designH = stage.offsetHeight || 1080;
+      return {
+        mode: "stage-design",
+        scale,
+        width: designW,
+        height: designH,
+        designW,
+        designH,
+        padding,
+        shell,
+        shellRect,
+        stage,
+        clientToLocal(clientLeft, clientTop) {
+          return clientPointToStageLocal(stage, clientLeft, clientTop);
+        },
+        clampClientRect(left, top, width, height) {
+          const minLeft = shellRect.left + padding;
+          const minTop = shellRect.top + padding;
+          const maxLeft = shellRect.right - padding;
+          const maxTop = shellRect.bottom - padding;
+          const maxW = Math.max(0, maxLeft - minLeft);
+          const maxH = Math.max(0, maxTop - minTop);
+          const w = Math.min(width, maxW);
+          const h = Math.min(height, maxH);
+          let nextLeft = Math.min(Math.max(minLeft, left), Math.max(minLeft, maxLeft - w));
+          let nextTop = Math.min(Math.max(minTop, top), Math.max(minTop, maxTop - h));
+          return { left: nextLeft, top: nextTop, width: w, height: h };
+        },
+        clampLocalRect(left, top, width, height) {
+          const maxW = Math.max(0, designW - padding * 2);
+          const maxH = Math.max(0, designH - padding * 2);
+          const w = Math.min(width, maxW);
+          const h = Math.min(height, maxH);
+          let nextLeft = Math.min(
+            Math.max(padding, left),
+            Math.max(padding, designW - w - padding),
+          );
+          let nextTop = Math.min(
+            Math.max(padding, top),
+            Math.max(padding, designH - h - padding),
+          );
+          return { left: nextLeft, top: nextTop, width: w, height: h };
+        },
+        maxWidth(defaultMax) {
+          return Math.min(defaultMax, Math.max(0, designW - padding * 2));
+        },
+        maxHeight(defaultMax) {
+          return Math.min(defaultMax, Math.max(0, designH - padding * 2));
+        },
+      };
+    }
+    const width = Math.max(0, shell.clientWidth || shellRect.width || 0);
+    const height = Math.max(0, shell.clientHeight || shellRect.height || 0);
+    return {
+      mode: "stage-shell",
+      scale,
+      width,
+      height,
+      padding,
+      shell,
+      shellRect,
+      stage: null,
+      clientToLocal(clientLeft, clientTop) {
+        return {
+          left: clientLeft - shellRect.left,
+          top: clientTop - shellRect.top,
+        };
+      },
+      clampClientRect(left, top, width, height) {
+        const minLeft = shellRect.left + padding;
+        const minTop = shellRect.top + padding;
+        const maxLeft = shellRect.right - padding;
+        const maxTop = shellRect.bottom - padding;
+        const maxW = Math.max(0, maxLeft - minLeft);
+        const maxH = Math.max(0, maxTop - minTop);
+        const w = Math.min(width, maxW);
+        const h = Math.min(height, maxH);
+        let nextLeft = Math.min(Math.max(minLeft, left), Math.max(minLeft, maxLeft - w));
+        let nextTop = Math.min(Math.max(minTop, top), Math.max(minTop, maxTop - h));
+        return { left: nextLeft, top: nextTop, width: w, height: h };
+      },
+      clampLocalRect(left, top, width, height) {
+        const maxW = Math.max(0, this.width - padding * 2);
+        const maxH = Math.max(0, this.height - padding * 2);
+        const w = Math.min(width, maxW);
+        const h = Math.min(height, maxH);
+        let nextLeft = Math.min(
+          Math.max(padding, left),
+          Math.max(padding, this.width - w - padding),
+        );
+        let nextTop = Math.min(
+          Math.max(padding, top),
+          Math.max(padding, this.height - h - padding),
+        );
+        return { left: nextLeft, top: nextTop, width: w, height: h };
+      },
+      maxWidth(defaultMax) {
+        return Math.min(defaultMax, Math.max(0, width - padding * 2));
+      },
+      maxHeight(defaultMax) {
+        return Math.min(defaultMax, Math.max(0, height - padding * 2));
+      },
+    };
+  }
+
+  function resolveOverlayMountRoot(anchorEl) {
+    const shell = resolveViewportStageShell();
+    if (!shell) {
+      return document.body;
+    }
+    const stage = resolveViewportStageSurface();
+    if (anchorEl instanceof Element) {
+      if (anchorEl.closest("#mei-layer2-workspace")) {
+        return anchorEl.closest("#mei-layer2-workspace");
+      }
+      if (stage && anchorEl.closest(".preview-stage.preview-surface")) {
+        return stage;
+      }
+    }
+    return stage || shell;
+  }
+
+  function ensureViewportContextPlane(root) {
+    if (!(root instanceof HTMLElement) || root === document.body) {
+      return null;
+    }
+    let plane = root.querySelector(`:scope > #${CONTEXT_PLANE_ID}`);
+    if (!plane) {
+      plane = document.createElement("div");
+      plane.id = CONTEXT_PLANE_ID;
+      plane.className = "mei-viewport-context-plane";
+      root.appendChild(plane);
+    }
+    return plane;
+  }
+
+  function mountViewportFloatingNode(node, anchorEl) {
+    if (!(node instanceof HTMLElement)) {
+      return null;
+    }
+    const root = resolveOverlayMountRoot(anchorEl);
+    const plane = ensureViewportContextPlane(root);
+    const parent = plane || root;
+    if (node.parentElement !== parent) {
+      parent.appendChild(node);
+    }
+    node.classList.toggle("mei-viewport-floating-in-stage", Boolean(plane));
+    return parent;
+  }
+
+  function copilotFloatingBoundsSizePatched() {
+    const shell = resolveViewportStageShell();
+    if (shell) {
+      return {
+        width: Math.max(0, shell.clientWidth || shell.offsetWidth || 0),
+        height: Math.max(0, shell.clientHeight || shell.offsetHeight || 0),
+      };
+    }
+  }
+
+  boot.readViewportFrameScale = readViewportFrameScale;
+  boot.viewportOverlayActive = viewportOverlayActive;
+  boot.resolveViewportOverlayBounds = resolveViewportOverlayBounds;
+  boot.resolveOverlayMountRoot = resolveOverlayMountRoot;
+  boot.ensureViewportContextPlane = ensureViewportContextPlane;
+  boot.mountViewportFloatingNode = mountViewportFloatingNode;
+  boot.clientPointToStageLocal = clientPointToStageLocal;
+  boot._viewportOverlayBoundsPatched = copilotFloatingBoundsSizePatched;
+})();
+
+
 /* ===== spa-navigation/presentation/viewport-stage-host.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
   const PRESENTATION_PLANE_ID = "mei-presentation-plane";
   const COPILOT_PLANE_ID = "mei-copilot-plane";
   const PRESENTATION_NODE_IDS = ["mei-copilot-slide-layer"];
-  const COPILOT_NODE_IDS = [
-    "access-chat-floating-root",
+  const COPILOT_PLANE_NODE_IDS = [
     "access-external-ai-floating-root",
     "mei-copilot-caption",
     "copilot-script-drawer",
@@ -18081,12 +18616,26 @@
     return document.body;
   }
 
+  function resolveViewportStageSurface() {
+    const shell = resolveViewportStageHost();
+    if (shell === document.body) {
+      return document.body;
+    }
+    const stage = shell.querySelector(".preview-stage.preview-surface");
+    return stage instanceof HTMLElement ? stage : shell;
+  }
+
   function viewportCopilotActive() {
     return resolveViewportStageHost() !== document.body;
   }
 
+  /** P/C 浮层挂在 shell（信纸框像素），避免 stage transform 下全屏 plane 吞掉指针事件。 */
+  function resolveCopilotOverlayHost() {
+    return resolveViewportStageHost();
+  }
+
   function ensurePresentationPlane() {
-    const host = resolveViewportStageHost();
+    const host = resolveCopilotOverlayHost();
     if (host === document.body) {
       return null;
     }
@@ -18103,12 +18652,14 @@
       }
     } else if (plane.parentElement !== host) {
       host.appendChild(plane);
+    } else {
+      host.appendChild(plane);
     }
     return plane;
   }
 
   function ensureCopilotPlane() {
-    const host = resolveViewportStageHost();
+    const host = resolveCopilotOverlayHost();
     if (host === document.body) {
       return null;
     }
@@ -18120,6 +18671,8 @@
       plane.className = "mei-copilot-plane";
       host.appendChild(plane);
     } else if (plane.parentElement !== host) {
+      host.appendChild(plane);
+    } else {
       host.appendChild(plane);
     }
     return plane;
@@ -18136,6 +18689,8 @@
     }
     if (node.parentElement !== plane) {
       plane.appendChild(node);
+    } else {
+      plane.appendChild(node);
     }
     node.classList.add("mei-presentation-in-viewport");
     document.body.classList.toggle(
@@ -18149,15 +18704,183 @@
     const fab = document.getElementById("access-chat-floating-root");
     const external = document.getElementById("access-external-ai-floating-root");
     const mounted = Boolean(
-      (fab instanceof HTMLElement && fab.classList.contains("mei-copilot-in-viewport")) ||
+      (fab instanceof HTMLElement &&
+        (fab.classList.contains("mei-copilot-in-viewport") ||
+          fab.classList.contains("mei-copilot-letterbox-fixed"))) ||
         (external instanceof HTMLElement && external.classList.contains("mei-copilot-in-viewport")),
     );
     document.body.classList.toggle("mei-copilot-viewport-mounted", mounted);
   }
 
+  function readLetterboxScale() {
+    const viewport = document.querySelector('[data-mei-frame-viewport="true"]');
+    const scale = Number(viewport?.dataset?.meiFrameScale || 1);
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
+  }
+
+  const FAB_MARGIN_DESIGN_PX = 24;
+  const FAB_SIZE_DESIGN_PX = 64;
+
+  /** 访问态 FAB：坐标系 = preview-stage-shell 信纸框（已缩放后的 viewport 像素）。 */
+  function resolveAccessFabLetterboxLayout(root) {
+    const shell = resolveViewportStageHost();
+    if (!(shell instanceof HTMLElement) || shell === document.body) {
+      return null;
+    }
+    const shellRect = shell.getBoundingClientRect();
+    const scale = readLetterboxScale();
+    const width = Math.max(0, shell.clientWidth || shellRect.width || 0);
+    const height = Math.max(0, shell.clientHeight || shellRect.height || 0);
+    const margin = FAB_MARGIN_DESIGN_PX * scale;
+    const fabSize = FAB_SIZE_DESIGN_PX * scale;
+    const node =
+      root instanceof HTMLElement ? root : document.getElementById(ACCESS_CHAT_ROOT_ID);
+    const nodeW = Math.max(
+      fabSize,
+      Number(node?.offsetWidth || 0) || fabSize,
+    );
+    const nodeH = Math.max(
+      fabSize,
+      Number(node?.offsetHeight || 0) || fabSize,
+    );
+
+    function localToScreen(left, top) {
+      return {
+        left: shellRect.left + left,
+        top: shellRect.top + top,
+      };
+    }
+
+    function screenToLocal(screenLeft, screenTop) {
+      return {
+        left: screenLeft - shellRect.left,
+        top: screenTop - shellRect.top,
+      };
+    }
+
+    function clampLocal(left, top, boxW = nodeW, boxH = nodeH, pad = margin) {
+      const min = Math.max(0, pad);
+      const maxLeft = Math.max(min, width - boxW - min);
+      const maxTop = Math.max(min, height - boxH - min);
+      return {
+        left: Math.min(maxLeft, Math.max(min, Math.round(Number(left) || 0))),
+        top: Math.min(maxTop, Math.max(min, Math.round(Number(top) || 0))),
+      };
+    }
+
+    function defaultLocal() {
+      return clampLocal(width - nodeW - margin, height - nodeH - margin);
+    }
+
+    return {
+      scale,
+      shell,
+      shellRect,
+      width,
+      height,
+      margin,
+      fabSize,
+      marginDesign: FAB_MARGIN_DESIGN_PX,
+      fabDesign: FAB_SIZE_DESIGN_PX,
+      localToScreen,
+      screenToLocal,
+      clampLocal,
+      defaultLocal,
+    };
+  }
+
+  function applyAccessFabLetterboxPosition(root, localLeft, localTop) {
+    if (!(root instanceof HTMLElement)) {
+      return null;
+    }
+    const layout = resolveAccessFabLetterboxLayout(root);
+    if (!layout) {
+      return null;
+    }
+    const pos = layout.clampLocal(localLeft, localTop);
+    const screen = layout.localToScreen(pos.left, pos.top);
+    root.dataset.positioned = "true";
+    root.dataset.letterboxLeft = String(pos.left);
+    root.dataset.letterboxTop = String(pos.top);
+    root.style.position = "fixed";
+    root.style.left = `${Math.round(screen.left)}px`;
+    root.style.top = `${Math.round(screen.top)}px`;
+    root.style.right = "auto";
+    root.style.bottom = "auto";
+    root.style.transform = "none";
+    const fab = document.getElementById("access-chat-fab");
+    if (fab instanceof HTMLElement) {
+      fab.style.width = `${Math.round(layout.fabSize)}px`;
+      fab.style.height = `${Math.round(layout.fabSize)}px`;
+    }
+    return pos;
+  }
+
+  /** FAB 用 body+fixed，但坐标一律基于 viewport 信纸框（shell 局部像素）。 */
+  function relocateAccessFabInLetterbox() {
+    const root = document.getElementById(ACCESS_CHAT_ROOT_ID);
+    if (!(root instanceof HTMLElement)) {
+      return;
+    }
+    if (!viewportCopilotActive()) {
+      root.classList.remove("mei-copilot-letterbox-fixed");
+      return;
+    }
+    const layout = resolveAccessFabLetterboxLayout(root);
+    if (!layout) {
+      return;
+    }
+
+    if (root.parentElement !== document.body) {
+      document.body.appendChild(root);
+    }
+    root.classList.add("mei-copilot-in-viewport", "mei-copilot-letterbox-fixed");
+    root.style.zIndex = "var(--mei-z-copilot-fab-elevated)";
+    root.style.pointerEvents = "auto";
+    root.style.transform = "none";
+
+    const fab = document.getElementById("access-chat-fab");
+    if (fab instanceof HTMLElement) {
+      fab.style.pointerEvents = "auto";
+    }
+
+    if (root.dataset.positioned === "true") {
+      let localLeft = Number(root.dataset.letterboxLeft);
+      let localTop = Number(root.dataset.letterboxTop);
+      if (!Number.isFinite(localLeft) || !Number.isFinite(localTop)) {
+        const rect = root.getBoundingClientRect();
+        const local = layout.screenToLocal(rect.left, rect.top);
+        localLeft = local.left;
+        localTop = local.top;
+      }
+      applyAccessFabLetterboxPosition(root, localLeft, localTop);
+      return;
+    }
+
+    delete root.dataset.positioned;
+    delete root.dataset.letterboxLeft;
+    delete root.dataset.letterboxTop;
+    const def = layout.defaultLocal();
+    const screen = layout.localToScreen(def.left, def.top);
+    root.style.position = "fixed";
+    root.style.left = `${Math.round(screen.left)}px`;
+    root.style.top = `${Math.round(screen.top)}px`;
+    root.style.right = "auto";
+    root.style.bottom = "auto";
+    if (fab instanceof HTMLElement) {
+      fab.style.width = `${Math.round(layout.fabSize)}px`;
+      fab.style.height = `${Math.round(layout.fabSize)}px`;
+    }
+  }
+
   function mountCopilotInViewport(node) {
     if (!(node instanceof HTMLElement)) {
       return false;
+    }
+    if (node.id === ACCESS_CHAT_ROOT_ID) {
+      relocateAccessFabInLetterbox();
+      updateCopilotViewportMountedClass();
+      return true;
     }
     const plane = ensureCopilotPlane();
     if (!plane) {
@@ -18166,6 +18889,8 @@
       return false;
     }
     if (node.parentElement !== plane) {
+      plane.appendChild(node);
+    } else {
       plane.appendChild(node);
     }
     node.classList.add("mei-copilot-in-viewport");
@@ -18181,22 +18906,25 @@
   }
 
   function copilotFloatingBoundsSize() {
-    const host = resolveViewportStageHost();
-    if (host === document.body) {
+    const shell = resolveCopilotOverlayHost();
+    if (shell === document.body) {
       return {
         width: Number(window.innerWidth || 0),
         height: Number(window.innerHeight || 0),
       };
     }
     return {
-      width: Math.max(0, host.clientWidth || host.offsetWidth || 0),
-      height: Math.max(0, host.clientHeight || host.offsetHeight || 0),
+      width: Math.max(0, shell.clientWidth || shell.offsetWidth || 0),
+      height: Math.max(0, shell.clientHeight || shell.offsetHeight || 0),
     };
   }
 
   function copilotFloatingOffsetParent(node) {
     if (!(node instanceof HTMLElement)) {
       return null;
+    }
+    if (node.classList.contains("mei-copilot-letterbox-fixed")) {
+      return resolveViewportStageHost();
     }
     return (
       node.closest(".mei-copilot-plane") ||
@@ -18220,10 +18948,10 @@
 
   function relocateCopilotInViewport() {
     if (!viewportCopilotActive()) {
-      COPILOT_NODE_IDS.forEach((id) => {
+      [...COPILOT_PLANE_NODE_IDS, ACCESS_CHAT_ROOT_ID].forEach((id) => {
         const node = document.getElementById(id);
         if (node instanceof HTMLElement) {
-          node.classList.remove("mei-copilot-in-viewport");
+          node.classList.remove("mei-copilot-in-viewport", "mei-copilot-letterbox-fixed");
         }
       });
       updateCopilotViewportMountedClass();
@@ -18231,7 +18959,8 @@
       return;
     }
     ensureCopilotPlane();
-    COPILOT_NODE_IDS.forEach((id) => {
+    relocateAccessFabInLetterbox();
+    COPILOT_PLANE_NODE_IDS.forEach((id) => {
       const node = document.getElementById(id);
       if (node) {
         mountCopilotInViewport(node);
@@ -18245,6 +18974,14 @@
     relocatePresentationInViewport();
     relocateCopilotInViewport();
     const bootApi = window.__meiLangBoot || {};
+    if (typeof bootApi.ensureLayer2WorkspaceRoot === "function") {
+      bootApi.ensureLayer2WorkspaceRoot();
+    }
+    const layer2 = document.getElementById("mei-layer2-workspace");
+    if (layer2 instanceof HTMLElement) {
+      const surface = resolveViewportStageSurface();
+      layer2.classList.toggle("mei-layer2-in-viewport", surface !== document.body);
+    }
     if (typeof bootApi.reclampAccessFloatingInViewport === "function") {
       bootApi.reclampAccessFloatingInViewport();
     }
@@ -18254,9 +18991,13 @@
     ) {
       bootApi.copilotFabLayout.scheduleCopilotFabToolbarLayout();
     }
+    if (typeof bootApi.syncCockpitMapToolsOverlays === "function") {
+      bootApi.syncCockpitMapToolsOverlays();
+    }
   }
 
   boot.resolveViewportStageHost = resolveViewportStageHost;
+  boot.resolveViewportStageSurface = resolveViewportStageSurface;
   boot.ensurePresentationPlane = ensurePresentationPlane;
   boot.ensureCopilotPlane = ensureCopilotPlane;
   boot.mountPresentationInViewport = mountPresentationInViewport;
@@ -18266,6 +19007,9 @@
   boot.relocatePresentationInViewport = relocatePresentationInViewport;
   boot.relocateCopilotInViewport = relocateCopilotInViewport;
   boot.relocateAccessChatOverlayInViewport = relocateAccessChatOverlayInViewport;
+  boot.relocateAccessFabInLetterbox = relocateAccessFabInLetterbox;
+  boot.resolveAccessFabLetterboxLayout = resolveAccessFabLetterboxLayout;
+  boot.applyAccessFabLetterboxPosition = applyAccessFabLetterboxPosition;
   boot.relocateStageOverlaysInViewport = relocateStageOverlaysInViewport;
 
   function scheduleRelocate() {
@@ -18276,13 +19020,54 @@
     });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scheduleRelocate, { once: true });
-  } else {
-    scheduleRelocate();
+  function isViewportStageLayoutReady() {
+    const viewport = document.querySelector('[data-mei-frame-viewport="true"]');
+    if (!(viewport instanceof HTMLElement)) {
+      return null;
+    }
+    const shell = viewport.querySelector(".preview-stage-shell");
+    const stage = shell?.querySelector(".preview-stage.preview-surface");
+    if (!(shell instanceof HTMLElement) || !(stage instanceof HTMLElement)) {
+      return null;
+    }
+    const scale = String(viewport.dataset.meiFrameScale || "").trim();
+    if (!scale) {
+      return null;
+    }
+    const shellW = shell.clientWidth || shell.offsetWidth || 0;
+    const shellH = shell.clientHeight || shell.offsetHeight || 0;
+    if (shellW <= 0 || shellH <= 0) {
+      return null;
+    }
+    return { viewport, shell, stage, scale: Number(scale) || 1 };
   }
-  document.addEventListener("mei:spa-navigation-complete", scheduleRelocate);
+
+  function waitForViewportStageReady(attemptsLeft = 240) {
+    const ready = isViewportStageLayoutReady();
+    if (ready) {
+      scheduleRelocate();
+      return;
+    }
+    if (attemptsLeft > 0) {
+      requestAnimationFrame(() => waitForViewportStageReady(attemptsLeft - 1));
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => waitForViewportStageReady(), {
+      once: true,
+    });
+  } else {
+    waitForViewportStageReady();
+  }
+  document.addEventListener("mei:spa-navigation-complete", () => waitForViewportStageReady());
   window.addEventListener("meilang:preview-updated", scheduleRelocate);
+  window.addEventListener("meilang:viewport-stage-layout", scheduleRelocate);
+  window.addEventListener("pageshow", scheduleRelocate);
+  window.addEventListener("resize", scheduleRelocate, { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", scheduleRelocate);
+  }
 })();
 
 
@@ -18344,9 +19129,19 @@
     return document.body;
   }
 
+  function resolveLayer2MountRoot() {
+    if (typeof boot.resolveViewportStageSurface === "function") {
+      const surface = boot.resolveViewportStageSurface();
+      if (surface instanceof HTMLElement && surface !== document.body) {
+        return surface;
+      }
+    }
+    return resolveViewportStageHost();
+  }
+
   function ensureLayer2WorkspaceRoot() {
     let root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
-    const stageHost = resolveViewportStageHost();
+    const stageHost = resolveLayer2MountRoot();
     if (root) {
       if (root.parentElement !== stageHost) {
         stageHost.appendChild(root);
@@ -19516,17 +20311,40 @@
 
     ensureFabDock();
 
+    const letterboxLayout =
+      root.classList.contains("mei-copilot-letterbox-fixed") &&
+      typeof boot.resolveAccessFabLetterboxLayout === "function"
+        ? boot.resolveAccessFabLetterboxLayout(root)
+        : null;
     const host = layoutHost(root);
-    const hostRect = host
-      ? host.getBoundingClientRect()
-      : {
-          left: 0,
-          top: 0,
-          width: Number(window.innerWidth || 0),
-          height: Number(window.innerHeight || 0),
-        };
+    const bounds =
+      typeof boot.resolveViewportOverlayBounds === "function"
+        ? boot.resolveViewportOverlayBounds(root)
+        : null;
+    const hostRect = letterboxLayout
+      ? letterboxLayout.shellRect
+      : host
+        ? host.getBoundingClientRect()
+        : bounds?.shellRect || {
+            left: 0,
+            top: 0,
+            width: Number(window.innerWidth || 0),
+            height: Number(window.innerHeight || 0),
+          };
 
     root.dataset.copilotToolbarSide = detectToolbarSide(fab, hostRect);
+
+    const toolbar = root.querySelector(".copilot-toolbar");
+    if (toolbar instanceof HTMLElement) {
+      const hostWidth = letterboxLayout
+        ? letterboxLayout.width
+        : host
+          ? host.clientWidth || host.offsetWidth || 0
+          : 0;
+      if (hostWidth > 0) {
+        toolbar.style.maxWidth = `${Math.min(720, Math.max(200, hostWidth - 96))}px`;
+      }
+    }
     return true;
   }
 
@@ -19641,6 +20459,11 @@
   function refreshFabChrome() {
     const fab = document.getElementById("access-chat-fab");
     if (!fab) return;
+    const root = floatingRoot();
+    root?.classList.toggle(
+      "copilot-fab-elevated",
+      Boolean(root?.classList.contains("mei-copilot-letterbox-fixed")),
+    );
     const eng = engine();
     const active = eng && eng.isActive();
     const paused = eng && typeof eng.isPaused === "function" && eng.isPaused();
@@ -19975,17 +20798,6 @@
     const fab = document.getElementById("access-chat-fab");
     if (!fab || !copilotFabContextActive()) return;
     boot.copilotFabBound = true;
-    fab.addEventListener(
-      "click",
-      (event) => {
-        if (boot.agentPanelState && boot.agentPanelState.accessFloatingDragMoved) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        uiState.toolbarOpen = !uiState.toolbarOpen;
-        renderToolbar();
-      },
-      true,
-    );
     refreshFabChrome();
   }
 
@@ -20062,6 +20874,19 @@
 
   boot.copilotToolbar = toolbar;
   boot.toggleAccessFloatingPanel = boot.toggleAccessFloatingPanel || toggleAccessAiPanel;
+
+  window.addEventListener("meilang:viewport-stage-ready", () => {
+    if (shouldMount()) {
+      mount({ autoStart: false, apply: false, toolbarOpen: false });
+    } else {
+      ensureCopilotInViewport();
+      scheduleFabLayout();
+    }
+  });
+  window.addEventListener("meilang:viewport-stage-layout", () => {
+    ensureCopilotInViewport();
+    scheduleFabLayout();
+  });
 })();
 
 

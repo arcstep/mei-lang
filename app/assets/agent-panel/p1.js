@@ -130,6 +130,7 @@
   boot.toggleAccessFloatingPanel = AF.toggleAccessFloatingPanel.bind(AF);
   boot.syncAccessFloatingViewportMount = AF.syncAccessFloatingViewportMount.bind(AF);
   boot.reclampAccessFloatingInViewport = AF.reclampAccessFloatingInViewport.bind(AF);
+  boot.activateAccessFabTap = AF.activateAccessFabTap.bind(AF);
   boot.agentPanelState = state;
 
   let SES = null;

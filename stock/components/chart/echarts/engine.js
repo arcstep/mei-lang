@@ -1036,6 +1036,24 @@ function echartsTooltipTextStyle(typography, role = "label", host) {
 }
 
 /** ECharts 飘窗：深色底 + 主题字号 + 二级看板内 z-index */
+function resolveEchartsTooltipAppendTo(host) {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
+  const boot = window.__meiLangBoot || {};
+  if (
+    typeof boot.resolveOverlayMountRoot === "function" &&
+    typeof boot.ensureViewportContextPlane === "function"
+  ) {
+    const root = boot.resolveOverlayMountRoot(host);
+    const plane = boot.ensureViewportContextPlane(root);
+    if (plane instanceof HTMLElement) {
+      return plane;
+    }
+  }
+  return document.body;
+}
+
 function echartsTooltip(typography, trigger, extra = {}, host) {
   const { textRole = "label", ...rest } = extra;
   const z = COCKPIT_Z_INDEX.tooltipInBoard;
@@ -1043,7 +1061,7 @@ function echartsTooltip(typography, trigger, extra = {}, host) {
     trigger,
     ...ECHARTS_TOOLTIP_CHROME,
     className: "mei-cockpit-echarts-tooltip",
-    appendTo: typeof document !== "undefined" ? document.body : undefined,
+    appendTo: resolveEchartsTooltipAppendTo(host),
     confine: false,
     extraCssText: `z-index:${z} !important;box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:6px;`,
     textStyle: echartsTooltipTextStyle(typography, textRole, host),

@@ -55,9 +55,19 @@
     return document.body;
   }
 
+  function resolveLayer2MountRoot() {
+    if (typeof boot.resolveViewportStageSurface === "function") {
+      const surface = boot.resolveViewportStageSurface();
+      if (surface instanceof HTMLElement && surface !== document.body) {
+        return surface;
+      }
+    }
+    return resolveViewportStageHost();
+  }
+
   function ensureLayer2WorkspaceRoot() {
     let root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
-    const stageHost = resolveViewportStageHost();
+    const stageHost = resolveLayer2MountRoot();
     if (root) {
       if (root.parentElement !== stageHost) {
         stageHost.appendChild(root);

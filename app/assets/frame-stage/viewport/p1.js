@@ -5,8 +5,22 @@
       viewportUpdateQueued.delete(root);
       updateViewport(root);
       try {
+        const scale = Number(root?.dataset?.meiFrameScale || 1);
+        window.dispatchEvent(
+          new CustomEvent("meilang:viewport-stage-layout", {
+            detail: { root, scale },
+          }),
+        );
+        if (scale > 0 && root?.dataset?.meiFrameScale) {
+          window.dispatchEvent(
+            new CustomEvent("meilang:viewport-stage-ready", {
+              detail: { root, scale },
+            }),
+          );
+        }
         window.__meiLangBoot?.relocateStageOverlaysInViewport?.() ||
           window.__meiLangBoot?.relocateCopilotInViewport?.();
+        window.__meiLangBoot?.syncCockpitMapToolsOverlays?.();
       } catch (_) {}
     });
   }

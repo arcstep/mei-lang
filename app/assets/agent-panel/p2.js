@@ -146,16 +146,6 @@
   }
 
   if (els.accessFab) {
-    els.accessFab.addEventListener("click", function (event) {
-      if (state.accessFloatingDragMoved) {
-        state.accessFloatingDragMoved = false;
-        return;
-      }
-      if (copilotPresentationFabContext()) {
-        return;
-      }
-      AF.toggleAccessFloatingPanel();
-    });
     els.accessFab.addEventListener("pointerdown", AF.beginAccessFloatingDrag);
   }
 

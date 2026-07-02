@@ -2,15 +2,32 @@
     return Math.round(value * 1000) / 1000;
   }
 
-  function computeScale(mode, hostWidth, hostHeight, designWidth, designHeight) {
+  function computeScale(mode, hostWidth, hostHeight, designWidth, designHeight, root) {
     if (hostWidth <= 0 || hostHeight <= 0 || designWidth <= 0 || designHeight <= 0) {
       return 1;
     }
     const sx = hostWidth / designWidth;
     const sy = hostHeight / designHeight;
-    const fit = Math.min(sx, sy);
-    if (mode === "cover") return Math.max(sx, sy);
-    return fit;
+    const normalized = String(mode || "contain").trim().toLowerCase();
+    if (normalized === "cover") {
+      return Math.max(sx, sy);
+    }
+    if (
+      normalized === "fit-width" ||
+      normalized === "fit_width" ||
+      normalized === "width"
+    ) {
+      return sx;
+    }
+    // 访问态 contain：优先按宽度适配，高度不足时再缩小（纵向 letterbox）
+    if (normalized === "contain" && root && !isManagePreviewRoute(root)) {
+      const heightAtWidth = designHeight * sx;
+      if (heightAtWidth <= hostHeight + 0.5) {
+        return sx;
+      }
+      return Math.min(sx, sy);
+    }
+    return Math.min(sx, sy);
   }
 
   function overflowModeIsDebug(mode) {
@@ -73,6 +90,15 @@
         hostHeight: Math.max(1, height - safe.top - safe.bottom),
       };
     }
+    if (root && !isManagePreviewRoute(root)) {
+      const accessHost = resolveAccessPreviewHost(root);
+      if (accessHost) {
+        return {
+          hostWidth: Math.max(1, accessHost.width - safe.left - safe.right),
+          hostHeight: Math.max(1, accessHost.height - safe.top - safe.bottom),
+        };
+      }
+    }
     const rect = root.getBoundingClientRect();
     if (rect.width >= 1 && rect.height >= 1) {
       return {
@@ -84,6 +110,37 @@
       hostWidth: Math.max(1, window.innerWidth - safe.left - safe.right),
       hostHeight: Math.max(1, window.innerHeight - safe.top - safe.bottom),
     };
+  }
+
+  /** 访问态：用 main / 滚动宿主可见区，避免窄屏断点下 viewport rect 高度塌缩。 */
+  function resolveAccessPreviewHost(root) {
+    const candidates = [
+      root.closest(".main"),
+      root.closest(".preview-pane-scroll"),
+      root.parentElement,
+      root,
+    ];
+    for (const node of candidates) {
+      if (!(node instanceof HTMLElement)) continue;
+      const rect = node.getBoundingClientRect();
+      if (rect.width >= 1 && rect.height >= 1) {
+        return { width: rect.width, height: rect.height };
+      }
+      if (node.clientWidth >= 1 && node.clientHeight >= 1) {
+        return { width: node.clientWidth, height: node.clientHeight };
+      }
+    }
+    const topbar = document.querySelector(".topbar");
+    const statusbar = document.querySelector(".statusbar");
+    const topH = topbar?.getBoundingClientRect().height || 0;
+    const bottomH = statusbar?.getBoundingClientRect().height || 0;
+    const vv = window.visualViewport;
+    const width = vv?.width ?? window.innerWidth;
+    const height = (vv?.height ?? window.innerHeight) - topH - bottomH;
+    if (width >= 1 && height >= 1) {
+      return { width, height };
+    }
+    return null;
   }
 
   /**

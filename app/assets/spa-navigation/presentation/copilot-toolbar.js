@@ -90,6 +90,11 @@
   function refreshFabChrome() {
     const fab = document.getElementById("access-chat-fab");
     if (!fab) return;
+    const root = floatingRoot();
+    root?.classList.toggle(
+      "copilot-fab-elevated",
+      Boolean(root?.classList.contains("mei-copilot-letterbox-fixed")),
+    );
     const eng = engine();
     const active = eng && eng.isActive();
     const paused = eng && typeof eng.isPaused === "function" && eng.isPaused();
@@ -424,17 +429,6 @@
     const fab = document.getElementById("access-chat-fab");
     if (!fab || !copilotFabContextActive()) return;
     boot.copilotFabBound = true;
-    fab.addEventListener(
-      "click",
-      (event) => {
-        if (boot.agentPanelState && boot.agentPanelState.accessFloatingDragMoved) return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        uiState.toolbarOpen = !uiState.toolbarOpen;
-        renderToolbar();
-      },
-      true,
-    );
     refreshFabChrome();
   }
 
@@ -511,4 +505,17 @@
 
   boot.copilotToolbar = toolbar;
   boot.toggleAccessFloatingPanel = boot.toggleAccessFloatingPanel || toggleAccessAiPanel;
+
+  window.addEventListener("meilang:viewport-stage-ready", () => {
+    if (shouldMount()) {
+      mount({ autoStart: false, apply: false, toolbarOpen: false });
+    } else {
+      ensureCopilotInViewport();
+      scheduleFabLayout();
+    }
+  });
+  window.addEventListener("meilang:viewport-stage-layout", () => {
+    ensureCopilotInViewport();
+    scheduleFabLayout();
+  });
 })();

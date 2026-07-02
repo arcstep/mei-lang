@@ -2,31 +2,31 @@
 
 pub(crate) fn access_shell_grid_class(chrome_hidden: bool, stage_enabled: bool) -> &'static str {
     if chrome_hidden {
-        "shell shell-surface min-h-screen h-screen overflow-hidden max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "shell shell-surface min-h-screen h-screen overflow-hidden"
     } else if stage_enabled {
-        "shell shell-surface grid min-h-screen h-screen overflow-hidden [grid-template-rows:auto_minmax(0,1fr)_auto] max-[1200px]:grid max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "shell shell-surface grid min-h-screen h-screen overflow-hidden [grid-template-rows:auto_minmax(0,1fr)_auto]"
     } else {
-        "shell shell-surface min-h-screen h-auto overflow-visible"
+        "shell shell-surface min-h-screen h-auto overflow-visible max-[1200px]:h-auto max-[1200px]:overflow-visible"
     }
 }
 
 pub(crate) fn access_main_preview_class(chrome_hidden: bool, stage_enabled: bool) -> &'static str {
     if chrome_hidden {
-        "min-h-0 min-w-0 h-full overflow-hidden p-0 max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "min-h-0 min-w-0 h-full overflow-hidden p-0"
     } else if stage_enabled {
-        "min-h-0 min-w-0 h-full overflow-hidden p-0 self-stretch max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "min-h-0 min-w-0 h-full overflow-hidden p-0 self-stretch"
     } else {
-        "min-w-0 h-auto overflow-visible p-4 self-start"
+        "min-w-0 h-auto overflow-visible p-4 self-start max-[1200px]:h-auto max-[1200px]:overflow-visible"
     }
 }
 
 pub(crate) fn access_preview_panel_class(chrome_hidden: bool, stage_enabled: bool) -> &'static str {
     if chrome_hidden {
-        "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-viewport]:h-full [&_.preview-viewport]:min-h-full [&_.preview-surface:not(.preview-stage)]:h-full [&_.preview-surface:not(.preview-stage)]:min-h-full max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-viewport]:h-full [&_.preview-viewport]:min-h-full [&_.preview-surface:not(.preview-stage)]:h-full [&_.preview-surface:not(.preview-stage)]:min-h-full"
     } else if stage_enabled {
-        "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-viewport-fluid-width]:max-h-full [&_.preview-viewport-fluid-width]:min-h-0 [&_.preview-viewport-fluid-width]:overflow-y-auto [&_.preview-surface]:min-h-auto max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-viewport]:h-full [&_.preview-viewport]:min-h-0 [&_.preview-viewport-fluid-width]:max-h-full [&_.preview-viewport-fluid-width]:min-h-0 [&_.preview-viewport-fluid-width]:overflow-y-auto [&_.preview-surface]:min-h-auto"
     } else {
-        "min-h-0 min-w-0 overflow-visible [&_.preview-surface]:min-h-auto"
+        "min-h-0 min-w-0 overflow-visible [&_.preview-surface]:min-h-auto max-[1200px]:h-auto max-[1200px]:overflow-visible"
     }
 }
 
