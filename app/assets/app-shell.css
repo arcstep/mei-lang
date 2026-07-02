@@ -5673,37 +5673,45 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   color: var(--mei-shell-color-text-primary);
 }
 .build-inspect-selected {
-  outline: 2px solid var(--mei-shell-color-focus-border);
+  outline: 3px solid var(--mei-shell-color-status-warn) !important;
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px var(--mei-shell-color-focus-ring);
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--mei-shell-color-status-warn) 42%, transparent);
 }
 
 .build-inspect-focus-selected {
-  outline: 2px solid var(--mei-shell-color-status-warn);
+  outline: 3px solid var(--mei-shell-color-status-warn) !important;
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--mei-shell-color-status-warn) 24%, transparent);
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--mei-shell-color-status-warn) 50%, transparent);
 }
 
-/* Build 结构树轻量 inspect：全场景预埋 DOM，仅 CSS 切换层级可见性与描边（tier 与 DOM 均为小写 t0/t1/t2/p） */
-.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t1"] [data-mei-tier="t2"],
-.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t1"] [data-mei-tier="p"],
-.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t0"] [data-mei-tier="t1"],
-.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t0"] [data-mei-tier="t2"],
-.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t0"] [data-mei-tier="p"] {
-  visibility: hidden;
+@keyframes build-inspect-focus-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Build 结构树轻量 inspect：仅描边高亮，不做 tier 全局裁剪（嵌套 panel 的 tier 与 plane 不一致时会误藏底图） */
+.preview-pane-scroll[data-build-inspect-active="true"] .build-inspect-selected,
+.preview-pane-scroll[data-build-inspect-active="true"] .build-inspect-focus-selected {
+  position: relative;
+}
+
+.preview-pane-scroll[data-build-inspect-active="true"] .build-inspect-selected::after,
+.preview-pane-scroll[data-build-inspect-active="true"] .build-inspect-focus-selected::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 2px dashed var(--mei-shell-color-status-warn);
+  border-radius: 6px;
   pointer-events: none;
-}
-
-.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-scope] [data-mei-ui-scope],
-.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-scope] [data-preview-scope] {
-  outline: 1px dashed color-mix(in srgb, var(--mei-shell-color-focus-border) 35%, transparent);
-  outline-offset: 1px;
-}
-
-.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-scope] .build-inspect-selected {
-  outline: 2px solid var(--mei-shell-color-focus-border);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 4px var(--mei-shell-color-focus-ring);
+  z-index: 1;
+  animation: build-inspect-focus-pulse 1.35s ease-in-out infinite;
 }
 
 .build-preview-scoped-dim {

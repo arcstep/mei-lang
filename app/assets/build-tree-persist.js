@@ -298,6 +298,28 @@
           url.searchParams.delete("focus");
           link.href = url.toString();
         } catch (_) {}
+        const nodeId = String(link.getAttribute("data-build-node") || "").trim();
+        const structureNode = /^(?:ui-scope|scene-panel|scene-block):/i.test(nodeId);
+        const nav = global.MeiBuildNavigation;
+        if (!structureNode || typeof nav?.tryNavigateBuild !== "function") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        void nav
+          .tryNavigateBuild(global.location.href, link.href, { linkEl: link })
+          .then((result) => {
+            if (result?.handled) {
+              if (typeof nav.noteUrl === "function") nav.noteUrl(link.href);
+              return;
+            }
+            if (typeof global.__meiLangBoot?.navigateInternal === "function") {
+              void global.__meiLangBoot.navigateInternal(link.href, false, { skipBuildNav: true });
+            }
+          })
+          .catch(() => {
+            if (typeof global.__meiLangBoot?.navigateInternal === "function") {
+              void global.__meiLangBoot.navigateInternal(link.href, false, { skipBuildNav: true });
+            }
+          });
       },
       true,
     );

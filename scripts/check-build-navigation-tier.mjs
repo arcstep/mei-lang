@@ -23,7 +23,8 @@ assert.match(src, /isSameSceneStructureNav/, "same-scene structure tier0");
 assert.match(src, /readUiScopeMetaFromReachabilityTree/, "ui-scope tier0 DOM check");
 assert.match(src, /isPackCatalogNodeId/, "pack catalog runtime reset");
 assert.match(src, /ensurePreviewTabVisible\(url\)/, "preview tab before fragment swap");
-assert.match(src, /applyBootstrapScripts/, "bootstrap script sync on fragment swap");
+assert.match(src, /__meiBuildNavLastTier/, "tier debug probe");
+assert.match(src, /structureNav/, "structure nav tier0 force");
 assert.doesNotMatch(src, /isBuildCatalogPreviewNode\(nextNode\)\) return "fragment"/, "catalog uses coordinate-based tier");
 
 console.log("check-build-navigation-tier: ok");

@@ -3,7 +3,7 @@
       return;
     }
     if (typeof boot.switchManageTab === "function") {
-      boot.switchManageTab(tab, { updateUrl: false, emit: true });
+      boot.switchManageTab(tab, { updateUrl: false, emit: opts.emit !== false });
       return;
     }
     document.querySelectorAll("[data-manage-tab-panel]").forEach((panel) => {
@@ -59,7 +59,7 @@
 
   function runTier0PostNav(prevUrl) {
     global.__meiBuildNavPrevUrl = String(prevUrl || global.location.href);
-    ensurePreviewTabVisible(global.location.href);
+    ensurePreviewTabVisible(global.location.href, null, { emit: false });
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     if (typeof closeDrilldownOverlay === "function") {
       try {
@@ -93,6 +93,7 @@
   }
 
   function shouldSkipPreviewRuntimeWake(prevUrl, nextUrl) {
+    if (isSameSceneStructureNav(prevUrl, nextUrl)) return true;
     if (classifyBuildNavTier(prevUrl, nextUrl) !== "client") return false;
     const prevNode = nodeIdFromUrl(prevUrl);
     const nextNode = nodeIdFromUrl(nextUrl);
@@ -228,38 +229,64 @@
       return { handled: false, tier: 2, reason: "in_flight" };
     }
     const opts = options || {};
-    const tier = classifyBuildNavTier(fromUrl, toUrl, opts.linkEl);
+    const structureNav = isSameSceneStructureNav(fromUrl, toUrl);
+    let tier = classifyBuildNavTier(fromUrl, toUrl, opts.linkEl);
+    if (structureNav && tier === "full") {
+      tier = "client";
+    }
+    global.__meiBuildNavLastTier = { tier, structureNav, fromUrl, toUrl };
+
+    const finishTier0 = () => {
+      syncBuildShellUrl(toUrl, !!opts.replaceHistory, opts.linkEl);
+      stats.tier0 += 1;
+      runTier0PostNav(fromUrl);
+      return { handled: true, tier: 0 };
+    };
+
     if (tier === "client") {
-      if (!tier0TargetReady(toUrl)) {
+      if (structureNav || tier0TargetReady(toUrl)) {
         buildNavInFlight = true;
         try {
-          const ok = await navigateBuildTier1(toUrl, !!opts.replaceHistory, opts.linkEl);
-          if (ok) return { handled: true, tier: 1 };
-        } catch (err) {
-          console.warn("[build-navigation] tier0 missing DOM; tier1 failed", err);
+          return finishTier0();
         } finally {
           buildNavInFlight = false;
         }
-        stats.tier2 += 1;
-        return { handled: false, tier: 2 };
       }
       buildNavInFlight = true;
       try {
-        syncBuildShellUrl(toUrl, !!opts.replaceHistory, opts.linkEl);
-        stats.tier0 += 1;
-        runTier0PostNav(fromUrl);
-        return { handled: true, tier: 0 };
+        const ok = await navigateBuildTier1(toUrl, !!opts.replaceHistory, opts.linkEl);
+        if (ok) return { handled: true, tier: 1 };
+      } catch (err) {
+        console.warn("[build-navigation] tier0 missing DOM; tier1 failed", err);
       } finally {
         buildNavInFlight = false;
       }
+      stats.tier2 += 1;
+      return { handled: false, tier: 2 };
     }
-    if (tier === "fragment" && !opts.skipFragment) {
+    if ((tier === "fragment" || structureNav) && !opts.skipFragment) {
+      if (structureNav) {
+        buildNavInFlight = true;
+        try {
+          return finishTier0();
+        } finally {
+          buildNavInFlight = false;
+        }
+      }
       buildNavInFlight = true;
       try {
         const ok = await navigateBuildTier1(toUrl, !!opts.replaceHistory, opts.linkEl);
         if (ok) return { handled: true, tier: 1 };
       } catch (err) {
         console.warn("[build-navigation] tier1 failed; fallback to full SPA", err);
+      } finally {
+        buildNavInFlight = false;
+      }
+    }
+    if (structureNav) {
+      buildNavInFlight = true;
+      try {
+        return finishTier0();
       } finally {
         buildNavInFlight = false;
       }

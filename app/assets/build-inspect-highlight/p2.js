@@ -111,10 +111,8 @@
     const node = activeBuildNode();
     const focus = activeBuildFocus();
     clearHighlights(root);
-    if (node && node.startsWith("ui-scope:")) {
-      clearInspectModeAttributes(root);
-    }
     if (!node || !node.startsWith("ui-scope:")) {
+      clearInspectModeAttributes(root);
       applyScopedPreview(root);
     }
 
@@ -128,36 +126,27 @@
 
     if (node.startsWith("ui-scope:")) {
       const meta = readUiScopeMetaFromNode(node);
-      syncInspectModeAttributes(root, meta);
-      const role = String(meta?.ui_role || "").trim();
+      const role = String(meta?.ui_role || "").trim().toLowerCase();
       let selected = [];
       if (role === "plane" && meta?.plane_tier) {
         const tier = normalizePreviewTier(meta.plane_tier);
         selected = Array.from(root.querySelectorAll("[data-mei-tier]")).filter(
           (el) => normalizePreviewTier(el.getAttribute("data-mei-tier")) === tier,
         );
-      } else if (role !== "scene") {
-        const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
-        selected = Array.from(matches);
-        if (selected.length === 0 && meta?.preview_scope) {
-          const scope = meta.preview_scope;
-          const exactScope = root.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
-          const exactPanel = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
-          if (exactScope) {
-            selected = [exactScope];
-          } else if (exactPanel) {
-            selected = [exactPanel];
-          } else {
-            selected = Array.from(
-              root.querySelectorAll(`[data-mei-ui-scope^="${CSS.escape(scope)}/"]`),
-            );
-          }
+        if (selected.length === 0) {
+          const stage = root.querySelector(
+            ".preview-stage, .preview-surface, .preview-stage-shell, [class*='map-host'], [class*='cockpit-map']",
+          );
+          if (stage instanceof HTMLElement) selected = [stage];
         }
+      } else if (role !== "scene") {
+        selected = resolveUiScopeHighlightTargets(root, node, meta);
       }
       if (selected.length > 1) {
         selected = [selected[0]];
       }
       selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      applyInspectFocusChrome(root, meta, node);
       if (!focusEl) {
         scrollIntoViewIfOne(selected, root);
       }

@@ -396,7 +396,8 @@
     lastBuildNavUrl = url;
   }
 
-  function ensurePreviewTabVisible(rawUrl, linkEl) {
+  function ensurePreviewTabVisible(rawUrl, linkEl, options) {
+    const opts = options && typeof options === "object" ? options : {};
     const tab = buildTab(rawUrl, linkEl);
     const shell = document.querySelector(".shell[data-build-tab]");
     const current = String(
