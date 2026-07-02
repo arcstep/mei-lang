@@ -170,6 +170,8 @@ fn tree_node(
                     data-compile-scene=node.compile_scene.clone()
                     data-compile-target=node.compile_target.clone()
                     data-board-layout-zone=node.board_layout_zone.clone()
+                    data-source-file=node.source_file.clone()
+                    data-source-symbol=node.source_symbol.clone()
                 >
                     <span class="build-tree-spacer" aria-hidden="true"></span>
                     <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
@@ -189,12 +191,14 @@ fn tree_node(
         } else {
             node.id.clone()
         };
+        let default_open = ui_scope_branch_default_open(node);
         view! {
             <li class="build-tree-node build-tree-node--branch">
                 <details
                     class="build-tree-details"
                     data-build-tree-branch=branch_id
                     data-build-tree-children-count=child_count.to_string()
+                    open=default_open
                 >
                     <summary class=summary_class>
                         <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
@@ -205,6 +209,8 @@ fn tree_node(
                             data-compile-scene=node.compile_scene.clone()
                             data-compile-target=node.compile_target.clone()
                             data-board-layout-zone=node.board_layout_zone.clone()
+                            data-source-file=node.source_file.clone()
+                            data-source-symbol=node.source_symbol.clone()
                         >
                             {branch_label(node.label.clone(), badge, child_count)}
                         </a>
@@ -346,8 +352,21 @@ fn ui_scope_glyph(node: &ReachabilityTreeNode) -> &'static str {
     }
 }
 
+fn ui_scope_branch_default_open(node: &ReachabilityTreeNode) -> bool {
+    if node.kind != "ui_scope" {
+        return false;
+    }
+    matches!(
+        node.badges.first().map(String::as_str),
+        Some("scene") | Some("plane") | Some("region") | Some("section")
+    )
+}
+
 fn tab_for_node_link(node: &BuildNodeId, current: BuildViewTab) -> BuildViewTab {
     use mei_lang_kernel::{tab_visible_for_node, BuildNodeKind, BuildViewTab};
+    if node.kind == BuildNodeKind::UiScope {
+        return BuildViewTab::Preview;
+    }
     if tab_visible_for_node(node, current) {
         return current;
     }

@@ -25,16 +25,37 @@
     if (/^world-(?:dataset|metric|file):/i.test(id)) return "preview";
     if (/^dataset:/i.test(id)) return "preview";
     if (/^ui-scope:/i.test(id)) return "preview";
+    if (/^(?:scene-panel|scene-block):/i.test(id)) return "preview";
     return "";
   }
 
-  function buildTab(rawUrl) {
+  function treeLinkTab(rawUrl, linkEl) {
+    const nodeId =
+      (linkEl && linkEl.getAttribute && linkEl.getAttribute("data-build-node")) ||
+      nodeIdFromUrl(rawUrl);
+    return inferPreviewTabFromNodeId(nodeId) || currentManageTabFromUrl(rawUrl) || "overview";
+  }
+
+  function currentManageTabFromUrl(rawUrl) {
     try {
+      const parsed = new URL(rawUrl, global.location.href);
+      const tab = String(parsed.searchParams.get("tab") || "").trim().toLowerCase();
+      if (tab) return tab;
+    } catch (_) {}
+    const shell = document.querySelector(".shell[data-build-tab]");
+    return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
+  }
+
+  function buildTab(rawUrl, linkEl) {
+    try {
+      const nodeId =
+        (linkEl && linkEl.getAttribute && linkEl.getAttribute("data-build-node")) ||
+        nodeIdFromUrl(rawUrl);
+      const fromNode = inferPreviewTabFromNodeId(nodeId);
+      if (fromNode) return fromNode;
       const parsed = new URL(rawUrl, global.location.href);
       const fromQuery = String(parsed.searchParams.get("tab") || "").trim().toLowerCase();
       if (fromQuery) return fromQuery;
-      const fromNode = inferPreviewTabFromNodeId(nodeIdFromUrl(rawUrl));
-      if (fromNode) return fromNode;
       const shell = document.querySelector(".shell[data-build-tab]");
       return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
     } catch (_) {
@@ -290,6 +311,23 @@
     return tier0PanelTargetInDom(nodeId);
   }
 
+  function isStructureInspectNode(nodeId) {
+    return /^(?:ui-scope|scene-panel|scene-block):/i.test(String(nodeId || "").trim());
+  }
+
+  function isSameSceneStructureNav(fromUrl, toUrl) {
+    const fromNode = nodeIdFromUrl(fromUrl);
+    const toNode = nodeIdFromUrl(toUrl);
+    if (!isStructureInspectNode(toNode)) return false;
+    const toScene = sceneIdFromNodeId(toNode);
+    if (!toScene) return false;
+    const fromScene =
+      sceneIdFromNodeId(fromNode) ||
+      readCompileCoordinateFromShell()?.scene ||
+      "";
+    return fromScene === toScene;
+  }
+
   function classifyBuildNavTier(fromUrl, toUrl, linkEl) {
     try {
       const from = new URL(fromUrl, global.location.href);
@@ -297,7 +335,13 @@
       if (!isBuildWorkspacePathname(to.pathname)) return "full";
       if (!isBuildWorkspacePathname(from.pathname)) return "full";
       if (from.pathname !== to.pathname) return "full";
-      if (buildTab(toUrl) !== "preview") return "full";
+      const toNode = nodeIdFromUrl(toUrl);
+      const previewTab =
+        buildTab(toUrl, linkEl) === "preview" || Boolean(inferPreviewTabFromNodeId(toNode));
+      if (!previewTab) return "full";
+      if (isSameSceneStructureNav(fromUrl, toUrl)) {
+        return "client";
+      }
       const toCoord = readCompileCoordinate(toUrl, linkEl);
       const fromCoord = readCompileCoordinate(fromUrl);
       if (!toCoord || !fromCoord) return "full";
@@ -328,12 +372,18 @@
     if (shell) {
       const node = String(parsed.searchParams.get("node") || "").trim();
       const focus = String(parsed.searchParams.get("focus") || "").trim();
-      const tab = String(parsed.searchParams.get("tab") || "").trim();
+      let tab = String(parsed.searchParams.get("tab") || "").trim();
+      const inferredTab = inferPreviewTabFromNodeId(node);
+      if (!tab && inferredTab) {
+        tab = inferredTab;
+        parsed.searchParams.set("tab", inferredTab);
+        url = parsed.href;
+      }
       if (node) shell.setAttribute("data-build-node", node);
       else shell.removeAttribute("data-build-node");
       if (focus) shell.setAttribute("data-build-focus", focus);
       else shell.removeAttribute("data-build-focus");
-      const resolvedTab = tab || inferPreviewTabFromNodeId(node);
+      const resolvedTab = tab || inferredTab;
       if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
       const coord = readCompileCoordinate(url, linkEl);
       if (coord) {
@@ -346,10 +396,12 @@
     lastBuildNavUrl = url;
   }
 
-  function ensurePreviewTabVisible(rawUrl) {
-    const tab = buildTab(rawUrl);
+  function ensurePreviewTabVisible(rawUrl, linkEl) {
+    const tab = buildTab(rawUrl, linkEl);
     const shell = document.querySelector(".shell[data-build-tab]");
-    const current = String(shell?.getAttribute("data-build-tab") || buildTab(global.location.href))
+    const current = String(
+      shell?.getAttribute("data-build-tab") || buildTab(global.location.href, linkEl),
+    )
       .trim()
       .toLowerCase();
     if (current === tab) {

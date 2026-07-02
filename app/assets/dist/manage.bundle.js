@@ -5347,12 +5347,24 @@
     return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
   }
 
+  function treeLinkTab(rawUrl, linkEl) {
+    const nav = global.MeiBuildNavigation;
+    if (nav && typeof nav.treeLinkTab === "function") {
+      return nav.treeLinkTab(rawUrl, linkEl);
+    }
+    if (nav && typeof nav.inferPreviewTabFromNodeId === "function") {
+      const nodeId = String(linkEl?.getAttribute?.("data-build-node") || "").trim();
+      const inferred = nav.inferPreviewTabFromNodeId(nodeId);
+      if (inferred) return inferred;
+    }
+    return currentManageTab();
+  }
+
   function syncTreeLinkTabs(root) {
-    const tab = currentManageTab();
-    if (!tab) return;
     root.querySelectorAll("a.build-tree-link, a.build-tree-label--link").forEach((link) => {
       try {
         const url = new URL(link.href, global.location.href);
+        const tab = treeLinkTab(url.toString(), link);
         url.searchParams.set("tab", tab);
         link.href = url.toString();
       } catch (_) {}
@@ -5370,7 +5382,7 @@
         captureScroll(root);
         try {
           const url = new URL(link.href, global.location.href);
-          url.searchParams.set("tab", currentManageTab());
+          url.searchParams.set("tab", treeLinkTab(url.toString(), link));
           url.searchParams.delete("focus");
           link.href = url.toString();
         } catch (_) {}
@@ -5686,16 +5698,37 @@
     if (/^world-(?:dataset|metric|file):/i.test(id)) return "preview";
     if (/^dataset:/i.test(id)) return "preview";
     if (/^ui-scope:/i.test(id)) return "preview";
+    if (/^(?:scene-panel|scene-block):/i.test(id)) return "preview";
     return "";
   }
 
-  function buildTab(rawUrl) {
+  function treeLinkTab(rawUrl, linkEl) {
+    const nodeId =
+      (linkEl && linkEl.getAttribute && linkEl.getAttribute("data-build-node")) ||
+      nodeIdFromUrl(rawUrl);
+    return inferPreviewTabFromNodeId(nodeId) || currentManageTabFromUrl(rawUrl) || "overview";
+  }
+
+  function currentManageTabFromUrl(rawUrl) {
     try {
+      const parsed = new URL(rawUrl, global.location.href);
+      const tab = String(parsed.searchParams.get("tab") || "").trim().toLowerCase();
+      if (tab) return tab;
+    } catch (_) {}
+    const shell = document.querySelector(".shell[data-build-tab]");
+    return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
+  }
+
+  function buildTab(rawUrl, linkEl) {
+    try {
+      const nodeId =
+        (linkEl && linkEl.getAttribute && linkEl.getAttribute("data-build-node")) ||
+        nodeIdFromUrl(rawUrl);
+      const fromNode = inferPreviewTabFromNodeId(nodeId);
+      if (fromNode) return fromNode;
       const parsed = new URL(rawUrl, global.location.href);
       const fromQuery = String(parsed.searchParams.get("tab") || "").trim().toLowerCase();
       if (fromQuery) return fromQuery;
-      const fromNode = inferPreviewTabFromNodeId(nodeIdFromUrl(rawUrl));
-      if (fromNode) return fromNode;
       const shell = document.querySelector(".shell[data-build-tab]");
       return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
     } catch (_) {
@@ -5951,6 +5984,23 @@
     return tier0PanelTargetInDom(nodeId);
   }
 
+  function isStructureInspectNode(nodeId) {
+    return /^(?:ui-scope|scene-panel|scene-block):/i.test(String(nodeId || "").trim());
+  }
+
+  function isSameSceneStructureNav(fromUrl, toUrl) {
+    const fromNode = nodeIdFromUrl(fromUrl);
+    const toNode = nodeIdFromUrl(toUrl);
+    if (!isStructureInspectNode(toNode)) return false;
+    const toScene = sceneIdFromNodeId(toNode);
+    if (!toScene) return false;
+    const fromScene =
+      sceneIdFromNodeId(fromNode) ||
+      readCompileCoordinateFromShell()?.scene ||
+      "";
+    return fromScene === toScene;
+  }
+
   function classifyBuildNavTier(fromUrl, toUrl, linkEl) {
     try {
       const from = new URL(fromUrl, global.location.href);
@@ -5958,7 +6008,13 @@
       if (!isBuildWorkspacePathname(to.pathname)) return "full";
       if (!isBuildWorkspacePathname(from.pathname)) return "full";
       if (from.pathname !== to.pathname) return "full";
-      if (buildTab(toUrl) !== "preview") return "full";
+      const toNode = nodeIdFromUrl(toUrl);
+      const previewTab =
+        buildTab(toUrl, linkEl) === "preview" || Boolean(inferPreviewTabFromNodeId(toNode));
+      if (!previewTab) return "full";
+      if (isSameSceneStructureNav(fromUrl, toUrl)) {
+        return "client";
+      }
       const toCoord = readCompileCoordinate(toUrl, linkEl);
       const fromCoord = readCompileCoordinate(fromUrl);
       if (!toCoord || !fromCoord) return "full";
@@ -5989,12 +6045,18 @@
     if (shell) {
       const node = String(parsed.searchParams.get("node") || "").trim();
       const focus = String(parsed.searchParams.get("focus") || "").trim();
-      const tab = String(parsed.searchParams.get("tab") || "").trim();
+      let tab = String(parsed.searchParams.get("tab") || "").trim();
+      const inferredTab = inferPreviewTabFromNodeId(node);
+      if (!tab && inferredTab) {
+        tab = inferredTab;
+        parsed.searchParams.set("tab", inferredTab);
+        url = parsed.href;
+      }
       if (node) shell.setAttribute("data-build-node", node);
       else shell.removeAttribute("data-build-node");
       if (focus) shell.setAttribute("data-build-focus", focus);
       else shell.removeAttribute("data-build-focus");
-      const resolvedTab = tab || inferPreviewTabFromNodeId(node);
+      const resolvedTab = tab || inferredTab;
       if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
       const coord = readCompileCoordinate(url, linkEl);
       if (coord) {
@@ -6007,10 +6069,12 @@
     lastBuildNavUrl = url;
   }
 
-  function ensurePreviewTabVisible(rawUrl) {
-    const tab = buildTab(rawUrl);
+  function ensurePreviewTabVisible(rawUrl, linkEl) {
+    const tab = buildTab(rawUrl, linkEl);
     const shell = document.querySelector(".shell[data-build-tab]");
-    const current = String(shell?.getAttribute("data-build-tab") || buildTab(global.location.href))
+    const current = String(
+      shell?.getAttribute("data-build-tab") || buildTab(global.location.href, linkEl),
+    )
       .trim()
       .toLowerCase();
     if (current === tab) {
@@ -6091,7 +6155,7 @@
       } catch (_) {}
     }
     if (typeof global.MeiBuildInspectHighlight?.refresh === "function") {
-      global.MeiBuildInspectHighlight.refresh();
+      global.MeiBuildInspectHighlight.refresh({ scope: "build-inspect" });
     }
     if (typeof global.MeiBuildTreePersist?.refresh === "function") {
       global.MeiBuildTreePersist.refresh();
@@ -6103,6 +6167,9 @@
     const nextNode = nodeIdFromUrl(global.location.href);
     if (boardExportChanged(prevNode, nextNode)) {
       wakePreviewRuntime("build-nav-board-export");
+      return;
+    }
+    if (/^(?:ui-scope|scene-panel|scene-block):/i.test(nextNode)) {
       return;
     }
     if (isPackCatalogNodeId(nextNode) && nodeIdChanged(prevUrl, nextNode)) {
@@ -6317,6 +6384,8 @@
   global.MeiBuildNavigation = {
     buildTab,
     inferPreviewTabFromNodeId,
+    treeLinkTab,
+    isSameSceneStructureNav,
     readCompileCoordinate,
     coordinatesEqual,
     classifyBuildNavTier,
@@ -6403,13 +6472,78 @@
     const blockId = el?.getAttribute("data-mei-block-id") || "";
     const useKey = el?.getAttribute("data-mei-use-key") || "";
     const panelId = el?.getAttribute("data-mei-panel-id") || "";
+    const sourceMeta = readSourceMetaFromReachabilityTree(node);
     const bits = [];
     if (node) bits.push(`node=${node}`);
     if (focus) bits.push(`focus=${focus}`);
+    if (sourceMeta?.file) bits.push(`src=${sourceMeta.file}`);
+    if (sourceMeta?.symbol) bits.push(`sym=${sourceMeta.symbol}`);
     if (panelId) bits.push(`panel=${panelId}`);
     if (blockId) bits.push(`block=${blockId}`);
     if (useKey) bits.push(`use=${useKey}`);
     bar.textContent = bits.join(" · ");
+  }
+
+  function readSourceMetaFromReachabilityTree(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return null;
+    const script = document.getElementById("mei-build-reachability-tree");
+    if (!script) return null;
+    try {
+      const roots = JSON.parse(script.textContent || "[]");
+      if (!Array.isArray(roots)) return null;
+      const walk = (nodes) => {
+        for (const node of nodes || []) {
+          if (node?.node_id === id) {
+            const file = String(node.source_file || "").trim();
+            const symbol = String(node.source_symbol || "").trim();
+            if (file || symbol) return { file, symbol };
+            return null;
+          }
+          const nested = walk(node.children);
+          if (nested) return nested;
+        }
+        return null;
+      };
+      for (const root of roots) {
+        const found = walk(root.children);
+        if (found) return found;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function previewInspectHost(root) {
+    if (!(root instanceof HTMLElement)) return null;
+    return (
+      root.querySelector(".preview-pane-scroll") ||
+      root.querySelector(".preview-surface") ||
+      root
+    );
+  }
+
+  function syncInspectModeAttributes(root, meta) {
+    const host = previewInspectHost(root);
+    if (!(host instanceof HTMLElement)) return;
+    host.setAttribute("data-build-inspect-active", "true");
+    const role = String(meta?.ui_role || "").trim();
+    const scope = String(meta?.preview_scope || "").trim();
+    const tier = normalizePreviewTier(meta?.plane_tier || "");
+    if (role) host.setAttribute("data-build-inspect-role", role);
+    else host.removeAttribute("data-build-inspect-role");
+    if (scope) host.setAttribute("data-build-inspect-scope", scope);
+    else host.removeAttribute("data-build-inspect-scope");
+    if (role === "plane" && tier) host.setAttribute("data-build-inspect-tier", tier);
+    else host.removeAttribute("data-build-inspect-tier");
+  }
+
+  function clearInspectModeAttributes(root) {
+    const host = previewInspectHost(root);
+    if (!(host instanceof HTMLElement)) return;
+    host.removeAttribute("data-build-inspect-active");
+    host.removeAttribute("data-build-inspect-role");
+    host.removeAttribute("data-build-inspect-scope");
+    host.removeAttribute("data-build-inspect-tier");
   }
 
   function syncBuildPreviewScopedChrome(root) {
@@ -6783,60 +6917,13 @@
       syncBuildPreviewScopedChrome(root);
       return;
     }
-    let scopePath = "";
     if (node.startsWith("ui-scope:")) {
-      const meta = readUiScopeMetaFromNode(node);
-      const role = String(meta?.ui_role || "").trim();
-      if (role === "scene") {
-        syncBuildPreviewScopedChrome(root);
-        return;
-      }
-      if (role === "plane") {
-        const tier = normalizePreviewTier(meta?.plane_tier || "");
-        if (!tier) {
-          syncBuildPreviewScopedChrome(root);
-          return;
-        }
-        root.querySelectorAll("[data-mei-tier]").forEach((el) => {
-          const elTier = normalizePreviewTier(el.getAttribute("data-mei-tier"));
-          if (elTier && elTier !== tier) {
-            el.classList.add("build-preview-scoped-dim");
-          }
-        });
-        syncBuildPreviewScopedChrome(root);
-        return;
-      }
-      const target = root.querySelector(`[data-build-node="${CSS.escape(node)}"]`);
-      let scopePath = String(
-        target?.getAttribute("data-mei-ui-scope") ||
-          target?.getAttribute("data-preview-scope") ||
-          "",
-      ).trim();
-      if (!scopePath) {
-        scopePath = String(meta?.preview_scope || "").trim();
-      }
-      if (!scopePath) {
-        syncBuildPreviewScopedChrome(root);
-        return;
-      }
-      root.querySelectorAll("[data-mei-ui-scope], [data-preview-scope]").forEach((el) => {
-        const elScope = String(
-          el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
-        );
-        if (elScope === scopePath || elScope.startsWith(`${scopePath}/`)) {
-          return;
-        }
-        if (scopePath.startsWith(`${elScope}/`)) {
-          return;
-        }
-        el.classList.add("build-preview-scoped-dim");
-      });
       syncBuildPreviewScopedChrome(root);
       return;
     }
     const encoded = node.replace(/^scene-panel:/, "").replace(/^scene-block:/, "");
     const slash = encoded.indexOf("/");
-    scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
+    const scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
     if (!scopePath) return;
     const focusedScopeSelector = `[data-preview-scope="${CSS.escape(scopePath)}"], [data-preview-scope^="${CSS.escape(scopePath)}/"]`;
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {
@@ -6893,7 +6980,12 @@
     const node = activeBuildNode();
     const focus = activeBuildFocus();
     clearHighlights(root);
-    applyScopedPreview(root);
+    if (node && node.startsWith("ui-scope:")) {
+      clearInspectModeAttributes(root);
+    }
+    if (!node || !node.startsWith("ui-scope:")) {
+      applyScopedPreview(root);
+    }
 
     let focusEl = null;
     if (focus && focus.startsWith("scene-block:")) {
@@ -6903,17 +6995,32 @@
       focusEl = focusMatches[0] || null;
     }
 
-    if (node && node.startsWith("ui-scope:")) {
+    if (node.startsWith("ui-scope:")) {
       const meta = readUiScopeMetaFromNode(node);
+      syncInspectModeAttributes(root, meta);
       const role = String(meta?.ui_role || "").trim();
       let selected = [];
-      if (role !== "scene" && role !== "plane") {
+      if (role === "plane" && meta?.plane_tier) {
+        const tier = normalizePreviewTier(meta.plane_tier);
+        selected = Array.from(root.querySelectorAll("[data-mei-tier]")).filter(
+          (el) => normalizePreviewTier(el.getAttribute("data-mei-tier")) === tier,
+        );
+      } else if (role !== "scene") {
         const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
         selected = Array.from(matches);
         if (selected.length === 0 && meta?.preview_scope) {
-          selected = Array.from(
-            root.querySelectorAll(`[data-mei-ui-scope="${CSS.escape(meta.preview_scope)}"]`),
-          );
+          const scope = meta.preview_scope;
+          const exactScope = root.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
+          const exactPanel = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+          if (exactScope) {
+            selected = [exactScope];
+          } else if (exactPanel) {
+            selected = [exactPanel];
+          } else {
+            selected = Array.from(
+              root.querySelectorAll(`[data-mei-ui-scope^="${CSS.escape(scope)}/"]`),
+            );
+          }
         }
       }
       if (selected.length > 1) {
@@ -6990,11 +7097,13 @@
 
     updateInspectBar(node, focus, focusEl);
     } finally {
+      const node = activeBuildNode();
       const prevUrl = String(global.__meiBuildNavPrevUrl || "").trim();
       const skipWake =
-        prevUrl &&
-        typeof global.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
-        global.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(prevUrl, global.location.href);
+        (node && node.startsWith("ui-scope:")) ||
+        (prevUrl &&
+          typeof global.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+          global.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(prevUrl, global.location.href));
       if (!skipWake) {
         schedulePreviewRuntimeWake();
       }
@@ -7025,6 +7134,11 @@
     }
     if (url.href === global.location.href) {
       applyHighlight(previewRoot() || document);
+      return;
+    }
+    const prevUrl = global.location.href;
+    if (typeof global.MeiBuildNavigation?.tryNavigateBuild === "function") {
+      void global.MeiBuildNavigation.tryNavigateBuild(prevUrl, url.href, { replaceHistory: false });
       return;
     }
     global.history.pushState({}, "", url.href);
@@ -7162,8 +7276,14 @@
   }
   function refresh(event) {
     if (!isBuildRoute()) return;
-    const eventScope = String(event?.detail?.scope || "").trim();
-    if (eventScope === "build-inspect") return;
+    const eventScope = String(event?.detail?.scope || event?.scope || "").trim();
+    if (eventScope === "build-inspect") {
+      const root = previewRoot();
+      if (!root) return;
+      syncShellFocus(readFocusFromUrl());
+      applyHighlight(root);
+      return;
+    }
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     const root = previewRoot();
     if (!root) return;

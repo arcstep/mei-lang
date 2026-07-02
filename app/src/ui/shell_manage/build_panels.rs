@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::{
     build_experience_path, build_overview_backing, experience_layout_hint, experience_mount_chain,
     format_experience_path, format_ui_scope_agent_context, format_ui_scope_technical_detail,
-    BuildNodeContext, BuildNodeKind, CompiledApp, ProvenanceAnchor, UiScopeRole,
+    BuildNodeContext, BuildNodeKind, CompiledApp, ProvenanceAnchor, UiScopeRole, UiSourceAnchor,
 };
 
 use super::super::view_routing::runtime_href;
@@ -235,8 +235,31 @@ pub(crate) fn build_overview_view(
     }
 }
 
-pub(crate) fn build_provenance_view(anchor: &ProvenanceAnchor) -> impl IntoView {
+pub(crate) fn build_provenance_view(
+    anchor: &ProvenanceAnchor,
+    ui_scope_sources: Option<&[UiSourceAnchor]>,
+) -> impl IntoView {
     let encoded = anchor.encode();
+    let extra_sources: Vec<String> = ui_scope_sources
+        .map(|anchors| {
+            anchors
+                .iter()
+                .filter_map(|item| {
+                    let file = item.file.trim();
+                    if file.is_empty() {
+                        None
+                    } else if item.symbol_id.trim().is_empty() {
+                        Some(file.to_string())
+                    } else {
+                        Some(format!("{}#{}", file, item.symbol_id.trim()))
+                    }
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .filter(|value| value != &encoded)
+                .collect()
+        })
+        .unwrap_or_default();
     view! {
         <section class="build-provenance build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4">
             <strong class="build-panel-title mei-text-primary">"溯源"</strong>
@@ -254,6 +277,16 @@ pub(crate) fn build_provenance_view(anchor: &ProvenanceAnchor) -> impl IntoView 
                     <dd>{anchor.symbol_kind.clone()}</dd>
                 </div>
             </dl>
+            {(!extra_sources.is_empty()).then(|| view! {
+                <div class="grid gap-2">
+                    <strong class="mei-text-primary mei-font-1">"关联源码（多文件）"</strong>
+                    <ul class="grid gap-1 pl-4 list-disc mei-font-1 mei-text-muted">
+                        {extra_sources.into_iter().map(|entry| view! {
+                            <li class="font-mono break-all">{entry}</li>
+                        }).collect_view()}
+                    </ul>
+                </div>
+            })}
             <button
                 type="button"
                 class="build-toolbar-btn build-copy-provenance"
@@ -261,7 +294,7 @@ pub(crate) fn build_provenance_view(anchor: &ProvenanceAnchor) -> impl IntoView 
             >
                 "复制 file#symbol"
             </button>
-            <p class="mei-text-muted">"在 Cursor / Codex 等 IDE 中打开上述文件并搜索符号 id。"</p>
+            <p class="mei-text-muted">"在 Cursor / Codex 等 IDE 中打开上述文件并搜索符号 id。行号范围将在编译器 span 贯通后补齐。"</p>
         </section>
     }
 }

@@ -19,6 +19,7 @@ assert.match(src, /workspace-fragment/, "tier1 fragment fetch");
 assert.match(src, /__meiBuildNavStats/, "nav stats");
 assert.match(src, /inferPreviewTabFromNodeId/, "node-aware preview tab inference");
 assert.match(src, /ui-scope:/, "ui-scope preview tab inference");
+assert.match(src, /isSameSceneStructureNav/, "same-scene structure tier0");
 assert.match(src, /readUiScopeMetaFromReachabilityTree/, "ui-scope tier0 DOM check");
 assert.match(src, /isPackCatalogNodeId/, "pack catalog runtime reset");
 assert.match(src, /ensurePreviewTabVisible\(url\)/, "preview tab before fragment swap");

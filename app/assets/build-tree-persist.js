@@ -259,12 +259,24 @@
     return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
   }
 
+  function treeLinkTab(rawUrl, linkEl) {
+    const nav = global.MeiBuildNavigation;
+    if (nav && typeof nav.treeLinkTab === "function") {
+      return nav.treeLinkTab(rawUrl, linkEl);
+    }
+    if (nav && typeof nav.inferPreviewTabFromNodeId === "function") {
+      const nodeId = String(linkEl?.getAttribute?.("data-build-node") || "").trim();
+      const inferred = nav.inferPreviewTabFromNodeId(nodeId);
+      if (inferred) return inferred;
+    }
+    return currentManageTab();
+  }
+
   function syncTreeLinkTabs(root) {
-    const tab = currentManageTab();
-    if (!tab) return;
     root.querySelectorAll("a.build-tree-link, a.build-tree-label--link").forEach((link) => {
       try {
         const url = new URL(link.href, global.location.href);
+        const tab = treeLinkTab(url.toString(), link);
         url.searchParams.set("tab", tab);
         link.href = url.toString();
       } catch (_) {}
@@ -282,7 +294,7 @@
         captureScroll(root);
         try {
           const url = new URL(link.href, global.location.href);
-          url.searchParams.set("tab", currentManageTab());
+          url.searchParams.set("tab", treeLinkTab(url.toString(), link));
           url.searchParams.delete("focus");
           link.href = url.toString();
         } catch (_) {}

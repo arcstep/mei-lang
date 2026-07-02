@@ -65,13 +65,78 @@
     const blockId = el?.getAttribute("data-mei-block-id") || "";
     const useKey = el?.getAttribute("data-mei-use-key") || "";
     const panelId = el?.getAttribute("data-mei-panel-id") || "";
+    const sourceMeta = readSourceMetaFromReachabilityTree(node);
     const bits = [];
     if (node) bits.push(`node=${node}`);
     if (focus) bits.push(`focus=${focus}`);
+    if (sourceMeta?.file) bits.push(`src=${sourceMeta.file}`);
+    if (sourceMeta?.symbol) bits.push(`sym=${sourceMeta.symbol}`);
     if (panelId) bits.push(`panel=${panelId}`);
     if (blockId) bits.push(`block=${blockId}`);
     if (useKey) bits.push(`use=${useKey}`);
     bar.textContent = bits.join(" · ");
+  }
+
+  function readSourceMetaFromReachabilityTree(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return null;
+    const script = document.getElementById("mei-build-reachability-tree");
+    if (!script) return null;
+    try {
+      const roots = JSON.parse(script.textContent || "[]");
+      if (!Array.isArray(roots)) return null;
+      const walk = (nodes) => {
+        for (const node of nodes || []) {
+          if (node?.node_id === id) {
+            const file = String(node.source_file || "").trim();
+            const symbol = String(node.source_symbol || "").trim();
+            if (file || symbol) return { file, symbol };
+            return null;
+          }
+          const nested = walk(node.children);
+          if (nested) return nested;
+        }
+        return null;
+      };
+      for (const root of roots) {
+        const found = walk(root.children);
+        if (found) return found;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function previewInspectHost(root) {
+    if (!(root instanceof HTMLElement)) return null;
+    return (
+      root.querySelector(".preview-pane-scroll") ||
+      root.querySelector(".preview-surface") ||
+      root
+    );
+  }
+
+  function syncInspectModeAttributes(root, meta) {
+    const host = previewInspectHost(root);
+    if (!(host instanceof HTMLElement)) return;
+    host.setAttribute("data-build-inspect-active", "true");
+    const role = String(meta?.ui_role || "").trim();
+    const scope = String(meta?.preview_scope || "").trim();
+    const tier = normalizePreviewTier(meta?.plane_tier || "");
+    if (role) host.setAttribute("data-build-inspect-role", role);
+    else host.removeAttribute("data-build-inspect-role");
+    if (scope) host.setAttribute("data-build-inspect-scope", scope);
+    else host.removeAttribute("data-build-inspect-scope");
+    if (role === "plane" && tier) host.setAttribute("data-build-inspect-tier", tier);
+    else host.removeAttribute("data-build-inspect-tier");
+  }
+
+  function clearInspectModeAttributes(root) {
+    const host = previewInspectHost(root);
+    if (!(host instanceof HTMLElement)) return;
+    host.removeAttribute("data-build-inspect-active");
+    host.removeAttribute("data-build-inspect-role");
+    host.removeAttribute("data-build-inspect-scope");
+    host.removeAttribute("data-build-inspect-tier");
   }
 
   function syncBuildPreviewScopedChrome(root) {

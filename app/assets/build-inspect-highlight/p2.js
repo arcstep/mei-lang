@@ -48,60 +48,13 @@
       syncBuildPreviewScopedChrome(root);
       return;
     }
-    let scopePath = "";
     if (node.startsWith("ui-scope:")) {
-      const meta = readUiScopeMetaFromNode(node);
-      const role = String(meta?.ui_role || "").trim();
-      if (role === "scene") {
-        syncBuildPreviewScopedChrome(root);
-        return;
-      }
-      if (role === "plane") {
-        const tier = normalizePreviewTier(meta?.plane_tier || "");
-        if (!tier) {
-          syncBuildPreviewScopedChrome(root);
-          return;
-        }
-        root.querySelectorAll("[data-mei-tier]").forEach((el) => {
-          const elTier = normalizePreviewTier(el.getAttribute("data-mei-tier"));
-          if (elTier && elTier !== tier) {
-            el.classList.add("build-preview-scoped-dim");
-          }
-        });
-        syncBuildPreviewScopedChrome(root);
-        return;
-      }
-      const target = root.querySelector(`[data-build-node="${CSS.escape(node)}"]`);
-      let scopePath = String(
-        target?.getAttribute("data-mei-ui-scope") ||
-          target?.getAttribute("data-preview-scope") ||
-          "",
-      ).trim();
-      if (!scopePath) {
-        scopePath = String(meta?.preview_scope || "").trim();
-      }
-      if (!scopePath) {
-        syncBuildPreviewScopedChrome(root);
-        return;
-      }
-      root.querySelectorAll("[data-mei-ui-scope], [data-preview-scope]").forEach((el) => {
-        const elScope = String(
-          el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
-        );
-        if (elScope === scopePath || elScope.startsWith(`${scopePath}/`)) {
-          return;
-        }
-        if (scopePath.startsWith(`${elScope}/`)) {
-          return;
-        }
-        el.classList.add("build-preview-scoped-dim");
-      });
       syncBuildPreviewScopedChrome(root);
       return;
     }
     const encoded = node.replace(/^scene-panel:/, "").replace(/^scene-block:/, "");
     const slash = encoded.indexOf("/");
-    scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
+    const scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
     if (!scopePath) return;
     const focusedScopeSelector = `[data-preview-scope="${CSS.escape(scopePath)}"], [data-preview-scope^="${CSS.escape(scopePath)}/"]`;
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {
@@ -158,7 +111,12 @@
     const node = activeBuildNode();
     const focus = activeBuildFocus();
     clearHighlights(root);
-    applyScopedPreview(root);
+    if (node && node.startsWith("ui-scope:")) {
+      clearInspectModeAttributes(root);
+    }
+    if (!node || !node.startsWith("ui-scope:")) {
+      applyScopedPreview(root);
+    }
 
     let focusEl = null;
     if (focus && focus.startsWith("scene-block:")) {
@@ -168,17 +126,32 @@
       focusEl = focusMatches[0] || null;
     }
 
-    if (node && node.startsWith("ui-scope:")) {
+    if (node.startsWith("ui-scope:")) {
       const meta = readUiScopeMetaFromNode(node);
+      syncInspectModeAttributes(root, meta);
       const role = String(meta?.ui_role || "").trim();
       let selected = [];
-      if (role !== "scene" && role !== "plane") {
+      if (role === "plane" && meta?.plane_tier) {
+        const tier = normalizePreviewTier(meta.plane_tier);
+        selected = Array.from(root.querySelectorAll("[data-mei-tier]")).filter(
+          (el) => normalizePreviewTier(el.getAttribute("data-mei-tier")) === tier,
+        );
+      } else if (role !== "scene") {
         const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
         selected = Array.from(matches);
         if (selected.length === 0 && meta?.preview_scope) {
-          selected = Array.from(
-            root.querySelectorAll(`[data-mei-ui-scope="${CSS.escape(meta.preview_scope)}"]`),
-          );
+          const scope = meta.preview_scope;
+          const exactScope = root.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
+          const exactPanel = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+          if (exactScope) {
+            selected = [exactScope];
+          } else if (exactPanel) {
+            selected = [exactPanel];
+          } else {
+            selected = Array.from(
+              root.querySelectorAll(`[data-mei-ui-scope^="${CSS.escape(scope)}/"]`),
+            );
+          }
         }
       }
       if (selected.length > 1) {
@@ -255,11 +228,13 @@
 
     updateInspectBar(node, focus, focusEl);
     } finally {
+      const node = activeBuildNode();
       const prevUrl = String(global.__meiBuildNavPrevUrl || "").trim();
       const skipWake =
-        prevUrl &&
-        typeof global.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
-        global.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(prevUrl, global.location.href);
+        (node && node.startsWith("ui-scope:")) ||
+        (prevUrl &&
+          typeof global.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+          global.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(prevUrl, global.location.href));
       if (!skipWake) {
         schedulePreviewRuntimeWake();
       }
@@ -290,6 +265,11 @@
     }
     if (url.href === global.location.href) {
       applyHighlight(previewRoot() || document);
+      return;
+    }
+    const prevUrl = global.location.href;
+    if (typeof global.MeiBuildNavigation?.tryNavigateBuild === "function") {
+      void global.MeiBuildNavigation.tryNavigateBuild(prevUrl, url.href, { replaceHistory: false });
       return;
     }
     global.history.pushState({}, "", url.href);
@@ -427,8 +407,14 @@
   }
   function refresh(event) {
     if (!isBuildRoute()) return;
-    const eventScope = String(event?.detail?.scope || "").trim();
-    if (eventScope === "build-inspect") return;
+    const eventScope = String(event?.detail?.scope || event?.scope || "").trim();
+    if (eventScope === "build-inspect") {
+      const root = previewRoot();
+      if (!root) return;
+      syncShellFocus(readFocusFromUrl());
+      applyHighlight(root);
+      return;
+    }
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     const root = previewRoot();
     if (!root) return;

@@ -5684,6 +5684,28 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--mei-shell-color-status-warn) 24%, transparent);
 }
 
+/* Build 结构树轻量 inspect：全场景预埋 DOM，仅 CSS 切换层级可见性与描边（tier 与 DOM 均为小写 t0/t1/t2/p） */
+.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t1"] [data-mei-tier="t2"],
+.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t1"] [data-mei-tier="p"],
+.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t0"] [data-mei-tier="t1"],
+.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t0"] [data-mei-tier="t2"],
+.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-tier="t0"] [data-mei-tier="p"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-scope] [data-mei-ui-scope],
+.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-scope] [data-preview-scope] {
+  outline: 1px dashed color-mix(in srgb, var(--mei-shell-color-focus-border) 35%, transparent);
+  outline-offset: 1px;
+}
+
+.preview-pane-scroll[data-build-inspect-active="true"][data-build-inspect-scope] .build-inspect-selected {
+  outline: 2px solid var(--mei-shell-color-focus-border);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--mei-shell-color-focus-ring);
+}
+
 .build-preview-scoped-dim {
   opacity: 0.22;
   pointer-events: none;

@@ -67,7 +67,7 @@
       } catch (_) {}
     }
     if (typeof global.MeiBuildInspectHighlight?.refresh === "function") {
-      global.MeiBuildInspectHighlight.refresh();
+      global.MeiBuildInspectHighlight.refresh({ scope: "build-inspect" });
     }
     if (typeof global.MeiBuildTreePersist?.refresh === "function") {
       global.MeiBuildTreePersist.refresh();
@@ -79,6 +79,9 @@
     const nextNode = nodeIdFromUrl(global.location.href);
     if (boardExportChanged(prevNode, nextNode)) {
       wakePreviewRuntime("build-nav-board-export");
+      return;
+    }
+    if (/^(?:ui-scope|scene-panel|scene-block):/i.test(nextNode)) {
       return;
     }
     if (isPackCatalogNodeId(nextNode) && nodeIdChanged(prevUrl, nextNode)) {
@@ -293,6 +296,8 @@
   global.MeiBuildNavigation = {
     buildTab,
     inferPreviewTabFromNodeId,
+    treeLinkTab,
+    isSameSceneStructureNav,
     readCompileCoordinate,
     coordinatesEqual,
     classifyBuildNavTier,

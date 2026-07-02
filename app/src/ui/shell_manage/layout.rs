@@ -187,8 +187,16 @@ pub(crate) fn manage_shell(
         .filter(|value| !value.is_empty())
         .unwrap_or("");
     let tab_slug = active_tab_enum.slug().to_string();
+    let ui_scope_provenance_sources = if resolved.node.kind == BuildNodeKind::UiScope {
+        compiled
+            .ui_layout_index
+            .lookup(&resolved.node)
+            .map(|entry| entry.source_anchors.as_slice())
+    } else {
+        None
+    };
     let overview_panel = build_overview_view(compiled, &ctx, app_path);
-    let provenance_panel = build_provenance_view(&ctx.provenance);
+    let provenance_panel = build_provenance_view(&ctx.provenance, ui_scope_provenance_sources);
     let agent_panel = build_agent_view(app_path, node_encoded.as_str(), tab_slug.as_str());
     let exec_panel = build_exec_panel_shell(app_path, node_encoded.as_str());
     let semantic_panel = build_graph_panel("语义图", "semantic", node_encoded.as_str());
