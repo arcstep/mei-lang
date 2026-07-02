@@ -13,6 +13,7 @@ use crate::api_stubs::{
     api_agent_config_stub, api_agent_context_preview_stub, api_agent_runtime_stub,
     api_agent_sessions_stub, api_agent_skill_stub,
 };
+use crate::build_api::{api_build_context_export, api_build_workspace_fragment};
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
 use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
@@ -48,6 +49,14 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/ops/reload", post(api_host_ops_reload))
         .route("/api/host/ops/prebuild", post(api_host_ops_prebuild))
         .route("/api/runtime/snapshot", get(api_runtime_snapshot))
+        .route(
+            "/api/build/context/export",
+            get(api_build_context_export),
+        )
+        .route(
+            "/api/build/workspace-fragment",
+            get(api_build_workspace_fragment),
+        )
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
         .route("/api/host/scene-revision", get(api_scene_revision))
@@ -322,6 +331,7 @@ mod tests {
             startup_phase: "ready".to_string(),
             startup_detail: None,
             startup_error: None,
+            app_materialization: std::collections::BTreeMap::new(),
         }));
         HostHttpState {
             shell,
@@ -524,5 +534,58 @@ mod tests {
         let apps = value["discoveredApps"].as_array().expect("discoveredApps");
         assert_eq!(apps.len(), 2);
         assert!(apps.iter().any(|app| app["appId"] == "mini-park"));
+    }
+
+    #[tokio::test]
+    async fn build_context_export_route_is_registered() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"id":"test","version":"20260628"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/build/context/export?app_id=pretty-panels&node=&tab=overview")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let text = String::from_utf8_lossy(&body);
+        assert!(
+            text.contains("Mei Build Context"),
+            "expected handler markdown error body, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn build_workspace_fragment_route_is_registered() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"id":"test","version":"20260628"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/build/workspace-fragment?app_id=pretty-panels&node=&tab=preview")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

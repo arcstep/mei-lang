@@ -31,6 +31,9 @@ pub struct AppQuery {
     pub tab: Option<String>,
     pub scene: Option<String>,
     pub node: Option<String>,
+    pub file: Option<String>,
+    pub scope: Option<String>,
+    pub focus: Option<String>,
 }
 
 pub async fn app_page(
@@ -235,7 +238,10 @@ pub async fn app_page(
             scene_id.as_str(),
         );
         let outcome = match assemble_result {
-            Ok(Some(outcome)) => outcome,
+            Ok(Some(mut outcome)) => {
+                outcome.compiled = crate::build_api::enrich_compiled(outcome.compiled);
+                outcome
+            }
             Ok(None) => {
                 tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
                 return (
@@ -261,6 +267,12 @@ pub async fn app_page(
             }
         };
         let workspace = load_workspace_config(workspace_root);
+        let target_file = query
+            .file
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(outcome.compiled.active_target_file.as_str());
         let theme_style = page_body_theme_style(&workspace, Some(&outcome.compiled), None);
         let runtime_snapshot_json_owned;
         let runtime_roots_owned;
@@ -294,7 +306,7 @@ pub async fn app_page(
                             app_id.as_str(),
                             Some(&topbar_menu),
                             route_mode,
-                            Some(outcome.compiled.active_target_file.as_str()),
+                            Some(target_file),
                             None,
                             None,
                             Some(scene_id.as_str()),
@@ -303,10 +315,10 @@ pub async fn app_page(
                             None,
                             None,
                             None,
+                            None,
                             query.node.as_deref(),
-                            None,
-                            None,
-                            None,
+                            query.scope.as_deref(),
+                            query.focus.as_deref(),
                             None,
                             None,
                             false,

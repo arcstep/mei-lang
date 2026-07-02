@@ -1,5 +1,6 @@
 mod api_stubs;
 mod assets;
+mod build_api;
 mod build_info;
 mod access_page_cache;
 mod scene_bundle;
