@@ -31,6 +31,7 @@
   "spa-navigation/drilldown/render-frame-board.js",
   "spa-navigation/drilldown/overlay-chrome.js",
   "spa-navigation/presentation/viewport-stage-host.js",
+  "spa-navigation/presentation/world-stage-runtime.js",
   "spa-navigation/presentation/layer2-workspace.js",
   "spa-navigation/drilldown/storage.js",
   "spa-navigation/drilldown/projection-host.js",

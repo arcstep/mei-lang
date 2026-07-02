@@ -51,6 +51,7 @@
       type: String(action?.type || action?.kind || "").trim(),
       viewpointId: String(action?.viewpoint || action?.viewpointId || "").trim(),
       viewFamily: String(action?.viewFamily || action?.view_family || entry?.viewFamily || "").trim(),
+      stageKind: String(action?.stageKind || action?.stage_kind || entry?.stageKind || "").trim(),
       worldRef: String(action?.worldRef || action?.world_ref || entry?.worldRef || "").trim(),
       entityId: String(action?.entityId || action?.entity_id || entry?.entityId || "").trim(),
       groupId: String(action?.groupId || action?.group_id || entry?.groupId || "").trim(),
@@ -61,11 +62,12 @@
     return worldTarget;
   }
 
-  function dispatchWorldTargetStub(action, entry) {
+  function dispatchWorldTargetAction(action, entry) {
     const worldTarget = resolveWorldTarget(action, entry);
     if (
       !worldTarget.viewpointId &&
       !worldTarget.viewFamily &&
+      !worldTarget.stageKind &&
       !worldTarget.worldRef &&
       !worldTarget.entityId &&
       !worldTarget.groupId &&
@@ -81,7 +83,7 @@
       }),
     );
     if (typeof console !== "undefined" && typeof console.info === "function") {
-      console.info("[mei] presentation world action stub", worldTarget);
+      console.info("[mei] presentation world action", worldTarget);
     }
     return true;
   }
@@ -142,11 +144,16 @@
       case "hidePlane":
         return setPlaneVisibility(action.plane || action.tier || action.planeId, false);
       case "highlight":
-      case "focus":
-        return focusViewpoint(String(action.viewpoint || action.viewpointId || "").trim());
+      case "focus": {
+        const viewpointId = String(action.viewpoint || action.viewpointId || "").trim();
+        const entry = readViewpointEntry(viewpointId);
+        const focused = focusViewpoint(viewpointId);
+        const dispatched = dispatchWorldTargetAction(action, entry);
+        return focused || dispatched;
+      }
       case "camera_move":
       case "cameraMove":
-        return dispatchWorldTargetStub(
+        return dispatchWorldTargetAction(
           action,
           readViewpointEntry(action.viewpoint || action.viewpointId),
         );
@@ -157,13 +164,13 @@
         if (viewpointId) {
           focusViewpoint(viewpointId);
         }
-        return dispatchWorldTargetStub(action, entry);
+        return dispatchWorldTargetAction(action, entry);
       }
       case "show_group":
       case "showGroup":
       case "hide_group":
       case "hideGroup":
-        return dispatchWorldTargetStub(
+        return dispatchWorldTargetAction(
           action,
           readViewpointEntry(action.viewpoint || action.viewpointId),
         );

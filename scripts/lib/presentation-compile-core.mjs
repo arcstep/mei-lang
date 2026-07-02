@@ -314,6 +314,26 @@ export function parseActionDirective(directive) {
     if (!viewpoint) throw new Error("@highlight requires a viewpoint id");
     return { type: "highlight", viewpoint };
   }
+  if (name === "cameraMove") {
+    const viewpoint = String(directive.args[0] || "").trim();
+    if (!viewpoint) throw new Error("@cameraMove requires a viewpoint id");
+    return { type: "camera_move", viewpoint };
+  }
+  if (name === "focusEntity") {
+    const viewpoint = String(directive.args[0] || "").trim();
+    if (!viewpoint) throw new Error("@focusEntity requires a viewpoint id");
+    return { type: "focus_entity", viewpoint };
+  }
+  if (name === "showGroup") {
+    const viewpoint = String(directive.args[0] || "").trim();
+    if (!viewpoint) throw new Error("@showGroup requires a viewpoint id");
+    return { type: "show_group", viewpoint };
+  }
+  if (name === "hideGroup") {
+    const viewpoint = String(directive.args[0] || "").trim();
+    if (!viewpoint) throw new Error("@hideGroup requires a viewpoint id");
+    return { type: "hide_group", viewpoint };
+  }
   if (name === "openT2Page" || name === "openBoard") {
     const pageSceneId = String(directive.args[0] || "").trim();
     if (!pageSceneId) throw new Error(`@${name} requires a page scene id`);

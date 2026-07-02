@@ -19,6 +19,12 @@ class MeiCockpitBasemapStage extends HTMLElement {
     this._panY = 0;
     this._drag = null;
     this._wheelBound = null;
+    this._svgViewBox = { width: 800, height: 600 };
+    this._activeShapeIds = new Set();
+    this._activeHotspotIds = new Set();
+    this._hiddenGroups = new Set();
+    this._activeGroupId = "";
+    this._lastWorldTarget = null;
   }
 
   connectedCallback() {
@@ -124,7 +130,179 @@ class MeiCockpitBasemapStage extends HTMLElement {
     if (!status) {
       return;
     }
-    status.textContent = `缩放 ${Math.round(this._zoom * 100)}% · 拖拽平移`;
+    const activeGroup = this._activeGroupId ? ` · 分组 ${this._activeGroupId}` : "";
+    status.textContent = `缩放 ${Math.round(this._zoom * 100)}% · 拖拽平移${activeGroup}`;
+  }
+
+  worldTargetsConfig() {
+    const props = this.props || {};
+    return props.worldTargets || props.world_targets || {};
+  }
+
+  readAnchor(anchorLike) {
+    if (!anchorLike) return null;
+    const config = this.worldTargetsConfig();
+    if (typeof anchorLike === "string") {
+      return this.readAnchor(config.anchors?.[anchorLike] || config.anchorMap?.[anchorLike]);
+    }
+    const x = Number(anchorLike.x);
+    const y = Number(anchorLike.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
+  }
+
+  resolveCameraPreset(cameraPreset) {
+    const config = this.worldTargetsConfig();
+    if (!cameraPreset) return null;
+    return config.cameraPresets?.[cameraPreset] || config.camera_presets?.[cameraPreset] || null;
+  }
+
+  resolveEntityTarget(entityId) {
+    const config = this.worldTargetsConfig();
+    if (!entityId) return null;
+    return config.entities?.[entityId] || null;
+  }
+
+  resolveGroupTarget(groupId) {
+    const config = this.worldTargetsConfig();
+    if (!groupId) return null;
+    return config.groups?.[groupId] || null;
+  }
+
+  normalizeIdList(values) {
+    return (Array.isArray(values) ? values : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+  }
+
+  focusAnchor(anchorLike, zoom) {
+    const anchor = this.readAnchor(anchorLike);
+    if (!anchor) return false;
+    const viewport = this.shadowRoot?.querySelector(".viewport");
+    if (!(viewport instanceof HTMLElement)) return false;
+    const nextZoom = Number.isFinite(Number(zoom)) ? clamp(Number(zoom), 0.35, 4) : this._zoom;
+    const width = viewport.clientWidth || 1;
+    const height = viewport.clientHeight || 1;
+    const box = this._svgViewBox || { width: 800, height: 600 };
+    const baseX = (anchor.x / Math.max(1, box.width)) * width;
+    const baseY = (anchor.y / Math.max(1, box.height)) * height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    this._zoom = nextZoom;
+    this._panX = (centerX - baseX) * nextZoom;
+    this._panY = (centerY - baseY) * nextZoom;
+    this.applyTransform();
+    this.updateStatus();
+    return true;
+  }
+
+  setGroupVisible(groupId, visible) {
+    const normalized = String(groupId || "").trim();
+    if (!normalized) return false;
+    if (visible) {
+      this._hiddenGroups.delete(normalized);
+    } else {
+      this._hiddenGroups.add(normalized);
+    }
+    this.refreshWorldState();
+    return true;
+  }
+
+  refreshWorldState() {
+    const layer = this.shadowRoot?.querySelector(".content-layer");
+    if (!layer) {
+      return;
+    }
+    layer.querySelectorAll("[data-shape-id]").forEach((node) => {
+      const shapeId = String(node.getAttribute("data-shape-id") || "").trim();
+      const hidden = this.isShapeHidden(shapeId);
+      node.classList.toggle("world-shape-active", this._activeShapeIds.has(shapeId));
+      node.classList.toggle("world-shape-hidden", hidden);
+    });
+    layer.querySelectorAll("[data-hotspot-id]").forEach((node) => {
+      const hotspotId = String(node.getAttribute("data-hotspot-id") || "").trim();
+      const hidden = this.isHotspotHidden(hotspotId);
+      node.classList.toggle("hotspot-active", this._activeHotspotIds.has(hotspotId));
+      node.classList.toggle("hotspot-hidden", hidden);
+    });
+  }
+
+  isShapeHidden(shapeId) {
+    if (!shapeId) return false;
+    for (const hiddenGroupId of this._hiddenGroups) {
+      const group = this.resolveGroupTarget(hiddenGroupId);
+      if (this.normalizeIdList(group?.shapeIds).includes(shapeId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  isHotspotHidden(hotspotId) {
+    if (!hotspotId) return false;
+    for (const hiddenGroupId of this._hiddenGroups) {
+      const group = this.resolveGroupTarget(hiddenGroupId);
+      if (this.normalizeIdList(group?.hotspotIds).includes(hotspotId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  applyWorldTarget(target) {
+    if (!target || typeof target !== "object") {
+      return false;
+    }
+    this._lastWorldTarget = target;
+    const group = this.resolveGroupTarget(target.groupId);
+    const entity = this.resolveEntityTarget(target.entityId);
+    const presetFromEntity = entity?.cameraPreset || entity?.camera_preset || "";
+    const preset =
+      this.resolveCameraPreset(target.cameraPreset || presetFromEntity) || null;
+    const resolved = {
+      ...(group && typeof group === "object" ? group : {}),
+      ...(entity && typeof entity === "object" ? entity : {}),
+      ...(preset && typeof preset === "object" ? preset : {}),
+      type: String(target.type || "").trim(),
+      groupId:
+        String(target.groupId || preset?.groupId || entity?.groupId || group?.id || "").trim(),
+      entityId: String(target.entityId || entity?.id || "").trim(),
+      cameraPreset:
+        String(target.cameraPreset || preset?.id || presetFromEntity || "").trim(),
+    };
+    const shapeIds = this.normalizeIdList(
+      resolved.shapeIds || resolved.shape_ids || entity?.shapeIds || group?.shapeIds,
+    );
+    const hotspotIds = this.normalizeIdList(
+      resolved.hotspotIds || resolved.hotspot_ids || entity?.hotspotIds || group?.hotspotIds,
+    );
+    this._activeShapeIds = new Set(shapeIds);
+    this._activeHotspotIds = new Set(hotspotIds);
+    this._activeGroupId = resolved.groupId;
+    if (resolved.type === "show_group" || resolved.type === "showGroup") {
+      this.setGroupVisible(resolved.groupId, true);
+      return true;
+    }
+    if (resolved.type === "hide_group" || resolved.type === "hideGroup") {
+      this.setGroupVisible(resolved.groupId, false);
+      return true;
+    }
+    if (resolved.groupId) {
+      this._hiddenGroups.delete(resolved.groupId);
+    }
+    const didFocus = this.focusAnchor(
+      resolved.anchor || resolved.anchorId || resolved.anchor_id,
+      resolved.zoom,
+    );
+    if (!didFocus && Number.isFinite(Number(resolved.zoom))) {
+      this._zoom = clamp(Number(resolved.zoom), 0.35, 4);
+      this.applyTransform();
+      this.updateStatus();
+    }
+    this.refreshWorldState();
+    return true;
   }
 
   async loadContent() {
@@ -156,12 +334,27 @@ class MeiCockpitBasemapStage extends HTMLElement {
         svg.setAttribute("width", "100%");
         svg.setAttribute("height", "100%");
         svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+        const viewBox = String(svg.getAttribute("viewBox") || "").trim().split(/\s+/);
+        if (viewBox.length === 4) {
+          const width = Number(viewBox[2]);
+          const height = Number(viewBox[3]);
+          if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+            this._svgViewBox = { width, height };
+          }
+        }
+        svg.querySelectorAll("[id]").forEach((node) => {
+          node.setAttribute("data-shape-id", String(node.getAttribute("id") || "").trim());
+        });
       }
       this.renderHotspots(layer);
+      this.refreshWorldState();
     } catch (error) {
       layer.innerHTML = `<div class="placeholder">无法加载底图：${escapeHtml(String(error))}</div>`;
     }
     this.resetView();
+    if (this._lastWorldTarget) {
+      this.applyWorldTarget(this._lastWorldTarget);
+    }
   }
 
   renderHotspots(layer) {
@@ -181,6 +374,7 @@ class MeiCockpitBasemapStage extends HTMLElement {
       const label = String(spot.label || spot.id || "").trim();
       const pin = document.createElement("div");
       pin.className = "hotspot";
+      pin.setAttribute("data-hotspot-id", String(spot.id || "").trim());
       pin.style.left = `${x}%`;
       pin.style.top = `${y}%`;
       pin.textContent = label;
@@ -261,6 +455,26 @@ class MeiCockpitBasemapStage extends HTMLElement {
           font: 600 14px/28px system-ui, sans-serif;
           text-align: center;
           box-shadow: 0 0 12px rgba(56, 160, 240, 0.55);
+          transition: transform 160ms ease, opacity 160ms ease, box-shadow 160ms ease;
+        }
+        .hotspot-active {
+          transform: translate(-50%, -50%) scale(1.12);
+          box-shadow: 0 0 18px rgba(125, 211, 252, 0.85);
+          background: rgba(14, 165, 233, 1);
+        }
+        .hotspot-hidden {
+          opacity: 0.18;
+        }
+        .svg-wrap [data-shape-id] {
+          transition: opacity 160ms ease, filter 160ms ease, stroke-width 160ms ease;
+          transform-box: fill-box;
+          transform-origin: center;
+        }
+        .svg-wrap .world-shape-active {
+          filter: drop-shadow(0 0 10px rgba(125, 211, 252, 0.6));
+        }
+        .svg-wrap .world-shape-hidden {
+          opacity: 0.18;
         }
         .toolbar {
           position: absolute;

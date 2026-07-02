@@ -407,7 +407,18 @@
       const type = String(action?.type || "").trim();
       if (
         action &&
-        ["highlight", "focus", "focus_entity", "focusEntity", "camera_move", "cameraMove"].includes(type) &&
+        [
+          "highlight",
+          "focus",
+          "focus_entity",
+          "focusEntity",
+          "camera_move",
+          "cameraMove",
+          "show_group",
+          "showGroup",
+          "hide_group",
+          "hideGroup",
+        ].includes(type) &&
         action.viewpoint
       ) {
         return String(action.viewpoint).trim();

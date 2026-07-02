@@ -919,6 +919,10 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
         Some("map")
     );
     assert_eq!(
+        overview.get("stageKind").and_then(|v| v.as_str()),
+        Some("map-stage")
+    );
+    assert_eq!(
         overview.get("worldRef").and_then(|v| v.as_str()),
         Some("park_world")
     );
@@ -934,6 +938,7 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
         .get("park_point_1_entry")
         .expect("park_point_1_entry viewpoint");
     assert_eq!(point_one.get("viewFamily").and_then(|v| v.as_str()), Some("map"));
+    assert_eq!(point_one.get("stageKind").and_then(|v| v.as_str()), Some("map-stage"));
     assert_eq!(point_one.get("worldRef").and_then(|v| v.as_str()), Some("park_world"));
     assert_eq!(
         point_one.get("entityId").and_then(|v| v.as_str()),
@@ -1007,6 +1012,50 @@ fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
     assert!(
         html.contains("data-mei-world-ref=\"park_world\""),
         "mini-park HTML should expose world ref on focus target"
+    );
+    assert!(
+        html.contains("data-mei-group-id=\"park_story_overview\""),
+        "mini-park HTML should expose group id on panel or focus target"
+    );
+    assert!(
+        html.contains("data-mei-camera-preset=\"park_overview_orbit\""),
+        "mini-park HTML should expose camera preset on panel or focus target"
+    );
+}
+
+#[test]
+fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
+    let presentation = ws_demo_v2_root()
+        .join("apps/mini-park/src/presentation/intro.presentation.json");
+    if !presentation.is_file() {
+        return;
+    }
+    let manifest = std::fs::read_to_string(&presentation).expect("read intro.presentation.json");
+    let parsed: serde_json::Value = serde_json::from_str(&manifest).expect("parse presentation");
+    let steps = parsed
+        .get("steps")
+        .and_then(|value| value.as_array())
+        .expect("presentation steps");
+    let all_actions = steps
+        .iter()
+        .flat_map(|step| {
+            step.get("actions")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        all_actions.iter().any(|action| action.get("type").and_then(|v| v.as_str()) == Some("camera_move")),
+        "mini-park presentation should emit camera_move action"
+    );
+    assert!(
+        all_actions.iter().any(|action| action.get("type").and_then(|v| v.as_str()) == Some("focus_entity")),
+        "mini-park presentation should emit focus_entity action"
+    );
+    assert!(
+        all_actions.iter().any(|action| action.get("type").and_then(|v| v.as_str()) == Some("show_group")),
+        "mini-park presentation should emit show_group action"
     );
 }
 

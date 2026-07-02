@@ -83,6 +83,18 @@ pub(crate) fn panel_view(
         .get("__mei_world_ref")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let panel_entity_id = card_props
+        .get("entityId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let panel_group_id = card_props
+        .get("groupId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let panel_camera_preset = card_props
+        .get("cameraPreset")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let has_head = panel_show_heading(&card_props);
     let heading = panel_heading_config(&theme.panel_head, &head_props, &card_props);
     let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
@@ -234,6 +246,9 @@ pub(crate) fn panel_view(
             data-mei-view-family=panel_view_family
             data-mei-stage-kind=panel_stage_kind
             data-mei-world-ref=panel_world_ref
+            data-mei-entity-id=panel_entity_id
+            data-mei-group-id=panel_group_id
+            data-mei-camera-preset=panel_camera_preset
             data-build-node=build_node_id.clone().unwrap_or_default()
             data-preview-scope=panel_path.clone()
             data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
@@ -294,6 +309,9 @@ pub(crate) fn panel_view(
                     data-mei-view-family=panel_view_family
                     data-mei-stage-kind=panel_stage_kind
                     data-mei-world-ref=panel_world_ref
+                    data-mei-entity-id=panel_entity_id
+                    data-mei-group-id=panel_group_id
+                    data-mei-camera-preset=panel_camera_preset
                     data-build-node=build_node_id.clone().unwrap_or_default()
                     data-preview-scope=panel_path.clone()
                     data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()

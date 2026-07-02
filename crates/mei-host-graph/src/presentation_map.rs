@@ -21,6 +21,12 @@ pub struct ViewpointMapEntry {
         rename = "viewFamily"
     )]
     pub view_family: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "stageKind"
+    )]
+    pub stage_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "worldRef")]
     pub world_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "entityId")]
@@ -55,6 +61,7 @@ fn panel_tier(panel: &PanelDecl) -> String {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ViewpointHints {
     view_family: Option<String>,
+    stage_kind: Option<String>,
     world_ref: Option<String>,
     entity_id: Option<String>,
     group_id: Option<String>,
@@ -68,6 +75,7 @@ impl ViewpointHints {
         };
         let mut hints = Self {
             view_family: read_string(obj, &["__mei_view_family", "viewFamily", "view_family"]),
+            stage_kind: read_string(obj, &["__mei_stage_kind", "stageKind", "stage_kind"]),
             world_ref: read_string(obj, &["__mei_world_ref", "worldRef", "world_ref"]),
             entity_id: read_string(obj, &["entityId", "entity_id"]),
             group_id: read_string(obj, &["groupId", "group_id"]),
@@ -102,6 +110,9 @@ impl ViewpointHints {
     fn with_fallbacks(mut self, fallback: &Self) -> Self {
         if self.view_family.is_none() {
             self.view_family = fallback.view_family.clone();
+        }
+        if self.stage_kind.is_none() {
+            self.stage_kind = fallback.stage_kind.clone();
         }
         if self.world_ref.is_none() {
             self.world_ref = fallback.world_ref.clone();
@@ -144,6 +155,7 @@ fn entry_from_hints(
         block_path,
         label,
         view_family: hints.view_family,
+        stage_kind: hints.stage_kind,
         world_ref: hints.world_ref,
         entity_id: hints.entity_id,
         group_id: hints.group_id,
@@ -161,6 +173,7 @@ fn merge_viewpoint_entry(existing: Option<ViewpointMapEntry>, candidate: Viewpoi
         block_path: candidate.block_path.or(existing.block_path),
         label: candidate.label.or(existing.label),
         view_family: candidate.view_family.or(existing.view_family),
+        stage_kind: candidate.stage_kind.or(existing.stage_kind),
         world_ref: candidate.world_ref.or(existing.world_ref),
         entity_id: candidate.entity_id.or(existing.entity_id),
         group_id: candidate.group_id.or(existing.group_id),

@@ -575,6 +575,17 @@ fn object_string(obj: &Map<String, Value>, keys: &[&str]) -> Option<String> {
         .map(str::to_string)
 }
 
+fn value_string_hint(value: &Value, keys: &[&str]) -> Option<String> {
+    let Some(obj) = value.as_object() else {
+        return None;
+    };
+    object_string(obj, keys).or_else(|| {
+        obj.get("__args")
+            .and_then(Value::as_object)
+            .and_then(|args| object_string(args, keys))
+    })
+}
+
 fn view_family_hints_from_value(value: &Value) -> ViewFamilyHints {
     let Some(obj) = value.as_object() else {
         return ViewFamilyHints::default();
@@ -717,6 +728,25 @@ fn apply_view_family_hints(payload: &Value, blocks: &[UiNodeDecl], props: &mut V
     }
     if let Some(stage_kind) = hints.stage_kind {
         map.insert("__mei_stage_kind".to_string(), json!(stage_kind));
+    }
+    for (target_key, source_keys) in [
+        ("entityId", ["entityId", "entity_id"]),
+        ("groupId", ["groupId", "group_id"]),
+        ("cameraPreset", ["cameraPreset", "camera_preset"]),
+    ] {
+        if map.contains_key(target_key) {
+            continue;
+        }
+        for source in [
+            payload.get("content").unwrap_or(&Value::Null),
+            payload.get("view").unwrap_or(&Value::Null),
+            payload,
+        ] {
+            if let Some(value) = value_string_hint(source, &source_keys) {
+                map.insert(target_key.to_string(), json!(value));
+                break;
+            }
+        }
     }
 }
 

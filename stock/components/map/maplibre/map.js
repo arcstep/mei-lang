@@ -46,12 +46,25 @@ import { ensureMapLibreGlobal } from "../../vendor/runtime-libs.js";
 
 const TAG = "mei-map-maplibre";
 const MAPLIBRE_LOCAL_CSS = "/workspace-components/vendor/maplibre/maplibre-gl.css";
+const MAP_RUNTIME_INSTANCES = new Set();
 
 const LAYER_TOGGLE_ICON_HTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
   <path d="M12 4 4 8l8 4 8-4-8-4Z"></path>
   <path d="m4 12 8 4 8-4"></path>
   <path d="m4 16 8 4 8-4"></path>
 </svg>`;
+
+function installMapRuntimeHooks() {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  boot.syncCockpitMapToolsOverlays = () => {
+    MAP_RUNTIME_INSTANCES.forEach((instance) => {
+      if (typeof instance.scheduleLayerControlLayout === "function") {
+        instance.scheduleLayerControlLayout();
+      }
+    });
+  };
+  boot.worldMapInstances = MAP_RUNTIME_INSTANCES;
+}
 
 function basemapTileJsonUrl(basemap) {
   const base = String(basemap?.tilesUrl || "").trim().replace(/\/+$/, "");
@@ -118,6 +131,8 @@ function formatPopupFieldValue(raw, meta) {
 if (!customElements.get(TAG)) {
   class MeiMapMaplibreElement extends HTMLElement {
     connectedCallback() {
+      MAP_RUNTIME_INSTANCES.add(this);
+      installMapRuntimeHooks();
       this._cleanupDefer = deferUntilDisplayed(this, () => {
         this._cleanupDefer = null;
         this.bootstrap();
@@ -125,6 +140,7 @@ if (!customElements.get(TAG)) {
     }
 
     disconnectedCallback() {
+      MAP_RUNTIME_INSTANCES.delete(this);
       if (typeof this._cleanupDefer === "function") {
         this._cleanupDefer();
       }
@@ -234,6 +250,102 @@ if (!customElements.get(TAG)) {
       const base = parseProps(this);
       if (!this._runtimeLayerProps) return base;
       return { ...base, ...this._runtimeLayerProps };
+    }
+
+    worldTargetsConfig() {
+      const props = this.effectiveProps();
+      return props.worldTargets || props.world_targets || {};
+    }
+
+    resolveWorldTargetEntity(entityId) {
+      const config = this.worldTargetsConfig();
+      if (!entityId) return null;
+      return config.entities?.[entityId] || null;
+    }
+
+    resolveWorldTargetGroup(groupId) {
+      const config = this.worldTargetsConfig();
+      if (!groupId) return null;
+      return config.groups?.[groupId] || null;
+    }
+
+    resolveWorldTargetPreset(cameraPreset) {
+      const config = this.worldTargetsConfig();
+      if (!cameraPreset) return null;
+      return config.cameraPresets?.[cameraPreset] || config.camera_presets?.[cameraPreset] || null;
+    }
+
+    normalizeLayerIds(values) {
+      return (Array.isArray(values) ? values : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+    }
+
+    setLogicalLayersVisible(layerIds, visible) {
+      this.normalizeLayerIds(layerIds).forEach((layerId) => {
+        if (this._layerRegistry?.[layerId]) {
+          this._layerVisibility[layerId] = visible;
+          this.setLayerVisible(layerId, visible);
+        }
+      });
+      this.renderLayerControl(normalizeMapSpec(this.effectiveProps()).layers, this.effectiveProps());
+    }
+
+    applyWorldTarget(target) {
+      if (!target || typeof target !== "object") {
+        return false;
+      }
+      this._pendingWorldTarget = target;
+      if (!this.map) {
+        return true;
+      }
+      const entity = this.resolveWorldTargetEntity(target.entityId);
+      const group = this.resolveWorldTargetGroup(target.groupId);
+      const presetFromEntity = entity?.cameraPreset || entity?.camera_preset || "";
+      const preset =
+        this.resolveWorldTargetPreset(target.cameraPreset || presetFromEntity) || null;
+      const resolved = {
+        ...(group && typeof group === "object" ? group : {}),
+        ...(entity && typeof entity === "object" ? entity : {}),
+        ...(preset && typeof preset === "object" ? preset : {}),
+        type: String(target.type || "").trim(),
+        groupId: String(target.groupId || entity?.groupId || group?.id || "").trim(),
+      };
+      if (resolved.type === "show_group" || resolved.type === "showGroup") {
+        this.setLogicalLayersVisible(resolved.layerIds || resolved.layers, true);
+        return true;
+      }
+      if (resolved.type === "hide_group" || resolved.type === "hideGroup") {
+        this.setLogicalLayersVisible(resolved.layerIds || resolved.layers, false);
+        return true;
+      }
+      const camera = {};
+      if (resolved.bounds) camera.bounds = resolved.bounds;
+      if (resolved.center) camera.center = resolved.center;
+      if (Number.isFinite(Number(resolved.zoom))) camera.zoom = Number(resolved.zoom);
+      if (Number.isFinite(Number(resolved.bearing))) camera.bearing = Number(resolved.bearing);
+      if (Number.isFinite(Number(resolved.pitch))) camera.pitch = Number(resolved.pitch);
+      if (camera.bounds && Array.isArray(camera.bounds) && camera.bounds.length === 2) {
+        this.map.fitBounds(camera.bounds, {
+          padding: this._layout?.focusInsetPx || 36,
+          duration: 800,
+          bearing: camera.bearing,
+          pitch: camera.pitch,
+          maxZoom: camera.zoom,
+        });
+      } else if (camera.center || camera.zoom != null || camera.bearing != null || camera.pitch != null) {
+        this.map.easeTo({
+          center: camera.center,
+          zoom: camera.zoom,
+          bearing: camera.bearing,
+          pitch: camera.pitch,
+          duration: 800,
+        });
+      }
+      if (resolved.groupId) {
+        this.setLogicalLayersVisible(resolved.layerIds || resolved.layers, true);
+      }
+      return true;
     }
 
     async refreshLayerMetrics(options = {}) {
@@ -439,6 +551,8 @@ if (!customElements.get(TAG)) {
           zoom: basemap.defaultZoom ?? basemap.zoom ?? 11,
           minZoom: basemap.minZoom ?? 10,
           maxZoom: basemap.maxZoom ?? 18,
+          bearing: Number(basemap.bearing ?? 0) || 0,
+          pitch: Number(basemap.pitch ?? 0) || 0,
           style: buildBasemapStyle(basemap),
           attributionControl: false,
         });
@@ -484,6 +598,9 @@ if (!customElements.get(TAG)) {
             this.map?.resize();
             this.mountLayerToggleInNav();
             this.scheduleLayerControlLayout();
+            if (this._pendingWorldTarget) {
+              this.applyWorldTarget(this._pendingWorldTarget);
+            }
             this._renderTrace?.mark("render_done", {
               layer_count: syncLayerList.length,
             });
@@ -943,8 +1060,16 @@ if (!customElements.get(TAG)) {
       }
 
       const fillId = `fill-${layerId}`;
+      const extrusionId = `extrude-${layerId}`;
       const lineId = `line-${layerId}`;
       const fillColor = style.fillColor || "#1e3a5f";
+      const extrusionHeight = Number(
+        style.extrusionHeight ??
+          style.extrusion_height ??
+          layerSpec.extrusionHeight ??
+          layerSpec.extrusion_height ??
+          0,
+      );
       const dataWithColors = {
         type: "FeatureCollection",
         features: (geojson.features || []).map((feature) => {
@@ -971,20 +1096,37 @@ if (!customElements.get(TAG)) {
       };
       this.map.getSource(sourceId).setData(dataWithColors);
 
-      if (!outlineOnly && !this.map.getLayer(fillId)) {
-        this.map.addLayer({
-          id: fillId,
-          type: "fill",
-          source: sourceId,
-          paint: {
-            "fill-color": ["coalesce", ["get", "__fill"], fillColor],
-            "fill-opacity":
-              fillOpacityRaw != null && fillOpacityRaw !== ""
-                ? Number(fillOpacityRaw)
-                : 0.45,
-          },
-        });
-        mapLayerIds.push(fillId);
+      if (!outlineOnly) {
+        if (extrusionHeight > 0 && !this.map.getLayer(extrusionId)) {
+          this.map.addLayer({
+            id: extrusionId,
+            type: "fill-extrusion",
+            source: sourceId,
+            paint: {
+              "fill-extrusion-color": ["coalesce", ["get", "__fill"], fillColor],
+              "fill-extrusion-height": extrusionHeight,
+              "fill-extrusion-opacity":
+                fillOpacityRaw != null && fillOpacityRaw !== ""
+                  ? Number(fillOpacityRaw)
+                  : 0.68,
+            },
+          });
+          mapLayerIds.push(extrusionId);
+        } else if (!this.map.getLayer(fillId)) {
+          this.map.addLayer({
+            id: fillId,
+            type: "fill",
+            source: sourceId,
+            paint: {
+              "fill-color": ["coalesce", ["get", "__fill"], fillColor],
+              "fill-opacity":
+                fillOpacityRaw != null && fillOpacityRaw !== ""
+                  ? Number(fillOpacityRaw)
+                  : 0.45,
+            },
+          });
+          mapLayerIds.push(fillId);
+        }
       }
       if (!this.map.getLayer(lineId)) {
         this.map.addLayer({
@@ -1000,7 +1142,8 @@ if (!customElements.get(TAG)) {
         mapLayerIds.push(lineId);
       }
       if (!outlineOnly) {
-        this.bindLayerEvents(fillId, layerId, joinKey, layerSpec);
+        const interactiveLayerId = extrusionHeight > 0 ? extrusionId : fillId;
+        this.bindLayerEvents(interactiveLayerId, layerId, joinKey, layerSpec);
       }
       this.bindLayerEvents(lineId, layerId, joinKey, layerSpec);
       this.addDataLabelLayer(layerId, sourceId, dataLabels, mapLayerIds, style, { outlineOnly });

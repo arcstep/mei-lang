@@ -218,7 +218,12 @@ fn validate_manifest_refs(
                 .unwrap_or("")
                 .trim();
             match action_type {
-                "highlight" | "focus" => {
+                "highlight"
+                | "focus"
+                | "camera_move"
+                | "focus_entity"
+                | "show_group"
+                | "hide_group" => {
                     if let Some(viewpoint_id) =
                         action_map.get("viewpoint").and_then(Value::as_str).map(str::trim)
                     {
@@ -457,6 +462,10 @@ mod tests {
                 "id": "step_1",
                 "actions": [
                     { "type": "highlight", "viewpoint": "missing_viewpoint" },
+                    { "type": "camera_move", "viewpoint": "missing_viewpoint" },
+                    { "type": "focus_entity", "viewpoint": "missing_viewpoint" },
+                    { "type": "show_group", "viewpoint": "missing_viewpoint" },
+                    { "type": "hide_group", "viewpoint": "missing_viewpoint" },
                     { "type": "open_t2_page", "pageSceneId": "missing_page" }
                 ],
                 "slide": {
@@ -491,6 +500,10 @@ mod tests {
                 "id": "step_1",
                 "actions": [
                     { "type": "highlight", "viewpoint": "known_viewpoint" },
+                    { "type": "camera_move", "viewpoint": "known_viewpoint" },
+                    { "type": "focus_entity", "viewpoint": "known_viewpoint" },
+                    { "type": "show_group", "viewpoint": "known_viewpoint" },
+                    { "type": "hide_group", "viewpoint": "known_viewpoint" },
                     { "type": "open_t2_page", "pageSceneId": "known_page" }
                 ],
                 "slide": {
