@@ -19,7 +19,10 @@ use serde_json::json;
 
 use crate::build_info::fill_page_shell_placeholders;
 use crate::gis_config::GisTilesConfig;
-use crate::pages::{inject_client_bootstrap_script, inject_layer_plane_scripts, AppQuery};
+use crate::pages::{
+    inject_client_bootstrap_script, inject_layer_plane_scripts, inject_presentation_manifest_script,
+    AppQuery,
+};
 
 const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v1";
 const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
@@ -424,6 +427,12 @@ pub fn render_access_page_template(
     let html = fill_page_shell_placeholders(html, workspace_root);
     let html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
     let html = inject_layer_plane_scripts(html, &outcome);
+    let presentation_id = if route_mode == UiRouteMode::Copilot {
+        copilot_presentation_id
+    } else {
+        None
+    };
+    let html = inject_presentation_manifest_script(html, app_root.as_path(), presentation_id);
     Ok(crate::gis_config::fill_gis_tiles_placeholders(html, &gis))
 }
 

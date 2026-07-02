@@ -15597,61 +15597,158 @@
     return pos;
   }
 
-  /** FAB 用 body+fixed，但坐标一律基于 viewport 信纸框（shell 局部像素）。 */
+  function resolveViewportFabDesignCanvas() {
+    const stage = resolveViewportStageSurface();
+    if (stage instanceof HTMLElement) {
+      return {
+        width: Math.max(1, stage.offsetWidth || 0),
+        height: Math.max(1, stage.offsetHeight || 0),
+      };
+    }
+    const layout = resolveAccessFabLetterboxLayout();
+    const scale = readLetterboxScale();
+    if (layout) {
+      return {
+        width: Math.max(1, layout.width / scale),
+        height: Math.max(1, layout.height / scale),
+      };
+    }
+    return { width: 1920, height: 1080 };
+  }
+
+  function clampViewportFabDesignPosition(
+    designLeft,
+    designTop,
+    boxDesignW = FAB_SIZE_DESIGN_PX,
+    boxDesignH = FAB_SIZE_DESIGN_PX,
+  ) {
+    const canvas = resolveViewportFabDesignCanvas();
+    const pad = FAB_MARGIN_DESIGN_PX;
+    const min = pad;
+    const maxLeft = Math.max(min, canvas.width - boxDesignW - pad);
+    const maxTop = Math.max(min, canvas.height - boxDesignH - pad);
+    return {
+      left: Math.min(maxLeft, Math.max(min, Math.round(Number(designLeft) || 0))),
+      top: Math.min(maxTop, Math.max(min, Math.round(Number(designTop) || 0))),
+    };
+  }
+
+  function shellToViewportFabDesign(shellLeft, shellTop) {
+    const scale = readLetterboxScale();
+    return {
+      left: (Number(shellLeft) || 0) / scale,
+      top: (Number(shellTop) || 0) / scale,
+    };
+  }
+
+  function designToViewportFabShell(designLeft, designTop) {
+    const scale = readLetterboxScale();
+    return {
+      left: Math.round((Number(designLeft) || 0) * scale),
+      top: Math.round((Number(designTop) || 0) * scale),
+    };
+  }
+
+  /** 设计稿坐标 → shell 像素；resize 时仅按 scale 重算，保持与 T0/T1/T2 同比例。 */
+  function applyViewportFabDesignPosition(root, designLeft, designTop) {
+    if (!(root instanceof HTMLElement)) {
+      return null;
+    }
+    const design = clampViewportFabDesignPosition(designLeft, designTop);
+    const shell = designToViewportFabShell(design.left, design.top);
+    root.dataset.positioned = "true";
+    root.dataset.fabDesignLeft = String(design.left);
+    root.dataset.fabDesignTop = String(design.top);
+    delete root.dataset.letterboxLeft;
+    delete root.dataset.letterboxTop;
+    root.style.left = `${shell.left}px`;
+    root.style.top = `${shell.top}px`;
+    root.style.right = "auto";
+    root.style.bottom = "auto";
+    return design;
+  }
+
+  function resyncViewportFabDesignPosition(root) {
+    if (!(root instanceof HTMLElement) || root.dataset.positioned !== "true") {
+      return null;
+    }
+    let designLeft = Number(root.dataset.fabDesignLeft);
+    let designTop = Number(root.dataset.fabDesignTop);
+    if (!Number.isFinite(designLeft) || !Number.isFinite(designTop)) {
+      const scale = readLetterboxScale();
+      const shellLeft = Number(root.style.left);
+      const shellTop = Number(root.style.top);
+      if (!Number.isFinite(shellLeft) || !Number.isFinite(shellTop) || scale <= 0) {
+        return null;
+      }
+      designLeft = shellLeft / scale;
+      designTop = shellTop / scale;
+    }
+    return applyViewportFabDesignPosition(root, designLeft, designTop);
+  }
+
+  /** FAB 挂入 copilot-plane，与 T0/T1/T2 共用 shell 信纸框坐标系（--mei-frame-scale）。 */
   function relocateAccessFabInLetterbox() {
     const root = document.getElementById(ACCESS_CHAT_ROOT_ID);
     if (!(root instanceof HTMLElement)) {
       return;
     }
     if (!viewportCopilotActive()) {
-      root.classList.remove("mei-copilot-letterbox-fixed");
+      root.classList.remove("mei-copilot-in-viewport", "mei-copilot-letterbox-fixed");
+      root.style.position = "";
+      root.style.left = "";
+      root.style.top = "";
+      root.style.right = "";
+      root.style.bottom = "";
+      root.style.zIndex = "";
+      root.style.transform = "";
+      root.style.pointerEvents = "";
       return;
     }
-    const layout = resolveAccessFabLetterboxLayout(root);
-    if (!layout) {
+    const plane = ensureCopilotPlane();
+    if (!plane) {
       return;
     }
-
-    if (root.parentElement !== document.body) {
-      document.body.appendChild(root);
+    if (root.parentElement !== plane) {
+      plane.appendChild(root);
     }
-    root.classList.add("mei-copilot-in-viewport", "mei-copilot-letterbox-fixed");
-    root.style.zIndex = "var(--mei-z-copilot-fab-elevated)";
-    root.style.pointerEvents = "auto";
-    root.style.transform = "none";
+    root.classList.add("mei-copilot-in-viewport");
+    root.classList.remove("mei-copilot-letterbox-fixed");
+    root.style.zIndex = "";
+    root.style.pointerEvents = "";
+    root.style.transform = "";
 
     const fab = document.getElementById("access-chat-fab");
     if (fab instanceof HTMLElement) {
       fab.style.pointerEvents = "auto";
+      fab.style.width = "";
+      fab.style.height = "";
+    }
+
+    if (root.dataset.letterboxLeft != null || root.dataset.letterboxTop != null) {
+      const migratedLeft = Number(root.dataset.letterboxLeft);
+      const migratedTop = Number(root.dataset.letterboxTop);
+      delete root.dataset.letterboxLeft;
+      delete root.dataset.letterboxTop;
+      if (Number.isFinite(migratedLeft) && Number.isFinite(migratedTop)) {
+        const scale = readLetterboxScale();
+        applyViewportFabDesignPosition(root, migratedLeft / scale, migratedTop / scale);
+        return;
+      }
     }
 
     if (root.dataset.positioned === "true") {
-      let localLeft = Number(root.dataset.letterboxLeft);
-      let localTop = Number(root.dataset.letterboxTop);
-      if (!Number.isFinite(localLeft) || !Number.isFinite(localTop)) {
-        const rect = root.getBoundingClientRect();
-        const local = layout.screenToLocal(rect.left, rect.top);
-        localLeft = local.left;
-        localTop = local.top;
-      }
-      applyAccessFabLetterboxPosition(root, localLeft, localTop);
+      resyncViewportFabDesignPosition(root);
       return;
     }
 
+    root.style.left = "";
+    root.style.top = "";
+    root.style.right = "";
+    root.style.bottom = "";
     delete root.dataset.positioned;
-    delete root.dataset.letterboxLeft;
-    delete root.dataset.letterboxTop;
-    const def = layout.defaultLocal();
-    const screen = layout.localToScreen(def.left, def.top);
-    root.style.position = "fixed";
-    root.style.left = `${Math.round(screen.left)}px`;
-    root.style.top = `${Math.round(screen.top)}px`;
-    root.style.right = "auto";
-    root.style.bottom = "auto";
-    if (fab instanceof HTMLElement) {
-      fab.style.width = `${Math.round(layout.fabSize)}px`;
-      fab.style.height = `${Math.round(layout.fabSize)}px`;
-    }
+    delete root.dataset.fabDesignLeft;
+    delete root.dataset.fabDesignTop;
   }
 
   function mountCopilotInViewport(node) {
@@ -15777,6 +15874,7 @@
     }
   }
 
+  boot.readViewportFrameScale = readLetterboxScale;
   boot.resolveViewportStageHost = resolveViewportStageHost;
   boot.resolveViewportStageSurface = resolveViewportStageSurface;
   boot.ensurePresentationPlane = ensurePresentationPlane;
@@ -15791,6 +15889,11 @@
   boot.relocateAccessFabInLetterbox = relocateAccessFabInLetterbox;
   boot.resolveAccessFabLetterboxLayout = resolveAccessFabLetterboxLayout;
   boot.applyAccessFabLetterboxPosition = applyAccessFabLetterboxPosition;
+  boot.applyViewportFabDesignPosition = applyViewportFabDesignPosition;
+  boot.resyncViewportFabDesignPosition = resyncViewportFabDesignPosition;
+  boot.shellToViewportFabDesign = shellToViewportFabDesign;
+  boot.designToViewportFabShell = designToViewportFabShell;
+  boot.clampViewportFabDesignPosition = clampViewportFabDesignPosition;
   boot.relocateStageOverlaysInViewport = relocateStageOverlaysInViewport;
 
   function scheduleRelocate() {
@@ -16240,7 +16343,10 @@
     const navKind = nonEmptyString(config?.sceneLocalNav?.kind);
     return Boolean(
       config?.structuredBoard &&
-        (hostMode === "scene_board" || navKind === "analytics_drilldown_board"),
+        (hostMode === "scene_page" ||
+          hostMode === "scene_board" ||
+          navKind === "analytics_drilldown_page" ||
+          navKind === "analytics_drilldown_board"),
     );
   }
 
@@ -16608,8 +16714,11 @@
       case "clearFocus":
         clearViewpointFocus();
         return true;
+      case "open_t2_page":
       case "open_board": {
-        const sceneId = String(action.boardSceneId || action.sceneId || "").trim();
+        const sceneId = String(
+          action.pageSceneId || action.boardSceneId || action.sceneId || "",
+        ).trim();
         if (!sceneId || typeof boot.openScene !== "function") return false;
         boot.openScene({
           scene_id: sceneId,
@@ -16701,12 +16810,84 @@
     return manifest.steps.filter((step) => step && typeof step === "object");
   }
 
+  function parseAppIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
+    );
+    return match ? String(match[1] || "").trim() : "";
+  }
+
+  function parsePresentationIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:copilot|speaker)\/[^/]+\/(?:presentation|tour)\/([^/]+)/,
+    );
+    if (match) return String(match[1] || "").trim();
+    const shell = document.getElementById("copilot-shell");
+    const fromShell = shell?.dataset?.copilotPresentation;
+    return String(fromShell || "intro").trim() || "intro";
+  }
+
+  function presentationManifestAssetUrls(appId, presentationId) {
+    const pid = presentationId || "intro";
+    return [
+      `/workspace-app-assets/${encodeURIComponent(appId)}/src/presentation/${encodeURIComponent(pid)}.presentation.json`,
+      `/workspace-app-assets/${encodeURIComponent(appId)}/presentation/${encodeURIComponent(pid)}.presentation.json`,
+    ];
+  }
+
+  let manifestFetchPromise = null;
+
+  async function fetchManifestFromAssets() {
+    const appId = parseAppIdFromPath();
+    if (!appId) return null;
+    const presentationId = parsePresentationIdFromPath();
+    for (const url of presentationManifestAssetUrls(appId, presentationId)) {
+      try {
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) continue;
+        const manifest = await response.json();
+        if (normalizeSteps(manifest).length) return manifest;
+      } catch (_) {
+        /* try next */
+      }
+    }
+    return null;
+  }
+
+  function ensureLoadedAsync() {
+    if (state.steps.length) return Promise.resolve(true);
+    const manifest = readManifestFromDom() || readStoredManifest();
+    if (loadManifest(manifest)) return Promise.resolve(true);
+    if (!manifestFetchPromise) {
+      manifestFetchPromise = fetchManifestFromAssets()
+        .then((fetched) => {
+          manifestFetchPromise = null;
+          return loadManifest(fetched);
+        })
+        .catch(() => {
+          manifestFetchPromise = null;
+          return false;
+        });
+    }
+    return manifestFetchPromise;
+  }
+
+  function injectManifestScript(manifest) {
+    if (!manifest || typeof manifest !== "object") return;
+    if (document.getElementById("mei-presentation-manifest")) return;
+    const node = document.createElement("script");
+    node.type = "application/json";
+    node.id = "mei-presentation-manifest";
+    node.textContent = JSON.stringify(manifest);
+    (document.head || document.body || document.documentElement).appendChild(node);
+  }
+
   function loadManifest(manifest) {
     const steps = normalizeSteps(manifest);
     if (!steps.length) return false;
     state.manifest = manifest;
     state.steps = steps;
-    state.sessionActive = true;
+    injectManifestScript(manifest);
     persistManifest(manifest);
     return true;
   }
@@ -16719,6 +16900,11 @@
 
   function hasManifest() {
     return Boolean(readManifestFromDom() || state.steps.length || readStoredManifest());
+  }
+
+  function prefetchManifest() {
+    if (hasManifest() || state.steps.length) return Promise.resolve(true);
+    return ensureLoadedAsync();
   }
 
   function focusApi() {
@@ -16909,6 +17095,8 @@
   const engine = {
     hasManifest,
     ensureLoaded,
+    ensureLoadedAsync,
+    prefetchManifest,
     loadManifest,
     applyStep,
     currentStep,
@@ -17092,36 +17280,28 @@
 
     ensureFabDock();
 
-    const letterboxLayout =
-      root.classList.contains("mei-copilot-letterbox-fixed") &&
-      typeof boot.resolveAccessFabLetterboxLayout === "function"
-        ? boot.resolveAccessFabLetterboxLayout(root)
-        : null;
     const host = layoutHost(root);
     const bounds =
       typeof boot.resolveViewportOverlayBounds === "function"
         ? boot.resolveViewportOverlayBounds(root)
         : null;
-    const hostRect = letterboxLayout
-      ? letterboxLayout.shellRect
-      : host
-        ? host.getBoundingClientRect()
-        : bounds?.shellRect || {
-            left: 0,
-            top: 0,
-            width: Number(window.innerWidth || 0),
-            height: Number(window.innerHeight || 0),
-          };
+    const hostRect = host
+      ? host.getBoundingClientRect()
+      : bounds?.shellRect || {
+          left: 0,
+          top: 0,
+          width: Number(window.innerWidth || 0),
+          height: Number(window.innerHeight || 0),
+        };
 
     root.dataset.copilotToolbarSide = detectToolbarSide(fab, hostRect);
 
     const toolbar = root.querySelector(".copilot-toolbar");
     if (toolbar instanceof HTMLElement) {
-      const hostWidth = letterboxLayout
-        ? letterboxLayout.width
-        : host
-          ? host.clientWidth || host.offsetWidth || 0
-          : 0;
+      const shell = bounds?.shell || host;
+      const hostWidth = shell
+        ? shell.clientWidth || shell.offsetWidth || 0
+        : 0;
       if (hostWidth > 0) {
         toolbar.style.maxWidth = `${Math.min(720, Math.max(200, hostWidth - 96))}px`;
       }
@@ -17243,7 +17423,7 @@
     const root = floatingRoot();
     root?.classList.toggle(
       "copilot-fab-elevated",
-      Boolean(root?.classList.contains("mei-copilot-letterbox-fixed")),
+      Boolean(root?.classList.contains("mei-copilot-in-viewport")),
     );
     const eng = engine();
     const active = eng && eng.isActive();
@@ -17444,20 +17624,35 @@
     );
   }
 
+  function withEngineLoaded(run) {
+    const eng = engine();
+    if (!eng) return Promise.resolve(false);
+    if (typeof eng.ensureLoaded === "function" && eng.ensureLoaded()) {
+      run(eng);
+      return Promise.resolve(true);
+    }
+    if (typeof eng.ensureLoadedAsync !== "function") return Promise.resolve(false);
+    return eng.ensureLoadedAsync().then((ok) => {
+      if (ok) run(eng);
+      return ok;
+    });
+  }
+
   function onToolbarClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const eng = engine();
     if (target.dataset.copilotSession === "true") {
-      if (!eng) return;
-      if (typeof eng.isActive === "function" && eng.isActive()) {
-        eng.pause();
-      } else if (typeof eng.isPaused === "function" && eng.isPaused()) {
-        eng.resume();
-      } else {
-        eng.start({ apply: true });
-      }
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        if (typeof activeEng.isActive === "function" && activeEng.isActive()) {
+          activeEng.pause();
+        } else if (typeof activeEng.isPaused === "function" && activeEng.isPaused()) {
+          activeEng.resume();
+        } else {
+          activeEng.start({ apply: true });
+        }
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotExit === "true") {
@@ -17465,13 +17660,17 @@
       return;
     }
     if (target.dataset.copilotPrev === "true") {
-      if (eng) eng.prev();
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        activeEng.prev();
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotNext === "true") {
-      if (eng) eng.next();
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        activeEng.next();
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotCaptionToggle === "true") {
@@ -17622,8 +17821,13 @@
     ensureCopilotInViewport();
     bindSelectMode();
     bindFabBehavior();
+    const alreadyMounted = uiState.mounted;
     uiState.mounted = true;
-    uiState.toolbarOpen = opts.toolbarOpen === true;
+    if (!alreadyMounted) {
+      uiState.toolbarOpen = opts.toolbarOpen === true;
+    } else if (typeof opts.toolbarOpen === "boolean") {
+      uiState.toolbarOpen = opts.toolbarOpen;
+    }
     if (opts.autoStart === true && eng && (isCopilotRoute() || hasCopilotShell())) {
       if (typeof eng.ensureLoaded === "function") {
         eng.ensureLoaded();
@@ -17735,6 +17939,10 @@
 
   function init() {
     exposeConsoleApi();
+    const eng = engine();
+    if (eng && typeof eng.prefetchManifest === "function") {
+      void eng.prefetchManifest();
+    }
     const toolbar = boot.copilotToolbar;
     if (toolbar && typeof toolbar.mount === "function" && shouldAutoStart()) {
       toolbar.mount({ autoStart: false, apply: false, toolbarOpen: false });
@@ -17746,6 +17954,9 @@
     const eng = engine();
     const toolbar = boot.copilotToolbar;
     if (!eng) return;
+    if (eng && typeof eng.prefetchManifest === "function") {
+      void eng.prefetchManifest();
+    }
     if (toolbar && typeof toolbar.mount === "function" && shouldAutoStart()) {
       toolbar.mount({ autoStart: false, toolbarOpen: false });
       exposeConsoleApi();

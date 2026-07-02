@@ -4632,16 +4632,14 @@
 
     function floatingBoundsSize() {
       const bootApi = window.__meiLangBoot || {};
-      if (isLetterboxFab() && typeof bootApi.resolveAccessFabLetterboxLayout === "function") {
-        const layout = bootApi.resolveAccessFabLetterboxLayout(els.accessFloatingRoot);
-        if (layout?.width > 0 && layout?.height > 0) {
-          return { width: layout.width, height: layout.height };
-        }
-      }
       if (typeof bootApi.resolveViewportOverlayBounds === "function") {
         const bounds = bootApi.resolveViewportOverlayBounds(els.accessFloatingRoot);
-        if (bounds?.width > 0 && bounds?.height > 0) {
-          return { width: bounds.width, height: bounds.height };
+        if (bounds?.shell) {
+          const width = bounds.shell.clientWidth || bounds.shell.offsetWidth || 0;
+          const height = bounds.shell.clientHeight || bounds.shell.offsetHeight || 0;
+          if (width > 0 && height > 0) {
+            return { width, height };
+          }
         }
       }
       if (typeof bootApi.copilotFloatingBoundsSize === "function") {
@@ -4656,23 +4654,33 @@
       };
     }
 
+    function isViewportFab() {
+      return !!els.accessFloatingRoot?.classList.contains("mei-copilot-in-viewport");
+    }
+
+    function viewportFabBoot() {
+      return window.__meiLangBoot || {};
+    }
+
     function clampAccessFloatingPosition(left, top) {
-      if (isLetterboxFab()) {
-        const bootApi = window.__meiLangBoot || {};
-        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
-        if (layout) {
-          const width = Math.max(
-            layout.fabSize,
-            Number(els.accessFloatingRoot.offsetWidth || 0) || layout.fabSize,
-          );
-          const height = Math.max(
-            layout.fabSize,
-            Number(els.accessFloatingRoot.offsetHeight || 0) || layout.fabSize,
-          );
-          return layout.clampLocal(left, top, width, height);
-        }
+      const inViewport = isViewportFab();
+      if (!isAccessFloatingMode() && !inViewport) return null;
+      if (inViewport) {
+        const bootApi = viewportFabBoot();
+        const toDesign =
+          typeof bootApi.shellToViewportFabDesign === "function"
+            ? bootApi.shellToViewportFabDesign(left, top)
+            : { left, top };
+        const clampDesign =
+          typeof bootApi.clampViewportFabDesignPosition === "function"
+            ? bootApi.clampViewportFabDesignPosition(toDesign.left, toDesign.top)
+            : toDesign;
+        const toShell =
+          typeof bootApi.designToViewportFabShell === "function"
+            ? bootApi.designToViewportFabShell(clampDesign.left, clampDesign.top)
+            : clampDesign;
+        return { left: toShell.left, top: toShell.top };
       }
-      if (!isAccessFloatingMode()) return null;
       const width = Math.max(48, Number(els.accessFloatingRoot.offsetWidth || 68));
       const height = Math.max(48, Number(els.accessFloatingRoot.offsetHeight || 68));
       const bounds = floatingBoundsSize();
@@ -4691,32 +4699,23 @@
       return { left: nextLeft, top: nextTop };
     }
 
-    function isLetterboxFab() {
-      return !!els.accessFloatingRoot?.classList.contains("mei-copilot-letterbox-fixed");
-    }
-
     function applyAccessFloatingPosition(left, top) {
-      if (isLetterboxFab()) {
-        const bootApi = window.__meiLangBoot || {};
-        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
-        if (layout && typeof bootApi.applyAccessFabLetterboxPosition === "function") {
-          const width = Math.max(
-            layout.fabSize,
-            Number(els.accessFloatingRoot.offsetWidth || 0) || layout.fabSize,
-          );
-          const height = Math.max(
-            layout.fabSize,
-            Number(els.accessFloatingRoot.offsetHeight || 0) || layout.fabSize,
-          );
-          const pos = layout.clampLocal(left, top, width, height);
-          return bootApi.applyAccessFabLetterboxPosition(
+      const inViewport = isViewportFab();
+      if (!isAccessFloatingMode() && !inViewport) return null;
+      if (inViewport) {
+        const bootApi = viewportFabBoot();
+        const toDesign =
+          typeof bootApi.shellToViewportFabDesign === "function"
+            ? bootApi.shellToViewportFabDesign(left, top)
+            : { left, top };
+        if (typeof bootApi.applyViewportFabDesignPosition === "function") {
+          return bootApi.applyViewportFabDesignPosition(
             els.accessFloatingRoot,
-            pos.left,
-            pos.top,
+            toDesign.left,
+            toDesign.top,
           );
         }
       }
-      if (!isAccessFloatingMode()) return null;
       const pos = clampAccessFloatingPosition(left, top);
       if (!pos) return null;
       els.accessFloatingRoot.style.left = String(pos.left) + "px";
@@ -4728,17 +4727,8 @@
     }
 
     function clearAccessFloatingPosition() {
-      if (isLetterboxFab()) {
-        delete els.accessFloatingRoot.dataset.positioned;
-        delete els.accessFloatingRoot.dataset.letterboxLeft;
-        delete els.accessFloatingRoot.dataset.letterboxTop;
-        const bootApi = window.__meiLangBoot || {};
-        if (typeof bootApi.relocateAccessFabInLetterbox === "function") {
-          bootApi.relocateAccessFabInLetterbox();
-        }
-        return;
-      }
-      if (!isAccessFloatingMode()) return;
+      const inViewport = isViewportFab();
+      if (!isAccessFloatingMode() && !inViewport) return;
       els.accessFloatingRoot.style.left = "";
       els.accessFloatingRoot.style.top = "";
       els.accessFloatingRoot.style.right = "";
@@ -4746,10 +4736,32 @@
       delete els.accessFloatingRoot.dataset.positioned;
       delete els.accessFloatingRoot.dataset.letterboxLeft;
       delete els.accessFloatingRoot.dataset.letterboxTop;
+      delete els.accessFloatingRoot.dataset.fabDesignLeft;
+      delete els.accessFloatingRoot.dataset.fabDesignTop;
+      const bootApi = viewportFabBoot();
+      if (inViewport && typeof bootApi.relocateAccessFabInLetterbox === "function") {
+        bootApi.relocateAccessFabInLetterbox();
+      }
     }
 
     function rememberAccessFloatingPosition(left, top) {
-      if (!isAccessFloatingMode()) return;
+      if (!isAccessFloatingMode() && !isViewportFab()) return;
+      if (isViewportFab()) {
+        const designLeft = Number(els.accessFloatingRoot.dataset.fabDesignLeft);
+        const designTop = Number(els.accessFloatingRoot.dataset.fabDesignTop);
+        if (!Number.isFinite(designLeft) || !Number.isFinite(designTop)) return;
+        try {
+          localStorage.setItem(
+            accessFloatingPositionStorageKey(),
+            JSON.stringify({
+              viewportDesign: true,
+              designLeft,
+              designTop,
+            }),
+          );
+        } catch (_) {}
+        return;
+      }
       const pos = clampAccessFloatingPosition(left, top);
       if (!pos) return;
       try {
@@ -4758,7 +4770,7 @@
     }
 
     function restoreAccessFloatingPosition() {
-      if (!isAccessFloatingMode()) return;
+      if (!isAccessFloatingMode() && !isViewportFab()) return;
       try {
         const raw = localStorage.getItem(accessFloatingPositionStorageKey());
         if (!raw) {
@@ -4766,23 +4778,60 @@
           return;
         }
         const parsed = JSON.parse(raw);
+        if (isViewportFab()) {
+          const bootApi = viewportFabBoot();
+          if (parsed?.viewportDesign === true) {
+            const designLeft = Number(parsed.designLeft);
+            const designTop = Number(parsed.designTop);
+            if (!Number.isFinite(designLeft) || !Number.isFinite(designTop)) {
+              clearAccessFloatingPosition();
+              return;
+            }
+            if (typeof bootApi.applyViewportFabDesignPosition === "function") {
+              bootApi.applyViewportFabDesignPosition(
+                els.accessFloatingRoot,
+                designLeft,
+                designTop,
+              );
+            }
+            return;
+          }
+          const legacyLeft = Number(parsed?.left);
+          const legacyTop = Number(parsed?.top);
+          if (Number.isFinite(legacyLeft) && Number.isFinite(legacyTop)) {
+            const toDesign =
+              typeof bootApi.shellToViewportFabDesign === "function"
+                ? bootApi.shellToViewportFabDesign(legacyLeft, legacyTop)
+                : { left: legacyLeft, top: legacyTop };
+            const canvas =
+              typeof bootApi.clampViewportFabDesignPosition === "function"
+                ? bootApi.clampViewportFabDesignPosition(toDesign.left, toDesign.top)
+                : toDesign;
+            if (
+              Math.abs(canvas.left - toDesign.left) > 2 ||
+              Math.abs(canvas.top - toDesign.top) > 2
+            ) {
+              clearAccessFloatingPosition();
+              return;
+            }
+            if (typeof bootApi.applyViewportFabDesignPosition === "function") {
+              bootApi.applyViewportFabDesignPosition(
+                els.accessFloatingRoot,
+                toDesign.left,
+                toDesign.top,
+              );
+              rememberAccessFloatingPosition();
+            }
+            return;
+          }
+          clearAccessFloatingPosition();
+          return;
+        }
         let left = Number(parsed && parsed.left);
         let top = Number(parsed && parsed.top);
         if (!Number.isFinite(left) || !Number.isFinite(top)) {
           clearAccessFloatingPosition();
           return;
-        }
-        if (isLetterboxFab()) {
-          const bootApi = window.__meiLangBoot || {};
-          const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
-          if (
-            layout &&
-            (left > layout.width || top > layout.height || left < 0 || top < 0)
-          ) {
-            const local = layout.screenToLocal(left, top);
-            left = local.left;
-            top = local.top;
-          }
         }
         const pos = applyAccessFloatingPosition(left, top);
         if (pos) rememberAccessFloatingPosition(pos.left, pos.top);
@@ -4812,24 +4861,18 @@
     }
 
     function reclampAccessFloatingInViewport() {
-      if (!isAccessFloatingMode()) return;
-      const bootApi = window.__meiLangBoot || {};
-      if (isLetterboxFab()) {
+      const inViewport = isViewportFab();
+      if (!isAccessFloatingMode() && !inViewport) return;
+      const bootApi = viewportFabBoot();
+      if (inViewport) {
         if (els.accessFloatingRoot.dataset.positioned === "true") {
-          const left = Number(els.accessFloatingRoot.dataset.letterboxLeft);
-          const top = Number(els.accessFloatingRoot.dataset.letterboxTop);
-          if (Number.isFinite(left) && Number.isFinite(top)) {
-            applyAccessFloatingPosition(left, top);
-          } else {
-            clearAccessFloatingPosition();
+          if (typeof bootApi.resyncViewportFabDesignPosition === "function") {
+            bootApi.resyncViewportFabDesignPosition(els.accessFloatingRoot);
           }
         }
         if (typeof bootApi.relocateAccessFabInLetterbox === "function") {
           bootApi.relocateAccessFabInLetterbox();
         }
-        return;
-      }
-      if (!els.accessFloatingRoot?.classList.contains("mei-copilot-in-viewport")) {
         return;
       }
       if (els.accessFloatingRoot.dataset.positioned === "true") {
@@ -4920,7 +4963,7 @@
       const bootApi = window.__meiLangBoot || {};
       if (shouldUseCopilotToolbar()) {
         const toolbar = bootApi.copilotToolbar;
-        if (toolbar && typeof toolbar.mount === "function") {
+        if (toolbar && typeof toolbar.mount === "function" && !toolbar.uiState?.mounted) {
           toolbar.mount({ autoStart: false, apply: false, toolbarOpen: false });
         }
         if (toolbar && typeof toolbar.toggleToolbar === "function") {
@@ -4936,39 +4979,13 @@
     function beginAccessFloatingDrag(event) {
       if (!canUseAccessFab()) return;
       if (event && event.button != null && event.button !== 0) return;
-      let baseLeft = 0;
-      let baseTop = 0;
-      if (isLetterboxFab()) {
-        const bootApi = window.__meiLangBoot || {};
-        const layout = bootApi.resolveAccessFabLetterboxLayout?.(els.accessFloatingRoot);
-        if (layout) {
-          if (els.accessFloatingRoot.dataset.positioned === "true") {
-            const savedLeft = Number(els.accessFloatingRoot.dataset.letterboxLeft);
-            const savedTop = Number(els.accessFloatingRoot.dataset.letterboxTop);
-            if (Number.isFinite(savedLeft) && Number.isFinite(savedTop)) {
-              baseLeft = savedLeft;
-              baseTop = savedTop;
-            } else {
-              const rect = els.accessFloatingRoot.getBoundingClientRect();
-              const local = layout.screenToLocal(rect.left, rect.top);
-              baseLeft = local.left;
-              baseTop = local.top;
-            }
-          } else {
-            const def = layout.defaultLocal();
-            baseLeft = def.left;
-            baseTop = def.top;
-          }
-        }
-      } else {
-        const host = floatingBoundsHost();
-        const hostRect = host
-          ? host.getBoundingClientRect()
-          : { left: 0, top: 0 };
-        const rect = els.accessFloatingRoot.getBoundingClientRect();
-        baseLeft = Number(rect.left || 0) - Number(hostRect.left || 0);
-        baseTop = Number(rect.top || 0) - Number(hostRect.top || 0);
-      }
+      const host = floatingBoundsHost();
+      const hostRect = host
+        ? host.getBoundingClientRect()
+        : { left: 0, top: 0 };
+      const rect = els.accessFloatingRoot.getBoundingClientRect();
+      const baseLeft = Number(rect.left || 0) - Number(hostRect.left || 0);
+      const baseTop = Number(rect.top || 0) - Number(hostRect.top || 0);
       accessFloatingDragState = {
         pointerId: event ? event.pointerId : null,
         startX: Number(event && event.clientX),
@@ -18816,61 +18833,158 @@
     return pos;
   }
 
-  /** FAB 用 body+fixed，但坐标一律基于 viewport 信纸框（shell 局部像素）。 */
+  function resolveViewportFabDesignCanvas() {
+    const stage = resolveViewportStageSurface();
+    if (stage instanceof HTMLElement) {
+      return {
+        width: Math.max(1, stage.offsetWidth || 0),
+        height: Math.max(1, stage.offsetHeight || 0),
+      };
+    }
+    const layout = resolveAccessFabLetterboxLayout();
+    const scale = readLetterboxScale();
+    if (layout) {
+      return {
+        width: Math.max(1, layout.width / scale),
+        height: Math.max(1, layout.height / scale),
+      };
+    }
+    return { width: 1920, height: 1080 };
+  }
+
+  function clampViewportFabDesignPosition(
+    designLeft,
+    designTop,
+    boxDesignW = FAB_SIZE_DESIGN_PX,
+    boxDesignH = FAB_SIZE_DESIGN_PX,
+  ) {
+    const canvas = resolveViewportFabDesignCanvas();
+    const pad = FAB_MARGIN_DESIGN_PX;
+    const min = pad;
+    const maxLeft = Math.max(min, canvas.width - boxDesignW - pad);
+    const maxTop = Math.max(min, canvas.height - boxDesignH - pad);
+    return {
+      left: Math.min(maxLeft, Math.max(min, Math.round(Number(designLeft) || 0))),
+      top: Math.min(maxTop, Math.max(min, Math.round(Number(designTop) || 0))),
+    };
+  }
+
+  function shellToViewportFabDesign(shellLeft, shellTop) {
+    const scale = readLetterboxScale();
+    return {
+      left: (Number(shellLeft) || 0) / scale,
+      top: (Number(shellTop) || 0) / scale,
+    };
+  }
+
+  function designToViewportFabShell(designLeft, designTop) {
+    const scale = readLetterboxScale();
+    return {
+      left: Math.round((Number(designLeft) || 0) * scale),
+      top: Math.round((Number(designTop) || 0) * scale),
+    };
+  }
+
+  /** 设计稿坐标 → shell 像素；resize 时仅按 scale 重算，保持与 T0/T1/T2 同比例。 */
+  function applyViewportFabDesignPosition(root, designLeft, designTop) {
+    if (!(root instanceof HTMLElement)) {
+      return null;
+    }
+    const design = clampViewportFabDesignPosition(designLeft, designTop);
+    const shell = designToViewportFabShell(design.left, design.top);
+    root.dataset.positioned = "true";
+    root.dataset.fabDesignLeft = String(design.left);
+    root.dataset.fabDesignTop = String(design.top);
+    delete root.dataset.letterboxLeft;
+    delete root.dataset.letterboxTop;
+    root.style.left = `${shell.left}px`;
+    root.style.top = `${shell.top}px`;
+    root.style.right = "auto";
+    root.style.bottom = "auto";
+    return design;
+  }
+
+  function resyncViewportFabDesignPosition(root) {
+    if (!(root instanceof HTMLElement) || root.dataset.positioned !== "true") {
+      return null;
+    }
+    let designLeft = Number(root.dataset.fabDesignLeft);
+    let designTop = Number(root.dataset.fabDesignTop);
+    if (!Number.isFinite(designLeft) || !Number.isFinite(designTop)) {
+      const scale = readLetterboxScale();
+      const shellLeft = Number(root.style.left);
+      const shellTop = Number(root.style.top);
+      if (!Number.isFinite(shellLeft) || !Number.isFinite(shellTop) || scale <= 0) {
+        return null;
+      }
+      designLeft = shellLeft / scale;
+      designTop = shellTop / scale;
+    }
+    return applyViewportFabDesignPosition(root, designLeft, designTop);
+  }
+
+  /** FAB 挂入 copilot-plane，与 T0/T1/T2 共用 shell 信纸框坐标系（--mei-frame-scale）。 */
   function relocateAccessFabInLetterbox() {
     const root = document.getElementById(ACCESS_CHAT_ROOT_ID);
     if (!(root instanceof HTMLElement)) {
       return;
     }
     if (!viewportCopilotActive()) {
-      root.classList.remove("mei-copilot-letterbox-fixed");
+      root.classList.remove("mei-copilot-in-viewport", "mei-copilot-letterbox-fixed");
+      root.style.position = "";
+      root.style.left = "";
+      root.style.top = "";
+      root.style.right = "";
+      root.style.bottom = "";
+      root.style.zIndex = "";
+      root.style.transform = "";
+      root.style.pointerEvents = "";
       return;
     }
-    const layout = resolveAccessFabLetterboxLayout(root);
-    if (!layout) {
+    const plane = ensureCopilotPlane();
+    if (!plane) {
       return;
     }
-
-    if (root.parentElement !== document.body) {
-      document.body.appendChild(root);
+    if (root.parentElement !== plane) {
+      plane.appendChild(root);
     }
-    root.classList.add("mei-copilot-in-viewport", "mei-copilot-letterbox-fixed");
-    root.style.zIndex = "var(--mei-z-copilot-fab-elevated)";
-    root.style.pointerEvents = "auto";
-    root.style.transform = "none";
+    root.classList.add("mei-copilot-in-viewport");
+    root.classList.remove("mei-copilot-letterbox-fixed");
+    root.style.zIndex = "";
+    root.style.pointerEvents = "";
+    root.style.transform = "";
 
     const fab = document.getElementById("access-chat-fab");
     if (fab instanceof HTMLElement) {
       fab.style.pointerEvents = "auto";
+      fab.style.width = "";
+      fab.style.height = "";
+    }
+
+    if (root.dataset.letterboxLeft != null || root.dataset.letterboxTop != null) {
+      const migratedLeft = Number(root.dataset.letterboxLeft);
+      const migratedTop = Number(root.dataset.letterboxTop);
+      delete root.dataset.letterboxLeft;
+      delete root.dataset.letterboxTop;
+      if (Number.isFinite(migratedLeft) && Number.isFinite(migratedTop)) {
+        const scale = readLetterboxScale();
+        applyViewportFabDesignPosition(root, migratedLeft / scale, migratedTop / scale);
+        return;
+      }
     }
 
     if (root.dataset.positioned === "true") {
-      let localLeft = Number(root.dataset.letterboxLeft);
-      let localTop = Number(root.dataset.letterboxTop);
-      if (!Number.isFinite(localLeft) || !Number.isFinite(localTop)) {
-        const rect = root.getBoundingClientRect();
-        const local = layout.screenToLocal(rect.left, rect.top);
-        localLeft = local.left;
-        localTop = local.top;
-      }
-      applyAccessFabLetterboxPosition(root, localLeft, localTop);
+      resyncViewportFabDesignPosition(root);
       return;
     }
 
+    root.style.left = "";
+    root.style.top = "";
+    root.style.right = "";
+    root.style.bottom = "";
     delete root.dataset.positioned;
-    delete root.dataset.letterboxLeft;
-    delete root.dataset.letterboxTop;
-    const def = layout.defaultLocal();
-    const screen = layout.localToScreen(def.left, def.top);
-    root.style.position = "fixed";
-    root.style.left = `${Math.round(screen.left)}px`;
-    root.style.top = `${Math.round(screen.top)}px`;
-    root.style.right = "auto";
-    root.style.bottom = "auto";
-    if (fab instanceof HTMLElement) {
-      fab.style.width = `${Math.round(layout.fabSize)}px`;
-      fab.style.height = `${Math.round(layout.fabSize)}px`;
-    }
+    delete root.dataset.fabDesignLeft;
+    delete root.dataset.fabDesignTop;
   }
 
   function mountCopilotInViewport(node) {
@@ -18996,6 +19110,7 @@
     }
   }
 
+  boot.readViewportFrameScale = readLetterboxScale;
   boot.resolveViewportStageHost = resolveViewportStageHost;
   boot.resolveViewportStageSurface = resolveViewportStageSurface;
   boot.ensurePresentationPlane = ensurePresentationPlane;
@@ -19010,6 +19125,11 @@
   boot.relocateAccessFabInLetterbox = relocateAccessFabInLetterbox;
   boot.resolveAccessFabLetterboxLayout = resolveAccessFabLetterboxLayout;
   boot.applyAccessFabLetterboxPosition = applyAccessFabLetterboxPosition;
+  boot.applyViewportFabDesignPosition = applyViewportFabDesignPosition;
+  boot.resyncViewportFabDesignPosition = resyncViewportFabDesignPosition;
+  boot.shellToViewportFabDesign = shellToViewportFabDesign;
+  boot.designToViewportFabShell = designToViewportFabShell;
+  boot.clampViewportFabDesignPosition = clampViewportFabDesignPosition;
   boot.relocateStageOverlaysInViewport = relocateStageOverlaysInViewport;
 
   function scheduleRelocate() {
@@ -19459,7 +19579,10 @@
     const navKind = nonEmptyString(config?.sceneLocalNav?.kind);
     return Boolean(
       config?.structuredBoard &&
-        (hostMode === "scene_board" || navKind === "analytics_drilldown_board"),
+        (hostMode === "scene_page" ||
+          hostMode === "scene_board" ||
+          navKind === "analytics_drilldown_page" ||
+          navKind === "analytics_drilldown_board"),
     );
   }
 
@@ -19827,8 +19950,11 @@
       case "clearFocus":
         clearViewpointFocus();
         return true;
+      case "open_t2_page":
       case "open_board": {
-        const sceneId = String(action.boardSceneId || action.sceneId || "").trim();
+        const sceneId = String(
+          action.pageSceneId || action.boardSceneId || action.sceneId || "",
+        ).trim();
         if (!sceneId || typeof boot.openScene !== "function") return false;
         boot.openScene({
           scene_id: sceneId,
@@ -19920,12 +20046,84 @@
     return manifest.steps.filter((step) => step && typeof step === "object");
   }
 
+  function parseAppIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
+    );
+    return match ? String(match[1] || "").trim() : "";
+  }
+
+  function parsePresentationIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:copilot|speaker)\/[^/]+\/(?:presentation|tour)\/([^/]+)/,
+    );
+    if (match) return String(match[1] || "").trim();
+    const shell = document.getElementById("copilot-shell");
+    const fromShell = shell?.dataset?.copilotPresentation;
+    return String(fromShell || "intro").trim() || "intro";
+  }
+
+  function presentationManifestAssetUrls(appId, presentationId) {
+    const pid = presentationId || "intro";
+    return [
+      `/workspace-app-assets/${encodeURIComponent(appId)}/src/presentation/${encodeURIComponent(pid)}.presentation.json`,
+      `/workspace-app-assets/${encodeURIComponent(appId)}/presentation/${encodeURIComponent(pid)}.presentation.json`,
+    ];
+  }
+
+  let manifestFetchPromise = null;
+
+  async function fetchManifestFromAssets() {
+    const appId = parseAppIdFromPath();
+    if (!appId) return null;
+    const presentationId = parsePresentationIdFromPath();
+    for (const url of presentationManifestAssetUrls(appId, presentationId)) {
+      try {
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) continue;
+        const manifest = await response.json();
+        if (normalizeSteps(manifest).length) return manifest;
+      } catch (_) {
+        /* try next */
+      }
+    }
+    return null;
+  }
+
+  function ensureLoadedAsync() {
+    if (state.steps.length) return Promise.resolve(true);
+    const manifest = readManifestFromDom() || readStoredManifest();
+    if (loadManifest(manifest)) return Promise.resolve(true);
+    if (!manifestFetchPromise) {
+      manifestFetchPromise = fetchManifestFromAssets()
+        .then((fetched) => {
+          manifestFetchPromise = null;
+          return loadManifest(fetched);
+        })
+        .catch(() => {
+          manifestFetchPromise = null;
+          return false;
+        });
+    }
+    return manifestFetchPromise;
+  }
+
+  function injectManifestScript(manifest) {
+    if (!manifest || typeof manifest !== "object") return;
+    if (document.getElementById("mei-presentation-manifest")) return;
+    const node = document.createElement("script");
+    node.type = "application/json";
+    node.id = "mei-presentation-manifest";
+    node.textContent = JSON.stringify(manifest);
+    (document.head || document.body || document.documentElement).appendChild(node);
+  }
+
   function loadManifest(manifest) {
     const steps = normalizeSteps(manifest);
     if (!steps.length) return false;
     state.manifest = manifest;
     state.steps = steps;
-    state.sessionActive = true;
+    injectManifestScript(manifest);
     persistManifest(manifest);
     return true;
   }
@@ -19938,6 +20136,11 @@
 
   function hasManifest() {
     return Boolean(readManifestFromDom() || state.steps.length || readStoredManifest());
+  }
+
+  function prefetchManifest() {
+    if (hasManifest() || state.steps.length) return Promise.resolve(true);
+    return ensureLoadedAsync();
   }
 
   function focusApi() {
@@ -20128,6 +20331,8 @@
   const engine = {
     hasManifest,
     ensureLoaded,
+    ensureLoadedAsync,
+    prefetchManifest,
     loadManifest,
     applyStep,
     currentStep,
@@ -20311,36 +20516,28 @@
 
     ensureFabDock();
 
-    const letterboxLayout =
-      root.classList.contains("mei-copilot-letterbox-fixed") &&
-      typeof boot.resolveAccessFabLetterboxLayout === "function"
-        ? boot.resolveAccessFabLetterboxLayout(root)
-        : null;
     const host = layoutHost(root);
     const bounds =
       typeof boot.resolveViewportOverlayBounds === "function"
         ? boot.resolveViewportOverlayBounds(root)
         : null;
-    const hostRect = letterboxLayout
-      ? letterboxLayout.shellRect
-      : host
-        ? host.getBoundingClientRect()
-        : bounds?.shellRect || {
-            left: 0,
-            top: 0,
-            width: Number(window.innerWidth || 0),
-            height: Number(window.innerHeight || 0),
-          };
+    const hostRect = host
+      ? host.getBoundingClientRect()
+      : bounds?.shellRect || {
+          left: 0,
+          top: 0,
+          width: Number(window.innerWidth || 0),
+          height: Number(window.innerHeight || 0),
+        };
 
     root.dataset.copilotToolbarSide = detectToolbarSide(fab, hostRect);
 
     const toolbar = root.querySelector(".copilot-toolbar");
     if (toolbar instanceof HTMLElement) {
-      const hostWidth = letterboxLayout
-        ? letterboxLayout.width
-        : host
-          ? host.clientWidth || host.offsetWidth || 0
-          : 0;
+      const shell = bounds?.shell || host;
+      const hostWidth = shell
+        ? shell.clientWidth || shell.offsetWidth || 0
+        : 0;
       if (hostWidth > 0) {
         toolbar.style.maxWidth = `${Math.min(720, Math.max(200, hostWidth - 96))}px`;
       }
@@ -20462,7 +20659,7 @@
     const root = floatingRoot();
     root?.classList.toggle(
       "copilot-fab-elevated",
-      Boolean(root?.classList.contains("mei-copilot-letterbox-fixed")),
+      Boolean(root?.classList.contains("mei-copilot-in-viewport")),
     );
     const eng = engine();
     const active = eng && eng.isActive();
@@ -20663,20 +20860,35 @@
     );
   }
 
+  function withEngineLoaded(run) {
+    const eng = engine();
+    if (!eng) return Promise.resolve(false);
+    if (typeof eng.ensureLoaded === "function" && eng.ensureLoaded()) {
+      run(eng);
+      return Promise.resolve(true);
+    }
+    if (typeof eng.ensureLoadedAsync !== "function") return Promise.resolve(false);
+    return eng.ensureLoadedAsync().then((ok) => {
+      if (ok) run(eng);
+      return ok;
+    });
+  }
+
   function onToolbarClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const eng = engine();
     if (target.dataset.copilotSession === "true") {
-      if (!eng) return;
-      if (typeof eng.isActive === "function" && eng.isActive()) {
-        eng.pause();
-      } else if (typeof eng.isPaused === "function" && eng.isPaused()) {
-        eng.resume();
-      } else {
-        eng.start({ apply: true });
-      }
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        if (typeof activeEng.isActive === "function" && activeEng.isActive()) {
+          activeEng.pause();
+        } else if (typeof activeEng.isPaused === "function" && activeEng.isPaused()) {
+          activeEng.resume();
+        } else {
+          activeEng.start({ apply: true });
+        }
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotExit === "true") {
@@ -20684,13 +20896,17 @@
       return;
     }
     if (target.dataset.copilotPrev === "true") {
-      if (eng) eng.prev();
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        activeEng.prev();
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotNext === "true") {
-      if (eng) eng.next();
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        activeEng.next();
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotCaptionToggle === "true") {
@@ -20841,8 +21057,13 @@
     ensureCopilotInViewport();
     bindSelectMode();
     bindFabBehavior();
+    const alreadyMounted = uiState.mounted;
     uiState.mounted = true;
-    uiState.toolbarOpen = opts.toolbarOpen === true;
+    if (!alreadyMounted) {
+      uiState.toolbarOpen = opts.toolbarOpen === true;
+    } else if (typeof opts.toolbarOpen === "boolean") {
+      uiState.toolbarOpen = opts.toolbarOpen;
+    }
     if (opts.autoStart === true && eng && (isCopilotRoute() || hasCopilotShell())) {
       if (typeof eng.ensureLoaded === "function") {
         eng.ensureLoaded();
@@ -20954,6 +21175,10 @@
 
   function init() {
     exposeConsoleApi();
+    const eng = engine();
+    if (eng && typeof eng.prefetchManifest === "function") {
+      void eng.prefetchManifest();
+    }
     const toolbar = boot.copilotToolbar;
     if (toolbar && typeof toolbar.mount === "function" && shouldAutoStart()) {
       toolbar.mount({ autoStart: false, apply: false, toolbarOpen: false });
@@ -20965,6 +21190,9 @@
     const eng = engine();
     const toolbar = boot.copilotToolbar;
     if (!eng) return;
+    if (eng && typeof eng.prefetchManifest === "function") {
+      void eng.prefetchManifest();
+    }
     if (toolbar && typeof toolbar.mount === "function" && shouldAutoStart()) {
       toolbar.mount({ autoStart: false, toolbarOpen: false });
       exposeConsoleApi();

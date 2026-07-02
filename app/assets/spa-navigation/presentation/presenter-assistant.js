@@ -61,6 +61,10 @@
 
   function init() {
     exposeConsoleApi();
+    const eng = engine();
+    if (eng && typeof eng.prefetchManifest === "function") {
+      void eng.prefetchManifest();
+    }
     const toolbar = boot.copilotToolbar;
     if (toolbar && typeof toolbar.mount === "function" && shouldAutoStart()) {
       toolbar.mount({ autoStart: false, apply: false, toolbarOpen: false });
@@ -72,6 +76,9 @@
     const eng = engine();
     const toolbar = boot.copilotToolbar;
     if (!eng) return;
+    if (eng && typeof eng.prefetchManifest === "function") {
+      void eng.prefetchManifest();
+    }
     if (toolbar && typeof toolbar.mount === "function" && shouldAutoStart()) {
       toolbar.mount({ autoStart: false, toolbarOpen: false });
       exposeConsoleApi();

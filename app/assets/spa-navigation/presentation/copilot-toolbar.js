@@ -93,7 +93,7 @@
     const root = floatingRoot();
     root?.classList.toggle(
       "copilot-fab-elevated",
-      Boolean(root?.classList.contains("mei-copilot-letterbox-fixed")),
+      Boolean(root?.classList.contains("mei-copilot-in-viewport")),
     );
     const eng = engine();
     const active = eng && eng.isActive();
@@ -294,20 +294,35 @@
     );
   }
 
+  function withEngineLoaded(run) {
+    const eng = engine();
+    if (!eng) return Promise.resolve(false);
+    if (typeof eng.ensureLoaded === "function" && eng.ensureLoaded()) {
+      run(eng);
+      return Promise.resolve(true);
+    }
+    if (typeof eng.ensureLoadedAsync !== "function") return Promise.resolve(false);
+    return eng.ensureLoadedAsync().then((ok) => {
+      if (ok) run(eng);
+      return ok;
+    });
+  }
+
   function onToolbarClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const eng = engine();
     if (target.dataset.copilotSession === "true") {
-      if (!eng) return;
-      if (typeof eng.isActive === "function" && eng.isActive()) {
-        eng.pause();
-      } else if (typeof eng.isPaused === "function" && eng.isPaused()) {
-        eng.resume();
-      } else {
-        eng.start({ apply: true });
-      }
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        if (typeof activeEng.isActive === "function" && activeEng.isActive()) {
+          activeEng.pause();
+        } else if (typeof activeEng.isPaused === "function" && activeEng.isPaused()) {
+          activeEng.resume();
+        } else {
+          activeEng.start({ apply: true });
+        }
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotExit === "true") {
@@ -315,13 +330,17 @@
       return;
     }
     if (target.dataset.copilotPrev === "true") {
-      if (eng) eng.prev();
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        activeEng.prev();
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotNext === "true") {
-      if (eng) eng.next();
-      renderAll();
+      void withEngineLoaded((activeEng) => {
+        activeEng.next();
+        renderAll();
+      });
       return;
     }
     if (target.dataset.copilotCaptionToggle === "true") {
@@ -472,8 +491,13 @@
     ensureCopilotInViewport();
     bindSelectMode();
     bindFabBehavior();
+    const alreadyMounted = uiState.mounted;
     uiState.mounted = true;
-    uiState.toolbarOpen = opts.toolbarOpen === true;
+    if (!alreadyMounted) {
+      uiState.toolbarOpen = opts.toolbarOpen === true;
+    } else if (typeof opts.toolbarOpen === "boolean") {
+      uiState.toolbarOpen = opts.toolbarOpen;
+    }
     if (opts.autoStart === true && eng && (isCopilotRoute() || hasCopilotShell())) {
       if (typeof eng.ensureLoaded === "function") {
         eng.ensureLoaded();

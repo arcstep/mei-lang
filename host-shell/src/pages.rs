@@ -1036,6 +1036,60 @@ fn parse_app_scene_path(
     (app_id, scene, None)
 }
 
+const DEFAULT_ACCESS_PRESENTATION_ID: &str = "intro";
+
+fn presentation_manifest_candidates(presentation_id: &str) -> [String; 2] {
+    [
+        format!("src/presentation/{presentation_id}.presentation.json"),
+        format!("presentation/{presentation_id}.presentation.json"),
+    ]
+}
+
+pub(crate) fn load_presentation_manifest_json_for_app(
+    app_root: &std::path::Path,
+    presentation_id: &str,
+) -> Option<String> {
+    for rel in presentation_manifest_candidates(presentation_id) {
+        let path = app_root.join(&rel);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                return Some(content);
+            }
+        }
+    }
+    None
+}
+
+pub(crate) fn inject_presentation_manifest_script(
+    html: String,
+    app_root: &std::path::Path,
+    presentation_id: Option<&str>,
+) -> String {
+    if html.contains("id=\"mei-presentation-manifest\"") {
+        return html;
+    }
+    let pid = presentation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_ACCESS_PRESENTATION_ID);
+    let Some(json) = load_presentation_manifest_json_for_app(app_root, pid) else {
+        return html;
+    };
+    let script = format!(
+        r#"<script type="application/json" id="mei-presentation-manifest">{json}</script>"#
+    );
+    if let Some(pos) = html.find("</head>") {
+        let mut out = String::with_capacity(html.len() + script.len());
+        out.push_str(&html[..pos]);
+        out.push_str(&script);
+        out.push_str(&html[pos..]);
+        out
+    } else {
+        format!("{script}{html}")
+    }
+}
+
 pub(crate) fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph::AssembleOutcome) -> String {
     let layer_plan =
         serde_json::to_string(&outcome.layer_plan).unwrap_or_else(|_| "{}".to_string());

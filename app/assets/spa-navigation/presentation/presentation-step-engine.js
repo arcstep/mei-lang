@@ -59,12 +59,84 @@
     return manifest.steps.filter((step) => step && typeof step === "object");
   }
 
+  function parseAppIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
+    );
+    return match ? String(match[1] || "").trim() : "";
+  }
+
+  function parsePresentationIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:copilot|speaker)\/[^/]+\/(?:presentation|tour)\/([^/]+)/,
+    );
+    if (match) return String(match[1] || "").trim();
+    const shell = document.getElementById("copilot-shell");
+    const fromShell = shell?.dataset?.copilotPresentation;
+    return String(fromShell || "intro").trim() || "intro";
+  }
+
+  function presentationManifestAssetUrls(appId, presentationId) {
+    const pid = presentationId || "intro";
+    return [
+      `/workspace-app-assets/${encodeURIComponent(appId)}/src/presentation/${encodeURIComponent(pid)}.presentation.json`,
+      `/workspace-app-assets/${encodeURIComponent(appId)}/presentation/${encodeURIComponent(pid)}.presentation.json`,
+    ];
+  }
+
+  let manifestFetchPromise = null;
+
+  async function fetchManifestFromAssets() {
+    const appId = parseAppIdFromPath();
+    if (!appId) return null;
+    const presentationId = parsePresentationIdFromPath();
+    for (const url of presentationManifestAssetUrls(appId, presentationId)) {
+      try {
+        const response = await fetch(url, { credentials: "same-origin" });
+        if (!response.ok) continue;
+        const manifest = await response.json();
+        if (normalizeSteps(manifest).length) return manifest;
+      } catch (_) {
+        /* try next */
+      }
+    }
+    return null;
+  }
+
+  function ensureLoadedAsync() {
+    if (state.steps.length) return Promise.resolve(true);
+    const manifest = readManifestFromDom() || readStoredManifest();
+    if (loadManifest(manifest)) return Promise.resolve(true);
+    if (!manifestFetchPromise) {
+      manifestFetchPromise = fetchManifestFromAssets()
+        .then((fetched) => {
+          manifestFetchPromise = null;
+          return loadManifest(fetched);
+        })
+        .catch(() => {
+          manifestFetchPromise = null;
+          return false;
+        });
+    }
+    return manifestFetchPromise;
+  }
+
+  function injectManifestScript(manifest) {
+    if (!manifest || typeof manifest !== "object") return;
+    if (document.getElementById("mei-presentation-manifest")) return;
+    const node = document.createElement("script");
+    node.type = "application/json";
+    node.id = "mei-presentation-manifest";
+    node.textContent = JSON.stringify(manifest);
+    (document.head || document.body || document.documentElement).appendChild(node);
+  }
+
   function loadManifest(manifest) {
     const steps = normalizeSteps(manifest);
     if (!steps.length) return false;
     state.manifest = manifest;
     state.steps = steps;
-    state.sessionActive = true;
+    injectManifestScript(manifest);
     persistManifest(manifest);
     return true;
   }
@@ -77,6 +149,11 @@
 
   function hasManifest() {
     return Boolean(readManifestFromDom() || state.steps.length || readStoredManifest());
+  }
+
+  function prefetchManifest() {
+    if (hasManifest() || state.steps.length) return Promise.resolve(true);
+    return ensureLoadedAsync();
   }
 
   function focusApi() {
@@ -267,6 +344,8 @@
   const engine = {
     hasManifest,
     ensureLoaded,
+    ensureLoadedAsync,
+    prefetchManifest,
     loadManifest,
     applyStep,
     currentStep,

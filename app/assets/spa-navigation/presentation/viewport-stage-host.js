@@ -264,61 +264,158 @@
     return pos;
   }
 
-  /** FAB 用 body+fixed，但坐标一律基于 viewport 信纸框（shell 局部像素）。 */
+  function resolveViewportFabDesignCanvas() {
+    const stage = resolveViewportStageSurface();
+    if (stage instanceof HTMLElement) {
+      return {
+        width: Math.max(1, stage.offsetWidth || 0),
+        height: Math.max(1, stage.offsetHeight || 0),
+      };
+    }
+    const layout = resolveAccessFabLetterboxLayout();
+    const scale = readLetterboxScale();
+    if (layout) {
+      return {
+        width: Math.max(1, layout.width / scale),
+        height: Math.max(1, layout.height / scale),
+      };
+    }
+    return { width: 1920, height: 1080 };
+  }
+
+  function clampViewportFabDesignPosition(
+    designLeft,
+    designTop,
+    boxDesignW = FAB_SIZE_DESIGN_PX,
+    boxDesignH = FAB_SIZE_DESIGN_PX,
+  ) {
+    const canvas = resolveViewportFabDesignCanvas();
+    const pad = FAB_MARGIN_DESIGN_PX;
+    const min = pad;
+    const maxLeft = Math.max(min, canvas.width - boxDesignW - pad);
+    const maxTop = Math.max(min, canvas.height - boxDesignH - pad);
+    return {
+      left: Math.min(maxLeft, Math.max(min, Math.round(Number(designLeft) || 0))),
+      top: Math.min(maxTop, Math.max(min, Math.round(Number(designTop) || 0))),
+    };
+  }
+
+  function shellToViewportFabDesign(shellLeft, shellTop) {
+    const scale = readLetterboxScale();
+    return {
+      left: (Number(shellLeft) || 0) / scale,
+      top: (Number(shellTop) || 0) / scale,
+    };
+  }
+
+  function designToViewportFabShell(designLeft, designTop) {
+    const scale = readLetterboxScale();
+    return {
+      left: Math.round((Number(designLeft) || 0) * scale),
+      top: Math.round((Number(designTop) || 0) * scale),
+    };
+  }
+
+  /** 设计稿坐标 → shell 像素；resize 时仅按 scale 重算，保持与 T0/T1/T2 同比例。 */
+  function applyViewportFabDesignPosition(root, designLeft, designTop) {
+    if (!(root instanceof HTMLElement)) {
+      return null;
+    }
+    const design = clampViewportFabDesignPosition(designLeft, designTop);
+    const shell = designToViewportFabShell(design.left, design.top);
+    root.dataset.positioned = "true";
+    root.dataset.fabDesignLeft = String(design.left);
+    root.dataset.fabDesignTop = String(design.top);
+    delete root.dataset.letterboxLeft;
+    delete root.dataset.letterboxTop;
+    root.style.left = `${shell.left}px`;
+    root.style.top = `${shell.top}px`;
+    root.style.right = "auto";
+    root.style.bottom = "auto";
+    return design;
+  }
+
+  function resyncViewportFabDesignPosition(root) {
+    if (!(root instanceof HTMLElement) || root.dataset.positioned !== "true") {
+      return null;
+    }
+    let designLeft = Number(root.dataset.fabDesignLeft);
+    let designTop = Number(root.dataset.fabDesignTop);
+    if (!Number.isFinite(designLeft) || !Number.isFinite(designTop)) {
+      const scale = readLetterboxScale();
+      const shellLeft = Number(root.style.left);
+      const shellTop = Number(root.style.top);
+      if (!Number.isFinite(shellLeft) || !Number.isFinite(shellTop) || scale <= 0) {
+        return null;
+      }
+      designLeft = shellLeft / scale;
+      designTop = shellTop / scale;
+    }
+    return applyViewportFabDesignPosition(root, designLeft, designTop);
+  }
+
+  /** FAB 挂入 copilot-plane，与 T0/T1/T2 共用 shell 信纸框坐标系（--mei-frame-scale）。 */
   function relocateAccessFabInLetterbox() {
     const root = document.getElementById(ACCESS_CHAT_ROOT_ID);
     if (!(root instanceof HTMLElement)) {
       return;
     }
     if (!viewportCopilotActive()) {
-      root.classList.remove("mei-copilot-letterbox-fixed");
+      root.classList.remove("mei-copilot-in-viewport", "mei-copilot-letterbox-fixed");
+      root.style.position = "";
+      root.style.left = "";
+      root.style.top = "";
+      root.style.right = "";
+      root.style.bottom = "";
+      root.style.zIndex = "";
+      root.style.transform = "";
+      root.style.pointerEvents = "";
       return;
     }
-    const layout = resolveAccessFabLetterboxLayout(root);
-    if (!layout) {
+    const plane = ensureCopilotPlane();
+    if (!plane) {
       return;
     }
-
-    if (root.parentElement !== document.body) {
-      document.body.appendChild(root);
+    if (root.parentElement !== plane) {
+      plane.appendChild(root);
     }
-    root.classList.add("mei-copilot-in-viewport", "mei-copilot-letterbox-fixed");
-    root.style.zIndex = "var(--mei-z-copilot-fab-elevated)";
-    root.style.pointerEvents = "auto";
-    root.style.transform = "none";
+    root.classList.add("mei-copilot-in-viewport");
+    root.classList.remove("mei-copilot-letterbox-fixed");
+    root.style.zIndex = "";
+    root.style.pointerEvents = "";
+    root.style.transform = "";
 
     const fab = document.getElementById("access-chat-fab");
     if (fab instanceof HTMLElement) {
       fab.style.pointerEvents = "auto";
+      fab.style.width = "";
+      fab.style.height = "";
+    }
+
+    if (root.dataset.letterboxLeft != null || root.dataset.letterboxTop != null) {
+      const migratedLeft = Number(root.dataset.letterboxLeft);
+      const migratedTop = Number(root.dataset.letterboxTop);
+      delete root.dataset.letterboxLeft;
+      delete root.dataset.letterboxTop;
+      if (Number.isFinite(migratedLeft) && Number.isFinite(migratedTop)) {
+        const scale = readLetterboxScale();
+        applyViewportFabDesignPosition(root, migratedLeft / scale, migratedTop / scale);
+        return;
+      }
     }
 
     if (root.dataset.positioned === "true") {
-      let localLeft = Number(root.dataset.letterboxLeft);
-      let localTop = Number(root.dataset.letterboxTop);
-      if (!Number.isFinite(localLeft) || !Number.isFinite(localTop)) {
-        const rect = root.getBoundingClientRect();
-        const local = layout.screenToLocal(rect.left, rect.top);
-        localLeft = local.left;
-        localTop = local.top;
-      }
-      applyAccessFabLetterboxPosition(root, localLeft, localTop);
+      resyncViewportFabDesignPosition(root);
       return;
     }
 
+    root.style.left = "";
+    root.style.top = "";
+    root.style.right = "";
+    root.style.bottom = "";
     delete root.dataset.positioned;
-    delete root.dataset.letterboxLeft;
-    delete root.dataset.letterboxTop;
-    const def = layout.defaultLocal();
-    const screen = layout.localToScreen(def.left, def.top);
-    root.style.position = "fixed";
-    root.style.left = `${Math.round(screen.left)}px`;
-    root.style.top = `${Math.round(screen.top)}px`;
-    root.style.right = "auto";
-    root.style.bottom = "auto";
-    if (fab instanceof HTMLElement) {
-      fab.style.width = `${Math.round(layout.fabSize)}px`;
-      fab.style.height = `${Math.round(layout.fabSize)}px`;
-    }
+    delete root.dataset.fabDesignLeft;
+    delete root.dataset.fabDesignTop;
   }
 
   function mountCopilotInViewport(node) {
@@ -444,6 +541,7 @@
     }
   }
 
+  boot.readViewportFrameScale = readLetterboxScale;
   boot.resolveViewportStageHost = resolveViewportStageHost;
   boot.resolveViewportStageSurface = resolveViewportStageSurface;
   boot.ensurePresentationPlane = ensurePresentationPlane;
@@ -458,6 +556,11 @@
   boot.relocateAccessFabInLetterbox = relocateAccessFabInLetterbox;
   boot.resolveAccessFabLetterboxLayout = resolveAccessFabLetterboxLayout;
   boot.applyAccessFabLetterboxPosition = applyAccessFabLetterboxPosition;
+  boot.applyViewportFabDesignPosition = applyViewportFabDesignPosition;
+  boot.resyncViewportFabDesignPosition = resyncViewportFabDesignPosition;
+  boot.shellToViewportFabDesign = shellToViewportFabDesign;
+  boot.designToViewportFabShell = designToViewportFabShell;
+  boot.clampViewportFabDesignPosition = clampViewportFabDesignPosition;
   boot.relocateStageOverlaysInViewport = relocateStageOverlaysInViewport;
 
   function scheduleRelocate() {
