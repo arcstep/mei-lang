@@ -85,7 +85,7 @@ mod tests {
         CompileScopeFilterConfig {
             exclude_targets: vec!["**/*.board.mei".to_string()],
             skip_discover: Some(true),
-            skip_board_autogen_focus: Some(true),
+            skip_t2_page_autogen_focus: Some(true),
             ..CompileScopeFilterConfig::default()
         }
     }

@@ -309,7 +309,7 @@ fn compile_scope_excludes_board_focus_and_deferred_datasets() {
             exclude_targets: vec!["**/*.board.mei".to_string()],
             exclude_scene_ids: vec!["*_analytics_board".to_string()],
             skip_discover: Some(true),
-            skip_board_autogen_focus: Some(true),
+            skip_t2_page_autogen_focus: Some(true),
             ..Default::default()
         }),
         ..RuntimeWarmupApp::default()

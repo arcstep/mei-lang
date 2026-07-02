@@ -303,18 +303,18 @@ pub struct CompileScopeFilterConfig {
     /// 仅编译匹配的 target（相对 app `src/`，如 `scenes/home.mei`）。空 = 不限（仍受 exclude 约束）。
     #[serde(default, rename = "includeTargets")]
     pub include_targets: Vec<String>,
-    /// 排除的 target glob，如 `**/*.board.mei`、`scenes/_shared/**`。
+    /// 排除的 target glob，如 `**/*.page.mei`、`scenes/_shared/**`。
     #[serde(default, rename = "excludeTargets")]
     pub exclude_targets: Vec<String>,
-    /// 排除的 scene export id glob，如 `*_analytics_board`。
+    /// 排除的 scene export id glob，如 `*_analytics_page`。
     #[serde(default, rename = "excludeSceneIds")]
     pub exclude_scene_ids: Vec<String>,
     /// 为 true 时不把 discover 展开项加入 compile 队列（仅同步 MRG navigation）。
     #[serde(default, rename = "skipDiscover")]
     pub skip_discover: Option<bool>,
-    /// 为 true 时不把 board autogen 推导的 `.board.mei` focus 注入 manifest。
-    #[serde(default, rename = "skipBoardAutogenFocus")]
-    pub skip_board_autogen_focus: Option<bool>,
+    /// 为 true 时不把 T2 page autogen 推导的 `.page.mei` focus 注入 manifest。
+    #[serde(default, rename = "skipT2PageAutogenFocus")]
+    pub skip_t2_page_autogen_focus: Option<bool>,
 }
 
 impl CompileScopeFilterConfig {
@@ -323,15 +323,15 @@ impl CompileScopeFilterConfig {
             || !self.exclude_targets.is_empty()
             || !self.exclude_scene_ids.is_empty()
             || self.skip_discover == Some(true)
-            || self.skip_board_autogen_focus == Some(true)
+            || self.skip_t2_page_autogen_focus == Some(true)
     }
 
     pub fn should_skip_discover(&self) -> bool {
         self.skip_discover.unwrap_or(false)
     }
 
-    pub fn should_skip_board_autogen_focus(&self) -> bool {
-        self.skip_board_autogen_focus.unwrap_or(false)
+    pub fn should_skip_t2_page_autogen_focus(&self) -> bool {
+        self.skip_t2_page_autogen_focus.unwrap_or(false)
     }
 }
 

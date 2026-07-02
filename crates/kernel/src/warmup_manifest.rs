@@ -129,7 +129,7 @@ pub fn enrich_runtime_warmup_app(
         let skip_board_focus = app
             .compile_scope
             .as_ref()
-            .is_some_and(|scope| scope.should_skip_board_autogen_focus());
+            .is_some_and(|scope| scope.should_skip_t2_page_autogen_focus());
         let mut focus_seen = app.focuses.iter().cloned().collect::<BTreeSet<_>>();
         for suggestion in
             crate::warmup_board_autogen::discover_board_warmup_suggestions(app_root.as_path())?

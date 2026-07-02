@@ -47,10 +47,10 @@ function parseStepBlock(headingLine, lines) {
     } else if (key === "highlight") {
       step.cockpit = step.cockpit || { scene: "home", actions: [] };
       step.cockpit.actions.push({ type: "highlight", viewpoint: value });
-    } else if (key === "open_board") {
+    } else if (key === "open_t2_page" || key === "open_board") {
       const parts = value.split(/\s+/).filter(Boolean);
       step.cockpit = step.cockpit || { scene: "home", actions: [] };
-      const action = { type: "open_board", boardSceneId: parts[0] };
+      const action = { type: "open_t2_page", pageSceneId: parts[0] };
       if (parts[1]) action.projection = parts[1];
       step.cockpit.actions.push(action);
     } else if (key === "binding") step.cockpit = { binding: value, scene: "home", actions: [] };
@@ -98,14 +98,14 @@ function parseBindingActions(bindingSource) {
     actions.push({ type: "highlight", viewpoint: match[1] });
     match = highlightRe.exec(bindingSource);
   }
-  const openBoardRe =
-    /open_board\s*\(\s*board_scene_id\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g;
-  match = openBoardRe.exec(bindingSource);
+  const openT2PageRe =
+    /open_t2_page\s*\(\s*page_scene_id\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g;
+  match = openT2PageRe.exec(bindingSource);
   while (match) {
-    const action = { type: "open_board", boardSceneId: match[1] };
+    const action = { type: "open_t2_page", pageSceneId: match[1] };
     if (match[2]) action.projection = match[2];
     actions.push(action);
-    match = openBoardRe.exec(bindingSource);
+    match = openT2PageRe.exec(bindingSource);
   }
   return actions;
 }

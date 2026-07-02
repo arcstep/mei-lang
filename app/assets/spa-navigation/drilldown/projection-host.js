@@ -7,7 +7,10 @@
     const navKind = nonEmptyString(config?.sceneLocalNav?.kind);
     return Boolean(
       config?.structuredBoard &&
-        (hostMode === "scene_board" || navKind === "analytics_drilldown_board"),
+        (hostMode === "scene_page" ||
+          hostMode === "scene_board" ||
+          navKind === "analytics_drilldown_page" ||
+          navKind === "analytics_drilldown_board"),
     );
   }
 

@@ -54,8 +54,11 @@
       case "clearFocus":
         clearViewpointFocus();
         return true;
+      case "open_t2_page":
       case "open_board": {
-        const sceneId = String(action.boardSceneId || action.sceneId || "").trim();
+        const sceneId = String(
+          action.pageSceneId || action.boardSceneId || action.sceneId || "",
+        ).trim();
         if (!sceneId || typeof boot.openScene !== "function") return false;
         boot.openScene({
           scene_id: sceneId,
