@@ -83,7 +83,7 @@ pub fn tabs_for_node_kind(kind: BuildNodeKind) -> &'static [BuildViewTab] {
     match kind {
         BuildNodeKind::Route => &[Overview, Preview, Provenance, Agent],
         BuildNodeKind::Scene => &[Overview, Preview, Provenance, Agent],
-        BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock => {
+        BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock | BuildNodeKind::UiScope => {
             &[Overview, Preview, Provenance, Agent]
         }
         BuildNodeKind::Projection => &[Overview, Preview, Semantic, Provenance, Agent],

@@ -64,6 +64,23 @@ pub fn build_preview_panel_scope(compiled: &CompiledApp, node: &BuildNodeId) -> 
             .key
             .rsplit_once('/')
             .map(|(panel_path, _)| panel_path.to_string()),
+        BuildNodeKind::UiScope => compiled
+            .ui_layout_index
+            .lookup(node)
+            .map(|entry| entry.preview_scope.clone())
+            .filter(|value| !value.is_empty()),
+        _ => None,
+    }
+}
+
+/// Preview scope path for UI structure nodes (region/section/micro/slot/content).
+pub fn build_preview_ui_scope(compiled: &CompiledApp, node: &BuildNodeId) -> Option<String> {
+    match node.kind {
+        BuildNodeKind::UiScope => compiled
+            .ui_layout_index
+            .lookup(node)
+            .map(|entry| entry.preview_scope.clone())
+            .filter(|value| !value.is_empty()),
         _ => None,
     }
 }
@@ -102,6 +119,7 @@ pub fn catalog_preview_target_for_build_node(
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     crate::compile::build_experience::preview_target_from_build_node_with_app(node, Some(&stub))
 }

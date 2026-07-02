@@ -30,6 +30,7 @@ pub enum BuildNodeKind {
     GraphSemantic,
     GraphEval,
     McgNode,
+    UiScope,
 }
 
 impl BuildNodeKind {
@@ -53,6 +54,7 @@ impl BuildNodeKind {
             Self::GraphSemantic => "graph-semantic",
             Self::GraphEval => "graph-eval",
             Self::McgNode => "mcg-node",
+            Self::UiScope => "ui-scope",
         }
     }
 
@@ -76,6 +78,7 @@ impl BuildNodeKind {
             "graph-semantic" => Some(Self::GraphSemantic),
             "graph-eval" => Some(Self::GraphEval),
             "mcg-node" => Some(Self::McgNode),
+            "ui-scope" => Some(Self::UiScope),
             _ => None,
         }
     }
@@ -182,6 +185,14 @@ impl BuildNodeId {
         Self::new(BuildNodeKind::Template, template_key)
     }
 
+    /// Key format: `{scene_id}/{scope_path}`.
+    pub fn ui_scope(scene_id: impl Into<String>, scope_path: impl Into<String>) -> Self {
+        Self::new(
+            BuildNodeKind::UiScope,
+            format!("{}/{}", scene_id.into(), scope_path.into()),
+        )
+    }
+
     pub fn artifact(kind: impl Into<String>, scope_key: impl Into<String>) -> Self {
         Self::new(
             BuildNodeKind::Artifact,
@@ -224,7 +235,7 @@ impl BuildNodeId {
             {
                 Preview
             }
-            ScenePanel | SceneBlock => Overview,
+            ScenePanel | SceneBlock | BuildNodeKind::UiScope => Overview,
             BuildNodeKind::Component | BuildNodeKind::Template => Preview,
             BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => Preview,
             _ => tabs_for_node_kind(self.kind)

@@ -1,5 +1,6 @@
 mod build_node;
 mod build_view_index;
+mod ui_layout_index;
 mod compile_out;
 mod contract;
 mod dataset;
@@ -21,6 +22,9 @@ pub use build_view_index::{
     BoardFileEntry, BoardSlotEntry, BuildBoardIndex, BuildExperienceIndex, BuildTemplateIndex,
     ExperienceNodeManifest, MountChainEntry, ReachabilityTreeNodeSnapshot,
     ReachabilityTreeRootSnapshot, TemplateCatalogEntry, TemplateConsumerAnchor,
+};
+pub use ui_layout_index::{
+    UiBudgetSummary, UiLayoutIndex, UiScopeNode, UiScopeRole, UiSourceAnchor,
 };
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;

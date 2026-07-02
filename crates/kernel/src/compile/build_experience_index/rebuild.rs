@@ -20,6 +20,17 @@ pub(super) fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
     if snapshot.is_empty() {
         return true;
     }
+    let has_ui_structure = snapshot.iter().any(|root| root.group == "ui_structure");
+    if !has_ui_structure && !compiled.ui_layout_index.nodes.is_empty() {
+        return true;
+    }
+    if compiled.ui_layout_index.nodes.is_empty() {
+        let contracts = scene_contracts_from_compiled(compiled);
+        let has_panels = contracts.values().any(|contract| !contract.panels.is_empty());
+        if has_panels && !has_ui_structure {
+            return true;
+        }
+    }
     let has_boards = snapshot.iter().any(|root| root.group == "boards");
     let expects_boards = file_tree_has_board_capsules(&compiled.file_tree)
         || !compiled.build_board_index.boards.is_empty();
@@ -31,7 +42,9 @@ pub(super) fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
 
 fn file_tree_has_board_capsules(nodes: &[crate::model::WorkspaceNode]) -> bool {
     nodes.iter().any(|node| {
-        if node.kind == "file" && node.path.ends_with(".board.mei") {
+        if node.kind == "file"
+            && (node.path.ends_with(".board.mei") || node.path.ends_with(".page.mei"))
+        {
             return true;
         }
         node.kind == "dir" && file_tree_has_board_capsules(&node.children)
@@ -79,15 +92,21 @@ pub(super) fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) ->
             };
             (empty("templates", "Components"), empty("template_files", "Templates"))
         };
-    merge_build_view_tree_roots(
+    let ui_layout = crate::compile::build_ui_layout_index::build_ui_layout_index(compiled);
+    let mut merged_snapshot = merge_build_view_tree_roots(
         experience.reachability_snapshot,
         board.tree_root,
         template_root,
         template_files_root,
-    )
-    .into_iter()
-    .map(|snapshot| snapshot_to_root(&snapshot))
-    .collect()
+    );
+    crate::compile::build_ui_layout_index::merge_ui_structure_root(
+        &mut merged_snapshot,
+        ui_layout.tree_root,
+    );
+    merged_snapshot
+        .into_iter()
+        .map(|snapshot| snapshot_to_root(&snapshot))
+        .collect()
 }
 
 fn scene_contracts_from_compiled(compiled: &CompiledApp) -> BTreeMap<String, SceneContract> {

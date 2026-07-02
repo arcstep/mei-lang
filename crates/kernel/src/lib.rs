@@ -38,7 +38,9 @@ pub use compile_scope_filter::{
 };
 pub use compile::{
     block_instance_id, build_experience_index, build_experience_path, build_overview_backing,
-    build_preview_panel_scope,
+    build_preview_panel_scope, build_preview_ui_scope, build_ui_layout_index,
+    filter_roots_for_tree_mode, format_ui_scope_agent_context, merge_ui_structure_root,
+    resolve_build_preview_scope, ui_scope_annotation_for_preview_path,
     component_authoring_example_workspace_path, scene_contract_contains_use_key,
     build_reachability_tree, build_runtime_analysis_contracts, build_runtime_analysis_graph,
     build_runtime_metric_artifacts,
@@ -187,7 +189,8 @@ pub use model::{
     RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, SemanticEdgeKind,
     SemanticNodeKind, Severity, SourceDecl, ThemeDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode,
     WorldCellDecl, WorldMetricLedgerEntry, WorldSemanticDataset, WorldSemanticExplainBlock,
-    WorldSemanticFileIndex, WorldSemanticMetric,
+    WorldSemanticFileIndex, WorldSemanticMetric, UiBudgetSummary, UiLayoutIndex, UiScopeNode,
+    UiScopeRole, UiSourceAnchor,
 };
 pub use ops_journal::{apply_ops_patch_with_journal, journal_path, OpsJournal, OpsJournalEntry};
 pub use runtime::{

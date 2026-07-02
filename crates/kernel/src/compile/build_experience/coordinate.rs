@@ -19,7 +19,7 @@ pub fn compile_coordinate_for_node(
     let preview_kind = match node.kind {
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => BuildPreviewKind::BoardCapsule,
         BuildNodeKind::WorldFile => {
-            if node.key.ends_with(".board.mei") {
+            if node.key.ends_with(".board.mei") || node.key.ends_with(".page.mei") {
                 BuildPreviewKind::BoardCapsule
             } else {
                 BuildPreviewKind::WorldCapsule
@@ -32,8 +32,9 @@ pub fn compile_coordinate_for_node(
         | BuildNodeKind::Route
         | BuildNodeKind::ScenePanel
         | BuildNodeKind::SceneBlock
+        | BuildNodeKind::UiScope
         | BuildNodeKind::Projection => {
-            if preview_target.ends_with(".board.mei") {
+            if preview_target.ends_with(".board.mei") || preview_target.ends_with(".page.mei") {
                 BuildPreviewKind::BoardCapsule
             } else {
                 BuildPreviewKind::SceneCapsule

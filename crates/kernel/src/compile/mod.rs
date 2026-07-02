@@ -10,6 +10,7 @@ mod authoring_eval;
 mod build_board_index;
 mod build_experience;
 mod build_experience_index;
+mod build_ui_layout_index;
 mod build_mcg_index;
 mod build_node_context;
 mod build_template_index;
@@ -77,8 +78,12 @@ pub use build_experience::{
     preview_target_relative_to_app, BuildCompileCoordinate, BuildPreviewKind,
 };
 pub use build_experience_index::{build_experience_index, enrich_reachability_tree_compile_coords};
+pub use build_ui_layout_index::{
+    build_ui_layout_index, filter_roots_for_tree_mode, format_ui_scope_agent_context,
+    merge_ui_structure_root, resolve_build_preview_scope, ui_scope_annotation_for_preview_path,
+};
 pub use build_node_context::{
-    build_preview_panel_scope, catalog_preview_target_for_build_node,
+    build_preview_panel_scope, build_preview_ui_scope, catalog_preview_target_for_build_node,
     default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,
     BuildNodeContext,
 };

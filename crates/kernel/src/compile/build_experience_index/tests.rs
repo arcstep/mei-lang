@@ -122,6 +122,7 @@ fn experience_index_expands_nested_panels() {
         build_experience_index: BuildExperienceIndex::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let index = build_experience_index(&routes, &BTreeMap::new(), &contracts, &compiled_stub);
     let nested_id =

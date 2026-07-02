@@ -51,6 +51,15 @@ fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> 
             }
             path
         }
+        BuildNodeKind::UiScope => compiled
+            .ui_layout_index
+            .lookup(node)
+            .map(|entry| {
+                let mut path = scene_label(compiled, entry.scene_id.as_deref().unwrap_or(""));
+                path.extend(entry.scope_path.iter().skip(1).cloned());
+                path
+            })
+            .unwrap_or_else(|| vec![node.encode()]),
         BuildNodeKind::WorldFile => vec!["Backing · World".to_string(), node.key.clone()],
         BuildNodeKind::WorldDataset | BuildNodeKind::WorldMetric => {
             let (file, symbol) = split_file_symbol(&node.key);

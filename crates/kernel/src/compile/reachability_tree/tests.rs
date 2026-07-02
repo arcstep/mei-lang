@@ -37,6 +37,7 @@ fn reachability_tree_includes_routes_and_world() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     compiled.world_semantic_by_file.insert(
         "metrics.world.mei".to_string(),
@@ -136,6 +137,7 @@ fn reachability_tree_expands_scene_panels_from_assembly() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let roots = build_reachability_tree(&compiled);
     let scene = &roots[0].children[0];

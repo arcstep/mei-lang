@@ -340,6 +340,7 @@ fn template_file_authoring_preview_targets_template_mei() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: BuildTemplateIndex { templates },
+        ui_layout_index: Default::default(),
     };
     assert_eq!(
         authoring_preview_target_for_template(&compiled, "cockpit/main.mei").as_deref(),

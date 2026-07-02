@@ -243,6 +243,29 @@ pub fn resolve_build_node_context(compiled: &CompiledApp, node: &BuildNodeId) ->
                 provenance,
             }
         }
+        BuildNodeKind::UiScope => {
+            let scene_id = node
+                .key
+                .split_once('/')
+                .map(|(scene, _)| scene.to_string())
+                .unwrap_or_else(|| node.key.clone());
+            let target_file = compiled
+                .scene_routes
+                .iter()
+                .find(|route| route.scene_id == scene_id)
+                .map(|route| route.target_file.clone())
+                .unwrap_or_else(|| compiled.active_target_file.clone());
+            BuildNodeContext {
+                node: node.clone(),
+                target_file,
+                scene_id: Some(scene_id),
+                world_metric: None,
+                world_dataset: None,
+                explain: None,
+                projection_id: None,
+                provenance,
+            }
+        }
     }
 }
 
@@ -457,6 +480,32 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
                 file: String::new(),
                 symbol_id: node.key.clone(),
                 symbol_kind: node.kind.slug().to_string(),
+            }
+        }
+        BuildNodeKind::UiScope => {
+            let (scene_id, symbol) = node
+                .key
+                .split_once('/')
+                .map(|(scene, rest)| (scene.to_string(), rest.to_string()))
+                .unwrap_or((node.key.clone(), String::new()));
+            let file = compiled
+                .ui_layout_index
+                .lookup(node)
+                .and_then(|entry| entry.source_anchors.first())
+                .map(|anchor| anchor.file.clone())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| {
+                    compiled
+                        .scene_routes
+                        .iter()
+                        .find(|route| route.scene_id == scene_id)
+                        .map(|route| route.target_file.clone())
+                        .unwrap_or_else(|| compiled.active_target_file.clone())
+                });
+            ProvenanceAnchor {
+                file,
+                symbol_id: symbol,
+                symbol_kind: "ui_scope".to_string(),
             }
         }
     }

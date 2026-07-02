@@ -67,4 +67,7 @@ pub struct CompiledApp {
     pub build_board_index: super::build_view_index::BuildBoardIndex,
     #[serde(default)]
     pub build_template_index: super::build_view_index::BuildTemplateIndex,
+    /// UI structure tree for build-view (scene → plane → region → section → micro → slot → content).
+    #[serde(default)]
+    pub ui_layout_index: super::ui_layout_index::UiLayoutIndex,
 }

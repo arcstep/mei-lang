@@ -231,6 +231,7 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     compiled.build_experience_index =
         crate::compile::build_experience_index::build_experience_index(
@@ -275,6 +276,8 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
         }
     };
     compiled.build_template_index = template.index;
+    let ui_layout = crate::compile::build_ui_layout_index::build_ui_layout_index(&compiled);
+    compiled.ui_layout_index = ui_layout.index;
     let template_files = if is_catalog_app {
         crate::compile::build_template_index::build_stock_template_files_root(
             workspace_source_root.as_path(),
@@ -297,6 +300,10 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
             template.tree_root,
             template_files,
         );
+    crate::compile::build_ui_layout_index::merge_ui_structure_root(
+        &mut reachability_snapshot,
+        ui_layout.tree_root,
+    );
     crate::compile::build_experience_index::annotate_stock_preview_availability(
         &mut reachability_snapshot,
         &compiled,

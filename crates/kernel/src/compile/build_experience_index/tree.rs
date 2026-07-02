@@ -11,7 +11,7 @@ use crate::model::{
     BlockDecl, BuildNodeId, BuildNodeKind, CompiledSceneRoute, ExperienceNodeManifest, MountChainEntry, PanelDecl, SceneContract, UiNodeDecl,
 };
 
-pub(super) fn panels_for_scene_from_maps(
+pub fn panels_for_scene_from_maps(
     scene_id: &str,
     assembly_by_id: &BTreeMap<String, Value>,
     contracts_by_id: &BTreeMap<String, SceneContract>,

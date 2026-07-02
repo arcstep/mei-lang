@@ -84,6 +84,7 @@ fn compile_coordinate_board_exports_share_preview_target() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let board_a = BuildNodeId::board_file("scenes/01.board.mei#board_a");
     let board_b = BuildNodeId::board_file("scenes/01.board.mei#board_b");
@@ -132,6 +133,7 @@ fn compile_coordinate_groups_scene_panels_with_scene_route() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let scene = BuildNodeId::scene("home");
     let panel = BuildNodeId::scene_panel("home", "kpi_row");
@@ -200,6 +202,7 @@ fn compile_coordinate_for_template_file_uses_authoring_preview() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: BuildTemplateIndex { templates },
+        ui_layout_index: Default::default(),
     };
     let node = BuildNodeId::template("cockpit/main.mei");
     let coord = compile_coordinate_for_node(&node, &compiled).expect("coord");

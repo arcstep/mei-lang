@@ -111,7 +111,7 @@ pub fn preview_target_from_build_node_with_app(
         BuildNodeKind::Scene | BuildNodeKind::Route => {
             compiled.and_then(|app| preview_target_for_scene_id(app, node.key.as_str()))
         }
-        BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock => {
+        BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock | BuildNodeKind::UiScope => {
             let scene_id = scene_id_from_ui_node_key(&node.key)?;
             compiled.and_then(|app| preview_target_for_scene_id(app, scene_id.as_str()))
         }
@@ -223,7 +223,7 @@ pub fn compile_scene_from_build_node_with_app(
     }
     if node.kind == BuildNodeKind::WorldFile {
         let board_file = node.key.as_str();
-        if board_file.ends_with(".board.mei") {
+        if board_file.ends_with(".board.mei") || board_file.ends_with(".page.mei") {
             if let Some(app) = compiled {
                 return app
                     .build_board_index
