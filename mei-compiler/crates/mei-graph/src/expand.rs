@@ -99,9 +99,16 @@ fn expand_expr(expr: &V2Expr, ctx: &ExpandContext<'_>) -> Result<V2Expr, ExpandE
         V2Expr::BinOp { op, left, right } => {
             let left = expand_expr(left, ctx)?;
             let right = expand_expr(right, ctx)?;
-            if matches!(op, mei_syntax::v2::BinOp::Add) {
-                if let (V2Expr::String(a), V2Expr::String(b)) = (&left, &right) {
-                    return Ok(V2Expr::String(format!("{a}{b}")));
+            match op {
+                mei_syntax::v2::BinOp::Add => {
+                    if let (V2Expr::String(a), V2Expr::String(b)) = (&left, &right) {
+                        return Ok(V2Expr::String(format!("{a}{b}")));
+                    }
+                }
+                mei_syntax::v2::BinOp::Merge => {
+                    if let Some(merged) = merge_dict_expr(&left, &right) {
+                        return Ok(merged);
+                    }
                 }
             }
             Ok(V2Expr::BinOp {
@@ -296,6 +303,25 @@ fn substitute_expr(
     }
 }
 
+fn merge_dict_expr(left: &V2Expr, right: &V2Expr) -> Option<V2Expr> {
+    let V2Expr::Dict(left_entries) = left else {
+        return None;
+    };
+    let V2Expr::Dict(right_entries) = right else {
+        return None;
+    };
+    let mut merged = left_entries.clone();
+    for (key, value) in right_entries {
+        if let Some((_, existing)) = merged.iter_mut().find(|(existing_key, _)| existing_key == key)
+        {
+            *existing = value.clone();
+        } else {
+            merged.push((key.clone(), value.clone()));
+        }
+    }
+    Some(V2Expr::Dict(merged))
+}
+
 fn eval_const_expr(expr: &V2Expr, consts: &BTreeMap<String, V2Expr>) -> Result<V2Expr, ExpandError> {
     match expr {
         V2Expr::VarRef(name) => consts
@@ -317,6 +343,17 @@ fn eval_const_expr(expr: &V2Expr, consts: &BTreeMap<String, V2Expr>) -> Result<V
                     right: Box::new(r),
                 }),
             }
+        }
+        V2Expr::BinOp {
+            op: mei_syntax::v2::BinOp::Merge,
+            left,
+            right,
+        } => {
+            let left = eval_const_expr(left, consts)?;
+            let right = eval_const_expr(right, consts)?;
+            merge_dict_expr(&left, &right).ok_or_else(|| {
+                ExpandError::Expand("dict merge requires two dict literals".into())
+            })
         }
         other => Ok(other.clone()),
     }

@@ -118,6 +118,41 @@ fn scalar_to_string(value: &Value) -> String {
     }
 }
 
+fn merge_v2_json_values(left: &Value, right: &Value) -> Value {
+    match (left, right) {
+        (Value::Object(left_map), Value::Object(right_map)) => {
+            let mut merged = left_map.clone();
+            for (key, value) in right_map {
+                if let Some(existing) = merged.get_mut(key) {
+                    *existing = merge_v2_json_values(existing, value);
+                } else {
+                    merged.insert(key.clone(), value.clone());
+                }
+            }
+            Value::Object(merged)
+        }
+        (Value::Null, Value::Object(map)) | (Value::Object(map), Value::Null) => {
+            Value::Object(map.clone())
+        }
+        (Value::Object(map), _) => Value::Object(map.clone()),
+        (_, right) => right.clone(),
+    }
+}
+
+fn resolve_v2_binop(
+    op: &str,
+    left: &Value,
+    right: &Value,
+    constants: &BTreeMap<String, Value>,
+) -> Value {
+    let left = resolve_v2_constants(left, constants);
+    let right = resolve_v2_constants(right, constants);
+    if op.contains("Merge") {
+        return merge_v2_json_values(&left, &right);
+    }
+    json!(scalar_to_string(&left) + &scalar_to_string(&right))
+}
+
 /// Walk lowered / compiled metric JSON and replace `{ "__var": "NAME" }` nodes.
 pub fn resolve_v2_constants(value: &Value, constants: &BTreeMap<String, Value>) -> Value {
     if let Some(map) = value.as_object() {
@@ -138,15 +173,13 @@ pub fn resolve_v2_constants(value: &Value, constants: &BTreeMap<String, Value>) 
             }
         }
         if map.contains_key("__binop") {
-            let left = map
-                .get("left")
-                .map(|v| resolve_v2_constants(v, constants))
-                .unwrap_or(Value::Null);
-            let right = map
-                .get("right")
-                .map(|v| resolve_v2_constants(v, constants))
-                .unwrap_or(Value::Null);
-            return json!(scalar_to_string(&left) + &scalar_to_string(&right));
+            let op = map
+                .get("__binop")
+                .and_then(Value::as_str)
+                .unwrap_or("Add");
+            let left = map.get("left").cloned().unwrap_or(Value::Null);
+            let right = map.get("right").cloned().unwrap_or(Value::Null);
+            return resolve_v2_binop(op, &left, &right, constants);
         }
         let mut out = Map::new();
         for (key, child) in map {
@@ -201,5 +234,23 @@ metric_def_bundle(
         let resolved = resolve_v2_constants(&raw, &constants);
         assert_eq!(resolved["years"], json!([{"__var": "YEAR_PREV"}, 2025]));
         assert_eq!(resolved["field"], json!("处罚次数_2025"));
+    }
+
+    #[test]
+    fn resolve_merge_binop_into_object() {
+        let raw = json!({
+            "__binop": "Merge",
+            "left": {"padding": "0", "background": "transparent"},
+            "right": {"border": "none", "background": {"image": "url(/bg.svg)"}}
+        });
+        let resolved = resolve_v2_constants(&raw, &BTreeMap::new());
+        assert_eq!(
+            resolved,
+            json!({
+                "padding": "0",
+                "background": {"image": "url(/bg.svg)"},
+                "border": "none",
+            })
+        );
     }
 }

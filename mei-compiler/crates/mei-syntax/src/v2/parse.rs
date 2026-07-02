@@ -255,14 +255,17 @@ fn expr_parser() -> impl Parser<char, V2Expr, Error = Simple<char>> + Clone {
         primary
             .clone()
             .then(
-                just('+')
-                    .padded()
-                    .then(primary)
-                    .repeated(),
+                choice((
+                    just('+').to(BinOp::Add),
+                    just('|').to(BinOp::Merge),
+                ))
+                .padded()
+                .then(primary.clone())
+                .repeated(),
             )
             .map(|(left, rest)| {
-                rest.into_iter().fold(left, |acc, (_, right)| V2Expr::BinOp {
-                    op: BinOp::Add,
+                rest.into_iter().fold(left, |acc, (op, right)| V2Expr::BinOp {
+                    op,
                     left: Box::new(acc),
                     right: Box::new(right),
                 })
@@ -383,6 +386,36 @@ template panel_title_decor(
 "#;
         let file = parse_v2_source(source).expect("parse");
         assert_eq!(file.items.len(), 2);
+    }
+
+    #[test]
+    fn parses_multiple_templates_after_dict_merge() {
+        let source = r#"
+template slot_metric_shell(id = "x", child = None, shell_props = {}):
+    panel(
+        props = {"a": "1"} | shell_props,
+        blocks = [child],
+    )
+template slot_metric_card(id = "y"):
+    panel(id = id)
+"#;
+        let file = parse_v2_source(source).expect("parse");
+        let templates: Vec<_> = file
+            .items
+            .iter()
+            .filter_map(|item| {
+                if let V2Item::TemplateDecl { name, .. } = item {
+                    Some(name.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(
+            templates,
+            vec!["slot_metric_shell", "slot_metric_card"],
+            "dict merge must not truncate following templates"
+        );
     }
 
     #[test]

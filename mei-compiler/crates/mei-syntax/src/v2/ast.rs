@@ -74,6 +74,7 @@ pub enum V2Expr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinOp {
     Add,
+    Merge,
 }
 
 pub const V2_TOP_LEVEL_CONSTRUCTORS: &[&str] = &[
