@@ -523,6 +523,7 @@ pub(crate) fn fill_manifest_prepared_outcomes(
                             build_experience_index: Default::default(),
                             build_board_index: Default::default(),
                             build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
                         }),
                         cache_hit: true,
                         artifact_cache_hit: false,

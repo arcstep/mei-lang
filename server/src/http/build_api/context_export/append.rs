@@ -1,6 +1,7 @@
 use mei_lang_kernel::{
     build_experience_path, build_overview_backing, experience_layout_hint,
-    experience_mount_chain, format_experience_path, ProvenanceAnchor,
+    experience_mount_chain, format_experience_path, format_ui_scope_agent_context,
+    BuildNodeKind, ProvenanceAnchor,
 };
 use mei_lang_toolchain::format_semantic_graph_markdown;
 
@@ -16,6 +17,23 @@ pub(super) fn append_ux_sections(
     node: &mei_lang_kernel::BuildNodeId,
     focus: Option<&str>,
 ) {
+    if node.kind == BuildNodeKind::UiScope {
+        if let Some(scope_md) = format_ui_scope_agent_context(compiled, node) {
+            md.push_str(&scope_md);
+            md.push_str("\n");
+        }
+        md.push_str("### UI 锚点\n\n");
+        md.push_str(&format!("- node: `{}`\n", node.encode()));
+        if let Some(focus) = focus.map(str::trim).filter(|value| !value.is_empty()) {
+            md.push_str(&format!("- focus: `{focus}`\n"));
+        }
+        md.push_str(&format!("- target_file: `{}`\n", ctx.target_file));
+        if let Some(scene) = ctx.scene_id.as_deref() {
+            md.push_str(&format!("- scene_id: `{scene}`\n"));
+        }
+        md.push('\n');
+        return;
+    }
     let path = build_experience_path(compiled, node);
     md.push_str("### 体验路径\n\n");
     md.push_str(&format!("{}\n\n", format_experience_path(&path)));

@@ -154,6 +154,7 @@ pub(crate) fn projection_handle_outcome(
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     crate::graph::mcg::assemble::apply_scope_to_compiled_app(
         &mut stub,
@@ -218,6 +219,7 @@ pub(crate) fn shrink_outcome_to_handle(
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     outcome.compiled = Arc::new(stub);
     outcome.handle_only = true;

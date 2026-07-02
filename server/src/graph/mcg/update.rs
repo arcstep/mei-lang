@@ -164,6 +164,7 @@ pub fn update_mcg_after_compile(
                     build_experience_index: Default::default(),
                     build_board_index: Default::default(),
                     build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
                 };
                 super::app_skeleton::merge_app_skeleton_into_compiled(&mut donor, &existing_sk);
                 crate::graph::integration::merge_compiled_runtime_catalog(

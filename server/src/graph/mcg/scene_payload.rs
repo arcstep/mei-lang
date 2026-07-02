@@ -159,6 +159,7 @@ pub fn compiled_from_scene_payload_artifact(
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     if let Some(sk) = skeleton {
         super::app_skeleton::merge_app_skeleton_into_compiled(&mut compiled, sk);
