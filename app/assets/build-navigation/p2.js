@@ -58,6 +58,7 @@
   }
 
   function runTier0PostNav(prevUrl) {
+    global.__meiBuildNavPrevUrl = String(prevUrl || global.location.href);
     ensurePreviewTabVisible(global.location.href);
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     if (typeof closeDrilldownOverlay === "function") {

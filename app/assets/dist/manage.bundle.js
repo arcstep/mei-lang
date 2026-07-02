@@ -5685,6 +5685,7 @@
     if (/^board-(?:file|slot):/i.test(id)) return "preview";
     if (/^world-(?:dataset|metric|file):/i.test(id)) return "preview";
     if (/^dataset:/i.test(id)) return "preview";
+    if (/^ui-scope:/i.test(id)) return "preview";
     return "";
   }
 
@@ -5734,8 +5735,10 @@
       const scene = hashAt >= 0 ? boardKey.slice(hashAt + 1) : "";
       if (file) return { scene, target: file };
     }
-    if (/^(?:scene-panel|scene-block|scene|route):/i.test(id)) {
+    if (/^(?:scene-panel|scene-block|scene|route|ui-scope):/i.test(id)) {
       const scene = sceneIdFromNodeId(id);
+      const fromTree = readCompileCoordinateFromReachabilityTree(id);
+      if (fromTree) return fromTree;
       const shell = readCompileCoordinateFromShell();
       if (shell?.target && (!shell.scene || !scene || shell.scene === scene)) {
         return { scene: scene || shell.scene, target: shell.target };
@@ -5873,8 +5876,55 @@
     return slash >= 0 ? encoded.slice(slash + 1) : "";
   }
 
+  function readUiScopeMetaFromReachabilityTree(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return null;
+    const script = document.getElementById("mei-build-reachability-tree");
+    if (!script) return null;
+    try {
+      const roots = JSON.parse(script.textContent || "[]");
+      if (!Array.isArray(roots)) return null;
+      const walk = (nodes) => {
+        for (const node of nodes || []) {
+          if (node?.node_id === id) {
+            return {
+              ui_role: String(node.ui_role || node.badges?.[0] || "").trim(),
+              preview_scope: String(node.preview_scope || "").trim(),
+              plane_tier: String(node.plane_tier || "").trim(),
+            };
+          }
+          const nested = walk(node.children);
+          if (nested) return nested;
+        }
+        return null;
+      };
+      for (const root of roots) {
+        const found = walk(root.children);
+        if (found) return found;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   function tier0PanelTargetInDom(nodeId) {
     const node = String(nodeId || "").trim();
+    if (node.startsWith("ui-scope:")) {
+      const previewRoot = document.querySelector('[data-manage-tab-panel="preview"]');
+      if (!previewRoot) return false;
+      const target = previewRoot.querySelector(`[data-build-node="${cssEscape(node)}"]`);
+      if (target) return true;
+      const fromTree = readUiScopeMetaFromReachabilityTree(node);
+      const scopePath = String(fromTree?.preview_scope || "").trim();
+      if (scopePath) {
+        const scoped = previewRoot.querySelector(
+          `[data-mei-ui-scope="${cssEscape(scopePath)}"], [data-preview-scope="${cssEscape(scopePath)}"]`,
+        );
+        if (scoped) return true;
+      }
+      return Boolean(
+        previewRoot.querySelector("[data-mei-ui-scope], [data-mei-tier], [data-preview-scope]"),
+      );
+    }
     if (!node.startsWith("scene-panel:")) return true;
     const panel = document.querySelector(
       `[data-manage-tab-panel="preview"] [data-build-node="${cssEscape(node)}"]`,
@@ -6032,6 +6082,7 @@
   }
 
   function runTier0PostNav(prevUrl) {
+    global.__meiBuildNavPrevUrl = String(prevUrl || global.location.href);
     ensurePreviewTabVisible(global.location.href);
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     if (typeof closeDrilldownOverlay === "function") {
@@ -6526,6 +6577,24 @@
     return found;
   }
 
+  function readUiScopeMetaFromNode(nodeId) {
+    const entry = findReachabilityNodeEntry(nodeId);
+    if (!entry?.node) return null;
+    return {
+      ui_role: String(entry.node.ui_role || entry.node.badges?.[0] || "").trim(),
+      preview_scope: String(entry.node.preview_scope || "").trim(),
+      plane_tier: String(entry.node.plane_tier || "").trim(),
+    };
+  }
+
+  function normalizePreviewTier(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw) return "";
+    if (raw === "t0" || raw === "t1" || raw === "t2") return raw;
+    if (raw === "p" || raw === "c" || raw === "h") return raw;
+    return raw;
+  }
+
   function boardSlotMetaFromReachabilityTree(node) {
     const entry = findReachabilityNodeEntry(node);
     if (!entry) return null;
@@ -6685,7 +6754,7 @@
 
   function applyScopedPreview(root) {
     const node = activeBuildNode();
-    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id], [data-chart-slot-index], [data-build-board-slot], [data-mei-use-key]").forEach((el) => {
+    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id], [data-chart-slot-index], [data-build-board-slot], [data-mei-use-key], [data-mei-tier], [data-mei-ui-scope]").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
     const boardSlot = boardSlotIdFromNode(node);
@@ -6716,12 +6785,36 @@
     }
     let scopePath = "";
     if (node.startsWith("ui-scope:")) {
+      const meta = readUiScopeMetaFromNode(node);
+      const role = String(meta?.ui_role || "").trim();
+      if (role === "scene") {
+        syncBuildPreviewScopedChrome(root);
+        return;
+      }
+      if (role === "plane") {
+        const tier = normalizePreviewTier(meta?.plane_tier || "");
+        if (!tier) {
+          syncBuildPreviewScopedChrome(root);
+          return;
+        }
+        root.querySelectorAll("[data-mei-tier]").forEach((el) => {
+          const elTier = normalizePreviewTier(el.getAttribute("data-mei-tier"));
+          if (elTier && elTier !== tier) {
+            el.classList.add("build-preview-scoped-dim");
+          }
+        });
+        syncBuildPreviewScopedChrome(root);
+        return;
+      }
       const target = root.querySelector(`[data-build-node="${CSS.escape(node)}"]`);
-      scopePath = String(
+      let scopePath = String(
         target?.getAttribute("data-mei-ui-scope") ||
           target?.getAttribute("data-preview-scope") ||
           "",
       ).trim();
+      if (!scopePath) {
+        scopePath = String(meta?.preview_scope || "").trim();
+      }
       if (!scopePath) {
         syncBuildPreviewScopedChrome(root);
         return;
@@ -6810,6 +6903,30 @@
       focusEl = focusMatches[0] || null;
     }
 
+    if (node && node.startsWith("ui-scope:")) {
+      const meta = readUiScopeMetaFromNode(node);
+      const role = String(meta?.ui_role || "").trim();
+      let selected = [];
+      if (role !== "scene" && role !== "plane") {
+        const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
+        selected = Array.from(matches);
+        if (selected.length === 0 && meta?.preview_scope) {
+          selected = Array.from(
+            root.querySelectorAll(`[data-mei-ui-scope="${CSS.escape(meta.preview_scope)}"]`),
+          );
+        }
+      }
+      if (selected.length > 1) {
+        selected = [selected[0]];
+      }
+      selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      if (!focusEl) {
+        scrollIntoViewIfOne(selected, root);
+      }
+      updateInspectBar(node, focus, focusEl || selected[0] || null);
+      return;
+    }
+
     if (node && (node.startsWith("scene-panel:") || node.startsWith("scene-block:"))) {
       const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
       let selected = Array.from(matches);
@@ -6873,7 +6990,15 @@
 
     updateInspectBar(node, focus, focusEl);
     } finally {
-      schedulePreviewRuntimeWake();
+      const prevUrl = String(global.__meiBuildNavPrevUrl || "").trim();
+      const skipWake =
+        prevUrl &&
+        typeof global.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+        global.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(prevUrl, global.location.href);
+      if (!skipWake) {
+        schedulePreviewRuntimeWake();
+      }
+      global.__meiBuildNavPrevUrl = "";
     }
   }
 

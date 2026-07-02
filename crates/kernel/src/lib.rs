@@ -39,8 +39,9 @@ pub use compile_scope_filter::{
 pub use compile::{
     block_instance_id, build_experience_index, build_experience_path, build_overview_backing,
     build_preview_panel_scope, build_preview_ui_scope, build_ui_layout_index,
-    filter_roots_for_tree_mode, format_ui_scope_agent_context, merge_ui_structure_root,
-    resolve_build_preview_scope, ui_scope_annotation_for_preview_path,
+    filter_roots_for_tree_mode, format_ui_scope_agent_context, format_ui_scope_technical_detail,
+    merge_ui_structure_root, resolve_build_preview_scope, resolve_build_preview_scope_for_ssr,
+    ui_scope_annotation_for_preview_path, ui_scope_for_block, UiScopeBlockAnnotation,
     component_authoring_example_workspace_path, scene_contract_contains_use_key,
     build_reachability_tree, build_runtime_analysis_contracts, build_runtime_analysis_graph,
     build_runtime_metric_artifacts,

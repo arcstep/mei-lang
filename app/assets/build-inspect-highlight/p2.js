@@ -19,7 +19,7 @@
 
   function applyScopedPreview(root) {
     const node = activeBuildNode();
-    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id], [data-chart-slot-index], [data-build-board-slot], [data-mei-use-key]").forEach((el) => {
+    root.querySelectorAll("[data-preview-scope], [data-mei-panel-id], [data-chart-slot-index], [data-build-board-slot], [data-mei-use-key], [data-mei-tier], [data-mei-ui-scope]").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
     const boardSlot = boardSlotIdFromNode(node);
@@ -50,12 +50,36 @@
     }
     let scopePath = "";
     if (node.startsWith("ui-scope:")) {
+      const meta = readUiScopeMetaFromNode(node);
+      const role = String(meta?.ui_role || "").trim();
+      if (role === "scene") {
+        syncBuildPreviewScopedChrome(root);
+        return;
+      }
+      if (role === "plane") {
+        const tier = normalizePreviewTier(meta?.plane_tier || "");
+        if (!tier) {
+          syncBuildPreviewScopedChrome(root);
+          return;
+        }
+        root.querySelectorAll("[data-mei-tier]").forEach((el) => {
+          const elTier = normalizePreviewTier(el.getAttribute("data-mei-tier"));
+          if (elTier && elTier !== tier) {
+            el.classList.add("build-preview-scoped-dim");
+          }
+        });
+        syncBuildPreviewScopedChrome(root);
+        return;
+      }
       const target = root.querySelector(`[data-build-node="${CSS.escape(node)}"]`);
-      scopePath = String(
+      let scopePath = String(
         target?.getAttribute("data-mei-ui-scope") ||
           target?.getAttribute("data-preview-scope") ||
           "",
       ).trim();
+      if (!scopePath) {
+        scopePath = String(meta?.preview_scope || "").trim();
+      }
       if (!scopePath) {
         syncBuildPreviewScopedChrome(root);
         return;
@@ -144,6 +168,30 @@
       focusEl = focusMatches[0] || null;
     }
 
+    if (node && node.startsWith("ui-scope:")) {
+      const meta = readUiScopeMetaFromNode(node);
+      const role = String(meta?.ui_role || "").trim();
+      let selected = [];
+      if (role !== "scene" && role !== "plane") {
+        const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
+        selected = Array.from(matches);
+        if (selected.length === 0 && meta?.preview_scope) {
+          selected = Array.from(
+            root.querySelectorAll(`[data-mei-ui-scope="${CSS.escape(meta.preview_scope)}"]`),
+          );
+        }
+      }
+      if (selected.length > 1) {
+        selected = [selected[0]];
+      }
+      selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      if (!focusEl) {
+        scrollIntoViewIfOne(selected, root);
+      }
+      updateInspectBar(node, focus, focusEl || selected[0] || null);
+      return;
+    }
+
     if (node && (node.startsWith("scene-panel:") || node.startsWith("scene-block:"))) {
       const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
       let selected = Array.from(matches);
@@ -207,7 +255,15 @@
 
     updateInspectBar(node, focus, focusEl);
     } finally {
-      schedulePreviewRuntimeWake();
+      const prevUrl = String(global.__meiBuildNavPrevUrl || "").trim();
+      const skipWake =
+        prevUrl &&
+        typeof global.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+        global.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(prevUrl, global.location.href);
+      if (!skipWake) {
+        schedulePreviewRuntimeWake();
+      }
+      global.__meiBuildNavPrevUrl = "";
     }
   }
 

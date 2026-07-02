@@ -239,6 +239,24 @@
     return found;
   }
 
+  function readUiScopeMetaFromNode(nodeId) {
+    const entry = findReachabilityNodeEntry(nodeId);
+    if (!entry?.node) return null;
+    return {
+      ui_role: String(entry.node.ui_role || entry.node.badges?.[0] || "").trim(),
+      preview_scope: String(entry.node.preview_scope || "").trim(),
+      plane_tier: String(entry.node.plane_tier || "").trim(),
+    };
+  }
+
+  function normalizePreviewTier(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw) return "";
+    if (raw === "t0" || raw === "t1" || raw === "t2") return raw;
+    if (raw === "p" || raw === "c" || raw === "h") return raw;
+    return raw;
+  }
+
   function boardSlotMetaFromReachabilityTree(node) {
     const entry = findReachabilityNodeEntry(node);
     if (!entry) return null;

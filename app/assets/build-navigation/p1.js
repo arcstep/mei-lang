@@ -24,6 +24,7 @@
     if (/^board-(?:file|slot):/i.test(id)) return "preview";
     if (/^world-(?:dataset|metric|file):/i.test(id)) return "preview";
     if (/^dataset:/i.test(id)) return "preview";
+    if (/^ui-scope:/i.test(id)) return "preview";
     return "";
   }
 
@@ -73,8 +74,10 @@
       const scene = hashAt >= 0 ? boardKey.slice(hashAt + 1) : "";
       if (file) return { scene, target: file };
     }
-    if (/^(?:scene-panel|scene-block|scene|route):/i.test(id)) {
+    if (/^(?:scene-panel|scene-block|scene|route|ui-scope):/i.test(id)) {
       const scene = sceneIdFromNodeId(id);
+      const fromTree = readCompileCoordinateFromReachabilityTree(id);
+      if (fromTree) return fromTree;
       const shell = readCompileCoordinateFromShell();
       if (shell?.target && (!shell.scene || !scene || shell.scene === scene)) {
         return { scene: scene || shell.scene, target: shell.target };
@@ -212,8 +215,55 @@
     return slash >= 0 ? encoded.slice(slash + 1) : "";
   }
 
+  function readUiScopeMetaFromReachabilityTree(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return null;
+    const script = document.getElementById("mei-build-reachability-tree");
+    if (!script) return null;
+    try {
+      const roots = JSON.parse(script.textContent || "[]");
+      if (!Array.isArray(roots)) return null;
+      const walk = (nodes) => {
+        for (const node of nodes || []) {
+          if (node?.node_id === id) {
+            return {
+              ui_role: String(node.ui_role || node.badges?.[0] || "").trim(),
+              preview_scope: String(node.preview_scope || "").trim(),
+              plane_tier: String(node.plane_tier || "").trim(),
+            };
+          }
+          const nested = walk(node.children);
+          if (nested) return nested;
+        }
+        return null;
+      };
+      for (const root of roots) {
+        const found = walk(root.children);
+        if (found) return found;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   function tier0PanelTargetInDom(nodeId) {
     const node = String(nodeId || "").trim();
+    if (node.startsWith("ui-scope:")) {
+      const previewRoot = document.querySelector('[data-manage-tab-panel="preview"]');
+      if (!previewRoot) return false;
+      const target = previewRoot.querySelector(`[data-build-node="${cssEscape(node)}"]`);
+      if (target) return true;
+      const fromTree = readUiScopeMetaFromReachabilityTree(node);
+      const scopePath = String(fromTree?.preview_scope || "").trim();
+      if (scopePath) {
+        const scoped = previewRoot.querySelector(
+          `[data-mei-ui-scope="${cssEscape(scopePath)}"], [data-preview-scope="${cssEscape(scopePath)}"]`,
+        );
+        if (scoped) return true;
+      }
+      return Boolean(
+        previewRoot.querySelector("[data-mei-ui-scope], [data-mei-tier], [data-preview-scope]"),
+      );
+    }
     if (!node.startsWith("scene-panel:")) return true;
     const panel = document.querySelector(
       `[data-manage-tab-panel="preview"] [data-build-node="${cssEscape(node)}"]`,

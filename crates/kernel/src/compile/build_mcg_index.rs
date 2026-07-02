@@ -87,6 +87,7 @@ pub fn build_mcg_tree_root(source_root: &Path, app_id: &str) -> ReachabilityTree
                 .into_iter()
                 .map(|node| mcg_leaf_node(&node))
                 .collect(),
+            ..Default::default()
         })
     })
     .collect();
@@ -123,5 +124,6 @@ fn mcg_leaf_node(node: &McgNodeFile) -> ReachabilityTreeNode {
         compile_target: String::new(),
         board_layout_zone: String::new(),
         children: Vec::new(),
+        ..Default::default()
     }
 }

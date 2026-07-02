@@ -766,6 +766,7 @@ fn summary_node(
         compile_target: String::new(),
         board_layout_zone: String::new(),
         children: Vec::new(),
+        ..Default::default()
     }
 }
 

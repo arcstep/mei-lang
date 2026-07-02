@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    block_instance_id, BlockDecl, BuildNodeId, CompiledApp, PanelDecl, PanelRefEmbedDecl,
-    SceneContract,
+    block_instance_id, ui_scope_for_block, BlockDecl, BuildNodeId, CompiledApp, PanelDecl,
+    PanelRefEmbedDecl, SceneContract,
 };
 use serde_json::Value;
 
@@ -119,14 +119,38 @@ pub(crate) fn block_view_for_decl(
         .get("__mei_viewpoint")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let build_node_id = if runtime_ctx.build_inspect_enabled {
-        parent_panel_id.map(|panel_id| {
-            BuildNodeId::scene_block(scene_contract.scene.id.clone(), panel_id, block_id.as_str())
-                .encode()
+    let ui_scope_annotation = if runtime_ctx.build_inspect_enabled {
+        parent_panel_id.and_then(|panel_path| {
+            ui_scope_for_block(
+                compiled,
+                scene_contract.scene.id.as_str(),
+                panel_path,
+                block_id.as_str(),
+            )
         })
     } else {
         None
     };
+    let build_node_id = if runtime_ctx.build_inspect_enabled {
+        ui_scope_annotation.as_ref().map(|annotation| annotation.node_id.clone()).or_else(|| {
+            parent_panel_id.map(|panel_id| {
+                BuildNodeId::scene_block(
+                    scene_contract.scene.id.clone(),
+                    panel_id,
+                    block_id.as_str(),
+                )
+                .encode()
+            })
+        })
+    } else {
+        None
+    };
+    let ui_scope_attr = ui_scope_annotation
+        .as_ref()
+        .map(|annotation| annotation.preview_scope.clone());
+    let ui_role_attr = ui_scope_annotation
+        .as_ref()
+        .map(|annotation| annotation.role.clone());
     view! {
         <section
             class=card_class
@@ -136,6 +160,8 @@ pub(crate) fn block_view_for_decl(
             data-mei-viewpoint=block_viewpoint
             data-build-node=build_node_id.clone().unwrap_or_default()
             data-build-focus=build_node_id.clone().unwrap_or_default()
+            data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
+            data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
         >
             <div class="component-host" inner_html=html></div>
         </section>

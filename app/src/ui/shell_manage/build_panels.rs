@@ -1,8 +1,8 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_experience_path, build_overview_backing, experience_layout_hint, experience_mount_chain,
-    format_experience_path, format_ui_scope_agent_context, BuildNodeContext, BuildNodeKind,
-    CompiledApp, ProvenanceAnchor, UiScopeRole,
+    format_experience_path, format_ui_scope_agent_context, format_ui_scope_technical_detail,
+    BuildNodeContext, BuildNodeKind, CompiledApp, ProvenanceAnchor, UiScopeRole,
 };
 
 use super::super::view_routing::runtime_href;
@@ -81,6 +81,15 @@ pub(crate) fn build_overview_view(
                                     {budget.card_height.map(|height| format!(" card_height={height}")).unwrap_or_default()}
                                 </dd>
                             </div>
+                        })}
+                        {(entry.role == UiScopeRole::Section
+                            || entry.role == UiScopeRole::Content
+                            || entry.role == UiScopeRole::Region)
+                        .then(|| format_ui_scope_technical_detail(compiled, &ctx.node)).flatten().map(|md| view! {
+                            <details class="rounded-lg border border-white/10 bg-black/10 p-3">
+                                <summary class="cursor-pointer mei-font-2 mei-text-primary">"技术配置（micro / slot / budget）"</summary>
+                                <pre class="mt-2 whitespace-pre-wrap font-mono mei-font-1 leading-5">{md}</pre>
+                            </details>
                         })}
                         {format_ui_scope_agent_context(compiled, &ctx.node).map(|md| view! {
                             <details class="rounded-lg border border-white/10 bg-black/10 p-3">

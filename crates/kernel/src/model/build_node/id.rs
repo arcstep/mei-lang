@@ -235,7 +235,8 @@ impl BuildNodeId {
             {
                 Preview
             }
-            ScenePanel | SceneBlock | BuildNodeKind::UiScope => Overview,
+            BuildNodeKind::UiScope if tab_visible_for_node(self, Preview) => Preview,
+            ScenePanel | SceneBlock => Overview,
             BuildNodeKind::Component | BuildNodeKind::Template => Preview,
             BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => Preview,
             _ => tabs_for_node_kind(self.kind)

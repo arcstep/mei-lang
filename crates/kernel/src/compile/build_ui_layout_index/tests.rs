@@ -225,7 +225,182 @@ fn ui_layout_index_builds_section_micro_and_slots() {
 
     let tree = result.tree_root;
     assert_eq!(tree.group, "ui_structure");
-    assert!(!tree.children.is_empty());
+    assert_eq!(tree.children.len(), 1);
+    let home_tree = &tree.children[0];
+    assert_eq!(home_tree.label, "首页");
+
+    let section_tree_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/enforcement").encode();
+    let section_tree = find_tree_node(&tree.children, &section_tree_id).expect("section in tree");
+    assert!(
+        !section_tree.children.is_empty(),
+        "section should list content children"
+    );
+    for child in &section_tree.children {
+        assert_eq!(
+            child.badges.first().map(String::as_str),
+            Some("content"),
+            "section tree children should be content nodes"
+        );
+    }
+    assert!(
+        !tree_contains_role(&tree.children, "micro_layout"),
+        "micro_layout should not appear in structure tree"
+    );
+    assert!(
+        !tree_contains_role(&tree.children, "slot"),
+        "slot should not appear in structure tree"
+    );
+}
+
+fn find_tree_node<'a>(
+    nodes: &'a [crate::compile::reachability_tree::ReachabilityTreeNode],
+    node_id: &str,
+) -> Option<&'a crate::compile::reachability_tree::ReachabilityTreeNode> {
+    for node in nodes {
+        if node.node_id == node_id {
+            return Some(node);
+        }
+        if let Some(found) = find_tree_node(&node.children, node_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn tree_contains_role(
+    nodes: &[crate::compile::reachability_tree::ReachabilityTreeNode],
+    role: &str,
+) -> bool {
+    nodes.iter().any(|node| {
+        node.badges.first().map(String::as_str) == Some(role)
+            || tree_contains_role(&node.children, role)
+    })
+}
+
+#[test]
+fn ui_layout_index_dedupes_duplicate_scene_routes() {
+    let compiled = CompiledApp {
+        app_id: "pretty-panels".to_string(),
+        title: "Pretty Panels".to_string(),
+        app_root: "/tmp/pretty-panels".to_string(),
+        scene_routes: vec![
+            CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "src/scene/home/assembly.mei".to_string(),
+                kind: "scene".to_string(),
+                title: Some("首页 A".to_string()),
+                is_default: true,
+                access_export: true,
+            },
+            CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "src/scene/home/assembly.mei".to_string(),
+                kind: "scene".to_string(),
+                title: Some("首页 B".to_string()),
+                is_default: false,
+                access_export: true,
+            },
+            CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "src/scene/home/assembly.mei".to_string(),
+                kind: "scene".to_string(),
+                title: Some("首页 C".to_string()),
+                is_default: false,
+                access_export: true,
+            },
+        ],
+        active_scene: Some("home".to_string()),
+        active_target_file: "src/scene/home/assembly.mei".to_string(),
+        file_tree: vec![],
+        scene_contract: Some(SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![sample_left_rail_panel()],
+        }),
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
+    };
+
+    let result = build_ui_layout_index(&compiled);
+    assert_eq!(result.tree_root.children.len(), 1);
+}
+
+#[test]
+fn resolve_build_preview_scope_for_ssr_skips_ui_scope() {
+    use crate::resolve_build_preview_scope_for_ssr;
+
+    let node = BuildNodeId::ui_scope("home", "home/T1/left_rail/enforcement");
+    let compiled = CompiledApp {
+        app_id: "pretty-panels".to_string(),
+        title: "Pretty Panels".to_string(),
+        app_root: "/tmp".to_string(),
+        scene_routes: vec![],
+        active_scene: Some("home".to_string()),
+        active_target_file: String::new(),
+        file_tree: vec![],
+        scene_contract: None,
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
+    };
+    assert!(resolve_build_preview_scope_for_ssr(&compiled, &node).is_none());
+}
+
+#[test]
+fn compile_scene_from_ui_scope_node() {
+    use crate::compile_scene_from_build_node;
+
+    let node = BuildNodeId::ui_scope("home", "home/T1/left_rail");
+    assert_eq!(
+        compile_scene_from_build_node(&node).as_deref(),
+        Some("home")
+    );
 }
 
 #[test]

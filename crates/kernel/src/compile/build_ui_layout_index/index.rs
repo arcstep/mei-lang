@@ -1,6 +1,6 @@
 use super::walker::{build_scene_ui_structure, UiStructureBuildResult};
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::compile::build_experience_index::panels_for_scene_from_maps;
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
@@ -18,8 +18,18 @@ pub fn build_ui_layout_index(compiled: &CompiledApp) -> UiLayoutIndexResult {
     let contracts = scene_contracts_from_compiled(compiled);
     let mut index = UiLayoutIndex::default();
     let mut tree_children = Vec::new();
+    let mut seen_scene_ids = HashSet::new();
+    let active_scene = compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 
-    for route in scene_routes_for_ui_tree(&compiled.scene_routes) {
+    for route in scene_routes_for_ui_tree(&compiled.scene_routes, active_scene.as_deref()) {
+        if !seen_scene_ids.insert(route.scene_id.clone()) {
+            continue;
+        }
         let Some(panels) = panels_for_scene_from_maps(
             route.scene_id.as_str(),
             &compiled.scene_projection_assembly_by_id,
@@ -60,12 +70,18 @@ pub fn build_ui_layout_index(compiled: &CompiledApp) -> UiLayoutIndexResult {
     UiLayoutIndexResult { index, tree_root }
 }
 
-fn scene_routes_for_ui_tree(routes: &[CompiledSceneRoute]) -> Vec<&CompiledSceneRoute> {
+fn scene_routes_for_ui_tree<'a>(
+    routes: &'a [CompiledSceneRoute],
+    active_scene: Option<&str>,
+) -> Vec<&'a CompiledSceneRoute> {
     routes
         .iter()
         .filter(|route| {
             !route.target_file.ends_with(".board.mei")
                 && !route.target_file.ends_with(".page.mei")
+        })
+        .filter(|route| {
+            active_scene.is_none_or(|scene| route.scene_id.as_str() == scene)
         })
         .collect()
 }
@@ -194,6 +210,12 @@ fn merge_build_result(index: &mut UiLayoutIndex, result: UiStructureBuildResult)
 }
 
 fn ui_scope_to_tree_node(node: &UiScopeNode, index: &UiLayoutIndex) -> Option<ReachabilityTreeNode> {
+    if matches!(
+        node.role,
+        UiScopeRole::MicroLayout | UiScopeRole::Slot | UiScopeRole::Budget
+    ) {
+        return None;
+    }
     let parsed = BuildNodeId::parse(&node.node_id)?;
     let mut badges = vec![node.role.slug().to_string()];
     if let Some(plane) = node.plane.as_deref().filter(|v| !v.is_empty()) {
@@ -202,10 +224,8 @@ fn ui_scope_to_tree_node(node: &UiScopeNode, index: &UiLayoutIndex) -> Option<Re
     if let Some(kind) = node.content_kind.as_deref().filter(|v| !v.is_empty()) {
         badges.push(kind.to_string());
     }
-    let children = node
-        .children
-        .iter()
-        .filter_map(|child_id| index.nodes.get(child_id))
+    let children = display_children_for_tree(node, index)
+        .into_iter()
         .filter_map(|child| ui_scope_to_tree_node(child, index))
         .collect();
     Some(ReachabilityTreeNode {
@@ -214,9 +234,52 @@ fn ui_scope_to_tree_node(node: &UiScopeNode, index: &UiLayoutIndex) -> Option<Re
         kind: "ui_scope".to_string(),
         label: node.label.clone(),
         badges,
+        ui_role: node.role.slug().to_string(),
+        preview_scope: node.preview_scope.clone(),
+        plane_tier: node.plane.clone().unwrap_or_default(),
         children,
         ..Default::default()
     })
+}
+
+fn display_children_for_tree<'a>(
+    node: &UiScopeNode,
+    index: &'a UiLayoutIndex,
+) -> Vec<&'a UiScopeNode> {
+    match node.role {
+        UiScopeRole::Section => collect_descendant_contents(node, index),
+        _ => node
+            .children
+            .iter()
+            .filter_map(|child_id| index.nodes.get(child_id))
+            .flat_map(|child| match child.role {
+                UiScopeRole::MicroLayout | UiScopeRole::Slot | UiScopeRole::Budget => {
+                    display_children_for_tree(child, index)
+                }
+                _ => vec![child],
+            })
+            .collect(),
+    }
+}
+
+fn collect_descendant_contents<'a>(
+    node: &UiScopeNode,
+    index: &'a UiLayoutIndex,
+) -> Vec<&'a UiScopeNode> {
+    let mut contents = Vec::new();
+    for child_id in &node.children {
+        let Some(child) = index.nodes.get(child_id) else {
+            continue;
+        };
+        match child.role {
+            UiScopeRole::Content => contents.push(child),
+            UiScopeRole::MicroLayout | UiScopeRole::Slot | UiScopeRole::Budget => {
+                contents.extend(collect_descendant_contents(child, index));
+            }
+            _ => contents.extend(collect_descendant_contents(child, index)),
+        }
+    }
+    contents
 }
 
 fn scene_contracts_from_compiled(
@@ -299,6 +362,9 @@ fn node_to_snapshot_local(node: ReachabilityTreeNode) -> ReachabilityTreeNodeSna
         compile_scene: node.compile_scene,
         compile_target: node.compile_target,
         board_layout_zone: node.board_layout_zone,
+        ui_role: node.ui_role,
+        preview_scope: node.preview_scope,
+        plane_tier: node.plane_tier,
         children: node.children.into_iter().map(node_to_snapshot_local).collect(),
     }
 }

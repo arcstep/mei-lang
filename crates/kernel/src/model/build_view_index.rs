@@ -165,6 +165,12 @@ pub struct ReachabilityTreeNodeSnapshot {
     pub compile_target: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub board_layout_zone: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ui_role: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub preview_scope: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub plane_tier: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ReachabilityTreeNodeSnapshot>,
 }

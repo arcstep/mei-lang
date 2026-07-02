@@ -176,9 +176,10 @@ pub fn board_capsule_from_node_key(key: &str) -> (String, String) {
 pub fn compile_scene_from_build_node(node: &BuildNodeId) -> Option<String> {
     match node.kind {
         BuildNodeKind::Scene | BuildNodeKind::Route => non_empty_path(node.key.clone()),
-        BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock | BuildNodeKind::Projection => {
-            scene_id_from_ui_node_key(&node.key)
-        }
+        BuildNodeKind::ScenePanel
+        | BuildNodeKind::SceneBlock
+        | BuildNodeKind::UiScope
+        | BuildNodeKind::Projection => scene_id_from_ui_node_key(&node.key),
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
             non_empty_path(board_capsule_from_node_key(&node.key).1)
         }

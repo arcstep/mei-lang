@@ -57,7 +57,8 @@ pub fn render_build_preview_fragment(
         world_dataset: ctx.world_dataset.as_deref(),
         explain: ctx.explain.as_deref(),
     };
-    let build_preview_scope = mei_lang_kernel::resolve_build_preview_scope(compiled, &resolved.node);
+    let build_preview_scope =
+        mei_lang_kernel::resolve_build_preview_scope_for_ssr(compiled, &resolved.node);
     let build_preview_component_use_key_owned =
         build_preview_component_use_key(&resolved.node);
     let build_preview_component_use_key =

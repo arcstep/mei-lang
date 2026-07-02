@@ -316,6 +316,9 @@ fn node_to_snapshot(node: ReachabilityTreeNode) -> ReachabilityTreeNodeSnapshot 
         compile_scene: node.compile_scene,
         compile_target: node.compile_target,
         board_layout_zone: node.board_layout_zone,
+        ui_role: node.ui_role,
+        preview_scope: node.preview_scope,
+        plane_tier: node.plane_tier,
         children: node.children.into_iter().map(node_to_snapshot).collect(),
     }
 }
@@ -330,6 +333,9 @@ fn node_snapshot_to_runtime(node: &ReachabilityTreeNodeSnapshot) -> Reachability
         compile_scene: node.compile_scene.clone(),
         compile_target: node.compile_target.clone(),
         board_layout_zone: node.board_layout_zone.clone(),
+        ui_role: node.ui_role.clone(),
+        preview_scope: node.preview_scope.clone(),
+        plane_tier: node.plane_tier.clone(),
         children: node.children.iter().map(node_snapshot_to_runtime).collect(),
     }
 }
