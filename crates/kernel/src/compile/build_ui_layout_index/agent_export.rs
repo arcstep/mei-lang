@@ -51,6 +51,12 @@ pub fn ui_scope_annotation_for_preview_panel(
     }
     let mut best: Option<(usize, UiScopePanelAnnotation)> = None;
     for node in compiled.ui_layout_index.nodes.values() {
+        if !matches!(
+            node.role,
+            UiScopeRole::Content | UiScopeRole::Section | UiScopeRole::Region
+        ) {
+            continue;
+        }
         if node
             .scene_id
             .as_deref()
@@ -58,11 +64,11 @@ pub fn ui_scope_annotation_for_preview_panel(
         {
             continue;
         }
-        let scope = node.preview_scope.trim();
+        let scope = normalize_preview_scope_segments(node.preview_scope.trim());
         if scope.is_empty() {
             continue;
         }
-        let Some(score) = scope_match_score(normalized, scope, panel_area, node.role) else {
+        let Some(score) = scope_match_score(normalized, scope.as_str(), panel_area, node.role) else {
             continue;
         };
         if best.as_ref().is_none_or(|(best_score, _)| score > *best_score) {
@@ -85,61 +91,189 @@ fn scope_match_score(
     panel_area: Option<&str>,
     role: UiScopeRole,
 ) -> Option<usize> {
+    let preview_scope = normalize_preview_scope_segments(preview_scope);
+    if preview_scope.is_empty() {
+        return None;
+    }
     if panel_path == preview_scope {
         return Some(10_000 + preview_scope.len());
     }
     if panel_path.ends_with(&format!("/{preview_scope}")) {
         return Some(9_000 + preview_scope.len());
     }
-    if let Some(leaf) = preview_scope.rsplit('/').next().filter(|v| !v.is_empty()) {
-        if panel_path.ends_with(leaf) || panel_path.contains(&format!("/{leaf}")) {
-            let base = match role {
-                UiScopeRole::Content => 6_000,
-                UiScopeRole::Section => 5_000,
-                _ => 4_000,
-            };
-            return Some(base + preview_scope.len());
-        }
-        if let Some((stem, suffix)) = leaf.rsplit_once('~') {
-            if !stem.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()) {
-                if panel_path.contains(stem) {
-                    return Some(5_500 + preview_scope.len());
+
+    match role {
+        UiScopeRole::Content => content_path_align_score(panel_path, preview_scope.as_str(), panel_area),
+        UiScopeRole::Section => {
+            if let Some(area) = panel_area.filter(|value| is_section_area(value)) {
+                if preview_scope.ends_with(&format!("/{area}")) {
+                    let region = preview_scope.strip_suffix(&format!("/{area}"))?;
+                    if panel_path.starts_with(region)
+                        || panel_path.starts_with(&format!("{region}/"))
+                    {
+                        return Some(7_500 + preview_scope.len());
+                    }
                 }
             }
-        }
-    }
-    if role == UiScopeRole::Section {
-        if let Some(area) = panel_area.filter(|value| is_section_area(value)) {
-            if preview_scope.ends_with(&format!("/{area}")) {
-                let region = preview_scope.strip_suffix(&format!("/{area}"))?;
-                if panel_path.starts_with(region)
-                    || panel_path.contains(&format!("{region}/"))
-                    || panel_path.starts_with(&format!("{region}/"))
-                {
-                    return Some(7_000 + preview_scope.len());
+            if path_segments_align(panel_path, preview_scope.as_str(), true) {
+                let panel_depth = panel_path.split('/').filter(|s| !s.is_empty()).count();
+                let scope_depth = preview_scope.split('/').filter(|s| !s.is_empty()).count();
+                if panel_depth.saturating_sub(scope_depth) > 2 {
+                    return None;
                 }
+                return Some(6_500 + preview_scope.len());
             }
+            None
+        }
+        _ => {
+            if path_segments_align(panel_path, preview_scope.as_str(), false) {
+                return Some(4_000 + preview_scope.len());
+            }
+            None
         }
     }
-    if panel_path == preview_scope
-        || normalized_ends_with_scope(panel_path, preview_scope)
+}
+
+fn normalize_preview_scope_segments(scope: &str) -> String {
+    let segments: Vec<&str> = scope.split('/').filter(|segment| !segment.is_empty()).collect();
+    let mut out: Vec<&str> = Vec::new();
+    for segment in segments {
+        if out.last().copied() != Some(segment) {
+            out.push(segment);
+        }
+    }
+    out.join("/")
+}
+
+fn path_segment_matches(panel_segment: &str, scope_segment: &str) -> bool {
+    if panel_segment == scope_segment {
+        return true;
+    }
+    if let Some((stem, suffix)) = scope_segment.rsplit_once('~') {
+        if !stem.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()) {
+            return panel_segment == stem || panel_segment.starts_with(&format!("{stem}~"));
+        }
+    }
+    if let Some((stem, suffix)) = panel_segment.rsplit_once('~') {
+        if !stem.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()) {
+            return stem == scope_segment;
+        }
+    }
+    false
+}
+
+fn path_segments_align(panel_path: &str, preview_scope: &str, require_prefix: bool) -> bool {
+    let panel_segments: Vec<&str> = panel_path.split('/').filter(|s| !s.is_empty()).collect();
+    let scope_segments: Vec<&str> = preview_scope.split('/').filter(|s| !s.is_empty()).collect();
+    if scope_segments.is_empty() || panel_segments.is_empty() {
+        return false;
+    }
+    if require_prefix
+        && !panel_segments
+            .iter()
+            .take(2)
+            .any(|segment| path_segment_matches(segment, scope_segments[0]))
     {
-        return Some(preview_scope.len());
+        return false;
     }
-    None
+    let mut panel_index = 0usize;
+    for scope_segment in &scope_segments {
+        let mut found = false;
+        while panel_index < panel_segments.len() {
+            if path_segment_matches(panel_segments[panel_index], scope_segment) {
+                found = true;
+                panel_index += 1;
+                break;
+            }
+            panel_index += 1;
+        }
+        if !found {
+            return false;
+        }
+    }
+    true
+}
+
+fn is_ambiguous_content_leaf(leaf: &str) -> bool {
+    matches!(leaf, "metric_card" | "panel" | "body")
+        || (leaf.len() < 10 && !leaf.contains('_'))
+}
+
+fn content_path_align_score(
+    panel_path: &str,
+    preview_scope: &str,
+    panel_area: Option<&str>,
+) -> Option<usize> {
+    let panel_segments: Vec<&str> = panel_path.split('/').filter(|s| !s.is_empty()).collect();
+    let scope_segments: Vec<&str> = preview_scope.split('/').filter(|s| !s.is_empty()).collect();
+    if scope_segments.is_empty() || panel_segments.is_empty() {
+        return None;
+    }
+    let leaf = scope_segments[scope_segments.len() - 1];
+    let panel_leaf = panel_segments[panel_segments.len() - 1];
+    if !path_segment_matches(panel_leaf, leaf) {
+        return None;
+    }
+
+    let area = panel_area
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "auto");
+    let mut panel_index = 0usize;
+    let mut matched = 0usize;
+    for scope_segment in &scope_segments {
+        if area.is_some_and(|value| path_segment_matches(value, scope_segment)) {
+            matched += 1;
+            continue;
+        }
+        if is_optional_slot_segment(scope_segment) {
+            if is_ambiguous_content_leaf(leaf) {
+                if area.is_some_and(|value| path_segment_matches(value, scope_segment)) {
+                    matched += 1;
+                    continue;
+                }
+            } else {
+                matched += 1;
+                continue;
+            }
+        }
+        let mut found = false;
+        while panel_index < panel_segments.len() {
+            if path_segment_matches(panel_segments[panel_index], scope_segment) {
+                found = true;
+                matched += 1;
+                panel_index += 1;
+                break;
+            }
+            panel_index += 1;
+        }
+        if found {
+            continue;
+        }
+        if is_ambiguous_content_leaf(leaf) {
+            return None;
+        }
+        return None;
+    }
+
+    if matched == 0 {
+        return None;
+    }
+    Some(6_000 + matched * 200 + preview_scope.len())
+}
+
+fn is_optional_slot_segment(segment: &str) -> bool {
+    matches!(
+        segment,
+        "first" | "second" | "third" | "fourth" | "fifth" | "sixth" | "compound" | "main" | "top"
+            | "bottom" | "primary" | "sub_a" | "sub_b" | "sub_c" | "b0" | "b1" | "b2" | "rtop"
+            | "rbottom" | "summary" | "chart" | "table" | "triptych" | "secondary_a"
+            | "secondary_b" | "pending" | "doing" | "done"
+    )
 }
 
 fn is_section_area(value: &str) -> bool {
     let area = value.trim();
     !area.is_empty() && area != "auto" && area != "body"
-}
-
-fn normalized_ends_with_scope(panel_path: &str, preview_scope: &str) -> bool {
-    panel_path.ends_with(&format!("/{preview_scope}"))
-        || preview_scope
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .all(|segment| panel_path.contains(segment))
 }
 
 /// Resolve preview dim scope for a build node (panel or ui-scope).
@@ -183,7 +317,7 @@ pub fn ui_scope_for_block(
         {
             continue;
         }
-        let scope = node.preview_scope.trim();
+        let scope = normalize_preview_scope_segments(node.preview_scope.trim());
         if scope.is_empty() {
             continue;
         }
@@ -196,16 +330,17 @@ pub fn ui_scope_for_block(
         if !panel_prefix.is_empty()
             && scope != panel_prefix
             && !scope.starts_with(&format!("{panel_prefix}/"))
+            && !path_segments_align(panel_prefix, scope.as_str(), false)
         {
             continue;
         }
-        let len = scope.len();
-        if best.as_ref().is_none_or(|(best_len, _)| len >= *best_len) {
+        let score = scope.len();
+        if best.as_ref().is_none_or(|(best_score, _)| score >= *best_score) {
             best = Some((
-                len,
+                score,
                 UiScopeBlockAnnotation {
                     node_id: node.node_id.clone(),
-                    preview_scope: scope.to_string(),
+                    preview_scope: scope,
                     role: node.role.slug().to_string(),
                 },
             ));
@@ -325,4 +460,39 @@ pub fn format_ui_scope_agent_context(compiled: &CompiledApp, node: &BuildNodeId)
         }
     }
     Some(md)
+}
+
+#[cfg(test)]
+mod content_align_tests {
+    use super::*;
+
+    #[test]
+    fn compound_metric_card_path_aligns() {
+        let score = content_path_align_score(
+            "left_rail/enforcement/panel/enforcement-stats/enforcement_strip_layout/enforcement_objects_card/panel/enforcement_objects_top",
+            "left_rail/enforcement/enforcement_strip_layout/compound/enforcement_objects_top",
+            None,
+        );
+        assert!(score.is_some(), "compound metric card should align");
+    }
+
+    #[test]
+    fn status_flow_metric_card_path_aligns() {
+        let score = content_path_align_score(
+            "right_rail/issue/panel/issue-stats/issue_status_flow/panel/metric_card",
+            "right_rail/issue/issue_status_flow/summary/metric_card",
+            Some("summary"),
+        );
+        assert!(score.is_some(), "status-flow summary card should align");
+    }
+
+    #[test]
+    fn metric_summary_group_path_aligns() {
+        let score = content_path_align_score(
+            "left_rail/penalty/panel/penalty-stats/penalty_count_summary/primary/penalty_count_summary_primary",
+            "left_rail/penalty/penalty_count_summary/primary/penalty_count_summary_primary",
+            Some("primary"),
+        );
+        assert!(score.is_some(), "metric-summary primary card should align");
+    }
 }

@@ -742,7 +742,7 @@ fn ui_scope_annotation_for_preview_panel_matches_content_and_section_paths() {
     let mut nodes = std::collections::BTreeMap::new();
     for (scope, role, node_key) in [
         (
-            "left_rail/enforcement/first/enforcement_units_card",
+            "left_rail/enforcement/enforcement_strip_layout/first/enforcement_units_card",
             UiScopeRole::Content,
             "content",
         ),
@@ -803,7 +803,7 @@ fn ui_scope_annotation_for_preview_panel_matches_content_and_section_paths() {
         &compiled,
         "home",
         "left_rail/enforcement/panel/enforcement-stats/enforcement_strip_layout/enforcement_units_card",
-        None,
+        Some("first"),
     )
     .expect("content path");
     assert_eq!(content.role, "content");
@@ -818,4 +818,611 @@ fn ui_scope_annotation_for_preview_panel_matches_content_and_section_paths() {
     .expect("section path");
     assert_eq!(section.role, "section");
     assert_eq!(section.preview_scope, "left_rail/left_top");
+}
+
+#[test]
+fn ui_scope_annotation_distinguishes_metric_cards_by_panel_area() {
+    use crate::compile::build_ui_layout_index::ui_scope_annotation_for_preview_panel;
+    use crate::model::{UiLayoutIndex, UiScopeNode, UiScopeRole};
+
+    let mut nodes = std::collections::BTreeMap::new();
+    for (scope, slot) in [
+        (
+            "right_rail/warning/supervision_triptych/first/metric_card",
+            "first",
+        ),
+        (
+            "right_rail/warning/supervision_triptych/second/metric_card",
+            "second",
+        ),
+    ] {
+        let node_id =
+            BuildNodeId::ui_scope("home", &format!("home/T1/right_rail/warning/{slot}/metric_card"))
+                .encode();
+        nodes.insert(
+            node_id.clone(),
+            UiScopeNode {
+                node_id,
+                role: UiScopeRole::Content,
+                label: "metric_card".to_string(),
+                scope_path: vec!["home".into(), "T1".into(), "right_rail".into()],
+                plane: Some("T1".to_string()),
+                parent_id: None,
+                children: vec![],
+                preview_scope: scope.to_string(),
+                budget: None,
+                source_anchors: vec![],
+                content_kind: Some("metric-card".to_string()),
+                scene_id: Some("home".to_string()),
+            },
+        );
+    }
+    let compiled = CompiledApp {
+        app_id: "demo".to_string(),
+        title: "demo".to_string(),
+        app_root: "/tmp/demo".to_string(),
+        scene_routes: vec![],
+        active_scene: None,
+        active_target_file: String::new(),
+        file_tree: vec![],
+        scene_contract: None,
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: UiLayoutIndex {
+            nodes,
+            scene_roots: vec![],
+        },
+    };
+
+    let second = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "right_rail/warning/panel/supervision-stats/supervision_triptych/metric_card",
+        Some("second"),
+    )
+    .expect("second metric card");
+    assert_eq!(
+        second.preview_scope,
+        "right_rail/warning/supervision_triptych/second/metric_card"
+    );
+
+    let first = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "right_rail/warning/panel/supervision-stats/supervision_triptych/metric_card",
+        Some("first"),
+    )
+    .expect("first metric card");
+    assert_eq!(
+        first.preview_scope,
+        "right_rail/warning/supervision_triptych/first/metric_card"
+    );
+}
+
+#[test]
+fn ui_scope_annotation_section_does_not_tag_deep_content_panels() {
+    use crate::compile::build_ui_layout_index::ui_scope_annotation_for_preview_panel;
+    use crate::model::{UiLayoutIndex, UiScopeNode, UiScopeRole};
+
+    let node_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/enforcement").encode();
+    let mut nodes = std::collections::BTreeMap::new();
+    nodes.insert(
+        node_id.clone(),
+        UiScopeNode {
+            node_id,
+            role: UiScopeRole::Section,
+            label: "enforcement".to_string(),
+            scope_path: vec!["home".into(), "T1".into(), "left_rail".into()],
+            plane: Some("T1".to_string()),
+            parent_id: None,
+            children: vec![],
+            preview_scope: "left_rail/enforcement".to_string(),
+            budget: None,
+            source_anchors: vec![],
+            content_kind: None,
+            scene_id: Some("home".to_string()),
+        },
+    );
+    let compiled = CompiledApp {
+        app_id: "demo".to_string(),
+        title: "demo".to_string(),
+        app_root: "/tmp/demo".to_string(),
+        scene_routes: vec![],
+        active_scene: None,
+        active_target_file: String::new(),
+        file_tree: vec![],
+        scene_contract: None,
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: UiLayoutIndex {
+            nodes,
+            scene_roots: vec![],
+        },
+    };
+
+    let deep = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "left_rail/enforcement/panel/enforcement-stats/enforcement_strip_layout/enforcement_units_card",
+        Some("first"),
+    );
+    assert!(
+        deep.is_none()
+            || deep.as_ref().is_some_and(|hit| hit.role != "section"),
+        "deep content panel should not inherit section annotation"
+    );
+}
+
+#[test]
+fn ui_scope_annotation_matches_compound_metric_cards() {
+    use crate::compile::build_ui_layout_index::ui_scope_annotation_for_preview_panel;
+    use crate::model::{UiLayoutIndex, UiScopeNode, UiScopeRole};
+
+    let mut nodes = std::collections::BTreeMap::new();
+    for (scope, label) in [
+        (
+            "left_rail/enforcement/enforcement_strip_layout",
+            "enforcement_strip_layout",
+        ),
+        (
+            "left_rail/enforcement/enforcement_strip_layout/compound/enforcement_objects_top",
+            "enforcement_objects_top",
+        ),
+    ] {
+        let role = if label == "enforcement_strip_layout" {
+            UiScopeRole::MicroLayout
+        } else {
+            UiScopeRole::Content
+        };
+        let node_id = BuildNodeId::ui_scope("home", &format!("home/T1/left_rail/{label}")).encode();
+        nodes.insert(
+            node_id.clone(),
+            UiScopeNode {
+                node_id,
+                role,
+                label: label.to_string(),
+                scope_path: vec!["home".into(), "T1".into(), "left_rail".into()],
+                plane: Some("T1".to_string()),
+                parent_id: None,
+                children: vec![],
+                preview_scope: scope.to_string(),
+                budget: None,
+                source_anchors: vec![],
+                content_kind: None,
+                scene_id: Some("home".to_string()),
+            },
+        );
+    }
+    let compiled = CompiledApp {
+        app_id: "demo".to_string(),
+        title: "demo".to_string(),
+        app_root: "/tmp/demo".to_string(),
+        scene_routes: vec![],
+        active_scene: None,
+        active_target_file: String::new(),
+        file_tree: vec![],
+        scene_contract: None,
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: UiLayoutIndex {
+            nodes,
+            scene_roots: vec![],
+        },
+    };
+
+    let hit = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "left_rail/enforcement/panel/enforcement-stats/enforcement_strip_layout/enforcement_objects_card/panel/enforcement_objects_top",
+        None,
+    )
+    .expect("compound metric card");
+    assert_eq!(hit.role, "content");
+    assert_eq!(
+        hit.preview_scope,
+        "left_rail/enforcement/enforcement_strip_layout/compound/enforcement_objects_top"
+    );
+
+    let micro_root = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "left_rail/enforcement/panel/enforcement-stats/enforcement_strip_layout",
+        None,
+    );
+    assert!(
+        micro_root.is_none(),
+        "micro layout nodes are resolved in inspect JS, not panel SSR tags"
+    );
+}
+
+fn metric_card_panel_fixture(id: &str, area: &str, label: &str) -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: id.to_string(),
+        title: None,
+        head: None,
+        area: Some(area.to_string()),
+        layout: None,
+        blocks: vec![],
+        slot: None,
+        props: json!({
+            "__mei_metric_card": true,
+            "source": {"label": label, "value": "1", "unit": "件"},
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn status_flow_panel() -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: "issue_status_flow".to_string(),
+        title: None,
+        head: None,
+        area: Some("status_flow".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string(); 3]),
+            rows: Some(vec!["74px".to_string(), "74px".to_string()]),
+            areas: Some(vec![
+                vec![
+                    "pending".to_string(),
+                    "doing".to_string(),
+                    "done".to_string(),
+                ],
+                vec![
+                    "summary".to_string(),
+                    "summary".to_string(),
+                    "summary".to_string(),
+                ],
+            ]),
+            gap: Some("4px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![
+            UiNodeDecl::Panel(metric_card_panel_fixture("metric_card", "pending", "待办")),
+            UiNodeDecl::Panel(metric_card_panel_fixture("metric_card", "doing", "在办")),
+            UiNodeDecl::Panel(metric_card_panel_fixture("metric_card", "done", "已办")),
+            UiNodeDecl::Panel(metric_card_panel_fixture("metric_card", "summary", "查实率")),
+        ],
+        slot: None,
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn summary_stack_panel() -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: "penalty_count_summary".to_string(),
+        title: None,
+        head: None,
+        area: Some("metrics".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string()]),
+            rows: Some(vec!["50px".to_string(), "32px".to_string(), "32px".to_string()]),
+            areas: Some(vec![
+                vec!["primary".to_string()],
+                vec!["secondary_a".to_string()],
+                vec!["secondary_b".to_string()],
+            ]),
+            gap: Some("4px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![
+            UiNodeDecl::Panel(metric_card_panel_fixture(
+                "penalty_count_summary_primary",
+                "primary",
+                "总数",
+            )),
+            UiNodeDecl::Panel(metric_card_panel_fixture(
+                "penalty_count_summary_secondary_a",
+                "secondary_a",
+                "近7日",
+            )),
+            UiNodeDecl::Panel(metric_card_panel_fixture(
+                "penalty_count_summary_secondary_b",
+                "secondary_b",
+                "行政复议",
+            )),
+        ],
+        slot: None,
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn section_panel(id: &str, title: &str, body: PanelDecl) -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: id.to_string(),
+        title: Some(title.to_string()),
+        head: None,
+        area: Some(id.to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Panel(body)],
+        slot: None,
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn sample_rail_with_sections(sections: Vec<PanelDecl>) -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: "left_rail".to_string(),
+        title: None,
+        head: None,
+        area: Some("body".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: None,
+            rows: Some(vec!["1fr".to_string(); sections.len()]),
+            areas: Some(
+                sections
+                    .iter()
+                    .map(|section| vec![section.id.clone()])
+                    .collect(),
+            ),
+            gap: Some("6px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: sections.into_iter().map(UiNodeDecl::Panel).collect(),
+        slot: None,
+        props: json!({"__mei_tier": "t1", "__mei_chrome_role": "rail"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn compiled_with_panels(panels: Vec<PanelDecl>) -> CompiledApp {
+    CompiledApp {
+        app_id: "pretty-panels".to_string(),
+        title: "Pretty Panels".to_string(),
+        app_root: "/tmp/pretty-panels".to_string(),
+        scene_routes: vec![CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "src/scene/home/assembly.mei".to_string(),
+            kind: "scene".to_string(),
+            title: Some("首页".to_string()),
+            is_default: true,
+            access_export: true,
+        }],
+        active_scene: Some("home".to_string()),
+        active_target_file: "src/scene/home/assembly.mei".to_string(),
+        file_tree: vec![],
+        scene_contract: Some(SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels,
+        }),
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
+    }
+}
+
+#[test]
+fn ui_layout_index_status_flow_group_exposes_four_metric_cards() {
+    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![
+        section_panel("issue", "问题办理", status_flow_panel()),
+    ])]);
+    let result = build_ui_layout_index(&compiled);
+    assert!(
+        result.duplicate_node_ids.is_empty(),
+        "status-flow metric cards should have unique node ids: {:?}",
+        result.duplicate_node_ids
+    );
+    let section_tree_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/issue").encode();
+    let section_tree = find_tree_node(&result.tree_root.children, &section_tree_id)
+        .expect("issue section in tree");
+    assert_eq!(section_tree.children.len(), 1, "issue section should have one group");
+    let group = &section_tree.children[0];
+    assert_eq!(group.label, "办理状态");
+    assert_eq!(group.children.len(), 4, "status-flow group should expose four cards");
+}
+
+#[test]
+fn ui_layout_index_metric_summary_group_labels_penalty_stats() {
+    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![
+        section_panel("penalty", "行政处罚", summary_stack_panel()),
+    ])]);
+    let result = build_ui_layout_index(&compiled);
+    assert!(result.duplicate_node_ids.is_empty());
+    let section_tree_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/penalty").encode();
+    let section_tree = find_tree_node(&result.tree_root.children, &section_tree_id)
+        .expect("penalty section in tree");
+    assert_eq!(section_tree.children.len(), 1);
+    assert_eq!(section_tree.children[0].label, "处罚统计");
+    assert_eq!(section_tree.children[0].children.len(), 3);
+}
+
+#[test]
+fn ui_layout_index_contract_level_chart_blocks_surface_in_section() {
+    let chart_block = BlockDecl {
+        kind: "block".to_string(),
+        use_key: "component".to_string(),
+        id: Some("party_bars".to_string()),
+        title: Some("罚没居前当事人".to_string()),
+        area: Some("party_bars".to_string()),
+        props: json!({"title": "2025罚没居前当事人（元）"}),
+        base: None,
+        layout: None,
+        blocks: vec![],
+        component: Some(json!("chart.column")),
+        placement: None,
+        interactions: vec![],
+        lifecycle: None,
+        constraints: None,
+        data: None,
+    };
+    let penalty_stats = PanelDecl {
+        kind: "panel".to_string(),
+        id: "penalty-stats".to_string(),
+        title: None,
+        head: None,
+        area: Some("penalty".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["168px".to_string(), "1fr".to_string()]),
+            rows: Some(vec!["144px".to_string()]),
+            areas: Some(vec![vec!["metrics".to_string(), "party_bars".to_string()]]),
+            gap: Some("4px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![
+            UiNodeDecl::Panel(summary_stack_panel()),
+            UiNodeDecl::Block(chart_block),
+        ],
+        slot: None,
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "penalty".to_string(),
+        title: Some("行政处罚".to_string()),
+        head: None,
+        area: Some("penalty".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Panel(penalty_stats)],
+        slot: None,
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }])]);
+    let result = build_ui_layout_index(&compiled);
+    let section_tree_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/penalty").encode();
+    let section_tree = find_tree_node(&result.tree_root.children, &section_tree_id)
+        .expect("penalty section");
+    let labels: Vec<_> = section_tree
+        .children
+        .iter()
+        .map(|node| node.label.as_str())
+        .collect();
+    assert!(
+        labels.iter().any(|label| label.contains("罚没居前") || label.contains("分组柱图")),
+        "contract-level chart block should appear as top-level content: {labels:?}"
+    );
+}
+
+#[test]
+fn ui_layout_index_cross_section_duplicate_labels_disambiguate_in_tree() {
+    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![
+        section_panel("inspection", "行政检查", summary_stack_panel()),
+        section_panel("penalty", "行政处罚", summary_stack_panel()),
+    ])]);
+    let result = build_ui_layout_index(&compiled);
+    let inspection_section = find_tree_node(
+        &result.tree_root.children,
+        &BuildNodeId::ui_scope("home", "home/T1/left_rail/inspection").encode(),
+    )
+    .expect("inspection section");
+    let penalty_section = find_tree_node(
+        &result.tree_root.children,
+        &BuildNodeId::ui_scope("home", "home/T1/left_rail/penalty").encode(),
+    )
+    .expect("penalty section");
+    let inspection_primary = &inspection_section.children[0].children[0];
+    let penalty_primary = &penalty_section.children[0].children[0];
+    assert!(
+        inspection_primary.label.contains('·') || penalty_primary.label.contains('·'),
+        "duplicate metric labels should be disambiguated with section prefix"
+    );
+    assert_ne!(inspection_primary.node_id, penalty_primary.node_id);
 }

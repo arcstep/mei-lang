@@ -228,5 +228,40 @@ fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, sou
 
     hoist_heading_to_head_props(panel, diagnostics, source_path);
     stamp_has_head_prop(panel, has_head);
+    stamp_layout_macro_metadata(panel);
     panel.head = None;
+}
+
+const LAYOUT_GROUP_LABEL_OVERRIDES: &[(&str, &str)] = &[
+    ("penalty_count_summary", "处罚统计"),
+    ("inspection_counts_layout", "检查统计"),
+    ("inspection_no_violation_layout", "无违规分析"),
+    ("issue_status_flow", "办理状态"),
+    ("realtime_warning_layout", "预警汇总"),
+    ("park_penalty_amounts", "园区处罚"),
+];
+
+fn stamp_layout_macro_metadata(panel: &mut PanelDecl) {
+    let Some(map) = panel.props.as_object_mut() else {
+        return;
+    };
+    if !map.contains_key("__mei_layout_macro") {
+        if let Some(macro_name) = map.get("__mei_macro").and_then(|value| value.as_str()) {
+            map.insert(
+                "__mei_layout_macro".to_string(),
+                Value::String(macro_name.to_string()),
+            );
+        }
+    }
+    if !map.contains_key("__mei_content_group_label") {
+        for (id_hint, label) in LAYOUT_GROUP_LABEL_OVERRIDES {
+            if panel.id == *id_hint || panel.id.contains(id_hint) {
+                map.insert(
+                    "__mei_content_group_label".to_string(),
+                    Value::String((*label).to_string()),
+                );
+                break;
+            }
+        }
+    }
 }

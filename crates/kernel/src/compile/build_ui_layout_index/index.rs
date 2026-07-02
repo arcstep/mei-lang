@@ -12,12 +12,14 @@ use crate::model::{
 pub struct UiLayoutIndexResult {
     pub index: UiLayoutIndex,
     pub tree_root: ReachabilityTreeRoot,
+    pub duplicate_node_ids: Vec<String>,
 }
 
 pub fn build_ui_layout_index(compiled: &CompiledApp) -> UiLayoutIndexResult {
     let contracts = scene_contracts_from_compiled(compiled);
     let mut index = UiLayoutIndex::default();
     let mut tree_children = Vec::new();
+    let mut duplicate_node_ids = Vec::new();
     let mut seen_scene_ids = HashSet::new();
     let active_scene = compiled
         .active_scene
@@ -47,13 +49,18 @@ pub fn build_ui_layout_index(compiled: &CompiledApp) -> UiLayoutIndexResult {
             &panels,
             compiled.app_id.as_str(),
         );
-        merge_build_result(&mut index, result);
+        merge_build_result(&mut index, result, &mut duplicate_node_ids);
         append_t2_board_structure(&mut index, compiled, route.scene_id.as_str());
         if let Some(scene_node) = index.nodes.get(&scene_root_id(route.scene_id.as_str())) {
             if let Some(tree_node) = ui_scope_to_tree_node(scene_node, &index) {
                 tree_children.push(tree_node);
             }
         }
+    }
+
+    let label_counts = count_content_labels(&index);
+    for scene in &mut tree_children {
+        relabel_tree_for_duplicate_labels(scene, &label_counts, None);
     }
 
     index.scene_roots = tree_children
@@ -67,7 +74,11 @@ pub fn build_ui_layout_index(compiled: &CompiledApp) -> UiLayoutIndexResult {
         default_open: true,
         children: tree_children,
     };
-    UiLayoutIndexResult { index, tree_root }
+    UiLayoutIndexResult {
+        index,
+        tree_root,
+        duplicate_node_ids,
+    }
 }
 
 fn scene_routes_for_ui_tree<'a>(
@@ -203,7 +214,62 @@ fn append_t2_board_structure(index: &mut UiLayoutIndex, compiled: &CompiledApp, 
     }
 }
 
-fn merge_build_result(index: &mut UiLayoutIndex, result: UiStructureBuildResult) {
+fn count_content_labels(index: &UiLayoutIndex) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for node in index.nodes.values() {
+        if node.role == UiScopeRole::Content {
+            *counts.entry(node.label.clone()).or_default() += 1;
+        }
+    }
+    counts
+}
+
+fn relabel_tree_for_duplicate_labels(
+    node: &mut ReachabilityTreeNode,
+    label_counts: &BTreeMap<String, usize>,
+    section_label: Option<String>,
+) {
+    let current_section = if node.ui_role == "section" {
+        Some(node.label.clone())
+    } else {
+        section_label
+    };
+    if node.ui_role == "content" {
+        if label_counts.get(&node.label).copied().unwrap_or(0) > 1 {
+            if let Some(section) = current_section.as_deref() {
+                let short = section_short_label(section);
+                if !node.label.starts_with(&short) {
+                    node.label = format!("{short}·{}", node.label);
+                }
+            }
+        }
+    }
+    for child in &mut node.children {
+        relabel_tree_for_duplicate_labels(child, label_counts, current_section.clone());
+    }
+}
+
+fn section_short_label(section: &str) -> String {
+    section
+        .split(['·', ' '])
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(section)
+        .chars()
+        .take(4)
+        .collect()
+}
+
+fn merge_build_result(
+    index: &mut UiLayoutIndex,
+    result: UiStructureBuildResult,
+    duplicate_node_ids: &mut Vec<String>,
+) {
+    for id in result.duplicate_node_ids {
+        if !duplicate_node_ids.contains(&id) {
+            duplicate_node_ids.push(id);
+        }
+    }
     for (id, node) in result.nodes {
         index.nodes.insert(id, node);
     }
@@ -258,6 +324,12 @@ fn display_children_for_tree<'a>(
 ) -> Vec<&'a UiScopeNode> {
     match node.role {
         UiScopeRole::Section => collect_descendant_contents(node, index),
+        UiScopeRole::Content if content_has_content_children(node, index) => node
+            .children
+            .iter()
+            .filter_map(|child_id| index.nodes.get(child_id))
+            .filter(|child| child.role == UiScopeRole::Content)
+            .collect(),
         _ => node
             .children
             .iter()
@@ -270,6 +342,15 @@ fn display_children_for_tree<'a>(
             })
             .collect(),
     }
+}
+
+fn content_has_content_children(node: &UiScopeNode, index: &UiLayoutIndex) -> bool {
+    node.children.iter().any(|child_id| {
+        index
+            .nodes
+            .get(child_id)
+            .is_some_and(|child| child.role == UiScopeRole::Content)
+    })
 }
 
 fn collect_descendant_contents<'a>(

@@ -277,6 +277,14 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
     };
     compiled.build_template_index = template.index;
     let ui_layout = crate::compile::build_ui_layout_index::build_ui_layout_index(&compiled);
+    for node_id in &ui_layout.duplicate_node_ids {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Warning,
+            code: "ui_scope_duplicate_node_id".to_string(),
+            message: format!("duplicate ui-scope node id: {node_id}"),
+            source_path: None,
+        });
+    }
     compiled.ui_layout_index = ui_layout.index;
     let template_files = if is_catalog_app {
         crate::compile::build_template_index::build_stock_template_files_root(
