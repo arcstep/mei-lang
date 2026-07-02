@@ -19,8 +19,7 @@ fn ws_demo_v2_root() -> PathBuf {
 }
 
 fn bundle_path() -> PathBuf {
-    ws_demo_v2_root()
-        .join("apps/data-demo/build/active/exchange/data-demo.meibundle")
+    ws_demo_v2_root().join("apps/data-demo/build/active/exchange/data-demo.meibundle")
 }
 
 fn ensure_imported() -> PathBuf {
@@ -74,9 +73,11 @@ fn ws_demo_v2_build_store_layout() {
             "BUILD.json missing at {}",
             manifest.display()
         );
-        let registry = workspace
-            .join("apps/data-demo/build/active/registry/mcg-registry.json");
-        assert!(registry.is_file(), "registry should live under build/active");
+        let registry = workspace.join("apps/data-demo/build/active/registry/mcg-registry.json");
+        assert!(
+            registry.is_file(),
+            "registry should live under build/active"
+        );
     }
 }
 
@@ -111,12 +112,12 @@ fn ws_demo_v2_import_and_assemble_home() {
         .as_ref()
         .expect("scene contract");
     assert!(contract.frame.is_some(), "home frame should be lowered");
-    assert_eq!(contract.panels.len(), 6, "home assembly references 6 panels");
-    let block_count: usize = contract
-        .panels
-        .iter()
-        .map(|panel| panel.blocks.len())
-        .sum();
+    assert_eq!(
+        contract.panels.len(),
+        6,
+        "home assembly references 6 panels"
+    );
+    let block_count: usize = contract.panels.iter().map(|panel| panel.blocks.len()).sum();
     assert!(block_count > 0, "home panels should contain blocks");
     assert!(
         !outcome.compiled.component_assets.is_empty(),
@@ -210,7 +211,9 @@ fn ws_demo_v2_home_gis_map_spec_resolves_config_refs() {
         .and_then(|layer| layer.get("url"))
         .expect("first layer url");
     assert!(
-        first_layer_url.as_str().is_some_and(|url| url.starts_with('/')),
+        first_layer_url
+            .as_str()
+            .is_some_and(|url| url.starts_with('/')),
         "ops_param_ref layer url should resolve to path string: {first_layer_url}"
     );
 
@@ -220,7 +223,10 @@ fn ws_demo_v2_home_gis_map_spec_resolves_config_refs() {
         .find(|panel| panel.id == "home_header")
         .expect("home_header panel");
     assert_eq!(
-        header.props.get("z_index").and_then(serde_json::Value::as_i64),
+        header
+            .props
+            .get("z_index")
+            .and_then(serde_json::Value::as_i64),
         Some(mei_host_graph::Z_T1_HEADER)
     );
 }
@@ -231,8 +237,7 @@ fn ws_demo_v2_serve_style_render_includes_rail_metric_panels() {
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
-    let app_root =
-        mei_lang_kernel::resolve_app_root(workspace.as_path(), "data-demo");
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "data-demo");
     let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
         id: "data-demo".to_string(),
         title: outcome.compiled.title.clone(),
@@ -372,7 +377,11 @@ fn ws_demo_v2_board_semantic_ids_present() {
         .filter(|n| n.id.kind == GraphNodeKind::AssemblyView)
         .map(|n| n.id.key.clone())
         .collect();
-    assert_eq!(assembly_keys.len(), 43, "expected 43 assembly_view/board keys");
+    assert_eq!(
+        assembly_keys.len(),
+        43,
+        "expected 43 assembly_view/board keys"
+    );
     assert!(assembly_keys.iter().any(|k| k.contains("home@")));
 }
 
@@ -382,8 +391,9 @@ fn ws_demo_v2_all_board_scenes_assemble() {
     let scenes = collect_all_board_scenes(workspace.as_path(), "data-demo");
     assert!(scenes.len() >= 43);
     for scene in scenes {
-        let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", scene.as_str())
-            .expect("assemble");
+        let outcome =
+            assemble_scope_from_registry(workspace.as_path(), "data-demo", scene.as_str())
+                .expect("assemble");
         assert!(outcome.is_some(), "missing assemble for scene {scene}");
     }
 }
@@ -405,7 +415,10 @@ fn ws_demo_v2_assemble_without_reimport() {
 #[test]
 fn ws_demo_v2_assemble_relative_workspace_path() {
     let rel = std::path::PathBuf::from("../workspaces/ws-demo-v2");
-    if !rel.join("apps/data-demo/build/active/exchange/data-demo.meibundle").is_file() {
+    if !rel
+        .join("apps/data-demo/build/active/exchange/data-demo.meibundle")
+        .is_file()
+    {
         return;
     }
     let result = assemble_scope_from_registry(rel.as_path(), "data-demo", "home");
@@ -423,7 +436,10 @@ fn ws_demo_v2_home_layer_plan_and_presentation_map() {
         .expect("assemble")
         .expect("home outcome");
     assert_eq!(
-        outcome.layer_plan.get("schemaVersion").and_then(|v| v.as_str()),
+        outcome
+            .layer_plan
+            .get("schemaVersion")
+            .and_then(|v| v.as_str()),
         Some("mei-layer-plan-v1")
     );
     let basemap = outcome
@@ -437,6 +453,18 @@ fn ws_demo_v2_home_layer_plan_and_presentation_map() {
             .iter()
             .any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("map_stage")),
         "layer_plan t0 should include map_stage: {basemap:?}"
+    );
+    let map_stage = basemap
+        .iter()
+        .find(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("map_stage"))
+        .expect("map_stage layer plan entry");
+    assert_eq!(
+        map_stage.get("viewFamily").and_then(|v| v.as_str()),
+        Some("map")
+    );
+    assert_eq!(
+        map_stage.get("stageKind").and_then(|v| v.as_str()),
+        Some("map-stage")
     );
     let chrome = outcome
         .layer_plan
@@ -494,6 +522,20 @@ fn ws_demo_v2_home_panels_emit_tier_props() {
         map_stage.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t0")
     );
+    assert_eq!(
+        map_stage
+            .props
+            .get("__mei_view_family")
+            .and_then(|v| v.as_str()),
+        Some("map")
+    );
+    assert_eq!(
+        map_stage
+            .props
+            .get("__mei_stage_kind")
+            .and_then(|v| v.as_str()),
+        Some("map-stage")
+    );
     let header = contract
         .panels
         .iter()
@@ -504,7 +546,10 @@ fn ws_demo_v2_home_panels_emit_tier_props() {
         Some("t1")
     );
     assert_eq!(
-        header.props.get("z_index").and_then(serde_json::Value::as_i64),
+        header
+            .props
+            .get("z_index")
+            .and_then(serde_json::Value::as_i64),
         Some(mei_host_graph::Z_T1_HEADER)
     );
 }
@@ -572,11 +617,7 @@ fn collect_lowered_viewpoint_ids(panels: &[mei_lang_kernel::PanelDecl]) -> Vec<S
         for node in nodes {
             match node {
                 mei_lang_kernel::UiNodeDecl::Panel(panel) => {
-                    if let Some(vp) = panel
-                        .props
-                        .get("__mei_viewpoint")
-                        .and_then(|v| v.as_str())
-                    {
+                    if let Some(vp) = panel.props.get("__mei_viewpoint").and_then(|v| v.as_str()) {
                         found.push(vp.to_string());
                     }
                     walk(&panel.blocks, found);
@@ -587,11 +628,7 @@ fn collect_lowered_viewpoint_ids(panels: &[mei_lang_kernel::PanelDecl]) -> Vec<S
         }
     }
     for panel in panels {
-        if let Some(vp) = panel
-            .props
-            .get("__mei_viewpoint")
-            .and_then(|v| v.as_str())
-        {
+        if let Some(vp) = panel.props.get("__mei_viewpoint").and_then(|v| v.as_str()) {
             found.push(vp.to_string());
         }
         walk(&panel.blocks, &mut found);
@@ -807,9 +844,7 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
     let t0_panel = contract
         .panels
         .iter()
-        .find(|panel| {
-            panel.props.get("__mei_tier").and_then(|v| v.as_str()) == Some("t0")
-        })
+        .find(|panel| panel.props.get("__mei_tier").and_then(|v| v.as_str()) == Some("t0"))
         .expect("t0 panel");
     assert!(
         t0_panel.id == "basemap" || t0_panel.id == "viewport_canvas",
@@ -826,7 +861,10 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
         Some("t1")
     );
     assert_eq!(
-        header.props.get("z_index").and_then(serde_json::Value::as_i64),
+        header
+            .props
+            .get("z_index")
+            .and_then(serde_json::Value::as_i64),
         Some(mei_host_graph::Z_T1_HEADER)
     );
     let t0_tier = outcome
@@ -841,6 +879,134 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
                 || entry.get("panelId").and_then(|v| v.as_str()) == Some("viewport_canvas")
         }),
         "mini-park layer_plan t0 should include basemap or viewport_canvas: {t0_tier:?}"
+    );
+    if let Some(basemap) = t0_tier
+        .iter()
+        .find(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("basemap"))
+    {
+        assert_eq!(
+            basemap.get("viewFamily").and_then(|v| v.as_str()),
+            Some("map")
+        );
+        assert_eq!(
+            basemap.get("stageKind").and_then(|v| v.as_str()),
+            Some("map-stage")
+        );
+    }
+    if let Some(viewport_canvas) = t0_tier
+        .iter()
+        .find(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("viewport_canvas"))
+    {
+        assert_eq!(
+            viewport_canvas.get("viewFamily").and_then(|v| v.as_str()),
+            Some("canvas")
+        );
+        assert_eq!(
+            viewport_canvas.get("stageKind").and_then(|v| v.as_str()),
+            Some("viewport-canvas")
+        );
+    }
+    let viewpoints = outcome
+        .presentation_map
+        .get("viewpoints")
+        .and_then(|v| v.as_object())
+        .expect("mini-park presentation_map viewpoints");
+    let overview = viewpoints
+        .get("park_overview_stage")
+        .expect("park_overview_stage viewpoint");
+    assert_eq!(
+        overview.get("viewFamily").and_then(|v| v.as_str()),
+        Some("map")
+    );
+    assert_eq!(
+        overview.get("worldRef").and_then(|v| v.as_str()),
+        Some("park_world")
+    );
+    assert_eq!(
+        overview.get("groupId").and_then(|v| v.as_str()),
+        Some("park_story_overview")
+    );
+    assert_eq!(
+        overview.get("cameraPreset").and_then(|v| v.as_str()),
+        Some("park_overview_orbit")
+    );
+    let point_one = viewpoints
+        .get("park_point_1_entry")
+        .expect("park_point_1_entry viewpoint");
+    assert_eq!(point_one.get("viewFamily").and_then(|v| v.as_str()), Some("map"));
+    assert_eq!(point_one.get("worldRef").and_then(|v| v.as_str()), Some("park_world"));
+    assert_eq!(
+        point_one.get("entityId").and_then(|v| v.as_str()),
+        Some("lake_pavilion")
+    );
+    assert_eq!(
+        point_one.get("cameraPreset").and_then(|v| v.as_str()),
+        Some("lake_pavilion_focus")
+    );
+}
+
+#[test]
+fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
+    let workspace = ensure_mini_park_imported();
+    let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
+    if !bundle.is_file() {
+        return;
+    }
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home")
+        .expect("assemble mini-park")
+        .expect("mini-park home outcome");
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "mini-park");
+    let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
+        id: "mini-park".to_string(),
+        title: outcome.compiled.title.clone(),
+        root: app_root.display().to_string(),
+    }];
+    let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
+    let theme_style =
+        mei_lang_app::page_body_theme_style(&workspace_cfg, Some(&outcome.compiled), None);
+    let html = mei_lang_app::render_page(
+        &apps,
+        &outcome.compiled,
+        "mini-park",
+        None,
+        mei_lang_app::UiRouteMode::App,
+        Some(outcome.compiled.active_target_file.as_str()),
+        None,
+        None,
+        Some("home"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &[],
+        false,
+        None,
+        None,
+        theme_style.as_str(),
+        None,
+        None,
+    );
+    assert!(
+        html.contains("data-mei-view-family=\"map\""),
+        "mini-park HTML should expose map stage family"
+    );
+    assert!(
+        html.contains("data-mei-stage-kind=\"map-stage\""),
+        "mini-park HTML should expose map stage kind"
+    );
+    assert!(
+        html.contains("data-mei-world-ref=\"park_world\""),
+        "mini-park HTML should expose world ref on focus target"
     );
 }
 

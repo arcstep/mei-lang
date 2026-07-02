@@ -234,6 +234,21 @@
     if (!normalized.viewpoint && normalized.viewpointId) {
       normalized.viewpoint = normalized.viewpointId;
     }
+    if (!normalized.viewFamily && normalized.view_family) {
+      normalized.viewFamily = normalized.view_family;
+    }
+    if (!normalized.worldRef && normalized.world_ref) {
+      normalized.worldRef = normalized.world_ref;
+    }
+    if (!normalized.entityId && normalized.entity_id) {
+      normalized.entityId = normalized.entity_id;
+    }
+    if (!normalized.groupId && normalized.group_id) {
+      normalized.groupId = normalized.group_id;
+    }
+    if (!normalized.cameraPreset && normalized.camera_preset) {
+      normalized.cameraPreset = normalized.camera_preset;
+    }
     if (!normalized.plane && normalized.planeId) {
       normalized.plane = normalized.planeId;
     }
@@ -400,7 +415,12 @@
   function currentViewpoint(step) {
     const actions = collectCockpitActions(step || currentStep());
     for (const action of actions) {
-      if (action && String(action.type || "") === "highlight" && action.viewpoint) {
+      const type = String(action?.type || "").trim();
+      if (
+        action &&
+        ["highlight", "focus", "focus_entity", "focusEntity", "camera_move", "cameraMove"].includes(type) &&
+        action.viewpoint
+      ) {
         return String(action.viewpoint).trim();
       }
     }

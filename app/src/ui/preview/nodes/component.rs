@@ -119,6 +119,36 @@ pub(crate) fn block_view_for_decl(
         .get("__mei_viewpoint")
         .and_then(|v| v.as_str())
         .unwrap_or("");
+    let block_view_family = block
+        .props
+        .get("__mei_view_family")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let block_stage_kind = block
+        .props
+        .get("__mei_stage_kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let block_world_ref = block
+        .props
+        .get("__mei_world_ref")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let block_entity_id = block
+        .props
+        .get("entityId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let block_group_id = block
+        .props
+        .get("groupId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let block_camera_preset = block
+        .props
+        .get("cameraPreset")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let ui_scope_annotation = if runtime_ctx.build_inspect_enabled {
         parent_panel_id.and_then(|panel_path| {
             ui_scope_for_block(
@@ -158,6 +188,12 @@ pub(crate) fn block_view_for_decl(
             data-mei-block-id=block_id.to_string()
             data-mei-use-key=block.use_key.clone()
             data-mei-viewpoint=block_viewpoint
+            data-mei-view-family=block_view_family
+            data-mei-stage-kind=block_stage_kind
+            data-mei-world-ref=block_world_ref
+            data-mei-entity-id=block_entity_id
+            data-mei-group-id=block_group_id
+            data-mei-camera-preset=block_camera_preset
             data-build-node=build_node_id.clone().unwrap_or_default()
             data-build-focus=build_node_id.clone().unwrap_or_default()
             data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()

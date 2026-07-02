@@ -15,6 +15,24 @@ pub struct ViewpointMapEntry {
     pub block_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "viewFamily"
+    )]
+    pub view_family: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "worldRef")]
+    pub world_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "entityId")]
+    pub entity_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "groupId")]
+    pub group_id: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "cameraPreset"
+    )]
+    pub camera_preset: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -34,10 +52,136 @@ fn panel_tier(panel: &PanelDecl) -> String {
         .to_string()
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ViewpointHints {
+    view_family: Option<String>,
+    world_ref: Option<String>,
+    entity_id: Option<String>,
+    group_id: Option<String>,
+    camera_preset: Option<String>,
+}
+
+impl ViewpointHints {
+    fn from_value(value: &Value) -> Self {
+        let Some(obj) = value.as_object() else {
+            return Self::default();
+        };
+        let mut hints = Self {
+            view_family: read_string(obj, &["__mei_view_family", "viewFamily", "view_family"]),
+            world_ref: read_string(obj, &["__mei_world_ref", "worldRef", "world_ref"]),
+            entity_id: read_string(obj, &["entityId", "entity_id"]),
+            group_id: read_string(obj, &["groupId", "group_id"]),
+            camera_preset: read_string(obj, &["cameraPreset", "camera_preset"]),
+        };
+        match obj.get("__call").and_then(|v| v.as_str()) {
+            Some("map_view") => {
+                hints.view_family.get_or_insert_with(|| "map".to_string());
+            }
+            Some("world_view") => {
+                hints.view_family.get_or_insert_with(|| "world".to_string());
+            }
+            _ => {}
+        }
+        if let Some(args) = obj.get("__args").and_then(|v| v.as_object()) {
+            if hints.world_ref.is_none() {
+                hints.world_ref = read_string(args, &["worldRef", "world_ref", "arg0"]);
+            }
+            if hints.entity_id.is_none() {
+                hints.entity_id = read_string(args, &["entityId", "entity_id"]);
+            }
+            if hints.group_id.is_none() {
+                hints.group_id = read_string(args, &["groupId", "group_id"]);
+            }
+            if hints.camera_preset.is_none() {
+                hints.camera_preset = read_string(args, &["cameraPreset", "camera_preset"]);
+            }
+        }
+        hints
+    }
+
+    fn with_fallbacks(mut self, fallback: &Self) -> Self {
+        if self.view_family.is_none() {
+            self.view_family = fallback.view_family.clone();
+        }
+        if self.world_ref.is_none() {
+            self.world_ref = fallback.world_ref.clone();
+        }
+        if self.entity_id.is_none() {
+            self.entity_id = fallback.entity_id.clone();
+        }
+        if self.group_id.is_none() {
+            self.group_id = fallback.group_id.clone();
+        }
+        if self.camera_preset.is_none() {
+            self.camera_preset = fallback.camera_preset.clone();
+        }
+        self
+    }
+}
+
+fn read_string(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| obj.get(*key).and_then(|v| v.as_str()))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn panel_viewpoint_hints(panel: &PanelDecl) -> ViewpointHints {
+    ViewpointHints::from_value(&panel.props)
+}
+
+fn entry_from_hints(
+    tier: String,
+    panel_id: String,
+    block_path: Option<String>,
+    label: Option<String>,
+    hints: ViewpointHints,
+) -> ViewpointMapEntry {
+    ViewpointMapEntry {
+        tier,
+        panel_id,
+        block_path,
+        label,
+        view_family: hints.view_family,
+        world_ref: hints.world_ref,
+        entity_id: hints.entity_id,
+        group_id: hints.group_id,
+        camera_preset: hints.camera_preset,
+    }
+}
+
+fn merge_viewpoint_entry(existing: Option<ViewpointMapEntry>, candidate: ViewpointMapEntry) -> ViewpointMapEntry {
+    let Some(existing) = existing else {
+        return candidate;
+    };
+    ViewpointMapEntry {
+        tier: candidate.tier,
+        panel_id: candidate.panel_id,
+        block_path: candidate.block_path.or(existing.block_path),
+        label: candidate.label.or(existing.label),
+        view_family: candidate.view_family.or(existing.view_family),
+        world_ref: candidate.world_ref.or(existing.world_ref),
+        entity_id: candidate.entity_id.or(existing.entity_id),
+        group_id: candidate.group_id.or(existing.group_id),
+        camera_preset: candidate.camera_preset.or(existing.camera_preset),
+    }
+}
+
+fn upsert_viewpoint(
+    out: &mut BTreeMap<String, ViewpointMapEntry>,
+    viewpoint_id: String,
+    entry: ViewpointMapEntry,
+) {
+    let merged = merge_viewpoint_entry(out.remove(viewpoint_id.as_str()), entry);
+    out.insert(viewpoint_id, merged);
+}
+
 fn collect_block_viewpoints(
     nodes: &[UiNodeDecl],
     panel: &PanelDecl,
     path_prefix: &str,
+    inherited_hints: &ViewpointHints,
     out: &mut BTreeMap<String, ViewpointMapEntry>,
 ) {
     for (index, node) in nodes.iter().enumerate() {
@@ -54,18 +198,22 @@ fn collect_block_viewpoints(
                     .or_else(|| block.props.get("__mei_viewpoint"))
                 {
                     if let Some(id) = resolve_viewpoint_id(vp) {
-                        out.insert(
+                        let hints = ViewpointHints::from_value(&block.props)
+                            .with_fallbacks(inherited_hints);
+                        upsert_viewpoint(
+                            out,
                             id.clone(),
-                            ViewpointMapEntry {
-                                tier: panel_tier(panel),
-                                panel_id: panel.id.clone(),
-                                block_path: Some(block_path.clone()),
-                                label: block
+                            entry_from_hints(
+                                panel_tier(panel),
+                                panel.id.clone(),
+                                Some(block_path.clone()),
+                                block
                                     .props
                                     .get("label")
                                     .and_then(|v| v.as_str())
                                     .map(str::to_string),
-                            },
+                                hints,
+                            ),
                         );
                     }
                 }
@@ -77,18 +225,22 @@ fn collect_block_viewpoints(
                     .or_else(|| nested.props.get("__mei_viewpoint"))
                 {
                     if let Some(id) = resolve_viewpoint_id(vp) {
-                        out.insert(
+                        let hints = panel_viewpoint_hints(nested).with_fallbacks(inherited_hints);
+                        upsert_viewpoint(
+                            out,
                             id.clone(),
-                            ViewpointMapEntry {
-                                tier: panel_tier(nested),
-                                panel_id: nested.id.clone(),
-                                block_path: Some(block_path.clone()),
-                                label: nested.title.clone(),
-                            },
+                            entry_from_hints(
+                                panel_tier(nested),
+                                nested.id.clone(),
+                                Some(block_path.clone()),
+                                nested.title.clone(),
+                                hints,
+                            ),
                         );
                     }
                 }
-                collect_block_viewpoints(&nested.blocks, nested, &block_path, out);
+                let nested_hints = panel_viewpoint_hints(nested).with_fallbacks(inherited_hints);
+                collect_block_viewpoints(&nested.blocks, nested, &block_path, &nested_hints, out);
             }
             _ => {}
         }
@@ -122,10 +274,11 @@ pub fn resolve_viewpoint_id(value: &Value) -> Option<String> {
     None
 }
 
-pub fn merge_panel_contract_viewpoints(
+fn merge_panel_contract_viewpoints(
     payload: &Value,
     panel_id: &str,
     tier: &str,
+    inherited_hints: &ViewpointHints,
     out: &mut BTreeMap<String, ViewpointMapEntry>,
 ) {
     let Some(viewpoints) = payload.get("viewpoints").and_then(|v| v.as_array()) else {
@@ -141,6 +294,7 @@ pub fn merge_panel_contract_viewpoints(
         if id.is_empty() {
             continue;
         }
+        let hints = ViewpointHints::from_value(args).with_fallbacks(inherited_hints);
         let blocks = args
             .get("blocks")
             .and_then(|v| v.as_array())
@@ -152,17 +306,18 @@ pub fn merge_panel_contract_viewpoints(
                     .join(",")
             })
             .filter(|s| !s.is_empty());
-        out.insert(
+        upsert_viewpoint(
+            out,
             id.to_string(),
-            ViewpointMapEntry {
-                tier: tier.to_string(),
-                panel_id: panel_id.to_string(),
-                block_path: blocks,
-                label: args
-                    .get("label")
+            entry_from_hints(
+                tier.to_string(),
+                panel_id.to_string(),
+                blocks,
+                args.get("label")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
-            },
+                hints,
+            ),
         );
     }
 }
@@ -175,16 +330,19 @@ pub fn build_presentation_map(
     let mut viewpoints = BTreeMap::new();
     for panel in panels {
         let tier = panel_tier(panel);
+        let panel_hints = panel_viewpoint_hints(panel);
         if let Some(vp) = panel.props.get("__mei_viewpoint") {
             if let Some(id) = resolve_viewpoint_id(vp) {
-                viewpoints.insert(
+                upsert_viewpoint(
+                    &mut viewpoints,
                     id.clone(),
-                    ViewpointMapEntry {
-                        tier: tier.clone(),
-                        panel_id: panel.id.clone(),
-                        block_path: None,
-                        label: panel.title.clone(),
-                    },
+                    entry_from_hints(
+                        tier.clone(),
+                        panel.id.clone(),
+                        None,
+                        panel.title.clone(),
+                        panel_hints.clone(),
+                    ),
                 );
             }
         }
@@ -193,10 +351,11 @@ pub fn build_presentation_map(
                 payload,
                 panel.id.as_str(),
                 tier.as_str(),
+                &panel_hints,
                 &mut viewpoints,
             );
         }
-        collect_block_viewpoints(&panel.blocks, panel, "", &mut viewpoints);
+        collect_block_viewpoints(&panel.blocks, panel, "", &panel_hints, &mut viewpoints);
     }
     PresentationMapDocument {
         schema_version: "mei-presentation-map-v1".to_string(),
@@ -245,7 +404,9 @@ mod tests {
             slot: None,
             props: json!({
                 "__mei_viewpoint": "warnings_total",
-                "__mei_metric_card": true
+                "__mei_metric_card": true,
+                "__mei_view_family": "map",
+                "__mei_world_ref": "park_world",
             }),
             head_props: json!({}),
             body_props: json!({}),
@@ -269,5 +430,118 @@ mod tests {
         };
         let map = build_presentation_map("home", std::slice::from_ref(&parent), &BTreeMap::new());
         assert!(map.viewpoints.contains_key("warnings_total"));
+        assert_eq!(
+            map.viewpoints
+                .get("warnings_total")
+                .and_then(|entry| entry.view_family.as_deref()),
+            Some("map")
+        );
+        assert_eq!(
+            map.viewpoints
+                .get("warnings_total")
+                .and_then(|entry| entry.world_ref.as_deref()),
+            Some("park_world")
+        );
+    }
+
+    #[test]
+    fn merge_panel_contract_viewpoints_preserves_world_target_hints() {
+        let payload = json!({
+            "viewpoints": [{
+                "__call": "viewpoint",
+                "__args": {
+                    "id": "park_overview_stage",
+                    "label": "总览",
+                    "worldRef": "park_world",
+                    "entityId": "lake_pavilion",
+                    "groupId": "overview",
+                    "cameraPreset": "orbit"
+                }
+            }]
+        });
+        let mut out = BTreeMap::new();
+        merge_panel_contract_viewpoints(
+            &payload,
+            "basemap",
+            "t0",
+            &ViewpointHints {
+                view_family: Some("map".to_string()),
+                ..ViewpointHints::default()
+            },
+            &mut out,
+        );
+        let entry = out.get("park_overview_stage").expect("viewpoint entry");
+        assert_eq!(entry.view_family.as_deref(), Some("map"));
+        assert_eq!(entry.world_ref.as_deref(), Some("park_world"));
+        assert_eq!(entry.entity_id.as_deref(), Some("lake_pavilion"));
+        assert_eq!(entry.group_id.as_deref(), Some("overview"));
+        assert_eq!(entry.camera_preset.as_deref(), Some("orbit"));
+    }
+
+    #[test]
+    fn build_presentation_map_merges_panel_viewpoint_hints_with_block_focus_target() {
+        let panel = PanelDecl {
+            kind: "panel".to_string(),
+            id: "basemap".to_string(),
+            title: Some("迷你公园总览".to_string()),
+            head: None,
+            area: None,
+            layout: None,
+            blocks: vec![UiNodeDecl::Block(mei_lang_kernel::BlockDecl {
+                kind: "block".to_string(),
+                use_key: "cockpit.basemap-stage".to_string(),
+                id: Some("basemap_stage".to_string()),
+                title: None,
+                area: Some("auto".to_string()),
+                props: json!({
+                    "__mei_viewpoint": "park_point_1_entry"
+                }),
+                base: None,
+                layout: None,
+                blocks: Vec::new(),
+                component: None,
+                placement: None,
+                interactions: Vec::new(),
+                lifecycle: None,
+                constraints: None,
+                data: None,
+            })],
+            slot: None,
+            props: json!({
+                "__mei_tier": "t0",
+                "__mei_view_family": "map"
+            }),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let payloads = BTreeMap::from([(
+            "basemap".to_string(),
+            json!({
+                "viewpoints": [{
+                    "__call": "viewpoint",
+                    "__args": {
+                        "id": "park_point_1_entry",
+                        "worldRef": "park_world",
+                        "entityId": "lake_pavilion",
+                        "groupId": "lake_pavilion_story",
+                        "cameraPreset": "lake_pavilion_focus"
+                    }
+                }]
+            }),
+        )]);
+        let map = build_presentation_map("home", &[panel], &payloads);
+        let entry = map
+            .viewpoints
+            .get("park_point_1_entry")
+            .expect("merged viewpoint entry");
+        assert_eq!(entry.view_family.as_deref(), Some("map"));
+        assert_eq!(entry.world_ref.as_deref(), Some("park_world"));
+        assert_eq!(entry.entity_id.as_deref(), Some("lake_pavilion"));
+        assert_eq!(entry.group_id.as_deref(), Some("lake_pavilion_story"));
+        assert_eq!(entry.camera_preset.as_deref(), Some("lake_pavilion_focus"));
+        assert_eq!(entry.panel_id, "basemap");
+        assert_eq!(entry.block_path.as_deref(), Some("0"));
     }
 }

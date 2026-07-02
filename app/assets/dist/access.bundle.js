@@ -19961,6 +19961,72 @@
     }
   }
 
+  function readViewpointEntry(viewpointId) {
+    const id = String(viewpointId || "").trim();
+    if (!id) return null;
+    const map = readPresentationMap();
+    return map?.viewpoints?.[id] || null;
+  }
+
+  function stampWorldTargetDataset(target, entry) {
+    if (!(target instanceof HTMLElement) || !entry || typeof entry !== "object") {
+      return;
+    }
+    const mappings = [
+      ["meiFocusTier", entry.tier],
+      ["meiViewFamily", entry.viewFamily],
+      ["meiStageKind", entry.stageKind],
+      ["meiWorldRef", entry.worldRef],
+      ["meiEntityId", entry.entityId],
+      ["meiGroupId", entry.groupId],
+      ["meiCameraPreset", entry.cameraPreset],
+    ];
+    mappings.forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      target.dataset[key] = String(value);
+    });
+  }
+
+  function resolveWorldTarget(action, entry) {
+    const worldTarget = {
+      type: String(action?.type || action?.kind || "").trim(),
+      viewpointId: String(action?.viewpoint || action?.viewpointId || "").trim(),
+      viewFamily: String(action?.viewFamily || action?.view_family || entry?.viewFamily || "").trim(),
+      worldRef: String(action?.worldRef || action?.world_ref || entry?.worldRef || "").trim(),
+      entityId: String(action?.entityId || action?.entity_id || entry?.entityId || "").trim(),
+      groupId: String(action?.groupId || action?.group_id || entry?.groupId || "").trim(),
+      cameraPreset: String(
+        action?.cameraPreset || action?.camera_preset || entry?.cameraPreset || "",
+      ).trim(),
+    };
+    return worldTarget;
+  }
+
+  function dispatchWorldTargetStub(action, entry) {
+    const worldTarget = resolveWorldTarget(action, entry);
+    if (
+      !worldTarget.viewpointId &&
+      !worldTarget.viewFamily &&
+      !worldTarget.worldRef &&
+      !worldTarget.entityId &&
+      !worldTarget.groupId &&
+      !worldTarget.cameraPreset
+    ) {
+      return false;
+    }
+    const root = typeof globalThis !== "undefined" ? globalThis : window;
+    boot.lastWorldPresentationAction = worldTarget;
+    root.dispatchEvent(
+      new CustomEvent("mei:presentation-world-action", {
+        detail: worldTarget,
+      }),
+    );
+    if (typeof console !== "undefined" && typeof console.info === "function") {
+      console.info("[mei] presentation world action stub", worldTarget);
+    }
+    return true;
+  }
+
   function clearViewpointFocus() {
     document.querySelectorAll(".mei-viewpoint-focus").forEach((node) => {
       node.classList.remove("mei-viewpoint-focus");
@@ -19991,8 +20057,7 @@
   }
 
   function focusViewpoint(viewpointId) {
-    const map = readPresentationMap();
-    const entry = map?.viewpoints?.[viewpointId];
+    const entry = readViewpointEntry(viewpointId);
     if (!entry) return false;
     clearViewpointFocus();
     const selector = `[data-mei-viewpoint="${CSS.escape(viewpointId)}"]`;
@@ -20001,8 +20066,8 @@
     target.classList.add("mei-viewpoint-focus");
     if (entry.tier) {
       document.documentElement.classList.add("mei-tier-dim");
-      target.dataset.meiFocusTier = entry.tier;
     }
+    stampWorldTargetDataset(target, entry);
     target.scrollIntoView({ block: "nearest", behavior: "smooth" });
     return true;
   }
@@ -20020,6 +20085,29 @@
       case "highlight":
       case "focus":
         return focusViewpoint(String(action.viewpoint || action.viewpointId || "").trim());
+      case "camera_move":
+      case "cameraMove":
+        return dispatchWorldTargetStub(
+          action,
+          readViewpointEntry(action.viewpoint || action.viewpointId),
+        );
+      case "focus_entity":
+      case "focusEntity": {
+        const viewpointId = String(action.viewpoint || action.viewpointId || "").trim();
+        const entry = readViewpointEntry(viewpointId);
+        if (viewpointId) {
+          focusViewpoint(viewpointId);
+        }
+        return dispatchWorldTargetStub(action, entry);
+      }
+      case "show_group":
+      case "showGroup":
+      case "hide_group":
+      case "hideGroup":
+        return dispatchWorldTargetStub(
+          action,
+          readViewpointEntry(action.viewpoint || action.viewpointId),
+        );
       case "clear_focus":
       case "clearFocus":
         clearViewpointFocus();
@@ -20058,6 +20146,7 @@
     root.MeiPresentation.resetPlanes = resetPlaneVisibility;
     root.MeiPresentation.dispatch = dispatchPresentationAction;
     root.MeiPresentation.map = readPresentationMap;
+    root.MeiPresentation.resolveViewpoint = readViewpointEntry;
     root.MeiPresentation.zTiers = PRESENTATION_Z_TIERS;
     boot.dispatchPresentationAction = dispatchPresentationAction;
   }
@@ -20302,6 +20391,21 @@
     if (!normalized.viewpoint && normalized.viewpointId) {
       normalized.viewpoint = normalized.viewpointId;
     }
+    if (!normalized.viewFamily && normalized.view_family) {
+      normalized.viewFamily = normalized.view_family;
+    }
+    if (!normalized.worldRef && normalized.world_ref) {
+      normalized.worldRef = normalized.world_ref;
+    }
+    if (!normalized.entityId && normalized.entity_id) {
+      normalized.entityId = normalized.entity_id;
+    }
+    if (!normalized.groupId && normalized.group_id) {
+      normalized.groupId = normalized.group_id;
+    }
+    if (!normalized.cameraPreset && normalized.camera_preset) {
+      normalized.cameraPreset = normalized.camera_preset;
+    }
     if (!normalized.plane && normalized.planeId) {
       normalized.plane = normalized.planeId;
     }
@@ -20468,7 +20572,12 @@
   function currentViewpoint(step) {
     const actions = collectCockpitActions(step || currentStep());
     for (const action of actions) {
-      if (action && String(action.type || "") === "highlight" && action.viewpoint) {
+      const type = String(action?.type || "").trim();
+      if (
+        action &&
+        ["highlight", "focus", "focus_entity", "focusEntity", "camera_move", "cameraMove"].includes(type) &&
+        action.viewpoint
+      ) {
         return String(action.viewpoint).trim();
       }
     }

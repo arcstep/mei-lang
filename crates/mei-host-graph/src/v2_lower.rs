@@ -12,7 +12,9 @@ use crate::assemble::assembly_key_to_target;
 use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::presentation_map::resolve_viewpoint_id;
-use crate::tier::{canonical_tier, default_z_index_for_chrome_role, default_z_index_for_tier, TIER_T1};
+use crate::tier::{
+    canonical_tier, default_z_index_for_chrome_role, default_z_index_for_tier, TIER_T1,
+};
 use crate::types::GraphNodeKind;
 
 pub struct PanelLowerContext<'a> {
@@ -176,6 +178,9 @@ pub fn lower_panel_payload(
     }
     apply_tier_and_placement(payload, &mut props)?;
 
+    let blocks = lower_blocks(payload.get("blocks"), ctx)?;
+    apply_view_family_hints(payload, &blocks, &mut props);
+
     Ok(PanelDecl {
         kind: "panel".to_string(),
         id,
@@ -186,7 +191,7 @@ pub fn lower_panel_payload(
         head: None,
         area,
         layout: payload.get("layout").and_then(lower_layout),
-        blocks: lower_blocks(payload.get("blocks"), ctx)?,
+        blocks,
         slot: None,
         props,
         head_props: lower_head_props(payload),
@@ -233,6 +238,8 @@ fn lower_panel_with_slots(
             }
         }
     }
+
+    apply_view_family_hints(payload, &blocks, &mut props);
 
     Ok(PanelDecl {
         kind: "panel".to_string(),
@@ -338,6 +345,8 @@ fn lower_screen_header_panel(
         data: None,
     };
 
+    apply_view_family_hints(payload, &[UiNodeDecl::Block(block.clone())], &mut props);
+
     Ok(PanelDecl {
         kind: "panel".to_string(),
         id,
@@ -389,6 +398,9 @@ fn lower_titled_shell_panel(
         blocks.extend(lower_blocks(args.get("blocks"), ctx)?);
     }
 
+    let family_source = outer_payload.unwrap_or(args);
+    apply_view_family_hints(family_source, &blocks, &mut props);
+
     Ok(PanelDecl {
         kind: "panel".to_string(),
         id,
@@ -430,6 +442,9 @@ fn lower_panel_from_generic_shell(
     merge_head_props_from_source(&mut head_props, args);
     finalize_panel_head_props(&mut head_props);
 
+    let blocks = lower_blocks(args.get("blocks"), ctx)?;
+    apply_view_family_hints(payload, &blocks, &mut props);
+
     Ok(PanelDecl {
         kind: "panel".to_string(),
         id,
@@ -440,7 +455,7 @@ fn lower_panel_from_generic_shell(
         head: None,
         area,
         layout: args.get("layout").and_then(lower_layout),
-        blocks: lower_blocks(args.get("blocks"), ctx)?,
+        blocks,
         slot: None,
         props,
         head_props,
@@ -516,6 +531,193 @@ fn apply_tier_and_placement(payload: &Value, props: &mut Value) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ViewFamilyHints {
+    family: Option<String>,
+    world_ref: Option<String>,
+    stage_kind: Option<String>,
+}
+
+impl ViewFamilyHints {
+    fn is_empty(&self) -> bool {
+        self.family.is_none() && self.world_ref.is_none() && self.stage_kind.is_none()
+    }
+
+    fn fill_missing(&mut self, fallback: Self) {
+        if self.family.is_none() {
+            self.family = fallback.family;
+        }
+        if self.world_ref.is_none() {
+            self.world_ref = fallback.world_ref;
+        }
+        if self.stage_kind.is_none() {
+            self.stage_kind = fallback.stage_kind;
+        }
+    }
+}
+
+fn view_family_stage_kind(family: &str) -> Option<&'static str> {
+    match family {
+        "map" => Some("map-stage"),
+        "world" => Some("world-stage"),
+        "canvas" => Some("viewport-canvas"),
+        _ => None,
+    }
+}
+
+fn object_string(obj: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| obj.get(*key).and_then(|v| v.as_str()))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn view_family_hints_from_value(value: &Value) -> ViewFamilyHints {
+    let Some(obj) = value.as_object() else {
+        return ViewFamilyHints::default();
+    };
+    let mut hints = ViewFamilyHints {
+        family: object_string(obj, &["__mei_view_family", "viewFamily", "view_family"]),
+        world_ref: object_string(obj, &["__mei_world_ref", "worldRef", "world_ref"]),
+        stage_kind: object_string(obj, &["__mei_stage_kind", "stageKind", "stage_kind"]),
+    };
+    match obj.get("__call").and_then(|v| v.as_str()) {
+        Some("map_view") => {
+            hints.family.get_or_insert_with(|| "map".to_string());
+        }
+        Some("world_view") => {
+            hints.family.get_or_insert_with(|| "world".to_string());
+        }
+        Some("viewport_canvas") => {
+            hints.family.get_or_insert_with(|| "canvas".to_string());
+        }
+        _ => {}
+    }
+    if let Some(args) = obj.get("__args").and_then(|v| v.as_object()) {
+        if hints.world_ref.is_none() {
+            hints.world_ref = object_string(args, &["worldRef", "world_ref", "arg0"]);
+        }
+        if hints.stage_kind.is_none() {
+            hints.stage_kind = object_string(args, &["stageKind", "stage_kind"]);
+        }
+    }
+    if hints.stage_kind.is_none() {
+        hints.stage_kind = hints
+            .family
+            .as_deref()
+            .and_then(view_family_stage_kind)
+            .map(str::to_string);
+    }
+    hints
+}
+
+fn infer_view_family_from_panel_id(payload: &Value) -> ViewFamilyHints {
+    let id = payload
+        .get("id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .unwrap_or("");
+    let family = match id {
+        "viewport_canvas" => Some("canvas"),
+        "map_stage" | "basemap" => Some("map"),
+        _ => {
+            if id.contains("viewport_canvas") {
+                Some("canvas")
+            } else if id.contains("map_stage") || id.contains("basemap") {
+                Some("map")
+            } else {
+                None
+            }
+        }
+    };
+    let mut hints = ViewFamilyHints::default();
+    if let Some(family) = family {
+        hints.family = Some(family.to_string());
+        hints.stage_kind = view_family_stage_kind(family).map(str::to_string);
+    }
+    hints
+}
+
+fn infer_view_family_from_block(block: &BlockDecl) -> ViewFamilyHints {
+    let mut hints = view_family_hints_from_value(&block.props);
+    if hints.family.is_none() {
+        hints.family = match block.use_key.as_str() {
+            "map.maplibre" | "cockpit.basemap-stage" => Some("map".to_string()),
+            "cockpit.world-stage" | "world.stage" | "world.world-stage" => {
+                Some("world".to_string())
+            }
+            _ => None,
+        };
+    }
+    if hints.stage_kind.is_none() {
+        hints.stage_kind = hints
+            .family
+            .as_deref()
+            .and_then(view_family_stage_kind)
+            .map(str::to_string);
+    }
+    hints
+}
+
+fn infer_view_family_from_nodes(nodes: &[UiNodeDecl]) -> ViewFamilyHints {
+    for node in nodes {
+        match node {
+            UiNodeDecl::Block(block) => {
+                let hints = infer_view_family_from_block(block);
+                if !hints.is_empty() {
+                    return hints;
+                }
+            }
+            UiNodeDecl::Panel(panel) => {
+                let mut hints = view_family_hints_from_value(&panel.props);
+                if hints.is_empty() {
+                    hints = infer_view_family_from_nodes(&panel.blocks);
+                }
+                if !hints.is_empty() {
+                    return hints;
+                }
+            }
+            UiNodeDecl::PanelRefEmbed(_) => {}
+        }
+    }
+    ViewFamilyHints::default()
+}
+
+fn apply_view_family_hints(payload: &Value, blocks: &[UiNodeDecl], props: &mut Value) {
+    let tier = props
+        .get("__mei_tier")
+        .and_then(|v| v.as_str())
+        .or_else(|| payload.get("tier").and_then(|v| v.as_str()));
+    let mut hints = view_family_hints_from_value(props);
+    hints.fill_missing(view_family_hints_from_value(
+        payload.get("content").unwrap_or(&Value::Null),
+    ));
+    hints.fill_missing(view_family_hints_from_value(
+        payload.get("view").unwrap_or(&Value::Null),
+    ));
+    hints.fill_missing(view_family_hints_from_value(payload));
+    if tier == Some("t0") || !hints.is_empty() {
+        hints.fill_missing(infer_view_family_from_nodes(blocks));
+        hints.fill_missing(infer_view_family_from_panel_id(payload));
+    }
+    if hints.is_empty() {
+        return;
+    }
+    let Some(map) = props.as_object_mut() else {
+        return;
+    };
+    if let Some(family) = hints.family {
+        map.insert("__mei_view_family".to_string(), json!(family));
+    }
+    if let Some(world_ref) = hints.world_ref {
+        map.insert("__mei_world_ref".to_string(), json!(world_ref));
+    }
+    if let Some(stage_kind) = hints.stage_kind {
+        map.insert("__mei_stage_kind".to_string(), json!(stage_kind));
+    }
 }
 
 fn apply_placement(placement: Option<&Value>, props: &mut Value) {
@@ -703,11 +905,15 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
                 .insert(key.to_string(), expanded.clone());
         }
     }
+    apply_tier_and_placement(args, &mut props)?;
 
     let layout = args
         .get("layout")
         .or_else(|| expanded_template.and_then(|t| t.get("layout")))
         .and_then(lower_layout);
+
+    let blocks = lower_blocks(args.get("blocks"), ctx)?;
+    apply_view_family_hints(args, &blocks, &mut props);
 
     Ok(PanelDecl {
         kind: "panel".to_string(),
@@ -719,7 +925,7 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
         head: None,
         area,
         layout,
-        blocks: lower_blocks(args.get("blocks"), ctx)?,
+        blocks,
         slot: None,
         props,
         head_props: json!({}),
@@ -1815,10 +2021,36 @@ fn lower_component(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<BlockDe
         .and_then(|v| v.as_str())
         .context("component missing arg0")?
         .to_string();
-    let props = args
+    let mut props = args
         .get("props")
         .map(|raw| resolve_config_refs_in_value(raw, ctx))
         .unwrap_or(json!({}));
+    if let Some(map) = props.as_object_mut() {
+        if let Some(viewpoint) = args.get("viewpoint") {
+            if let Some(id) = resolve_viewpoint_id(viewpoint) {
+                map.insert("__mei_viewpoint".to_string(), json!(id));
+            }
+        }
+        for (source_key, target_key) in [
+            ("worldRef", "__mei_world_ref"),
+            ("world_ref", "__mei_world_ref"),
+            ("viewFamily", "__mei_view_family"),
+            ("view_family", "__mei_view_family"),
+            ("entityId", "entityId"),
+            ("entity_id", "entityId"),
+            ("groupId", "groupId"),
+            ("group_id", "groupId"),
+            ("cameraPreset", "cameraPreset"),
+            ("camera_preset", "cameraPreset"),
+        ] {
+            if map.contains_key(target_key) {
+                continue;
+            }
+            if let Some(value) = args.get(source_key).cloned() {
+                map.insert(target_key.to_string(), value);
+            }
+        }
+    }
     Ok(BlockDecl {
         kind: "block".to_string(),
         use_key,
@@ -1963,6 +2195,11 @@ mod tests {
             "__call": "component",
             "__args": {
                 "arg0": "cockpit.header-brand",
+                "viewpoint": { "__ref": "viewpoint_ref", "__args": { "arg0": "demo_stage" } },
+                "worldRef": "park_world",
+                "entityId": "lake_pavilion",
+                "groupId": "park_story_overview",
+                "cameraPreset": "park_overview_orbit",
                 "props": { "title": "Demo" }
             }
         });
@@ -1982,6 +2219,11 @@ mod tests {
         let block = lower_component(&value, &ctx).expect("component");
         assert_eq!(block.use_key, "cockpit.header-brand");
         assert_eq!(block.props["title"], json!("Demo"));
+        assert_eq!(block.props["__mei_viewpoint"], json!("demo_stage"));
+        assert_eq!(block.props["__mei_world_ref"], json!("park_world"));
+        assert_eq!(block.props["entityId"], json!("lake_pavilion"));
+        assert_eq!(block.props["groupId"], json!("park_story_overview"));
+        assert_eq!(block.props["cameraPreset"], json!("park_overview_orbit"));
     }
 
     #[test]
@@ -2082,6 +2324,126 @@ mod tests {
         assert_eq!(
             block.props["assets"]["title_bg"],
             json!("/workspace-app-assets/data-demo/assets/header/screen-title-bg@3x.svg")
+        );
+    }
+
+    #[test]
+    fn lower_panel_payload_infers_map_view_family_from_stage_block() {
+        let payload = json!({
+            "id": "basemap",
+            "tier": "t0",
+            "blocks": [{
+                "__call": "component",
+                "__args": {
+                    "arg0": "cockpit.basemap-stage",
+                    "props": {
+                        "kind": "svg"
+                    }
+                }
+            }]
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "mini-park",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "mini-park".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+        };
+        let panel = lower_panel_payload(&payload, "home:basemap", &ctx).expect("panel");
+        assert_eq!(
+            panel
+                .props
+                .get("__mei_view_family")
+                .and_then(|v| v.as_str()),
+            Some("map")
+        );
+        assert_eq!(
+            panel.props.get("__mei_stage_kind").and_then(|v| v.as_str()),
+            Some("map-stage")
+        );
+    }
+
+    #[test]
+    fn lower_panel_payload_preserves_world_view_payload_hints() {
+        let payload = json!({
+            "id": "world_stage",
+            "tier": "t0",
+            "content": {
+                "__call": "world_view",
+                "__args": {
+                    "worldRef": "park_world"
+                }
+            },
+            "blocks": []
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "mini-park",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "mini-park".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+        };
+        let panel = lower_panel_payload(&payload, "home:world_stage", &ctx).expect("panel");
+        assert_eq!(
+            panel
+                .props
+                .get("__mei_view_family")
+                .and_then(|v| v.as_str()),
+            Some("world")
+        );
+        assert_eq!(
+            panel.props.get("__mei_world_ref").and_then(|v| v.as_str()),
+            Some("park_world")
+        );
+        assert_eq!(
+            panel.props.get("__mei_stage_kind").and_then(|v| v.as_str()),
+            Some("world-stage")
+        );
+    }
+
+    #[test]
+    fn lower_panel_payload_marks_viewport_canvas_family() {
+        let payload = json!({
+            "id": "viewport_canvas",
+            "tier": "t0",
+            "blocks": []
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "mini-park",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "mini-park".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+        };
+        let panel = lower_panel_payload(&payload, "home:viewport_canvas", &ctx).expect("panel");
+        assert_eq!(
+            panel
+                .props
+                .get("__mei_view_family")
+                .and_then(|v| v.as_str()),
+            Some("canvas")
+        );
+        assert_eq!(
+            panel.props.get("__mei_stage_kind").and_then(|v| v.as_str()),
+            Some("viewport-canvas")
         );
     }
 

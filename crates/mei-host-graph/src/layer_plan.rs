@@ -18,6 +18,14 @@ pub struct LayerPlanPanelEntry {
         rename = "chromeRole"
     )]
     pub chrome_role: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "viewFamily"
+    )]
+    pub view_family: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "stageKind")]
+    pub stage_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -43,6 +51,16 @@ pub fn build_layer_plan(scene_id: &str, panels: &[PanelDecl]) -> LayerPlanDocume
             .get("__mei_chrome_role")
             .and_then(|v| v.as_str())
             .map(str::to_string);
+        let view_family = panel
+            .props
+            .get("__mei_view_family")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let stage_kind = panel
+            .props
+            .get("__mei_stage_kind")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         let z_index = panel
             .props
             .get("z_index")
@@ -56,6 +74,8 @@ pub fn build_layer_plan(scene_id: &str, panels: &[PanelDecl]) -> LayerPlanDocume
                 z_index,
                 tier: Some(tier),
                 chrome_role,
+                view_family,
+                stage_kind,
             });
     }
     for entries in tiers.values_mut() {
