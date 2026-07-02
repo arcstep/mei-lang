@@ -19405,15 +19405,24 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-layer2-open");
-    document.dispatchEvent(
-      new CustomEvent("meilang:scope-activation", {
-        detail: {
-          scope: sceneId,
-          source: "layer2",
-          overlaySize,
-        },
-      }),
-    );
+    if (typeof boot.dispatchScopeActivation === "function") {
+      boot.dispatchScopeActivation({
+        scope: sceneId,
+        sceneId,
+        source: "layer2",
+        overlaySize,
+      });
+    } else {
+      document.dispatchEvent(
+        new CustomEvent("meilang:scope-activation", {
+          detail: {
+            scope: sceneId,
+            source: "layer2",
+            overlaySize,
+          },
+        }),
+      );
+    }
     return tab.panel;
   }
 
@@ -19738,8 +19747,20 @@
       .then((result) => {
         const payload =
           result?.payload && typeof result.payload === "object" ? result.payload : null;
+        if (payload && typeof boot.applyBootstrapPayload === "function") {
+          boot.applyBootstrapPayload(payload);
+        }
+        if (typeof boot.dispatchScopeActivation === "function") {
+          boot.dispatchScopeActivation({
+            scope,
+            sceneId: scope,
+            appId,
+            source: "mrg-activate",
+            projection: nonEmptyString(config?.projection, "overlay"),
+          });
+        }
         if (payload && typeof seedFromBootstrap === "function") {
-          seedFromBootstrap(payload);
+          seedFromBootstrap(window.__mei || payload);
         }
       })
       .catch(() => {
@@ -23604,6 +23625,22 @@
     }
   }
 
+  function resolveBootstrapAppId() {
+    const mei = window.__mei || {};
+    const direct = String(
+      window.__meiRuntimeAppId || mei.bootstrap_app_id || mei.app_id || "",
+    ).trim();
+    if (direct) return direct;
+    const host =
+      document.querySelector("[data-mei-app-id]") ||
+      document.querySelector("[data-app-id]") ||
+      document.querySelector("[data-app]");
+    if (!(host instanceof HTMLElement)) return "";
+    return String(
+      host.dataset.meiAppId || host.dataset.appId || host.dataset.app || "",
+    ).trim();
+  }
+
   async function ensureSceneBootstrapPayload(ctx, revision) {
     const appId = ctx?.appId;
     const sceneId = ctx?.sceneId;
@@ -23613,7 +23650,13 @@
       window.__meiBootstrapPayloadReady = 1;
       return window.__mei || null;
     }
-    if (window.__meiBootstrapSeeded && window.__meiBootstrapPayloadReady) {
+    const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
+    const currentAppId = String(window.__mei?.bootstrap_app_id || "").trim();
+    if (
+      window.__meiBootstrapPayloadReady &&
+      currentScope === sceneId &&
+      (!currentAppId || currentAppId === appId)
+    ) {
       return window.__mei;
     }
     const inline = document.getElementById("mei-client-bootstrap");
@@ -23655,8 +23698,67 @@
     return payload;
   }
 
+  function resolveActivationSceneId(detail) {
+    return String(
+      detail?.scope || detail?.sceneId || detail?.boardSceneId || detail?.pageSceneId || "",
+    ).trim();
+  }
+
+  function dispatchScopeActivation(detail = {}) {
+    const sceneId = resolveActivationSceneId(detail);
+    const appId = String(detail?.appId || resolveBootstrapAppId() || "").trim();
+    if (!sceneId) return false;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("meilang:scope-activation", {
+          detail: {
+            ...detail,
+            scope: sceneId,
+            sceneId: String(detail?.sceneId || sceneId).trim() || sceneId,
+            appId,
+            source: String(detail?.source || "runtime").trim() || "runtime",
+          },
+        }),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  const inflightScopes = new Set();
+
+  async function hydrateBootstrapForActivatedScope(event) {
+    const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
+    const sceneId = resolveActivationSceneId(detail);
+    const appId = String(detail.appId || resolveBootstrapAppId() || "").trim();
+    if (!appId) return;
+    const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
+    const currentAppId = String(window.__mei?.bootstrap_app_id || "").trim();
+    if (
+      sceneId &&
+      window.__meiBootstrapPayloadReady &&
+      currentScope === sceneId &&
+      (!currentAppId || currentAppId === appId)
+    ) {
+      return;
+    }
+    const inflightKey = `${appId}:${sceneId}`;
+    if (!sceneId || inflightScopes.has(inflightKey)) return;
+    inflightScopes.add(inflightKey);
+    try {
+      await ensureSceneBootstrapPayload({ appId, sceneId }, {});
+    } catch (_) {
+      /* allow next activation to retry */
+    } finally {
+      inflightScopes.delete(inflightKey);
+    }
+  }
+
   boot.ensureSceneBootstrapPayload = ensureSceneBootstrapPayload;
   boot.applyBootstrapPayload = applyBootstrapPayload;
+  boot.dispatchScopeActivation = dispatchScopeActivation;
+  window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
 
 
 /* ===== spa-navigation/spa/initial-scene-restore.js ===== */
@@ -24330,6 +24432,16 @@
           typeof boot.parseAccessSceneContext === "function"
             ? boot.parseAccessSceneContext(url)
             : null;
+        if (sceneCtx && typeof boot.dispatchScopeActivation === "function") {
+          boot.dispatchScopeActivation({
+            scope: sceneCtx.sceneId,
+            sceneId: sceneCtx.sceneId,
+            appId: sceneCtx.appId,
+            source: "spa-primary-nav",
+            projection:
+              nextUrl instanceof URL ? String(nextUrl.searchParams.get("mei_projection") || "") : "",
+          });
+        }
         if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
           try {
             const revision =

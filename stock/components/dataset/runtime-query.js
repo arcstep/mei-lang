@@ -2227,11 +2227,25 @@ export function runtimeMetricCacheKeyForTest(api, props, datasetId, metricIds) {
   return metricQueryCacheKey(api, payload, runtimeQueryFingerprint(props));
 }
 
+function handleScopeActivationRuntimeQueryCache() {
+  scheduleBootstrapSeed();
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(() => {
+      prefetchVisiblePanelMetrics();
+    });
+    return;
+  }
+  setTimeout(() => {
+    prefetchVisiblePanelMetrics();
+  }, 0);
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener(MEI_ABORT_RUNTIME_QUERIES, (event) => {
     const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
     abortRuntimeQueries(detail.reason || "", { clearCaches: detail.clearCaches });
   });
+  window.addEventListener("meilang:scope-activation", handleScopeActivationRuntimeQueryCache);
   window.addEventListener("meilang:preview-updated", handlePreviewUpdatedRuntimeQueryCache);
   window.addEventListener("pagehide", () => {
     abortRuntimeQueries("pagehide");

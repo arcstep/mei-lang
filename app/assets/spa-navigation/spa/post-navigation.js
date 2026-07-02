@@ -69,6 +69,16 @@
           typeof boot.parseAccessSceneContext === "function"
             ? boot.parseAccessSceneContext(url)
             : null;
+        if (sceneCtx && typeof boot.dispatchScopeActivation === "function") {
+          boot.dispatchScopeActivation({
+            scope: sceneCtx.sceneId,
+            sceneId: sceneCtx.sceneId,
+            appId: sceneCtx.appId,
+            source: "spa-primary-nav",
+            projection:
+              nextUrl instanceof URL ? String(nextUrl.searchParams.get("mei_projection") || "") : "",
+          });
+        }
         if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
           try {
             const revision =

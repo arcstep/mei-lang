@@ -153,8 +153,20 @@
       .then((result) => {
         const payload =
           result?.payload && typeof result.payload === "object" ? result.payload : null;
+        if (payload && typeof boot.applyBootstrapPayload === "function") {
+          boot.applyBootstrapPayload(payload);
+        }
+        if (typeof boot.dispatchScopeActivation === "function") {
+          boot.dispatchScopeActivation({
+            scope,
+            sceneId: scope,
+            appId,
+            source: "mrg-activate",
+            projection: nonEmptyString(config?.projection, "overlay"),
+          });
+        }
         if (payload && typeof seedFromBootstrap === "function") {
-          seedFromBootstrap(payload);
+          seedFromBootstrap(window.__mei || payload);
         }
       })
       .catch(() => {

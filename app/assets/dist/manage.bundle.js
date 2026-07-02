@@ -16768,15 +16768,24 @@
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-layer2-open");
-    document.dispatchEvent(
-      new CustomEvent("meilang:scope-activation", {
-        detail: {
-          scope: sceneId,
-          source: "layer2",
-          overlaySize,
-        },
-      }),
-    );
+    if (typeof boot.dispatchScopeActivation === "function") {
+      boot.dispatchScopeActivation({
+        scope: sceneId,
+        sceneId,
+        source: "layer2",
+        overlaySize,
+      });
+    } else {
+      document.dispatchEvent(
+        new CustomEvent("meilang:scope-activation", {
+          detail: {
+            scope: sceneId,
+            source: "layer2",
+            overlaySize,
+          },
+        }),
+      );
+    }
     return tab.panel;
   }
 
@@ -17101,8 +17110,20 @@
       .then((result) => {
         const payload =
           result?.payload && typeof result.payload === "object" ? result.payload : null;
+        if (payload && typeof boot.applyBootstrapPayload === "function") {
+          boot.applyBootstrapPayload(payload);
+        }
+        if (typeof boot.dispatchScopeActivation === "function") {
+          boot.dispatchScopeActivation({
+            scope,
+            sceneId: scope,
+            appId,
+            source: "mrg-activate",
+            projection: nonEmptyString(config?.projection, "overlay"),
+          });
+        }
         if (payload && typeof seedFromBootstrap === "function") {
-          seedFromBootstrap(payload);
+          seedFromBootstrap(window.__mei || payload);
         }
       })
       .catch(() => {
@@ -21251,6 +21272,16 @@
           typeof boot.parseAccessSceneContext === "function"
             ? boot.parseAccessSceneContext(url)
             : null;
+        if (sceneCtx && typeof boot.dispatchScopeActivation === "function") {
+          boot.dispatchScopeActivation({
+            scope: sceneCtx.sceneId,
+            sceneId: sceneCtx.sceneId,
+            appId: sceneCtx.appId,
+            source: "spa-primary-nav",
+            projection:
+              nextUrl instanceof URL ? String(nextUrl.searchParams.get("mei_projection") || "") : "",
+          });
+        }
         if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
           try {
             const revision =
