@@ -19947,6 +19947,7 @@
     copilot: { min: 5400, max: 5799, default: 5400 },
     host: { min: 5800, max: 99999, default: 5800 },
   };
+  const SUPPORTED_PLANES = ["t0", "t1", "t2"];
 
   function readPresentationMap() {
     const node = document.getElementById("mei-presentation-map");
@@ -19965,6 +19966,28 @@
       node.classList.remove("mei-viewpoint-focus");
     });
     document.documentElement.classList.remove("mei-tier-dim");
+  }
+
+  function planeHiddenClass(planeId) {
+    return `mei-plane-hidden-${planeId}`;
+  }
+
+  function normalizePlaneId(raw) {
+    const planeId = String(raw || "").trim().toLowerCase();
+    return SUPPORTED_PLANES.includes(planeId) ? planeId : "";
+  }
+
+  function resetPlaneVisibility() {
+    SUPPORTED_PLANES.forEach((planeId) => {
+      document.documentElement.classList.remove(planeHiddenClass(planeId));
+    });
+  }
+
+  function setPlaneVisibility(planeId, visible) {
+    const normalized = normalizePlaneId(planeId);
+    if (!normalized) return false;
+    document.documentElement.classList.toggle(planeHiddenClass(normalized), !visible);
+    return true;
   }
 
   function focusViewpoint(viewpointId) {
@@ -19988,6 +20011,12 @@
     if (!action || typeof action !== "object") return false;
     const type = String(action.type || action.kind || "").trim();
     switch (type) {
+      case "show_plane":
+      case "showPlane":
+        return setPlaneVisibility(action.plane || action.tier || action.planeId, true);
+      case "hide_plane":
+      case "hidePlane":
+        return setPlaneVisibility(action.plane || action.tier || action.planeId, false);
       case "highlight":
       case "focus":
         return focusViewpoint(String(action.viewpoint || action.viewpointId || "").trim());
@@ -20024,6 +20053,9 @@
     root.MeiPresentation = root.MeiPresentation || {};
     root.MeiPresentation.focus = focusViewpoint;
     root.MeiPresentation.clearFocus = clearViewpointFocus;
+    root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
+    root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
+    root.MeiPresentation.resetPlanes = resetPlaneVisibility;
     root.MeiPresentation.dispatch = dispatchPresentationAction;
     root.MeiPresentation.map = readPresentationMap;
     root.MeiPresentation.zTiers = PRESENTATION_Z_TIERS;
@@ -20224,6 +20256,13 @@
     }
   }
 
+  function resetPlanes() {
+    const api = focusApi();
+    if (api && typeof api.resetPlanes === "function") {
+      api.resetPlanes();
+    }
+  }
+
   function applyHighlight(viewpointId) {
     if (!viewpointId) return false;
     const api = focusApi();
@@ -20263,6 +20302,9 @@
     if (!normalized.viewpoint && normalized.viewpointId) {
       normalized.viewpoint = normalized.viewpointId;
     }
+    if (!normalized.plane && normalized.planeId) {
+      normalized.plane = normalized.planeId;
+    }
     return normalized;
   }
 
@@ -20289,10 +20331,63 @@
     return "cockpit_only";
   }
 
+  function escapeHtml(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function sanitizeClassToken(value, fallback = "default") {
+    const token = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return token || fallback;
+  }
+
+  function renderSlideLayoutFromIr(slide) {
+    const slots = Array.isArray(slide?.slots) ? slide.slots : [];
+    const slotMap = new Map(slots.map((slot) => [slot?.name, slot]));
+    const layoutId = String(slide?.layout || "stack").trim();
+    const layoutClass = sanitizeClassToken(layoutId, "stack");
+    const renderNamedSlot = (name, tag = "section") => {
+      const slot = slotMap.get(name);
+      const html = String(slot?.html || "").trim();
+      if (!html) return "";
+      return `<${tag} class="mei-presentation-slot mei-presentation-slot--${sanitizeClassToken(name)}" data-slot="${escapeHtml(name)}">${html}</${tag}>`;
+    };
+    if (layoutClass === "title-and-evidence") {
+      return (
+        `<article class="mei-presentation-layout mei-presentation-layout--${layoutClass}" data-layout="${escapeHtml(layoutId)}">` +
+        `<div class="mei-presentation-layout-grid">` +
+        `<header class="mei-presentation-layout-head">${renderNamedSlot("title", "div")}</header>` +
+        `<section class="mei-presentation-layout-body">${renderNamedSlot("body", "div")}${renderNamedSlot("support", "div")}</section>` +
+        `<aside class="mei-presentation-layout-evidence">${renderNamedSlot("evidence", "div")}</aside>` +
+        `</div>` +
+        `</article>`
+      );
+    }
+    const generic = slots
+      .map((slot) => {
+        const slotName = String(slot?.name || "").trim();
+        const html = String(slot?.html || "").trim();
+        if (!slotName || !html) return "";
+        return `<section class="mei-presentation-slot mei-presentation-slot--${sanitizeClassToken(slotName)}" data-slot="${escapeHtml(slotName)}">${html}</section>`;
+      })
+      .join("");
+    return `<article class="mei-presentation-layout mei-presentation-layout--${layoutClass}" data-layout="${escapeHtml(layoutId)}">${generic}</article>`;
+  }
+
   function slideHtml(step) {
     const slide = step?.slide;
     if (!slide || typeof slide !== "object") return "";
     if (slide.html) return String(slide.html);
+    if (slide.layout && Array.isArray(slide.slots) && slide.slots.length) {
+      return renderSlideLayoutFromIr(slide);
+    }
     if (slide.markdown) return String(slide.markdown);
     if (slide.document) return `<p class="mei-copilot-slide-doc">${String(slide.document)}</p>`;
     return "";
@@ -20386,6 +20481,7 @@
     if (!step) return false;
     const composition = resolveComposition(step);
     clearFocus();
+    resetPlanes();
     if (composition === "slides_only") {
       hideSlideLayer();
       showSlideLayer(step, composition);
@@ -20452,6 +20548,7 @@
       state.sessionActive = false;
       hideSlideLayer();
       clearFocus();
+      resetPlanes();
       return true;
     },
     resume() {
@@ -20466,6 +20563,7 @@
       state.stepIndex = 0;
       hideSlideLayer();
       clearFocus();
+      resetPlanes();
       return true;
     },
     start(options) {
@@ -21024,14 +21122,15 @@
     const caption = ensureCaption();
     const eng = engine();
     const step = eng ? eng.currentStep() : null;
+    const html = step ? String(step.captionHtml || "") : "";
     const text = step ? String(step.caption || step.title || "") : "";
-    if (!text || !uiState.captionVisible || !(eng && eng.isActive())) {
+    if ((!html && !text) || !uiState.captionVisible || !(eng && eng.isActive())) {
       caption.setAttribute("hidden", "hidden");
-      caption.textContent = "";
+      caption.innerHTML = "";
       return;
     }
     caption.removeAttribute("hidden");
-    caption.textContent = text;
+    caption.innerHTML = html || `<p>${text}</p>`;
   }
 
   function renderDrawer() {
@@ -21039,14 +21138,15 @@
     const eng = engine();
     const step = eng ? eng.currentStep() : null;
     const body = drawer.querySelector("[data-copilot-script-body]");
+    const notesHtml = step ? String(step.speakerNotesHtml || "") : "";
     const notes = step ? String(step.speaker_notes || step.notes || "") : "";
-    if (!uiState.drawerOpen || !notes) {
+    if (!uiState.drawerOpen || (!notesHtml && !notes)) {
       drawer.setAttribute("hidden", "hidden");
-      if (body) body.textContent = "";
+      if (body) body.innerHTML = "";
       return;
     }
     drawer.removeAttribute("hidden");
-    if (body) body.textContent = notes;
+    if (body) body.innerHTML = notesHtml || `<p>${notes}</p>`;
   }
 
   function renderToolbar() {

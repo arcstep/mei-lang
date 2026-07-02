@@ -1,10 +1,21 @@
 #!/usr/bin/env node
 /**
- * 将 `.presentation.mdx` 编译为 `*.presentation.json`（PresentationManifest IR）。
+ * 将单文件 `.presentation.mdx` 编译为 `*.presentation.json`（PresentationManifest IR）。
  * 浏览器运行时只读取 JSON，不解析 MDX。
  */
 import fs from "node:fs";
 import path from "node:path";
+import { marked } from "marked";
+
+const STEP_HEADING_RE = /^##\s+(.+?)(?:\s+\{#([^}]+)\})?\s*$/;
+const BLOCK_END_RE = /^@end\s*$/;
+const SUPPORTED_COMPOSITIONS = new Set([
+  "slides_only",
+  "cockpit_only",
+  "slides_over_cockpit",
+]);
+const SUPPORTED_PLANES = new Set(["t0", "t1", "t2"]);
+const SLOT_EMBED_DIRECTIVES = new Set(["metric", "chart", "image", "embed"]);
 
 function parseFrontmatter(source) {
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
@@ -16,122 +27,392 @@ function parseFrontmatter(source) {
     const idx = trimmed.indexOf(":");
     if (idx < 0) continue;
     const key = trimmed.slice(0, idx).trim();
-    const value = trimmed.slice(idx + 1).trim();
+    const value = trimMatchingQuotes(trimmed.slice(idx + 1).trim());
     if (key) meta[key] = value;
   }
   return { meta, body: source.slice(match[0].length) };
 }
 
-function parseStepBlock(headingLine, lines) {
-  const headingMatch = headingLine.match(/^##\s+(.+?)(?:\s+\{#([^}]+)\})?\s*$/);
-  if (!headingMatch) return null;
-  const step = {
-    id: String(headingMatch[2] || headingMatch[1] || "").trim(),
-    title: String(headingMatch[1] || "").trim(),
-  };
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const idx = trimmed.indexOf(":");
-    if (idx < 0) continue;
-    const key = trimmed.slice(0, idx).trim();
-    const value = trimmed.slice(idx + 1).trim();
-    if (!key || !value) continue;
-    if (key === "composition") step.composition = value;
-    else if (key === "caption") step.caption = value;
-    else if (key === "speaker_notes") step.speaker_notes = value;
-    else if (key === "slide") step.slide = { document: value };
-    else if (key === "cockpit_scene") {
-      step.cockpit = step.cockpit || { scene: value, actions: [] };
-      step.cockpit.scene = value;
-    } else if (key === "highlight") {
-      step.cockpit = step.cockpit || { scene: "home", actions: [] };
-      step.cockpit.actions.push({ type: "highlight", viewpoint: value });
-    } else if (key === "open_t2_page" || key === "open_board") {
-      const parts = value.split(/\s+/).filter(Boolean);
-      step.cockpit = step.cockpit || { scene: "home", actions: [] };
-      const action = { type: "open_t2_page", pageSceneId: parts[0] };
-      if (parts[1]) action.projection = parts[1];
-      step.cockpit.actions.push(action);
-    } else if (key === "binding") step.cockpit = { binding: value, scene: "home", actions: [] };
+function trimMatchingQuotes(value) {
+  const text = String(value || "").trim();
+  if (
+    (text.startsWith('"') && text.endsWith('"')) ||
+    (text.startsWith("'") && text.endsWith("'"))
+  ) {
+    return text.slice(1, -1);
   }
-  if (!step.id) return null;
-  return step;
+  return text;
 }
 
 function markdownToHtml(markdown) {
-  const lines = String(markdown || "").split(/\r?\n/);
+  const html = marked.parse(String(markdown || ""), { async: false });
+  return typeof html === "string" ? html.trim() : "";
+}
+
+function htmlToPlainText(html) {
+  return String(html || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function markdownToPlainText(markdown) {
+  return htmlToPlainText(markdownToHtml(markdown));
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function sanitizeClassToken(value, fallback = "default") {
+  const token = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return token || fallback;
+}
+
+function splitDirectiveArgs(source) {
   const parts = [];
-  let paragraph = [];
-  const flush = () => {
-    if (!paragraph.length) return;
-    parts.push(`<p>${paragraph.join(" ")}</p>`);
-    paragraph = [];
-  };
+  let current = "";
+  let quote = "";
+  let depth = 0;
+  for (const ch of String(source || "")) {
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{") {
+      depth += 1;
+      current += ch;
+      continue;
+    }
+    if (ch === ")" || ch === "]" || ch === "}") {
+      depth = Math.max(0, depth - 1);
+      current += ch;
+      continue;
+    }
+    if (ch === "," && depth === 0) {
+      const part = current.trim();
+      if (part) parts.push(part);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  const tail = current.trim();
+  if (tail) parts.push(tail);
+  return parts.map(trimMatchingQuotes);
+}
+
+function parseDirectiveLine(trimmed) {
+  if (!trimmed.startsWith("@")) return null;
+  const bare = trimmed.match(/^@([A-Za-z_][\w]*)\s*$/);
+  if (bare) {
+    return { name: bare[1], args: [] };
+  }
+  const invoked = trimmed.match(/^@([A-Za-z_][\w]*)\((.*)\)\s*$/);
+  if (!invoked) return null;
+  return { name: invoked[1], args: splitDirectiveArgs(invoked[2]) };
+}
+
+function isBlockDirective(trimmed) {
+  if (trimmed === "@caption" || trimmed === "@speaker_notes" || trimmed === "@speakerNotes") {
+    return true;
+  }
+  return /^@slot\((.+)\)\s*$/.test(trimmed);
+}
+
+function splitStepChunks(body) {
+  const lines = String(body || "").split(/\r?\n/);
+  const chunks = [];
+  let current = null;
+  let activeBlock = false;
   for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) {
-      flush();
+    if (!current) {
+      if (!raw.trim()) continue;
+      if (STEP_HEADING_RE.test(raw)) {
+        current = { headingLine: raw, lines: [] };
+        continue;
+      }
+      throw new Error(`content outside step heading is not allowed: ${raw.trim()}`);
+    }
+    const trimmed = raw.trim();
+    if (!activeBlock && STEP_HEADING_RE.test(raw)) {
+      chunks.push(current);
+      current = { headingLine: raw, lines: [] };
       continue;
     }
-    if (line.startsWith("# ")) {
-      flush();
-      parts.push(`<h1>${line.slice(2)}</h1>`);
+    current.lines.push(raw);
+    if (!activeBlock && isBlockDirective(trimmed)) {
+      activeBlock = true;
       continue;
     }
-    if (line.startsWith("## ")) {
-      flush();
-      parts.push(`<h2>${line.slice(3)}</h2>`);
-      continue;
+    if (activeBlock && BLOCK_END_RE.test(trimmed)) {
+      activeBlock = false;
     }
-    paragraph.push(line);
   }
-  flush();
-  return parts.join("");
+  if (activeBlock) {
+    throw new Error(`unterminated block in step ${current?.headingLine || ""}`.trim());
+  }
+  if (current) chunks.push(current);
+  return chunks;
 }
 
-function parseBindingActions(bindingSource) {
+function collectBlock(lines, startIndex, label) {
+  const content = [];
+  for (let idx = startIndex; idx < lines.length; idx += 1) {
+    if (BLOCK_END_RE.test(lines[idx].trim())) {
+      return {
+        content: content.join("\n").trim(),
+        nextIndex: idx,
+      };
+    }
+    content.push(lines[idx]);
+  }
+  throw new Error(`unterminated block for ${label}`);
+}
+
+function normalizeComposition(value, fallback = "") {
+  const normalized = String(value || fallback || "").trim();
+  if (!normalized) return "";
+  if (!SUPPORTED_COMPOSITIONS.has(normalized)) {
+    throw new Error(`unsupported composition: ${normalized}`);
+  }
+  return normalized;
+}
+
+function normalizePlane(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!SUPPORTED_PLANES.has(normalized)) {
+    throw new Error(`unsupported plane: ${value}`);
+  }
+  return normalized;
+}
+
+function createEmbed(kind, args) {
+  const positional = args.map(trimMatchingQuotes).filter(Boolean);
+  const ref = positional[0] || "";
+  if (!ref) {
+    throw new Error(`@${kind} requires a reference id`);
+  }
+  return {
+    type: "embed",
+    kind,
+    ref,
+    html: renderEmbedHtml(kind, ref),
+  };
+}
+
+function renderEmbedHtml(kind, ref) {
+  const labelMap = {
+    metric: "Metric",
+    chart: "Chart",
+    image: "Image",
+    embed: "Embed",
+  };
+  const label = labelMap[kind] || "Embed";
+  return (
+    `<div class="mei-presentation-embed mei-presentation-embed--${sanitizeClassToken(kind)}" ` +
+    `data-embed-kind="${escapeHtml(kind)}" data-embed-ref="${escapeHtml(ref)}">` +
+    `<span class="mei-presentation-embed-label">${label}</span>` +
+    `<strong class="mei-presentation-embed-ref">${escapeHtml(ref)}</strong>` +
+    `</div>`
+  );
+}
+
+function flushMarkdownSegment(buffer, segments) {
+  const markdown = buffer.join("\n").trim();
+  if (!markdown) {
+    buffer.length = 0;
+    return;
+  }
+  const html = markdownToHtml(markdown);
+  segments.push({
+    type: "markdown",
+    markdown,
+    html,
+  });
+  buffer.length = 0;
+}
+
+function parseSlot(name, content) {
+  const lines = String(content || "").split(/\r?\n/);
+  const segments = [];
+  const embeds = [];
+  const markdownBuffer = [];
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+    const directive = parseDirectiveLine(trimmed);
+    if (directive && SLOT_EMBED_DIRECTIVES.has(directive.name)) {
+      flushMarkdownSegment(markdownBuffer, segments);
+      const embed = createEmbed(directive.name, directive.args);
+      embeds.push(embed);
+      segments.push(embed);
+      continue;
+    }
+    markdownBuffer.push(raw);
+  }
+  flushMarkdownSegment(markdownBuffer, segments);
+  return {
+    name,
+    markdown: String(content || "").trim(),
+    html: segments.map((segment) => segment.html || "").join(""),
+    embeds,
+    segments,
+  };
+}
+
+function renderSlideFromLayout(layoutId, slots) {
+  const layout = sanitizeClassToken(layoutId, "stack");
+  const slotMap = new Map(Array.isArray(slots) ? slots.map((slot) => [slot.name, slot]) : []);
+  const renderSlot = (name, fallbackTag = "section") => {
+    const slot = slotMap.get(name);
+    const html = slot?.html || "";
+    if (!html) return "";
+    const tag = fallbackTag;
+    return `<${tag} class="mei-presentation-slot mei-presentation-slot--${sanitizeClassToken(name)}" data-slot="${escapeHtml(name)}">${html}</${tag}>`;
+  };
+  if (layout === "title-and-evidence") {
+    return (
+      `<article class="mei-presentation-layout mei-presentation-layout--${layout}" data-layout="${escapeHtml(layoutId)}">` +
+      `<div class="mei-presentation-layout-grid">` +
+      `<header class="mei-presentation-layout-head">${renderSlot("title", "div")}</header>` +
+      `<section class="mei-presentation-layout-body">${renderSlot("body", "div")}${renderSlot("support", "div")}</section>` +
+      `<aside class="mei-presentation-layout-evidence">${renderSlot("evidence", "div")}</aside>` +
+      `</div>` +
+      `</article>`
+    );
+  }
+  const generic = (Array.isArray(slots) ? slots : [])
+    .map(
+      (slot) =>
+        `<section class="mei-presentation-slot mei-presentation-slot--${sanitizeClassToken(slot.name)}" data-slot="${escapeHtml(slot.name)}">${slot.html || ""}</section>`,
+    )
+    .join("");
+  return `<article class="mei-presentation-layout mei-presentation-layout--${layout}" data-layout="${escapeHtml(layoutId)}">${generic}</article>`;
+}
+
+function parseActionDirective(directive) {
+  const name = directive.name;
+  if (name === "showPlane") {
+    return { type: "show_plane", plane: normalizePlane(directive.args[0]) };
+  }
+  if (name === "hidePlane") {
+    return { type: "hide_plane", plane: normalizePlane(directive.args[0]) };
+  }
+  if (name === "highlight") {
+    const viewpoint = String(directive.args[0] || "").trim();
+    if (!viewpoint) throw new Error("@highlight requires a viewpoint id");
+    return { type: "highlight", viewpoint };
+  }
+  if (name === "openT2Page" || name === "openBoard") {
+    const pageSceneId = String(directive.args[0] || "").trim();
+    if (!pageSceneId) throw new Error(`@${name} requires a page scene id`);
+    const action = { type: "open_t2_page", pageSceneId };
+    const projection = String(directive.args[1] || "").trim();
+    if (projection) action.projection = projection;
+    return action;
+  }
+  return null;
+}
+
+function parseStepChunk(chunk, defaults = {}) {
+  const headingMatch = chunk.headingLine.match(STEP_HEADING_RE);
+  if (!headingMatch) {
+    throw new Error(`invalid step heading: ${chunk.headingLine}`);
+  }
+  const title = String(headingMatch[1] || "").trim();
+  const step = {
+    id: String(headingMatch[2] || title).trim(),
+    title,
+    composition: normalizeComposition(defaults.defaultComposition || "", ""),
+  };
   const actions = [];
-  const highlightRe = /highlight\s*\(\s*viewpoint\s*=\s*"([^"]+)"/g;
-  let match = highlightRe.exec(bindingSource);
-  while (match) {
-    actions.push({ type: "highlight", viewpoint: match[1] });
-    match = highlightRe.exec(bindingSource);
-  }
-  const openPagePatterns = [
-    /open_t2_page\s*\(\s*page_scene_id\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g,
-    /open_t2_page\s*\(\s*pageSceneId\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g,
-    /open_board\s*\(\s*boardSceneId\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g,
-  ];
-  for (const regex of openPagePatterns) {
-    match = regex.exec(bindingSource);
-    while (match) {
-      const action = { type: "open_t2_page", pageSceneId: match[1] };
-      if (match[2]) action.projection = match[2];
+  const slots = [];
+  let layoutId = String(defaults.defaultLayout || "").trim();
+  for (let idx = 0; idx < chunk.lines.length; idx += 1) {
+    const raw = chunk.lines[idx];
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const directive = parseDirectiveLine(trimmed);
+    if (!directive) {
+      throw new Error(`unexpected content outside directive in step ${step.id}: ${trimmed}`);
+    }
+    if (directive.name === "caption") {
+      const block = collectBlock(chunk.lines, idx + 1, "@caption");
+      step.captionMarkdown = block.content;
+      step.captionHtml = markdownToHtml(block.content);
+      step.caption = markdownToPlainText(block.content);
+      idx = block.nextIndex;
+      continue;
+    }
+    if (directive.name === "speaker_notes" || directive.name === "speakerNotes") {
+      const block = collectBlock(chunk.lines, idx + 1, "@speaker_notes");
+      step.speakerNotesMarkdown = block.content;
+      step.speakerNotesHtml = markdownToHtml(block.content);
+      step.speaker_notes = markdownToPlainText(block.content);
+      idx = block.nextIndex;
+      continue;
+    }
+    if (directive.name === "slot") {
+      const slotName = String(directive.args[0] || "").trim();
+      if (!slotName) throw new Error("@slot requires a slot name");
+      const block = collectBlock(chunk.lines, idx + 1, `@slot(${slotName})`);
+      slots.push(parseSlot(slotName, block.content));
+      idx = block.nextIndex;
+      continue;
+    }
+    if (directive.name === "composition") {
+      step.composition = normalizeComposition(directive.args[0], defaults.defaultComposition);
+      continue;
+    }
+    if (directive.name === "layout") {
+      layoutId = String(directive.args[0] || "").trim();
+      if (!layoutId) throw new Error("@layout requires a layout id");
+      continue;
+    }
+    const action = parseActionDirective(directive);
+    if (action) {
       actions.push(action);
-      match = regex.exec(bindingSource);
+      continue;
     }
+    throw new Error(`unsupported directive in step ${step.id}: @${directive.name}`);
   }
-  return actions;
-}
-
-function enrichStep(step, presentationDir) {
-  const appSrcDir = path.resolve(presentationDir, "..");
-  if (step.slide?.document) {
-    const slidePath = path.resolve(appSrcDir, step.slide.document);
-    if (fs.existsSync(slidePath)) {
-      const markdown = fs.readFileSync(slidePath, "utf8");
-      step.slide.html = markdownToHtml(markdown);
-    }
+  if (!step.composition) {
+    if (slots.length && actions.length) step.composition = "slides_over_cockpit";
+    else if (slots.length) step.composition = "slides_only";
+    else step.composition = "cockpit_only";
   }
-  if (step.cockpit?.binding) {
-    const bindingPath = path.resolve(presentationDir, step.cockpit.binding);
-    if (fs.existsSync(bindingPath)) {
-      const bindingSource = fs.readFileSync(bindingPath, "utf8");
-      step.cockpit.actions = parseBindingActions(bindingSource);
-      const sceneMatch = bindingSource.match(/scene\s*=\s*"([^"]+)"/);
-      if (sceneMatch) step.cockpit.scene = sceneMatch[1];
-    }
+  if (slots.length || layoutId) {
+    const effectiveLayout = layoutId || "stack";
+    step.slide = {
+      layout: effectiveLayout,
+      slots,
+    };
+    step.slide.html = renderSlideFromLayout(effectiveLayout, slots);
+  }
+  if (actions.length) {
+    step.actions = actions;
+    step.cockpit = {
+      scene: String(defaults.defaultScene || "home").trim() || "home",
+      actions: actions.slice(),
+    };
   }
   return step;
 }
@@ -141,41 +422,94 @@ function compileMdxToManifest(source, baseDir, defaults = {}) {
   const manifest = {
     id: String(meta.presentation || defaults.id || "intro").trim(),
     title: String(meta.title || defaults.title || "").trim(),
+    defaultLayout: String(meta.default_layout || defaults.defaultLayout || "").trim(),
+    defaultComposition: normalizeComposition(
+      meta.default_composition || defaults.defaultComposition || "",
+      "",
+    ),
     steps: [],
   };
-  const chunks = body.split(/^##\s+/m).filter(Boolean);
-  for (const chunk of chunks) {
-    const lines = chunk.split(/\r?\n/);
-    const heading = `## ${lines[0]}`;
-    const step = parseStepBlock(heading, lines.slice(1));
-    if (step) manifest.steps.push(enrichStep(step, baseDir));
+  const stepChunks = splitStepChunks(body);
+  for (const chunk of stepChunks) {
+    const step = parseStepChunk(chunk, {
+      defaultLayout: manifest.defaultLayout,
+      defaultComposition: manifest.defaultComposition,
+      defaultScene: defaults.defaultScene || "home",
+      baseDir,
+    });
+    manifest.steps.push(step);
   }
   return manifest;
 }
 
-function resolvePaths(argv) {
+function collectPresentationFiles(dirPath) {
+  const files = [];
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectPresentationFiles(fullPath));
+      continue;
+    }
+    if (/\.presentation\.mdx$/i.test(entry.name)) {
+      files.push(fullPath);
+    }
+  }
+  return files.sort();
+}
+
+function resolveCompileTargets(argv) {
   const input = argv[2];
   const output = argv[3];
   if (!input) {
-    throw new Error("usage: node compile-presentation.mjs <input.presentation.mdx> [output.presentation.json]");
+    throw new Error(
+      "usage: node compile-presentation.mjs <input.presentation.mdx|directory> [output.presentation.json|output-directory]",
+    );
   }
   const inputPath = path.resolve(input);
-  const outputPath = output
-    ? path.resolve(output)
-    : inputPath.replace(/\.presentation\.mdx$/i, ".presentation.json");
-  return { inputPath, outputPath };
+  if (!fs.existsSync(inputPath)) {
+    throw new Error(`input not found: ${inputPath}`);
+  }
+  const stat = fs.statSync(inputPath);
+  if (stat.isDirectory()) {
+    const files = collectPresentationFiles(inputPath);
+    if (!files.length) {
+      throw new Error(`no .presentation.mdx files found under ${inputPath}`);
+    }
+    const outputRoot = output ? path.resolve(output) : null;
+    return files.map((filePath) => {
+      const relative = path.relative(inputPath, filePath);
+      const outputPath = outputRoot
+        ? path.join(outputRoot, relative.replace(/\.presentation\.mdx$/i, ".presentation.json"))
+        : filePath.replace(/\.presentation\.mdx$/i, ".presentation.json");
+      return { inputPath: filePath, outputPath };
+    });
+  }
+  return [
+    {
+      inputPath,
+      outputPath: output
+        ? path.resolve(output)
+        : inputPath.replace(/\.presentation\.mdx$/i, ".presentation.json"),
+    },
+  ];
+}
+
+function compileTarget(target) {
+  const source = fs.readFileSync(target.inputPath, "utf8");
+  const manifest = compileMdxToManifest(source, path.dirname(target.inputPath));
+  if (!manifest.steps.length) {
+    throw new Error(`no steps parsed from ${target.inputPath}`);
+  }
+  fs.mkdirSync(path.dirname(target.outputPath), { recursive: true });
+  fs.writeFileSync(target.outputPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  process.stdout.write(
+    `compiled ${target.inputPath} -> ${target.outputPath} (${manifest.steps.length} steps)\n`,
+  );
 }
 
 function main() {
-  const { inputPath, outputPath } = resolvePaths(process.argv);
-  const source = fs.readFileSync(inputPath, "utf8");
-  const manifest = compileMdxToManifest(source, path.dirname(inputPath));
-  if (!manifest.steps.length) {
-    throw new Error(`no steps parsed from ${inputPath}`);
-  }
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  process.stdout.write(`compiled ${inputPath} -> ${outputPath} (${manifest.steps.length} steps)\n`);
+  const targets = resolveCompileTargets(process.argv);
+  targets.forEach(compileTarget);
 }
 
 main();

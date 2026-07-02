@@ -369,14 +369,15 @@
     const caption = ensureCaption();
     const eng = engine();
     const step = eng ? eng.currentStep() : null;
+    const html = step ? String(step.captionHtml || "") : "";
     const text = step ? String(step.caption || step.title || "") : "";
-    if (!text || !uiState.captionVisible || !(eng && eng.isActive())) {
+    if ((!html && !text) || !uiState.captionVisible || !(eng && eng.isActive())) {
       caption.setAttribute("hidden", "hidden");
-      caption.textContent = "";
+      caption.innerHTML = "";
       return;
     }
     caption.removeAttribute("hidden");
-    caption.textContent = text;
+    caption.innerHTML = html || `<p>${text}</p>`;
   }
 
   function renderDrawer() {
@@ -384,14 +385,15 @@
     const eng = engine();
     const step = eng ? eng.currentStep() : null;
     const body = drawer.querySelector("[data-copilot-script-body]");
+    const notesHtml = step ? String(step.speakerNotesHtml || "") : "";
     const notes = step ? String(step.speaker_notes || step.notes || "") : "";
-    if (!uiState.drawerOpen || !notes) {
+    if (!uiState.drawerOpen || (!notesHtml && !notes)) {
       drawer.setAttribute("hidden", "hidden");
-      if (body) body.textContent = "";
+      if (body) body.innerHTML = "";
       return;
     }
     drawer.removeAttribute("hidden");
-    if (body) body.textContent = notes;
+    if (body) body.innerHTML = notesHtml || `<p>${notes}</p>`;
   }
 
   function renderToolbar() {

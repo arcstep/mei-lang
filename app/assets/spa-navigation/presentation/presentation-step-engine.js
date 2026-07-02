@@ -188,6 +188,13 @@
     }
   }
 
+  function resetPlanes() {
+    const api = focusApi();
+    if (api && typeof api.resetPlanes === "function") {
+      api.resetPlanes();
+    }
+  }
+
   function applyHighlight(viewpointId) {
     if (!viewpointId) return false;
     const api = focusApi();
@@ -227,6 +234,9 @@
     if (!normalized.viewpoint && normalized.viewpointId) {
       normalized.viewpoint = normalized.viewpointId;
     }
+    if (!normalized.plane && normalized.planeId) {
+      normalized.plane = normalized.planeId;
+    }
     return normalized;
   }
 
@@ -253,10 +263,63 @@
     return "cockpit_only";
   }
 
+  function escapeHtml(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function sanitizeClassToken(value, fallback = "default") {
+    const token = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return token || fallback;
+  }
+
+  function renderSlideLayoutFromIr(slide) {
+    const slots = Array.isArray(slide?.slots) ? slide.slots : [];
+    const slotMap = new Map(slots.map((slot) => [slot?.name, slot]));
+    const layoutId = String(slide?.layout || "stack").trim();
+    const layoutClass = sanitizeClassToken(layoutId, "stack");
+    const renderNamedSlot = (name, tag = "section") => {
+      const slot = slotMap.get(name);
+      const html = String(slot?.html || "").trim();
+      if (!html) return "";
+      return `<${tag} class="mei-presentation-slot mei-presentation-slot--${sanitizeClassToken(name)}" data-slot="${escapeHtml(name)}">${html}</${tag}>`;
+    };
+    if (layoutClass === "title-and-evidence") {
+      return (
+        `<article class="mei-presentation-layout mei-presentation-layout--${layoutClass}" data-layout="${escapeHtml(layoutId)}">` +
+        `<div class="mei-presentation-layout-grid">` +
+        `<header class="mei-presentation-layout-head">${renderNamedSlot("title", "div")}</header>` +
+        `<section class="mei-presentation-layout-body">${renderNamedSlot("body", "div")}${renderNamedSlot("support", "div")}</section>` +
+        `<aside class="mei-presentation-layout-evidence">${renderNamedSlot("evidence", "div")}</aside>` +
+        `</div>` +
+        `</article>`
+      );
+    }
+    const generic = slots
+      .map((slot) => {
+        const slotName = String(slot?.name || "").trim();
+        const html = String(slot?.html || "").trim();
+        if (!slotName || !html) return "";
+        return `<section class="mei-presentation-slot mei-presentation-slot--${sanitizeClassToken(slotName)}" data-slot="${escapeHtml(slotName)}">${html}</section>`;
+      })
+      .join("");
+    return `<article class="mei-presentation-layout mei-presentation-layout--${layoutClass}" data-layout="${escapeHtml(layoutId)}">${generic}</article>`;
+  }
+
   function slideHtml(step) {
     const slide = step?.slide;
     if (!slide || typeof slide !== "object") return "";
     if (slide.html) return String(slide.html);
+    if (slide.layout && Array.isArray(slide.slots) && slide.slots.length) {
+      return renderSlideLayoutFromIr(slide);
+    }
     if (slide.markdown) return String(slide.markdown);
     if (slide.document) return `<p class="mei-copilot-slide-doc">${String(slide.document)}</p>`;
     return "";
@@ -350,6 +413,7 @@
     if (!step) return false;
     const composition = resolveComposition(step);
     clearFocus();
+    resetPlanes();
     if (composition === "slides_only") {
       hideSlideLayer();
       showSlideLayer(step, composition);
@@ -416,6 +480,7 @@
       state.sessionActive = false;
       hideSlideLayer();
       clearFocus();
+      resetPlanes();
       return true;
     },
     resume() {
@@ -430,6 +495,7 @@
       state.stepIndex = 0;
       hideSlideLayer();
       clearFocus();
+      resetPlanes();
       return true;
     },
     start(options) {

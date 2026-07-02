@@ -6,6 +6,7 @@
     copilot: { min: 5400, max: 5799, default: 5400 },
     host: { min: 5800, max: 99999, default: 5800 },
   };
+  const SUPPORTED_PLANES = ["t0", "t1", "t2"];
 
   function readPresentationMap() {
     const node = document.getElementById("mei-presentation-map");
@@ -24,6 +25,28 @@
       node.classList.remove("mei-viewpoint-focus");
     });
     document.documentElement.classList.remove("mei-tier-dim");
+  }
+
+  function planeHiddenClass(planeId) {
+    return `mei-plane-hidden-${planeId}`;
+  }
+
+  function normalizePlaneId(raw) {
+    const planeId = String(raw || "").trim().toLowerCase();
+    return SUPPORTED_PLANES.includes(planeId) ? planeId : "";
+  }
+
+  function resetPlaneVisibility() {
+    SUPPORTED_PLANES.forEach((planeId) => {
+      document.documentElement.classList.remove(planeHiddenClass(planeId));
+    });
+  }
+
+  function setPlaneVisibility(planeId, visible) {
+    const normalized = normalizePlaneId(planeId);
+    if (!normalized) return false;
+    document.documentElement.classList.toggle(planeHiddenClass(normalized), !visible);
+    return true;
   }
 
   function focusViewpoint(viewpointId) {
@@ -47,6 +70,12 @@
     if (!action || typeof action !== "object") return false;
     const type = String(action.type || action.kind || "").trim();
     switch (type) {
+      case "show_plane":
+      case "showPlane":
+        return setPlaneVisibility(action.plane || action.tier || action.planeId, true);
+      case "hide_plane":
+      case "hidePlane":
+        return setPlaneVisibility(action.plane || action.tier || action.planeId, false);
       case "highlight":
       case "focus":
         return focusViewpoint(String(action.viewpoint || action.viewpointId || "").trim());
@@ -83,6 +112,9 @@
     root.MeiPresentation = root.MeiPresentation || {};
     root.MeiPresentation.focus = focusViewpoint;
     root.MeiPresentation.clearFocus = clearViewpointFocus;
+    root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
+    root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
+    root.MeiPresentation.resetPlanes = resetPlaneVisibility;
     root.MeiPresentation.dispatch = dispatchPresentationAction;
     root.MeiPresentation.map = readPresentationMap;
     root.MeiPresentation.zTiers = PRESENTATION_Z_TIERS;
