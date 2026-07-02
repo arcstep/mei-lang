@@ -1050,54 +1050,20 @@ fn parse_app_scene_path(
 
 const DEFAULT_ACCESS_PRESENTATION_ID: &str = "intro";
 
-fn presentation_manifest_candidates(presentation_id: &str) -> [String; 2] {
-    [
-        format!("src/presentation/{presentation_id}.presentation.json"),
-        format!("presentation/{presentation_id}.presentation.json"),
-    ]
-}
-
-pub(crate) fn load_presentation_manifest_json_for_app(
-    app_root: &std::path::Path,
-    presentation_id: &str,
-) -> Option<String> {
-    for rel in presentation_manifest_candidates(presentation_id) {
-        let path = app_root.join(&rel);
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            let trimmed = content.trim();
-            if !trimmed.is_empty() {
-                return Some(content);
-            }
-        }
-    }
-    None
-}
-
 pub(crate) fn inject_presentation_manifest_script(
     html: String,
-    app_root: &std::path::Path,
+    _app_root: &std::path::Path,
     presentation_id: Option<&str>,
 ) -> String {
-    if html.contains("id=\"mei-presentation-manifest\"") {
+    if html.contains("window.__mei.presentation_manifest_prefetch=false") {
         return html;
     }
     let pid = presentation_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_ACCESS_PRESENTATION_ID);
-    let Some(json) = load_presentation_manifest_json_for_app(app_root, pid) else {
-        let hint = r#"<script>window.__mei=window.__mei||{};window.__mei.presentation_manifest_prefetch=false;</script>"#;
-        if let Some(pos) = html.find("</head>") {
-            let mut out = String::with_capacity(html.len() + hint.len());
-            out.push_str(&html[..pos]);
-            out.push_str(hint);
-            out.push_str(&html[pos..]);
-            return out;
-        }
-        return format!("{hint}{html}");
-    };
     let script = format!(
-        r#"<script type="application/json" id="mei-presentation-manifest">{json}</script><script>window.__mei=window.__mei||{{}};window.__mei.presentation_manifest_prefetch=false;</script>"#
+        r#"<script>window.__mei=window.__mei||{{}};window.__mei.presentation_manifest_prefetch=false;window.__mei.presentation_manifest_mode="ephemeral";window.__mei.presentation_manifest_id={pid:?};</script>"#
     );
     if let Some(pos) = html.find("</head>") {
         let mut out = String::with_capacity(html.len() + script.len());

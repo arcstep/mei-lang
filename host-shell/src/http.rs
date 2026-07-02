@@ -21,6 +21,7 @@ use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_fragment,
     api_scene_revision, app_page, host_starting_page, index,
 };
+use crate::presentation_compile::api_presentation_compile;
 use crate::landing::build_discovered_app_summaries;
 use crate::runtime_api::{api_host_mrg_activate, api_host_mrg_status, api_runtime_snapshot};
 use crate::state::{HostHttpState, SharedState};
@@ -87,6 +88,7 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/datasets/metrics/:app_id", post(api_datasets_metrics))
         .route("/api/ops/theme/style/:app_id", get(api_ops_theme_style))
         .route("/api/presentation/map/:app_id", get(api_presentation_map))
+        .route("/api/presentation/compile", post(api_presentation_compile))
         .route(
             "/api/upload/download/:app_id",
             get(upload_file_download_get),

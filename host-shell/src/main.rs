@@ -17,6 +17,7 @@ mod landing;
 mod http;
 mod managed_plug;
 mod ops_api;
+mod presentation_compile;
 mod runtime_api;
 mod runtime_snapshot;
 mod pages;

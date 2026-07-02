@@ -19,8 +19,7 @@
     "test:spa-static": "node ./scripts/test-spa-navigation-static.mjs && node ./scripts/test-scene-shell-nested-zones.mjs",
     "test:spa-e2e": "playwright test",
     "test:spa": "npm run test:spa-static && npm run assets:build && npm run test:spa-static",
-    "test:theme-tokens": "node ./scripts/check-theme-tokens.mjs",
-    "presentation:build": "node ./scripts/compile-presentation.mjs ../workspaces/ws-demo-v2/apps/mini-park/src/presentation"
+    "test:theme-tokens": "node ./scripts/check-theme-tokens.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

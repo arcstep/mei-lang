@@ -17529,9 +17529,11 @@
   const STORAGE_KEY = "mei_copilot_presentation_v1";
   const STORAGE_KEY_LEGACY = "mei_copilot_tour_v1";
   const SLIDE_LAYER_ID = "mei-copilot-slide-layer";
+  const EPHEMERAL_SOURCE = "ephemeral";
 
   const state = {
     manifest: null,
+    manifestSource: "",
     steps: [],
     stepIndex: 0,
     sessionActive: false,
@@ -17557,7 +17559,22 @@
         const raw = sessionStorage.getItem(key);
         if (!raw) continue;
         const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") return parsed;
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          parsed.__meiPresentationSession === true &&
+          parsed.manifest &&
+          typeof parsed.manifest === "object"
+        ) {
+          return parsed;
+        }
+        if (parsed && typeof parsed === "object") {
+          return {
+            __meiPresentationSession: true,
+            source: "legacy",
+            manifest: parsed,
+          };
+        }
       } catch (_) {
         /* try next */
       }
@@ -17565,12 +17582,30 @@
     return null;
   }
 
-  function persistManifest(manifest) {
+  function persistManifest(manifest, options = {}) {
     if (!manifest || typeof manifest !== "object") return;
     try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(manifest));
+      const source = String(options.source || "").trim() || "session";
+      sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          __meiPresentationSession: true,
+          source,
+          manifest,
+        }),
+      );
     } catch (_) {
       /* ignore */
+    }
+  }
+
+  function clearStoredManifest() {
+    for (const key of [STORAGE_KEY, STORAGE_KEY_LEGACY, "mei_speaker_tour_v1"]) {
+      try {
+        sessionStorage.removeItem(key);
+      } catch (_) {
+        /* ignore */
+      }
     }
   }
 
@@ -17579,79 +17614,29 @@
     return manifest.steps.filter((step) => step && typeof step === "object");
   }
 
-  function parseAppIdFromPath() {
-    const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
-    );
-    return match ? String(match[1] || "").trim() : "";
-  }
-
-  function isCopilotPresentationRoute() {
-    return /^\/apps\/(?:copilot|speaker)\//.test(String(window.location.pathname || ""));
-  }
-
-  function shellPresentationId() {
-    const shell =
-      document.getElementById("copilot-shell") || document.getElementById("speaker-shell");
-    const fromShell = shell?.dataset?.copilotPresentation;
-    return String(fromShell || "").trim();
-  }
-
-  function parsePresentationIdFromPath() {
-    const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:copilot|speaker)\/[^/]+\/(?:presentation|tour)\/([^/]+)/,
-    );
-    if (match) return String(match[1] || "").trim();
-    const fromShell = shellPresentationId();
-    if (fromShell) return fromShell;
-    return "intro";
-  }
-
   function shouldPrefetchPresentationAssets() {
     const mei = typeof window !== "undefined" ? window.__mei : null;
     if (mei && mei.presentation_manifest_prefetch === false) return false;
     if (mei && mei.presentation_manifest_prefetch === true) return true;
-    if (isCopilotPresentationRoute()) return true;
-    if (shellPresentationId()) return true;
     return false;
-  }
-
-  function presentationManifestAssetUrls(appId, presentationId) {
-    const pid = presentationId || "intro";
-    return [
-      `/workspace-app-assets/${encodeURIComponent(appId)}/src/presentation/${encodeURIComponent(pid)}.presentation.json`,
-      `/workspace-app-assets/${encodeURIComponent(appId)}/presentation/${encodeURIComponent(pid)}.presentation.json`,
-    ];
   }
 
   let manifestFetchPromise = null;
 
   async function fetchManifestFromAssets() {
-    const appId = parseAppIdFromPath();
-    if (!appId) return null;
-    const presentationId = parsePresentationIdFromPath();
-    for (const url of presentationManifestAssetUrls(appId, presentationId)) {
-      try {
-        const response = await fetch(url, { credentials: "same-origin" });
-        if (!response.ok) continue;
-        const manifest = await response.json();
-        if (normalizeSteps(manifest).length) return manifest;
-      } catch (_) {
-        /* try next */
-      }
-    }
     return null;
   }
 
   function ensureLoadedAsync() {
     if (state.steps.length) return Promise.resolve(true);
-    const manifest = readManifestFromDom() || readStoredManifest();
-    if (loadManifest(manifest)) return Promise.resolve(true);
+    const stored = readStoredManifest();
+    const manifest = readManifestFromDom() || stored?.manifest || null;
+    if (loadManifest(manifest, { source: stored?.source || "dom" })) return Promise.resolve(true);
     if (!manifestFetchPromise) {
       manifestFetchPromise = fetchManifestFromAssets()
         .then((fetched) => {
           manifestFetchPromise = null;
-          return loadManifest(fetched);
+          return loadManifest(fetched, { source: "prefetch" });
         })
         .catch(() => {
           manifestFetchPromise = null;
@@ -17663,32 +17648,36 @@
 
   function injectManifestScript(manifest) {
     if (!manifest || typeof manifest !== "object") return;
-    if (document.getElementById("mei-presentation-manifest")) return;
-    const node = document.createElement("script");
-    node.type = "application/json";
-    node.id = "mei-presentation-manifest";
+    let node = document.getElementById("mei-presentation-manifest");
+    if (!(node instanceof HTMLScriptElement)) {
+      node = document.createElement("script");
+      node.type = "application/json";
+      node.id = "mei-presentation-manifest";
+      (document.head || document.body || document.documentElement).appendChild(node);
+    }
     node.textContent = JSON.stringify(manifest);
-    (document.head || document.body || document.documentElement).appendChild(node);
   }
 
-  function loadManifest(manifest) {
+  function loadManifest(manifest, options = {}) {
     const steps = normalizeSteps(manifest);
     if (!steps.length) return false;
     state.manifest = manifest;
+    state.manifestSource = String(options.source || "").trim() || state.manifestSource || "session";
     state.steps = steps;
     injectManifestScript(manifest);
-    persistManifest(manifest);
+    persistManifest(manifest, { source: state.manifestSource });
     return true;
   }
 
   function ensureLoaded() {
     if (state.steps.length) return true;
-    const manifest = readManifestFromDom() || readStoredManifest();
-    return loadManifest(manifest);
+    const stored = readStoredManifest();
+    const manifest = readManifestFromDom() || stored?.manifest || null;
+    return loadManifest(manifest, { source: stored?.source || "dom" });
   }
 
   function hasManifest() {
-    return Boolean(readManifestFromDom() || state.steps.length || readStoredManifest());
+    return Boolean(readManifestFromDom() || state.steps.length || readStoredManifest()?.manifest);
   }
 
   function prefetchManifest() {
@@ -17982,7 +17971,46 @@
       composition,
       viewpoint: currentViewpoint(step),
       caption: step ? String(step.caption || step.title || "") : "",
+      manifestSource: state.manifestSource,
     };
+  }
+
+  function resetManifestState() {
+    state.manifest = null;
+    state.manifestSource = "";
+    state.steps = [];
+    state.stepIndex = 0;
+    state.sessionActive = false;
+    state.everStarted = false;
+  }
+
+  function clearEphemeralManifest() {
+    const stored = readStoredManifest();
+    const source = String(state.manifestSource || stored?.source || "").trim();
+    if (source !== EPHEMERAL_SOURCE) return false;
+    clearStoredManifest();
+    const manifestNode = document.getElementById("mei-presentation-manifest");
+    if (manifestNode) manifestNode.remove();
+    resetManifestState();
+    return true;
+  }
+
+  function replaceManifest(manifest, options = {}) {
+    const source = String(options.source || EPHEMERAL_SOURCE).trim() || EPHEMERAL_SOURCE;
+    hideSlideLayer();
+    clearFocus();
+    resetPlanes();
+    clearStoredManifest();
+    resetManifestState();
+    return loadManifest(manifest, { source });
+  }
+
+  function runManifest(manifest, options = {}) {
+    if (!replaceManifest(manifest, options)) return false;
+    return engine.start({
+      apply: options.apply !== false,
+      stepIndex: Number.isFinite(Number(options.stepIndex)) ? Number(options.stepIndex) : 0,
+    });
   }
 
   const engine = {
@@ -17991,6 +18019,9 @@
     ensureLoadedAsync,
     prefetchManifest,
     loadManifest,
+    runManifest,
+    replaceManifest,
+    clearEphemeralManifest,
     applyStep,
     currentStep,
     currentViewpoint,
@@ -18780,6 +18811,66 @@
     return boot.presentationStepEngine || null;
   }
 
+  function parseAppIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
+    );
+    return match ? String(match[1] || "").trim() : "";
+  }
+
+  async function compileEphemeralPresentation(source, options = {}) {
+    const appId = String(options.appId || parseAppIdFromPath()).trim();
+    if (!appId) {
+      throw new Error("compileAndRunPresentation requires appId");
+    }
+    const payload = {
+      source: String(source || ""),
+      appId,
+      sceneId: String(options.sceneId || "home").trim() || "home",
+      presentationId: String(options.presentationId || "ephemeral").trim() || "ephemeral",
+      mode: "ephemeral",
+    };
+    const response = await fetch("/api/presentation/compile", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.manifest) {
+      const message =
+        result?.diagnostics?.[0]?.message ||
+        `presentation compile failed: ${response.status}`;
+      const error = new Error(message);
+      error.payload = result;
+      throw error;
+    }
+    return result;
+  }
+
+  async function compileAndRunPresentation(source, options = {}) {
+    const eng = engine();
+    if (!eng || typeof eng.runManifest !== "function") {
+      throw new Error("presentation step engine is not ready");
+    }
+    const result = await compileEphemeralPresentation(source, options);
+    const toolbar = boot.copilotToolbar;
+    if (toolbar && typeof toolbar.mount === "function") {
+      toolbar.mount({ autoStart: false, apply: false, toolbarOpen: true });
+    }
+    eng.runManifest(result.manifest, {
+      source: "ephemeral",
+      stepIndex: options.stepIndex,
+      apply: options.apply,
+    });
+    if (toolbar && typeof toolbar.renderAll === "function") {
+      toolbar.renderAll();
+    }
+    return result;
+  }
+
   function isCopilotRoute() {
     return /^\/apps\/(copilot|speaker)\//.test(String(window.location.pathname || ""));
   }
@@ -18810,6 +18901,11 @@
       start: (options) => eng.start(options),
       applyStep: (index) => eng.applyStepAt(index),
       highlight: (viewpointId) => eng.highlight(viewpointId),
+      loadManifest: (manifest, options) => eng.loadManifest(manifest, options),
+      runManifest: (manifest, options) => eng.runManifest(manifest, options),
+      replaceManifest: (manifest, options) => eng.replaceManifest(manifest, options),
+      clearEphemeralManifest: () => eng.clearEphemeralManifest(),
+      compileAndRunPresentation: (source, options) => compileAndRunPresentation(source, options),
       next: () => eng.next(),
       prev: () => eng.prev(),
       stepIndex: () => eng.stepIndex,
@@ -18824,6 +18920,7 @@
     };
     window.MeiCopilot = api;
     window.MeiSpeaker = api;
+    boot.compileAndRunPresentation = compileAndRunPresentation;
     boot.startCopilot = (options) => {
       const toolbar = boot.copilotToolbar;
       if (toolbar && typeof toolbar.mount === "function") {
