@@ -82,6 +82,23 @@ fn resolve_toolchain_version_prefers_cli_hint_over_stale_links_without_pin() {
 }
 
 #[test]
+fn resolve_toolchain_version_prefers_cli_hint_over_workspace_pin() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ws = tmp.path();
+    fs::create_dir_all(ws.join("deploy/state")).expect("mkdir deploy");
+    fs::write(
+        ws.join("workspace.json"),
+        r#"{"schemaVersion":2,"workspace":{"version":"20260628"},"toolchain":{"pin":"2.0.9"},"build":{"generation":{"dateSource":"manual","date":"20260628","fixver":0}}}"#,
+    )
+    .expect("write workspace.json");
+    assert_eq!(
+        resolve_toolchain_version_with_hint(ws, Some("2.0.10")),
+        "2.0.10"
+    );
+    assert_eq!(resolve_toolchain_version(ws), "2.0.9");
+}
+
+#[test]
 fn normalize_env_generation_id_accepts_ws_tags_only() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let ws = tmp.path();

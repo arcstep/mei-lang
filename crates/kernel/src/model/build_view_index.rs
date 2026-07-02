@@ -171,6 +171,10 @@ pub struct ReachabilityTreeNodeSnapshot {
     pub preview_scope: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub plane_tier: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_file: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_symbol: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ReachabilityTreeNodeSnapshot>,
 }

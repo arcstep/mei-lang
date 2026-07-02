@@ -228,6 +228,7 @@ fn ui_scope_to_tree_node(node: &UiScopeNode, index: &UiLayoutIndex) -> Option<Re
         .into_iter()
         .filter_map(|child| ui_scope_to_tree_node(child, index))
         .collect();
+    let (source_file, source_symbol) = primary_source_anchor(node);
     Some(ReachabilityTreeNode {
         id: format!("ui-scope-{}", parsed.key.replace('/', "-")),
         node_id: node.node_id.clone(),
@@ -237,9 +238,18 @@ fn ui_scope_to_tree_node(node: &UiScopeNode, index: &UiLayoutIndex) -> Option<Re
         ui_role: node.role.slug().to_string(),
         preview_scope: node.preview_scope.clone(),
         plane_tier: node.plane.clone().unwrap_or_default(),
+        source_file,
+        source_symbol,
         children,
         ..Default::default()
     })
+}
+
+fn primary_source_anchor(node: &UiScopeNode) -> (String, String) {
+    node.source_anchors
+        .first()
+        .map(|anchor| (anchor.file.clone(), anchor.symbol_id.clone()))
+        .unwrap_or_default()
 }
 
 fn display_children_for_tree<'a>(
@@ -365,6 +375,8 @@ fn node_to_snapshot_local(node: ReachabilityTreeNode) -> ReachabilityTreeNodeSna
         ui_role: node.ui_role,
         preview_scope: node.preview_scope,
         plane_tier: node.plane_tier,
+        source_file: node.source_file,
+        source_symbol: node.source_symbol,
         children: node.children.into_iter().map(node_to_snapshot_local).collect(),
     }
 }

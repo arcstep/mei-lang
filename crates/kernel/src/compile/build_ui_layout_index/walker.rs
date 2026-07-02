@@ -216,10 +216,24 @@ fn walk_micro_and_content(
     parent_segments: &[String],
     preview_prefix: &str,
 ) {
-    for micro in micro_layout_panels_in(panel) {
+    let file_hint = panel
+        .import_scope
+        .as_deref()
+        .filter(|v| !v.is_empty());
+    for micro in micro_layout_panels_in_deep(panel) {
         walk_micro_layout(
             builder,
             micro,
+            tier,
+            parent_id,
+            parent_segments,
+            preview_prefix,
+        );
+    }
+    for metric_panel in metric_card_panels_in_deep(panel) {
+        walk_content_panel(
+            builder,
+            metric_panel,
             tier,
             parent_id,
             parent_segments,
@@ -235,6 +249,7 @@ fn walk_micro_and_content(
             parent_id,
             parent_segments,
             preview_prefix,
+            file_hint,
         );
     }
 }
@@ -329,26 +344,61 @@ fn walk_slot(
     builder.link_child(micro_node_id, &slot_node_id);
 
     if let Some(panel) = &slot.nested_panel {
-        for (block, content_label) in content_blocks_in(panel) {
-            walk_content_block(
+        if is_metric_card_panel(panel) {
+            walk_content_panel(
                 builder,
-                block,
-                content_label.as_str(),
+                panel,
                 tier,
                 &slot_node_id,
                 &slot_segments,
                 preview_scope.as_str(),
             );
-        }
-        for nested_micro in micro_layout_panels_in(panel) {
+        } else if is_micro_layout_panel(panel) {
             walk_micro_layout(
                 builder,
-                nested_micro,
+                panel,
                 tier,
                 &slot_node_id,
                 &slot_segments,
                 preview_scope.as_str(),
             );
+        } else {
+            let file_hint = panel
+                .import_scope
+                .as_deref()
+                .filter(|v| !v.is_empty());
+            for micro in micro_layout_panels_in_deep(panel) {
+                walk_micro_layout(
+                    builder,
+                    micro,
+                    tier,
+                    &slot_node_id,
+                    &slot_segments,
+                    preview_scope.as_str(),
+                );
+            }
+            for metric_panel in metric_card_panels_in_deep(panel) {
+                walk_content_panel(
+                    builder,
+                    metric_panel,
+                    tier,
+                    &slot_node_id,
+                    &slot_segments,
+                    preview_scope.as_str(),
+                );
+            }
+            for (block, content_label) in content_blocks_in(panel) {
+                walk_content_block(
+                    builder,
+                    block,
+                    content_label.as_str(),
+                    tier,
+                    &slot_node_id,
+                    &slot_segments,
+                    preview_scope.as_str(),
+                    file_hint,
+                );
+            }
         }
     }
     if let Some(block) = &slot.block {
@@ -360,6 +410,7 @@ fn walk_slot(
             &slot_node_id,
             &slot_segments,
             preview_scope.as_str(),
+            None,
         );
     }
 }
@@ -372,6 +423,7 @@ fn walk_content_block(
     parent_id: &str,
     parent_segments: &[String],
     preview_prefix: &str,
+    file_hint: Option<&str>,
 ) {
     let content_key = block
         .id
@@ -401,7 +453,49 @@ fn walk_content_block(
         Some(parent_id.to_string()),
         Some(tier.to_string()),
         None,
-        source_anchor_for_block(block),
+        source_anchor_for_block(block, file_hint),
+        content_kind,
+    );
+    let content_id = builder.insert_node(content_node);
+    builder.link_child(parent_id, &content_id);
+}
+
+fn walk_content_panel(
+    builder: &mut Builder<'_>,
+    panel: &PanelDecl,
+    tier: &str,
+    parent_id: &str,
+    parent_segments: &[String],
+    preview_prefix: &str,
+) {
+    let content_key = panel.id.clone();
+    let content_label = metric_card_label(panel);
+    let mut content_segments = parent_segments.to_vec();
+    content_segments.push(content_key.clone());
+    let area_suffix = panel
+        .area
+        .as_deref()
+        .filter(|v| !v.is_empty() && *v != "auto")
+        .map(|area| format!("/{area}"))
+        .unwrap_or_default();
+    let preview_scope = format!("{preview_prefix}{area_suffix}/{content_key}");
+    let content_kind = Some(
+        panel
+            .props
+            .get("__mei_metric_template")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| "metric-card".to_string()),
+    );
+    let content_node = builder.make_node(
+        UiScopeRole::Content,
+        content_label,
+        &content_segments,
+        preview_scope,
+        Some(parent_id.to_string()),
+        Some(tier.to_string()),
+        None,
+        source_anchor_for_panel(panel),
         content_kind,
     );
     let content_id = builder.insert_node(content_node);
@@ -464,6 +558,82 @@ fn micro_layout_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
         }
     }
     result
+}
+
+fn micro_layout_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
+    let mut result = micro_layout_panels_in(panel);
+    for child in child_panels(panel) {
+        if !is_micro_layout_panel(child) {
+            result.extend(micro_layout_panels_in_deep(child));
+        }
+    }
+    result
+}
+
+fn child_panels(panel: &PanelDecl) -> Vec<&PanelDecl> {
+    panel
+        .blocks
+        .iter()
+        .filter_map(|ui_node| match ui_node {
+            UiNodeDecl::Panel(nested) => Some(nested),
+            _ => None,
+        })
+        .collect()
+}
+
+fn is_metric_card_panel(panel: &PanelDecl) -> bool {
+    panel
+        .props
+        .get("__mei_metric_card")
+        .map(|value| match value {
+            Value::Bool(enabled) => *enabled,
+            Value::String(text) => matches!(text.as_str(), "1" | "true" | "yes"),
+            _ => false,
+        })
+        .unwrap_or(false)
+}
+
+fn metric_card_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
+    child_panels(panel)
+        .into_iter()
+        .filter(|nested| is_metric_card_panel(nested))
+        .collect()
+}
+
+fn metric_card_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
+    let mut result = metric_card_panels_in(panel);
+    for child in child_panels(panel) {
+        if !is_micro_layout_panel(child) && !is_metric_card_panel(child) {
+            result.extend(metric_card_panels_in_deep(child));
+        }
+    }
+    result
+}
+
+fn metric_card_label(panel: &PanelDecl) -> String {
+    if let Some(title) = panel.title.as_deref().filter(|v| !v.trim().is_empty()) {
+        return title.to_string();
+    }
+    if let Some(label) = panel
+        .props
+        .get("source")
+        .and_then(|v| v.get("label"))
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty())
+    {
+        return label.to_string();
+    }
+    for ui_node in &panel.blocks {
+        if let UiNodeDecl::Block(block) = ui_node {
+            if matches!(block.use_key.as_str(), "mei.text" | "label") {
+                let label = content_label_from_block(block);
+                if !label.is_empty() && label != block.use_key {
+                    return label;
+                }
+            }
+        }
+    }
+    panel.id.clone()
 }
 
 fn is_micro_layout_panel(panel: &PanelDecl) -> bool {
@@ -608,7 +778,7 @@ fn is_slot_area_block(block: &BlockDecl, panel: &PanelDecl) -> bool {
 
 fn is_content_block(block: &BlockDecl) -> bool {
     let key = block.use_key.as_str();
-    key.contains("metric") || key.contains("chart") || key.contains("table") || key == "component"
+    !matches!(key, "label" | "value" | "unit" | "icon")
 }
 
 fn content_label_from_block(block: &BlockDecl) -> String {
@@ -792,12 +962,12 @@ fn source_anchor_for_panel(panel: &PanelDecl) -> Vec<UiSourceAnchor> {
         .unwrap_or_default()
 }
 
-fn source_anchor_for_block(block: &BlockDecl) -> Vec<UiSourceAnchor> {
+fn source_anchor_for_block(block: &BlockDecl, file_hint: Option<&str>) -> Vec<UiSourceAnchor> {
     block
         .id
         .as_ref()
         .map(|id| UiSourceAnchor {
-            file: String::new(),
+            file: file_hint.unwrap_or("").to_string(),
             symbol_id: id.clone(),
         })
         .into_iter()

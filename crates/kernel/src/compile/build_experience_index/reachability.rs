@@ -64,11 +64,21 @@ pub fn reachability_roots_from_compiled(compiled: &CompiledApp) -> Vec<Reachabil
         ensure_board_and_template_roots(&mut roots, compiled);
         roots
     };
+    inject_fresh_ui_structure_root(&mut roots, compiled);
     ensure_mcg_root(&mut roots, compiled);
     enrich_reachability_tree_compile_coords(&mut roots, compiled);
     normalize_reachability_tree_roots(&mut roots);
     strip_stock_facet_roots_for_business_app(&mut roots, compiled);
     roots
+}
+
+fn inject_fresh_ui_structure_root(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp) {
+    let ui_layout = crate::compile::build_ui_layout_index(compiled);
+    roots.retain(|root| root.group != "ui_structure");
+    if ui_layout.tree_root.children.is_empty() {
+        return;
+    }
+    roots.insert(0, ui_layout.tree_root);
 }
 
 fn strip_stock_facet_roots_for_business_app(

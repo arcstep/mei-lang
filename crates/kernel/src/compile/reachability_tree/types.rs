@@ -29,6 +29,12 @@ pub struct ReachabilityTreeNode {
     /// Plane tier (`T0`, `T1`, `T2`, `P`, `C`, `H`) for plane-level dim.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub plane_tier: String,
+    /// Primary source file for provenance (workspace-relative `.mei` path).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_file: String,
+    /// Primary symbol id within `source_file` (panel id, block id, …).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_symbol: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<ReachabilityTreeNode>,
 }
@@ -47,6 +53,8 @@ impl Default for ReachabilityTreeNode {
             ui_role: String::new(),
             preview_scope: String::new(),
             plane_tier: String::new(),
+            source_file: String::new(),
+            source_symbol: String::new(),
             children: Vec::new(),
         }
     }

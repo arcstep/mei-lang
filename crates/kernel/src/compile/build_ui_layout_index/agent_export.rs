@@ -1,4 +1,15 @@
 use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, UiScopeRole};
+
+fn ssr_full_scene_for_structure_inspect(node: &BuildNodeId) -> bool {
+    matches!(
+        node.kind,
+        BuildNodeKind::UiScope
+            | BuildNodeKind::ScenePanel
+            | BuildNodeKind::SceneBlock
+            | BuildNodeKind::Scene
+            | BuildNodeKind::Route
+    )
+}
 use crate::{build_preview_panel_scope, build_preview_ui_scope};
 
 /// Resolved UI scope annotation for a content block in preview.
@@ -52,7 +63,7 @@ pub fn resolve_build_preview_scope_for_ssr(
     compiled: &CompiledApp,
     node: &BuildNodeId,
 ) -> Option<String> {
-    if node.kind == BuildNodeKind::UiScope {
+    if ssr_full_scene_for_structure_inspect(node) {
         return None;
     }
     resolve_build_preview_scope(compiled, node)

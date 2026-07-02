@@ -319,6 +319,8 @@ fn node_to_snapshot(node: ReachabilityTreeNode) -> ReachabilityTreeNodeSnapshot 
         ui_role: node.ui_role,
         preview_scope: node.preview_scope,
         plane_tier: node.plane_tier,
+        source_file: node.source_file,
+        source_symbol: node.source_symbol,
         children: node.children.into_iter().map(node_to_snapshot).collect(),
     }
 }
@@ -336,6 +338,8 @@ fn node_snapshot_to_runtime(node: &ReachabilityTreeNodeSnapshot) -> Reachability
         ui_role: node.ui_role.clone(),
         preview_scope: node.preview_scope.clone(),
         plane_tier: node.plane_tier.clone(),
+        source_file: node.source_file.clone(),
+        source_symbol: node.source_symbol.clone(),
         children: node.children.iter().map(node_snapshot_to_runtime).collect(),
     }
 }

@@ -191,6 +191,8 @@ fn business_app_strips_legacy_templates_snapshot_on_read() {
                 ui_role: String::new(),
                 preview_scope: String::new(),
                 plane_tier: String::new(),
+                source_file: String::new(),
+                source_symbol: String::new(),
                 children: Vec::new(),
             }],
         },
