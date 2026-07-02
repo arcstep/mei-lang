@@ -39,10 +39,16 @@ pub(crate) fn reachability_tree_view(
             ));
         }
     }
-    let items = items.into_iter().collect_view();
+    let items = items.into_view();
     view! {
-        <div class="build-reachability-tree">
-            <ul class="build-tree-list">{items}</ul>
+        <div class="build-tree-shell" data-build-tree-shell="true">
+            <div class="build-tree-mode-toggle mb-2 flex gap-1" role="tablist" aria-label="资源树视图">
+                <button type="button" class="build-tree-mode-btn is-active" data-build-tree-mode="structure">"结构"</button>
+                <button type="button" class="build-tree-mode-btn" data-build-tree-mode="compile">"编译"</button>
+            </div>
+            <div class="build-reachability-tree" data-build-tree-mode-active="structure">
+                <ul class="build-tree-list">{items}</ul>
+            </div>
         </div>
     }
     .into_any()
@@ -67,6 +73,7 @@ fn root_branch(
             <details
                 class="build-tree-details"
                 data-build-tree-branch=format!("root:{}", root.group.clone())
+                data-build-tree-root-group=root.group.clone()
                 data-build-tree-children-count=child_count.to_string()
             >
                 <summary class="build-tree-summary build-tree-summary--root">
@@ -144,7 +151,7 @@ fn tree_node(
             )
         })
         .unwrap_or_else(|| "#".to_string());
-    let kind_glyph = kind_glyph(&node.kind);
+    let kind_glyph = kind_glyph(&node.kind, node);
     let badge = node.badges.first().cloned();
 
     if node.children.is_empty() {
@@ -238,7 +245,7 @@ fn template_category_section(
                 data-build-tree-children-count=child_count.to_string()
             >
                 <summary class="build-tree-summary build-tree-summary--group">
-                    <span class="build-tree-kind" aria-hidden="true">{kind_glyph(&node.kind)}</span>
+                    <span class="build-tree-kind" aria-hidden="true">{kind_glyph(&node.kind, node)}</span>
                     <span class="build-tree-label">
                         {branch_label(node.label.clone(), None, child_count)}
                     </span>
@@ -302,7 +309,7 @@ fn branch_label(label: String, meta_badge: Option<String>, child_count: usize) -
     }
 }
 
-fn kind_glyph(kind: &str) -> &'static str {
+fn kind_glyph(kind: &str, node: &ReachabilityTreeNode) -> &'static str {
     match kind {
         "route" => "R",
         "scene" => "S",
@@ -320,7 +327,22 @@ fn kind_glyph(kind: &str) -> &'static str {
         "template_group" | "component_pack" => "G",
         "artifact" => "A",
         "mcg_node" => "M",
+        "ui_scope" => ui_scope_glyph(node),
         _ => "·",
+    }
+}
+
+fn ui_scope_glyph(node: &ReachabilityTreeNode) -> &'static str {
+    match node.badges.first().map(String::as_str) {
+        Some("plane") => "P",
+        Some("region") => "R",
+        Some("section") => "§",
+        Some("micro_layout") => "M",
+        Some("slot") => "L",
+        Some("content") => "C",
+        Some("budget") => "B",
+        Some("scene") => "S",
+        _ => "U",
     }
 }
 
@@ -333,6 +355,7 @@ fn tab_for_node_link(node: &BuildNodeId, current: BuildViewTab) -> BuildViewTab 
         BuildNodeKind::Scene
         | BuildNodeKind::ScenePanel
         | BuildNodeKind::SceneBlock
+        | BuildNodeKind::UiScope
         | BuildNodeKind::Route
         | BuildNodeKind::Projection
         | BuildNodeKind::Template

@@ -1,7 +1,8 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_experience_path, build_overview_backing, experience_layout_hint, experience_mount_chain,
-    format_experience_path, BuildNodeContext, BuildNodeKind, CompiledApp, ProvenanceAnchor,
+    format_experience_path, format_ui_scope_agent_context, BuildNodeContext, BuildNodeKind,
+    CompiledApp, ProvenanceAnchor, UiScopeRole,
 };
 
 use super::super::view_routing::runtime_href;
@@ -24,6 +25,7 @@ pub(crate) fn build_overview_view(
         .unwrap_or_else(|| node_label.clone());
     let board_entry = compiled.build_board_index.lookup(&ctx.node);
     let template_entry = compiled.build_template_index.lookup(ctx.node.key.as_str());
+    let ui_scope_entry = compiled.ui_layout_index.lookup(&ctx.node);
     let is_mcg = ctx.node.kind == BuildNodeKind::McgNode;
     let runtime_cross_link = is_mcg.then(|| runtime_href(app_path, None, Some("overview")));
 
@@ -62,7 +64,33 @@ pub(crate) fn build_overview_view(
                 </div>
             })}
             <dl class="grid gap-2">
-                {(!is_mcg).then(|| view! {
+                {ui_scope_entry.map(|entry| view! {
+                    <>
+                        <div class="flex flex-col gap-0.5">
+                            <dt class="mei-text-muted">"调整范围"</dt>
+                            <dd class="font-mono mei-font-1 leading-5">
+                                {entry.scope_path.iter().skip(1).cloned().collect::<Vec<_>>().join(" / ")}
+                            </dd>
+                        </div>
+                        {(entry.role == UiScopeRole::MicroLayout || entry.role == UiScopeRole::Budget).then(|| entry.budget.as_ref()).flatten().map(|budget| view! {
+                            <div class="flex flex-col gap-0.5">
+                                <dt class="mei-text-muted">"Budget"</dt>
+                                <dd class="font-mono mei-font-1 leading-5">
+                                    {budget.gap.clone().map(|gap| format!("gap={gap}")).unwrap_or_default()}
+                                    {budget.padding.clone().map(|padding| format!(" padding={padding}")).unwrap_or_default()}
+                                    {budget.card_height.map(|height| format!(" card_height={height}")).unwrap_or_default()}
+                                </dd>
+                            </div>
+                        })}
+                        {format_ui_scope_agent_context(compiled, &ctx.node).map(|md| view! {
+                            <details class="rounded-lg border border-white/10 bg-black/10 p-3">
+                                <summary class="cursor-pointer mei-font-2 mei-text-primary">"Agent 上下文预览"</summary>
+                                <pre class="mt-2 whitespace-pre-wrap font-mono mei-font-1 leading-5">{md}</pre>
+                            </details>
+                        })}
+                    </>
+                })}
+                {(!is_mcg && ui_scope_entry.is_none()).then(|| view! {
                     <div class="flex flex-col gap-0.5">
                         <dt class="mei-text-muted">"体验路径"</dt>
                         <dd class="mei-font-2 mei-text-primary">{experience_line}</dd>

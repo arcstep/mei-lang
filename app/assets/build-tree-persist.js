@@ -6,6 +6,7 @@
 
   const STORAGE_KEY = "mei-build-tree-open";
   const SCROLL_KEY = "mei-build-tree-scroll";
+  const MODE_KEY = "mei-build-tree-mode";
   const CLICK_DELAY_MS = 280;
 
   function isBuildRoute() {
@@ -300,12 +301,64 @@
     );
   }
 
+  function loadTreeMode() {
+    try {
+      const raw = String(global.sessionStorage.getItem(MODE_KEY) || "").trim().toLowerCase();
+      return raw === "compile" ? "compile" : "structure";
+    } catch {
+      return "structure";
+    }
+  }
+
+  function saveTreeMode(mode) {
+    try {
+      global.sessionStorage.setItem(MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function applyTreeMode(root, mode) {
+    const shell = root.closest(".build-tree-shell") || root.parentElement;
+    const activeMode = mode === "compile" ? "compile" : "structure";
+    root.setAttribute("data-build-tree-mode-active", activeMode);
+    shell?.querySelectorAll(".build-tree-mode-btn").forEach((btn) => {
+      const btnMode = String(btn.getAttribute("data-build-tree-mode") || "");
+      btn.classList.toggle("is-active", btnMode === activeMode);
+    });
+    root.querySelectorAll("[data-build-tree-root-group]").forEach((details) => {
+      const group = String(details.getAttribute("data-build-tree-root-group") || "");
+      const branch = details.closest(".build-tree-node");
+      if (!(branch instanceof HTMLElement)) return;
+      if (activeMode === "structure") {
+        branch.hidden = group !== "ui_structure";
+      } else {
+        branch.hidden = group === "ui_structure";
+      }
+    });
+  }
+
+  function bindTreeModeToggle(root) {
+    const shell = root.closest(".build-tree-shell");
+    if (!shell || shell.__buildTreeModeBound) return;
+    shell.__buildTreeModeBound = true;
+    shell.querySelectorAll(".build-tree-mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mode = String(btn.getAttribute("data-build-tree-mode") || "structure");
+        saveTreeMode(mode);
+        applyTreeMode(root, mode);
+      });
+    });
+  }
+
   function refresh(options) {
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
     if (!root) return;
     bindTreePersist(root);
     bindTreeTabPersist(root);
+    bindTreeModeToggle(root);
+    applyTreeMode(root, loadTreeMode());
     syncTreeLinkTabs(root);
     pinSidebarScroll(root, () => {
       syncTreeActiveFromNode(root);

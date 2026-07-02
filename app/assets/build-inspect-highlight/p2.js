@@ -42,14 +42,42 @@
     }
     if (
       !node.startsWith("scene-panel:") &&
-      !node.startsWith("scene-block:")
+      !node.startsWith("scene-block:") &&
+      !node.startsWith("ui-scope:")
     ) {
+      syncBuildPreviewScopedChrome(root);
+      return;
+    }
+    let scopePath = "";
+    if (node.startsWith("ui-scope:")) {
+      const target = root.querySelector(`[data-build-node="${CSS.escape(node)}"]`);
+      scopePath = String(
+        target?.getAttribute("data-mei-ui-scope") ||
+          target?.getAttribute("data-preview-scope") ||
+          "",
+      ).trim();
+      if (!scopePath) {
+        syncBuildPreviewScopedChrome(root);
+        return;
+      }
+      root.querySelectorAll("[data-mei-ui-scope], [data-preview-scope]").forEach((el) => {
+        const elScope = String(
+          el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
+        );
+        if (elScope === scopePath || elScope.startsWith(`${scopePath}/`)) {
+          return;
+        }
+        if (scopePath.startsWith(`${elScope}/`)) {
+          return;
+        }
+        el.classList.add("build-preview-scoped-dim");
+      });
       syncBuildPreviewScopedChrome(root);
       return;
     }
     const encoded = node.replace(/^scene-panel:/, "").replace(/^scene-block:/, "");
     const slash = encoded.indexOf("/");
-    const scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
+    scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
     if (!scopePath) return;
     const focusedScopeSelector = `[data-preview-scope="${CSS.escape(scopePath)}"], [data-preview-scope^="${CSS.escape(scopePath)}/"]`;
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {

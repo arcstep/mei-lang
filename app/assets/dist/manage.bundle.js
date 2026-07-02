@@ -5094,6 +5094,7 @@
 
   const STORAGE_KEY = "mei-build-tree-open";
   const SCROLL_KEY = "mei-build-tree-scroll";
+  const MODE_KEY = "mei-build-tree-mode";
   const CLICK_DELAY_MS = 280;
 
   function isBuildRoute() {
@@ -5388,12 +5389,64 @@
     );
   }
 
+  function loadTreeMode() {
+    try {
+      const raw = String(global.sessionStorage.getItem(MODE_KEY) || "").trim().toLowerCase();
+      return raw === "compile" ? "compile" : "structure";
+    } catch {
+      return "structure";
+    }
+  }
+
+  function saveTreeMode(mode) {
+    try {
+      global.sessionStorage.setItem(MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function applyTreeMode(root, mode) {
+    const shell = root.closest(".build-tree-shell") || root.parentElement;
+    const activeMode = mode === "compile" ? "compile" : "structure";
+    root.setAttribute("data-build-tree-mode-active", activeMode);
+    shell?.querySelectorAll(".build-tree-mode-btn").forEach((btn) => {
+      const btnMode = String(btn.getAttribute("data-build-tree-mode") || "");
+      btn.classList.toggle("is-active", btnMode === activeMode);
+    });
+    root.querySelectorAll("[data-build-tree-root-group]").forEach((details) => {
+      const group = String(details.getAttribute("data-build-tree-root-group") || "");
+      const branch = details.closest(".build-tree-node");
+      if (!(branch instanceof HTMLElement)) return;
+      if (activeMode === "structure") {
+        branch.hidden = group !== "ui_structure";
+      } else {
+        branch.hidden = group === "ui_structure";
+      }
+    });
+  }
+
+  function bindTreeModeToggle(root) {
+    const shell = root.closest(".build-tree-shell");
+    if (!shell || shell.__buildTreeModeBound) return;
+    shell.__buildTreeModeBound = true;
+    shell.querySelectorAll(".build-tree-mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const mode = String(btn.getAttribute("data-build-tree-mode") || "structure");
+        saveTreeMode(mode);
+        applyTreeMode(root, mode);
+      });
+    });
+  }
+
   function refresh(options) {
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
     if (!root) return;
     bindTreePersist(root);
     bindTreeTabPersist(root);
+    bindTreeModeToggle(root);
+    applyTreeMode(root, loadTreeMode());
     syncTreeLinkTabs(root);
     pinSidebarScroll(root, () => {
       syncTreeActiveFromNode(root);
@@ -6238,8 +6291,9 @@
 (function (global) {
   "use strict";
 
-  const PANEL_SELECTOR = "[data-build-node^='scene-panel:']";
+  const PANEL_SELECTOR = "[data-build-node^='scene-panel:'], [data-build-node^='ui-scope:']";
   const BLOCK_SELECTOR = "[data-build-focus^='scene-block:']";
+  const UI_SCOPE_SELECTOR = "[data-mei-ui-scope]";
   const SELECTOR = `${PANEL_SELECTOR}, ${BLOCK_SELECTOR}`;
 
   function isBuildRoute() {
@@ -6654,14 +6708,42 @@
     }
     if (
       !node.startsWith("scene-panel:") &&
-      !node.startsWith("scene-block:")
+      !node.startsWith("scene-block:") &&
+      !node.startsWith("ui-scope:")
     ) {
+      syncBuildPreviewScopedChrome(root);
+      return;
+    }
+    let scopePath = "";
+    if (node.startsWith("ui-scope:")) {
+      const target = root.querySelector(`[data-build-node="${CSS.escape(node)}"]`);
+      scopePath = String(
+        target?.getAttribute("data-mei-ui-scope") ||
+          target?.getAttribute("data-preview-scope") ||
+          "",
+      ).trim();
+      if (!scopePath) {
+        syncBuildPreviewScopedChrome(root);
+        return;
+      }
+      root.querySelectorAll("[data-mei-ui-scope], [data-preview-scope]").forEach((el) => {
+        const elScope = String(
+          el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
+        );
+        if (elScope === scopePath || elScope.startsWith(`${scopePath}/`)) {
+          return;
+        }
+        if (scopePath.startsWith(`${elScope}/`)) {
+          return;
+        }
+        el.classList.add("build-preview-scoped-dim");
+      });
       syncBuildPreviewScopedChrome(root);
       return;
     }
     const encoded = node.replace(/^scene-panel:/, "").replace(/^scene-block:/, "");
     const slash = encoded.indexOf("/");
-    const scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
+    scopePath = slash >= 0 ? encoded.slice(slash + 1) : "";
     if (!scopePath) return;
     const focusedScopeSelector = `[data-preview-scope="${CSS.escape(scopePath)}"], [data-preview-scope^="${CSS.escape(scopePath)}/"]`;
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {
@@ -10822,8 +10904,21 @@
     const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
     return {
-      sceneId: nonEmptyString(config.boardSceneId, config.sceneId, popup?.scene_id, popup?.sceneId),
-      sceneFile: nonEmptyString(config.boardSceneFile, popup?.scene_file, popup?.sceneFile),
+      sceneId: nonEmptyString(
+        config.pageSceneId,
+        config.boardSceneId,
+        config.sceneId,
+        popup?.page_scene_id,
+        popup?.scene_id,
+        popup?.sceneId,
+      ),
+      sceneFile: nonEmptyString(
+        config.pageSceneFile,
+        config.boardSceneFile,
+        popup?.page_scene_file,
+        popup?.scene_file,
+        popup?.sceneFile,
+      ),
       params: config.params || normalizeSceneParams(popup?.params),
       entry: nonEmptyString(popup?.entry, popup?.focus, popup?.entry_tab, popup?.entryTab),
       sceneAssembly: config.sceneShell || null,
@@ -16354,7 +16449,10 @@
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const request = resolved.request || buildSceneOpenRequest(resolved, detail);
     const mount = resolved.mount || buildProjectionMount(resolved, detail);
-    if (!resolved.enabled || !(request.sceneId || resolved.boardSceneId || resolved.sceneId)) {
+    if (
+      !resolved.enabled ||
+      !(request.sceneId || resolved.pageSceneId || resolved.boardSceneId || resolved.sceneId)
+    ) {
       if (resolved.errorMessage) {
         recordPopupDebugIssue({
           phase: resolved.errorCode || "scene_projection",
@@ -16373,6 +16471,8 @@
       title: mount.title,
       overlaySize: mount.overlaySize,
       params: request.params,
+      pageSceneId: request.sceneId,
+      pageSceneFile: request.sceneFile,
       boardSceneId: request.sceneId,
       boardSceneFile: request.sceneFile,
     };
@@ -16384,7 +16484,7 @@
   }
 
   function drilldownSessionMeta(config) {
-    const boardSceneId = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    const pageSceneId = nonEmptyString(config?.pageSceneId, config?.boardSceneId, config?.sceneId);
     const canonicalUrl =
       typeof resolveBoardRouteUrl === "function" ? resolveBoardRouteUrl(config) : "";
     let canonicalPathname = "";
@@ -16396,16 +16496,22 @@
       }
     }
     return {
-      label: nonEmptyString(config?.title, boardSceneId, "下钻看板"),
-      path: boardSceneId,
-      scene: boardSceneId,
+      label: nonEmptyString(config?.title, pageSceneId, "T2 页面"),
+      path: pageSceneId,
+      scene: pageSceneId,
       url: canonicalUrl || undefined,
       pathname: canonicalPathname || undefined,
     };
   }
 
   function projectionOpenDedupeKey(detail, config) {
-    const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId, detail?.scene_id);
+    const sceneId = nonEmptyString(
+      config?.pageSceneId,
+      config?.boardSceneId,
+      config?.sceneId,
+      detail?.page_scene_id,
+      detail?.scene_id,
+    );
     const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
     const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     return [sceneId, datasetId, metricId].filter(Boolean).join("|");
@@ -16462,7 +16568,7 @@
   }
 
   function triggerScopeActivationWarmup(config) {
-    const scope = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    const scope = nonEmptyString(config?.pageSceneId, config?.boardSceneId, config?.sceneId);
     if (!scope || typeof fetch !== "function") {
       return;
     }
@@ -16490,7 +16596,7 @@
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
-    if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
+    if (!config.enabled || !(config.pageSceneId || config.boardSceneId || config.sceneId)) {
       if (config.errorMessage) {
         recordPopupDebugIssue({
           phase: config.errorCode || "scene_projection",
@@ -16717,7 +16823,11 @@
       case "open_t2_page":
       case "open_board": {
         const sceneId = String(
-          action.pageSceneId || action.boardSceneId || action.sceneId || "",
+          action.pageSceneId ||
+            action.page_scene_id ||
+            action.boardSceneId ||
+            action.sceneId ||
+            "",
         ).trim();
         if (!sceneId || typeof boot.openScene !== "function") return false;
         boot.openScene({
@@ -16817,14 +16927,34 @@
     return match ? String(match[1] || "").trim() : "";
   }
 
+  function isCopilotPresentationRoute() {
+    return /^\/apps\/(?:copilot|speaker)\//.test(String(window.location.pathname || ""));
+  }
+
+  function shellPresentationId() {
+    const shell =
+      document.getElementById("copilot-shell") || document.getElementById("speaker-shell");
+    const fromShell = shell?.dataset?.copilotPresentation;
+    return String(fromShell || "").trim();
+  }
+
   function parsePresentationIdFromPath() {
     const match = String(window.location.pathname || "").match(
       /^\/apps\/(?:copilot|speaker)\/[^/]+\/(?:presentation|tour)\/([^/]+)/,
     );
     if (match) return String(match[1] || "").trim();
-    const shell = document.getElementById("copilot-shell");
-    const fromShell = shell?.dataset?.copilotPresentation;
-    return String(fromShell || "intro").trim() || "intro";
+    const fromShell = shellPresentationId();
+    if (fromShell) return fromShell;
+    return "intro";
+  }
+
+  function shouldPrefetchPresentationAssets() {
+    const mei = typeof window !== "undefined" ? window.__mei : null;
+    if (mei && mei.presentation_manifest_prefetch === false) return false;
+    if (mei && mei.presentation_manifest_prefetch === true) return true;
+    if (isCopilotPresentationRoute()) return true;
+    if (shellPresentationId()) return true;
+    return false;
   }
 
   function presentationManifestAssetUrls(appId, presentationId) {
@@ -16904,6 +17034,7 @@
 
   function prefetchManifest() {
     if (hasManifest() || state.steps.length) return Promise.resolve(true);
+    if (!shouldPrefetchPresentationAssets()) return Promise.resolve(false);
     return ensureLoadedAsync();
   }
 
@@ -16932,13 +17063,32 @@
 
   function applyPresentationAction(action) {
     if (!action || typeof action !== "object") return false;
-    const type = String(action.type || "").trim();
+    const normalized = normalizePresentationAction(action);
+    const type = String(normalized.type || "").trim();
     const api = focusApi();
     if (!api || typeof api.dispatch !== "function") {
-      if (type === "highlight") return applyHighlight(String(action.viewpoint || "").trim());
+      if (type === "highlight") return applyHighlight(String(normalized.viewpoint || "").trim());
       return false;
     }
-    return Boolean(api.dispatch(action));
+    return Boolean(api.dispatch(normalized));
+  }
+
+  function normalizePresentationAction(action) {
+    if (!action || typeof action !== "object") return {};
+    const normalized = { ...action };
+    if (normalized.type === "open_board") {
+      normalized.type = "open_t2_page";
+    }
+    if (!normalized.pageSceneId && normalized.page_scene_id) {
+      normalized.pageSceneId = normalized.page_scene_id;
+    }
+    if (!normalized.pageSceneId && normalized.boardSceneId) {
+      normalized.pageSceneId = normalized.boardSceneId;
+    }
+    if (!normalized.viewpoint && normalized.viewpointId) {
+      normalized.viewpoint = normalized.viewpointId;
+    }
+    return normalized;
   }
 
   function collectCockpitActions(step) {

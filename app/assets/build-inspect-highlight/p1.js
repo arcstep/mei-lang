@@ -4,8 +4,9 @@
 (function (global) {
   "use strict";
 
-  const PANEL_SELECTOR = "[data-build-node^='scene-panel:']";
+  const PANEL_SELECTOR = "[data-build-node^='scene-panel:'], [data-build-node^='ui-scope:']";
   const BLOCK_SELECTOR = "[data-build-focus^='scene-block:']";
+  const UI_SCOPE_SELECTOR = "[data-mei-ui-scope]";
   const SELECTOR = `${PANEL_SELECTOR}, ${BLOCK_SELECTOR}`;
 
   function isBuildRoute() {

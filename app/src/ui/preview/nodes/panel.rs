@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    BlockDecl, BuildNodeId, CompiledApp, PanelDecl,
+    ui_scope_annotation_for_preview_path, BlockDecl, BuildNodeId, CompiledApp, PanelDecl,
     SceneContract, UiNodeDecl,
 };
 
@@ -129,9 +129,38 @@ pub(crate) fn panel_view(
         }
     }
 
+    let ui_scope_annotation = if runtime_ctx.build_inspect_enabled {
+        ui_scope_annotation_for_preview_path(
+            compiled,
+            scene_contract.scene.id.as_str(),
+            panel_path.as_str(),
+        )
+    } else {
+        None
+    };
+    let (ui_scope_attr, ui_role_attr) = match ui_scope_annotation {
+        Some((scope, role)) => (Some(scope), Some(role)),
+        None => (None, None),
+    };
+
     let build_node_id = if runtime_ctx.build_inspect_enabled {
         Some(
-            BuildNodeId::scene_panel(scene_contract.scene.id.clone(), panel_path.as_str()).encode(),
+            compiled
+                .ui_layout_index
+                .nodes
+                .values()
+                .find(|node| {
+                    node.scene_id.as_deref() == Some(scene_contract.scene.id.as_str())
+                        && node.preview_scope == panel_path
+                })
+                .map(|node| node.node_id.clone())
+                .unwrap_or_else(|| {
+                    BuildNodeId::scene_panel(
+                        scene_contract.scene.id.clone(),
+                        panel_path.as_str(),
+                    )
+                    .encode()
+                }),
         )
     } else {
         None
@@ -187,6 +216,8 @@ pub(crate) fn panel_view(
             data-mei-viewpoint=panel_viewpoint
             data-build-node=build_node_id.clone().unwrap_or_default()
             data-preview-scope=panel_path.clone()
+            data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
+            data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
         >
             {if has_head {
                 let head_carets_attr = head_carets.then_some("true");
@@ -242,6 +273,8 @@ pub(crate) fn panel_view(
                     data-mei-viewpoint=panel_viewpoint
                     data-build-node=build_node_id.clone().unwrap_or_default()
                     data-preview-scope=panel_path.clone()
+                    data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
+                    data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
                 >
                     {if has_head {
                         let head_carets_attr = head_carets.then_some("true");

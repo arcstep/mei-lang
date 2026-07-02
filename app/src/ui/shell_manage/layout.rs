@@ -75,7 +75,7 @@ pub(crate) fn manage_shell(
         should_show_world_semantic_inspector(&ctx.node, selected_target.as_str(), semantic);
     let source_panel = source.unwrap_or("").to_string();
     let build_preview_scope =
-        super::preview_fragment::build_preview_panel_scope(compiled, &resolved.node);
+        mei_lang_kernel::resolve_build_preview_scope(compiled, &resolved.node);
     let build_preview_component_use_key_owned =
         super::preview_fragment::build_preview_component_use_key(&resolved.node);
     let build_preview_component_use_key =
