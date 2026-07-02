@@ -6786,6 +6786,79 @@
     return found;
   }
 
+  function normalizePreviewScopePath(scope) {
+    const segments = String(scope || "")
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const out = [];
+    for (const segment of segments) {
+      if (out[out.length - 1] !== segment) out.push(segment);
+    }
+    return out.join("/");
+  }
+
+  function scopeAlignScore(uiScope, previewScope) {
+    const scope = normalizePreviewScopePath(uiScope);
+    const target = normalizePreviewScopePath(previewScope);
+    if (!scope || !target) return 0;
+    if (scope === target) return 10_000 + target.length;
+    if (scope.endsWith(`/${target}`)) return 9_000 + target.length;
+    const scopeParts = scope.split("/").filter(Boolean);
+    const targetParts = target.split("/").filter(Boolean);
+    if (!scopeParts.length || !targetParts.length) return 0;
+    let panelIndex = 0;
+    let matched = 0;
+    for (const part of targetParts) {
+      let found = false;
+      while (panelIndex < scopeParts.length) {
+        if (scopeParts[panelIndex] === part) {
+          matched += 1;
+          panelIndex += 1;
+          found = true;
+          break;
+        }
+        panelIndex += 1;
+      }
+      if (!found) return 0;
+    }
+    return 6_000 + matched * 100 + target.length;
+  }
+
+  function isInspectTargetVisible(el) {
+    if (!(el instanceof HTMLElement)) return false;
+    let node = el;
+    while (node && node !== document.body) {
+      const style = getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      node = node.parentElement;
+    }
+    return true;
+  }
+
+  function pickBestInspectTarget(candidates, previewScope) {
+    const pool = (Array.isArray(candidates) ? candidates : []).filter(
+      (el) => el instanceof HTMLElement,
+    );
+    if (!pool.length) return null;
+    if (pool.length === 1) return pool[0];
+    const target = normalizePreviewScopePath(previewScope);
+    let best = pool[0];
+    let bestScore = -1;
+    for (const el of pool) {
+      let score = scopeAlignScore(
+        el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
+        target,
+      );
+      if (isInspectTargetVisible(el)) score += 50;
+      if (score > bestScore) {
+        bestScore = score;
+        best = el;
+      }
+    }
+    return best;
+  }
+
   function scopePathLength(el) {
     if (!(el instanceof HTMLElement)) return 0;
     const path = String(
@@ -6827,11 +6900,21 @@
       root.querySelectorAll(`[data-build-node="${CSS.escape(nodeId)}"]`),
     ).filter((el) => el instanceof HTMLElement);
     if (byBuildNode.length === 1) return byBuildNode;
-    if (byBuildNode.length > 1) return [byBuildNode[0]];
+    if (byBuildNode.length > 1) {
+      const picked = pickBestInspectTarget(byBuildNode, scope);
+      return picked ? [picked] : [byBuildNode[0]];
+    }
 
     if (scope) {
       const exactScope = root.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
       if (exactScope instanceof HTMLElement) return [exactScope];
+      const normalizedScope = normalizePreviewScopePath(scope);
+      if (normalizedScope && normalizedScope !== scope) {
+        const normalizedExact = root.querySelector(
+          `[data-mei-ui-scope="${CSS.escape(normalizedScope)}"]`,
+        );
+        if (normalizedExact instanceof HTMLElement) return [normalizedExact];
+      }
       const exactPreview = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
       if (exactPreview instanceof HTMLElement) return [exactPreview];
 
@@ -6845,27 +6928,34 @@
     }
 
     if (role === "content") {
+      const areaHint = scope.split("/").filter(Boolean).slice(-2, -1)[0] || "";
       for (const blockKey of blockKeyCandidates(scope)) {
         const byBlock = root.querySelector(`[data-mei-block-id="${CSS.escape(blockKey)}"]`);
         if (byBlock instanceof HTMLElement) return [byBlock];
       }
       const scopedBlocks = Array.from(
-        root.querySelectorAll("[data-mei-ui-scope], [data-mei-block-id]"),
+        root.querySelectorAll("[data-mei-ui-scope], [data-mei-block-id], [data-mei-panel-area]"),
       ).filter((el) => {
         if (!(el instanceof HTMLElement)) return false;
         const uiScope = String(el.getAttribute("data-mei-ui-scope") || "").trim();
         const blockId = String(el.getAttribute("data-mei-block-id") || "").trim();
-        return blockKeyCandidates(scope).some(
-          (key) =>
-            blockId === key ||
-            uiScope === scope ||
-            (scope && uiScope.endsWith(`/${key}`)) ||
-            (blockId && scope.endsWith(`/${blockId}`)),
+        const panelArea = String(el.getAttribute("data-mei-panel-area") || "").trim();
+        const areaMatches = !areaHint || !panelArea || panelArea === areaHint;
+        return (
+          areaMatches &&
+          blockKeyCandidates(scope).some(
+            (key) =>
+              blockId === key ||
+              uiScope === scope ||
+              normalizePreviewScopePath(uiScope) === normalizePreviewScopePath(scope) ||
+              (scope && uiScope.endsWith(`/${key}`)) ||
+              (blockId && scope.endsWith(`/${blockId}`)),
+          )
         );
       });
       if (scopedBlocks.length) {
-        scopedBlocks.sort((a, b) => scopePathLength(b) - scopePathLength(a));
-        return [scopedBlocks[0]];
+        const picked = pickBestInspectTarget(scopedBlocks, scope);
+        return picked ? [picked] : [scopedBlocks[0]];
       }
       const useKey = contentUseKeyFromMeta(meta);
       if (useKey) {

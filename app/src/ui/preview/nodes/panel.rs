@@ -216,6 +216,7 @@ pub(crate) fn panel_view(
             class=card_class
             style=card_style.clone()
             data-mei-panel-id=panel_path.clone()
+            data-mei-panel-area=panel.area.clone().unwrap_or_default()
             data-mei-tier=panel_tier
             data-mei-viewpoint=panel_viewpoint
             data-build-node=build_node_id.clone().unwrap_or_default()
