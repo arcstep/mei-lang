@@ -371,6 +371,12 @@ fn lower_titled_shell_panel(
     if let Some(outer) = outer_payload {
         apply_tier_and_placement(outer, &mut props)?;
     }
+    if let Some(map) = props.as_object_mut() {
+        map.insert("__mei_ui_role".to_string(), json!("section"));
+        if let Some(title) = args.get("title").and_then(|v| v.as_str()) {
+            map.insert("__mei_section_title".to_string(), json!(title));
+        }
+    }
 
     let mut head_props = titled_shell_template_head_props();
     merge_head_props_from_source(&mut head_props, args);
@@ -489,6 +495,7 @@ fn apply_tier_and_placement(payload: &Value, props: &mut Value) -> Result<()> {
         }
         if let Some(role) = payload.get("chrome_role").and_then(|v| v.as_str()) {
             map.insert("__mei_chrome_role".to_string(), json!(role));
+            map.insert("__mei_ui_role".to_string(), json!("region"));
         }
     }
     apply_placement(payload.get("placement"), props);
@@ -1379,7 +1386,8 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
     let target_scene_id = target.scene_id.clone();
     let target_scene_file = target.scene_file.clone();
     let mut target_json = json!({
-        "kind": "board",
+        "kind": "page_instance",
+        "legacy_kind": "board",
         "scene_id": target_scene_id,
         "scene_file": target_scene_file,
     });
@@ -1392,7 +1400,8 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         }
     }
     let mut presentation = json!({
-        "kind": "overlay_board",
+        "kind": "overlay_page",
+        "legacy_kind": "overlay_board",
         "projection": overlay_projection.clone(),
         "type": popup_type.clone(),
         "overlay_size": overlay_size,
@@ -1411,6 +1420,8 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         "link_key": normalized_link_key(link_key),
         "scene_id": target_scene_id.clone(),
         "scene_file": target_scene_file.clone(),
+        "page_scene_id": target_scene_id.clone(),
+        "page_scene_file": target_scene_file.clone(),
         "scene": {
             "scene_id": target_scene_id,
             "scene_file": target_scene_file,
