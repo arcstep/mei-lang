@@ -1074,10 +1074,18 @@ pub(crate) fn inject_presentation_manifest_script(
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_ACCESS_PRESENTATION_ID);
     let Some(json) = load_presentation_manifest_json_for_app(app_root, pid) else {
-        return html;
+        let hint = r#"<script>window.__mei=window.__mei||{};window.__mei.presentation_manifest_prefetch=false;</script>"#;
+        if let Some(pos) = html.find("</head>") {
+            let mut out = String::with_capacity(html.len() + hint.len());
+            out.push_str(&html[..pos]);
+            out.push_str(hint);
+            out.push_str(&html[pos..]);
+            return out;
+        }
+        return format!("{hint}{html}");
     };
     let script = format!(
-        r#"<script type="application/json" id="mei-presentation-manifest">{json}</script>"#
+        r#"<script type="application/json" id="mei-presentation-manifest">{json}</script><script>window.__mei=window.__mei||{{}};window.__mei.presentation_manifest_prefetch=false;</script>"#
     );
     if let Some(pos) = html.find("</head>") {
         let mut out = String::with_capacity(html.len() + script.len());
@@ -1098,7 +1106,7 @@ pub(crate) fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph:
     let overlay_defaults = serde_json::to_string(&outcome.overlay_defaults)
         .unwrap_or_else(|_| "{}".to_string());
     let scripts = format!(
-        r#"<script type="application/json" id="mei-layer-plan">{layer_plan}</script><script type="application/json" id="mei-presentation-map">{presentation_map}</script><script>window.__mei=window.__mei||{{}};window.__mei.overlay_defaults={overlay_defaults};</script>"#
+        r#"<script type="application/json" id="mei-layer-plan">{layer_plan}</script><script type="application/json" id="mei-presentation-map">{presentation_map}</script><script>window.__mei=window.__mei||{{}};window.__mei.layer_plan={layer_plan};window.__mei.presentation_map={presentation_map};window.__mei.overlay_defaults={overlay_defaults};window.__mei.t2_overlay_defaults={overlay_defaults};window.__mei.page_overlay_defaults={overlay_defaults};</script>"#
     );
     if let Some(pos) = html.find("</head>") {
         let mut out = String::with_capacity(html.len() + scripts.len());

@@ -83,7 +83,7 @@ mod tests {
 
     fn home_only() -> CompileScopeFilterConfig {
         CompileScopeFilterConfig {
-            exclude_targets: vec!["**/*.board.mei".to_string()],
+            exclude_targets: vec!["**/*.page.mei".to_string()],
             skip_discover: Some(true),
             skip_t2_page_autogen_focus: Some(true),
             ..CompileScopeFilterConfig::default()
@@ -91,13 +91,13 @@ mod tests {
     }
 
     #[test]
-    fn exclude_board_targets() {
+    fn exclude_t2_page_targets() {
         let cfg = home_only();
         assert!(compile_scope_target_allowed(&cfg, "scenes/home.mei"));
-        assert!(!compile_scope_target_allowed(&cfg, "scenes/05-监督预警.board.mei"));
+        assert!(!compile_scope_target_allowed(&cfg, "scenes/05-监督预警.page.mei"));
         assert!(!compile_scope_target_allowed(
             &cfg,
-            "scenes/_shared/warning-detail.card.board.mei"
+            "scenes/_shared/warning-detail.detail.page.mei"
         ));
     }
 
@@ -112,16 +112,16 @@ mod tests {
         };
         assert!(compile_scope_target_allowed(&cfg, "scenes/home.mei"));
         assert!(compile_scope_target_allowed(&cfg, "scenes/layout-中栏.mei"));
-        assert!(!compile_scope_target_allowed(&cfg, "scenes/05-监督预警.board.mei"));
+        assert!(!compile_scope_target_allowed(&cfg, "scenes/05-监督预警.page.mei"));
     }
 
     #[test]
     fn exclude_scene_ids() {
         let cfg = CompileScopeFilterConfig {
-            exclude_scene_ids: vec!["*_analytics_board".to_string()],
+            exclude_scene_ids: vec!["*_analytics_page".to_string()],
             ..CompileScopeFilterConfig::default()
         };
         assert!(compile_scope_scene_id_allowed(&cfg, "home"));
-        assert!(!compile_scope_scene_id_allowed(&cfg, "issue_pending_analytics_board"));
+        assert!(!compile_scope_scene_id_allowed(&cfg, "issue_pending_analytics_page"));
     }
 }

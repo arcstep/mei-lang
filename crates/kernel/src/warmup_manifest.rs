@@ -113,7 +113,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
     })
 }
 
-/// Overlay board autogen datasets and board-file focuses onto a manifest app entry.
+/// Overlay T2 page autogen datasets and page-file focuses onto a manifest app entry.
 pub fn enrich_runtime_warmup_app(
     source_root: &Path,
     app: &mut RuntimeWarmupApp,

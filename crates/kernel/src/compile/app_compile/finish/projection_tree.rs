@@ -185,7 +185,7 @@ pub(super) fn ensure_build_tree_entry_scene_assemblies(
     scene_local_nav_by_target: &mut BTreeMap<String, Value>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if !active_target_file.ends_with(".board.mei") {
+    if !is_t2_page_target(active_target_file) {
         return;
     }
     let Ok(app_decls) = evaluate_mei_file(app_main) else {
@@ -194,7 +194,7 @@ pub(super) fn ensure_build_tree_entry_scene_assemblies(
     let source_root = app_root.parent().unwrap_or(app_root);
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
     for route in &route_registry.routes {
-        if route.target_file.ends_with(".board.mei") {
+        if is_t2_page_target(route.target_file.as_str()) {
             continue;
         }
         if assembly_has_panels(scene_projection_assembly_by_id.get(&route.scene_id)) {
@@ -232,5 +232,9 @@ pub(super) fn ensure_build_tree_entry_scene_assemblies(
             diagnostics,
         );
     }
+}
+
+fn is_t2_page_target(target_file: &str) -> bool {
+    target_file.ends_with(".page.mei") || target_file.ends_with(".board.mei")
 }
 

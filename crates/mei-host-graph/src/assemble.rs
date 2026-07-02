@@ -78,7 +78,7 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
     Ok(routes)
 }
 
-/// Collect scene ids for all board assembly views (warmup / smoke tests).
+/// Collect scene ids for all T2 page assembly views (warmup / smoke tests).
 pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
     let registry = McgRegistryWriter::load(source_root, app_id);
     registry
@@ -91,7 +91,7 @@ pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String>
                 .key
                 .rsplit('#')
                 .next()
-                .map(|s: &str| s.trim_end_matches("_board").to_string())
+                .map(str::to_string)
         })
         .collect()
 }
@@ -211,6 +211,7 @@ pub fn assemble_scope_from_registry(
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
 
     crate::mrg::telemetry::record_access(crate::mrg::telemetry::MrgAccessKind::Assemble, true);
@@ -312,7 +313,7 @@ fn resolve_assembly_key(
                 && n.id.key.split('#').next_back() == Some(scene_id.as_str())
         })
         .map(|n| n.id.key.clone())
-        .unwrap_or_else(|| format!("overlay/boards/{scene_id}"))
+        .unwrap_or_else(|| format!("overlay/t2/{scene_id}"))
 }
 
 fn load_assembly_payload(
@@ -338,16 +339,22 @@ pub(crate) fn assembly_key_to_target(assembly_key: &str) -> String {
     if let Some((_, path)) = assembly_key.split_once('@') {
         return path.to_string();
     }
-    if let Some((board_path, _scene)) = assembly_key.split_once('#') {
-        return overlay_board_path_to_source_file(board_path);
+    if let Some((assembly_path, _scene)) = assembly_key.split_once('#') {
+        return overlay_assembly_path_to_source_file(assembly_path);
     }
     format!("src/{assembly_key}.mei")
 }
 
-fn overlay_board_path_to_source_file(board_path: &str) -> String {
-    let stem = board_path
+fn overlay_assembly_path_to_source_file(assembly_path: &str) -> String {
+    if let Some(stem) = assembly_path.strip_prefix("overlay/t2/") {
+        if stem.ends_with(".page") || stem.ends_with(".board") {
+            return format!("src/overlay/t2/{stem}.mei");
+        }
+        return format!("src/overlay/t2/{stem}.page.mei");
+    }
+    let stem = assembly_path
         .strip_prefix("overlay/boards/")
-        .unwrap_or(board_path);
+        .unwrap_or(assembly_path);
     if stem.contains(".card") || stem.ends_with("-detail") {
         format!("src/overlay/boards/{stem}.mei")
     } else {
@@ -382,7 +389,7 @@ fn build_scene_routes(
                 kind: if node.id.key.contains("home@") {
                     "scene".to_string()
                 } else {
-                    "board".to_string()
+                    "page".to_string()
                 },
                 title: None,
                 is_default: node.id.key.contains("home@"),
@@ -691,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    fn assembly_key_to_target_overlay_board() {
+    fn assembly_key_to_target_overlay_capsules() {
         assert_eq!(
             assembly_key_to_target("overlay/boards/supervision-warning#warnings_analytics_board"),
             "src/overlay/boards/supervision-warning.board.mei"
@@ -699,6 +706,14 @@ mod tests {
         assert_eq!(
             assembly_key_to_target("overlay/boards/warning-detail.card#warning_detail_card_board"),
             "src/overlay/boards/warning-detail.card.mei"
+        );
+        assert_eq!(
+            assembly_key_to_target("overlay/t2/supervision-warning#warnings_analytics_page"),
+            "src/overlay/t2/supervision-warning.page.mei"
+        );
+        assert_eq!(
+            assembly_key_to_target("overlay/t2/warning-detail.detail.page#warning_detail_page"),
+            "src/overlay/t2/warning-detail.detail.page.mei"
         );
     }
 
@@ -714,6 +729,6 @@ mod tests {
             canonical_scene_id("home@src/scene/home/assembly.mei"),
             "home"
         );
-        assert_eq!(canonical_scene_id("park_point_1_board"), "park_point_1_board");
+        assert_eq!(canonical_scene_id("park_point_1_page"), "park_point_1_page");
     }
 }

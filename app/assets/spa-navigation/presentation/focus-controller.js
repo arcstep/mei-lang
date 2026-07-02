@@ -57,7 +57,11 @@
       case "open_t2_page":
       case "open_board": {
         const sceneId = String(
-          action.pageSceneId || action.boardSceneId || action.sceneId || "",
+          action.pageSceneId ||
+            action.page_scene_id ||
+            action.boardSceneId ||
+            action.sceneId ||
+            "",
         ).trim();
         if (!sceneId || typeof boot.openScene !== "function") return false;
         boot.openScene({

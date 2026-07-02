@@ -78,7 +78,9 @@ fn walk_hydrate_board_nodes(
             );
             continue;
         }
-        if node.kind != "file" || !node.path.ends_with(".board.mei") {
+        if node.kind != "file"
+            || !(node.path.ends_with(".board.mei") || node.path.ends_with(".page.mei"))
+        {
             continue;
         }
         for export in &node.children {

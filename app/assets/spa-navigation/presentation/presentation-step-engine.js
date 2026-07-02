@@ -66,14 +66,34 @@
     return match ? String(match[1] || "").trim() : "";
   }
 
+  function isCopilotPresentationRoute() {
+    return /^\/apps\/(?:copilot|speaker)\//.test(String(window.location.pathname || ""));
+  }
+
+  function shellPresentationId() {
+    const shell =
+      document.getElementById("copilot-shell") || document.getElementById("speaker-shell");
+    const fromShell = shell?.dataset?.copilotPresentation;
+    return String(fromShell || "").trim();
+  }
+
   function parsePresentationIdFromPath() {
     const match = String(window.location.pathname || "").match(
       /^\/apps\/(?:copilot|speaker)\/[^/]+\/(?:presentation|tour)\/([^/]+)/,
     );
     if (match) return String(match[1] || "").trim();
-    const shell = document.getElementById("copilot-shell");
-    const fromShell = shell?.dataset?.copilotPresentation;
-    return String(fromShell || "intro").trim() || "intro";
+    const fromShell = shellPresentationId();
+    if (fromShell) return fromShell;
+    return "intro";
+  }
+
+  function shouldPrefetchPresentationAssets() {
+    const mei = typeof window !== "undefined" ? window.__mei : null;
+    if (mei && mei.presentation_manifest_prefetch === false) return false;
+    if (mei && mei.presentation_manifest_prefetch === true) return true;
+    if (isCopilotPresentationRoute()) return true;
+    if (shellPresentationId()) return true;
+    return false;
   }
 
   function presentationManifestAssetUrls(appId, presentationId) {
@@ -153,6 +173,7 @@
 
   function prefetchManifest() {
     if (hasManifest() || state.steps.length) return Promise.resolve(true);
+    if (!shouldPrefetchPresentationAssets()) return Promise.resolve(false);
     return ensureLoadedAsync();
   }
 
@@ -181,13 +202,32 @@
 
   function applyPresentationAction(action) {
     if (!action || typeof action !== "object") return false;
-    const type = String(action.type || "").trim();
+    const normalized = normalizePresentationAction(action);
+    const type = String(normalized.type || "").trim();
     const api = focusApi();
     if (!api || typeof api.dispatch !== "function") {
-      if (type === "highlight") return applyHighlight(String(action.viewpoint || "").trim());
+      if (type === "highlight") return applyHighlight(String(normalized.viewpoint || "").trim());
       return false;
     }
-    return Boolean(api.dispatch(action));
+    return Boolean(api.dispatch(normalized));
+  }
+
+  function normalizePresentationAction(action) {
+    if (!action || typeof action !== "object") return {};
+    const normalized = { ...action };
+    if (normalized.type === "open_board") {
+      normalized.type = "open_t2_page";
+    }
+    if (!normalized.pageSceneId && normalized.page_scene_id) {
+      normalized.pageSceneId = normalized.page_scene_id;
+    }
+    if (!normalized.pageSceneId && normalized.boardSceneId) {
+      normalized.pageSceneId = normalized.boardSceneId;
+    }
+    if (!normalized.viewpoint && normalized.viewpointId) {
+      normalized.viewpoint = normalized.viewpointId;
+    }
+    return normalized;
   }
 
   function collectCockpitActions(step) {

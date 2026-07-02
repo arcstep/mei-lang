@@ -1,4 +1,4 @@
-//! Board scene_export 自动推导 deferred warmup 条目。
+//! T2 page / board scene_export 自动推导 deferred warmup 条目。
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -51,7 +51,7 @@ pub fn discover_board_warmup_suggestions(app_root: &Path) -> Result<Vec<Suggeste
         let Some(rel) = path.strip_prefix(app_root).ok().and_then(|p| p.to_str()) else {
             continue;
         };
-        if !rel.ends_with(".board.mei") {
+        if !is_t2_page_capsule(rel) {
             continue;
         }
         let focus = rel.replace('\\', "/");
@@ -188,15 +188,19 @@ fn extract_example_metric_ref(block: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
+fn is_t2_page_capsule(rel: &str) -> bool {
+    rel.ends_with(".page.mei") || rel.ends_with(".board.mei")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn extracts_board_export_fields_from_block() {
+    fn extracts_t2_page_export_fields_from_block() {
         let block = r#"
 scene_export(
-    id = "penalty_total_analytics_board",
+    id = "penalty_total_analytics_page",
     examples = [
         {
             "params": {
@@ -209,7 +213,7 @@ scene_export(
 "#;
         assert_eq!(
             extract_quoted_after_key(block, "id").as_deref(),
-            Some("penalty_total_analytics_board")
+            Some("penalty_total_analytics_page")
         );
         assert_eq!(
             extract_example_rowset_dataset_id(block).as_deref(),

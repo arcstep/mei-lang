@@ -98,14 +98,19 @@ function parseBindingActions(bindingSource) {
     actions.push({ type: "highlight", viewpoint: match[1] });
     match = highlightRe.exec(bindingSource);
   }
-  const openT2PageRe =
-    /open_t2_page\s*\(\s*page_scene_id\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g;
-  match = openT2PageRe.exec(bindingSource);
-  while (match) {
-    const action = { type: "open_t2_page", pageSceneId: match[1] };
-    if (match[2]) action.projection = match[2];
-    actions.push(action);
-    match = openT2PageRe.exec(bindingSource);
+  const openPagePatterns = [
+    /open_t2_page\s*\(\s*page_scene_id\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g,
+    /open_t2_page\s*\(\s*pageSceneId\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g,
+    /open_board\s*\(\s*boardSceneId\s*=\s*"([^"]+)"(?:\s*,\s*projection\s*=\s*"([^"]+)")?/g,
+  ];
+  for (const regex of openPagePatterns) {
+    match = regex.exec(bindingSource);
+    while (match) {
+      const action = { type: "open_t2_page", pageSceneId: match[1] };
+      if (match[2]) action.projection = match[2];
+      actions.push(action);
+      match = regex.exec(bindingSource);
+    }
   }
   return actions;
 }

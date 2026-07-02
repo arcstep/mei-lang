@@ -20,7 +20,10 @@ fn scene_routes_for_build_tree<'a>(
 ) -> Vec<&'a CompiledSceneRoute> {
     routes
         .iter()
-        .filter(|route| !route.target_file.ends_with(".board.mei"))
+        .filter(|route| {
+            !route.target_file.ends_with(".board.mei")
+                && !route.target_file.ends_with(".page.mei")
+        })
         .collect()
 }
 

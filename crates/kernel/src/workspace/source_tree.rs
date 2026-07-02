@@ -47,7 +47,7 @@ fn mei_file_kind(root: &Path, relative: &str, file_name: &str) -> Option<String>
     if !file_name.ends_with(".mei") {
         return None;
     }
-    if file_name.ends_with(".board.mei") {
+    if file_name.ends_with(".board.mei") || file_name.ends_with(".page.mei") {
         return Some("board".into());
     }
     if file_name.ends_with(".world.mei") {
@@ -79,11 +79,11 @@ fn should_include_source_tree_file(relative: &str) -> bool {
         .any(|seg| !seg.is_empty() && seg.starts_with('.'))
 }
 
-/// 同一 stem 的 Mei 胶囊变体排序：scene `.mei` → `.board.mei` → `.world.mei`。
+/// 同一 stem 的 Mei 胶囊变体排序：scene `.mei` → `.page/.board.mei` → `.world.mei`。
 fn mei_capsule_variant_rank(file_name: &str) -> u8 {
     if file_name.ends_with(".world.mei") {
         2
-    } else if file_name.ends_with(".board.mei") {
+    } else if file_name.ends_with(".board.mei") || file_name.ends_with(".page.mei") {
         1
     } else if file_name.ends_with(".mei") {
         0
@@ -94,6 +94,9 @@ fn mei_capsule_variant_rank(file_name: &str) -> u8 {
 
 fn mei_sort_stem(file_name: &str) -> &str {
     if let Some(stem) = file_name.strip_suffix(".world.mei") {
+        return stem;
+    }
+    if let Some(stem) = file_name.strip_suffix(".page.mei") {
         return stem;
     }
     if let Some(stem) = file_name.strip_suffix(".board.mei") {

@@ -145,7 +145,7 @@ pub fn resolve_build_view_query(
         });
     }
 
-    if file.ends_with(".board.mei") {
+    if file.ends_with(".board.mei") || file.ends_with(".page.mei") {
         let node = if let Some(scene) = legacy
             .scene
             .as_deref()
@@ -168,7 +168,7 @@ pub fn resolve_build_view_query(
         });
     }
 
-    if file.ends_with(".mei") && !file.ends_with(".board.mei") {
+    if file.ends_with(".mei") && !file.ends_with(".board.mei") && !file.ends_with(".page.mei") {
         if let Some(scene_id) = file
             .rsplit('/')
             .next()

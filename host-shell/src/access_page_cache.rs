@@ -24,7 +24,7 @@ use crate::pages::{
     AppQuery,
 };
 
-const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v1";
+const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v2";
 const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
 const MAX_PAGE_RENDER_CACHE_ENTRIES: usize = 64;
 

@@ -46,8 +46,21 @@
     const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
     return {
-      sceneId: nonEmptyString(config.boardSceneId, config.sceneId, popup?.scene_id, popup?.sceneId),
-      sceneFile: nonEmptyString(config.boardSceneFile, popup?.scene_file, popup?.sceneFile),
+      sceneId: nonEmptyString(
+        config.pageSceneId,
+        config.boardSceneId,
+        config.sceneId,
+        popup?.page_scene_id,
+        popup?.scene_id,
+        popup?.sceneId,
+      ),
+      sceneFile: nonEmptyString(
+        config.pageSceneFile,
+        config.boardSceneFile,
+        popup?.page_scene_file,
+        popup?.scene_file,
+        popup?.sceneFile,
+      ),
       params: config.params || normalizeSceneParams(popup?.params),
       entry: nonEmptyString(popup?.entry, popup?.focus, popup?.entry_tab, popup?.entryTab),
       sceneAssembly: config.sceneShell || null,

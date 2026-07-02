@@ -18,7 +18,10 @@
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const request = resolved.request || buildSceneOpenRequest(resolved, detail);
     const mount = resolved.mount || buildProjectionMount(resolved, detail);
-    if (!resolved.enabled || !(request.sceneId || resolved.boardSceneId || resolved.sceneId)) {
+    if (
+      !resolved.enabled ||
+      !(request.sceneId || resolved.pageSceneId || resolved.boardSceneId || resolved.sceneId)
+    ) {
       if (resolved.errorMessage) {
         recordPopupDebugIssue({
           phase: resolved.errorCode || "scene_projection",
@@ -37,6 +40,8 @@
       title: mount.title,
       overlaySize: mount.overlaySize,
       params: request.params,
+      pageSceneId: request.sceneId,
+      pageSceneFile: request.sceneFile,
       boardSceneId: request.sceneId,
       boardSceneFile: request.sceneFile,
     };
@@ -48,7 +53,7 @@
   }
 
   function drilldownSessionMeta(config) {
-    const boardSceneId = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    const pageSceneId = nonEmptyString(config?.pageSceneId, config?.boardSceneId, config?.sceneId);
     const canonicalUrl =
       typeof resolveBoardRouteUrl === "function" ? resolveBoardRouteUrl(config) : "";
     let canonicalPathname = "";
@@ -60,16 +65,22 @@
       }
     }
     return {
-      label: nonEmptyString(config?.title, boardSceneId, "下钻看板"),
-      path: boardSceneId,
-      scene: boardSceneId,
+      label: nonEmptyString(config?.title, pageSceneId, "T2 页面"),
+      path: pageSceneId,
+      scene: pageSceneId,
       url: canonicalUrl || undefined,
       pathname: canonicalPathname || undefined,
     };
   }
 
   function projectionOpenDedupeKey(detail, config) {
-    const sceneId = nonEmptyString(config?.boardSceneId, config?.sceneId, detail?.scene_id);
+    const sceneId = nonEmptyString(
+      config?.pageSceneId,
+      config?.boardSceneId,
+      config?.sceneId,
+      detail?.page_scene_id,
+      detail?.scene_id,
+    );
     const datasetId = nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id);
     const metricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     return [sceneId, datasetId, metricId].filter(Boolean).join("|");
@@ -126,7 +137,7 @@
   }
 
   function triggerScopeActivationWarmup(config) {
-    const scope = nonEmptyString(config?.boardSceneId, config?.sceneId);
+    const scope = nonEmptyString(config?.pageSceneId, config?.boardSceneId, config?.sceneId);
     if (!scope || typeof fetch !== "function") {
       return;
     }
@@ -154,7 +165,7 @@
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
-    if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
+    if (!config.enabled || !(config.pageSceneId || config.boardSceneId || config.sceneId)) {
       if (config.errorMessage) {
         recordPopupDebugIssue({
           phase: config.errorCode || "scene_projection",

@@ -30,7 +30,7 @@ pub fn build_board_index(
     let index = BuildBoardIndex { boards };
     let tree_root = ReachabilityTreeRoot {
         group: "boards".to_string(),
-        label: "Boards".to_string(),
+        label: "T2 Pages".to_string(),
         default_open: false,
         children: tree_children,
     };
@@ -55,7 +55,7 @@ fn collect_board_files(
             );
             continue;
         }
-        if node.kind != "file" || !node.path.ends_with(".board.mei") {
+        if node.kind != "file" || !is_t2_page_capsule(node.path.as_str()) {
             continue;
         }
         let board_file = node.path.clone();
@@ -124,7 +124,8 @@ fn push_board_file_tree_node(
         .rsplit('/')
         .next()
         .unwrap_or(board_file)
-        .trim_end_matches(".board.mei");
+        .trim_end_matches(".board.mei")
+        .trim_end_matches(".page.mei");
     let display_label = if label.trim().is_empty() {
         scene_id.to_string()
     } else {
@@ -149,10 +150,14 @@ pub fn board_tree_root_from_index(index: &BuildBoardIndex) -> ReachabilityTreeRo
     }
     ReachabilityTreeRoot {
         group: "boards".to_string(),
-        label: "Boards".to_string(),
+        label: "T2 Pages".to_string(),
         default_open: false,
         children: tree_children,
     }
+}
+
+fn is_t2_page_capsule(path: &str) -> bool {
+    path.ends_with(".page.mei") || path.ends_with(".board.mei")
 }
 
 fn layout_mode_from_sources(
