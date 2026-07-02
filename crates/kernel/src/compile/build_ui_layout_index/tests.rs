@@ -678,3 +678,144 @@ fn ui_scope_node_kind_parses() {
     let node = BuildNodeId::parse("ui-scope:home/home/T1/left_rail/enforcement").expect("parse");
     assert_eq!(node.kind, BuildNodeKind::UiScope);
 }
+
+#[test]
+fn ui_scope_for_block_matches_instance_id_stem() {
+    use crate::compile::build_ui_layout_index::ui_scope_for_block;
+    use crate::model::{UiLayoutIndex, UiScopeNode, UiScopeRole};
+
+    let content_id = BuildNodeId::ui_scope("home", "home/T1/left_rail/stats").encode();
+    let mut nodes = std::collections::BTreeMap::new();
+    nodes.insert(
+        content_id.clone(),
+        UiScopeNode {
+            node_id: content_id,
+            role: UiScopeRole::Content,
+            label: "Stats".to_string(),
+            scope_path: vec!["home".into(), "T1".into(), "left_rail".into(), "stats".into()],
+            plane: Some("T1".to_string()),
+            parent_id: None,
+            children: vec![],
+            preview_scope: "left_rail/body/stats".to_string(),
+            budget: None,
+            source_anchors: vec![],
+            content_kind: Some("metric-card".to_string()),
+            scene_id: Some("home".to_string()),
+        },
+    );
+    let compiled = CompiledApp {
+        app_id: "pretty-panels".to_string(),
+        title: "Pretty Panels".to_string(),
+        app_root: "/tmp/pretty-panels".to_string(),
+        scene_routes: vec![],
+        active_scene: None,
+        active_target_file: String::new(),
+        file_tree: vec![],
+        scene_contract: None,
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: UiLayoutIndex {
+            nodes,
+            scene_roots: vec![],
+        },
+    };
+    let hit = ui_scope_for_block(&compiled, "home", "left_rail/body", "stats~0");
+    assert!(hit.is_some(), "instance block id should match walker preview_scope stem");
+    assert_eq!(hit.unwrap().preview_scope, "left_rail/body/stats");
+}
+
+#[test]
+fn ui_scope_annotation_for_preview_panel_matches_content_and_section_paths() {
+    use crate::compile::build_ui_layout_index::ui_scope_annotation_for_preview_panel;
+    use crate::model::{UiLayoutIndex, UiScopeNode, UiScopeRole};
+
+    let mut nodes = std::collections::BTreeMap::new();
+    for (scope, role, node_key) in [
+        (
+            "left_rail/enforcement/first/enforcement_units_card",
+            UiScopeRole::Content,
+            "content",
+        ),
+        (
+            "left_rail/left_top",
+            UiScopeRole::Section,
+            "section",
+        ),
+        ("map_stage", UiScopeRole::Region, "region"),
+    ] {
+        let node_id = BuildNodeId::ui_scope("home", &format!("home/T1/left_rail/{node_key}")).encode();
+        nodes.insert(
+            node_id.clone(),
+            UiScopeNode {
+                node_id,
+                role,
+                label: node_key.to_string(),
+                scope_path: vec!["home".into(), "T1".into(), "left_rail".into()],
+                plane: Some("T1".to_string()),
+                parent_id: None,
+                children: vec![],
+                preview_scope: scope.to_string(),
+                budget: None,
+                source_anchors: vec![],
+                content_kind: None,
+                scene_id: Some("home".to_string()),
+            },
+        );
+    }
+    let compiled = CompiledApp {
+        app_id: "demo".to_string(),
+        title: "demo".to_string(),
+        app_root: "/tmp/demo".to_string(),
+        scene_routes: vec![],
+        active_scene: None,
+        active_target_file: String::new(),
+        file_tree: vec![],
+        scene_contract: None,
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: UiLayoutIndex {
+            nodes,
+            scene_roots: vec![],
+        },
+    };
+
+    let content = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "left_rail/enforcement/panel/enforcement-stats/enforcement_strip_layout/enforcement_units_card",
+        None,
+    )
+    .expect("content path");
+    assert_eq!(content.role, "content");
+    assert!(content.node_id.starts_with("ui-scope:"));
+
+    let section = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "left_rail/lake_pavilion_slot",
+        Some("left_top"),
+    )
+    .expect("section path");
+    assert_eq!(section.role, "section");
+    assert_eq!(section.preview_scope, "left_rail/left_top");
+}

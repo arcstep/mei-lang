@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    ui_scope_annotation_for_preview_path, BlockDecl, BuildNodeId, CompiledApp, PanelDecl,
+    ui_scope_annotation_for_preview_panel, BlockDecl, BuildNodeId, CompiledApp, PanelDecl,
     SceneContract, UiNodeDecl,
 };
 
@@ -49,14 +49,23 @@ pub(crate) fn panel_view(
     embed_depth: u8,
     preview_scene_path: &str,
     parent_panel_path: Option<&str>,
+    parent_panel: Option<&PanelDecl>,
 ) -> AnyView {
     let card_props = resolve_shared_refs(&resolve_panel_card_props(theme, panel), &theme.shared);
     let head_props = resolve_shared_refs(&resolve_panel_head_props(theme, panel), &theme.shared);
     let body_props = resolve_shared_refs(&resolve_panel_body_props(theme, panel), &theme.shared);
     let chrome_bare = panel_chrome_bare(&card_props);
+    let inherited_tier = parent_panel.and_then(|parent| {
+        parent
+            .props
+            .get("__mei_tier")
+            .or_else(|| parent.props.get("tier"))
+            .and_then(|value| value.as_str())
+    });
     let panel_tier = card_props
         .get("__mei_tier")
         .and_then(|v| v.as_str())
+        .or(inherited_tier)
         .unwrap_or("t1");
     let panel_viewpoint = card_props
         .get("__mei_viewpoint")
@@ -130,38 +139,33 @@ pub(crate) fn panel_view(
     }
 
     let ui_scope_annotation = if runtime_ctx.build_inspect_enabled {
-        ui_scope_annotation_for_preview_path(
+        ui_scope_annotation_for_preview_panel(
             compiled,
             scene_contract.scene.id.as_str(),
             panel_path.as_str(),
+            panel.area.as_deref(),
         )
     } else {
         None
     };
-    let (ui_scope_attr, ui_role_attr) = match ui_scope_annotation {
-        Some((scope, role)) => (Some(scope), Some(role)),
-        None => (None, None),
+    let (ui_scope_attr, ui_role_attr, build_node_id) = match ui_scope_annotation {
+        Some(annotation) => (
+            Some(annotation.preview_scope),
+            Some(annotation.role),
+            Some(annotation.node_id),
+        ),
+        None => (None, None, None),
     };
-
     let build_node_id = if runtime_ctx.build_inspect_enabled {
-        Some(
-            compiled
-                .ui_layout_index
-                .nodes
-                .values()
-                .find(|node| {
-                    node.scene_id.as_deref() == Some(scene_contract.scene.id.as_str())
-                        && node.preview_scope == panel_path
-                })
-                .map(|node| node.node_id.clone())
-                .unwrap_or_else(|| {
-                    BuildNodeId::scene_panel(
-                        scene_contract.scene.id.clone(),
-                        panel_path.as_str(),
-                    )
-                    .encode()
-                }),
-        )
+        build_node_id.or_else(|| {
+            Some(
+                BuildNodeId::scene_panel(
+                    scene_contract.scene.id.clone(),
+                    panel_path.as_str(),
+                )
+                .encode(),
+            )
+        })
     } else {
         None
     };
@@ -422,6 +426,7 @@ fn node_view(
             embed_depth,
             preview_scene_path,
             parent_panel_id,
+            parent_panel,
         ),
         UiNodeDecl::Block(block) => {
             if let Some(use_key) = runtime_ctx.build_preview_component_use_key.as_deref() {

@@ -20,17 +20,36 @@ pub struct UiScopeBlockAnnotation {
     pub role: String,
 }
 
+/// Resolved UI scope annotation for a preview panel path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiScopePanelAnnotation {
+    pub node_id: String,
+    pub preview_scope: String,
+    pub role: String,
+}
+
 /// Lookup UI scope annotation for a preview panel path (scene-relative).
 pub fn ui_scope_annotation_for_preview_path(
     compiled: &CompiledApp,
     scene_id: &str,
     panel_path: &str,
 ) -> Option<(String, String)> {
+    ui_scope_annotation_for_preview_panel(compiled, scene_id, panel_path, None)
+        .map(|annotation| (annotation.preview_scope, annotation.role))
+}
+
+/// Fuzzy-match walker preview_scope to rendered panel_path (apps differ in slot vs panel ids).
+pub fn ui_scope_annotation_for_preview_panel(
+    compiled: &CompiledApp,
+    scene_id: &str,
+    panel_path: &str,
+    panel_area: Option<&str>,
+) -> Option<UiScopePanelAnnotation> {
     let normalized = panel_path.trim().trim_matches('/');
     if normalized.is_empty() {
         return None;
     }
-    let mut best: Option<(usize, String, String)> = None;
+    let mut best: Option<(usize, UiScopePanelAnnotation)> = None;
     for node in compiled.ui_layout_index.nodes.values() {
         if node
             .scene_id
@@ -43,14 +62,84 @@ pub fn ui_scope_annotation_for_preview_path(
         if scope.is_empty() {
             continue;
         }
-        if scope == normalized || normalized.ends_with(&format!("/{scope}")) || normalized == scope {
-            let len = scope.len();
-            if best.as_ref().is_none_or(|(best_len, _, _)| len >= *best_len) {
-                best = Some((len, scope.to_string(), node.role.slug().to_string()));
+        let Some(score) = scope_match_score(normalized, scope, panel_area, node.role) else {
+            continue;
+        };
+        if best.as_ref().is_none_or(|(best_score, _)| score > *best_score) {
+            best = Some((
+                score,
+                UiScopePanelAnnotation {
+                    node_id: node.node_id.clone(),
+                    preview_scope: scope.to_string(),
+                    role: node.role.slug().to_string(),
+                },
+            ));
+        }
+    }
+    best.map(|(_, annotation)| annotation)
+}
+
+fn scope_match_score(
+    panel_path: &str,
+    preview_scope: &str,
+    panel_area: Option<&str>,
+    role: UiScopeRole,
+) -> Option<usize> {
+    if panel_path == preview_scope {
+        return Some(10_000 + preview_scope.len());
+    }
+    if panel_path.ends_with(&format!("/{preview_scope}")) {
+        return Some(9_000 + preview_scope.len());
+    }
+    if let Some(leaf) = preview_scope.rsplit('/').next().filter(|v| !v.is_empty()) {
+        if panel_path.ends_with(leaf) || panel_path.contains(&format!("/{leaf}")) {
+            let base = match role {
+                UiScopeRole::Content => 6_000,
+                UiScopeRole::Section => 5_000,
+                _ => 4_000,
+            };
+            return Some(base + preview_scope.len());
+        }
+        if let Some((stem, suffix)) = leaf.rsplit_once('~') {
+            if !stem.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()) {
+                if panel_path.contains(stem) {
+                    return Some(5_500 + preview_scope.len());
+                }
             }
         }
     }
-    best.map(|(_, scope, role)| (scope, role))
+    if role == UiScopeRole::Section {
+        if let Some(area) = panel_area.filter(|value| is_section_area(value)) {
+            if preview_scope.ends_with(&format!("/{area}")) {
+                let region = preview_scope.strip_suffix(&format!("/{area}"))?;
+                if panel_path.starts_with(region)
+                    || panel_path.contains(&format!("{region}/"))
+                    || panel_path.starts_with(&format!("{region}/"))
+                {
+                    return Some(7_000 + preview_scope.len());
+                }
+            }
+        }
+    }
+    if panel_path == preview_scope
+        || normalized_ends_with_scope(panel_path, preview_scope)
+    {
+        return Some(preview_scope.len());
+    }
+    None
+}
+
+fn is_section_area(value: &str) -> bool {
+    let area = value.trim();
+    !area.is_empty() && area != "auto" && area != "body"
+}
+
+fn normalized_ends_with_scope(panel_path: &str, preview_scope: &str) -> bool {
+    panel_path.ends_with(&format!("/{preview_scope}"))
+        || preview_scope
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .all(|segment| panel_path.contains(segment))
 }
 
 /// Resolve preview dim scope for a build node (panel or ui-scope).
@@ -81,6 +170,7 @@ pub fn ui_scope_for_block(
     if block_key.is_empty() {
         return None;
     }
+    let match_keys = block_match_keys(block_key);
     let mut best: Option<(usize, UiScopeBlockAnnotation)> = None;
     for node in compiled.ui_layout_index.nodes.values() {
         if node.role != UiScopeRole::Content {
@@ -97,7 +187,9 @@ pub fn ui_scope_for_block(
         if scope.is_empty() {
             continue;
         }
-        let matches_block = scope.ends_with(&format!("/{block_key}")) || scope == block_key;
+        let matches_block = match_keys
+            .iter()
+            .any(|key| scope.ends_with(&format!("/{key}")) || scope == *key);
         if !matches_block {
             continue;
         }
@@ -120,6 +212,16 @@ pub fn ui_scope_for_block(
         }
     }
     best.map(|(_, annotation)| annotation)
+}
+
+fn block_match_keys(block_key: &str) -> Vec<String> {
+    let mut keys = vec![block_key.to_string()];
+    if let Some((stem, suffix)) = block_key.rsplit_once('~') {
+        if !stem.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()) {
+            keys.push(stem.to_string());
+        }
+    }
+    keys
 }
 
 /// Technical micro/slot/budget metadata for section/content inspector.

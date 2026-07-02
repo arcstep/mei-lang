@@ -81,8 +81,9 @@ pub use build_experience_index::{build_experience_index, enrich_reachability_tre
 pub use build_ui_layout_index::{
     build_ui_layout_index, filter_roots_for_tree_mode, format_ui_scope_agent_context,
     format_ui_scope_technical_detail, merge_ui_structure_root, resolve_build_preview_scope,
-    resolve_build_preview_scope_for_ssr, ui_scope_annotation_for_preview_path, ui_scope_for_block,
-    UiScopeBlockAnnotation,
+    resolve_build_preview_scope_for_ssr, ui_scope_annotation_for_preview_panel,
+    ui_scope_annotation_for_preview_path, ui_scope_for_block, UiScopeBlockAnnotation,
+    UiScopePanelAnnotation,
 };
 pub use build_node_context::{
     build_preview_panel_scope, build_preview_ui_scope, catalog_preview_target_for_build_node,

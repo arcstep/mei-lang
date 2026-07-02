@@ -65,6 +65,7 @@ pub(crate) fn preview_view(
                             0,
                             preview_scene_path.as_str(),
                             None,
+                            None,
                         )
                     })
                     .collect_view();
