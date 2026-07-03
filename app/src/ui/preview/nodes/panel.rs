@@ -135,6 +135,12 @@ pub(crate) fn panel_view(
         "preview-card"
     };
 
+    let slot_frame_bg_attr = card_props
+        .get("__mei_slot_frame_bg")
+        .and_then(|v| v.as_bool())
+        .filter(|value| *value)
+        .map(|_| "true");
+
     let body_layout_centered = panel
         .layout
         .as_ref()
@@ -253,6 +259,7 @@ pub(crate) fn panel_view(
             data-preview-scope=panel_path.clone()
             data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
             data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
+            data-mei-slot-frame-bg=slot_frame_bg_attr.unwrap_or_default()
         >
             {if has_head {
                 let head_carets_attr = head_carets.then_some("true");
@@ -316,6 +323,7 @@ pub(crate) fn panel_view(
                     data-preview-scope=panel_path.clone()
                     data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
                     data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
+                    data-mei-slot-frame-bg=slot_frame_bg_attr.unwrap_or_default()
                 >
                     {if has_head {
                         let head_carets_attr = head_carets.then_some("true");

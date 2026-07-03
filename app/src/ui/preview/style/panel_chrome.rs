@@ -57,6 +57,12 @@ fn append_background_layer_props(style: &mut String, bg: &serde_json::Map<String
     if let Some(value) = bg.get("blend_mode").and_then(Value::as_str) {
         style.push_str(&format!("background-blend-mode:{};", value));
     }
+    if let Some(value) = bg.get("origin").and_then(Value::as_str) {
+        style.push_str(&format!("background-origin:{};", value));
+    }
+    if let Some(value) = bg.get("clip").and_then(Value::as_str) {
+        style.push_str(&format!("background-clip:{};", value));
+    }
 }
 
 fn append_background_css_vars(style: &mut String, prefix: &str, background: &Value) {
