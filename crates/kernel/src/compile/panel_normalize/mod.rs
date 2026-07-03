@@ -11,6 +11,7 @@ mod metric_card_layout;
 mod nodes;
 mod slots;
 mod spacing;
+mod stacking;
 
 #[cfg(test)]
 mod tests;
@@ -41,6 +42,7 @@ use slots::{
     panel_has_body_blocks, resolve_has_head,
 };
 use spacing::{panel_layout_policy, policy_spacing, stamp_has_head_prop, stamp_layout_policy};
+use stacking::sanitize_panel_stacking;
 
 pub fn normalize_panel_slots(
     panels: &mut [PanelDecl],
@@ -48,6 +50,7 @@ pub fn normalize_panel_slots(
     source_path: &str,
 ) {
     for panel in panels.iter_mut() {
+        sanitize_panel_stacking(panel, diagnostics, source_path);
         normalize_panel(panel, diagnostics, source_path);
     }
 }

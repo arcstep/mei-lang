@@ -28,8 +28,13 @@ pub const Z_T0_DEFAULT: i64 = 1;
 pub const Z_T1_DEFAULT: i64 = 1001;
 pub const Z_T1_CENTER_PANEL: i64 = 1101;
 pub const Z_T1_RAIL: i64 = 1102;
+pub const Z_T1_VIEWPORT_FRAME: i64 = 1103;
 pub const Z_T1_CENTER_FLOAT: i64 = 1105;
+pub const Z_T1_STAGE_APERTURE: i64 = 1105;
 pub const Z_T1_HEADER: i64 = 1110;
+
+/// Maximum author `stack_order` / `layout_stack` offset (0301 regular sub-band 0–99).
+pub const STACK_ORDER_MAX: u8 = 99;
 
 // T1 operation / bubble sub-bands
 pub const Z_T1_MAP_TOOLS: i64 = 1210;
@@ -80,8 +85,55 @@ pub fn default_z_index_for_chrome_role(role: &str) -> Option<i64> {
         "center_float" => Some(Z_T1_CENTER_FLOAT),
         "rail" => Some(Z_T1_RAIL),
         "center_panel" => Some(Z_T1_CENTER_PANEL),
+        "stage_aperture" => Some(Z_T1_STAGE_APERTURE),
+        "viewport_frame" => Some(Z_T1_VIEWPORT_FRAME),
         _ => None,
     }
+}
+
+pub fn tier_regular_base(tier: &str) -> i64 {
+    default_z_index_for_tier(tier)
+}
+
+/// Resolve author `stack_order` (0–99). `assembly_fallback` used when field is absent.
+pub fn resolve_stack_order(
+    explicit: Option<u8>,
+    assembly_fallback: u8,
+) -> Result<u8, String> {
+    let order = explicit.unwrap_or(assembly_fallback);
+    if order > STACK_ORDER_MAX {
+        return Err(format!(
+            "stack_order {order} exceeds maximum {STACK_ORDER_MAX} for tier regular sub-band"
+        ));
+    }
+    Ok(order)
+}
+
+pub fn parse_stack_order_value(value: &serde_json::Value) -> Result<u8, String> {
+    let raw = value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
+        .or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+        .ok_or_else(|| "stack_order must be an integer 0–99".to_string())?;
+    u8::try_from(raw).map_err(|_| format!("stack_order {raw} exceeds maximum {STACK_ORDER_MAX}"))
+}
+
+/// Compiler-assigned viewport z-index from tier + chrome_role + stack_order.
+pub fn compute_panel_z_index(tier: &str, chrome_role: Option<&str>, stack_order: u8) -> i64 {
+    let order = i64::from(stack_order);
+    if let Some(role) = chrome_role {
+        if let Some(base) = default_z_index_for_chrome_role(role) {
+            return base + order;
+        }
+    }
+    tier_regular_base(tier) + order
+}
+
+pub fn props_contain_forbidden_z_index(props: &serde_json::Value) -> bool {
+    let Some(map) = props.as_object() else {
+        return false;
+    };
+    map.contains_key("z_index") || map.contains_key("z-index")
 }
 
 /// Returns whether `z` lies in the documented band for a scene tier (`t0`/`t1`/`t2`).
@@ -123,6 +175,7 @@ pub fn runtime_overlay_z_index(token: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn canonical_tier_accepts_t0_t1_t2() {
@@ -154,6 +207,43 @@ mod tests {
         assert!(z_index_in_named_plane("presentation", 5100));
         assert!(z_index_in_named_plane("copilot", 5500));
         assert!(z_index_in_named_plane("host", 5800));
+    }
+
+    #[test]
+    fn compute_panel_z_index_uses_tier_and_assembly_order() {
+        assert_eq!(compute_panel_z_index(TIER_T0, None, 0), 1);
+        assert_eq!(compute_panel_z_index(TIER_T0, None, 2), 3);
+        assert_eq!(compute_panel_z_index(TIER_T1, Some("header"), 0), Z_T1_HEADER);
+        assert_eq!(compute_panel_z_index(TIER_T1, Some("rail"), 1), Z_T1_RAIL + 1);
+        assert_eq!(
+            compute_panel_z_index(TIER_T1, Some("stage_aperture"), 0),
+            Z_T1_STAGE_APERTURE
+        );
+    }
+
+    #[test]
+    fn resolve_stack_order_rejects_overflow() {
+        assert!(resolve_stack_order(Some(100), 0).is_err());
+        assert_eq!(resolve_stack_order(None, 3).unwrap(), 3);
+    }
+
+    #[test]
+    fn props_contain_forbidden_z_index_detects_author_handwritten() {
+        assert!(props_contain_forbidden_z_index(&json!({"z_index": 5})));
+        assert!(props_contain_forbidden_z_index(&json!({"z-index": 5})));
+        assert!(!props_contain_forbidden_z_index(&json!({"stack_order": 1})));
+    }
+
+    #[test]
+    fn compute_panel_z_index_uses_assembly_stack_order_for_t0() {
+        assert_eq!(
+            compute_panel_z_index(TIER_T0, None, 0),
+            Z_T0_DEFAULT
+        );
+        assert_eq!(
+            compute_panel_z_index(TIER_T0, None, 2),
+            Z_T0_DEFAULT + 2
+        );
     }
 
     #[test]

@@ -13,7 +13,8 @@ use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::presentation_map::resolve_viewpoint_id;
 use crate::tier::{
-    canonical_tier, default_z_index_for_chrome_role, default_z_index_for_tier, TIER_T1,
+    canonical_tier, compute_panel_z_index, parse_stack_order_value, props_contain_forbidden_z_index,
+    resolve_stack_order,
 };
 use crate::types::GraphNodeKind;
 
@@ -24,6 +25,8 @@ pub struct PanelLowerContext<'a> {
     pub scene_id: &'a str,
     /// Top-level `NAME = expr` constants from the panel `.mei` source file.
     pub panel_constants: BTreeMap<String, Value>,
+    /// Assembly `panels` list order within the same tier (0-based).
+    pub assembly_stack_order: Option<u8>,
 }
 
 impl<'a> PanelLowerContext<'a> {
@@ -34,6 +37,18 @@ impl<'a> PanelLowerContext<'a> {
             registry: self.registry,
             scene_id: self.scene_id,
             panel_constants: load_panel_file_constants(self.app_root, panel_key),
+            assembly_stack_order: self.assembly_stack_order,
+        }
+    }
+
+    pub fn with_assembly_stack_order(&self, order: u8) -> Self {
+        Self {
+            app_root: self.app_root,
+            app_id: self.app_id,
+            registry: self.registry,
+            scene_id: self.scene_id,
+            panel_constants: self.panel_constants.clone(),
+            assembly_stack_order: Some(order),
         }
     }
 }
@@ -176,7 +191,7 @@ pub fn lower_panel_payload(
     if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
         deep_merge_value(&mut props, extra);
     }
-    apply_tier_and_placement(payload, &mut props)?;
+    apply_tier_and_placement(payload, &mut props, ctx.assembly_stack_order)?;
 
     let blocks = lower_blocks(payload.get("blocks"), ctx)?;
     apply_view_family_hints(payload, &blocks, &mut props);
@@ -212,7 +227,7 @@ fn lower_panel_with_slots(
     if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
         deep_merge_value(&mut props, extra);
     }
-    apply_tier_and_placement(payload, &mut props)?;
+    apply_tier_and_placement(payload, &mut props, ctx.assembly_stack_order)?;
 
     let mut blocks = Vec::new();
     if let Some(slots) = payload.get("slots").and_then(Value::as_array) {
@@ -318,7 +333,7 @@ fn lower_screen_header_panel(
         "box_sizing": "border-box",
         "overflow": "hidden"
     });
-    apply_tier_and_placement(payload, &mut props)?;
+    apply_tier_and_placement(payload, &mut props, ctx.assembly_stack_order)?;
 
     let block = BlockDecl {
         kind: "block".to_string(),
@@ -378,7 +393,7 @@ fn lower_titled_shell_panel(
         deep_merge_value(&mut props, extra);
     }
     if let Some(outer) = outer_payload {
-        apply_tier_and_placement(outer, &mut props)?;
+        apply_tier_and_placement(outer, &mut props, ctx.assembly_stack_order)?;
     }
     if let Some(map) = props.as_object_mut() {
         map.insert("__mei_ui_role".to_string(), json!("section"));
@@ -431,7 +446,7 @@ fn lower_panel_from_generic_shell(
     let args = v2_call_args(shell).context("panel shell missing __args")?;
     let mut props = args.get("props").cloned().unwrap_or(json!({}));
     merge_card_fields(&mut props, args);
-    apply_tier_and_placement(payload, &mut props)?;
+    apply_tier_and_placement(payload, &mut props, ctx.assembly_stack_order)?;
 
     let mut head_props = lower_head_props(args);
     if let Some(heading) = args.get("heading") {
@@ -495,7 +510,16 @@ fn lower_head_props(source: &Value) -> Value {
     Value::Object(head)
 }
 
-fn apply_tier_and_placement(payload: &Value, props: &mut Value) -> Result<()> {
+fn apply_tier_and_placement(
+    payload: &Value,
+    props: &mut Value,
+    assembly_stack_order: Option<u8>,
+) -> Result<()> {
+    if props_contain_forbidden_z_index(props) {
+        anyhow::bail!(
+            "panel props must not set z_index; use stack_order (viewport tier panels) or layout_stack (local stacking within a parent panel)"
+        );
+    }
     let raw_tier = payload.get("tier").and_then(|v| v.as_str());
     let tier = match raw_tier {
         Some(t) => Some(
@@ -515,19 +539,19 @@ fn apply_tier_and_placement(payload: &Value, props: &mut Value) -> Result<()> {
     }
     apply_placement(payload.get("placement"), props);
     if let Some(tier) = tier {
+        let chrome_role = payload.get("chrome_role").and_then(|v| v.as_str());
+        let explicit_stack = payload
+            .get("stack_order")
+            .or_else(|| payload.get("stackOrder"))
+            .map(parse_stack_order_value)
+            .transpose()
+            .map_err(anyhow::Error::msg)?;
+        let stack_order = resolve_stack_order(explicit_stack, assembly_stack_order.unwrap_or(0))
+            .map_err(anyhow::Error::msg)?;
+        let z = compute_panel_z_index(tier, chrome_role, stack_order);
         if let Some(map) = props.as_object_mut() {
-            if map.get("z_index").is_none() {
-                let z = if tier == TIER_T1 {
-                    payload
-                        .get("chrome_role")
-                        .and_then(|v| v.as_str())
-                        .and_then(default_z_index_for_chrome_role)
-                        .unwrap_or_else(|| default_z_index_for_tier(tier))
-                } else {
-                    default_z_index_for_tier(tier)
-                };
-                map.insert("z_index".to_string(), json!(z));
-            }
+            map.insert("__mei_stack_order".to_string(), json!(stack_order));
+            map.insert("z_index".to_string(), json!(z));
         }
     }
     Ok(())
@@ -935,7 +959,7 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
                 .insert(key.to_string(), expanded.clone());
         }
     }
-    apply_tier_and_placement(args, &mut props)?;
+    apply_tier_and_placement(args, &mut props, ctx.assembly_stack_order)?;
 
     let layout = args
         .get("layout")
@@ -2245,6 +2269,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let block = lower_component(&value, &ctx).expect("component");
         assert_eq!(block.use_key, "cockpit.header-brand");
@@ -2298,6 +2323,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let panel = lower_panel_payload(&payload, "home:home_header", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 1);
@@ -2342,6 +2368,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let block = lower_block_node(&value, &ctx)
             .expect("component block")
@@ -2384,6 +2411,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let panel = lower_panel_payload(&payload, "home:basemap", &ctx).expect("panel");
         assert_eq!(
@@ -2424,6 +2452,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let panel = lower_panel_payload(&payload, "home:world_stage", &ctx).expect("panel");
         assert_eq!(
@@ -2462,6 +2491,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let panel = lower_panel_payload(&payload, "home:viewport_canvas", &ctx).expect("panel");
         assert_eq!(
@@ -2509,6 +2539,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let panel = lower_panel_payload(&payload, "warning", &ctx).expect("panel");
         assert_eq!(
@@ -2615,6 +2646,7 @@ mod tests {
             registry: &registry,
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let panel =
             lower_panel_with_slots(&payload, "warning".into(), Some("warning".into()), &ctx)
@@ -2719,6 +2751,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let panel = lower_panel_payload(&payload, "inspection-stats", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 2, "top-level inline panels");
@@ -2769,6 +2802,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -2852,6 +2886,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
@@ -2929,6 +2964,7 @@ mod tests {
             },
             scene_id: "home",
             panel_constants: constants,
+            assembly_stack_order: None,
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {

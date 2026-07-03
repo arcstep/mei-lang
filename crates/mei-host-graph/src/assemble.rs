@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -14,6 +14,7 @@ use crate::layer_plan::{build_layer_plan, layer_plan_to_value};
 use crate::mcg::registry::McgRegistryWriter;
 use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
 use crate::projection_normalize::normalize_board_assembly_payload;
+use crate::tier::canonical_tier;
 use crate::types::GraphNodeKind;
 use crate::v2_lower::{
     find_panel_contract_node, lower_frame_from_assembly, lower_panel_payload,
@@ -564,9 +565,11 @@ fn load_panels_for_assembly(
         registry,
         scene_id,
         panel_constants: BTreeMap::new(),
+        assembly_stack_order: None,
     };
     let mut panels = Vec::new();
     let mut panel_payloads = BTreeMap::new();
+    let mut tier_assembly_counters: HashMap<String, u8> = HashMap::new();
     let panel_refs = assembly_payload
         .get("panels")
         .and_then(|v| v.as_array())
@@ -589,7 +592,20 @@ fn load_panels_for_assembly(
             continue;
         };
         let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
-        let panel_ctx = lower_ctx.with_panel_constants(contract_key.as_str());
+        let assembly_order = payload
+            .get("tier")
+            .and_then(|v| v.as_str())
+            .and_then(|raw| canonical_tier(raw).ok())
+            .map(|tier| {
+                let counter = tier_assembly_counters.entry(tier.to_string()).or_insert(0);
+                let order = *counter;
+                *counter += 1;
+                order
+            });
+        let mut panel_ctx = lower_ctx.with_panel_constants(contract_key.as_str());
+        if let Some(order) = assembly_order {
+            panel_ctx = panel_ctx.with_assembly_stack_order(order);
+        }
         if let Ok(panel) = lower_panel_payload(&payload, contract_key.as_str(), &panel_ctx) {
             panel_payloads.insert(panel.id.clone(), payload);
             panels.push(panel);

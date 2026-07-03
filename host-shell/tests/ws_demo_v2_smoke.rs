@@ -880,10 +880,38 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
         }),
         "mini-park layer_plan t0 should include basemap or viewport_canvas: {t0_tier:?}"
     );
+    if let Some(viewport_canvas) = t0_tier
+        .iter()
+        .find(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("viewport_canvas"))
+    {
+        assert_eq!(
+            viewport_canvas.get("zIndex").and_then(|v| v.as_i64()),
+            Some(mei_host_graph::default_z_index_for_tier(mei_host_graph::TIER_T0)),
+            "viewport_canvas should be first T0 panel (z=1)"
+        );
+        assert_eq!(
+            viewport_canvas.get("stackOrder").and_then(|v| v.as_u64()),
+            Some(0)
+        );
+        assert_eq!(
+            viewport_canvas.get("viewFamily").and_then(|v| v.as_str()),
+            Some("canvas")
+        );
+        assert_eq!(
+            viewport_canvas.get("stageKind").and_then(|v| v.as_str()),
+            Some("viewport-canvas")
+        );
+    }
     if let Some(basemap) = t0_tier
         .iter()
         .find(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("basemap"))
     {
+        assert_eq!(
+            basemap.get("zIndex").and_then(|v| v.as_i64()),
+            Some(mei_host_graph::default_z_index_for_tier(mei_host_graph::TIER_T0) + 1),
+            "basemap should follow viewport_canvas in assembly order (z=2)"
+        );
+        assert_eq!(basemap.get("stackOrder").and_then(|v| v.as_u64()), Some(1));
         assert_eq!(
             basemap.get("viewFamily").and_then(|v| v.as_str()),
             Some("map")
@@ -893,17 +921,18 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
             Some("map-stage")
         );
     }
-    if let Some(viewport_canvas) = t0_tier
+    if let Some(world_viewport) = t0_tier
         .iter()
-        .find(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("viewport_canvas"))
+        .find(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("world_viewport"))
     {
         assert_eq!(
-            viewport_canvas.get("viewFamily").and_then(|v| v.as_str()),
-            Some("canvas")
+            world_viewport.get("zIndex").and_then(|v| v.as_i64()),
+            Some(mei_host_graph::default_z_index_for_tier(mei_host_graph::TIER_T0) + 2),
+            "world_viewport should be third T0 panel (z=3)"
         );
         assert_eq!(
-            viewport_canvas.get("stageKind").and_then(|v| v.as_str()),
-            Some("viewport-canvas")
+            world_viewport.get("stackOrder").and_then(|v| v.as_u64()),
+            Some(2)
         );
     }
     let viewpoints = outcome
@@ -1015,6 +1044,14 @@ fn ws_demo_v2_mini_park_serve_html_emits_view_family_attrs() {
         "mini-park HTML should expose map stage kind"
     );
     assert!(
+        html.contains("data-mei-view-family=\"world\""),
+        "mini-park HTML should expose world stage family"
+    );
+    assert!(
+        html.contains("data-mei-stage-kind=\"world-stage\""),
+        "mini-park HTML should expose world stage kind"
+    );
+    assert!(
         html.contains("data-mei-world-ref=\"park_world\""),
         "mini-park HTML should expose world ref on focus target"
     );
@@ -1061,6 +1098,16 @@ fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
     assert!(
         all_actions.iter().any(|action| action.get("type").and_then(|v| v.as_str()) == Some("show_group")),
         "mini-park presentation should emit show_group action"
+    );
+    assert!(
+        all_actions
+            .iter()
+            .any(|action| action.get("type").and_then(|v| v.as_str()) == Some("enter_world_view")),
+        "mini-park presentation should emit enter_world_view action"
+    );
+    assert!(
+        steps.iter().any(|step| step.get("id").and_then(|v| v.as_str()) == Some("enter_lake_pavilion_world")),
+        "mini-park presentation should include enter_lake_pavilion_world step"
     );
     assert!(
         steps.iter().any(|step| step.get("id").and_then(|v| v.as_str()) == Some("dual_view_bridge")),
@@ -1182,6 +1229,82 @@ fn ws_demo_v2_mini_park_dual_view_bridge_fixtures_align_with_presentation_map() 
             .and_then(|v| v.as_str()),
         Some("extrude_shell")
     );
+    let world_track = bridge
+        .get("tracks")
+        .and_then(|v| v.get("world_3d"))
+        .expect("world_3d track");
+    assert!(
+        world_track.get("prototypeOnly").and_then(|v| v.as_bool()) != Some(true),
+        "world_3d track should be runnable"
+    );
+    assert_eq!(
+        world_track.get("panelId").and_then(|v| v.as_str()),
+        Some("world_viewport")
+    );
+    assert_eq!(
+        world_track.get("viewFamily").and_then(|v| v.as_str()),
+        Some("world")
+    );
+    let world_entry = viewpoints
+        .get("lake_pavilion_world_entry")
+        .expect("lake_pavilion_world_entry viewpoint");
+    assert_eq!(
+        world_entry.get("viewFamily").and_then(|v| v.as_str()),
+        Some("world")
+    );
+    assert_eq!(
+        world_entry.get("panelId").and_then(|v| v.as_str()),
+        Some("world_viewport")
+    );
+    assert_eq!(
+        world_entry.get("stageKind").and_then(|v| v.as_str()),
+        Some("world-stage")
+    );
+    assert!(
+        home_t0
+            .iter()
+            .any(|entry| entry.get("panelId").and_then(|v| v.as_str()) == Some("world_viewport")),
+        "home t0 should include world_viewport"
+    );
+}
+
+#[test]
+fn ws_demo_v2_mini_park_world_stage_contract_compiles() {
+    let workspace = ensure_mini_park_imported();
+    let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
+    if !bundle.is_file() {
+        return;
+    }
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home")
+        .expect("assemble mini-park home")
+        .expect("mini-park home outcome");
+    let contract = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract");
+    let world_panel = contract
+        .panels
+        .iter()
+        .find(|panel| panel.id == "world_viewport")
+        .expect("world_viewport panel");
+    assert_eq!(
+        world_panel.props.get("__mei_view_family").and_then(|v| v.as_str()),
+        Some("world")
+    );
+    assert_eq!(
+        world_panel.props.get("__mei_stage_kind").and_then(|v| v.as_str()),
+        Some("world-stage")
+    );
+    let mut world_targets_found = false;
+    for node in &world_panel.blocks {
+        if let mei_lang_kernel::UiNodeDecl::Block(block) = node {
+            if block.use_key == "cockpit.world-stage" {
+                world_targets_found = block.props.get("worldTargets").is_some();
+            }
+        }
+    }
+    assert!(world_targets_found, "cockpit.world-stage block should declare worldTargets");
 }
 
 #[test]

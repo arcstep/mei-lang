@@ -8,6 +8,12 @@ use crate::tier::{default_z_index_for_tier, DEFAULT_PANEL_TIER};
 pub struct LayerPlanPanelEntry {
     #[serde(rename = "panelId")]
     pub panel_id: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "stackOrder"
+    )]
+    pub stack_order: Option<u8>,
     #[serde(rename = "zIndex")]
     pub z_index: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,6 +67,11 @@ pub fn build_layer_plan(scene_id: &str, panels: &[PanelDecl]) -> LayerPlanDocume
             .get("__mei_stage_kind")
             .and_then(|v| v.as_str())
             .map(str::to_string);
+        let stack_order = panel
+            .props
+            .get("__mei_stack_order")
+            .and_then(|v| v.as_u64())
+            .and_then(|n| u8::try_from(n).ok());
         let z_index = panel
             .props
             .get("z_index")
@@ -72,6 +83,7 @@ pub fn build_layer_plan(scene_id: &str, panels: &[PanelDecl]) -> LayerPlanDocume
             .push(LayerPlanPanelEntry {
                 panel_id: panel.id.clone(),
                 z_index,
+                stack_order,
                 tier: Some(tier),
                 chrome_role,
                 view_family,

@@ -66,7 +66,8 @@ pub use presentation_map::{
 };
 pub use tier::{
     canonical_tier, default_z_index_for_chrome_role, default_z_index_for_tier,
-    runtime_overlay_z_index, z_index_in_named_plane, z_index_in_tier_band, DEFAULT_PANEL_TIER,
-    Z_T1_HEADER, TIER_T0, TIER_T1, TIER_T2,
+    resolve_stack_order, runtime_overlay_z_index, z_index_in_named_plane, z_index_in_tier_band,
+    compute_panel_z_index, DEFAULT_PANEL_TIER, STACK_ORDER_MAX, Z_T1_HEADER, TIER_T0, TIER_T1,
+    TIER_T2,
 };
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
