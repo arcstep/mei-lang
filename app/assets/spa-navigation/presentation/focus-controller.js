@@ -53,17 +53,31 @@
       document.documentElement.classList.add("mei-world-stage-active");
     }
     const viewpointId = String(action?.viewpoint || action?.viewpointId || "").trim();
+    const resolvedEntry = entry || readViewpointEntry(viewpointId);
     if (viewpointId) {
       focusViewpoint(viewpointId);
     }
+    const cameraPreset = String(
+      action?.cameraPreset ||
+        action?.camera_preset ||
+        resolvedEntry?.cameraPreset ||
+        resolvedEntry?.camera_preset ||
+        "",
+    ).trim();
+    const groupId = String(
+      action?.groupId || action?.group_id || resolvedEntry?.groupId || resolvedEntry?.group_id || "",
+    ).trim();
     return dispatchWorldTargetAction(
       {
         ...action,
-        type: action?.cameraPreset || action?.camera_preset ? "camera_move" : "focus_entity",
-        viewFamily: String(action?.viewFamily || action?.view_family || entry?.viewFamily || "world").trim(),
-        stageKind: String(action?.stageKind || action?.stage_kind || entry?.stageKind || "world-stage").trim(),
+        viewpoint: viewpointId || action?.viewpoint,
+        cameraPreset,
+        groupId,
+        type: cameraPreset ? "camera_move" : "focus_entity",
+        viewFamily: String(action?.viewFamily || action?.view_family || resolvedEntry?.viewFamily || "world").trim(),
+        stageKind: String(action?.stageKind || action?.stage_kind || resolvedEntry?.stageKind || "world-stage").trim(),
       },
-      entry || readViewpointEntry(viewpointId),
+      resolvedEntry,
     );
   }
 

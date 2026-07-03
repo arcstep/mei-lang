@@ -286,16 +286,111 @@ function filterFeatureCollection(featureCollection, matcher) {
   };
 }
 
+function webMercatorToWgs84(x, y) {
+  const r = 6378137;
+  const lng = (x / r) * (180 / Math.PI);
+  const lat = (Math.atan(Math.exp(y / r)) * 360) / Math.PI - 90;
+  return [lng, lat];
+}
+
+function coordinateNeedsMercatorReproject(coord) {
+  const x = Number(coord?.[0] ?? 0);
+  const y = Number(coord?.[1] ?? 0);
+  return Math.abs(x) > 180 || Math.abs(y) > 90;
+}
+
+function reprojectCoordinatePair(coord, reproject) {
+  if (!reproject || !Array.isArray(coord) || coord.length < 2) return coord;
+  const x = Number(coord[0]);
+  const y = Number(coord[1]);
+  if (!coordinateNeedsMercatorReproject([x, y])) return coord;
+  const [lng, lat] = webMercatorToWgs84(x, y);
+  return [lng, lat];
+}
+
+function reprojectRing(ring, reproject) {
+  return (Array.isArray(ring) ? ring : []).map((coord) => reprojectCoordinatePair(coord, reproject));
+}
+
+function flattenGeometry(geometry, reproject) {
+  if (!geometry || typeof geometry !== "object") return geometry;
+  const type = String(geometry.type || "");
+  if (type === "Polygon") {
+    return {
+      ...geometry,
+      coordinates: (geometry.coordinates || []).map((ring) => reprojectRing(ring, reproject)),
+    };
+  }
+  if (type === "MultiPolygon") {
+    const poly = geometry.coordinates?.[0];
+    if (!Array.isArray(poly)) return geometry;
+    return {
+      type: "Polygon",
+      coordinates: poly.map((ring) => reprojectRing(ring, reproject)),
+    };
+  }
+  if (type === "LineString") {
+    return {
+      ...geometry,
+      coordinates: reprojectRing(geometry.coordinates, reproject),
+    };
+  }
+  return geometry;
+}
+
+function footprintCollectionNeedsMercatorReproject(collection) {
+  const crsName = collection?.crs?.properties?.name;
+  if (String(crsName || "").includes("3857")) return true;
+  const sample = collection?.features?.[0]?.geometry?.coordinates;
+  const ring = sample?.[0]?.[0] || sample?.[0];
+  return Array.isArray(ring) && coordinateNeedsMercatorReproject(ring);
+}
+
+function normalizeFeatureProperties(feature) {
+  const props = { ...(feature?.properties || {}) };
+  let entityId = String(props.entityId || props.entity_id || feature?.id || "").trim();
+  if (!entityId) {
+    if (props.Id != null) entityId = `shixi_${props.Id}`;
+    else if (props.name) entityId = `shixi_${String(props.name).trim()}`;
+  }
+  if (entityId) props.entityId = entityId;
+  const geomType = String(feature?.geometry?.type || "");
+  if ((geomType === "Polygon" || geomType === "MultiPolygon") && !props.featureKind) {
+    if (props.height != null && props.height !== "") {
+      props.featureKind = "building";
+    }
+  }
+  if (!props.name && props.entityId) props.name = props.entityId;
+  return {
+    ...feature,
+    id: feature?.id || entityId || feature?.id,
+    properties: props,
+  };
+}
+
+export function normalizeImportedFootprint(collection) {
+  const base = ensureFeatureCollection(collection);
+  const reproject = footprintCollectionNeedsMercatorReproject(base);
+  const features = (base.features || []).map((feature) => {
+    const geometry = flattenGeometry(feature.geometry, reproject);
+    return normalizeFeatureProperties({ ...feature, geometry });
+  });
+  return {
+    type: "FeatureCollection",
+    features,
+  };
+}
+
 export function resolveEmittedFootprint(props = {}, host = null) {
   const worldRef = resolveWorldRef(props, host);
   if (!worldRef) return null;
   const fromProjection = window.__mei?.map_projection?.worlds?.[worldRef]?.emittedFootprint;
   if (fromProjection && typeof fromProjection === "object") {
-    return ensureFeatureCollection(fromProjection);
+    return normalizeImportedFootprint(fromProjection);
   }
   const fromPlan = window.__mei?.world_plan?.worlds?.[worldRef]?.emittedFootprint;
   if (fromPlan && typeof fromPlan === "object") {
-    return ensureFeatureCollection(fromPlan);
+    return normalizeImportedFootprint(fromPlan);
   }
   return null;
 }
@@ -325,7 +420,10 @@ export async function resolveLayerSource(layerSpec, props = {}, host = null) {
     return filterFeatureCollection(emitted, featureMatch);
   }
   if (url) {
-    return filterFeatureCollection(await fetchGeoJson(url), featureMatch);
+    return filterFeatureCollection(
+      normalizeImportedFootprint(await fetchGeoJson(url)),
+      featureMatch,
+    );
   }
   return {
     type: "FeatureCollection",
@@ -999,6 +1097,25 @@ export function buildBasemapStyle(basemap) {
     "background_color",
     "#0a1628",
   );
+  const omitVectorBasemap =
+    basemap.omitVectorBasemap === true ||
+    basemap.omit_vector_basemap === true ||
+    basemap.vectorBasemap === false ||
+    basemap.vector_basemap === false;
+  if (omitVectorBasemap) {
+    return {
+      version: 8,
+      glyphs: String(basemap.glyphs || DEFAULT_GLYPHS),
+      sources: {},
+      layers: [
+        {
+          id: "background",
+          type: "background",
+          paint: { "background-color": backgroundColor },
+        },
+      ],
+    };
+  }
   const waterColor = basemapPaintColorLiteral(basemap, "waterColor", "water_color", "#1e3a5f");
   const waterwayColor = basemapPaintColorLiteral(
     basemap,

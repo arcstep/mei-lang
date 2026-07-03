@@ -618,8 +618,8 @@
     }
   }
 
-  async function collectSnapshot() {
-    if (!isEnabled()) return null;
+  function syncGpuSnapshot() {
+    if (!isEnabled()) return;
     ensureSummaryShape();
     const canvasCount = document.querySelectorAll("canvas").length;
     const gpu = state.summary.gpu;
@@ -630,12 +630,17 @@
     if (performance?.memory?.usedJSHeapSize) {
       gpu.jsHeapMb = Math.round(performance.memory.usedJSHeapSize / 1048576);
     }
+    evaluateGpuAlerts(gpu);
+  }
+
+  async function collectSnapshot() {
+    if (!isEnabled()) return null;
+    syncGpuSnapshot();
     const storageAudit = await auditStorage();
     Object.assign(state.summary.storage, storageAudit);
-    evaluateGpuAlerts(gpu);
     scheduleFlush();
     return {
-      gpu: { ...gpu },
+      gpu: { ...state.summary.gpu },
       world: { ...state.summary.world },
       storage: { ...state.summary.storage },
     };
@@ -700,6 +705,11 @@
     if (st.sceneShellIdbBytesEst > SCENE_SHELL_BLOAT_BYTES) {
       hints.push("scene-shell IndexedDB 缓存超过 5MB，建议清理或降低保留条数。");
     }
+    if (w.enterCount === 0 && m.renderStart === 0 && m.instancesPeak === 0) {
+      hints.push(
+        "计数全为 0：请确认未在 dump 前调用 reset()，且地图已加载后再开始测试。",
+      );
+    }
     hints.push(
       "快检：(() => { const d = window.__meiBrowserRuntimeDiag; d?.snapshot?.(); return d?.dump?.(); })()",
     );
@@ -707,6 +717,7 @@
   }
 
   function dump() {
+    syncGpuSnapshot();
     const report = exportReport();
     console.group("[mei-runtime-diag] browser runtime report");
     console.log("hints:", report.hints);

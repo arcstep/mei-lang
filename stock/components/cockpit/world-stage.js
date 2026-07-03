@@ -9,6 +9,7 @@ import {
 } from "./cockpit-stage-overlay.js";
 import { resolveCockpitStageSurface } from "./map-focus-inset.js";
 import { createWorldPropScreenMesh } from "./world-prop-screen.js";
+import { normalizeImportedFootprint } from "../gis/layer-spec.js";
 
 const TAG = "mei-world-stage";
 const WORLD_RUNTIME_INSTANCES = new Set();
@@ -21,7 +22,7 @@ function isWorldStageActive() {
   );
 }
 const ORBIT_MIN_DISTANCE = 5;
-const ORBIT_MAX_DISTANCE = 96;
+const ORBIT_MAX_DISTANCE = 960;
 const ORBIT_MIN_POLAR_DEG = 18;
 const ORBIT_MAX_POLAR_DEG = 80;
 const PICK_MOVE_THRESHOLD_PX = 6;
@@ -66,6 +67,21 @@ function resolveInjectedWorldPlan(worldRef) {
   const worlds = window.__mei?.world_plan?.worlds;
   if (worlds && worlds[ref]) {
     return worlds[ref];
+  }
+  return null;
+}
+
+function resolveWorldFootprintGeojson(worldRef, plan) {
+  const ref = String(worldRef || "park_world").trim();
+  const candidates = [
+    plan?.emittedFootprint,
+    window.__mei?.map_projection?.worlds?.[ref]?.emittedFootprint,
+    window.__mei?.world_plan?.worlds?.[ref]?.emittedFootprint,
+  ];
+  for (const item of candidates) {
+    if (item && typeof item === "object" && Array.isArray(item.features)) {
+      return normalizeImportedFootprint(item);
+    }
   }
   return null;
 }
@@ -161,8 +177,91 @@ function resolveBuildingIdFromParent(parentId, plan) {
   return parent;
 }
 
+function resolveWorldStageRegistry(plan) {
+  const rows = Array.isArray(plan?.worldStageEntities) ? plan.worldStageEntities : [];
+  const byEntity = new Map();
+  for (const row of rows) {
+    const entityId = String(row?.entityId || row?.entity_id || "").trim();
+    if (!entityId) continue;
+    const members = Array.isArray(row?.members)
+      ? row.members.map((member) => String(member || "").trim()).filter(Boolean)
+      : [];
+    byEntity.set(entityId, { entityId, members, worldEnterable: row?.worldEnterable === true });
+  }
+  return byEntity;
+}
+
+function resolveStageBuildingId(prim, plan) {
+  const kind = String(prim?.kind || "").trim();
+  if (kind === "building") {
+    return String(prim.featureEntityId || prim.id || "").trim();
+  }
+  return resolveBuildingIdFromParent(prim?.parent, plan);
+}
+
+function shouldRenderWorldPrimitive(prim, plan, stageRegistry) {
+  const kind = String(prim?.kind || "").trim();
+  if (prim?.mapOnly === true || kind === "building_import") {
+    return false;
+  }
+  if (!stageRegistry || stageRegistry.size === 0) {
+    return kind !== "building_import";
+  }
+  if (kind === "ground" || kind === "pool" || kind === "green" || kind === "route" || kind === "road") {
+    return true;
+  }
+  const buildingId = resolveStageBuildingId(prim, plan);
+  return Boolean(buildingId && stageRegistry.has(buildingId));
+}
+
+function meshBelongsToStageEntity(mesh, entityId, stageRegistry) {
+  const id = String(entityId || "").trim();
+  if (!id) return true;
+  const entry = stageRegistry?.get(id);
+  const members = new Set(entry?.members || []);
+  const tags = mesh?.userData?.layerTags || [];
+  const meshEntity = String(mesh?.userData?.entityId || "");
+  if (meshEntity === id) return true;
+  if (members.has(meshEntity)) return true;
+  return tags.some((tag) => members.has(String(tag)) || String(tag) === id || String(tag) === `${id}:shell`);
+}
+
 function readEntityId(feature) {
-  return String(feature?.properties?.entityId || feature?.id || "").trim();
+  return String(
+    feature?.properties?.entityId ||
+      feature?.properties?.entity_id ||
+      feature?.id ||
+      "",
+  ).trim();
+}
+
+function featureMatchesProperties(feature, matcher) {
+  if (!matcher || typeof matcher !== "object" || Array.isArray(matcher)) {
+    return true;
+  }
+  const props = feature?.properties && typeof feature.properties === "object" ? feature.properties : {};
+  return Object.entries(matcher).every(([key, expected]) => {
+    const actual = props[key];
+    if (Array.isArray(expected)) {
+      return expected.some((value) => String(actual ?? "").trim() === String(value ?? "").trim());
+    }
+    return String(actual ?? "").trim() === String(expected ?? "").trim();
+  });
+}
+
+function polygonRingsFromFeature(feature) {
+  const geom = feature?.geometry;
+  if (!geom) return [];
+  if (geom.type === "Polygon") {
+    const ring = geom.coordinates?.[0] || [];
+    return ring.length >= 3 ? [ring] : [];
+  }
+  if (geom.type === "MultiPolygon") {
+    return (geom.coordinates || [])
+      .map((poly) => poly?.[0] || [])
+      .filter((ring) => ring.length >= 3);
+  }
+  return [];
 }
 
 function offsetFromCamera(camera, target) {
@@ -230,6 +329,7 @@ class MeiWorldStage extends HTMLElement {
     if (!this._onWorldStageExited) {
       this._onWorldStageExited = () => {
         this.deactivateInteractionSurface();
+        this._pendingWorldTarget = null;
         this.disposeScene();
       };
       window.addEventListener("mei:world-stage-exited", this._onWorldStageExited);
@@ -391,6 +491,7 @@ class MeiWorldStage extends HTMLElement {
         hadRenderer: false,
       });
     }
+  }
 
   renderChrome() {
     const root = this.shadowRoot;
@@ -496,10 +597,10 @@ class MeiWorldStage extends HTMLElement {
       };
       this._scene = new THREE.Scene();
       this._scene.background = new THREE.Color(0x071526);
-      this._scene.fog = new THREE.Fog(0x071526, 80, 260);
+      this._scene.fog = new THREE.Fog(0x071526, 160, 1800);
       const width = Math.max(320, this.clientWidth || viewport.clientWidth || 320);
       const height = Math.max(240, this.clientHeight || viewport.clientHeight || 240);
-      this._camera = new THREE.PerspectiveCamera(52, width / height, 0.1, 500);
+      this._camera = new THREE.PerspectiveCamera(52, width / height, 0.1, 2400);
       this._camera.position.set(26, 34, 38);
       this._renderer = new THREE.WebGLRenderer({
         antialias: true,
@@ -517,7 +618,7 @@ class MeiWorldStage extends HTMLElement {
       sun.position.set(40, 80, 20);
       this._scene.add(ambient, sun);
       const ground = new THREE.Mesh(
-        new THREE.PlaneGeometry(180, 180),
+        new THREE.PlaneGeometry(1600, 1600),
         new THREE.MeshStandardMaterial({ color: 0x12324f, roughness: 0.92, metalness: 0.04 }),
       );
       ground.rotation.x = -Math.PI / 2;
@@ -536,14 +637,14 @@ class MeiWorldStage extends HTMLElement {
       }
       if (this._pendingWorldTarget) {
         this.applyWorldTarget(this._pendingWorldTarget);
-      } else {
-        this.applyCameraPreset(this.resolveWorldTargetPreset("park_world_overview"));
       }
       if (isWorldStageActive()) {
         this.activateInteractionSurface();
       }
       window.__meiBrowserRuntimeDiag?.record?.("world_scene_bootstrapped", {
         worldRef: resolveWorldRef(this.props, this) || "park_world",
+        meshCount: this._meshes.size,
+        featureCount: this._footprintsByEntity?.size ?? 0,
       });
     } catch (error) {
       if (errorEl) {
@@ -789,7 +890,7 @@ class MeiWorldStage extends HTMLElement {
     const worldRef = resolveWorldRef(this.props, this) || "park_world";
     const plan = this._worldPlan || resolveInjectedWorldPlan(worldRef);
     const worldSpec = this.props?.worldSpec || {};
-    const inlineFootprint = plan?.emittedFootprint;
+    const inlineFootprint = resolveWorldFootprintGeojson(worldRef, plan);
     const geoUrl = String(
       plan?.emittedFootprintUrl ||
         plan?.spatialSources?.[0]?.url ||
@@ -800,7 +901,9 @@ class MeiWorldStage extends HTMLElement {
     if (!inlineFootprint && !geoUrl) {
       throw new Error("world_plan 缺少 emittedFootprint 或 footprint GeoJSON URL");
     }
-    const geojson = inlineFootprint || (await this.fetchJson(geoUrl));
+    const geojson = normalizeImportedFootprint(
+      inlineFootprint || (await this.fetchJson(geoUrl)),
+    );
     if (!plan) {
       throw new Error(`world_plan 未注入：${worldRef}`);
     }
@@ -809,6 +912,8 @@ class MeiWorldStage extends HTMLElement {
 
   buildFromWorldPlan(plan, geojson) {
     this._worldPlan = plan;
+    this._stageRegistry = resolveWorldStageRegistry(plan);
+    this._activeStageEntity = "";
     const featuresByEntity = featureMapFromGeojson(geojson);
     this._footprintsByEntity = featuresByEntity;
     const primitives = Array.isArray(plan.primitives) ? plan.primitives : [];
@@ -835,6 +940,9 @@ class MeiWorldStage extends HTMLElement {
     const deferred = [];
     for (const prim of primitives) {
       const kind = String(prim.kind || "").trim();
+      if (!shouldRenderWorldPrimitive(prim, plan, this._stageRegistry)) {
+        continue;
+      }
       if (kind === "floor" || kind === "wall_ring" || kind === "roof" || kind === "prop") {
         deferred.push(prim);
         continue;
@@ -842,9 +950,27 @@ class MeiWorldStage extends HTMLElement {
       this.mountPrimitiveMeshes(prim, featuresByEntity);
     }
     for (const prim of deferred) {
+      if (!shouldRenderWorldPrimitive(prim, plan, this._stageRegistry)) {
+        continue;
+      }
       this.mountPrimitiveMeshes(prim, featuresByEntity);
     }
     this.initViewLayers(plan.viewLayers || []);
+    if (this._activeStageEntity) {
+      this.applyStageEntityVisibility(this._activeStageEntity);
+    }
+  }
+
+  applyStageEntityVisibility(entityId) {
+    const id = String(entityId || "").trim();
+    this._activeStageEntity = id;
+    if (!id || !this._stageRegistry?.size) {
+      return;
+    }
+    for (const mesh of this._meshes.values()) {
+      mesh.visible = meshBelongsToStageEntity(mesh, id, this._stageRegistry);
+    }
+    this.applyViewLayerVisibility();
   }
 
   mountPrimitiveMeshes(prim, featuresByEntity) {
@@ -852,7 +978,7 @@ class MeiWorldStage extends HTMLElement {
     for (const entry of built) {
       const mesh = entry.mesh;
       mesh.name = entry.meshId;
-      mesh.userData.entityId = String(prim.id || entry.meshId);
+      mesh.userData.entityId = String(entry.entityId || prim.id || entry.meshId);
       mesh.userData.layerTags = entry.layerTags || [entry.meshId];
       if (entry.shellMesh) mesh.userData.shellMesh = true;
       if (entry.roofMesh) mesh.userData.roofMesh = true;
@@ -879,14 +1005,25 @@ class MeiWorldStage extends HTMLElement {
     const opacity = Number(material.opacity ?? 0.72);
     const results = [];
 
-    if (kind === "building" && feature?.geometry?.type === "Polygon") {
+    if (kind === "building_import") {
+      // 批量导入仅用于 map_projection（MapLibre fill-extrusion），不在 Three.js 挤出。
+      return results;
+    }
+
+    if (kind === "building" && (feature?.geometry?.type === "Polygon" || feature?.geometry?.type === "MultiPolygon")) {
+      const rings = polygonRingsFromFeature(feature);
+      if (!rings.length) return results;
+      const ring = rings[0];
       const layer = footprintLayerFor("extrude_shell");
-      const ring = feature.geometry.coordinates?.[0] || [];
       const shape = ringToShape(ring, this._siteOrigin);
       const semantics = this._buildingSemantics.get(String(prim.id || "")) || {};
       const worldView = prim.worldView || semantics.worldView || {};
       const height = Number(
-        prim.height ?? worldView.shellHeight ?? semantics.height ?? 8.6,
+        prim.height ??
+          feature?.properties?.height ??
+          worldView.shellHeight ??
+          semantics.height ??
+          8.6,
       );
       const geom = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
       geom.rotateX(-Math.PI / 2);
@@ -905,6 +1042,7 @@ class MeiWorldStage extends HTMLElement {
       results.push({
         meshId: `${prim.id}:shell`,
         mesh,
+        entityId: String(prim.featureEntityId || prim.id || ""),
         layerTags: [`${prim.id}:shell`, prim.id],
         shellMesh: true,
       });
@@ -1190,7 +1328,9 @@ class MeiWorldStage extends HTMLElement {
           break;
         }
       }
-      const interiorMode = this._viewLayerVisibility.get("floor_1") === true;
+      const interiorMode =
+        this._viewLayerVisibility.get("floor_1") === true ||
+        this._viewLayerVisibility.get("play_floor_1") === true;
       if (
         visible &&
         interiorMode &&
@@ -1316,7 +1456,6 @@ class MeiWorldStage extends HTMLElement {
     const targetMesh =
       this._meshes.get(targetEntity) ||
       this._meshes.get(`${targetEntity}:shell`) ||
-      this._meshes.get("lake_pavilion:shell") ||
       this._meshes.values().next().value;
     const box = targetMesh ? new THREE.Box3().setFromObject(targetMesh) : null;
     const center = box
@@ -1409,6 +1548,7 @@ class MeiWorldStage extends HTMLElement {
     }
     if (resolved.entityId) {
       this.focusEntity(resolved.entityId);
+      this.applyStageEntityVisibility(resolved.entityId);
     }
     if (preset) {
       this.applyCameraPreset(preset);

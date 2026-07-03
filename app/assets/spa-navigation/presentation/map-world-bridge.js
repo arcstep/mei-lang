@@ -26,10 +26,10 @@
         return family === "world" && entity === id;
       });
     if (!candidates.length) return null;
-    const preferred = candidates.find(({ entry }) =>
-      String(entry?.cameraPreset || entry?.camera_preset || "").includes("layout"),
+    const entryPreferred = candidates.find(({ viewpointId }) =>
+      String(viewpointId || "").endsWith("_world_entry"),
     );
-    return preferred || candidates[0];
+    return entryPreferred || candidates[0];
   }
 
   function dispatchEnterWorldView(detail) {
@@ -75,6 +75,9 @@
           entry.cameraPreset ||
           entry.camera_preset ||
           "",
+      ).trim(),
+      groupId: String(
+        detail?.groupId || detail?.group_id || entry.groupId || entry.group_id || "",
       ).trim(),
       panelId: String(detail?.panelId || entry.panelId || "world_viewport").trim(),
     };

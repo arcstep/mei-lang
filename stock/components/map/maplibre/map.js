@@ -190,6 +190,19 @@ function formatPopupFieldValue(raw, meta) {
   return String(raw);
 }
 
+function readPresentationViewpointEntry(viewpointId) {
+  const id = String(viewpointId || "").trim();
+  if (!id || typeof document === "undefined") return null;
+  try {
+    const node = document.getElementById("mei-presentation-map");
+    if (!(node instanceof HTMLScriptElement) || !node.textContent) return null;
+    const map = JSON.parse(node.textContent);
+    return map?.viewpoints?.[id] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 if (!customElements.get(TAG)) {
   class MeiMapMaplibreElement extends HTMLElement {
     connectedCallback() {
@@ -1326,6 +1339,13 @@ if (!customElements.get(TAG)) {
       const extrusionId = `extrude-${layerId}`;
       const lineId = `line-${layerId}`;
       const fillColor = style.fillColor || "#1e3a5f";
+      const extrusionHeightProperty = String(
+        style.extrusionHeightProperty ||
+          style.extrusion_height_property ||
+          layerSpec.extrusionHeightProperty ||
+          layerSpec.extrusion_height_property ||
+          "",
+      ).trim();
       const extrusionHeight = Number(
         style.extrusionHeight ??
           style.extrusion_height ??
@@ -1333,6 +1353,10 @@ if (!customElements.get(TAG)) {
           layerSpec.extrusion_height ??
           0,
       );
+      const extrusionPaintHeight = extrusionHeightProperty
+        ? ["coalesce", ["to-number", ["get", extrusionHeightProperty]], extrusionHeight || 8]
+        : extrusionHeight;
+      const useExtrusion = Boolean(extrusionHeightProperty) || extrusionHeight > 0;
       const dataWithColors = {
         type: "FeatureCollection",
         features: (geojson.features || []).map((feature) => {
@@ -1360,7 +1384,7 @@ if (!customElements.get(TAG)) {
       this.map.getSource(sourceId).setData(dataWithColors);
 
       if (!outlineOnly) {
-        if (extrusionHeight > 0 && !this.map.getLayer(extrusionId)) {
+        if (useExtrusion && !this.map.getLayer(extrusionId)) {
           this.map.addLayer({
             id: extrusionId,
             type: "fill-extrusion",
@@ -1368,7 +1392,7 @@ if (!customElements.get(TAG)) {
             minzoom: 12,
             paint: {
               "fill-extrusion-color": ["coalesce", ["get", "__fill"], fillColor],
-              "fill-extrusion-height": extrusionHeight,
+              "fill-extrusion-height": extrusionPaintHeight,
               "fill-extrusion-opacity":
                 fillOpacityRaw != null && fillOpacityRaw !== ""
                   ? Number(fillOpacityRaw)
@@ -1411,7 +1435,7 @@ if (!customElements.get(TAG)) {
         mapLayerIds.push(lineId);
       }
       if (!outlineOnly) {
-        const interactiveLayerId = extrusionHeight > 0 ? extrusionId : fillId;
+        const interactiveLayerId = useExtrusion ? extrusionId : fillId;
         this.bindLayerEvents(interactiveLayerId, layerId, joinKey, layerSpec);
       }
       this.bindLayerEvents(lineId, layerId, joinKey, layerSpec);
@@ -1768,12 +1792,27 @@ if (!customElements.get(TAG)) {
           layerSpec.label ||
           entityId,
       ).trim();
+      const viewpointEntry = enterViewpoint ? readPresentationViewpointEntry(enterViewpoint) : null;
       return {
         entityId,
         enterLabel,
         layerId: String(layerSpec.id || layerSpec.layerId || "").trim(),
         enterViewpoint,
         worldRef: resolveWorldRef(props, this),
+        cameraPreset: String(
+          layerSpec.cameraPreset ||
+            layerSpec.camera_preset ||
+            viewpointEntry?.cameraPreset ||
+            viewpointEntry?.camera_preset ||
+            "",
+        ).trim(),
+        groupId: String(
+          layerSpec.groupId ||
+            layerSpec.group_id ||
+            viewpointEntry?.groupId ||
+            viewpointEntry?.group_id ||
+            "",
+        ).trim(),
       };
     }
 
@@ -1793,6 +1832,8 @@ if (!customElements.get(TAG)) {
               enterViewpoint: meta.enterViewpoint,
               viewpoint: meta.enterViewpoint,
               worldRef: meta.worldRef,
+              cameraPreset: meta.cameraPreset,
+              groupId: meta.groupId,
               panelId: "world_viewport",
             },
           }),
