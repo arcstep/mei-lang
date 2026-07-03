@@ -227,17 +227,28 @@
     return nav;
   }
 
+  function mountWorldStageChromeOnBody(node) {
+    if (!(node instanceof HTMLElement)) {
+      return;
+    }
+    if (node.parentElement !== document.body) {
+      document.body.appendChild(node);
+    }
+    node.classList.remove("mei-cockpit-in-stage-shell");
+    node.style.zIndex = "calc(var(--mei-z-cockpit-map-tools) + 4)";
+  }
+
   function positionWorldChrome() {
     const host = resolveMapCockpitHost();
     const focus = host?._layout?.focusInsetPx;
     const gap = 10;
     const floatNav = ensureFloatingNav();
-    floatNav.setAttribute("data-mei-overlay-role", "map_tools");
-    if (host && typeof boot.mountCockpitFloatingControl === "function") {
-      boot.mountCockpitFloatingControl(floatNav, host);
-      if (typeof boot.positionCockpitFloatingNav === "function" && focus) {
-        boot.positionCockpitFloatingNav(floatNav, host, focus, gap);
-      }
+    floatNav.setAttribute("data-mei-overlay-role", "world_stage_tools");
+    mountWorldStageChromeOnBody(floatNav);
+    if (host && focus && typeof boot.positionFocusInsetTopRightFixed === "function") {
+      boot.positionFocusInsetTopRightFixed(floatNav, host, focus, gap);
+    } else if (host && focus && typeof boot.positionCockpitFloatingNav === "function") {
+      boot.positionCockpitFloatingNav(floatNav, host, focus, gap);
     } else {
       const resolved = resolveMapCockpitLayout();
       if (!resolved) return;
@@ -248,19 +259,18 @@
       floatNav.style.bottom = "auto";
     }
     const backNav = ensureBackNav();
-    backNav.setAttribute("data-mei-overlay-role", "map_tools");
-    if (host && typeof boot.mountCockpitFloatingControl === "function" && focus) {
-      boot.mountCockpitFloatingControl(backNav, host);
-      if (typeof boot.positionFocusInsetBottomCenter === "function") {
-        boot.positionFocusInsetBottomCenter(backNav, host, focus, 16);
-      }
-    } else {
-      const resolved = resolveMapCockpitLayout();
-      if (!resolved) return;
+    backNav.setAttribute("data-mei-overlay-role", "world_stage_tools");
+    mountWorldStageChromeOnBody(backNav);
+    const resolved = resolveMapCockpitLayout();
+    if (resolved) {
       backNav.style.position = "fixed";
       backNav.style.left = `${Math.round(resolved.left + resolved.width / 2)}px`;
       backNav.style.bottom = `${Math.round(resolved.bottom + 16)}px`;
       backNav.style.transform = "translateX(-50%)";
+      backNav.style.top = "auto";
+      backNav.style.right = "auto";
+    } else if (host && focus && typeof boot.positionFocusInsetBottomCenter === "function") {
+      boot.positionFocusInsetBottomCenter(backNav, host, focus, 16);
     }
   }
 

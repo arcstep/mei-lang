@@ -2,6 +2,26 @@
 
 const PARSED_DATA_PROPS_CACHE = new WeakMap();
 
+export function resolveWorldRef(props = {}, element = null) {
+  let ref = String(
+    props?.worldRef || props?.world_ref || props?.__mei_world_ref || "",
+  ).trim();
+  if (!ref && element instanceof Element) {
+    const host = element.closest("[data-mei-world-ref]");
+    ref = String(host?.getAttribute("data-mei-world-ref") || "").trim();
+  }
+  if (!ref && typeof window !== "undefined") {
+    const worlds = window.__mei?.map_projection?.worlds;
+    if (worlds && typeof worlds === "object") {
+      const keys = Object.keys(worlds);
+      if (keys.length === 1) {
+        ref = keys[0];
+      }
+    }
+  }
+  return ref;
+}
+
 export function parseProps(element) {
   if (!(element instanceof Element)) {
     return {};

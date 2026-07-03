@@ -32,6 +32,14 @@
       "tag": "mei-world-stage",
       "script": "world-stage.js"
     },
+    "cockpit.world-prop-screen": {
+      "tag": "mei-world-prop-screen",
+      "script": "world-prop-screen.js"
+    },
+    "cockpit.scene-action-bar": {
+      "tag": "mei-cockpit-scene-action-bar",
+      "script": "scene-action-bar.js"
+    },
     "cockpit.opinion-panel": {
       "tag": "mei-cockpit-opinion-panel",
       "script": "opinion-panel.js"

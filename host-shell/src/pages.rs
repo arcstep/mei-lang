@@ -1081,10 +1081,14 @@ pub(crate) fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph:
         serde_json::to_string(&outcome.layer_plan).unwrap_or_else(|_| "{}".to_string());
     let presentation_map =
         serde_json::to_string(&outcome.presentation_map).unwrap_or_else(|_| "{}".to_string());
+    let world_plan =
+        serde_json::to_string(&outcome.world_plan).unwrap_or_else(|_| "{}".to_string());
+    let map_projection =
+        serde_json::to_string(&outcome.map_projection).unwrap_or_else(|_| "{}".to_string());
     let overlay_defaults = serde_json::to_string(&outcome.overlay_defaults)
         .unwrap_or_else(|_| "{}".to_string());
     let scripts = format!(
-        r#"<script type="application/json" id="mei-layer-plan">{layer_plan}</script><script type="application/json" id="mei-presentation-map">{presentation_map}</script><script>window.__mei=window.__mei||{{}};window.__mei.layer_plan={layer_plan};window.__mei.presentation_map={presentation_map};window.__mei.overlay_defaults={overlay_defaults};window.__mei.t2_overlay_defaults={overlay_defaults};window.__mei.page_overlay_defaults={overlay_defaults};</script>"#
+        r#"<script type="application/json" id="mei-layer-plan">{layer_plan}</script><script type="application/json" id="mei-presentation-map">{presentation_map}</script><script type="application/json" id="mei-world-plan">{world_plan}</script><script type="application/json" id="mei-map-projection">{map_projection}</script><script>window.__mei=window.__mei||{{}};window.__mei.layer_plan={layer_plan};window.__mei.presentation_map={presentation_map};window.__mei.world_plan={world_plan};window.__mei.map_projection={map_projection};window.__mei.overlay_defaults={overlay_defaults};window.__mei.t2_overlay_defaults={overlay_defaults};window.__mei.page_overlay_defaults={overlay_defaults};</script>"#
     );
     if let Some(pos) = html.find("</head>") {
         let mut out = String::with_capacity(html.len() + scripts.len());

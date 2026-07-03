@@ -1755,8 +1755,8 @@ body:not(.mei-copilot-viewport-mounted) .access-chat-overlay-panel {
 .access-scene-board-overlay {
   z-index: var(--mei-z-drilldown-board);
 }
-/* 首屏地图 POI 弹窗（挂到 body 后仍走统一 tooltip 层级） */
-body > .maplibregl-popup.mei-cockpit-floating-tip {
+/* 首屏地图 POI 弹窗（挂 body 或 viewport-context-plane 均适用） */
+.maplibregl-popup.mei-cockpit-floating-tip {
   z-index: var(--mei-z-cockpit-tooltip);
   pointer-events: auto;
 }
@@ -1766,7 +1766,7 @@ body.access-drilldown-open > .maplibregl-popup.mei-cockpit-floating-tip {
 body > .mei-cockpit-echarts-tooltip {
   z-index: var(--mei-z-cockpit-tooltip-in-board) !important;
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-content {
+.maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-content {
   background: linear-gradient(180deg, rgba(12, 30, 56, 0.99) 0%, rgba(7, 16, 30, 1) 100%);
   color: var(--mei-color-text-inverse);
   border: 1px solid rgba(96, 180, 255, 0.5);
@@ -1775,37 +1775,37 @@ body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-content {
   padding: 12px 14px;
   font-family: var(--mei-font-family-ui);
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-tip {
-  border-top-color: var(--mei-color-text-muted);
-  border-bottom-color: var(--mei-color-text-muted);
+.maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-tip {
+  border-top-color: rgba(12, 30, 56, 0.98);
+  border-bottom-color: rgba(12, 30, 56, 0.98);
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-close-button {
+.maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-close-button {
   color: var(--mei-color-text-body);
   font-size: var(--mei-font-2);
   padding: 4px 8px;
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-close-button:hover {
+.maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-close-button:hover {
   color: var(--mei-color-text-inverse);
   background: var(--mei-color-surface-bg);
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .popup-wrap {
+.maplibregl-popup.mei-cockpit-floating-tip .popup-wrap {
   display: grid;
   gap: 7px;
   min-width: 180px;
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .popup-row {
+.maplibregl-popup.mei-cockpit-floating-tip .popup-row {
   display: grid;
   grid-template-columns: 88px 1fr;
   gap: 8px;
   align-items: baseline;
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .popup-label {
-  color: var(--mei-color-text-primary);
+.maplibregl-popup.mei-cockpit-floating-tip .popup-label {
+  color: #93c5fd;
   font-size: var(--mei-font-2);
   font-weight: 500;
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .popup-value {
-  color: var(--mei-color-text-primary);
+.maplibregl-popup.mei-cockpit-floating-tip .popup-value {
+  color: #f8fafc;
   font-size: var(--mei-font-2);
   font-weight: 600;
   text-align: right;
@@ -2572,6 +2572,13 @@ html:not(.mei-world-stage-active) .mei-world-stage-input-plane {
   display: none !important;
   pointer-events: none !important;
 }
+html.mei-world-stage-active .mei-world-stage-floating-nav.is-visible,
+html.mei-world-stage-active .mei-world-stage-back-nav.is-visible {
+  position: fixed;
+  z-index: calc(var(--mei-z-cockpit-map-tools) + 4);
+  visibility: visible;
+  pointer-events: auto;
+}
 .mei-world-stage-floating-nav {
   position: absolute;
   z-index: var(--mei-z-cockpit-map-tools);
@@ -2687,12 +2694,12 @@ html:not(.mei-world-stage-active) .mei-world-stage-input-plane {
   border-color: rgba(125, 211, 252, 0.8);
   background: rgba(14, 52, 96, 0.95);
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .popup-actions {
+.maplibregl-popup.mei-cockpit-floating-tip .popup-actions {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid rgba(125, 211, 252, 0.22);
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .mei-map-world-enter-btn {
+.maplibregl-popup.mei-cockpit-floating-tip .mei-map-world-enter-btn {
   width: 100%;
   border: 1px solid rgba(125, 211, 252, 0.45);
   background: rgba(14, 52, 96, 0.82);
@@ -2702,7 +2709,7 @@ body > .maplibregl-popup.mei-cockpit-floating-tip .mei-map-world-enter-btn {
   font-size: 13px;
   cursor: pointer;
 }
-body > .maplibregl-popup.mei-cockpit-floating-tip .mei-map-world-enter-btn:hover {
+.maplibregl-popup.mei-cockpit-floating-tip .mei-map-world-enter-btn:hover {
   border-color: rgba(125, 211, 252, 0.85);
   background: rgba(14, 72, 110, 0.92);
 }

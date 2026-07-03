@@ -32,6 +32,7 @@ import {
   resolveFeatureJoinKey,
   resolveLayerJoinKey,
   resolveLayerSource,
+  resolveWorldRef,
   valueToColor,
   mapLibrePaintColor,
 } from "../../gis/layer-spec.js";
@@ -55,6 +56,33 @@ import { ensureMapLibreGlobal } from "../../vendor/runtime-libs.js";
 const TAG = "mei-map-maplibre";
 const MAPLIBRE_LOCAL_CSS = "/workspace-components/vendor/maplibre/maplibre-gl.css";
 const MAP_RUNTIME_INSTANCES = new Set();
+const DRONE_DISTANCE_THRESHOLD_M = 400;
+const DRONE_ZOOM_DELTA_THRESHOLD = 2;
+
+function haversineMeters(lng1, lat1, lng2, lat2) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function easeToPromise(map, options) {
+  return new Promise((resolve) => {
+    const duration = Number(options.duration ?? 800);
+    const onEnd = () => resolve();
+    map.once("moveend", onEnd);
+    map.easeTo({ ...options, duration });
+    window.setTimeout(onEnd, duration + 120);
+  });
+}
+
+function wantsDroneTransition(resolved) {
+  const mode = String(resolved.transition || resolved.cameraTransition || "").trim().toLowerCase();
+  return mode === "drone" || resolved.droneTransition === true || resolved.drone_transition === true;
+}
 
 const LAYER_TOGGLE_ICON_HTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
   <path d="M12 4 4 8l8 4 8-4-8-4Z"></path>
@@ -149,15 +177,22 @@ if (!customElements.get(TAG)) {
         this.scheduleLayerControlLayout();
       });
       if (!this._onWorldStageExited) {
-        this._onWorldStageExited = () => this.restoreWorldEnterPopup();
+        this._onWorldStageExited = () => {
+          this.resumeMapForWorldStage();
+          this.restoreWorldEnterPopup();
+        };
         window.addEventListener("mei:world-stage-exited", this._onWorldStageExited);
       }
       if (!this._onWorldStageEntered) {
         this._onWorldStageEntered = () => {
           this.clearPopup();
+          this.pauseMapForWorldStage();
           this.syncCockpitMapToolsLayer();
         };
         window.addEventListener("mei:world-stage-entered", this._onWorldStageEntered);
+      }
+      if (document.documentElement.classList.contains("mei-world-stage-active")) {
+        this.pauseMapForWorldStage();
       }
       this._cleanupDefer = deferUntilDisplayed(this, () => {
         this._cleanupDefer = null;
@@ -330,7 +365,68 @@ if (!customElements.get(TAG)) {
           this.setLayerVisible(layerId, visible);
         }
       });
-      this.renderLayerControl(normalizeMapSpec(this.effectiveProps()).layers, this.effectiveProps());
+      this.renderLayerControl(normalizeMapSpec(this.effectiveProps(), this).layers, this.effectiveProps());
+    }
+
+    async runDroneCameraTransition(camera, resolved) {
+      if (!this.map) {
+        return;
+      }
+      const droneZoomOut = Number(resolved.droneZoomOut ?? resolved.drone_zoom_out ?? 10);
+      const targetZoom = Number(
+        resolved.droneZoomIn ?? resolved.drone_zoom_in ?? camera.zoom ?? this.map.getZoom(),
+      );
+      const targetCenter = Array.isArray(camera.center) ? camera.center : null;
+      if (!targetCenter) {
+        this.map.easeTo({
+          center: camera.center,
+          zoom: camera.zoom,
+          bearing: camera.bearing,
+          pitch: camera.pitch,
+          duration: 800,
+        });
+        return;
+      }
+      const currentCenter = this.map.getCenter();
+      const currentZoom = this.map.getZoom();
+      const distance = haversineMeters(
+        currentCenter.lng,
+        currentCenter.lat,
+        Number(targetCenter[0]),
+        Number(targetCenter[1]),
+      );
+      const zoomDelta = Math.abs(currentZoom - targetZoom);
+      if (zoomDelta <= DRONE_ZOOM_DELTA_THRESHOLD && distance <= DRONE_DISTANCE_THRESHOLD_M) {
+        await easeToPromise(this.map, {
+          center: targetCenter,
+          zoom: targetZoom,
+          bearing: camera.bearing,
+          pitch: camera.pitch,
+          duration: 800,
+        });
+        return;
+      }
+      const midPitch = Number.isFinite(camera.pitch) ? Math.min(camera.pitch, 50) : 42;
+      await easeToPromise(this.map, {
+        zoom: droneZoomOut,
+        bearing: camera.bearing,
+        pitch: midPitch,
+        duration: 600,
+      });
+      await easeToPromise(this.map, {
+        center: targetCenter,
+        zoom: droneZoomOut,
+        bearing: camera.bearing,
+        pitch: midPitch,
+        duration: 800,
+      });
+      await easeToPromise(this.map, {
+        center: targetCenter,
+        zoom: targetZoom,
+        bearing: camera.bearing,
+        pitch: camera.pitch,
+        duration: 900,
+      });
     }
 
     applyWorldTarget(target) {
@@ -376,13 +472,17 @@ if (!customElements.get(TAG)) {
           maxZoom: camera.zoom,
         });
       } else if (camera.center || camera.zoom != null || camera.bearing != null || camera.pitch != null) {
-        this.map.easeTo({
-          center: camera.center,
-          zoom: camera.zoom,
-          bearing: camera.bearing,
-          pitch: camera.pitch,
-          duration: 800,
-        });
+        if (wantsDroneTransition(resolved)) {
+          void this.runDroneCameraTransition(camera, resolved);
+        } else {
+          this.map.easeTo({
+            center: camera.center,
+            zoom: camera.zoom,
+            bearing: camera.bearing,
+            pitch: camera.pitch,
+            duration: 800,
+          });
+        }
       }
       if (resolved.groupId) {
         this.setLogicalLayersVisible(resolved.layerIds || resolved.layers, true);
@@ -397,7 +497,7 @@ if (!customElements.get(TAG)) {
           return false;
         }
         const props = parseProps(this);
-        const { layers } = normalizeMapSpec(props);
+        const { layers } = normalizeMapSpec(props, this);
         if (!mapLayersNeedRuntimeMetrics(layers, props)) {
           this._runtimeLayerProps = null;
           return false;
@@ -440,7 +540,7 @@ if (!customElements.get(TAG)) {
           });
           if (sync) {
             const effectiveProps = this.effectiveProps();
-            const { layers: normalizedLayers } = normalizeMapSpec(effectiveProps);
+            const { layers: normalizedLayers } = normalizeMapSpec(effectiveProps, this);
             await this.syncLayers(normalizedLayers, effectiveProps);
           }
           return true;
@@ -499,7 +599,7 @@ if (!customElements.get(TAG)) {
           this._runtimeLayerProps = null;
           this._syncLayersTask = null;
           this._layerMetricsTask = null;
-          const { basemap, layers } = normalizeMapSpec(domProps);
+          const { basemap, layers } = normalizeMapSpec(domProps, this);
           const layout = resolveMapLayout(domProps, basemap);
           this._layout = layout;
           this.applyViewportChrome(layout);
@@ -507,7 +607,7 @@ if (!customElements.get(TAG)) {
           await this.renderMap(domProps, basemap, layers, layout);
         } else {
           const props = this.effectiveProps();
-          const { basemap, layers } = normalizeMapSpec(props);
+          const { basemap, layers } = normalizeMapSpec(props, this);
           const layout = resolveMapLayout(props, basemap);
           this._layout = layout;
           this.applyViewportChrome(layout);
@@ -581,6 +681,7 @@ if (!customElements.get(TAG)) {
         if (this.map) {
           this.restoreCockpitMapToolsLayer();
           this.detachLayerToggleFromMap();
+          this._mapPausedForWorldStage = false;
           this.map.remove();
           this.map = null;
         }
@@ -617,7 +718,7 @@ if (!customElements.get(TAG)) {
             });
             const domProps = parseProps(this);
             let syncProps = domProps;
-            const metricLayers = normalizeMapSpec(domProps).layers;
+            const metricLayers = normalizeMapSpec(domProps, this).layers;
             try {
               if (mapLayersNeedRuntimeMetrics(metricLayers, domProps)) {
                 await this.refreshLayerMetrics({ sync: false });
@@ -626,12 +727,12 @@ if (!customElements.get(TAG)) {
             } catch (_) {
               syncProps = domProps;
             }
-            const { layers: syncLayerList } = normalizeMapSpec(syncProps);
+            const { layers: syncLayerList } = normalizeMapSpec(syncProps, this);
             await this.syncLayers(syncLayerList, syncProps);
             this._renderTrace?.mark("sync_layers_done", {
               layer_count: syncLayerList.length,
             });
-            this.ensureBasemapLabels(basemap);
+            this.scheduleBasemapLabels(basemap);
             const labelsOn = basemap.showLabels !== false && basemap.show_labels !== false;
             if (this.statusEl) {
               this.statusEl.textContent = `底图 ${basemap.tilesUrl} · 业务层 ${layers.length}${labelsOn ? " · 标注开" : ""}`;
@@ -640,6 +741,9 @@ if (!customElements.get(TAG)) {
             this.map?.resize();
             this.mountLayerToggleInNav();
             this.scheduleLayerControlLayout();
+            if (document.documentElement.classList.contains("mei-world-stage-active")) {
+              this.pauseMapForWorldStage();
+            }
             if (this._pendingWorldTarget) {
               this.applyWorldTarget(this._pendingWorldTarget);
             }
@@ -1016,7 +1120,7 @@ if (!customElements.get(TAG)) {
       this._renderTrace?.mark("layer_source_start", {
         layer_id: layerId,
       });
-      const geojson = await resolveLayerSource(layerSpec, layerProps);
+      const geojson = await resolveLayerSource(layerSpec, layerProps, this);
       this._renderTrace?.mark("layer_source_ready", {
         layer_id: layerId,
         feature_count: Array.isArray(geojson?.features) ? geojson.features.length : 0,
@@ -1184,6 +1288,7 @@ if (!customElements.get(TAG)) {
             id: extrusionId,
             type: "fill-extrusion",
             source: sourceId,
+            minzoom: 12,
             paint: {
               "fill-extrusion-color": ["coalesce", ["get", "__fill"], fillColor],
               "fill-extrusion-height": extrusionHeight,
@@ -1191,6 +1296,7 @@ if (!customElements.get(TAG)) {
                 fillOpacityRaw != null && fillOpacityRaw !== ""
                   ? Number(fillOpacityRaw)
                   : 0.68,
+              "fill-extrusion-base": 0,
             },
           });
           mapLayerIds.push(extrusionId);
@@ -1389,6 +1495,25 @@ if (!customElements.get(TAG)) {
       positionCockpitFloatingNav(navCtrl, this, focus, 10);
     }
 
+    pauseMapForWorldStage() {
+      if (!this.map || typeof this.map.stop !== "function" || this._mapPausedForWorldStage) {
+        return;
+      }
+      this.map.stop();
+      this._mapPausedForWorldStage = true;
+    }
+
+    resumeMapForWorldStage() {
+      if (!this.map || !this._mapPausedForWorldStage || typeof this.map.start !== "function") {
+        return;
+      }
+      this.map.start();
+      this._mapPausedForWorldStage = false;
+      if (typeof this.map.resize === "function") {
+        this.map.resize();
+      }
+    }
+
     syncCockpitMapToolsLayer() {
       if (!this._layout?.cockpitBleed || !this.map || !this.mapContainer) {
         this.restoreCockpitMapToolsLayer();
@@ -1540,11 +1665,19 @@ if (!customElements.get(TAG)) {
           feature?.properties?.code ||
           "",
       ).trim();
+      const enterViewpoint = String(
+        layerSpec.enterViewpoint ||
+          layerSpec.enter_viewpoint ||
+          feature?.properties?.enterViewpoint ||
+          feature?.properties?.enter_viewpoint ||
+          "",
+      ).trim();
       const worldEnterable =
         layerSpec.worldEnterable === true ||
         layerSpec.world_enterable === true ||
         feature?.properties?.worldEnterable === true ||
-        feature?.properties?.world_enterable === true;
+        feature?.properties?.world_enterable === true ||
+        Boolean(enterViewpoint);
       if (!worldEnterable || !entityId) {
         return null;
       }
@@ -1562,14 +1695,8 @@ if (!customElements.get(TAG)) {
         entityId,
         enterLabel,
         layerId: String(layerSpec.id || layerSpec.layerId || "").trim(),
-        enterViewpoint: String(
-          layerSpec.enterViewpoint ||
-            layerSpec.enter_viewpoint ||
-            feature?.properties?.enterViewpoint ||
-            feature?.properties?.enter_viewpoint ||
-            "",
-        ).trim(),
-        worldRef: String(props.worldRef || props.world_ref || "").trim(),
+        enterViewpoint,
+        worldRef: resolveWorldRef(props, this),
       };
     }
 
@@ -1669,6 +1796,25 @@ if (!customElements.get(TAG)) {
           /* 部分 MBTiles 可能缺少对应 source-layer */
         }
       }
+    }
+
+    scheduleBasemapLabels(basemap) {
+      if (!this.map) return;
+      const showLabels = basemap.showLabels !== false && basemap.show_labels !== false;
+      if (!showLabels) return;
+      const run = () => {
+        if (!this.isConnected || !this.map) return;
+        this.ensureBasemapLabels(basemap);
+      };
+      if (typeof this.map.once === "function") {
+        this.map.once("idle", run);
+        return;
+      }
+      if (typeof requestIdleCallback === "function") {
+        requestIdleCallback(run, { timeout: 2400 });
+        return;
+      }
+      window.setTimeout(run, 320);
     }
 
     bindMapResize(fill) {

@@ -421,6 +421,7 @@ if (typeof window !== "undefined") {
   boot.mountCockpitMapToolsOverlay = mountCockpitMapToolsOverlay;
   boot.positionCockpitFloatingNav = positionCockpitFloatingNav;
   boot.positionFocusInsetTopRight = positionFocusInsetTopRight;
+  boot.positionFocusInsetTopRightFixed = positionFocusInsetTopRightFixed;
   boot.positionFocusInsetBottomCenter = positionFocusInsetBottomCenter;
   boot.positionLayerControlNearAnchor = positionLayerControlNearAnchor;
   boot.positionLayerControlNearAnchorFixed = positionLayerControlNearAnchorFixed;

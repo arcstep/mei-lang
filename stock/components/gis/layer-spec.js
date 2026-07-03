@@ -1,5 +1,8 @@
 import { color } from "../mei/theme-style.js";
 import { resolveRuntimeColor } from "../cockpit/tokens.js";
+import { resolveWorldRef } from "../cockpit/shared.js";
+
+export { resolveWorldRef };
 
 /**
  * GIS layerSpec / joinSpec 共享工具（chart.geo 与 map.maplibre 共用）
@@ -283,7 +286,21 @@ function filterFeatureCollection(featureCollection, matcher) {
   };
 }
 
-export async function resolveLayerSource(layerSpec, props = {}) {
+export function resolveEmittedFootprint(props = {}, host = null) {
+  const worldRef = resolveWorldRef(props, host);
+  if (!worldRef) return null;
+  const fromProjection = window.__mei?.map_projection?.worlds?.[worldRef]?.emittedFootprint;
+  if (fromProjection && typeof fromProjection === "object") {
+    return ensureFeatureCollection(fromProjection);
+  }
+  const fromPlan = window.__mei?.world_plan?.worlds?.[worldRef]?.emittedFootprint;
+  if (fromPlan && typeof fromPlan === "object") {
+    return ensureFeatureCollection(fromPlan);
+  }
+  return null;
+}
+
+export async function resolveLayerSource(layerSpec, props = {}, host = null) {
   const featureMatch = resolveLayerFeatureMatch(layerSpec, props);
   const inlineFeatureCollection =
     layerSpec?.featureCollection ||
@@ -292,6 +309,7 @@ export async function resolveLayerSource(layerSpec, props = {}) {
   if (inlineFeatureCollection) {
     return filterFeatureCollection(ensureFeatureCollection(inlineFeatureCollection), featureMatch);
   }
+  const emitted = resolveEmittedFootprint(props, host);
   const type = String(layerSpec?.type || "polygon").trim().toLowerCase();
   // `addLayerSpec` 已先调用 `resolveLayerDataPayload`；此处直接消费 layer payload。
   const rows = resolveMetricRows(props);
@@ -303,6 +321,9 @@ export async function resolveLayerSource(layerSpec, props = {}) {
     );
   }
   const url = String(layerSpec?.url || "").trim();
+  if (emitted) {
+    return filterFeatureCollection(emitted, featureMatch);
+  }
   if (url) {
     return filterFeatureCollection(await fetchGeoJson(url), featureMatch);
   }
@@ -673,7 +694,18 @@ export function readHostGisTilesDefaults() {
   };
 }
 
-export function normalizeMapSpec(props) {
+export function resolveMapProjectionLayers(props = {}, host = null) {
+  const worldRef = resolveWorldRef(props, host);
+  if (!worldRef) return null;
+  const worlds = window.__mei?.map_projection?.worlds;
+  const projection = worlds?.[worldRef];
+  if (!projection || !Array.isArray(projection.layers) || !projection.layers.length) {
+    return null;
+  }
+  return projection.layers;
+}
+
+export function normalizeMapSpec(props, host = null) {
   const mapSpec = props.mapSpec || props.map || {};
   const hostDefaults = readHostGisTilesDefaults();
   const basemap = Object.assign(
@@ -687,11 +719,17 @@ export function normalizeMapSpec(props) {
     },
     mapSpec.basemap || {},
   );
-  const layers = Array.isArray(mapSpec.layers)
+  const panelLayers = Array.isArray(mapSpec.layers)
     ? mapSpec.layers
     : Array.isArray(props.layers)
       ? props.layers
       : [];
+  const projectionLayers = resolveMapProjectionLayers(props, host);
+  const useProjection =
+    Array.isArray(projectionLayers) &&
+    projectionLayers.length > 0 &&
+    mapSpec.useCompiledProjection !== false;
+  const layers = useProjection ? projectionLayers : panelLayers;
   return { basemap, layers };
 }
 
@@ -986,6 +1024,16 @@ export function buildBasemapStyle(basemap) {
     "#334155",
   );
   const buildingOpacity = basemapValue(basemap, "buildingOpacity", "building_opacity", 0.5);
+  const buildingExtrusion =
+    basemap.buildingExtrusion === true ||
+    basemap.building_extrusion === true ||
+    basemap.buildingExtrusion === "true";
+  const buildingExtrusionOpacity = basemapValue(
+    basemap,
+    "buildingExtrusionOpacity",
+    "building_extrusion_opacity",
+    0.42,
+  );
   const roadsLayer = {
     id: "roads",
     type: "line",
@@ -1046,15 +1094,47 @@ export function buildBasemapStyle(basemap) {
       },
     },
   ];
-  return {
+  if (buildingExtrusion) {
+    baseLayers.push({
+      id: "buildings-extrude",
+      type: "fill-extrusion",
+      source: "osm",
+      "source-layer": "building",
+      minzoom: 13,
+      paint: {
+        "fill-extrusion-color": buildingColor,
+        "fill-extrusion-height": [
+          "coalesce",
+          ["get", "render_height"],
+          ["get", "height"],
+          8,
+        ],
+        "fill-extrusion-opacity": Number(buildingExtrusionOpacity),
+        "fill-extrusion-base": 0,
+      },
+    });
+  }
+  const style = {
     version: 8,
     glyphs: String(basemap.glyphs || DEFAULT_GLYPHS),
     sources: {
       osm: {
         type: "vector",
         url: `${tilesUrl}${tilesJson}`,
+        ...(Number.isFinite(Number(basemap.tileMaxZoom ?? basemap.tile_max_zoom))
+          ? { maxzoom: Number(basemap.tileMaxZoom ?? basemap.tile_max_zoom) }
+          : {}),
       },
     },
     layers: baseLayers,
   };
+  if (buildingExtrusion) {
+    style.light = {
+      anchor: "viewport",
+      color: "#f8fafc",
+      intensity: 0.35,
+      position: [1.15, 210, 30],
+    };
+  }
+  return style;
 }
