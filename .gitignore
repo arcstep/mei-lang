@@ -1,6 +1,15 @@
 /target*/
 /.tailwind/
+# ── 系统杂项（macOS / Windows）──
 .DS_Store
+**/.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+
 node_modules/
 /test-results/
 /e2e-reports/
