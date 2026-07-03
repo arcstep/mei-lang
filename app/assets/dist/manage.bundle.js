@@ -8530,8 +8530,8 @@
     }
   }
 
-  async function collectSnapshot() {
-    if (!isEnabled()) return null;
+  function syncGpuSnapshot() {
+    if (!isEnabled()) return;
     ensureSummaryShape();
     const canvasCount = document.querySelectorAll("canvas").length;
     const gpu = state.summary.gpu;
@@ -8542,12 +8542,17 @@
     if (performance?.memory?.usedJSHeapSize) {
       gpu.jsHeapMb = Math.round(performance.memory.usedJSHeapSize / 1048576);
     }
+    evaluateGpuAlerts(gpu);
+  }
+
+  async function collectSnapshot() {
+    if (!isEnabled()) return null;
+    syncGpuSnapshot();
     const storageAudit = await auditStorage();
     Object.assign(state.summary.storage, storageAudit);
-    evaluateGpuAlerts(gpu);
     scheduleFlush();
     return {
-      gpu: { ...gpu },
+      gpu: { ...state.summary.gpu },
       world: { ...state.summary.world },
       storage: { ...state.summary.storage },
     };
@@ -8612,6 +8617,11 @@
     if (st.sceneShellIdbBytesEst > SCENE_SHELL_BLOAT_BYTES) {
       hints.push("scene-shell IndexedDB 缓存超过 5MB，建议清理或降低保留条数。");
     }
+    if (w.enterCount === 0 && m.renderStart === 0 && m.instancesPeak === 0) {
+      hints.push(
+        "计数全为 0：请确认未在 dump 前调用 reset()，且地图已加载后再开始测试。",
+      );
+    }
     hints.push(
       "快检：(() => { const d = window.__meiBrowserRuntimeDiag; d?.snapshot?.(); return d?.dump?.(); })()",
     );
@@ -8619,6 +8629,7 @@
   }
 
   function dump() {
+    syncGpuSnapshot();
     const report = exportReport();
     console.group("[mei-runtime-diag] browser runtime report");
     console.log("hints:", report.hints);
@@ -18130,10 +18141,10 @@
         return family === "world" && entity === id;
       });
     if (!candidates.length) return null;
-    const preferred = candidates.find(({ entry }) =>
-      String(entry?.cameraPreset || entry?.camera_preset || "").includes("layout"),
+    const entryPreferred = candidates.find(({ viewpointId }) =>
+      String(viewpointId || "").endsWith("_world_entry"),
     );
-    return preferred || candidates[0];
+    return entryPreferred || candidates[0];
   }
 
   function dispatchEnterWorldView(detail) {
@@ -18179,6 +18190,9 @@
           entry.cameraPreset ||
           entry.camera_preset ||
           "",
+      ).trim(),
+      groupId: String(
+        detail?.groupId || detail?.group_id || entry.groupId || entry.group_id || "",
       ).trim(),
       panelId: String(detail?.panelId || entry.panelId || "world_viewport").trim(),
     };
@@ -19000,17 +19014,31 @@
       document.documentElement.classList.add("mei-world-stage-active");
     }
     const viewpointId = String(action?.viewpoint || action?.viewpointId || "").trim();
+    const resolvedEntry = entry || readViewpointEntry(viewpointId);
     if (viewpointId) {
       focusViewpoint(viewpointId);
     }
+    const cameraPreset = String(
+      action?.cameraPreset ||
+        action?.camera_preset ||
+        resolvedEntry?.cameraPreset ||
+        resolvedEntry?.camera_preset ||
+        "",
+    ).trim();
+    const groupId = String(
+      action?.groupId || action?.group_id || resolvedEntry?.groupId || resolvedEntry?.group_id || "",
+    ).trim();
     return dispatchWorldTargetAction(
       {
         ...action,
-        type: action?.cameraPreset || action?.camera_preset ? "camera_move" : "focus_entity",
-        viewFamily: String(action?.viewFamily || action?.view_family || entry?.viewFamily || "world").trim(),
-        stageKind: String(action?.stageKind || action?.stage_kind || entry?.stageKind || "world-stage").trim(),
+        viewpoint: viewpointId || action?.viewpoint,
+        cameraPreset,
+        groupId,
+        type: cameraPreset ? "camera_move" : "focus_entity",
+        viewFamily: String(action?.viewFamily || action?.view_family || resolvedEntry?.viewFamily || "world").trim(),
+        stageKind: String(action?.stageKind || action?.stage_kind || resolvedEntry?.stageKind || "world-stage").trim(),
       },
-      entry || readViewpointEntry(viewpointId),
+      resolvedEntry,
     );
   }
 
