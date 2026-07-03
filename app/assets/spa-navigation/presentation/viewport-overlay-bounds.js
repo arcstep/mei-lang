@@ -239,6 +239,18 @@
     return plane;
   }
 
+  function resolveRuntimeOverlayZIndex(token, anchorEl) {
+    const inLayer2 =
+      anchorEl instanceof Element && Boolean(anchorEl.closest("#mei-layer2-workspace"));
+    const table = {
+      map_tools: 1210,
+      tooltip: inLayer2 ? 2300 : 1300,
+      text_popover: 2350,
+      spa_loading: 5050,
+    };
+    return table[String(token || "").trim()] ?? 1300;
+  }
+
   function mountViewportFloatingNode(node, anchorEl) {
     if (!(node instanceof HTMLElement)) {
       return null;
@@ -263,12 +275,34 @@
     }
   }
 
+  function mountRuntimeOverlay(node, options = {}) {
+    if (!(node instanceof HTMLElement)) {
+      return null;
+    }
+    const role = String(options.role || "tooltip").trim();
+    node.setAttribute("data-mei-overlay-role", role);
+    node.style.removeProperty("z-index");
+    const anchor = options.anchor;
+    if (role === "map_tools" && typeof boot.mountCockpitFloatingControl === "function") {
+      return boot.mountCockpitFloatingControl(node, anchor);
+    }
+    if (role === "spa_loading") {
+      if (node.parentElement !== document.body) {
+        document.body.appendChild(node);
+      }
+      return document.body;
+    }
+    return mountViewportFloatingNode(node, anchor);
+  }
+
   boot.readViewportFrameScale = readViewportFrameScale;
   boot.viewportOverlayActive = viewportOverlayActive;
   boot.resolveViewportOverlayBounds = resolveViewportOverlayBounds;
   boot.resolveOverlayMountRoot = resolveOverlayMountRoot;
   boot.ensureViewportContextPlane = ensureViewportContextPlane;
   boot.mountViewportFloatingNode = mountViewportFloatingNode;
+  boot.mountRuntimeOverlay = mountRuntimeOverlay;
+  boot.resolveRuntimeOverlayZIndex = resolveRuntimeOverlayZIndex;
   boot.clientPointToStageLocal = clientPointToStageLocal;
   boot._viewportOverlayBoundsPatched = copilotFloatingBoundsSizePatched;
 })();

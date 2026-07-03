@@ -18544,6 +18544,18 @@
     return plane;
   }
 
+  function resolveRuntimeOverlayZIndex(token, anchorEl) {
+    const inLayer2 =
+      anchorEl instanceof Element && Boolean(anchorEl.closest("#mei-layer2-workspace"));
+    const table = {
+      map_tools: 1210,
+      tooltip: inLayer2 ? 2300 : 1300,
+      text_popover: 2350,
+      spa_loading: 5050,
+    };
+    return table[String(token || "").trim()] ?? 1300;
+  }
+
   function mountViewportFloatingNode(node, anchorEl) {
     if (!(node instanceof HTMLElement)) {
       return null;
@@ -18568,12 +18580,34 @@
     }
   }
 
+  function mountRuntimeOverlay(node, options = {}) {
+    if (!(node instanceof HTMLElement)) {
+      return null;
+    }
+    const role = String(options.role || "tooltip").trim();
+    node.setAttribute("data-mei-overlay-role", role);
+    node.style.removeProperty("z-index");
+    const anchor = options.anchor;
+    if (role === "map_tools" && typeof boot.mountCockpitFloatingControl === "function") {
+      return boot.mountCockpitFloatingControl(node, anchor);
+    }
+    if (role === "spa_loading") {
+      if (node.parentElement !== document.body) {
+        document.body.appendChild(node);
+      }
+      return document.body;
+    }
+    return mountViewportFloatingNode(node, anchor);
+  }
+
   boot.readViewportFrameScale = readViewportFrameScale;
   boot.viewportOverlayActive = viewportOverlayActive;
   boot.resolveViewportOverlayBounds = resolveViewportOverlayBounds;
   boot.resolveOverlayMountRoot = resolveOverlayMountRoot;
   boot.ensureViewportContextPlane = ensureViewportContextPlane;
   boot.mountViewportFloatingNode = mountViewportFloatingNode;
+  boot.mountRuntimeOverlay = mountRuntimeOverlay;
+  boot.resolveRuntimeOverlayZIndex = resolveRuntimeOverlayZIndex;
   boot.clientPointToStageLocal = clientPointToStageLocal;
   boot._viewportOverlayBoundsPatched = copilotFloatingBoundsSizePatched;
 })();
@@ -19396,18 +19430,593 @@
     applyWorldTarget(event?.detail);
   }
 
+  function normalizeStageKind(raw) {
+    const kind = String(raw || "").trim().toLowerCase();
+    if (kind === "map-stage" || kind === "world-stage") {
+      return kind;
+    }
+    return "";
+  }
+
+  function stageHiddenClass(stageKind) {
+    const normalized = normalizeStageKind(stageKind);
+    return normalized ? `mei-stage-hidden-${normalized}` : "";
+  }
+
+  function resetStageVisibility() {
+    document.documentElement.classList.remove(
+      "mei-stage-hidden-map-stage",
+      "mei-stage-hidden-world-stage",
+    );
+    document.documentElement.classList.add("mei-stage-hidden-world-stage");
+  }
+
+  function setStageVisibility(stageKind, visible) {
+    const normalized = normalizeStageKind(stageKind);
+    if (!normalized) return false;
+    document.documentElement.classList.toggle(stageHiddenClass(normalized), !visible);
+    return true;
+  }
+
+  function enterWorldStageView(options = {}) {
+    setStageVisibility("map-stage", false);
+    setStageVisibility("world-stage", true);
+    document.documentElement.classList.add("mei-world-stage-active");
+    const detail = options && typeof options === "object" ? { ...options } : {};
+    window.dispatchEvent(
+      new CustomEvent("mei:world-stage-entered", {
+        detail,
+      }),
+    );
+    return true;
+  }
+
+  function exitWorldStageView(options = {}) {
+    setStageVisibility("world-stage", false);
+    setStageVisibility("map-stage", true);
+    document.documentElement.classList.remove("mei-world-stage-active");
+    const detail = options && typeof options === "object" ? { ...options } : {};
+    window.dispatchEvent(
+      new CustomEvent("mei:world-stage-exited", {
+        detail,
+      }),
+    );
+    return true;
+  }
+
   function installWorldStageRuntime() {
     if (boot.worldStageRuntimeMounted) return;
     boot.worldStageRuntimeMounted = true;
+    resetStageVisibility();
     window.addEventListener(WORLD_STAGE_EVENT, onWorldAction);
     boot.worldStageRuntime = {
       applyWorldTarget,
       collectWorldStageHosts,
       resolveStageHost,
+      setStageVisibility,
+      resetStageVisibility,
+      enterWorldStageView,
+      exitWorldStageView,
     };
   }
 
   installWorldStageRuntime();
+})();
+
+
+/* ===== spa-navigation/presentation/world-stage-transition.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  const MIN_TRANSITION_MS = 520;
+  const OVERLAY_ID = "mei-world-stage-transition";
+  const BACK_NAV_ID = "mei-world-stage-back-nav";
+  const FLOAT_NAV_ID = "mei-world-stage-floating-nav";
+  let transitionInFlight = false;
+
+  function resolveMapCockpitHost() {
+    const instances = boot.worldMapInstances;
+    if (!instances || typeof instances.forEach !== "function") {
+      return null;
+    }
+    let mapInstance = null;
+    instances.forEach((instance) => {
+      if (!mapInstance && instance?._layout?.cockpitBleed && instance?._layout?.focusInsetPx) {
+        mapInstance = instance;
+      }
+    });
+    return mapInstance;
+  }
+
+  function resolveMapCockpitLayout() {
+    const mapInstance = resolveMapCockpitHost();
+    if (!mapInstance || typeof window === "undefined") {
+      return null;
+    }
+    const stage =
+      mapInstance.closest?.(".preview-stage.preview-surface") ||
+      document.querySelector(".preview-stage.preview-surface");
+    if (!stage) {
+      return null;
+    }
+    const rect = stage.getBoundingClientRect();
+    const stageStyle = window.getComputedStyle(stage);
+    const rootStyle = window.getComputedStyle(document.documentElement);
+    const designW =
+      Number.parseFloat(stageStyle.getPropertyValue("--mei-viewport-design-width")) ||
+      Number.parseFloat(rootStyle.getPropertyValue("--mei-viewport-design-width")) ||
+      1920;
+    const designH =
+      Number.parseFloat(stageStyle.getPropertyValue("--mei-viewport-design-height")) ||
+      Number.parseFloat(rootStyle.getPropertyValue("--mei-viewport-design-height")) ||
+      1080;
+    const scale = Math.min(rect.width / designW, rect.height / designH);
+    const contentW = designW * scale;
+    const contentH = designH * scale;
+    const offsetX = rect.left + (rect.width - contentW) / 2;
+    const offsetY = rect.top + (rect.height - contentH) / 2;
+    const focus = mapInstance._layout.focusInsetPx;
+    const gap = 10;
+    const apertureTop = offsetY + Number(focus.top) * scale;
+    const apertureLeft = offsetX + Number(focus.left) * scale;
+    const width = contentW - (Number(focus.left) + Number(focus.right)) * scale;
+    const height = contentH - (Number(focus.top) + Number(focus.bottom)) * scale;
+    const navTop = apertureTop + gap * scale;
+    const right =
+      window.innerWidth - (offsetX + contentW) + (Number(focus.right) + gap) * scale;
+    const bottom = window.innerHeight - (apertureTop + height);
+    return {
+      apertureTop,
+      navTop,
+      right,
+      left: apertureLeft,
+      width,
+      height,
+      bottom,
+      scale,
+    };
+  }
+
+  function releaseMapToolFocus() {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) {
+      if (
+        active.closest("#mei-cockpit-map-tools-plane") ||
+        active.closest(".mei-cockpit-floating-map-tools")
+      ) {
+        active.blur();
+      }
+    }
+    if (typeof boot.setWorldStageInputPlaneActive === "function") {
+      boot.setWorldStageInputPlaneActive(true);
+    }
+  }
+
+  function hideMapFloatingChrome() {
+    releaseMapToolFocus();
+    document.querySelectorAll(".mei-cockpit-floating-map-tools").forEach((node) => {
+      node.style.display = "none";
+      node.style.pointerEvents = "none";
+    });
+    document.querySelectorAll("body > .maplibregl-popup.mei-cockpit-floating-tip").forEach((node) => {
+      node.style.display = "none";
+      node.style.pointerEvents = "none";
+    });
+  }
+
+  function showMapFloatingChrome() {
+    if (document.documentElement.classList.contains("mei-world-stage-active")) {
+      return;
+    }
+    if (typeof boot.setWorldStageInputPlaneActive === "function") {
+      boot.setWorldStageInputPlaneActive(false);
+    }
+    document.querySelectorAll(".mei-cockpit-floating-map-tools").forEach((node) => {
+      node.style.display = "";
+      node.style.pointerEvents = "";
+    });
+    boot.worldMapInstances?.forEach?.((instance) => {
+      if (typeof instance.syncCockpitMapToolsLayer === "function") {
+        instance.syncCockpitMapToolsLayer();
+      }
+    });
+  }
+
+  function ensureOverlay() {
+    let overlay = document.getElementById(OVERLAY_ID);
+    if (overlay instanceof HTMLElement) {
+      return overlay;
+    }
+    overlay = document.createElement("div");
+    overlay.id = OVERLAY_ID;
+    overlay.className = "mei-world-stage-transition";
+    overlay.setAttribute("data-mei-overlay-role", "spa_loading");
+    overlay.hidden = true;
+    overlay.innerHTML = `
+      <div class="mei-world-stage-transition-card" role="status" aria-live="polite">
+        <div class="mei-world-stage-transition-spinner" aria-hidden="true"></div>
+        <p class="mei-world-stage-transition-message"></p>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function ensureFloatingNav() {
+    let nav = document.getElementById(FLOAT_NAV_ID);
+    if (nav instanceof HTMLElement) {
+      return nav;
+    }
+    nav = document.createElement("div");
+    nav.id = FLOAT_NAV_ID;
+    nav.className = "mei-world-stage-floating-nav";
+    nav.hidden = true;
+    nav.innerHTML = `
+      <div class="nav-group" role="group" aria-label="3D 缩放">
+        <button type="button" data-nav="zoom-in" title="放大" aria-label="放大">+</button>
+        <button type="button" data-nav="zoom-out" title="缩小" aria-label="缩小">−</button>
+      </div>
+      <div class="nav-group" role="group" aria-label="3D 旋转">
+        <button type="button" data-nav="bearing-left" title="左转" aria-label="左转">↶</button>
+        <button type="button" data-nav="bearing-right" title="右转" aria-label="右转">↷</button>
+      </div>
+      <div class="nav-group" role="group" aria-label="3D 俯仰">
+        <button type="button" data-nav="pitch-up" title="增大俯角" aria-label="增大俯角">⌃</button>
+        <button type="button" data-nav="pitch-down" title="减小俯角" aria-label="减小俯角">⌄</button>
+      </div>
+      <div class="nav-group" role="group" aria-label="3D 复原">
+        <button type="button" data-nav="reset" title="复原视角" aria-label="复原视角">◎</button>
+      </div>
+    `;
+    nav.addEventListener("click", (event) => {
+      const btn = event.target?.closest?.("[data-nav]");
+      if (!btn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const action = btn.getAttribute("data-nav");
+      const api = boot.worldStageCameraNav;
+      if (!api) return;
+      switch (action) {
+        case "zoom-in":
+          api.zoomIn();
+          break;
+        case "zoom-out":
+          api.zoomOut();
+          break;
+        case "bearing-left":
+          api.rotateLeft();
+          break;
+        case "bearing-right":
+          api.rotateRight();
+          break;
+        case "pitch-up":
+          api.pitchUp();
+          break;
+        case "pitch-down":
+          api.pitchDown();
+          break;
+        case "reset":
+          api.reset();
+          break;
+        default:
+          break;
+      }
+    });
+    document.body.appendChild(nav);
+    return nav;
+  }
+
+  function ensureBackNav() {
+    let nav = document.getElementById(BACK_NAV_ID);
+    if (nav instanceof HTMLElement) {
+      return nav;
+    }
+    nav = document.createElement("div");
+    nav.id = BACK_NAV_ID;
+    nav.className = "mei-world-stage-back-nav";
+    nav.hidden = true;
+    nav.innerHTML = `
+      <button type="button" class="mei-world-stage-back-btn" data-action="exit-map">
+        返回地图总览
+      </button>
+    `;
+    nav.querySelector(".mei-world-stage-back-btn")?.addEventListener("click", () => {
+      const dispatch = boot.dispatchPresentationAction || window.MeiPresentation?.dispatch;
+      if (typeof dispatch !== "function") return;
+      dispatch({
+        type: "exit_world_view",
+        viewpoint: "park_overview_stage",
+        viewFamily: "map",
+        stageKind: "map-stage",
+        cameraPreset: "park_overview_orbit",
+      });
+    });
+    document.body.appendChild(nav);
+    return nav;
+  }
+
+  function positionWorldChrome() {
+    const host = resolveMapCockpitHost();
+    const focus = host?._layout?.focusInsetPx;
+    const gap = 10;
+    const floatNav = ensureFloatingNav();
+    floatNav.setAttribute("data-mei-overlay-role", "map_tools");
+    if (host && typeof boot.mountCockpitFloatingControl === "function") {
+      boot.mountCockpitFloatingControl(floatNav, host);
+      if (typeof boot.positionCockpitFloatingNav === "function" && focus) {
+        boot.positionCockpitFloatingNav(floatNav, host, focus, gap);
+      }
+    } else {
+      const resolved = resolveMapCockpitLayout();
+      if (!resolved) return;
+      floatNav.style.position = "fixed";
+      floatNav.style.top = `${Math.round(resolved.navTop)}px`;
+      floatNav.style.right = `${Math.round(resolved.right)}px`;
+      floatNav.style.left = "auto";
+      floatNav.style.bottom = "auto";
+    }
+    const backNav = ensureBackNav();
+    backNav.setAttribute("data-mei-overlay-role", "map_tools");
+    if (host && typeof boot.mountCockpitFloatingControl === "function" && focus) {
+      boot.mountCockpitFloatingControl(backNav, host);
+      if (typeof boot.positionFocusInsetBottomCenter === "function") {
+        boot.positionFocusInsetBottomCenter(backNav, host, focus, 16);
+      }
+    } else {
+      const resolved = resolveMapCockpitLayout();
+      if (!resolved) return;
+      backNav.style.position = "fixed";
+      backNav.style.left = `${Math.round(resolved.left + resolved.width / 2)}px`;
+      backNav.style.bottom = `${Math.round(resolved.bottom + 16)}px`;
+      backNav.style.transform = "translateX(-50%)";
+    }
+  }
+
+  function activateWorldChrome() {
+    hideMapFloatingChrome();
+    positionWorldChrome();
+    const floatNav = ensureFloatingNav();
+    floatNav.hidden = false;
+    floatNav.classList.add("is-visible");
+    showBackNav();
+  }
+
+  function deactivateWorldChrome() {
+    const floatNav = document.getElementById(FLOAT_NAV_ID);
+    if (floatNav instanceof HTMLElement) {
+      floatNav.classList.remove("is-visible");
+      floatNav.hidden = true;
+    }
+    hideBackNav();
+    showMapFloatingChrome();
+  }
+
+  function setOverlayMessage(message) {
+    const overlay = ensureOverlay();
+    const text = overlay.querySelector(".mei-world-stage-transition-message");
+    if (text) {
+      text.textContent = String(message || "").trim() || "正在切换场景…";
+    }
+  }
+
+  function showOverlay(message) {
+    const overlay = ensureOverlay();
+    setOverlayMessage(message);
+    overlay.hidden = false;
+    overlay.classList.add("is-visible");
+    document.documentElement.classList.add("mei-world-stage-transitioning");
+  }
+
+  function hideOverlay() {
+    const overlay = document.getElementById(OVERLAY_ID);
+    if (!(overlay instanceof HTMLElement)) return;
+    overlay.classList.remove("is-visible");
+    overlay.hidden = true;
+    document.documentElement.classList.remove("mei-world-stage-transitioning");
+  }
+
+  function showBackNav() {
+    const nav = ensureBackNav();
+    nav.hidden = false;
+    nav.classList.add("is-visible");
+    positionWorldChrome();
+  }
+
+  function hideBackNav() {
+    const nav = document.getElementById(BACK_NAV_ID);
+    if (!(nav instanceof HTMLElement)) return;
+    nav.classList.remove("is-visible");
+    nav.hidden = true;
+  }
+
+  function waitMinDuration(startedAt, minMs = MIN_TRANSITION_MS) {
+    const elapsed = Date.now() - startedAt;
+    const remain = Math.max(0, minMs - elapsed);
+    if (!remain) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      window.setTimeout(resolve, remain);
+    });
+  }
+
+  async function runTransition(message, work) {
+    if (transitionInFlight) {
+      return false;
+    }
+    transitionInFlight = true;
+    const startedAt = Date.now();
+    showOverlay(message);
+    try {
+      const result = await Promise.resolve(work());
+      await waitMinDuration(startedAt);
+      return result;
+    } finally {
+      hideOverlay();
+      transitionInFlight = false;
+    }
+  }
+
+  async function runEnter(action, performEnter) {
+    const label = String(action?.worldEnterLabel || action?.label || action?.entityId || "空间场景").trim();
+    const message = `正在进入${label}…`;
+    return runTransition(message, () => {
+      const ok = performEnter(action);
+      if (ok !== false) {
+        window.requestAnimationFrame(() => activateWorldChrome());
+      }
+      return ok;
+    });
+  }
+
+  async function runExit(action, performExit) {
+    return runTransition("正在返回地图总览…", () => {
+      deactivateWorldChrome();
+      return performExit(action);
+    });
+  }
+
+  function onResize() {
+    if (!document.documentElement.classList.contains("mei-world-stage-active")) {
+      return;
+    }
+    positionWorldChrome();
+  }
+
+  function installWorldStageTransition() {
+    if (boot.worldStageTransitionMounted) return;
+    boot.worldStageTransitionMounted = true;
+    ensureBackNav();
+    ensureFloatingNav();
+    boot.worldStageTransition = {
+      MIN_TRANSITION_MS,
+      runTransition,
+      runEnter,
+      runExit,
+      showBackNav,
+      hideBackNav,
+      activateWorldChrome,
+      deactivateWorldChrome,
+    };
+    window.addEventListener("mei:world-stage-entered", () => {
+      activateWorldChrome();
+    });
+    window.addEventListener("mei:world-stage-exited", () => {
+      deactivateWorldChrome();
+    });
+    window.addEventListener("resize", onResize);
+    window.addEventListener("pageshow", onResize);
+  }
+
+  installWorldStageTransition();
+})();
+
+
+/* ===== spa-navigation/presentation/map-world-bridge.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  const ENTER_EVENT = "mei:map-world-enter-request";
+
+  function readPresentationMap() {
+    const node = document.getElementById("mei-presentation-map");
+    if (!(node instanceof HTMLScriptElement) || !node.textContent) {
+      return { viewpoints: {} };
+    }
+    try {
+      return JSON.parse(node.textContent);
+    } catch (_error) {
+      return { viewpoints: {} };
+    }
+  }
+
+  function resolveWorldEntryViewpoint(entityId) {
+    const id = String(entityId || "").trim();
+    if (!id) return null;
+    const viewpoints = readPresentationMap()?.viewpoints || {};
+    const candidates = Object.entries(viewpoints)
+      .map(([viewpointId, entry]) => ({ viewpointId, entry }))
+      .filter(({ entry }) => {
+        const family = String(entry?.viewFamily || entry?.view_family || "").trim();
+        const entity = String(entry?.entityId || entry?.entity_id || "").trim();
+        return family === "world" && entity === id;
+      });
+    if (!candidates.length) return null;
+    const preferred = candidates.find(({ entry }) =>
+      String(entry?.cameraPreset || entry?.camera_preset || "").includes("layout"),
+    );
+    return preferred || candidates[0];
+  }
+
+  function dispatchEnterWorldView(detail) {
+    const entityId = String(detail?.entityId || detail?.entity_id || "").trim();
+    const explicitViewpoint = String(
+      detail?.viewpoint ||
+        detail?.viewpointId ||
+        detail?.enterViewpoint ||
+        detail?.enter_viewpoint ||
+        "",
+    ).trim();
+    const matched = explicitViewpoint
+      ? {
+          viewpointId: explicitViewpoint,
+          entry: readPresentationMap()?.viewpoints?.[explicitViewpoint] || null,
+        }
+      : resolveWorldEntryViewpoint(entityId);
+    if (!matched?.viewpointId) {
+      if (typeof console !== "undefined" && typeof console.warn === "function") {
+        console.warn("[mei] map-world-bridge: no world viewpoint for entity", entityId);
+      }
+      return false;
+    }
+    const entry = matched.entry || {};
+    const action = {
+      type: "enter_world_view",
+      viewpoint: matched.viewpointId,
+      entityId: entityId || entry.entityId || entry.entity_id || "",
+      viewFamily: "world",
+      stageKind: "world-stage",
+      worldEnterLabel: String(
+        detail?.worldEnterLabel ||
+          detail?.enterLabel ||
+          entry.label ||
+          entry.name ||
+          entityId ||
+          "",
+      ).trim(),
+      worldRef: String(detail?.worldRef || detail?.world_ref || entry.worldRef || entry.world_ref || "").trim(),
+      cameraPreset: String(
+        detail?.cameraPreset ||
+          detail?.camera_preset ||
+          entry.cameraPreset ||
+          entry.camera_preset ||
+          "",
+      ).trim(),
+      panelId: String(detail?.panelId || entry.panelId || "world_viewport").trim(),
+    };
+    const dispatch = boot.dispatchPresentationAction;
+    if (typeof dispatch === "function") {
+      return dispatch(action);
+    }
+    if (window.MeiPresentation && typeof window.MeiPresentation.dispatch === "function") {
+      return window.MeiPresentation.dispatch(action);
+    }
+    return false;
+  }
+
+  function onMapWorldEnterRequest(event) {
+    dispatchEnterWorldView(event?.detail || {});
+  }
+
+  function installMapWorldBridge() {
+    if (boot.mapWorldBridgeMounted) return;
+    boot.mapWorldBridgeMounted = true;
+    window.addEventListener(ENTER_EVENT, onMapWorldEnterRequest);
+    boot.mapWorldBridge = {
+      dispatchEnterWorldView,
+      resolveWorldEntryViewpoint,
+    };
+  }
+
+  installMapWorldBridge();
 })();
 
 
@@ -20155,6 +20764,124 @@
     host: { min: 5800, max: 99999, default: 5800 },
   };
   const SUPPORTED_PLANES = ["t0", "t1", "t2"];
+  const SUPPORTED_STAGE_KINDS = ["map-stage", "world-stage"];
+
+  function normalizeStageKind(raw) {
+    const kind = String(raw || "").trim().toLowerCase();
+    return SUPPORTED_STAGE_KINDS.includes(kind) ? kind : "";
+  }
+
+  function stageHiddenClass(stageKind) {
+    const normalized = normalizeStageKind(stageKind);
+    return normalized ? `mei-stage-hidden-${normalized}` : "";
+  }
+
+  function resetStageVisibility() {
+    const runtime = boot.worldStageRuntime;
+    if (runtime && typeof runtime.resetStageVisibility === "function") {
+      runtime.resetStageVisibility();
+      return;
+    }
+    document.documentElement.classList.remove(
+      "mei-stage-hidden-map-stage",
+      "mei-stage-hidden-world-stage",
+    );
+    document.documentElement.classList.add("mei-stage-hidden-world-stage");
+  }
+
+  function setStageVisibility(stageKind, visible) {
+    const runtime = boot.worldStageRuntime;
+    if (runtime && typeof runtime.setStageVisibility === "function") {
+      return runtime.setStageVisibility(stageKind, visible);
+    }
+    const normalized = normalizeStageKind(stageKind);
+    if (!normalized) return false;
+    document.documentElement.classList.toggle(stageHiddenClass(normalized), !visible);
+    return true;
+  }
+
+  function enterWorldStageViewCore(action, entry) {
+    const runtime = boot.worldStageRuntime;
+    if (runtime && typeof runtime.enterWorldStageView === "function") {
+      runtime.enterWorldStageView({ action, entry });
+    } else {
+      setStageVisibility("map-stage", false);
+      setStageVisibility("world-stage", true);
+      document.documentElement.classList.add("mei-world-stage-active");
+    }
+    const viewpointId = String(action?.viewpoint || action?.viewpointId || "").trim();
+    if (viewpointId) {
+      focusViewpoint(viewpointId);
+    }
+    return dispatchWorldTargetAction(
+      {
+        ...action,
+        type: action?.cameraPreset || action?.camera_preset ? "camera_move" : "focus_entity",
+        viewFamily: String(action?.viewFamily || action?.view_family || entry?.viewFamily || "world").trim(),
+        stageKind: String(action?.stageKind || action?.stage_kind || entry?.stageKind || "world-stage").trim(),
+      },
+      entry || readViewpointEntry(viewpointId),
+    );
+  }
+
+  function enterWorldStageView(action, entry) {
+    if (action?.skipWorldTransition) {
+      return enterWorldStageViewCore(action, entry);
+    }
+    const transition = boot.worldStageTransition;
+    if (transition && typeof transition.runEnter === "function") {
+      const label = String(
+        action?.worldEnterLabel ||
+          action?.label ||
+          entry?.label ||
+          action?.entityId ||
+          "空间场景",
+      ).trim();
+      void transition.runEnter({ ...action, worldEnterLabel: label }, () =>
+        enterWorldStageViewCore({ ...action, skipWorldTransition: true }, entry),
+      );
+      return true;
+    }
+    return enterWorldStageViewCore(action, entry);
+  }
+
+  function exitWorldStageViewCore(action, entry) {
+    const runtime = boot.worldStageRuntime;
+    if (runtime && typeof runtime.exitWorldStageView === "function") {
+      runtime.exitWorldStageView({ action, entry });
+    } else {
+      setStageVisibility("world-stage", false);
+      setStageVisibility("map-stage", true);
+      document.documentElement.classList.remove("mei-world-stage-active");
+    }
+    const viewpointId = String(action?.viewpoint || action?.viewpointId || "").trim();
+    if (viewpointId) {
+      focusViewpoint(viewpointId);
+    }
+    return dispatchWorldTargetAction(
+      {
+        ...action,
+        type: "camera_move",
+        viewFamily: String(action?.viewFamily || action?.view_family || entry?.viewFamily || "map").trim(),
+        stageKind: String(action?.stageKind || action?.stage_kind || entry?.stageKind || "map-stage").trim(),
+      },
+      entry || readViewpointEntry(viewpointId),
+    );
+  }
+
+  function exitWorldStageView(action, entry) {
+    if (action?.skipWorldTransition) {
+      return exitWorldStageViewCore(action, entry);
+    }
+    const transition = boot.worldStageTransition;
+    if (transition && typeof transition.runExit === "function") {
+      void transition.runExit(action, () =>
+        exitWorldStageViewCore({ ...action, skipWorldTransition: true }, entry),
+      );
+      return true;
+    }
+    return exitWorldStageViewCore(action, entry);
+  }
 
   function readPresentationMap() {
     const node = document.getElementById("mei-presentation-map");
@@ -20322,6 +21049,24 @@
           action,
           readViewpointEntry(action.viewpoint || action.viewpointId),
         );
+      case "enter_world_view":
+      case "enterWorldView": {
+        const viewpointId = String(action.viewpoint || action.viewpointId || "").trim();
+        const entry = readViewpointEntry(viewpointId);
+        return enterWorldStageView(action, entry);
+      }
+      case "exit_world_view":
+      case "exitWorldView": {
+        const viewpointId = String(action.viewpoint || action.viewpointId || "").trim();
+        const entry = readViewpointEntry(viewpointId);
+        return exitWorldStageView(action, entry);
+      }
+      case "cutaway_toggle":
+      case "cutawayToggle":
+        return dispatchWorldTargetAction(
+          action,
+          readViewpointEntry(action.viewpoint || action.viewpointId),
+        );
       case "clear_focus":
       case "clearFocus":
         clearViewpointFocus();
@@ -20358,6 +21103,9 @@
     root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
     root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
     root.MeiPresentation.resetPlanes = resetPlaneVisibility;
+    root.MeiPresentation.resetStages = resetStageVisibility;
+    root.MeiPresentation.showStage = (stageKind) => setStageVisibility(stageKind, true);
+    root.MeiPresentation.hideStage = (stageKind) => setStageVisibility(stageKind, false);
     root.MeiPresentation.dispatch = dispatchPresentationAction;
     root.MeiPresentation.map = readPresentationMap;
     root.MeiPresentation.resolveViewpoint = readViewpointEntry;

@@ -3,6 +3,7 @@ export const MAPLIBRE_LOCAL_JS = "/workspace-components/vendor/maplibre/maplibre
 export const MAPLIBRE_LOCAL_CSS = "/workspace-components/vendor/maplibre/maplibre-gl.css";
 export const MAPLIBRE_LOCAL_GLYPHS =
   "/workspace-components/vendor/maplibre/fonts/{fontstack}/{range}.pbf";
+export const THREE_LOCAL_MODULE = "/workspace-components/vendor/three/three.module.min.js";
 
 function ensureWindow() {
   if (typeof window === "undefined") {
@@ -84,5 +85,13 @@ export function ensureMapLibreGlobal() {
     dataAttr: "maplibre-js",
     globalName: "maplibregl",
     errorMessage: "maplibre script load failed",
+  });
+}
+
+export function ensureThreeGlobal() {
+  return import(/* @vite-ignore */ THREE_LOCAL_MODULE).then((mod) => {
+    const win = ensureWindow();
+    win.THREE = mod;
+    return mod;
   });
 }

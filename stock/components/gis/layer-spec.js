@@ -10,16 +10,46 @@ export const MEI_MAP_SELECTION = "mei:map-selection";
 const JOIN_KEY_CANDIDATES = ["code", "id", "parkId", "enterpriseId", "name"];
 const GEOJSON_CACHE = new Map();
 
-function mapLibrePaintColor(value, tokenName, fallback = "#cbd5e1") {
+const INVALID_MAPLIBRE_PAINT_COLORS = new Set([
+  "inherit",
+  "currentcolor",
+  "initial",
+  "unset",
+  "revert",
+  "revert-layer",
+]);
+
+function isMapLibrePaintColor(value) {
+  const text = String(value ?? "").trim();
+  if (!text || INVALID_MAPLIBRE_PAINT_COLORS.has(text.toLowerCase())) {
+    return false;
+  }
+  if (text.startsWith("var(")) {
+    return false;
+  }
+  if (/^#([0-9a-f]{3,8})$/i.test(text)) {
+    return true;
+  }
+  return /^rgba?\(/i.test(text) || /^hsla?\(/i.test(text);
+}
+
+export function mapLibrePaintColor(value, tokenName, fallback = "#cbd5e1") {
   const host = typeof document !== "undefined" ? document.documentElement : null;
   const resolved = resolveRuntimeColor(host, value, tokenName);
-  if (resolved && !String(resolved).startsWith("var(")) {
-    return String(resolved);
+  if (isMapLibrePaintColor(resolved)) {
+    return String(resolved).trim();
   }
   const text = String(value || "");
   const match = text.match(/,\s*(#[0-9a-f]{3,8}|rgba?\([^)]+\))\s*\)/i);
-  if (match) {
+  if (match && isMapLibrePaintColor(match[1])) {
     return match[1];
+  }
+  const tokenFallback = String(tokenName ?? "").trim();
+  if (tokenFallback) {
+    const fromToken = resolveRuntimeColor(host, `var(--mei-color-${tokenFallback.replace(/_/g, "-")})`, tokenFallback);
+    if (isMapLibrePaintColor(fromToken)) {
+      return String(fromToken).trim();
+    }
   }
   return fallback;
 }
@@ -424,8 +454,8 @@ export function choroplethRange(valueMap, palette) {
   const min = values.length ? Math.min(...values) : 0;
   const max = values.length ? Math.max(...values) : 1;
   const colors = Array.isArray(palette) && palette.length >= 2
-    ? palette
-    : ["#14243a", color("chart_2")];
+    ? palette.map((entry) => mapLibrePaintColor(entry, "chart_2", "#38bdf8"))
+    : ["#14243a", mapLibrePaintColor(color("chart_2"), "chart_2", "#38bdf8")];
   return { min, max, colors };
 }
 
@@ -773,6 +803,16 @@ function basemapValue(basemap, camelKey, snakeKey, fallback) {
   return value != null && value !== "" ? value : fallback;
 }
 
+function basemapPaintColor(basemap, camelKey, snakeKey, tokenName, hexFallback) {
+  const raw = basemapValue(basemap, camelKey, snakeKey, color(tokenName));
+  return mapLibrePaintColor(raw, tokenName, hexFallback);
+}
+
+function basemapPaintColorLiteral(basemap, camelKey, snakeKey, hexFallback) {
+  const raw = basemapValue(basemap, camelKey, snakeKey, hexFallback);
+  return mapLibrePaintColor(raw, "", hexFallback);
+}
+
 /** OpenMapTiles 矢量层上的路网/水系/地名/POI 标注（需 Martin + 对应 MBTiles） */
 export function basemapLabelLayers(basemap = {}) {
   const textField = textFieldForBasemap(basemap);
@@ -784,7 +824,11 @@ export function basemapLabelLayers(basemap = {}) {
     "#94a3b8",
   );
   const waterLabelOpacity = basemapValue(basemap, "waterLabelOpacity", "water_label_opacity", 1);
-  const waterLabelHaloColor = basemapValue(basemap, "waterLabelHaloColor", "water_label_halo_color", "#0f172a");
+  const waterLabelHaloColor = mapLibrePaintColor(
+    basemapValue(basemap, "waterLabelHaloColor", "water_label_halo_color", "#0f172a"),
+    "",
+    "#0f172a",
+  );
   const waterLabelHaloWidth = basemapValue(basemap, "waterLabelHaloWidth", "water_label_halo_width", 1.2);
   const roadLabelColor = mapLibrePaintColor(
     basemapValue(basemap, "roadLabelColor", "road_label_color", color("text_body")),
@@ -792,7 +836,11 @@ export function basemapLabelLayers(basemap = {}) {
     "#cbd5e1",
   );
   const roadLabelOpacity = basemapValue(basemap, "roadLabelOpacity", "road_label_opacity", 1);
-  const roadLabelHaloColor = basemapValue(basemap, "roadLabelHaloColor", "road_label_halo_color", "#0f172a");
+  const roadLabelHaloColor = mapLibrePaintColor(
+    basemapValue(basemap, "roadLabelHaloColor", "road_label_halo_color", "#0f172a"),
+    "",
+    "#0f172a",
+  );
   const roadLabelHaloWidth = basemapValue(basemap, "roadLabelHaloWidth", "road_label_halo_width", 1);
   const placeLabelColor = mapLibrePaintColor(
     basemapValue(basemap, "placeLabelColor", "place_label_color", color("text_inverse")),
@@ -800,11 +848,23 @@ export function basemapLabelLayers(basemap = {}) {
     "#f8fafc",
   );
   const placeLabelOpacity = basemapValue(basemap, "placeLabelOpacity", "place_label_opacity", 1);
-  const placeLabelHaloColor = basemapValue(basemap, "placeLabelHaloColor", "place_label_halo_color", "#0f172a");
+  const placeLabelHaloColor = mapLibrePaintColor(
+    basemapValue(basemap, "placeLabelHaloColor", "place_label_halo_color", "#0f172a"),
+    "",
+    "#0f172a",
+  );
   const placeLabelHaloWidth = basemapValue(basemap, "placeLabelHaloWidth", "place_label_halo_width", 1.2);
-  const poiLabelColor = basemapValue(basemap, "poiLabelColor", "poi_label_color", "#fde68a");
+  const poiLabelColor = mapLibrePaintColor(
+    basemapValue(basemap, "poiLabelColor", "poi_label_color", "#fde68a"),
+    "",
+    "#fde68a",
+  );
   const poiLabelOpacity = basemapValue(basemap, "poiLabelOpacity", "poi_label_opacity", 1);
-  const poiLabelHaloColor = basemapValue(basemap, "poiLabelHaloColor", "poi_label_halo_color", "#0f172a");
+  const poiLabelHaloColor = mapLibrePaintColor(
+    basemapValue(basemap, "poiLabelHaloColor", "poi_label_halo_color", "#0f172a"),
+    "",
+    "#0f172a",
+  );
   const poiLabelHaloWidth = basemapValue(basemap, "poiLabelHaloWidth", "poi_label_halo_width", 1);
   return [
     {
@@ -895,16 +955,36 @@ export function buildBasemapStyle(basemap) {
   const tilesJson = basemap.tilesJsonPath || hostDefaults.tilesJsonPath;
   const roadClasses = resolveBasemapRoadClasses(basemap);
   const roadClassFilter = filterByRoadClasses(roadClasses);
-  const backgroundColor = basemapValue(basemap, "backgroundColor", "background_color", "#0a1628");
-  const waterColor = basemapValue(basemap, "waterColor", "water_color", "#1e3a5f");
-  const waterwayColor = basemapValue(basemap, "waterwayColor", "waterway_color", "#2563eb");
+  const backgroundColor = basemapPaintColorLiteral(
+    basemap,
+    "backgroundColor",
+    "background_color",
+    "#0a1628",
+  );
+  const waterColor = basemapPaintColorLiteral(basemap, "waterColor", "water_color", "#1e3a5f");
+  const waterwayColor = basemapPaintColorLiteral(
+    basemap,
+    "waterwayColor",
+    "waterway_color",
+    "#2563eb",
+  );
   const waterwayOpacity = basemapValue(basemap, "waterwayOpacity", "waterway_opacity", 1);
   const waterwayWidth = basemapValue(basemap, "waterwayWidth", "waterway_width", 1);
-  const landuseColor = basemapValue(basemap, "landuseColor", "landuse_color", "#14243a");
+  const landuseColor = basemapPaintColorLiteral(
+    basemap,
+    "landuseColor",
+    "landuse_color",
+    "#14243a",
+  );
   const landuseOpacity = basemapValue(basemap, "landuseOpacity", "landuse_opacity", 0.6);
-  const roadColor = basemapValue(basemap, "roadColor", "road_color", color("chart_2"));
+  const roadColor = basemapPaintColor(basemap, "roadColor", "road_color", "chart_2", "#38bdf8");
   const roadOpacity = basemapValue(basemap, "roadOpacity", "road_opacity", 1);
-  const buildingColor = basemapValue(basemap, "buildingColor", "building_color", "#334155");
+  const buildingColor = basemapPaintColorLiteral(
+    basemap,
+    "buildingColor",
+    "building_color",
+    "#334155",
+  );
   const buildingOpacity = basemapValue(basemap, "buildingOpacity", "building_opacity", 0.5);
   const roadsLayer = {
     id: "roads",

@@ -123,14 +123,29 @@ async function copyRuntimeVendorAssets() {
   const echartsSrc = path.join(root, "node_modules", "echarts", "dist", "echarts.min.js");
   const maplibreJsSrc = path.join(root, "node_modules", "maplibre-gl", "dist", "maplibre-gl.js");
   const maplibreCssSrc = path.join(root, "node_modules", "maplibre-gl", "dist", "maplibre-gl.css");
+  const threeModuleSrc = path.join(root, "node_modules", "three", "build", "three.module.min.js");
+  const threeCoreSrc = path.join(root, "node_modules", "three", "build", "three.core.min.js");
   const echartsDstDir = path.join(vendorRoot, "echarts");
   const maplibreDstDir = path.join(vendorRoot, "maplibre");
+  const threeDstDir = path.join(vendorRoot, "three");
   await mkdir(echartsDstDir, { recursive: true });
   await mkdir(maplibreDstDir, { recursive: true });
+  await mkdir(threeDstDir, { recursive: true });
   await copyFile(echartsSrc, path.join(echartsDstDir, "echarts.min.js"));
   const maplibreJs = stripJsSourceMapReference(await readFile(maplibreJsSrc, "utf8"));
   await writeFile(path.join(maplibreDstDir, "maplibre-gl.js"), maplibreJs, "utf8");
   await copyFile(maplibreCssSrc, path.join(maplibreDstDir, "maplibre-gl.css"));
+  const threeModuleJs = stripJsSourceMapReference(await readFile(threeModuleSrc, "utf8"));
+  await writeFile(path.join(threeDstDir, "three.module.min.js"), threeModuleJs, "utf8");
+  const threeCoreJs = stripJsSourceMapReference(await readFile(threeCoreSrc, "utf8"));
+  await writeFile(path.join(threeDstDir, "three.core.min.js"), threeCoreJs, "utf8");
+  const orbitControlsSrc = path.join(root, "node_modules", "three", "examples", "jsm", "controls", "OrbitControls.js");
+  let orbitControlsJs = stripJsSourceMapReference(await readFile(orbitControlsSrc, "utf8"));
+  orbitControlsJs = orbitControlsJs.replace(/from 'three'/g, "from './three.module.min.js'");
+  await writeFile(path.join(threeDstDir, "OrbitControls.js"), orbitControlsJs, "utf8");
+  if (threeModuleJs.includes("three.core.min.js") && !threeCoreJs.trim()) {
+    throw new Error("three vendor bundle incomplete: three.core.min.js is empty");
+  }
 }
 
 async function concatStyles(outputName, styles) {
@@ -188,6 +203,9 @@ async function main() {
   console.log(`- ${path.relative(root, path.join(vendorRoot, "echarts", "echarts.min.js"))}`);
   console.log(`- ${path.relative(root, path.join(vendorRoot, "maplibre", "maplibre-gl.js"))}`);
   console.log(`- ${path.relative(root, path.join(vendorRoot, "maplibre", "maplibre-gl.css"))}`);
+  console.log(`- ${path.relative(root, path.join(vendorRoot, "three", "three.module.min.js"))}`);
+  console.log(`- ${path.relative(root, path.join(vendorRoot, "three", "three.core.min.js"))}`);
+  console.log(`- ${path.relative(root, path.join(vendorRoot, "three", "OrbitControls.js"))}`);
 }
 
 await main();

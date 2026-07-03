@@ -28,6 +28,10 @@
       "tag": "mei-cockpit-basemap-stage",
       "script": "basemap-stage.js"
     },
+    "cockpit.world-stage": {
+      "tag": "mei-world-stage",
+      "script": "world-stage.js"
+    },
     "cockpit.opinion-panel": {
       "tag": "mei-cockpit-opinion-panel",
       "script": "opinion-panel.js"

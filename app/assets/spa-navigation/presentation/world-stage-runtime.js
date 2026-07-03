@@ -189,14 +189,73 @@
     applyWorldTarget(event?.detail);
   }
 
+  function normalizeStageKind(raw) {
+    const kind = String(raw || "").trim().toLowerCase();
+    if (kind === "map-stage" || kind === "world-stage") {
+      return kind;
+    }
+    return "";
+  }
+
+  function stageHiddenClass(stageKind) {
+    const normalized = normalizeStageKind(stageKind);
+    return normalized ? `mei-stage-hidden-${normalized}` : "";
+  }
+
+  function resetStageVisibility() {
+    document.documentElement.classList.remove(
+      "mei-stage-hidden-map-stage",
+      "mei-stage-hidden-world-stage",
+    );
+    document.documentElement.classList.add("mei-stage-hidden-world-stage");
+  }
+
+  function setStageVisibility(stageKind, visible) {
+    const normalized = normalizeStageKind(stageKind);
+    if (!normalized) return false;
+    document.documentElement.classList.toggle(stageHiddenClass(normalized), !visible);
+    return true;
+  }
+
+  function enterWorldStageView(options = {}) {
+    setStageVisibility("map-stage", false);
+    setStageVisibility("world-stage", true);
+    document.documentElement.classList.add("mei-world-stage-active");
+    const detail = options && typeof options === "object" ? { ...options } : {};
+    window.dispatchEvent(
+      new CustomEvent("mei:world-stage-entered", {
+        detail,
+      }),
+    );
+    return true;
+  }
+
+  function exitWorldStageView(options = {}) {
+    setStageVisibility("world-stage", false);
+    setStageVisibility("map-stage", true);
+    document.documentElement.classList.remove("mei-world-stage-active");
+    const detail = options && typeof options === "object" ? { ...options } : {};
+    window.dispatchEvent(
+      new CustomEvent("mei:world-stage-exited", {
+        detail,
+      }),
+    );
+    return true;
+  }
+
   function installWorldStageRuntime() {
     if (boot.worldStageRuntimeMounted) return;
     boot.worldStageRuntimeMounted = true;
+    resetStageVisibility();
     window.addEventListener(WORLD_STAGE_EVENT, onWorldAction);
     boot.worldStageRuntime = {
       applyWorldTarget,
       collectWorldStageHosts,
       resolveStageHost,
+      setStageVisibility,
+      resetStageVisibility,
+      enterWorldStageView,
+      exitWorldStageView,
     };
   }
 

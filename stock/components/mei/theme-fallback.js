@@ -5,6 +5,7 @@ export const THEME_FALLBACK_COLORS = {
   text_primary: "#e2e8f0",
   text_muted: "#94a3b8",
   text_body: "#cbd5e1",
+  text_unit: "#7dd3fc",
   text_inverse: "#f8fafc",
   text_accent: "#f8fafc",
   text_value: "#f0f9ff",

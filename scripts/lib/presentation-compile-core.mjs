@@ -334,6 +334,21 @@ export function parseActionDirective(directive) {
     if (!viewpoint) throw new Error("@hideGroup requires a viewpoint id");
     return { type: "hide_group", viewpoint };
   }
+  if (name === "enterWorldView") {
+    const viewpoint = String(directive.args[0] || "").trim();
+    if (!viewpoint) throw new Error("@enterWorldView requires a viewpoint id");
+    return { type: "enter_world_view", viewpoint };
+  }
+  if (name === "exitWorldView") {
+    const viewpoint = String(directive.args[0] || "").trim();
+    if (!viewpoint) throw new Error("@exitWorldView requires a viewpoint id");
+    return { type: "exit_world_view", viewpoint };
+  }
+  if (name === "cutawayToggle") {
+    const viewpoint = String(directive.args[0] || "").trim();
+    if (!viewpoint) throw new Error("@cutawayToggle requires a viewpoint id");
+    return { type: "cutaway_toggle", viewpoint };
+  }
   if (name === "openT2Page" || name === "openBoard") {
     const pageSceneId = String(directive.args[0] || "").trim();
     if (!pageSceneId) throw new Error(`@${name} requires a page scene id`);

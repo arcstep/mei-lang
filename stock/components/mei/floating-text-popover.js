@@ -1,8 +1,4 @@
-import { COCKPIT_Z_INDEX } from "../cockpit/tokens.js";
 import { color } from "./theme-style.js";
-
-/** 高于 T2 board 与 T2 tooltip 子带 */
-export const FLOATING_TEXT_POPOVER_Z = COCKPIT_Z_INDEX.textPopover;
 
 let stylesReady = false;
 
@@ -284,7 +280,6 @@ export function ensureFloatingTextPopoverStyles() {
   if (document.querySelector(`style[data-mei-floating-text-popover="${FLOATING_TEXT_POPOVER_STYLE_VERSION}"]`)) return;
   document.querySelectorAll("style[data-mei-floating-text-popover]").forEach((node) => node.remove());
   stylesReady = true;
-  const z = FLOATING_TEXT_POPOVER_Z;
   const style = document.createElement("style");
   style.dataset.meiFloatingTextPopover = FLOATING_TEXT_POPOVER_STYLE_VERSION;
   const shell = scopeFloatingPopoverCss(textPopoverStyleBlock("large"));
@@ -301,7 +296,7 @@ export function ensureFloatingTextPopoverStyles() {
     }
     body > .mei-floating-text-pop {
       position: fixed;
-      z-index: ${z};
+      z-index: var(--mei-z-cockpit-text-popover, 2350);
       box-sizing: border-box;
       resize: both;
       overflow: hidden;
@@ -399,15 +394,21 @@ export function fitFloatingPopoverToContent(pop, options = {}) {
 export function mountFloatingPopoverOnBody(pop, size = {}) {
   ensureFloatingTextPopoverStyles();
   pop.classList.add("mei-floating-text-pop");
+  pop.setAttribute("data-mei-overlay-role", "text_popover");
   pop.style.position = "fixed";
-  pop.style.zIndex = String(FLOATING_TEXT_POPOVER_Z);
+  pop.style.removeProperty("z-index");
   if (size.width) pop.style.width = `${Math.round(size.width)}px`;
   if (size.height) {
     pop.style.height = `${Math.round(size.height)}px`;
   } else {
     pop.style.height = "auto";
   }
-  document.body.appendChild(pop);
+  const boot = window.__meiLangBoot || {};
+  if (typeof boot.mountRuntimeOverlay === "function") {
+    boot.mountRuntimeOverlay(pop, { role: "text_popover" });
+  } else {
+    document.body.appendChild(pop);
+  }
   if (!size.height) {
     fitFloatingPopoverToContent(pop, size);
   }

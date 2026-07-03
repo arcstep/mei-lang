@@ -33,9 +33,17 @@ import {
   resolveLayerJoinKey,
   resolveLayerSource,
   valueToColor,
+  mapLibrePaintColor,
 } from "../../gis/layer-spec.js";
 import { createComponentTracer } from "../../perf/render-trace.js";
-import { COCKPIT_Z_INDEX } from "../../cockpit/tokens.js";
+import {
+  bindCockpitStageLayoutSync,
+  mountCockpitFloatingControl,
+  positionCockpitFloatingNav,
+  positionLayerControlNearAnchor,
+  positionLayerControlNearAnchorFixed,
+  trackCockpitMapToolHost,
+} from "../../cockpit/cockpit-stage-overlay.js";
 import {
   focusInsetCssVars,
   resolveCockpitStageMetrics,
@@ -77,13 +85,15 @@ function basemapTileJsonUrl(basemap) {
 function basemapUnavailableMessage(basemap, error) {
   const tilejsonUrl = basemapTileJsonUrl(basemap);
   const detail = String(error?.message || error || "").trim();
-  return [
-    `地图底图服务不可访问：${tilejsonUrl}`,
-    "当前场景使用了地图底图，请确认对应 TileJSON / 瓦片服务已启动并可访问，或在 mapSpec.basemap 中改为可用地址。",
-    detail ? `详情：${detail}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const styleIssue =
+    /color expected|parse color|layers\[\d+]\.paint|text-color|line-color|fill-color/i.test(detail);
+  const headline = styleIssue
+    ? `地图样式解析失败：${tilejsonUrl}`
+    : `地图底图服务不可访问：${tilejsonUrl}`;
+  const hint = styleIssue
+    ? "当前场景的 MapLibre 样式含有非法颜色值，请检查 basemap / 标注层 paint 配置。"
+    : "当前场景使用了地图底图，请确认对应 TileJSON / 瓦片服务已启动并可访问，或在 mapSpec.basemap 中改为可用地址。";
+  return [headline, hint, detail ? `详情：${detail}` : ""].filter(Boolean).join(" ");
 }
 
 const ENFORCEMENT_POPUP_LABELS = {
@@ -133,6 +143,22 @@ if (!customElements.get(TAG)) {
     connectedCallback() {
       MAP_RUNTIME_INSTANCES.add(this);
       installMapRuntimeHooks();
+      this._untrackMapToolHost = trackCockpitMapToolHost(this);
+      this._unbindStageLayoutSync = bindCockpitStageLayoutSync(this, () => {
+        this.syncCockpitMapToolsLayer();
+        this.scheduleLayerControlLayout();
+      });
+      if (!this._onWorldStageExited) {
+        this._onWorldStageExited = () => this.restoreWorldEnterPopup();
+        window.addEventListener("mei:world-stage-exited", this._onWorldStageExited);
+      }
+      if (!this._onWorldStageEntered) {
+        this._onWorldStageEntered = () => {
+          this.clearPopup();
+          this.syncCockpitMapToolsLayer();
+        };
+        window.addEventListener("mei:world-stage-entered", this._onWorldStageEntered);
+      }
       this._cleanupDefer = deferUntilDisplayed(this, () => {
         this._cleanupDefer = null;
         this.bootstrap();
@@ -172,6 +198,22 @@ if (!customElements.get(TAG)) {
       if (typeof this._onDocumentKeyDown === "function") {
         document.removeEventListener("keydown", this._onDocumentKeyDown, true);
         this._onDocumentKeyDown = null;
+      }
+      if (typeof this._unbindStageLayoutSync === "function") {
+        this._unbindStageLayoutSync();
+        this._unbindStageLayoutSync = null;
+      }
+      if (typeof this._untrackMapToolHost === "function") {
+        this._untrackMapToolHost();
+        this._untrackMapToolHost = null;
+      }
+      if (typeof this._onWorldStageExited === "function") {
+        window.removeEventListener("mei:world-stage-exited", this._onWorldStageExited);
+        this._onWorldStageExited = null;
+      }
+      if (typeof this._onWorldStageEntered === "function") {
+        window.removeEventListener("mei:world-stage-entered", this._onWorldStageEntered);
+        this._onWorldStageEntered = null;
       }
       this.restoreCockpitMapToolsLayer();
       if (this.map) {
@@ -888,40 +930,25 @@ if (!customElements.get(TAG)) {
 
       if (cockpitBleed) {
         this.layerControlEl.classList.add("mei-cockpit-floating-layer-control");
-        if (this.layerControlEl.parentElement !== document.body) {
-          document.body.appendChild(this.layerControlEl);
-          this._portaledLayerControl = this.layerControlEl;
-        }
-        this.layerControlEl.style.position = "fixed";
-        this.layerControlEl.style.zIndex = String(COCKPIT_Z_INDEX.mapTools + 1);
-        this.layerControlEl.style.transform = "none";
-        this.layerControlEl.style.right = `${Math.round(window.innerWidth - anchorRect.right + gap)}px`;
-        this.layerControlEl.style.left = "auto";
-
-        const focusBottom = Number(focus?.bottom) || 0;
-        const focusTop = Number(focus?.top) || 0;
-        const focusLeft = Number(focus?.left) || 0;
-        let panelTop = Math.round(anchorRect.bottom + gap);
-        let maxHeight = window.innerHeight - panelTop - focusBottom - gap;
-        if (maxHeight < 160) {
-          panelTop = Math.max(focusTop + gap, panelTop);
-          maxHeight = window.innerHeight - panelTop - focusBottom - gap;
-        }
-        this.layerControlEl.style.top = `${panelTop}px`;
-        this.layerControlEl.style.bottom = "auto";
-        this.layerControlEl.style.maxHeight = `${Math.max(120, Math.round(maxHeight))}px`;
-
-        const panelWidth = this.layerControlEl.offsetWidth || 260;
-        const panelLeft = anchorRect.right - gap - panelWidth;
-        if (panelLeft < focusLeft + gap) {
-          this.layerControlEl.style.right = "auto";
-          this.layerControlEl.style.left = `${Math.round(focusLeft + gap)}px`;
-          this.layerControlEl.style.maxWidth = `${Math.max(
-            180,
-            Math.round(anchorRect.left - focusLeft - gap * 2),
-          )}px`;
+        this.layerControlEl.setAttribute("data-mei-overlay-role", "map_tools");
+        const mounted = mountCockpitFloatingControl(this.layerControlEl, this);
+        if (mounted === "stage") {
+          positionLayerControlNearAnchor(
+            this.layerControlEl,
+            this,
+            anchorRect,
+            focus,
+            gap,
+          );
         } else {
-          this.layerControlEl.style.maxWidth = "";
+          this._portaledLayerControl = this.layerControlEl;
+          positionLayerControlNearAnchorFixed(
+            this.layerControlEl,
+            this,
+            anchorRect,
+            focus,
+            gap,
+          );
         }
         return;
       }
@@ -1059,6 +1086,61 @@ if (!customElements.get(TAG)) {
         return;
       }
 
+      if (type === "line") {
+        const lineWidth = Number(style.lineWidth ?? style.line_width ?? 4.4);
+        const lineData = enrichGeoJsonWithLayerMetrics(geojson, {
+          joinKey,
+          valueMap,
+          layerSpec,
+          dataLabels,
+        });
+        this.map.getSource(sourceId).setData(lineData);
+        const lineId = `line-${layerId}`;
+        if (!this.map.getLayer(lineId)) {
+          this.map.addLayer({
+            id: lineId,
+            type: "line",
+            source: sourceId,
+            paint: {
+              "line-color": mapLibrePaintColor(
+                style.lineColor || style.line_color || color("chart_2"),
+                "chart_2",
+                "#fde68a",
+              ),
+              "line-width": lineWidth,
+              "line-opacity": style.lineOpacity ?? style.line_opacity ?? 0.92,
+            },
+          });
+        }
+        mapLayerIds.push(lineId);
+        const hitLineId = `hit-${lineId}`;
+        const worldEnterable =
+          layerSpec.worldEnterable === true || layerSpec.world_enterable === true;
+        if (worldEnterable && !this.map.getLayer(hitLineId)) {
+          this.map.addLayer({
+            id: hitLineId,
+            type: "line",
+            source: sourceId,
+            paint: {
+              "line-color": "#000000",
+              "line-opacity": 0.01,
+              "line-width": Math.max(lineWidth * 5, 28),
+            },
+          });
+          mapLayerIds.push(hitLineId);
+        }
+        this.addDataLabelLayer(layerId, sourceId, dataLabels, mapLayerIds, style);
+        const interactiveLayerId =
+          worldEnterable && this.map.getLayer(hitLineId) ? hitLineId : lineId;
+        this.bindLayerEvents(interactiveLayerId, layerId, joinKey, layerSpec);
+        registry[layerId] = { mapLayerIds, sourceId };
+        this._renderTrace?.mark("layer_ready", {
+          layer_id: layerId,
+          map_layer_count: mapLayerIds.length,
+        });
+        return;
+      }
+
       const fillId = `fill-${layerId}`;
       const extrusionId = `extrude-${layerId}`;
       const lineId = `line-${layerId}`;
@@ -1134,7 +1216,11 @@ if (!customElements.get(TAG)) {
           type: "line",
           source: sourceId,
           paint: {
-            "line-color": style.lineColor || color("chart_2"),
+            "line-color": mapLibrePaintColor(
+              style.lineColor || style.line_color || color("chart_2"),
+              "chart_2",
+              "#38bdf8",
+            ),
             "line-width": style.lineWidth ?? 1.2,
             "line-opacity": style.lineOpacity ?? style.line_opacity ?? 1,
           },
@@ -1216,6 +1302,9 @@ if (!customElements.get(TAG)) {
           name: String(feature.properties?.name || ""),
           properties: feature.properties,
         });
+        const entityId = String(
+          feature.properties?.entityId || feature.properties?.entity_id || resolved.code || "",
+        ).trim();
         if (this._queryStateId && selectionDimension && resolved.code) {
           setQueryStateFilter(this._queryStateId, selectionDimension, resolved.code, {
             filterIntentSource: "chart_selection",
@@ -1232,11 +1321,52 @@ if (!customElements.get(TAG)) {
       });
     }
 
-    clearPopup() {
+    clearPopup(options = {}) {
       if (this._popup) {
+        if (typeof this._popup.off === "function" && this._popupCloseHandler) {
+          this._popup.off("close", this._popupCloseHandler);
+        }
         this._popup.remove();
         this._popup = null;
+        this._popupCloseHandler = null;
       }
+      if (options.clearWorldRestore === true) {
+        this._worldEnterPopupRestore = null;
+      }
+    }
+
+    saveWorldEnterPopupContext(feature, layerSpec, lngLat) {
+      const meta = this.resolveWorldEnterMeta(feature, layerSpec);
+      if (!meta || !lngLat) return;
+      this._worldEnterPopupRestore = {
+        feature,
+        layerSpec,
+        lngLat: {
+          lng: Number(lngLat.lng),
+          lat: Number(lngLat.lat),
+        },
+      };
+    }
+
+    restoreWorldEnterPopup() {
+      const saved = this._worldEnterPopupRestore;
+      if (!saved || !this.map || !window.maplibregl) return;
+      window.setTimeout(() => {
+        if (!this.map || !window.maplibregl) return;
+        const lngLat = new window.maplibregl.LngLat(saved.lngLat.lng, saved.lngLat.lat);
+        this.showFeaturePopup({ lngLat }, saved.feature, saved.layerSpec || {});
+      }, 560);
+    }
+
+    bindPopupCloseHandler() {
+      if (!this._popup || typeof this._popup.on !== "function") return;
+      if (this._popupCloseHandler) {
+        this._popup.off("close", this._popupCloseHandler);
+      }
+      this._popupCloseHandler = () => {
+        this._worldEnterPopupRestore = null;
+      };
+      this._popup.on("close", this._popupCloseHandler);
     }
 
     bindCockpitFloatingLayers() {
@@ -1252,23 +1382,11 @@ if (!customElements.get(TAG)) {
     }
 
     positionCockpitNavCtrl(navCtrl) {
-      const metrics = resolveCockpitStageMetrics(this);
       const focus = this._layout?.focusInsetPx;
-      if (!navCtrl || !metrics || !focus) {
+      if (!navCtrl || !focus) {
         return;
       }
-      const gap = 10;
-      const top = metrics.offsetY + (Number(focus.top) + gap) * metrics.scale;
-      const right =
-        window.innerWidth -
-        (metrics.offsetX + metrics.designW * metrics.scale) +
-        (Number(focus.right) + gap) * metrics.scale;
-      navCtrl.style.position = "fixed";
-      navCtrl.style.top = `${Math.round(top)}px`;
-      navCtrl.style.right = `${Math.round(right)}px`;
-      navCtrl.style.left = "auto";
-      navCtrl.style.bottom = "auto";
-      navCtrl.style.margin = "0";
+      positionCockpitFloatingNav(navCtrl, this, focus, 10);
     }
 
     syncCockpitMapToolsLayer() {
@@ -1283,12 +1401,19 @@ if (!customElements.get(TAG)) {
         return;
       }
       navCtrl.classList.add("mei-cockpit-floating-map-tools");
-      if (navCtrl.parentElement !== document.body) {
-        document.body.appendChild(navCtrl);
+      navCtrl.setAttribute("data-mei-overlay-role", "map_tools");
+      if (document.documentElement.classList.contains("mei-world-stage-active")) {
+        navCtrl.style.display = "none";
+        navCtrl.style.pointerEvents = "none";
+      } else {
+        navCtrl.style.display = "";
+        navCtrl.style.pointerEvents = "";
+      }
+      const mount = mountCockpitFloatingControl(navCtrl, this);
+      if (mount === "body") {
         this._portaledNavCtrl = navCtrl;
       }
       this.positionCockpitNavCtrl(navCtrl);
-      navCtrl.style.zIndex = String(COCKPIT_Z_INDEX.mapTools);
     }
 
     restoreCockpitMapToolsLayer() {
@@ -1325,6 +1450,43 @@ if (!customElements.get(TAG)) {
       this._portaledLayerControl = null;
     }
 
+    positionCockpitPopup(el) {
+      const lngLat = this._popup?.getLngLat?.();
+      if (!el || !lngLat || !this.map) {
+        return;
+      }
+      const boot = window.__meiLangBoot || {};
+      const point = this.map.project(lngLat);
+      const container = this.map.getContainer();
+      const rect = container?.getBoundingClientRect?.();
+      if (!rect) {
+        return;
+      }
+      const clientX = rect.left + point.x;
+      const clientY = rect.top + point.y;
+      const stage =
+        this.closest?.(".preview-stage.preview-surface") ||
+        document.querySelector(".preview-stage.preview-surface");
+      if (stage && typeof boot.clientPointToStageLocal === "function") {
+        const local = boot.clientPointToStageLocal(stage, clientX, clientY);
+        el.style.position = "absolute";
+        el.style.left = `${Math.round(local.left)}px`;
+        el.style.top = `${Math.round(local.top)}px`;
+        el.style.right = "auto";
+        el.style.bottom = "auto";
+        el.style.transform = "translate(-50%, -100%)";
+        el.style.margin = "0";
+        return;
+      }
+      el.style.position = "fixed";
+      el.style.left = `${Math.round(clientX)}px`;
+      el.style.top = `${Math.round(clientY)}px`;
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      el.style.transform = "translate(-50%, -100%)";
+      el.style.margin = "0";
+    }
+
     syncCockpitPopupLayer() {
       if (!this._layout?.cockpitBleed || !this._popup) {
         return;
@@ -1334,10 +1496,16 @@ if (!customElements.get(TAG)) {
         return;
       }
       el.classList.add("mei-cockpit-floating-tip");
-      if (el.parentElement !== document.body) {
+      el.setAttribute("data-mei-overlay-role", "tooltip");
+      const boot = window.__meiLangBoot || {};
+      if (typeof boot.mountRuntimeOverlay === "function") {
+        boot.mountRuntimeOverlay(el, { role: "tooltip", anchor: this });
+      } else if (typeof boot.mountViewportFloatingNode === "function") {
+        boot.mountViewportFloatingNode(el, this);
+      } else if (el.parentElement !== document.body) {
         document.body.appendChild(el);
       }
-      el.style.zIndex = String(COCKPIT_Z_INDEX.tooltip);
+      this.positionCockpitPopup(el);
     }
 
     showFeaturePopup(event, feature, layerSpec = {}) {
@@ -1359,7 +1527,88 @@ if (!customElements.get(TAG)) {
         .setLngLat(lngLat)
         .setHTML(html)
         .addTo(this.map);
+      this.bindPopupCloseHandler();
       this.syncCockpitPopupLayer();
+      this.bindWorldEnterPopupAction(feature, layerSpec);
+      this.saveWorldEnterPopupContext(feature, layerSpec, lngLat);
+    }
+
+    resolveWorldEnterMeta(feature, layerSpec = {}) {
+      const entityId = String(
+        feature?.properties?.entityId ||
+          feature?.properties?.entity_id ||
+          feature?.properties?.code ||
+          "",
+      ).trim();
+      const worldEnterable =
+        layerSpec.worldEnterable === true ||
+        layerSpec.world_enterable === true ||
+        feature?.properties?.worldEnterable === true ||
+        feature?.properties?.world_enterable === true;
+      if (!worldEnterable || !entityId) {
+        return null;
+      }
+      const props = parseProps(this);
+      const enterLabel = String(
+        layerSpec.worldEnterLabel ||
+          layerSpec.world_enter_label ||
+          feature?.properties?.worldEnterLabel ||
+          feature?.properties?.world_enter_label ||
+          feature?.properties?.name ||
+          layerSpec.label ||
+          entityId,
+      ).trim();
+      return {
+        entityId,
+        enterLabel,
+        layerId: String(layerSpec.id || layerSpec.layerId || "").trim(),
+        enterViewpoint: String(
+          layerSpec.enterViewpoint ||
+            layerSpec.enter_viewpoint ||
+            feature?.properties?.enterViewpoint ||
+            feature?.properties?.enter_viewpoint ||
+            "",
+        ).trim(),
+        worldRef: String(props.worldRef || props.world_ref || "").trim(),
+      };
+    }
+
+    bindWorldEnterPopupAction(feature, layerSpec = {}) {
+      if (!this._popup) return;
+      const meta = this.resolveWorldEnterMeta(feature, layerSpec);
+      if (!meta) return;
+      const onEnterClick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.dispatchEvent(
+          new CustomEvent("mei:map-world-enter-request", {
+            detail: {
+              entityId: meta.entityId,
+              layerId: meta.layerId,
+              worldEnterLabel: meta.enterLabel,
+              enterViewpoint: meta.enterViewpoint,
+              viewpoint: meta.enterViewpoint,
+              worldRef: meta.worldRef,
+              panelId: "world_viewport",
+            },
+          }),
+        );
+        this.clearPopup();
+      };
+      const attach = () => {
+        const el = this._popup?.getElement?.();
+        const btn = el?.querySelector(".mei-map-world-enter-btn");
+        if (!(btn instanceof HTMLButtonElement)) return;
+        if (btn.dataset.meiWorldEnterBound === "1") return;
+        btn.dataset.meiWorldEnterBound = "1";
+        btn.addEventListener("click", onEnterClick, { capture: true });
+      };
+      // addTo() may fire "open" synchronously before this runs — bind immediately.
+      attach();
+      window.requestAnimationFrame(attach);
+      if (typeof this._popup.on === "function") {
+        this._popup.on("open", attach);
+      }
     }
 
     buildPopupHtml(feature, layerSpec = {}) {
@@ -1398,10 +1647,14 @@ if (!customElements.get(TAG)) {
           `<div class="popup-row"><span class="popup-label">${escapeHtml(meta.label)}</span><span class="popup-value">${escapeHtml(formatted)}</span></div>`,
         );
       }
-      if (rows.length === 0) {
+      if (rows.length === 0 && !this.resolveWorldEnterMeta(feature, layerSpec)) {
         return "";
       }
-      return `<div class="popup-wrap">${rows.join("")}</div>`;
+      const worldMeta = this.resolveWorldEnterMeta(feature, layerSpec);
+      const actionsHtml = worldMeta
+        ? `<div class="popup-actions"><button type="button" class="mei-map-world-enter-btn" data-entity-id="${escapeHtml(worldMeta.entityId)}" data-enter-label="${escapeHtml(worldMeta.enterLabel)}" data-layer-id="${escapeHtml(worldMeta.layerId)}" data-enter-viewpoint="${escapeHtml(worldMeta.enterViewpoint)}" data-world-ref="${escapeHtml(worldMeta.worldRef)}">进入 ${escapeHtml(worldMeta.enterLabel)}</button></div>`
+        : "";
+      return `<div class="popup-wrap">${rows.join("")}${actionsHtml}</div>`;
     }
 
     ensureBasemapLabels(basemap) {
@@ -1569,8 +1822,8 @@ function shellHtml(props) {
         ${layout.cockpitBleed ? layout.navCtrlPos : ""}
       }
       .wrap.wrap-cockpit-bleed .map .maplibregl-ctrl-top-right {
-        position: fixed !important;
-        z-index: ${COCKPIT_Z_INDEX.mapTools};
+        position: absolute !important;
+        z-index: var(--mei-z-cockpit-map-tools, 1210);
       }
       .map .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
         border: 1px solid rgba(84, 160, 255, 0.35);
@@ -1635,7 +1888,7 @@ function shellHtml(props) {
         filter: brightness(1.55) saturate(0.72) hue-rotate(180deg);
       }
       .wrap.wrap-cockpit-bleed .layer-control {
-        z-index: ${COCKPIT_Z_INDEX.mapTools};
+        z-index: var(--mei-z-cockpit-map-tools, 1210);
       }
       .layer-control {
         position: absolute;

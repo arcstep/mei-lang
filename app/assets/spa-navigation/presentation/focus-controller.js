@@ -7,6 +7,124 @@
     host: { min: 5800, max: 99999, default: 5800 },
   };
   const SUPPORTED_PLANES = ["t0", "t1", "t2"];
+  const SUPPORTED_STAGE_KINDS = ["map-stage", "world-stage"];
+
+  function normalizeStageKind(raw) {
+    const kind = String(raw || "").trim().toLowerCase();
+    return SUPPORTED_STAGE_KINDS.includes(kind) ? kind : "";
+  }
+
+  function stageHiddenClass(stageKind) {
+    const normalized = normalizeStageKind(stageKind);
+    return normalized ? `mei-stage-hidden-${normalized}` : "";
+  }
+
+  function resetStageVisibility() {
+    const runtime = boot.worldStageRuntime;
+    if (runtime && typeof runtime.resetStageVisibility === "function") {
+      runtime.resetStageVisibility();
+      return;
+    }
+    document.documentElement.classList.remove(
+      "mei-stage-hidden-map-stage",
+      "mei-stage-hidden-world-stage",
+    );
+    document.documentElement.classList.add("mei-stage-hidden-world-stage");
+  }
+
+  function setStageVisibility(stageKind, visible) {
+    const runtime = boot.worldStageRuntime;
+    if (runtime && typeof runtime.setStageVisibility === "function") {
+      return runtime.setStageVisibility(stageKind, visible);
+    }
+    const normalized = normalizeStageKind(stageKind);
+    if (!normalized) return false;
+    document.documentElement.classList.toggle(stageHiddenClass(normalized), !visible);
+    return true;
+  }
+
+  function enterWorldStageViewCore(action, entry) {
+    const runtime = boot.worldStageRuntime;
+    if (runtime && typeof runtime.enterWorldStageView === "function") {
+      runtime.enterWorldStageView({ action, entry });
+    } else {
+      setStageVisibility("map-stage", false);
+      setStageVisibility("world-stage", true);
+      document.documentElement.classList.add("mei-world-stage-active");
+    }
+    const viewpointId = String(action?.viewpoint || action?.viewpointId || "").trim();
+    if (viewpointId) {
+      focusViewpoint(viewpointId);
+    }
+    return dispatchWorldTargetAction(
+      {
+        ...action,
+        type: action?.cameraPreset || action?.camera_preset ? "camera_move" : "focus_entity",
+        viewFamily: String(action?.viewFamily || action?.view_family || entry?.viewFamily || "world").trim(),
+        stageKind: String(action?.stageKind || action?.stage_kind || entry?.stageKind || "world-stage").trim(),
+      },
+      entry || readViewpointEntry(viewpointId),
+    );
+  }
+
+  function enterWorldStageView(action, entry) {
+    if (action?.skipWorldTransition) {
+      return enterWorldStageViewCore(action, entry);
+    }
+    const transition = boot.worldStageTransition;
+    if (transition && typeof transition.runEnter === "function") {
+      const label = String(
+        action?.worldEnterLabel ||
+          action?.label ||
+          entry?.label ||
+          action?.entityId ||
+          "空间场景",
+      ).trim();
+      void transition.runEnter({ ...action, worldEnterLabel: label }, () =>
+        enterWorldStageViewCore({ ...action, skipWorldTransition: true }, entry),
+      );
+      return true;
+    }
+    return enterWorldStageViewCore(action, entry);
+  }
+
+  function exitWorldStageViewCore(action, entry) {
+    const runtime = boot.worldStageRuntime;
+    if (runtime && typeof runtime.exitWorldStageView === "function") {
+      runtime.exitWorldStageView({ action, entry });
+    } else {
+      setStageVisibility("world-stage", false);
+      setStageVisibility("map-stage", true);
+      document.documentElement.classList.remove("mei-world-stage-active");
+    }
+    const viewpointId = String(action?.viewpoint || action?.viewpointId || "").trim();
+    if (viewpointId) {
+      focusViewpoint(viewpointId);
+    }
+    return dispatchWorldTargetAction(
+      {
+        ...action,
+        type: "camera_move",
+        viewFamily: String(action?.viewFamily || action?.view_family || entry?.viewFamily || "map").trim(),
+        stageKind: String(action?.stageKind || action?.stage_kind || entry?.stageKind || "map-stage").trim(),
+      },
+      entry || readViewpointEntry(viewpointId),
+    );
+  }
+
+  function exitWorldStageView(action, entry) {
+    if (action?.skipWorldTransition) {
+      return exitWorldStageViewCore(action, entry);
+    }
+    const transition = boot.worldStageTransition;
+    if (transition && typeof transition.runExit === "function") {
+      void transition.runExit(action, () =>
+        exitWorldStageViewCore({ ...action, skipWorldTransition: true }, entry),
+      );
+      return true;
+    }
+    return exitWorldStageViewCore(action, entry);
+  }
 
   function readPresentationMap() {
     const node = document.getElementById("mei-presentation-map");
@@ -174,6 +292,24 @@
           action,
           readViewpointEntry(action.viewpoint || action.viewpointId),
         );
+      case "enter_world_view":
+      case "enterWorldView": {
+        const viewpointId = String(action.viewpoint || action.viewpointId || "").trim();
+        const entry = readViewpointEntry(viewpointId);
+        return enterWorldStageView(action, entry);
+      }
+      case "exit_world_view":
+      case "exitWorldView": {
+        const viewpointId = String(action.viewpoint || action.viewpointId || "").trim();
+        const entry = readViewpointEntry(viewpointId);
+        return exitWorldStageView(action, entry);
+      }
+      case "cutaway_toggle":
+      case "cutawayToggle":
+        return dispatchWorldTargetAction(
+          action,
+          readViewpointEntry(action.viewpoint || action.viewpointId),
+        );
       case "clear_focus":
       case "clearFocus":
         clearViewpointFocus();
@@ -210,6 +346,9 @@
     root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
     root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
     root.MeiPresentation.resetPlanes = resetPlaneVisibility;
+    root.MeiPresentation.resetStages = resetStageVisibility;
+    root.MeiPresentation.showStage = (stageKind) => setStageVisibility(stageKind, true);
+    root.MeiPresentation.hideStage = (stageKind) => setStageVisibility(stageKind, false);
     root.MeiPresentation.dispatch = dispatchPresentationAction;
     root.MeiPresentation.map = readPresentationMap;
     root.MeiPresentation.resolveViewpoint = readViewpointEntry;

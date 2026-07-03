@@ -1179,7 +1179,6 @@ const FLOATING_PANEL_MIN_WIDTH = 300;
 const FLOATING_PANEL_MAX_WIDTH = 520;
 const FLOATING_PANEL_MAX_HEIGHT = 360;
 const FLOATING_PANEL_VIEWPORT_PADDING = 10;
-const FLOATING_PANEL_Z_INDEX = 2250;
 const ADD_FIELD_PICKER_KEY = "__add_field__";
 
 function cssEscapeAttr(value) {
@@ -1262,7 +1261,12 @@ function positionFloatingPanel(trigger, panel, options = {}) {
   panel.style.minWidth = `${width}px`;
   panel.style.maxWidth = `${Math.min(FLOATING_PANEL_MAX_WIDTH, window.innerWidth - FLOATING_PANEL_VIEWPORT_PADDING * 2)}px`;
   panel.style.maxHeight = `${maxHeight}px`;
-  panel.style.zIndex = String(FLOATING_PANEL_Z_INDEX);
+  panel.style.removeProperty("z-index");
+  panel.setAttribute("data-mei-overlay-role", "text_popover");
+  const boot = window.__meiLangBoot || {};
+  if (typeof boot.mountRuntimeOverlay === "function") {
+    boot.mountRuntimeOverlay(panel, { role: "text_popover", anchor: trigger });
+  }
   panel.style.overflow = "auto";
 
   const spaceBelow = window.innerHeight - triggerRect.bottom - FLOATING_PANEL_VIEWPORT_PADDING;

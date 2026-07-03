@@ -140,6 +140,57 @@ export function resolveCockpitStageMetrics(host) {
   };
 }
 
+/** 将设计稿 focusInset 换算为视口坐标矩形（与 T1 contain 缩放后的观察窗对齐） */
+export function focusInsetViewportRect(metrics, focusInsetPx) {
+  if (!metrics || !focusInsetPx) {
+    return null;
+  }
+  const top = Number(focusInsetPx.top) || 0;
+  const right = Number(focusInsetPx.right) || 0;
+  const bottom = Number(focusInsetPx.bottom) || 0;
+  const left = Number(focusInsetPx.left) || 0;
+  const { scale, offsetX, offsetY, designW, designH } = metrics;
+  const stageRight = offsetX + designW * scale;
+  const stageBottom = offsetY + designH * scale;
+  return {
+    top: offsetY + top * scale,
+    left: offsetX + left * scale,
+    right: stageRight - right * scale,
+    bottom: stageBottom - bottom * scale,
+  };
+}
+
+/** 访问态舞台表面（与 T0/T1 共用 transform scale 的设计稿根） */
+export function resolveCockpitStageSurface(host) {
+  const fromHost = host?.closest?.(".preview-stage.preview-surface");
+  if (fromHost instanceof HTMLElement) {
+    return fromHost;
+  }
+  const shell = host?.closest?.(".preview-stage-shell");
+  const fromShell = shell?.querySelector?.(".preview-stage.preview-surface");
+  if (fromShell instanceof HTMLElement) {
+    return fromShell;
+  }
+  const found = document.querySelector(".preview-stage.preview-surface");
+  return found instanceof HTMLElement ? found : null;
+}
+
+/** 视口坐标 → 舞台设计稿坐标（供 stage 内 overlay 定位） */
+export function clientPointToStageLocal(stage, clientX, clientY) {
+  if (!(stage instanceof HTMLElement)) {
+    return { left: clientX, top: clientY };
+  }
+  const rect = stage.getBoundingClientRect();
+  const designW = stage.offsetWidth || 1920;
+  const designH = stage.offsetHeight || 1080;
+  const scaleX = rect.width > 0 ? designW / rect.width : 1;
+  const scaleY = rect.height > 0 ? designH / rect.height : 1;
+  return {
+    left: (clientX - rect.left) * scaleX,
+    top: (clientY - rect.top) * scaleY,
+  };
+}
+
 export function focusInsetCssVars(focusInset) {
   if (!focusInset) {
     return "";

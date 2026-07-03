@@ -16,7 +16,6 @@ import {
 import { createComponentTracer } from "../../perf/render-trace.js";
 import {
   cockpitCssVars,
-  COCKPIT_Z_INDEX,
   readThemeColor,
   readThemeTypography,
 } from "../../cockpit/tokens.js";
@@ -1056,14 +1055,14 @@ function resolveEchartsTooltipAppendTo(host) {
 
 function echartsTooltip(typography, trigger, extra = {}, host) {
   const { textRole = "label", ...rest } = extra;
-  const z = COCKPIT_Z_INDEX.tooltipInBoard;
   return {
     trigger,
     ...ECHARTS_TOOLTIP_CHROME,
     className: "mei-cockpit-echarts-tooltip",
     appendTo: resolveEchartsTooltipAppendTo(host),
     confine: false,
-    extraCssText: `z-index:${z} !important;box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:6px;`,
+    extraCssText:
+      "box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:6px;",
     textStyle: echartsTooltipTextStyle(typography, textRole, host),
     ...rest,
   };

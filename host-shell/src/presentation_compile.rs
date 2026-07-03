@@ -289,6 +289,11 @@ fn validate_bounds_field(
     false
 }
 
+fn is_world_view_stage(stage: &WorldStageContract) -> bool {
+    stage.view_family.as_deref() == Some("world")
+        || stage.stage_kind.as_deref() == Some("world-stage")
+}
+
 fn validate_world_targets_config(
     stage: &WorldStageContract,
     value: &Value,
@@ -358,8 +363,13 @@ fn validate_world_targets_config(
                 continue;
             };
             let mut has_known_fields = false;
-            for field_name in ["shapeIds", "hotspotIds", "layerIds", "layers"] {
-                if group_obj.contains_key(field_name) {
+            let group_field_names: &[&str] = if is_world_view_stage(stage) {
+                &["shapeIds", "hotspotIds", "layerIds", "layers", "meshIds", "meshes"]
+            } else {
+                &["shapeIds", "hotspotIds", "layerIds", "layers"]
+            };
+            for field_name in group_field_names {
+                if group_obj.contains_key(*field_name) {
                     has_known_fields = true;
                 }
                 validate_string_array_field(
@@ -367,17 +377,20 @@ fn validate_world_targets_config(
                     "groups",
                     group_id,
                     field_name,
-                    group_obj.get(field_name),
+                    group_obj.get(*field_name),
                     diagnostics,
                 );
             }
             if !has_known_fields {
+                let expected = if is_world_view_stage(stage) {
+                    "`shapeIds` / `hotspotIds` / `layerIds` / `layers` / `meshIds` / `meshes`"
+                } else {
+                    "`shapeIds` / `hotspotIds` / `layerIds` / `layers`"
+                };
                 diagnostics.push(world_contract_diagnostic(
                     "world_targets_group_empty",
                     stage,
-                    format!(
-                        "`worldTargets.groups.{group_id}` 至少应声明 `shapeIds` / `hotspotIds` / `layerIds` / `layers` 之一"
-                    ),
+                    format!("`worldTargets.groups.{group_id}` 至少应声明 {expected} 之一"),
                     Some("group"),
                     Some(group_id),
                 ));
@@ -472,13 +485,53 @@ fn validate_world_targets_config(
                     diagnostics,
                 );
             }
+            if is_world_view_stage(stage) {
+                for field_name in ["mode", "targetEntity", "target_entity", "projection"] {
+                    if preset_obj.contains_key(field_name) {
+                        has_known_fields = true;
+                    }
+                }
+                for field_name in ["distance", "eyeHeight", "eye_height", "fov"] {
+                    if preset_obj.contains_key(field_name) {
+                        has_known_fields = true;
+                    }
+                    validate_number_field(
+                        stage,
+                        "cameraPresets",
+                        preset_id,
+                        field_name,
+                        preset_obj.get(field_name),
+                        diagnostics,
+                    );
+                }
+                if preset_obj.contains_key("lookAt") || preset_obj.contains_key("look_at") {
+                    has_known_fields = true;
+                }
+                if preset_obj.contains_key("cutaway") {
+                    has_known_fields = true;
+                    if !preset_obj.get("cutaway").map(Value::is_object).unwrap_or(false) {
+                        diagnostics.push(world_contract_diagnostic(
+                            "world_targets_invalid_camera_preset",
+                            stage,
+                            format!(
+                                "`worldTargets.cameraPresets.{preset_id}.cutaway` 必须是对象"
+                            ),
+                            Some("cameraPreset"),
+                            Some(preset_id),
+                        ));
+                    }
+                }
+            }
             if !has_known_fields {
+                let expected = if is_world_view_stage(stage) {
+                    "anchor / map camera / group / layer / world 3D camera（mode、targetEntity、distance、lookAt、cutaway 等）"
+                } else {
+                    "anchor / camera / group / layer 相关字段"
+                };
                 diagnostics.push(world_contract_diagnostic(
                     "world_targets_camera_preset_empty",
                     stage,
-                    format!(
-                        "`worldTargets.cameraPresets.{preset_id}` 至少应声明 anchor / camera / group / layer 相关字段之一"
-                    ),
+                    format!("`worldTargets.cameraPresets.{preset_id}` 至少应声明 {expected} 之一"),
                     Some("cameraPreset"),
                     Some(preset_id),
                 ));
@@ -1077,7 +1130,10 @@ fn validate_manifest_refs(
                 | "camera_move"
                 | "focus_entity"
                 | "show_group"
-                | "hide_group" => {
+                | "hide_group"
+                | "enter_world_view"
+                | "exit_world_view"
+                | "cutaway_toggle" => {
                     if let Some(viewpoint_id) =
                         action_map.get("viewpoint").and_then(Value::as_str).map(str::trim)
                     {
