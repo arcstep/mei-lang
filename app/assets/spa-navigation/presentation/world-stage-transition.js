@@ -5,6 +5,7 @@
   const BACK_NAV_ID = "mei-world-stage-back-nav";
   const FLOAT_NAV_ID = "mei-world-stage-floating-nav";
   let transitionInFlight = false;
+  let worldChromeActive = false;
 
   function resolveMapCockpitHost() {
     const instances = boot.worldMapInstances;
@@ -107,11 +108,7 @@
       node.style.display = "";
       node.style.pointerEvents = "";
     });
-    boot.worldMapInstances?.forEach?.((instance) => {
-      if (typeof instance.syncCockpitMapToolsLayer === "function") {
-        instance.syncCockpitMapToolsLayer();
-      }
-    });
+    boot.syncCockpitMapToolsOverlays?.();
   }
 
   function ensureOverlay() {
@@ -275,6 +272,10 @@
   }
 
   function activateWorldChrome() {
+    if (worldChromeActive) {
+      return;
+    }
+    worldChromeActive = true;
     hideMapFloatingChrome();
     positionWorldChrome();
     const floatNav = ensureFloatingNav();
@@ -284,6 +285,10 @@
   }
 
   function deactivateWorldChrome() {
+    if (!worldChromeActive) {
+      return;
+    }
+    worldChromeActive = false;
     const floatNav = document.getElementById(FLOAT_NAV_ID);
     if (floatNav instanceof HTMLElement) {
       floatNav.classList.remove("is-visible");
@@ -392,6 +397,9 @@
     ensureFloatingNav();
     boot.worldStageTransition = {
       MIN_TRANSITION_MS,
+      get transitionInFlight() {
+        return transitionInFlight;
+      },
       runTransition,
       runEnter,
       runExit,

@@ -1,5 +1,6 @@
 [
   "spa-navigation/preamble.js",
+  "spa-navigation/browser-runtime-diag.js",
   "spa-navigation/constants.js",
   "spa-navigation/events.js",
   "spa-navigation/constants-maps.js",

@@ -2,6 +2,8 @@
   const SCENE_SHELL_STORE = "snapshots";
   const SCENE_SHELL_DB_VERSION = 1;
   const SCENE_SHELL_LS_PREFIX = "mei:scene-shell:v1:";
+  const SCENE_SHELL_MAX_ENTRIES = 12;
+  const SCENE_SHELL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
   function openSceneShellDb() {
     if (typeof indexedDB === "undefined") {
@@ -69,6 +71,147 @@
     };
   }
 
+  async function listSceneShellSnapshots(db) {
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(SCENE_SHELL_STORE, "readonly");
+        const request = tx.objectStore(SCENE_SHELL_STORE).getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => resolve([]);
+      } catch (_) {
+        resolve([]);
+      }
+    });
+  }
+
+  function estimateSnapshotBytes(snapshot) {
+    try {
+      return JSON.stringify(snapshot || {}).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  async function pruneSceneShellDb(db) {
+    const now = Date.now();
+    let pruned = 0;
+    const all = await listSceneShellSnapshots(db);
+    const expiredKeys = all
+      .filter((item) => now - Number(item?.savedAtMs || 0) > SCENE_SHELL_MAX_AGE_MS)
+      .map((item) => item.key);
+    if (expiredKeys.length > 0) {
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readwrite");
+          const store = tx.objectStore(SCENE_SHELL_STORE);
+          for (const key of expiredKeys) {
+            store.delete(key);
+            pruned += 1;
+          }
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+    }
+    let remaining = await listSceneShellSnapshots(db);
+    if (remaining.length > SCENE_SHELL_MAX_ENTRIES) {
+      remaining = remaining.sort(
+        (a, b) => Number(a?.savedAtMs || 0) - Number(b?.savedAtMs || 0),
+      );
+      const excess = remaining.length - SCENE_SHELL_MAX_ENTRIES;
+      const deleteKeys = remaining.slice(0, excess).map((item) => item.key);
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readwrite");
+          const store = tx.objectStore(SCENE_SHELL_STORE);
+          for (const key of deleteKeys) {
+            store.delete(key);
+            pruned += 1;
+          }
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+      remaining = await listSceneShellSnapshots(db);
+    }
+    let totalBytesEstimate = 0;
+    for (const item of remaining) {
+      totalBytesEstimate += estimateSnapshotBytes(item);
+    }
+    return { pruned, totalBytesEstimate, entries: remaining.length };
+  }
+
+  function pruneSceneShellSessionStorage() {
+    let pruned = 0;
+    const entries = [];
+    try {
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i);
+        if (!key || !key.startsWith(SCENE_SHELL_LS_PREFIX)) continue;
+        const raw = sessionStorage.getItem(key);
+        let savedAtMs = 0;
+        try {
+          const parsed = JSON.parse(raw || "{}");
+          savedAtMs = Number(parsed?.savedAtMs || 0);
+        } catch (_) {
+          savedAtMs = 0;
+        }
+        entries.push({ key, savedAtMs });
+      }
+    } catch (_) {
+      return { pruned: 0, totalBytesEstimate: 0, entries: 0 };
+    }
+    const now = Date.now();
+    for (const entry of entries) {
+      if (now - entry.savedAtMs > SCENE_SHELL_MAX_AGE_MS) {
+        try {
+          sessionStorage.removeItem(entry.key);
+          pruned += 1;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+    const survivors = entries
+      .filter((entry) => now - entry.savedAtMs <= SCENE_SHELL_MAX_AGE_MS)
+      .sort((a, b) => a.savedAtMs - b.savedAtMs);
+    if (survivors.length > SCENE_SHELL_MAX_ENTRIES) {
+      const excess = survivors.length - SCENE_SHELL_MAX_ENTRIES;
+      for (let i = 0; i < excess; i += 1) {
+        try {
+          sessionStorage.removeItem(survivors[i].key);
+          pruned += 1;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+    let totalBytesEstimate = 0;
+    let entryCount = 0;
+    try {
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i);
+        if (!key || !key.startsWith(SCENE_SHELL_LS_PREFIX)) continue;
+        entryCount += 1;
+        totalBytesEstimate += String(sessionStorage.getItem(key) || "").length;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    if (pruned > 0) {
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_pruned", {
+        pruned,
+        entries: entryCount,
+        totalBytesEstimate,
+      });
+    }
+    return { pruned, totalBytesEstimate, entries: entryCount };
+  }
+
   async function persistSceneShellSnapshot(snapshot) {
     if (!snapshot || !snapshot.key) return false;
     const db = await openSceneShellDb();
@@ -82,6 +225,11 @@
         } catch (_) {
           resolve(false);
         }
+      });
+      const pruneStats = await pruneSceneShellDb(db);
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_persist", {
+        key: snapshot.key,
+        ...pruneStats,
       });
       try {
         db.close();
@@ -99,6 +247,11 @@
         shellHtml: snapshot.shellHtml,
       };
       sessionStorage.setItem(`${SCENE_SHELL_LS_PREFIX}${snapshot.key}`, JSON.stringify(compact));
+      const pruneStats = pruneSceneShellSessionStorage();
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_persist", {
+        key: snapshot.key,
+        ...pruneStats,
+      });
       return true;
     } catch (_) {
       return false;
@@ -198,3 +351,6 @@
   boot.tryRestoreSceneShellFromCache = tryRestoreSceneShellFromCache;
   boot.buildDocFromSceneShellSnapshot = buildDocFromSceneShellSnapshot;
   boot.saveCurrentSceneShellSnapshot = saveCurrentSceneShellSnapshot;
+  boot.pruneSceneShellSessionStorage = pruneSceneShellSessionStorage;
+  boot.SCENE_SHELL_MAX_ENTRIES = SCENE_SHELL_MAX_ENTRIES;
+  boot.SCENE_SHELL_MAX_AGE_MS = SCENE_SHELL_MAX_AGE_MS;
