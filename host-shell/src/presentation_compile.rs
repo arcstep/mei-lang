@@ -54,6 +54,7 @@ struct PresentationSurfaceIndex {
     metrics: BTreeSet<String>,
     charts: BTreeSet<String>,
     images: BTreeSet<String>,
+    image_assets: BTreeMap<String, String>,
     world_stages: Vec<WorldStageContract>,
     diagnostics: Vec<PresentationCompileDiagnostic>,
     warnings: Vec<PresentationCompileDiagnostic>,
@@ -1027,22 +1028,64 @@ fn collect_asset_stems(app_root: &Path) -> BTreeSet<String> {
     stems
 }
 
-fn build_surface_index(
-    workspace_root: &Path,
-    app_id: &str,
-    scene_id: &str,
-) -> Result<PresentationSurfaceIndex> {
-    let app_root = resolve_app_root(workspace_root, app_id);
-    let compiled = compile_app_from_root(workspace_root, app_root.as_path())
-        .with_context(|| format!("failed to compile app `{app_id}` for presentation validation"))?;
-    let mut surfaces = PresentationSurfaceIndex::default();
-    for route in catalog_scene_routes_from_app_root(app_root.as_path()) {
-        let scene_id = route.scene_id.trim();
-        if !scene_id.is_empty() {
-            surfaces.pages.insert(scene_id.to_string());
+fn collect_asset_urls(app_root: &Path) -> BTreeMap<String, String> {
+    let assets_root = app_root.join("assets");
+    if !assets_root.is_dir() {
+        return BTreeMap::new();
+    }
+    let mut urls = BTreeMap::new();
+    let mut stack = vec![assets_root];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(dir.as_path()) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Some(file_name) = path.file_stem().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            let stem = file_name.trim();
+            if stem.is_empty() {
+                continue;
+            }
+            let Some(rel) = path.strip_prefix(app_root).ok() else {
+                continue;
+            };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            if !is_presentation_image_asset_path(rel.as_str()) {
+                continue;
+            }
+            urls.insert(stem.to_string(), rel);
         }
     }
-    for resource in &compiled.resources {
+    urls
+}
+
+pub(crate) fn presentation_image_assets_for_app(
+    workspace_root: &Path,
+    app_id: &str,
+) -> BTreeMap<String, String> {
+    let app_root = resolve_app_root(workspace_root, app_id);
+    collect_asset_urls(app_root.as_path())
+}
+
+fn is_presentation_image_asset_path(rel: &str) -> bool {
+    let lower = rel.to_ascii_lowercase();
+    lower.ends_with(".svg")
+        || lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".webp")
+        || lower.ends_with(".gif")
+}
+
+fn collect_metric_ids_from_resources(resources: &[mei_lang_kernel::LoadedResource], surfaces: &mut PresentationSurfaceIndex) {
+    for resource in resources {
         if let Some(dataset) = resource.dataset.as_ref() {
             for metric_id in dataset.metrics.keys() {
                 let metric_id = metric_id.trim();
@@ -1059,10 +1102,38 @@ fn build_surface_index(
         }
     }
     surfaces.charts.extend(surfaces.metrics.iter().cloned());
+}
+
+fn collect_pages_from_routes(
+    routes: &[mei_lang_kernel::CompiledSceneRoute],
+    surfaces: &mut PresentationSurfaceIndex,
+) {
+    for route in routes {
+        let scene_id = route.scene_id.trim();
+        if !scene_id.is_empty() {
+            surfaces.pages.insert(scene_id.to_string());
+        }
+    }
+}
+
+fn build_surface_index(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Result<PresentationSurfaceIndex> {
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let mut surfaces = PresentationSurfaceIndex::default();
+    collect_pages_from_routes(
+        &catalog_scene_routes_from_app_root(app_root.as_path()),
+        &mut surfaces,
+    );
     surfaces.images = collect_asset_stems(app_root.as_path());
-    if let Ok(Some(outcome)) =
-        mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
+    surfaces.image_assets = collect_asset_urls(app_root.as_path());
+    if let Some(outcome) = mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
+        .with_context(|| format!("failed to assemble app `{app_id}` for presentation validation"))?
     {
+        collect_pages_from_routes(&outcome.compiled.scene_routes, &mut surfaces);
+        collect_metric_ids_from_resources(&outcome.compiled.resources, &mut surfaces);
         if let Some(viewpoints) = outcome
             .presentation_map
             .get("viewpoints")
@@ -1086,7 +1157,15 @@ fn build_surface_index(
             surfaces.diagnostics.extend(diagnostics);
             surfaces.warnings.extend(warnings);
         }
+        return Ok(surfaces);
     }
+    let compiled = compile_app_from_root(workspace_root, app_root.as_path()).with_context(|| {
+        format!(
+            "failed to compile app `{app_id}` for presentation validation (no prebuilt registry)"
+        )
+    })?;
+    collect_pages_from_routes(&compiled.scene_routes, &mut surfaces);
+    collect_metric_ids_from_resources(&compiled.resources, &mut surfaces);
     Ok(surfaces)
 }
 
@@ -1412,7 +1491,7 @@ pub async fn api_presentation_compile(
                     "diagnostics": [{
                         "level": "error",
                         "code": "surface_index_failed",
-                        "message": error.to_string(),
+                        "message": format!("{error:#}"),
                     }],
                     "warnings": [],
                 })),
@@ -1454,6 +1533,7 @@ pub async fn api_presentation_compile(
         "manifest": manifest,
         "diagnostics": diagnostics,
         "warnings": warnings,
+        "imageAssets": surfaces.image_assets,
     }))
     .into_response()
 }
@@ -1677,5 +1757,33 @@ mod tests {
         assert!(codes.contains(&"world_targets_unknown_anchor"));
         assert!(codes.contains(&"world_targets_unknown_group"));
         assert!(codes.contains(&"world_targets_unknown_camera_preset"));
+    }
+
+    #[test]
+    fn mini_park_surface_index_uses_prebuilt_registry() {
+        let ws = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../workspaces/ws-demo-v2")
+            .canonicalize()
+            .expect("ws-demo-v2");
+        let bundle = ws.join("apps/mini-park/build/active/exchange/mini-park.meibundle");
+        if !bundle.is_file() {
+            return;
+        }
+        let surfaces = build_surface_index(ws.as_path(), "mini-park", "home")
+            .expect("build surface index for mini-park");
+        assert!(
+            surfaces.pages.contains("home"),
+            "expected home page in surface index: {:?}",
+            surfaces.pages
+        );
+        assert!(
+            surfaces.pages.contains("park_point_1_page"),
+            "expected overlay page in surface index: {:?}",
+            surfaces.pages
+        );
+        assert!(
+            !surfaces.viewpoints.is_empty(),
+            "expected presentation viewpoints from assemble"
+        );
     }
 }

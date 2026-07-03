@@ -41,6 +41,14 @@
       error.payload = result;
       throw error;
     }
+    if (result.imageAssets && typeof result.imageAssets === "object") {
+      const embedRuntime = boot.presentationSlideEmbedRuntime;
+      if (embedRuntime && typeof embedRuntime.applyPresentationImageAssets === "function") {
+        embedRuntime.applyPresentationImageAssets(result.imageAssets);
+      } else {
+        boot.presentationImageAssets = result.imageAssets;
+      }
+    }
     return result;
   }
 

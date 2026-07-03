@@ -13,6 +13,7 @@ use mei_lang_kernel::{load_mei_config_for_app, resolve_app_root};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::presentation_compile::presentation_image_assets_for_app;
 use crate::state::SharedState;
 
 const LIBRARY_FILE: &str = ".mei-presentation-library.json";
@@ -315,6 +316,7 @@ pub async fn api_list_presentation_scripts(
             .unwrap_or(default_presentation_rel_path()),
         "defaultScriptId": default_script_id,
         "scripts": scripts,
+        "imageAssets": presentation_image_assets_for_app(workspace_root.as_path(), app_id),
     }))
     .into_response()
 }

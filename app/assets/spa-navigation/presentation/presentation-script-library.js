@@ -78,6 +78,14 @@
       state.scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
       state.defaultScriptId = String(payload?.defaultScriptId || "").trim();
       state.loaded = true;
+      const embedRuntime = boot.presentationSlideEmbedRuntime;
+      if (payload.imageAssets && typeof payload.imageAssets === "object") {
+        if (embedRuntime && typeof embedRuntime.applyPresentationImageAssets === "function") {
+          embedRuntime.applyPresentationImageAssets(payload.imageAssets);
+        } else {
+          boot.presentationImageAssets = payload.imageAssets;
+        }
+      }
       return payload;
     } finally {
       state.loading = null;

@@ -205,7 +205,7 @@
         detail: worldTarget,
       }),
     );
-    if (typeof console !== "undefined" && typeof console.info === "function") {
+    if (boot.presentationDebug && typeof console !== "undefined" && typeof console.info === "function") {
       console.info("[mei] presentation world action", worldTarget, { applied });
     }
     return applied || true;

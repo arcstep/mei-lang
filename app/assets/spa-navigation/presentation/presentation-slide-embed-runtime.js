@@ -3,6 +3,7 @@
 
   let mountGeneration = 0;
   const activeCleanups = new Set();
+  const imageResolutionCache = new Map();
 
   function parseAppIdFromPath() {
     const match = String(window.location.pathname || "").match(
@@ -41,18 +42,49 @@
     activeCleanups.clear();
   }
 
+  function isImageAssetPath(rel) {
+    return /\.(svg|png|jpe?g|webp|gif)$/i.test(String(rel || ""));
+  }
+
   function resolveImageCandidates(appId, ref) {
     const encodedApp = encodeURIComponent(appId);
-    const encodedRef = encodeURIComponent(ref);
-    const base = `/workspace-app-assets/${encodedApp}/assets/`;
-    return [
-      `${base}${encodedRef}.svg`,
-      `${base}${encodedRef}.png`,
-      `${base}${encodedRef}.jpg`,
-      `${base}${encodedRef}.webp`,
-      `${base}presentation/${encodedRef}.svg`,
-      `${base}presentation/${encodedRef}.png`,
-    ];
+    const stem = String(ref || "").trim();
+    if (!stem) return [];
+    const assets = boot.presentationImageAssets;
+    if (assets && typeof assets === "object" && assets[stem]) {
+      const rel = String(assets[stem] || "").replace(/^\/+/, "");
+      if (rel && isImageAssetPath(rel)) {
+        return [`/workspace-app-assets/${encodedApp}/${rel.split("/").map(encodeURIComponent).join("/")}`];
+      }
+    }
+    if (/\.[a-z0-9]+$/i.test(stem)) {
+      return [`/workspace-app-assets/${encodedApp}/assets/${encodeURIComponent(stem)}`];
+    }
+    const encodedRef = encodeURIComponent(stem);
+    return [`/workspace-app-assets/${encodedApp}/assets/${encodedRef}.svg`];
+  }
+
+  function applyPresentationImageAssets(assets) {
+    if (!assets || typeof assets !== "object") return;
+    boot.presentationImageAssets = assets;
+    imageResolutionCache.clear();
+  }
+
+  function loadPresentationImage(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+
+  function renderPresentationImage(node, img, ref) {
+    img.className = "mei-presentation-embed-media";
+    img.alt = ref;
+    node.innerHTML = "";
+    node.classList.add("mei-presentation-embed--mounted");
+    node.appendChild(img);
   }
 
   function formatMetricValue(metric) {
@@ -164,25 +196,33 @@
       node.dataset.embedStatus = "missing-app-id";
       return;
     }
-    const candidates = resolveImageCandidates(appId, ref);
-    for (const src of candidates) {
+    const cacheKey = `${appId}\0${ref}`;
+    if (imageResolutionCache.has(cacheKey)) {
+      const cached = imageResolutionCache.get(cacheKey);
+      if (!cached) {
+        node.dataset.embedStatus = "image-not-found";
+        return;
+      }
+      const loaded = await loadPresentationImage(cached);
       if (generation !== mountGeneration) return;
-      const loaded = await new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => resolve(null);
-        img.src = src;
-      });
-      if (generation !== mountGeneration) return;
-      if (loaded) {
-        loaded.className = "mei-presentation-embed-media";
-        loaded.alt = ref;
-        node.innerHTML = "";
-        node.classList.add("mei-presentation-embed--mounted");
-        node.appendChild(loaded);
+      if (!loaded) {
+        imageResolutionCache.delete(cacheKey);
+      } else {
+        renderPresentationImage(node, loaded, ref);
         return;
       }
     }
+    for (const src of resolveImageCandidates(appId, ref)) {
+      if (generation !== mountGeneration) return;
+      const loaded = await loadPresentationImage(src);
+      if (generation !== mountGeneration) return;
+      if (loaded) {
+        imageResolutionCache.set(cacheKey, src);
+        renderPresentationImage(node, loaded, ref);
+        return;
+      }
+    }
+    imageResolutionCache.set(cacheKey, null);
     node.dataset.embedStatus = "image-not-found";
   }
 
@@ -273,5 +313,6 @@
   boot.presentationSlideEmbedRuntime = {
     mountSlideEmbeds,
     unmountAll,
+    applyPresentationImageAssets,
   };
 })();
