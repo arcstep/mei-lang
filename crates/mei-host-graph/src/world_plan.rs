@@ -14,8 +14,8 @@ use crate::mcg::registry::McgRegistry;
 use crate::types::GraphNodeKind;
 
 const PRIMITIVE_CALLS: &[&str] = &[
-    "ground", "pool", "green", "route", "road", "building", "floor", "wall_ring", "wall", "roof",
-    "ceiling", "opening", "prop",
+    "ground", "pool", "green", "route", "road", "building", "building_import", "floor", "wall_ring",
+    "wall", "roof", "ceiling", "opening", "prop",
 ];
 
 #[derive(Debug, Clone, Default)]
@@ -99,9 +99,8 @@ fn load_world_payloads(
                 }
                 let world_id =
                     string_field_value(&block.payload, &["id"]).unwrap_or_else(|| block.block_id.clone());
-                if !out.contains_key(&world_id) {
-                    out.insert(world_id, block.payload);
-                }
+                // 作者态 `src/world/*.world.mei` 优先于 MCG 缓存 artifact。
+                out.insert(world_id, block.payload);
             }
         }
     }
@@ -140,6 +139,8 @@ pub fn build_world_plan(payload: &Value, app_root: &Path, app_id: &str) -> Resul
 
     finalize_world_plan_ssot(&mut primitives);
 
+    let world_stage_entities = collect_world_stage_entities(&primitives);
+
     let mut plan = json!({
         "schema": "mei-world-plan-v1",
         "id": world_id,
@@ -147,6 +148,7 @@ pub fn build_world_plan(payload: &Value, app_root: &Path, app_id: &str) -> Resul
         "site": site,
         "primitives": primitives,
         "viewLayers": view_layers,
+        "worldStageEntities": world_stage_entities,
     });
     if let Some(obj) = plan.as_object_mut() {
         emit_footprint_exchange(obj, app_root, app_id)?;
@@ -175,6 +177,40 @@ pub fn build_map_projection(world_plan: &Value, app_id: &str) -> Result<Value> {
     let mut layers = Vec::new();
     if let Some(primitives) = world_plan.get("primitives").and_then(|v| v.as_array()) {
         for prim in primitives {
+            let prim_kind = prim.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            if prim_kind == "building_import" {
+                let id = prim.get("id").and_then(|v| v.as_str()).unwrap_or("building_import");
+                let label = prim.get("label").and_then(|v| v.as_str()).unwrap_or(id);
+                let map_view = prim
+                    .get("mapView")
+                    .filter(|v| !v.is_null())
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "kind": "fill_extrusion", "fillOpacity": 0.78 }));
+                let mv_kind = map_view.get("kind").and_then(|v| v.as_str()).unwrap_or("fill_extrusion");
+                let height_property = prim
+                    .get("heightProperty")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("height");
+                let feature_match = prim
+                    .get("featureMatch")
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "featureKind": "building" }));
+                let mut layer = json!({
+                    "id": id,
+                    "label": label,
+                    "type": map_layer_type(mv_kind),
+                    "url": footprint_url,
+                    "visible": true,
+                    "featureMatch": feature_match,
+                    "extrusionHeightProperty": height_property,
+                    "extrusionHeight": 1.0,
+                });
+                if let Some(obj) = layer.as_object_mut() {
+                    merge_map_style(obj, &map_view, prim, mv_kind);
+                }
+                layers.push(layer);
+                continue;
+            }
             let Some(map_view) = prim.get("mapView").filter(|v| !v.is_null()) else {
                 continue;
             };
@@ -231,7 +267,7 @@ fn merge_map_style(layer: &mut Map<String, Value>, map_view: &Value, prim: &Valu
         .get("opacity")
         .or_else(|| material.get("opacity"))
         .cloned();
-    let fill_color = if prim_kind == "building" {
+    let fill_color = if prim_kind == "building" || prim_kind == "building_import" {
         ssot_color
             .clone()
             .unwrap_or_else(|| map_view.get("fillColor").cloned().unwrap_or(json!("#5d8fd6")))
@@ -242,7 +278,7 @@ fn merge_map_style(layer: &mut Map<String, Value>, map_view: &Value, prim: &Valu
             .cloned()
             .unwrap_or_else(|| json!("#5d8fd6"))
     };
-    let fill_opacity = if prim_kind == "building" {
+    let fill_opacity = if prim_kind == "building" || prim_kind == "building_import" {
         ssot_opacity
             .clone()
             .unwrap_or_else(|| map_view.get("fillOpacity").cloned().unwrap_or(json!(0.84)))
@@ -268,17 +304,24 @@ fn merge_map_style(layer: &mut Map<String, Value>, map_view: &Value, prim: &Valu
         "fill_extrusion" => {
             let extrusion_height = if prim_kind == "building" {
                 json!(prim.get("height").and_then(|v| v.as_f64()).unwrap_or(8.6))
+            } else if prim_kind == "building_import" {
+                json!(1.0)
             } else {
                 map_view.get("height").cloned().unwrap_or(json!(8.6))
             };
             layer.insert("extrusionHeight".to_string(), extrusion_height);
-            layer.insert(
-                "style".to_string(),
-                json!({
-                    "fillColor": fill_color,
-                    "fillOpacity": fill_opacity,
-                }),
-            );
+            let height_property = layer
+                .get("extrusionHeightProperty")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let mut style = json!({
+                "fillColor": fill_color,
+                "fillOpacity": fill_opacity,
+            });
+            if !height_property.is_empty() {
+                style["extrusionHeightProperty"] = json!(height_property);
+            }
+            layer.insert("style".to_string(), style);
             merge_world_enter_fields(layer, prim);
         }
         "polyline" => {
@@ -320,6 +363,65 @@ fn merge_world_enter_fields(layer: &mut Map<String, Value>, prim: &Value) {
 }
 
 /// Resolve dual projections and interior semantics from primitive SSOT (`height`, `shell`, children).
+fn collect_world_stage_entities(primitives: &[Value]) -> Vec<Value> {
+    let snapshot: Vec<Value> = primitives.to_vec();
+    let by_id: BTreeMap<String, Value> = snapshot
+        .iter()
+        .filter_map(|prim| {
+            let id = prim.get("id").and_then(|v| v.as_str())?;
+            Some((id.to_string(), prim.clone()))
+        })
+        .collect();
+    let mut entities = Vec::new();
+    for prim in primitives {
+        let Some(kind) = prim.get("kind").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if kind != "building" {
+            continue;
+        }
+        if prim.get("mapOnly").and_then(|v| v.as_bool()) == Some(true) {
+            continue;
+        }
+        let has_world_view = prim.get("worldView").map(|v| !v.is_null()).unwrap_or(false);
+        let enterable = prim.get("worldEnterable").and_then(|v| v.as_bool()) == Some(true);
+        let has_interior = prim.get("hasInterior").and_then(|v| v.as_bool()) == Some(true);
+        if !(has_world_view || enterable || has_interior) {
+            continue;
+        }
+        let entity_id = prim
+            .get("featureEntityId")
+            .and_then(|v| v.as_str())
+            .or_else(|| prim.get("id").and_then(|v| v.as_str()))
+            .unwrap_or("");
+        if entity_id.is_empty() {
+            continue;
+        }
+        let mut members = vec![format!("{entity_id}:shell"), entity_id.to_string()];
+        for child in by_id.values() {
+            if resolve_building_id_for_primitive(child, &by_id).as_deref() != Some(entity_id) {
+                continue;
+            }
+            let child_kind = child.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            if child_kind == "building" || child_kind == "building_import" {
+                continue;
+            }
+            if let Some(child_id) = child.get("id").and_then(|v| v.as_str()) {
+                members.push(child_id.to_string());
+            }
+        }
+        members.sort();
+        members.dedup();
+        entities.push(json!({
+            "entityId": entity_id,
+            "buildingId": prim.get("id").and_then(|v| v.as_str()).unwrap_or(entity_id),
+            "worldEnterable": enterable,
+            "members": members,
+        }));
+    }
+    entities
+}
+
 fn finalize_world_plan_ssot(primitives: &mut [Value]) {
     let snapshot: Vec<Value> = primitives.to_vec();
     let by_id: BTreeMap<String, Value> = snapshot
@@ -677,6 +779,27 @@ fn lower_primitive(call: &str, value: &Value) -> Result<Value> {
                 "shellMaterial".to_string(),
                 lower_material(args.get("shell")),
             );
+        }
+    }
+    if call == "building_import" {
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert("kind".to_string(), json!("building_import"));
+            obj.insert("importBatch".to_string(), json!(true));
+            obj.insert("mapOnly".to_string(), json!(true));
+            obj.insert(
+                "featureMatch".to_string(),
+                lower_feature_match(args.get("feature_match").or_else(|| args.get("featureMatch"))),
+            );
+            obj.insert(
+                "heightProperty".to_string(),
+                json!(string_field(args, &["height_property", "heightProperty"]).unwrap_or_else(|| "height".to_string())),
+            );
+            obj.insert(
+                "shellMaterial".to_string(),
+                lower_material(args.get("shell")),
+            );
+            obj.remove("featureEntityId");
+            obj.remove("worldView");
         }
     }
     if call == "roof" {
@@ -1075,10 +1198,36 @@ fn emit_footprint_exchange(
         }
     }
 
+    let needs_play_zone = primitives.iter().any(|p| {
+        p.get("id").and_then(|v| v.as_str()) == Some("play_zone")
+            || p.get("featureEntityId").and_then(|v| v.as_str()) == Some("play_zone")
+    });
+    if needs_play_zone && !index.contains_key("play_zone") {
+        append_play_zone_supplement(features, &mut index);
+    }
+    if needs_play_zone {
+        if let Some(&idx) = index.get("play_zone") {
+            if let Some(play_zone) = primitives
+                .iter()
+                .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("play_zone"))
+            {
+                enrich_feature_from_primitive(&mut features[idx], play_zone);
+            }
+        }
+    }
+
     plan.insert(
         "emittedFootprint".to_string(),
-        collection,
+        collection.clone(),
     );
+    if let Some(url) = persist_emitted_footprint_asset(
+        &collection,
+        app_root,
+        app_id,
+        plan.get("id").and_then(|v| v.as_str()).unwrap_or("park_world"),
+    )? {
+        plan.insert("emittedFootprintUrl".to_string(), json!(url));
+    }
     plan.insert(
         "footprintSource".to_string(),
         json!(if plan.get("spatialSources").and_then(|v| v.as_array()).is_some_and(|a| !a.is_empty()) {
@@ -1087,15 +1236,6 @@ fn emit_footprint_exchange(
             "world-native"
         }),
     );
-    if let Some(url) = plan
-        .get("spatialSources")
-        .and_then(|v| v.as_array())
-        .and_then(|items| items.first())
-        .and_then(|s| s.get("url"))
-        .cloned()
-    {
-        plan.insert("emittedFootprintUrl".to_string(), url);
-    }
     Ok(())
 }
 
@@ -1119,10 +1259,280 @@ fn load_imported_footprint_collection(
             let text = std::fs::read_to_string(&path)
                 .with_context(|| format!("read footprint {}", path.display()))?;
             let value: Value = serde_json::from_str(&text)?;
-            return Ok(normalize_feature_collection(value));
+            return Ok(normalize_imported_footprint_collection(normalize_feature_collection(value)));
         }
     }
     Ok(json!({ "type": "FeatureCollection", "features": [] }))
+}
+
+fn lower_feature_match(value: Option<&Value>) -> Value {
+    let Some(value) = value else {
+        return json!({ "featureKind": "building" });
+    };
+    if let Some(obj) = value.as_object() {
+        return Value::Object(obj.clone());
+    }
+    if call_name(value) == Some("object") || value.get("__args").is_some() {
+        return Value::Object(call_args(value).clone());
+    }
+    json!({ "featureKind": "building" })
+}
+
+fn web_mercator_to_wgs84(x: f64, y: f64) -> (f64, f64) {
+    const EARTH_RADIUS: f64 = 6378137.0;
+    let lng = x / EARTH_RADIUS * 180.0 / std::f64::consts::PI;
+    let lat = (2.0 * (y / EARTH_RADIUS).exp().atan() - std::f64::consts::PI / 2.0) * 180.0
+        / std::f64::consts::PI;
+    (lng, lat)
+}
+
+fn coordinate_needs_mercator_reproject(coord: &[Value]) -> bool {
+    let x = coord.first().and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let y = coord.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    x.abs() > 180.0 || y.abs() > 90.0
+}
+
+fn reproject_coordinate_pair(coord: &mut [Value], reproject: bool) {
+    if !reproject || coord.len() < 2 {
+        return;
+    }
+    let x = coord[0].as_f64().unwrap_or(0.0);
+    let y = coord[1].as_f64().unwrap_or(0.0);
+    if !coordinate_needs_mercator_reproject(coord) {
+        return;
+    }
+    let (lng, lat) = web_mercator_to_wgs84(x, y);
+    coord[0] = json!(lng);
+    coord[1] = json!(lat);
+}
+
+fn reproject_ring(ring: &mut [Value], reproject: bool) {
+    for coord in ring.iter_mut() {
+        if let Some(pair) = coord.as_array_mut() {
+            reproject_coordinate_pair(pair, reproject);
+        }
+    }
+}
+
+fn reproject_geometry_inplace(geometry: &mut Value, reproject: bool) {
+    if !reproject {
+        return;
+    }
+    let Some(geom_type) = geometry.get("type").and_then(|v| v.as_str()) else {
+        return;
+    };
+    match geom_type {
+        "Polygon" => {
+            if let Some(rings) = geometry.get_mut("coordinates").and_then(|v| v.as_array_mut()) {
+                for ring in rings.iter_mut() {
+                    if let Some(ring_arr) = ring.as_array_mut() {
+                        reproject_ring(ring_arr, reproject);
+                    }
+                }
+            }
+        }
+        "MultiPolygon" => {
+            if let Some(polys) = geometry.get_mut("coordinates").and_then(|v| v.as_array_mut()) {
+                for poly in polys.iter_mut() {
+                    if let Some(rings) = poly.as_array_mut() {
+                        for ring in rings.iter_mut() {
+                            if let Some(ring_arr) = ring.as_array_mut() {
+                                reproject_ring(ring_arr, reproject);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "LineString" => {
+            if let Some(coords) = geometry.get_mut("coordinates").and_then(|v| v.as_array_mut()) {
+                for coord in coords.iter_mut() {
+                    if let Some(pair) = coord.as_array_mut() {
+                        reproject_coordinate_pair(pair, reproject);
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn footprint_collection_needs_mercator_reproject(collection: &Value) -> bool {
+    if collection
+        .get("crs")
+        .and_then(|v| v.get("properties"))
+        .and_then(|p| p.get("name"))
+        .and_then(|v| v.as_str())
+        .is_some_and(|name| name.contains("3857"))
+    {
+        return true;
+    }
+    let Some(features) = collection.get("features").and_then(|v| v.as_array()) else {
+        return false;
+    };
+    for feature in features {
+        if let Some(coords) = feature
+            .pointer("/geometry/coordinates/0/0/0")
+            .and_then(|v| v.as_array())
+        {
+            if coordinate_needs_mercator_reproject(coords) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn normalize_imported_feature_properties(feature: &mut Value) {
+    let geom_type = feature
+        .pointer("/geometry/type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let existing_id = feature_entity_id(feature);
+    if !feature
+        .get("properties")
+        .and_then(|v| v.as_object())
+        .is_some()
+    {
+        if let Some(obj) = feature.as_object_mut() {
+            obj.insert("properties".to_string(), json!({}));
+        }
+    }
+    let Some(props) = feature.get_mut("properties").and_then(|v| v.as_object_mut()) else {
+        return;
+    };
+    let resolved_id = existing_id.or_else(|| {
+        props
+            .get("Id")
+            .or_else(|| props.get("id"))
+            .map(|v| format!("shixi_{}", v))
+            .or_else(|| {
+                props
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|name| format!("shixi_{}", name.trim()))
+            })
+    });
+    if let Some(id) = &resolved_id {
+        props.insert("entityId".to_string(), json!(id));
+    }
+    let is_area = geom_type == "Polygon" || geom_type == "MultiPolygon";
+    if is_area && props.get("featureKind").is_none() {
+        if props.get("height").and_then(|v| v.as_f64()).is_some() {
+            props.insert("featureKind".to_string(), json!("building"));
+        }
+    }
+    if props.get("name").is_none() {
+        if let Some(label) = props.get("entityId").cloned() {
+            props.insert("name".to_string(), label);
+        }
+    }
+    let _ = props;
+    if let Some(id) = resolved_id {
+        if feature.get("id").is_none() {
+            if let Some(obj) = feature.as_object_mut() {
+                obj.insert("id".to_string(), json!(id));
+            }
+        }
+    }
+}
+
+fn flatten_multipolygon_geometry(geometry: &mut Value) {
+    if geometry.get("type").and_then(|v| v.as_str()) != Some("MultiPolygon") {
+        return;
+    }
+    let Some(poly) = geometry
+        .get("coordinates")
+        .and_then(|v| v.as_array())
+        .and_then(|polys| polys.first())
+        .cloned()
+    else {
+        return;
+    };
+    if let Some(obj) = geometry.as_object_mut() {
+        obj.insert("type".to_string(), json!("Polygon"));
+        obj.insert("coordinates".to_string(), poly);
+    }
+}
+
+fn persist_emitted_footprint_asset(
+    collection: &Value,
+    app_root: &Path,
+    app_id: &str,
+    world_id: &str,
+) -> Result<Option<String>> {
+    let safe_id = world_id
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' { ch } else { '_' })
+        .collect::<String>();
+    let rel = format!("assets/{safe_id}-emitted-footprint.geojson");
+    let path = app_root.join(&rel);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(
+        &path,
+        serde_json::to_vec(collection).with_context(|| format!("write {}", path.display()))?,
+    )?;
+    Ok(Some(format!("/workspace-app-assets/{app_id}/{rel}")))
+}
+
+fn normalize_imported_footprint_collection(mut collection: Value) -> Value {
+    let reproject = footprint_collection_needs_mercator_reproject(&collection);
+    if let Some(obj) = collection.as_object_mut() {
+        obj.remove("crs");
+    }
+    if let Some(features) = collection.get_mut("features").and_then(|v| v.as_array_mut()) {
+        for feature in features.iter_mut() {
+            if let Some(geometry) = feature.get_mut("geometry") {
+                reproject_geometry_inplace(geometry, reproject);
+                flatten_multipolygon_geometry(geometry);
+            }
+            normalize_imported_feature_properties(feature);
+        }
+    }
+    collection
+}
+
+fn play_zone_supplement_ring() -> Vec<Vec<f64>> {
+    vec![
+        vec![113.28378, 23.07192],
+        vec![113.28458, 23.07192],
+        vec![113.28458, 23.07252],
+        vec![113.28378, 23.07252],
+        vec![113.28378, 23.07192],
+    ]
+}
+
+fn append_play_zone_supplement(features: &mut Vec<Value>, index: &mut BTreeMap<String, usize>) {
+    if index.contains_key("play_zone") {
+        return;
+    }
+    let ring: Vec<Vec<Value>> = play_zone_supplement_ring()
+        .into_iter()
+        .map(|pair| vec![json!(pair[0]), json!(pair[1])])
+        .collect();
+    let feature = json!({
+        "type": "Feature",
+        "id": "play_zone",
+        "properties": {
+            "entityId": "play_zone",
+            "name": "游乐区",
+            "height": 14.0,
+            "featureKind": "author",
+            "shellColor": "#f472b6",
+            "enterViewpoint": "play_zone_world_entry",
+            "worldEnterable": true,
+            "worldEnterLabel": "游乐区 3D"
+        },
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [ring],
+        }
+    });
+    index.insert("play_zone".to_string(), features.len());
+    features.push(feature);
 }
 
 fn normalize_feature_collection(value: Value) -> Value {
@@ -1428,7 +1838,42 @@ mod tests {
             .get("primitives")
             .and_then(|v| v.as_array())
             .expect("primitives");
-        assert!(prims.len() >= 9, "got {}", prims.len());
+        assert!(prims.len() >= 10, "got {}", prims.len());
+        let lake_pavilion = prims
+            .iter()
+            .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("lake_pavilion"))
+            .expect("lake_pavilion primitive");
+        assert_eq!(
+            lake_pavilion.get("hasInterior").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        let stage = park_world
+            .get("worldStageEntities")
+            .and_then(|v| v.as_array())
+            .expect("worldStageEntities");
+        assert!(
+            stage
+                .iter()
+                .any(|e| e.get("entityId").and_then(|v| v.as_str()) == Some("lake_pavilion")),
+            "lake_pavilion should be a dedicated world-stage building"
+        );
+        assert!(
+            stage
+                .iter()
+                .any(|e| e.get("entityId").and_then(|v| v.as_str()) == Some("play_zone")),
+            "play_zone should be a dedicated world-stage building"
+        );
+        let emitted = park_world
+            .get("emittedFootprint")
+            .and_then(|v| v.get("features"))
+            .and_then(|v| v.as_array())
+            .expect("emittedFootprint");
+        assert!(
+            emitted.iter().any(|f| {
+                f.pointer("/properties/entityId").and_then(|v| v.as_str()) == Some("lake_pavilion")
+            }),
+            "emittedFootprint should include lake_pavilion"
+        );
     }
 
     #[test]
@@ -1557,6 +2002,87 @@ mod tests {
         assert_eq!(
             plaza.get("footprintSource").and_then(|v| v.as_str()),
             Some("world-native")
+        );
+    }
+
+    #[test]
+    fn shixi_building_import_compiles_with_batch_extrusion() {
+        use std::path::PathBuf;
+
+        let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../workspaces/ws-demo-v2")
+            .canonicalize()
+            .expect("ws-demo-v2");
+        let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "mini-park");
+        let payload = json!({
+            "id": "shixi_overlay",
+            "arg0": {
+                "__call": "spatial_source",
+                "__args": {
+                    "id": "footprint",
+                    "kind": "geojson",
+                    "src": { "__ref": "asset_ref", "__args": { "arg0": "assets/shixi.geojson" } }
+                }
+            },
+            "arg1": {
+                "__call": "site",
+                "__args": {
+                    "id": "shixi_site",
+                    "origin": { "__call": "geo", "__args": { "lng": 113.2795, "lat": 23.06748 } }
+                }
+            },
+            "arg2": {
+                "__call": "building_import",
+                "__args": {
+                    "id": "shixi_buildings",
+                    "feature_match": { "featureKind": "building" },
+                    "height_property": "height",
+                    "shell": { "__call": "surface", "__args": { "color": "#c8d4e0", "opacity": 0.86 } },
+                    "map_view": { "__call": "fill_extrusion", "__args": { "fill_opacity": 0.78 } }
+                }
+            }
+        });
+        let plan = build_world_plan(&payload, app_root.as_path(), "mini-park").expect("plan");
+        assert_eq!(
+            plan.get("footprintSource").and_then(|v| v.as_str()),
+            Some("world-merge-import")
+        );
+        let features = plan
+            .get("emittedFootprint")
+            .and_then(|v| v.get("features"))
+            .and_then(|v| v.as_array())
+            .expect("emitted features");
+        assert!(
+            features.len() > 400,
+            "shixi import should include hundreds of buildings, got {}",
+            features.len()
+        );
+        assert!(
+            features.iter().any(|f| {
+                f.pointer("/properties/featureKind").and_then(|v| v.as_str()) == Some("building")
+            }),
+            "shixi import should tag building features"
+        );
+        let first = features
+            .iter()
+            .find(|f| f.pointer("/properties/featureKind").and_then(|v| v.as_str()) == Some("building"))
+            .expect("building feature");
+        let lng = first
+            .pointer("/geometry/coordinates/0/0/0/0")
+            .or_else(|| first.pointer("/geometry/coordinates/0/0/0"))
+            .and_then(|v| v.as_f64())
+            .expect("wgs lng");
+        assert!(lng > 110.0 && lng < 115.0, "coordinates should be WGS84, got {lng}");
+        let projection = build_map_projection(&plan, "mini-park").expect("projection");
+        let layers = projection
+            .get("layers")
+            .and_then(|v| v.as_array())
+            .expect("projection layers");
+        assert!(
+            layers
+                .iter()
+                .any(|l| l.get("id").and_then(|v| v.as_str()) == Some("shixi_buildings")),
+            "batch building layer missing"
         );
     }
 }

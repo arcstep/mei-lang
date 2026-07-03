@@ -1138,9 +1138,17 @@ fn ws_demo_v2_mini_park_world_plan_from_park_world_mei() {
         .and_then(|v| v.as_array())
         .expect("park_world primitives");
     assert!(
-        prims.len() >= 9,
-        "park_world should lower multiple primitives including play_zone, got {}",
+        prims.len() >= 10,
+        "park_world should lower park narrative primitives, got {}",
         prims.len()
+    );
+    let lake_pavilion = prims
+        .iter()
+        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("lake_pavilion"))
+        .expect("lake_pavilion primitive");
+    assert!(
+        lake_pavilion.get("mapView").is_some() && lake_pavilion.get("worldView").is_some(),
+        "lake_pavilion should have dual projection"
     );
     let play_zone = prims
         .iter()
@@ -1156,17 +1164,9 @@ fn ws_demo_v2_mini_park_world_plan_from_park_world_mei() {
         .expect("park_world viewLayers");
     assert!(
         view_layers.iter().any(|layer| {
-            layer.get("id").and_then(|v| v.as_str()) == Some("roof")
+            layer.get("id").and_then(|v| v.as_str()) == Some("play")
         }),
-        "park_world viewLayers should include roof layer"
-    );
-    let lake_pavilion = prims
-        .iter()
-        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("lake_pavilion"))
-        .expect("lake_pavilion primitive");
-    assert!(
-        lake_pavilion.get("mapView").is_some() && lake_pavilion.get("worldView").is_some(),
-        "lake_pavilion should have dual projection"
+        "park_world viewLayers should include play layer"
     );
     let projections = home_outcome
         .map_projection
@@ -1182,7 +1182,18 @@ fn ws_demo_v2_mini_park_world_plan_from_park_world_mei() {
         .expect("park_world projection layers");
     assert!(
         layers.len() >= 5,
-        "map_projection should compile at least 5 layers from world (incl. play_zone)"
+        "map_projection should compile park narrative layers"
+    );
+    let lake_layer = layers
+        .iter()
+        .find(|l| l.get("id").and_then(|v| v.as_str()) == Some("lake_pavilion"))
+        .expect("lake_pavilion projection layer");
+    assert_eq!(
+        lake_layer
+            .get("featureMatch")
+            .and_then(|v| v.pointer("/entityId"))
+            .and_then(|v| v.as_str()),
+        Some("lake_pavilion")
     );
     let home_t1 = home_outcome
         .layer_plan
