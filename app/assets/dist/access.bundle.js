@@ -10546,6 +10546,815 @@
 
 
 
+/* ===== spa-navigation/browser-runtime-diag.js ===== */
+// 浏览器运行时诊断：GIS 瓦片 / 布局反馈环 / 长任务 / FPS → sessionStorage
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (boot.browserRuntimeDiagInstalled) return;
+  boot.browserRuntimeDiagInstalled = true;
+
+  const STORAGE_KEY = "mei.browser_runtime_diag";
+  const SCHEMA_VERSION = 2;
+  const MAX_EVENTS = 96;
+  const MAX_GIS = 48;
+  const MAX_ALERTS = 32;
+  const FLUSH_MS = 2000;
+  const SLOW_GIS_MS = 800;
+  const SLOW_LONG_TASK_MS = 50;
+  const LAYOUT_BURST_WINDOW_MS = 3000;
+  const LAYOUT_BURST_THRESHOLD = 120;
+  const LAYOUT_SYNC_STORM_THRESHOLD = 40;
+  const SNAPSHOT_INTERVAL_MS = 60000;
+  const SCENE_SHELL_BLOAT_BYTES = 5 * 1024 * 1024;
+  const SCENE_SHELL_DB = "mei-scene-shell-cache-v1";
+  const SCENE_SHELL_STORE = "snapshots";
+
+  function nowMs() {
+    return typeof performance !== "undefined" && performance.now
+      ? performance.now()
+      : Date.now();
+  }
+
+  function pageOriginMs() {
+    if (typeof performance !== "undefined" && performance.timing?.navigationStart) {
+      return performance.timing.navigationStart;
+    }
+    return Date.now();
+  }
+
+  function isEnabled() {
+    try {
+      const qs = new URLSearchParams(window.location.search || "");
+      if (qs.get("mei_runtime_diag") === "0") return false;
+      if (qs.get("mei_runtime_diag") === "1") return true;
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      const stored = window.sessionStorage?.getItem("mei.runtime_diag.enabled");
+      if (stored === "0") return false;
+      if (stored === "1") return true;
+    } catch (_) {
+      /* ignore */
+    }
+    return true;
+  }
+
+  function emptyState() {
+    const t = Date.now();
+    return {
+      schemaVersion: SCHEMA_VERSION,
+      startedAt: new Date(t).toISOString(),
+      pageUrl: String(window.location.href || ""),
+      enabled: isEnabled(),
+      summary: {
+        gis: {
+          total: 0,
+          ok: 0,
+          fail: 0,
+          slow: 0,
+          doubleGis: 0,
+          pendingPeak: 0,
+          tilejson: 0,
+          tiles: 0,
+          glyphs: 0,
+        },
+        layout: {
+          viewportStageLayout: 0,
+          previewUpdated: 0,
+          mapResizeObserver: 0,
+          cockpitMapToolsSync: 0,
+          cockpitStageLayoutSync: 0,
+        },
+        map: {
+          fullRender: 0,
+          renderStart: 0,
+          runtimeError: 0,
+          instancesPeak: 0,
+        },
+        perf: {
+          longTaskCount: 0,
+          longTaskTotalMs: 0,
+          longTaskMaxMs: 0,
+          fpsMin: null,
+          fpsAvg: null,
+          fpsSamples: 0,
+        },
+        gpu: {
+          canvasCount: 0,
+          canvasPeak: 0,
+          worldRendererActive: false,
+          mapPausedCount: 0,
+          dualWebGLAlerts: 0,
+          jsHeapMb: null,
+        },
+        world: {
+          enterCount: 0,
+          exitCount: 0,
+          sceneBootstrapCount: 0,
+          sceneDisposeCount: 0,
+        },
+        storage: {
+          sceneShellIdbEntries: 0,
+          sceneShellIdbBytesEst: 0,
+          sessionStorageBytes: 0,
+          runtimeDiagBytes: 0,
+        },
+      },
+      alerts: [],
+      recentEvents: [],
+      recentGisRequests: [],
+    };
+  }
+
+  let state = emptyState();
+  let gisPending = 0;
+  let layoutBurst = { windowStart: nowMs(), count: 0 };
+  let flushTimer = 0;
+  let fpsFrames = 0;
+  let fpsWindowStart = nowMs();
+  let fpsSum = 0;
+  let fpsSamples = 0;
+  let layoutSyncBurst = { windowStart: nowMs(), count: 0, baseline: 0 };
+  let canvasGrowthStreak = 0;
+  let lastCanvasCount = 0;
+  let snapshotTimer = 0;
+  const alertCooldown = {};
+
+  function ensureSummaryShape() {
+    const s = state.summary;
+    if (!s.gpu) {
+      s.gpu = emptyState().summary.gpu;
+    }
+    if (!s.world) {
+      s.world = emptyState().summary.world;
+    }
+    if (!s.storage) {
+      s.storage = emptyState().summary.storage;
+    }
+  }
+
+  function loadState() {
+    try {
+      const raw = window.sessionStorage?.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.schemaVersion === SCHEMA_VERSION || parsed.schemaVersion === 1)) {
+        state = parsed;
+        state.schemaVersion = SCHEMA_VERSION;
+        state.enabled = isEnabled();
+        ensureSummaryShape();
+      }
+    } catch (_) {
+      /* ignore corrupt snapshot */
+    }
+  }
+
+  function trimLists() {
+    if (state.recentEvents.length > MAX_EVENTS) {
+      state.recentEvents.length = MAX_EVENTS;
+    }
+    if (state.recentGisRequests.length > MAX_GIS) {
+      state.recentGisRequests.length = MAX_GIS;
+    }
+    if (state.alerts.length > MAX_ALERTS) {
+      state.alerts.length = MAX_ALERTS;
+    }
+  }
+
+  function flush() {
+    if (!isEnabled()) return;
+    trimLists();
+    state.lastFlushAt = new Date().toISOString();
+    state.pageUrl = String(window.location.href || "");
+    try {
+      window.sessionStorage?.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (error) {
+      try {
+        state.recentGisRequests = state.recentGisRequests.slice(0, 16);
+        state.recentEvents = state.recentEvents.slice(0, 32);
+        window.sessionStorage?.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (_) {
+        console.warn("[mei-runtime-diag] sessionStorage flush failed", error);
+      }
+    }
+  }
+
+  function scheduleFlush() {
+    if (flushTimer) return;
+    flushTimer = window.setTimeout(() => {
+      flushTimer = 0;
+      flush();
+    }, FLUSH_MS);
+  }
+
+  function pushEvent(kind, detail = {}) {
+    if (!isEnabled()) return;
+    const eventKind = String(kind || "event");
+    if (eventKind === "world_scene_disposed") {
+      ensureSummaryShape();
+      state.summary.world.sceneDisposeCount += 1;
+    } else if (eventKind === "world_scene_bootstrapped") {
+      ensureSummaryShape();
+      state.summary.world.sceneBootstrapCount += 1;
+    }
+    state.recentEvents.unshift({
+      t: Math.round(nowMs()),
+      sinceNavMs: Math.round(Date.now() - pageOriginMs()),
+      kind: eventKind,
+      detail:
+        detail && typeof detail === "object" && !Array.isArray(detail)
+          ? { ...detail }
+          : { value: String(detail ?? "") },
+    });
+    trimLists();
+    scheduleFlush();
+  }
+
+  function pushAlert(kind, detail = {}) {
+    if (!isEnabled()) return;
+    state.alerts.unshift({
+      t: Math.round(nowMs()),
+      kind: String(kind || "alert"),
+      detail:
+        detail && typeof detail === "object" && !Array.isArray(detail)
+          ? { ...detail }
+          : { value: String(detail ?? "") },
+    });
+    trimLists();
+    pushEvent(`alert:${kind}`, detail);
+  }
+
+  function classifyGisUrl(url) {
+    const text = String(url || "");
+    if (!text.includes("/gis")) {
+      return { kind: "other", doubleGis: false };
+    }
+    const doubleGis = /\/gis\/gis(?:\/|$)/.test(text);
+    let kind = "gis";
+    if (/\/fonts\//.test(text) || text.includes("{fontstack}")) {
+      kind = "glyphs";
+    } else if (/\/\d+\/\d+\/\d+/.test(text)) {
+      kind = "tile";
+    } else if (text.includes("shapingba") || text.endsWith("/gis") || /\/gis\/[^/]+$/.test(text)) {
+      kind = "tilejson";
+    }
+    return { kind, doubleGis };
+  }
+
+  function recordGisFinish(url, status, durationMs, errorMessage = "") {
+    if (!isEnabled()) return;
+    gisPending = Math.max(0, gisPending - 1);
+    const { kind, doubleGis } = classifyGisUrl(url);
+    const ok = status >= 200 && status < 400 && !errorMessage;
+    const slow = durationMs >= SLOW_GIS_MS;
+
+    const bucket = state.summary.gis;
+    bucket.total += 1;
+    if (ok) bucket.ok += 1;
+    else bucket.fail += 1;
+    if (slow) bucket.slow += 1;
+    if (doubleGis) bucket.doubleGis += 1;
+    if (kind === "tilejson") bucket.tilejson += 1;
+    else if (kind === "tile") bucket.tiles += 1;
+    else if (kind === "glyphs") bucket.glyphs += 1;
+    bucket.pendingPeak = Math.max(bucket.pendingPeak, gisPending);
+
+    const entry = {
+      t: Math.round(nowMs()),
+      url: String(url).slice(0, 240),
+      status: Number(status) || 0,
+      ms: Math.round(durationMs),
+      kind,
+      ok,
+      doubleGis,
+      error: errorMessage ? String(errorMessage).slice(0, 160) : "",
+    };
+    state.recentGisRequests.unshift(entry);
+    trimLists();
+
+    if (doubleGis) {
+      pushAlert("gis_double_proxy_path", { url: entry.url });
+    }
+    if (!ok) {
+      pushEvent("gis_request_fail", entry);
+    } else if (slow) {
+      pushEvent("gis_request_slow", entry);
+    }
+    scheduleFlush();
+  }
+
+  function recordGisStart(url) {
+    if (!isEnabled()) return;
+    gisPending += 1;
+    state.summary.gis.pendingPeak = Math.max(state.summary.gis.pendingPeak, gisPending);
+    const { doubleGis } = classifyGisUrl(url);
+    if (doubleGis) {
+      pushAlert("gis_double_proxy_path_pending", { url: String(url).slice(0, 240) });
+    }
+  }
+
+  function recordLayout(kind, detail = {}) {
+    if (!isEnabled()) return;
+    const key = String(kind || "").trim();
+    const map = {
+      viewport_stage_layout: "viewportStageLayout",
+      preview_updated: "previewUpdated",
+      map_resize_observer: "mapResizeObserver",
+      cockpit_map_tools_sync: "cockpitMapToolsSync",
+      cockpit_stage_layout_sync: "cockpitStageLayoutSync",
+    };
+    const field = map[key] || null;
+    if (field && state.summary.layout[field] != null) {
+      state.summary.layout[field] += 1;
+    }
+    if (key === "cockpit_map_tools_sync") {
+      const nowSync = nowMs();
+      if (nowSync - layoutSyncBurst.windowStart > LAYOUT_BURST_WINDOW_MS) {
+        layoutSyncBurst = {
+          windowStart: nowSync,
+          count: 0,
+          baseline: state.summary.layout.cockpitMapToolsSync,
+        };
+      }
+      layoutSyncBurst.count =
+        state.summary.layout.cockpitMapToolsSync - layoutSyncBurst.baseline;
+      if (layoutSyncBurst.count >= LAYOUT_SYNC_STORM_THRESHOLD) {
+        pushAlert("layout_sync_storm", {
+          count: layoutSyncBurst.count,
+          windowMs: LAYOUT_BURST_WINDOW_MS,
+        });
+        layoutSyncBurst.baseline = state.summary.layout.cockpitMapToolsSync;
+      }
+    }
+    const now = nowMs();
+    if (now - layoutBurst.windowStart > LAYOUT_BURST_WINDOW_MS) {
+      layoutBurst = { windowStart: now, count: 0 };
+    }
+    layoutBurst.count += 1;
+    if (layoutBurst.count === LAYOUT_BURST_THRESHOLD) {
+      pushAlert("layout_burst", {
+        kind: key,
+        count: layoutBurst.count,
+        windowMs: LAYOUT_BURST_WINDOW_MS,
+      });
+    }
+    if (
+      key === "map_resize_observer" ||
+      key === "cockpit_map_tools_sync" ||
+      key === "viewport_stage_layout"
+    ) {
+      pushEvent(`layout:${key}`, detail);
+    }
+    scheduleFlush();
+  }
+
+  function recordMap(kind, detail = {}) {
+    if (!isEnabled()) return;
+    const key = String(kind || "").trim();
+    const map = {
+      full_render: "fullRender",
+      render_start: "renderStart",
+      runtime_error: "runtimeError",
+    };
+    const field = map[key];
+    if (field) state.summary.map[field] += 1;
+    if (typeof detail.instances === "number") {
+      state.summary.map.instancesPeak = Math.max(
+        state.summary.map.instancesPeak,
+        detail.instances,
+      );
+    }
+    pushEvent(`map:${key}`, detail);
+    scheduleFlush();
+  }
+
+  function recordLongTask(durationMs, detail = {}) {
+    if (!isEnabled()) return;
+    const ms = Number(durationMs) || 0;
+    if (ms < SLOW_LONG_TASK_MS) return;
+    const perf = state.summary.perf;
+    perf.longTaskCount += 1;
+    perf.longTaskTotalMs += ms;
+    perf.longTaskMaxMs = Math.max(perf.longTaskMaxMs, ms);
+    if (ms >= 200) {
+      pushAlert("long_task", { ms: Math.round(ms), ...detail });
+    } else {
+      pushEvent("long_task", { ms: Math.round(ms), ...detail });
+    }
+    scheduleFlush();
+  }
+
+  function sampleFps() {
+    if (!isEnabled()) return;
+    fpsFrames += 1;
+    const elapsed = nowMs() - fpsWindowStart;
+    if (elapsed < 1000) {
+      window.requestAnimationFrame(sampleFps);
+      return;
+    }
+    const fps = Math.round((fpsFrames * 1000) / Math.max(1, elapsed));
+    fpsSum += fps;
+    fpsSamples += 1;
+    const perf = state.summary.perf;
+    perf.fpsSamples = fpsSamples;
+    perf.fpsAvg = Math.round(fpsSum / fpsSamples);
+    perf.fpsMin = perf.fpsMin == null ? fps : Math.min(perf.fpsMin, fps);
+    if (fps <= 10) {
+      pushAlert("low_fps", { fps, gisPending, layout: { ...state.summary.layout } });
+    }
+    fpsFrames = 0;
+    fpsWindowStart = nowMs();
+    scheduleFlush();
+    window.requestAnimationFrame(sampleFps);
+  }
+
+  function patchFetch() {
+    if (typeof window.fetch !== "function" || window.fetch.__meiRuntimeDiagPatched) return;
+    const nativeFetch = window.fetch.bind(window);
+    function wrappedFetch(input, init) {
+      const url =
+        typeof input === "string"
+          ? input
+          : input && typeof input.url === "string"
+            ? input.url
+            : "";
+      const trackGis =
+        url.includes("/gis/") ||
+        url.endsWith("/gis") ||
+        url.includes("/workspace-components/vendor/maplibre/fonts/");
+      if (trackGis) recordGisStart(url);
+      const started = nowMs();
+      return nativeFetch(input, init)
+        .then((response) => {
+          if (trackGis) {
+            recordGisFinish(url, response.status, nowMs() - started);
+          }
+          return response;
+        })
+        .catch((error) => {
+          if (trackGis) {
+            recordGisFinish(url, 0, nowMs() - started, String(error?.message || error));
+          }
+          throw error;
+        });
+    }
+    wrappedFetch.__meiRuntimeDiagPatched = true;
+    window.fetch = wrappedFetch;
+  }
+
+  function installObservers() {
+    if (typeof PerformanceObserver !== "function") return;
+    try {
+      const longTaskObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          recordLongTask(entry.duration, {
+            name: entry.name || "longtask",
+            startTime: Math.round(entry.startTime || 0),
+          });
+        }
+      });
+      longTaskObserver.observe({ entryTypes: ["longtask"] });
+    } catch (_) {
+      /* longtask not supported */
+    }
+  }
+
+  function countMapPausedInstances() {
+    const bootApi = window.__meiLangBoot || {};
+    const instances = bootApi.worldMapInstances;
+    if (!instances || typeof instances.forEach !== "function") {
+      return 0;
+    }
+    let paused = 0;
+    instances.forEach((instance) => {
+      if (instance?._mapPausedForWorldStage) paused += 1;
+    });
+    return paused;
+  }
+
+  function worldRendererActive() {
+    const world = document.querySelector("mei-world-stage");
+    return Boolean(world?._renderer);
+  }
+
+  function measureSessionStorageBytes() {
+    let total = 0;
+    try {
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i);
+        if (!key) continue;
+        total += key.length + String(sessionStorage.getItem(key) || "").length;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return total;
+  }
+
+  async function auditSceneShellIdb() {
+    if (typeof indexedDB === "undefined") {
+      return { entries: 0, totalBytesEstimate: 0 };
+    }
+    return new Promise((resolve) => {
+      try {
+        const request = indexedDB.open(SCENE_SHELL_DB, 1);
+        request.onerror = () => resolve({ entries: 0, totalBytesEstimate: 0 });
+        request.onsuccess = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(SCENE_SHELL_STORE)) {
+            try {
+              db.close();
+            } catch (_) {}
+            resolve({ entries: 0, totalBytesEstimate: 0 });
+            return;
+          }
+          const tx = db.transaction(SCENE_SHELL_STORE, "readonly");
+          const getAll = tx.objectStore(SCENE_SHELL_STORE).getAll();
+          getAll.onsuccess = () => {
+            const rows = getAll.result || [];
+            let totalBytesEstimate = 0;
+            for (const row of rows) {
+              try {
+                totalBytesEstimate += JSON.stringify(row).length;
+              } catch (_) {
+                /* ignore */
+              }
+            }
+            try {
+              db.close();
+            } catch (_) {}
+            resolve({ entries: rows.length, totalBytesEstimate });
+          };
+          getAll.onerror = () => {
+            try {
+              db.close();
+            } catch (_) {}
+            resolve({ entries: 0, totalBytesEstimate: 0 });
+          };
+        };
+      } catch (_) {
+        resolve({ entries: 0, totalBytesEstimate: 0 });
+      }
+    });
+  }
+
+  async function auditStorage() {
+    const idb = await auditSceneShellIdb();
+    const sessionStorageBytes = measureSessionStorageBytes();
+    let runtimeDiagBytes = 0;
+    try {
+      runtimeDiagBytes = String(sessionStorage.getItem(STORAGE_KEY) || "").length;
+    } catch (_) {
+      /* ignore */
+    }
+    return {
+      sceneShellIdbEntries: idb.entries,
+      sceneShellIdbBytesEst: idb.totalBytesEstimate,
+      sessionStorageBytes,
+      runtimeDiagBytes,
+    };
+  }
+
+  function shouldAlert(kind, cooldownMs = 60000) {
+    const now = Date.now();
+    if (alertCooldown[kind] && now - alertCooldown[kind] < cooldownMs) {
+      return false;
+    }
+    alertCooldown[kind] = now;
+    return true;
+  }
+
+  function evaluateGpuAlerts(gpu) {
+    const worldActive = document.documentElement.classList.contains("mei-world-stage-active");
+    if (gpu.worldRendererActive && !worldActive && gpu.mapPausedCount === 0) {
+      gpu.dualWebGLAlerts += 1;
+      if (shouldAlert("dual_webgl")) {
+        pushAlert("dual_webgl", {
+          canvasCount: gpu.canvasCount,
+          mapPausedCount: gpu.mapPausedCount,
+        });
+      }
+    }
+    if (gpu.canvasCount > Math.max(gpu.canvasPeak - 1, lastCanvasCount) + 1 && lastCanvasCount > 0) {
+      canvasGrowthStreak += 1;
+      if (canvasGrowthStreak >= 2 && shouldAlert("canvas_growth")) {
+        pushAlert("canvas_growth", {
+          canvasCount: gpu.canvasCount,
+          canvasPeak: gpu.canvasPeak,
+        });
+        canvasGrowthStreak = 0;
+      }
+    } else {
+      canvasGrowthStreak = 0;
+    }
+    lastCanvasCount = gpu.canvasCount;
+    ensureSummaryShape();
+    const w = state.summary.world;
+    const m = state.summary.map;
+    if (w.enterCount >= 5 && m.fullRender / w.enterCount > 2 && shouldAlert("full_render_burst")) {
+      pushAlert("full_render_burst", {
+        fullRender: m.fullRender,
+        enterCount: w.enterCount,
+      });
+    }
+    ensureSummaryShape();
+    const st = state.summary.storage;
+    if (st.sceneShellIdbBytesEst > SCENE_SHELL_BLOAT_BYTES && shouldAlert("scene_shell_bloat")) {
+      pushAlert("scene_shell_bloat", {
+        bytes: st.sceneShellIdbBytesEst,
+      });
+    }
+  }
+
+  async function collectSnapshot() {
+    if (!isEnabled()) return null;
+    ensureSummaryShape();
+    const canvasCount = document.querySelectorAll("canvas").length;
+    const gpu = state.summary.gpu;
+    gpu.canvasCount = canvasCount;
+    gpu.canvasPeak = Math.max(gpu.canvasPeak || 0, canvasCount);
+    gpu.worldRendererActive = worldRendererActive();
+    gpu.mapPausedCount = countMapPausedInstances();
+    if (performance?.memory?.usedJSHeapSize) {
+      gpu.jsHeapMb = Math.round(performance.memory.usedJSHeapSize / 1048576);
+    }
+    const storageAudit = await auditStorage();
+    Object.assign(state.summary.storage, storageAudit);
+    evaluateGpuAlerts(gpu);
+    scheduleFlush();
+    return {
+      gpu: { ...gpu },
+      world: { ...state.summary.world },
+      storage: { ...state.summary.storage },
+    };
+  }
+
+  function snapshot() {
+    return collectSnapshot();
+  }
+
+  function exportReport() {
+    flush();
+    return {
+      ...state,
+      exportedAt: new Date().toISOString(),
+      gisPending,
+      hints: buildHints(),
+    };
+  }
+
+  function buildHints() {
+    const hints = [];
+    const g = state.summary.gis;
+    const l = state.summary.layout;
+    const m = state.summary.map;
+    const p = state.summary.perf;
+    ensureSummaryShape();
+    const gpu = state.summary.gpu;
+    const w = state.summary.world;
+    const st = state.summary.storage;
+    if (g.doubleGis > 0) {
+      hints.push(
+        "检测到 /gis/gis 双前缀瓦片 URL，请检查 MEI_GIS_PROXY_UPSTREAM 是否指回 9527/gis。",
+      );
+    }
+    if (g.fail > 12 && g.ok < g.fail) {
+      hints.push("GIS 瓦片失败居多，Martin 可能未启动或代理上游不可达。");
+    }
+    if (g.pendingPeak > 80) {
+      hints.push("GIS 并发峰值过高，可能引发连接池阻塞与页面假死。");
+    }
+    if (l.mapResizeObserver > 400 || l.cockpitMapToolsSync > 400) {
+      hints.push("布局同步/地图 resize 次数异常，疑似 ResizeObserver 反馈环。");
+    }
+    if (m.fullRender > 10) {
+      hints.push("地图多次全量重建，检查 preview-updated 是否导致 props 签名抖动。");
+    }
+    if (p.longTaskMaxMs >= 200) {
+      hints.push("主线程长任务过多，可能是布局环或 MapLibre 样式同步阻塞。");
+    }
+    if (p.fpsMin != null && p.fpsMin <= 10) {
+      hints.push("FPS 过低，可能是 GPU 压力（建筑挤出/高 pitch）或主线程阻塞。");
+    }
+    if (gpu.dualWebGLAlerts > 0) {
+      hints.push("检测到双 WebGL 共存（3D 已退出但 Three.js 未释放或地图未 pause）。");
+    }
+    if (gpu.canvasPeak > 2) {
+      hints.push(`页面 canvas 峰值 ${gpu.canvasPeak}，可能存在 WebGL 上下文泄漏。`);
+    }
+    if (w.enterCount >= 5 && m.fullRender / w.enterCount > 2) {
+      hints.push("3D 切换导致地图全量重建过多，检查 props 签名或布局反馈环。");
+    }
+    if (st.sceneShellIdbBytesEst > SCENE_SHELL_BLOAT_BYTES) {
+      hints.push("scene-shell IndexedDB 缓存超过 5MB，建议清理或降低保留条数。");
+    }
+    hints.push(
+      "快检：(() => { const d = window.__meiBrowserRuntimeDiag; d?.snapshot?.(); return d?.dump?.(); })()",
+    );
+    return hints;
+  }
+
+  function dump() {
+    const report = exportReport();
+    console.group("[mei-runtime-diag] browser runtime report");
+    console.log("hints:", report.hints);
+    console.log("summary:", report.summary);
+    console.log("alerts:", report.alerts);
+    console.log("recentGisRequests:", report.recentGisRequests);
+    console.log("full:", report);
+    console.groupEnd();
+    return report;
+  }
+
+  async function copy() {
+    const report = exportReport();
+    const text = JSON.stringify(report, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      return { ok: true, bytes: text.length };
+    } catch (error) {
+      return { ok: false, error: String(error?.message || error), text };
+    }
+  }
+
+  function reset() {
+    state = emptyState();
+    gisPending = 0;
+    layoutBurst = { windowStart: nowMs(), count: 0 };
+    layoutSyncBurst = { windowStart: nowMs(), count: 0, baseline: 0 };
+    canvasGrowthStreak = 0;
+    lastCanvasCount = 0;
+    Object.keys(alertCooldown).forEach((key) => delete alertCooldown[key]);
+    flush();
+  }
+
+  function installEventHooks() {
+    window.addEventListener("meilang:viewport-stage-layout", () => {
+      recordLayout("viewport_stage_layout");
+    });
+    window.addEventListener("meilang:preview-updated", () => {
+      recordLayout("preview_updated");
+    });
+    window.addEventListener("mei:world-stage-entered", () => {
+      ensureSummaryShape();
+      state.summary.world.enterCount += 1;
+      void collectSnapshot();
+    });
+    window.addEventListener("mei:world-stage-exited", () => {
+      ensureSummaryShape();
+      state.summary.world.exitCount += 1;
+      void collectSnapshot();
+    });
+    window.addEventListener("beforeunload", () => flush());
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") flush();
+    });
+    if (!snapshotTimer) {
+      snapshotTimer = window.setInterval(() => {
+        if (document.visibilityState === "visible") {
+          void collectSnapshot();
+        }
+      }, SNAPSHOT_INTERVAL_MS);
+    }
+  }
+
+  loadState();
+  ensureSummaryShape();
+  if (isEnabled()) {
+    patchFetch();
+    installObservers();
+    installEventHooks();
+    window.requestAnimationFrame(sampleFps);
+    pushEvent("diag_boot", { href: window.location.href });
+    void collectSnapshot();
+    scheduleFlush();
+  }
+
+  const api = {
+    enabled: isEnabled,
+    record: pushEvent,
+    recordLayout,
+    recordMap,
+    recordGisStart,
+    recordGisFinish,
+    exportReport,
+    dump,
+    copy,
+    reset,
+    flush,
+    snapshot,
+    collectSnapshot,
+    auditStorage,
+    getState: () => state,
+    storageKey: STORAGE_KEY,
+  };
+
+  window.__meiBrowserRuntimeDiag = api;
+  boot.browserRuntimeDiag = api;
+})();
+
+
 /* ===== spa-navigation/constants.js ===== */
   const RELOAD_APP_SCRIPTS = new Set([
     "/app-assets/frame-stage.js",
@@ -19512,6 +20321,7 @@
   const BACK_NAV_ID = "mei-world-stage-back-nav";
   const FLOAT_NAV_ID = "mei-world-stage-floating-nav";
   let transitionInFlight = false;
+  let worldChromeActive = false;
 
   function resolveMapCockpitHost() {
     const instances = boot.worldMapInstances;
@@ -19614,11 +20424,7 @@
       node.style.display = "";
       node.style.pointerEvents = "";
     });
-    boot.worldMapInstances?.forEach?.((instance) => {
-      if (typeof instance.syncCockpitMapToolsLayer === "function") {
-        instance.syncCockpitMapToolsLayer();
-      }
-    });
+    boot.syncCockpitMapToolsOverlays?.();
   }
 
   function ensureOverlay() {
@@ -19782,6 +20588,10 @@
   }
 
   function activateWorldChrome() {
+    if (worldChromeActive) {
+      return;
+    }
+    worldChromeActive = true;
     hideMapFloatingChrome();
     positionWorldChrome();
     const floatNav = ensureFloatingNav();
@@ -19791,6 +20601,10 @@
   }
 
   function deactivateWorldChrome() {
+    if (!worldChromeActive) {
+      return;
+    }
+    worldChromeActive = false;
     const floatNav = document.getElementById(FLOAT_NAV_ID);
     if (floatNav instanceof HTMLElement) {
       floatNav.classList.remove("is-visible");
@@ -19899,6 +20713,9 @@
     ensureFloatingNav();
     boot.worldStageTransition = {
       MIN_TRANSITION_MS,
+      get transitionInFlight() {
+        return transitionInFlight;
+      },
       runTransition,
       runEnter,
       runExit,
@@ -20972,7 +21789,7 @@
         detail: worldTarget,
       }),
     );
-    if (typeof console !== "undefined" && typeof console.info === "function") {
+    if (boot.presentationDebug && typeof console !== "undefined" && typeof console.info === "function") {
       console.info("[mei] presentation world action", worldTarget, { applied });
     }
     return applied || true;
@@ -21129,6 +21946,327 @@
   }
 
   installFocusController();
+
+
+/* ===== spa-navigation/presentation/presentation-slide-embed-runtime.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  let mountGeneration = 0;
+  const activeCleanups = new Set();
+  const imageResolutionCache = new Map();
+
+  function parseAppIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run|presentation)\/([^/]+)/,
+    );
+    return match ? String(match[1] || "").trim() : "";
+  }
+
+  function parseSceneIdFromPath() {
+    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    if (match) return String(match[1] || "").trim();
+    const mei = window.__mei;
+    return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
+  }
+
+  function sceneTargetFile(sceneId) {
+    const scene = String(sceneId || "home").trim() || "home";
+    return `scene/${scene}.mei`;
+  }
+
+  function registerCleanup(cleanup) {
+    if (typeof cleanup === "function") {
+      activeCleanups.add(cleanup);
+    }
+  }
+
+  function unmountAll() {
+    mountGeneration += 1;
+    activeCleanups.forEach((cleanup) => {
+      try {
+        cleanup();
+      } catch (_) {
+        /* ignore */
+      }
+    });
+    activeCleanups.clear();
+  }
+
+  function isImageAssetPath(rel) {
+    return /\.(svg|png|jpe?g|webp|gif)$/i.test(String(rel || ""));
+  }
+
+  function resolveImageCandidates(appId, ref) {
+    const encodedApp = encodeURIComponent(appId);
+    const stem = String(ref || "").trim();
+    if (!stem) return [];
+    const assets = boot.presentationImageAssets;
+    if (assets && typeof assets === "object" && assets[stem]) {
+      const rel = String(assets[stem] || "").replace(/^\/+/, "");
+      if (rel && isImageAssetPath(rel)) {
+        return [`/workspace-app-assets/${encodedApp}/${rel.split("/").map(encodeURIComponent).join("/")}`];
+      }
+    }
+    if (/\.[a-z0-9]+$/i.test(stem)) {
+      return [`/workspace-app-assets/${encodedApp}/assets/${encodeURIComponent(stem)}`];
+    }
+    const encodedRef = encodeURIComponent(stem);
+    return [`/workspace-app-assets/${encodedApp}/assets/${encodedRef}.svg`];
+  }
+
+  function applyPresentationImageAssets(assets) {
+    if (!assets || typeof assets !== "object") return;
+    boot.presentationImageAssets = assets;
+    imageResolutionCache.clear();
+  }
+
+  function loadPresentationImage(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+
+  function renderPresentationImage(node, img, ref) {
+    img.className = "mei-presentation-embed-media";
+    img.alt = ref;
+    node.innerHTML = "";
+    node.classList.add("mei-presentation-embed--mounted");
+    node.appendChild(img);
+  }
+
+  function formatMetricValue(metric) {
+    if (!metric || typeof metric !== "object") return "";
+    const value = metric.value ?? metric.display_value ?? metric.displayValue ?? metric.result;
+    if (value === null || value === undefined) return "";
+    if (typeof value === "object") {
+      if (value.value !== undefined) return String(value.value);
+      return JSON.stringify(value);
+    }
+    return String(value);
+  }
+
+  function metricProps(appId, sceneId, metricId) {
+    return {
+      _mei: {
+        app_id: appId,
+        active_scene_id: sceneId,
+        active_target_file: sceneTargetFile(sceneId),
+        runtime_capabilities: {
+          metric_query: {
+            enabled: true,
+            api: `/api/datasets/metrics/${encodeURIComponent(appId)}`,
+            scene_qualified: true,
+          },
+        },
+      },
+      dataset: {
+        __mei_runtime_ref: {
+          metric_id: metricId,
+        },
+      },
+    };
+  }
+
+  async function fetchMetricDisplay(appId, sceneId, metricId) {
+    const runtime = window.__meiDatasetRuntime;
+    if (runtime && typeof runtime.fetchPanelRuntimeMetrics === "function") {
+      const data = await runtime.fetchPanelRuntimeMetrics(metricProps(appId, sceneId, metricId), {
+        metricIds: [metricId],
+      });
+      const metrics = Array.isArray(data?.metrics)
+        ? data.metrics
+        : Array.isArray(data?.results)
+          ? data.results
+          : [];
+      const found =
+        typeof runtime.findRuntimeMetricInResults === "function"
+          ? runtime.findRuntimeMetricInResults(metrics, { metric_id: metricId })
+          : metrics.find((item) => String(item?.id || "").trim() === metricId);
+      if (found) {
+        return {
+          label: String(found.label || found.title || metricId).trim() || metricId,
+          value: formatMetricValue(found),
+        };
+      }
+    }
+    const response = await fetch(`/api/datasets/metrics/${encodeURIComponent(appId)}`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scene_id: sceneId,
+        target: sceneTargetFile(sceneId),
+        metric_ids: [metricId],
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        data?.error ||
+          data?.diagnostics?.[0]?.message ||
+          `metric query failed: ${response.status}`,
+      );
+    }
+    const metrics = Array.isArray(data?.metrics)
+      ? data.metrics
+      : Array.isArray(data?.results)
+        ? data.results
+        : [];
+    const found = metrics.find((item) => {
+      const id = String(item?.id || "").trim();
+      return id === metricId || id.endsWith(`::${metricId}`);
+    });
+    if (!found) {
+      throw new Error(`metric \`${metricId}\` not found in response`);
+    }
+    return {
+      label: String(found.label || found.title || metricId).trim() || metricId,
+      value: formatMetricValue(found),
+    };
+  }
+
+  function renderMetricNode(node, payload, kind) {
+    const label = document.createElement("span");
+    label.className = "mei-presentation-embed-metric-label";
+    label.textContent = payload.label;
+    const value = document.createElement("strong");
+    value.className = "mei-presentation-embed-metric-value";
+    value.textContent = payload.value || "—";
+    node.innerHTML = "";
+    node.classList.add("mei-presentation-embed--mounted");
+    node.classList.toggle("mei-presentation-embed--chart", kind === "chart");
+    node.append(label, value);
+  }
+
+  async function mountImage(node, ref, appId, generation) {
+    if (!appId) {
+      node.dataset.embedStatus = "missing-app-id";
+      return;
+    }
+    const cacheKey = `${appId}\0${ref}`;
+    if (imageResolutionCache.has(cacheKey)) {
+      const cached = imageResolutionCache.get(cacheKey);
+      if (!cached) {
+        node.dataset.embedStatus = "image-not-found";
+        return;
+      }
+      const loaded = await loadPresentationImage(cached);
+      if (generation !== mountGeneration) return;
+      if (!loaded) {
+        imageResolutionCache.delete(cacheKey);
+      } else {
+        renderPresentationImage(node, loaded, ref);
+        return;
+      }
+    }
+    for (const src of resolveImageCandidates(appId, ref)) {
+      if (generation !== mountGeneration) return;
+      const loaded = await loadPresentationImage(src);
+      if (generation !== mountGeneration) return;
+      if (loaded) {
+        imageResolutionCache.set(cacheKey, src);
+        renderPresentationImage(node, loaded, ref);
+        return;
+      }
+    }
+    imageResolutionCache.set(cacheKey, null);
+    node.dataset.embedStatus = "image-not-found";
+  }
+
+  async function mountMetric(node, ref, appId, sceneId, kind, generation) {
+    if (!appId) {
+      node.dataset.embedStatus = "missing-app-id";
+      return;
+    }
+    try {
+      const payload = await fetchMetricDisplay(appId, sceneId, ref);
+      if (generation !== mountGeneration) return;
+      renderMetricNode(node, payload, kind);
+    } catch (error) {
+      if (generation !== mountGeneration) return;
+      node.dataset.embedStatus = "metric-error";
+      node.dataset.embedError = String(error?.message || error || "metric fetch failed");
+    }
+  }
+
+  function mountViewpointEmbed(node, ref) {
+    const selector = `[data-mei-viewpoint="${CSS.escape(ref)}"]`;
+    const target = document.querySelector(selector);
+    const panel =
+      target?.closest?.("[data-mei-panel-id]") ||
+      target?.closest?.(".mei-panel-root") ||
+      target?.parentElement;
+    if (panel instanceof HTMLElement) {
+      const clone = panel.cloneNode(true);
+      clone.classList.add("mei-presentation-embed-clone");
+      clone.querySelectorAll?.("[id]").forEach((element) => {
+        if (element instanceof HTMLElement && element.id) {
+          element.id = `${element.id}__presentation_clone`;
+        }
+      });
+      node.innerHTML = "";
+      node.classList.add("mei-presentation-embed--mounted");
+      node.appendChild(clone);
+      return;
+    }
+    node.dataset.embedStatus = "viewpoint-not-mounted";
+  }
+
+  async function mountNode(node, context, generation) {
+    if (!(node instanceof HTMLElement)) return;
+    const kind = String(node.dataset.embedKind || "").trim();
+    const ref = String(node.dataset.embedRef || "").trim();
+    if (!kind || !ref) return;
+    node.dataset.meiPresentationEmbedMount = "pending";
+    delete node.dataset.embedStatus;
+    delete node.dataset.embedError;
+    if (kind === "image") {
+      await mountImage(node, ref, context.appId, generation);
+    } else if (kind === "metric" || kind === "chart") {
+      await mountMetric(node, ref, context.appId, context.sceneId, kind, generation);
+    } else if (kind === "embed") {
+      mountViewpointEmbed(node, ref);
+    }
+    if (generation !== mountGeneration) return;
+    node.dataset.meiPresentationEmbedMount = node.dataset.embedStatus ? "error" : "mounted";
+  }
+
+  async function mountSlideEmbeds(layer, step) {
+    unmountAll();
+    const generation = mountGeneration;
+    const root =
+      layer instanceof HTMLElement
+        ? layer.querySelector(".mei-copilot-slide-inner") || layer
+        : null;
+    if (!root) return;
+    const nodes = root.querySelectorAll("[data-embed-kind][data-embed-ref]");
+    if (!nodes.length) return;
+    const context = {
+      appId: parseAppIdFromPath(),
+      sceneId: parseSceneIdFromPath(),
+      step,
+    };
+    registerCleanup(() => {
+      nodes.forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        node.dataset.meiPresentationEmbedMount = "unmounted";
+      });
+    });
+    for (const node of nodes) {
+      await mountNode(node, context, generation);
+    }
+  }
+
+  boot.presentationSlideEmbedRuntime = {
+    mountSlideEmbeds,
+    unmountAll,
+    applyPresentationImageAssets,
+  };
+})();
 
 
 /* ===== spa-navigation/presentation/presentation-step-engine.js ===== */
@@ -21771,6 +22909,838 @@
   };
 
   boot.presentationStepEngine = engine;
+})();
+
+
+/* ===== spa-navigation/presentation/presentation-tts.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  const state = {
+    enabled: false,
+    autoSpeak: false,
+    preferSpeakerNotes: false,
+    speaking: false,
+    utterance: null,
+  };
+
+  function speechApi() {
+    return typeof window !== "undefined" ? window.speechSynthesis : null;
+  }
+
+  function isSupported() {
+    return Boolean(speechApi() && typeof window.SpeechSynthesisUtterance === "function");
+  }
+
+  function stripHtml(value) {
+    const node = document.createElement("div");
+    node.innerHTML = String(value || "");
+    return String(node.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function resolveStepText(step, options = {}) {
+    if (!step || typeof step !== "object") return "";
+    const preferNotes =
+      options.preferSpeakerNotes === true || state.preferSpeakerNotes === true;
+    if (preferNotes) {
+      const notes = stripHtml(step.speakerNotesHtml || step.speaker_notes || step.notes || "");
+      if (notes) return notes;
+    }
+    const caption = stripHtml(step.captionHtml || step.caption || step.title || "");
+    if (caption) return caption;
+    if (!preferNotes) {
+      return stripHtml(step.speakerNotesHtml || step.speaker_notes || step.notes || "");
+    }
+    return "";
+  }
+
+  function stopSpeech() {
+    const api = speechApi();
+    if (!api) return;
+    api.cancel();
+    state.speaking = false;
+    state.utterance = null;
+  }
+
+  function speakText(text, options = {}) {
+    const api = speechApi();
+    if (!api || !isSupported()) return false;
+    const normalized = String(text || "").replace(/\s+/g, " ").trim();
+    if (!normalized) return false;
+    stopSpeech();
+    const utterance = new window.SpeechSynthesisUtterance(normalized);
+    utterance.lang = String(options.lang || "zh-CN").trim() || "zh-CN";
+    utterance.rate = Number.isFinite(Number(options.rate)) ? Number(options.rate) : 1;
+    utterance.onstart = () => {
+      state.speaking = true;
+    };
+    utterance.onend = () => {
+      state.speaking = false;
+      state.utterance = null;
+    };
+    utterance.onerror = () => {
+      state.speaking = false;
+      state.utterance = null;
+    };
+    state.utterance = utterance;
+    api.speak(utterance);
+    return true;
+  }
+
+  function speakStep(step, options = {}) {
+    if (!state.enabled && options.force !== true) return false;
+    return speakText(resolveStepText(step, options), options);
+  }
+
+  function setEnabled(next) {
+    state.enabled = Boolean(next);
+    if (!state.enabled) {
+      stopSpeech();
+    }
+    return state.enabled;
+  }
+
+  function toggleEnabled() {
+    return setEnabled(!state.enabled);
+  }
+
+  function setAutoSpeak(next) {
+    state.autoSpeak = Boolean(next);
+    return state.autoSpeak;
+  }
+
+  function setPreferSpeakerNotes(next) {
+    state.preferSpeakerNotes = Boolean(next);
+    return state.preferSpeakerNotes;
+  }
+
+  const tts = {
+    isSupported,
+    speakStep,
+    speakText,
+    stopSpeech,
+    setEnabled,
+    toggleEnabled,
+    setAutoSpeak,
+    setPreferSpeakerNotes,
+    resolveStepText,
+    get state() {
+      return { ...state };
+    },
+  };
+
+  boot.presentationTts = tts;
+})();
+
+
+/* ===== spa-navigation/presentation/presentation-script-library.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  const state = {
+    appId: "",
+    scripts: [],
+    defaultScriptId: "",
+    activeScriptId: "",
+    loaded: false,
+    loading: null,
+  };
+
+  function parseAppIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run|presentation)\/([^/]+)/,
+    );
+    return match ? String(match[1] || "").trim() : "";
+  }
+
+  function parseSceneIdFromPath() {
+    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    if (match) return String(match[1] || "").trim();
+    const mei = window.__mei;
+    return String(mei?.active_scene_id || mei?.activeSceneId || "home").trim() || "home";
+  }
+
+  function resolveAppId(appId) {
+    return String(appId || state.appId || parseAppIdFromPath() || "").trim();
+  }
+
+  function resolveDefaultScriptId() {
+    const mei = window.__mei;
+    return String(
+      state.defaultScriptId ||
+        state.activeScriptId ||
+        mei?.presentation_default_script_id ||
+        mei?.presentation_manifest_id ||
+        "",
+    ).trim();
+  }
+
+  function scriptsApi(appId) {
+    return `/api/presentation/scripts/${encodeURIComponent(appId)}`;
+  }
+
+  function scriptApi(appId, scriptId) {
+    return `/api/presentation/scripts/${encodeURIComponent(appId)}/${encodeURIComponent(scriptId)}`;
+  }
+
+  async function fetchJson(url, options = {}) {
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(payload?.error || `request failed: ${response.status}`);
+      error.payload = payload;
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  }
+
+  async function listScripts(appId) {
+    const resolvedAppId = resolveAppId(appId);
+    if (!resolvedAppId) {
+      throw new Error("listScripts requires appId");
+    }
+    state.loading = resolvedAppId;
+    try {
+      const payload = await fetchJson(scriptsApi(resolvedAppId));
+      state.appId = resolvedAppId;
+      state.scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
+      state.defaultScriptId = String(payload?.defaultScriptId || "").trim();
+      state.loaded = true;
+      const embedRuntime = boot.presentationSlideEmbedRuntime;
+      if (payload.imageAssets && typeof payload.imageAssets === "object") {
+        if (embedRuntime && typeof embedRuntime.applyPresentationImageAssets === "function") {
+          embedRuntime.applyPresentationImageAssets(payload.imageAssets);
+        } else {
+          boot.presentationImageAssets = payload.imageAssets;
+        }
+      }
+      return payload;
+    } finally {
+      state.loading = null;
+    }
+  }
+
+  async function getScript(scriptId, appId) {
+    const resolvedAppId = resolveAppId(appId);
+    const resolvedScriptId = String(scriptId || resolveDefaultScriptId()).trim();
+    if (!resolvedAppId || !resolvedScriptId) {
+      throw new Error("getScript requires appId and scriptId");
+    }
+    return fetchJson(scriptApi(resolvedAppId, resolvedScriptId));
+  }
+
+  async function saveScript(scriptId, source, options = {}) {
+    const resolvedAppId = resolveAppId(options.appId);
+    const resolvedScriptId = String(scriptId || options.scriptId || state.activeScriptId || "").trim();
+    if (!resolvedAppId || !resolvedScriptId) {
+      throw new Error("saveScript requires appId and scriptId");
+    }
+    const payload = await fetchJson(scriptApi(resolvedAppId, resolvedScriptId), {
+      method: "PUT",
+      body: JSON.stringify({
+        source: String(source || ""),
+        title: options.title,
+      }),
+    });
+    state.activeScriptId = resolvedScriptId;
+    await listScripts(resolvedAppId);
+    return payload;
+  }
+
+  async function setDefaultScript(scriptId, appId) {
+    const resolvedAppId = resolveAppId(appId);
+    const resolvedScriptId = String(scriptId || "").trim();
+    if (!resolvedAppId || !resolvedScriptId) {
+      throw new Error("setDefaultScript requires appId and scriptId");
+    }
+    const payload = await fetchJson(`${scriptApi(resolvedAppId, resolvedScriptId)}/default`, {
+      method: "POST",
+      body: "{}",
+    });
+    state.defaultScriptId = resolvedScriptId;
+    const mei = (window.__mei = window.__mei || {});
+    mei.presentation_default_script_id = resolvedScriptId;
+    mei.presentation_manifest_id = resolvedScriptId;
+    await listScripts(resolvedAppId);
+    return payload;
+  }
+
+  async function compileScriptSource(source, options = {}) {
+    const compileOnly = boot.compileEphemeralPresentation;
+    if (typeof compileOnly !== "function") {
+      throw new Error("compileEphemeralPresentation is not ready");
+    }
+    return compileOnly(source, {
+      appId: resolveAppId(options.appId),
+      sceneId: String(options.sceneId || parseSceneIdFromPath()).trim() || "home",
+      presentationId: String(options.presentationId || options.scriptId || "library").trim(),
+    });
+  }
+
+  async function loadAndCompileScript(scriptId, options = {}) {
+    const resolvedScriptId = String(scriptId || resolveDefaultScriptId()).trim();
+    const script = await getScript(resolvedScriptId, options.appId);
+    state.activeScriptId = resolvedScriptId;
+    const result = await compileScriptSource(script.source, {
+      ...options,
+      scriptId: resolvedScriptId,
+      presentationId: resolvedScriptId,
+    });
+    return { script, result };
+  }
+
+  async function loadDefaultAndCompile(options = {}) {
+    await listScripts(options.appId).catch(() => null);
+    const scriptId = String(options.scriptId || resolveDefaultScriptId()).trim();
+    if (!scriptId) {
+      throw new Error("未配置默认演说稿");
+    }
+    return loadAndCompileScript(scriptId, options);
+  }
+
+  async function runScript(scriptId, options = {}) {
+    const { script, result } = await loadAndCompileScript(scriptId, options);
+    const eng = boot.presentationStepEngine;
+    if (!eng || typeof eng.runManifest !== "function") {
+      throw new Error("presentation step engine is not ready");
+    }
+    const toolbar = boot.copilotToolbar;
+    if (toolbar && typeof toolbar.mount === "function") {
+      toolbar.mount({ autoStart: false, apply: false, toolbarOpen: true });
+    }
+    eng.runManifest(result.manifest, {
+      source: "library",
+      stepIndex: options.stepIndex,
+      apply: options.apply !== false,
+    });
+    if (toolbar && typeof toolbar.renderAll === "function") {
+      toolbar.renderAll();
+    }
+    const panel = boot.presentationScriptPanel;
+    if (panel && typeof panel.syncFromLibrary === "function") {
+      panel.syncFromLibrary(script);
+    }
+    return { script, result };
+  }
+
+  async function runDefaultScript(options = {}) {
+    await listScripts(options.appId).catch(() => null);
+    const scriptId = String(options.scriptId || resolveDefaultScriptId()).trim();
+    return runScript(scriptId, options);
+  }
+
+  async function tryAutoStartPresentation(options = {}) {
+    const eng = boot.presentationStepEngine;
+    if (!eng) return false;
+    if (typeof eng.hasManifest === "function" && eng.hasManifest()) {
+      if (typeof eng.ensureLoaded === "function" && eng.ensureLoaded()) {
+        return typeof eng.start === "function" ? Boolean(eng.start({ apply: true, ...options })) : false;
+      }
+      if (typeof eng.ensureLoadedAsync === "function" && (await eng.ensureLoadedAsync())) {
+        return typeof eng.start === "function" ? Boolean(eng.start({ apply: true, ...options })) : false;
+      }
+    }
+    await runDefaultScript(options);
+    return Boolean(eng.isActive && typeof eng.isActive === "function" && eng.isActive());
+  }
+
+  const library = {
+    listScripts,
+    getScript,
+    saveScript,
+    setDefaultScript,
+    loadAndCompileScript,
+    loadDefaultAndCompile,
+    runScript,
+    runDefaultScript,
+    tryAutoStartPresentation,
+    resolveDefaultScriptId,
+    get state() {
+      return { ...state };
+    },
+  };
+
+  boot.presentationScriptLibrary = library;
+})();
+
+
+/* ===== spa-navigation/presentation/presentation-script-panel.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+  const PANEL_ID = "mei-presentation-script-panel";
+  const DIAGNOSTICS_ID = "mei-presentation-compile-diagnostics";
+
+  const uiState = {
+    open: false,
+    pickerOpen: false,
+    busy: false,
+    source: "",
+    activeScriptId: "",
+    scripts: [],
+    defaultScriptId: "",
+    lastDiagnostics: [],
+    lastWarnings: [],
+    lastError: "",
+  };
+
+  function engine() {
+    return boot.presentationStepEngine || null;
+  }
+
+  function toolbar() {
+    return boot.copilotToolbar || null;
+  }
+
+  function library() {
+    return boot.presentationScriptLibrary || null;
+  }
+
+  function parseAppIdFromPath() {
+    const match = String(window.location.pathname || "").match(
+      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
+    );
+    return match ? String(match[1] || "").trim() : "";
+  }
+
+  function parseSceneIdFromPath() {
+    const match = String(window.location.pathname || "").match(/\/scene\/([^/?#]+)/);
+    return match ? String(match[1] || "").trim() : "home";
+  }
+
+  function escapeHtml(value) {
+    return String(value || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function formatDiagnostics(items) {
+    if (!Array.isArray(items) || !items.length) return "";
+    return items
+      .map((item) => {
+        const level = String(item?.level || "error").trim() || "error";
+        const code = String(item?.code || "").trim();
+        const message = String(item?.message || "").trim();
+        const refBits = [item?.stepId, item?.refKind, item?.refId]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean);
+        const suffix = refBits.length ? ` (${refBits.join(" / ")})` : "";
+        return `<li class="mei-presentation-diagnostic mei-presentation-diagnostic--${escapeHtml(level)}"><code>${escapeHtml(code || level)}</code> ${escapeHtml(message)}${escapeHtml(suffix)}</li>`;
+      })
+      .join("");
+  }
+
+  function ensureDiagnostics() {
+    let node = document.getElementById(DIAGNOSTICS_ID);
+    if (node) return node;
+    node = document.createElement("div");
+    node.id = DIAGNOSTICS_ID;
+    node.className = "mei-presentation-compile-diagnostics";
+    node.setAttribute("hidden", "hidden");
+    if (typeof boot.mountCopilotInViewport === "function") {
+      boot.mountCopilotInViewport(node);
+    } else {
+      document.body.appendChild(node);
+    }
+    return node;
+  }
+
+  function renderDiagnostics() {
+    const node = ensureDiagnostics();
+    const errors = uiState.lastDiagnostics;
+    const warnings = uiState.lastWarnings;
+    const errorMessage = String(uiState.lastError || "").trim();
+    if (!errors.length && !warnings.length && !errorMessage) {
+      node.setAttribute("hidden", "hidden");
+      node.innerHTML = "";
+      return;
+    }
+    node.removeAttribute("hidden");
+    const parts = [];
+    if (errorMessage) {
+      parts.push(`<p class="mei-presentation-diagnostic-summary">${escapeHtml(errorMessage)}</p>`);
+    }
+    if (errors.length) {
+      parts.push(`<ul class="mei-presentation-diagnostic-list">${formatDiagnostics(errors)}</ul>`);
+    }
+    if (warnings.length) {
+      parts.push(
+        `<ul class="mei-presentation-diagnostic-list mei-presentation-diagnostic-list--warnings">${formatDiagnostics(warnings)}</ul>`,
+      );
+    }
+    node.innerHTML = parts.join("");
+  }
+
+  function setCompileResult(result, error) {
+    uiState.lastDiagnostics = Array.isArray(result?.diagnostics) ? result.diagnostics : [];
+    uiState.lastWarnings = Array.isArray(result?.warnings) ? result.warnings : [];
+    uiState.lastError = error ? String(error?.message || error || "") : "";
+    renderDiagnostics();
+  }
+
+  function panelInnerHtml() {
+    return (
+      '<header class="mei-presentation-script-panel-head">' +
+      '<div class="mei-presentation-script-panel-headline">' +
+      '<strong class="mei-presentation-script-panel-title">演说稿目录</strong>' +
+      '<span class="mei-presentation-script-panel-active" data-presentation-script-active-label="true"></span>' +
+      "</div>" +
+      '<button type="button" data-presentation-script-close="true" aria-label="关闭讲稿面板">×</button>' +
+      "</header>" +
+      '<div class="mei-presentation-script-panel-picker" data-presentation-script-picker="true" hidden>' +
+      '<p class="mei-presentation-script-panel-picker-hint">从应用演说稿目录选择；默认稿会在点「演」时自动载入。</p>' +
+      '<ul class="mei-presentation-script-panel-list" data-presentation-script-list="true"></ul>' +
+      "</div>" +
+      '<textarea class="mei-presentation-script-panel-editor" data-presentation-script-editor="true" spellcheck="false" placeholder="编辑 .presentation.mdx"></textarea>' +
+      '<div class="mei-presentation-script-panel-actions">' +
+      '<button type="button" data-presentation-script-load="true">载入</button>' +
+      '<button type="button" data-presentation-script-run="true">运行</button>' +
+      '<button type="button" data-presentation-script-save="true">保存</button>' +
+      '<button type="button" data-presentation-script-default="true">设为默认</button>' +
+      '<button type="button" data-presentation-script-clear="true">清空会话</button>' +
+      "</div>"
+    );
+  }
+
+  function ensurePanel() {
+    let panel = document.getElementById(PANEL_ID);
+    if (panel) return panel;
+    panel = document.createElement("aside");
+    panel.id = PANEL_ID;
+    panel.className = "mei-presentation-script-panel";
+    panel.setAttribute("hidden", "hidden");
+    panel.innerHTML = panelInnerHtml();
+    panel.addEventListener("click", onPanelClick);
+    if (typeof boot.mountCopilotInViewport === "function") {
+      boot.mountCopilotInViewport(panel);
+    } else {
+      document.body.appendChild(panel);
+    }
+    return panel;
+  }
+
+  function renderScriptList() {
+    const panel = ensurePanel();
+    const list = panel.querySelector("[data-presentation-script-list]");
+    const picker = panel.querySelector("[data-presentation-script-picker]");
+    if (!(list instanceof HTMLElement) || !(picker instanceof HTMLElement)) return;
+    if (!uiState.pickerOpen) {
+      picker.setAttribute("hidden", "hidden");
+      list.innerHTML = "";
+      return;
+    }
+    picker.removeAttribute("hidden");
+    if (!uiState.scripts.length) {
+      list.innerHTML = '<li class="mei-presentation-script-panel-empty">演说稿目录为空</li>';
+      return;
+    }
+    list.innerHTML = uiState.scripts
+      .map((script) => {
+        const id = escapeHtml(script.id);
+        const title = escapeHtml(script.title || script.id);
+        const badges = [
+          script.isDefault || uiState.defaultScriptId === script.id ? "默认" : "",
+          uiState.activeScriptId === script.id ? "当前" : "",
+        ]
+          .filter(Boolean)
+          .map((label) => `<span class="mei-presentation-script-badge">${escapeHtml(label)}</span>`)
+          .join("");
+        return (
+          `<li class="mei-presentation-script-panel-item">` +
+          `<button type="button" data-presentation-script-select="${id}">` +
+          `<strong>${title}</strong>` +
+          `<span class="mei-presentation-script-panel-item-id">${id}</span>` +
+          `${badges}` +
+          `</button></li>`
+        );
+      })
+      .join("");
+  }
+
+  function renderPanel() {
+    const panel = ensurePanel();
+    const editor = panel.querySelector("[data-presentation-script-editor]");
+    const label = panel.querySelector("[data-presentation-script-active-label]");
+    if (editor instanceof HTMLTextAreaElement && editor.value !== uiState.source) {
+      editor.value = uiState.source;
+    }
+    if (label) {
+      label.textContent = uiState.activeScriptId
+        ? `当前：${uiState.activeScriptId}`
+        : uiState.defaultScriptId
+          ? `默认：${uiState.defaultScriptId}`
+          : "";
+    }
+    panel.querySelectorAll("button").forEach((button) => {
+      if (!(button instanceof HTMLButtonElement)) return;
+      if (button.dataset.presentationScriptClose === "true") return;
+      button.disabled = uiState.busy;
+    });
+    renderScriptList();
+    if (uiState.open) {
+      panel.removeAttribute("hidden");
+    } else {
+      panel.setAttribute("hidden", "hidden");
+    }
+  }
+
+  async function refreshLibraryState(appId) {
+    const lib = library();
+    if (!lib || typeof lib.listScripts !== "function") return;
+    const payload = await lib.listScripts(appId);
+    uiState.scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
+    uiState.defaultScriptId = String(payload?.defaultScriptId || "").trim();
+    if (!uiState.activeScriptId) {
+      uiState.activeScriptId =
+        uiState.defaultScriptId ||
+        (typeof lib.resolveDefaultScriptId === "function" ? lib.resolveDefaultScriptId() : "");
+    }
+  }
+
+  async function loadScriptIntoEditor(scriptId, options = {}) {
+    const lib = library();
+    if (!lib || typeof lib.getScript !== "function") {
+      throw new Error("presentation script library is not ready");
+    }
+    const script = await lib.getScript(scriptId, options.appId);
+    uiState.activeScriptId = String(script.id || scriptId || "").trim();
+    uiState.source = String(script.source || "");
+    renderPanel();
+    return script;
+  }
+
+  async function compileSource(source, options = {}) {
+    const compileOnly = boot.compileEphemeralPresentation;
+    if (typeof compileOnly !== "function") {
+      throw new Error("presentation compile API is not ready");
+    }
+    const appId = String(options.appId || parseAppIdFromPath()).trim();
+    if (!appId) {
+      throw new Error("compile requires appId");
+    }
+    return compileOnly(source, {
+      appId,
+      sceneId: String(options.sceneId || parseSceneIdFromPath()).trim() || "home",
+      presentationId: String(options.presentationId || uiState.activeScriptId || "library").trim(),
+    });
+  }
+
+  async function runCompiledManifest(result, options = {}) {
+    const eng = engine();
+    if (!eng || typeof eng.runManifest !== "function") {
+      throw new Error("presentation step engine is not ready");
+    }
+    const tb = toolbar();
+    if (tb && typeof tb.mount === "function") {
+      tb.mount({ autoStart: false, apply: false, toolbarOpen: true });
+    }
+    eng.runManifest(result.manifest, {
+      source: "library",
+      stepIndex: options.stepIndex,
+      apply: options.apply !== false,
+    });
+    if (tb && typeof tb.renderAll === "function") {
+      tb.renderAll();
+    }
+    return result;
+  }
+
+  async function compileAndRun(source, options = {}) {
+    uiState.busy = true;
+    renderPanel();
+    try {
+      const result = await compileSource(source, options);
+      setCompileResult(result);
+      return runCompiledManifest(result, options);
+    } catch (error) {
+      setCompileResult(error?.payload || null, error);
+      throw error;
+    } finally {
+      uiState.busy = false;
+      renderPanel();
+    }
+  }
+
+  function clearPresentation() {
+    const eng = engine();
+    if (!eng) return false;
+    if (typeof eng.clearSessionManifest === "function") {
+      eng.clearSessionManifest();
+    } else if (typeof eng.clearEphemeralManifest === "function") {
+      eng.clearEphemeralManifest();
+    }
+    if (typeof eng.stop === "function") {
+      eng.stop();
+    }
+    setCompileResult(null);
+    renderPanel();
+    const tb = toolbar();
+    if (tb && typeof tb.renderAll === "function") {
+      tb.renderAll();
+    }
+    return true;
+  }
+
+  function currentEditorSource() {
+    const panel = document.getElementById(PANEL_ID);
+    const editor = panel?.querySelector("[data-presentation-script-editor]");
+    if (!(editor instanceof HTMLTextAreaElement)) return uiState.source;
+    return String(editor.value || "");
+  }
+
+  async function onPanelClick(event) {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const selectId = target.closest("[data-presentation-script-select]")?.getAttribute(
+      "data-presentation-script-select",
+    );
+    if (selectId) {
+      uiState.busy = true;
+      try {
+        await loadScriptIntoEditor(selectId);
+        uiState.pickerOpen = false;
+        uiState.open = true;
+      } catch (error) {
+        setCompileResult(null, error);
+      } finally {
+        uiState.busy = false;
+        renderPanel();
+      }
+      return;
+    }
+    if (target.dataset.presentationScriptClose === "true") {
+      uiState.open = false;
+      uiState.pickerOpen = false;
+      renderPanel();
+      return;
+    }
+    const source = currentEditorSource();
+    uiState.source = source;
+    if (target.dataset.presentationScriptLoad === "true") {
+      const scriptId = uiState.activeScriptId || uiState.defaultScriptId;
+      if (!scriptId) return;
+      uiState.busy = true;
+      try {
+        await loadScriptIntoEditor(scriptId);
+      } catch (error) {
+        setCompileResult(null, error);
+      } finally {
+        uiState.busy = false;
+        renderPanel();
+      }
+      return;
+    }
+    if (target.dataset.presentationScriptRun === "true") {
+      await compileAndRun(source, { apply: true });
+      return;
+    }
+    if (target.dataset.presentationScriptSave === "true") {
+      const lib = library();
+      const scriptId = uiState.activeScriptId || uiState.defaultScriptId || "draft";
+      if (!lib || typeof lib.saveScript !== "function") return;
+      uiState.busy = true;
+      try {
+        await lib.saveScript(scriptId, source, { appId: parseAppIdFromPath() });
+        uiState.activeScriptId = scriptId;
+        await refreshLibraryState(parseAppIdFromPath());
+        setCompileResult(null);
+      } catch (error) {
+        setCompileResult(error?.payload || null, error);
+      } finally {
+        uiState.busy = false;
+        renderPanel();
+      }
+      return;
+    }
+    if (target.dataset.presentationScriptDefault === "true") {
+      const lib = library();
+      const scriptId = uiState.activeScriptId || uiState.defaultScriptId;
+      if (!lib || !scriptId || typeof lib.setDefaultScript !== "function") return;
+      uiState.busy = true;
+      try {
+        await lib.setDefaultScript(scriptId, parseAppIdFromPath());
+        await refreshLibraryState(parseAppIdFromPath());
+      } catch (error) {
+        setCompileResult(error?.payload || null, error);
+      } finally {
+        uiState.busy = false;
+        renderPanel();
+      }
+      return;
+    }
+    if (target.dataset.presentationScriptClear === "true") {
+      clearPresentation();
+    }
+  }
+
+  async function openPicker() {
+    uiState.open = true;
+    uiState.pickerOpen = true;
+    uiState.busy = true;
+    renderPanel();
+    try {
+      await refreshLibraryState(parseAppIdFromPath());
+      if (!uiState.source) {
+        const scriptId = uiState.activeScriptId || uiState.defaultScriptId;
+        if (scriptId) {
+          await loadScriptIntoEditor(scriptId);
+        }
+      }
+    } catch (error) {
+      setCompileResult(null, error);
+      throw error;
+    } finally {
+      uiState.busy = false;
+      renderPanel();
+    }
+  }
+
+  function togglePanel(next) {
+    const nextOpen = typeof next === "boolean" ? next : !uiState.open;
+    uiState.open = nextOpen;
+    if (nextOpen) {
+      void openPicker().catch((error) => {
+        setCompileResult(null, error);
+        renderPanel();
+      });
+    } else {
+      uiState.pickerOpen = false;
+      renderPanel();
+    }
+    return uiState.open;
+  }
+
+  function syncFromLibrary(script) {
+    if (!script || typeof script !== "object") return;
+    uiState.activeScriptId = String(script.id || "").trim();
+    uiState.source = String(script.source || "");
+    renderPanel();
+  }
+
+  const scriptPanel = {
+    togglePanel,
+    openPicker,
+    renderPanel,
+    compileAndRun,
+    clearPresentation,
+    setCompileResult,
+    renderDiagnostics,
+    syncFromLibrary,
+    refreshLibraryState,
+    uiState,
+  };
+
+  boot.presentationScriptPanel = scriptPanel;
 })();
 
 
@@ -22642,6 +24612,14 @@
       const error = new Error(message);
       error.payload = result;
       throw error;
+    }
+    if (result.imageAssets && typeof result.imageAssets === "object") {
+      const embedRuntime = boot.presentationSlideEmbedRuntime;
+      if (embedRuntime && typeof embedRuntime.applyPresentationImageAssets === "function") {
+        embedRuntime.applyPresentationImageAssets(result.imageAssets);
+      } else {
+        boot.presentationImageAssets = result.imageAssets;
+      }
     }
     return result;
   }
@@ -24930,6 +26908,8 @@
   const SCENE_SHELL_STORE = "snapshots";
   const SCENE_SHELL_DB_VERSION = 1;
   const SCENE_SHELL_LS_PREFIX = "mei:scene-shell:v1:";
+  const SCENE_SHELL_MAX_ENTRIES = 12;
+  const SCENE_SHELL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
   function openSceneShellDb() {
     if (typeof indexedDB === "undefined") {
@@ -24997,6 +26977,147 @@
     };
   }
 
+  async function listSceneShellSnapshots(db) {
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(SCENE_SHELL_STORE, "readonly");
+        const request = tx.objectStore(SCENE_SHELL_STORE).getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => resolve([]);
+      } catch (_) {
+        resolve([]);
+      }
+    });
+  }
+
+  function estimateSnapshotBytes(snapshot) {
+    try {
+      return JSON.stringify(snapshot || {}).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  async function pruneSceneShellDb(db) {
+    const now = Date.now();
+    let pruned = 0;
+    const all = await listSceneShellSnapshots(db);
+    const expiredKeys = all
+      .filter((item) => now - Number(item?.savedAtMs || 0) > SCENE_SHELL_MAX_AGE_MS)
+      .map((item) => item.key);
+    if (expiredKeys.length > 0) {
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readwrite");
+          const store = tx.objectStore(SCENE_SHELL_STORE);
+          for (const key of expiredKeys) {
+            store.delete(key);
+            pruned += 1;
+          }
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+    }
+    let remaining = await listSceneShellSnapshots(db);
+    if (remaining.length > SCENE_SHELL_MAX_ENTRIES) {
+      remaining = remaining.sort(
+        (a, b) => Number(a?.savedAtMs || 0) - Number(b?.savedAtMs || 0),
+      );
+      const excess = remaining.length - SCENE_SHELL_MAX_ENTRIES;
+      const deleteKeys = remaining.slice(0, excess).map((item) => item.key);
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readwrite");
+          const store = tx.objectStore(SCENE_SHELL_STORE);
+          for (const key of deleteKeys) {
+            store.delete(key);
+            pruned += 1;
+          }
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+      remaining = await listSceneShellSnapshots(db);
+    }
+    let totalBytesEstimate = 0;
+    for (const item of remaining) {
+      totalBytesEstimate += estimateSnapshotBytes(item);
+    }
+    return { pruned, totalBytesEstimate, entries: remaining.length };
+  }
+
+  function pruneSceneShellSessionStorage() {
+    let pruned = 0;
+    const entries = [];
+    try {
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i);
+        if (!key || !key.startsWith(SCENE_SHELL_LS_PREFIX)) continue;
+        const raw = sessionStorage.getItem(key);
+        let savedAtMs = 0;
+        try {
+          const parsed = JSON.parse(raw || "{}");
+          savedAtMs = Number(parsed?.savedAtMs || 0);
+        } catch (_) {
+          savedAtMs = 0;
+        }
+        entries.push({ key, savedAtMs });
+      }
+    } catch (_) {
+      return { pruned: 0, totalBytesEstimate: 0, entries: 0 };
+    }
+    const now = Date.now();
+    for (const entry of entries) {
+      if (now - entry.savedAtMs > SCENE_SHELL_MAX_AGE_MS) {
+        try {
+          sessionStorage.removeItem(entry.key);
+          pruned += 1;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+    const survivors = entries
+      .filter((entry) => now - entry.savedAtMs <= SCENE_SHELL_MAX_AGE_MS)
+      .sort((a, b) => a.savedAtMs - b.savedAtMs);
+    if (survivors.length > SCENE_SHELL_MAX_ENTRIES) {
+      const excess = survivors.length - SCENE_SHELL_MAX_ENTRIES;
+      for (let i = 0; i < excess; i += 1) {
+        try {
+          sessionStorage.removeItem(survivors[i].key);
+          pruned += 1;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+    let totalBytesEstimate = 0;
+    let entryCount = 0;
+    try {
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i);
+        if (!key || !key.startsWith(SCENE_SHELL_LS_PREFIX)) continue;
+        entryCount += 1;
+        totalBytesEstimate += String(sessionStorage.getItem(key) || "").length;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    if (pruned > 0) {
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_pruned", {
+        pruned,
+        entries: entryCount,
+        totalBytesEstimate,
+      });
+    }
+    return { pruned, totalBytesEstimate, entries: entryCount };
+  }
+
   async function persistSceneShellSnapshot(snapshot) {
     if (!snapshot || !snapshot.key) return false;
     const db = await openSceneShellDb();
@@ -25010,6 +27131,11 @@
         } catch (_) {
           resolve(false);
         }
+      });
+      const pruneStats = await pruneSceneShellDb(db);
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_persist", {
+        key: snapshot.key,
+        ...pruneStats,
       });
       try {
         db.close();
@@ -25027,6 +27153,11 @@
         shellHtml: snapshot.shellHtml,
       };
       sessionStorage.setItem(`${SCENE_SHELL_LS_PREFIX}${snapshot.key}`, JSON.stringify(compact));
+      const pruneStats = pruneSceneShellSessionStorage();
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_persist", {
+        key: snapshot.key,
+        ...pruneStats,
+      });
       return true;
     } catch (_) {
       return false;
@@ -25126,6 +27257,9 @@
   boot.tryRestoreSceneShellFromCache = tryRestoreSceneShellFromCache;
   boot.buildDocFromSceneShellSnapshot = buildDocFromSceneShellSnapshot;
   boot.saveCurrentSceneShellSnapshot = saveCurrentSceneShellSnapshot;
+  boot.pruneSceneShellSessionStorage = pruneSceneShellSessionStorage;
+  boot.SCENE_SHELL_MAX_ENTRIES = SCENE_SHELL_MAX_ENTRIES;
+  boot.SCENE_SHELL_MAX_AGE_MS = SCENE_SHELL_MAX_AGE_MS;
 
 
 /* ===== spa-navigation/spa/scene-bootstrap-loader.js ===== */
