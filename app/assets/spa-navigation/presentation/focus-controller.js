@@ -195,15 +195,20 @@
     }
     const root = typeof globalThis !== "undefined" ? globalThis : window;
     boot.lastWorldPresentationAction = worldTarget;
+    const runtime = boot.worldStageRuntime;
+    let applied = false;
+    if (runtime && typeof runtime.applyWorldTarget === "function") {
+      applied = Boolean(runtime.applyWorldTarget(worldTarget));
+    }
     root.dispatchEvent(
       new CustomEvent("mei:presentation-world-action", {
         detail: worldTarget,
       }),
     );
     if (typeof console !== "undefined" && typeof console.info === "function") {
-      console.info("[mei] presentation world action", worldTarget);
+      console.info("[mei] presentation world action", worldTarget, { applied });
     }
-    return true;
+    return applied || true;
   }
 
   function clearViewpointFocus() {

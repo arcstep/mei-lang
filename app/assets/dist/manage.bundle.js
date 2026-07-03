@@ -18325,15 +18325,20 @@
     }
     const root = typeof globalThis !== "undefined" ? globalThis : window;
     boot.lastWorldPresentationAction = worldTarget;
+    const runtime = boot.worldStageRuntime;
+    let applied = false;
+    if (runtime && typeof runtime.applyWorldTarget === "function") {
+      applied = Boolean(runtime.applyWorldTarget(worldTarget));
+    }
     root.dispatchEvent(
       new CustomEvent("mei:presentation-world-action", {
         detail: worldTarget,
       }),
     );
     if (typeof console !== "undefined" && typeof console.info === "function") {
-      console.info("[mei] presentation world action", worldTarget);
+      console.info("[mei] presentation world action", worldTarget, { applied });
     }
-    return true;
+    return applied || true;
   }
 
   function clearViewpointFocus() {
@@ -18633,8 +18638,12 @@
   function loadManifest(manifest, options = {}) {
     const steps = normalizeSteps(manifest);
     if (!steps.length) return false;
+    const source = String(options.source || "").trim() || state.manifestSource || "session";
+    if (source === EPHEMERAL_SOURCE) {
+      clearStoredManifest();
+    }
     state.manifest = manifest;
-    state.manifestSource = String(options.source || "").trim() || state.manifestSource || "session";
+    state.manifestSource = source;
     state.steps = steps;
     injectManifestScript(manifest);
     persistManifest(manifest, { source: state.manifestSource });
@@ -18852,7 +18861,15 @@
     return mountSlideLayer(layer);
   }
 
+  function slideEmbedRuntime() {
+    return boot.presentationSlideEmbedRuntime || null;
+  }
+
   function hideSlideLayer() {
+    const embedRuntime = slideEmbedRuntime();
+    if (embedRuntime && typeof embedRuntime.unmountAll === "function") {
+      embedRuntime.unmountAll();
+    }
     const layer = document.getElementById(SLIDE_LAYER_ID);
     if (!layer) return;
     layer.setAttribute("hidden", "hidden");
@@ -18876,6 +18893,10 @@
       layer.classList.add("mei-copilot-slide-layer--overlay");
     } else {
       layer.classList.remove("mei-copilot-slide-layer--overlay");
+    }
+    const embedRuntime = slideEmbedRuntime();
+    if (embedRuntime && typeof embedRuntime.mountSlideEmbeds === "function") {
+      void embedRuntime.mountSlideEmbeds(layer, step);
     }
   }
 
@@ -19515,6 +19536,12 @@
         title: "显示/隐藏字幕气泡",
       }) +
       toolbarGlyphButton({
+        dataset: { key: "copilot-script-panel" },
+        glyph: "编",
+        label: "讲稿编辑",
+        title: "粘贴/运行/替换临时 MDX",
+      }) +
+      toolbarGlyphButton({
         dataset: { key: "copilot-script" },
         glyph: "稿",
         label: "演说稿",
@@ -19529,8 +19556,7 @@
         dataset: { key: "copilot-tts" },
         glyph: "音",
         label: "语音播报",
-        title: "语音播报即将支持",
-        disabled: true,
+        title: "朗读当前步 caption / speaker notes",
       }) +
       toolbarGlyphButton({
         dataset: { key: "copilot-exit" },
@@ -19560,6 +19586,14 @@
       if (ok) run(eng);
       return ok;
     });
+  }
+
+  function ttsApi() {
+    return boot.presentationTts || null;
+  }
+
+  function scriptPanel() {
+    return boot.presentationScriptPanel || null;
   }
 
   function onToolbarClick(event) {
@@ -19603,6 +19637,15 @@
       renderCaption();
       return;
     }
+    if (target.dataset.copilotScriptPanel === "true") {
+      const panel = scriptPanel();
+      if (panel && typeof panel.togglePanel === "function") {
+        panel.togglePanel();
+        uiState.toolbarOpen = true;
+        renderToolbar();
+      }
+      return;
+    }
     if (target.dataset.copilotScript === "true") {
       uiState.drawerOpen = !uiState.drawerOpen;
       renderDrawer();
@@ -19612,6 +19655,25 @@
       uiState.selectMode = !uiState.selectMode;
       document.body.classList.toggle("mei-presenter-select-mode", uiState.selectMode);
       target.classList.toggle("is-active", uiState.selectMode);
+      return;
+    }
+    if (target.dataset.copilotTts === "true") {
+      const tts = ttsApi();
+      const step = eng ? eng.currentStep() : null;
+      if (!tts || typeof tts.isSupported !== "function" || !tts.isSupported()) {
+        target.classList.remove("is-active");
+        return;
+      }
+      if (tts.state?.speaking) {
+        tts.stopSpeech();
+        target.classList.remove("is-active");
+        return;
+      }
+      const enabled = typeof tts.toggleEnabled === "function" ? tts.toggleEnabled() : false;
+      target.classList.toggle("is-active", enabled);
+      if (enabled && step && typeof tts.speakStep === "function") {
+        tts.speakStep(step, { force: true });
+      }
       return;
     }
     if (target.dataset.copilotAi === "true") {
@@ -19665,6 +19727,13 @@
       const sessionTitle = sessionButtonTitle(eng);
       sessionBtn.setAttribute("title", sessionTitle);
       sessionBtn.setAttribute("aria-label", sessionTitle);
+    }
+    const ttsBtn = toolbar.querySelector("[data-copilot-tts]");
+    if (ttsBtn) {
+      const tts = ttsApi();
+      const supported = Boolean(tts && typeof tts.isSupported === "function" && tts.isSupported());
+      ttsBtn.disabled = !supported;
+      ttsBtn.classList.toggle("is-active", Boolean(tts?.state?.enabled || tts?.state?.speaking));
     }
     toolbar.dataset.progress =
       eng && eng.steps.length ? `${eng.stepIndex + 1} / ${eng.steps.length}` : "";
@@ -19769,8 +19838,12 @@
     mount,
     renderAll,
     syncLayout: scheduleFabLayout,
-    onStepApplied() {
+    onStepApplied(step) {
       ensureCopilotInViewport();
+      const tts = ttsApi();
+      if (tts && tts.state?.enabled && tts.state?.autoSpeak && typeof tts.speakStep === "function") {
+        tts.speakStep(step, { force: true });
+      }
       renderAll();
       scheduleFabLayout();
     },
@@ -19848,12 +19921,26 @@
     return result;
   }
 
+  function publishCompileResult(result, error) {
+    const panel = boot.presentationScriptPanel;
+    if (panel && typeof panel.setCompileResult === "function") {
+      panel.setCompileResult(result, error);
+    }
+  }
+
   async function compileAndRunPresentation(source, options = {}) {
     const eng = engine();
     if (!eng || typeof eng.runManifest !== "function") {
       throw new Error("presentation step engine is not ready");
     }
-    const result = await compileEphemeralPresentation(source, options);
+    let result;
+    try {
+      result = await compileEphemeralPresentation(source, options);
+      publishCompileResult(result);
+    } catch (error) {
+      publishCompileResult(error?.payload || null, error);
+      throw error;
+    }
     const toolbar = boot.copilotToolbar;
     if (toolbar && typeof toolbar.mount === "function") {
       toolbar.mount({ autoStart: false, apply: false, toolbarOpen: true });
@@ -19867,6 +19954,53 @@
       toolbar.renderAll();
     }
     return result;
+  }
+
+  async function replacePresentation(source, options = {}) {
+    const eng = engine();
+    if (!eng || typeof eng.replaceManifest !== "function") {
+      throw new Error("presentation step engine is not ready");
+    }
+    let result;
+    try {
+      result = await compileEphemeralPresentation(source, options);
+      publishCompileResult(result);
+    } catch (error) {
+      publishCompileResult(error?.payload || null, error);
+      throw error;
+    }
+    const toolbar = boot.copilotToolbar;
+    if (toolbar && typeof toolbar.mount === "function") {
+      toolbar.mount({ autoStart: false, apply: false, toolbarOpen: true });
+    }
+    eng.replaceManifest(result.manifest, { source: "ephemeral" });
+    if (options.apply !== false) {
+      eng.start({
+        apply: true,
+        stepIndex: Number.isFinite(Number(options.stepIndex)) ? Number(options.stepIndex) : 0,
+      });
+    }
+    if (toolbar && typeof toolbar.renderAll === "function") {
+      toolbar.renderAll();
+    }
+    return result;
+  }
+
+  function clearEphemeralPresentation() {
+    const eng = engine();
+    if (!eng || typeof eng.clearEphemeralManifest !== "function") {
+      return false;
+    }
+    const cleared = eng.clearEphemeralManifest();
+    if (typeof eng.stop === "function") {
+      eng.stop();
+    }
+    publishCompileResult(null);
+    const toolbar = boot.copilotToolbar;
+    if (toolbar && typeof toolbar.renderAll === "function") {
+      toolbar.renderAll();
+    }
+    return cleared;
   }
 
   function isCopilotRoute() {
@@ -19904,6 +20038,8 @@
       replaceManifest: (manifest, options) => eng.replaceManifest(manifest, options),
       clearEphemeralManifest: () => eng.clearEphemeralManifest(),
       compileAndRunPresentation: (source, options) => compileAndRunPresentation(source, options),
+      replacePresentation: (source, options) => replacePresentation(source, options),
+      clearEphemeralPresentation: () => clearEphemeralPresentation(),
       next: () => eng.next(),
       prev: () => eng.prev(),
       stepIndex: () => eng.stepIndex,
@@ -19919,6 +20055,9 @@
     window.MeiCopilot = api;
     window.MeiSpeaker = api;
     boot.compileAndRunPresentation = compileAndRunPresentation;
+    boot.compileEphemeralPresentation = compileEphemeralPresentation;
+    boot.replacePresentation = replacePresentation;
+    boot.clearEphemeralPresentation = clearEphemeralPresentation;
     boot.startCopilot = (options) => {
       const toolbar = boot.copilotToolbar;
       if (toolbar && typeof toolbar.mount === "function") {

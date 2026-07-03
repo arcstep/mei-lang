@@ -1,0 +1,39 @@
+---
+presentation: ephemeral-smoke
+title: Ephemeral Smoke
+default_layout: stack
+---
+
+## 冒烟步 {#smoke_slide}
+@composition(slides_only)
+@caption
+临时 MDX 冒烟：slides_only。
+@end
+@speaker_notes
+用于 compile API 与步进引擎端到端验证。
+@end
+@layout(stack)
+@slot(body)
+# Ephemeral Smoke
+
+验证 compile → run → replace → clear 主链。
+@end
+
+## 驾驶舱步 {#smoke_cockpit}
+@composition(cockpit_only)
+@caption
+cockpit_only 步用于动作链验证。
+@end
+@highlight(demo_entry)
+
+## 叠加步 {#smoke_overlay}
+@composition(slides_over_cockpit)
+@caption
+slides_over_cockpit 叠加层验证。
+@end
+@layout(stack)
+@slot(body)
+# Overlay
+
+与 cockpit 背景共存。
+@end

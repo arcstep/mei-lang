@@ -8,7 +8,9 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Json, Response},
+    Extension,
 };
+use mei_host_auth::AuthPrincipal;
 use mei_lang_kernel::{
     catalog_scene_routes_from_app_root, compile_app_from_root, resolve_app_root, PanelDecl,
     UiNodeDecl,
@@ -17,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::state::SharedState;
+
+const MAX_PRESENTATION_SOURCE_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Deserialize)]
 pub struct PresentationCompileRequest {
@@ -48,6 +52,8 @@ struct PresentationSurfaceIndex {
     viewpoints: BTreeMap<String, PresentationViewpointEntry>,
     pages: BTreeSet<String>,
     metrics: BTreeSet<String>,
+    charts: BTreeSet<String>,
+    images: BTreeSet<String>,
     world_stages: Vec<WorldStageContract>,
     diagnostics: Vec<PresentationCompileDiagnostic>,
     warnings: Vec<PresentationCompileDiagnostic>,
@@ -991,6 +997,36 @@ fn compile_manifest_via_node(
     Ok(manifest)
 }
 
+fn collect_asset_stems(app_root: &Path) -> BTreeSet<String> {
+    let assets_root = app_root.join("assets");
+    if !assets_root.is_dir() {
+        return BTreeSet::new();
+    }
+    let mut stems = BTreeSet::new();
+    let mut stack = vec![assets_root];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(dir.as_path()) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Some(file_name) = path.file_stem().and_then(|value| value.to_str()) else {
+                continue;
+            };
+            let stem = file_name.trim();
+            if !stem.is_empty() {
+                stems.insert(stem.to_string());
+            }
+        }
+    }
+    stems
+}
+
 fn build_surface_index(
     workspace_root: &Path,
     app_id: &str,
@@ -1022,6 +1058,8 @@ fn build_surface_index(
             }
         }
     }
+    surfaces.charts.extend(surfaces.metrics.iter().cloned());
+    surfaces.images = collect_asset_stems(app_root.as_path());
     if let Ok(Some(outcome)) =
         mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
     {
@@ -1069,17 +1107,6 @@ fn diagnostic(
     }
 }
 
-fn warn(code: &str, message: impl Into<String>) -> PresentationCompileDiagnostic {
-    PresentationCompileDiagnostic {
-        level: "warn".to_string(),
-        code: code.to_string(),
-        message: message.into(),
-        step_id: None,
-        ref_kind: None,
-        ref_id: None,
-    }
-}
-
 fn step_actions(step: &Map<String, Value>) -> Vec<Value> {
     if let Some(actions) = step.get("actions").and_then(Value::as_array) {
         return actions.to_vec();
@@ -1097,9 +1124,7 @@ fn validate_manifest_refs(
     surfaces: &PresentationSurfaceIndex,
 ) -> (Vec<PresentationCompileDiagnostic>, Vec<PresentationCompileDiagnostic>) {
     let mut diagnostics = surfaces.diagnostics.clone();
-    let mut warnings = surfaces.warnings.clone();
-    let mut warned_unvalidated_chart = false;
-    let mut warned_unvalidated_image = false;
+    let warnings = surfaces.warnings.clone();
     let Some(steps) = manifest.get("steps").and_then(Value::as_array) else {
         diagnostics.push(diagnostic(
             "manifest_steps_missing",
@@ -1224,19 +1249,27 @@ fn validate_manifest_refs(
                             ));
                         }
                     }
-                    "chart" if !warned_unvalidated_chart => {
-                        warned_unvalidated_chart = true;
-                        warnings.push(warn(
-                            "chart_validation_not_enabled",
-                            "当前临时 compile API 尚未对 chart 引用做严格存在性校验",
-                        ));
+                    "chart" => {
+                        if !surfaces.charts.contains(ref_id) && !surfaces.metrics.contains(ref_id) {
+                            diagnostics.push(diagnostic(
+                                "unknown_chart",
+                                format!("未知 chart `{ref_id}`"),
+                                step_id,
+                                Some("chart"),
+                                Some(ref_id),
+                            ));
+                        }
                     }
-                    "image" if !warned_unvalidated_image => {
-                        warned_unvalidated_image = true;
-                        warnings.push(warn(
-                            "image_validation_not_enabled",
-                            "当前临时 compile API 尚未对 image 引用做严格存在性校验",
-                        ));
+                    "image" => {
+                        if !surfaces.images.contains(ref_id) {
+                            diagnostics.push(diagnostic(
+                                "unknown_image",
+                                format!("未知 image `{ref_id}`"),
+                                step_id,
+                                Some("image"),
+                                Some(ref_id),
+                            ));
+                        }
                     }
                     _ => {}
                 }
@@ -1248,10 +1281,47 @@ fn validate_manifest_refs(
 
 pub async fn api_presentation_compile(
     State(state): State<SharedState>,
+    principal: Option<Extension<AuthPrincipal>>,
     Json(request): Json<PresentationCompileRequest>,
 ) -> Response {
     let app_id = request.app_id.trim();
     let source = request.source.trim();
+    if let Some(Extension(principal)) = principal.as_ref() {
+        if !principal.can_access_app(app_id) {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "manifest": Value::Null,
+                    "diagnostics": [{
+                        "level": "error",
+                        "code": "app_forbidden",
+                        "message": format!("当前账号无权访问 app `{app_id}`")
+                    }],
+                    "warnings": [],
+                })),
+            )
+                .into_response();
+        }
+    }
+    if source.len() > MAX_PRESENTATION_SOURCE_BYTES {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({
+                "manifest": Value::Null,
+                "diagnostics": [{
+                    "level": "error",
+                    "code": "source_too_large",
+                    "message": format!(
+                        "source 超过 {} 字节上限（收到 {} 字节）",
+                        MAX_PRESENTATION_SOURCE_BYTES,
+                        source.len()
+                    )
+                }],
+                "warnings": [],
+            })),
+        )
+            .into_response();
+    }
     if app_id.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -1352,6 +1422,12 @@ pub async fn api_presentation_compile(
     };
     let (diagnostics, warnings) = validate_manifest_refs(&manifest, &surfaces);
     if !diagnostics.is_empty() {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %scene_id,
+            diagnostic_count = diagnostics.len(),
+            "presentation compile rejected by manifest validation"
+        );
         return (
             StatusCode::UNPROCESSABLE_ENTITY,
             Json(json!({
@@ -1362,6 +1438,18 @@ pub async fn api_presentation_compile(
         )
             .into_response();
     }
+    let step_count = manifest
+        .get("steps")
+        .and_then(|value| value.as_array())
+        .map(|steps| steps.len())
+        .unwrap_or(0);
+    tracing::info!(
+        app_id = %app_id,
+        scene_id = %scene_id,
+        step_count,
+        warning_count = warnings.len(),
+        "presentation compile succeeded"
+    );
     Json(json!({
         "manifest": manifest,
         "diagnostics": diagnostics,
@@ -1373,6 +1461,48 @@ pub async fn api_presentation_compile(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validate_manifest_refs_reports_unknown_image_and_chart() {
+        let manifest = json!({
+            "id": "ephemeral",
+            "steps": [{
+                "id": "step_1",
+                "slide": {
+                    "slots": [{
+                        "name": "evidence",
+                        "embeds": [
+                            { "kind": "chart", "ref": "missing_chart" },
+                            { "kind": "image", "ref": "missing_image" }
+                        ]
+                    }]
+                }
+            }]
+        });
+        let surfaces = PresentationSurfaceIndex {
+            charts: BTreeSet::from(["known_chart".to_string()]),
+            images: BTreeSet::from(["known_image".to_string()]),
+            ..PresentationSurfaceIndex::default()
+        };
+        let (diagnostics, warnings) = validate_manifest_refs(&manifest, &surfaces);
+        assert!(warnings.is_empty());
+        let codes = diagnostics
+            .iter()
+            .map(|item| item.code.as_str())
+            .collect::<Vec<_>>();
+        assert!(codes.contains(&"unknown_chart"));
+        assert!(codes.contains(&"unknown_image"));
+    }
+
+    #[test]
+    fn collect_asset_stems_reads_nested_assets() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let assets = temp.path().join("assets").join("presentation");
+        std::fs::create_dir_all(&assets).expect("mkdir assets");
+        std::fs::write(assets.join("park-overview-board.svg"), "<svg></svg>").expect("write svg");
+        let stems = collect_asset_stems(temp.path());
+        assert!(stems.contains("park-overview-board"));
+    }
 
     #[test]
     fn validate_manifest_refs_reports_unknown_viewpoint_page_and_metric() {

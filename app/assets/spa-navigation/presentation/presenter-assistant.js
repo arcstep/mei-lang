@@ -44,12 +44,26 @@
     return result;
   }
 
+  function publishCompileResult(result, error) {
+    const panel = boot.presentationScriptPanel;
+    if (panel && typeof panel.setCompileResult === "function") {
+      panel.setCompileResult(result, error);
+    }
+  }
+
   async function compileAndRunPresentation(source, options = {}) {
     const eng = engine();
     if (!eng || typeof eng.runManifest !== "function") {
       throw new Error("presentation step engine is not ready");
     }
-    const result = await compileEphemeralPresentation(source, options);
+    let result;
+    try {
+      result = await compileEphemeralPresentation(source, options);
+      publishCompileResult(result);
+    } catch (error) {
+      publishCompileResult(error?.payload || null, error);
+      throw error;
+    }
     const toolbar = boot.copilotToolbar;
     if (toolbar && typeof toolbar.mount === "function") {
       toolbar.mount({ autoStart: false, apply: false, toolbarOpen: true });
@@ -63,6 +77,53 @@
       toolbar.renderAll();
     }
     return result;
+  }
+
+  async function replacePresentation(source, options = {}) {
+    const eng = engine();
+    if (!eng || typeof eng.replaceManifest !== "function") {
+      throw new Error("presentation step engine is not ready");
+    }
+    let result;
+    try {
+      result = await compileEphemeralPresentation(source, options);
+      publishCompileResult(result);
+    } catch (error) {
+      publishCompileResult(error?.payload || null, error);
+      throw error;
+    }
+    const toolbar = boot.copilotToolbar;
+    if (toolbar && typeof toolbar.mount === "function") {
+      toolbar.mount({ autoStart: false, apply: false, toolbarOpen: true });
+    }
+    eng.replaceManifest(result.manifest, { source: "ephemeral" });
+    if (options.apply !== false) {
+      eng.start({
+        apply: true,
+        stepIndex: Number.isFinite(Number(options.stepIndex)) ? Number(options.stepIndex) : 0,
+      });
+    }
+    if (toolbar && typeof toolbar.renderAll === "function") {
+      toolbar.renderAll();
+    }
+    return result;
+  }
+
+  function clearEphemeralPresentation() {
+    const eng = engine();
+    if (!eng || typeof eng.clearEphemeralManifest !== "function") {
+      return false;
+    }
+    const cleared = eng.clearEphemeralManifest();
+    if (typeof eng.stop === "function") {
+      eng.stop();
+    }
+    publishCompileResult(null);
+    const toolbar = boot.copilotToolbar;
+    if (toolbar && typeof toolbar.renderAll === "function") {
+      toolbar.renderAll();
+    }
+    return cleared;
   }
 
   function isCopilotRoute() {
@@ -100,6 +161,8 @@
       replaceManifest: (manifest, options) => eng.replaceManifest(manifest, options),
       clearEphemeralManifest: () => eng.clearEphemeralManifest(),
       compileAndRunPresentation: (source, options) => compileAndRunPresentation(source, options),
+      replacePresentation: (source, options) => replacePresentation(source, options),
+      clearEphemeralPresentation: () => clearEphemeralPresentation(),
       next: () => eng.next(),
       prev: () => eng.prev(),
       stepIndex: () => eng.stepIndex,
@@ -115,6 +178,9 @@
     window.MeiCopilot = api;
     window.MeiSpeaker = api;
     boot.compileAndRunPresentation = compileAndRunPresentation;
+    boot.compileEphemeralPresentation = compileEphemeralPresentation;
+    boot.replacePresentation = replacePresentation;
+    boot.clearEphemeralPresentation = clearEphemeralPresentation;
     boot.startCopilot = (options) => {
       const toolbar = boot.copilotToolbar;
       if (toolbar && typeof toolbar.mount === "function") {

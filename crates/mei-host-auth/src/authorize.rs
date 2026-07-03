@@ -254,6 +254,12 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
     if path.starts_with("/api/agent/") {
         return authorize_agent_path(path, &caps);
     }
+    if path == "/api/presentation/compile" {
+        if !caps.access_view {
+            anyhow::bail!("current role cannot access presentation compile api");
+        }
+        return Ok(());
+    }
     if path.starts_with("/workspace-components/") {
         if !caps.runtime_components {
             anyhow::bail!("current role cannot access component assets");

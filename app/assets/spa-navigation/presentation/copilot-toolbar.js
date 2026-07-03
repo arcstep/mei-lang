@@ -261,6 +261,12 @@
         title: "显示/隐藏字幕气泡",
       }) +
       toolbarGlyphButton({
+        dataset: { key: "copilot-script-panel" },
+        glyph: "编",
+        label: "讲稿编辑",
+        title: "粘贴/运行/替换临时 MDX",
+      }) +
+      toolbarGlyphButton({
         dataset: { key: "copilot-script" },
         glyph: "稿",
         label: "演说稿",
@@ -275,8 +281,7 @@
         dataset: { key: "copilot-tts" },
         glyph: "音",
         label: "语音播报",
-        title: "语音播报即将支持",
-        disabled: true,
+        title: "朗读当前步 caption / speaker notes",
       }) +
       toolbarGlyphButton({
         dataset: { key: "copilot-exit" },
@@ -306,6 +311,14 @@
       if (ok) run(eng);
       return ok;
     });
+  }
+
+  function ttsApi() {
+    return boot.presentationTts || null;
+  }
+
+  function scriptPanel() {
+    return boot.presentationScriptPanel || null;
   }
 
   function onToolbarClick(event) {
@@ -349,6 +362,15 @@
       renderCaption();
       return;
     }
+    if (target.dataset.copilotScriptPanel === "true") {
+      const panel = scriptPanel();
+      if (panel && typeof panel.togglePanel === "function") {
+        panel.togglePanel();
+        uiState.toolbarOpen = true;
+        renderToolbar();
+      }
+      return;
+    }
     if (target.dataset.copilotScript === "true") {
       uiState.drawerOpen = !uiState.drawerOpen;
       renderDrawer();
@@ -358,6 +380,25 @@
       uiState.selectMode = !uiState.selectMode;
       document.body.classList.toggle("mei-presenter-select-mode", uiState.selectMode);
       target.classList.toggle("is-active", uiState.selectMode);
+      return;
+    }
+    if (target.dataset.copilotTts === "true") {
+      const tts = ttsApi();
+      const step = eng ? eng.currentStep() : null;
+      if (!tts || typeof tts.isSupported !== "function" || !tts.isSupported()) {
+        target.classList.remove("is-active");
+        return;
+      }
+      if (tts.state?.speaking) {
+        tts.stopSpeech();
+        target.classList.remove("is-active");
+        return;
+      }
+      const enabled = typeof tts.toggleEnabled === "function" ? tts.toggleEnabled() : false;
+      target.classList.toggle("is-active", enabled);
+      if (enabled && step && typeof tts.speakStep === "function") {
+        tts.speakStep(step, { force: true });
+      }
       return;
     }
     if (target.dataset.copilotAi === "true") {
@@ -411,6 +452,13 @@
       const sessionTitle = sessionButtonTitle(eng);
       sessionBtn.setAttribute("title", sessionTitle);
       sessionBtn.setAttribute("aria-label", sessionTitle);
+    }
+    const ttsBtn = toolbar.querySelector("[data-copilot-tts]");
+    if (ttsBtn) {
+      const tts = ttsApi();
+      const supported = Boolean(tts && typeof tts.isSupported === "function" && tts.isSupported());
+      ttsBtn.disabled = !supported;
+      ttsBtn.classList.toggle("is-active", Boolean(tts?.state?.enabled || tts?.state?.speaking));
     }
     toolbar.dataset.progress =
       eng && eng.steps.length ? `${eng.stepIndex + 1} / ${eng.steps.length}` : "";
@@ -515,8 +563,12 @@
     mount,
     renderAll,
     syncLayout: scheduleFabLayout,
-    onStepApplied() {
+    onStepApplied(step) {
       ensureCopilotInViewport();
+      const tts = ttsApi();
+      if (tts && tts.state?.enabled && tts.state?.autoSpeak && typeof tts.speakStep === "function") {
+        tts.speakStep(step, { force: true });
+      }
       renderAll();
       scheduleFabLayout();
     },

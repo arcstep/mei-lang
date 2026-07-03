@@ -141,8 +141,12 @@
   function loadManifest(manifest, options = {}) {
     const steps = normalizeSteps(manifest);
     if (!steps.length) return false;
+    const source = String(options.source || "").trim() || state.manifestSource || "session";
+    if (source === EPHEMERAL_SOURCE) {
+      clearStoredManifest();
+    }
     state.manifest = manifest;
-    state.manifestSource = String(options.source || "").trim() || state.manifestSource || "session";
+    state.manifestSource = source;
     state.steps = steps;
     injectManifestScript(manifest);
     persistManifest(manifest, { source: state.manifestSource });
@@ -360,7 +364,15 @@
     return mountSlideLayer(layer);
   }
 
+  function slideEmbedRuntime() {
+    return boot.presentationSlideEmbedRuntime || null;
+  }
+
   function hideSlideLayer() {
+    const embedRuntime = slideEmbedRuntime();
+    if (embedRuntime && typeof embedRuntime.unmountAll === "function") {
+      embedRuntime.unmountAll();
+    }
     const layer = document.getElementById(SLIDE_LAYER_ID);
     if (!layer) return;
     layer.setAttribute("hidden", "hidden");
@@ -384,6 +396,10 @@
       layer.classList.add("mei-copilot-slide-layer--overlay");
     } else {
       layer.classList.remove("mei-copilot-slide-layer--overlay");
+    }
+    const embedRuntime = slideEmbedRuntime();
+    if (embedRuntime && typeof embedRuntime.mountSlideEmbeds === "function") {
+      void embedRuntime.mountSlideEmbeds(layer, step);
     }
   }
 
