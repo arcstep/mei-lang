@@ -29,7 +29,11 @@ function ensureGlobalMapToolSync() {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
   if (boot._cockpitMapToolSyncBound) return;
   boot._cockpitMapToolSyncBound = true;
-  const syncAll = () => {
+  let syncAllFrame = 0;
+  const syncAllImpl = () => {
+    window.__meiBrowserRuntimeDiag?.recordLayout?.("cockpit_map_tools_sync", {
+      hosts: mapToolHosts.size,
+    });
     for (const host of mapToolHosts) {
       if (!host?.isConnected || !host._layout?.cockpitBleed) continue;
       try {
@@ -40,10 +44,17 @@ function ensureGlobalMapToolSync() {
       }
     }
   };
-  boot.syncCockpitMapToolsOverlays = syncAll;
-  window.addEventListener("meilang:viewport-stage-layout", syncAll);
-  window.addEventListener("meilang:viewport-stage-ready", syncAll);
-  document.addEventListener("mei:spa-navigation-complete", syncAll);
+  const scheduleSyncAll = () => {
+    if (syncAllFrame) return;
+    syncAllFrame = requestAnimationFrame(() => {
+      syncAllFrame = 0;
+      syncAllImpl();
+    });
+  };
+  boot.syncCockpitMapToolsOverlays = scheduleSyncAll;
+  window.addEventListener("meilang:viewport-stage-layout", scheduleSyncAll);
+  window.addEventListener("meilang:viewport-stage-ready", scheduleSyncAll);
+  document.addEventListener("mei:spa-navigation-complete", scheduleSyncAll);
 }
 
 export function trackCockpitMapToolHost(host) {
@@ -381,16 +392,30 @@ export function bindCockpitStageLayoutSync(host, callback) {
       }
     };
     entry.onLayout = onLayout;
-    window.addEventListener("resize", onLayout, { passive: true });
-    window.addEventListener("meilang:preview-updated", onLayout);
-    window.addEventListener("meilang:viewport-stage-layout", onLayout);
-    window.addEventListener("meilang:viewport-stage-ready", onLayout);
+    const runLayoutWithDiag = () => {
+      window.__meiBrowserRuntimeDiag?.recordLayout?.("cockpit_stage_layout_sync", {
+        callbacks: entry.callbacks.size,
+      });
+      onLayout();
+    };
+    const scheduleLayoutWithDiag = () => {
+      if (entry.layoutFrame) return;
+      entry.layoutFrame = requestAnimationFrame(() => {
+        entry.layoutFrame = 0;
+        runLayoutWithDiag();
+      });
+    };
+    entry.onLayoutWithDiag = scheduleLayoutWithDiag;
+    window.addEventListener("resize", scheduleLayoutWithDiag, { passive: true });
+    window.addEventListener("meilang:preview-updated", scheduleLayoutWithDiag);
+    window.addEventListener("meilang:viewport-stage-layout", scheduleLayoutWithDiag);
+    window.addEventListener("meilang:viewport-stage-ready", scheduleLayoutWithDiag);
     if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", onLayout);
+      window.visualViewport.addEventListener("resize", scheduleLayoutWithDiag);
     }
     const stage = resolveCockpitStageSurface(host);
     if (stage && typeof ResizeObserver !== "undefined") {
-      entry.ro = new ResizeObserver(onLayout);
+      entry.ro = new ResizeObserver(scheduleLayoutWithDiag);
       entry.ro.observe(stage);
       const shell = stage.parentElement;
       if (shell instanceof HTMLElement) {
@@ -400,13 +425,18 @@ export function bindCockpitStageLayoutSync(host, callback) {
   }
   return () => {
     entry.callbacks.delete(callback);
-    if (entry.callbacks.size === 0 && entry.bound) {
-      window.removeEventListener("resize", entry.onLayout);
-      window.removeEventListener("meilang:preview-updated", entry.onLayout);
-      window.removeEventListener("meilang:viewport-stage-layout", entry.onLayout);
-      window.removeEventListener("meilang:viewport-stage-ready", entry.onLayout);
+      if (entry.callbacks.size === 0 && entry.bound) {
+      const layoutHandler = entry.onLayoutWithDiag || entry.onLayout;
+      if (entry.layoutFrame) {
+        cancelAnimationFrame(entry.layoutFrame);
+        entry.layoutFrame = 0;
+      }
+      window.removeEventListener("resize", layoutHandler);
+      window.removeEventListener("meilang:preview-updated", layoutHandler);
+      window.removeEventListener("meilang:viewport-stage-layout", layoutHandler);
+      window.removeEventListener("meilang:viewport-stage-ready", layoutHandler);
       if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", entry.onLayout);
+        window.visualViewport.removeEventListener("resize", layoutHandler);
       }
       entry.ro?.disconnect();
       layoutSyncEntries.delete(host);

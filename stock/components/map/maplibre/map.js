@@ -59,6 +59,19 @@ const MAP_RUNTIME_INSTANCES = new Set();
 const DRONE_DISTANCE_THRESHOLD_M = 400;
 const DRONE_ZOOM_DELTA_THRESHOLD = 2;
 
+function runtimeDiag() {
+  return typeof window !== "undefined" ? window.__meiBrowserRuntimeDiag : null;
+}
+
+function recordMapRuntimeDiag(phase, detail = {}) {
+  const diag = runtimeDiag();
+  if (!diag) return;
+  diag.recordMap(phase, {
+    instances: MAP_RUNTIME_INSTANCES.size,
+    ...detail,
+  });
+}
+
 function haversineMeters(lng1, lat1, lng2, lat2) {
   const toRad = (deg) => (deg * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
@@ -92,14 +105,25 @@ const LAYER_TOGGLE_ICON_HTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill
 
 function installMapRuntimeHooks() {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
-  boot.syncCockpitMapToolsOverlays = () => {
-    MAP_RUNTIME_INSTANCES.forEach((instance) => {
-      if (typeof instance.scheduleLayerControlLayout === "function") {
-        instance.scheduleLayerControlLayout();
-      }
-    });
-  };
+  if (typeof boot.syncCockpitMapToolsOverlays !== "function") {
+    boot.syncCockpitMapToolsOverlays = () => {
+      MAP_RUNTIME_INSTANCES.forEach((instance) => {
+        if (typeof instance.scheduleLayerControlLayout === "function") {
+          instance.scheduleLayerControlLayout();
+        }
+      });
+    };
+  }
   boot.worldMapInstances = MAP_RUNTIME_INSTANCES;
+}
+
+function isWorldStageLifecycleBusy() {
+  const boot = window.__meiLangBoot || {};
+  return (
+    document.documentElement.classList.contains("mei-world-stage-active") ||
+    document.documentElement.classList.contains("mei-world-stage-transitioning") ||
+    boot.worldStageTransition?.transitionInFlight === true
+  );
 }
 
 function basemapTileJsonUrl(basemap) {
@@ -180,6 +204,7 @@ if (!customElements.get(TAG)) {
         this._onWorldStageExited = () => {
           this.resumeMapForWorldStage();
           this.restoreWorldEnterPopup();
+          window.__meiLangBoot?.syncCockpitMapToolsOverlays?.();
         };
         window.addEventListener("mei:world-stage-exited", this._onWorldStageExited);
       }
@@ -187,7 +212,7 @@ if (!customElements.get(TAG)) {
         this._onWorldStageEntered = () => {
           this.clearPopup();
           this.pauseMapForWorldStage();
-          this.syncCockpitMapToolsLayer();
+          window.__meiLangBoot?.syncCockpitMapToolsOverlays?.();
         };
         window.addEventListener("mei:world-stage-entered", this._onWorldStageEntered);
       }
@@ -212,6 +237,10 @@ if (!customElements.get(TAG)) {
       if (this._layerControlLayoutFrame) {
         cancelAnimationFrame(this._layerControlLayoutFrame);
         this._layerControlLayoutFrame = null;
+      }
+      if (this._resizeFrame) {
+        cancelAnimationFrame(this._resizeFrame);
+        this._resizeFrame = null;
       }
       this._resizeObserver?.disconnect();
       this._resizeObserver = null;
@@ -289,6 +318,10 @@ if (!customElements.get(TAG)) {
       this._onPageShow = () => this.scheduleRefresh();
       this._onPreviewUpdated = (event) => {
         if (!shouldReactToPreviewUpdated(event, this)) {
+          return;
+        }
+        if (isWorldStageLifecycleBusy() && this.map) {
+          this.scheduleRefresh();
           return;
         }
         this.refresh();
@@ -589,17 +622,52 @@ if (!customElements.get(TAG)) {
       try {
         const domProps = parseProps(this);
         const signature = stablePropsSignature(domProps);
-        const needsFullRender =
-          this._forceRenderPending ||
-          !this.map ||
-          this._propsSignature !== signature;
+        const contentSig = stableMapContentSignature(domProps, this);
+        const contentUnchanged =
+          Boolean(this.map) &&
+          this._mapContentSignature != null &&
+          contentSig === this._mapContentSignature;
+        let fullRenderReason = "signature_change";
+        if (this._forceRenderPending) {
+          fullRenderReason = "force";
+        } else if (!this.map) {
+          fullRenderReason = "no_map";
+        } else if (contentUnchanged) {
+          fullRenderReason = "content_unchanged";
+        }
+        let needsFullRender =
+          this._forceRenderPending || !this.map || !contentUnchanged;
+        if (!needsFullRender && this._propsSignature !== signature) {
+          this._propsSignature = signature;
+          const props = this.effectiveProps();
+          const { basemap, layers } = normalizeMapSpec(props, this);
+          const layout = resolveMapLayout(props, basemap);
+          this._layout = layout;
+          this.applyViewportChrome(layout);
+          this.renderLayerControl(layers, props);
+          this.applyMapViewportPadding(layout);
+          if (!isWorldStageLifecycleBusy() || !this._mapPausedForWorldStage) {
+            this.map?.resize();
+          }
+          if (mapLayersNeedRuntimeMetrics(layers, domProps)) {
+            void this.refreshLayerMetrics();
+          }
+          this.scheduleLayerControlLayout();
+          return;
+        }
         this._forceRenderPending = false;
         if (needsFullRender) {
           this._propsSignature = signature;
+          const { basemap, layers } = normalizeMapSpec(domProps, this);
+          this._mapContentSignature = contentSig;
+          recordMapRuntimeDiag("full_render", {
+            hadMap: Boolean(this.map),
+            signatureBytes: signature.length,
+            reason: fullRenderReason,
+          });
           this._runtimeLayerProps = null;
           this._syncLayersTask = null;
           this._layerMetricsTask = null;
-          const { basemap, layers } = normalizeMapSpec(domProps, this);
           const layout = resolveMapLayout(domProps, basemap);
           this._layout = layout;
           this.applyViewportChrome(layout);
@@ -670,6 +738,10 @@ if (!customElements.get(TAG)) {
     async renderMap(props, basemap, layers, layout) {
       const renderToken = (this._renderToken || 0) + 1;
       this._renderToken = renderToken;
+      recordMapRuntimeDiag("render_start", {
+        renderToken,
+        tilejson: basemapTileJsonUrl(basemap),
+      });
       try {
         this._renderTrace?.mark("maplibre_load_start");
         await ensureMapLibre();
@@ -772,6 +844,11 @@ if (!customElements.get(TAG)) {
           }
           const message = basemapUnavailableMessage(basemap, event?.error);
           this.errorEl.textContent = message;
+          recordMapRuntimeDiag("runtime_error", {
+            message: String(event?.error?.message || event?.error || "map error"),
+            tilejson_url: basemapTileJsonUrl(basemap),
+            phase: "style_or_tile_load",
+          });
           this._renderTrace?.mark("map_error", {
             message: String(event?.error?.message || event?.error || "map error"),
             tilejson_url: basemapTileJsonUrl(basemap),
@@ -1822,8 +1899,21 @@ if (!customElements.get(TAG)) {
       this._resizeObserver = null;
       if (!fill || !this.mapContainer) return;
       this._resizeObserver = new ResizeObserver(() => {
-        if (this.map) this.map.resize();
-        this.scheduleLayerControlLayout();
+        if (this._mapPausedForWorldStage || isWorldStageLifecycleBusy()) {
+          return;
+        }
+        if (this._resizeFrame) return;
+        this._resizeFrame = requestAnimationFrame(() => {
+          this._resizeFrame = null;
+          if (this._mapPausedForWorldStage || isWorldStageLifecycleBusy()) {
+            return;
+          }
+          runtimeDiag()?.recordLayout?.("map_resize_observer", {
+            instances: MAP_RUNTIME_INSTANCES.size,
+          });
+          if (this.map) this.map.resize();
+          this.scheduleLayerControlLayout();
+        });
       });
       this._resizeObserver.observe(this.mapContainer);
       const wrap = this.shadowRoot?.querySelector(".map-wrap");
@@ -1858,6 +1948,32 @@ if (!customElements.get(TAG)) {
 function stablePropsSignature(props) {
   try {
     return JSON.stringify(props || {});
+  } catch (_) {
+    return "";
+  }
+}
+
+function stableMapContentSignature(props, host) {
+  try {
+    const { basemap, layers } = normalizeMapSpec(props, host);
+    return JSON.stringify({
+      basemap: {
+        tilesUrl: basemap?.tilesUrl,
+        tilesJsonPath: basemap?.tilesJsonPath,
+        center: basemap?.center,
+        defaultZoom: basemap?.defaultZoom ?? basemap?.zoom,
+        minZoom: basemap?.minZoom,
+        maxZoom: basemap?.maxZoom,
+        bearing: basemap?.bearing,
+        pitch: basemap?.pitch,
+      },
+      layers: (layers || []).map((layer) => ({
+        id: layer?.id,
+        type: layer?.type,
+        source: layer?.source,
+        visible: layer?.visible,
+      })),
+    });
   } catch (_) {
     return "";
   }

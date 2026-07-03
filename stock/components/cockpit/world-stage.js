@@ -13,6 +13,13 @@ import { createWorldPropScreenMesh } from "./world-prop-screen.js";
 const TAG = "mei-world-stage";
 const WORLD_RUNTIME_INSTANCES = new Set();
 const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+
+function isWorldStageActive() {
+  return (
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("mei-world-stage-active")
+  );
+}
 const ORBIT_MIN_DISTANCE = 5;
 const ORBIT_MAX_DISTANCE = 96;
 const ORBIT_MIN_POLAR_DEG = 18;
@@ -191,6 +198,8 @@ class MeiWorldStage extends HTMLElement {
     this._pendingWorldTarget = null;
     this._propsSignature = "";
     this._animationFrame = 0;
+    this._renderingActive = false;
+    this._bootstrapPromise = null;
     this._siteOrigin = { lng: 106.38224, lat: 29.62396 };
     this._resizeObserver = null;
     this._inputSurface = null;
@@ -201,15 +210,28 @@ class MeiWorldStage extends HTMLElement {
   }
 
   connectedCallback() {
-    this.refreshFromProps({ forceRender: true });
     WORLD_RUNTIME_INSTANCES.add(this);
     boot.activeWorldStage = this;
+    this.props = parseProps(this);
+    this._propsSignature = String(this.getAttribute("data-props") || "");
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+    }
+    this.renderChrome();
     if (!this._onWorldStageEntered) {
-      this._onWorldStageEntered = () => this.activateInteractionSurface();
+      this._onWorldStageEntered = () => {
+        void this.ensureSceneBootstrapped().then(() => {
+          this.activateInteractionSurface();
+          this.resumeRendering();
+        });
+      };
       window.addEventListener("mei:world-stage-entered", this._onWorldStageEntered);
     }
     if (!this._onWorldStageExited) {
-      this._onWorldStageExited = () => this.deactivateInteractionSurface();
+      this._onWorldStageExited = () => {
+        this.deactivateInteractionSurface();
+        this.disposeScene();
+      };
       window.addEventListener("mei:world-stage-exited", this._onWorldStageExited);
     }
     if (!this._onViewportStageLayout) {
@@ -217,11 +239,14 @@ class MeiWorldStage extends HTMLElement {
       window.addEventListener("meilang:viewport-stage-layout", this._onViewportStageLayout);
       window.addEventListener("resize", this._onViewportStageLayout, { passive: true });
     }
-    if (document.documentElement.classList.contains("mei-world-stage-active")) {
-      this.activateInteractionSurface();
+    if (isWorldStageActive()) {
+      void this.ensureSceneBootstrapped().then(() => {
+        this.activateInteractionSurface();
+        this.resumeRendering();
+      });
     }
     if (!this._onPreviewUpdated) {
-      this._onPreviewUpdated = () => this.refreshFromProps({ forceRender: true });
+      this._onPreviewUpdated = () => this.refreshFromProps();
       window.addEventListener("meilang:preview-updated", this._onPreviewUpdated);
     }
   }
@@ -255,19 +280,61 @@ class MeiWorldStage extends HTMLElement {
   refreshFromProps(options = {}) {
     this.props = parseProps(this);
     const nextSignature = String(this.getAttribute("data-props") || "");
-    const shouldRender = options.forceRender === true || nextSignature !== this._propsSignature;
+    const propsChanged = nextSignature !== this._propsSignature;
     this._propsSignature = nextSignature;
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
+      this.renderChrome();
     }
-    if (shouldRender) {
-      void this.bootstrapScene();
-    } else if (this._pendingWorldTarget) {
-      this.applyWorldTarget(this._pendingWorldTarget);
+    if (!propsChanged && options.forceRender !== true) {
+      if (this._pendingWorldTarget && this._renderer) {
+        this.applyWorldTarget(this._pendingWorldTarget);
+      }
+      return;
+    }
+    if (!this._renderer) {
+      if (isWorldStageActive()) {
+        void this.ensureSceneBootstrapped();
+      }
+      return;
+    }
+    void this.bootstrapScene();
+  }
+
+  ensureSceneBootstrapped() {
+    if (this._renderer) {
+      return Promise.resolve();
+    }
+    if (this._bootstrapPromise) {
+      return this._bootstrapPromise;
+    }
+    this._bootstrapPromise = this.bootstrapScene().finally(() => {
+      this._bootstrapPromise = null;
+    });
+    return this._bootstrapPromise;
+  }
+
+  pauseRendering() {
+    this._renderingActive = false;
+    if (this._animationFrame) {
+      cancelAnimationFrame(this._animationFrame);
+      this._animationFrame = 0;
     }
   }
 
+  resumeRendering() {
+    if (!this._renderer || !isWorldStageActive()) {
+      return;
+    }
+    if (this._renderingActive) {
+      return;
+    }
+    this._renderingActive = true;
+    this.animate();
+  }
+
   disposeScene() {
+    this._renderingActive = false;
     if (this._animationFrame) {
       cancelAnimationFrame(this._animationFrame);
       this._animationFrame = 0;
@@ -286,16 +353,44 @@ class MeiWorldStage extends HTMLElement {
     }
     this._controlsDom = null;
     this._inputSurface = null;
-    if (this._renderer) {
-      this._renderer.dispose();
-      this._renderer = null;
+    if (this._scene) {
+      this._scene.traverse((obj) => {
+        if (obj.geometry) {
+          obj.geometry.dispose();
+        }
+        const material = obj.material;
+        if (!material) return;
+        const materials = Array.isArray(material) ? material : [material];
+        for (const mat of materials) {
+          if (!mat) continue;
+          for (const key of Object.keys(mat)) {
+            const value = mat[key];
+            if (value && typeof value.dispose === "function" && value.isTexture) {
+              value.dispose();
+            }
+          }
+          mat.dispose();
+        }
+      });
     }
-    this._scene = null;
-    this._camera = null;
-    this._controls = null;
-    this._meshes.clear();
-    this._groups.clear();
-  }
+    if (this._renderer) {
+      const canvas = this._renderer.domElement;
+      this._renderer.dispose();
+      if (canvas && typeof canvas.remove === "function") {
+        canvas.remove();
+      }
+      if (typeof this._renderer.forceContextLoss === "function") {
+        this._renderer.forceContextLoss();
+      }
+      this._renderer = null;
+      window.__meiBrowserRuntimeDiag?.record?.("world_scene_disposed", {
+        hadRenderer: true,
+      });
+    } else {
+      window.__meiBrowserRuntimeDiag?.record?.("world_scene_disposed", {
+        hadRenderer: false,
+      });
+    }
 
   renderChrome() {
     const root = this.shadowRoot;
@@ -432,7 +527,9 @@ class MeiWorldStage extends HTMLElement {
       this._scene.add(ground);
       await this.loadWorldContent();
       this.bindResize(viewport);
-      this.animate();
+      if (isWorldStageActive()) {
+        this.resumeRendering();
+      }
       if (errorEl) {
         errorEl.hidden = true;
         errorEl.textContent = "";
@@ -442,9 +539,12 @@ class MeiWorldStage extends HTMLElement {
       } else {
         this.applyCameraPreset(this.resolveWorldTargetPreset("park_world_overview"));
       }
-      if (document.documentElement.classList.contains("mei-world-stage-active")) {
+      if (isWorldStageActive()) {
         this.activateInteractionSurface();
       }
+      window.__meiBrowserRuntimeDiag?.record?.("world_scene_bootstrapped", {
+        worldRef: resolveWorldRef(this.props, this) || "park_world",
+      });
     } catch (error) {
       if (errorEl) {
         errorEl.hidden = false;
@@ -676,7 +776,10 @@ class MeiWorldStage extends HTMLElement {
   }
 
   animate() {
-    if (!this._renderer || !this._scene || !this._camera) return;
+    if (!this._renderingActive || !this._renderer || !this._scene || !this._camera) {
+      this._animationFrame = 0;
+      return;
+    }
     this._animationFrame = requestAnimationFrame(() => this.animate());
     this._controls?.update();
     this._renderer.render(this._scene, this._camera);
