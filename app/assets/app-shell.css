@@ -2297,11 +2297,65 @@ body > .mei-floating-text-pop-backdrop {
   transform-origin: top left;
   pointer-events: none;
 }
+.mei-presentation-script-panel-headline {
+  display: grid;
+  gap: 4px;
+}
+.mei-presentation-script-panel-active {
+  font-size: 12px;
+  color: rgba(125, 211, 252, 0.82);
+}
+.mei-presentation-script-panel-picker {
+  display: grid;
+  gap: 8px;
+}
+.mei-presentation-script-panel-picker-hint {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(203, 213, 225, 0.88);
+}
+.mei-presentation-script-panel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow: auto;
+}
+.mei-presentation-script-panel-item button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 12px;
+  background: rgba(8, 24, 52, 0.72);
+  color: #f8fbff;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.mei-presentation-script-panel-item-id {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.95);
+}
+.mei-presentation-script-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  background: rgba(14, 116, 144, 0.35);
+}
+.mei-presentation-script-panel-empty {
+  font-size: 12px;
+  color: rgba(148, 163, 184, 0.95);
+}
 .mei-presentation-script-panel {
   position: fixed;
   right: 20px;
   bottom: 120px;
-  z-index: calc(var(--mei-z-copilot-assistant) + 2);
+  z-index: calc(var(--mei-z-copilot-assistant) + 12);
   width: min(420px, calc(100vw - 32px));
   max-height: min(60vh, 520px);
   display: grid;
@@ -2348,7 +2402,7 @@ body > .mei-floating-text-pop-backdrop {
   position: fixed;
   left: 20px;
   bottom: 120px;
-  z-index: calc(var(--mei-z-copilot-assistant) + 2);
+  z-index: calc(var(--mei-z-copilot-assistant) + 12);
   width: min(420px, calc(100vw - 32px));
   padding: 12px 14px;
   border-radius: 14px;

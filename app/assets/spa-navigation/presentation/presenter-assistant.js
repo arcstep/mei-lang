@@ -160,6 +160,31 @@
       runManifest: (manifest, options) => eng.runManifest(manifest, options),
       replaceManifest: (manifest, options) => eng.replaceManifest(manifest, options),
       clearEphemeralManifest: () => eng.clearEphemeralManifest(),
+      clearSessionManifest: () =>
+        typeof eng.clearSessionManifest === "function"
+          ? eng.clearSessionManifest()
+          : eng.clearEphemeralManifest(),
+      runPresentationScript: (scriptId, options) => {
+        const lib = boot.presentationScriptLibrary;
+        if (!lib || typeof lib.runScript !== "function") {
+          return Promise.reject(new Error("presentation script library is not ready"));
+        }
+        return lib.runScript(scriptId, options);
+      },
+      runDefaultPresentationScript: (options) => {
+        const lib = boot.presentationScriptLibrary;
+        if (!lib || typeof lib.runDefaultScript !== "function") {
+          return Promise.reject(new Error("presentation script library is not ready"));
+        }
+        return lib.runDefaultScript(options);
+      },
+      listPresentationScripts: (appId) => {
+        const lib = boot.presentationScriptLibrary;
+        if (!lib || typeof lib.listScripts !== "function") {
+          return Promise.reject(new Error("presentation script library is not ready"));
+        }
+        return lib.listScripts(appId);
+      },
       compileAndRunPresentation: (source, options) => compileAndRunPresentation(source, options),
       replacePresentation: (source, options) => replacePresentation(source, options),
       clearEphemeralPresentation: () => clearEphemeralPresentation(),

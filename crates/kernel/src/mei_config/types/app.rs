@@ -49,6 +49,8 @@ pub struct AppPathsConfig {
     pub upload: Option<String>,
     #[serde(default)]
     pub prototype: Option<String>,
+    #[serde(default)]
+    pub presentation: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

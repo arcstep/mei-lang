@@ -90,6 +90,7 @@ fn extract_api_app_id(path: &str) -> Option<String> {
         "/api/datasets/metrics/",
         "/api/datasets/recompute/",
         "/api/presentation/map/",
+        "/api/presentation/scripts/",
         "/api/ops/",
         "/api/upload/",
         "/workspace-app-assets/",

@@ -22,6 +22,10 @@ use crate::pages::{
     api_scene_revision, app_page, host_starting_page, index,
 };
 use crate::presentation_compile::api_presentation_compile;
+use crate::presentation_scripts::{
+    api_get_presentation_script, api_list_presentation_scripts,
+    api_put_presentation_script, api_set_default_presentation_script,
+};
 use crate::landing::build_discovered_app_summaries;
 use crate::runtime_api::{api_host_mrg_activate, api_host_mrg_status, api_runtime_snapshot};
 use crate::state::{HostHttpState, SharedState};
@@ -89,6 +93,18 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/ops/theme/style/:app_id", get(api_ops_theme_style))
         .route("/api/presentation/map/:app_id", get(api_presentation_map))
         .route("/api/presentation/compile", post(api_presentation_compile))
+        .route(
+            "/api/presentation/scripts/:app_id",
+            get(api_list_presentation_scripts),
+        )
+        .route(
+            "/api/presentation/scripts/:app_id/:script_id",
+            get(api_get_presentation_script).put(api_put_presentation_script),
+        )
+        .route(
+            "/api/presentation/scripts/:app_id/:script_id/default",
+            post(api_set_default_presentation_script),
+        )
         .route(
             "/api/upload/download/:app_id",
             get(upload_file_download_get),

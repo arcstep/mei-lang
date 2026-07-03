@@ -10,6 +10,7 @@
   const STORAGE_KEY_LEGACY = "mei_copilot_tour_v1";
   const SLIDE_LAYER_ID = "mei-copilot-slide-layer";
   const EPHEMERAL_SOURCE = "ephemeral";
+  const LIBRARY_SOURCE = "library";
 
   const state = {
     manifest: null,
@@ -142,7 +143,7 @@
     const steps = normalizeSteps(manifest);
     if (!steps.length) return false;
     const source = String(options.source || "").trim() || state.manifestSource || "session";
-    if (source === EPHEMERAL_SOURCE) {
+    if (source === EPHEMERAL_SOURCE || source === LIBRARY_SOURCE) {
       clearStoredManifest();
     }
     state.manifest = manifest;
@@ -497,15 +498,19 @@
     state.everStarted = false;
   }
 
-  function clearEphemeralManifest() {
-    const stored = readStoredManifest();
-    const source = String(state.manifestSource || stored?.source || "").trim();
-    if (source !== EPHEMERAL_SOURCE) return false;
+  function clearSessionManifest() {
     clearStoredManifest();
     const manifestNode = document.getElementById("mei-presentation-manifest");
     if (manifestNode) manifestNode.remove();
     resetManifestState();
     return true;
+  }
+
+  function clearEphemeralManifest() {
+    const stored = readStoredManifest();
+    const source = String(state.manifestSource || stored?.source || "").trim();
+    if (source !== EPHEMERAL_SOURCE && source !== LIBRARY_SOURCE) return false;
+    return clearSessionManifest();
   }
 
   function replaceManifest(manifest, options = {}) {
@@ -535,6 +540,7 @@
     runManifest,
     replaceManifest,
     clearEphemeralManifest,
+    clearSessionManifest,
     applyStep,
     currentStep,
     currentViewpoint,

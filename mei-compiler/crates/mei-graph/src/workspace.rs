@@ -8,6 +8,7 @@ use walkdir::WalkDir;
 use crate::expand::expand_v2_file;
 use crate::lower::{lower_v2_file, GraphBlock, GraphOutcome};
 use crate::registry::MacroRegistry;
+use crate::world_expand::{expand_world_v2_file, WorldContextCatalog, WorldExpandError};
 
 #[derive(Debug, Error)]
 pub enum CompileAppError {
@@ -22,6 +23,11 @@ pub enum CompileAppError {
     Expand {
         path: PathBuf,
         error: crate::ExpandError,
+    },
+    #[error("world expand error in {path}: {error}")]
+    WorldExpand {
+        path: PathBuf,
+        error: WorldExpandError,
     },
     #[error("lower error in {path}: {error}")]
     Lower {
@@ -95,6 +101,17 @@ pub fn compile_app(workspace: &Path, app_id: &str) -> Result<CompileOutcome, Com
                 error,
             }
         })?;
+        let expanded = if is_world_mei_path(path) {
+            let catalog = WorldContextCatalog::load_from_app(&app_root);
+            expand_world_v2_file(&expanded, &catalog).map_err(|error| {
+                CompileAppError::WorldExpand {
+                    path: path.to_path_buf(),
+                    error,
+                }
+            })?
+        } else {
+            expanded
+        };
         let outcome = lower_v2_file(&rel, &expanded).map_err(|error| CompileAppError::Lower {
             path: path.to_path_buf(),
             error,
@@ -129,6 +146,12 @@ pub fn resolve_workspace_config_path(workspace: &Path) -> PathBuf {
         }
     }
     workspace.join("workspace.json")
+}
+
+fn is_world_mei_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".world.mei"))
 }
 
 fn read_syntax_version(app_root: &Path) -> Option<String> {

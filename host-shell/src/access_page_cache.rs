@@ -432,7 +432,7 @@ pub fn render_access_page_template(
     } else {
         None
     };
-    let html = inject_presentation_manifest_script(html, app_root.as_path(), presentation_id);
+    let html = inject_presentation_manifest_script(html, workspace_root, app_id, presentation_id);
     Ok(crate::gis_config::fill_gis_tiles_placeholders(html, &gis))
 }
 

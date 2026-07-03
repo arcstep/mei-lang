@@ -21144,6 +21144,7 @@
   const STORAGE_KEY_LEGACY = "mei_copilot_tour_v1";
   const SLIDE_LAYER_ID = "mei-copilot-slide-layer";
   const EPHEMERAL_SOURCE = "ephemeral";
+  const LIBRARY_SOURCE = "library";
 
   const state = {
     manifest: null,
@@ -21276,7 +21277,7 @@
     const steps = normalizeSteps(manifest);
     if (!steps.length) return false;
     const source = String(options.source || "").trim() || state.manifestSource || "session";
-    if (source === EPHEMERAL_SOURCE) {
+    if (source === EPHEMERAL_SOURCE || source === LIBRARY_SOURCE) {
       clearStoredManifest();
     }
     state.manifest = manifest;
@@ -21631,15 +21632,19 @@
     state.everStarted = false;
   }
 
-  function clearEphemeralManifest() {
-    const stored = readStoredManifest();
-    const source = String(state.manifestSource || stored?.source || "").trim();
-    if (source !== EPHEMERAL_SOURCE) return false;
+  function clearSessionManifest() {
     clearStoredManifest();
     const manifestNode = document.getElementById("mei-presentation-manifest");
     if (manifestNode) manifestNode.remove();
     resetManifestState();
     return true;
+  }
+
+  function clearEphemeralManifest() {
+    const stored = readStoredManifest();
+    const source = String(state.manifestSource || stored?.source || "").trim();
+    if (source !== EPHEMERAL_SOURCE && source !== LIBRARY_SOURCE) return false;
+    return clearSessionManifest();
   }
 
   function replaceManifest(manifest, options = {}) {
@@ -21669,6 +21674,7 @@
     runManifest,
     replaceManifest,
     clearEphemeralManifest,
+    clearSessionManifest,
     applyStep,
     currentStep,
     currentViewpoint,
@@ -22173,10 +22179,16 @@
         title: "显示/隐藏字幕气泡",
       }) +
       toolbarGlyphButton({
+        dataset: { key: "copilot-script-pick" },
+        glyph: "选",
+        label: "选择演说稿",
+        title: "从演说稿目录载入或设为默认",
+      }) +
+      toolbarGlyphButton({
         dataset: { key: "copilot-script-panel" },
         glyph: "编",
         label: "讲稿编辑",
-        title: "粘贴/运行/替换临时 MDX",
+        title: "编辑并保存演说稿目录中的 MDX",
       }) +
       toolbarGlyphButton({
         dataset: { key: "copilot-script" },
@@ -22185,7 +22197,7 @@
       }) +
       toolbarGlyphButton({
         dataset: { key: "copilot-select-toggle" },
-        glyph: "选",
+        glyph: "点",
         label: "组件选择",
         title: "点选场景组件",
       }) +
@@ -22214,14 +22226,14 @@
   function withEngineLoaded(run) {
     const eng = engine();
     if (!eng) return Promise.resolve(false);
+    const invoke = (activeEng) => Promise.resolve(run(activeEng)).then(() => true);
     if (typeof eng.ensureLoaded === "function" && eng.ensureLoaded()) {
-      run(eng);
-      return Promise.resolve(true);
+      return invoke(eng);
     }
     if (typeof eng.ensureLoadedAsync !== "function") return Promise.resolve(false);
     return eng.ensureLoadedAsync().then((ok) => {
-      if (ok) run(eng);
-      return ok;
+      if (ok) return invoke(eng);
+      return false;
     });
   }
 
@@ -22233,21 +22245,78 @@
     return boot.presentationScriptPanel || null;
   }
 
+  function scriptLibrary() {
+    return boot.presentationScriptLibrary || null;
+  }
+
+  function toolbarClickTarget(event) {
+    const raw = event.target;
+    if (!(raw instanceof Element)) return null;
+    const button = raw.closest("button");
+    return button instanceof HTMLButtonElement ? button : null;
+  }
+
+  function reportToolbarIssue(message) {
+    const panel = scriptPanel();
+    if (panel && typeof panel.setCompileResult === "function") {
+      panel.setCompileResult(null, new Error(String(message || "操作失败")));
+      if (typeof panel.togglePanel === "function") {
+        panel.togglePanel(true);
+      }
+      return;
+    }
+    if (typeof console !== "undefined" && typeof console.warn === "function") {
+      console.warn("[mei] copilot toolbar:", message);
+    }
+  }
+
+  async function handleSessionClick() {
+    const activeEng = engine();
+    if (!activeEng) {
+      reportToolbarIssue("演说步进引擎尚未就绪，请刷新页面后重试");
+      return;
+    }
+    if (typeof activeEng.isActive === "function" && activeEng.isActive()) {
+      activeEng.pause();
+      renderAll();
+      return;
+    }
+    if (typeof activeEng.isPaused === "function" && activeEng.isPaused()) {
+      activeEng.resume();
+      renderAll();
+      return;
+    }
+    const lib = scriptLibrary();
+    let started = false;
+    if (lib && typeof lib.tryAutoStartPresentation === "function") {
+      try {
+        started = await lib.tryAutoStartPresentation({ apply: true });
+      } catch (error) {
+        reportToolbarIssue(error?.message || "载入默认演说稿失败");
+        renderAll();
+        return;
+      }
+    }
+    if (!started) {
+      const loaded = typeof activeEng.ensureLoadedAsync === "function"
+        ? await activeEng.ensureLoadedAsync()
+        : typeof activeEng.ensureLoaded === "function" && activeEng.ensureLoaded();
+      if (loaded && typeof activeEng.start === "function") {
+        started = Boolean(activeEng.start({ apply: true }));
+      }
+    }
+    if (!started) {
+      reportToolbarIssue("未找到可运行的演说稿，请点「选」从演说稿目录选择，或点「编」保存一份讲稿");
+    }
+    renderAll();
+  }
+
   function onToolbarClick(event) {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
+    const target = toolbarClickTarget(event);
+    if (!target) return;
     const eng = engine();
     if (target.dataset.copilotSession === "true") {
-      void withEngineLoaded((activeEng) => {
-        if (typeof activeEng.isActive === "function" && activeEng.isActive()) {
-          activeEng.pause();
-        } else if (typeof activeEng.isPaused === "function" && activeEng.isPaused()) {
-          activeEng.resume();
-        } else {
-          activeEng.start({ apply: true });
-        }
-        renderAll();
-      });
+      void handleSessionClick();
       return;
     }
     if (target.dataset.copilotExit === "true") {
@@ -22274,13 +22343,28 @@
       renderCaption();
       return;
     }
+    if (target.dataset.copilotScriptPick === "true") {
+      const panel = scriptPanel();
+      if (!panel || typeof panel.openPicker !== "function") {
+        reportToolbarIssue("演说稿目录模块尚未加载");
+        return;
+      }
+      uiState.toolbarOpen = true;
+      renderToolbar();
+      void panel.openPicker().catch((error) => {
+        reportToolbarIssue(error?.message || "读取演说稿目录失败");
+      });
+      return;
+    }
     if (target.dataset.copilotScriptPanel === "true") {
       const panel = scriptPanel();
-      if (panel && typeof panel.togglePanel === "function") {
-        panel.togglePanel();
-        uiState.toolbarOpen = true;
-        renderToolbar();
+      if (!panel || typeof panel.togglePanel !== "function") {
+        reportToolbarIssue("讲稿编辑面板尚未加载");
+        return;
       }
+      panel.togglePanel(true);
+      uiState.toolbarOpen = true;
+      renderToolbar();
       return;
     }
     if (target.dataset.copilotScript === "true") {
@@ -22453,6 +22537,10 @@
     ensureCopilotInViewport();
     bindSelectMode();
     bindFabBehavior();
+    const panel = scriptPanel();
+    if (panel && typeof panel.renderPanel === "function") {
+      panel.renderPanel();
+    }
     const alreadyMounted = uiState.mounted;
     uiState.mounted = true;
     if (!alreadyMounted) {
@@ -22674,6 +22762,31 @@
       runManifest: (manifest, options) => eng.runManifest(manifest, options),
       replaceManifest: (manifest, options) => eng.replaceManifest(manifest, options),
       clearEphemeralManifest: () => eng.clearEphemeralManifest(),
+      clearSessionManifest: () =>
+        typeof eng.clearSessionManifest === "function"
+          ? eng.clearSessionManifest()
+          : eng.clearEphemeralManifest(),
+      runPresentationScript: (scriptId, options) => {
+        const lib = boot.presentationScriptLibrary;
+        if (!lib || typeof lib.runScript !== "function") {
+          return Promise.reject(new Error("presentation script library is not ready"));
+        }
+        return lib.runScript(scriptId, options);
+      },
+      runDefaultPresentationScript: (options) => {
+        const lib = boot.presentationScriptLibrary;
+        if (!lib || typeof lib.runDefaultScript !== "function") {
+          return Promise.reject(new Error("presentation script library is not ready"));
+        }
+        return lib.runDefaultScript(options);
+      },
+      listPresentationScripts: (appId) => {
+        const lib = boot.presentationScriptLibrary;
+        if (!lib || typeof lib.listScripts !== "function") {
+          return Promise.reject(new Error("presentation script library is not ready"));
+        }
+        return lib.listScripts(appId);
+      },
       compileAndRunPresentation: (source, options) => compileAndRunPresentation(source, options),
       replacePresentation: (source, options) => replacePresentation(source, options),
       clearEphemeralPresentation: () => clearEphemeralPresentation(),

@@ -39,6 +39,7 @@
   "spa-navigation/presentation/presentation-slide-embed-runtime.js",
   "spa-navigation/presentation/presentation-step-engine.js",
   "spa-navigation/presentation/presentation-tts.js",
+  "spa-navigation/presentation/presentation-script-library.js",
   "spa-navigation/presentation/presentation-script-panel.js",
   "spa-navigation/presentation/copilot-fab-context.js",
   "spa-navigation/presentation/copilot-fab-layout.js",

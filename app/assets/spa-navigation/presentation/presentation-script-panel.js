@@ -6,8 +6,12 @@
 
   const uiState = {
     open: false,
+    pickerOpen: false,
     busy: false,
     source: "",
+    activeScriptId: "",
+    scripts: [],
+    defaultScriptId: "",
     lastDiagnostics: [],
     lastWarnings: [],
     lastError: "",
@@ -19,6 +23,10 @@
 
   function toolbar() {
     return boot.copilotToolbar || null;
+  }
+
+  function library() {
+    return boot.presentationScriptLibrary || null;
   }
 
   function parseAppIdFromPath() {
@@ -105,6 +113,30 @@
     renderDiagnostics();
   }
 
+  function panelInnerHtml() {
+    return (
+      '<header class="mei-presentation-script-panel-head">' +
+      '<div class="mei-presentation-script-panel-headline">' +
+      '<strong class="mei-presentation-script-panel-title">演说稿目录</strong>' +
+      '<span class="mei-presentation-script-panel-active" data-presentation-script-active-label="true"></span>' +
+      "</div>" +
+      '<button type="button" data-presentation-script-close="true" aria-label="关闭讲稿面板">×</button>' +
+      "</header>" +
+      '<div class="mei-presentation-script-panel-picker" data-presentation-script-picker="true" hidden>' +
+      '<p class="mei-presentation-script-panel-picker-hint">从应用演说稿目录选择；默认稿会在点「演」时自动载入。</p>' +
+      '<ul class="mei-presentation-script-panel-list" data-presentation-script-list="true"></ul>' +
+      "</div>" +
+      '<textarea class="mei-presentation-script-panel-editor" data-presentation-script-editor="true" spellcheck="false" placeholder="编辑 .presentation.mdx"></textarea>' +
+      '<div class="mei-presentation-script-panel-actions">' +
+      '<button type="button" data-presentation-script-load="true">载入</button>' +
+      '<button type="button" data-presentation-script-run="true">运行</button>' +
+      '<button type="button" data-presentation-script-save="true">保存</button>' +
+      '<button type="button" data-presentation-script-default="true">设为默认</button>' +
+      '<button type="button" data-presentation-script-clear="true">清空会话</button>' +
+      "</div>"
+    );
+  }
+
   function ensurePanel() {
     let panel = document.getElementById(PANEL_ID);
     if (panel) return panel;
@@ -112,17 +144,7 @@
     panel.id = PANEL_ID;
     panel.className = "mei-presentation-script-panel";
     panel.setAttribute("hidden", "hidden");
-    panel.innerHTML =
-      '<header class="mei-presentation-script-panel-head">' +
-      '<strong>临时讲稿</strong>' +
-      '<button type="button" data-presentation-script-close="true" aria-label="关闭讲稿面板">×</button>' +
-      "</header>" +
-      '<textarea class="mei-presentation-script-panel-editor" data-presentation-script-editor="true" spellcheck="false" placeholder="粘贴 .presentation.mdx 临时脚本"></textarea>' +
-      '<div class="mei-presentation-script-panel-actions">' +
-      '<button type="button" data-presentation-script-run="true">运行</button>' +
-      '<button type="button" data-presentation-script-replace="true">替换</button>' +
-      '<button type="button" data-presentation-script-clear="true">清空</button>' +
-      "</div>";
+    panel.innerHTML = panelInnerHtml();
     panel.addEventListener("click", onPanelClick);
     if (typeof boot.mountCopilotInViewport === "function") {
       boot.mountCopilotInViewport(panel);
@@ -132,25 +154,110 @@
     return panel;
   }
 
+  function renderScriptList() {
+    const panel = ensurePanel();
+    const list = panel.querySelector("[data-presentation-script-list]");
+    const picker = panel.querySelector("[data-presentation-script-picker]");
+    if (!(list instanceof HTMLElement) || !(picker instanceof HTMLElement)) return;
+    if (!uiState.pickerOpen) {
+      picker.setAttribute("hidden", "hidden");
+      list.innerHTML = "";
+      return;
+    }
+    picker.removeAttribute("hidden");
+    if (!uiState.scripts.length) {
+      list.innerHTML = '<li class="mei-presentation-script-panel-empty">演说稿目录为空</li>';
+      return;
+    }
+    list.innerHTML = uiState.scripts
+      .map((script) => {
+        const id = escapeHtml(script.id);
+        const title = escapeHtml(script.title || script.id);
+        const badges = [
+          script.isDefault || uiState.defaultScriptId === script.id ? "默认" : "",
+          uiState.activeScriptId === script.id ? "当前" : "",
+        ]
+          .filter(Boolean)
+          .map((label) => `<span class="mei-presentation-script-badge">${escapeHtml(label)}</span>`)
+          .join("");
+        return (
+          `<li class="mei-presentation-script-panel-item">` +
+          `<button type="button" data-presentation-script-select="${id}">` +
+          `<strong>${title}</strong>` +
+          `<span class="mei-presentation-script-panel-item-id">${id}</span>` +
+          `${badges}` +
+          `</button></li>`
+        );
+      })
+      .join("");
+  }
+
+  function renderPanel() {
+    const panel = ensurePanel();
+    const editor = panel.querySelector("[data-presentation-script-editor]");
+    const label = panel.querySelector("[data-presentation-script-active-label]");
+    if (editor instanceof HTMLTextAreaElement && editor.value !== uiState.source) {
+      editor.value = uiState.source;
+    }
+    if (label) {
+      label.textContent = uiState.activeScriptId
+        ? `当前：${uiState.activeScriptId}`
+        : uiState.defaultScriptId
+          ? `默认：${uiState.defaultScriptId}`
+          : "";
+    }
+    panel.querySelectorAll("button").forEach((button) => {
+      if (!(button instanceof HTMLButtonElement)) return;
+      if (button.dataset.presentationScriptClose === "true") return;
+      button.disabled = uiState.busy;
+    });
+    renderScriptList();
+    if (uiState.open) {
+      panel.removeAttribute("hidden");
+    } else {
+      panel.setAttribute("hidden", "hidden");
+    }
+  }
+
+  async function refreshLibraryState(appId) {
+    const lib = library();
+    if (!lib || typeof lib.listScripts !== "function") return;
+    const payload = await lib.listScripts(appId);
+    uiState.scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
+    uiState.defaultScriptId = String(payload?.defaultScriptId || "").trim();
+    if (!uiState.activeScriptId) {
+      uiState.activeScriptId =
+        uiState.defaultScriptId ||
+        (typeof lib.resolveDefaultScriptId === "function" ? lib.resolveDefaultScriptId() : "");
+    }
+  }
+
+  async function loadScriptIntoEditor(scriptId, options = {}) {
+    const lib = library();
+    if (!lib || typeof lib.getScript !== "function") {
+      throw new Error("presentation script library is not ready");
+    }
+    const script = await lib.getScript(scriptId, options.appId);
+    uiState.activeScriptId = String(script.id || scriptId || "").trim();
+    uiState.source = String(script.source || "");
+    renderPanel();
+    return script;
+  }
+
   async function compileSource(source, options = {}) {
-    const compile = boot.compileAndRunPresentation;
     const compileOnly = boot.compileEphemeralPresentation;
-    if (typeof compileOnly !== "function" && typeof compile !== "function") {
+    if (typeof compileOnly !== "function") {
       throw new Error("presentation compile API is not ready");
     }
     const appId = String(options.appId || parseAppIdFromPath()).trim();
     if (!appId) {
       throw new Error("compile requires appId");
     }
-    const payload = {
+    return compileOnly(source, {
       appId,
       sceneId: String(options.sceneId || parseSceneIdFromPath()).trim() || "home",
-      presentationId: String(options.presentationId || "ephemeral").trim() || "ephemeral",
-    };
-    if (typeof compileOnly === "function") {
-      return compileOnly(source, payload);
-    }
-    return compile(source, { ...payload, dryRun: true });
+      presentationId: String(options.presentationId || uiState.activeScriptId || "library").trim(),
+    });
   }
 
   async function runCompiledManifest(result, options = {}) {
@@ -163,7 +270,7 @@
       tb.mount({ autoStart: false, apply: false, toolbarOpen: true });
     }
     eng.runManifest(result.manifest, {
-      source: "ephemeral",
+      source: "library",
       stepIndex: options.stepIndex,
       apply: options.apply !== false,
     });
@@ -189,54 +296,24 @@
     }
   }
 
-  async function replacePresentation(source, options = {}) {
-    uiState.busy = true;
-    renderPanel();
-    try {
-      const result = await compileSource(source, options);
-      setCompileResult(result);
-      const eng = engine();
-      if (!eng || typeof eng.replaceManifest !== "function") {
-        throw new Error("presentation step engine is not ready");
-      }
-      const tb = toolbar();
-      if (tb && typeof tb.mount === "function") {
-        tb.mount({ autoStart: false, apply: false, toolbarOpen: true });
-      }
-      eng.replaceManifest(result.manifest, { source: "ephemeral" });
-      if (options.apply !== false && typeof eng.start === "function") {
-        eng.start({ apply: true, stepIndex: options.stepIndex });
-      }
-      if (tb && typeof tb.renderAll === "function") {
-        tb.renderAll();
-      }
-      return result;
-    } catch (error) {
-      setCompileResult(error?.payload || null, error);
-      throw error;
-    } finally {
-      uiState.busy = false;
-      renderPanel();
-    }
-  }
-
   function clearPresentation() {
     const eng = engine();
-    if (!eng || typeof eng.clearEphemeralManifest !== "function") {
-      return false;
+    if (!eng) return false;
+    if (typeof eng.clearSessionManifest === "function") {
+      eng.clearSessionManifest();
+    } else if (typeof eng.clearEphemeralManifest === "function") {
+      eng.clearEphemeralManifest();
     }
-    const cleared = eng.clearEphemeralManifest();
     if (typeof eng.stop === "function") {
       eng.stop();
     }
-    uiState.source = "";
     setCompileResult(null);
     renderPanel();
     const tb = toolbar();
     if (tb && typeof tb.renderAll === "function") {
       tb.renderAll();
     }
-    return cleared;
+    return true;
   }
 
   function currentEditorSource() {
@@ -249,19 +326,81 @@
   async function onPanelClick(event) {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    const selectId = target.closest("[data-presentation-script-select]")?.getAttribute(
+      "data-presentation-script-select",
+    );
+    if (selectId) {
+      uiState.busy = true;
+      try {
+        await loadScriptIntoEditor(selectId);
+        uiState.pickerOpen = false;
+        uiState.open = true;
+      } catch (error) {
+        setCompileResult(null, error);
+      } finally {
+        uiState.busy = false;
+        renderPanel();
+      }
+      return;
+    }
     if (target.dataset.presentationScriptClose === "true") {
       uiState.open = false;
+      uiState.pickerOpen = false;
       renderPanel();
       return;
     }
     const source = currentEditorSource();
     uiState.source = source;
+    if (target.dataset.presentationScriptLoad === "true") {
+      const scriptId = uiState.activeScriptId || uiState.defaultScriptId;
+      if (!scriptId) return;
+      uiState.busy = true;
+      try {
+        await loadScriptIntoEditor(scriptId);
+      } catch (error) {
+        setCompileResult(null, error);
+      } finally {
+        uiState.busy = false;
+        renderPanel();
+      }
+      return;
+    }
     if (target.dataset.presentationScriptRun === "true") {
       await compileAndRun(source, { apply: true });
       return;
     }
-    if (target.dataset.presentationScriptReplace === "true") {
-      await replacePresentation(source, { apply: true });
+    if (target.dataset.presentationScriptSave === "true") {
+      const lib = library();
+      const scriptId = uiState.activeScriptId || uiState.defaultScriptId || "draft";
+      if (!lib || typeof lib.saveScript !== "function") return;
+      uiState.busy = true;
+      try {
+        await lib.saveScript(scriptId, source, { appId: parseAppIdFromPath() });
+        uiState.activeScriptId = scriptId;
+        await refreshLibraryState(parseAppIdFromPath());
+        setCompileResult(null);
+      } catch (error) {
+        setCompileResult(error?.payload || null, error);
+      } finally {
+        uiState.busy = false;
+        renderPanel();
+      }
+      return;
+    }
+    if (target.dataset.presentationScriptDefault === "true") {
+      const lib = library();
+      const scriptId = uiState.activeScriptId || uiState.defaultScriptId;
+      if (!lib || !scriptId || typeof lib.setDefaultScript !== "function") return;
+      uiState.busy = true;
+      try {
+        await lib.setDefaultScript(scriptId, parseAppIdFromPath());
+        await refreshLibraryState(parseAppIdFromPath());
+      } catch (error) {
+        setCompileResult(error?.payload || null, error);
+      } finally {
+        uiState.busy = false;
+        renderPanel();
+      }
       return;
     }
     if (target.dataset.presentationScriptClear === "true") {
@@ -269,37 +408,60 @@
     }
   }
 
-  function renderPanel() {
-    const panel = ensurePanel();
-    const editor = panel.querySelector("[data-presentation-script-editor]");
-    if (editor instanceof HTMLTextAreaElement && editor.value !== uiState.source) {
-      editor.value = uiState.source;
-    }
-    panel.querySelectorAll("button").forEach((button) => {
-      if (!(button instanceof HTMLButtonElement)) return;
-      button.disabled = uiState.busy;
-    });
-    if (uiState.open) {
-      panel.removeAttribute("hidden");
-    } else {
-      panel.setAttribute("hidden", "hidden");
+  async function openPicker() {
+    uiState.open = true;
+    uiState.pickerOpen = true;
+    uiState.busy = true;
+    renderPanel();
+    try {
+      await refreshLibraryState(parseAppIdFromPath());
+      if (!uiState.source) {
+        const scriptId = uiState.activeScriptId || uiState.defaultScriptId;
+        if (scriptId) {
+          await loadScriptIntoEditor(scriptId);
+        }
+      }
+    } catch (error) {
+      setCompileResult(null, error);
+      throw error;
+    } finally {
+      uiState.busy = false;
+      renderPanel();
     }
   }
 
   function togglePanel(next) {
-    uiState.open = typeof next === "boolean" ? next : !uiState.open;
-    renderPanel();
+    const nextOpen = typeof next === "boolean" ? next : !uiState.open;
+    uiState.open = nextOpen;
+    if (nextOpen) {
+      void openPicker().catch((error) => {
+        setCompileResult(null, error);
+        renderPanel();
+      });
+    } else {
+      uiState.pickerOpen = false;
+      renderPanel();
+    }
     return uiState.open;
+  }
+
+  function syncFromLibrary(script) {
+    if (!script || typeof script !== "object") return;
+    uiState.activeScriptId = String(script.id || "").trim();
+    uiState.source = String(script.source || "");
+    renderPanel();
   }
 
   const scriptPanel = {
     togglePanel,
+    openPicker,
     renderPanel,
     compileAndRun,
-    replacePresentation,
     clearPresentation,
     setCompileResult,
     renderDiagnostics,
+    syncFromLibrary,
+    refreshLibraryState,
     uiState,
   };
 

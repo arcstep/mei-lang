@@ -1052,7 +1052,8 @@ const DEFAULT_ACCESS_PRESENTATION_ID: &str = "intro";
 
 pub(crate) fn inject_presentation_manifest_script(
     html: String,
-    _app_root: &std::path::Path,
+    workspace_root: &std::path::Path,
+    app_id: &str,
     presentation_id: Option<&str>,
 ) -> String {
     if html.contains("window.__mei.presentation_manifest_prefetch=false") {
@@ -1061,9 +1062,11 @@ pub(crate) fn inject_presentation_manifest_script(
     let pid = presentation_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(DEFAULT_ACCESS_PRESENTATION_ID);
+        .map(str::to_string)
+        .or_else(|| crate::presentation_scripts::read_default_script_id(workspace_root, app_id))
+        .unwrap_or_else(|| DEFAULT_ACCESS_PRESENTATION_ID.to_string());
     let script = format!(
-        r#"<script>window.__mei=window.__mei||{{}};window.__mei.presentation_manifest_prefetch=false;window.__mei.presentation_manifest_mode="ephemeral";window.__mei.presentation_manifest_id={pid:?};</script>"#
+        r#"<script>window.__mei=window.__mei||{{}};window.__mei.presentation_manifest_prefetch=false;window.__mei.presentation_manifest_mode="library";window.__mei.presentation_manifest_id={pid:?};window.__mei.presentation_default_script_id={pid:?};</script>"#
     );
     if let Some(pos) = html.find("</head>") {
         let mut out = String::with_capacity(html.len() + script.len());
