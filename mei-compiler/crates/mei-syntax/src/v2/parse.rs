@@ -3,7 +3,9 @@ use std::path::Path;
 use chumsky::prelude::*;
 
 use super::ast::*;
-use crate::policy::{validate_authoring_policy, validate_authoring_policy_for_path};
+use crate::policy::{
+    validate_authoring_policy, validate_authoring_policy_for_path, validate_world_authoring_policy,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct V2ParseError {
@@ -33,20 +35,39 @@ pub fn parse_v2_source_file(path: &Path) -> Result<V2SourceFile, V2ParseError> {
             span_end: source.len().min(1),
         });
     }
-    parse_v2_source(&source)
+    parse_v2_source_unchecked(&source)
 }
 
 pub fn parse_v2_source(source: &str) -> Result<V2SourceFile, V2ParseError> {
+    parse_v2_source_with_policy(source, validate_authoring_policy)
+}
+
+pub fn parse_world_v2_source(source: &str) -> Result<V2SourceFile, V2ParseError> {
+    parse_v2_source_with_policy(source, validate_world_authoring_policy)
+}
+
+fn parse_v2_source_with_policy(
+    source: &str,
+    validate: fn(&str) -> Result<(), crate::policy::ForbiddenTokenError>,
+) -> Result<V2SourceFile, V2ParseError> {
     let stripped = strip_comments(source);
-    if let Err(forbidden) = validate_authoring_policy(&stripped) {
+    if let Err(forbidden) = validate(&stripped) {
         return Err(V2ParseError {
             message: forbidden.to_string(),
             span_start: 0,
             span_end: stripped.len().min(1),
         });
     }
+    parse_v2_source_stripped(&stripped)
+}
+
+fn parse_v2_source_unchecked(source: &str) -> Result<V2SourceFile, V2ParseError> {
+    parse_v2_source_stripped(&strip_comments(source))
+}
+
+fn parse_v2_source_stripped(stripped: &str) -> Result<V2SourceFile, V2ParseError> {
     let parser = v2_source_file_parser();
-    parser.parse(stripped.as_str()).map_err(|errors| {
+    parser.parse(stripped).map_err(|errors| {
         let error = errors
             .first()
             .cloned()
@@ -148,6 +169,10 @@ fn ref_keyword_parser() -> impl Parser<char, String, Error = Simple<char>> + Clo
         just("ops_param_ref").to("ops_param_ref"),
         just("board_ref").to("board_ref"),
         just("param_ref").to("param_ref"),
+        just("dataset_ref").to("dataset_ref"),
+        just("dataframe_ref").to("dataframe_ref"),
+        just("source_feature_ref").to("source_feature_ref"),
+        just("feature_ref").to("feature_ref"),
     ))
     .map(str::to_string)
 }
@@ -242,7 +267,7 @@ fn expr_parser() -> impl Parser<char, V2Expr, Error = Simple<char>> + Clone {
             .delimited_by(just('[').padded(), just(']').padded())
             .map(V2Expr::List);
         let dict_key = choice((string_parser(), identifier_parser()));
-        let dict = dict_key
+        let dict = dict_key.clone()
             .then_ignore(just(':').padded())
             .then(expr.clone().padded())
             .padded()
@@ -251,8 +276,73 @@ fn expr_parser() -> impl Parser<char, V2Expr, Error = Simple<char>> + Clone {
             .collect::<Vec<_>>()
             .delimited_by(just('{').padded(), just('}').padded())
             .map(V2Expr::Dict);
-        let primary = choice((dict, list, atom));
-        primary
+        let for_in = just("for")
+            .padded()
+            .ignore_then(identifier_parser())
+            .then_ignore(just("in").padded())
+            .then(expr.clone())
+            .then(
+                expr.clone()
+                    .delimited_by(just('{').padded(), just('}').padded()),
+            )
+            .map(|((var, source), body)| V2Expr::ForIn {
+                var,
+                source: Box::new(source),
+                body: Box::new(body),
+            });
+        let enum_match = just("enum")
+            .padded()
+            .ignore_then(expr.clone())
+            .then(
+                dict_key
+                    .then_ignore(just("=>").padded())
+                    .then(expr.clone().padded())
+                    .padded()
+                    .separated_by(just(',').padded())
+                    .allow_trailing()
+                    .collect::<Vec<_>>()
+                    .delimited_by(just('{').padded(), just('}').padded()),
+            )
+            .map(|(subject, cases)| {
+                let cases: Vec<(V2Expr, V2Expr)> = cases
+                    .into_iter()
+                    .map(|(key, body)| (V2Expr::String(key), body))
+                    .collect();
+                let default = cases.iter().position(|(key, _)| match key {
+                    V2Expr::String(s) => s == "default",
+                    V2Expr::VarRef(s) => s == "default",
+                    _ => false,
+                });
+                let default_body = default.and_then(|idx| cases.get(idx).map(|(_, body)| body.clone()));
+                let filtered_cases: Vec<_> = cases
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(idx, _)| default.map(|d| d != *idx).unwrap_or(true))
+                    .map(|(_, pair)| pair)
+                    .collect();
+                V2Expr::EnumMatch {
+                    subject: Box::new(subject),
+                    cases: filtered_cases,
+                    default: default_body.map(Box::new),
+                }
+            });
+        let primary = choice((enum_match, for_in, dict, list, atom));
+        let with_members = primary
+            .clone()
+            .then(
+                just('.')
+                    .padded()
+                    .ignore_then(identifier_parser())
+                    .repeated()
+                    .collect::<Vec<_>>(),
+            )
+            .map(|(base, fields)| {
+                fields.into_iter().fold(base, |acc, field| V2Expr::Member {
+                    object: Box::new(acc),
+                    field,
+                })
+            });
+        with_members
             .clone()
             .then(
                 choice((

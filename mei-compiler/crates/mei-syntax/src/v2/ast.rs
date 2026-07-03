@@ -69,6 +69,20 @@ pub enum V2Expr {
         name: String,
         args: CallArgs,
     },
+    Member {
+        object: Box<V2Expr>,
+        field: String,
+    },
+    ForIn {
+        var: String,
+        source: Box<V2Expr>,
+        body: Box<V2Expr>,
+    },
+    EnumMatch {
+        subject: Box<V2Expr>,
+        cases: Vec<(V2Expr, V2Expr)>,
+        default: Option<Box<V2Expr>>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +100,7 @@ pub const V2_TOP_LEVEL_CONSTRUCTORS: &[&str] = &[
     "board_assembly",
     "link_decl",
     "warmup_policy",
+    "world",
 ];
 
 pub const V2_REF_KEYWORDS: &[&str] = &[
@@ -102,5 +117,8 @@ pub const V2_REF_KEYWORDS: &[&str] = &[
     "ops_param_ref",
     "board_ref",
     "param_ref",
-    "link_ref",
+    "dataset_ref",
+    "dataframe_ref",
+    "source_feature_ref",
+    "feature_ref",
 ];

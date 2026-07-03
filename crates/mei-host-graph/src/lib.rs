@@ -19,6 +19,7 @@ mod types;
 mod v2_bundle_constants;
 mod v2_lower;
 mod v2_metric_lower;
+mod world_plan;
 
 pub use assemble::{
     assemble_scope_from_registry, collect_all_board_scenes, list_scope_routes, AssembleOutcome,
@@ -71,3 +72,4 @@ pub use tier::{
     TIER_T2,
 };
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
+pub use world_plan::{build_world_exchange, build_map_projection, build_world_plan, WorldCompileOutcome};

@@ -35,6 +35,7 @@ pub enum GraphNodeKind {
     MaterialSlot,
     Navigation,
     WarmupPolicy,
+    WorldModel,
 }
 
 impl GraphNodeKind {
@@ -53,6 +54,7 @@ impl GraphNodeKind {
             Self::MaterialSlot => "material_slot",
             Self::Navigation => "navigation",
             Self::WarmupPolicy => "warmup_policy",
+            Self::WorldModel => "world_model",
         }
     }
 
@@ -64,6 +66,7 @@ impl GraphNodeKind {
             "assembly_view" | "board_assembly" => Self::AssemblyView,
             "navigation" | "link_decl" => Self::Navigation,
             "warmup_policy" => Self::WarmupPolicy,
+            "world" => Self::WorldModel,
             _ => Self::SemanticGraph,
         }
     }

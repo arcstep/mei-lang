@@ -1116,6 +1116,89 @@ fn ws_demo_v2_mini_park_presentation_manifest_emits_world_actions() {
 }
 
 #[test]
+fn ws_demo_v2_mini_park_world_plan_from_park_world_mei() {
+    let workspace = ensure_mini_park_imported();
+    let home_outcome = assemble_scope_from_registry(workspace.as_path(), "mini-park", "home")
+        .expect("assemble mini-park home")
+        .expect("mini-park home outcome");
+    let worlds = home_outcome
+        .world_plan
+        .get("worlds")
+        .and_then(|v| v.as_object())
+        .expect("world_plan worlds");
+    let park_world = worlds
+        .get("park_world")
+        .expect("park_world entry in world_plan");
+    assert_eq!(
+        park_world.get("id").and_then(|v| v.as_str()),
+        Some("park_world")
+    );
+    let prims = park_world
+        .get("primitives")
+        .and_then(|v| v.as_array())
+        .expect("park_world primitives");
+    assert!(
+        prims.len() >= 9,
+        "park_world should lower multiple primitives including play_zone, got {}",
+        prims.len()
+    );
+    let play_zone = prims
+        .iter()
+        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("play_zone"))
+        .expect("play_zone primitive");
+    assert!(
+        play_zone.get("mapView").is_some() && play_zone.get("worldView").is_some(),
+        "play_zone should have dual projection"
+    );
+    let view_layers = park_world
+        .get("viewLayers")
+        .and_then(|v| v.as_array())
+        .expect("park_world viewLayers");
+    assert!(
+        view_layers.iter().any(|layer| {
+            layer.get("id").and_then(|v| v.as_str()) == Some("roof")
+        }),
+        "park_world viewLayers should include roof layer"
+    );
+    let lake_pavilion = prims
+        .iter()
+        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some("lake_pavilion"))
+        .expect("lake_pavilion primitive");
+    assert!(
+        lake_pavilion.get("mapView").is_some() && lake_pavilion.get("worldView").is_some(),
+        "lake_pavilion should have dual projection"
+    );
+    let projections = home_outcome
+        .map_projection
+        .get("worlds")
+        .and_then(|v| v.as_object())
+        .expect("map_projection worlds");
+    let park_projection = projections
+        .get("park_world")
+        .expect("park_world map projection");
+    let layers = park_projection
+        .get("layers")
+        .and_then(|v| v.as_array())
+        .expect("park_world projection layers");
+    assert!(
+        layers.len() >= 5,
+        "map_projection should compile at least 5 layers from world (incl. play_zone)"
+    );
+    let home_t1 = home_outcome
+        .layer_plan
+        .get("tiers")
+        .and_then(|v| v.get("t1"))
+        .and_then(|v| v.as_array())
+        .expect("home t1 tier");
+    assert!(
+        home_t1.iter().any(|entry| {
+            entry.get("panelId").and_then(|v| v.as_str()) == Some("stage_aperture_frame")
+        }),
+        "mini-park layer_plan t1 should include stage_aperture_frame for observation window"
+    );
+}
+
+#[test]
 fn ws_demo_v2_mini_park_dual_view_bridge_fixtures_align_with_presentation_map() {
     let workspace = ensure_mini_park_imported();
     let bundle = workspace.join("apps/mini-park/build/active/exchange/mini-park.meibundle");

@@ -3,6 +3,8 @@ use std::path::Path;
 use thiserror::Error;
 
 const FORBIDDEN_TOKENS: &[&str] = &["for", "while", "lambda", "load", "import", "open"];
+const WORLD_MEI_SUFFIX: &str = ".world.mei";
+const WORLD_ALLOWED_TOKENS: &[&str] = &["for", "enum"];
 const GRID_ONLY_POLICY_ROOTS: &[&str] = &[
     "/workspaces/ws-demo-v2/apps/pretty-panels/",
     "/workspaces/ws-demo-v2/stock/templates/cockpit/",
@@ -79,12 +81,26 @@ impl ForbiddenTokenError {
 }
 
 pub fn validate_authoring_policy(source: &str) -> Result<(), ForbiddenTokenError> {
+    validate_authoring_policy_with_world_override(source, false)
+}
+
+pub fn validate_world_authoring_policy(source: &str) -> Result<(), ForbiddenTokenError> {
+    validate_authoring_policy_with_world_override(source, true)
+}
+
+fn validate_authoring_policy_with_world_override(
+    source: &str,
+    allow_world_for_enum: bool,
+) -> Result<(), ForbiddenTokenError> {
     let sanitized = sanitize_for_policy(source);
     for token in sanitized
         .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
         .filter(|token| !token.is_empty())
     {
         if FORBIDDEN_TOKENS.contains(&token) {
+            if allow_world_for_enum && WORLD_ALLOWED_TOKENS.contains(&token) {
+                continue;
+            }
             return Err(ForbiddenTokenError::forbidden_token(token));
         }
     }
@@ -95,7 +111,11 @@ pub fn validate_authoring_policy_for_path(
     path: &Path,
     source: &str,
 ) -> Result<(), ForbiddenTokenError> {
-    validate_authoring_policy(source)?;
+    let is_world_mei = path
+        .to_string_lossy()
+        .replace('\\', "/")
+        .ends_with(WORLD_MEI_SUFFIX);
+    validate_authoring_policy_with_world_override(source, is_world_mei)?;
     if !should_enforce_grid_only(path) {
         return Ok(());
     }
@@ -152,5 +172,15 @@ mod tests {
             r#"frame(id = "home_frame", layout = flex(direction = "column"))"#,
         )
         .expect("legacy preview path remains compatible");
+    }
+
+    #[test]
+    fn world_mei_allows_for_and_enum_tokens() {
+        let path = Path::new("/tmp/apps/mini-park/src/world/park.world.mei");
+        validate_authoring_policy_for_path(
+            path,
+            r#"world(id = "x", for row in dataset_ref(id = "y") { building(id = row.id) })"#,
+        )
+        .expect("for should be allowed in .world.mei");
     }
 }

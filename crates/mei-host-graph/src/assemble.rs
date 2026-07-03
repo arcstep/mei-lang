@@ -20,6 +20,7 @@ use crate::v2_lower::{
     find_panel_contract_node, lower_frame_from_assembly, lower_panel_payload,
     lower_v2_inline_panels_from_assembly, PanelLowerContext,
 };
+use crate::world_plan::build_world_exchange;
 
 #[derive(Debug, Clone)]
 pub struct AssembleOutcome {
@@ -28,6 +29,8 @@ pub struct AssembleOutcome {
     pub assembly_key: String,
     pub layer_plan: Value,
     pub presentation_map: Value,
+    pub world_plan: Value,
+    pub map_projection: Value,
     pub overlay_defaults: BTreeMap<String, Value>,
 }
 
@@ -136,6 +139,8 @@ pub fn assemble_scope_from_registry(
     normalize_panel_slots(&mut panels, &mut panel_diagnostics, active_target.as_str());
     let presentation_map =
         presentation_map_to_value(&build_presentation_map(scene_id, &panels, &panel_payloads));
+    let world_exchange = build_world_exchange(app_root.as_path(), &registry, app_id)
+        .unwrap_or_default();
     let frame = Some(lower_frame_from_assembly(&assembly_payload));
     let component_assets =
         collect_component_assets_for_panels(source_root, &panels)?;
@@ -223,6 +228,8 @@ pub fn assemble_scope_from_registry(
         assembly_key,
         layer_plan,
         presentation_map,
+        world_plan: world_exchange.world_plan,
+        map_projection: world_exchange.map_projection,
         overlay_defaults,
     }))
 }

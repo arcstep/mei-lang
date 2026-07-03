@@ -135,6 +135,13 @@ fn panel_expr_to_json(expr: &V2Expr) -> Result<Value, String> {
             "__ref": name,
             "__args": call_args_to_json(args)?,
         })),
+        V2Expr::Member { object, field } => Ok(json!({
+            "__member": field,
+            "base": panel_expr_to_json(object)?,
+        })),
+        V2Expr::ForIn { .. } | V2Expr::EnumMatch { .. } => {
+            Err("for/enum are only supported in world.mei".to_string())
+        }
     }
 }
 

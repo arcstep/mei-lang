@@ -79,6 +79,7 @@ fn derive_block_id(name: &str, payload: &JsonValue) -> Result<String, LowerGraph
             }
         }
         "metric_def_bundle" => kw_string(obj, "key").map(|key| format!("metric_def_bundle:{key}")),
+        "world" => kw_string(obj, "id").map(|id| format!("world_model:{id}")),
         "warmup_policy" => {
             let scope = obj.get("scope").cloned().unwrap_or(JsonValue::Null);
             Ok(format!("warmup_policy:{scope}"))
@@ -159,5 +160,12 @@ fn expr_to_json(expr: &V2Expr) -> Result<JsonValue, LowerGraphError> {
             map.insert("__args".to_string(), call_args_to_json(args)?);
             Ok(JsonValue::Object(map))
         }
+        V2Expr::Member { object, field } => Ok(JsonValue::Object(Map::from_iter([
+            ("__member".to_string(), JsonValue::String(field.clone())),
+            ("base".to_string(), expr_to_json(object)?),
+        ]))),
+        V2Expr::ForIn { .. } | V2Expr::EnumMatch { .. } => Err(LowerGraphError::Lower(
+            "for/enum must be expanded before lower (expand_world_v2_file)".into(),
+        )),
     }
 }
