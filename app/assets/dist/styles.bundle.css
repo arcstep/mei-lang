@@ -6198,6 +6198,12 @@ body.build-view .preview-pane-scroll {
   pointer-events: none;
 }
 
+.build-review-projection-dim {
+  opacity: 0.28;
+  filter: grayscale(0.35);
+  pointer-events: none;
+}
+
 /* Build 预览 scoped 蒙版：同步压住 portal 到 body 的 GIS 浮层控件（保留地图工具可点） */
 body.build-preview-scoped-active > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools,
 body.build-preview-scoped-active > .mei-cockpit-floating-layer-control,

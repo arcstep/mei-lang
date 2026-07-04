@@ -29,6 +29,7 @@ pub fn render_build_preview_fragment(
     scope: Option<&str>,
     focus: Option<&str>,
     tab: Option<&str>,
+    review_projection: Option<&str>,
 ) -> Option<BuildPreviewFragment> {
     let legacy = LegacyBuildQuery {
         file: None,
@@ -79,8 +80,15 @@ pub fn render_build_preview_fragment(
             asset_preview_body(app_path, selected_target.as_str(), "").into_any()
         };
     let preview_scroll_class = "preview-pane-scroll min-h-0 min-w-0 flex-1 overflow-auto";
+    let review_projection_attr = review_projection
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
     let fragment = view! {
-        <div class=preview_scroll_class>
+        <div
+            class=preview_scroll_class
+            data-review-projection=review_projection_attr
+        >
             {preview_body}
         </div>
         <div

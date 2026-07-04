@@ -145,4 +145,52 @@ impl UiLayoutIndex {
         chain.reverse();
         chain
     }
+
+    /// Client runtime projection manifest keyed by `preview_scope`.
+    pub fn layout_budget_manifest(&self, revision: &str) -> LayoutBudgetManifest {
+        let mut entries = BTreeMap::new();
+        for node in self.nodes.values() {
+            if node.role != UiScopeRole::Section && node.role != UiScopeRole::Slot {
+                continue;
+            }
+            let Some(budget) = node.budget.as_ref() else {
+                continue;
+            };
+            entries.insert(
+                node.preview_scope.clone(),
+                LayoutBudgetManifestEntry {
+                    preview_scope: node.preview_scope.clone(),
+                    slot_height_px: budget.card_height.map(|v| v as f64),
+                    padding_profile: budget.padding_profile.clone(),
+                    content_rows: budget.content_rows.clone(),
+                    content_gap: budget.content_gap.clone(),
+                },
+            );
+        }
+        LayoutBudgetManifest {
+            revision: revision.to_string(),
+            entries,
+        }
+    }
+}
+
+/// Bootstrap attachment for client layout budget projection (pretty-panels pilot).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct LayoutBudgetManifest {
+    pub revision: String,
+    #[serde(default)]
+    pub entries: BTreeMap<String, LayoutBudgetManifestEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct LayoutBudgetManifestEntry {
+    pub preview_scope: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot_height_px: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_rows: Option<Vec<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_gap: Option<String>,
 }

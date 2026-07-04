@@ -23,6 +23,7 @@ use crate::pages::{
     inject_client_bootstrap_script, inject_layer_plane_scripts, inject_presentation_manifest_script,
     AppQuery,
 };
+use crate::review_axes::PageRenderAxes;
 
 const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v2";
 const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
@@ -137,6 +138,7 @@ pub fn access_page_cache_key(
     app_id: &str,
     scene_id: &str,
     route_mode: UiRouteMode,
+    axes: PageRenderAxes,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
     gis: &GisTilesConfig,
@@ -157,6 +159,8 @@ pub fn access_page_cache_key(
         "app_id": app_id,
         "scene_id": scene_id,
         "route_mode": route_mode.slug(),
+        "data_mode": axes.data_mode.slug(),
+        "review_projection": axes.review_projection.slug(),
         "registry_revision": registry_revision,
         "client_revision": client_revision,
         "data_generation": data_generation,
@@ -276,6 +280,7 @@ pub fn resolve_access_page_html(
     scene_id: &str,
     route_mode: UiRouteMode,
     query: &AppQuery,
+    axes: PageRenderAxes,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
     copilot_presentation_id: Option<&str>,
@@ -291,6 +296,7 @@ pub fn resolve_access_page_html(
         app_id,
         scene_id,
         route_mode,
+        axes,
         auth_enabled,
         account_view,
         &gis,
@@ -430,6 +436,7 @@ pub fn render_access_page_template(
         theme_style.as_str(),
         None,
         None,
+        query.review_projection.as_deref(),
     );
     let html = fill_page_shell_placeholders(html, workspace_root);
     let html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
@@ -478,6 +485,7 @@ pub fn prime_access_page_render_cache(
         app_id,
         scene_id,
         route_mode,
+        PageRenderAxes::default(),
         auth_enabled,
         None,
         &gis,
@@ -551,6 +559,8 @@ pub struct SceneRevisionPayload {
     pub app_id: String,
     pub scene_id: String,
     pub route_mode: String,
+    pub data_mode: String,
+    pub review_projection: String,
     pub registry_revision: String,
     pub client_revision: String,
     pub data_generation: String,
@@ -571,6 +581,7 @@ pub fn build_scene_revision_payload(
     app_id: &str,
     scene_id: &str,
     route_mode: UiRouteMode,
+    axes: PageRenderAxes,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
     gis: &GisTilesConfig,
@@ -593,6 +604,7 @@ pub fn build_scene_revision_payload(
         app_id,
         scene_id,
         route_mode,
+        axes,
         auth_enabled,
         account_view,
         gis,
@@ -641,6 +653,8 @@ pub fn build_scene_revision_payload(
         app_id: app_id.to_string(),
         scene_id: scene_id.to_string(),
         route_mode: route_mode.slug().to_string(),
+        data_mode: axes.data_mode.slug().to_string(),
+        review_projection: axes.review_projection.slug().to_string(),
         registry_revision,
         client_revision,
         data_generation,

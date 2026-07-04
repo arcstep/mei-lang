@@ -97,6 +97,8 @@ pub fn resolve_default_app_access_gate(source_root: &Path, app_id: &str) -> Scop
         chrome: None,
         catalog: None,
         pack: None,
+        data_mode: None,
+        review_projection: None,
     };
     resolve_scope_gate(
         source_root,
@@ -158,6 +160,8 @@ pub fn resolve_scope_gate_for_compile(
         chrome: query.chrome.clone(),
         catalog: query.catalog.clone(),
         pack: query.pack.clone(),
+        data_mode: query.data_mode.clone(),
+        review_projection: query.review_projection.clone(),
     };
     let nav_match =
         match_request_to_navigation(source_root, app_id, route_mode, scene, &aligned);
@@ -222,6 +226,8 @@ pub fn check_scope_gate_silent(
         chrome: None,
         catalog: None,
         pack: None,
+        data_mode: None,
+        review_projection: None,
     };
     let nav_match = if scene_id.is_some() || target_file.is_some() {
         match_request_to_navigation_with_opts(
@@ -411,6 +417,8 @@ pub fn check_scope_gate_for_access_entry(source_root: &Path, entry: &AccessEntry
         chrome: None,
         catalog: None,
         pack: None,
+        data_mode: None,
+        review_projection: None,
     };
     resolve_scope_gate(
         source_root,
@@ -477,6 +485,8 @@ mod tests {
             chrome: None,
             catalog: None,
             pack: None,
+        data_mode: None,
+        review_projection: None,
         };
         let gate = resolve_scope_gate_for_compile(
             ws,

@@ -27,6 +27,8 @@ pub struct AppQuery {
     /// Component pack or template folder within the catalog facet.
     pub pack: Option<String>,
     pub chrome: Option<String>,
+    pub data_mode: Option<String>,
+    pub review_projection: Option<String>,
 }
 
 fn percent_encode_query_component(value: &str) -> String {

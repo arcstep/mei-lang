@@ -34,6 +34,10 @@ pub struct AppQuery {
     pub file: Option<String>,
     pub scope: Option<String>,
     pub focus: Option<String>,
+    /// Requested data mode (`eval` | `fixture` | `static`), clamped to serve ceiling.
+    pub data_mode: Option<String>,
+    /// Build / review projection depth (`plane`, `plane_region`, …).
+    pub review_projection: Option<String>,
 }
 
 pub async fn app_page(
@@ -77,11 +81,14 @@ pub async fn app_page(
             }
             let mut guard = state.write().expect("state lock");
             crate::build_ops::refresh_materialization_flags(&mut guard);
+            let axes =
+                crate::review_axes::resolve_page_render_axes(&guard, &query, route_mode);
             let readiness = crate::startup::evaluate_access_readiness(
                 &guard,
                 app_id.as_str(),
                 scene_id.as_str(),
                 route_mode,
+                axes,
             );
             if readiness.ready {
                 None
@@ -139,11 +146,13 @@ pub async fn app_page(
     );
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
+    let axes = crate::review_axes::resolve_page_render_axes(&guard, &query, route_mode);
     let cache_key = access_page_cache_key(
         workspace_root,
         app_id.as_str(),
         scene_id.as_str(),
         route_mode,
+        axes,
         auth_enabled,
         account_view.as_ref(),
         &gis,
@@ -239,7 +248,8 @@ pub async fn app_page(
         );
         let outcome = match assemble_result {
             Ok(Some(mut outcome)) => {
-                outcome.compiled = crate::build_api::enrich_compiled(outcome.compiled);
+                outcome.compiled =
+                    crate::build_api::enrich_compiled(outcome.compiled, workspace_root);
                 outcome
             }
             Ok(None) => {
@@ -331,6 +341,7 @@ pub async fn app_page(
                             theme_style.as_str(),
                             runtime_roots_ref,
                             runtime_json_ref,
+                            query.review_projection.as_deref(),
                         ),
                         workspace_root,
                     ),
@@ -481,11 +492,17 @@ pub async fn host_starting_page(
         }
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
+        let axes = crate::review_axes::resolve_page_render_axes(
+            &guard,
+            &AppQuery::default(),
+            route_mode,
+        );
         crate::startup::evaluate_access_readiness(
             &guard,
             poll_app.as_str(),
             poll_scene.as_str(),
             route_mode,
+            axes,
         )
         .ready
     };
@@ -513,6 +530,7 @@ pub struct AccessReadinessQuery {
     pub app: String,
     pub scene: Option<String>,
     pub mode: Option<String>,
+    pub data_mode: Option<String>,
 }
 
 pub async fn api_host_access_readiness(
@@ -555,11 +573,20 @@ pub async fn api_host_access_readiness(
         }
         let mut guard = state.write().expect("state lock");
         crate::build_ops::refresh_materialization_flags(&mut guard);
+        let axes = crate::review_axes::resolve_page_render_axes(
+            &guard,
+            &AppQuery {
+                data_mode: query.data_mode.clone(),
+                ..Default::default()
+            },
+            route_mode,
+        );
         let readiness = crate::startup::evaluate_access_readiness(
             &guard,
             app_id,
             scene_id,
             route_mode,
+            axes,
         );
         let bootstrap_reason = if route_mode.is_access_like() {
             Some(
@@ -610,6 +637,8 @@ pub struct SceneRevisionQuery {
     pub app: String,
     pub scene: Option<String>,
     pub mode: Option<String>,
+    pub data_mode: Option<String>,
+    pub review_projection: Option<String>,
 }
 
 pub async fn api_scene_revision(
@@ -681,6 +710,15 @@ pub async fn api_scene_revision(
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
     let package_root = guard.package_root.as_path();
+    let axes = crate::review_axes::resolve_page_render_axes(
+        &guard,
+        &AppQuery {
+            data_mode: query.data_mode.clone(),
+            review_projection: query.review_projection.clone(),
+            ..Default::default()
+        },
+        route_mode,
+    );
     let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
     let apps = filter_apps_for_principal(
         discovered.as_slice(),
@@ -728,6 +766,7 @@ pub async fn api_scene_revision(
         app_id,
         scene_id.as_str(),
         route_mode,
+        axes,
         auth_enabled,
         account_view.as_ref(),
         &gis,
@@ -769,6 +808,18 @@ pub async fn api_scene_bootstrap(
         .unwrap_or("home")
         .to_string();
     let guard = state.read().expect("state lock");
+    if !guard.data_mode_ceiling.allows_eval_api() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": format!(
+                    "scene bootstrap unavailable under data mode ceiling `{}`",
+                    guard.data_mode_ceiling.slug()
+                )
+            })),
+        )
+            .into_response();
+    }
     let workspace_root = guard.ctx.workspace_root.as_path();
     let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
     let apps = filter_apps_for_principal(
@@ -813,6 +864,8 @@ pub async fn api_scene_bootstrap(
 pub struct SceneFragmentQuery {
     pub app: String,
     pub scene: Option<String>,
+    pub data_mode: Option<String>,
+    pub review_projection: Option<String>,
 }
 
 pub async fn api_scene_fragment(
@@ -839,6 +892,15 @@ pub async fn api_scene_fragment(
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
     let package_root = guard.package_root.as_path();
+    let axes = crate::review_axes::resolve_page_render_axes(
+        &guard,
+        &AppQuery {
+            data_mode: query.data_mode.clone(),
+            review_projection: query.review_projection.clone(),
+            ..Default::default()
+        },
+        UiRouteMode::App,
+    );
     let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
     let apps = filter_apps_for_principal(
         discovered.as_slice(),
@@ -888,6 +950,7 @@ pub async fn api_scene_fragment(
         app_id,
         scene_id.as_str(),
         UiRouteMode::App,
+        axes,
         auth_enabled,
         account_view.as_ref(),
         &gis,
@@ -901,7 +964,12 @@ pub async fn api_scene_fragment(
         app_id,
         scene_id.as_str(),
         UiRouteMode::App,
-        &AppQuery::default(),
+        &AppQuery {
+            data_mode: query.data_mode.clone(),
+            review_projection: query.review_projection.clone(),
+            ..Default::default()
+        },
+        axes,
         auth_enabled,
         account_view.as_ref(),
         None,

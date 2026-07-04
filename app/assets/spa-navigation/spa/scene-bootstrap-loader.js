@@ -19,6 +19,9 @@
     if (Array.isArray(payload.bootstrapScopes)) {
       window.__mei.bootstrap_scopes = payload.bootstrapScopes;
     }
+    if (payload.layoutBudgetManifest) {
+      window.__mei.layout_budget_manifest = payload.layoutBudgetManifest;
+    }
     window.__meiBootstrapPayloadReady = 1;
     try {
       document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));

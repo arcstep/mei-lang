@@ -9,18 +9,40 @@ pub fn emit_layout_budget_policy_diagnostics(
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
+    validate_layout_budget_policy(panels, diagnostics, source_path);
+    materialize_layout_budget_px(panels, diagnostics, source_path);
+}
+
+/// Compile-time policy validation only (no px materialization).
+pub fn validate_layout_budget_policy(
+    panels: &mut [PanelDecl],
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: &str,
+) {
+    let mut flat = Vec::new();
+    for panel in panels.iter() {
+        collect_panels(panel, &mut flat);
+    }
+    let panel_map: std::collections::HashMap<&str, &PanelDecl> =
+        flat.iter().map(|p| (p.id.as_str(), *p)).collect();
+    for panel in flat.iter() {
+        validate_panel(panel, &panel_map, diagnostics, source_path);
+    }
+}
+
+/// Optional px materialization for baseline SSR / transition paths.
+pub fn materialize_layout_budget_px(
+    panels: &mut [PanelDecl],
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: &str,
+) {
     let (derived_map, region_ids) = {
         let mut flat = Vec::new();
         for panel in panels.iter() {
             collect_panels(panel, &mut flat);
         }
-
         let panel_map: std::collections::HashMap<&str, &PanelDecl> =
             flat.iter().map(|p| (p.id.as_str(), *p)).collect();
-
-        for panel in flat.iter() {
-            validate_panel(panel, &panel_map, diagnostics, source_path);
-        }
 
         let mut derived_map: std::collections::HashMap<String, f64> =
             std::collections::HashMap::new();

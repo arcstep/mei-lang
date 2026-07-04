@@ -177,6 +177,7 @@ pub fn render_page(
     shell_body_theme_style: &str,
     runtime_roots: Option<&[mei_lang_kernel::ReachabilityTreeRoot]>,
     runtime_snapshot_json: Option<&str>,
+    review_projection: Option<&str>,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -242,6 +243,7 @@ pub fn render_page(
             upload_enabled,
             auth_enabled,
             auth_account,
+            review_projection,
         ),
         UiRouteMode::Runtime => runtime_shell(
             apps,

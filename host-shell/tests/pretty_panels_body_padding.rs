@@ -100,6 +100,7 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
         theme_style.as_str(),
         None,
         None,
+        None,
     );
     let body_cell = enforcement_body_cell_style(html.as_str());
     assert!(

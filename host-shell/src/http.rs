@@ -91,6 +91,14 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/datasets/query", post(api_datasets_query))
         .route("/api/datasets/metrics/:app_id", post(api_datasets_metrics))
         .route("/api/ops/theme/style/:app_id", get(api_ops_theme_style))
+        .route(
+            "/api/ops/layout-tuning/overlay/:app_id",
+            get(crate::ops_layout_tuning_api::api_ops_layout_tuning_overlay_get),
+        )
+        .route(
+            "/api/ops/layout-tuning/draft/:app_id",
+            axum::routing::put(crate::ops_layout_tuning_api::api_ops_layout_tuning_draft_put),
+        )
         .route("/api/presentation/map/:app_id", get(api_presentation_map))
         .route("/api/presentation/compile", post(api_presentation_compile))
         .route(
@@ -220,6 +228,18 @@ async fn api_datasets_query_inner(
 ) -> Response {
     let endpoint = {
         let guard = state.read().expect("state lock");
+        if !guard.data_mode_ceiling.allows_eval_api() {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": format!(
+                        "datasets eval API unavailable under data mode ceiling `{}`",
+                        guard.data_mode_ceiling.slug()
+                    )
+                })),
+            )
+                .into_response();
+        }
         match guard.plug_ds_endpoint_for(app_id) {
             Some(endpoint) => endpoint.to_string(),
             None => {
@@ -253,6 +273,18 @@ async fn api_datasets_metrics(
 ) -> Response {
     let endpoint = {
         let guard = state.read().expect("state lock");
+        if !guard.data_mode_ceiling.allows_eval_api() {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({
+                    "error": format!(
+                        "datasets metrics API unavailable under data mode ceiling `{}`",
+                        guard.data_mode_ceiling.slug()
+                    )
+                })),
+            )
+                .into_response();
+        }
         match guard.plug_ds_endpoint_for(app_id.as_str()) {
             Some(endpoint) => endpoint.to_string(),
             None => {
@@ -350,6 +382,7 @@ mod tests {
             startup_detail: None,
             startup_error: None,
             app_materialization: std::collections::BTreeMap::new(),
+            data_mode_ceiling: mei_lang_kernel::DataModeCeiling::Eval,
         }));
         HostHttpState {
             shell,

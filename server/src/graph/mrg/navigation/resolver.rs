@@ -443,6 +443,8 @@ mod tests {
             chrome: None,
             catalog: None,
             pack: None,
+        data_mode: None,
+        review_projection: None,
         };
         let nav = match_request_to_navigation(ws, "demo", UiRouteMode::Build, None, &query);
         assert!(!nav.legacy_fallback);

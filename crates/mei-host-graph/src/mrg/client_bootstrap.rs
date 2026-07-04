@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 
 use mei_host_core::{EvalSlotDescriptor, HostContext};
 use mei_lang_kernel::{
-    load_cache_generation, load_mei_config_for_app, resolve_app_root, MetricContract,
+    load_cache_generation, load_mei_config_for_app, ops_layout_tuning_revision_digest,
+    resolve_app_root, MetricContract,
 };
 use serde::{Deserialize, Serialize};
 
@@ -68,6 +69,12 @@ pub struct ClientBootstrapPayload {
         skip_serializing_if = "Vec::is_empty"
     )]
     bootstrap_scopes: Vec<ClientBootstrapScopePayload>,
+    #[serde(
+        rename = "layoutBudgetManifest",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    layout_budget_manifest: Option<mei_lang_kernel::LayoutBudgetManifest>,
 }
 
 /// Revision token used when the app/scene does not require client bootstrap artifacts.
@@ -89,6 +96,7 @@ pub fn empty_client_bootstrap_payload(
         app_id: app_id.to_string(),
         metrics: Vec::new(),
         bootstrap_scopes: Vec::new(),
+        layout_budget_manifest: None,
     }
 }
 
@@ -365,6 +373,11 @@ pub fn build_client_bootstrap_payload(
         .find(|scope| scope.bootstrap_scope == scene_id)
         .cloned()
         .or_else(|| scope_payloads.first().cloned())?;
+    let layout_budget_manifest = layout_budget_manifest_for_pilot(
+        workspace_root,
+        app_id,
+        scene_id,
+    );
     Some(ClientBootstrapPayload {
         client_revision: primary.client_revision.clone(),
         bootstrap_scope: primary.bootstrap_scope.clone(),
@@ -374,7 +387,36 @@ pub fn build_client_bootstrap_payload(
         app_id: app_id.to_string(),
         metrics: primary.metrics.clone(),
         bootstrap_scopes: scope_payloads,
+        layout_budget_manifest,
     })
+}
+
+fn layout_budget_manifest_for_pilot(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Option<mei_lang_kernel::LayoutBudgetManifest> {
+    if app_id != "pretty-panels" || scene_id != "home" {
+        return None;
+    }
+    let outcome = crate::assemble::assemble_scope_from_registry(workspace_root, app_id, scene_id).ok()??;
+    let revision = format!(
+        "{}:{}",
+        outcome.compile_revision,
+        mei_lang_kernel::ops_layout_tuning_revision_digest(
+            &load_mei_config_for_app(
+                resolve_app_root(workspace_root, app_id).as_path(),
+                Some(workspace_root),
+            )
+            .ops,
+        )
+    );
+    Some(
+        outcome
+            .compiled
+            .ui_layout_index
+            .layout_budget_manifest(revision.as_str()),
+    )
 }
 
 pub fn clear_client_bootstrap_for_scope(app_root: &Path, scope: &str) -> bool {

@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use mei_host_graph::assemble_scope_from_registry;
+use mei_host_graph::{enrich_compiled_scope, EnrichCompiledScopeOptions};
 use mei_lang_kernel::{
-    build_ui_layout_index, compile_scene_from_build_node, BuildNodeId, CompiledApp,
+    compile_scene_from_build_node, BuildNodeId, CompiledApp,
 };
 
 #[derive(Debug, Clone)]
@@ -28,10 +29,14 @@ impl AssembleBuildError {
     }
 }
 
-pub fn enrich_compiled(mut compiled: CompiledApp) -> CompiledApp {
-    let ui_layout = build_ui_layout_index(&compiled);
-    compiled.ui_layout_index = ui_layout.index;
-    compiled
+pub fn enrich_compiled(compiled: CompiledApp, workspace_root: &Path) -> CompiledApp {
+    let app_id = compiled.app_id.clone();
+    enrich_compiled_scope(
+        compiled,
+        workspace_root,
+        app_id.as_str(),
+        EnrichCompiledScopeOptions::default(),
+    )
 }
 
 pub fn assemble_enriched_for_build_node(
@@ -54,7 +59,7 @@ pub fn assemble_enriched_for_build_node(
             ))
         })?;
 
-    let compiled = enrich_compiled(outcome.compiled);
+    let compiled = enrich_compiled(outcome.compiled, workspace_root);
     Ok(EnrichedAssembleOutcome {
         compiled,
         compile_revision: outcome.compile_revision,

@@ -5,6 +5,8 @@ use axum::extract::FromRef;
 use mei_host_auth::AuthServeState;
 use mei_host_core::HostContext;
 
+use mei_lang_kernel::DataModeCeiling;
+
 use crate::build_ops::OpsJobState;
 use crate::managed_plug::ManagedPlugDsPool;
 
@@ -36,6 +38,8 @@ pub struct ShellState {
     pub startup_detail: Option<String>,
     pub startup_error: Option<String>,
     pub app_materialization: BTreeMap<String, AppMaterializationState>,
+    /// Process-level max data capability (`eval` default).
+    pub data_mode_ceiling: DataModeCeiling,
 }
 
 impl ShellState {
@@ -65,6 +69,7 @@ impl ShellState {
             startup_detail: Some("正在启动 MeiLang 宿主服务…".to_string()),
             startup_error: None,
             app_materialization: BTreeMap::new(),
+            data_mode_ceiling: DataModeCeiling::Eval,
         }
     }
 

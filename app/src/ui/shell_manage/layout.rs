@@ -46,6 +46,7 @@ pub(crate) fn manage_shell(
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    review_projection: Option<&str>,
 ) -> AnyView {
     let legacy = LegacyBuildQuery {
         file: target.map(str::to_string),
@@ -153,6 +154,10 @@ pub(crate) fn manage_shell(
     } else {
         "main-pane-scroll preview-pane-scroll flex-1 min-h-0 overflow-auto p-0"
     };
+    let review_projection_attr = review_projection
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
 
     let visible_tabs: Vec<BuildViewTab> = tabs_for_node_kind(resolved.node.kind)
         .iter()
@@ -313,7 +318,7 @@ pub(crate) fn manage_shell(
                             hidden=active_tab_enum != BuildViewTab::Preview
                         >
                             {projection_attrs}
-                            <div class=preview_scroll_class>
+                            <div class=preview_scroll_class data-review-projection=review_projection_attr>
                                 {if selected_target.ends_with(".mei") || selected_target.ends_with(".world.mei") {
                                     preview.into_any()
                                 } else {

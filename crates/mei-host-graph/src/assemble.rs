@@ -3,15 +3,14 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    build_ui_layout_index, load_component_assets, load_mei_config_for_app, normalize_panel_slots,
-    resolve_app_root, resolve_layout_budgets, CompiledApp, CompiledSceneRoute, ComponentAsset,
+    load_component_assets, load_mei_config_for_app, normalize_panel_slots,
+    resolve_app_root, CompiledApp, CompiledSceneRoute, ComponentAsset,
     LoadedResource, PanelDecl, SceneContract, SceneDecl, UiNodeDecl,
 };
 use serde_json::{json, Value};
 
 use crate::import::load_block_artifact;
 use crate::layer_plan::{build_layer_plan, layer_plan_to_value};
-use crate::layout_tuning_merge::merge_layout_tuning_into_compiled;
 use crate::mcg::registry::McgRegistryWriter;
 use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
 use crate::projection_normalize::normalize_board_assembly_payload;
@@ -222,21 +221,13 @@ pub fn assemble_scope_from_registry(
         ui_layout_index: Default::default(),
     };
 
-    let mei_config = load_mei_config_for_app(app_root.as_path(), Some(source_root));
-    let ui_result = build_ui_layout_index(&compiled);
-    compiled.ui_layout_index = ui_result.index;
-    merge_layout_tuning_into_compiled(
-        &mut compiled,
-        mei_config.ops.layout_tuning.as_ref(),
+    load_mei_config_for_app(app_root.as_path(), Some(source_root));
+    compiled = crate::enrich_compiled_scope::enrich_compiled_scope(
+        compiled,
+        source_root,
+        app_id,
+        crate::enrich_compiled_scope::EnrichCompiledScopeOptions::default(),
     );
-    if let Some(contract) = compiled.scene_contract.as_mut() {
-        resolve_layout_budgets(
-            &mut contract.panels,
-            &mut compiled.diagnostics,
-            active_target.as_str(),
-        );
-    }
-    compiled.ui_layout_index = build_ui_layout_index(&compiled).index;
 
     crate::mrg::telemetry::record_access(crate::mrg::telemetry::MrgAccessKind::Assemble, true);
 

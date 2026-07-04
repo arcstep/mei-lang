@@ -231,6 +231,7 @@ pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
     "manage-ops-panel/p1.js",
     "manage-ops-panel/p2.js",
     "manage-ops-panel/p3.js",
+    "manage-ops-panel/p4.js",
 ];
 
 pub(super) const BUNDLE_UPLOAD_SCRIPTS: &[&str] = &[

@@ -590,6 +590,11 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     }
 }
 
+fn serve_data_mode_ceiling(args: &ServeArgs) -> anyhow::Result<mei_lang_kernel::DataModeCeiling> {
+    crate::review_axes::parse_data_mode_ceiling_arg(args.data_mode_ceiling.as_str())
+        .map_err(anyhow::Error::msg)
+}
+
 async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     use std::collections::BTreeMap;
 
@@ -599,6 +604,7 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         .unwrap_or(args.workspace.clone());
     crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
     let package_root = resolve_package_root()?;
+    let data_mode_ceiling = serve_data_mode_ceiling(&args)?;
     if let Some(report) =
         mei_host_core::ensure_workspace_stock_materialized(workspace.as_path(), package_root.as_path())?
     {
@@ -627,19 +633,21 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     let external_plug_ds = crate::plug_proxy::configured_plug_ds_endpoint(&default_ctx);
     let mut managed_pool = None;
     let mut plug_ds_by_app = BTreeMap::new();
-    if let Some(endpoint) = external_plug_ds.as_ref() {
-        plug_ds_by_app.insert(default_app_id.clone(), endpoint.clone());
-    } else {
-        let pool = crate::managed_plug::spawn_managed_plug_ds_pool(
-            workspace.as_path(),
-            app_ids.as_slice(),
-        )
-        .await?;
-        plug_ds_by_app = pool.endpoints.clone();
-        managed_pool = Some(pool);
-    }
-    if plug_ds_by_app.is_empty() {
-        anyhow::bail!("no plug-ds endpoints available for serve");
+    if data_mode_ceiling.requires_plug_ds() {
+        if let Some(endpoint) = external_plug_ds.as_ref() {
+            plug_ds_by_app.insert(default_app_id.clone(), endpoint.clone());
+        } else {
+            let pool = crate::managed_plug::spawn_managed_plug_ds_pool(
+                workspace.as_path(),
+                app_ids.as_slice(),
+            )
+            .await?;
+            plug_ds_by_app = pool.endpoints.clone();
+            managed_pool = Some(pool);
+        }
+        if plug_ds_by_app.is_empty() {
+            anyhow::bail!("no plug-ds endpoints available for serve");
+        }
     }
     let auth_enforcement = if args.auth {
         mei_host_auth::AuthEnforcement::Required
@@ -651,13 +659,17 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         auth_enforcement,
         "mei-host-shell",
     )?;
-    let shell: SharedState = Arc::new(RwLock::new(ShellState::new(
-        workspace.clone(),
-        default_app_id.clone(),
-        package_root.clone(),
-        plug_ds_by_app.clone(),
-        managed_pool.is_some(),
-    )));
+    let shell: SharedState = Arc::new(RwLock::new({
+        let mut state = ShellState::new(
+            workspace.clone(),
+            default_app_id.clone(),
+            package_root.clone(),
+            plug_ds_by_app.clone(),
+            managed_pool.is_some(),
+        );
+        state.data_mode_ceiling = data_mode_ceiling;
+        state
+    }));
     refresh_host_materialization_flags(&shell);
     let discovered = crate::landing::discover_workspace_apps(workspace.as_path()).unwrap_or_default();
     let app_ids: Vec<String> = if discovered.is_empty() {
@@ -750,6 +762,7 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
         .unwrap_or(args.workspace.clone());
     crate::build_info::log_host_identity(Some(workspace.as_path()), "serve");
     let package_root = resolve_package_root()?;
+    let data_mode_ceiling = serve_data_mode_ceiling(&args)?;
     let default_app_id = args.app.clone();
     let discovered = crate::landing::discover_workspace_apps(workspace.as_path())?;
     let app_ids: Vec<String> = if discovered.is_empty() {
@@ -767,13 +780,17 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
         auth_enforcement,
         "mei-host-shell",
     )?;
-    let shell: SharedState = Arc::new(RwLock::new(ShellState::new(
-        workspace.clone(),
-        default_app_id.clone(),
-        package_root.clone(),
-        BTreeMap::new(),
-        false,
-    )));
+    let shell: SharedState = Arc::new(RwLock::new({
+        let mut state = ShellState::new(
+            workspace.clone(),
+            default_app_id.clone(),
+            package_root.clone(),
+            BTreeMap::new(),
+            false,
+        );
+        state.data_mode_ceiling = data_mode_ceiling;
+        state
+    }));
     let managed_plug = Arc::new(Mutex::new(None::<crate::managed_plug::ManagedPlugDsPool>));
     let auth_state = mei_host_auth::AuthServeState::new(workspace.clone(), auth_enforcement);
     let state = HostHttpState {
@@ -809,6 +826,7 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
         listen_url,
         auth_enabled: args.auth,
         app_ids: app_ids.clone(),
+        data_mode_ceiling,
         managed_plug_slot: managed_plug,
     };
     tokio::spawn(crate::startup::run_background_startup(shell, startup_plan));

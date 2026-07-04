@@ -5,6 +5,7 @@ mod assemble;
 mod bridge;
 mod content_store;
 mod data_snapshot;
+mod enrich_compiled_scope;
 mod import;
 mod io;
 mod layer_plan;
@@ -26,6 +27,9 @@ mod world_plan;
 pub use assemble::{
     assemble_scope_from_registry, collect_all_board_scenes, list_scope_routes, AssembleOutcome,
     ScopeRoute,
+};
+pub use enrich_compiled_scope::{
+    enrich_compiled_scope, EnrichCompiledScopeOptions,
 };
 pub use data_snapshot::{
     collect_app_xlsx_sources, publish_app_data_snapshots, PublishDataSnapshotsReport,

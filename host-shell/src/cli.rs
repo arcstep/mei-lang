@@ -169,6 +169,9 @@ pub struct ServeArgs {
     /// 启用宿主登录鉴权（须已配置用户，否则启动失败）
     #[arg(long)]
     pub auth: bool,
+    /// 进程级数据能力上限：eval（默认）| fixture | static
+    #[arg(long = "data-mode-ceiling", value_name = "MODE", default_value = "eval")]
+    pub data_mode_ceiling: String,
 }
 
 #[derive(Subcommand, Debug)]

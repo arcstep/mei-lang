@@ -162,6 +162,10 @@
     });
     const focus = parsed.searchParams.get("focus");
     if (focus) params.set("focus", focus);
+    const reviewProjection = parsed.searchParams.get("review_projection");
+    if (reviewProjection) params.set("review_projection", reviewProjection);
+    const dataMode = parsed.searchParams.get("data_mode");
+    if (dataMode) params.set("data_mode", dataMode);
     const controller = new AbortController();
     const timer = global.setTimeout(() => controller.abort(), FRAGMENT_FETCH_TIMEOUT_MS);
     try {

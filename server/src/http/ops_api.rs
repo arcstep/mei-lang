@@ -84,6 +84,13 @@ pub async fn ops_config_put(
     Path(app_id): Path<String>,
     Json(body): Json<OpsPatchRequest>,
 ) -> impl IntoResponse {
+    if state.auth_enforcement == mei_host_auth::AuthEnforcement::Required && principal.is_none() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "auth required for ops config write"})),
+        )
+            .into_response();
+    }
     if body.patch.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -286,6 +293,46 @@ pub async fn ops_theme_style_get(
         );
     }
     response
+}
+
+#[derive(Debug, Serialize)]
+struct LayoutTuningOverlayResponse {
+    app_id: String,
+    revision: String,
+    draft_active: bool,
+    entries: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
+pub async fn ops_layout_tuning_overlay_get(
+    State(state): State<AppState>,
+    Path(app_id): Path<String>,
+) -> impl IntoResponse {
+    let Some(app_root) = resolve_app_root(&state, &app_id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    };
+    let source_root = state.source_root.as_path();
+    let config = load_mei_config_for_app(&app_root, Some(source_root));
+    let revision = mei_lang_kernel::ops_layout_tuning_revision_digest(&config.ops);
+    let entries = config
+        .ops
+        .layout_tuning
+        .as_ref()
+        .map(mei_lang_kernel::layout_tuning_overlay_keys)
+        .unwrap_or_default();
+    (
+        StatusCode::OK,
+        Json(LayoutTuningOverlayResponse {
+            app_id,
+            revision,
+            draft_active: false,
+            entries,
+        }),
+    )
+        .into_response()
 }
 
 fn theme_id_from_scene_contract(

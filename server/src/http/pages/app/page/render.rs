@@ -325,6 +325,7 @@ pub(super) fn render_compiled_success(
                     None
                 },
                 runtime_snapshot_json.as_deref(),
+                query.review_projection.as_deref(),
             );
             fill_page_shell_placeholders(rendered, &gis, state.source_root.as_path())
         });

@@ -67,6 +67,8 @@ pub use compile::{
     load_xlsx_table_snapshot, local_dataset_id_from_namespaced_token,
     materialize_xlsx_column_headers, normalize_panel_slots, panel_resolved_has_head, parquet_snapshot_path,
     resolve_layout_budgets,
+    materialize_layout_budget_px,
+    validate_layout_budget_policy,
     preview_target_from_build_node, preview_target_from_build_node_with_app,
     catalog_preview_target_for_build_node,
     publish_xlsx_data_snapshots_for_paths, read_data_snapshot_import_manifest,
@@ -191,11 +193,12 @@ pub use model::{
     FilterIntentSource, FilterOperator, FlowDecl, FrameDecl, LayoutDecl, LegacyBuildQuery,
     LoadedResource, MetricContract, MetricPackContract, MetricRef, MetricShape, PanelDecl,
     PanelRefEmbedDecl, ProvenanceAnchor, QueryState, QueryTimeRange, ResolvedBuildViewQuery,
-    ResourceDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl, RuleStartDecl,
+    ResourceDecl, DataMode, DataModeCeiling, ReviewProjection, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl, RuleStartDecl,
     RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, SemanticEdgeKind,
     SemanticNodeKind, Severity, SourceDecl, ThemeDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode,
     WorldCellDecl, WorldMetricLedgerEntry, WorldSemanticDataset, WorldSemanticExplainBlock,
-    WorldSemanticFileIndex, WorldSemanticMetric, UiBudgetSummary, UiLayoutIndex, UiScopeNode,
+    WorldSemanticFileIndex, WorldSemanticMetric, UiBudgetSummary, UiLayoutIndex, LayoutBudgetManifest,
+    LayoutBudgetManifestEntry, UiScopeNode,
     UiScopeRole, UiSourceAnchor,
 };
 pub use ops_journal::{apply_ops_patch_with_journal, journal_path, OpsJournal, OpsJournalEntry};

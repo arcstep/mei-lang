@@ -8,6 +8,7 @@ mod diagnostic;
 mod layout;
 mod panel;
 mod resource;
+mod review_modes;
 mod ui;
 mod workspace;
 mod world;
@@ -24,7 +25,8 @@ pub use build_view_index::{
     ReachabilityTreeRootSnapshot, TemplateCatalogEntry, TemplateConsumerAnchor,
 };
 pub use ui_layout_index::{
-    UiBudgetSummary, UiLayoutIndex, UiScopeNode, UiScopeRole, UiSourceAnchor,
+    LayoutBudgetManifest, LayoutBudgetManifestEntry, UiBudgetSummary, UiLayoutIndex, UiScopeNode,
+    UiScopeRole, UiSourceAnchor,
 };
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;
@@ -38,6 +40,7 @@ pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};
 pub use panel::{PanelDecl, PanelSlotDecl};
 pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
+pub use review_modes::{DataMode, DataModeCeiling, ReviewProjection};
 pub use ui::{
     deserialize_ui_node_value, BlockDecl, ComponentExportDecl, FrameExportDecl, PanelExportDecl,
     PanelRefEmbedDecl, SceneExportDecl, ThemeDecl, UiNodeDecl,

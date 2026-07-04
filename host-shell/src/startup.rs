@@ -8,6 +8,7 @@ use mei_host_core::HostContext;
 use mei_lang_app::UiRouteMode;
 
 use crate::managed_plug::ManagedPlugDsPool;
+use crate::review_axes::{access_readiness_requires_bootstrap, access_readiness_requires_plug_ds, PageRenderAxes};
 use crate::state::{SharedState, ShellState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,8 +66,9 @@ pub(crate) fn probe_app_access_readiness(
     app_id: &str,
     scene_id: &str,
     route_mode: UiRouteMode,
+    axes: PageRenderAxes,
 ) -> AppAccessProbe {
-    let readiness = evaluate_access_readiness(shell, app_id, scene_id, route_mode);
+    let readiness = evaluate_access_readiness(shell, app_id, scene_id, route_mode, axes);
     let bootstrap_reason = if route_mode.is_access_like() {
         Some(
             mei_host_graph::bootstrap_embed_status(
@@ -106,7 +108,13 @@ pub(crate) fn build_access_ready_banner_lines(
         format!("defaultApp={}", shell.ctx.app_id),
     ];
     for app_id in app_ids {
-        let probe = probe_app_access_readiness(shell, app_id.as_str(), scene_id, UiRouteMode::App);
+        let probe = probe_app_access_readiness(
+            shell,
+            app_id.as_str(),
+            scene_id,
+            UiRouteMode::App,
+            PageRenderAxes::default(),
+        );
         lines.push(format_app_access_line(app_id.as_str(), &probe));
     }
     lines.push("all listed apps ready — access pages may be served".to_string());
@@ -115,7 +123,14 @@ pub(crate) fn build_access_ready_banner_lines(
 
 fn all_apps_access_ready(shell: &ShellState, app_ids: &[String], scene_id: &str) -> bool {
     app_ids.iter().all(|app_id| {
-        probe_app_access_readiness(shell, app_id.as_str(), scene_id, UiRouteMode::App).ready
+        probe_app_access_readiness(
+            shell,
+            app_id.as_str(),
+            scene_id,
+            UiRouteMode::App,
+            PageRenderAxes::default(),
+        )
+        .ready
     })
 }
 
@@ -135,7 +150,13 @@ fn log_newly_ready_apps(
         if logged.contains(app_id) {
             continue;
         }
-        let probe = probe_app_access_readiness(shell, app_id.as_str(), scene_id, UiRouteMode::App);
+        let probe = probe_app_access_readiness(
+            shell,
+            app_id.as_str(),
+            scene_id,
+            UiRouteMode::App,
+            PageRenderAxes::default(),
+        );
         if probe.ready {
             logged.insert(app_id.clone());
             tracing::info!(
@@ -170,6 +191,7 @@ pub(crate) fn evaluate_access_readiness(
     app_id: &str,
     scene_id: &str,
     route_mode: UiRouteMode,
+    axes: PageRenderAxes,
 ) -> AccessReadiness {
     if shell.startup_error.is_some() {
         return AccessReadiness {
@@ -185,15 +207,19 @@ pub(crate) fn evaluate_access_readiness(
         };
     }
     if route_mode.is_access_like() {
-        let bootstrap =
-            mei_host_graph::bootstrap_embed_status(workspace, app_id, scene_id);
-        if !bootstrap.allowed {
-            return AccessReadiness {
-                ready: false,
-                reason: "warming",
-            };
+        if access_readiness_requires_bootstrap(axes) {
+            let bootstrap =
+                mei_host_graph::bootstrap_embed_status(workspace, app_id, scene_id);
+            if !bootstrap.allowed {
+                return AccessReadiness {
+                    ready: false,
+                    reason: "warming",
+                };
+            }
         }
-        if shell.plug_ds_endpoint_for(app_id).is_none() {
+        if access_readiness_requires_plug_ds(axes)
+            && shell.plug_ds_endpoint_for(app_id).is_none()
+        {
             return AccessReadiness {
                 ready: false,
                 reason: "plug_ds",
@@ -300,6 +326,7 @@ pub(crate) struct ServeStartupPlan {
     pub listen_url: String,
     pub auth_enabled: bool,
     pub app_ids: Vec<String>,
+    pub data_mode_ceiling: mei_lang_kernel::DataModeCeiling,
     pub managed_plug_slot: Arc<Mutex<Option<ManagedPlugDsPool>>>,
 }
 
@@ -351,19 +378,21 @@ async fn run_background_startup_inner(
     let external_plug_ds = crate::plug_proxy::configured_plug_ds_endpoint(&default_ctx);
     let mut managed_pool = None;
     let mut plug_ds_by_app = BTreeMap::new();
-    if let Some(endpoint) = external_plug_ds.as_ref() {
-        plug_ds_by_app.insert(plan.default_app_id.clone(), endpoint.clone());
-    } else {
-        let pool = crate::managed_plug::spawn_managed_plug_ds_pool(
-            plan.workspace.as_path(),
-            plan.app_ids.as_slice(),
-        )
-        .await?;
-        plug_ds_by_app = pool.endpoints.clone();
-        managed_pool = Some(pool);
-    }
-    if plug_ds_by_app.is_empty() {
-        anyhow::bail!("no plug-ds endpoints available for serve");
+    if plan.data_mode_ceiling.requires_plug_ds() {
+        if let Some(endpoint) = external_plug_ds.as_ref() {
+            plug_ds_by_app.insert(plan.default_app_id.clone(), endpoint.clone());
+        } else {
+            let pool = crate::managed_plug::spawn_managed_plug_ds_pool(
+                plan.workspace.as_path(),
+                plan.app_ids.as_slice(),
+            )
+            .await?;
+            plug_ds_by_app = pool.endpoints.clone();
+            managed_pool = Some(pool);
+        }
+        if plug_ds_by_app.is_empty() {
+            anyhow::bail!("no plug-ds endpoints available for serve");
+        }
     }
     let plug_ds_managed = managed_pool.is_some();
     if let Some(pool) = managed_pool {
@@ -385,7 +414,9 @@ async fn run_background_startup_inner(
     crate::build_ops::refresh_materialization_flags(&mut shell.write().expect("state lock"));
 
     if defer_warmup_to_prebuild() {
-        wait_for_prebuild_warmup(&shell, &plan).await?;
+        if plan.data_mode_ceiling.requires_metric_warmup() {
+            wait_for_prebuild_warmup(&shell, &plan).await?;
+        }
     } else {
         set_startup_phase(&shell, StartupPhase::PrimingCache);
         let skip_page_cache = shell
@@ -541,15 +572,27 @@ async fn wait_for_prebuild_warmup(
                 let pending: Vec<String> = wait_app_ids
                     .iter()
                     .filter(|app_id| {
-                        !probe_app_access_readiness(&guard, app_id.as_str(), "home", UiRouteMode::App)
-                            .ready
+                        !probe_app_access_readiness(
+                            &guard,
+                            app_id.as_str(),
+                            "home",
+                            UiRouteMode::App,
+                            PageRenderAxes::default(),
+                        )
+                        .ready
                     })
                     .cloned()
                     .collect();
                 let sample = pending
                     .first()
                     .map(|app_id| {
-                        probe_app_access_readiness(&guard, app_id.as_str(), "home", UiRouteMode::App)
+                        probe_app_access_readiness(
+                            &guard,
+                            app_id.as_str(),
+                            "home",
+                            UiRouteMode::App,
+                            PageRenderAxes::default(),
+                        )
                     })
                     .map(|probe| {
                         format!(
@@ -736,6 +779,7 @@ mod tests {
             "data-demo",
             "home",
             UiRouteMode::App,
+            PageRenderAxes::default(),
         );
         assert!(data_demo.ready, "default app registry should be ready");
 
@@ -744,6 +788,7 @@ mod tests {
             "mini-park",
             "home",
             UiRouteMode::App,
+            PageRenderAxes::default(),
         );
         assert!(!mini_park.ready, "mini-park without nodes must not be ready");
         assert_eq!(mini_park.reason, "importing");

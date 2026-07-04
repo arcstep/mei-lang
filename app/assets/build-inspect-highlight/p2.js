@@ -17,6 +17,77 @@
     syncBuildPreviewScopedChrome(root);
   }
 
+  function readReviewProjectionFromUrl() {
+    try {
+      return String(
+        new URL(global.location.href).searchParams.get("review_projection") || "",
+      ).trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  const REVIEW_ROLE_DEPTH = { plane: 0, region: 1, section: 2, slot: 3 };
+  const REVIEW_PROJECTION_MAX_DEPTH = {
+    plane: 0,
+    plane_region: 1,
+    plane_region_section: 2,
+    static_full: 99,
+    live_full: 99,
+    static: 99,
+    live: 99,
+  };
+
+  function normalizeReviewProjection(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
+  }
+
+  function elementReviewDepth(el) {
+    if (!(el instanceof HTMLElement)) return 99;
+    const role = String(el.getAttribute("data-mei-ui-role") || "")
+      .trim()
+      .toLowerCase();
+    if (role && Object.prototype.hasOwnProperty.call(REVIEW_ROLE_DEPTH, role)) {
+      return REVIEW_ROLE_DEPTH[role];
+    }
+    if (el.hasAttribute("data-mei-panel-id")) return 1;
+    if (el.hasAttribute("data-preview-scope")) return 2;
+    if (el.hasAttribute("data-mei-use-key") || el.hasAttribute("data-build-node")) return 3;
+    return 99;
+  }
+
+  function applyReviewProjectionChrome(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const projection = normalizeReviewProjection(
+      root.getAttribute("data-review-projection") || readReviewProjectionFromUrl(),
+    );
+    const maxDepth = REVIEW_PROJECTION_MAX_DEPTH[projection];
+    root.querySelectorAll(".build-review-projection-dim").forEach((el) => {
+      el.classList.remove("build-review-projection-dim");
+      if (el instanceof HTMLElement) el.style.removeProperty("pointer-events");
+    });
+    if (maxDepth == null || maxDepth >= 99) {
+      root.removeAttribute("data-review-projection-active");
+      return;
+    }
+    root.setAttribute("data-review-projection-active", projection || "static_full");
+    root
+      .querySelectorAll(
+        "[data-mei-ui-role], [data-mei-panel-id], [data-preview-scope], [data-mei-use-key], [data-build-node]",
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const depth = elementReviewDepth(el);
+        if (depth > maxDepth) {
+          el.classList.add("build-review-projection-dim");
+          el.style.pointerEvents = "none";
+        }
+      });
+  }
+
   function applyScopedPreview(root) {
     const node = activeBuildNode();
     root.querySelectorAll("[data-preview-scope], [data-mei-panel-id], [data-chart-slot-index], [data-build-board-slot], [data-mei-use-key], [data-mei-tier], [data-mei-ui-scope]").forEach((el) => {
@@ -414,6 +485,7 @@
     }
     syncShellFocus(readFocusFromUrl());
     bindPreviewInspect(root);
+    applyReviewProjectionChrome(root);
     applyHighlight(root);
   }
 

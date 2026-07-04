@@ -21,6 +21,10 @@ pub struct BuildWorkspaceFragmentQuery {
     pub focus: Option<String>,
     #[serde(default)]
     pub scope: Option<String>,
+    #[serde(default)]
+    pub review_projection: Option<String>,
+    #[serde(default)]
+    pub data_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -32,6 +36,10 @@ struct BuildWorkspaceFragmentResponse {
     workspace_scripts: Vec<String>,
     node: String,
     focus: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    data_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review_projection: Option<String>,
 }
 
 pub async fn api_build_workspace_fragment(
@@ -114,6 +122,7 @@ pub async fn api_build_workspace_fragment(
         query.scope.as_deref(),
         query.focus.as_deref(),
         Some("preview"),
+        query.review_projection.as_deref(),
     ) else {
         return json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -129,6 +138,8 @@ pub async fn api_build_workspace_fragment(
         workspace_scripts: fragment.workspace_scripts,
         node: fragment.node,
         focus: fragment.focus,
+        data_mode: query.data_mode.clone(),
+        review_projection: query.review_projection.clone(),
     };
     let mut response = Json(body).into_response();
     *response.status_mut() = StatusCode::OK;

@@ -139,6 +139,10 @@ pub fn router() -> Router<AppState> {
             "/api/ops/theme/style/*app_id",
             get(ops_api::ops_theme_style_get),
         )
+        .route(
+            "/api/ops/layout-tuning/overlay/*app_id",
+            get(ops_api::ops_layout_tuning_overlay_get),
+        )
         .route("/api/ops/journal/*app_id", get(ops_api::ops_journal_get))
         .route(
             "/api/upload/init/*app_id",
