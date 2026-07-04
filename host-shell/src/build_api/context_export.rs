@@ -30,6 +30,10 @@ pub struct BuildContextExportQuery {
     #[serde(default)]
     pub focus: Option<String>,
     #[serde(default)]
+    pub data_mode: Option<String>,
+    #[serde(default)]
+    pub review_projection: Option<String>,
+    #[serde(default)]
     pub include_graph: Option<String>,
     #[serde(default)]
     pub include_readiness: Option<String>,
@@ -126,15 +130,48 @@ pub async fn api_build_context_export(
             url.push_str("&focus=");
             url.push_str(&percent_encode_component(focus));
         }
+        if let Some(dm) = query
+            .data_mode
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            url.push_str("&data_mode=");
+            url.push_str(&percent_encode_component(dm));
+        }
+        if let Some(rp) = query
+            .review_projection
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            url.push_str("&review_projection=");
+            url.push_str(&percent_encode_component(rp));
+        }
         url
     };
 
+    let data_mode = query
+        .data_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("eval");
+    let review_projection = query
+        .review_projection
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("plane_region_section");
+
     let mut md = String::new();
-    md.push_str("## Mei Build Context\n\n");
+    md.push_str("## Mei Prototype Debug Context\n\n");
     md.push_str(&format!("- **App**: `{app_id}`\n"));
     md.push_str(&format!("- **Node**: `{}`\n", resolved.node.encode()));
     md.push_str(&format!("- **Tab**: `{}`\n", tab.slug()));
     md.push_str(&format!("- **Intent**: `{intent}`\n"));
+    md.push_str(&format!("- **data_mode**: `{data_mode}`\n"));
+    md.push_str(&format!("- **review_projection**: `{review_projection}`\n"));
     md.push_str(&format!("- **Build URL**: `{build_url}`\n"));
     md.push_str(&format!(
         "- **Gate**: host=`{host_phase}` app=`{}` scope=`registry`\n",

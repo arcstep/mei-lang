@@ -11,6 +11,7 @@
     "slides",
   ]);
   const BUILD_ROUTE_SLUGS = new Set(["build", "manage"]);
+  const RUNTIME_ROUTE_SLUGS = new Set(["runtime"]);
 
   function appRouteSlugFromPathname(pathname = window.location.pathname) {
     const path = String(pathname || "");
@@ -24,6 +25,10 @@
 
   function isAppRoute(pathname = window.location.pathname) {
     return ACCESS_LIKE_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
+  }
+
+  function isRuntimeRoute(pathname = window.location.pathname) {
+    return RUNTIME_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
   }
 
   function isBuildRoute(pathname = window.location.pathname) {
@@ -53,7 +58,7 @@
   /** Preview-capable host routes: access-like scene shells + build/manage editors. */
   function shouldMountDrilldownHost(pathname = window.location.pathname) {
     const slug = appRouteSlugFromPathname(pathname);
-    return ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug);
+    return ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug) || RUNTIME_ROUTE_SLUGS.has(slug);
   }
 
   function isBoardLinkConfig(popup) {

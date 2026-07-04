@@ -1989,6 +1989,24 @@
     return resp.json();
   }
 
+  function applyContentBudgetToNode(node, budget) {
+    if (!(node instanceof HTMLElement) || !budget || typeof budget !== "object") return false;
+    let patched = false;
+    const rows = budget.rows ?? budget.content_rows ?? budget.contentRows;
+    const gap = budget.gap ?? budget.content_gap ?? budget.contentGap;
+    if (Array.isArray(rows) && rows.length > 0) {
+      node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
+      node.dataset.layoutTuningContentRows = rows.join(",");
+      patched = true;
+    }
+    if (gap != null && gap !== "") {
+      node.style.rowGap = `${gap}px`;
+      node.dataset.layoutTuningContentGap = String(gap);
+      patched = true;
+    }
+    return patched;
+  }
+
   function applyOverlayEntries(root, entries) {
     if (!(root instanceof HTMLElement) || !entries || typeof entries !== "object") return false;
     let patched = false;
@@ -2007,6 +2025,10 @@
       const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
       if (paddingProfile) {
         node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
+        patched = true;
+      }
+      const contentBudget = patch.content_budget ?? patch.contentBudget;
+      if (applyContentBudgetToNode(node, contentBudget)) {
         patched = true;
       }
     });

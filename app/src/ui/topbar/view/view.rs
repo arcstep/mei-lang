@@ -6,7 +6,7 @@ use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{
     app_scene_href, build_href_with_catalog, config_href, cross_app_href, presentation_scene_href,
-    runtime_href, upload_href,
+    runtime_href,
 };
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
@@ -23,7 +23,7 @@ pub(crate) fn topbar_view(
     active_tab: Option<&str>,
     active_catalog: Option<&str>,
     active_stock_pack: Option<&str>,
-    upload_enabled: bool,
+    _upload_enabled: bool,
     stage_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
@@ -183,21 +183,22 @@ pub(crate) fn topbar_view(
     );
     let runtime_href = runtime_href(active_app_path, None, None);
     let config_href = append_scene_query(config_href(active_app_path), access_scene_for_href);
-    let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
     let presentation_href = if access_disabled {
         "#".to_string()
     } else {
         presentation_scene_href(active_app_path, access_scene_for_href)
     };
-    let (show_config_tab, show_upload_tab, show_build_tab) =
-        auth_surface_tabs_visible(auth_enabled, auth_account);
+    let (show_config_tab, show_build_tab) = auth_surface_tabs_visible(auth_enabled, auth_account);
     let show_runtime_tab = show_build_tab;
-    let show_upload_mode = upload_enabled && show_upload_tab;
     let visible_mode_tab_count = 1usize
-        + usize::from(show_upload_mode)
         + usize::from(show_config_tab)
         + usize::from(show_build_tab)
         + usize::from(show_runtime_tab);
+    let app_product_label = UiRouteMode::App.product_label();
+    let build_product_label = UiRouteMode::Build.product_label();
+    let config_product_label = UiRouteMode::Config.product_label();
+    let runtime_product_label = UiRouteMode::Runtime.product_label();
+    let speech_product_label = UiRouteMode::Run.product_label();
     let mode_tabs = if visible_mode_tab_count <= 1 {
         view! { <></> }.into_any()
     } else {
@@ -209,23 +210,23 @@ pub(crate) fn topbar_view(
                     size="small"
                     href=app_href.clone()
                     disabled=access_disabled
-                    title=if access_disabled { "当前没有可发布的 scene route" } else { "访问" }
-                    aria-label="访问"
+                    title=if access_disabled { "当前没有可发布的 scene route" } else { app_product_label }
+                    aria-label=app_product_label
                     data-mei-view="app"
                 >
-                    <span class="mode-label">"访问"</span>
+                    <span class="mode-label">{app_product_label}</span>
                 </sl-button>
-                {if show_upload_mode {
+                {if show_build_tab {
                     view! {
                         <sl-button
-                            class=if route_mode == UiRouteMode::Upload { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                            class=if route_mode == UiRouteMode::Build { "mode-tab-btn is-active" } else { "mode-tab-btn" }
                             size="small"
-                            href=upload_href.clone()
-                            title="上传"
-                            aria-label="上传"
-                            data-mei-view="upload"
+                            href=build_href.clone()
+                            title=build_product_label
+                            aria-label=build_product_label
+                            data-mei-view="build"
                         >
-                            <span class="mode-label">"上传"</span>
+                            <span class="mode-label">{build_product_label}</span>
                         </sl-button>
                     }.into_any()
                 } else {
@@ -237,27 +238,11 @@ pub(crate) fn topbar_view(
                             class=if route_mode == UiRouteMode::Config { "mode-tab-btn is-active" } else { "mode-tab-btn" }
                             size="small"
                             href=config_href.clone()
-                            title="配置"
-                            aria-label="配置"
+                            title="配置（Client / Server）"
+                            aria-label=config_product_label
                             data-mei-view="config"
                         >
-                            <span class="mode-label">"配置"</span>
-                        </sl-button>
-                    }.into_any()
-                } else {
-                    view! { <></> }.into_any()
-                }}
-                {if show_build_tab {
-                    view! {
-                        <sl-button
-                            class=if route_mode == UiRouteMode::Build { "mode-tab-btn is-active" } else { "mode-tab-btn" }
-                            size="small"
-                            href=build_href.clone()
-                            title="构建"
-                            aria-label="构建"
-                            data-mei-view="build"
-                        >
-                            <span class="mode-label">"构建"</span>
+                            <span class="mode-label">{config_product_label}</span>
                         </sl-button>
                     }.into_any()
                 } else {
@@ -269,11 +254,11 @@ pub(crate) fn topbar_view(
                             class=if route_mode == UiRouteMode::Runtime { "mode-tab-btn is-active" } else { "mode-tab-btn" }
                             size="small"
                             href=runtime_href.clone()
-                            title="运行"
-                            aria-label="运行"
+                            title=runtime_product_label
+                            aria-label=runtime_product_label
                             data-mei-view="runtime"
                         >
-                            <span class="mode-label">"运行"</span>
+                            <span class="mode-label">{runtime_product_label}</span>
                         </sl-button>
                     }.into_any()
                 } else {
@@ -284,11 +269,14 @@ pub(crate) fn topbar_view(
     }
     .into_any()
     };
-    let launch_title = if stage_enabled {
-        "在新标签页进入演示模式"
+    let launch_title = if access_disabled {
+        "当前没有可进入演说的 scene route".to_string()
+    } else if stage_enabled {
+        format!("{speech_product_label}（新标签页打开演示模式）")
     } else {
-        "在新标签页进入 scene 演示模式"
+        format!("{speech_product_label}（新标签页打开 scene）")
     };
+    let launch_aria_label = launch_title.clone();
     let account_view = if auth_enabled {
         if let Some(account) = auth_account.filter(|item| item.logged_in) {
             let display = if account.profile.trim().is_empty() {
@@ -357,7 +345,7 @@ pub(crate) fn topbar_view(
                         disabled=access_disabled
                         target="_blank"
                         rel="noopener noreferrer"
-                        aria-label=launch_title
+                        aria-label=launch_aria_label
                     >
                         <span class="mode-icon" aria-hidden="true">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

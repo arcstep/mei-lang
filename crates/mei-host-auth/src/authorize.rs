@@ -218,11 +218,10 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
             }
         }
         let route_allowed = match mode.as_str() {
-            "app" | "access" | "access-only" | "run" | "presentation" | "slides" => {
-                caps.access_view
-            }
+            "app" | "access" | "access-only" | "run" | "presentation" | "slides"
+            | "copilot" | "speaker" => caps.access_view,
             "upload" | "config" => caps.config_upload,
-            "build" | "manage" => caps.build_view,
+            "build" | "manage" | "runtime" => caps.build_view,
             _ => false,
         };
         if !route_allowed {

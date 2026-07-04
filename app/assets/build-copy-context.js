@@ -31,9 +31,24 @@
 
   function copyButtonLabel(btn, intent) {
     if (btn.id === "build-copy-agent-context-top") {
-      return "复制 Agent 上下文";
+      return "复制原型调试上下文";
     }
-    return intent === "full" ? "复制 Agent 上下文" : "复制 Markdown 简报";
+    return intent === "full" ? "复制原型调试上下文" : "复制 Markdown 简报";
+  }
+
+  function reviewAxesFromShell(shell) {
+    if (!shell) return { dataMode: "", reviewProjection: "" };
+    return {
+      dataMode: shell.getAttribute("data-data-mode") || "",
+      reviewProjection: shell.getAttribute("data-review-projection") || "",
+    };
+  }
+
+  function reviewAxesFromButton(btn) {
+    return {
+      dataMode: btn.getAttribute("data-data-mode") || "",
+      reviewProjection: btn.getAttribute("data-review-projection") || "",
+    };
   }
 
   async function handleCopyClick(btn) {
@@ -52,6 +67,11 @@
     const prevLabel = btn.textContent;
     btn.disabled = true;
     try {
+      const shell = document.querySelector(".shell[data-build-node]");
+      const axes = {
+        ...reviewAxesFromShell(shell),
+        ...reviewAxesFromButton(btn),
+      };
       const params = {
         app_id: appId,
         node,
@@ -59,6 +79,8 @@
         intent,
         include_readiness: "1",
       };
+      if (axes.dataMode) params.data_mode = axes.dataMode;
+      if (axes.reviewProjection) params.review_projection = axes.reviewProjection;
       if (intent === "full") {
         params.include_graph = "semantic,eval,mcg,mrg";
       }
@@ -91,10 +113,13 @@
   function shellContext() {
     const shell = document.querySelector("[data-build-node]");
     if (!shell) return null;
+    const axes = reviewAxesFromShell(shell);
     return {
       appPath: shell.getAttribute("data-app-path") || "",
       node: shell.getAttribute("data-build-node") || "",
       tab: shell.getAttribute("data-build-tab") || "overview",
+      dataMode: axes.dataMode,
+      reviewProjection: axes.reviewProjection,
     };
   }
 
@@ -128,6 +153,8 @@
         intent: "full",
         include_graph: "semantic,eval,mcg,mrg",
         include_readiness: "1",
+        ...(ctx.dataMode ? { data_mode: ctx.dataMode } : {}),
+        ...(ctx.reviewProjection ? { review_projection: ctx.reviewProjection } : {}),
       });
     } catch (err) {
       pre.textContent = String(err);

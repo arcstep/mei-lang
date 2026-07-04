@@ -13,6 +13,7 @@ mod document;
 mod manage_routing;
 mod preview;
 mod preview_chrome;
+mod prototype_preset;
 mod route;
 mod scene_drilldown_context;
 mod shell_access;

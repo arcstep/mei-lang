@@ -12258,6 +12258,7 @@
     "slides",
   ]);
   const BUILD_ROUTE_SLUGS = new Set(["build", "manage"]);
+  const RUNTIME_ROUTE_SLUGS = new Set(["runtime"]);
 
   function appRouteSlugFromPathname(pathname = window.location.pathname) {
     const path = String(pathname || "");
@@ -12271,6 +12272,10 @@
 
   function isAppRoute(pathname = window.location.pathname) {
     return ACCESS_LIKE_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
+  }
+
+  function isRuntimeRoute(pathname = window.location.pathname) {
+    return RUNTIME_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
   }
 
   function isBuildRoute(pathname = window.location.pathname) {
@@ -12300,7 +12305,7 @@
   /** Preview-capable host routes: access-like scene shells + build/manage editors. */
   function shouldMountDrilldownHost(pathname = window.location.pathname) {
     const slug = appRouteSlugFromPathname(pathname);
-    return ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug);
+    return ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug) || RUNTIME_ROUTE_SLUGS.has(slug);
   }
 
   function isBoardLinkConfig(popup) {
@@ -26355,6 +26360,27 @@
 
 
 /* ===== spa-navigation/spa/manage-preview.js ===== */
+  function resolveBuildAppId(doc) {
+    const root = doc || document;
+    const shell = root.querySelector(".shell[data-app-path]");
+    if (shell instanceof HTMLElement) {
+      const fromShell = String(shell.getAttribute("data-app-path") || "").trim();
+      if (fromShell) return fromShell;
+    }
+    const pathMatch = String(global.location.pathname || "").match(
+      /^\/apps\/(?:build|manage)\/([^/]+)/,
+    );
+    return pathMatch ? pathMatch[1] : "";
+  }
+
+  function maybeApplyLayoutTuningOverlay(doc) {
+    const overlay = global.MeiOpsLayoutTuningOverlay;
+    if (!overlay?.applyHot) return;
+    const appId = resolveBuildAppId(doc);
+    if (!appId) return;
+    void overlay.applyHot(appId, global).catch(() => {});
+  }
+
   function pulseManagePreview(detail, options) {
     if (!shouldRunBuildPreviewRuntimeForUrl(window.location.href)) return;
     const opts = options || {};
@@ -26380,6 +26406,7 @@
           if (typeof boot.mountManagePreviewBoard === "function") {
             void boot.mountManagePreviewBoard(document);
           }
+          maybeApplyLayoutTuningOverlay(document);
         });
       });
     });
@@ -27406,7 +27433,13 @@
       }
       const contentRows = entry.content_rows ?? entry.contentRows;
       if (Array.isArray(contentRows) && contentRows.length > 0) {
+        node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
         node.dataset.manifestContentRows = contentRows.join(",");
+      }
+      const contentGap = entry.content_gap ?? entry.contentGap;
+      if (contentGap != null && contentGap !== "") {
+        node.style.rowGap = `${contentGap}px`;
+        node.dataset.manifestContentGap = String(contentGap);
       }
     });
   }

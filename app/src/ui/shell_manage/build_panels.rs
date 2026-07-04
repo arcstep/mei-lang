@@ -116,7 +116,7 @@ pub(crate) fn build_overview_view(
                         })}
                         {format_ui_scope_agent_context(compiled, &ctx.node).map(|md| view! {
                             <details class="rounded-lg border border-white/10 bg-black/10 p-3">
-                                <summary class="cursor-pointer mei-font-2 mei-text-primary">"Agent 上下文预览"</summary>
+                                <summary class="cursor-pointer mei-font-2 mei-text-primary">"原型调试上下文预览"</summary>
                                 <pre class="mt-2 whitespace-pre-wrap font-mono mei-font-1 leading-5">{md}</pre>
                             </details>
                         })}
@@ -326,7 +326,7 @@ pub(crate) fn build_agent_view(app_path: &str, node: &str, tab: &str) -> impl In
     view! {
         <section class="build-agent-panel build-panel-shell grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4">
             <div class="flex flex-wrap items-center gap-2">
-                <strong class="build-panel-title mei-text-primary">"Agent 上下文"</strong>
+                <strong class="build-panel-title mei-text-primary">"原型调试上下文"</strong>
                 <button
                     type="button"
                     id="build-copy-agent-context"

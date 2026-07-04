@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::{
     build_reachability_tree, compile_coordinate_for_node, default_build_node_for_compiled,
     filter_reachability_roots_for_stock_catalog, is_stock_catalog_app, resolve_build_node_context,
-    resolve_build_view_query, tabs_for_node_kind, BuildNodeKind, BuildViewTab, CompiledApp,
+    resolve_build_view_query, BuildNodeKind, BuildViewTab, CompiledApp,
     LegacyBuildQuery, WorkspaceAppMeta,
 };
 
@@ -11,6 +11,10 @@ use super::super::manage_routing::{build_node_href, BuildReviewAxes, WorldSemant
 use super::super::preview;
 use super::super::preview_chrome::asset_preview_body;
 use super::super::route::UiRouteMode;
+use super::super::prototype_preset::{
+    default_build_preset, match_preset, prototype_workspace_primary_tabs,
+    prototype_workspace_tool_tabs, PrototypePreset, PROTOTYPE_PRESETS,
+};
 use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::super::statusbar::statusbar_view;
 use super::super::topbar::{access_scene_for_topbar, topbar_view};
@@ -103,7 +107,7 @@ pub(crate) fn manage_shell(
     let active_review_projection = review_projection
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("plane_region_section");
+        .unwrap_or_else(|| default_build_preset().review_projection);
     let review_axes = BuildReviewAxes {
         data_mode,
         review_projection: Some(active_review_projection),
@@ -111,7 +115,10 @@ pub(crate) fn manage_shell(
     let active_data_mode = data_mode
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("eval");
+        .unwrap_or_else(|| default_build_preset().data_mode);
+    let active_preset = match_preset(active_data_mode, active_review_projection)
+        .copied()
+        .unwrap_or_else(|| *default_build_preset());
     let build_tree = reachability_tree_view(
         reachability_roots.as_slice(),
         app_path,
@@ -171,38 +178,54 @@ pub(crate) fn manage_shell(
     };
     let review_projection_attr = active_review_projection;
 
-    let visible_tabs: Vec<BuildViewTab> = tabs_for_node_kind(resolved.node.kind)
-        .iter()
-        .copied()
-        .collect();
-    let tab_links = visible_tabs
+    let primary_tabs = prototype_workspace_primary_tabs(resolved.node.kind);
+    let tool_tabs = prototype_workspace_tool_tabs(resolved.node.kind);
+
+    let tab_link = |tab: BuildViewTab, class: String| {
+        let href = build_node_href(
+            app_path,
+            &resolved.node,
+            tab,
+            resolved.scope,
+            catalog,
+            stock_pack,
+            review_axes,
+        );
+        let is_active = tab == active_tab_enum;
+        view! {
+            <a
+                class=class
+                href=href
+                role="tab"
+                aria-selected=if is_active { "true" } else { "false" }
+                data-manage-tab=tab.slug()
+            >
+                <span class="manage-view-tab-label">{tab.label()}</span>
+            </a>
+        }
+    };
+
+    let primary_tab_links = primary_tabs
         .iter()
         .map(|tab| {
-            let href = build_node_href(
-                app_path,
-                &resolved.node,
-                *tab,
-                resolved.scope,
-                catalog,
-                stock_pack,
-                review_axes,
-            );
             let class = if *tab == active_tab_enum {
-                "manage-view-tab is-active"
+                "manage-view-tab is-active".to_string()
             } else {
-                "manage-view-tab"
+                "manage-view-tab".to_string()
             };
-            view! {
-                <a
-                    class=class
-                    href=href
-                    role="tab"
-                    aria-selected=if *tab == active_tab_enum { "true" } else { "false" }
-                    data-manage-tab=tab.slug()
-                >
-                    <span class="manage-view-tab-label">{tab.label()}</span>
-                </a>
-            }
+            tab_link(*tab, class)
+        })
+        .collect_view();
+
+    let tool_tab_links = tool_tabs
+        .iter()
+        .map(|tab| {
+            let class = if *tab == active_tab_enum {
+                "manage-view-tab manage-view-tab--tool is-active".to_string()
+            } else {
+                "manage-view-tab manage-view-tab--tool".to_string()
+            };
+            tab_link(*tab, class)
         })
         .collect_view();
 
@@ -271,7 +294,46 @@ pub(crate) fn manage_shell(
         })
         .unwrap_or_else(|| view! { <></> }.into_any());
 
-    let data_mode_links = ["eval", "fixture", "static"]
+    let preset_link = |preset: &PrototypePreset| {
+        let href = build_node_href(
+            app_path,
+            &resolved.node,
+            active_tab_enum,
+            resolved.scope,
+            catalog,
+            stock_pack,
+            BuildReviewAxes {
+                data_mode: Some(preset.data_mode),
+                review_projection: Some(preset.review_projection),
+            },
+        );
+        let class = if preset.slug == active_preset.slug {
+            "build-preset-btn is-active"
+        } else {
+            "build-preset-btn"
+        };
+        view! {
+            <a
+                class=class
+                href=href
+                role="tab"
+                aria-selected=if preset.slug == active_preset.slug { "true" } else { "false" }
+                data-build-preset=preset.slug
+                data-build-data-mode=preset.data_mode
+                data-build-review-projection=preset.review_projection
+                title=format!("{} · data_mode={} · review_projection={}", preset.label, preset.data_mode, preset.review_projection)
+            >
+                {preset.label}
+            </a>
+        }
+    };
+
+    let preset_links = PROTOTYPE_PRESETS
+        .iter()
+        .map(preset_link)
+        .collect_view();
+
+    let advanced_data_mode_links = ["eval", "fixture", "static"]
         .iter()
         .map(|mode| {
             let href = build_node_href(
@@ -283,35 +345,28 @@ pub(crate) fn manage_shell(
                 stock_pack,
                 BuildReviewAxes {
                     data_mode: Some(mode),
-                    review_projection,
+                    review_projection: Some(active_review_projection),
                 },
             );
             let class = if *mode == active_data_mode {
-                "build-data-mode-btn is-active"
+                "build-advanced-axis-btn is-active"
             } else {
-                "build-data-mode-btn"
-            };
-            let label = match *mode {
-                "eval" => "Eval",
-                "fixture" => "Fixture",
-                "static" => "Static",
-                _ => mode,
+                "build-advanced-axis-btn"
             };
             view! {
-                <a
-                    class=class
-                    href=href
-                    role="tab"
-                    aria-selected=if *mode == active_data_mode { "true" } else { "false" }
-                    data-build-data-mode=mode.to_string()
-                >
-                    {label}
+                <a class=class href=href data-build-data-mode=mode.to_string()>
+                    {*mode}
                 </a>
             }
         })
         .collect_view();
 
-    let projection_links = ["plane_region_section", "static_full"]
+    let advanced_projection_links = [
+        "plane_region",
+        "plane_region_section",
+        "static_full",
+        "live_full",
+    ]
         .iter()
         .map(|projection| {
             let href = build_node_href(
@@ -327,31 +382,20 @@ pub(crate) fn manage_shell(
                 },
             );
             let class = if *projection == active_review_projection {
-                "build-data-mode-btn is-active"
+                "build-advanced-axis-btn is-active"
             } else {
-                "build-data-mode-btn"
-            };
-            let label = match *projection {
-                "plane_region_section" => "Plane+Section",
-                "static_full" => "Static Full",
-                _ => projection,
+                "build-advanced-axis-btn"
             };
             view! {
-                <a
-                    class=class
-                    href=href
-                    role="tab"
-                    aria-selected=if *projection == active_review_projection { "true" } else { "false" }
-                    data-build-review-projection=projection.to_string()
-                >
-                    {label}
+                <a class=class href=href data-build-review-projection=projection.to_string()>
+                    {*projection}
                 </a>
             }
         })
         .collect_view();
 
     view! {
-        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr>
+        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
             <script
                 id="mei-build-reachability-tree"
@@ -384,28 +428,46 @@ pub(crate) fn manage_shell(
                             <nav
                                 class="manage-view-tabs workspace-tabs-strip flex min-w-0 flex-1 flex-wrap items-center gap-2"
                                 role="tablist"
-                                aria-label="构建主视图"
+                                aria-label="原型主任务"
                             >
                                 <div class="manage-view-tabs-cluster">
                                     <div class="manage-view-tabs-group" role="presentation">
-                                        {tab_links}
+                                        {primary_tab_links}
                                     </div>
+                                    {if !tool_tabs.is_empty() {
+                                        view! {
+                                            <div
+                                                class="manage-view-tabs-group manage-view-tabs-group--tools"
+                                                role="presentation"
+                                                aria-label="更多工具"
+                                            >
+                                                <span class="manage-view-tabs-tools-label mei-font-1 mei-text-muted">"更多工具"</span>
+                                                {tool_tab_links}
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }}
                                 </div>
                             </nav>
                             <div
-                                class="build-data-mode-toggle flex shrink-0 flex-wrap items-center gap-1"
+                                class="build-preset-toggle flex shrink-0 flex-wrap items-center gap-1"
                                 role="tablist"
-                                aria-label="数据模式"
+                                aria-label="原型任务预设"
                             >
-                                {data_mode_links}
+                                {preset_links}
                             </div>
-                            <div
-                                class="build-projection-toggle flex shrink-0 flex-wrap items-center gap-1"
-                                role="tablist"
-                                aria-label="审阅投影"
-                            >
-                                {projection_links}
-                            </div>
+                            <details class="build-advanced-axes shrink-0">
+                                <summary class="build-advanced-axes-summary mei-font-1 mei-text-muted">"高级轴"</summary>
+                                <div class="build-advanced-axes-body flex flex-wrap items-center gap-2">
+                                    <div class="build-advanced-axis-group" aria-label="data_mode">
+                                        {advanced_data_mode_links}
+                                    </div>
+                                    <div class="build-advanced-axis-group" aria-label="review_projection">
+                                        {advanced_projection_links}
+                                    </div>
+                                </div>
+                            </details>
                             <button
                                 type="button"
                                 id="build-copy-agent-context-top"
@@ -414,8 +476,10 @@ pub(crate) fn manage_shell(
                                 data-node=node_encoded.clone()
                                 data-tab=tab_slug.clone()
                                 data-intent="full"
+                                data-data-mode=active_data_mode
+                                data-review-projection=active_review_projection
                             >
-                                "复制 Agent 上下文"
+                                "复制原型调试上下文"
                             </button>
                         </div>
                         <div class="manage-tab-stage min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">

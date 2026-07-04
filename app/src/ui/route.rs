@@ -37,6 +37,7 @@ impl UiRouteMode {
         }
     }
 
+    /// 技术/历史显示名（兼容旧文案与内部日志）。
     pub fn label(self) -> &'static str {
         match self {
             Self::App => "访问",
@@ -47,6 +48,23 @@ impl UiRouteMode {
             Self::Upload => "上传",
             Self::Runtime => "运行",
         }
+    }
+
+    /// 顶栏与产品导航层显示名（不改内部 slug）。
+    pub fn product_label(self) -> &'static str {
+        match self {
+            Self::App => "应用",
+            Self::Run | Self::Copilot => "演说",
+            Self::Build => "原型",
+            Self::Config => "配置",
+            Self::Upload => "上传",
+            Self::Runtime => "运行",
+        }
+    }
+
+    /// 是否在顶栏 mode-tabs 中作为一级产品面展示。
+    pub fn is_topbar_product_tab(self) -> bool {
+        matches!(self, Self::App | Self::Build | Self::Config | Self::Runtime)
     }
 
     pub fn is_app(self) -> bool {
@@ -108,5 +126,13 @@ mod tests {
     fn copilot_and_speaker_slug_map_to_copilot_mode() {
         assert_eq!(UiRouteMode::from_slug("copilot"), UiRouteMode::Copilot);
         assert_eq!(UiRouteMode::from_slug("speaker"), UiRouteMode::Copilot);
+    }
+
+    #[test]
+    fn product_label_maps_to_ia_names() {
+        assert_eq!(UiRouteMode::App.product_label(), "应用");
+        assert_eq!(UiRouteMode::Build.product_label(), "原型");
+        assert_eq!(UiRouteMode::Runtime.product_label(), "运行");
+        assert_eq!(UiRouteMode::Run.product_label(), "演说");
     }
 }

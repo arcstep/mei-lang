@@ -79,7 +79,7 @@ pub(crate) fn access_scene_for_topbar<'a>(
 pub(super) fn auth_surface_tabs_visible(
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
-) -> (bool, bool, bool) {
+) -> (bool, bool) {
     let caps = if auth_enabled {
         auth_account
             .map(|account| account.capabilities)
@@ -87,7 +87,7 @@ pub(super) fn auth_surface_tabs_visible(
     } else {
         HostCapabilities::auth_disabled()
     };
-    (caps.config_upload, caps.config_upload, caps.build_view)
+    (caps.config_upload, caps.build_view)
 }
 
 pub(crate) fn append_scene_query(base: String, scene_id: Option<&str>) -> String {
