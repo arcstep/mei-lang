@@ -28,7 +28,14 @@ pub fn parse_data_mode_ceiling_arg(value: &str) -> Result<DataModeCeiling, Strin
 }
 
 pub fn resolve_page_render_axes(shell: &ShellState, query: &AppQuery, route_mode: UiRouteMode) -> PageRenderAxes {
-    let ceiling = shell.data_mode_ceiling;
+    resolve_page_render_axes_with_ceiling(shell.data_mode_ceiling, query, route_mode)
+}
+
+pub fn resolve_page_render_axes_with_ceiling(
+    ceiling: DataModeCeiling,
+    query: &AppQuery,
+    route_mode: UiRouteMode,
+) -> PageRenderAxes {
     let requested = query
         .data_mode
         .as_deref()
@@ -69,13 +76,23 @@ pub fn access_readiness_requires_plug_ds(axes: PageRenderAxes) -> bool {
 }
 
 pub fn access_readiness_requires_bootstrap(axes: PageRenderAxes) -> bool {
-    axes.data_mode.allows_eval_api()
+    axes.data_mode.allows_fixture_api()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn fixture_readiness_requires_bootstrap_not_plug_ds() {
+        let axes = PageRenderAxes {
+            data_mode: DataMode::Fixture,
+            review_projection: ReviewProjection::StaticFull,
+        };
+        assert!(access_readiness_requires_bootstrap(axes));
+        assert!(!access_readiness_requires_plug_ds(axes));
+    }
 
     #[test]
     fn static_ceiling_clamps_eval_request() {

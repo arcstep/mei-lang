@@ -90,6 +90,10 @@ pub fn router(state: HostHttpState) -> Router {
         )
         .route("/api/datasets/query", post(api_datasets_query))
         .route("/api/datasets/metrics/:app_id", post(api_datasets_metrics))
+        .route(
+            "/api/datasets/fixture/:app_id",
+            post(api_datasets_fixture),
+        )
         .route("/api/ops/theme/style/:app_id", get(api_ops_theme_style))
         .route(
             "/api/ops/layout-tuning/overlay/:app_id",
@@ -298,6 +302,49 @@ async fn api_datasets_metrics(
     };
     let path = format!("/api/datasets/metrics/{app_id}");
     crate::plug_proxy::proxy_post_json(endpoint.as_str(), path.as_str(), body).await
+}
+
+async fn api_datasets_fixture(
+    State(state): State<SharedState>,
+    Path(app_id): Path<String>,
+    axum::Json(body): axum::Json<serde_json::Value>,
+) -> Response {
+    let guard = state.read().expect("state lock");
+    if guard.data_mode_ceiling == mei_lang_kernel::DataModeCeiling::Static {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "fixture datasets API unavailable under static data mode ceiling"
+            })),
+        )
+            .into_response();
+    }
+    let scene_id = body
+        .get("scene_id")
+        .or_else(|| body.get("sceneId"))
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home");
+    let workspace = guard.ctx.workspace_root.as_path();
+    let Some(manifest) = mei_host_graph::read_client_bootstrap(workspace, app_id.as_str(), scene_id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("fixture bootstrap missing for scene `{scene_id}`")})),
+        )
+            .into_response();
+    };
+    (
+        StatusCode::OK,
+        Json(json!({
+            "source": "fixture",
+            "app_id": app_id,
+            "scene_id": scene_id,
+            "client_revision": manifest.client_revision,
+            "metrics": manifest.metrics,
+        })),
+    )
+        .into_response()
 }
 
 #[derive(serde::Deserialize)]

@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 
 use mei_host_core::{EvalSlotDescriptor, HostContext};
 use mei_lang_kernel::{
-    load_cache_generation, load_mei_config_for_app, ops_layout_tuning_revision_digest,
-    resolve_app_root, MetricContract,
+    load_cache_generation, load_mei_config_for_app, resolve_app_root, MetricContract,
 };
 use serde::{Deserialize, Serialize};
 

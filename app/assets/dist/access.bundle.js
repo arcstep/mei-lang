@@ -26870,6 +26870,10 @@
         appId: decodeURIComponent(match[1]),
         sceneId: decodeURIComponent(match[2]),
         mode,
+        dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
+        reviewProjection: String(url.searchParams.get("review_projection") || "")
+          .trim()
+          .toLowerCase(),
         url: url.href,
       };
     } catch (_) {
@@ -26878,7 +26882,29 @@
   }
 
   function sceneRevisionCacheKey(ctx) {
-    return [ctx.appId, ctx.sceneId, ctx.mode].join(":");
+    const dataMode = (() => {
+      try {
+        return String(new URL(ctx.url || window.location.href).searchParams.get("data_mode") || "")
+          .trim()
+          .toLowerCase();
+      } catch (_) {
+        return "";
+      }
+    })();
+    const reviewProjection = (() => {
+      try {
+        return String(
+          new URL(ctx.url || window.location.href).searchParams.get("review_projection") || "",
+        )
+          .trim()
+          .toLowerCase();
+      } catch (_) {
+        return "";
+      }
+    })();
+    return [ctx.appId, ctx.sceneId, ctx.mode, dataMode, reviewProjection]
+      .filter(Boolean)
+      .join(":");
   }
 
   function revisionsMatch(localRevision, remoteRevision) {
@@ -26904,6 +26930,13 @@
       scene: ctx.sceneId,
       mode: ctx.mode || "app",
     });
+    try {
+      const url = new URL(ctx.url || window.location.href);
+      const dataMode = String(url.searchParams.get("data_mode") || "").trim();
+      const reviewProjection = String(url.searchParams.get("review_projection") || "").trim();
+      if (dataMode) params.set("data_mode", dataMode);
+      if (reviewProjection) params.set("review_projection", reviewProjection);
+    } catch (_) {}
     const controller = opts.signal ? null : new AbortController();
     const signal = opts.signal || controller?.signal;
     const timer =
@@ -26961,7 +26994,11 @@
   }
 
   function snapshotStorageKey(ctx) {
-    return `${ctx.appId}:${ctx.sceneId}:${ctx.mode || "app"}`;
+    const dataMode = String(ctx.dataMode || "").trim().toLowerCase();
+    const reviewProjection = String(ctx.reviewProjection || "").trim().toLowerCase();
+    return [ctx.appId, ctx.sceneId, ctx.mode || "app", dataMode, reviewProjection]
+      .filter(Boolean)
+      .join(":");
   }
 
   function collectHeadJsonScripts() {
@@ -27314,6 +27351,7 @@
     }
     if (payload.layoutBudgetManifest) {
       window.__mei.layout_budget_manifest = payload.layoutBudgetManifest;
+      applyLayoutBudgetManifestProjection();
     }
     window.__meiBootstrapPayloadReady = 1;
     try {
@@ -27344,6 +27382,33 @@
     } catch (_) {
       return false;
     }
+  }
+
+  function applyLayoutBudgetManifestProjection(doc) {
+    const root = doc || document;
+    const manifest = window.__mei?.layout_budget_manifest;
+    if (!manifest?.entries || typeof manifest.entries !== "object") return;
+    const appId = resolveBootstrapAppId();
+    const sceneId = String(window.__mei?.bootstrap_scope || "").trim();
+    if (appId !== "pretty-panels" || sceneId !== "home") return;
+    Object.entries(manifest.entries).forEach(([scope, entry]) => {
+      if (!entry || typeof entry !== "object") return;
+      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      if (!(node instanceof HTMLElement)) return;
+      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
+      if (slotHeight != null) {
+        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
+        node.dataset.manifestSlotHeight = String(slotHeight);
+      }
+      const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
+      if (paddingProfile) {
+        node.dataset.manifestPaddingProfile = String(paddingProfile);
+      }
+      const contentRows = entry.content_rows ?? entry.contentRows;
+      if (Array.isArray(contentRows) && contentRows.length > 0) {
+        node.dataset.manifestContentRows = contentRows.join(",");
+      }
+    });
   }
 
   function resolveBootstrapAppId() {

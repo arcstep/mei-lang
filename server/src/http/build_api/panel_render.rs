@@ -126,6 +126,7 @@ pub async fn api_build_panel_render(
         None,
         Some("preview"),
         None,
+        None,
     ) else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,

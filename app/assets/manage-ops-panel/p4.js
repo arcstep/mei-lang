@@ -12,10 +12,26 @@
     } catch (_) {}
   }
 
+  function ensureDraftSessionId() {
+    const cookieKey = "mei-draft-session";
+    const match = String(document.cookie || "").match(/mei-draft-session=([^;]+)/);
+    if (match && match[1]) return decodeURIComponent(match[1].trim());
+    const id = `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    document.cookie = `${cookieKey}=${encodeURIComponent(id)};path=/;SameSite=Lax`;
+    return id;
+  }
+
+  function draftSessionHeaders() {
+    return { "x-mei-draft-session": ensureDraftSessionId() };
+  }
+
   async function fetchOverlay(appId) {
     const resp = await fetch(
       `/api/ops/layout-tuning/overlay/${encodeURIComponent(appId)}`,
-      { credentials: "same-origin", headers: { Accept: "application/json" } },
+      {
+        credentials: "same-origin",
+        headers: { Accept: "application/json", ...draftSessionHeaders() },
+      },
     );
     if (!resp.ok) throw new Error(`layoutTuning overlay failed: ${resp.status}`);
     return resp.json();
@@ -67,7 +83,11 @@
       {
         method: "PUT",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...draftSessionHeaders(),
+        },
         body: JSON.stringify({ tuning }),
       },
     );

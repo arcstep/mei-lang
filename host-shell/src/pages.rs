@@ -179,6 +179,7 @@ pub async fn app_page(
                     scene_id.as_str(),
                     route_mode,
                     &query,
+                    axes,
                     auth_enabled,
                     account_view.as_ref(),
                     copilot_presentation_id,
@@ -220,6 +221,7 @@ pub async fn app_page(
                 scene_id.as_str(),
                 route_mode,
                 &query,
+                axes,
                 auth_enabled,
                 account_view.as_ref(),
                 copilot_presentation_id,
@@ -247,11 +249,7 @@ pub async fn app_page(
             scene_id.as_str(),
         );
         let outcome = match assemble_result {
-            Ok(Some(mut outcome)) => {
-                outcome.compiled =
-                    crate::build_api::enrich_compiled(outcome.compiled, workspace_root);
-                outcome
-            }
+            Ok(Some(outcome)) => outcome,
             Ok(None) => {
                 tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
                 return (
@@ -341,6 +339,7 @@ pub async fn app_page(
                             theme_style.as_str(),
                             runtime_roots_ref,
                             runtime_json_ref,
+                            Some(axes.data_mode.slug()),
                             query.review_projection.as_deref(),
                         ),
                         workspace_root,

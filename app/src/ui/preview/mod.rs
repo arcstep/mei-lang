@@ -44,6 +44,8 @@ pub(crate) struct PreviewRuntimeContext {
     pub build_preview_scope: Option<String>,
     /// Build 视图：component 节点仅渲染匹配的 `use_key` block。
     pub build_preview_component_use_key: Option<String>,
+    /// 审阅数据模式：`eval` | `fixture` | `static`。
+    pub data_mode: Option<String>,
 }
 
 pub(crate) fn build_preview_runtime_context(
@@ -52,14 +54,23 @@ pub(crate) fn build_preview_runtime_context(
     build_preview_scope: Option<&str>,
     build_preview_component_use_key: Option<&str>,
     _selected_target: Option<&str>,
+    data_mode: Option<&str>,
 ) -> PreviewRuntimeContext {
-    PreviewRuntimeContext {
-        index: build_runtime_resource_index(compiled),
-        resources: build_runtime_resource_map(compiled),
-        host_ssr_slim_payload: matches!(
+    let data_mode = data_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let host_ssr_slim_payload = match data_mode.as_deref() {
+        Some("static") => false,
+        _ => matches!(
             route_mode,
             UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Build
         ),
+    };
+    PreviewRuntimeContext {
+        index: build_runtime_resource_index(compiled),
+        resources: build_runtime_resource_map(compiled),
+        host_ssr_slim_payload,
         build_inspect_enabled: route_mode == UiRouteMode::Build,
         build_preview_scope: build_preview_scope
             .map(str::trim)
@@ -69,6 +80,7 @@ pub(crate) fn build_preview_runtime_context(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
+        data_mode,
     }
 }
 mod view;
@@ -81,6 +93,7 @@ pub(crate) fn preview_view(
     world_semantic: WorldSemanticQuery<'_>,
     build_preview_scope: Option<&str>,
     build_preview_component_use_key: Option<&str>,
+    data_mode: Option<&str>,
 ) -> AnyView {
     view::preview_view(
         compiled,
@@ -90,6 +103,7 @@ pub(crate) fn preview_view(
         world_semantic,
         build_preview_scope,
         build_preview_component_use_key,
+        data_mode,
     )
 }
 

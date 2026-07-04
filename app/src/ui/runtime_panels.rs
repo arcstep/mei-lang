@@ -244,6 +244,7 @@ fn mcg_build_href_for_runtime_node(app_path: &str, runtime_node_id: &str) -> Opt
         BuildExecScope::Warmup,
         None,
         None,
+        super::manage_routing::BuildReviewAxes::default(),
     ))
 }
 

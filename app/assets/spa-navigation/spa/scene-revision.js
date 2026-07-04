@@ -12,6 +12,10 @@
         appId: decodeURIComponent(match[1]),
         sceneId: decodeURIComponent(match[2]),
         mode,
+        dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
+        reviewProjection: String(url.searchParams.get("review_projection") || "")
+          .trim()
+          .toLowerCase(),
         url: url.href,
       };
     } catch (_) {
@@ -20,7 +24,29 @@
   }
 
   function sceneRevisionCacheKey(ctx) {
-    return [ctx.appId, ctx.sceneId, ctx.mode].join(":");
+    const dataMode = (() => {
+      try {
+        return String(new URL(ctx.url || window.location.href).searchParams.get("data_mode") || "")
+          .trim()
+          .toLowerCase();
+      } catch (_) {
+        return "";
+      }
+    })();
+    const reviewProjection = (() => {
+      try {
+        return String(
+          new URL(ctx.url || window.location.href).searchParams.get("review_projection") || "",
+        )
+          .trim()
+          .toLowerCase();
+      } catch (_) {
+        return "";
+      }
+    })();
+    return [ctx.appId, ctx.sceneId, ctx.mode, dataMode, reviewProjection]
+      .filter(Boolean)
+      .join(":");
   }
 
   function revisionsMatch(localRevision, remoteRevision) {
@@ -46,6 +72,13 @@
       scene: ctx.sceneId,
       mode: ctx.mode || "app",
     });
+    try {
+      const url = new URL(ctx.url || window.location.href);
+      const dataMode = String(url.searchParams.get("data_mode") || "").trim();
+      const reviewProjection = String(url.searchParams.get("review_projection") || "").trim();
+      if (dataMode) params.set("data_mode", dataMode);
+      if (reviewProjection) params.set("review_projection", reviewProjection);
+    } catch (_) {}
     const controller = opts.signal ? null : new AbortController();
     const signal = opts.signal || controller?.signal;
     const timer =

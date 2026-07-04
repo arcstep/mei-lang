@@ -26,8 +26,8 @@ pub(crate) fn scene_drilldown_context_json_for_host_ssr(
     .unwrap_or_else(|_| "{}".to_string())
 }
 
-pub(crate) fn host_runtime_capabilities_json(app_path: &str) -> String {
-    serde_json::to_string(&host_runtime_capabilities_value(app_path))
+pub(crate) fn host_runtime_capabilities_json(app_path: &str, data_mode: Option<&str>) -> String {
+    serde_json::to_string(&host_runtime_capabilities_value(app_path, data_mode))
         .unwrap_or_else(|_| "{}".to_string())
 }
 
@@ -35,9 +35,10 @@ pub(crate) fn host_ssr_bootstrap_scripts(
     compiled: &CompiledApp,
     app_path: &str,
     preview_scene_id: Option<&str>,
+    data_mode: Option<&str>,
 ) -> AnyView {
     let drilldown_payload = scene_drilldown_context_json_for_host_ssr(compiled, preview_scene_id);
-    let runtime_payload = host_runtime_capabilities_json(app_path);
+    let runtime_payload = host_runtime_capabilities_json(app_path, data_mode);
     view! {
         <script
             id="mei-scene-drilldown-context"

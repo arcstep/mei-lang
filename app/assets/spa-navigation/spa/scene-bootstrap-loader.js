@@ -21,6 +21,7 @@
     }
     if (payload.layoutBudgetManifest) {
       window.__mei.layout_budget_manifest = payload.layoutBudgetManifest;
+      applyLayoutBudgetManifestProjection();
     }
     window.__meiBootstrapPayloadReady = 1;
     try {
@@ -51,6 +52,33 @@
     } catch (_) {
       return false;
     }
+  }
+
+  function applyLayoutBudgetManifestProjection(doc) {
+    const root = doc || document;
+    const manifest = window.__mei?.layout_budget_manifest;
+    if (!manifest?.entries || typeof manifest.entries !== "object") return;
+    const appId = resolveBootstrapAppId();
+    const sceneId = String(window.__mei?.bootstrap_scope || "").trim();
+    if (appId !== "pretty-panels" || sceneId !== "home") return;
+    Object.entries(manifest.entries).forEach(([scope, entry]) => {
+      if (!entry || typeof entry !== "object") return;
+      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      if (!(node instanceof HTMLElement)) return;
+      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
+      if (slotHeight != null) {
+        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
+        node.dataset.manifestSlotHeight = String(slotHeight);
+      }
+      const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
+      if (paddingProfile) {
+        node.dataset.manifestPaddingProfile = String(paddingProfile);
+      }
+      const contentRows = entry.content_rows ?? entry.contentRows;
+      if (Array.isArray(contentRows) && contentRows.length > 0) {
+        node.dataset.manifestContentRows = contentRows.join(",");
+      }
+    });
   }
 
   function resolveBootstrapAppId() {

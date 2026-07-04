@@ -157,6 +157,7 @@ pub(crate) fn presentation_shell(
         WorldSemanticQuery::default(),
         None,
         None,
+        None,
     );
 
     view! {
@@ -166,7 +167,7 @@ pub(crate) fn presentation_shell(
             data-prev-href=prev_href.clone().unwrap_or_default()
             data-next-href=next_href.clone().unwrap_or_default()
         >
-            {host_ssr_bootstrap_scripts(compiled, app_path, Some(current_scene_id))}
+            {host_ssr_bootstrap_scripts(compiled, app_path, Some(current_scene_id), None)}
             <main class=main_class>
                 <section class=preview_panel_class>
                     {preview}

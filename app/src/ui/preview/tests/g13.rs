@@ -303,6 +303,7 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
         shell_theme.as_str(),
         None,
         None,
+        None,
     );
     let mut data_props_count = 0usize;
     let mut data_props_bytes = 0usize;

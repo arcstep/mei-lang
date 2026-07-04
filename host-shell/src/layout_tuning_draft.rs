@@ -10,8 +10,8 @@ fn store() -> &'static Mutex<BTreeMap<String, Value>> {
     STORE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
-pub fn set_layout_tuning_draft(app_id: &str, tuning: Value) {
-    let key = app_id.trim();
+pub fn set_layout_tuning_draft(storage_key: &str, tuning: Value) {
+    let key = storage_key.trim();
     if key.is_empty() {
         return;
     }
@@ -24,8 +24,8 @@ pub fn set_layout_tuning_draft(app_id: &str, tuning: Value) {
     }
 }
 
-pub fn layout_tuning_draft(app_id: &str) -> Option<Value> {
-    let key = app_id.trim();
+pub fn layout_tuning_draft(storage_key: &str) -> Option<Value> {
+    let key = storage_key.trim();
     if key.is_empty() {
         return None;
     }
@@ -52,5 +52,22 @@ pub fn merge_layout_tuning_overlay(
             }
             Some(merged)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_scoped_drafts_do_not_collide() {
+        let key_a = crate::draft_session::layout_tuning_draft_storage_key("app", "sess-a");
+        let key_b = crate::draft_session::layout_tuning_draft_storage_key("app", "sess-b");
+        set_layout_tuning_draft(key_a.as_str(), serde_json::json!({"slotHeight": 120}));
+        set_layout_tuning_draft(key_b.as_str(), serde_json::json!({"slotHeight": 88}));
+        assert_ne!(
+            layout_tuning_draft(key_a.as_str()),
+            layout_tuning_draft(key_b.as_str())
+        );
     }
 }

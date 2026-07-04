@@ -6,7 +6,7 @@ use mei_lang_kernel::{
 use serde_json::Value;
 
 use super::super::compile_status::{is_world_capsule_target, world_capsule_companion_scene};
-use super::super::manage_routing::{build_preview_href, WorldSemanticQuery};
+use super::super::manage_routing::{build_preview_href, BuildReviewAxes, WorldSemanticQuery};
 
 fn contract_summary_lines(contract: &Value) -> Vec<(String, String)> {
     let mut lines = Vec::new();
@@ -366,6 +366,7 @@ pub(crate) fn world_semantic_inspector_view(
             Some("preview"),
             None,
             WorldSemanticQuery::default(),
+            BuildReviewAxes::default(),
         )
     });
 

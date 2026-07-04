@@ -17,6 +17,7 @@ mod panel_constants;
 mod paths;
 mod presentation_map;
 mod projection_normalize;
+mod semantic_cache;
 mod tier;
 mod types;
 mod v2_bundle_constants;
@@ -71,6 +72,10 @@ pub use paths::{bridge_path, mcg_registry_path, mrg_registry_path, resolve_graph
 pub use presentation_map::{
     build_presentation_map, presentation_map_to_value, resolve_viewpoint_id,
     PresentationMapDocument,
+};
+pub use semantic_cache::{
+    page_render_view_signature, semantic_cache_core_signature, PageRenderViewAxes,
+    SemanticCacheCore,
 };
 pub use tier::{
     canonical_tier, default_z_index_for_chrome_role, default_z_index_for_tier,

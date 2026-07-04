@@ -27,7 +27,11 @@
   }
 
   function snapshotStorageKey(ctx) {
-    return `${ctx.appId}:${ctx.sceneId}:${ctx.mode || "app"}`;
+    const dataMode = String(ctx.dataMode || "").trim().toLowerCase();
+    const reviewProjection = String(ctx.reviewProjection || "").trim().toLowerCase();
+    return [ctx.appId, ctx.sceneId, ctx.mode || "app", dataMode, reviewProjection]
+      .filter(Boolean)
+      .join(":");
   }
 
   function collectHeadJsonScripts() {

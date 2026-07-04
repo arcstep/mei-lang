@@ -15,6 +15,26 @@ pub(crate) struct WorldSemanticQuery<'a> {
     pub explain: Option<&'a str>,
 }
 
+/// Build 审阅轴：`data_mode` + `review_projection`，在 tree / tab / preview / fragment 链接中稳定保留。
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct BuildReviewAxes<'a> {
+    pub data_mode: Option<&'a str>,
+    pub review_projection: Option<&'a str>,
+}
+
+fn append_build_review_axes(query: &mut Vec<String>, axes: BuildReviewAxes<'_>) {
+    if let Some(dm) = axes.data_mode.map(str::trim).filter(|value| !value.is_empty()) {
+        query.push(format!("data_mode={}", encode_query_value(dm)));
+    }
+    if let Some(rp) = axes
+        .review_projection
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        query.push(format!("review_projection={}", encode_query_value(rp)));
+    }
+}
+
 impl WorldSemanticQuery<'_> {
     pub(crate) fn has_selection(self) -> bool {
         self.world_metric
@@ -81,8 +101,9 @@ pub(crate) fn build_node_href(
     scope: BuildExecScope,
     catalog: Option<&str>,
     stock_pack: Option<&str>,
+    review_axes: BuildReviewAxes<'_>,
 ) -> String {
-    let query = build_node_query_parts(node, tab, scope, catalog, stock_pack);
+    let query = build_node_query_parts(node, tab, scope, catalog, stock_pack, review_axes);
     if query.is_empty() {
         format!("/apps/build/{app_path}")
     } else {
@@ -96,6 +117,7 @@ pub(crate) fn build_node_query_parts(
     scope: BuildExecScope,
     catalog: Option<&str>,
     stock_pack: Option<&str>,
+    review_axes: BuildReviewAxes<'_>,
 ) -> Vec<String> {
     let mut query = vec![format!("node={}", encode_query_value(&node.encode()))];
     if let Some(c) = catalog.map(str::trim).filter(|value| !value.is_empty()) {
@@ -110,6 +132,7 @@ pub(crate) fn build_node_query_parts(
     if scope != BuildExecScope::Warmup {
         query.push(format!("scope={}", encode_query_value(scope.slug())));
     }
+    append_build_review_axes(&mut query, review_axes);
     query
 }
 
@@ -136,7 +159,15 @@ pub(crate) fn manage_tab_href(
         semantic.explain,
     );
     if let Some(resolved) = resolved {
-        return build_node_href(app_path, &resolved.node, resolved.tab, resolved.scope, None, None);
+        return build_node_href(
+            app_path,
+            &resolved.node,
+            resolved.tab,
+            resolved.scope,
+            None,
+            None,
+            BuildReviewAxes::default(),
+        );
     }
     build_preview_href(
         app_path,
@@ -145,6 +176,7 @@ pub(crate) fn manage_tab_href(
         Some(tab.slug()),
         None,
         semantic,
+        BuildReviewAxes::default(),
     )
 }
 
@@ -156,6 +188,7 @@ pub(crate) fn build_preview_href(
     tab: Option<&str>,
     diag_filter: Option<&str>,
     semantic: WorldSemanticQuery<'_>,
+    review_axes: BuildReviewAxes<'_>,
 ) -> String {
     if let Some(resolved) = resolve_build_query(
         None,
@@ -167,9 +200,17 @@ pub(crate) fn build_preview_href(
         semantic.world_dataset,
         semantic.explain,
     ) {
-        return build_node_href(app_path, &resolved.node, resolved.tab, resolved.scope, None, None);
+        return build_node_href(
+            app_path,
+            &resolved.node,
+            resolved.tab,
+            resolved.scope,
+            None,
+            None,
+            review_axes,
+        );
     }
-    let query = build_preview_query_parts(file, scene, tab, diag_filter, semantic);
+    let query = build_preview_query_parts(file, scene, tab, diag_filter, semantic, review_axes);
     if query.is_empty() {
         format!("/apps/build/{app_path}")
     } else {
@@ -183,6 +224,7 @@ pub(crate) fn build_preview_query_parts(
     tab: Option<&str>,
     diag_filter: Option<&str>,
     semantic: WorldSemanticQuery<'_>,
+    review_axes: BuildReviewAxes<'_>,
 ) -> Vec<String> {
     if let Some(resolved) = resolve_build_query(
         None,
@@ -194,7 +236,14 @@ pub(crate) fn build_preview_query_parts(
         semantic.world_dataset,
         semantic.explain,
     ) {
-        return build_node_query_parts(&resolved.node, resolved.tab, resolved.scope, None, None);
+        return build_node_query_parts(
+            &resolved.node,
+            resolved.tab,
+            resolved.scope,
+            None,
+            None,
+            review_axes,
+        );
     }
     let mut query = Vec::new();
     if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {
@@ -228,6 +277,7 @@ pub(crate) fn build_preview_query_parts(
             query.push("diag_filter=all".to_string());
         }
     }
+    append_build_review_axes(&mut query, review_axes);
     query
 }
 
@@ -287,6 +337,21 @@ mod tests {
             Some("preview"),
             None,
             WorldSemanticQuery::default(),
+            BuildReviewAxes {
+                data_mode: Some("fixture"),
+                review_projection: Some("plane_region_section"),
+            },
+        );
+        assert!(href.contains("data_mode=fixture"));
+        assert!(href.contains("review_projection=plane_region_section"));
+        let href = build_preview_href(
+            "zhifa",
+            Some("scenes/01-执法要素.board.mei"),
+            Some("enforcement_units_analytics_board"),
+            Some("preview"),
+            None,
+            WorldSemanticQuery::default(),
+            BuildReviewAxes::default(),
         );
         assert!(href.contains("node=board-file%3A"));
         assert!(href.contains("enforcement_units_analytics_board"));
@@ -306,6 +371,7 @@ mod tests {
                 world_dataset: None,
                 explain: None,
             },
+            BuildReviewAxes::default(),
         );
         assert!(href.contains("node=world-metric"));
     }

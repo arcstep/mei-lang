@@ -76,6 +76,7 @@ pub(crate) fn block_view_for_decl(
             runtime_ctx.host_ssr_slim_payload,
         ),
         host_ssr_slim_payload: runtime_ctx.host_ssr_slim_payload,
+        data_mode: runtime_ctx.data_mode.clone(),
     };
     let props = attach_host_meta(
         resolved,

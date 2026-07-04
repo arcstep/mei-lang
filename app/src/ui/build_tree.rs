@@ -4,7 +4,7 @@ use mei_lang_kernel::{
     ReachabilityTreeRoot,
 };
 
-use super::manage_routing::build_node_href;
+use super::manage_routing::{build_node_href, BuildReviewAxes};
 
 pub(crate) fn reachability_tree_view(
     roots: &[ReachabilityTreeRoot],
@@ -13,6 +13,7 @@ pub(crate) fn reachability_tree_view(
     active_tab: BuildViewTab,
     catalog: Option<&str>,
     stock_pack: Option<&str>,
+    review_axes: BuildReviewAxes<'_>,
 ) -> AnyView {
     let flatten_facet = stock_pack.is_some();
     let mut items = Vec::new();
@@ -26,6 +27,7 @@ pub(crate) fn reachability_tree_view(
                     active_tab,
                     catalog,
                     stock_pack,
+                    review_axes,
                 ));
             }
         } else {
@@ -36,6 +38,7 @@ pub(crate) fn reachability_tree_view(
                 active_tab,
                 catalog,
                 stock_pack,
+                review_axes,
             ));
         }
     }
@@ -61,12 +64,13 @@ fn root_branch(
     active_tab: BuildViewTab,
     catalog: Option<&str>,
     stock_pack: Option<&str>,
+    review_axes: BuildReviewAxes<'_>,
 ) -> AnyView {
     let child_count = root.children.len();
     let children = root
         .children
         .iter()
-        .map(|node| tree_node(node, app_path, active_node, active_tab, catalog, stock_pack))
+        .map(|node| tree_node(node, app_path, active_node, active_tab, catalog, stock_pack, review_axes))
         .collect_view();
     view! {
         <li class="build-tree-node build-tree-node--branch">
@@ -105,16 +109,35 @@ fn tree_node(
     active_tab: BuildViewTab,
     catalog: Option<&str>,
     stock_pack: Option<&str>,
+    review_axes: BuildReviewAxes<'_>,
 ) -> AnyView {
     let child_count = node.children.len();
     if node.node_id.trim().is_empty() && !node.children.is_empty() {
         if node.kind == "template_group" || node.kind == "component_pack" {
-            return template_category_section(node, app_path, active_node, active_tab, catalog, stock_pack);
+            return template_category_section(
+                node,
+                app_path,
+                active_node,
+                active_tab,
+                catalog,
+                stock_pack,
+                review_axes,
+            );
         }
         let children = node
             .children
             .iter()
-            .map(|child| tree_node(child, app_path, active_node, active_tab, catalog, stock_pack))
+            .map(|child| {
+                tree_node(
+                    child,
+                    app_path,
+                    active_node,
+                    active_tab,
+                    catalog,
+                    stock_pack,
+                    review_axes,
+                )
+            })
             .collect_view();
         let branch_id = format!("group:{}", node.id);
         return view! {
@@ -148,6 +171,7 @@ fn tree_node(
                 Default::default(),
                 catalog,
                 stock_pack,
+                review_axes,
             )
         })
         .unwrap_or_else(|| "#".to_string());
@@ -219,7 +243,17 @@ fn tree_node(
                         {node
                             .children
                             .iter()
-                            .map(|child| tree_node(child, app_path, active_node, active_tab, catalog, stock_pack))
+                            .map(|child| {
+                                tree_node(
+                                    child,
+                                    app_path,
+                                    active_node,
+                                    active_tab,
+                                    catalog,
+                                    stock_pack,
+                                    review_axes,
+                                )
+                            })
                             .collect_view()}
                     </ul>
                 </details>
@@ -236,12 +270,23 @@ fn template_category_section(
     active_tab: BuildViewTab,
     catalog: Option<&str>,
     stock_pack: Option<&str>,
+    review_axes: BuildReviewAxes<'_>,
 ) -> AnyView {
     let child_count = node.children.len();
     let children = node
         .children
         .iter()
-        .map(|child| tree_node(child, app_path, active_node, active_tab, catalog, stock_pack))
+        .map(|child| {
+            tree_node(
+                child,
+                app_path,
+                active_node,
+                active_tab,
+                catalog,
+                stock_pack,
+                review_axes,
+            )
+        })
         .collect_view();
     view! {
         <li class="build-tree-node build-tree-node--branch">

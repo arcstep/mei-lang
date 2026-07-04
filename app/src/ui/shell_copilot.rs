@@ -51,6 +51,7 @@ pub(crate) fn copilot_shell(
         WorldSemanticQuery::default(),
         None,
         None,
+        None,
     );
     let floating_entry =
         access_ai_floating_entry(compiled, app_path, active_scene, panel_tab);
@@ -61,7 +62,7 @@ pub(crate) fn copilot_shell(
             class=shell_class
             data-copilot-presentation=presentation_id
         >
-            {host_ssr_bootstrap_scripts(compiled, app_path, bootstrap_scene)}
+            {host_ssr_bootstrap_scripts(compiled, app_path, bootstrap_scene, None)}
             <main class=main_class>
                 <section class=preview_panel_class>
                     {preview}

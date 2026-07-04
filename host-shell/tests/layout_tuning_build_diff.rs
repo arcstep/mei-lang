@@ -41,7 +41,7 @@ fn pretty_panels_enriched_assemble_reports_layout_tuning_padding_diff() {
     let outcome = assemble_scope_from_registry(workspace.as_path(), "pretty-panels", "home")
         .expect("assemble")
         .expect("home outcome");
-    let mut compiled = outcome.compiled;
+    let compiled = outcome.compiled;
     assert!(
         !compiled.ui_layout_index.nodes.is_empty(),
         "assemble should populate ui_layout_index before diff"

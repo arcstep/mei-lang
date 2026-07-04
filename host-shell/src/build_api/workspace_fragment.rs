@@ -3,12 +3,13 @@ use axum::{
     http::{header, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use mei_lang_app::render_build_preview_fragment;
+use mei_lang_app::{render_build_preview_fragment, UiRouteMode};
 use mei_lang_kernel::{resolve_build_view_query, BuildViewTab, LegacyBuildQuery};
 use serde::Serialize;
 use serde_json::json;
 
 use crate::build_api::assemble::{assemble_enriched_for_build_node, AssembleBuildError};
+use crate::review_axes::resolve_page_render_axes;
 use crate::state::SharedState;
 
 #[derive(Debug, serde::Deserialize)]
@@ -113,6 +114,19 @@ pub async fn api_build_workspace_fragment(
         }
     };
 
+    let axes = {
+        let guard = state.read().expect("state lock");
+        resolve_page_render_axes(
+            &guard,
+            &crate::pages::AppQuery {
+                data_mode: query.data_mode.clone(),
+                review_projection: query.review_projection.clone(),
+                ..Default::default()
+            },
+            UiRouteMode::Build,
+        )
+    };
+
     let app_path = app_id.to_string();
     let Some(fragment) = render_build_preview_fragment(
         &[],
@@ -122,7 +136,8 @@ pub async fn api_build_workspace_fragment(
         query.scope.as_deref(),
         query.focus.as_deref(),
         Some("preview"),
-        query.review_projection.as_deref(),
+        Some(axes.data_mode.slug()),
+        Some(axes.review_projection.slug()),
     ) else {
         return json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -138,8 +153,8 @@ pub async fn api_build_workspace_fragment(
         workspace_scripts: fragment.workspace_scripts,
         node: fragment.node,
         focus: fragment.focus,
-        data_mode: query.data_mode.clone(),
-        review_projection: query.review_projection.clone(),
+        data_mode: Some(axes.data_mode.slug().to_string()),
+        review_projection: Some(axes.review_projection.slug().to_string()),
     };
     let mut response = Json(body).into_response();
     *response.status_mut() = StatusCode::OK;

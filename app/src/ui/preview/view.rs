@@ -17,6 +17,7 @@ pub(crate) fn preview_view(
     world_semantic: WorldSemanticQuery<'_>,
     build_preview_scope: Option<&str>,
     build_preview_component_use_key: Option<&str>,
+    data_mode: Option<&str>,
 ) -> AnyView {
     let mut live_config_loaded = MeiConfig::default();
     let scene_live_config =
@@ -27,6 +28,7 @@ pub(crate) fn preview_view(
         build_preview_scope,
         build_preview_component_use_key,
         Some(selected_target),
+        data_mode,
     );
 
     let preview_scene_path = {

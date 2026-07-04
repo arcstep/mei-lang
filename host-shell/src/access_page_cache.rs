@@ -155,21 +155,33 @@ pub fn access_page_cache_key(
     let app_root = resolve_app_root(workspace_root, app_id);
     let data_generation = mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id)
         .data_generation;
+    let compile_epoch = mei_host_graph::read_client_bootstrap(workspace_root, app_id, scene_id)
+        .map(|manifest| manifest.workset_id)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| client_revision.clone());
+    let semantic_core = mei_host_graph::SemanticCacheCore {
+        app_id: app_id.to_string(),
+        scene_id: scene_id.to_string(),
+        preview_scope: None,
+        registry_revision: registry_revision.to_string(),
+        client_revision: client_revision.clone(),
+        data_generation: data_generation.clone(),
+        compile_epoch,
+    };
+    let view_axes = mei_host_graph::PageRenderViewAxes {
+        route_mode: route_mode.slug().to_string(),
+        data_mode: axes.data_mode.slug().to_string(),
+        review_projection: axes.review_projection.slug().to_string(),
+        auth_sig: account_view.map(serialized_signature),
+        overlay_revision: Some(ops_layout_tuning_revision_digest(workspace_root, app_id)),
+    };
     let extra = json!({
-        "app_id": app_id,
-        "scene_id": scene_id,
-        "route_mode": route_mode.slug(),
-        "data_mode": axes.data_mode.slug(),
-        "review_projection": axes.review_projection.slug(),
-        "registry_revision": registry_revision,
-        "client_revision": client_revision,
-        "data_generation": data_generation,
+        "semantic_core": semantic_core,
+        "view_axes": view_axes,
         "auth_enabled": auth_enabled,
-        "auth_sig": account_view.map(serialized_signature).unwrap_or(0),
         "gis_base_url": gis.base_url,
         "gis_json_path": gis.json_path,
         "ops_themes_revision": ops_themes_revision_digest(workspace_root, app_id),
-        "ops_layout_tuning_revision": ops_layout_tuning_revision_digest(workspace_root, app_id),
         "host_ssr_payload_revision": HOST_SSR_PAYLOAD_REVISION,
     });
     serde_json::to_string(&extra).ok()
@@ -321,6 +333,7 @@ pub fn resolve_access_page_html(
                 scene_id,
                 route_mode,
                 query,
+                axes,
                 auth_enabled,
                 account_view,
                 copilot_presentation_id,
@@ -344,6 +357,7 @@ pub fn resolve_access_page_html(
             scene_id,
             route_mode,
             query,
+            axes,
             auth_enabled,
             account_view,
             copilot_presentation_id,
@@ -364,6 +378,7 @@ pub fn render_access_page_template(
     scene_id: &str,
     route_mode: UiRouteMode,
     query: &AppQuery,
+    axes: PageRenderAxes,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
     copilot_presentation_id: Option<&str>,
@@ -436,6 +451,7 @@ pub fn render_access_page_template(
         theme_style.as_str(),
         None,
         None,
+        Some(axes.data_mode.slug()),
         query.review_projection.as_deref(),
     );
     let html = fill_page_shell_placeholders(html, workspace_root);
@@ -503,6 +519,7 @@ pub fn prime_access_page_render_cache(
         scene_id,
         route_mode,
         &AppQuery::default(),
+        PageRenderAxes::default(),
         auth_enabled,
         None,
         None,

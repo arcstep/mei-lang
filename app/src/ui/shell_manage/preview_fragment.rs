@@ -29,6 +29,7 @@ pub fn render_build_preview_fragment(
     scope: Option<&str>,
     focus: Option<&str>,
     tab: Option<&str>,
+    data_mode: Option<&str>,
     review_projection: Option<&str>,
 ) -> Option<BuildPreviewFragment> {
     let legacy = LegacyBuildQuery {
@@ -72,6 +73,7 @@ pub fn render_build_preview_fragment(
         semantic,
         build_preview_scope.as_deref(),
         build_preview_component_use_key,
+        data_mode,
     );
     let preview_body =
         if selected_target.ends_with(".mei") || selected_target.ends_with(".world.mei") {
@@ -84,10 +86,15 @@ pub fn render_build_preview_fragment(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("");
+    let data_mode_attr = data_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("eval");
     let fragment = view! {
         <div
             class=preview_scroll_class
             data-review-projection=review_projection_attr
+            data-data-mode=data_mode_attr
         >
             {preview_body}
         </div>
@@ -100,7 +107,8 @@ pub fn render_build_preview_fragment(
         </div>
     };
     let drilldown_script =
-        host_ssr_bootstrap_scripts(compiled, app_path, ctx.scene_id.as_deref()).to_html();
+        host_ssr_bootstrap_scripts(compiled, app_path, ctx.scene_id.as_deref(), data_mode)
+            .to_html();
     Some(BuildPreviewFragment {
         node: resolved.node.encode(),
         focus: focus.unwrap_or("").to_string(),

@@ -197,6 +197,7 @@ pub async fn api_build_workspace_fragment(
         query.scope.as_deref(),
         query.focus.as_deref(),
         Some("preview"),
+        query.data_mode.as_deref(),
         query.review_projection.as_deref(),
     ) else {
         return json_error(

@@ -47,28 +47,49 @@ pub(crate) struct RuntimeSceneAnchor {
     pub scene_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct HostMetaOptions {
     pub include_scene_drilldown_context: bool,
     /// Build/App/Access SSR：`_mei.runtime_capabilities` 改由 `#mei-host-runtime-capabilities` 全局注入。
     pub host_ssr_slim_payload: bool,
+    pub data_mode: Option<String>,
 }
 
-pub(crate) fn host_runtime_capabilities_value(app_path: &str) -> Value {
+pub(crate) fn host_runtime_capabilities_value(app_path: &str, data_mode: Option<&str>) -> Value {
+    let mode = data_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("eval");
+    let eval_enabled = mode == "eval";
+    let fixture_enabled = mode == "fixture";
     json!({
+        "data_mode": mode,
         "rows_query": {
-            "enabled": true,
+            "enabled": eval_enabled,
             "api": format!("/api/datasets/query/{}", app_path),
             "scene_qualified": true,
         },
+        "fixture_query": {
+            "enabled": fixture_enabled,
+            "api": format!("/api/datasets/fixture/{}", app_path),
+            "scene_qualified": true,
+        },
         "metric_query": {
-            "enabled": true,
-            "api": format!("/api/datasets/metrics/{}", app_path),
+            "enabled": eval_enabled || fixture_enabled,
+            "api": if fixture_enabled {
+                format!("/api/datasets/fixture/{}", app_path)
+            } else {
+                format!("/api/datasets/metrics/{}", app_path)
+            },
             "scene_qualified": true,
         },
         "metric_batch_query": {
-            "enabled": true,
-            "api": format!("/api/datasets/metrics/{}", app_path),
+            "enabled": eval_enabled || fixture_enabled,
+            "api": if fixture_enabled {
+                format!("/api/datasets/fixture/{}", app_path)
+            } else {
+                format!("/api/datasets/metrics/{}", app_path)
+            },
             "scene_qualified": true,
         },
         "catalog": host_runtime_capabilities_catalog(),
@@ -240,8 +261,14 @@ pub(crate) fn attach_host_meta(
         if !options.host_ssr_slim_payload {
             host_meta.insert(
                 "runtime_capabilities".to_string(),
-                host_runtime_capabilities_value(app_path),
+                host_runtime_capabilities_value(
+                    app_path,
+                    options.data_mode.as_deref(),
+                ),
             );
+        }
+        if let Some(mode) = options.data_mode.as_deref() {
+            host_meta.insert("data_mode".to_string(), Value::String(mode.to_string()));
         }
         host_meta.insert("components".to_string(), theme_components.clone());
         if options.include_scene_drilldown_context {

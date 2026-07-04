@@ -7,7 +7,7 @@ use mei_lang_kernel::{
 };
 
 use super::super::build_tree::reachability_tree_view;
-use super::super::manage_routing::{build_node_href, WorldSemanticQuery};
+use super::super::manage_routing::{build_node_href, BuildReviewAxes, WorldSemanticQuery};
 use super::super::preview;
 use super::super::preview_chrome::asset_preview_body;
 use super::super::route::UiRouteMode;
@@ -46,6 +46,7 @@ pub(crate) fn manage_shell(
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    data_mode: Option<&str>,
     review_projection: Option<&str>,
 ) -> AnyView {
     let legacy = LegacyBuildQuery {
@@ -89,6 +90,7 @@ pub(crate) fn manage_shell(
         semantic,
         build_preview_scope.as_deref(),
         build_preview_component_use_key,
+        data_mode,
     );
     let active_scene = ctx.scene_id.as_deref().or(compiled.active_scene.as_deref());
     let scene_for_links = active_scene;
@@ -98,6 +100,14 @@ pub(crate) fn manage_shell(
         catalog,
         stock_pack,
     );
+    let review_axes = BuildReviewAxes {
+        data_mode,
+        review_projection,
+    };
+    let active_data_mode = data_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("eval");
     let build_tree = reachability_tree_view(
         reachability_roots.as_slice(),
         app_path,
@@ -105,6 +115,7 @@ pub(crate) fn manage_shell(
         resolved.tab,
         catalog,
         stock_pack,
+        review_axes,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let active_tab_enum = resolved.tab;
@@ -166,7 +177,15 @@ pub(crate) fn manage_shell(
     let tab_links = visible_tabs
         .iter()
         .map(|tab| {
-            let href = build_node_href(app_path, &resolved.node, *tab, resolved.scope, catalog, stock_pack);
+            let href = build_node_href(
+                app_path,
+                &resolved.node,
+                *tab,
+                resolved.scope,
+                catalog,
+                stock_pack,
+                review_axes,
+            );
             let class = if *tab == active_tab_enum {
                 "manage-view-tab is-active"
             } else {
@@ -227,6 +246,7 @@ pub(crate) fn manage_shell(
             compiled,
             app_path,
             preview_scene_id,
+            data_mode,
         ))
     } else {
         None
@@ -250,8 +270,48 @@ pub(crate) fn manage_shell(
         })
         .unwrap_or_else(|| view! { <></> }.into_any());
 
+    let data_mode_links = ["eval", "fixture", "static"]
+        .iter()
+        .map(|mode| {
+            let href = build_node_href(
+                app_path,
+                &resolved.node,
+                active_tab_enum,
+                resolved.scope,
+                catalog,
+                stock_pack,
+                BuildReviewAxes {
+                    data_mode: Some(mode),
+                    review_projection,
+                },
+            );
+            let class = if *mode == active_data_mode {
+                "build-data-mode-btn is-active"
+            } else {
+                "build-data-mode-btn"
+            };
+            let label = match *mode {
+                "eval" => "Eval",
+                "fixture" => "Fixture",
+                "static" => "Static",
+                _ => mode,
+            };
+            view! {
+                <a
+                    class=class
+                    href=href
+                    role="tab"
+                    aria-selected=if *mode == active_data_mode { "true" } else { "false" }
+                    data-build-data-mode=mode.to_string()
+                >
+                    {label}
+                </a>
+            }
+        })
+        .collect_view();
+
     view! {
-        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone()>
+        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
             <script
                 id="mei-build-reachability-tree"
@@ -292,6 +352,13 @@ pub(crate) fn manage_shell(
                                     </div>
                                 </div>
                             </nav>
+                            <div
+                                class="build-data-mode-toggle flex shrink-0 flex-wrap items-center gap-1"
+                                role="tablist"
+                                aria-label="数据模式"
+                            >
+                                {data_mode_links}
+                            </div>
                             <button
                                 type="button"
                                 id="build-copy-agent-context-top"

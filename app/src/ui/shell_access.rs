@@ -44,6 +44,7 @@ pub(crate) fn access_shell(
             WorldSemanticQuery::default(),
             None,
             None,
+            None,
         )
     };
     let topbar_preview_target = if static_asset { None } else { file_target };
@@ -77,7 +78,7 @@ pub(crate) fn access_shell(
     let floating_entry = || access_ai_floating_entry(compiled, app_path, current_target, panel_tab);
     view! {
         <div class=shell_class>
-            {host_ssr_bootstrap_scripts(compiled, app_path, selected_scene.or(compiled.active_scene.as_deref()))}
+            {host_ssr_bootstrap_scripts(compiled, app_path, selected_scene.or(compiled.active_scene.as_deref()), None)}
             {if chrome_hidden {
                 view! { <></> }.into_any()
             } else {

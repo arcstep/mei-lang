@@ -15,6 +15,7 @@ mod gis_config;
 mod gis_proxy;
 mod landing;
 mod http;
+mod draft_session;
 mod layout_tuning_draft;
 mod managed_plug;
 mod ops_api;
