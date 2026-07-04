@@ -74,8 +74,8 @@ pub use presentation_map::{
     PresentationMapDocument,
 };
 pub use semantic_cache::{
-    page_render_view_signature, semantic_cache_core_signature, PageRenderViewAxes,
-    SemanticCacheCore,
+    build_page_render_view_axes, build_semantic_cache_core, page_render_view_signature,
+    semantic_cache_core_signature, PageRenderViewAxes, SemanticCacheCore,
 };
 pub use tier::{
     canonical_tier, default_z_index_for_chrome_role, default_z_index_for_tier,

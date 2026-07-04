@@ -57,14 +57,17 @@ impl UiRouteMode {
             Self::Run | Self::Copilot => "演说",
             Self::Build => "原型",
             Self::Config => "配置",
-            Self::Upload => "上传",
+            Self::Upload => "数据",
             Self::Runtime => "运行",
         }
     }
 
     /// 是否在顶栏 mode-tabs 中作为一级产品面展示。
     pub fn is_topbar_product_tab(self) -> bool {
-        matches!(self, Self::App | Self::Build | Self::Config | Self::Runtime)
+        matches!(
+            self,
+            Self::App | Self::Build | Self::Config | Self::Upload | Self::Runtime
+        )
     }
 
     pub fn is_app(self) -> bool {
@@ -133,6 +136,7 @@ mod tests {
         assert_eq!(UiRouteMode::App.product_label(), "应用");
         assert_eq!(UiRouteMode::Build.product_label(), "原型");
         assert_eq!(UiRouteMode::Runtime.product_label(), "运行");
+        assert_eq!(UiRouteMode::Upload.product_label(), "数据");
         assert_eq!(UiRouteMode::Run.product_label(), "演说");
     }
 }

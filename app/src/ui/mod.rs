@@ -389,7 +389,7 @@ pub fn render_upload_page(
 mod tests {
     use super::manage_routing::{
         access_scene_query, build_preview_href, encode_query_value, manage_tab_href,
-        resolve_build_query, route_query, WorldSemanticQuery, OPS_CONFIG_TARGET,
+        resolve_build_query, route_query, BuildReviewAxes, WorldSemanticQuery, OPS_CONFIG_TARGET,
     };
     use super::view_routing::{build_href_with_catalog, config_href};
     use super::UiRouteMode;
@@ -466,6 +466,7 @@ mod tests {
             Some("preview"),
             None,
             WorldSemanticQuery::default(),
+            BuildReviewAxes::default(),
         );
         assert!(href.contains("node=scene%3Awarnings_analytics_board"));
         assert!(href.contains("tab=preview"));
@@ -500,6 +501,7 @@ mod tests {
                 world_dataset: None,
                 explain: Some("composition_by_category"),
             },
+            BuildReviewAxes::default(),
         );
         assert!(href.contains("node=world-explain"));
         assert!(href.contains("tab=preview"));

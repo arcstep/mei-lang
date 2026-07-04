@@ -192,6 +192,10 @@ pub(crate) fn panel_view(
         ),
         None => (None, None, None),
     };
+    let role_for_projection = ui_role_attr.as_deref().unwrap_or("content");
+    if !runtime_ctx.ui_role_allowed_for_projection(role_for_projection) {
+        return view! { <></> }.into_any();
+    }
     let build_node_id = if runtime_ctx.build_inspect_enabled {
         build_node_id.or_else(|| {
             Some(

@@ -140,6 +140,29 @@ impl ReviewProjection {
     }
 }
 
+/// Ordinal depth for layout-debug projection (`plane` < `region` < `section` < `content`).
+pub fn ui_role_depth_rank(role: &str) -> Option<u8> {
+    match role.trim().to_ascii_lowercase().as_str() {
+        "plane" => Some(0),
+        "region" => Some(1),
+        "section" => Some(2),
+        "content" | "micro_layout" => Some(3),
+        _ => None,
+    }
+}
+
+/// Whether `ui_role` is within the inclusive depth allowed by `max_role` (`None` = no limit).
+pub fn ui_role_within_max_depth(ui_role: &str, max_role: Option<&str>) -> bool {
+    let Some(max_role) = max_role else {
+        return true;
+    };
+    let Some(depth) = ui_role_depth_rank(ui_role) else {
+        return true;
+    };
+    let max_depth = ui_role_depth_rank(max_role).unwrap_or(99);
+    depth <= max_depth
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +173,16 @@ mod tests {
         assert!(DataModeCeiling::Fixture.allows(DataMode::Static));
         assert!(!DataModeCeiling::Fixture.allows(DataMode::Eval));
         assert!(!DataModeCeiling::Static.allows(DataMode::Fixture));
+    }
+
+    #[test]
+    fn ui_role_depth_respects_review_projection_ceiling() {
+        assert!(ui_role_within_max_depth("plane", Some("plane")));
+        assert!(!ui_role_within_max_depth("region", Some("plane")));
+        assert!(ui_role_within_max_depth("region", Some("region")));
+        assert!(!ui_role_within_max_depth("section", Some("region")));
+        assert!(ui_role_within_max_depth("section", Some("section")));
+        assert!(!ui_role_within_max_depth("content", Some("section")));
+        assert!(ui_role_within_max_depth("content", None));
     }
 }

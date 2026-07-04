@@ -103,6 +103,7 @@ mod tests {
             build_experience_index: Default::default(),
             build_board_index: Default::default(),
             build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
         };
         let payload: Value = serde_json::from_str(&scene_drilldown_context_json_for_host_ssr(
             &compiled,

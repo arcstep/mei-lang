@@ -72,6 +72,17 @@ pub fn resolve_page_render_axes_with_ceiling_detailed(
     }
 }
 
+pub fn default_page_render_axes_for_route(
+    route_mode: UiRouteMode,
+    ceiling: DataModeCeiling,
+) -> PageRenderAxes {
+    let data_mode = default_data_mode_for_route(route_mode, ceiling);
+    PageRenderAxes {
+        data_mode,
+        review_projection: default_projection_for_route(route_mode, data_mode),
+    }
+}
+
 fn default_data_mode_for_route(route_mode: UiRouteMode, ceiling: DataModeCeiling) -> DataMode {
     if route_mode == UiRouteMode::Build && ceiling != DataModeCeiling::Eval {
         ceiling.as_data_mode()
@@ -101,7 +112,6 @@ pub fn access_readiness_requires_bootstrap(axes: PageRenderAxes) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn fixture_readiness_requires_bootstrap_not_plug_ds() {
@@ -126,5 +136,18 @@ mod tests {
         );
         assert_eq!(resolution.axes.data_mode, DataMode::Static);
         assert!(resolution.data_mode_clamped);
+    }
+
+    #[test]
+    fn app_warmup_axes_use_live_full_not_static_full() {
+        let axes = default_page_render_axes_for_route(UiRouteMode::App, DataModeCeiling::Eval);
+        assert_eq!(axes.data_mode, DataMode::Eval);
+        assert_eq!(axes.review_projection, ReviewProjection::LiveFull);
+    }
+
+    #[test]
+    fn build_default_axes_use_plane_region_section() {
+        let axes = default_page_render_axes_for_route(UiRouteMode::Build, DataModeCeiling::Eval);
+        assert_eq!(axes.review_projection, ReviewProjection::PlaneRegionSection);
     }
 }

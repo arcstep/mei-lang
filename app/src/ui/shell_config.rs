@@ -4,6 +4,7 @@ use mei_lang_kernel::WorkspaceAppMeta;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
+use super::view_routing::upload_href;
 use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
 fn ops_editor_main_view(app_path: &str) -> impl IntoView {
@@ -48,6 +49,7 @@ pub(crate) fn config_shell(
         ".mei-config.json",
         None,
     );
+    let data_link = upload_href(app_path, None);
     view! {
         <div class="shell shell-surface config-view-shell mei-text-primary">
             {topbar}
@@ -55,6 +57,8 @@ pub(crate) fn config_shell(
                 <div class="manage-readonly-note mb-3 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 mei-font-1 leading-5 mei-text-body">
                     <strong class="mr-2 mei-text-inverse">"应用配置"</strong>
                     <span>"编辑当前应用根目录 `.mei-config.json`；运维写回仅允许 `ops.*` 白名单字段。"</span>
+                    <span class="mx-2 mei-text-muted">"|"</span>
+                    <a class="mei-text-link" href=data_link>"数据物料（上传）"</a>
                 </div>
                 {ops_editor_main_view(app_path)}
             </main>

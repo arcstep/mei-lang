@@ -46,6 +46,27 @@ pub(crate) struct PreviewRuntimeContext {
     pub build_preview_component_use_key: Option<String>,
     /// 审阅数据模式：`eval` | `fixture` | `static`。
     pub data_mode: Option<String>,
+    /// 审阅投影：`plane` | `plane_region` | `plane_region_section` | `static_full` | `live_full`。
+    pub review_projection: Option<String>,
+}
+
+impl PreviewRuntimeContext {
+    pub(crate) fn review_projection_max_ui_role(&self) -> Option<&'static str> {
+        self.review_projection
+            .as_deref()
+            .and_then(mei_lang_kernel::ReviewProjection::parse)
+            .and_then(|projection| projection.max_ui_role_depth())
+    }
+
+    pub(crate) fn ui_role_allowed_for_projection(&self, ui_role: &str) -> bool {
+        if !self.build_inspect_enabled {
+            return true;
+        }
+        let Some(max_role) = self.review_projection_max_ui_role() else {
+            return true;
+        };
+        mei_lang_kernel::ui_role_within_max_depth(ui_role, Some(max_role))
+    }
 }
 
 pub(crate) fn build_preview_runtime_context(
@@ -55,8 +76,13 @@ pub(crate) fn build_preview_runtime_context(
     build_preview_component_use_key: Option<&str>,
     _selected_target: Option<&str>,
     data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> PreviewRuntimeContext {
     let data_mode = data_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let review_projection = review_projection
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
@@ -81,6 +107,7 @@ pub(crate) fn build_preview_runtime_context(
             .filter(|value| !value.is_empty())
             .map(str::to_string),
         data_mode,
+        review_projection,
     }
 }
 mod view;
@@ -94,6 +121,7 @@ pub(crate) fn preview_view(
     build_preview_scope: Option<&str>,
     build_preview_component_use_key: Option<&str>,
     data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> AnyView {
     view::preview_view(
         compiled,
@@ -104,6 +132,7 @@ pub(crate) fn preview_view(
         build_preview_scope,
         build_preview_component_use_key,
         data_mode,
+        review_projection,
     )
 }
 

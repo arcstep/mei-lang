@@ -88,6 +88,10 @@ pub(crate) fn manage_shell(
         super::preview_fragment::build_preview_component_use_key(&resolved.node);
     let build_preview_component_use_key =
         build_preview_component_use_key_owned.as_deref();
+    let active_review_projection = review_projection
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default_build_preset().review_projection);
     let preview = preview::preview_view(
         compiled,
         app_path,
@@ -97,6 +101,7 @@ pub(crate) fn manage_shell(
         build_preview_scope.as_deref(),
         build_preview_component_use_key,
         data_mode,
+        Some(active_review_projection),
     );
     let active_scene = ctx.scene_id.as_deref().or(compiled.active_scene.as_deref());
     let scene_for_links = active_scene;
@@ -106,10 +111,6 @@ pub(crate) fn manage_shell(
         catalog,
         stock_pack,
     );
-    let active_review_projection = review_projection
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default_build_preset().review_projection);
     let review_axes = BuildReviewAxes {
         data_mode,
         review_projection: Some(active_review_projection),

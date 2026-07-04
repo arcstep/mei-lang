@@ -162,6 +162,13 @@ pub(crate) fn block_view_for_decl(
     } else {
         None
     };
+    let block_role = ui_scope_annotation
+        .as_ref()
+        .map(|annotation| annotation.role.as_str())
+        .unwrap_or("content");
+    if !runtime_ctx.ui_role_allowed_for_projection(block_role) {
+        return view! { <></> }.into_any();
+    }
     let build_node_id = if runtime_ctx.build_inspect_enabled {
         ui_scope_annotation.as_ref().map(|annotation| annotation.node_id.clone()).or_else(|| {
             parent_panel_id.map(|panel_id| {

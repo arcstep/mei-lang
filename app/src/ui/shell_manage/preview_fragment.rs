@@ -74,6 +74,7 @@ pub fn render_build_preview_fragment(
         build_preview_scope.as_deref(),
         build_preview_component_use_key,
         data_mode,
+        review_projection,
     );
     let preview_body =
         if selected_target.ends_with(".mei") || selected_target.ends_with(".world.mei") {

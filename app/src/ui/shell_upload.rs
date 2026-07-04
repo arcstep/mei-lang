@@ -7,7 +7,7 @@ use super::route::UiRouteMode;
 use super::source_tree::{self, tree_icon_for_upload_entry};
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
-use super::view_routing::upload_href;
+use super::view_routing::{config_href, upload_href};
 use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
 #[derive(Debug, Clone, Serialize)]
@@ -233,6 +233,7 @@ pub(crate) fn upload_shell(
         Some(upload_root_label),
     );
     let file_tree = upload_tree_view(files, "", selected, app_path);
+    let config_link = config_href(app_path);
     view! {
         <div class="shell shell-surface upload-view-shell mei-text-primary">
             <div
@@ -253,6 +254,9 @@ pub(crate) fn upload_shell(
                         <div class="upload-sidebar-title-row">
                             <div class="upload-sidebar-title">"文件清单"</div>
                             <div class="upload-sidebar-root">{upload_root_label}</div>
+                        </div>
+                        <div class="upload-sidebar-links mei-font-1 mei-text-muted text-sm">
+                            <a class="mei-text-link" href=config_link.clone()>"应用配置（ops.sources / params）"</a>
                         </div>
                         <div class="upload-sidebar-stats">
                             <span class="upload-sidebar-chip">{format!("{file_count} 个文件")}</span>

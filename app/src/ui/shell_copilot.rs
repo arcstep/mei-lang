@@ -52,6 +52,7 @@ pub(crate) fn copilot_shell(
         None,
         None,
         None,
+        None,
     );
     let floating_entry =
         access_ai_floating_entry(compiled, app_path, active_scene, panel_tab);

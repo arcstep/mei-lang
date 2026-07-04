@@ -6,7 +6,7 @@ use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{
     app_scene_href, build_href_with_catalog, config_href, cross_app_href, presentation_scene_href,
-    runtime_href,
+    runtime_href, upload_href,
 };
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
@@ -23,7 +23,7 @@ pub(crate) fn topbar_view(
     active_tab: Option<&str>,
     active_catalog: Option<&str>,
     active_stock_pack: Option<&str>,
-    _upload_enabled: bool,
+    upload_enabled: bool,
     stage_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
@@ -182,20 +182,25 @@ pub(crate) fn topbar_view(
         active_stock_pack,
     );
     let runtime_href = runtime_href(active_app_path, None, None);
+    let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
     let config_href = append_scene_query(config_href(active_app_path), access_scene_for_href);
     let presentation_href = if access_disabled {
         "#".to_string()
     } else {
         presentation_scene_href(active_app_path, access_scene_for_href)
     };
-    let (show_config_tab, show_build_tab) = auth_surface_tabs_visible(auth_enabled, auth_account);
+    let (show_config_tab, show_build_tab, show_data_tab) =
+        auth_surface_tabs_visible(auth_enabled, auth_account);
     let show_runtime_tab = show_build_tab;
+    let show_data_tab = show_data_tab && upload_enabled;
     let visible_mode_tab_count = 1usize
         + usize::from(show_config_tab)
         + usize::from(show_build_tab)
-        + usize::from(show_runtime_tab);
+        + usize::from(show_runtime_tab)
+        + usize::from(show_data_tab);
     let app_product_label = UiRouteMode::App.product_label();
     let build_product_label = UiRouteMode::Build.product_label();
+    let data_product_label = UiRouteMode::Upload.product_label();
     let config_product_label = UiRouteMode::Config.product_label();
     let runtime_product_label = UiRouteMode::Runtime.product_label();
     let speech_product_label = UiRouteMode::Run.product_label();
@@ -227,6 +232,22 @@ pub(crate) fn topbar_view(
                             data-mei-view="build"
                         >
                             <span class="mode-label">{build_product_label}</span>
+                        </sl-button>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }}
+                {if show_data_tab {
+                    view! {
+                        <sl-button
+                            class=if route_mode == UiRouteMode::Upload { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                            size="small"
+                            href=upload_href.clone()
+                            title="数据物料：上传、下载与文件管理"
+                            aria-label=data_product_label
+                            data-mei-view="upload"
+                        >
+                            <span class="mode-label">{data_product_label}</span>
                         </sl-button>
                     }.into_any()
                 } else {

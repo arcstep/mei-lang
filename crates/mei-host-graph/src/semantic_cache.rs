@@ -27,6 +27,42 @@ pub struct PageRenderViewAxes {
     pub overlay_revision: Option<String>,
 }
 
+pub fn build_semantic_cache_core(
+    app_id: impl Into<String>,
+    scene_id: impl Into<String>,
+    preview_scope: Option<String>,
+    registry_revision: impl Into<String>,
+    client_revision: impl Into<String>,
+    data_generation: impl Into<String>,
+    compile_epoch: impl Into<String>,
+) -> SemanticCacheCore {
+    SemanticCacheCore {
+        app_id: app_id.into(),
+        scene_id: scene_id.into(),
+        preview_scope,
+        registry_revision: registry_revision.into(),
+        client_revision: client_revision.into(),
+        data_generation: data_generation.into(),
+        compile_epoch: compile_epoch.into(),
+    }
+}
+
+pub fn build_page_render_view_axes(
+    route_mode: &str,
+    data_mode: &str,
+    review_projection: &str,
+    auth_sig: Option<u64>,
+    overlay_revision: Option<String>,
+) -> PageRenderViewAxes {
+    PageRenderViewAxes {
+        route_mode: route_mode.to_string(),
+        data_mode: data_mode.to_string(),
+        review_projection: review_projection.to_string(),
+        auth_sig,
+        overlay_revision,
+    }
+}
+
 pub fn semantic_cache_core_signature(core: &SemanticCacheCore) -> Option<String> {
     serde_json::to_string(core).ok()
 }

@@ -158,6 +158,7 @@ pub(crate) fn presentation_shell(
         None,
         None,
         None,
+        None,
     );
 
     view! {
