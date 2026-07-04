@@ -24,33 +24,41 @@ pub(crate) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .map(normalize_css_length)
                 .unwrap_or_else(|| "0".to_string()),
         ),
-        _ => format!(
-            "display:grid;grid-template-columns:{};grid-template-rows:{};{}{}{}{}gap:{};padding:{};",
-            layout
-                .columns
-                .clone()
-                .unwrap_or_else(|| vec!["1fr".to_string()])
-                .join(" "),
-            layout
-                .rows
-                .clone()
-                .unwrap_or_else(|| vec!["auto".to_string()])
-                .join(" "),
-            grid_template_areas_style(layout),
-            layout_align_items_style(layout.align.as_deref()),
-            layout_justify_items_style(layout.justify.as_deref()),
-            layout_justify_content_style(layout.justify.as_deref()),
-            layout
-                .gap
-                .as_deref()
-                .map(normalize_css_length)
-                .unwrap_or_else(|| "0".to_string()),
-            layout
+        _ => {
+            let padding = layout
                 .padding
                 .as_deref()
                 .map(normalize_css_length)
-                .unwrap_or_else(|| "0".to_string()),
-        ),
+                .unwrap_or_else(|| "0".to_string());
+            let padding_suffix = if padding == "0" || padding == "0px" {
+                String::new()
+            } else {
+                format!("padding:{padding};")
+            };
+            format!(
+                "display:grid;grid-template-columns:{};grid-template-rows:{};{}{}{}{}gap:{};{}",
+                layout
+                    .columns
+                    .clone()
+                    .unwrap_or_else(|| vec!["1fr".to_string()])
+                    .join(" "),
+                layout
+                    .rows
+                    .clone()
+                    .unwrap_or_else(|| vec!["auto".to_string()])
+                    .join(" "),
+                grid_template_areas_style(layout),
+                layout_align_items_style(layout.align.as_deref()),
+                layout_justify_items_style(layout.justify.as_deref()),
+                layout_justify_content_style(layout.justify.as_deref()),
+                layout
+                    .gap
+                    .as_deref()
+                    .map(normalize_css_length)
+                    .unwrap_or_else(|| "0".to_string()),
+                padding_suffix,
+            )
+        }
     }
 }
 

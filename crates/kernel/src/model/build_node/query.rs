@@ -169,13 +169,8 @@ pub fn resolve_build_view_query(
     }
 
     if file.ends_with(".mei") && !file.ends_with(".board.mei") && !file.ends_with(".page.mei") {
-        if let Some(scene_id) = file
-            .rsplit('/')
-            .next()
-            .and_then(|name| name.strip_suffix(".mei"))
-            .filter(|value| !value.is_empty())
-        {
-            let node = BuildNodeId::scene(scene_id.to_string());
+        if let Some(scene_id) = scene_id_from_scene_mei_path(file) {
+            let node = BuildNodeId::scene(scene_id);
             let tab = if tab_visible_for_node(&node, tab) {
                 tab
             } else {
@@ -219,4 +214,24 @@ pub fn resolve_build_view_query(
         tab,
         scope: exec_scope,
     })
+}
+
+/// Scene export id for scene capsule `.mei` paths (`src/scene/home/assembly.mei` → `home`).
+fn scene_id_from_scene_mei_path(file: &str) -> Option<String> {
+    let normalized = file.trim().replace('\\', "/");
+    if normalized.ends_with("/assembly.mei") {
+        let parent = normalized.strip_suffix("/assembly.mei")?;
+        if parent.is_empty() {
+            return None;
+        }
+        if let Some(scene_id) = parent.rsplit('/').next().filter(|value| !value.is_empty()) {
+            return Some(scene_id.to_string());
+        }
+    }
+    normalized
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.strip_suffix(".mei"))
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }

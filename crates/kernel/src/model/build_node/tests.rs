@@ -28,6 +28,26 @@ use super::*;
     }
 
     #[test]
+    fn legacy_assembly_capsule_maps_parent_scene_id() {
+        let resolved = resolve_build_view_query(
+            None,
+            None,
+            Some("preview"),
+            &LegacyBuildQuery {
+                file: Some("src/scene/home/assembly.mei".to_string()),
+                scene: None,
+                world_metric: None,
+                world_dataset: None,
+                explain: None,
+                tab: Some("preview".to_string()),
+            },
+        )
+        .expect("resolved");
+        assert_eq!(resolved.node.encode(), "scene:home");
+        assert_eq!(resolved.tab, BuildViewTab::Preview);
+    }
+
+    #[test]
     fn legacy_scene_capsule_file_overrides_scene_query() {
         let resolved = resolve_build_view_query(
             None,

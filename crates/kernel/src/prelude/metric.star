@@ -278,6 +278,39 @@ def _metric_patch_slots(values, patch):
                 out[key] = patch.get(key)
     return out
 
+def _merge_metric_presentation(source = None, presentation = None, patch = None):
+    out = {}
+    if _is_dict(source) and _is_dict(source.get("presentation")):
+        for key, value in source.get("presentation").items():
+            out[key] = value
+    if _is_dict(presentation):
+        for key, value in presentation.items():
+            out[key] = value
+    if _is_dict(patch) and _is_dict(patch.get("presentation")):
+        for key, value in patch.get("presentation").items():
+            out[key] = value
+    return out if len(out) > 0 else None
+
+def _apply_metric_presentation_icon(shell_props, presentation):
+    if presentation == None or not _is_dict(presentation):
+        return shell_props
+    icon = presentation.get("icon")
+    if icon == None or str(icon).strip() == "":
+        if len(presentation) > 0:
+            shell_props["__mei_metric_presentation"] = _clone_props(presentation)
+        return shell_props
+    icon_str = str(icon).strip()
+    bg = shell_props.get("background")
+    if not _is_dict(bg):
+        if bg == None or str(bg).strip() == "":
+            bg = {"color": "rgba(98,190,235,0.10)"}
+        else:
+            bg = {"color": str(bg)}
+    bg["image"] = icon_str
+    shell_props["background"] = bg
+    shell_props["__mei_metric_presentation"] = _clone_props(presentation)
+    return shell_props
+
 def _metric_slot_key(slot, map = None):
     if _is_dict(map):
         key = map.get(slot)
@@ -670,6 +703,7 @@ def metric_card(
     scale = None,
     popup = None,
     analysis = None,
+    presentation = None,
     label_vertical_align = None,
     value_vertical_align = None,
     unit_vertical_align = None,
@@ -727,6 +761,9 @@ def metric_card(
         unit_vertical_align,
         desc_vertical_align,
     )
+    merged_presentation = _merge_metric_presentation(source, presentation, patch)
+    if merged_presentation != None:
+        card_props = _apply_metric_presentation_icon(card_props, merged_presentation)
     card_layout = layout
     card_blocks = blocks
     # base= 克隆模板时 layout 由模板 panel 提供；勿用默认 template=stack 生成布局覆盖 stack_desc/desc 区。

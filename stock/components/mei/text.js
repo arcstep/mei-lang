@@ -81,6 +81,92 @@ function metricPatchOf(props) {
   return raw && typeof raw === "object" ? raw : {};
 }
 
+function metricPresentationBaseOf(props) {
+  const raw = props?.__mei_metric_presentation ?? props?.__meiMetricPresentation ?? {};
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+function metricPresentationFromMetric(metric) {
+  if (!metric || typeof metric !== "object") {
+    return {};
+  }
+  if (metric.presentation && typeof metric.presentation === "object") {
+    return metric.presentation;
+  }
+  if (
+    metric.value &&
+    typeof metric.value === "object" &&
+    metric.value.presentation &&
+    typeof metric.value.presentation === "object"
+  ) {
+    return metric.value.presentation;
+  }
+  return {};
+}
+
+function resolveMetricPresentation(metric, props) {
+  const base = metricPresentationBaseOf(props);
+  const patch = metricPatchOf(props)?.presentation;
+  const fromMetric = metricPresentationFromMetric(metric);
+  const iconCandidate =
+    fromMetric?.icon ??
+    patch?.icon ??
+    base?.icon;
+  const icon = iconCandidate == null ? "" : String(iconCandidate).trim();
+  return icon ? { icon } : {};
+}
+
+function backgroundImageCssValue(icon) {
+  const raw = String(icon || "").trim();
+  if (!raw) {
+    return "";
+  }
+  if (/^url\(/i.test(raw)) {
+    return raw;
+  }
+  return `url(${raw})`;
+}
+
+function findMetricCardHost(element) {
+  let node = element;
+  while (node) {
+    if (
+      node instanceof HTMLElement &&
+      node.getAttribute?.("data-mei-metric-card") === "true"
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  return null;
+}
+
+function syncMetricCardPresentation(element, metric, props) {
+  const role = String(props?.metric_role || "").trim().toLowerCase();
+  if (role !== "value") {
+    return;
+  }
+  const resolved = resolveMetricPresentation(metric, props);
+  const icon = String(resolved?.icon || "").trim();
+  if (!icon) {
+    return;
+  }
+  const host = findMetricCardHost(element);
+  if (!host) {
+    return;
+  }
+  const imageValue = backgroundImageCssValue(icon);
+  const style = host.getAttribute("style") || "";
+  if (/background-image\s*:/i.test(style)) {
+    host.setAttribute(
+      "style",
+      style.replace(/background-image\s*:\s*[^;]+;?/i, `background-image:${imageValue};`),
+    );
+    return;
+  }
+  host.setAttribute("style", `${style}background-image:${imageValue};`);
+}
+
 function slotFieldName(slot, props) {
   const mapped = metricMapOf(props)[slot];
   const name = String(mapped ?? "").trim();
@@ -610,6 +696,7 @@ class MeiText extends HTMLElement {
       }
       const display = metricDisplayFromScalar(metric, props);
       this._renderMetric(props, display);
+      syncMetricCardPresentation(this, metric, props);
     } catch (error) {
       if (error?.name === "AbortError") {
         return;

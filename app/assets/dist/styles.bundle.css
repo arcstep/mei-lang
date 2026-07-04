@@ -5860,17 +5860,15 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   outline: 1px dashed rgba(192, 132, 252, 0.75);
   outline-offset: -1px;
 }
-[data-mei-ui-role="micro_layout"] {
-  outline: 1px dashed rgba(96, 165, 250, 0.75);
-  outline-offset: -1px;
-}
 [data-mei-ui-role="slot"] {
   outline: 1px dashed rgba(248, 113, 113, 0.75);
   outline-offset: -1px;
 }
-[data-mei-ui-role="content"] {
-  outline: 1px dashed rgba(74, 222, 128, 0.65);
-  outline-offset: -1px;
+
+/* 构建视图：视窗外侧留 1px，避免 region/section 边线贴边被裁切 */
+body.build-view .preview-pane-scroll {
+  padding: 1px;
+  box-sizing: border-box;
 }
 
 /* 构建视图 · 可达性资源树（独立行布局，避免与旧 tree-file-row / ::before 折线冲突） */
@@ -6193,14 +6191,23 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   pointer-events: none;
 }
 
-/* Build 预览 scoped 蒙版：同步压住 portal 到 body 的 GIS 浮层控件 */
+/* Build 预览 scoped 蒙版：同步压住 portal 到 body 的 GIS 浮层控件（保留地图工具可点） */
 body.build-preview-scoped-active > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools,
 body.build-preview-scoped-active > .mei-cockpit-floating-layer-control,
-body.build-preview-scoped-active > .maplibregl-popup.mei-cockpit-floating-tip,
-body.build-preview-scoped-active .preview-stage-shell > .mei-cockpit-map-tools-plane {
+body.build-preview-scoped-active > .maplibregl-popup.mei-cockpit-floating-tip {
   opacity: 0.22;
-  pointer-events: none;
   filter: saturate(0.55);
+}
+body.build-preview-scoped-active .preview-stage-shell > .mei-cockpit-map-tools-plane,
+body.build-preview-scoped-active .preview-stage > .mei-cockpit-map-tools-plane {
+  opacity: 1;
+  pointer-events: none;
+}
+body.build-preview-scoped-active .preview-stage-shell > .mei-cockpit-map-tools-plane > *,
+body.build-preview-scoped-active .preview-stage > .mei-cockpit-map-tools-plane > *,
+body.build-preview-scoped-active > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group,
+body.build-preview-scoped-active > .mei-cockpit-floating-layer-control {
+  pointer-events: auto;
 }
 
 .build-reachability-tree .build-tree-summary--root {
