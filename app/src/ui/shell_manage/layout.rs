@@ -12,16 +12,16 @@ use super::super::preview;
 use super::super::preview_chrome::asset_preview_body;
 use super::super::route::UiRouteMode;
 use super::super::prototype_preset::{
-    default_build_preset, match_preset, preset_tree_max_ui_role, prototype_workspace_primary_tabs,
-    prototype_workspace_tool_tabs, PrototypePreset, PROTOTYPE_PRESETS,
+    default_build_preset, match_preset, preset_tree_max_ui_role, prototype_normalize_workspace_tab,
+    prototype_workspace_primary_tabs, prototype_workspace_tool_tabs, PrototypePreset,
+    PROTOTYPE_PRESETS,
 };
 use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::super::statusbar::statusbar_view;
 use super::super::topbar::{access_scene_for_topbar, topbar_view};
 use super::super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 use super::build_panels::{
-    build_agent_view, build_artifact_panel, build_exec_panel_shell, build_graph_panel,
-    build_overview_view, build_provenance_view,
+    build_artifact_panel, build_exec_panel_shell, build_graph_panel,
 };
 use super::world_semantic_inspector::{
     should_show_world_semantic_inspector, world_semantic_inspector_view,
@@ -62,7 +62,7 @@ pub(crate) fn manage_shell(
         explain: explain.map(str::to_string),
         tab: active_tab.map(str::to_string),
     };
-    let resolved =
+    let mut resolved =
         resolve_build_view_query(node, scope, active_tab, &legacy).unwrap_or_else(|| {
             let default_node = default_build_node_for_compiled(compiled);
             mei_lang_kernel::ResolvedBuildViewQuery {
@@ -71,6 +71,7 @@ pub(crate) fn manage_shell(
                 scope: Default::default(),
             }
         });
+    resolved.tab = prototype_normalize_workspace_tab(resolved.node.kind, resolved.tab);
     let ctx = resolve_build_node_context(compiled, &resolved.node);
     let selected_target = ctx.target_file.clone();
     let semantic = WorldSemanticQuery {
@@ -239,9 +240,9 @@ pub(crate) fn manage_shell(
         .iter()
         .map(|tab| {
             let class = if *tab == active_tab_enum {
-                "manage-view-tab manage-view-tab--menu is-active".to_string()
+                "manage-view-tab is-active".to_string()
             } else {
-                "manage-view-tab manage-view-tab--menu".to_string()
+                "manage-view-tab".to_string()
             };
             tab_link(*tab, class)
         })
@@ -253,17 +254,6 @@ pub(crate) fn manage_shell(
         .filter(|value| !value.is_empty())
         .unwrap_or("");
     let tab_slug = active_tab_enum.slug().to_string();
-    let ui_scope_provenance_sources = if resolved.node.kind == BuildNodeKind::UiScope {
-        compiled
-            .ui_layout_index
-            .lookup(&resolved.node)
-            .map(|entry| entry.source_anchors.as_slice())
-    } else {
-        None
-    };
-    let overview_panel = build_overview_view(compiled, &ctx, app_path);
-    let provenance_panel = build_provenance_view(&ctx.provenance, ui_scope_provenance_sources);
-    let agent_panel = build_agent_view(app_path, node_encoded.as_str(), tab_slug.as_str());
     let exec_panel = build_exec_panel_shell(app_path, node_encoded.as_str());
     let semantic_panel = build_graph_panel("语义图", "semantic", node_encoded.as_str());
     let eval_panel = build_graph_panel("求值图", "eval", node_encoded.as_str());
@@ -351,79 +341,6 @@ pub(crate) fn manage_shell(
         .map(preset_link)
         .collect_view();
 
-    let advanced_data_mode_links = ["eval", "fixture", "static"]
-        .iter()
-        .map(|mode| {
-            let href = build_node_href(
-                app_path,
-                &resolved.node,
-                active_tab_enum,
-                resolved.scope,
-                catalog,
-                stock_pack,
-                BuildReviewAxes {
-                    data_mode: Some(mode),
-                    review_projection: Some(active_review_projection),
-                },
-            );
-            let class = if *mode == active_data_mode {
-                "manage-view-tab manage-view-tab--axis is-active".to_string()
-            } else {
-                "manage-view-tab manage-view-tab--axis".to_string()
-            };
-            view! {
-                <a class=class href=href data-build-data-mode=mode.to_string()>
-                    {*mode}
-                </a>
-            }
-        })
-        .collect_view();
-
-    let advanced_projection_links = [
-        "plane_region",
-        "plane_region_section",
-        "static_full",
-        "live_full",
-    ]
-        .iter()
-        .map(|projection| {
-            let href = build_node_href(
-                app_path,
-                &resolved.node,
-                active_tab_enum,
-                resolved.scope,
-                catalog,
-                stock_pack,
-                BuildReviewAxes {
-                    data_mode: Some(active_data_mode),
-                    review_projection: Some(projection),
-                },
-            );
-            let class = if *projection == active_review_projection {
-                "manage-view-tab manage-view-tab--axis is-active".to_string()
-            } else {
-                "manage-view-tab manage-view-tab--axis".to_string()
-            };
-            view! {
-                <a class=class href=href data-build-review-projection=projection.to_string()>
-                    {*projection}
-                </a>
-            }
-        })
-        .collect_view();
-
-    let tool_tab_active = tool_tabs.iter().any(|tab| *tab == active_tab_enum);
-    let more_tab_class = if tool_tab_active {
-        "manage-view-tab manage-view-tab--more is-active".to_string()
-    } else {
-        "manage-view-tab manage-view-tab--more".to_string()
-    };
-    let more_tab_label = if tool_tab_active {
-        active_tab_enum.label()
-    } else {
-        "更多"
-    };
-
     view! {
         <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug data-build-tree-max-ui-role=tree_max_ui_role data-data-mode-clamped=data_mode_clamped_attr>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
@@ -470,37 +387,18 @@ pub(crate) fn manage_shell(
                                     >
                                         {preset_links}
                                     </div>
-                                    <details class="manage-view-tabs-more" open=tool_tab_active>
-                                        <summary class=more_tab_class>
-                                            <span class="manage-view-tab-label">{more_tab_label}</span>
-                                        </summary>
-                                        <div class="manage-view-tabs-more-menu">
-                                            {if !tool_tabs.is_empty() {
-                                                view! {
-                                                    <div class="manage-view-tabs-more-section" role="presentation">
-                                                        <div class="manage-view-tabs-more-section-label">"辅助面板"</div>
-                                                        <div class="manage-view-tabs-more-links">
-                                                            {tool_tab_links}
-                                                        </div>
-                                                    </div>
-                                                }.into_any()
-                                            } else {
-                                                view! { <></> }.into_any()
-                                            }}
-                                            <div class="manage-view-tabs-more-section" role="presentation">
-                                                <div class="manage-view-tabs-more-section-label">"数据模式"</div>
-                                                <div class="manage-view-tabs-more-links">
-                                                    {advanced_data_mode_links}
-                                                </div>
+                                    {if !tool_tabs.is_empty() {
+                                        view! {
+                                            <div
+                                                class="manage-view-tabs-group manage-view-tabs-group--secondary"
+                                                role="presentation"
+                                            >
+                                                {tool_tab_links}
                                             </div>
-                                            <div class="manage-view-tabs-more-section" role="presentation">
-                                                <div class="manage-view-tabs-more-section-label">"审阅投影"</div>
-                                                <div class="manage-view-tabs-more-links">
-                                                    {advanced_projection_links}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </details>
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }}
                                 </div>
                             </nav>
                             <div class="manage-workspace-head-actions flex shrink-0 flex-wrap items-center gap-2">
@@ -521,13 +419,6 @@ pub(crate) fn manage_shell(
                             </div>
                         </div>
                         <div class="manage-tab-stage min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
-                        <section
-                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
-                            data-manage-tab-panel="overview"
-                            hidden=active_tab_enum != BuildViewTab::Overview
-                        >
-                            {overview_panel}
-                        </section>
                         <section
                             class="manage-tab-panel preview-pane min-h-0 min-w-0 flex flex-col overflow-hidden"
                             data-manage-tab-panel="preview"
@@ -581,20 +472,6 @@ pub(crate) fn manage_shell(
                             hidden=active_tab_enum != BuildViewTab::Artifact
                         >
                             {artifact_panel}
-                        </section>
-                        <section
-                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
-                            data-manage-tab-panel="provenance"
-                            hidden=active_tab_enum != BuildViewTab::Provenance
-                        >
-                            {provenance_panel}
-                        </section>
-                        <section
-                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
-                            data-manage-tab-panel="agent"
-                            hidden=active_tab_enum != BuildViewTab::Agent
-                        >
-                            {agent_panel}
                         </section>
                         </div>
                     </section>

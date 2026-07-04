@@ -61,6 +61,26 @@ pub fn preset_tree_max_ui_role(data_mode: &str, review_projection: &str) -> &'st
         .unwrap_or_else(|| default_build_preset().tree_max_ui_role)
 }
 
+/// Tabs removed from the prototype (Build) workspace — no nav entry or panel.
+pub fn prototype_workspace_retired_tab(tab: BuildViewTab) -> bool {
+    matches!(
+        tab,
+        BuildViewTab::Overview | BuildViewTab::Provenance | BuildViewTab::Agent
+    )
+}
+
+/// Map legacy tab query to the active prototype surface (usually Preview).
+pub fn prototype_normalize_workspace_tab(kind: BuildNodeKind, tab: BuildViewTab) -> BuildViewTab {
+    if prototype_workspace_retired_tab(tab) {
+        prototype_workspace_primary_tabs(kind)
+            .first()
+            .copied()
+            .unwrap_or(BuildViewTab::Preview)
+    } else {
+        tab
+    }
+}
+
 /// Primary workspace tabs: preview-first task surface.
 pub fn prototype_workspace_primary_tabs(kind: BuildNodeKind) -> Vec<BuildViewTab> {
     let all = tabs_for_node_kind(kind);
@@ -71,13 +91,14 @@ pub fn prototype_workspace_primary_tabs(kind: BuildNodeKind) -> Vec<BuildViewTab
     }
 }
 
-/// Secondary tools demoted from the main tab strip.
+/// Remaining specialist tabs (e.g. 执行 / 语义图) when the node kind still needs them.
 pub fn prototype_workspace_tool_tabs(kind: BuildNodeKind) -> Vec<BuildViewTab> {
     let all = tabs_for_node_kind(kind);
     let primary = prototype_workspace_primary_tabs(kind);
     all.iter()
         .copied()
         .filter(|tab| !primary.contains(tab))
+        .filter(|tab| !prototype_workspace_retired_tab(*tab))
         .collect()
 }
 
@@ -98,7 +119,10 @@ mod tests {
         let primary = prototype_workspace_primary_tabs(BuildNodeKind::Scene);
         assert_eq!(primary, vec![BuildViewTab::Preview]);
         let tools = prototype_workspace_tool_tabs(BuildNodeKind::Scene);
-        assert!(tools.contains(&BuildViewTab::Overview));
-        assert!(tools.contains(&BuildViewTab::Agent));
+        assert!(tools.is_empty());
+        assert_eq!(
+            prototype_normalize_workspace_tab(BuildNodeKind::Scene, BuildViewTab::Overview),
+            BuildViewTab::Preview
+        );
     }
 }

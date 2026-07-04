@@ -12,6 +12,12 @@
     "agent",
   ];
 
+  const PROTOTYPE_RETIRED_TABS = new Set(["overview", "provenance", "agent"]);
+
+  function isBuildPrototypeRoute() {
+    return /^\/apps\/(?:build|manage)\//.test(String(window.location.pathname || ""));
+  }
+
   function listTabs() {
     return Array.from(
       document.querySelectorAll("a.manage-view-tab[data-manage-tab]"),
@@ -47,10 +53,13 @@
 
   function normalizeTab(raw) {
     const value = String(raw || "").trim().toLowerCase();
-    if (BUILD_VIEW_TABS.includes(value)) return value;
     if (value === "source" || value === "diagnostics" || value === "diff") {
-      return "overview";
+      return isBuildPrototypeRoute() ? "preview" : "overview";
     }
+    if (isBuildPrototypeRoute() && PROTOTYPE_RETIRED_TABS.has(value)) {
+      return "preview";
+    }
+    if (BUILD_VIEW_TABS.includes(value)) return value;
     return "";
   }
 
