@@ -239,9 +239,9 @@ pub(crate) fn manage_shell(
         .iter()
         .map(|tab| {
             let class = if *tab == active_tab_enum {
-                "manage-view-tab manage-view-tab--tool is-active".to_string()
+                "manage-view-tab manage-view-tab--menu is-active".to_string()
             } else {
-                "manage-view-tab manage-view-tab--tool".to_string()
+                "manage-view-tab manage-view-tab--menu".to_string()
             };
             tab_link(*tab, class)
         })
@@ -326,9 +326,9 @@ pub(crate) fn manage_shell(
             },
         );
         let class = if preset.slug == active_preset.slug {
-            "build-preset-btn is-active"
+            "manage-view-tab manage-view-tab--preset is-active".to_string()
         } else {
-            "build-preset-btn"
+            "manage-view-tab manage-view-tab--preset".to_string()
         };
         view! {
             <a
@@ -367,9 +367,9 @@ pub(crate) fn manage_shell(
                 },
             );
             let class = if *mode == active_data_mode {
-                "build-advanced-axis-btn is-active"
+                "manage-view-tab manage-view-tab--axis is-active".to_string()
             } else {
-                "build-advanced-axis-btn"
+                "manage-view-tab manage-view-tab--axis".to_string()
             };
             view! {
                 <a class=class href=href data-build-data-mode=mode.to_string()>
@@ -400,9 +400,9 @@ pub(crate) fn manage_shell(
                 },
             );
             let class = if *projection == active_review_projection {
-                "build-advanced-axis-btn is-active"
+                "manage-view-tab manage-view-tab--axis is-active".to_string()
             } else {
-                "build-advanced-axis-btn"
+                "manage-view-tab manage-view-tab--axis".to_string()
             };
             view! {
                 <a class=class href=href data-build-review-projection=projection.to_string()>
@@ -411,6 +411,18 @@ pub(crate) fn manage_shell(
             }
         })
         .collect_view();
+
+    let tool_tab_active = tool_tabs.iter().any(|tab| *tab == active_tab_enum);
+    let more_tab_class = if tool_tab_active {
+        "manage-view-tab manage-view-tab--more is-active".to_string()
+    } else {
+        "manage-view-tab manage-view-tab--more".to_string()
+    };
+    let more_tab_label = if tool_tab_active {
+        active_tab_enum.label()
+    } else {
+        "更多"
+    };
 
     view! {
         <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug data-build-tree-max-ui-role=tree_max_ui_role data-data-mode-clamped=data_mode_clamped_attr>
@@ -444,62 +456,69 @@ pub(crate) fn manage_shell(
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
                         <div class="manage-workspace-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 pb-2.5">
                             <nav
-                                class="manage-view-tabs workspace-tabs-strip flex min-w-0 flex-1 flex-wrap items-center gap-2"
-                                role="tablist"
-                                aria-label="原型主任务"
+                                class="manage-view-tabs workspace-tabs-strip flex min-w-0 flex-1 items-center gap-2"
+                                aria-label="原型工作区"
                             >
-                                <div class="manage-view-tabs-cluster">
-                                    <div class="manage-view-tabs-group" role="presentation">
+                                <div class="manage-view-tabs-cluster manage-view-tabs-cluster--prototype">
+                                    <div class="manage-view-tabs-group manage-view-tabs-group--primary" role="presentation">
                                         {primary_tab_links}
                                     </div>
-                                    {if !tool_tabs.is_empty() {
-                                        view! {
-                                            <div
-                                                class="manage-view-tabs-group manage-view-tabs-group--tools"
-                                                role="presentation"
-                                                aria-label="更多工具"
-                                            >
-                                                <span class="manage-view-tabs-tools-label mei-font-1 mei-text-muted">"更多工具"</span>
-                                                {tool_tab_links}
+                                    <div
+                                        class="manage-view-tabs-group manage-view-tabs-group--presets"
+                                        role="tablist"
+                                        aria-label="审阅任务预设"
+                                    >
+                                        {preset_links}
+                                    </div>
+                                    <details class="manage-view-tabs-more" open=tool_tab_active>
+                                        <summary class=more_tab_class>
+                                            <span class="manage-view-tab-label">{more_tab_label}</span>
+                                        </summary>
+                                        <div class="manage-view-tabs-more-menu">
+                                            {if !tool_tabs.is_empty() {
+                                                view! {
+                                                    <div class="manage-view-tabs-more-section" role="presentation">
+                                                        <div class="manage-view-tabs-more-section-label">"辅助面板"</div>
+                                                        <div class="manage-view-tabs-more-links">
+                                                            {tool_tab_links}
+                                                        </div>
+                                                    </div>
+                                                }.into_any()
+                                            } else {
+                                                view! { <></> }.into_any()
+                                            }}
+                                            <div class="manage-view-tabs-more-section" role="presentation">
+                                                <div class="manage-view-tabs-more-section-label">"数据模式"</div>
+                                                <div class="manage-view-tabs-more-links">
+                                                    {advanced_data_mode_links}
+                                                </div>
                                             </div>
-                                        }.into_any()
-                                    } else {
-                                        view! { <></> }.into_any()
-                                    }}
+                                            <div class="manage-view-tabs-more-section" role="presentation">
+                                                <div class="manage-view-tabs-more-section-label">"审阅投影"</div>
+                                                <div class="manage-view-tabs-more-links">
+                                                    {advanced_projection_links}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </details>
                                 </div>
                             </nav>
-                            <div
-                                class="build-preset-toggle flex shrink-0 flex-wrap items-center gap-1"
-                                role="tablist"
-                                aria-label="原型任务预设"
-                            >
-                                {preset_links}
+                            <div class="manage-workspace-head-actions flex shrink-0 flex-wrap items-center gap-2">
+                                {ceiling_notice_view}
+                                <button
+                                    type="button"
+                                    id="build-copy-agent-context-top"
+                                    class="build-toolbar-btn build-toolbar-btn--accent shrink-0"
+                                    data-app-path=app_path.to_string()
+                                    data-node=node_encoded.clone()
+                                    data-tab=tab_slug.clone()
+                                    data-intent="full"
+                                    data-data-mode=active_data_mode
+                                    data-review-projection=active_review_projection
+                                >
+                                    "复制原型调试上下文"
+                                </button>
                             </div>
-                            {ceiling_notice_view}
-                            <details class="build-advanced-axes shrink-0">
-                                <summary class="build-advanced-axes-summary mei-font-1 mei-text-muted">"高级轴"</summary>
-                                <div class="build-advanced-axes-body flex flex-wrap items-center gap-2">
-                                    <div class="build-advanced-axis-group" aria-label="data_mode">
-                                        {advanced_data_mode_links}
-                                    </div>
-                                    <div class="build-advanced-axis-group" aria-label="review_projection">
-                                        {advanced_projection_links}
-                                    </div>
-                                </div>
-                            </details>
-                            <button
-                                type="button"
-                                id="build-copy-agent-context-top"
-                                class="build-toolbar-btn build-toolbar-btn--accent shrink-0"
-                                data-app-path=app_path.to_string()
-                                data-node=node_encoded.clone()
-                                data-tab=tab_slug.clone()
-                                data-intent="full"
-                                data-data-mode=active_data_mode
-                                data-review-projection=active_review_projection
-                            >
-                                "复制原型调试上下文"
-                            </button>
                         </div>
                         <div class="manage-tab-stage min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
                         <section

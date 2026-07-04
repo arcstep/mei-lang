@@ -6475,6 +6475,99 @@ a.tree-link {
   color: var(--mei-color-text-primary);
   background: var(--mei-color-surface-bg, rgba(18, 88, 97, 0.4));
 }
+/* Prototype (Build) unified toolbar: 预览 + 任务预设 + 更多 */
+.manage-view-tabs-cluster--prototype {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.manage-view-tabs-group--presets .manage-view-tab--preset {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.manage-view-tab--preset.is-active {
+  background: color-mix(in srgb, var(--mei-shell-color-mode-tab-active-bg) 92%, #6ecbc9 8%);
+}
+.manage-view-tabs-more {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  border-left: 1px solid var(--mei-shell-color-chrome-divider);
+}
+.manage-view-tabs-more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 7px 13px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.manage-view-tabs-more > summary::-webkit-details-marker {
+  display: none;
+}
+.manage-view-tabs-more > summary::after {
+  content: "▾";
+  font-size: 10px;
+  opacity: 0.72;
+  margin-left: 2px;
+}
+.manage-view-tabs-more[open] > summary::after {
+  transform: rotate(180deg);
+}
+.manage-view-tabs-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 196px;
+  max-width: min(92vw, 320px);
+  padding: 8px;
+  border: 1px solid var(--mei-shell-color-border-metadata);
+  border-radius: 12px;
+  background: var(--mei-shell-color-panel-bg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+.manage-view-tabs-more-section-label {
+  padding: 2px 8px 4px;
+  font-size: var(--mei-shell-font-1);
+  font-weight: 600;
+  color: var(--mei-shell-color-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.manage-view-tabs-more-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.manage-view-tab--menu,
+.manage-view-tab--axis {
+  width: 100%;
+  justify-content: flex-start;
+  border-right: 0;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.manage-view-tab--menu:hover,
+.manage-view-tab--menu:focus-visible,
+.manage-view-tab--axis:hover,
+.manage-view-tab--axis:focus-visible {
+  background: var(--mei-shell-color-mode-tab-hover-bg);
+}
+.manage-view-tab--menu.is-active,
+.manage-view-tab--axis.is-active {
+  background: var(--mei-shell-color-mode-tab-active-bg);
+}
+.manage-workspace-head-actions {
+  margin-left: auto;
+}
+.build-ceiling-notice {
+  max-width: min(100%, 420px);
+}
 .asset-markdown-preview {
   color: var(--mei-color-text-primary);
   line-height: 1.7;
