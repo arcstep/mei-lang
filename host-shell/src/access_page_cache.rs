@@ -189,6 +189,35 @@ pub fn access_page_cache_key(
     serde_json::to_string(&extra).ok()
 }
 
+fn inject_scene_revision_meta(html: String, revision: Option<&SceneRevisionPayload>) -> String {
+    let Some(revision) = revision else {
+        return html;
+    };
+    let digest = revision.revision_digest.replace('"', "");
+    let cache_key = revision
+        .cache_key
+        .as_deref()
+        .unwrap_or("")
+        .replace('"', "");
+    let mut injection = format!(
+        r#"<meta name="mei-scene-revision-digest" content="{digest}" />"#
+    );
+    if !cache_key.is_empty() {
+        injection.push_str(&format!(
+            r#"<meta name="mei-scene-cache-key" content="{cache_key}" />"#
+        ));
+    }
+    if let Some(pos) = html.find("<head>") {
+        let insert_at = pos + "<head>".len();
+        let mut out = String::with_capacity(html.len() + injection.len());
+        out.push_str(&html[..insert_at]);
+        out.push_str(&injection);
+        out.push_str(&html[insert_at..]);
+        return out;
+    }
+    html
+}
+
 fn access_route_chrome_hidden(route_mode: UiRouteMode, query: &AppQuery) -> bool {
     route_mode == UiRouteMode::Run
         || route_mode == UiRouteMode::Copilot
@@ -433,6 +462,20 @@ pub fn render_access_page_template(
     } else {
         Some(scene_id)
     };
+    let chrome_hidden = access_route_chrome_hidden(route_mode, query);
+    let revision_payload = build_scene_revision_payload(
+        workspace_root,
+        package_root,
+        app_id,
+        scene_id,
+        route_mode,
+        axes,
+        chrome_hidden,
+        auth_enabled,
+        account_view,
+        &gis,
+        outcome.compiled.component_assets.as_slice(),
+    );
     let html = render_page(
         apps,
         &outcome.compiled,
@@ -454,7 +497,7 @@ pub fn render_access_page_template(
         None,
         None,
         None,
-        access_route_chrome_hidden(route_mode, query),
+        chrome_hidden,
         false,
         None,
         &[],
@@ -469,6 +512,7 @@ pub fn render_access_page_template(
         None,
     );
     let html = fill_page_shell_placeholders(html, workspace_root);
+    let html = inject_scene_revision_meta(html, revision_payload.as_ref());
     let html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
     let html = inject_layer_plane_scripts(html, &outcome);
     let presentation_id = if route_mode == UiRouteMode::Copilot {

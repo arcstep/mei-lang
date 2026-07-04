@@ -14,7 +14,7 @@ use crate::landing::build_discovered_app_summaries;
 use crate::state::ShellState;
 
 pub fn toolchain_hint() -> &'static str {
-    crate::build_info::CARGO_PACKAGE_VERSION
+    crate::build_info::BUILD_VERSION
 }
 
 pub fn canonical_workspace(workspace: &Path) -> PathBuf {

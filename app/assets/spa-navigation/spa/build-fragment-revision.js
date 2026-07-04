@@ -74,6 +74,23 @@
 
   async function fetchBuildFragmentRevision(urlLike, options) {
     const opts = options || {};
+    if (opts.skipRemoteWhenValid) {
+      const localRevision = readBuildFragmentRevision(urlLike);
+      const cached =
+        localRevision && typeof boot.readBuildFragmentHtml === "function"
+          ? boot.readBuildFragmentHtml(urlLike, localRevision)
+          : null;
+      if (localRevision && cached?.preview_html) {
+        if (typeof boot.cacheDiagTrace === "function") {
+          boot.cacheDiagTrace("build-revision-skip-network", {
+            revision_digest: localRevision.revision_digest,
+          });
+        }
+        return typeof boot.normalizeRevision === "function"
+          ? boot.normalizeRevision(localRevision)
+          : localRevision;
+      }
+    }
     const url = new URL(urlLike, global.location.href);
     const parts = url.pathname.split("/").filter(Boolean);
     const appId = parts[2] || "";
@@ -109,7 +126,11 @@
       if (!response.ok) {
         throw new Error(`build fragment revision failed: ${response.status}`);
       }
-      return await response.json();
+      const revision = await response.json();
+      rememberBuildFragmentRevision(urlLike, revision);
+      return typeof boot.normalizeRevision === "function"
+        ? boot.normalizeRevision(revision)
+        : revision;
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -170,4 +191,26 @@
   boot.rememberBuildFragmentRevision = rememberBuildFragmentRevision;
   boot.readBuildFragmentRevision = readBuildFragmentRevision;
   boot.buildFragmentRevisionStillValid = buildFragmentRevisionStillValid;
+
+  global.MeiBuildFragmentRevision = {
+    buildFragmentRevisionCacheKey,
+    readBuildFragmentHtml,
+    rememberBuildFragmentHtml,
+    fetchBuildFragmentRevision,
+    rememberBuildFragmentRevision,
+    readBuildFragmentRevision,
+    buildFragmentRevisionStillValid,
+  };
+
+  if (global.MeiBuildNavigation && typeof global.MeiBuildNavigation === "object") {
+    Object.assign(global.MeiBuildNavigation, {
+      fetchBuildFragmentRevision,
+      readBuildFragmentRevision,
+      readBuildFragmentHtml,
+      rememberBuildFragmentRevision,
+      rememberBuildFragmentHtml,
+      buildFragmentRevisionStillValid,
+      buildFragmentRevisionCacheKey,
+    });
+  }
 })(window);

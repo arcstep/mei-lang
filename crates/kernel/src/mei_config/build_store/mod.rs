@@ -11,8 +11,9 @@ mod env_clean;
 mod tests;
 
 pub use build_generation::{
-    resolve_version_display_identity, resolve_version_display_identity_for_app,
-    resolve_version_display_identity_with_hint, BuildGenerationSpec, VersionDisplayIdentity,
+    resolve_build_generation_for_prebuild, resolve_version_display_identity,
+    resolve_version_display_identity_for_app, resolve_version_display_identity_with_hint,
+    BuildGenerationSpec, VersionDisplayIdentity,
 };
 pub use env_clean::{
     clean_env_generations, migrate_apps_to_env_layout, migrate_build_var_store_to_env,

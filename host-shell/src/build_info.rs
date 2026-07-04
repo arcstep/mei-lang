@@ -14,7 +14,7 @@ pub const GIT_DIRTY: &str = env!("MEI_GIT_DIRTY");
 pub const GIT_BRANCH: &str = env!("MEI_GIT_BRANCH");
 
 pub fn meilang_version_hint() -> &'static str {
-    CARGO_PACKAGE_VERSION
+    BUILD_VERSION
 }
 
 pub fn binary_descriptor() -> Value {
@@ -22,7 +22,7 @@ pub fn binary_descriptor() -> Value {
         "crate": "mei-host-shell",
         "build_version": BUILD_VERSION,
         "cargo_package_version": CARGO_PACKAGE_VERSION,
-        "meilangVersion": CARGO_PACKAGE_VERSION,
+        "meilangVersion": BUILD_VERSION,
         "git": {
             "commit_short": GIT_COMMIT_SHORT,
             "branch": GIT_BRANCH,
@@ -108,6 +108,13 @@ pub fn statusbar_version_label(workspace_root: &Path) -> String {
         workspace_root,
         Some(meilang_version_hint()),
     )
+}
+
+/// Terminal banner line: `mei-host-shell {build} · MeiLang x.y.z · Build WS-…`
+pub fn host_version_banner_line(workspace_root: &Path) -> String {
+    let footer =
+        mei_lang_kernel::resolve_build_footer_label_with_hint(workspace_root, Some(meilang_version_hint()));
+    format!("mei-host-shell {BUILD_VERSION} · {footer}")
 }
 
 pub fn statusbar_version_title(workspace_root: &Path) -> String {
@@ -242,16 +249,6 @@ mod tests {
         .expect("write workspace.json");
     }
 
-    fn write_ws_with_default_app(ws: &Path, version: &str, app_id: &str) {
-        fs::write(
-            ws.join("workspace.json"),
-            format!(
-                r#"{{"schemaVersion":2,"workspace":{{"id":"test","version":"{version}","defaultApp":"{app_id}"}},"build":{{"generation":{{"dateSource":"manual","date":"{version}","fixver":0}}}}}}"#
-            ),
-        )
-        .expect("write workspace.json");
-    }
-
     fn setup_demo_app(ws: &Path) {
         fs::create_dir_all(ws.join("apps/demo/src")).expect("mkdir app");
         fs::write(
@@ -266,19 +263,26 @@ mod tests {
         let tmp = tempdir().expect("tempdir");
         let ws = tmp.path();
         fs::create_dir_all(ws.join("deploy/state")).expect("mkdir");
-        write_ws_with_default_app(ws, "20260228", "demo");
+        fs::write(
+            ws.join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"defaultApp":"demo"},"build":{"generation":{"dateSource":"auto","date":"20260228","fixver":0}}}"#,
+        )
+        .expect("write workspace.json");
         setup_demo_app(ws);
         mei_lang_kernel::attach_build_generation(ws, &[String::from("demo")], "WS-20260228.0")
             .expect("attach");
         let mut links = LinksState::default();
         links.toolchain.active = Some("2.0.1".into());
         write_links_state(ws, &links).expect("write links");
+        let expected = mei_lang_kernel::resolve_build_generation_for_prebuild(ws).tag;
         let label = statusbar_version_label(ws);
         assert!(label.contains("MeiLang"));
-        assert!(label.contains("Build WS-20260228.0"));
+        assert!(label.contains(BUILD_VERSION));
+        assert!(label.contains(&format!("Build {expected}")));
+        assert!(!label.contains("Build WS-20260228.0"));
         let api_label = resolve_build_footer_label_with_hint(ws, Some("2.0.8"));
-        assert!(api_label.contains("MeiLang"));
-        assert!(api_label.contains("Build WS-20260228.0"));
+        assert!(api_label.contains("MeiLang 2.0.8"));
+        assert!(api_label.contains(&format!("Build {expected}")));
         assert!(!api_label.contains("build WS-20260228.0 · build"));
     }
 

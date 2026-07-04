@@ -22,9 +22,12 @@ if [[ "${PROFILE}" == "release" ]]; then
     -p mei-compiler -p mei-plug-ds -p mei-host-shell)
 fi
 
+export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
+export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-plug-ds,mei-host-shell}"
+
 # shellcheck source=cargo-target-gc.sh
 source "${SCRIPT_DIR}/cargo-target-gc.sh"
-maybe_cargo_target_gc "${MEI_LANG_ROOT}"
+maybe_cargo_target_hygiene "${MEI_LANG_ROOT}"
 
 echo "==> mei-lang build (profile=${PROFILE}, root=${MEI_LANG_ROOT})"
 CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}"

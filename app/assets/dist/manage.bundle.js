@@ -6270,21 +6270,45 @@
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
 
+  function normalizeRevision(revision) {
+    if (!revision || typeof revision !== "object") return revision;
+    return {
+      ...revision,
+      revision_digest: String(
+        revision.revision_digest || revision.revisionDigest || "",
+      ).trim(),
+      cache_key: String(revision.cache_key || revision.cacheKey || "").trim() || undefined,
+      client_revision: String(
+        revision.client_revision || revision.clientRevision || "",
+      ).trim(),
+      registry_revision: String(
+        revision.registry_revision || revision.registryRevision || "",
+      ).trim(),
+      data_generation: String(
+        revision.data_generation || revision.dataGeneration || "",
+      ).trim(),
+      scene_bundle_revision:
+        revision.scene_bundle_revision || revision.sceneBundleRevision || "",
+      draft_digest: revision.draft_digest || revision.draftDigest || "",
+    };
+  }
+
   function revisionsMatch(localRevision, remoteRevision) {
-    if (!localRevision || !remoteRevision) return false;
-    if (localRevision.revision_digest && remoteRevision.revision_digest) {
-      return localRevision.revision_digest === remoteRevision.revision_digest;
+    const local = normalizeRevision(localRevision);
+    const remote = normalizeRevision(remoteRevision);
+    if (!local || !remote) return false;
+    if (local.revision_digest && remote.revision_digest) {
+      return local.revision_digest === remote.revision_digest;
     }
-    if (localRevision.cache_key && remoteRevision.cache_key) {
-      return localRevision.cache_key === remoteRevision.cache_key;
+    if (local.cache_key && remote.cache_key) {
+      return local.cache_key === remote.cache_key;
     }
     return (
-      localRevision.registry_revision === remoteRevision.registry_revision &&
-      localRevision.client_revision === remoteRevision.client_revision &&
-      localRevision.data_generation === remoteRevision.data_generation &&
-      (localRevision.scene_bundle_revision || "") ===
-        (remoteRevision.scene_bundle_revision || "") &&
-      (localRevision.draft_digest || "") === (remoteRevision.draft_digest || "")
+      local.registry_revision === remote.registry_revision &&
+      local.client_revision === remote.client_revision &&
+      local.data_generation === remote.data_generation &&
+      (local.scene_bundle_revision || "") === (remote.scene_bundle_revision || "") &&
+      (local.draft_digest || "") === (remote.draft_digest || "")
     );
   }
 
@@ -6319,103 +6343,225 @@
   }
 
   boot.revisionsMatch = revisionsMatch;
+  boot.normalizeRevision = normalizeRevision;
   boot.surfaceRevisionKey = surfaceRevisionKey;
   boot.pruneRevisionStore = pruneRevisionStore;
 })(window);
 
 
-/* ===== spa-navigation/spa/build-fragment-revision.js ===== */
-/**
- * Build fragment revision helpers (shared contract with access-like scene revision).
- */
-(function initBuildFragmentRevision(global) {
-  "use strict";
+/* ===== spa-navigation/spa/scene-revision.js ===== */
+  const SCENE_REVISION_API = "/api/host/scene-revision";
+  const SCENE_REVISION_STORE_KEY = "mei-scene-revisions";
+  const SCENE_REVISION_LS_KEY = "mei:scene-revisions:v1";
 
-  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
-  const BUILD_FRAGMENT_REVISION_API = "/api/build/fragment-revision";
-  const revisionStoreKey = "mei-build-fragment-revisions";
-  const fragmentHtmlStoreKey = "mei-build-fragment-html";
-  const FRAGMENT_HTML_MAX = 8;
-
-  function readRevisionStore() {
+  function readSceneRevisionStore() {
     try {
-      const raw = global.sessionStorage.getItem(revisionStoreKey);
+      const raw = sessionStorage.getItem(SCENE_REVISION_STORE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    try {
+      const raw = localStorage.getItem(SCENE_REVISION_LS_KEY);
       return raw ? JSON.parse(raw) : {};
     } catch (_) {
       return {};
     }
   }
 
-  function writeRevisionStore(store) {
+  function writeSceneRevisionStore(store) {
+    const payload = JSON.stringify(store || {});
     try {
-      global.sessionStorage.setItem(revisionStoreKey, JSON.stringify(store || {}));
+      sessionStorage.setItem(SCENE_REVISION_STORE_KEY, payload);
+    } catch (_) {}
+    try {
+      localStorage.setItem(SCENE_REVISION_LS_KEY, payload);
     } catch (_) {}
   }
 
-  function buildFragmentRevisionCacheKey(urlLike) {
+  function parseAccessSceneContext(urlLike) {
     try {
-      const url = new URL(urlLike, global.location.href);
-      const parts = url.pathname.split("/").filter(Boolean);
-      const appId = parts[2] || "";
-      return boot.surfaceRevisionKey({
-        surface: "build",
-        app_id: appId,
-        node: String(url.searchParams.get("node") || "").trim(),
-        data_mode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
-        review_projection: String(url.searchParams.get("review_projection") || "")
+      const url = new URL(urlLike, window.location.href);
+      const match = url.pathname.match(
+        /^\/apps\/(?:app|access|run|presentation|slides|copilot)\/([^/]+)\/scene\/([^/]+)/,
+      );
+      if (!match) return null;
+      const mode = url.pathname.split("/")[2] || "app";
+      return {
+        appId: decodeURIComponent(match[1]),
+        sceneId: decodeURIComponent(match[2]),
+        mode,
+        chrome: String(url.searchParams.get("chrome") || "").trim().toLowerCase(),
+        dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
+        reviewProjection: String(url.searchParams.get("review_projection") || "")
           .trim()
           .toLowerCase(),
-        focus: String(url.searchParams.get("focus") || "").trim(),
-        scope: String(url.searchParams.get("scope") || "").trim(),
-      });
+        url: url.href,
+      };
     } catch (_) {
-      return "";
+      return null;
     }
   }
 
-  function rememberBuildFragmentRevision(urlLike, revision) {
-    const key = buildFragmentRevisionCacheKey(urlLike);
+  function sceneRevisionCacheKey(ctx) {
+    return boot.surfaceRevisionKey({
+      surface: ctx.mode || "app",
+      app_id: ctx.appId,
+      scene_id: ctx.sceneId,
+      data_mode: (() => {
+        try {
+          return String(
+            new URL(ctx.url || window.location.href).searchParams.get("data_mode") || "",
+          )
+            .trim()
+            .toLowerCase();
+        } catch (_) {
+          return "";
+        }
+      })(),
+      review_projection: (() => {
+        try {
+          return String(
+            new URL(ctx.url || window.location.href).searchParams.get("review_projection") || "",
+          )
+            .trim()
+            .toLowerCase();
+        } catch (_) {
+          return "";
+        }
+      })(),
+      chrome: (() => {
+        try {
+          return String(new URL(ctx.url || window.location.href).searchParams.get("chrome") || "")
+            .trim()
+            .toLowerCase();
+        } catch (_) {
+          return "";
+        }
+      })(),
+    });
+  }
+
+  function readCachedSceneRevision(ctx) {
+    const key = sceneRevisionCacheKey(ctx);
+    if (!key) return null;
+    const store = readSceneRevisionStore();
+    const revision = store[key] || null;
+    return typeof boot.normalizeRevision === "function"
+      ? boot.normalizeRevision(revision)
+      : revision;
+  }
+
+  function rememberSceneRevision(ctx, revision) {
+    const key = sceneRevisionCacheKey(ctx);
     if (!key || !revision) return;
-    const store = readRevisionStore();
-    store[key] = revision;
+    const normalized =
+      typeof boot.normalizeRevision === "function"
+        ? boot.normalizeRevision(revision)
+        : revision;
+    const store = readSceneRevisionStore();
+    store[key] = normalized;
     if (typeof boot.pruneRevisionStore === "function") {
       boot.pruneRevisionStore(store, key, 48);
     }
-    writeRevisionStore(store);
+    writeSceneRevisionStore(store);
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("revision-remembered", {
+        key,
+        revision_digest: normalized.revision_digest,
+      });
+    }
   }
 
-  function readBuildFragmentRevision(urlLike) {
-    const key = buildFragmentRevisionCacheKey(urlLike);
-    if (!key) return null;
-    const store = readRevisionStore();
-    return store[key] || null;
+  function readSsrEmbeddedSceneRevision() {
+    const digest = String(
+      document.querySelector('meta[name="mei-scene-revision-digest"]')?.getAttribute("content") ||
+        "",
+    ).trim();
+    if (!digest) return null;
+    const cacheKey = String(
+      document.querySelector('meta[name="mei-scene-cache-key"]')?.getAttribute("content") || "",
+    ).trim();
+    const clientRevision = String(window.__mei?.client_revision || "").trim();
+    const revision = {
+      revision_digest: digest,
+      cache_key: cacheKey || undefined,
+    };
+    if (clientRevision) {
+      revision.client_revision = clientRevision;
+    }
+    return typeof boot.normalizeRevision === "function"
+      ? boot.normalizeRevision(revision)
+      : revision;
   }
 
-  function buildFragmentRevisionStillValid(urlLike, remoteRevision) {
-    const localRevision = readBuildFragmentRevision(urlLike);
-    if (!localRevision || !remoteRevision) return false;
-    return typeof boot.revisionsMatch === "function"
-      ? boot.revisionsMatch(localRevision, remoteRevision)
-      : false;
+  function resolveRevisionWithoutNetwork(ctx, snapshotRevision) {
+    const cached = readCachedSceneRevision(ctx);
+    const ssr = readSsrEmbeddedSceneRevision();
+    const candidates = [cached, snapshotRevision, ssr].filter(Boolean);
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("revision-local-candidates", {
+        cached: !!cached,
+        snapshotRevision: !!snapshotRevision,
+        ssr: !!ssr,
+      });
+    }
+    if (ssr) {
+      for (const candidate of candidates) {
+        if (
+          candidate &&
+          typeof boot.revisionsMatch === "function" &&
+          boot.revisionsMatch(candidate, ssr)
+        ) {
+          window.__meiRevisionSkippedNetwork = 1;
+          if (typeof boot.cacheDiagTrace === "function") {
+            boot.cacheDiagTrace("revision-skip-network", {
+              reason: "ssr-digest-match",
+              revision_digest: ssr.revision_digest,
+            });
+          }
+          return typeof boot.normalizeRevision === "function"
+            ? boot.normalizeRevision(candidate)
+            : candidate;
+        }
+      }
+    }
+    if (cached?.revision_digest) {
+      window.__meiRevisionSkippedNetwork = 1;
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("revision-skip-network", {
+          reason: "cached-revision",
+          revision_digest: cached.revision_digest,
+        });
+      }
+      return cached;
+    }
+    return null;
   }
 
-  async function fetchBuildFragmentRevision(urlLike, options) {
+  async function fetchSceneRevision(ctx, options) {
     const opts = options || {};
-    const url = new URL(urlLike, global.location.href);
-    const parts = url.pathname.split("/").filter(Boolean);
-    const appId = parts[2] || "";
+    let snapshotRevision = null;
+    if (opts.preloadSnapshotRevision && typeof boot.loadSceneShellSnapshot === "function") {
+      const snapshot = await boot.loadSceneShellSnapshot(ctx);
+      snapshotRevision = snapshot?.revision || null;
+    }
+    if (opts.skipRemoteWhenValid) {
+      const local = resolveRevisionWithoutNetwork(ctx, snapshotRevision);
+      if (local) return local;
+    }
     const params = new URLSearchParams({
-      app_id: appId,
-      node: String(url.searchParams.get("node") || "").trim(),
+      app: ctx.appId,
+      scene: ctx.sceneId,
+      mode: ctx.mode || "app",
     });
-    const focus = url.searchParams.get("focus");
-    const scope = url.searchParams.get("scope");
-    const dataMode = url.searchParams.get("data_mode");
-    const reviewProjection = url.searchParams.get("review_projection");
-    if (focus) params.set("focus", focus);
-    if (scope) params.set("scope", scope);
-    if (dataMode) params.set("data_mode", dataMode);
-    if (reviewProjection) params.set("review_projection", reviewProjection);
+    try {
+      const url = new URL(ctx.url || window.location.href);
+      const dataMode = String(url.searchParams.get("data_mode") || "").trim();
+      const reviewProjection = String(url.searchParams.get("review_projection") || "").trim();
+      const chrome = String(url.searchParams.get("chrome") || "").trim();
+      if (dataMode) params.set("data_mode", dataMode);
+      if (reviewProjection) params.set("review_projection", reviewProjection);
+      if (chrome) params.set("chrome", chrome);
+    } catch (_) {}
     const controller = opts.signal ? null : new AbortController();
     const signal = opts.signal || controller?.signal;
     const timer =
@@ -6423,81 +6569,879 @@
         ? setTimeout(() => controller.abort(), opts.timeoutMs)
         : null;
     try {
-      const response = await fetch(`${BUILD_FRAGMENT_REVISION_API}?${params.toString()}`, {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("revision-fetch-network", { app: ctx.appId, scene: ctx.sceneId });
+      }
+      const response = await fetch(`${SCENE_REVISION_API}?${params.toString()}`, {
         credentials: "same-origin",
-        headers: {
-          Accept: "application/json",
-          ...(typeof ensureDraftSessionId === "function"
-            ? { "x-mei-draft-session": ensureDraftSessionId() }
-            : {}),
-        },
+        headers: { Accept: "application/json" },
         signal,
       });
       if (!response.ok) {
-        throw new Error(`build fragment revision failed: ${response.status}`);
+        throw new Error(`scene revision failed: ${response.status}`);
       }
-      return await response.json();
+      const revision = await response.json();
+      rememberSceneRevision(ctx, revision);
+      return typeof boot.normalizeRevision === "function"
+        ? boot.normalizeRevision(revision)
+        : revision;
     } finally {
       if (timer) clearTimeout(timer);
     }
   }
 
-  function readFragmentHtmlStore() {
+  boot.parseAccessSceneContext = parseAccessSceneContext;
+  boot.fetchSceneRevision = fetchSceneRevision;
+  boot.sceneRevisionCacheKey = sceneRevisionCacheKey;
+  boot.readCachedSceneRevision = readCachedSceneRevision;
+  boot.rememberSceneRevision = rememberSceneRevision;
+  boot.readSsrEmbeddedSceneRevision = readSsrEmbeddedSceneRevision;
+  boot.resolveRevisionWithoutNetwork = resolveRevisionWithoutNetwork;
+
+
+/* ===== spa-navigation/spa/scene-shell-cache.js ===== */
+  const SCENE_SHELL_DB = "mei-scene-shell-cache-v1";
+  const SCENE_SHELL_STORE = "snapshots";
+  const SCENE_SHELL_DB_VERSION = 1;
+  const SCENE_SHELL_LS_PREFIX = "mei:scene-shell:v1:";
+  const SCENE_SHELL_MAX_ENTRIES = 12;
+  const SCENE_SHELL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+  function openSceneShellDb() {
+    if (typeof indexedDB === "undefined") {
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      try {
+        const request = indexedDB.open(SCENE_SHELL_DB, SCENE_SHELL_DB_VERSION);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(SCENE_SHELL_STORE)) {
+            db.createObjectStore(SCENE_SHELL_STORE, { keyPath: "key" });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => resolve(null);
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  function legacySnapshotStorageKey(ctx) {
+    const dataMode = String(ctx.dataMode || "").trim().toLowerCase();
+    const reviewProjection = String(ctx.reviewProjection || "").trim().toLowerCase();
+    const chrome = String(ctx.chrome || "").trim().toLowerCase();
+    return [ctx.appId, ctx.sceneId, ctx.mode || "app", chrome, dataMode, reviewProjection]
+      .filter(Boolean)
+      .join(":");
+  }
+
+  function snapshotStorageKey(ctx) {
+    if (typeof boot.sceneRevisionCacheKey === "function") {
+      return boot.sceneRevisionCacheKey(ctx);
+    }
+    return legacySnapshotStorageKey(ctx);
+  }
+
+  function collectHeadJsonScripts() {
+    const scripts = {};
+    for (const id of ["mei-scene-drilldown-context", "mei-host-runtime-capabilities", "mei-layer-plan", "mei-presentation-map"]) {
+      const node = document.getElementById(id);
+      if (node) {
+        scripts[id] = node.textContent || "";
+      }
+    }
+    return scripts;
+  }
+
+  function collectSceneBundleMeta(doc) {
+    const source = doc || document;
+    const bundle = source.querySelector('script[data-mei-scene-bundle="true"]');
+    if (!bundle) return null;
+    return {
+      src: bundle.getAttribute("src") || "",
+      revision: bundle.getAttribute("data-mei-persistent-script") || bundle.getAttribute("src") || "",
+    };
+  }
+
+  function buildSceneShellSnapshot(ctx, revision, doc) {
+    const sourceDoc = doc || document;
+    const shell = sourceDoc.querySelector(".shell");
+    if (!shell) return null;
+    return {
+      key: snapshotStorageKey(ctx),
+      appId: ctx.appId,
+      sceneId: ctx.sceneId,
+      mode: ctx.mode || "app",
+      revision,
+      savedAtMs: Date.now(),
+      title: sourceDoc.title || document.title,
+      bodyClassName: sourceDoc.body?.className || document.body.className,
+      shellHtml: shell.innerHTML,
+      headScripts: collectHeadJsonScripts(),
+      sceneBundle: collectSceneBundleMeta(sourceDoc),
+      url: ctx.url || window.location.href,
+    };
+  }
+
+  async function listSceneShellSnapshots(db) {
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(SCENE_SHELL_STORE, "readonly");
+        const request = tx.objectStore(SCENE_SHELL_STORE).getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => resolve([]);
+      } catch (_) {
+        resolve([]);
+      }
+    });
+  }
+
+  function estimateSnapshotBytes(snapshot) {
     try {
-      const raw = global.sessionStorage.getItem(fragmentHtmlStoreKey);
-      return raw ? JSON.parse(raw) : {};
+      return JSON.stringify(snapshot || {}).length;
     } catch (_) {
-      return {};
+      return 0;
     }
   }
 
-  function writeFragmentHtmlStore(store) {
+  async function pruneSceneShellDb(db) {
+    const now = Date.now();
+    let pruned = 0;
+    const all = await listSceneShellSnapshots(db);
+    const expiredKeys = all
+      .filter((item) => now - Number(item?.savedAtMs || 0) > SCENE_SHELL_MAX_AGE_MS)
+      .map((item) => item.key);
+    if (expiredKeys.length > 0) {
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readwrite");
+          const store = tx.objectStore(SCENE_SHELL_STORE);
+          for (const key of expiredKeys) {
+            store.delete(key);
+            pruned += 1;
+          }
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+    }
+    let remaining = await listSceneShellSnapshots(db);
+    if (remaining.length > SCENE_SHELL_MAX_ENTRIES) {
+      remaining = remaining.sort(
+        (a, b) => Number(a?.savedAtMs || 0) - Number(b?.savedAtMs || 0),
+      );
+      const excess = remaining.length - SCENE_SHELL_MAX_ENTRIES;
+      const deleteKeys = remaining.slice(0, excess).map((item) => item.key);
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readwrite");
+          const store = tx.objectStore(SCENE_SHELL_STORE);
+          for (const key of deleteKeys) {
+            store.delete(key);
+            pruned += 1;
+          }
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+      remaining = await listSceneShellSnapshots(db);
+    }
+    let totalBytesEstimate = 0;
+    for (const item of remaining) {
+      totalBytesEstimate += estimateSnapshotBytes(item);
+    }
+    return { pruned, totalBytesEstimate, entries: remaining.length };
+  }
+
+  function pruneSceneShellSessionStorage() {
+    let pruned = 0;
+    const entries = [];
     try {
-      global.sessionStorage.setItem(fragmentHtmlStoreKey, JSON.stringify(store || {}));
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i);
+        if (!key || !key.startsWith(SCENE_SHELL_LS_PREFIX)) continue;
+        const raw = sessionStorage.getItem(key);
+        let savedAtMs = 0;
+        try {
+          const parsed = JSON.parse(raw || "{}");
+          savedAtMs = Number(parsed?.savedAtMs || 0);
+        } catch (_) {
+          savedAtMs = 0;
+        }
+        entries.push({ key, savedAtMs });
+      }
+    } catch (_) {
+      return { pruned: 0, totalBytesEstimate: 0, entries: 0 };
+    }
+    const now = Date.now();
+    for (const entry of entries) {
+      if (now - entry.savedAtMs > SCENE_SHELL_MAX_AGE_MS) {
+        try {
+          sessionStorage.removeItem(entry.key);
+          pruned += 1;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+    const survivors = entries
+      .filter((entry) => now - entry.savedAtMs <= SCENE_SHELL_MAX_AGE_MS)
+      .sort((a, b) => a.savedAtMs - b.savedAtMs);
+    if (survivors.length > SCENE_SHELL_MAX_ENTRIES) {
+      const excess = survivors.length - SCENE_SHELL_MAX_ENTRIES;
+      for (let i = 0; i < excess; i += 1) {
+        try {
+          sessionStorage.removeItem(survivors[i].key);
+          pruned += 1;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+    let totalBytesEstimate = 0;
+    let entryCount = 0;
+    try {
+      for (let i = 0; i < sessionStorage.length; i += 1) {
+        const key = sessionStorage.key(i);
+        if (!key || !key.startsWith(SCENE_SHELL_LS_PREFIX)) continue;
+        entryCount += 1;
+        totalBytesEstimate += String(sessionStorage.getItem(key) || "").length;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    if (pruned > 0) {
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_pruned", {
+        pruned,
+        entries: entryCount,
+        totalBytesEstimate,
+      });
+    }
+    return { pruned, totalBytesEstimate, entries: entryCount };
+  }
+
+  async function persistSceneShellSnapshot(snapshot) {
+    if (!snapshot || !snapshot.key) return false;
+    const db = await openSceneShellDb();
+    if (db) {
+      await new Promise((resolve) => {
+        try {
+          const tx = db.transaction(SCENE_SHELL_STORE, "readwrite");
+          tx.objectStore(SCENE_SHELL_STORE).put(snapshot);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        } catch (_) {
+          resolve(false);
+        }
+      });
+      const pruneStats = await pruneSceneShellDb(db);
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_persist", {
+        key: snapshot.key,
+        ...pruneStats,
+      });
+      try {
+        db.close();
+      } catch (_) {}
+      return true;
+    }
+    try {
+      const compact = {
+        key: snapshot.key,
+        revision_digest: snapshot.revision?.revision_digest,
+        cache_key: snapshot.revision?.cache_key,
+        savedAtMs: snapshot.savedAtMs,
+        title: snapshot.title,
+        bodyClassName: snapshot.bodyClassName,
+        shellHtml: snapshot.shellHtml,
+      };
+      sessionStorage.setItem(`${SCENE_SHELL_LS_PREFIX}${snapshot.key}`, JSON.stringify(compact));
+      const pruneStats = pruneSceneShellSessionStorage();
+      window.__meiBrowserRuntimeDiag?.record?.("scene_shell_persist", {
+        key: snapshot.key,
+        ...pruneStats,
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function normalizeSnapshotRevision(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return null;
+    if (snapshot.revision && typeof snapshot.revision === "object") {
+      return snapshot;
+    }
+    const revisionDigest = String(snapshot.revision_digest || "").trim();
+    const cacheKey = String(snapshot.cache_key || "").trim();
+    if (!revisionDigest && !cacheKey) return snapshot;
+    return {
+      ...snapshot,
+      revision: {
+        revision_digest: revisionDigest,
+        cache_key: cacheKey || undefined,
+      },
+    };
+  }
+
+  async function loadSceneShellSnapshot(ctx) {
+    const keys = [
+      snapshotStorageKey(ctx),
+      legacySnapshotStorageKey(ctx),
+    ].filter((key, index, all) => key && all.indexOf(key) === index);
+    for (const key of keys) {
+      const db = await openSceneShellDb();
+      if (db) {
+        const snapshot = await new Promise((resolve) => {
+          try {
+            const tx = db.transaction(SCENE_SHELL_STORE, "readonly");
+            const request = tx.objectStore(SCENE_SHELL_STORE).get(key);
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = () => resolve(null);
+          } catch (_) {
+            resolve(null);
+          }
+        });
+        try {
+          db.close();
+        } catch (_) {}
+        if (snapshot) {
+          const normalized = normalizeSnapshotRevision(snapshot);
+          if (typeof boot.cacheDiagTrace === "function") {
+            boot.cacheDiagTrace("shell-snapshot-hit", { key, source: "indexeddb" });
+          }
+          return normalized;
+        }
+      }
+      try {
+        const raw = sessionStorage.getItem(`${SCENE_SHELL_LS_PREFIX}${key}`);
+        if (!raw) continue;
+        const compact = JSON.parse(raw);
+        if (compact && compact.shellHtml) {
+          if (typeof boot.cacheDiagTrace === "function") {
+            boot.cacheDiagTrace("shell-snapshot-hit", { key, source: "sessionStorage" });
+          }
+          return normalizeSnapshotRevision(compact);
+        }
+      } catch (_) {
+        /* try next key */
+      }
+    }
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("shell-snapshot-miss", { keys });
+    }
+    return null;
+  }
+
+  function applyHeadJsonScripts(scripts) {
+    if (!scripts || typeof scripts !== "object") return;
+    for (const [id, content] of Object.entries(scripts)) {
+      const node = document.getElementById(id);
+      if (!node) continue;
+      node.textContent = content || "";
+    }
+    try {
+      delete window.__meiSceneDrilldownContext;
+      delete window.__meiHostRuntimeCapabilities;
     } catch (_) {}
   }
 
-  function fragmentHtmlCacheKey(urlLike, revision) {
-    const base = buildFragmentRevisionCacheKey(urlLike);
-    const digest = String(revision?.revision_digest || revision?.cache_key || "").trim();
-    return digest ? `${base}:${digest}` : base;
-  }
-
-  function rememberBuildFragmentHtml(urlLike, revision, payload) {
-    const key = fragmentHtmlCacheKey(urlLike, revision);
-    if (!key || !payload?.preview_html) return;
-    const store = readFragmentHtmlStore();
-    store[key] = {
-      preview_html: String(payload.preview_html || ""),
-      drilldown_script: String(payload.drilldown_script || ""),
-      workspace_scripts: Array.isArray(payload.workspace_scripts)
-        ? payload.workspace_scripts
-        : [],
-      node: payload.node || "",
-      focus: payload.focus || "",
-      revision,
-    };
-    if (typeof boot.pruneRevisionStore === "function") {
-      boot.pruneRevisionStore(store, key, FRAGMENT_HTML_MAX);
+  function restoreSceneShellSnapshot(snapshot, url, replaceHistory) {
+    const shell = document.querySelector(".shell");
+    if (!shell || !snapshot?.shellHtml) return false;
+    shell.innerHTML = snapshot.shellHtml;
+    if (snapshot.title) {
+      document.title = snapshot.title;
     }
-    writeFragmentHtmlStore(store);
+    if (snapshot.bodyClassName) {
+      document.body.className = snapshot.bodyClassName;
+    }
+    applyHeadJsonScripts(snapshot.headScripts);
+    if (url) {
+      if (replaceHistory) {
+        window.history.replaceState({}, "", url);
+      } else {
+        window.history.pushState({}, "", url);
+      }
+    }
+    window.__meiShellRestoredFromCache = 1;
+    return true;
   }
 
-  function readBuildFragmentHtml(urlLike, revision) {
-    const key = fragmentHtmlCacheKey(urlLike, revision);
-    if (!key) return null;
-    const store = readFragmentHtmlStore();
-    return store[key] || null;
+  function buildDocFromSceneShellSnapshot(snapshot) {
+    if (!snapshot?.shellHtml) return null;
+    const html = `<!DOCTYPE html><html><head><title>${snapshot.title || ""}</title></head><body><div class="shell">${snapshot.shellHtml}</div></body></html>`;
+    return new DOMParser().parseFromString(html, "text/html");
   }
 
-  boot.buildFragmentRevisionCacheKey = buildFragmentRevisionCacheKey;
-  boot.readBuildFragmentHtml = readBuildFragmentHtml;
-  boot.rememberBuildFragmentHtml = rememberBuildFragmentHtml;
-  boot.fetchBuildFragmentRevision = fetchBuildFragmentRevision;
-  boot.rememberBuildFragmentRevision = rememberBuildFragmentRevision;
-  boot.readBuildFragmentRevision = readBuildFragmentRevision;
-  boot.buildFragmentRevisionStillValid = buildFragmentRevisionStillValid;
-})(window);
+  async function tryRestoreSceneShellFromCache(ctx, revision, url, replaceHistory) {
+    const snapshot = await loadSceneShellSnapshot(ctx);
+    if (!snapshot) return null;
+    const normalizedRevision =
+      typeof boot.normalizeRevision === "function"
+        ? boot.normalizeRevision(revision)
+        : revision;
+    if (!boot.revisionsMatch(snapshot.revision, normalizedRevision)) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("shell-revision-mismatch", {
+          snapshotRevision: snapshot.revision,
+          remoteRevision: normalizedRevision,
+        });
+      }
+      return null;
+    }
+    const restored = restoreSceneShellSnapshot(snapshot, url, replaceHistory);
+    if (!restored) return null;
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("shell-restored", { key: snapshot.key, url: url || null });
+    }
+    return buildDocFromSceneShellSnapshot(snapshot);
+  }
+
+  async function saveCurrentSceneShellSnapshot(ctx, revision, doc) {
+    const snapshot = buildSceneShellSnapshot(ctx, revision, doc);
+    if (!snapshot) return false;
+    if (typeof boot.rememberSceneRevision === "function" && revision) {
+      boot.rememberSceneRevision(ctx, revision);
+    }
+    return persistSceneShellSnapshot(snapshot);
+  }
+
+  boot.buildSceneShellSnapshot = buildSceneShellSnapshot;
+  boot.collectHeadJsonScripts = collectHeadJsonScripts;
+  boot.loadSceneShellSnapshot = loadSceneShellSnapshot;
+  boot.persistSceneShellSnapshot = persistSceneShellSnapshot;
+  boot.restoreSceneShellSnapshot = restoreSceneShellSnapshot;
+  boot.tryRestoreSceneShellFromCache = tryRestoreSceneShellFromCache;
+  boot.buildDocFromSceneShellSnapshot = buildDocFromSceneShellSnapshot;
+  boot.saveCurrentSceneShellSnapshot = saveCurrentSceneShellSnapshot;
+  boot.snapshotStorageKey = snapshotStorageKey;
+  boot.legacySnapshotStorageKey = legacySnapshotStorageKey;
+  boot.pruneSceneShellSessionStorage = pruneSceneShellSessionStorage;
+  boot.SCENE_SHELL_MAX_ENTRIES = SCENE_SHELL_MAX_ENTRIES;
+  boot.SCENE_SHELL_MAX_AGE_MS = SCENE_SHELL_MAX_AGE_MS;
+
+
+/* ===== spa-navigation/spa/scene-bootstrap-loader.js ===== */
+  const SCENE_BOOTSTRAP_API = "/api/host/scene-bootstrap";
+  const BOOTSTRAP_ARTIFACT_LS_PREFIX = "mei:scene-bootstrap:v1:";
+  const NO_CLIENT_BOOTSTRAP_REVISION = "__no_client_bootstrap__";
+
+  function bootstrapArtifactStorageKey(appId, sceneId, revision) {
+    return `${appId}:${sceneId}:${revision || ""}`;
+  }
+
+  function applyBootstrapPayload(payload) {
+    if (!payload || typeof payload !== "object") return false;
+    window.__mei = window.__mei || {};
+    if (payload.clientRevision) window.__mei.client_revision = payload.clientRevision;
+    if (payload.bootstrapScope) window.__mei.bootstrap_scope = payload.bootstrapScope;
+    if (payload.targetFile) window.__mei.bootstrap_target_file = payload.targetFile;
+    if (payload.compileEpoch) window.__mei.bootstrap_compile_epoch = payload.compileEpoch;
+    if (payload.dataGeneration) window.__mei.bootstrap_data_generation = payload.dataGeneration;
+    if (payload.appId) window.__mei.bootstrap_app_id = payload.appId;
+    if (Array.isArray(payload.metrics)) window.__mei.bootstrap_metrics = payload.metrics;
+    if (Array.isArray(payload.bootstrapScopes)) {
+      window.__mei.bootstrap_scopes = payload.bootstrapScopes;
+    }
+    if (payload.layoutBudgetManifest) {
+      window.__mei.layout_budget_manifest = payload.layoutBudgetManifest;
+      applyLayoutBudgetManifestProjection();
+    }
+    window.__meiBootstrapPayloadReady = 1;
+    try {
+      document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));
+    } catch (_) {}
+    return true;
+  }
+
+  function readLocalBootstrapArtifact(appId, sceneId, revision) {
+    try {
+      const raw = localStorage.getItem(
+        `${BOOTSTRAP_ARTIFACT_LS_PREFIX}${bootstrapArtifactStorageKey(appId, sceneId, revision)}`,
+      );
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeLocalBootstrapArtifact(appId, sceneId, revision, payload) {
+    try {
+      localStorage.setItem(
+        `${BOOTSTRAP_ARTIFACT_LS_PREFIX}${bootstrapArtifactStorageKey(appId, sceneId, revision)}`,
+        JSON.stringify(payload),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function applyLayoutBudgetManifestProjection(doc) {
+    if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
+      global.MeiProjectionDepth.applyLayoutBudgetManifest(doc);
+      return;
+    }
+    const root = doc || document;
+    const manifest = window.__mei?.layout_budget_manifest;
+    if (!manifest?.entries || typeof manifest.entries !== "object") return;
+    Object.entries(manifest.entries).forEach(([scope, entry]) => {
+      if (!entry || typeof entry !== "object") return;
+      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      if (!(node instanceof HTMLElement)) return;
+      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
+      if (slotHeight != null) {
+        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
+        node.dataset.manifestSlotHeight = String(slotHeight);
+      }
+      const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
+      if (paddingProfile) {
+        node.dataset.manifestPaddingProfile = String(paddingProfile);
+      }
+      const contentRows = entry.content_rows ?? entry.contentRows;
+      if (Array.isArray(contentRows) && contentRows.length > 0) {
+        node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
+        node.dataset.manifestContentRows = contentRows.join(",");
+      }
+      const contentGap = entry.content_gap ?? entry.contentGap;
+      if (contentGap != null && contentGap !== "") {
+        node.style.rowGap = `${contentGap}px`;
+        node.dataset.manifestContentGap = String(contentGap);
+      }
+    });
+  }
+
+  function resolveBootstrapAppId() {
+    const mei = window.__mei || {};
+    const direct = String(
+      window.__meiRuntimeAppId || mei.bootstrap_app_id || mei.app_id || "",
+    ).trim();
+    if (direct) return direct;
+    const host =
+      document.querySelector("[data-mei-app-id]") ||
+      document.querySelector("[data-app-id]") ||
+      document.querySelector("[data-app]");
+    if (!(host instanceof HTMLElement)) return "";
+    return String(
+      host.dataset.meiAppId || host.dataset.appId || host.dataset.app || "",
+    ).trim();
+  }
+
+  async function ensureSceneBootstrapPayload(ctx, revision) {
+    const appId = ctx?.appId;
+    const sceneId = ctx?.sceneId;
+    const clientRevision = revision?.client_revision;
+    if (!appId || !sceneId) return null;
+    if (clientRevision === NO_CLIENT_BOOTSTRAP_REVISION) {
+      window.__meiBootstrapPayloadReady = 1;
+      return window.__mei || null;
+    }
+    const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
+    const currentAppId = String(window.__mei?.bootstrap_app_id || "").trim();
+    if (
+      window.__meiBootstrapPayloadReady &&
+      currentScope === sceneId &&
+      (!currentAppId || currentAppId === appId)
+    ) {
+      return window.__mei;
+    }
+    const inline = document.getElementById("mei-client-bootstrap");
+    if (inline && inline.textContent) {
+      try {
+        const payload = JSON.parse(inline.textContent || "{}");
+        applyBootstrapPayload(payload);
+        if (clientRevision) {
+          writeLocalBootstrapArtifact(appId, sceneId, clientRevision, payload);
+        }
+        return payload;
+      } catch (_) {}
+    }
+    if (clientRevision) {
+      const cached = readLocalBootstrapArtifact(appId, sceneId, clientRevision);
+      if (cached) {
+        applyBootstrapPayload(cached);
+        window.__meiBootstrapFromLocalStorage = 1;
+        if (typeof boot.cacheDiagTrace === "function") {
+          boot.cacheDiagTrace("bootstrap-local-hit", { appId, sceneId, clientRevision });
+        }
+        return cached;
+      }
+    }
+    const params = new URLSearchParams({ app: appId, scene: sceneId });
+    const response = await fetch(`${SCENE_BOOTSTRAP_API}?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`scene bootstrap failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    applyBootstrapPayload(payload);
+    if (clientRevision || payload?.clientRevision) {
+      writeLocalBootstrapArtifact(
+        appId,
+        sceneId,
+        clientRevision || payload.clientRevision,
+        payload,
+      );
+    }
+    return payload;
+  }
+
+  function resolveActivationSceneId(detail) {
+    return String(
+      detail?.scope || detail?.sceneId || detail?.boardSceneId || detail?.pageSceneId || "",
+    ).trim();
+  }
+
+  function dispatchScopeActivation(detail = {}) {
+    const sceneId = resolveActivationSceneId(detail);
+    const appId = String(detail?.appId || resolveBootstrapAppId() || "").trim();
+    if (!sceneId) return false;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("meilang:scope-activation", {
+          detail: {
+            ...detail,
+            scope: sceneId,
+            sceneId: String(detail?.sceneId || sceneId).trim() || sceneId,
+            appId,
+            source: String(detail?.source || "runtime").trim() || "runtime",
+          },
+        }),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  const inflightScopes = new Set();
+
+  async function hydrateBootstrapForActivatedScope(event) {
+    const detail = event?.detail && typeof event.detail === "object" ? event.detail : {};
+    const sceneId = resolveActivationSceneId(detail);
+    const appId = String(detail.appId || resolveBootstrapAppId() || "").trim();
+    if (!appId) return;
+    const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
+    const currentAppId = String(window.__mei?.bootstrap_app_id || "").trim();
+    if (
+      sceneId &&
+      window.__meiBootstrapPayloadReady &&
+      currentScope === sceneId &&
+      (!currentAppId || currentAppId === appId)
+    ) {
+      return;
+    }
+    const inflightKey = `${appId}:${sceneId}`;
+    if (!sceneId || inflightScopes.has(inflightKey)) return;
+    inflightScopes.add(inflightKey);
+    try {
+      await ensureSceneBootstrapPayload({ appId, sceneId }, {});
+    } catch (_) {
+      /* allow next activation to retry */
+    } finally {
+      inflightScopes.delete(inflightKey);
+    }
+  }
+
+  boot.ensureSceneBootstrapPayload = ensureSceneBootstrapPayload;
+  boot.applyBootstrapPayload = applyBootstrapPayload;
+  boot.dispatchScopeActivation = dispatchScopeActivation;
+  window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
+
+
+/* ===== spa-navigation/spa/initial-scene-restore.js ===== */
+  const SCENE_FRAGMENT_API = "/api/host/scene-fragment";
+
+  async function fetchSceneFragment(ctx, options) {
+    const opts = options || {};
+    const params = new URLSearchParams({
+      app: ctx.appId,
+      scene: ctx.sceneId,
+    });
+    if (ctx.dataMode) params.set("data_mode", ctx.dataMode);
+    if (ctx.reviewProjection) params.set("review_projection", ctx.reviewProjection);
+    if (ctx.chrome) params.set("chrome", ctx.chrome);
+    const controller = opts.signal ? null : new AbortController();
+    const signal = opts.signal || controller?.signal;
+    const response = await fetch(`${SCENE_FRAGMENT_API}?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`scene fragment failed: ${response.status}`);
+    }
+    return await response.json();
+  }
+
+  async function tryRestoreSceneShellFromFragment(ctx, revision, url, replaceHistory) {
+    const fragment = await fetchSceneFragment(ctx);
+    if (!fragment?.shellHtml) return null;
+    const normalizedRevision =
+      typeof boot.normalizeRevision === "function"
+        ? boot.normalizeRevision(revision)
+        : revision;
+    if (
+      fragment.revisionDigest &&
+      normalizedRevision?.revision_digest &&
+      fragment.revisionDigest !== normalizedRevision.revision_digest
+    ) {
+      return null;
+    }
+    const snapshot = {
+      shellHtml: fragment.shellHtml,
+      title: fragment.title || document.title,
+      bodyClassName: document.body.className,
+      headScripts:
+        typeof boot.collectHeadJsonScripts === "function" ? boot.collectHeadJsonScripts() : {},
+    };
+    if (typeof boot.restoreSceneShellSnapshot !== "function") return null;
+    const restored = boot.restoreSceneShellSnapshot(snapshot, url, replaceHistory);
+    if (!restored) return null;
+    window.__meiShellRestoredFromFragment = 1;
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("shell-restored", { source: "fragment", url: url || null });
+    }
+    if (typeof boot.buildDocFromSceneShellSnapshot === "function") {
+      return boot.buildDocFromSceneShellSnapshot(snapshot);
+    }
+    return new DOMParser().parseFromString(
+      `<!DOCTYPE html><html><head><title>${snapshot.title || ""}</title></head><body><div class="shell">${snapshot.shellHtml}</div></body></html>`,
+      "text/html",
+    );
+  }
+
+  async function tryCacheFirstSceneAccess(ctx, options) {
+    const opts = options || {};
+    if (!ctx || typeof boot.fetchSceneRevision !== "function") {
+      return { restored: false, doc: null, revision: null, source: "none" };
+    }
+    const timeoutMs =
+      opts.timeoutMs ||
+      (typeof SPA_FETCH_TIMEOUT_MS !== "undefined" ? SPA_FETCH_TIMEOUT_MS : 30000);
+    const coldStart = opts.coldStart === true;
+    const revision = await boot.fetchSceneRevision(ctx, {
+      timeoutMs,
+      skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
+      preloadSnapshotRevision: true,
+    });
+    if (
+      opts.navigationId != null &&
+      typeof currentNavigationId !== "undefined" &&
+      opts.navigationId !== currentNavigationId
+    ) {
+      return { restored: false, doc: null, revision, source: "superseded" };
+    }
+
+    if (typeof boot.tryRestoreSceneShellFromCache === "function") {
+      const restoredDoc = await boot.tryRestoreSceneShellFromCache(
+        ctx,
+        revision,
+        opts.url || window.location.href,
+        !!opts.replaceHistory,
+      );
+      if (restoredDoc) {
+        if (typeof boot.ensureSceneBootstrapPayload === "function") {
+          await boot.ensureSceneBootstrapPayload(ctx, revision);
+        }
+        if (typeof boot.cacheDiagTrace === "function") {
+          boot.cacheDiagTrace("cache-first-outcome", { source: "snapshot", coldStart });
+        }
+        return { restored: true, doc: restoredDoc, revision, source: "snapshot" };
+      }
+    }
+
+    if (!coldStart && opts.allowFragment !== false) {
+      try {
+        const fragmentDoc = await tryRestoreSceneShellFromFragment(
+          ctx,
+          revision,
+          opts.url || null,
+          !!opts.replaceHistory,
+        );
+        if (fragmentDoc) {
+          if (typeof boot.ensureSceneBootstrapPayload === "function") {
+            await boot.ensureSceneBootstrapPayload(ctx, revision);
+          }
+          if (typeof boot.cacheDiagTrace === "function") {
+            boot.cacheDiagTrace("cache-first-outcome", { source: "fragment", coldStart });
+          }
+          return { restored: true, doc: fragmentDoc, revision, source: "fragment" };
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] scene fragment restore skipped", error);
+      }
+    }
+
+    if (typeof boot.ensureSceneBootstrapPayload === "function") {
+      await boot.ensureSceneBootstrapPayload(ctx, revision);
+    }
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("cache-first-outcome", {
+        source: coldStart ? "cold-miss" : "miss",
+        coldStart,
+      });
+    }
+    return { restored: false, doc: null, revision, source: coldStart ? "cold-miss" : "miss" };
+  }
+
+  boot.fetchSceneFragment = fetchSceneFragment;
+  boot.tryRestoreSceneShellFromFragment = tryRestoreSceneShellFromFragment;
+  boot.tryCacheFirstSceneAccess = tryCacheFirstSceneAccess;
+
+
+/* ===== spa-navigation/spa/initial-access-bootstrap.js ===== */
+  function bootstrapColdAccessSceneRuntime() {
+    try {
+      if (
+        typeof isBuildWorkspacePathname === "function" &&
+        isBuildWorkspacePathname(window.location.pathname)
+      ) {
+        return;
+      }
+      const sceneCtx =
+        typeof boot.parseAccessSceneContext === "function"
+          ? boot.parseAccessSceneContext(window.location.href)
+          : null;
+      if (!sceneCtx?.sceneId) return;
+
+      const run = () => {
+        if (typeof boot.dispatchScopeActivation === "function") {
+          boot.dispatchScopeActivation({
+            scope: sceneCtx.sceneId,
+            sceneId: sceneCtx.sceneId,
+            appId: sceneCtx.appId,
+            source: "initial-load",
+          });
+        }
+        if (typeof wakeRuntimeAfterSceneBundleLoaded === "function") {
+          wakeRuntimeAfterSceneBundleLoaded();
+        }
+        try {
+          document.dispatchEvent(new CustomEvent("mei:spa-navigation-complete"));
+        } catch (_) {}
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", run, { once: true });
+      } else {
+        run();
+      }
+    } catch (error) {
+      console.warn("[spa-navigation] initial access bootstrap skipped", error);
+    }
+  }
+
+  boot.bootstrapColdAccessSceneRuntime = bootstrapColdAccessSceneRuntime;
 
 
 /* ===== spa-navigation/spa/structure-anchor.js ===== */
@@ -6967,23 +7911,166 @@
     }
   }
 
+  function hostBoot() {
+    return global.__meiLangBoot || globalThis.__meiLangBoot || boot;
+  }
+
+  function fetchBuildRevision(url, options) {
+    const host = hostBoot();
+    const fn =
+      host.fetchBuildFragmentRevision ||
+      global.MeiBuildFragmentRevision?.fetchBuildFragmentRevision;
+    if (typeof fn !== "function") return null;
+    return fn.call(host, url, options);
+  }
+
+  function readBuildRevision(url) {
+    const host = hostBoot();
+    const fn =
+      host.readBuildFragmentRevision || global.MeiBuildFragmentRevision?.readBuildFragmentRevision;
+    return typeof fn === "function" ? fn.call(host, url) : null;
+  }
+
+  function readBuildFragmentCache(url, revision) {
+    const host = hostBoot();
+    const fn =
+      host.readBuildFragmentHtml || global.MeiBuildFragmentRevision?.readBuildFragmentHtml;
+    return typeof fn === "function" ? fn.call(host, url, revision) : null;
+  }
+
+  function rememberBuildRevision(url, revision) {
+    const host = hostBoot();
+    const fn =
+      host.rememberBuildFragmentRevision ||
+      global.MeiBuildFragmentRevision?.rememberBuildFragmentRevision;
+    if (typeof fn === "function") fn.call(host, url, revision);
+  }
+
+  function rememberBuildFragment(url, revision, payload) {
+    const host = hostBoot();
+    const fn =
+      host.rememberBuildFragmentHtml || global.MeiBuildFragmentRevision?.rememberBuildFragmentHtml;
+    if (typeof fn === "function") fn.call(host, url, revision, payload);
+  }
+
+  function buildRevisionStillValid(url, revision) {
+    const host = hostBoot();
+    const fn =
+      host.buildFragmentRevisionStillValid ||
+      global.MeiBuildFragmentRevision?.buildFragmentRevisionStillValid;
+    return typeof fn === "function" ? fn.call(host, url, revision) : false;
+  }
+
+  async function persistBuildPreviewSnapshot(url) {
+    const tab = buildTab(url);
+    if (tab && tab !== "preview") return false;
+    const panel = document.querySelector('[data-manage-tab-panel="preview"]');
+    const scroll = panel?.querySelector(".preview-pane-scroll");
+    if (!(scroll instanceof HTMLElement)) return false;
+    let revision = readBuildRevision(url);
+    if (!revision) {
+      revision = await fetchBuildRevision(url, {
+        timeoutMs: 4000,
+        skipRemoteWhenValid: true,
+      });
+    }
+    if (!revision) return false;
+    const drilldownParts = ["mei-scene-drilldown-context", "mei-host-runtime-capabilities"]
+      .map((id) => {
+        const node = document.getElementById(id);
+        return node instanceof HTMLElement ? node.outerHTML : "";
+      })
+      .filter(Boolean);
+    const parsed = new URL(url, global.location.href);
+    const payload = {
+      preview_html: scroll.outerHTML,
+      drilldown_script: drilldownParts.join(""),
+      workspace_scripts: [],
+      node: String(parsed.searchParams.get("node") || ""),
+      focus: String(parsed.searchParams.get("focus") || ""),
+      revision,
+    };
+    rememberBuildRevision(url, revision);
+    rememberBuildFragment(url, revision, payload);
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("build-preview-persisted", {
+        url,
+        revision_digest: revision.revision_digest,
+        previewHtmlBytes: String(payload.preview_html || "").length,
+      });
+    }
+    return true;
+  }
+
+  function scheduleBuildPreviewPersist(url) {
+    const run = () => {
+      void persistBuildPreviewSnapshot(url);
+    };
+    global.addEventListener("pagehide", run, { once: true });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") run();
+    });
+  }
+
+  async function tryRestoreBuildPreviewFromCache(url, options) {
+    const opts = options || {};
+    const parsed = new URL(url, global.location.href);
+    const tab = buildTab(url);
+    if (tab && tab !== "preview") {
+      return { restored: false, source: "not-preview" };
+    }
+    if (
+      typeof hostBoot().fetchBuildFragmentRevision !== "function" &&
+      typeof global.MeiBuildFragmentRevision?.fetchBuildFragmentRevision !== "function"
+    ) {
+      return { restored: false, source: "no-revision-api" };
+    }
+    try {
+      const remoteRevision = await fetchBuildRevision(url, {
+        timeoutMs: opts.timeoutMs || 8000,
+        skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
+      });
+      if (!remoteRevision || !buildRevisionStillValid(url, remoteRevision)) {
+        return { restored: false, source: "revision-miss", revision: remoteRevision };
+      }
+      const cached = readBuildFragmentCache(url, remoteRevision);
+      if (!cached?.preview_html) {
+        return { restored: false, source: "fragment-miss", revision: remoteRevision };
+      }
+      const ok = swapPreviewFragment(
+        String(cached.preview_html || ""),
+        String(cached.drilldown_script || ""),
+      );
+      if (!ok) {
+        return { restored: false, source: "swap-failed", revision: remoteRevision };
+      }
+      if (
+        Array.isArray(cached.workspace_scripts) &&
+        typeof boot.syncPreviewWorkspaceScripts === "function"
+      ) {
+        await boot.syncPreviewWorkspaceScripts(cached.workspace_scripts);
+      }
+      ensurePreviewTabVisible(url, null, { emit: false });
+      wakePreviewRuntime("build-cold-cache", { pulsePreviewUpdated: true });
+      global.__meiBuildPreviewRestoredFromCache = 1;
+      return { restored: true, source: "fragment-cache", revision: remoteRevision };
+    } catch (error) {
+      console.warn("[build-navigation] cold preview cache restore skipped", error);
+      return { restored: false, source: "error" };
+    }
+  }
+
   async function navigateBuildTier1(url, replaceHistory, linkEl) {
     showBuildNavLoading(url);
     try {
       ensurePreviewTabVisible(url);
       let payload = null;
-      if (typeof boot.fetchBuildFragmentRevision === "function") {
+      const fetchRev = fetchBuildRevision;
+      if (typeof fetchRev === "function") {
         try {
-          const remoteRevision = await boot.fetchBuildFragmentRevision(url, { timeoutMs: 8000 });
-          if (
-            remoteRevision &&
-            typeof boot.buildFragmentRevisionStillValid === "function" &&
-            boot.buildFragmentRevisionStillValid(url, remoteRevision)
-          ) {
-            const cached =
-              typeof boot.readBuildFragmentHtml === "function"
-                ? boot.readBuildFragmentHtml(url, remoteRevision)
-                : null;
+          const remoteRevision = await fetchRev(url, { timeoutMs: 8000 });
+          if (remoteRevision && buildRevisionStillValid(url, remoteRevision)) {
+            const cached = readBuildFragmentCache(url, remoteRevision);
             if (cached?.preview_html) {
               payload = { ...cached, revision: remoteRevision };
             }
@@ -6993,14 +8080,11 @@
       if (!payload) {
         const fetched = await fetchWorkspaceFragment(url);
         payload = fetched.payload;
-        if (payload?.revision && typeof boot.rememberBuildFragmentRevision === "function") {
-          boot.rememberBuildFragmentRevision(url, payload.revision);
+        if (payload?.revision) {
+          rememberBuildRevision(url, payload.revision);
         }
-        if (
-          payload?.preview_html &&
-          typeof boot.rememberBuildFragmentHtml === "function"
-        ) {
-          boot.rememberBuildFragmentHtml(url, payload.revision, payload);
+        if (payload?.preview_html) {
+          rememberBuildFragment(url, payload.revision, payload);
         }
       }
       const ok = swapPreviewFragment(
@@ -7167,6 +8251,9 @@
     reviewAxesChanged,
     classifyBuildNavTier,
     tryNavigateBuild,
+    tryRestoreBuildPreviewFromCache,
+    scheduleBuildPreviewPersist,
+    persistBuildPreviewSnapshot,
     tryHandleBuildClick,
     shouldSkipPreviewRuntimeWake,
     shouldWakePreviewRuntime,
@@ -7178,6 +8265,225 @@
     stats,
   };
   global.MeiBuildNavigation.noteUrl(global.location.href);
+})(window);
+
+
+/* ===== spa-navigation/spa/build-fragment-revision.js ===== */
+/**
+ * Build fragment revision helpers (shared contract with access-like scene revision).
+ */
+(function initBuildFragmentRevision(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const BUILD_FRAGMENT_REVISION_API = "/api/build/fragment-revision";
+  const revisionStoreKey = "mei-build-fragment-revisions";
+  const fragmentHtmlStoreKey = "mei-build-fragment-html";
+  const FRAGMENT_HTML_MAX = 8;
+
+  function readRevisionStore() {
+    try {
+      const raw = global.sessionStorage.getItem(revisionStoreKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeRevisionStore(store) {
+    try {
+      global.sessionStorage.setItem(revisionStoreKey, JSON.stringify(store || {}));
+    } catch (_) {}
+  }
+
+  function buildFragmentRevisionCacheKey(urlLike) {
+    try {
+      const url = new URL(urlLike, global.location.href);
+      const parts = url.pathname.split("/").filter(Boolean);
+      const appId = parts[2] || "";
+      return boot.surfaceRevisionKey({
+        surface: "build",
+        app_id: appId,
+        node: String(url.searchParams.get("node") || "").trim(),
+        data_mode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
+        review_projection: String(url.searchParams.get("review_projection") || "")
+          .trim()
+          .toLowerCase(),
+        focus: String(url.searchParams.get("focus") || "").trim(),
+        scope: String(url.searchParams.get("scope") || "").trim(),
+      });
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function rememberBuildFragmentRevision(urlLike, revision) {
+    const key = buildFragmentRevisionCacheKey(urlLike);
+    if (!key || !revision) return;
+    const store = readRevisionStore();
+    store[key] = revision;
+    if (typeof boot.pruneRevisionStore === "function") {
+      boot.pruneRevisionStore(store, key, 48);
+    }
+    writeRevisionStore(store);
+  }
+
+  function readBuildFragmentRevision(urlLike) {
+    const key = buildFragmentRevisionCacheKey(urlLike);
+    if (!key) return null;
+    const store = readRevisionStore();
+    return store[key] || null;
+  }
+
+  function buildFragmentRevisionStillValid(urlLike, remoteRevision) {
+    const localRevision = readBuildFragmentRevision(urlLike);
+    if (!localRevision || !remoteRevision) return false;
+    return typeof boot.revisionsMatch === "function"
+      ? boot.revisionsMatch(localRevision, remoteRevision)
+      : false;
+  }
+
+  async function fetchBuildFragmentRevision(urlLike, options) {
+    const opts = options || {};
+    if (opts.skipRemoteWhenValid) {
+      const localRevision = readBuildFragmentRevision(urlLike);
+      const cached =
+        localRevision && typeof boot.readBuildFragmentHtml === "function"
+          ? boot.readBuildFragmentHtml(urlLike, localRevision)
+          : null;
+      if (localRevision && cached?.preview_html) {
+        if (typeof boot.cacheDiagTrace === "function") {
+          boot.cacheDiagTrace("build-revision-skip-network", {
+            revision_digest: localRevision.revision_digest,
+          });
+        }
+        return typeof boot.normalizeRevision === "function"
+          ? boot.normalizeRevision(localRevision)
+          : localRevision;
+      }
+    }
+    const url = new URL(urlLike, global.location.href);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const appId = parts[2] || "";
+    const params = new URLSearchParams({
+      app_id: appId,
+      node: String(url.searchParams.get("node") || "").trim(),
+    });
+    const focus = url.searchParams.get("focus");
+    const scope = url.searchParams.get("scope");
+    const dataMode = url.searchParams.get("data_mode");
+    const reviewProjection = url.searchParams.get("review_projection");
+    if (focus) params.set("focus", focus);
+    if (scope) params.set("scope", scope);
+    if (dataMode) params.set("data_mode", dataMode);
+    if (reviewProjection) params.set("review_projection", reviewProjection);
+    const controller = opts.signal ? null : new AbortController();
+    const signal = opts.signal || controller?.signal;
+    const timer =
+      controller && Number.isFinite(opts.timeoutMs)
+        ? setTimeout(() => controller.abort(), opts.timeoutMs)
+        : null;
+    try {
+      const response = await fetch(`${BUILD_FRAGMENT_REVISION_API}?${params.toString()}`, {
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          ...(typeof ensureDraftSessionId === "function"
+            ? { "x-mei-draft-session": ensureDraftSessionId() }
+            : {}),
+        },
+        signal,
+      });
+      if (!response.ok) {
+        throw new Error(`build fragment revision failed: ${response.status}`);
+      }
+      const revision = await response.json();
+      rememberBuildFragmentRevision(urlLike, revision);
+      return typeof boot.normalizeRevision === "function"
+        ? boot.normalizeRevision(revision)
+        : revision;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  function readFragmentHtmlStore() {
+    try {
+      const raw = global.sessionStorage.getItem(fragmentHtmlStoreKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeFragmentHtmlStore(store) {
+    try {
+      global.sessionStorage.setItem(fragmentHtmlStoreKey, JSON.stringify(store || {}));
+    } catch (_) {}
+  }
+
+  function fragmentHtmlCacheKey(urlLike, revision) {
+    const base = buildFragmentRevisionCacheKey(urlLike);
+    const digest = String(revision?.revision_digest || revision?.cache_key || "").trim();
+    return digest ? `${base}:${digest}` : base;
+  }
+
+  function rememberBuildFragmentHtml(urlLike, revision, payload) {
+    const key = fragmentHtmlCacheKey(urlLike, revision);
+    if (!key || !payload?.preview_html) return;
+    const store = readFragmentHtmlStore();
+    store[key] = {
+      preview_html: String(payload.preview_html || ""),
+      drilldown_script: String(payload.drilldown_script || ""),
+      workspace_scripts: Array.isArray(payload.workspace_scripts)
+        ? payload.workspace_scripts
+        : [],
+      node: payload.node || "",
+      focus: payload.focus || "",
+      revision,
+    };
+    if (typeof boot.pruneRevisionStore === "function") {
+      boot.pruneRevisionStore(store, key, FRAGMENT_HTML_MAX);
+    }
+    writeFragmentHtmlStore(store);
+  }
+
+  function readBuildFragmentHtml(urlLike, revision) {
+    const key = fragmentHtmlCacheKey(urlLike, revision);
+    if (!key) return null;
+    const store = readFragmentHtmlStore();
+    return store[key] || null;
+  }
+
+  boot.buildFragmentRevisionCacheKey = buildFragmentRevisionCacheKey;
+  boot.readBuildFragmentHtml = readBuildFragmentHtml;
+  boot.rememberBuildFragmentHtml = rememberBuildFragmentHtml;
+  boot.fetchBuildFragmentRevision = fetchBuildFragmentRevision;
+  boot.rememberBuildFragmentRevision = rememberBuildFragmentRevision;
+  boot.readBuildFragmentRevision = readBuildFragmentRevision;
+  boot.buildFragmentRevisionStillValid = buildFragmentRevisionStillValid;
+
+  global.MeiBuildFragmentRevision = {
+    buildFragmentRevisionCacheKey,
+    readBuildFragmentHtml,
+    rememberBuildFragmentHtml,
+    fetchBuildFragmentRevision,
+    rememberBuildFragmentRevision,
+    readBuildFragmentRevision,
+    buildFragmentRevisionStillValid,
+  };
+
+  if (global.MeiBuildNavigation && typeof global.MeiBuildNavigation === "object") {
+    Object.assign(global.MeiBuildNavigation, {
+      fetchBuildFragmentRevision,
+      readBuildFragmentRevision,
+      readBuildFragmentHtml,
+      rememberBuildFragmentRevision,
+      rememberBuildFragmentHtml,
+      buildFragmentRevisionStillValid,
+      buildFragmentRevisionCacheKey,
+    });
+  }
 })(window);
 
 
@@ -9071,6 +10377,10 @@
     if (!isCurrentLayoutAudit(event.data?.detail || null)) return;
     renderLayoutAudit(event.data?.detail || null);
   });
+
+  if (typeof boot.inspectSceneClientCache !== "function" && globalThis.__meiCacheDiag?.inspect) {
+    boot.inspectSceneClientCache = globalThis.__meiCacheDiag.inspect.bind(globalThis.__meiCacheDiag);
+  }
 })();
 
 
@@ -26524,7 +27834,46 @@
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();
   applySceneProjectionContextFromStorage();
+
+  function scheduleAccessSceneSnapshotPersist(ctx, revision) {
+    if (!ctx || !revision || typeof boot.saveCurrentSceneShellSnapshot !== "function") return;
+    const run = () => {
+      void boot.saveCurrentSceneShellSnapshot(ctx, revision, document);
+    };
+    window.addEventListener("pagehide", run, { once: true });
+    window.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") run();
+    });
+  }
+
   void (async () => {
+    if (
+      typeof isBuildWorkspacePathname === "function" &&
+      isBuildWorkspacePathname(window.location.pathname) &&
+      typeof globalThis.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function"
+    ) {
+      try {
+        const buildOutcome = await globalThis.MeiBuildNavigation.tryRestoreBuildPreviewFromCache(
+          window.location.href,
+          { timeoutMs: 4000, coldStart: true, skipRemoteWhenValid: true },
+        );
+        if (typeof boot.cacheDiagTrace === "function") {
+          boot.cacheDiagTrace("build-cold-start", buildOutcome || {});
+        }
+        if (
+          !buildOutcome?.restored &&
+          typeof globalThis.MeiBuildNavigation?.scheduleBuildPreviewPersist === "function"
+        ) {
+          globalThis.MeiBuildNavigation.scheduleBuildPreviewPersist(window.location.href);
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] initial build preview cache restore skipped", error);
+      }
+      if (typeof boot.inspectSceneClientCache === "function" && boot.cacheDiagEnabled?.()) {
+        void boot.inspectSceneClientCache();
+      }
+      return;
+    }
     const ctx =
       typeof boot.parseAccessSceneContext === "function"
         ? boot.parseAccessSceneContext(window.location.href)
@@ -26532,10 +27881,12 @@
     if (!ctx || typeof boot.tryCacheFirstSceneAccess !== "function") return;
     try {
       const outcome = await boot.tryCacheFirstSceneAccess(ctx, {
+        url: window.location.href,
         replaceHistory: true,
         timeoutMs: 4000,
         allowFragment: false,
-        hydrateBootstrapOnly: true,
+        coldStart: true,
+        skipRemoteWhenValid: true,
       });
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
         runPostSpaWork(outcome.doc, window.location.href, null, null, new URL(window.location.href));
@@ -26545,8 +27896,21 @@
       ) {
         boot.bootstrapColdAccessSceneRuntime();
       }
-      if (outcome.revision && typeof boot.saveCurrentSceneShellSnapshot === "function") {
-        await boot.saveCurrentSceneShellSnapshot(ctx, outcome.revision, document);
+      if (outcome.revision) {
+        scheduleAccessSceneSnapshotPersist(ctx, outcome.revision);
+        if (!outcome.restored) {
+          await boot.saveCurrentSceneShellSnapshot(ctx, outcome.revision, document);
+        }
+      }
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("access-cold-start", {
+          restored: !!outcome.restored,
+          source: outcome.source,
+          revision_digest: outcome.revision?.revision_digest,
+        });
+      }
+      if (typeof boot.inspectSceneClientCache === "function" && boot.cacheDiagEnabled?.()) {
+        void boot.inspectSceneClientCache(ctx);
       }
     } catch (error) {
       console.warn("[spa-navigation] initial scene cache bootstrap skipped", error);
@@ -26625,4 +27989,228 @@
     globalThis.__meiBuildProjectionPreviewInit();
   }
 })();
+
+
+/* ===== spa-navigation/spa/scene-cache-diag.js ===== */
+/**
+ * Client cache diagnostics — enable with ?mei_cache_diag=1 or localStorage mei:cache-diag=1
+ *
+ * Console:
+ *   await __meiCacheDiag.inspect()
+ *   __meiCacheDiag.flags()
+ *   __meiCacheDiag.events
+ */
+(function initSceneCacheDiag(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const LS_FLAG = "mei:cache-diag";
+  const MAX_EVENTS = 48;
+
+  function cacheDiagEnabled() {
+    try {
+      if (global.localStorage.getItem(LS_FLAG) === "1") return true;
+      return new URL(global.location.href).searchParams.get("mei_cache_diag") === "1";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function parseBuildCacheContext(urlLike) {
+    try {
+      const url = new URL(urlLike, global.location.href);
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts[0] !== "apps" || parts[1] !== "build" || !parts[2]) return null;
+      return {
+        surface: "build",
+        appId: decodeURIComponent(parts[2]),
+        url: url.href,
+        node: String(url.searchParams.get("node") || "").trim(),
+        tab: String(url.searchParams.get("tab") || "").trim(),
+        dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
+        reviewProjection: String(url.searchParams.get("review_projection") || "")
+          .trim()
+          .toLowerCase(),
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function resolveCacheContext(ctxLike) {
+    if (ctxLike) return ctxLike;
+    if (typeof boot.parseAccessSceneContext === "function") {
+      const accessCtx = boot.parseAccessSceneContext(global.location.href);
+      if (accessCtx) return accessCtx;
+    }
+    return parseBuildCacheContext(global.location.href);
+  }
+
+  function trace(event, detail) {
+    const diag = (global.__meiCacheDiag = global.__meiCacheDiag || { events: [] });
+    const entry = {
+      at: new Date().toISOString(),
+      event: String(event || "unknown"),
+      detail: detail || {},
+    };
+    diag.events.push(entry);
+    if (diag.events.length > MAX_EVENTS) {
+      diag.events.splice(0, diag.events.length - MAX_EVENTS);
+    }
+    if (cacheDiagEnabled()) {
+      try {
+        console.info("[mei-cache-diag]", entry.event, entry.detail);
+      } catch (_) {}
+    }
+    return entry;
+  }
+
+  function readFlags() {
+    return {
+      shellRestoredFromCache: !!global.__meiShellRestoredFromCache,
+      shellRestoredFromFragment: !!global.__meiShellRestoredFromFragment,
+      buildPreviewRestoredFromCache: !!global.__meiBuildPreviewRestoredFromCache,
+      bootstrapPayloadReady: !!global.__meiBootstrapPayloadReady,
+      revisionSkippedNetwork: !!global.__meiRevisionSkippedNetwork,
+      bootstrapFromLocalStorage: !!global.__meiBootstrapFromLocalStorage,
+    };
+  }
+
+  async function inspect(ctxLike) {
+    const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
+    const ctx = resolveCacheContext(ctxLike);
+    const isBuild = ctx?.surface === "build";
+    const shellKey =
+      !isBuild && typeof boot.snapshotStorageKey === "function" && ctx
+        ? boot.snapshotStorageKey(ctx)
+        : null;
+    const revisionKey =
+      !isBuild && typeof boot.sceneRevisionCacheKey === "function" && ctx
+        ? boot.sceneRevisionCacheKey(ctx)
+        : isBuild && typeof hostBoot.buildFragmentRevisionCacheKey === "function"
+          ? hostBoot.buildFragmentRevisionCacheKey(ctx.url)
+          : isBuild && global.MeiBuildFragmentRevision?.buildFragmentRevisionCacheKey
+            ? global.MeiBuildFragmentRevision.buildFragmentRevisionCacheKey(ctx.url)
+            : null;
+    let snapshot = null;
+    if (!isBuild && ctx && typeof boot.loadSceneShellSnapshot === "function") {
+      snapshot = await boot.loadSceneShellSnapshot(ctx);
+    }
+    const cachedRevision =
+      !isBuild && ctx && typeof boot.readCachedSceneRevision === "function"
+        ? boot.readCachedSceneRevision(ctx)
+        : null;
+    const ssrRevision =
+      typeof boot.readSsrEmbeddedSceneRevision === "function"
+        ? boot.readSsrEmbeddedSceneRevision()
+        : null;
+    const buildRevision =
+      isBuild && ctx?.url
+        ? hostBoot.readBuildFragmentRevision?.(ctx.url) ||
+          global.MeiBuildFragmentRevision?.readBuildFragmentRevision?.(ctx.url) ||
+          null
+        : null;
+    const buildFragment =
+      isBuild && ctx?.url && buildRevision
+        ? hostBoot.readBuildFragmentHtml?.(ctx.url, buildRevision) ||
+          global.MeiBuildFragmentRevision?.readBuildFragmentHtml?.(ctx.url, buildRevision) ||
+          null
+        : null;
+    const revisionMatch =
+      snapshot?.revision &&
+      cachedRevision &&
+      typeof boot.revisionsMatch === "function"
+        ? boot.revisionsMatch(snapshot.revision, cachedRevision)
+        : false;
+    const ssrMatch =
+      snapshot?.revision &&
+      ssrRevision &&
+      typeof boot.revisionsMatch === "function"
+        ? boot.revisionsMatch(snapshot.revision, ssrRevision)
+        : false;
+    const report = {
+      url: global.location.href,
+      ctx,
+      surface: isBuild ? "build" : ctx ? "access" : "unknown",
+      keys: { shell: shellKey, revision: revisionKey },
+      flags: readFlags(),
+      ssrRevision,
+      cachedRevision,
+      buildRevision,
+      buildFragment: buildFragment
+        ? {
+            previewHtmlBytes: String(buildFragment.preview_html || "").length,
+            node: buildFragment.node || "",
+            revision: buildFragment.revision || buildRevision,
+          }
+        : null,
+      snapshot: snapshot
+        ? {
+            key: snapshot.key,
+            savedAtMs: snapshot.savedAtMs,
+            revision: snapshot.revision,
+            shellHtmlBytes: String(snapshot.shellHtml || "").length,
+          }
+        : null,
+      revisionMatch,
+      ssrMatch,
+      bootApi: {
+        inspectSceneClientCache: typeof hostBoot.inspectSceneClientCache === "function",
+        fetchBuildFragmentRevision: typeof hostBoot.fetchBuildFragmentRevision === "function",
+        meiBuildFragmentRevision: !!global.MeiBuildFragmentRevision?.fetchBuildFragmentRevision,
+        tryRestoreBuildPreviewFromCache:
+          typeof global.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function",
+      },
+      events: (global.__meiCacheDiag?.events || []).slice(-12),
+    };
+    trace("inspect", report);
+    return report;
+  }
+
+  function installFetchTap() {
+    if (global.__meiCacheDiagFetchTap) return;
+    global.__meiCacheDiagFetchTap = true;
+    const nativeFetch = global.fetch.bind(global);
+    global.fetch = function meiCacheDiagFetch(input, init) {
+      const url = String(input?.url || input || "");
+      if (
+        url.includes("/api/host/scene-revision") ||
+        url.includes("/api/host/scene-bootstrap") ||
+        url.includes("/api/host/scene-fragment") ||
+        url.includes("/api/build/fragment-revision") ||
+        url.includes("/api/build/workspace-fragment")
+      ) {
+        trace("fetch", { url, method: init?.method || "GET" });
+      }
+      return nativeFetch(input, init);
+    };
+  }
+
+  function publishApi() {
+    const api = {
+      inspect,
+      trace,
+      flags: readFlags,
+      enabled: cacheDiagEnabled,
+      get events() {
+        return global.__meiCacheDiag?.events || [];
+      },
+    };
+    global.__meiCacheDiag = Object.assign(global.__meiCacheDiag || { events: [] }, api);
+    boot.cacheDiagEnabled = cacheDiagEnabled;
+    boot.cacheDiagTrace = trace;
+    boot.inspectSceneClientCache = inspect;
+    boot.parseBuildCacheContext = parseBuildCacheContext;
+  }
+
+  publishApi();
+
+  if (cacheDiagEnabled()) {
+    installFetchTap();
+    trace("diag-enabled", { url: global.location.href });
+    global.addEventListener("load", () => {
+      void inspect();
+    });
+  }
+})(window);
 

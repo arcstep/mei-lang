@@ -108,19 +108,26 @@ fn resolve_build_generation_from_config(gen: &WorkspaceBuildGenerationConfig) ->
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
-            .unwrap_or_else(|| today_yyyymmdd()),
-        _ => gen
-            .date
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
             .unwrap_or_else(today_yyyymmdd),
+        // `auto` (default): compile-day date; ignore any configured `date`.
+        _ => today_yyyymmdd(),
     };
     BuildGenerationSpec {
         tag: format_build_generation_tag(date.as_str(), fixver),
         date,
         fixver,
+    }
+}
+
+fn version_identity_from_build_spec(
+    spec: BuildGenerationSpec,
+    meilang_version: String,
+) -> VersionDisplayIdentity {
+    VersionDisplayIdentity {
+        build_generation: spec.tag.clone(),
+        build_display_tag: format_build_display_tag(spec.tag.as_str()),
+        env_generation_id: spec.tag,
+        meilang_version,
     }
 }
 
@@ -143,6 +150,13 @@ pub fn resolve_version_display_identity_for_app(
     meilang_hint: Option<&str>,
 ) -> Result<VersionDisplayIdentity> {
     let meilang_version = resolve_toolchain_version_with_hint(source_root, meilang_hint);
+
+    // Host-shell SSOT: running binary version + compile-day build generation (fixver from config).
+    if meilang_hint.is_some() {
+        let spec = resolve_build_generation_for_prebuild(source_root);
+        return Ok(version_identity_from_build_spec(spec, meilang_version));
+    }
+
     let resolved_app = app_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -152,20 +166,10 @@ pub fn resolve_version_display_identity_for_app(
         let app_root = resolve_app_root(source_root, app);
         let generation = resolve_app_build_generation_from_current(app_root.as_path())?;
         let spec = require_build_generation_tag(generation.as_str())?;
-        return Ok(VersionDisplayIdentity {
-            build_generation: spec.tag.clone(),
-            build_display_tag: format_build_display_tag(spec.tag.as_str()),
-            env_generation_id: spec.tag,
-            meilang_version,
-        });
+        return Ok(version_identity_from_build_spec(spec, meilang_version));
     }
     let spec = resolve_build_generation_config(source_root);
-    Ok(VersionDisplayIdentity {
-        build_generation: spec.tag.clone(),
-        build_display_tag: format_build_display_tag(spec.tag.as_str()),
-        env_generation_id: spec.tag.clone(),
-        meilang_version,
-    })
+    Ok(version_identity_from_build_spec(spec, meilang_version))
 }
 
 pub fn today_yyyymmdd() -> String {
@@ -195,6 +199,22 @@ mod tests {
     #[test]
     fn require_build_generation_tag_rejects_composite_legacy_id() {
         assert!(require_build_generation_tag("2.0.7-ws20260628").is_err());
+    }
+
+    #[test]
+    fn auto_date_source_ignores_configured_date() {
+        let tmp = tempdir().expect("tempdir");
+        let ws = tmp.path();
+        fs::write(
+            ws.join("workspace.json"),
+            r#"{"schemaVersion":2,"build":{"generation":{"dateSource":"auto","date":"19990101","fixver":2}}}"#,
+        )
+        .expect("write workspace.json");
+        let spec = resolve_build_generation_for_prebuild(ws);
+        assert_eq!(spec.fixver, 2);
+        assert_eq!(spec.date, today_yyyymmdd());
+        assert_ne!(spec.date, "19990101");
+        assert_eq!(spec.tag, format_build_generation_tag(spec.date.as_str(), 2));
     }
 
     #[test]

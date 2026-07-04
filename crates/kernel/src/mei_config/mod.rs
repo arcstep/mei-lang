@@ -32,6 +32,7 @@ pub use build_store::{
     resolve_app_build_generation_from_current, resolve_workspace_app_build_generations,
     resolve_workspace_default_app_id,
     resolve_build_footer_label, resolve_build_footer_label_with_hint,
+    resolve_build_generation_for_prebuild,
     resolve_workspace_footer_label, resolve_workspace_footer_label_with_hint,
     resolve_version_display_identity, resolve_version_display_identity_for_app,
     resolve_version_display_identity_with_hint,

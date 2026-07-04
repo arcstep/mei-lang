@@ -137,6 +137,10 @@
       const cached = readLocalBootstrapArtifact(appId, sceneId, clientRevision);
       if (cached) {
         applyBootstrapPayload(cached);
+        window.__meiBootstrapFromLocalStorage = 1;
+        if (typeof boot.cacheDiagTrace === "function") {
+          boot.cacheDiagTrace("bootstrap-local-hit", { appId, sceneId, clientRevision });
+        }
         return cached;
       }
     }

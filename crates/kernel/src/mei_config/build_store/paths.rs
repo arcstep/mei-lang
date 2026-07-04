@@ -47,11 +47,12 @@ fn active_toolchain_manifest_path(source_root: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Toolchain version: store MANIFEST → CLI cargo hint → workspace pin → links.active → flat MANIFEST → `latest`.
+/// Toolchain version: running binary hint → store MANIFEST → workspace pin → links.active → flat MANIFEST → `latest`.
 ///
-/// When `mei-host-shell` runs with `--cargo` / `SOURCE=lang`, the running binary passes its
-/// Cargo package version as `cli_toolchain_hint` so the footer and BUILD manifest track the
-/// actually-linked toolchain instead of a stale workspace pin.
+/// When `mei-host-shell` runs with `--cargo` / `SOURCE=lang`, the running binary passes
+/// `MEI_BUILD_VERSION` (e.g. `2.0.15+c9d71c1-dirty`) as `cli_toolchain_hint` so the footer
+/// and BUILD manifest track the actually-linked toolchain instead of a stale workspace pin
+/// or installed-toolchain MANIFEST.
 pub fn resolve_toolchain_version(source_root: &Path) -> String {
     resolve_toolchain_version_with_hint(source_root, None)
 }
@@ -60,13 +61,13 @@ pub fn resolve_toolchain_version_with_hint(
     source_root: &Path,
     cli_toolchain_hint: Option<&str>,
 ) -> String {
+    if let Some(hint) = cli_toolchain_hint.map(str::trim).filter(|s| !s.is_empty()) {
+        return hint.to_string();
+    }
     if let Some(manifest) = active_toolchain_manifest_path(source_root) {
         if let Some(version) = read_manifest_version(&manifest) {
             return version;
         }
-    }
-    if let Some(hint) = cli_toolchain_hint.map(str::trim).filter(|s| !s.is_empty()) {
-        return hint.to_string();
     }
     let cfg = load_workspace_config(source_root);
     if let Some(pin) = cfg.toolchain.pin.as_deref().map(str::trim).filter(|s| !s.is_empty()) {

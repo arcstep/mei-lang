@@ -26,13 +26,20 @@
     });
   }
 
-  function snapshotStorageKey(ctx) {
+  function legacySnapshotStorageKey(ctx) {
     const dataMode = String(ctx.dataMode || "").trim().toLowerCase();
     const reviewProjection = String(ctx.reviewProjection || "").trim().toLowerCase();
     const chrome = String(ctx.chrome || "").trim().toLowerCase();
     return [ctx.appId, ctx.sceneId, ctx.mode || "app", chrome, dataMode, reviewProjection]
       .filter(Boolean)
       .join(":");
+  }
+
+  function snapshotStorageKey(ctx) {
+    if (typeof boot.sceneRevisionCacheKey === "function") {
+      return boot.sceneRevisionCacheKey(ctx);
+    }
+    return legacySnapshotStorageKey(ctx);
   }
 
   function collectHeadJsonScripts() {
@@ -263,33 +270,70 @@
     }
   }
 
+  function normalizeSnapshotRevision(snapshot) {
+    if (!snapshot || typeof snapshot !== "object") return null;
+    if (snapshot.revision && typeof snapshot.revision === "object") {
+      return snapshot;
+    }
+    const revisionDigest = String(snapshot.revision_digest || "").trim();
+    const cacheKey = String(snapshot.cache_key || "").trim();
+    if (!revisionDigest && !cacheKey) return snapshot;
+    return {
+      ...snapshot,
+      revision: {
+        revision_digest: revisionDigest,
+        cache_key: cacheKey || undefined,
+      },
+    };
+  }
+
   async function loadSceneShellSnapshot(ctx) {
-    const key = snapshotStorageKey(ctx);
-    const db = await openSceneShellDb();
-    if (db) {
-      const snapshot = await new Promise((resolve) => {
+    const keys = [
+      snapshotStorageKey(ctx),
+      legacySnapshotStorageKey(ctx),
+    ].filter((key, index, all) => key && all.indexOf(key) === index);
+    for (const key of keys) {
+      const db = await openSceneShellDb();
+      if (db) {
+        const snapshot = await new Promise((resolve) => {
+          try {
+            const tx = db.transaction(SCENE_SHELL_STORE, "readonly");
+            const request = tx.objectStore(SCENE_SHELL_STORE).get(key);
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = () => resolve(null);
+          } catch (_) {
+            resolve(null);
+          }
+        });
         try {
-          const tx = db.transaction(SCENE_SHELL_STORE, "readonly");
-          const request = tx.objectStore(SCENE_SHELL_STORE).get(key);
-          request.onsuccess = () => resolve(request.result || null);
-          request.onerror = () => resolve(null);
-        } catch (_) {
-          resolve(null);
+          db.close();
+        } catch (_) {}
+        if (snapshot) {
+          const normalized = normalizeSnapshotRevision(snapshot);
+          if (typeof boot.cacheDiagTrace === "function") {
+            boot.cacheDiagTrace("shell-snapshot-hit", { key, source: "indexeddb" });
+          }
+          return normalized;
         }
-      });
+      }
       try {
-        db.close();
-      } catch (_) {}
-      if (snapshot) return snapshot;
+        const raw = sessionStorage.getItem(`${SCENE_SHELL_LS_PREFIX}${key}`);
+        if (!raw) continue;
+        const compact = JSON.parse(raw);
+        if (compact && compact.shellHtml) {
+          if (typeof boot.cacheDiagTrace === "function") {
+            boot.cacheDiagTrace("shell-snapshot-hit", { key, source: "sessionStorage" });
+          }
+          return normalizeSnapshotRevision(compact);
+        }
+      } catch (_) {
+        /* try next key */
+      }
     }
-    try {
-      const raw = sessionStorage.getItem(`${SCENE_SHELL_LS_PREFIX}${key}`);
-      if (!raw) return null;
-      const compact = JSON.parse(raw);
-      return compact && compact.shellHtml ? compact : null;
-    } catch (_) {
-      return null;
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("shell-snapshot-miss", { keys });
     }
+    return null;
   }
 
   function applyHeadJsonScripts(scripts) {
@@ -336,15 +380,33 @@
   async function tryRestoreSceneShellFromCache(ctx, revision, url, replaceHistory) {
     const snapshot = await loadSceneShellSnapshot(ctx);
     if (!snapshot) return null;
-    if (!boot.revisionsMatch(snapshot.revision, revision)) return null;
+    const normalizedRevision =
+      typeof boot.normalizeRevision === "function"
+        ? boot.normalizeRevision(revision)
+        : revision;
+    if (!boot.revisionsMatch(snapshot.revision, normalizedRevision)) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("shell-revision-mismatch", {
+          snapshotRevision: snapshot.revision,
+          remoteRevision: normalizedRevision,
+        });
+      }
+      return null;
+    }
     const restored = restoreSceneShellSnapshot(snapshot, url, replaceHistory);
     if (!restored) return null;
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("shell-restored", { key: snapshot.key, url: url || null });
+    }
     return buildDocFromSceneShellSnapshot(snapshot);
   }
 
   async function saveCurrentSceneShellSnapshot(ctx, revision, doc) {
     const snapshot = buildSceneShellSnapshot(ctx, revision, doc);
     if (!snapshot) return false;
+    if (typeof boot.rememberSceneRevision === "function" && revision) {
+      boot.rememberSceneRevision(ctx, revision);
+    }
     return persistSceneShellSnapshot(snapshot);
   }
 
@@ -356,6 +418,8 @@
   boot.tryRestoreSceneShellFromCache = tryRestoreSceneShellFromCache;
   boot.buildDocFromSceneShellSnapshot = buildDocFromSceneShellSnapshot;
   boot.saveCurrentSceneShellSnapshot = saveCurrentSceneShellSnapshot;
+  boot.snapshotStorageKey = snapshotStorageKey;
+  boot.legacySnapshotStorageKey = legacySnapshotStorageKey;
   boot.pruneSceneShellSessionStorage = pruneSceneShellSessionStorage;
   boot.SCENE_SHELL_MAX_ENTRIES = SCENE_SHELL_MAX_ENTRIES;
   boot.SCENE_SHELL_MAX_AGE_MS = SCENE_SHELL_MAX_AGE_MS;

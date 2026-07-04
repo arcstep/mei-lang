@@ -82,6 +82,30 @@ fn resolve_toolchain_version_prefers_cli_hint_over_stale_links_without_pin() {
 }
 
 #[test]
+fn resolve_toolchain_version_prefers_cli_hint_over_active_manifest() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ws = tmp.path();
+    fs::create_dir_all(ws.join("deploy/state")).expect("mkdir deploy");
+    fs::create_dir_all(ws.join("toolchain/store/2.0.13")).expect("mkdir store");
+    fs::write(
+        ws.join("toolchain/store/2.0.13/MANIFEST.json"),
+        r#"{"version":"2.0.13"}"#,
+    )
+    .expect("write manifest");
+    std::os::unix::fs::symlink("../store/2.0.13", ws.join("toolchain/active")).expect("symlink");
+    fs::write(
+        ws.join("workspace.json"),
+        r#"{"schemaVersion":2,"workspace":{"version":"20260628"},"toolchain":{"pin":"2.0.13"},"build":{"generation":{"dateSource":"manual","date":"20260628","fixver":0}}}"#,
+    )
+    .expect("write workspace.json");
+    assert_eq!(
+        resolve_toolchain_version_with_hint(ws, Some("2.0.15+c9d71c1-dirty")),
+        "2.0.15+c9d71c1-dirty"
+    );
+    assert_eq!(resolve_toolchain_version(ws), "2.0.13");
+}
+
+#[test]
 fn resolve_toolchain_version_prefers_cli_hint_over_workspace_pin() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let ws = tmp.path();
@@ -307,6 +331,28 @@ fn clean_env_generations_respects_links_protected_vers() {
     .expect("clean");
     assert!(report.removed.iter().any(|l| l.contains("WS-20260301.0")));
     assert!(report.retained.iter().any(|l| l.contains("WS-20260228.0")));
+}
+
+    #[test]
+fn resolve_build_footer_with_host_hint_uses_compile_day_not_env_current() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let ws = tmp.path();
+    fs::create_dir_all(ws.join("deploy/state")).expect("mkdir deploy");
+    fs::write(
+        ws.join("workspace.json"),
+        r#"{"schemaVersion":2,"workspace":{"defaultApp":"demo"},"build":{"generation":{"dateSource":"auto","date":"20260228","fixver":0}}}"#,
+    )
+    .expect("write workspace.json");
+    setup_demo_app(ws);
+    attach_build_generation(ws, &[String::from("demo")], "WS-20260228.0").expect("attach");
+    let identity = resolve_version_display_identity_with_hint(ws, Some("2.0.15+abc-dirty"))
+        .expect("identity");
+    assert_eq!(identity.meilang_version, "2.0.15+abc-dirty");
+    let expected = resolve_build_generation_for_prebuild(ws).tag;
+    assert_eq!(identity.build_generation, expected);
+    if expected != "WS-20260228.0" {
+        assert_ne!(identity.build_generation, "WS-20260228.0");
+    }
 }
 
 #[test]

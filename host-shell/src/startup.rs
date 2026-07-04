@@ -105,6 +105,7 @@ pub(crate) fn build_access_ready_banner_lines(
 ) -> Vec<String> {
     let mut lines = vec![
         listen_url.to_string(),
+        crate::build_info::host_version_banner_line(shell.ctx.workspace_root.as_path()),
         format!("defaultApp={}", shell.ctx.app_id),
     ];
     for app_id in app_ids {

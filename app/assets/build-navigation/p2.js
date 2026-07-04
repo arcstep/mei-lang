@@ -191,23 +191,166 @@
     }
   }
 
+  function hostBoot() {
+    return global.__meiLangBoot || globalThis.__meiLangBoot || boot;
+  }
+
+  function fetchBuildRevision(url, options) {
+    const host = hostBoot();
+    const fn =
+      host.fetchBuildFragmentRevision ||
+      global.MeiBuildFragmentRevision?.fetchBuildFragmentRevision;
+    if (typeof fn !== "function") return null;
+    return fn.call(host, url, options);
+  }
+
+  function readBuildRevision(url) {
+    const host = hostBoot();
+    const fn =
+      host.readBuildFragmentRevision || global.MeiBuildFragmentRevision?.readBuildFragmentRevision;
+    return typeof fn === "function" ? fn.call(host, url) : null;
+  }
+
+  function readBuildFragmentCache(url, revision) {
+    const host = hostBoot();
+    const fn =
+      host.readBuildFragmentHtml || global.MeiBuildFragmentRevision?.readBuildFragmentHtml;
+    return typeof fn === "function" ? fn.call(host, url, revision) : null;
+  }
+
+  function rememberBuildRevision(url, revision) {
+    const host = hostBoot();
+    const fn =
+      host.rememberBuildFragmentRevision ||
+      global.MeiBuildFragmentRevision?.rememberBuildFragmentRevision;
+    if (typeof fn === "function") fn.call(host, url, revision);
+  }
+
+  function rememberBuildFragment(url, revision, payload) {
+    const host = hostBoot();
+    const fn =
+      host.rememberBuildFragmentHtml || global.MeiBuildFragmentRevision?.rememberBuildFragmentHtml;
+    if (typeof fn === "function") fn.call(host, url, revision, payload);
+  }
+
+  function buildRevisionStillValid(url, revision) {
+    const host = hostBoot();
+    const fn =
+      host.buildFragmentRevisionStillValid ||
+      global.MeiBuildFragmentRevision?.buildFragmentRevisionStillValid;
+    return typeof fn === "function" ? fn.call(host, url, revision) : false;
+  }
+
+  async function persistBuildPreviewSnapshot(url) {
+    const tab = buildTab(url);
+    if (tab && tab !== "preview") return false;
+    const panel = document.querySelector('[data-manage-tab-panel="preview"]');
+    const scroll = panel?.querySelector(".preview-pane-scroll");
+    if (!(scroll instanceof HTMLElement)) return false;
+    let revision = readBuildRevision(url);
+    if (!revision) {
+      revision = await fetchBuildRevision(url, {
+        timeoutMs: 4000,
+        skipRemoteWhenValid: true,
+      });
+    }
+    if (!revision) return false;
+    const drilldownParts = ["mei-scene-drilldown-context", "mei-host-runtime-capabilities"]
+      .map((id) => {
+        const node = document.getElementById(id);
+        return node instanceof HTMLElement ? node.outerHTML : "";
+      })
+      .filter(Boolean);
+    const parsed = new URL(url, global.location.href);
+    const payload = {
+      preview_html: scroll.outerHTML,
+      drilldown_script: drilldownParts.join(""),
+      workspace_scripts: [],
+      node: String(parsed.searchParams.get("node") || ""),
+      focus: String(parsed.searchParams.get("focus") || ""),
+      revision,
+    };
+    rememberBuildRevision(url, revision);
+    rememberBuildFragment(url, revision, payload);
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("build-preview-persisted", {
+        url,
+        revision_digest: revision.revision_digest,
+        previewHtmlBytes: String(payload.preview_html || "").length,
+      });
+    }
+    return true;
+  }
+
+  function scheduleBuildPreviewPersist(url) {
+    const run = () => {
+      void persistBuildPreviewSnapshot(url);
+    };
+    global.addEventListener("pagehide", run, { once: true });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") run();
+    });
+  }
+
+  async function tryRestoreBuildPreviewFromCache(url, options) {
+    const opts = options || {};
+    const parsed = new URL(url, global.location.href);
+    const tab = buildTab(url);
+    if (tab && tab !== "preview") {
+      return { restored: false, source: "not-preview" };
+    }
+    if (
+      typeof hostBoot().fetchBuildFragmentRevision !== "function" &&
+      typeof global.MeiBuildFragmentRevision?.fetchBuildFragmentRevision !== "function"
+    ) {
+      return { restored: false, source: "no-revision-api" };
+    }
+    try {
+      const remoteRevision = await fetchBuildRevision(url, {
+        timeoutMs: opts.timeoutMs || 8000,
+        skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
+      });
+      if (!remoteRevision || !buildRevisionStillValid(url, remoteRevision)) {
+        return { restored: false, source: "revision-miss", revision: remoteRevision };
+      }
+      const cached = readBuildFragmentCache(url, remoteRevision);
+      if (!cached?.preview_html) {
+        return { restored: false, source: "fragment-miss", revision: remoteRevision };
+      }
+      const ok = swapPreviewFragment(
+        String(cached.preview_html || ""),
+        String(cached.drilldown_script || ""),
+      );
+      if (!ok) {
+        return { restored: false, source: "swap-failed", revision: remoteRevision };
+      }
+      if (
+        Array.isArray(cached.workspace_scripts) &&
+        typeof boot.syncPreviewWorkspaceScripts === "function"
+      ) {
+        await boot.syncPreviewWorkspaceScripts(cached.workspace_scripts);
+      }
+      ensurePreviewTabVisible(url, null, { emit: false });
+      wakePreviewRuntime("build-cold-cache", { pulsePreviewUpdated: true });
+      global.__meiBuildPreviewRestoredFromCache = 1;
+      return { restored: true, source: "fragment-cache", revision: remoteRevision };
+    } catch (error) {
+      console.warn("[build-navigation] cold preview cache restore skipped", error);
+      return { restored: false, source: "error" };
+    }
+  }
+
   async function navigateBuildTier1(url, replaceHistory, linkEl) {
     showBuildNavLoading(url);
     try {
       ensurePreviewTabVisible(url);
       let payload = null;
-      if (typeof boot.fetchBuildFragmentRevision === "function") {
+      const fetchRev = fetchBuildRevision;
+      if (typeof fetchRev === "function") {
         try {
-          const remoteRevision = await boot.fetchBuildFragmentRevision(url, { timeoutMs: 8000 });
-          if (
-            remoteRevision &&
-            typeof boot.buildFragmentRevisionStillValid === "function" &&
-            boot.buildFragmentRevisionStillValid(url, remoteRevision)
-          ) {
-            const cached =
-              typeof boot.readBuildFragmentHtml === "function"
-                ? boot.readBuildFragmentHtml(url, remoteRevision)
-                : null;
+          const remoteRevision = await fetchRev(url, { timeoutMs: 8000 });
+          if (remoteRevision && buildRevisionStillValid(url, remoteRevision)) {
+            const cached = readBuildFragmentCache(url, remoteRevision);
             if (cached?.preview_html) {
               payload = { ...cached, revision: remoteRevision };
             }
@@ -217,14 +360,11 @@
       if (!payload) {
         const fetched = await fetchWorkspaceFragment(url);
         payload = fetched.payload;
-        if (payload?.revision && typeof boot.rememberBuildFragmentRevision === "function") {
-          boot.rememberBuildFragmentRevision(url, payload.revision);
+        if (payload?.revision) {
+          rememberBuildRevision(url, payload.revision);
         }
-        if (
-          payload?.preview_html &&
-          typeof boot.rememberBuildFragmentHtml === "function"
-        ) {
-          boot.rememberBuildFragmentHtml(url, payload.revision, payload);
+        if (payload?.preview_html) {
+          rememberBuildFragment(url, payload.revision, payload);
         }
       }
       const ok = swapPreviewFragment(
@@ -391,6 +531,9 @@
     reviewAxesChanged,
     classifyBuildNavTier,
     tryNavigateBuild,
+    tryRestoreBuildPreviewFromCache,
+    scheduleBuildPreviewPersist,
+    persistBuildPreviewSnapshot,
     tryHandleBuildClick,
     shouldSkipPreviewRuntimeWake,
     shouldWakePreviewRuntime,

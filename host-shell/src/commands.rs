@@ -709,7 +709,6 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         managed_plug: managed_plug.clone(),
     };
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    let display = mei_lang_kernel::resolve_build_footer_label(workspace.as_path());
     if args.auth {
         println!("Auth:      enabled (login required for protected routes)");
     }
@@ -724,11 +723,7 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
             println!("           {app_id} -> {endpoint}");
         }
     }
-    let version_line = format!(
-        "mei-host-shell {} · {}",
-        crate::build_info::BUILD_VERSION,
-        display
-    );
+    let version_line = crate::build_info::host_version_banner_line(workspace.as_path());
     let listen_detail = vec![
         version_line.as_str(),
         "blocking serve — access pages ready immediately",
@@ -800,16 +795,11 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
     };
     let addr = format!("{}:{}", args.host, args.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    let display = mei_lang_kernel::resolve_build_footer_label(workspace.as_path());
     let listen_url = format!("http://{addr}");
     if args.auth {
         println!("Auth:      enabled (login required for protected routes)");
     }
-    let version_line = format!(
-        "mei-host-shell {} · {}",
-        crate::build_info::BUILD_VERSION,
-        display
-    );
+    let version_line = crate::build_info::host_version_banner_line(workspace.as_path());
     let defer_line = if crate::startup::defer_warmup_to_prebuild() {
         "early bind — unready routes redirect to /host/starting until ACCESS READY"
     } else {

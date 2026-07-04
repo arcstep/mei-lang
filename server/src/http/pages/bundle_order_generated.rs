@@ -23,10 +23,15 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "runtime-refresh.js",
     "build-navigation/p1.js",
     "spa-navigation/spa/revision-contract.js",
-    "spa-navigation/spa/build-fragment-revision.js",
+    "spa-navigation/spa/scene-revision.js",
+    "spa-navigation/spa/scene-shell-cache.js",
+    "spa-navigation/spa/scene-bootstrap-loader.js",
+    "spa-navigation/spa/initial-scene-restore.js",
+    "spa-navigation/spa/initial-access-bootstrap.js",
     "spa-navigation/spa/structure-anchor.js",
     "spa-navigation/spa/projection-depth.js",
     "build-navigation/p2.js",
+    "spa-navigation/spa/build-fragment-revision.js",
     "build-inspect-highlight/p1.js",
     "build-inspect-highlight/p2.js",
     "build-layout-tuning-draft/p1.js",
@@ -102,6 +107,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "spa-navigation/spa/navigation.js",
     "spa-navigation/spa/initial-load-progress.js",
     "spa-navigation/epilogue.js",
+    "spa-navigation/spa/scene-cache-diag.js",
 ];
 
 pub(super) const BUNDLE_MANAGE_SOURCE_SCRIPTS: &[&str] = &[
@@ -230,6 +236,7 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "spa-navigation/spa/navigation.js",
     "spa-navigation/spa/initial-load-progress.js",
     "spa-navigation/epilogue.js",
+    "spa-navigation/spa/scene-cache-diag.js",
 ];
 
 pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[

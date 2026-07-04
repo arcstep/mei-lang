@@ -6,21 +6,45 @@
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
 
+  function normalizeRevision(revision) {
+    if (!revision || typeof revision !== "object") return revision;
+    return {
+      ...revision,
+      revision_digest: String(
+        revision.revision_digest || revision.revisionDigest || "",
+      ).trim(),
+      cache_key: String(revision.cache_key || revision.cacheKey || "").trim() || undefined,
+      client_revision: String(
+        revision.client_revision || revision.clientRevision || "",
+      ).trim(),
+      registry_revision: String(
+        revision.registry_revision || revision.registryRevision || "",
+      ).trim(),
+      data_generation: String(
+        revision.data_generation || revision.dataGeneration || "",
+      ).trim(),
+      scene_bundle_revision:
+        revision.scene_bundle_revision || revision.sceneBundleRevision || "",
+      draft_digest: revision.draft_digest || revision.draftDigest || "",
+    };
+  }
+
   function revisionsMatch(localRevision, remoteRevision) {
-    if (!localRevision || !remoteRevision) return false;
-    if (localRevision.revision_digest && remoteRevision.revision_digest) {
-      return localRevision.revision_digest === remoteRevision.revision_digest;
+    const local = normalizeRevision(localRevision);
+    const remote = normalizeRevision(remoteRevision);
+    if (!local || !remote) return false;
+    if (local.revision_digest && remote.revision_digest) {
+      return local.revision_digest === remote.revision_digest;
     }
-    if (localRevision.cache_key && remoteRevision.cache_key) {
-      return localRevision.cache_key === remoteRevision.cache_key;
+    if (local.cache_key && remote.cache_key) {
+      return local.cache_key === remote.cache_key;
     }
     return (
-      localRevision.registry_revision === remoteRevision.registry_revision &&
-      localRevision.client_revision === remoteRevision.client_revision &&
-      localRevision.data_generation === remoteRevision.data_generation &&
-      (localRevision.scene_bundle_revision || "") ===
-        (remoteRevision.scene_bundle_revision || "") &&
-      (localRevision.draft_digest || "") === (remoteRevision.draft_digest || "")
+      local.registry_revision === remote.registry_revision &&
+      local.client_revision === remote.client_revision &&
+      local.data_generation === remote.data_generation &&
+      (local.scene_bundle_revision || "") === (remote.scene_bundle_revision || "") &&
+      (local.draft_digest || "") === (remote.draft_digest || "")
     );
   }
 
@@ -55,6 +79,7 @@
   }
 
   boot.revisionsMatch = revisionsMatch;
+  boot.normalizeRevision = normalizeRevision;
   boot.surfaceRevisionKey = surfaceRevisionKey;
   boot.pruneRevisionStore = pruneRevisionStore;
 })(window);

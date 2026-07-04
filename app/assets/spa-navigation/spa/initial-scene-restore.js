@@ -25,10 +25,14 @@
   async function tryRestoreSceneShellFromFragment(ctx, revision, url, replaceHistory) {
     const fragment = await fetchSceneFragment(ctx);
     if (!fragment?.shellHtml) return null;
+    const normalizedRevision =
+      typeof boot.normalizeRevision === "function"
+        ? boot.normalizeRevision(revision)
+        : revision;
     if (
       fragment.revisionDigest &&
-      revision?.revision_digest &&
-      fragment.revisionDigest !== revision.revision_digest
+      normalizedRevision?.revision_digest &&
+      fragment.revisionDigest !== normalizedRevision.revision_digest
     ) {
       return null;
     }
@@ -43,6 +47,9 @@
     const restored = boot.restoreSceneShellSnapshot(snapshot, url, replaceHistory);
     if (!restored) return null;
     window.__meiShellRestoredFromFragment = 1;
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("shell-restored", { source: "fragment", url: url || null });
+    }
     if (typeof boot.buildDocFromSceneShellSnapshot === "function") {
       return boot.buildDocFromSceneShellSnapshot(snapshot);
     }
@@ -60,7 +67,12 @@
     const timeoutMs =
       opts.timeoutMs ||
       (typeof SPA_FETCH_TIMEOUT_MS !== "undefined" ? SPA_FETCH_TIMEOUT_MS : 30000);
-    const revision = await boot.fetchSceneRevision(ctx, { timeoutMs });
+    const coldStart = opts.coldStart === true;
+    const revision = await boot.fetchSceneRevision(ctx, {
+      timeoutMs,
+      skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
+      preloadSnapshotRevision: true,
+    });
     if (
       opts.navigationId != null &&
       typeof currentNavigationId !== "undefined" &&
@@ -69,30 +81,25 @@
       return { restored: false, doc: null, revision, source: "superseded" };
     }
 
-    // 冷启动仅拉 bootstrap 时保留 SSR shell，避免 IndexedDB 旧快照盖掉服务端新 HTML。
-    if (opts.hydrateBootstrapOnly === true) {
-      if (typeof boot.ensureSceneBootstrapPayload === "function") {
-        await boot.ensureSceneBootstrapPayload(ctx, revision);
-      }
-      return { restored: false, doc: null, revision, source: "bootstrap-only" };
-    }
-
     if (typeof boot.tryRestoreSceneShellFromCache === "function") {
       const restoredDoc = await boot.tryRestoreSceneShellFromCache(
         ctx,
         revision,
-        opts.url || null,
+        opts.url || window.location.href,
         !!opts.replaceHistory,
       );
       if (restoredDoc) {
         if (typeof boot.ensureSceneBootstrapPayload === "function") {
           await boot.ensureSceneBootstrapPayload(ctx, revision);
         }
+        if (typeof boot.cacheDiagTrace === "function") {
+          boot.cacheDiagTrace("cache-first-outcome", { source: "snapshot", coldStart });
+        }
         return { restored: true, doc: restoredDoc, revision, source: "snapshot" };
       }
     }
 
-    if (opts.allowFragment !== false) {
+    if (!coldStart && opts.allowFragment !== false) {
       try {
         const fragmentDoc = await tryRestoreSceneShellFromFragment(
           ctx,
@@ -104,6 +111,9 @@
           if (typeof boot.ensureSceneBootstrapPayload === "function") {
             await boot.ensureSceneBootstrapPayload(ctx, revision);
           }
+          if (typeof boot.cacheDiagTrace === "function") {
+            boot.cacheDiagTrace("cache-first-outcome", { source: "fragment", coldStart });
+          }
           return { restored: true, doc: fragmentDoc, revision, source: "fragment" };
         }
       } catch (error) {
@@ -111,10 +121,16 @@
       }
     }
 
-    if (opts.hydrateBootstrapOnly !== false && typeof boot.ensureSceneBootstrapPayload === "function") {
+    if (typeof boot.ensureSceneBootstrapPayload === "function") {
       await boot.ensureSceneBootstrapPayload(ctx, revision);
     }
-    return { restored: false, doc: null, revision, source: "miss" };
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("cache-first-outcome", {
+        source: coldStart ? "cold-miss" : "miss",
+        coldStart,
+      });
+    }
+    return { restored: false, doc: null, revision, source: coldStart ? "cold-miss" : "miss" };
   }
 
   boot.fetchSceneFragment = fetchSceneFragment;

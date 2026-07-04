@@ -181,4 +181,8 @@
     if (!isCurrentLayoutAudit(event.data?.detail || null)) return;
     renderLayoutAudit(event.data?.detail || null);
   });
+
+  if (typeof boot.inspectSceneClientCache !== "function" && globalThis.__meiCacheDiag?.inspect) {
+    boot.inspectSceneClientCache = globalThis.__meiCacheDiag.inspect.bind(globalThis.__meiCacheDiag);
+  }
 })();
