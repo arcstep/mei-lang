@@ -27548,6 +27548,14 @@
       return { restored: false, doc: null, revision, source: "superseded" };
     }
 
+    // 冷启动仅拉 bootstrap 时保留 SSR shell，避免 IndexedDB 旧快照盖掉服务端新 HTML。
+    if (opts.hydrateBootstrapOnly === true) {
+      if (typeof boot.ensureSceneBootstrapPayload === "function") {
+        await boot.ensureSceneBootstrapPayload(ctx, revision);
+      }
+      return { restored: false, doc: null, revision, source: "bootstrap-only" };
+    }
+
     if (typeof boot.tryRestoreSceneShellFromCache === "function") {
       const restoredDoc = await boot.tryRestoreSceneShellFromCache(
         ctx,
@@ -27591,6 +27599,51 @@
   boot.fetchSceneFragment = fetchSceneFragment;
   boot.tryRestoreSceneShellFromFragment = tryRestoreSceneShellFromFragment;
   boot.tryCacheFirstSceneAccess = tryCacheFirstSceneAccess;
+
+
+/* ===== spa-navigation/spa/initial-access-bootstrap.js ===== */
+  function bootstrapColdAccessSceneRuntime() {
+    try {
+      if (
+        typeof isBuildWorkspacePathname === "function" &&
+        isBuildWorkspacePathname(window.location.pathname)
+      ) {
+        return;
+      }
+      const sceneCtx =
+        typeof boot.parseAccessSceneContext === "function"
+          ? boot.parseAccessSceneContext(window.location.href)
+          : null;
+      if (!sceneCtx?.sceneId) return;
+
+      const run = () => {
+        if (typeof boot.dispatchScopeActivation === "function") {
+          boot.dispatchScopeActivation({
+            scope: sceneCtx.sceneId,
+            sceneId: sceneCtx.sceneId,
+            appId: sceneCtx.appId,
+            source: "initial-load",
+          });
+        }
+        if (typeof wakeRuntimeAfterSceneBundleLoaded === "function") {
+          wakeRuntimeAfterSceneBundleLoaded();
+        }
+        try {
+          document.dispatchEvent(new CustomEvent("mei:spa-navigation-complete"));
+        } catch (_) {}
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", run, { once: true });
+      } else {
+        run();
+      }
+    } catch (error) {
+      console.warn("[spa-navigation] initial access bootstrap skipped", error);
+    }
+  }
+
+  boot.bootstrapColdAccessSceneRuntime = bootstrapColdAccessSceneRuntime;
 
 
 /* ===== spa-navigation/spa/dom-swap.js ===== */
@@ -28549,6 +28602,11 @@
       });
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
         runPostSpaWork(outcome.doc, window.location.href, null, null, new URL(window.location.href));
+      } else if (
+        !outcome.restored &&
+        typeof boot.bootstrapColdAccessSceneRuntime === "function"
+      ) {
+        boot.bootstrapColdAccessSceneRuntime();
       }
       if (outcome.revision && typeof boot.saveCurrentSceneShellSnapshot === "function") {
         await boot.saveCurrentSceneShellSnapshot(ctx, outcome.revision, document);

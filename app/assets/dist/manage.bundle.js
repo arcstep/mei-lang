@@ -25233,6 +25233,11 @@
       });
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
         runPostSpaWork(outcome.doc, window.location.href, null, null, new URL(window.location.href));
+      } else if (
+        !outcome.restored &&
+        typeof boot.bootstrapColdAccessSceneRuntime === "function"
+      ) {
+        boot.bootstrapColdAccessSceneRuntime();
       }
       if (outcome.revision && typeof boot.saveCurrentSceneShellSnapshot === "function") {
         await boot.saveCurrentSceneShellSnapshot(ctx, outcome.revision, document);

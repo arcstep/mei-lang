@@ -66,6 +66,14 @@
       return { restored: false, doc: null, revision, source: "superseded" };
     }
 
+    // 冷启动仅拉 bootstrap 时保留 SSR shell，避免 IndexedDB 旧快照盖掉服务端新 HTML。
+    if (opts.hydrateBootstrapOnly === true) {
+      if (typeof boot.ensureSceneBootstrapPayload === "function") {
+        await boot.ensureSceneBootstrapPayload(ctx, revision);
+      }
+      return { restored: false, doc: null, revision, source: "bootstrap-only" };
+    }
+
     if (typeof boot.tryRestoreSceneShellFromCache === "function") {
       const restoredDoc = await boot.tryRestoreSceneShellFromCache(
         ctx,
