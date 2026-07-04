@@ -8,6 +8,7 @@ mod data_snapshot;
 mod import;
 mod io;
 mod layer_plan;
+mod layout_tuning_merge;
 mod mcg;
 mod metric_hydrate;
 mod mrg;
@@ -31,6 +32,7 @@ pub use data_snapshot::{
 };
 pub use import::{import_bundle, load_block_artifact, ImportOptions};
 pub use layer_plan::{build_layer_plan, layer_plan_to_value, LayerPlanDocument};
+pub use layout_tuning_merge::merge_layout_tuning_into_compiled;
 pub use mcg::registry::{McgRegistry, McgRegistryWriter};
 pub use mrg::eval_cache_plan::{
     build_eval_cache_invalidation_plan, build_eval_cache_invalidation_plan_from_registry,

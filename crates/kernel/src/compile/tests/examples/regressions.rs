@@ -174,6 +174,7 @@ fn compile_scene_export_preview_enriches_file_tree_children() {
         CompileOptions {
             scene: Some("detail".to_string()),
             preview_target: Some("exports.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile scene export preview failed: {error}"));
@@ -223,6 +224,7 @@ fn compile_scene_export_preview_target_selects_requested_export() {
         CompileOptions {
             scene: Some("detail".to_string()),
             preview_target: Some("exports.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile scene export preview failed: {error}"));
@@ -435,6 +437,7 @@ fn compile_cockpit_panel_screen_header_preview() {
         CompileOptions {
             scene: None,
             preview_target: Some("panel/panel-screen-header.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile panel-screen-header failed: {error}"));

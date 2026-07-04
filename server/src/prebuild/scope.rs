@@ -253,6 +253,7 @@ impl CompileScope {
         CompileOptions {
             scene: canonical.requested_scene_id,
             preview_target: canonical.requested_target_file,
+            ..Default::default()
         }
     }
 

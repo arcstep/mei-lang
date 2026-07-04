@@ -103,20 +103,38 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
     );
     let body_cell = enforcement_body_cell_style(html.as_str());
     assert!(
-        body_cell.contains("padding:8px 4px 4px 4px"),
-        "body cell should carry hoisted padding, got `{body_cell}`"
+        body_cell.contains("padding:8px 6px 6px 6px"),
+        "layoutTuning compact should override enforcement section body padding, got `{body_cell}`"
+    );
+    let layout_errors: Vec<_> = outcome
+        .compiled
+        .diagnostics
+        .iter()
+        .filter(|d| d.code.starts_with("layout_policy_"))
+        .collect();
+    assert!(
+        layout_errors.is_empty(),
+        "unexpected layout_policy diagnostics: {layout_errors:?}"
     );
     assert!(
-        html.contains("执法单位"),
+        html.contains("执法单位") || html.contains("执法对象"),
         "enforcement-stats metric labels should appear in SSR HTML"
     );
     assert!(
-        html.contains("无违规"),
-        "inspection-stats no-violation block should appear in SSR HTML"
+        html.contains("行政检查") || html.contains("AI执法识别"),
+        "inspection section should appear in SSR HTML"
     );
     assert!(
-        html.contains("AI执法识别"),
-        "inspection-stats AI block should appear in SSR HTML"
+        html.contains("metric-bg-target"),
+        "enforcement compound slot should render metric-bg-target frame in SSR"
+    );
+    assert!(
+        !html.contains("padding:5px 0"),
+        "enforcement slots should not use vertical shell padding that clips frame"
+    );
+    assert!(
+        html.contains("data-mei-slot-frame-bg=\"true\"") && html.contains("metric-bg-long"),
+        "AI compound card should carry slot frame bg with metric-bg-long"
     );
 }
 
@@ -177,4 +195,92 @@ fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
             "layer_plan t1 should include {expected}: {chrome_ids:?}"
         );
     }
+}
+
+fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::PanelDecl], id: &str) -> Option<&'a mei_lang_kernel::PanelDecl> {
+    for panel in panels {
+        if panel.id == id || panel.id.ends_with(&format!("/{id}")) {
+            return Some(panel);
+        }
+        for node in &panel.blocks {
+            if let mei_lang_kernel::UiNodeDecl::Panel(child) = node {
+                if let Some(found) = find_panel_by_id(std::slice::from_ref(child), id) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn panel_content_budget_rows(contract: &mei_lang_kernel::SceneContract, panel_id: &str) -> Option<Vec<i64>> {
+    let panel = find_panel_by_id(&contract.panels, panel_id)?;
+    panel
+        .props
+        .get("__mei_content_budget")
+        .and_then(|b| b.get("rows"))
+        .and_then(|rows| {
+            rows.as_array().map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_i64())
+                    .collect::<Vec<_>>()
+            })
+        })
+}
+
+#[test]
+fn pretty_panels_right_rail_sections_have_no_layout_policy_overflow() {
+    let workspace = ensure_pretty_panels_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "pretty-panels", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let right_rail_errors: Vec<_> = outcome
+        .compiled
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            d.code.starts_with("layout_policy_")
+                && d.message.contains("right_rail")
+        })
+        .collect();
+    assert!(
+        right_rail_errors.is_empty(),
+        "right_rail layout_policy errors: {right_rail_errors:?}"
+    );
+    let contract = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract");
+    assert_eq!(
+        panel_content_budget_rows(contract, "effectiveness-stats").as_deref(),
+        Some([70, 70].as_ref())
+    );
+    assert_eq!(
+        panel_content_budget_rows(contract, "typical-cases").as_deref(),
+        Some([294].as_ref())
+    );
+}
+
+#[test]
+fn pretty_panels_layout_tuning_merges_content_budget_via_index() {
+    let workspace = ensure_pretty_panels_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "pretty-panels", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    assert!(
+        !outcome.compiled.ui_layout_index.nodes.is_empty(),
+        "assemble should populate ui_layout_index"
+    );
+    let contract = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract");
+    let rows = panel_content_budget_rows(contract, "enforcement-stats").expect("budget rows");
+    assert_eq!(
+        rows,
+        vec![88],
+        "layoutTuning contentBudget should merge onto enforcement-stats"
+    );
 }

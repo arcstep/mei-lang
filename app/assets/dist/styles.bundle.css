@@ -4925,20 +4925,27 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   border-radius: var(--mei-panel-radius, 14px);
   background: var(--mei-panel-background, rgba(2,6,23,.32));
 }
-.preview-card.preview-card-bare {
+.preview-card.preview-card-bare:not([data-mei-slot-frame-bg="true"]) {
   gap: 0;
   padding: 0;
   box-shadow: none;
   background: transparent;
   /* 边框/圆角由 panel props（如 panel_shell）内联样式提供，每组独立外框 */
 }
-/* slot 框条底图（BG_NORMAL 等）：强制随 slot 盒 100%×100% 拉伸；不含 icon 槽位 */
 .preview-card.preview-card-bare[data-mei-slot-frame-bg="true"] {
+  gap: 0;
+  padding: 0;
+  box-shadow: none;
+  /* slot 框条底图（BG_NORMAL 等）：强制随 slot 盒 100%×100% 拉伸；勿用 background 简写以免冲掉 inline 底图 */
   background-size: 100% 100% !important;
   background-repeat: no-repeat !important;
   background-position: center center;
   background-origin: border-box;
   background-clip: border-box;
+}
+.preview-card.preview-card-bare[data-mei-slot-frame-bg="true"] > .panel-body-cell {
+  position: relative;
+  z-index: 1;
 }
 .preview-panel-body {
   display: grid;

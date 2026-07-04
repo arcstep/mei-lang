@@ -81,6 +81,7 @@ pub async fn api_build_panel_render(
     let compile_options = CompileOptions {
         scene: Some(scene_id.to_string()),
         preview_target: Some(preview_target.clone()),
+        ..Default::default()
     };
     let compile_result = resolve_build_preview_compile(
         &state,

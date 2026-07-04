@@ -34,6 +34,7 @@ fn board_preview_scope_compiles_single_export_when_scene_set() {
         CompileOptions {
             scene: Some(scene_id.to_string()),
             preview_target: Some(board_target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile enforcement personnel board preview");
@@ -88,6 +89,7 @@ fn board_build_node_compile_options_produce_board_resources() {
         CompileOptions {
             scene: Some(scene),
             preview_target: Some(preview_target),
+            ..Default::default()
         },
     )
     .expect("compile board capsule preview");
@@ -130,6 +132,7 @@ fn board_preview_scope_requires_scene_for_multi_export_file() {
         CompileOptions {
             scene: None,
             preview_target: Some(board_target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile multi-export board without scene should return diagnostics");
@@ -153,6 +156,7 @@ fn board_preview_scope_single_scene_capsule_without_scene_still_works() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/layout-左栏.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("single-scene capsule preview without scene");
@@ -185,6 +189,7 @@ fn board_scoped_compile_materializes_metric_defs_for_penalty_and_mechanism_board
         CompileOptions {
             scene: Some(penalty_scene),
             preview_target: Some(penalty_target),
+            ..Default::default()
         },
     )
     .expect("compile penalty today board preview");
@@ -215,6 +220,7 @@ fn board_scoped_compile_materializes_metric_defs_for_penalty_and_mechanism_board
         CompileOptions {
             scene: Some(mechanism_scene),
             preview_target: Some(mechanism_target),
+            ..Default::default()
         },
     )
     .expect("compile mechanism documents board preview");
@@ -268,6 +274,7 @@ fn board_scoped_compile_lists_only_entry_scenes_not_board_exports() {
         CompileOptions {
             scene: Some(scene),
             preview_target: Some(preview_target),
+            ..Default::default()
         },
     )
     .expect("compile board preview");
@@ -313,6 +320,7 @@ fn board_scoped_compile_does_not_mount_stock_templates_group() {
         CompileOptions {
             scene: Some(scene),
             preview_target: Some(preview_target),
+            ..Default::default()
         },
     )
     .expect("compile enforcement personnel board preview");
@@ -340,6 +348,7 @@ fn parent_scene_preview_still_hydrates_referenced_board_assemblies() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile enforcement elements parent scene preview");
@@ -440,6 +449,7 @@ fn world_file_board_node_resolves_default_export_scene_for_multi_export_file() {
         CompileOptions {
             scene: None,
             preview_target: None,
+            ..Default::default()
         },
     )
     .expect("compile zhifa baseline for board index");
@@ -456,6 +466,7 @@ fn world_file_board_node_resolves_default_export_scene_for_multi_export_file() {
         CompileOptions {
             scene: Some(scene),
             preview_target: Some(board_target.to_string()),
+            ..Default::default()
         },
     )
     .expect("compile world-file board preview with resolved scene");

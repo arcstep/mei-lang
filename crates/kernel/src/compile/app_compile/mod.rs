@@ -241,11 +241,30 @@ pub fn compile_app_from_root_with_options_and_revision(
         &asset_map,
         &mut diagnostics,
     )?;
+    if options.strict_layout_policy {
+        enforce_strict_layout_policy(&diagnostics)?;
+    }
 
     Ok(CompileAppArtifacts {
         compiled,
         revision_plan,
     })
+}
+
+fn enforce_strict_layout_policy(diagnostics: &[Diagnostic]) -> Result<()> {
+    let errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error && d.code.starts_with("layout_policy_"))
+        .collect();
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let summary = errors
+        .iter()
+        .map(|d| format!("{}: {}", d.code, d.message))
+        .collect::<Vec<_>>()
+        .join("\n");
+    Err(anyhow::anyhow!("layout policy violations:\n{summary}"))
 }
 
 fn hydrate_scene_links(

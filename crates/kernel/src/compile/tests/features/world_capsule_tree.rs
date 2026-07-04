@@ -173,6 +173,7 @@ fn compile_world_capsule_preview_materializes_world_metrics() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -209,6 +210,7 @@ fn compile_world_capsule_preview_includes_dataset_table_component_assets() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
@@ -244,6 +246,7 @@ fn compile_world_capsule_preview_materializes_explain_dataframe_metrics() {
         CompileOptions {
             scene: None,
             preview_target: Some(target.to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));

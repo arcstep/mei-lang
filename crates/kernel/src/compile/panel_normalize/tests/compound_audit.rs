@@ -377,8 +377,8 @@ fn normalize_emits_body_clip_risk_for_head_body_metrics_conflict() {
     assert!(
         diagnostics
             .iter()
-            .any(|diag| diag.code == "layout_eval_body_clip_risk"),
-        "expected body clip risk diagnostic, got: {:?}",
+            .any(|diag| diag.code == "layout_policy_budget_overflow"),
+        "expected layout policy budget overflow diagnostic, got: {:?}",
         diagnostics
     );
 }

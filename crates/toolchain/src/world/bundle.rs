@@ -117,6 +117,7 @@ where
             let compiled = compile(mei_lang_kernel::CompileOptions {
                 scene: None,
                 preview_target: resolve_preview_target(app_id, target),
+                ..Default::default()
             })?;
             let bundle = finish_bundle(compiled, app_id)?;
             log_bundle_loaded(
@@ -140,6 +141,7 @@ where
         let compiled = compile(mei_lang_kernel::CompileOptions {
             scene: Some(scene_id.to_string()),
             preview_target,
+            ..Default::default()
         })?;
         if compiled.active_scene.as_deref() != Some(scene_id) {
             fallback_compile = true;
@@ -168,6 +170,7 @@ where
             let compiled = compile(mei_lang_kernel::CompileOptions {
                 scene: Some(scene_id.to_string()),
                 preview_target,
+                ..Default::default()
             })?;
             if compiled.active_scene.as_deref() != Some(scene_id) {
                 return Err(anyhow!("scene `{scene_id}` not found in app `{app_id}`"));

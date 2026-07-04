@@ -89,6 +89,12 @@ fn ops_themes_revision_digest(workspace_root: &Path, app_id: &str) -> String {
     format!("{digest:016x}")
 }
 
+fn ops_layout_tuning_revision_digest(workspace_root: &Path, app_id: &str) -> String {
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    mei_lang_kernel::ops_layout_tuning_revision_digest(&config.ops)
+}
+
 fn page_cache_disk_dir(app_root: &Path) -> PathBuf {
     mei_lang_kernel::resolve_app_var_root(app_root).join("page-render-cache")
 }
@@ -159,6 +165,7 @@ pub fn access_page_cache_key(
         "gis_base_url": gis.base_url,
         "gis_json_path": gis.json_path,
         "ops_themes_revision": ops_themes_revision_digest(workspace_root, app_id),
+        "ops_layout_tuning_revision": ops_layout_tuning_revision_digest(workspace_root, app_id),
         "host_ssr_payload_revision": HOST_SSR_PAYLOAD_REVISION,
     });
     serde_json::to_string(&extra).ok()

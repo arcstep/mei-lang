@@ -9,6 +9,7 @@ fn decl_file_cache_hits_on_repeated_external_loads() {
     let options = CompileOptions {
         scene: Some("left".to_string()),
         preview_target: None,
+            ..Default::default()
     };
     let before = decl_file_cache_metrics_snapshot_for_tests();
     let _ =

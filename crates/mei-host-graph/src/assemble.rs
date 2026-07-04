@@ -3,14 +3,15 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
-    load_component_assets, normalize_panel_slots, resolve_app_root, CompiledApp,
-    CompiledSceneRoute, ComponentAsset, LoadedResource, PanelDecl, SceneContract, SceneDecl,
-    UiNodeDecl,
+    build_ui_layout_index, load_component_assets, load_mei_config_for_app, normalize_panel_slots,
+    resolve_app_root, resolve_layout_budgets, CompiledApp, CompiledSceneRoute, ComponentAsset,
+    LoadedResource, PanelDecl, SceneContract, SceneDecl, UiNodeDecl,
 };
 use serde_json::{json, Value};
 
 use crate::import::load_block_artifact;
 use crate::layer_plan::{build_layer_plan, layer_plan_to_value};
+use crate::layout_tuning_merge::merge_layout_tuning_into_compiled;
 use crate::mcg::registry::McgRegistryWriter;
 use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
 use crate::projection_normalize::normalize_board_assembly_payload;
@@ -197,13 +198,13 @@ pub fn assemble_scope_from_registry(
         panels,
     };
 
-    let compiled = CompiledApp {
+    let mut compiled = CompiledApp {
         app_id: app_id.to_string(),
         title,
         app_root: app_root_str,
         scene_routes,
         active_scene: Some(scene_id.clone()),
-        active_target_file: active_target,
+        active_target_file: active_target.clone(),
         file_tree: Vec::new(),
         scene_contract: Some(scene_contract),
         scene_local_nav_by_target,
@@ -214,12 +215,28 @@ pub fn assemble_scope_from_registry(
         world_metrics: BTreeMap::new(),
         world_semantic_by_file: BTreeMap::new(),
         component_assets,
-        diagnostics: Vec::new(),
+        diagnostics: panel_diagnostics,
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
+
+    let mei_config = load_mei_config_for_app(app_root.as_path(), Some(source_root));
+    let ui_result = build_ui_layout_index(&compiled);
+    compiled.ui_layout_index = ui_result.index;
+    merge_layout_tuning_into_compiled(
+        &mut compiled,
+        mei_config.ops.layout_tuning.as_ref(),
+    );
+    if let Some(contract) = compiled.scene_contract.as_mut() {
+        resolve_layout_budgets(
+            &mut contract.panels,
+            &mut compiled.diagnostics,
+            active_target.as_str(),
+        );
+    }
+    compiled.ui_layout_index = build_ui_layout_index(&compiled).index;
 
     crate::mrg::telemetry::record_access(crate::mrg::telemetry::MrgAccessKind::Assemble, true);
 

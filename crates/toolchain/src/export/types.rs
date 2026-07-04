@@ -59,6 +59,7 @@ fn compile_options_from_scope(scope: &WorldScope) -> CompileOptions {
     CompileOptions {
         scene: scope.scene_id.clone(),
         preview_target: scope.target_file.clone(),
+        ..Default::default()
     }
 }
 

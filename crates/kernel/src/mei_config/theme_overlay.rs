@@ -80,6 +80,7 @@ mod tests {
                 )]),
                 basemaps: BTreeMap::new(),
                 params: BTreeMap::new(),
+                layout_tuning: None,
             },
             ..Default::default()
         }

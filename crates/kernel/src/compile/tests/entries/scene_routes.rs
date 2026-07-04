@@ -329,6 +329,7 @@ frame.add_panel(
         CompileOptions {
             scene: Some("home_default".to_string()),
             preview_target: None,
+            ..Default::default()
         },
     )
     .expect("compile requested scene");

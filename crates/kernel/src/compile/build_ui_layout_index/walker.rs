@@ -1325,6 +1325,39 @@ fn budget_from_panel(panel: &PanelDecl) -> Option<UiBudgetSummary> {
             budget.gap = Some(gap.to_string());
         }
     }
+    if let Some(map) = panel.props.as_object() {
+        if let Some(content_budget) = map.get("__mei_content_budget") {
+            if let Some(rows) = content_budget.get("rows").and_then(Value::as_array) {
+                let parsed: Vec<i64> = rows
+                    .iter()
+                    .filter_map(|v| v.as_i64().or_else(|| v.as_f64().map(|n| n as i64)))
+                    .collect();
+                if !parsed.is_empty() {
+                    budget.content_rows = Some(parsed);
+                }
+            }
+            if let Some(gap) = content_budget
+                .get("gap")
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+            {
+                budget.content_gap = Some(gap.to_string());
+            }
+        }
+        if let Some(h) = map
+            .get("__mei_section_derived_height_px")
+            .and_then(Value::as_f64)
+        {
+            budget.section_derived_height_px = Some(h);
+        }
+        if let Some(profile) = map
+            .get("__mei_padding_profile")
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+        {
+            budget.padding_profile = Some(profile.to_string());
+        }
+    }
     for key in [
         "first_width",
         "second_width",
@@ -1370,6 +1403,10 @@ fn budget_is_empty(budget: &UiBudgetSummary) -> bool {
         && budget.padding.is_none()
         && budget.card_height.is_none()
         && budget.widths.is_empty()
+        && budget.content_rows.is_none()
+        && budget.content_gap.is_none()
+        && budget.section_derived_height_px.is_none()
+        && budget.padding_profile.is_none()
 }
 
 fn budget_label_from_summary(budget: &UiBudgetSummary) -> String {
@@ -1382,6 +1419,23 @@ fn budget_label_from_summary(budget: &UiBudgetSummary) -> String {
     }
     if let Some(height) = budget.card_height {
         parts.push(format!("card_height={height}"));
+    }
+    if let Some(rows) = budget.content_rows.as_ref() {
+        let row_text = rows
+            .iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        parts.push(format!("content_rows=[{row_text}]"));
+    }
+    if let Some(gap) = budget.content_gap.as_deref() {
+        parts.push(format!("content_gap={gap}"));
+    }
+    if let Some(h) = budget.section_derived_height_px {
+        parts.push(format!("section_derived_height_px={h:.0}"));
+    }
+    if let Some(profile) = budget.padding_profile.as_deref() {
+        parts.push(format!("padding_profile={profile}"));
     }
     for (key, value) in &budget.widths {
         parts.push(format!("{key}={value}"));

@@ -33,6 +33,7 @@ echo "envVersion=${BUILD_ID}"
 for app_id in "${APP_IDS[@]}"; do
   echo "==> prebuild app=${app_id}"
   echo "==> compile (${app_id})"
+  # mei-compiler compile uses strict_layout_policy by default (layout_policy_* → Error)
   run_mei_compiler "${WORKSPACE_ROOT}" \
     compile --workspace "${WORKSPACE_ROOT}" --app "${app_id}" "${DEPLOY_CLI_ARGS[@]}"
 

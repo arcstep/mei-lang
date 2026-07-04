@@ -1,0 +1,73 @@
+name: Layout Policy
+
+on:
+  push:
+    paths:
+      - 'crates/kernel/src/compile/layout_budget/**'
+      - 'crates/mei-host-graph/src/layout_tuning_merge.rs'
+      - 'crates/mei-host-graph/src/assemble.rs'
+      - 'crates/mei-host-graph/src/artifact_biz_macros.rs'
+      - 'host-shell/tests/layout_policy_apps.rs'
+      - 'host-shell/tests/pretty_panels_body_padding.rs'
+      - 'host-shell/tests/layout_tuning_build_diff.rs'
+      - 'host-shell/tests/pretty_panels_ui_structure_probe.rs'
+      - 'app/src/ui/shell_manage/build_panels.rs'
+      - '.github/workflows/layout-policy.yml'
+  pull_request:
+    paths:
+      - 'crates/kernel/**'
+      - 'crates/mei-host-graph/**'
+      - 'host-shell/tests/layout_policy_apps.rs'
+      - 'host-shell/tests/pretty_panels_body_padding.rs'
+      - 'host-shell/tests/layout_tuning_build_diff.rs'
+      - 'host-shell/tests/pretty_panels_ui_structure_probe.rs'
+
+jobs:
+  layout-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Locate ws-demo-v2 workspace
+        id: ws
+        run: |
+          for candidate in ../workspaces/ws-demo-v2 ../../workspaces/ws-demo-v2; do
+            if [ -d "$candidate" ] && [ -f "$candidate/workspace.json" ]; then
+              echo "path=$(cd "$candidate" && pwd)" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::ws-demo-v2 not found (expected sibling ../workspaces/ws-demo-v2 in monorepo dev checkout)"
+          exit 1
+
+      - name: Build mei-lang-server (0 warning gate)
+        run: cargo build -p mei-lang-server 2>&1 | tee build.log && ! rg "warning:" build.log
+
+      - name: Compile ws-demo-v2 cockpit apps
+        run: |
+          WS="${{ steps.ws.outputs.path }}"
+          for app in pretty-panels data-demo mini-park _author-frame-smoke; do
+            cargo run -p mei-compiler -- compile --workspace "$WS" --app "$app"
+          done
+
+      - name: Import bundles for integration tests
+        run: |
+          WS="${{ steps.ws.outputs.path }}"
+          for app in pretty-panels data-demo mini-park; do
+            cargo run -p mei-host-shell -- import --workspace "$WS" --app "$app" \
+              --bundle "$WS/apps/$app/env/current/build/exchange/$app.meibundle"
+          done
+
+      - name: Kernel layout_policy tests
+        run: cargo test -p mei-lang-kernel layout_policy author_
+
+      - name: Host-shell layout policy integration tests
+        run: |
+          cargo test -p mei-host-shell --test layout_policy_apps \
+            --test pretty_panels_body_padding \
+            --test layout_tuning_build_diff \
+            --test pretty_panels_ui_structure_probe

@@ -137,7 +137,7 @@ pub(super) fn audit_metric_compound_row_budget(
     if row_sum > available + 1.0 {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
-            code: "layout_eval_compound_row_clip_risk".to_string(),
+            code: "layout_policy_budget_overflow".to_string(),
             message: format!(
                 "panel `{}`: compound rows {}px exceed content budget {}px (padding/gap included); bottom cards may be clipped",
                 panel.id,

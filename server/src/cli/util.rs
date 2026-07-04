@@ -157,6 +157,7 @@ pub fn compile_options_from_selector(args: &CliAppSelectorArgs) -> CompileOption
     CompileOptions {
         scene: normalize_optional_arg(&args.scene),
         preview_target: normalize_optional_arg(&args.target_file),
+        ..Default::default()
     }
 }
 

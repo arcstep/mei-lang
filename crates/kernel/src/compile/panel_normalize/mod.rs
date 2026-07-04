@@ -53,6 +53,7 @@ pub fn normalize_panel_slots(
         sanitize_panel_stacking(panel, diagnostics, source_path);
         normalize_panel(panel, diagnostics, source_path);
     }
+    crate::compile::layout_budget::resolve_layout_budgets(panels, diagnostics, source_path);
 }
 
 pub fn panel_resolved_has_head(panel: &PanelDecl) -> bool {

@@ -7,6 +7,7 @@ mod authoring_helpers;
 mod authoring_policy;
 mod build_store;
 mod io;
+mod layout_overlay;
 mod ops;
 mod shell_theme;
 mod stock_catalog;
@@ -55,6 +56,9 @@ pub use authoring_policy::{forbidden_authoring_tokens, validate_authoring_policy
 pub use io::{
     load_mei_config_for_app, load_workspace_config, resolve_app_entry_main, resolve_app_main_path,
     resolve_mei_config_path, write_mei_config, write_workspace_config,
+};
+pub use layout_overlay::{
+    format_layout_tuning_diff, layout_tuning_overlay_keys, ops_layout_tuning_revision_digest,
 };
 pub use ops::{merge_ops_section, OpsConfigPatch};
 pub use shell_theme::{resolve_workspace_shell_theme, validate_workspace_shell_theme};

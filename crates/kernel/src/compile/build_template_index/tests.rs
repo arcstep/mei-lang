@@ -146,6 +146,7 @@ fn js_component_authoring_preview_targets_stock_example() {
         CompileOptions {
             scene: None,
             preview_target: coord.preview_target.clone().into(),
+            ..Default::default()
         },
     )
     .expect("compile chart.area authoring preview");

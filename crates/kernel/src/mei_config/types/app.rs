@@ -363,6 +363,9 @@ pub struct OpsConfig {
     pub basemaps: BTreeMap<String, OpsBasemapEntry>,
     #[serde(default)]
     pub params: BTreeMap<String, Value>,
+    /// P1–P2: layout budget overlay (see docs/mei-lang-v2/03-ui/0325-layout-budget-contract.md §8).
+    #[serde(default, rename = "layoutTuning")]
+    pub layout_tuning: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

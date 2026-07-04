@@ -9,6 +9,7 @@ fn l2_scene_payload_reused_for_catalog_and_official() {
     let options = CompileOptions {
         scene: None,
         preview_target: Some("scenes/layouts/left.mei".to_string()),
+            ..Default::default()
     };
     let _ =
         compile_app_from_root_with_options(&root, &root, options.clone()).expect("first compile");
@@ -33,6 +34,7 @@ fn l3_rows_cache_invalidates_on_data_file_change() {
     let options = CompileOptions {
         scene: None,
         preview_target: Some("scenes/child/page.mei".to_string()),
+            ..Default::default()
     };
     let _ =
         compile_app_from_root_with_options(&root, &root, options.clone()).expect("compile child");

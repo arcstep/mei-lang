@@ -139,5 +139,6 @@ pub fn compile_options_from_coords(coords: &SceneQueryCoords) -> CompileOptions 
     CompileOptions {
         scene: coords.scene_id.clone(),
         preview_target,
+        ..Default::default()
     }
 }

@@ -64,6 +64,7 @@ pub(crate) fn inspect_scoped_artifact(
     let mut options = CompileOptions {
         scene: normalized_optional_scope(scene_id),
         preview_target: normalized_optional_scope(target_file),
+        ..Default::default()
     };
     if options.preview_target.is_none() {
         if let Some(scene) = options.scene.as_deref() {
@@ -205,6 +206,7 @@ pub(crate) fn run_scoped_build(
     let options = CompileOptions {
         scene: scene_id.clone(),
         preview_target: target_file.clone(),
+        ..Default::default()
     };
     let outcome = compile_app_with_cache(state, app_id, &options, components_root.as_path())
         .map_err(|failure| failure.error)?;

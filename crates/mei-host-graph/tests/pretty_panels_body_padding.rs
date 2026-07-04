@@ -69,7 +69,7 @@ fn pretty_panels_enforcement_section_carries_body_padding() {
             .body_props
             .get("padding")
             .and_then(|v| v.as_str()),
-        Some("8px 4px 4px 4px"),
+        Some("8px 4px 2px 4px"),
         "body_props: {:?}",
         enforcement.body_props,
     );

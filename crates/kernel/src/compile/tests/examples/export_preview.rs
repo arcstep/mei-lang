@@ -13,6 +13,7 @@ fn compile_cockpit_templates_preview() {
         CompileOptions {
             scene: Some("metric".to_string()),
             preview_target: None,
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile templates/cockpit failed: {error}"));
@@ -373,6 +374,7 @@ fn compile_cockpit_metric_gallery_example() {
         CompileOptions {
             scene: Some("home".to_string()),
             preview_target: Some("metric.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile 05-panel/metric.mei failed: {error}"));

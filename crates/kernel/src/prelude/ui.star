@@ -570,6 +570,10 @@ def chart_block(id, title, component, series):
 def placement(**kwargs):
     return kwargs
 
+def stage_anchor(**kwargs):
+    """Stage placement for whitelisted chrome roles (stage, viewport_chrome, header, float_dock)."""
+    return kwargs
+
 def lifecycle(if_parent_missing = "render_standalone", if_data_missing = "placeholder", if_reference_missing = "placeholder"):
     return {
         "if_parent_missing": if_parent_missing,

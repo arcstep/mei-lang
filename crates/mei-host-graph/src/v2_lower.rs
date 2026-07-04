@@ -135,6 +135,33 @@ fn resolve_panel_constant_exprs(value: &Value, ctx: &PanelLowerContext<'_>) -> V
     crate::v2_bundle_constants::resolve_v2_constants(value, &constants)
 }
 
+fn resolve_panel_props_value(value: &Value, ctx: &PanelLowerContext<'_>) -> Value {
+    if let Some(rewritten) = crate::artifact_biz_macros::try_rewrite_biz_macro(value) {
+        if rewritten != *value {
+            return resolve_panel_props_value(&rewritten, ctx);
+        }
+    }
+    if value.get("__binop").and_then(Value::as_str) == Some("Merge") {
+        let mut merged = value
+            .get("left")
+            .map(|left| resolve_panel_props_value(left, ctx))
+            .unwrap_or_else(|| json!({}));
+        if let Some(right) = value.get("right") {
+            let resolved_right = resolve_panel_props_value(right, ctx);
+            if resolved_right.is_object() {
+                deep_merge_value(&mut merged, &resolved_right);
+            }
+        }
+        return merged;
+    }
+    if value.get("__call").is_some() {
+        if let Some(expanded) = try_expand_unlowered_block(value, ctx) {
+            return resolve_panel_props_value(&expanded, ctx);
+        }
+    }
+    resolve_panel_constant_exprs(value, ctx)
+}
+
 pub fn lower_frame_from_assembly(payload: &Value) -> FrameDecl {
     let layout = payload.get("layout").and_then(lower_layout);
     let mut props = json!({});
@@ -190,8 +217,14 @@ pub fn lower_panel_payload(
 
     let mut props = json!({});
     merge_card_fields(&mut props, payload);
-    if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
-        deep_merge_value(&mut props, extra);
+    if let Some(extra) = payload.get("props") {
+        let resolved = resolve_panel_props_value(
+            &resolve_config_refs_in_value(extra, ctx),
+            ctx,
+        );
+        if resolved.is_object() {
+            deep_merge_value(&mut props, &resolved);
+        }
     }
     apply_tier_and_placement(payload, &mut props, ctx.assembly_stack_order)?;
 
@@ -246,8 +279,13 @@ fn lower_panel_with_slots(
             if let Some(shell) = slot_args.get("shell") {
                 let slot_panel = if shell_is_titled_panel_contract(shell)
                     || v2_call_name(shell) == Some("titled_shell")
+                    || v2_call_name(shell) == Some("section_shell")
                 {
-                    lower_titled_shell_panel(shell, slot_id, slot_area, ctx, None)?
+                    if v2_call_name(shell) == Some("section_shell") {
+                        lower_section_shell_panel(shell, slot_id, slot_area, ctx, None)?
+                    } else {
+                        lower_titled_shell_panel(shell, slot_id, slot_area, ctx, None)?
+                    }
                 } else {
                     lower_panel_from_generic_shell(payload, shell, slot_id, slot_area, ctx)?
                 };
@@ -287,6 +325,7 @@ fn lower_panel_from_shell(
     }
     match v2_call_name(shell) {
         Some("screen_header") => lower_screen_header_panel(payload, shell, id, area, ctx),
+        Some("section_shell") => lower_section_shell_panel(shell, id, area, ctx, Some(payload)),
         Some("titled_shell") => lower_titled_shell_panel(shell, id, area, ctx, Some(payload)),
         _ => lower_panel_from_generic_shell(payload, shell, id, area, ctx),
     }
@@ -443,6 +482,41 @@ fn titled_shell_body_props(args: &Value, ctx: &PanelLowerContext<'_>) -> Value {
     Value::Object(map)
 }
 
+fn lower_section_shell_panel(
+    shell: &Value,
+    id: String,
+    area: Option<String>,
+    ctx: &PanelLowerContext<'_>,
+    outer_payload: Option<&Value>,
+) -> Result<PanelDecl> {
+    let mut panel = lower_titled_shell_panel(shell, id, area, ctx, outer_payload)?;
+    let args = v2_call_args(shell).context("section shell missing __args")?;
+    if let Some(map) = panel.props.as_object_mut() {
+        map.remove("height");
+        map.remove("min_height");
+        map.remove("max_height");
+        if let Some(profile) = args.get("padding_profile").and_then(|v| v.as_str()) {
+            map.insert("__mei_padding_profile".to_string(), json!(profile));
+            if let Some(padding) = mei_lang_kernel::padding_profile_css(profile) {
+                let mut body_map = panel
+                    .body_props
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
+                body_map.insert("padding".to_string(), json!(padding));
+                body_map
+                    .entry("box_sizing".to_string())
+                    .or_insert_with(|| json!("border-box"));
+                body_map
+                    .entry("min_height".to_string())
+                    .or_insert_with(|| json!("0"));
+                panel.body_props = Value::Object(body_map);
+            }
+        }
+    }
+    Ok(panel)
+}
+
 fn lower_titled_shell_panel(
     shell: &Value,
     id: String,
@@ -451,6 +525,17 @@ fn lower_titled_shell_panel(
     outer_payload: Option<&Value>,
 ) -> Result<PanelDecl> {
     let args = v2_call_args(shell).context("titled shell missing __args")?;
+    if v2_call_name(shell) == Some("titled_shell") {
+        if args
+            .get("height")
+            .and_then(|v| v.as_str())
+            .is_some_and(|h| !h.trim().is_empty() && h != "auto" && h != "100%")
+        {
+            anyhow::bail!(
+                "titled_shell(height=...) is forbidden for panel `{id}`; use section_shell + content_budget"
+            );
+        }
+    }
     let mut props = titled_shell_template_props(args);
     merge_card_fields(&mut props, args);
     if let Some(extra) = args.get("props").filter(|value| value.is_object()) {
@@ -601,7 +686,18 @@ fn apply_tier_and_placement(
         }
         if let Some(role) = payload.get("chrome_role").and_then(|v| v.as_str()) {
             map.insert("__mei_chrome_role".to_string(), json!(role));
-            map.insert("__mei_ui_role".to_string(), json!("region"));
+            let ui_role = match role {
+                "header" => "header",
+                "viewport" | "viewport_frame" => "viewport_chrome",
+                "center_float" | "float_dock" => "float_dock",
+                "map" | "stage" | "map_stage" | "stage_aperture" => "stage",
+                _ => "region",
+            };
+            map.insert("__mei_ui_role".to_string(), json!(ui_role));
+        } else if let Some(tier) = tier {
+            if tier == "t0" {
+                map.insert("__mei_ui_role".to_string(), json!("stage"));
+            }
         }
     }
     apply_placement(payload.get("placement"), props);
@@ -841,6 +937,15 @@ fn apply_view_family_hints(payload: &Value, blocks: &[UiNodeDecl], props: &mut V
     }
 }
 
+const PLACEMENT_DIMENSION_KEYS: &[&str] = &[
+    "width",
+    "height",
+    "min_width",
+    "min_height",
+    "max_width",
+    "max_height",
+];
+
 fn apply_placement(placement: Option<&Value>, props: &mut Value) {
     let Some(placement) = placement else {
         return;
@@ -850,14 +955,56 @@ fn apply_placement(placement: Option<&Value>, props: &mut Value) {
     let Some(map) = props.as_object_mut() else {
         return;
     };
-    if call.as_deref() == Some("absolute") {
+    if call.as_deref() == Some("absolute") || call.as_deref() == Some("stage_anchor") {
         map.insert("position".to_string(), json!("absolute"));
     }
     if let Some(args_obj) = args.as_object() {
         for (key, value) in args_obj {
+            if PLACEMENT_DIMENSION_KEYS.contains(&key.as_str()) {
+                if let Some(existing) = map.get(key) {
+                    if dimension_values_conflict(existing, value) {
+                        let conflicts = map
+                            .entry("__mei_placement_dimension_conflicts".to_string())
+                            .or_insert_with(|| json!([]));
+                        if let Some(arr) = conflicts.as_array_mut() {
+                            if !arr.iter().any(|v| v.as_str() == Some(key.as_str())) {
+                                arr.push(json!(key));
+                            }
+                        }
+                    }
+                }
+            }
             map.insert(key.clone(), value.clone());
         }
     }
+}
+
+fn dimension_values_conflict(existing: &Value, incoming: &Value) -> bool {
+    let Some(existing_text) = dimension_as_text(existing) else {
+        return false;
+    };
+    let Some(incoming_text) = dimension_as_text(incoming) else {
+        return false;
+    };
+    if existing_text == incoming_text {
+        return false;
+    }
+    // placement sets the stage box; shell props often use 100% fill inside the box.
+    if existing_text == "100%" || incoming_text == "100%" {
+        return false;
+    }
+    if existing_text.eq_ignore_ascii_case("auto") || incoming_text.eq_ignore_ascii_case("auto") {
+        return false;
+    }
+    true
+}
+
+fn dimension_as_text(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| value.as_i64().map(|n| format!("{n}px")))
 }
 
 fn lower_layout(value: &Value) -> Option<LayoutDecl> {
@@ -2770,15 +2917,14 @@ mod tests {
     }
 
     #[test]
-    fn lower_titled_shell_maps_body_padding_to_body_props() {
+    fn lower_section_shell_maps_padding_profile_to_body_props() {
         let payload = json!({
             "id": "enforcement",
             "shell": {
-                "__call": "titled_shell",
+                "__call": "section_shell",
                 "__args": {
                     "title": "执法要素",
-                    "height": "162px",
-                    "body_padding": "8px 4px 4px 4px",
+                    "padding_profile": "dense_strip_100",
                     "body": {
                         "__call": "panel_contract",
                         "__args": {
@@ -2804,7 +2950,7 @@ mod tests {
             assembly_stack_order: None,
         };
         let panel = lower_panel_payload(&payload, "enforcement", &ctx).expect("panel");
-        assert_eq!(panel.body_props["padding"], json!("8px 4px 4px 4px"));
+        assert_eq!(panel.body_props["padding"], json!("8px 4px 2px 4px"));
         assert_eq!(panel.body_props["box_sizing"], json!("border-box"));
     }
 

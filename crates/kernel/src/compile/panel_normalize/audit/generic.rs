@@ -230,7 +230,7 @@ pub(super) fn audit_fixed_track_budget(
         if rows_px > height + 1.0 {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "layout_eval_row_budget_overflow".to_string(),
+                code: "layout_policy_budget_overflow".to_string(),
                 message: format!(
                     "panel `{}`: fixed rows {}px exceed panel height {}px",
                     panel.id,
@@ -245,7 +245,7 @@ pub(super) fn audit_fixed_track_budget(
         if cols_px > width + 1.0 {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "layout_eval_column_budget_overflow".to_string(),
+                code: "layout_policy_budget_overflow".to_string(),
                 message: format!(
                     "panel `{}`: fixed columns {}px exceed panel width {}px",
                     panel.id,
@@ -295,7 +295,7 @@ pub(super) fn audit_head_body_balance(
     if required_body > available_body + 1.0 {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
-            code: "layout_eval_body_clip_risk".to_string(),
+            code: "layout_policy_budget_overflow".to_string(),
             message: format!(
                 "panel `{}`: body available {}px is smaller than inferred content {}px (may clip)",
                 panel.id,

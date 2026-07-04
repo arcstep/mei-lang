@@ -34,6 +34,7 @@ pub(crate) fn resolve_build_node_compile_hints(
             &CompileOptions {
                 scene: scene_hint.clone(),
                 preview_target: None,
+                ..Default::default()
             },
             components_root,
             RuntimeAccessPolicies::default_for_access_host(),

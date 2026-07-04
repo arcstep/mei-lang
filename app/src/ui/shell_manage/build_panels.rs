@@ -1,8 +1,11 @@
+use std::path::Path;
+
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_experience_path, build_overview_backing, experience_layout_hint, experience_mount_chain,
-    format_experience_path, format_ui_scope_agent_context, format_ui_scope_technical_detail,
-    BuildNodeContext, BuildNodeKind, CompiledApp, ProvenanceAnchor, UiScopeRole, UiSourceAnchor,
+    format_experience_path, format_layout_tuning_diff, format_ui_scope_agent_context,
+    format_ui_scope_technical_detail, load_mei_config_for_app, BuildNodeContext, BuildNodeKind,
+    CompiledApp, ProvenanceAnchor, UiScopeRole, UiSourceAnchor,
 };
 
 use super::super::view_routing::runtime_href;
@@ -26,6 +29,16 @@ pub(crate) fn build_overview_view(
     let board_entry = compiled.build_board_index.lookup(&ctx.node);
     let template_entry = compiled.build_template_index.lookup(ctx.node.key.as_str());
     let ui_scope_entry = compiled.ui_layout_index.lookup(&ctx.node);
+    let layout_tuning_diff = {
+        let config = load_mei_config_for_app(Path::new(compiled.app_root.as_str()), None);
+        ui_scope_entry.and_then(|entry| {
+            format_layout_tuning_diff(
+                entry.preview_scope.as_str(),
+                entry.budget.as_ref(),
+                config.ops.layout_tuning.as_ref(),
+            )
+        })
+    };
     let is_mcg = ctx.node.kind == BuildNodeKind::McgNode;
     let runtime_cross_link = is_mcg.then(|| runtime_href(app_path, None, Some("overview")));
 
@@ -79,7 +92,17 @@ pub(crate) fn build_overview_view(
                                     {budget.gap.clone().map(|gap| format!("gap={gap}")).unwrap_or_default()}
                                     {budget.padding.clone().map(|padding| format!(" padding={padding}")).unwrap_or_default()}
                                     {budget.card_height.map(|height| format!(" card_height={height}")).unwrap_or_default()}
+                                    {budget.content_rows.as_ref().map(|rows| format!(" content_rows={rows:?}")).unwrap_or_default()}
+                                    {budget.content_gap.clone().map(|gap| format!(" content_gap={gap}")).unwrap_or_default()}
+                                    {budget.section_derived_height_px.map(|h| format!(" section_derived={h:.0}px")).unwrap_or_default()}
+                                    {budget.padding_profile.clone().map(|p| format!(" padding_profile={p}")).unwrap_or_default()}
                                 </dd>
+                            </div>
+                        })}
+                        {layout_tuning_diff.clone().map(|diff| view! {
+                            <div class="flex flex-col gap-0.5 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2">
+                                <dt class="mei-text-muted">"layoutTuning diff（只读）"</dt>
+                                <dd class="whitespace-pre-wrap font-mono mei-font-1 leading-5 text-amber-100/90">{diff}</dd>
                             </div>
                         })}
                         {(entry.role == UiScopeRole::Section

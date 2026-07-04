@@ -28,6 +28,7 @@ mod loaders;
 mod materialize;
 mod materialize_cache;
 mod mutations;
+pub mod layout_budget;
 mod panel_normalize;
 mod projection_assembly;
 mod reachability_tree;
@@ -108,6 +109,7 @@ pub use materialize_cache::try_get_cached_xlsx_table_snapshot;
 pub use materialize_cache::TableSnapshot;
 pub use materialize_cache::TableSnapshotKey;
 pub use panel_normalize::{normalize_panel_slots, panel_resolved_has_head};
+pub use layout_budget::resolve_layout_budgets;
 pub use scene_payload_cache::scene_payload_cache_epoch;
 
 pub fn clear_runtime_compile_caches() {

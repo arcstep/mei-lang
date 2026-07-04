@@ -25,6 +25,20 @@ fn transparent_panel_props(height: Value) -> Value {
     })
 }
 
+const TPL_METRICS: &str = "/workspace-app-assets/templates/cockpit/assets/metrics";
+
+fn slot_stretch_background(image: &str) -> Value {
+    json!({
+        "color": "rgba(98,190,235,0.10)",
+        "image": format!("url({TPL_METRICS}/{image})"),
+        "size": "100% 100%",
+        "position": "center",
+        "repeat": "no-repeat",
+        "origin": "border-box",
+        "clip": "border-box",
+    })
+}
+
 fn grid_layout(rows: Value, columns: Value, areas: Value, gap: &str, align: &str) -> Value {
     json!({
         "__call": "grid",
@@ -142,15 +156,19 @@ fn long_compound_template(width: Value, gap: &str) -> Value {
                     "image": "url(/workspace-app-assets/templates/cockpit/assets/metrics/metric-bg-long@3x.svg)",
                     "size": "100% 100%",
                     "position": "center",
-                    "repeat": "no-repeat"
+                    "repeat": "no-repeat",
+                    "origin": "border-box",
+                    "clip": "border-box"
                 },
                 "width": width,
-                "height": "80px",
+                "height": "100%",
+                "min_height": "0",
                 "box_sizing": "border-box",
                 "overflow": "hidden",
                 "box_shadow": "var(--mei-layout-debug-card-shadow, inset 0 0 0 0 transparent)",
                 "padding": "2px 6px",
-                "gap": gap
+                "gap": gap,
+                "__mei_slot_frame_bg": true
             },
             "layout": grid_layout(
                 json!(["minmax(0, 1fr)", "minmax(0, 1fr)"]),
@@ -337,9 +355,7 @@ fn rewrite_wide_metric_compound_body(args: &Map<String, Value>) -> Value {
             "chrome": "bare",
             "props": {
                 "padding": arg_value(args, "shell_padding", json!("0")),
-                "background": {
-                    "color": "rgba(98,190,235,0.10)"
-                },
+                "background": slot_stretch_background("metric-bg-target@3x.svg"),
                 "border": "none",
                 "radius": "4px",
                 "width": arg_value(args, "width", json!("220px")),
@@ -362,11 +378,25 @@ fn rewrite_wide_metric_compound_body(args: &Map<String, Value>) -> Value {
     })
 }
 
+fn rewrite_content_strip_props(args: &Map<String, Value>) -> Value {
+    let row_budgets = arg_value(args, "row_budgets", json!([]));
+    let gap = arg_value(args, "gap", json!("0"));
+    let mut props = transparent_panel_props(json!("100%"));
+    if let Some(obj) = props.as_object_mut() {
+        obj.insert(
+            "__mei_content_budget".to_string(),
+            json!({ "rows": row_budgets, "gap": gap }),
+        );
+    }
+    props
+}
+
 pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
     let call = value.as_object()?.get("__call")?.as_str()?;
     let method = call.rsplit('.').next()?;
     let args = call_args(value)?;
     let rewritten = match method {
+        "content_strip_props" => rewrite_content_strip_props(args),
         "story_opinion_block" => rewrite_story_opinion_block(args),
         "metric_triptych_compound_body" => rewrite_metric_triptych_compound_body(args),
         "wide_metric_compound_body" => rewrite_wide_metric_compound_body(args),
@@ -380,6 +410,26 @@ pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rewrites_content_strip_props_budget() {
+        let value = json!({
+            "__call": "biz.content_strip_props",
+            "__args": {
+                "row_budgets": [70, 70],
+                "gap": "6px"
+            }
+        });
+        let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
+        assert_eq!(
+            rewritten
+                .get("__mei_content_budget")
+                .and_then(|b| b.get("rows"))
+                .and_then(|rows| rows.as_array())
+                .map(|rows| rows.len()),
+            Some(2)
+        );
+    }
 
     #[test]
     fn rewrites_story_opinion_block() {
@@ -419,6 +469,74 @@ mod tests {
         assert_eq!(
             blocks[3].get("__call").and_then(|v| v.as_str()),
             Some("biz.wide_metric_compound_body")
+        );
+    }
+
+    #[test]
+    fn rewrites_wide_metric_compound_shell_background() {
+        let value = json!({
+            "__call": "biz.wide_metric_compound_body",
+            "__args": {
+                "id": "enforcement_objects_card",
+                "shell_padding": "0",
+            }
+        });
+        let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
+        let background = rewritten
+            .pointer("/__args/props/background")
+            .expect("background");
+        assert_eq!(
+            background.get("color").and_then(|v| v.as_str()),
+            Some("rgba(98,190,235,0.10)")
+        );
+        assert!(
+            background
+                .get("image")
+                .and_then(|v| v.as_str())
+                .is_some_and(|value| value.contains("metric-bg-target@3x.svg")),
+            "compound shell should include metric-bg-target frame, got {background}"
+        );
+        assert_eq!(
+            background.get("size").and_then(|v| v.as_str()),
+            Some("100% 100%")
+        );
+    }
+
+    #[test]
+    fn rewrites_long_metric_compound_shell_background() {
+        let value = json!({
+            "__call": "biz.long_metric_compound_body",
+            "__args": {
+                "id": "ai_compound_card",
+                "main": { "__call": "metric_card", "__args": { "id": "main" } },
+            }
+        });
+        let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
+        let background = rewritten
+            .pointer("/__args/props/background")
+            .expect("background");
+        assert!(
+            background
+                .get("image")
+                .and_then(|v| v.as_str())
+                .is_some_and(|value| value.contains("metric-bg-long@3x.svg")),
+            "long compound should include metric-bg-long frame, got {background}"
+        );
+        assert_eq!(
+            background.get("origin").and_then(|v| v.as_str()),
+            Some("border-box")
+        );
+        assert_eq!(
+            rewritten
+                .pointer("/__args/props/height")
+                .and_then(|v| v.as_str()),
+            Some("100%")
+        );
+        assert_eq!(
+            rewritten
+                .pointer("/__args/props/__mei_slot_frame_bg")
+                .and_then(|v| v.as_bool()),
+            Some(true)
         );
     }
 

@@ -139,6 +139,7 @@ frame.add_panel(
         CompileOptions {
             scene: None,
             preview_target: Some("shell.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile broken shell should finish with diagnostics");

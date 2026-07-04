@@ -13,6 +13,7 @@ fn compile_cockpit_metric_data_example() {
         CompileOptions {
             scene: Some("home".to_string()),
             preview_target: Some("metric-data.mei".to_string()),
+            ..Default::default()
         },
     )
     .unwrap_or_else(|error| panic!("compile 05-panel/metric-data.mei failed: {error}"));

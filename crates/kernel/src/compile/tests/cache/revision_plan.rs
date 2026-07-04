@@ -43,6 +43,7 @@ frame()
     let options = CompileOptions {
         scene: Some("home".to_string()),
         preview_target: None,
+            ..Default::default()
     };
     let first = compile_revision_plan_from_root_with_options(&root, &root, &options)
         .expect("first revision plan");
@@ -119,6 +120,7 @@ frame()
     let options = CompileOptions {
         scene: Some("home".to_string()),
         preview_target: None,
+            ..Default::default()
     };
     let first_token =
         compile_revision_token_from_root_with_options(&root, &root, &options).expect("first");
@@ -189,6 +191,7 @@ frame()
     let options = CompileOptions {
         scene: Some("home".to_string()),
         preview_target: None,
+            ..Default::default()
     };
     let first = compile_revision_plan_from_root_with_options(&root, &root, &options)
         .expect("first revision plan");

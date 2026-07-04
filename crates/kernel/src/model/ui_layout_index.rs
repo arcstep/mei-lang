@@ -64,7 +64,7 @@ pub struct UiSourceAnchor {
 }
 
 /// Typography / spacing budget attached to a slot or section.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct UiBudgetSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gap: Option<String>,
@@ -74,10 +74,22 @@ pub struct UiBudgetSummary {
     pub card_height: Option<i64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub widths: BTreeMap<String, String>,
+    /// Row px budgets from `__mei_content_budget.rows`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_rows: Option<Vec<i64>>,
+    /// Gap from `__mei_content_budget.gap`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_gap: Option<String>,
+    /// Compiler-derived section height in px.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_derived_height_px: Option<f64>,
+    /// Section padding profile enum key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding_profile: Option<String>,
 }
 
 /// One node in the UI structure tree.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UiScopeNode {
     pub node_id: String,
     pub role: UiScopeRole,
@@ -102,7 +114,7 @@ pub struct UiScopeNode {
 }
 
 /// Compile-time UI layout structure index.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct UiLayoutIndex {
     #[serde(default)]
     pub nodes: BTreeMap<String, UiScopeNode>,

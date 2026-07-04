@@ -383,6 +383,18 @@ pub fn format_ui_scope_technical_detail(compiled: &CompiledApp, node: &BuildNode
             if let Some(padding) = budget.padding.as_deref() {
                 md.push_str(&format!("  - padding: `{padding}`\n"));
             }
+            if let Some(rows) = budget.content_rows.as_ref() {
+                md.push_str(&format!("  - content_rows: `{rows:?}`\n"));
+            }
+            if let Some(gap) = budget.content_gap.as_deref() {
+                md.push_str(&format!("  - content_gap: `{gap}`\n"));
+            }
+            if let Some(h) = budget.section_derived_height_px {
+                md.push_str(&format!("  - section_derived_height_px: `{h:.0}`\n"));
+            }
+            if let Some(profile) = budget.padding_profile.as_deref() {
+                md.push_str(&format!("  - padding_profile: `{profile}`\n"));
+            }
             for (width_key, width) in &budget.widths {
                 md.push_str(&format!("  - {width_key}: `{width}`\n"));
             }

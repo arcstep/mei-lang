@@ -461,6 +461,7 @@ mod tests {
         let compile_options = CompileOptions {
             scene: Some("home".to_string()),
             preview_target: None,
+            ..Default::default()
         };
         let query = AppQuery {
             file: None,

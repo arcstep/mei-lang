@@ -36,6 +36,7 @@ pub use cache_generation::{
 pub use compile_scope_filter::{
     compile_scope_entry_allowed, compile_scope_scene_id_allowed, compile_scope_target_allowed,
 };
+pub use compile::layout_budget::padding_profile_css;
 pub use compile::{
     block_instance_id, build_experience_index, build_experience_path, build_overview_backing,
     build_preview_panel_scope, build_preview_ui_scope, build_ui_layout_index,
@@ -65,6 +66,7 @@ pub use compile::{
     format_experience_path, imported_capsule_path_from_world_metrics_resource_id,
     load_xlsx_table_snapshot, local_dataset_id_from_namespaced_token,
     materialize_xlsx_column_headers, normalize_panel_slots, panel_resolved_has_head, parquet_snapshot_path,
+    resolve_layout_budgets,
     preview_target_from_build_node, preview_target_from_build_node_with_app,
     catalog_preview_target_for_build_node,
     publish_xlsx_data_snapshots_for_paths, read_data_snapshot_import_manifest,
@@ -107,7 +109,9 @@ pub use host_contract::{
 pub use mei_config::{
     app_mei_config_path, app_source_rel_path_lookup_keys, canonical_app_source_rel_path,
     load_mei_config_for_app, load_workspace_auth_bundle,
-    load_workspace_config, mei_config_compile_revision_digest, merge_ops_section, ops_themes_revision_digest,
+    load_workspace_config, mei_config_compile_revision_digest, merge_ops_section,
+    ops_layout_tuning_revision_digest, format_layout_tuning_diff, layout_tuning_overlay_keys,
+    ops_themes_revision_digest,
     resolve_app_entry_main, resolve_app_main_path,
     resolve_app_id, resolve_app_mei_file_path, resolve_app_root, resolve_app_mei_store_root, resolve_app_build_root,
     resolve_app_data_snapshot_root, resolve_app_eval_cache_root, resolve_app_registry_root,

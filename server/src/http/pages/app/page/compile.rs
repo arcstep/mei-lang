@@ -94,6 +94,7 @@ fn resolve_artifact_scene_hint_options(
     Some(CompileOptions {
         scene: Some(scene_hint.to_string()),
         preview_target: Some(target_hint),
+        ..Default::default()
     })
 }
 
@@ -463,6 +464,7 @@ mod tests {
             compile_feedback_scope_kind(&CompileOptions {
                 scene: Some("home".to_string()),
                 preview_target: Some("main.mei".to_string()),
+                ..Default::default()
             }),
             "scene_target"
         );
@@ -470,6 +472,7 @@ mod tests {
             compile_feedback_scope_kind(&CompileOptions {
                 scene: Some("home".to_string()),
                 preview_target: None,
+                ..Default::default()
             }),
             "scene_only"
         );
@@ -477,6 +480,7 @@ mod tests {
             compile_feedback_scope_kind(&CompileOptions {
                 scene: None,
                 preview_target: Some("main.mei".to_string()),
+                ..Default::default()
             }),
             "target_only"
         );

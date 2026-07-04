@@ -218,6 +218,7 @@ pub async fn ops_theme_style_get(
     let compile_options = CompileOptions {
         scene: scene_id.clone(),
         preview_target: None,
+        ..Default::default()
     };
     let components_root = resolve_components_root(&state.source_root);
     let (css_vars_style, theme_id) =

@@ -72,6 +72,7 @@ frame.add_panel(
         CompileOptions {
             scene: None,
             preview_target: Some("scratch.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile preview target");
@@ -130,6 +131,7 @@ frame.add_panel(
         CompileOptions {
             scene: None,
             preview_target: Some("legacy.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile legacy preview");
@@ -188,6 +190,7 @@ frame.add_panel(
         CompileOptions {
             scene: None,
             preview_target: Some("invalid.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile invalid id preview");
@@ -242,6 +245,7 @@ frame.add_panel(
         CompileOptions {
             scene: None,
             preview_target: Some("main.mei".to_string()),
+            ..Default::default()
         },
     )
     .expect("compile");

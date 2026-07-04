@@ -94,6 +94,7 @@ pub async fn api_build_workspace_fragment(
     let compile_options = CompileOptions {
         scene: scene_hint.clone(),
         preview_target: preview_target.clone(),
+        ..Default::default()
     };
     let gate_query = AppQuery {
         file: preview_target.clone(),

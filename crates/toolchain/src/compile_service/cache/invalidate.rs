@@ -172,6 +172,7 @@ pub(crate) fn default_scene_alias_keys(
         &CompileOptions {
             scene: None,
             preview_target: None,
+            ..Default::default()
         },
     );
     let explicit_default_key = compile_cache_key(
@@ -180,6 +181,7 @@ pub(crate) fn default_scene_alias_keys(
         &CompileOptions {
             scene: Some(default_scene.to_string()),
             preview_target: None,
+            ..Default::default()
         },
     );
     [default_key, explicit_default_key]

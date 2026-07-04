@@ -239,6 +239,7 @@ pub async fn app_page(
                     &CompileOptions {
                         scene: None,
                         preview_target: None,
+                        ..Default::default()
                     },
                     probe_components_root.as_path(),
                     RuntimeAccessPolicies::default_for_access_host(),
@@ -275,6 +276,7 @@ pub async fn app_page(
     let compile_options = CompileOptions {
         scene: compile_scene.clone(),
         preview_target: normalized_preview_target.clone(),
+        ..Default::default()
     };
     if let Some(response) = maybe_handle_compile_bootstrap_probe(
         &state,

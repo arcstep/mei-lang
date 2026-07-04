@@ -22,10 +22,28 @@ use super::materialize::materialize_world_metrics;
 use super::scene::find_scene_route;
 use super::scene_payload_cache::compile_scene_payload_for_target;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CompileOptions {
     pub scene: Option<String>,
     pub preview_target: Option<String>,
+    /// When true (default), layout_policy_* Severity::Error diagnostics fail compile.
+    pub strict_layout_policy: bool,
+}
+
+impl Default for CompileOptions {
+    fn default() -> Self {
+        Self {
+            scene: None,
+            preview_target: None,
+            strict_layout_policy: true,
+        }
+    }
+}
+
+impl CompileOptions {
+    pub fn strict_layout() -> Self {
+        Self::default()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

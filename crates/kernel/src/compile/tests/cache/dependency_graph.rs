@@ -54,6 +54,7 @@ fn compile_revision_token_ignores_unrelated_scene_changes() {
     let options = CompileOptions {
         scene: Some("left".to_string()),
         preview_target: None,
+            ..Default::default()
     };
     let first =
         compile_revision_token_from_root_with_options(&root, &root, &options).expect("first token");
@@ -85,6 +86,7 @@ fn compile_revision_plan_tracks_only_relevant_watch_files() {
     let options = CompileOptions {
         scene: Some("left".to_string()),
         preview_target: None,
+            ..Default::default()
     };
     let plan = compile_revision_plan_from_root_with_options(&root, &root, &options)
         .expect("revision plan");
