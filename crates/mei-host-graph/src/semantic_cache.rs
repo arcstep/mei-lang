@@ -1,9 +1,9 @@
 //! MCG/MRG/bootstrap semantic cache key (view-agnostic compile/assemble chain).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// True-source dimensions shared by Build / App / Run / shell-less on the same scene scope.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SemanticCacheCore {
     pub app_id: String,
     pub scene_id: String,
@@ -16,7 +16,7 @@ pub struct SemanticCacheCore {
 }
 
 /// View-derived dimensions that must not split MCG/MRG/bootstrap assembly keys.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PageRenderViewAxes {
     pub route_mode: String,
     pub data_mode: String,

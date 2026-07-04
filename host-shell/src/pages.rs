@@ -8,7 +8,7 @@ use mei_host_auth::{
     AuthEnforcement, AuthPrincipal, AuthServeState,
 };
 use mei_lang_app::{load_topbar_menu_context, page_body_theme_style, render_page, UiRouteMode};
-use mei_lang_kernel::load_workspace_config;
+use mei_lang_kernel::{load_workspace_config, resolve_build_view_query, LegacyBuildQuery};
 use serde::Deserialize;
 use serde_json::json;
 use std::time::Instant;
@@ -39,6 +39,88 @@ pub struct AppQuery {
     pub data_mode: Option<String>,
     /// Build / review projection depth (`plane`, `plane_region`, …).
     pub review_projection: Option<String>,
+}
+
+fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
+    if let Some(node) = query
+        .node
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(node.to_string());
+    }
+    let legacy = LegacyBuildQuery {
+        file: query.file.clone(),
+        scene: query.scene.clone(),
+        world_metric: None,
+        world_dataset: None,
+        explain: None,
+        tab: query.tab.clone(),
+    };
+    resolve_build_view_query(
+        None,
+        query.scope.as_deref(),
+        query.tab.as_deref(),
+        &legacy,
+    )
+    .map(|resolved| resolved.node.encode())
+}
+
+fn build_page_render_cache_key_for_request(
+    workspace_root: &std::path::Path,
+    app_id: &str,
+    query: &AppQuery,
+    headers: &HeaderMap,
+    axes: crate::review_axes::PageRenderAxes,
+    auth_enabled: bool,
+    chrome_hidden: bool,
+    gis: &crate::gis_config::GisTilesConfig,
+) -> Option<String> {
+    let node = resolve_build_node_for_query(query)?;
+    let session_id = mei_host_core::resolve_draft_session_id(headers);
+    let storage_key =
+        mei_host_core::layout_tuning_draft_storage_key(app_id, session_id.as_str());
+    let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
+        workspace_root,
+        app_id,
+        storage_key.as_str(),
+    );
+    let draft_digest = crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
+    let focus = query.focus.as_deref().unwrap_or("").trim();
+    let scope = query
+        .scope
+        .as_deref()
+        .map(mei_lang_kernel::BuildExecScope::parse_slug)
+        .map(|value| value.slug())
+        .unwrap_or("warmup");
+    let scene_for_node = crate::build_fragment_cache::scene_id_from_build_node(node.as_str());
+    let input = crate::build_fragment_cache::BuildFragmentCacheInput {
+        workspace_root,
+        app_id,
+        node: node.as_str(),
+        scene_id: scene_for_node.as_str(),
+        focus,
+        scope,
+        preview_scope: None,
+        data_mode: axes.data_mode.slug(),
+        review_projection: crate::review_axes::ssr_review_projection(
+            UiRouteMode::Build,
+            axes.data_mode,
+        )
+        .slug(),
+        compile_coordinate: None,
+        draft_session: session_id.as_str(),
+        draft_digest: draft_digest.as_str(),
+    };
+    Some(crate::build_fragment_cache::build_page_render_cache_key(
+        &input,
+        query.tab.as_deref().unwrap_or("").trim(),
+        query.file.as_deref().unwrap_or("").trim(),
+        auth_enabled,
+        chrome_hidden,
+        gis,
+    ))
 }
 
 pub async fn app_page(
@@ -298,6 +380,32 @@ pub async fn app_page(
             }
         }
     } else {
+        let build_page_cache_key = if route_mode.is_build() {
+            build_page_render_cache_key_for_request(
+                workspace_root,
+                app_id.as_str(),
+                &query,
+                &headers,
+                axes,
+                auth_enabled,
+                chrome_hidden,
+                &gis,
+            )
+        } else {
+            None
+        };
+        let build_early_hit = build_page_cache_key.as_ref().and_then(|cache_key| {
+            take_access_page_template(
+                workspace_root,
+                app_id.as_str(),
+                scene_id.as_str(),
+                cache_key.as_str(),
+            )
+        });
+        if let Some(cached) = build_early_hit {
+            page_render_cache_hit = true;
+            (cached, 0)
+        } else {
         let assemble_result = mei_host_graph::assemble_scope_from_registry(
             workspace_root,
             app_id.as_str(),
@@ -367,57 +475,108 @@ pub async fn app_page(
             None
         };
         let render_started = Instant::now();
-        let html = crate::gis_config::fill_gis_tiles_placeholders(
-            inject_layer_plane_scripts(
-                inject_client_bootstrap_script(
-                    fill_page_shell_placeholders(
-                        render_page(
-                            apps.as_slice(),
-                            &outcome.compiled,
-                            app_id.as_str(),
-                            Some(&topbar_menu),
-                            route_mode,
-                            Some(target_file),
-                            None,
-                            None,
-                            Some(scene_id.as_str()),
-                            None,
-                            query.tab.as_deref(),
-                            None,
-                            None,
-                            None,
-                            None,
-                            query.node.as_deref(),
-                            query.scope.as_deref(),
-                            query.focus.as_deref(),
-                            None,
-                            None,
-                            chrome_hidden,
-                            false,
-                            None,
-                            &[],
-                            auth_enabled,
-                            account_view.as_ref(),
-                            None,
-                            theme_style.as_str(),
-                            runtime_roots_ref,
-                            runtime_json_ref,
-                            Some(axes.data_mode.slug()),
-                            Some(axes.review_projection.slug()),
-                            data_mode_ceiling_notice_owned.as_deref(),
+        let rendered = crate::gis_config::fill_gis_tiles_placeholders(
+                inject_layer_plane_scripts(
+                    inject_client_bootstrap_script(
+                        fill_page_shell_placeholders(
+                            render_page(
+                                apps.as_slice(),
+                                &outcome.compiled,
+                                app_id.as_str(),
+                                Some(&topbar_menu),
+                                route_mode,
+                                Some(target_file),
+                                None,
+                                None,
+                                Some(scene_id.as_str()),
+                                None,
+                                query.tab.as_deref(),
+                                None,
+                                None,
+                                None,
+                                None,
+                                query.node.as_deref(),
+                                query.scope.as_deref(),
+                                query.focus.as_deref(),
+                                None,
+                                None,
+                                chrome_hidden,
+                                false,
+                                None,
+                                &[],
+                                auth_enabled,
+                                account_view.as_ref(),
+                                None,
+                                theme_style.as_str(),
+                                runtime_roots_ref,
+                                runtime_json_ref,
+                                Some(axes.data_mode.slug()),
+                                Some(
+                                    crate::review_axes::ssr_review_projection_for_axes(
+                                        route_mode,
+                                        axes,
+                                    )
+                                    .slug(),
+                                ),
+                                data_mode_ceiling_notice_owned.as_deref(),
+                            ),
+                            workspace_root,
                         ),
                         workspace_root,
+                        app_id.as_str(),
+                        scene_id.as_str(),
                     ),
-                    workspace_root,
-                    app_id.as_str(),
-                    scene_id.as_str(),
+                    &outcome,
                 ),
-                &outcome,
-            ),
-            &gis,
-        );
-        (html, render_started.elapsed().as_millis() as u64)
+                &gis,
+            );
+        if let Some(cache_key) = build_page_cache_key.as_ref() {
+            let _ = store_access_page_template(
+                workspace_root,
+                app_id.as_str(),
+                scene_id.as_str(),
+                cache_key.as_str(),
+                rendered.as_str(),
+            );
+        }
+        let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
+        (rendered, ssr_emit_ms)
+        }
     };
+    if route_mode.is_build() {
+        if let Some(node) = resolve_build_node_for_query(&query) {
+            let session_id = mei_host_core::resolve_draft_session_id(&headers);
+            let storage_key =
+                mei_host_core::layout_tuning_draft_storage_key(app_id.as_str(), session_id.as_str());
+            let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
+                workspace_root,
+                app_id.as_str(),
+                storage_key.as_str(),
+            );
+            let draft_digest =
+                crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
+            let focus = query.focus.as_deref().unwrap_or("").trim();
+            let scope = query
+                .scope
+                .as_deref()
+                .map(mei_lang_kernel::BuildExecScope::parse_slug)
+                .map(|value| value.slug())
+                .unwrap_or("warmup");
+            let revision = crate::build_fragment_cache::build_fragment_revision_for_page(
+                workspace_root,
+                app_id.as_str(),
+                node.as_str(),
+                focus,
+                scope,
+                axes.data_mode.slug(),
+                crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode)
+                    .slug(),
+                session_id.as_str(),
+                draft_digest.as_str(),
+            );
+            html = crate::build_fragment_cache::inject_build_fragment_revision_meta(html, &revision);
+        }
+    }
     let handler_html_ready_ms = request_started.elapsed().as_millis() as u64;
     html = fill_manage_wall_clock_placeholders(html, ssr_emit_ms, handler_html_ready_ms);
     let payload_stats = measure_page_html_payload(html.as_str());
@@ -1200,6 +1359,49 @@ fn parse_app_scene_path(
 
 const DEFAULT_ACCESS_PRESENTATION_ID: &str = "intro";
 
+pub(crate) fn inject_scene_manifest_refs(
+    html: String,
+    workspace_root: &std::path::Path,
+    app_id: &str,
+    scene_id: &str,
+) -> String {
+    let mut hits = crate::artifact_observability::ArtifactHitMatrix::default();
+    let manifest = crate::scene_manifest::build_scene_view_manifest(
+        workspace_root,
+        app_id,
+        scene_id,
+        mei_lang_kernel::DataMode::Eval,
+        crate::review_axes::ssr_review_projection(
+            mei_lang_app::UiRouteMode::App,
+            mei_lang_kernel::DataMode::Eval,
+        )
+        .slug(),
+        "scene",
+        "full",
+        "",
+        "",
+        &mut hits,
+    )
+    .ok();
+    let manifest_json = manifest
+        .as_ref()
+        .and_then(|value| serde_json::to_string(value).ok())
+        .unwrap_or_else(|| "{}".to_string());
+    let hits_json = serde_json::to_string(&hits).unwrap_or_else(|_| "{}".to_string());
+    let script = format!(
+        r#"<script>window.__mei=window.__mei||{{}};window.__mei.scene_manifest_refs={manifest_json};window.__mei.thin_shell=true;window.__mei.artifact_hits={hits_json};</script>"#
+    );
+    if let Some(pos) = html.find("</head>") {
+        let mut out = String::with_capacity(html.len() + script.len());
+        out.push_str(&html[..pos]);
+        out.push_str(&script);
+        out.push_str(&html[pos..]);
+        out
+    } else {
+        format!("{script}{html}")
+    }
+}
+
 pub(crate) fn inject_presentation_manifest_script(
     html: String,
     workspace_root: &std::path::Path,
@@ -1267,13 +1469,23 @@ pub(crate) fn inject_client_bootstrap_script(
     ) else {
         let status = mei_host_graph::bootstrap_embed_status(workspace_root, app_id, scene_id);
         if status.allowed {
-            tracing::info!(
-                app_id = %app_id,
-                scope = %scene_id,
-                reason = %status.reason,
-                metric_count = status.metric_count,
-                "client bootstrap SSR inject skipped despite allowed status"
-            );
+            if status.reason == "no_client_bootstrap_required" {
+                tracing::debug!(
+                    app_id = %app_id,
+                    scope = %scene_id,
+                    reason = %status.reason,
+                    metric_count = status.metric_count,
+                    "client bootstrap SSR inject skipped despite allowed status"
+                );
+            } else {
+                tracing::info!(
+                    app_id = %app_id,
+                    scope = %scene_id,
+                    reason = %status.reason,
+                    metric_count = status.metric_count,
+                    "client bootstrap SSR inject skipped despite allowed status"
+                );
+            }
         } else {
             tracing::info!(
                 app_id = %app_id,

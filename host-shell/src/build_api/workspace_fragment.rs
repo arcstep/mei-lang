@@ -53,6 +53,8 @@ struct BuildWorkspaceFragmentResponse {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     fragment_cache_hit: bool,
     revision: BuildFragmentRevisionPayload,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scene_manifest: Option<mei_host_graph::SceneViewManifest>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -108,7 +110,11 @@ fn cache_input<'a>(
         scope,
         preview_scope,
         data_mode: axes.data_mode.slug(),
-        review_projection: axes.review_projection.slug(),
+        review_projection: crate::review_axes::ssr_review_projection(
+            UiRouteMode::Build,
+            axes.data_mode,
+        )
+        .slug(),
         compile_coordinate,
         draft_session,
         draft_digest,
@@ -170,6 +176,30 @@ pub async fn api_build_fragment_revision(
     let mut response = Json(payload).into_response();
     *response.status_mut() = StatusCode::OK;
     response
+}
+
+fn try_scene_manifest(
+    workspace_root: &std::path::Path,
+    app_id: &str,
+    scene_id: &str,
+    axes: &crate::review_axes::PageRenderAxes,
+    draft_session: &str,
+    draft_digest: &str,
+) -> Option<mei_host_graph::SceneViewManifest> {
+    let mut hits = crate::artifact_observability::ArtifactHitMatrix::default();
+    crate::scene_manifest::build_scene_view_manifest(
+        workspace_root,
+        app_id,
+        scene_id,
+        axes.data_mode,
+        crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode).slug(),
+        "scene",
+        "full",
+        draft_session,
+        draft_digest,
+        &mut hits,
+    )
+    .ok()
 }
 
 pub async fn api_build_workspace_fragment(
@@ -255,6 +285,14 @@ pub async fn api_build_workspace_fragment(
     if let Some(cached) = take_build_fragment_cache(cache_key.as_str()) {
         let revision = build_fragment_revision_payload(&preliminary_input);
         let compile_revision = cached.compile_revision.clone();
+        let scene_manifest = try_scene_manifest(
+            workspace_root.as_path(),
+            app_id,
+            scene_id.as_str(),
+            &axes,
+            draft_session.as_str(),
+            draft_digest.as_str(),
+        );
         let body = BuildWorkspaceFragmentResponse {
             compile_revision: compile_revision.clone(),
             compile_coordinate: cached.compile_coordinate,
@@ -267,6 +305,7 @@ pub async fn api_build_workspace_fragment(
             review_projection: Some(cached.review_projection),
             fragment_cache_hit: true,
             revision,
+            scene_manifest,
         };
         return fragment_json_response(
             body,
@@ -323,7 +362,9 @@ pub async fn api_build_workspace_fragment(
         query.focus.as_deref(),
         Some("preview"),
         Some(axes.data_mode.slug()),
-        Some(axes.review_projection.slug()),
+        Some(
+            crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode).slug(),
+        ),
     ) else {
         return json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -355,6 +396,14 @@ pub async fn api_build_workspace_fragment(
     let final_revision_digest = build_fragment_revision_digest(final_cache_key.as_str());
     let revision = build_fragment_revision_payload(&final_input);
 
+    let scene_manifest = try_scene_manifest(
+        workspace_root.as_path(),
+        app_id,
+        scene_for_key.as_str(),
+        &axes,
+        draft_session.as_str(),
+        draft_digest.as_str(),
+    );
     let body = BuildWorkspaceFragmentResponse {
         compile_revision: assembled.compile_revision.clone(),
         compile_coordinate: fragment.compile_coordinate.clone(),
@@ -367,6 +416,7 @@ pub async fn api_build_workspace_fragment(
         review_projection: Some(axes.review_projection.slug().to_string()),
         fragment_cache_hit: false,
         revision: revision.clone(),
+        scene_manifest,
     };
 
     store_build_fragment_cache(
@@ -380,7 +430,9 @@ pub async fn api_build_workspace_fragment(
             assembled.compile_revision.clone(),
             fragment.compile_coordinate,
             axes.data_mode.slug().to_string(),
-            axes.review_projection.slug().to_string(),
+            crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode)
+                .slug()
+                .to_string(),
             final_revision_digest.clone(),
         ),
     );

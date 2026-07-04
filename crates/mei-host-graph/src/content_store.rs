@@ -13,6 +13,10 @@ pub const METRIC_RESPONSE: &str = "metric_response";
 pub const PROJECTION_ASSEMBLY: &str = "projection_assembly";
 pub const NAVIGATION: &str = "navigation";
 pub const WARMUP_POLICY: &str = "warmup_policy";
+pub const STRUCTURE_FULL_KIND: &str = "structure_full";
+pub const THEME_TOKENS_KIND: &str = "theme_tokens";
+pub const LAYOUT_OVERLAY_KIND: &str = "layout_overlay";
+pub const EVAL_SLOT_GROUP_KIND: &str = "eval_slot_group";
 
 #[derive(Debug, Clone)]
 pub struct PutResult {

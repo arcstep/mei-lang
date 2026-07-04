@@ -248,7 +248,13 @@
   }
 
   function scheduleSync() {
-    global.requestAnimationFrame(() => syncDraftControls());
+    global.requestAnimationFrame(() => {
+      syncDraftControls();
+      const meta = resolvePreviewScopeFromSelection();
+      if (meta && global.__meiLangBoot?.wysiwygPanelApi?.openPanelForSelection) {
+        global.__meiLangBoot.wysiwygPanelApi.openPanelForSelection(meta);
+      }
+    });
   }
 
   global.addEventListener("popstate", scheduleSync);

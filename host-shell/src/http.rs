@@ -50,6 +50,7 @@ pub fn router(state: HostHttpState) -> Router {
             "/account/password",
             get(mei_host_auth::account_change_password_page),
         )
+        .route("/api/host/client-trace", post(crate::client_trace::api_host_client_trace))
         .route("/api/host/heartbeat", get(api_host_heartbeat))
         .route("/api/host/version", get(api_host_version))
         .route("/api/host/ready", get(api_host_ready))
@@ -74,6 +75,8 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
         .route("/api/host/scene-revision", get(api_scene_revision))
+        .route("/api/host/scene-manifest", get(crate::scene_manifest::api_host_scene_manifest))
+        .route("/api/host/layer-batch", post(crate::scene_manifest::api_host_layer_batch))
         .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
         .route("/api/host/scene-fragment", get(api_scene_fragment))
         .route(

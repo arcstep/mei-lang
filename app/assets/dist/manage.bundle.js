@@ -4612,9 +4612,13 @@
   }
 
   function emitTabChange(nextTab) {
+    const active = resolveRenderableTab(nextTab);
+    if (typeof boot.beginClientCommand === "function") {
+      boot.beginClientCommand({ kind: "TAB", label: `tab=${active}` });
+    }
     document.dispatchEvent(
       new CustomEvent("mei:manage-tab-change", {
-        detail: { tab: resolveRenderableTab(nextTab) },
+        detail: { tab: active },
       }),
     );
   }
@@ -6349,6 +6353,295 @@
 })(window);
 
 
+/* ===== spa-navigation/spa/layer-store.js ===== */
+/**
+ * Client LayerStore: artifact revision keys + in-memory layer bytes.
+ */
+(function initLayerStore(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const store = new Map();
+  const revisionStore = new Map();
+
+  function layerKey(surface, appId, sceneId, layerName, axes) {
+    const base = boot.surfaceRevisionKey
+      ? boot.surfaceRevisionKey({
+          surface,
+          app_id: appId,
+          scene_id: sceneId,
+          layer: layerName,
+          data_mode: axes?.data_mode || "",
+          review_projection: axes?.review_projection || "",
+        })
+      : [surface, appId, sceneId, layerName].join(":");
+    return base;
+  }
+
+  function rememberRevision(key, revision) {
+    if (!key || !revision) return;
+    revisionStore.set(key, String(revision));
+  }
+
+  function revisionFor(key) {
+    return revisionStore.get(key) || "";
+  }
+
+  function putLayer(key, bytes, revision) {
+    if (!key) return;
+    store.set(key, bytes);
+    rememberRevision(key, revision);
+  }
+
+  function takeLayer(key) {
+    return store.get(key) || null;
+  }
+
+  function hasLayer(key) {
+    return store.has(key);
+  }
+
+  boot.layerStore = {
+    layerKey,
+    rememberRevision,
+    revisionFor,
+    putLayer,
+    takeLayer,
+    hasLayer,
+    clear() {
+      store.clear();
+      revisionStore.clear();
+    },
+  };
+})(typeof window !== "undefined" ? window : globalThis);
+
+
+/* ===== spa-navigation/spa/scene-manifest-loader.js ===== */
+/**
+ * Fetch SceneViewManifest + layer batch for host artifact pipeline.
+ */
+(function initSceneManifestLoader(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const MANIFEST_API = "/api/host/scene-manifest";
+  const LAYER_BATCH_API = "/api/host/layer-batch";
+
+  function readShellAxes() {
+    const shell = global.document?.querySelector?.(".shell");
+    if (!(shell instanceof HTMLElement)) {
+      return { data_mode: "", review_projection: "", tab: "", chrome: "" };
+    }
+    return {
+      data_mode: String(shell.getAttribute("data-data-mode") || "").trim(),
+      review_projection: String(shell.getAttribute("data-review-projection") || "").trim(),
+      tab: String(shell.getAttribute("data-tab") || "").trim(),
+      chrome: String(shell.getAttribute("data-chrome") || "").trim(),
+    };
+  }
+
+  async function fetchManifest(appId, sceneId, axes) {
+    const params = new URLSearchParams({
+      app_id: appId,
+      scene: sceneId || "home",
+    });
+    if (axes?.data_mode) params.set("data_mode", axes.data_mode);
+    if (axes?.review_projection) params.set("review_projection", axes.review_projection);
+    if (axes?.tab) params.set("tab", axes.tab);
+    if (axes?.chrome) params.set("chrome", axes.chrome);
+    const response = await global.fetch(`${MANIFEST_API}?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: boot.clientCommandHeaders ? boot.clientCommandHeaders("MANIFEST", "scene-manifest") : {},
+    });
+    if (!response.ok) throw new Error(`scene-manifest ${response.status}`);
+  const payload = await response.json();
+    const hits = {
+      structure: response.headers.get("x-mei-structure-hit") === "1",
+      eval: response.headers.get("x-mei-eval-hit") === "1",
+      theme: response.headers.get("x-mei-theme-hit") === "1",
+      overlay: response.headers.get("x-mei-overlay-hit") === "1",
+      shell: response.headers.get("x-mei-shell-hit") === "1",
+    };
+    boot.lastArtifactHits = hits;
+    return { manifest: payload.manifest, hits };
+  }
+
+  async function fetchLayerBatch(appId, sceneId, layerNames, axes) {
+    const response = await global.fetch(LAYER_BATCH_API, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "content-type": "application/json",
+        ...(boot.clientCommandHeaders ? boot.clientCommandHeaders("LAYER", "layer-batch") : {}),
+      },
+      body: JSON.stringify({
+        app_id: appId,
+        scene: sceneId || "home",
+        layers: layerNames,
+        data_mode: axes?.data_mode || "",
+      }),
+    });
+    if (!response.ok) throw new Error(`layer-batch ${response.status}`);
+    const payload = await response.json();
+    boot.lastArtifactHits = payload.hits || boot.lastArtifactHits;
+    return payload;
+  }
+
+  async function ensureStructureFull(appId, sceneId) {
+    const axes = readShellAxes();
+    const { manifest, hits } = await fetchManifest(appId, sceneId, axes);
+    const layerRef = manifest?.layers?.["structure.full"];
+    const key = boot.layerStore?.layerKey("structure", appId, sceneId, "structure.full", axes);
+    if (boot.layerStore?.hasLayer(key)) {
+      return { document: boot.layerStore.takeLayer(key), hits, manifest };
+    }
+    const batch = await fetchLayerBatch(appId, sceneId, ["structure.full"], axes);
+    const document = batch.layers?.["structure.full"];
+    if (document && boot.layerStore) {
+      boot.layerStore.putLayer(key, document, manifest?.revision_digest || "");
+    }
+    return { document, hits: batch.hits || hits, manifest };
+  }
+
+  boot.sceneManifestLoader = {
+    fetchManifest,
+    fetchLayerBatch,
+    ensureStructureFull,
+    readShellAxes,
+  };
+})(typeof window !== "undefined" ? window : globalThis);
+
+
+/* ===== spa-navigation/spa/view-compositor.js ===== */
+/**
+ * ViewCompositor: compose review_projection depth without refetching structure.full.
+ */
+(function initViewCompositor(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  const PROJECTION_MAX_ROLE = {
+    plane_region: "region",
+    plane_region_section: "section",
+    content: "content",
+    live_full: "content",
+    static_full: "content",
+  };
+
+  function roleDepth(role) {
+    const map = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    return map[String(role || "").toLowerCase()] ?? 99;
+  }
+
+  function nodesForProjection(structureDoc, projection) {
+    const maxRole = PROJECTION_MAX_ROLE[String(projection || "").toLowerCase()] || "content";
+    const maxDepth = roleDepth(maxRole);
+    const nodes = Array.isArray(structureDoc?.nodes) ? structureDoc.nodes : [];
+    return nodes.filter((node) => roleDepth(node.ui_role) <= maxDepth);
+  }
+
+  function applyThemeAndOverlay(root, themeTokens, layoutOverlay) {
+    if (!(root instanceof HTMLElement)) return;
+    const colors = themeTokens?.colors || {};
+    const fonts = themeTokens?.fonts || {};
+    Object.keys(colors).forEach((token) => {
+      root.style.setProperty(`--mei-${token}`, String(colors[token]));
+    });
+    Object.keys(fonts).forEach((token) => {
+      root.style.setProperty(`--mei-font-${token}`, String(fonts[token]));
+    });
+    const patches = layoutOverlay?.patches;
+    if (patches && typeof patches === "object") {
+      root.setAttribute("data-layout-overlay", JSON.stringify(patches));
+    }
+  }
+
+  function composePreview(root, structureDoc, projection, themeTokens, layoutOverlay) {
+    const visible = nodesForProjection(structureDoc, projection);
+    const scopes = new Set(visible.map((node) => String(node.preview_scope || "")));
+    if (root instanceof HTMLElement) {
+      root.querySelectorAll("[data-preview-scope]").forEach((el) => {
+        const scope = String(el.getAttribute("data-preview-scope") || "");
+        const show = !scope || scopes.has(scope);
+        el.toggleAttribute("hidden", !show);
+        el.classList.toggle("mei-compose-hidden", !show);
+      });
+      root.setAttribute("data-compose-projection", String(projection || "live_full"));
+    }
+    applyThemeAndOverlay(root, themeTokens, layoutOverlay);
+    return { visibleCount: visible.length, projection };
+  }
+
+  boot.viewCompositor = {
+    nodesForProjection,
+    composePreview,
+    applyThemeAndOverlay,
+  };
+})(typeof window !== "undefined" ? window : globalThis);
+
+
+/* ===== spa-navigation/spa/wysiwyg-panel.js ===== */
+/**
+ * Dev > 场景原型 WYSIWYG temp panels (region/section layout + content theme).
+ */
+(function initWysiwygPanel(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  function isBuildRoute() {
+    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+  }
+
+  function buildLayoutPatch(previewScope, uiRole, values) {
+    return {
+      preview_scope: previewScope,
+      ui_role: uiRole,
+      layout: values || {},
+    };
+  }
+
+  function buildThemePatch(previewScope, uiRole, values) {
+    return {
+      preview_scope: previewScope,
+      ui_role: uiRole,
+      theme: values || {},
+    };
+  }
+
+  function applySessionPatch(patch) {
+    if (!patch || !boot.viewCompositor) return;
+    const root = global.document.querySelector(".preview-pane-scroll, .shell");
+    const overlay = { patches: { [patch.preview_scope]: patch.layout || patch.theme || {} } };
+    const theme = patch.theme ? { colors: patch.theme.colors || {}, fonts: patch.theme.fonts || {} } : null;
+    boot.viewCompositor.applyThemeAndOverlay(root, theme, overlay);
+    if (typeof boot.MeiOpsLayoutTuningOverlay?.applyHot === "function") {
+      boot.MeiOpsLayoutTuningOverlay.applyHot(patch);
+    }
+  }
+
+  function openPanelForSelection(meta) {
+    if (!isBuildRoute() || !meta) return;
+    const role = String(meta.ui_role || "").toLowerCase();
+    if (role === "region" || role === "section") {
+      boot.wysiwygPanel = { kind: "layout", meta };
+      return;
+    }
+    if (role === "content" || role === "slot") {
+      boot.wysiwygPanel = { kind: "theme", meta };
+    }
+  }
+
+  boot.wysiwygPanelApi = {
+    buildLayoutPatch,
+    buildThemePatch,
+    applySessionPatch,
+    openPanelForSelection,
+  };
+})(typeof window !== "undefined" ? window : globalThis);
+
+
 /* ===== spa-navigation/spa/scene-revision.js ===== */
   const SCENE_REVISION_API = "/api/host/scene-revision";
   const SCENE_REVISION_STORE_KEY = "mei-scene-revisions";
@@ -7735,6 +8028,14 @@
 
   function wakePreviewRuntime(scope, options) {
     const opts = options || {};
+    if (opts.fromCache === true) {
+      if (typeof boot.scheduleFrameViewportRelayout === "function") {
+        try {
+          boot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
+      return;
+    }
     const resetCache = opts.resetRuntimeQueryCache === true;
     if (typeof boot.scheduleFrameViewportRelayout === "function") {
       try {
@@ -7871,13 +8172,28 @@
     return true;
   }
 
+  function resolveBuildNode(url) {
+    const host = hostBoot();
+    const fn =
+      host.resolveBuildFragmentNode || global.MeiBuildFragmentRevision?.resolveBuildFragmentNode;
+    if (typeof fn === "function") {
+      const resolved = fn.call(host, url);
+      if (resolved) return resolved;
+    }
+    return nodeIdFromUrl(url);
+  }
+
   async function fetchWorkspaceFragment(url) {
     const parsed = new URL(url, global.location.href);
     const parts = parsed.pathname.split("/").filter(Boolean);
     const appId = parts[2] || "";
+    const node = resolveBuildNode(url);
+    if (!node) {
+      throw new Error("build workspace fragment requires resolved node id");
+    }
     const params = new URLSearchParams({
       app_id: appId,
-      node: String(parsed.searchParams.get("node") || ""),
+      node,
       tab: buildTab(url) || "preview",
     });
     const focus = parsed.searchParams.get("focus");
@@ -7961,19 +8277,13 @@
     return typeof fn === "function" ? fn.call(host, url, revision) : false;
   }
 
-  async function persistBuildPreviewSnapshot(url) {
+  async function persistBuildPreviewSnapshot(url, knownRevision) {
     const tab = buildTab(url);
     if (tab && tab !== "preview") return false;
     const panel = document.querySelector('[data-manage-tab-panel="preview"]');
     const scroll = panel?.querySelector(".preview-pane-scroll");
     if (!(scroll instanceof HTMLElement)) return false;
-    let revision = readBuildRevision(url);
-    if (!revision) {
-      revision = await fetchBuildRevision(url, {
-        timeoutMs: 4000,
-        skipRemoteWhenValid: true,
-      });
-    }
+    let revision = knownRevision || readBuildRevision(url);
     if (!revision) return false;
     const drilldownParts = ["mei-scene-drilldown-context", "mei-host-runtime-capabilities"]
       .map((id) => {
@@ -7986,7 +8296,7 @@
       preview_html: scroll.outerHTML,
       drilldown_script: drilldownParts.join(""),
       workspace_scripts: [],
-      node: String(parsed.searchParams.get("node") || ""),
+      node: resolveBuildNode(url),
       focus: String(parsed.searchParams.get("focus") || ""),
       revision,
     };
@@ -8002,9 +8312,21 @@
     return true;
   }
 
-  function scheduleBuildPreviewPersist(url) {
+  function scheduleEagerBuildPreviewPersist(url, revision) {
     const run = () => {
-      void persistBuildPreviewSnapshot(url);
+      void persistBuildPreviewSnapshot(url, revision || readBuildRevision(url));
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run, { once: true });
+    } else {
+      global.requestAnimationFrame(run);
+    }
+    scheduleBuildPreviewPersist(url, revision);
+  }
+
+  function scheduleBuildPreviewPersist(url, knownRevision) {
+    const run = () => {
+      void persistBuildPreviewSnapshot(url, knownRevision || readBuildRevision(url));
     };
     global.addEventListener("pagehide", run, { once: true });
     document.addEventListener("visibilitychange", () => {
@@ -8026,34 +8348,39 @@
       return { restored: false, source: "no-revision-api" };
     }
     try {
-      const remoteRevision = await fetchBuildRevision(url, {
+      let revision = await fetchBuildRevision(url, {
         timeoutMs: opts.timeoutMs || 8000,
         skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
       });
-      if (!remoteRevision || !buildRevisionStillValid(url, remoteRevision)) {
-        return { restored: false, source: "revision-miss", revision: remoteRevision };
+      if (!revision) {
+        revision = await fetchBuildRevision(url, { timeoutMs: opts.timeoutMs || 8000 });
       }
-      const cached = readBuildFragmentCache(url, remoteRevision);
-      if (!cached?.preview_html) {
-        return { restored: false, source: "fragment-miss", revision: remoteRevision };
+      if (!revision) {
+        return { restored: false, source: "revision-miss", revision: null };
       }
-      const ok = swapPreviewFragment(
-        String(cached.preview_html || ""),
-        String(cached.drilldown_script || ""),
-      );
-      if (!ok) {
-        return { restored: false, source: "swap-failed", revision: remoteRevision };
+      const cached = readBuildFragmentCache(url, revision);
+      if (cached?.preview_html) {
+        const ok = swapPreviewFragment(
+          String(cached.preview_html || ""),
+          String(cached.drilldown_script || ""),
+        );
+        if (!ok) {
+          return { restored: false, source: "swap-failed", revision };
+        }
+        if (
+          Array.isArray(cached.workspace_scripts) &&
+          typeof boot.syncPreviewWorkspaceScripts === "function"
+        ) {
+          await boot.syncPreviewWorkspaceScripts(cached.workspace_scripts);
+        }
+        ensurePreviewTabVisible(url, null, { emit: false });
+        wakePreviewRuntime("build-cold-cache", { fromCache: true });
+        global.__meiBuildPreviewRestoredFromCache = 1;
+        return { restored: true, source: "fragment-cache", revision };
       }
-      if (
-        Array.isArray(cached.workspace_scripts) &&
-        typeof boot.syncPreviewWorkspaceScripts === "function"
-      ) {
-        await boot.syncPreviewWorkspaceScripts(cached.workspace_scripts);
-      }
-      ensurePreviewTabVisible(url, null, { emit: false });
-      wakePreviewRuntime("build-cold-cache", { pulsePreviewUpdated: true });
-      global.__meiBuildPreviewRestoredFromCache = 1;
-      return { restored: true, source: "fragment-cache", revision: remoteRevision };
+      rememberBuildRevision(url, revision);
+      scheduleEagerBuildPreviewPersist(url, revision);
+      return { restored: false, source: "fragment-miss", revision };
     } catch (error) {
       console.warn("[build-navigation] cold preview cache restore skipped", error);
       return { restored: false, source: "error" };
@@ -8146,6 +8473,10 @@
   async function tryNavigateBuild(fromUrl, toUrl, options) {
     if (buildNavInFlight) {
       return { handled: false, tier: 2, reason: "in_flight" };
+    }
+    const host = hostBoot();
+    if (typeof host.beginClientCommand === "function") {
+      host.beginClientCommand({ kind: "BUILD_NAV", label: String(toUrl || "") });
     }
     const opts = options || {};
     const structureNav = isSameSceneStructureNav(fromUrl, toUrl);
@@ -8252,6 +8583,7 @@
     classifyBuildNavTier,
     tryNavigateBuild,
     tryRestoreBuildPreviewFromCache,
+    scheduleEagerBuildPreviewPersist,
     scheduleBuildPreviewPersist,
     persistBuildPreviewSnapshot,
     tryHandleBuildClick,
@@ -8296,19 +8628,47 @@
     } catch (_) {}
   }
 
+  function resolveBuildFragmentNode(urlLike) {
+    try {
+      const url = new URL(urlLike, global.location.href);
+      const fromQuery = String(url.searchParams.get("node") || "").trim();
+      if (fromQuery) return fromQuery;
+    } catch (_) {}
+    const shell = global.document?.querySelector?.(".shell[data-build-node]");
+    if (shell instanceof HTMLElement) {
+      const fromDom = String(shell.getAttribute("data-build-node") || "").trim();
+      if (fromDom) return fromDom;
+    }
+    return "";
+  }
+
   function buildFragmentRevisionCacheKey(urlLike) {
     try {
       const url = new URL(urlLike, global.location.href);
       const parts = url.pathname.split("/").filter(Boolean);
       const appId = parts[2] || "";
+      const shell = global.document?.querySelector?.(".shell[data-build-node]");
+      const shellAxes =
+        shell instanceof HTMLElement
+          ? {
+              data_mode: String(shell.getAttribute("data-data-mode") || "")
+                .trim()
+                .toLowerCase(),
+              review_projection: String(shell.getAttribute("data-review-projection") || "")
+                .trim()
+                .toLowerCase(),
+            }
+          : { data_mode: "", review_projection: "" };
       return boot.surfaceRevisionKey({
         surface: "build",
         app_id: appId,
-        node: String(url.searchParams.get("node") || "").trim(),
-        data_mode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
-        review_projection: String(url.searchParams.get("review_projection") || "")
-          .trim()
-          .toLowerCase(),
+        node: resolveBuildFragmentNode(urlLike),
+        data_mode:
+          String(url.searchParams.get("data_mode") || "").trim().toLowerCase() ||
+          shellAxes.data_mode,
+        review_projection:
+          String(url.searchParams.get("review_projection") || "").trim().toLowerCase() ||
+          shellAxes.review_projection,
         focus: String(url.searchParams.get("focus") || "").trim(),
         scope: String(url.searchParams.get("scope") || "").trim(),
       });
@@ -8343,17 +8703,39 @@
       : false;
   }
 
+  function readSsrEmbeddedBuildRevision() {
+    const digest = String(
+      document
+        .querySelector('meta[name="mei-build-fragment-revision-digest"]')
+        ?.getAttribute("content") || "",
+    ).trim();
+    if (!digest) return null;
+    const cacheKey = String(
+      document.querySelector('meta[name="mei-build-fragment-cache-key"]')?.getAttribute("content") ||
+        "",
+    ).trim();
+    const revision = {
+      revision_digest: digest,
+      cache_key: cacheKey || undefined,
+    };
+    return typeof boot.normalizeRevision === "function"
+      ? boot.normalizeRevision(revision)
+      : revision;
+  }
+
   async function fetchBuildFragmentRevision(urlLike, options) {
     const opts = options || {};
     if (opts.skipRemoteWhenValid) {
       const localRevision = readBuildFragmentRevision(urlLike);
       const cached =
         localRevision && typeof boot.readBuildFragmentHtml === "function"
-          ? boot.readBuildFragmentHtml(urlLike, localRevision)
+          ? readBuildFragmentHtml(urlLike, localRevision)
           : null;
       if (localRevision && cached?.preview_html) {
+        global.__meiBuildRevisionSkippedNetwork = 1;
         if (typeof boot.cacheDiagTrace === "function") {
           boot.cacheDiagTrace("build-revision-skip-network", {
+            reason: "local-fragment-hit",
             revision_digest: localRevision.revision_digest,
           });
         }
@@ -8361,13 +8743,43 @@
           ? boot.normalizeRevision(localRevision)
           : localRevision;
       }
+      const ssr = readSsrEmbeddedBuildRevision();
+      if (
+        ssr &&
+        localRevision &&
+        typeof boot.revisionsMatch === "function" &&
+        boot.revisionsMatch(localRevision, ssr)
+      ) {
+        global.__meiBuildRevisionSkippedNetwork = 1;
+        if (typeof boot.cacheDiagTrace === "function") {
+          boot.cacheDiagTrace("build-revision-skip-network", {
+            reason: "ssr-digest-match",
+            revision_digest: ssr.revision_digest,
+          });
+        }
+        return typeof boot.normalizeRevision === "function"
+          ? boot.normalizeRevision(localRevision)
+          : localRevision;
+      }
+      if (ssr?.revision_digest) {
+        rememberBuildFragmentRevision(urlLike, ssr);
+        global.__meiBuildRevisionSkippedNetwork = 1;
+        return ssr;
+      }
     }
     const url = new URL(urlLike, global.location.href);
     const parts = url.pathname.split("/").filter(Boolean);
     const appId = parts[2] || "";
+    const node = resolveBuildFragmentNode(urlLike);
+    if (!node) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("build-revision-miss-node", { url: urlLike });
+      }
+      return null;
+    }
     const params = new URLSearchParams({
       app_id: appId,
-      node: String(url.searchParams.get("node") || "").trim(),
+      node,
     });
     const focus = url.searchParams.get("focus");
     const scope = url.searchParams.get("scope");
@@ -8409,7 +8821,9 @@
 
   function readFragmentHtmlStore() {
     try {
-      const raw = global.sessionStorage.getItem(fragmentHtmlStoreKey);
+      const raw =
+        global.localStorage.getItem(fragmentHtmlStoreKey) ||
+        global.sessionStorage.getItem(fragmentHtmlStoreKey);
       return raw ? JSON.parse(raw) : {};
     } catch (_) {
       return {};
@@ -8417,8 +8831,19 @@
   }
 
   function writeFragmentHtmlStore(store) {
+    const payload = JSON.stringify(store || {});
     try {
-      global.sessionStorage.setItem(fragmentHtmlStoreKey, JSON.stringify(store || {}));
+      global.localStorage.setItem(fragmentHtmlStoreKey, payload);
+      return;
+    } catch (error) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("build-fragment-store-fallback", {
+          reason: String(error?.message || error || "localStorage-failed"),
+        });
+      }
+    }
+    try {
+      global.sessionStorage.setItem(fragmentHtmlStoreKey, payload);
     } catch (_) {}
   }
 
@@ -8456,15 +8881,18 @@
   }
 
   boot.buildFragmentRevisionCacheKey = buildFragmentRevisionCacheKey;
+  boot.resolveBuildFragmentNode = resolveBuildFragmentNode;
   boot.readBuildFragmentHtml = readBuildFragmentHtml;
   boot.rememberBuildFragmentHtml = rememberBuildFragmentHtml;
   boot.fetchBuildFragmentRevision = fetchBuildFragmentRevision;
   boot.rememberBuildFragmentRevision = rememberBuildFragmentRevision;
   boot.readBuildFragmentRevision = readBuildFragmentRevision;
   boot.buildFragmentRevisionStillValid = buildFragmentRevisionStillValid;
+  boot.readSsrEmbeddedBuildRevision = readSsrEmbeddedBuildRevision;
 
   global.MeiBuildFragmentRevision = {
     buildFragmentRevisionCacheKey,
+    resolveBuildFragmentNode,
     readBuildFragmentHtml,
     rememberBuildFragmentHtml,
     fetchBuildFragmentRevision,
@@ -8482,6 +8910,7 @@
       rememberBuildFragmentHtml,
       buildFragmentRevisionStillValid,
       buildFragmentRevisionCacheKey,
+      resolveBuildFragmentNode,
     });
   }
 })(window);
@@ -9951,7 +10380,13 @@
   }
 
   function scheduleSync() {
-    global.requestAnimationFrame(() => syncDraftControls());
+    global.requestAnimationFrame(() => {
+      syncDraftControls();
+      const meta = resolvePreviewScopeFromSelection();
+      if (meta && global.__meiLangBoot?.wysiwygPanelApi?.openPanelForSelection) {
+        global.__meiLangBoot.wysiwygPanelApi.openPanelForSelection(meta);
+      }
+    });
   }
 
   global.addEventListener("popstate", scheduleSync);
@@ -25609,6 +26044,189 @@
   }
 
 
+/* ===== spa-navigation/client-command-trace.js ===== */
+/**
+ * Tag user-initiated fetches so host-shell terminal logs can group them under ▶ 路由 / 开发导航 / …
+ * (server-side only — no browser console output)
+ */
+(function initClientCommandTrace(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const TRACE_API = "/api/host/client-trace";
+  const CMD_TTL_MS = 45_000;
+  const HEADER_ID = "x-mei-client-cmd-id";
+  const HEADER_KIND = "x-mei-client-cmd-kind";
+  const HEADER_LABEL = "x-mei-client-cmd-label";
+
+  let seq = 0;
+  let activeCommand = null;
+  let fetchHookInstalled = false;
+
+  function normalizeKind(kind) {
+    return String(kind || "CMD")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_]+/g, "_")
+      .slice(0, 32);
+  }
+
+  function nextCommandId() {
+    seq += 1;
+    return `cmd-${String(seq).padStart(4, "0")}`;
+  }
+
+  function pruneActiveCommand() {
+    if (!activeCommand) return null;
+    if (Date.now() - activeCommand.startedAt > CMD_TTL_MS) {
+      activeCommand = null;
+    }
+    return activeCommand;
+  }
+
+  function annotateFetchInit(init) {
+    const cmd = pruneActiveCommand();
+    if (!cmd) return init;
+    const base = init && typeof init === "object" ? { ...init } : {};
+    const headers = new Headers(base.headers || undefined);
+    headers.set(HEADER_ID, cmd.id);
+    headers.set(HEADER_KIND, cmd.kind);
+    if (cmd.label) headers.set(HEADER_LABEL, cmd.label.slice(0, 180));
+    base.headers = headers;
+    return base;
+  }
+
+  function beaconCommand(cmd) {
+    if (!cmd?.id) return;
+    try {
+      const body = JSON.stringify({
+        id: cmd.id,
+        kind: cmd.kind,
+        label: cmd.label || "",
+      });
+      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        const blob = new Blob([body], { type: "application/json" });
+        if (navigator.sendBeacon(TRACE_API, blob)) return;
+      }
+      void fetch(TRACE_API, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body,
+        keepalive: true,
+      });
+    } catch (_) {}
+  }
+
+  function beginClientCommand(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const kind = normalizeKind(opts.kind || "CMD");
+    const label = String(opts.label || "").trim();
+    const cmd = {
+      id: String(opts.id || nextCommandId()),
+      kind,
+      label,
+      startedAt: Date.now(),
+    };
+    activeCommand = cmd;
+    beaconCommand(cmd);
+    return cmd.id;
+  }
+
+  function endClientCommand(id) {
+    const cmd = activeCommand;
+    if (!cmd || (id && cmd.id !== id)) return;
+    activeCommand = null;
+  }
+
+  function installClientCommandFetchHook() {
+    if (fetchHookInstalled || typeof global.fetch !== "function") return;
+    fetchHookInstalled = true;
+    const nativeFetch = global.fetch.bind(global);
+    global.fetch = function meiClientCommandFetch(input, init) {
+      const nextInit = annotateFetchInit(init);
+      if (input instanceof Request) {
+        const cmd = pruneActiveCommand();
+        if (cmd) {
+          const headers = new Headers(input.headers);
+          headers.set(HEADER_ID, cmd.id);
+          headers.set(HEADER_KIND, cmd.kind);
+          if (cmd.label) headers.set(HEADER_LABEL, cmd.label.slice(0, 180));
+          input = new Request(input, { headers });
+        }
+        return nativeFetch(input, nextInit);
+      }
+      return nativeFetch(input, nextInit);
+    };
+  }
+
+  function wrapBeginDrilldownLoadSession() {
+    if (typeof boot.beginDrilldownLoadSession !== "function") return;
+    if (wrapBeginDrilldownLoadSession._wrapped) return;
+    wrapBeginDrilldownLoadSession._wrapped = true;
+    const original = boot.beginDrilldownLoadSession.bind(boot);
+    boot.beginDrilldownLoadSession = function wrappedBeginDrilldownLoadSession(options) {
+      const opts = options && typeof options === "object" ? options : {};
+      const boardLike = /board|看板/i.test(String(opts.label || opts.path || ""));
+      beginClientCommand({
+        kind: boardLike ? "BOARD" : "DRILLDOWN",
+        label: String(opts.label || opts.path || "下钻"),
+      });
+      return original(options);
+    };
+  }
+
+  installClientCommandFetchHook();
+
+  function wrapBeginLoadingProgressSession() {
+    if (typeof boot.beginLoadingProgressSession !== "function") return;
+    if (wrapBeginLoadingProgressSession._wrapped) return;
+    wrapBeginLoadingProgressSession._wrapped = true;
+    const original = boot.beginLoadingProgressSession.bind(boot);
+    boot.beginLoadingProgressSession = function wrappedBeginLoadingProgressSession(
+      navigationId,
+      url,
+    ) {
+      if (navigationId !== boot.INITIAL_LOAD_NAVIGATION_ID && typeof boot.beginClientCommand === "function") {
+        let kind = "ROUTE";
+        try {
+          const path = new URL(String(url || global.location.href), global.location.href).pathname;
+          if (path.startsWith("/apps/build/") || path.startsWith("/apps/manage/")) {
+            kind = "BUILD_NAV";
+          }
+        } catch (_) {}
+        boot.beginClientCommand({ kind, label: String(url || global.location.href) });
+      }
+      return original(navigationId, url);
+    };
+  }
+
+  function installClientCommandWrappers() {
+    wrapBeginLoadingProgressSession();
+    wrapBeginDrilldownLoadSession();
+  }
+
+  boot.beginClientCommand = beginClientCommand;
+  boot.endClientCommand = endClientCommand;
+  boot.annotateClientFetchInit = annotateFetchInit;
+  boot.installClientCommandWrappers = installClientCommandWrappers;
+
+  global.__meiClientCommand = {
+    begin: beginClientCommand,
+    end: endClientCommand,
+    active: () => pruneActiveCommand(),
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", installClientCommandWrappers, { once: true });
+  } else {
+    installClientCommandWrappers();
+  }
+})(
+  typeof window !== "undefined" ? window : typeof globalThis !== "undefined" ? globalThis : {},
+);
+
+
 /* ===== spa-navigation/spa/loading-ui.js ===== */
   function currentMainPane() {
     return document.querySelector("#workspace-root main.main");
@@ -27830,6 +28448,9 @@
 /* ===== spa-navigation/epilogue.js ===== */
 // @ts-nocheck — closes IIFE opened in preamble.js; valid only after bundle concat.
   bootstrapInitialLoadProgress();
+  if (typeof boot.installClientCommandWrappers === "function") {
+    boot.installClientCommandWrappers();
+  }
   tagExistingBodyScripts();
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();
@@ -27862,9 +28483,18 @@
         }
         if (
           !buildOutcome?.restored &&
-          typeof globalThis.MeiBuildNavigation?.scheduleBuildPreviewPersist === "function"
+          buildOutcome?.revision &&
+          typeof globalThis.MeiBuildNavigation?.scheduleEagerBuildPreviewPersist === "function"
         ) {
-          globalThis.MeiBuildNavigation.scheduleBuildPreviewPersist(window.location.href);
+          globalThis.MeiBuildNavigation.scheduleEagerBuildPreviewPersist(
+            window.location.href,
+            buildOutcome.revision,
+          );
+        } else if (
+          !buildOutcome?.restored &&
+          typeof globalThis.MeiBuildNavigation?.scheduleEagerBuildPreviewPersist === "function"
+        ) {
+          globalThis.MeiBuildNavigation.scheduleEagerBuildPreviewPersist(window.location.href);
         }
       } catch (error) {
         console.warn("[spa-navigation] initial build preview cache restore skipped", error);
@@ -28021,11 +28651,21 @@
       const url = new URL(urlLike, global.location.href);
       const parts = url.pathname.split("/").filter(Boolean);
       if (parts[0] !== "apps" || parts[1] !== "build" || !parts[2]) return null;
+      const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
+      const resolveNode =
+        typeof hostBoot.resolveBuildFragmentNode === "function"
+          ? hostBoot.resolveBuildFragmentNode.bind(hostBoot)
+          : typeof global.MeiBuildFragmentRevision?.resolveBuildFragmentNode === "function"
+            ? global.MeiBuildFragmentRevision.resolveBuildFragmentNode.bind(
+                global.MeiBuildFragmentRevision,
+              )
+            : null;
       return {
         surface: "build",
         appId: decodeURIComponent(parts[2]),
         url: url.href,
         node: String(url.searchParams.get("node") || "").trim(),
+        resolvedNode: resolveNode ? String(resolveNode(url.href) || "").trim() : "",
         tab: String(url.searchParams.get("tab") || "").trim(),
         dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
         reviewProjection: String(url.searchParams.get("review_projection") || "")
@@ -28071,7 +28711,8 @@
       shellRestoredFromFragment: !!global.__meiShellRestoredFromFragment,
       buildPreviewRestoredFromCache: !!global.__meiBuildPreviewRestoredFromCache,
       bootstrapPayloadReady: !!global.__meiBootstrapPayloadReady,
-      revisionSkippedNetwork: !!global.__meiRevisionSkippedNetwork,
+      revisionSkippedNetwork:
+        !!global.__meiRevisionSkippedNetwork || !!global.__meiBuildRevisionSkippedNetwork,
       bootstrapFromLocalStorage: !!global.__meiBootstrapFromLocalStorage,
     };
   }
@@ -28103,7 +28744,9 @@
     const ssrRevision =
       typeof boot.readSsrEmbeddedSceneRevision === "function"
         ? boot.readSsrEmbeddedSceneRevision()
-        : null;
+        : isBuild && typeof hostBoot.readSsrEmbeddedBuildRevision === "function"
+          ? hostBoot.readSsrEmbeddedBuildRevision()
+          : null;
     const buildRevision =
       isBuild && ctx?.url
         ? hostBoot.readBuildFragmentRevision?.(ctx.url) ||

@@ -8,7 +8,12 @@ mod data_snapshot;
 mod enrich_compiled_scope;
 mod import;
 mod io;
+mod eval_slot_group;
+mod layer_overlay;
 mod layer_plan;
+mod layer_store;
+mod structure_full;
+mod view_artifact;
 mod layout_tuning_merge;
 mod mcg;
 mod metric_hydrate;
@@ -36,7 +41,29 @@ pub use data_snapshot::{
     collect_app_xlsx_sources, publish_app_data_snapshots, PublishDataSnapshotsReport,
 };
 pub use import::{import_bundle, load_block_artifact, ImportOptions};
-pub use layer_plan::{build_layer_plan, layer_plan_to_value, LayerPlanDocument};
+pub use eval_slot_group::{
+    build_eval_slot_group_document, collect_slot_groups, ensure_eval_slot_group_cached,
+    persist_eval_slot_group, EvalSlotGroupDocument, EVAL_SLOT_GROUP_SCHEMA,
+};
+pub use layer_overlay::{
+    default_theme_tokens, ensure_layout_overlay_cached, ensure_theme_tokens_cached,
+    layout_overlay_from_draft, persist_layout_overlay, persist_theme_tokens,
+    LayoutOverlayDocument, ThemeTokensDocument, LAYOUT_OVERLAY_SCHEMA, THEME_TOKENS_SCHEMA,
+};
+pub use layer_store::{clear_layers_for_app, layer_entry_meta, store_layer, take_layer};
+pub use structure_full::{
+    build_structure_full_document, build_structure_index_document, nodes_within_projection,
+    persist_structure_full, slot_group_id_for_node, structure_full_from_compiled,
+    ui_role_depth_rank,
+};
+pub use view_artifact::{
+    build_semantic_core_for_scene, eval_slot_group_cache_key, layout_overlay_persisted_cache_key,
+    layout_overlay_session_cache_key, manifest_revision_digest, shell_cache_key,
+    structure_full_cache_key, theme_tokens_cache_key, ComposeRequest, LayerRef,
+    SceneViewManifest, StructureFullDocument, StructureFullNode, WysiwygPanelPatch,
+    EVAL_SLOT_GROUP_KIND, LAYOUT_OVERLAY_KIND, SCENE_VIEW_MANIFEST_SCHEMA,
+    STRUCTURE_FULL_KIND, STRUCTURE_FULL_SCHEMA, THEME_TOKENS_KIND,
+};
 pub use layout_tuning_merge::merge_layout_tuning_into_compiled;
 pub use mcg::registry::{McgRegistry, McgRegistryWriter};
 pub use mrg::eval_cache_plan::{
@@ -82,6 +109,11 @@ pub use tier::{
     resolve_stack_order, runtime_overlay_z_index, z_index_in_named_plane, z_index_in_tier_band,
     compute_panel_z_index, DEFAULT_PANEL_TIER, STACK_ORDER_MAX, Z_T1_HEADER, TIER_T0, TIER_T1,
     TIER_T2,
+};
+pub use content_store::{
+    content_hash_bytes, get, put_if_absent, read_payload_json, resolve_payload_ref,
+    APP_SKELETON, METRIC_DEF_BUNDLE, METRIC_RESPONSE, NAVIGATION, PANEL_CONTRACT,
+    PROJECTION_ASSEMBLY, WARMUP_POLICY,
 };
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
 pub use world_plan::{build_world_exchange, build_map_projection, build_world_plan, WorldCompileOutcome};

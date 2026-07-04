@@ -21,6 +21,7 @@ use crate::build_info::fill_page_shell_placeholders;
 use crate::gis_config::GisTilesConfig;
 use crate::pages::{
     inject_client_bootstrap_script, inject_layer_plane_scripts, inject_presentation_manifest_script,
+    inject_scene_manifest_refs,
     AppQuery,
 };
 use crate::review_axes::{default_page_render_axes_for_route, PageRenderAxes};
@@ -172,7 +173,7 @@ pub fn access_page_cache_key(
     let view_axes = mei_host_graph::build_page_render_view_axes(
         route_mode.slug(),
         axes.data_mode.slug(),
-        axes.review_projection.slug(),
+        crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
         account_view.map(serialized_signature),
         Some(ops_layout_tuning_revision_digest(workspace_root, app_id)),
     );
@@ -508,12 +509,13 @@ pub fn render_access_page_template(
         None,
         None,
         Some(axes.data_mode.slug()),
-        Some(axes.review_projection.slug()),
+        Some(crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug()),
         None,
     );
     let html = fill_page_shell_placeholders(html, workspace_root);
     let html = inject_scene_revision_meta(html, revision_payload.as_ref());
     let html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
+    let html = inject_scene_manifest_refs(html, workspace_root, app_id, scene_id);
     let html = inject_layer_plane_scripts(html, &outcome);
     let presentation_id = if route_mode == UiRouteMode::Copilot {
         copilot_presentation_id

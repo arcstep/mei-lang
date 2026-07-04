@@ -6,7 +6,9 @@ mod build_info;
 mod build_fragment_cache;
 mod build_layout_tuning;
 mod access_page_cache;
+mod artifact_observability;
 mod scene_bundle;
+mod scene_manifest;
 mod startup;
 mod startup_banner;
 mod page_observability;
@@ -33,6 +35,7 @@ mod runtime_api;
 mod runtime_snapshot;
 mod pages;
 mod plug_proxy;
+mod client_trace;
 mod request_logging;
 mod state;
 mod tool_exec;
@@ -60,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
+        .with_ansi(true)
         .with_target(false)
         .with_writer(std::io::stderr)
         .compact()
