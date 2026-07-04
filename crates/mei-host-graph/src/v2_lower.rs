@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
+use mei_graph::{collect_template_imports, try_expand_artifact_macro_call, MacroRegistry};
 use mei_lang_kernel::{
     decode_config_ref_value, load_mei_config_for_app, BlockDecl, ConfigRefKind, FrameDecl,
     LayoutDecl, PanelDecl, UiNodeDecl,
@@ -379,6 +381,68 @@ fn lower_screen_header_panel(
     })
 }
 
+fn body_props_has_padding(body_props: &Value) -> bool {
+    body_props
+        .as_object()
+        .and_then(|map| map.get("padding"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+}
+
+fn hoist_titled_shell_body_padding(blocks: &mut [UiNodeDecl], body_props: &mut Value) {
+    if body_props_has_padding(body_props) {
+        return;
+    }
+    let Some(UiNodeDecl::Panel(wrapper)) = blocks.first_mut() else {
+        return;
+    };
+    let Some(padding) = wrapper
+        .props
+        .as_object()
+        .and_then(|map| map.get("padding"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    else {
+        return;
+    };
+    let mut map = body_props.as_object().cloned().unwrap_or_default();
+    map.insert("padding".to_string(), json!(padding));
+    map.entry("box_sizing".to_string())
+        .or_insert_with(|| json!("border-box"));
+    map.entry("min_height".to_string())
+        .or_insert_with(|| json!("0"));
+    *body_props = Value::Object(map);
+    if let Some(props) = wrapper.props.as_object_mut() {
+        props.remove("padding");
+    }
+}
+
+fn titled_shell_body_props(args: &Value, ctx: &PanelLowerContext<'_>) -> Value {
+    let body_props = args.get("body_props").cloned().unwrap_or(json!({}));
+    let Some(padding) = args.get("body_padding") else {
+        return body_props;
+    };
+    let resolved = resolve_panel_constant_exprs(padding, ctx);
+    let Some(padding_str) = resolved.as_str().map(str::trim).filter(|value| !value.is_empty())
+    else {
+        return body_props;
+    };
+    let map = body_props
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    let mut map = map;
+    map.insert("padding".to_string(), json!(padding_str));
+    map.entry("box_sizing".to_string())
+        .or_insert_with(|| json!("border-box"));
+    map.entry("min_height".to_string())
+        .or_insert_with(|| json!("0"));
+    Value::Object(map)
+}
+
 fn lower_titled_shell_panel(
     shell: &Value,
     id: String,
@@ -413,6 +477,9 @@ fn lower_titled_shell_panel(
         blocks.extend(lower_blocks(args.get("blocks"), ctx)?);
     }
 
+    let mut body_props = titled_shell_body_props(args, ctx);
+    hoist_titled_shell_body_padding(&mut blocks, &mut body_props);
+
     let family_source = outer_payload.unwrap_or(args);
     apply_view_family_hints(family_source, &blocks, &mut props);
 
@@ -430,7 +497,7 @@ fn lower_titled_shell_panel(
         slot: None,
         props,
         head_props,
-        body_props: args.get("body_props").cloned().unwrap_or(json!({})),
+        body_props,
         base: None,
         import_scope: None,
     })
@@ -864,6 +931,57 @@ fn lower_blocks(value: Option<&Value>, ctx: &PanelLowerContext<'_>) -> Result<Ve
     Ok(blocks)
 }
 
+fn workspace_stock_templates(app_root: &Path) -> PathBuf {
+    app_root
+        .parent()
+        .and_then(|apps| apps.parent())
+        .map(|workspace| workspace.join("stock/templates"))
+        .unwrap_or_else(|| app_root.join("stock/templates"))
+}
+
+struct TemplateMacroCache {
+    registry: MacroRegistry,
+    imports: BTreeMap<String, String>,
+}
+
+fn template_macro_cache(app_root: &Path) -> Option<TemplateMacroCache> {
+    static CACHE: std::sync::OnceLock<Mutex<BTreeMap<PathBuf, TemplateMacroCache>>> =
+        std::sync::OnceLock::new();
+    let stock = workspace_stock_templates(app_root);
+    if !stock.is_dir() {
+        return None;
+    }
+    let canonical = stock.canonicalize().ok()?;
+    let mutex = CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
+    let mut guard = mutex.lock().ok()?;
+    if let Some(cached) = guard.get(&canonical) {
+        return Some(TemplateMacroCache {
+            registry: cached.registry.clone(),
+            imports: cached.imports.clone(),
+        });
+    }
+    let registry = MacroRegistry::load_dir(canonical.as_path()).ok()?;
+    let imports = collect_template_imports(canonical.as_path());
+    guard.insert(
+        canonical.clone(),
+        TemplateMacroCache {
+            registry: registry.clone(),
+            imports: imports.clone(),
+        },
+    );
+    Some(TemplateMacroCache { registry, imports })
+}
+
+fn try_expand_unlowered_block(value: &Value, ctx: &PanelLowerContext<'_>) -> Option<Value> {
+    if let Some(rewritten) = crate::artifact_biz_macros::try_rewrite_biz_macro(value) {
+        if rewritten != *value {
+            return Some(rewritten);
+        }
+    }
+    let cache = template_macro_cache(ctx.app_root)?;
+    try_expand_artifact_macro_call(value, &cache.registry, &cache.imports)
+}
+
 fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<UiNodeDecl>> {
     if v2_ref_name(value) == Some("panel_ref") {
         let ref_path = v2_ref_arg0(value).context("panel_ref missing arg0")?;
@@ -880,6 +998,9 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
     }
     if v2_call_name(value).as_deref() == Some("panel") {
         return Ok(vec![UiNodeDecl::Panel(lower_inline_panel(value, ctx)?)]);
+    }
+    if let Some(expanded) = try_expand_unlowered_block(value, ctx) {
+        return lower_block_node(&expanded, ctx);
     }
     if value.get("use_key").is_some() || value.get("kind").and_then(|v| v.as_str()) == Some("block")
     {
@@ -1051,6 +1172,8 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
         resolve_config_refs_in_value(&args.get("source").cloned().unwrap_or(json!({})), ctx);
     let map = args.get("map").cloned();
     let patch = args.get("patch").cloned();
+    let presentation = merge_metric_presentation(args, &source, patch.as_ref())
+        .map(|value| resolve_config_refs_in_value(&value, ctx));
     let popup = args
         .get("popup")
         .map(|popup| resolve_popup_config(popup, ctx, Some(&source)));
@@ -1112,6 +1235,10 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
                 .expect("metric card props")
                 .insert("__mei_viewpoint".to_string(), json!(id));
         }
+    }
+    if let Some(presentation) = presentation.as_ref() {
+        apply_presentation_icon_to_shell(&mut panel_props, presentation);
+        stamp_metric_presentation_on_value_slot(&mut blocks, presentation);
     }
 
     Ok(UiNodeDecl::Panel(PanelDecl {
@@ -1543,6 +1670,92 @@ fn deep_merge_value(base: &mut Value, overlay: &Value) {
             }
         }
         (base_slot, overlay) => *base_slot = overlay.clone(),
+    }
+}
+
+fn merge_metric_presentation(
+    args: &Value,
+    source: &Value,
+    patch: Option<&Value>,
+) -> Option<Value> {
+    let mut merged = Map::new();
+    if let Some(presentation) = source
+        .as_object()
+        .and_then(|source| source.get("presentation"))
+        .filter(|value| value.is_object())
+    {
+        if let Some(map) = presentation.as_object() {
+            for (key, value) in map {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    if let Some(presentation) = args.get("presentation").filter(|value| value.is_object()) {
+        if let Some(map) = presentation.as_object() {
+            for (key, value) in map {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    if let Some(presentation) = patch
+        .and_then(|patch| patch.get("presentation"))
+        .filter(|value| value.is_object())
+    {
+        if let Some(map) = presentation.as_object() {
+            for (key, value) in map {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    if merged.is_empty() {
+        None
+    } else {
+        Some(Value::Object(merged))
+    }
+}
+
+fn apply_presentation_icon_to_shell(props: &mut Value, presentation: &Value) {
+    let map = props.as_object_mut().expect("metric card props");
+    if presentation.is_object() && !presentation.as_object().is_some_and(|m| m.is_empty()) {
+        map.insert(
+            "__mei_metric_presentation".to_string(),
+            presentation.clone(),
+        );
+    }
+    let Some(icon) = presentation
+        .get("icon")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let bg = map
+        .entry("background".to_string())
+        .or_insert_with(|| json!({}));
+    if !bg.is_object() {
+        *bg = json!({ "color": bg });
+    }
+    if let Some(bg_map) = bg.as_object_mut() {
+        bg_map.insert("image".to_string(), json!(icon));
+    }
+}
+
+fn stamp_metric_presentation_on_value_slot(blocks: &mut [UiNodeDecl], presentation: &Value) {
+    for node in blocks.iter_mut() {
+        let UiNodeDecl::Block(block) = node else {
+            continue;
+        };
+        if block.props.get("metric_role").and_then(Value::as_str) != Some("value") {
+            continue;
+        }
+        if let Some(map) = block.props.as_object_mut() {
+            map.insert(
+                "__mei_metric_presentation".to_string(),
+                presentation.clone(),
+            );
+        }
+        return;
     }
 }
 
@@ -2557,6 +2770,97 @@ mod tests {
     }
 
     #[test]
+    fn lower_titled_shell_maps_body_padding_to_body_props() {
+        let payload = json!({
+            "id": "enforcement",
+            "shell": {
+                "__call": "titled_shell",
+                "__args": {
+                    "title": "执法要素",
+                    "height": "162px",
+                    "body_padding": "8px 4px 4px 4px",
+                    "body": {
+                        "__call": "panel_contract",
+                        "__args": {
+                            "id": "enforcement-stats",
+                            "blocks": []
+                        }
+                    }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "pretty-panels",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "pretty-panels".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let panel = lower_panel_payload(&payload, "enforcement", &ctx).expect("panel");
+        assert_eq!(panel.body_props["padding"], json!("8px 4px 4px 4px"));
+        assert_eq!(panel.body_props["box_sizing"], json!("border-box"));
+    }
+
+    #[test]
+    fn lower_titled_shell_hoists_expanded_panel_body_padding() {
+        let payload = json!({
+            "id": "enforcement",
+            "shell": {
+                "__call": "panel_contract",
+                "__args": {
+                    "title": "执法要素",
+                    "title_height": "54px",
+                    "props": {"height": "166px"},
+                    "blocks": [{
+                        "__call": "panel",
+                        "__args": {
+                            "id": "panel",
+                            "chrome": "bare",
+                            "show_heading": false,
+                            "props": {
+                                "padding": "8px 4px 4px 4px",
+                                "background": "transparent",
+                                "height": "100%"
+                            },
+                            "blocks": [{
+                                "__call": "panel_contract",
+                                "__args": {"id": "enforcement-stats", "blocks": []}
+                            }]
+                        }
+                    }]
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "pretty-panels",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "pretty-panels".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let panel = lower_panel_payload(&payload, "enforcement", &ctx).expect("panel");
+        assert_eq!(panel.body_props["padding"], json!("8px 4px 4px 4px"));
+        let UiNodeDecl::Panel(wrapper) = &panel.blocks[0] else {
+            panic!("expected wrapper panel");
+        };
+        assert!(wrapper.props.get("padding").is_none());
+    }
+
+    #[test]
     fn lower_expanded_titled_shell_macro_loads_blocks_not_body() {
         let payload = json!({
             "id": "warning",
@@ -3001,5 +3305,133 @@ mod tests {
                 .any(|path| path == "src/content/panels/gis-map.panel.mei"),
             "expected content panel path, got {content_paths:?}"
         );
+    }
+
+    #[test]
+    fn lower_metric_card_applies_presentation_icon_to_shell() {
+        let value = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "issue_pending_card",
+                "area": "pending",
+                "height_px": 74,
+                "template": { "__call": "icon_left", "__args": {} },
+                "source": {
+                    "label": "待办",
+                    "value": "4",
+                    "unit": "件"
+                },
+                "presentation": {
+                    "icon": "url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)"
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "pretty-panels",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "pretty-panels".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let card = lower_metric_card(&value, &ctx).expect("metric card");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        assert_eq!(
+            panel.props["background"]["image"],
+            json!("url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)")
+        );
+        assert_eq!(
+            panel.props["__mei_metric_presentation"]["icon"],
+            json!("url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)")
+        );
+        let value_block = match &panel.blocks[1] {
+            UiNodeDecl::Block(block) => block,
+            other => panic!("expected value slot block, got {other:?}"),
+        };
+        assert_eq!(
+            value_block.props["__mei_metric_presentation"]["icon"],
+            json!("url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)")
+        );
+    }
+
+    #[test]
+    fn lower_metric_card_presentation_overrides_source_presentation() {
+        let value = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "issue_doing_card",
+                "template": { "__call": "icon_left", "__args": {} },
+                "source": {
+                    "label": "在办",
+                    "value": "10",
+                    "unit": "件",
+                    "presentation": { "icon": "url(/old.png)" }
+                },
+                "presentation": { "icon": "url(/new.png)" }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "pretty-panels",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "pretty-panels".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let card = lower_metric_card(&value, &ctx).expect("metric card");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        assert_eq!(panel.props["background"]["image"], json!("url(/new.png)"));
+    }
+
+    #[test]
+    fn lower_metric_card_strip_icon_left_preserves_geometry_with_presentation() {
+        let value = json!({
+            "__call": "metric_card",
+            "__args": {
+                "id": "issue_rate_card",
+                "template": { "__call": "strip_icon_left", "__args": {} },
+                "presentation": { "icon": "url(/rate.png)" }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "pretty-panels",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "pretty-panels".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let card = lower_metric_card(&value, &ctx).expect("metric card");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        assert_eq!(panel.props["background"]["image"], json!("url(/rate.png)"));
+        assert_eq!(panel.props["background"]["position"], json!("24px center"));
+        assert_eq!(panel.props["background"]["size"], json!("48px 48px"));
     }
 }

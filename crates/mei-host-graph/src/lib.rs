@@ -1,5 +1,6 @@
 //! Graph registry, CAS, import-bundle, and v2 assemble for mei-host-shell.
 
+mod artifact_biz_macros;
 mod assemble;
 mod bridge;
 mod content_store;

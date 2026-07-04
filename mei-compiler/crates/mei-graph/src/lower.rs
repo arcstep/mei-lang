@@ -1,7 +1,9 @@
-use mei_syntax::v2::{CallArgs, V2Expr, V2Item, V2SourceFile};
+use mei_syntax::v2::{CallArgs, V2Item, V2SourceFile};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as JsonValue};
 use thiserror::Error;
+
+use crate::artifact_expand;
 
 #[derive(Debug, Error)]
 pub enum LowerGraphError {
@@ -98,74 +100,16 @@ fn kw_string(obj: &Map<String, JsonValue>, key: &str) -> Result<String, LowerGra
 fn call_args_to_json(args: &CallArgs) -> Result<JsonValue, LowerGraphError> {
     let mut map = Map::new();
     for (idx, expr) in args.positional.iter().enumerate() {
-        map.insert(format!("arg{idx}"), expr_to_json(expr)?);
+        map.insert(
+            format!("arg{idx}"),
+            artifact_expand::expr_to_json(expr).map_err(|e| LowerGraphError::Lower(e.to_string()))?,
+        );
     }
     for (name, expr) in &args.keywords {
-        map.insert(name.clone(), expr_to_json(expr)?);
+        map.insert(
+            name.clone(),
+            artifact_expand::expr_to_json(expr).map_err(|e| LowerGraphError::Lower(e.to_string()))?,
+        );
     }
     Ok(JsonValue::Object(map))
-}
-
-fn expr_to_json(expr: &V2Expr) -> Result<JsonValue, LowerGraphError> {
-    match expr {
-        V2Expr::String(s) => Ok(JsonValue::String(s.clone())),
-        V2Expr::Number(n) => {
-            if n.fract() == 0.0 {
-                Ok(JsonValue::Number(serde_json::Number::from(*n as i64)))
-            } else {
-                serde_json::Number::from_f64(*n)
-                    .map(JsonValue::Number)
-                    .ok_or_else(|| LowerGraphError::Lower("invalid number".into()))
-            }
-        }
-        V2Expr::Bool(b) => Ok(JsonValue::Bool(*b)),
-        V2Expr::None => Ok(JsonValue::Null),
-        V2Expr::VarRef(name) => Ok(JsonValue::Object(Map::from_iter([(
-            "__var".to_string(),
-            JsonValue::String(name.clone()),
-        )]))),
-        V2Expr::BinOp { op, left, right } => Ok(JsonValue::Object(Map::from_iter([
-            (
-                "__binop".to_string(),
-                JsonValue::String(format!("{op:?}")),
-            ),
-            ("left".to_string(), expr_to_json(left)?),
-            ("right".to_string(), expr_to_json(right)?),
-        ]))),
-        V2Expr::List(items) => Ok(JsonValue::Array(
-            items
-                .iter()
-                .map(expr_to_json)
-                .collect::<Result<_, _>>()?,
-        )),
-        V2Expr::Dict(entries) => {
-            let mut map = Map::new();
-            for (k, v) in entries {
-                map.insert(k.clone(), expr_to_json(v)?);
-            }
-            Ok(JsonValue::Object(map))
-        }
-        V2Expr::Call { path, args } => {
-            let mut map = Map::new();
-            map.insert(
-                "__call".to_string(),
-                JsonValue::String(path.join(".")),
-            );
-            map.insert("__args".to_string(), call_args_to_json(args)?);
-            Ok(JsonValue::Object(map))
-        }
-        V2Expr::RefCall { name, args } => {
-            let mut map = Map::new();
-            map.insert("__ref".to_string(), JsonValue::String(name.clone()));
-            map.insert("__args".to_string(), call_args_to_json(args)?);
-            Ok(JsonValue::Object(map))
-        }
-        V2Expr::Member { object, field } => Ok(JsonValue::Object(Map::from_iter([
-            ("__member".to_string(), JsonValue::String(field.clone())),
-            ("base".to_string(), expr_to_json(object)?),
-        ]))),
-        V2Expr::ForIn { .. } | V2Expr::EnumMatch { .. } => Err(LowerGraphError::Lower(
-            "for/enum must be expanded before lower (expand_world_v2_file)".into(),
-        )),
-    }
 }

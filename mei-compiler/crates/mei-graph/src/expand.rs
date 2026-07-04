@@ -19,6 +19,20 @@ pub struct ExpandContext<'a> {
     pub module_consts: BTreeMap<String, V2Expr>,
 }
 
+pub fn expand_artifact_expr(
+    expr: &V2Expr,
+    registry: &MacroRegistry,
+    imports: &BTreeMap<String, String>,
+    module_consts: &BTreeMap<String, V2Expr>,
+) -> Result<V2Expr, ExpandError> {
+    let ctx = ExpandContext {
+        registry,
+        imports: imports.clone(),
+        module_consts: module_consts.clone(),
+    };
+    expand_expr(expr, &ctx)
+}
+
 pub fn expand_v2_file(
     file: &V2SourceFile,
     registry: &MacroRegistry,

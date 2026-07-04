@@ -113,7 +113,8 @@ pub fn assemble_scope_from_registry(
     let app_root_str = app_root.display().to_string();
 
     let (title, _default_scene) = load_app_meta(app_root.as_path(), &registry)?;
-    let assembly_key = resolve_assembly_key(source_root, app_id, &registry, scene_id);
+    let scene_id = resolve_scene_id_for_assembly(source_root, app_id, &registry, scene_id);
+    let assembly_key = resolve_assembly_key(source_root, app_id, &registry, scene_id.as_str());
     let assembly_payload = normalize_board_assembly_payload(load_assembly_payload(
         app_root.as_path(),
         &registry,
@@ -130,15 +131,15 @@ pub fn assemble_scope_from_registry(
         app_id,
         &registry,
         &assembly_payload,
-        scene_id,
+        &scene_id,
     );
-    let layer_plan = layer_plan_to_value(&build_layer_plan(scene_id, &panels));
+    let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &panels));
     let overlay_defaults = load_overlay_defaults(app_root.as_path(), &registry);
     let active_target = assembly_key_to_target(&assembly_key);
     let mut panel_diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut panel_diagnostics, active_target.as_str());
     let presentation_map =
-        presentation_map_to_value(&build_presentation_map(scene_id, &panels, &panel_payloads));
+        presentation_map_to_value(&build_presentation_map(&scene_id, &panels, &panel_payloads));
     let world_exchange = build_world_exchange(app_root.as_path(), &registry, app_id)
         .unwrap_or_default();
     let frame = Some(lower_frame_from_assembly(&assembly_payload));
@@ -201,7 +202,7 @@ pub fn assemble_scope_from_registry(
         title,
         app_root: app_root_str,
         scene_routes,
-        active_scene: Some(scene_id.to_string()),
+        active_scene: Some(scene_id.clone()),
         active_target_file: active_target,
         file_tree: Vec::new(),
         scene_contract: Some(scene_contract),
@@ -263,6 +264,39 @@ fn load_app_meta(
     Ok((registry.app_id.clone(), "home".to_string()))
 }
 
+fn resolve_scene_id_for_assembly(
+    source_root: &Path,
+    app_id: &str,
+    registry: &crate::mcg::registry::McgRegistry,
+    scene_id: &str,
+) -> String {
+    let scene_id = canonical_scene_id(scene_id);
+    if scene_id != "assembly" {
+        return scene_id;
+    }
+    if let Ok(routes) = list_scope_routes(source_root, app_id) {
+        if let Some(route) = routes.into_iter().find(|route| {
+            let target = assembly_key_to_target(&route.assembly_key);
+            target.ends_with("/assembly.mei") || target == "assembly.mei"
+        }) {
+            return route.scene_id;
+        }
+    }
+    registry
+        .nodes
+        .iter()
+        .filter(|n| {
+            n.id.kind == GraphNodeKind::AssemblyView
+                && n.id.key.contains("/assembly.mei")
+        })
+        .filter_map(|n| {
+            let resolved = canonical_scene_id(&n.id.key);
+            (!resolved.is_empty() && resolved != "assembly").then_some(resolved)
+        })
+        .next()
+        .unwrap_or(scene_id)
+}
+
 fn canonical_scene_id(scene_id: &str) -> String {
     let trimmed = scene_id.trim();
     if trimmed.is_empty() {
@@ -299,7 +333,7 @@ fn resolve_assembly_key(
     registry: &crate::mcg::registry::McgRegistry,
     scene_id: &str,
 ) -> String {
-    let scene_id = canonical_scene_id(scene_id);
+    let scene_id = resolve_scene_id_for_assembly(source_root, app_id, registry, scene_id);
     if scene_id == "home" {
         return registry
             .nodes
@@ -738,6 +772,13 @@ mod tests {
             assembly_key_to_target("overlay/t2/warning-detail.detail.page#warning_detail_page"),
             "src/overlay/t2/warning-detail.detail.page.mei"
         );
+    }
+
+    #[test]
+    fn resolve_assembly_scene_id_maps_legacy_assembly_stem_via_registry_key() {
+        let scene_id = canonical_scene_id("home@src/scene/home/assembly.mei");
+        assert_eq!(scene_id, "home");
+        assert_eq!(canonical_scene_id("assembly"), "assembly");
     }
 
     #[test]
