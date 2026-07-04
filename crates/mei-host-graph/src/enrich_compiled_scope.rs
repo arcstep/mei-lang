@@ -17,7 +17,7 @@ pub struct EnrichCompiledScopeOptions {
 impl Default for EnrichCompiledScopeOptions {
     fn default() -> Self {
         Self {
-            materialize_px: true,
+            materialize_px: false,
         }
     }
 }

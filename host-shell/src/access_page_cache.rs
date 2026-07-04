@@ -452,7 +452,7 @@ pub fn render_access_page_template(
         None,
         None,
         Some(axes.data_mode.slug()),
-        query.review_projection.as_deref(),
+        Some(axes.review_projection.slug()),
     );
     let html = fill_page_shell_placeholders(html, workspace_root);
     let html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);

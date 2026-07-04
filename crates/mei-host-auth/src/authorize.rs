@@ -247,6 +247,32 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
         }
         return Ok(());
     }
+    if path.starts_with("/api/ops/layout-tuning/overlay/") {
+        if !(caps.build_view || caps.access_view) {
+            anyhow::bail!("current role cannot access layout tuning overlay api");
+        }
+        return Ok(());
+    }
+    if path.starts_with("/api/ops/layout-tuning/draft/") {
+        if !caps.build_view {
+            anyhow::bail!("current role cannot access layout tuning draft api");
+        }
+        return Ok(());
+    }
+    if path.starts_with("/api/ops/boundary")
+        || path.starts_with("/api/ops/journal/")
+    {
+        if !caps.access_view {
+            anyhow::bail!("current role cannot access ops read api");
+        }
+        return Ok(());
+    }
+    if path.starts_with("/api/ops/config/") {
+        if !caps.config_upload {
+            anyhow::bail!("current role cannot access ops config api");
+        }
+        return Ok(());
+    }
     if path.starts_with("/api/ops/") || path.starts_with("/api/upload/") {
         if !caps.config_upload {
             anyhow::bail!("current role cannot access write api");

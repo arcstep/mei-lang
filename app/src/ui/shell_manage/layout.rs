@@ -100,9 +100,13 @@ pub(crate) fn manage_shell(
         catalog,
         stock_pack,
     );
+    let active_review_projection = review_projection
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("plane_region_section");
     let review_axes = BuildReviewAxes {
         data_mode,
-        review_projection,
+        review_projection: Some(active_review_projection),
     };
     let active_data_mode = data_mode
         .map(str::trim)
@@ -165,10 +169,7 @@ pub(crate) fn manage_shell(
     } else {
         "main-pane-scroll preview-pane-scroll flex-1 min-h-0 overflow-auto p-0"
     };
-    let review_projection_attr = review_projection
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("");
+    let review_projection_attr = active_review_projection;
 
     let visible_tabs: Vec<BuildViewTab> = tabs_for_node_kind(resolved.node.kind)
         .iter()
@@ -310,6 +311,45 @@ pub(crate) fn manage_shell(
         })
         .collect_view();
 
+    let projection_links = ["plane_region_section", "static_full"]
+        .iter()
+        .map(|projection| {
+            let href = build_node_href(
+                app_path,
+                &resolved.node,
+                active_tab_enum,
+                resolved.scope,
+                catalog,
+                stock_pack,
+                BuildReviewAxes {
+                    data_mode: Some(active_data_mode),
+                    review_projection: Some(projection),
+                },
+            );
+            let class = if *projection == active_review_projection {
+                "build-data-mode-btn is-active"
+            } else {
+                "build-data-mode-btn"
+            };
+            let label = match *projection {
+                "plane_region_section" => "Plane+Section",
+                "static_full" => "Static Full",
+                _ => projection,
+            };
+            view! {
+                <a
+                    class=class
+                    href=href
+                    role="tab"
+                    aria-selected=if *projection == active_review_projection { "true" } else { "false" }
+                    data-build-review-projection=projection.to_string()
+                >
+                    {label}
+                </a>
+            }
+        })
+        .collect_view();
+
     view! {
         <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
@@ -359,6 +399,13 @@ pub(crate) fn manage_shell(
                             >
                                 {data_mode_links}
                             </div>
+                            <div
+                                class="build-projection-toggle flex shrink-0 flex-wrap items-center gap-1"
+                                role="tablist"
+                                aria-label="审阅投影"
+                            >
+                                {projection_links}
+                            </div>
                             <button
                                 type="button"
                                 id="build-copy-agent-context-top"
@@ -385,7 +432,7 @@ pub(crate) fn manage_shell(
                             hidden=active_tab_enum != BuildViewTab::Preview
                         >
                             {projection_attrs}
-                            <div class=preview_scroll_class data-review-projection=review_projection_attr>
+                            <div class=preview_scroll_class data-review-projection=review_projection_attr data-data-mode=active_data_mode>
                                 {if selected_target.ends_with(".mei") || selected_target.ends_with(".world.mei") {
                                     preview.into_any()
                                 } else {

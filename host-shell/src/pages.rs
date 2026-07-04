@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, OriginalUri, Path, Query, State},
-    http::{HeaderName, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
 use mei_host_auth::{
@@ -9,6 +9,7 @@ use mei_host_auth::{
 };
 use mei_lang_app::{load_topbar_menu_context, page_body_theme_style, render_page, UiRouteMode};
 use mei_lang_kernel::load_workspace_config;
+use mei_lang_kernel::CompiledApp;
 use serde::Deserialize;
 use serde_json::json;
 use std::time::Instant;
@@ -25,6 +26,31 @@ use crate::page_observability::{
     measure_page_html_payload,
 };
 use crate::state::SharedState;
+
+fn apply_build_session_layout_tuning_draft(
+    compiled: &mut CompiledApp,
+    workspace_root: &std::path::Path,
+    app_id: &str,
+    headers: &HeaderMap,
+) {
+    let session_id = mei_host_core::resolve_draft_session_id(headers);
+    let storage_key =
+        mei_host_core::layout_tuning_draft_storage_key(app_id, session_id.as_str());
+    let draft = mei_host_core::layout_tuning_draft(storage_key.as_str());
+    if draft.is_none() {
+        return;
+    }
+    let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
+    let config = mei_lang_kernel::load_mei_config_for_app(
+        app_root.as_path(),
+        Some(workspace_root),
+    );
+    let merged = mei_host_core::merge_layout_tuning_overlay(
+        config.ops.layout_tuning.as_ref(),
+        draft.as_ref(),
+    );
+    mei_host_graph::merge_layout_tuning_into_compiled(compiled, merged.as_ref());
+}
 
 #[derive(Debug, Deserialize, Default)]
 pub struct AppQuery {
@@ -45,6 +71,7 @@ pub async fn app_page(
     State(auth): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
     OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
     Path((mode, app_tail)): Path<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Response {
@@ -248,7 +275,7 @@ pub async fn app_page(
             app_id.as_str(),
             scene_id.as_str(),
         );
-        let outcome = match assemble_result {
+        let mut outcome = match assemble_result {
             Ok(Some(outcome)) => outcome,
             Ok(None) => {
                 tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
@@ -274,6 +301,14 @@ pub async fn app_page(
                     .into_response();
             }
         };
+        if route_mode.is_build() {
+            apply_build_session_layout_tuning_draft(
+                &mut outcome.compiled,
+                workspace_root,
+                app_id.as_str(),
+                &headers,
+            );
+        }
         let workspace = load_workspace_config(workspace_root);
         let target_file = query
             .file
@@ -340,7 +375,7 @@ pub async fn app_page(
                             runtime_roots_ref,
                             runtime_json_ref,
                             Some(axes.data_mode.slug()),
-                            query.review_projection.as_deref(),
+                            Some(axes.review_projection.slug()),
                         ),
                         workspace_root,
                     ),

@@ -143,6 +143,10 @@ pub fn router() -> Router<AppState> {
             "/api/ops/layout-tuning/overlay/*app_id",
             get(ops_api::ops_layout_tuning_overlay_get),
         )
+        .route(
+            "/api/ops/layout-tuning/draft/*app_id",
+            put(ops_api::ops_layout_tuning_draft_put),
+        )
         .route("/api/ops/journal/*app_id", get(ops_api::ops_journal_get))
         .route(
             "/api/upload/init/*app_id",

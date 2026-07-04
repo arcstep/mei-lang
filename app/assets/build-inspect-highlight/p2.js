@@ -472,6 +472,7 @@
       const root = previewRoot();
       if (!root) return;
       syncShellFocus(readFocusFromUrl());
+      applyReviewProjectionChrome(root);
       applyHighlight(root);
       return;
     }

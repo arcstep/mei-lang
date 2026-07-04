@@ -383,6 +383,16 @@
       else shell.removeAttribute("data-build-node");
       if (focus) shell.setAttribute("data-build-focus", focus);
       else shell.removeAttribute("data-build-focus");
+      const dataMode = String(parsed.searchParams.get("data_mode") || "").trim();
+      const reviewProjection = String(
+        parsed.searchParams.get("review_projection") || "",
+      ).trim();
+      if (dataMode) shell.setAttribute("data-data-mode", dataMode);
+      if (reviewProjection) {
+        shell.setAttribute("data-review-projection", reviewProjection);
+      } else if (isBuildWorkspacePathname(parsed.pathname)) {
+        shell.setAttribute("data-review-projection", "plane_region_section");
+      }
       const resolvedTab = tab || inferredTab;
       if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
       const coord = readCompileCoordinate(url, linkEl);

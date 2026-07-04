@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+http = "1"
 chrono = "0.4.44"
 mei-bundle = { path = "../../mei-compiler/crates/mei-bundle" }
 mei-lang-kernel = { path = "../kernel" }

@@ -2,20 +2,21 @@
 
 use axum::{
     extract::{Extension, Path, Query, State},
-    http::{HeaderName, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::IntoResponse,
     Json,
 };
 use mei_lang_app::{scene_theme_style_for_theme_id, scene_viewport_theme_style};
 use mei_lang_kernel::{
     apply_ops_patch_with_journal, compile_app_from_root_with_options, decode_theme_ref_token,
-    journal_path, load_mei_config_for_app, ops_themes_revision_digest,
+    journal_path, layout_tuning_overlay_keys, load_mei_config_for_app,
+    ops_layout_tuning_revision_digest, ops_themes_revision_digest,
     resolve_app_root as kernel_resolve_app_root, resolve_components_root,
     resolve_default_scene_from_root, resolve_mei_config_path, CompileOptions, MeiConfig,
     OpsConfigPatch, OpsJournal,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::compile_cache::{
     compile_outcome_from_shared, resolve_runtime_compile_shared, RuntimeAccessPolicies,
@@ -298,16 +299,26 @@ pub async fn ops_theme_style_get(
 #[derive(Debug, Serialize)]
 struct LayoutTuningOverlayResponse {
     app_id: String,
+    session_id: String,
     revision: String,
     draft_active: bool,
-    entries: std::collections::BTreeMap<String, serde_json::Value>,
+    entries: std::collections::BTreeMap<String, Value>,
 }
 
 pub async fn ops_layout_tuning_overlay_get(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(app_id): Path<String>,
 ) -> impl IntoResponse {
-    let Some(app_root) = resolve_app_root(&state, &app_id) else {
+    let app_id = app_id.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app_id is required"})),
+        )
+            .into_response();
+    }
+    let Some(app_root) = resolve_app_root(&state, app_id) else {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "app not found"})),
@@ -316,21 +327,73 @@ pub async fn ops_layout_tuning_overlay_get(
     };
     let source_root = state.source_root.as_path();
     let config = load_mei_config_for_app(&app_root, Some(source_root));
-    let revision = mei_lang_kernel::ops_layout_tuning_revision_digest(&config.ops);
-    let entries = config
-        .ops
-        .layout_tuning
+    let session_id = mei_host_core::resolve_draft_session_id(&headers);
+    let storage_key =
+        mei_host_core::layout_tuning_draft_storage_key(app_id, session_id.as_str());
+    let draft = mei_host_core::layout_tuning_draft(storage_key.as_str());
+    let merged = mei_host_core::merge_layout_tuning_overlay(
+        config.ops.layout_tuning.as_ref(),
+        draft.as_ref(),
+    );
+    let revision = if draft.is_some() {
+        format!(
+            "{}+draft:{}",
+            ops_layout_tuning_revision_digest(&config.ops),
+            session_id
+        )
+    } else {
+        ops_layout_tuning_revision_digest(&config.ops)
+    };
+    let entries = merged
         .as_ref()
-        .map(mei_lang_kernel::layout_tuning_overlay_keys)
+        .map(layout_tuning_overlay_keys)
         .unwrap_or_default();
     (
         StatusCode::OK,
         Json(LayoutTuningOverlayResponse {
-            app_id,
+            app_id: app_id.to_string(),
+            session_id,
             revision,
-            draft_active: false,
+            draft_active: draft.is_some(),
             entries,
         }),
+    )
+        .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LayoutTuningDraftRequest {
+    #[serde(default)]
+    pub tuning: Value,
+}
+
+pub async fn ops_layout_tuning_draft_put(
+    State(_state): State<AppState>,
+    headers: HeaderMap,
+    Path(app_id): Path<String>,
+    Json(body): Json<LayoutTuningDraftRequest>,
+) -> impl IntoResponse {
+    let app_id = app_id.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app_id is required"})),
+        )
+            .into_response();
+    }
+    let session_id = mei_host_core::resolve_draft_session_id(&headers);
+    let storage_key =
+        mei_host_core::layout_tuning_draft_storage_key(app_id, session_id.as_str());
+    mei_host_core::set_layout_tuning_draft(storage_key.as_str(), body.tuning.clone());
+    let draft_active = !body.tuning.is_null();
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "app_id": app_id,
+            "session_id": session_id,
+            "draft": draft_active,
+        })),
     )
         .into_response()
 }

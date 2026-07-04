@@ -33,6 +33,7 @@ mei-lang-datasets = { path = "../crates/datasets" }
 mei-lang-kernel = { path = "../crates/kernel" }
 mei-lang-toolchain = { path = "../crates/toolchain" }
 mei-host-auth = { path = "../crates/mei-host-auth" }
+mei-host-core = { path = "../crates/mei-host-core" }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "blocking"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }

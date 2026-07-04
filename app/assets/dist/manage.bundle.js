@@ -6078,6 +6078,16 @@
       else shell.removeAttribute("data-build-node");
       if (focus) shell.setAttribute("data-build-focus", focus);
       else shell.removeAttribute("data-build-focus");
+      const dataMode = String(parsed.searchParams.get("data_mode") || "").trim();
+      const reviewProjection = String(
+        parsed.searchParams.get("review_projection") || "",
+      ).trim();
+      if (dataMode) shell.setAttribute("data-data-mode", dataMode);
+      if (reviewProjection) {
+        shell.setAttribute("data-review-projection", reviewProjection);
+      } else if (isBuildWorkspacePathname(parsed.pathname)) {
+        shell.setAttribute("data-review-projection", "plane_region_section");
+      }
       const resolvedTab = tab || inferredTab;
       if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
       const coord = readCompileCoordinate(url, linkEl);
@@ -6320,6 +6330,16 @@
         const parsed = new URL(url, global.location.href);
         const tab = String(parsed.searchParams.get("tab") || "").trim();
         const node = String(parsed.searchParams.get("node") || "").trim();
+        const dataMode = String(parsed.searchParams.get("data_mode") || "").trim();
+        const reviewProjection = String(
+          parsed.searchParams.get("review_projection") || "",
+        ).trim();
+        if (dataMode) shell.setAttribute("data-data-mode", dataMode);
+        if (reviewProjection) {
+          shell.setAttribute("data-review-projection", reviewProjection);
+        } else {
+          shell.setAttribute("data-review-projection", "plane_region_section");
+        }
         const resolvedTab = tab || inferPreviewTabFromNodeId(node);
         if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
       }
@@ -7628,6 +7648,7 @@
       const root = previewRoot();
       if (!root) return;
       syncShellFocus(readFocusFromUrl());
+      applyReviewProjectionChrome(root);
       applyHighlight(root);
       return;
     }
@@ -7661,6 +7682,134 @@
 
   global.MeiBuildInspectHighlight = { refresh, navigateToBuildNode, navigateToBuildFocus };
 })(window);
+
+
+/* ===== manage-ops-panel/p4.js ===== */
+(function initManageOpsLayoutTuningOverlay() {
+  const global = window;
+
+  function notifyLayoutTuningOverlay(reason) {
+    try {
+      global.dispatchEvent(
+        new CustomEvent("meilang:preview-updated", {
+          bubbles: true,
+          detail: { reason: reason || "layout-tuning-overlay", resetRuntimeQueryCache: false },
+        }),
+      );
+    } catch (_) {}
+  }
+
+  function ensureDraftSessionId() {
+    const cookieKey = "mei-draft-session";
+    const match = String(document.cookie || "").match(/mei-draft-session=([^;]+)/);
+    if (match && match[1]) return decodeURIComponent(match[1].trim());
+    const id = `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    document.cookie = `${cookieKey}=${encodeURIComponent(id)};path=/;SameSite=Lax`;
+    return id;
+  }
+
+  function draftSessionHeaders() {
+    return { "x-mei-draft-session": ensureDraftSessionId() };
+  }
+
+  async function fetchOverlay(appId) {
+    const resp = await fetch(
+      `/api/ops/layout-tuning/overlay/${encodeURIComponent(appId)}`,
+      {
+        credentials: "same-origin",
+        headers: { Accept: "application/json", ...draftSessionHeaders() },
+      },
+    );
+    if (!resp.ok) throw new Error(`layoutTuning overlay failed: ${resp.status}`);
+    return resp.json();
+  }
+
+  function applyContentBudgetToNode(node, budget) {
+    if (!(node instanceof HTMLElement) || !budget || typeof budget !== "object") return false;
+    let patched = false;
+    const rows = budget.rows ?? budget.content_rows ?? budget.contentRows;
+    const gap = budget.gap ?? budget.content_gap ?? budget.contentGap;
+    if (Array.isArray(rows) && rows.length > 0) {
+      node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
+      node.dataset.layoutTuningContentRows = rows.join(",");
+      patched = true;
+    }
+    if (gap != null && gap !== "") {
+      node.style.rowGap = `${gap}px`;
+      node.dataset.layoutTuningContentGap = String(gap);
+      patched = true;
+    }
+    return patched;
+  }
+
+  function applyOverlayEntries(root, entries) {
+    if (!(root instanceof HTMLElement) || !entries || typeof entries !== "object") return false;
+    let patched = false;
+    Object.entries(entries).forEach(([scope, patch]) => {
+      if (!patch || typeof patch !== "object") return;
+      const selector = `[data-preview-scope="${CSS.escape(scope)}"]`;
+      const node = root.querySelector(selector);
+      if (!(node instanceof HTMLElement)) return;
+      const slotHeight =
+        patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
+      if (slotHeight != null) {
+        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
+        node.dataset.layoutTuningSlotHeight = String(slotHeight);
+        patched = true;
+      }
+      const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
+      if (paddingProfile) {
+        node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
+        patched = true;
+      }
+      const contentBudget = patch.content_budget ?? patch.contentBudget;
+      if (applyContentBudgetToNode(node, contentBudget)) {
+        patched = true;
+      }
+    });
+    return patched;
+  }
+
+  async function applyLayoutTuningOverlayHot(appId, targetWindow) {
+    const view = targetWindow || global;
+    const payload = await fetchOverlay(appId);
+    const root =
+      view.document.querySelector(".preview-pane-scroll") ||
+      view.document.querySelector(".preview-pane");
+    if (applyOverlayEntries(root, payload.entries || {})) {
+      notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
+      if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
+        try {
+          view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
+    }
+  }
+
+  async function putSessionDraft(appId, tuning) {
+    const resp = await fetch(
+      `/api/ops/layout-tuning/draft/${encodeURIComponent(appId)}`,
+      {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...draftSessionHeaders(),
+        },
+        body: JSON.stringify({ tuning }),
+      },
+    );
+    if (!resp.ok) throw new Error(`layoutTuning draft failed: ${resp.status}`);
+    return resp.json();
+  }
+
+  global.MeiOpsLayoutTuningOverlay = {
+    applyHot: applyLayoutTuningOverlayHot,
+    putSessionDraft,
+    notify: notifyLayoutTuningOverlay,
+  };
+})();
 
 
 /* ===== build-exec-panel.js ===== */
@@ -23794,6 +23943,27 @@
 
 
 /* ===== spa-navigation/spa/manage-preview.js ===== */
+  function resolveBuildAppId(doc) {
+    const root = doc || document;
+    const shell = root.querySelector(".shell[data-app-path]");
+    if (shell instanceof HTMLElement) {
+      const fromShell = String(shell.getAttribute("data-app-path") || "").trim();
+      if (fromShell) return fromShell;
+    }
+    const pathMatch = String(global.location.pathname || "").match(
+      /^\/apps\/(?:build|manage)\/([^/]+)/,
+    );
+    return pathMatch ? pathMatch[1] : "";
+  }
+
+  function maybeApplyLayoutTuningOverlay(doc) {
+    const overlay = global.MeiOpsLayoutTuningOverlay;
+    if (!overlay?.applyHot) return;
+    const appId = resolveBuildAppId(doc);
+    if (!appId) return;
+    void overlay.applyHot(appId, global).catch(() => {});
+  }
+
   function pulseManagePreview(detail, options) {
     if (!shouldRunBuildPreviewRuntimeForUrl(window.location.href)) return;
     const opts = options || {};
@@ -23819,6 +23989,7 @@
           if (typeof boot.mountManagePreviewBoard === "function") {
             void boot.mountManagePreviewBoard(document);
           }
+          maybeApplyLayoutTuningOverlay(document);
         });
       });
     });

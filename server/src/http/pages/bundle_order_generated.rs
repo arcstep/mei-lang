@@ -25,6 +25,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "build-navigation/p2.js",
     "build-inspect-highlight/p1.js",
     "build-inspect-highlight/p2.js",
+    "manage-ops-panel/p4.js",
     "build-exec-panel.js",
     "manage-diagnostics.js",
     "statusbar.js",

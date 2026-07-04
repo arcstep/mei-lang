@@ -2449,6 +2449,7 @@ version = "2.0.13"
 dependencies = [
  "anyhow",
  "chrono",
+ "http",
  "mei-bundle",
  "mei-lang-kernel",
  "serde",
@@ -2575,6 +2576,7 @@ dependencies = [
  "dotenvy",
  "http-body-util",
  "mei-host-auth",
+ "mei-host-core",
  "mei-lang-app",
  "mei-lang-datasets",
  "mei-lang-kernel",

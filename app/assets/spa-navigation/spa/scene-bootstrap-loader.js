@@ -76,7 +76,13 @@
       }
       const contentRows = entry.content_rows ?? entry.contentRows;
       if (Array.isArray(contentRows) && contentRows.length > 0) {
+        node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
         node.dataset.manifestContentRows = contentRows.join(",");
+      }
+      const contentGap = entry.content_gap ?? entry.contentGap;
+      if (contentGap != null && contentGap !== "") {
+        node.style.rowGap = `${contentGap}px`;
+        node.dataset.manifestContentGap = String(contentGap);
       }
     });
   }

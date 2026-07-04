@@ -209,6 +209,16 @@
         const parsed = new URL(url, global.location.href);
         const tab = String(parsed.searchParams.get("tab") || "").trim();
         const node = String(parsed.searchParams.get("node") || "").trim();
+        const dataMode = String(parsed.searchParams.get("data_mode") || "").trim();
+        const reviewProjection = String(
+          parsed.searchParams.get("review_projection") || "",
+        ).trim();
+        if (dataMode) shell.setAttribute("data-data-mode", dataMode);
+        if (reviewProjection) {
+          shell.setAttribute("data-review-projection", reviewProjection);
+        } else {
+          shell.setAttribute("data-review-projection", "plane_region_section");
+        }
         const resolvedTab = tab || inferPreviewTabFromNodeId(node);
         if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
       }
