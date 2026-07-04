@@ -48,6 +48,13 @@ pub fn merge_ops_section(config: &mut MeiConfig, patch: &OpsConfigPatch) -> Resu
             }
         }
     }
+    if let Some(layout_tuning) = &patch.layout_tuning {
+        if layout_tuning.is_null() {
+            config.ops.layout_tuning = None;
+        } else {
+            config.ops.layout_tuning = Some(layout_tuning.clone());
+        }
+    }
     Ok(())
 }
 
@@ -62,6 +69,8 @@ pub struct OpsConfigPatch {
     pub basemaps: Option<BTreeMap<String, Value>>,
     #[serde(default)]
     pub params: Option<BTreeMap<String, Value>>,
+    #[serde(default)]
+    pub layout_tuning: Option<Value>,
 }
 
 impl OpsConfigPatch {
@@ -70,5 +79,6 @@ impl OpsConfigPatch {
             && self.sources.is_none()
             && self.basemaps.is_none()
             && self.params.is_none()
+            && self.layout_tuning.is_none()
     }
 }

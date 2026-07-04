@@ -56,8 +56,10 @@ fn projection_query_parts(
     route_mode: UiRouteMode,
     tab: Option<&str>,
     chrome: Option<&str>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> Vec<String> {
-    if route_mode != UiRouteMode::App {
+    if !matches!(route_mode, UiRouteMode::App | UiRouteMode::Run) {
         return Vec::new();
     }
     let mut parts = Vec::new();
@@ -66,6 +68,18 @@ fn projection_query_parts(
     }
     if let Some(c) = chrome.map(str::trim).filter(|s| !s.is_empty()) {
         parts.push(format!("chrome={}", percent_encode_query_component(c)));
+    }
+    if let Some(mode) = data_mode.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("data_mode={}", percent_encode_query_component(mode)));
+    }
+    if let Some(projection) = review_projection
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!(
+            "review_projection={}",
+            percent_encode_query_component(projection)
+        ));
     }
     parts
 }
@@ -142,6 +156,8 @@ pub(crate) fn scene_projection_canonical_location(
     scene_id: &str,
     tab: Option<&str>,
     chrome: Option<&str>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> String {
     let sid = scene_id.trim();
     let mut out = format!(
@@ -149,7 +165,13 @@ pub(crate) fn scene_projection_canonical_location(
         projection_base_path(route_mode, app_id),
         percent_encode_query_component(sid)
     );
-    let parts = projection_query_parts(route_mode, tab, chrome);
+    let parts = projection_query_parts(
+        route_mode,
+        tab,
+        chrome,
+        data_mode,
+        review_projection,
+    );
     if !parts.is_empty() {
         out.push('?');
         out.push_str(&parts.join("&"));
@@ -164,7 +186,15 @@ pub(crate) fn access_canonical_location(
     tab: Option<&str>,
     chrome: Option<&str>,
 ) -> String {
-    scene_projection_canonical_location(UiRouteMode::App, app_id, scene_id, tab, chrome)
+    scene_projection_canonical_location(
+        UiRouteMode::App,
+        app_id,
+        scene_id,
+        tab,
+        chrome,
+        None,
+        None,
+    )
 }
 
 pub(crate) fn scene_projection_sanitized_redirect_location(
@@ -184,9 +214,17 @@ pub(crate) fn scene_projection_sanitized_redirect_location(
             scene,
             query.tab.as_deref(),
             query.chrome.as_deref(),
+            query.data_mode.as_deref(),
+            query.review_projection.as_deref(),
         );
     }
-    let parts = projection_query_parts(route_mode, query.tab.as_deref(), query.chrome.as_deref());
+    let parts = projection_query_parts(
+        route_mode,
+        query.tab.as_deref(),
+        query.chrome.as_deref(),
+        query.data_mode.as_deref(),
+        query.review_projection.as_deref(),
+    );
     let base = projection_base_path(route_mode, app_id);
     if parts.is_empty() {
         base

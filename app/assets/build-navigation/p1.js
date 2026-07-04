@@ -328,6 +328,46 @@
     return fromScene === toScene;
   }
 
+  function readDataModeFromUrl(rawUrl) {
+    try {
+      const parsed = new URL(rawUrl, global.location.href);
+      const fromQuery = String(parsed.searchParams.get("data_mode") || "").trim();
+      if (fromQuery) return fromQuery.toLowerCase();
+    } catch (_) {}
+    const shell = document.querySelector(".shell");
+    return String(shell?.getAttribute("data-data-mode") || "eval")
+      .trim()
+      .toLowerCase();
+  }
+
+  function readReviewProjectionFromUrl(rawUrl) {
+    try {
+      const parsed = new URL(rawUrl, global.location.href);
+      const fromQuery = String(parsed.searchParams.get("review_projection") || "").trim();
+      if (fromQuery) return fromQuery.toLowerCase().replace(/-/g, "_");
+    } catch (_) {}
+    const shell = document.querySelector(".shell");
+    const fromShell = shell?.getAttribute("data-review-projection");
+    if (fromShell) {
+      return String(fromShell).trim().toLowerCase().replace(/-/g, "_");
+    }
+    return "plane_region_section";
+  }
+
+  function reviewAxesChanged(fromUrl, toUrl) {
+    const fromDataMode = readDataModeFromUrl(fromUrl);
+    const toDataMode = readDataModeFromUrl(toUrl);
+    const dataModeChanged = fromDataMode !== toDataMode;
+    const fromProjection = readReviewProjectionFromUrl(fromUrl);
+    const toProjection = readReviewProjectionFromUrl(toUrl);
+    const reviewProjectionChanged = fromProjection !== toProjection;
+    return {
+      dataModeChanged,
+      reviewProjectionChanged,
+      changed: dataModeChanged || reviewProjectionChanged,
+    };
+  }
+
   function classifyBuildNavTier(fromUrl, toUrl, linkEl) {
     try {
       const from = new URL(fromUrl, global.location.href);
@@ -339,6 +379,10 @@
       const previewTab =
         buildTab(toUrl, linkEl) === "preview" || Boolean(inferPreviewTabFromNodeId(toNode));
       if (!previewTab) return "full";
+      const axesChange = reviewAxesChanged(fromUrl, toUrl);
+      if (axesChange.dataModeChanged) {
+        return "fragment";
+      }
       if (isSameSceneStructureNav(fromUrl, toUrl)) {
         return "client";
       }

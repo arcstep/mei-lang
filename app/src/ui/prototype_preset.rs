@@ -14,32 +14,32 @@ pub struct PrototypePreset {
 
 pub const PROTOTYPE_PRESETS: &[PrototypePreset] = &[
     PrototypePreset {
-        slug: "full_eval",
-        label: "完整求值",
+        slug: "eval",
+        label: "Eval",
         data_mode: "eval",
         review_projection: "live_full",
-        tree_max_ui_role: "content",
+        tree_max_ui_role: "plane",
     },
     PrototypePreset {
-        slug: "fixture_preview",
-        label: "样例预览",
-        data_mode: "fixture",
-        review_projection: "static_full",
-        tree_max_ui_role: "content",
-    },
-    PrototypePreset {
-        slug: "region_layout",
-        label: "Region 布局",
+        slug: "content",
+        label: "Content",
         data_mode: "static",
-        review_projection: "plane_region",
-        tree_max_ui_role: "region",
+        review_projection: "static_full",
+        tree_max_ui_role: "plane",
     },
     PrototypePreset {
-        slug: "section_layout",
-        label: "Section 布局",
+        slug: "section",
+        label: "Section",
         data_mode: "static",
         review_projection: "plane_region_section",
-        tree_max_ui_role: "section",
+        tree_max_ui_role: "plane",
+    },
+    PrototypePreset {
+        slug: "region",
+        label: "Region",
+        data_mode: "static",
+        review_projection: "plane_region",
+        tree_max_ui_role: "plane",
     },
 ];
 
@@ -52,7 +52,7 @@ pub fn match_preset(data_mode: &str, review_projection: &str) -> Option<&'static
 }
 
 pub fn default_build_preset() -> &'static PrototypePreset {
-    &PROTOTYPE_PRESETS[3]
+    &PROTOTYPE_PRESETS[2]
 }
 
 pub fn preset_tree_max_ui_role(data_mode: &str, review_projection: &str) -> &'static str {
@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn presets_map_to_review_axes() {
         let preset = match_preset("eval", "live_full").expect("full eval preset");
-        assert_eq!(preset.slug, "full_eval");
+        assert_eq!(preset.slug, "eval");
         assert_eq!(default_build_preset().data_mode, "static");
         assert_eq!(default_build_preset().review_projection, "plane_region_section");
     }

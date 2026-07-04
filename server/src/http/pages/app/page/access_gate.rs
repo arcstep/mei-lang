@@ -20,6 +20,8 @@ pub(super) fn check_access_scene_gate(
     principal: Option<&AuthPrincipal>,
     tab: Option<&str>,
     chrome: Option<&str>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> Option<Response> {
     if !route_mode.uses_scene_route() || access_static_file.is_some() {
         return None;
@@ -32,7 +34,13 @@ pub(super) fn check_access_scene_gate(
         if let Some(ref s) = sid {
             return Some(
                 Redirect::temporary(&scene_projection_canonical_location(
-                    route_mode, app_id, s, tab, chrome,
+                    route_mode,
+                    app_id,
+                    s,
+                    tab,
+                    chrome,
+                    data_mode,
+                    review_projection,
                 ))
                 .into_response(),
             );

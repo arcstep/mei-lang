@@ -42,6 +42,8 @@ pub(crate) fn config_shell(
         false,
         auth_enabled,
         auth_account,
+        None,
+        None,
     );
     let statusbar = statusbar_view(
         app_path,
@@ -58,7 +60,7 @@ pub(crate) fn config_shell(
                     <strong class="mr-2 mei-text-inverse">"应用配置"</strong>
                     <span>"编辑当前应用根目录 `.mei-config.json`；运维写回仅允许 `ops.*` 白名单字段。"</span>
                     <span class="mx-2 mei-text-muted">"|"</span>
-                    <a class="mei-text-link" href=data_link>"数据物料（上传）"</a>
+                    <a class="mei-text-link" href=data_link>"上传物料"</a>
                 </div>
                 {ops_editor_main_view(app_path)}
             </main>

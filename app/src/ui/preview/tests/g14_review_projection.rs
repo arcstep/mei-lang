@@ -34,6 +34,44 @@ fn minimal_compiled() -> CompiledApp {
 }
 
 #[test]
+fn app_route_applies_review_projection_depth() {
+    let compiled = minimal_compiled();
+    let ctx = build_preview_runtime_context(
+        &compiled,
+        UiRouteMode::App,
+        None,
+        None,
+        None,
+        None,
+        Some("plane_region"),
+    );
+    assert!(ctx.structure_anchors_enabled);
+    assert!(!ctx.dev_inspect_chrome_enabled);
+    assert_eq!(ctx.review_projection_max_ui_role(), Some("region"));
+    assert!(!ctx.ui_role_allowed_for_projection("content"));
+    assert!(ctx.ui_role_allowed_for_projection("region"));
+}
+
+#[test]
+fn run_route_applies_review_projection_depth() {
+    let compiled = minimal_compiled();
+    let ctx = build_preview_runtime_context(
+        &compiled,
+        UiRouteMode::Run,
+        None,
+        None,
+        None,
+        Some("static"),
+        Some("plane_region_section"),
+    );
+    assert!(ctx.structure_anchors_enabled);
+    assert!(!ctx.dev_inspect_chrome_enabled);
+    assert_eq!(ctx.review_projection_max_ui_role(), Some("section"));
+    assert!(!ctx.ui_role_allowed_for_projection("content"));
+    assert!(ctx.ui_role_allowed_for_projection("section"));
+}
+
+#[test]
 fn build_runtime_context_parses_review_projection_depth() {
     let compiled = minimal_compiled();
     let ctx = build_preview_runtime_context(
@@ -45,6 +83,8 @@ fn build_runtime_context_parses_review_projection_depth() {
         None,
         Some("plane_region"),
     );
+    assert!(ctx.structure_anchors_enabled);
+    assert!(ctx.dev_inspect_chrome_enabled);
     assert_eq!(ctx.review_projection_max_ui_role(), Some("region"));
     assert!(!ctx.ui_role_allowed_for_projection("content"));
     assert!(ctx.ui_role_allowed_for_projection("region"));

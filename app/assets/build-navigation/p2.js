@@ -162,16 +162,26 @@
     });
     const focus = parsed.searchParams.get("focus");
     if (focus) params.set("focus", focus);
+    const scope = parsed.searchParams.get("scope");
+    if (scope) params.set("scope", scope);
     const reviewProjection = parsed.searchParams.get("review_projection");
     if (reviewProjection) params.set("review_projection", reviewProjection);
     const dataMode = parsed.searchParams.get("data_mode");
     if (dataMode) params.set("data_mode", dataMode);
+    const draftHeaders =
+      typeof ensureDraftSessionId === "function"
+        ? { "x-mei-draft-session": ensureDraftSessionId() }
+        : {};
     const controller = new AbortController();
     const timer = global.setTimeout(() => controller.abort(), FRAGMENT_FETCH_TIMEOUT_MS);
     try {
       const resp = await fetch(`/api/build/workspace-fragment?${params.toString()}`, {
         credentials: "same-origin",
-        headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
+        headers: {
+          Accept: "application/json",
+          "x-mei-spa-nav": "1",
+          ...draftHeaders,
+        },
         signal: controller.signal,
       });
       if (!resp.ok) throw new Error(`fragment failed: ${resp.status}`);
@@ -185,7 +195,38 @@
     showBuildNavLoading(url);
     try {
       ensurePreviewTabVisible(url);
-      const { payload } = await fetchWorkspaceFragment(url);
+      let payload = null;
+      if (typeof boot.fetchBuildFragmentRevision === "function") {
+        try {
+          const remoteRevision = await boot.fetchBuildFragmentRevision(url, { timeoutMs: 8000 });
+          if (
+            remoteRevision &&
+            typeof boot.buildFragmentRevisionStillValid === "function" &&
+            boot.buildFragmentRevisionStillValid(url, remoteRevision)
+          ) {
+            const cached =
+              typeof boot.readBuildFragmentHtml === "function"
+                ? boot.readBuildFragmentHtml(url, remoteRevision)
+                : null;
+            if (cached?.preview_html) {
+              payload = { ...cached, revision: remoteRevision };
+            }
+          }
+        } catch (_) {}
+      }
+      if (!payload) {
+        const fetched = await fetchWorkspaceFragment(url);
+        payload = fetched.payload;
+        if (payload?.revision && typeof boot.rememberBuildFragmentRevision === "function") {
+          boot.rememberBuildFragmentRevision(url, payload.revision);
+        }
+        if (
+          payload?.preview_html &&
+          typeof boot.rememberBuildFragmentHtml === "function"
+        ) {
+          boot.rememberBuildFragmentHtml(url, payload.revision, payload);
+        }
+      }
       const ok = swapPreviewFragment(
         String(payload.preview_html || ""),
         String(payload.drilldown_script || ""),
@@ -228,8 +269,12 @@
       stats.tier1 += 1;
       runTier0PostNav(url);
       const nextNode = nodeIdFromUrl(url);
+      const axesChange =
+        typeof reviewAxesChanged === "function"
+          ? reviewAxesChanged(lastBuildNavUrl, url)
+          : { dataModeChanged: false };
       wakePreviewRuntime("build-fragment", {
-        resetRuntimeQueryCache: isPackCatalogNodeId(nextNode),
+        resetRuntimeQueryCache: axesChange.dataModeChanged || isPackCatalogNodeId(nextNode),
         pulsePreviewUpdated: true,
       });
       return true;
@@ -341,6 +386,9 @@
     isSameSceneStructureNav,
     readCompileCoordinate,
     coordinatesEqual,
+    readDataModeFromUrl,
+    readReviewProjectionFromUrl,
+    reviewAxesChanged,
     classifyBuildNavTier,
     tryNavigateBuild,
     tryHandleBuildClick,

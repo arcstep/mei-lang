@@ -6,6 +6,9 @@
       app: ctx.appId,
       scene: ctx.sceneId,
     });
+    if (ctx.dataMode) params.set("data_mode", ctx.dataMode);
+    if (ctx.reviewProjection) params.set("review_projection", ctx.reviewProjection);
+    if (ctx.chrome) params.set("chrome", ctx.chrome);
     const controller = opts.signal ? null : new AbortController();
     const signal = opts.signal || controller?.signal;
     const response = await fetch(`${SCENE_FRAGMENT_API}?${params.toString()}`, {

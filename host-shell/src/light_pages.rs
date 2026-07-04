@@ -1,3 +1,4 @@
+use axum::http::{header, HeaderValue};
 use axum::response::{Html, IntoResponse, Response};
 use mei_lang_app::{
     page_body_theme_style, render_config_page, render_upload_page,
@@ -9,6 +10,17 @@ use mei_lang_kernel::{
 
 use crate::build_info::fill_page_shell_placeholders;
 use crate::upload_support::{list_upload_files, upload_rel_from_config};
+
+const LIGHT_PAGE_CACHE_CONTROL: &str = "private, no-cache, no-store, must-revalidate";
+
+fn light_page_response(html: String) -> Response {
+    let mut response = Html(html).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(LIGHT_PAGE_CACHE_CONTROL),
+    );
+    response
+}
 
 pub(crate) struct LightPageContext<'a> {
     pub workspace_root: &'a std::path::Path,
@@ -54,7 +66,7 @@ pub(crate) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             theme_style.as_str(),
         );
         html = fill_page_shell_placeholders(html, ctx.workspace_root);
-        return Some(Html(html).into_response());
+        return Some(light_page_response(html));
     }
 
     if ctx.route_mode == UiRouteMode::Upload {
@@ -89,7 +101,7 @@ pub(crate) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             theme_style.as_str(),
         );
         html = fill_page_shell_placeholders(html, ctx.workspace_root);
-        return Some(Html(html).into_response());
+        return Some(light_page_response(html));
     }
 
     None

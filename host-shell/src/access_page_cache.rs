@@ -25,11 +25,11 @@ use crate::pages::{
 };
 use crate::review_axes::{default_page_render_axes_for_route, PageRenderAxes};
 
-const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v2";
+pub const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v2";
 const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
 const MAX_PAGE_RENDER_CACHE_ENTRIES: usize = 64;
 
-fn resolve_scene_client_revision(
+pub fn resolve_scene_client_revision(
     workspace_root: &Path,
     app_id: &str,
     scene_id: &str,
@@ -139,6 +139,7 @@ pub fn access_page_cache_key(
     scene_id: &str,
     route_mode: UiRouteMode,
     axes: PageRenderAxes,
+    chrome_hidden: bool,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
     gis: &GisTilesConfig,
@@ -179,12 +180,23 @@ pub fn access_page_cache_key(
         "semantic_core": semantic_core,
         "view_axes": view_axes,
         "auth_enabled": auth_enabled,
+        "chrome_hidden": chrome_hidden,
         "gis_base_url": gis.base_url,
         "gis_json_path": gis.json_path,
         "ops_themes_revision": ops_themes_revision_digest(workspace_root, app_id),
         "host_ssr_payload_revision": HOST_SSR_PAYLOAD_REVISION,
     });
     serde_json::to_string(&extra).ok()
+}
+
+fn access_route_chrome_hidden(route_mode: UiRouteMode, query: &AppQuery) -> bool {
+    route_mode == UiRouteMode::Run
+        || route_mode == UiRouteMode::Copilot
+        || query
+            .chrome
+            .as_deref()
+            .map(|value| value.eq_ignore_ascii_case("none"))
+            .unwrap_or(false)
 }
 
 fn take_memory_template(key: &str) -> Option<String> {
@@ -309,6 +321,7 @@ pub fn resolve_access_page_html(
         scene_id,
         route_mode,
         axes,
+        access_route_chrome_hidden(route_mode, query),
         auth_enabled,
         account_view,
         &gis,
@@ -441,7 +454,7 @@ pub fn render_access_page_template(
         None,
         None,
         None,
-        false,
+        access_route_chrome_hidden(route_mode, query),
         false,
         None,
         &[],
@@ -507,6 +520,7 @@ pub fn prime_access_page_render_cache(
         scene_id,
         route_mode,
         warmup_axes,
+        false,
         auth_enabled,
         None,
         &gis,
@@ -604,6 +618,7 @@ pub fn build_scene_revision_payload(
     scene_id: &str,
     route_mode: UiRouteMode,
     axes: PageRenderAxes,
+    chrome_hidden: bool,
     auth_enabled: bool,
     account_view: Option<&HostAccountView>,
     gis: &GisTilesConfig,
@@ -627,6 +642,7 @@ pub fn build_scene_revision_payload(
         scene_id,
         route_mode,
         axes,
+        chrome_hidden,
         auth_enabled,
         account_view,
         gis,

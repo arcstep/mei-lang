@@ -29,7 +29,8 @@
   function snapshotStorageKey(ctx) {
     const dataMode = String(ctx.dataMode || "").trim().toLowerCase();
     const reviewProjection = String(ctx.reviewProjection || "").trim().toLowerCase();
-    return [ctx.appId, ctx.sceneId, ctx.mode || "app", dataMode, reviewProjection]
+    const chrome = String(ctx.chrome || "").trim().toLowerCase();
+    return [ctx.appId, ctx.sceneId, ctx.mode || "app", chrome, dataMode, reviewProjection]
       .filter(Boolean)
       .join(":");
   }

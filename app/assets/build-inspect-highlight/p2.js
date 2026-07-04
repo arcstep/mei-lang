@@ -46,6 +46,9 @@
   }
 
   function elementReviewDepth(el) {
+    if (global.MeiStructureAnchor?.elementReviewDepth) {
+      return global.MeiStructureAnchor.elementReviewDepth(el);
+    }
     if (!(el instanceof HTMLElement)) return 99;
     const role = String(el.getAttribute("data-mei-ui-role") || "")
       .trim()
@@ -60,6 +63,10 @@
   }
 
   function applyReviewProjectionChrome(root) {
+    if (global.MeiProjectionDepth?.applyReviewProjectionChrome) {
+      global.MeiProjectionDepth.applyReviewProjectionChrome(root);
+      return;
+    }
     if (!(root instanceof HTMLElement)) return;
     const projection = normalizeReviewProjection(
       root.getAttribute("data-review-projection") || readReviewProjectionFromUrl(),

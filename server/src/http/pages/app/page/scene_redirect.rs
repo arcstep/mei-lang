@@ -32,6 +32,8 @@ pub(super) fn try_scene_projection_redirect(
                         ps,
                         query.tab.as_deref(),
                         query.chrome.as_deref(),
+                        query.data_mode.as_deref(),
+                        query.review_projection.as_deref(),
                     ))
                     .into_response(),
                 );
@@ -45,6 +47,8 @@ pub(super) fn try_scene_projection_redirect(
                 qs,
                 query.tab.as_deref(),
                 query.chrome.as_deref(),
+                query.data_mode.as_deref(),
+                query.review_projection.as_deref(),
             ))
             .into_response(),
         );
@@ -58,6 +62,8 @@ pub(super) fn try_scene_projection_redirect(
                 &default_scene,
                 query.tab.as_deref(),
                 query.chrome.as_deref(),
+                query.data_mode.as_deref(),
+                query.review_projection.as_deref(),
             ))
             .into_response(),
         );

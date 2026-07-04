@@ -430,6 +430,8 @@ pub async fn app_page(
         principal.as_ref(),
         query.tab.as_deref(),
         query.chrome.as_deref(),
+        query.data_mode.as_deref(),
+        query.review_projection.as_deref(),
     ) {
         return Ok(response);
     }

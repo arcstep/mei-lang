@@ -106,16 +106,18 @@ pub(crate) fn presentation_shell(
     _upload_enabled: bool,
     _auth_enabled: bool,
     _auth_account: Option<&HostAccountView>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> AnyView {
     let deck = exported_presentation_routes(compiled);
     if deck.is_empty() {
         return view! {
             <div class="shell shell-surface min-h-screen mei-surface-shell px-6 py-10 mei-text-inverse">
                 <section class="mx-auto max-w-3xl rounded-3xl border mei-border-default mei-surface-panel-muted p-6 shadow-2xl">
-                    <p class="text-sm uppercase tracking-[0.18em] mei-text-muted">"独立运行"</p>
+                    <p class="text-sm uppercase tracking-[0.18em] mei-text-muted">"演说"</p>
                     <h1 class="mt-3 text-2xl font-semibold">{compiled.title.clone()}</h1>
                     <p class="mt-4 text-sm leading-7 mei-text-body">
-                        "当前应用没有可用于独立运行的导出 scene。请先为至少一个 scene 保持默认 access export。"
+                        "当前应用没有可用于演说的导出 scene。请先为至少一个 scene 保持默认 access export。"
                     </p>
                 </section>
             </div>
@@ -140,11 +142,32 @@ pub(crate) fn presentation_shell(
     let total = deck.len();
     let prev_href = current_index
         .checked_sub(1)
-        .map(|index| run_scene_href(app_path, Some(deck[index].scene_id.as_str())));
+        .map(|index| {
+            run_scene_href(
+                app_path,
+                Some(deck[index].scene_id.as_str()),
+                data_mode,
+                review_projection,
+            )
+        });
     let next_href = deck
         .get(current_index + 1)
-        .map(|route| run_scene_href(app_path, Some(route.scene_id.as_str())));
-    let exit_href = app_scene_href(app_path, Some(current_scene_id), None, None);
+        .map(|route| {
+            run_scene_href(
+                app_path,
+                Some(route.scene_id.as_str()),
+                data_mode,
+                review_projection,
+            )
+        });
+    let exit_href = app_scene_href(
+        app_path,
+        Some(current_scene_id),
+        None,
+        None,
+        data_mode,
+        review_projection,
+    );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = concat_presentation_shell_class(stage_enabled);
     let main_class = presentation_main_preview_class(stage_enabled);
@@ -157,8 +180,8 @@ pub(crate) fn presentation_shell(
         WorldSemanticQuery::default(),
         None,
         None,
-        None,
-        None,
+        data_mode,
+        review_projection,
     );
 
     view! {
@@ -168,7 +191,7 @@ pub(crate) fn presentation_shell(
             data-prev-href=prev_href.clone().unwrap_or_default()
             data-next-href=next_href.clone().unwrap_or_default()
         >
-            {host_ssr_bootstrap_scripts(compiled, app_path, Some(current_scene_id), None)}
+            {host_ssr_bootstrap_scripts(compiled, app_path, Some(current_scene_id), data_mode)}
             <main class=main_class>
                 <section class=preview_panel_class>
                     {preview}
@@ -180,7 +203,7 @@ pub(crate) fn presentation_shell(
                 <div class="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 sm:p-6">
                     <header class="pointer-events-auto mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-white/10 mei-surface-panel-muted px-4 py-3 shadow-lg backdrop-blur-md">
                         <div class="min-w-0">
-                            <div class="text-[11px] uppercase tracking-[0.18em] mei-text-muted">"独立运行"</div>
+                            <div class="text-[11px] uppercase tracking-[0.18em] mei-text-muted">"演说"</div>
                             <div class="mt-1 truncate text-sm font-semibold mei-text-inverse">{compiled.title.clone()}</div>
                             <div class="truncate text-xs mei-text-muted">{current_title.to_string()}</div>
                         </div>

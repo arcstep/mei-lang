@@ -303,14 +303,19 @@ fn apply_tuning_patch(panel: &mut PanelDecl, patch: &Value) {
             panel.body_props = Value::Object(body_map);
         }
     }
-    if let Some(slot_height) = patch_field(patch, "slot_height", "slotHeight")
-        .and_then(Value::as_str)
-        .and_then(parse_px)
-    {
-        if let Some(budget) = map.get_mut("__mei_content_budget") {
-            if let Some(rows) = budget.get_mut("rows").and_then(Value::as_array_mut) {
-                if let Some(first) = rows.first_mut() {
-                    *first = Value::from(slot_height);
+    if let Some(slot_height) = patch_field(patch, "slot_height", "slotHeight") {
+        let px_value = slot_height
+            .as_str()
+            .and_then(parse_px)
+            .or_else(|| slot_height.as_i64())
+            .or_else(|| slot_height.as_u64().map(|value| value as i64))
+            .or_else(|| slot_height.as_f64().map(|value| value.round() as i64));
+        if let Some(slot_height) = px_value {
+            if let Some(budget) = map.get_mut("__mei_content_budget") {
+                if let Some(rows) = budget.get_mut("rows").and_then(Value::as_array_mut) {
+                    if let Some(first) = rows.first_mut() {
+                        *first = Value::from(slot_height);
+                    }
                 }
             }
         }

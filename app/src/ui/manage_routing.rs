@@ -286,6 +286,8 @@ pub(crate) fn access_scene_route_suffix(
     selected_scene: Option<&str>,
     tab: Option<&str>,
     chrome: Option<&str>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> String {
     let mut out = String::new();
     if let Some(sc) = selected_scene.map(str::trim).filter(|s| !s.is_empty()) {
@@ -299,6 +301,18 @@ pub(crate) fn access_scene_route_suffix(
     if let Some(c) = chrome.map(str::trim).filter(|s| !s.is_empty()) {
         q.push(format!("chrome={}", encode_query_value(c)));
     }
+    if let Some(mode) = data_mode.map(str::trim).filter(|s| !s.is_empty()) {
+        q.push(format!("data_mode={}", encode_query_value(mode)));
+    }
+    if let Some(projection) = review_projection
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        q.push(format!(
+            "review_projection={}",
+            encode_query_value(projection)
+        ));
+    }
     if !q.is_empty() {
         out.push('?');
         out.push_str(&q.join("&"));
@@ -307,7 +321,7 @@ pub(crate) fn access_scene_route_suffix(
 }
 
 pub(crate) fn access_scene_query(selected_scene: Option<&str>) -> String {
-    access_scene_route_suffix(selected_scene, None, None)
+    access_scene_route_suffix(selected_scene, None, None, None, None)
 }
 
 #[allow(dead_code)]
@@ -318,7 +332,7 @@ pub(crate) fn route_query(
     active_tab: Option<&str>,
 ) -> String {
     if route_mode.uses_scene_route() {
-        access_scene_route_suffix(selected_scene, active_tab, None)
+        access_scene_route_suffix(selected_scene, active_tab, None, None, None)
     } else {
         String::new()
     }

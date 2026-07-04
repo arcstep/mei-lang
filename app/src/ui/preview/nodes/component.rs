@@ -150,7 +150,7 @@ pub(crate) fn block_view_for_decl(
         .get("cameraPreset")
         .and_then(|v| v.as_str())
         .unwrap_or("");
-    let ui_scope_annotation = if runtime_ctx.build_inspect_enabled {
+    let ui_scope_annotation = if runtime_ctx.structure_anchors_enabled {
         parent_panel_id.and_then(|panel_path| {
             ui_scope_for_block(
                 compiled,
@@ -169,7 +169,7 @@ pub(crate) fn block_view_for_decl(
     if !runtime_ctx.ui_role_allowed_for_projection(block_role) {
         return view! { <></> }.into_any();
     }
-    let build_node_id = if runtime_ctx.build_inspect_enabled {
+    let build_node_id = if runtime_ctx.structure_anchors_enabled {
         ui_scope_annotation.as_ref().map(|annotation| annotation.node_id.clone()).or_else(|| {
             parent_panel_id.map(|panel_id| {
                 BuildNodeId::scene_block(

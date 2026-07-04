@@ -33,13 +33,15 @@ pub(crate) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
         .is_some()
 }
 
-pub(crate) struct PreviewRuntimeContext {
+pub struct PreviewRuntimeContext {
     pub resources: BTreeMap<String, LoadedResource>,
     pub index: RuntimeResourceIndex,
     /// Host 视图 SSR 不内联 dataset 行集与大块指标值，改由运行时 API 拉取。
     pub host_ssr_slim_payload: bool,
-    /// Build 视图：为 panel/block 注入 `data-build-node` 供检视高亮。
-    pub build_inspect_enabled: bool,
+    /// 是否在 DOM 注入结构锚点（`data-build-node` / `data-mei-ui-scope` / `data-mei-ui-role`）。
+    pub structure_anchors_enabled: bool,
+    /// Build 开发 chrome：inspect 栏等行为，不参与投影装配规则。
+    pub dev_inspect_chrome_enabled: bool,
     /// Build 视图：panel 级 SSR 切片 scope（scene-relative panel path）。
     pub build_preview_scope: Option<String>,
     /// Build 视图：component 节点仅渲染匹配的 `use_key` block。
@@ -51,17 +53,14 @@ pub(crate) struct PreviewRuntimeContext {
 }
 
 impl PreviewRuntimeContext {
-    pub(crate) fn review_projection_max_ui_role(&self) -> Option<&'static str> {
+    pub fn review_projection_max_ui_role(&self) -> Option<&'static str> {
         self.review_projection
             .as_deref()
             .and_then(mei_lang_kernel::ReviewProjection::parse)
             .and_then(|projection| projection.max_ui_role_depth())
     }
 
-    pub(crate) fn ui_role_allowed_for_projection(&self, ui_role: &str) -> bool {
-        if !self.build_inspect_enabled {
-            return true;
-        }
+    pub fn ui_role_allowed_for_projection(&self, ui_role: &str) -> bool {
         let Some(max_role) = self.review_projection_max_ui_role() else {
             return true;
         };
@@ -69,7 +68,7 @@ impl PreviewRuntimeContext {
     }
 }
 
-pub(crate) fn build_preview_runtime_context(
+pub fn build_preview_runtime_context(
     compiled: &CompiledApp,
     route_mode: UiRouteMode,
     build_preview_scope: Option<&str>,
@@ -93,11 +92,16 @@ pub(crate) fn build_preview_runtime_context(
             UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Build
         ),
     };
+    let scene_preview_route = matches!(
+        route_mode,
+        UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Build
+    );
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),
         resources: build_runtime_resource_map(compiled),
         host_ssr_slim_payload,
-        build_inspect_enabled: route_mode == UiRouteMode::Build,
+        structure_anchors_enabled: scene_preview_route,
+        dev_inspect_chrome_enabled: route_mode == UiRouteMode::Build,
         build_preview_scope: build_preview_scope
             .map(str::trim)
             .filter(|value| !value.is_empty())

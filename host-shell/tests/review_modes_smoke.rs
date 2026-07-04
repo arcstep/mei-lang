@@ -18,18 +18,18 @@ fn build_static_plane_region_section_preset() {
     assert_eq!(dm, DataMode::Static);
     assert_eq!(rp, ReviewProjection::PlaneRegionSection);
     let preset = match_preset("static", "plane_region_section").expect("preset");
-    assert_eq!(preset.slug, "section_layout");
-    assert_eq!(preset_tree_max_ui_role("static", "plane_region_section"), "section");
+    assert_eq!(preset.slug, "section");
+    assert_eq!(preset_tree_max_ui_role("static", "plane_region_section"), "plane");
 }
 
 #[test]
-fn build_fixture_static_full_preset() {
-    let (dm, rp) = axes_for_build("fixture", "static_full");
-    assert_eq!(dm, DataMode::Fixture);
+fn build_content_static_full_preset() {
+    let (dm, rp) = axes_for_build("static", "static_full");
+    assert_eq!(dm, DataMode::Static);
     assert_eq!(rp, ReviewProjection::StaticFull);
-    let preset = match_preset("fixture", "static_full").expect("preset");
-    assert_eq!(preset.slug, "fixture_preview");
-    assert_eq!(preset_tree_max_ui_role("fixture", "static_full"), "content");
+    let preset = match_preset("static", "static_full").expect("preset");
+    assert_eq!(preset.slug, "content");
+    assert_eq!(preset_tree_max_ui_role("static", "static_full"), "plane");
 }
 
 #[test]
@@ -38,8 +38,8 @@ fn app_eval_live_full_preset() {
     assert_eq!(dm, DataMode::Eval);
     assert_eq!(rp, ReviewProjection::LiveFull);
     let preset = match_preset("eval", "live_full").expect("preset");
-    assert_eq!(preset.slug, "full_eval");
-    assert_eq!(preset.tree_max_ui_role, "content");
+    assert_eq!(preset.slug, "eval");
+    assert_eq!(preset.tree_max_ui_role, "plane");
 }
 
 #[test]
@@ -70,10 +70,10 @@ fn prototype_presets_cover_four_task_workflows() {
 #[test]
 fn preset_tree_roles_match_0508_contract() {
     let expectations: &[(&str, &str, &str)] = &[
-        ("full_eval", "content", "content"),
-        ("fixture_preview", "content", "content"),
-        ("region_layout", "region", "region"),
-        ("section_layout", "section", "section"),
+        ("eval", "plane", "plane"),
+        ("content", "plane", "plane"),
+        ("section", "plane", "plane"),
+        ("region", "plane", "plane"),
     ];
     for (slug, expected_role, _) in expectations {
         let preset = PROTOTYPE_PRESETS

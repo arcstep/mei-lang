@@ -372,11 +372,8 @@ pub fn build_client_bootstrap_payload(
         .find(|scope| scope.bootstrap_scope == scene_id)
         .cloned()
         .or_else(|| scope_payloads.first().cloned())?;
-    let layout_budget_manifest = layout_budget_manifest_for_pilot(
-        workspace_root,
-        app_id,
-        scene_id,
-    );
+    let layout_budget_manifest =
+        layout_budget_manifest_for_scope(workspace_root, app_id, scene_id);
     Some(ClientBootstrapPayload {
         client_revision: primary.client_revision.clone(),
         bootstrap_scope: primary.bootstrap_scope.clone(),
@@ -390,15 +387,16 @@ pub fn build_client_bootstrap_payload(
     })
 }
 
-fn layout_budget_manifest_for_pilot(
+fn layout_budget_manifest_for_scope(
     workspace_root: &Path,
     app_id: &str,
     scene_id: &str,
 ) -> Option<mei_lang_kernel::LayoutBudgetManifest> {
-    if app_id != "pretty-panels" || scene_id != "home" {
+    let outcome =
+        crate::assemble::assemble_scope_from_registry(workspace_root, app_id, scene_id).ok()??;
+    if outcome.compiled.ui_layout_index.nodes.is_empty() {
         return None;
     }
-    let outcome = crate::assemble::assemble_scope_from_registry(workspace_root, app_id, scene_id).ok()??;
     let revision = format!(
         "{}:{}",
         outcome.compile_revision,
@@ -416,6 +414,15 @@ fn layout_budget_manifest_for_pilot(
             .ui_layout_index
             .layout_budget_manifest(revision.as_str()),
     )
+}
+
+#[allow(dead_code)]
+fn layout_budget_manifest_for_pilot(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Option<mei_lang_kernel::LayoutBudgetManifest> {
+    layout_budget_manifest_for_scope(workspace_root, app_id, scene_id)
 }
 
 pub fn clear_client_bootstrap_for_scope(app_root: &Path, scope: &str) -> bool {

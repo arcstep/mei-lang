@@ -1,3 +1,15 @@
+  function applySceneProjectionDepth(doc) {
+    if (!globalThis.MeiProjectionDepth?.applyProjectionDepth) return;
+    const root =
+      doc.querySelector(".preview-pane-scroll") ||
+      doc.querySelector(".shell.scene-shell") ||
+      doc.querySelector(".shell") ||
+      doc.body;
+    if (root instanceof HTMLElement) {
+      globalThis.MeiProjectionDepth.applyProjectionDepth(root);
+    }
+  }
+
   function stabilizeBuildPreviewRuntime() {
     if (!isBuildWorkspacePathname(window.location.pathname)) return;
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
@@ -95,6 +107,7 @@
         if (typeof boot.markLoadingPostSpaDone === "function") {
           boot.markLoadingPostSpaDone(navigationId);
         }
+        applySceneProjectionDepth(doc);
         document.dispatchEvent(new CustomEvent("mei:spa-navigation-complete"));
       } catch (err) {
         console.warn("[spa-navigation] post-spa work failed", err);

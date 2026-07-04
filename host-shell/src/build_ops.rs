@@ -88,6 +88,11 @@ pub fn import_with_options(
         ctx.workspace_root.as_path(),
         app,
     );
+    let _ = crate::build_fragment_cache::clear_build_fragment_cache_for_app(app);
+    let _ = crate::layout_tuning_draft_store::clear_layout_tuning_drafts_for_app(
+        ctx.workspace_root.as_path(),
+        app,
+    );
     Ok(report)
 }
 

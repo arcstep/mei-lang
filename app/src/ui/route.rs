@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiRouteMode {
     App,
-    /// 单 scene 脱离宿主控制壳独立运行（原 `presentation` / `slides` 路由）。
+    /// 演说宿主：单 scene 步进、全屏与讲述控制（兼容旧 `presentation` / `slides` 路由）。
     Run,
     /// Copilot 演说宿主：presentation 步进、工具条、气泡与 cockpit 动作编排。
     Copilot,
@@ -41,7 +41,7 @@ impl UiRouteMode {
     pub fn label(self) -> &'static str {
         match self {
             Self::App => "访问",
-            Self::Run => "独立运行",
+            Self::Run => "演说",
             Self::Copilot => "Copilot",
             Self::Build => "构建",
             Self::Config => "配置",
@@ -55,9 +55,9 @@ impl UiRouteMode {
         match self {
             Self::App => "应用",
             Self::Run | Self::Copilot => "演说",
-            Self::Build => "原型",
+            Self::Build => "开发",
             Self::Config => "配置",
-            Self::Upload => "数据",
+            Self::Upload => "上传",
             Self::Runtime => "运行",
         }
     }
@@ -134,9 +134,9 @@ mod tests {
     #[test]
     fn product_label_maps_to_ia_names() {
         assert_eq!(UiRouteMode::App.product_label(), "应用");
-        assert_eq!(UiRouteMode::Build.product_label(), "原型");
+        assert_eq!(UiRouteMode::Build.product_label(), "开发");
         assert_eq!(UiRouteMode::Runtime.product_label(), "运行");
-        assert_eq!(UiRouteMode::Upload.product_label(), "数据");
+        assert_eq!(UiRouteMode::Upload.product_label(), "上传");
         assert_eq!(UiRouteMode::Run.product_label(), "演说");
     }
 }

@@ -31,9 +31,9 @@
 
   function copyButtonLabel(btn, intent) {
     if (btn.id === "build-copy-agent-context-top") {
-      return "复制原型调试上下文";
+      return "复制场景原型调试上下文";
     }
-    return intent === "full" ? "复制原型调试上下文" : "复制 Markdown 简报";
+    return intent === "full" ? "复制场景原型调试上下文" : "复制 Markdown 简报";
   }
 
   function reviewAxesFromShell(shell) {

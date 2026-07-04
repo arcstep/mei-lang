@@ -13,7 +13,7 @@ use crate::api_stubs::{
     api_agent_config_stub, api_agent_context_preview_stub, api_agent_runtime_stub,
     api_agent_sessions_stub, api_agent_skill_stub,
 };
-use crate::build_api::{api_build_context_export, api_build_workspace_fragment};
+use crate::build_api::{api_build_context_export, api_build_fragment_revision, api_build_workspace_fragment};
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
 use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
@@ -67,6 +67,10 @@ pub fn router(state: HostHttpState) -> Router {
             "/api/build/workspace-fragment",
             get(api_build_workspace_fragment),
         )
+        .route(
+            "/api/build/fragment-revision",
+            get(api_build_fragment_revision),
+        )
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
         .route("/api/host/scene-revision", get(api_scene_revision))
@@ -107,6 +111,10 @@ pub fn router(state: HostHttpState) -> Router {
         .route(
             "/api/ops/layout-tuning/draft/:app_id",
             axum::routing::put(crate::ops_layout_tuning_api::api_ops_layout_tuning_draft_put),
+        )
+        .route(
+            "/api/ops/layout-tuning/apply/:app_id",
+            axum::routing::post(crate::ops_layout_tuning_api::api_ops_layout_tuning_apply_post),
         )
         .route("/api/presentation/map/:app_id", get(api_presentation_map))
         .route("/api/presentation/compile", post(api_presentation_compile))

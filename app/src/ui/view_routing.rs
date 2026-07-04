@@ -70,21 +70,42 @@ pub fn app_scene_href(
     scene_id: Option<&str>,
     tab: Option<&str>,
     chrome: Option<&str>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> String {
-    app_href(app_path, &access_scene_route_suffix(scene_id, tab, chrome))
+    app_href(
+        app_path,
+        &access_scene_route_suffix(
+            scene_id,
+            tab,
+            chrome,
+            data_mode,
+            review_projection,
+        ),
+    )
 }
 
-pub fn run_scene_href(app_path: &str, scene_id: Option<&str>) -> String {
+pub fn run_scene_href(
+    app_path: &str,
+    scene_id: Option<&str>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
+) -> String {
     format!(
         "{}{}",
         view_base_href(UiRouteMode::Run, app_path),
-        access_scene_route_suffix(scene_id, None, None)
+        access_scene_route_suffix(scene_id, None, None, data_mode, review_projection)
     )
 }
 
 /// 兼容旧链接：`/apps/presentation/...` 与 `/apps/run/...` 等价。
-pub fn presentation_scene_href(app_path: &str, scene_id: Option<&str>) -> String {
-    run_scene_href(app_path, scene_id)
+pub fn presentation_scene_href(
+    app_path: &str,
+    scene_id: Option<&str>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
+) -> String {
+    run_scene_href(app_path, scene_id, data_mode, review_projection)
 }
 
 pub fn copilot_presentation_href(app_path: &str, presentation_id: &str) -> String {
@@ -116,8 +137,8 @@ pub fn cross_app_href(
         };
     }
     match view {
-        UiRouteMode::App => app_scene_href(app_path, None, None, None),
-        UiRouteMode::Run => run_scene_href(app_path, None),
+        UiRouteMode::App => app_scene_href(app_path, None, None, None, None, None),
+        UiRouteMode::Run => run_scene_href(app_path, None, None, None),
         UiRouteMode::Copilot => copilot_presentation_href(app_path, "intro"),
         UiRouteMode::Build => build_href_with_catalog(app_path, None, None, catalog, pack),
         UiRouteMode::Config => config_href(app_path),

@@ -225,6 +225,8 @@ pub(crate) fn upload_shell(
         false,
         auth_enabled,
         auth_account,
+        None,
+        None,
     );
     let statusbar = statusbar_view(
         app_path,

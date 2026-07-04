@@ -27,6 +27,8 @@ pub(crate) fn topbar_view(
     stage_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> AnyView {
     let access_entry_query = access_scene_query(access_scene_for_href);
     let access_disabled = access_entry_query.is_empty();
@@ -172,14 +174,25 @@ pub(crate) fn topbar_view(
     let app_href = if access_disabled {
         "#".to_string()
     } else {
-        app_scene_href(active_app_path, access_scene_for_href, active_tab, None)
+        app_scene_href(
+            active_app_path,
+            access_scene_for_href,
+            active_tab,
+            None,
+            data_mode,
+            review_projection,
+        )
     };
-    let build_href = build_href_with_catalog(
+    let build_href = append_review_axes_query(
+        build_href_with_catalog(
         active_app_path,
         Some(build_file),
         active_tab,
         active_catalog,
         active_stock_pack,
+        ),
+        data_mode,
+        review_projection,
     );
     let runtime_href = runtime_href(active_app_path, None, None);
     let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
@@ -187,15 +200,34 @@ pub(crate) fn topbar_view(
     let presentation_href = if access_disabled {
         "#".to_string()
     } else {
-        presentation_scene_href(active_app_path, access_scene_for_href)
+        presentation_scene_href(
+            active_app_path,
+            access_scene_for_href,
+            data_mode,
+            review_projection,
+        )
+    };
+    let standalone_app_href = if access_disabled {
+        "#".to_string()
+    } else {
+        app_scene_href(
+            active_app_path,
+            access_scene_for_href,
+            active_tab,
+            Some("none"),
+            data_mode,
+            review_projection,
+        )
     };
     let (show_config_tab, show_build_tab, show_data_tab) =
         auth_surface_tabs_visible(auth_enabled, auth_account);
     let show_runtime_tab = show_build_tab;
     let show_data_tab = show_data_tab && upload_enabled;
+    let show_run_tab = true;
     let visible_mode_tab_count = 1usize
         + usize::from(show_config_tab)
         + usize::from(show_build_tab)
+        + usize::from(show_run_tab)
         + usize::from(show_runtime_tab)
         + usize::from(show_data_tab);
     let app_product_label = UiRouteMode::App.product_label();
@@ -243,11 +275,28 @@ pub(crate) fn topbar_view(
                             class=if route_mode == UiRouteMode::Upload { "mode-tab-btn is-active" } else { "mode-tab-btn" }
                             size="small"
                             href=upload_href.clone()
-                            title="数据物料：上传、下载与文件管理"
+                            title="上传物料：上传、下载与文件管理"
                             aria-label=data_product_label
                             data-mei-view="upload"
                         >
                             <span class="mode-label">{data_product_label}</span>
+                        </sl-button>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }}
+                {if show_run_tab {
+                    view! {
+                        <sl-button
+                            class=if route_mode == UiRouteMode::Run { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                            size="small"
+                            href=presentation_href.clone()
+                            disabled=access_disabled
+                            title=if access_disabled { "当前没有可进入演说的 scene route" } else { speech_product_label }
+                            aria-label=speech_product_label
+                            data-mei-view="run"
+                        >
+                            <span class="mode-label">{speech_product_label}</span>
                         </sl-button>
                     }.into_any()
                 } else {
@@ -291,11 +340,11 @@ pub(crate) fn topbar_view(
     .into_any()
     };
     let launch_title = if access_disabled {
-        "当前没有可进入演说的 scene route".to_string()
+        "当前没有可独立打开的 scene route".to_string()
     } else if stage_enabled {
-        format!("{speech_product_label}（新标签页打开演示模式）")
+        "独立打开（新标签页，无 shell）".to_string()
     } else {
-        format!("{speech_product_label}（新标签页打开 scene）")
+        "独立打开（新标签页，无 shell）".to_string()
     };
     let launch_aria_label = launch_title.clone();
     let account_view = if auth_enabled {
@@ -362,7 +411,7 @@ pub(crate) fn topbar_view(
                     <sl-button
                         class="topbar-launch-btn"
                         size="small"
-                        href=presentation_href
+                        href=standalone_app_href
                         disabled=access_disabled
                         target="_blank"
                         rel="noopener noreferrer"
@@ -382,6 +431,30 @@ pub(crate) fn topbar_view(
         </header>
     }
     .into_any()
+}
+
+fn append_review_axes_query(
+    base: String,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
+) -> String {
+    let mut parts = Vec::new();
+    if let Some(mode) = data_mode.map(str::trim).filter(|value| !value.is_empty()) {
+        parts.push(format!("data_mode={mode}"));
+    }
+    if let Some(projection) = review_projection
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        parts.push(format!("review_projection={projection}"));
+    }
+    if parts.is_empty() {
+        base
+    } else if base.contains('?') {
+        format!("{base}&{}", parts.join("&"))
+    } else {
+        format!("{base}?{}", parts.join("&"))
+    }
 }
 
 fn menu_item_is_active(

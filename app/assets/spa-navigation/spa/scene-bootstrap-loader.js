@@ -55,12 +55,13 @@
   }
 
   function applyLayoutBudgetManifestProjection(doc) {
+    if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
+      global.MeiProjectionDepth.applyLayoutBudgetManifest(doc);
+      return;
+    }
     const root = doc || document;
     const manifest = window.__mei?.layout_budget_manifest;
     if (!manifest?.entries || typeof manifest.entries !== "object") return;
-    const appId = resolveBootstrapAppId();
-    const sceneId = String(window.__mei?.bootstrap_scope || "").trim();
-    if (appId !== "pretty-panels" || sceneId !== "home") return;
     Object.entries(manifest.entries).forEach(([scope, entry]) => {
       if (!entry || typeof entry !== "object") return;
       const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);

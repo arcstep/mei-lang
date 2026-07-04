@@ -9,7 +9,6 @@ use mei_host_auth::{
 };
 use mei_lang_app::{load_topbar_menu_context, page_body_theme_style, render_page, UiRouteMode};
 use mei_lang_kernel::load_workspace_config;
-use mei_lang_kernel::CompiledApp;
 use serde::Deserialize;
 use serde_json::json;
 use std::time::Instant;
@@ -27,31 +26,6 @@ use crate::page_observability::{
 };
 use crate::state::SharedState;
 
-fn apply_build_session_layout_tuning_draft(
-    compiled: &mut CompiledApp,
-    workspace_root: &std::path::Path,
-    app_id: &str,
-    headers: &HeaderMap,
-) {
-    let session_id = mei_host_core::resolve_draft_session_id(headers);
-    let storage_key =
-        mei_host_core::layout_tuning_draft_storage_key(app_id, session_id.as_str());
-    let draft = mei_host_core::layout_tuning_draft(storage_key.as_str());
-    if draft.is_none() {
-        return;
-    }
-    let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
-    let config = mei_lang_kernel::load_mei_config_for_app(
-        app_root.as_path(),
-        Some(workspace_root),
-    );
-    let merged = mei_host_core::merge_layout_tuning_overlay(
-        config.ops.layout_tuning.as_ref(),
-        draft.as_ref(),
-    );
-    mei_host_graph::merge_layout_tuning_into_compiled(compiled, merged.as_ref());
-}
-
 #[derive(Debug, Deserialize, Default)]
 pub struct AppQuery {
     pub tab: Option<String>,
@@ -60,6 +34,7 @@ pub struct AppQuery {
     pub file: Option<String>,
     pub scope: Option<String>,
     pub focus: Option<String>,
+    pub chrome: Option<String>,
     /// Requested data mode (`eval` | `fixture` | `static`), clamped to serve ceiling.
     pub data_mode: Option<String>,
     /// Build / review projection depth (`plane`, `plane_region`, …).
@@ -212,6 +187,11 @@ pub async fn app_page(
     let axes_resolution =
         crate::review_axes::resolve_page_render_axes_detailed(&guard, &query, route_mode);
     let axes = axes_resolution.axes;
+    let chrome_hidden = query
+        .chrome
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case("none"))
+        .unwrap_or(route_mode == UiRouteMode::Run || route_mode == UiRouteMode::Copilot);
     let data_mode_ceiling_notice_owned = if axes_resolution.data_mode_clamped {
         Some(format!(
             "当前部署 data_mode ceiling 为 `{}`，已将请求降档为 `{}`。",
@@ -227,6 +207,7 @@ pub async fn app_page(
         scene_id.as_str(),
         route_mode,
         axes,
+        chrome_hidden,
         auth_enabled,
         account_view.as_ref(),
         &gis,
@@ -349,7 +330,7 @@ pub async fn app_page(
             }
         };
         if route_mode.is_build() {
-            apply_build_session_layout_tuning_draft(
+            crate::build_layout_tuning::apply_build_session_layout_tuning_draft(
                 &mut outcome.compiled,
                 workspace_root,
                 app_id.as_str(),
@@ -411,7 +392,7 @@ pub async fn app_page(
                             query.focus.as_deref(),
                             None,
                             None,
-                            false,
+                            chrome_hidden,
                             false,
                             None,
                             &[],
@@ -473,6 +454,12 @@ pub async fn app_page(
             .insert(HeaderName::from_static("x-mei-data-props-count"), value);
     }
     insert_page_render_cache_hit_header(&mut response, page_render_cache_hit);
+    if route_mode == UiRouteMode::Runtime {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            HeaderValue::from_static("private, no-cache, must-revalidate"),
+        );
+    }
     response
 }
 
@@ -719,6 +706,7 @@ pub struct SceneRevisionQuery {
     pub app: String,
     pub scene: Option<String>,
     pub mode: Option<String>,
+    pub chrome: Option<String>,
     pub data_mode: Option<String>,
     pub review_projection: Option<String>,
 }
@@ -849,6 +837,11 @@ pub async fn api_scene_revision(
         scene_id.as_str(),
         route_mode,
         axes,
+        query
+            .chrome
+            .as_deref()
+            .map(|value| value.eq_ignore_ascii_case("none"))
+            .unwrap_or(route_mode == UiRouteMode::Run || route_mode == UiRouteMode::Copilot),
         auth_enabled,
         account_view.as_ref(),
         &gis,
@@ -946,6 +939,7 @@ pub async fn api_scene_bootstrap(
 pub struct SceneFragmentQuery {
     pub app: String,
     pub scene: Option<String>,
+    pub chrome: Option<String>,
     pub data_mode: Option<String>,
     pub review_projection: Option<String>,
 }
@@ -1033,6 +1027,11 @@ pub async fn api_scene_fragment(
         scene_id.as_str(),
         UiRouteMode::App,
         axes,
+        query
+            .chrome
+            .as_deref()
+            .map(|value| value.eq_ignore_ascii_case("none"))
+            .unwrap_or(false),
         auth_enabled,
         account_view.as_ref(),
         &gis,
@@ -1047,6 +1046,7 @@ pub async fn api_scene_fragment(
         scene_id.as_str(),
         UiRouteMode::App,
         &AppQuery {
+            chrome: query.chrome.clone(),
             data_mode: query.data_mode.clone(),
             review_projection: query.review_projection.clone(),
             ..Default::default()

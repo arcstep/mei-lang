@@ -88,7 +88,7 @@
     return null;
   }
 
-  /** 构建页内 Tab 走客户端切换；配置/上传/模式切换/跨应用 Tab 整页导航。 */
+  /** 配置/上传/模式切换/跨应用 Tab 整页导航；Config/Upload 明确 no-cache + full-page。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
     for (const item of path) {
@@ -131,6 +131,20 @@
         }),
       );
     } catch (_) {}
+  }
+
+  function isConfigOrUploadPath(pathname) {
+    return /^\/apps\/(?:config|upload)\//.test(String(pathname || ""));
+  }
+
+  function shouldForceFullPageNavigation(currentUrl, nextUrl) {
+    const current = new URL(currentUrl, window.location.href);
+    const next = new URL(nextUrl, window.location.href);
+    if (isConfigOrUploadPath(next.pathname)) return true;
+    if (isConfigOrUploadPath(current.pathname) && current.pathname !== next.pathname) {
+      return true;
+    }
+    return false;
   }
 
   function normalizePath(rawUrl) {

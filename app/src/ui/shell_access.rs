@@ -28,6 +28,8 @@ pub(crate) fn access_shell(
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
 ) -> AnyView {
     let current_target = file_target
         .filter(|t| !t.trim().is_empty())
@@ -44,8 +46,8 @@ pub(crate) fn access_shell(
             WorldSemanticQuery::default(),
             None,
             None,
-            None,
-            None,
+            data_mode,
+            review_projection,
         )
     };
     let topbar_preview_target = if static_asset { None } else { file_target };
@@ -71,6 +73,8 @@ pub(crate) fn access_shell(
         stage_enabled,
         auth_enabled,
         auth_account,
+        data_mode,
+        review_projection,
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::App.slug(), current_target, None);
     let shell_class = access_shell_grid_class(chrome_hidden, stage_enabled);
@@ -79,7 +83,12 @@ pub(crate) fn access_shell(
     let floating_entry = || access_ai_floating_entry(compiled, app_path, current_target, panel_tab);
     view! {
         <div class=shell_class>
-            {host_ssr_bootstrap_scripts(compiled, app_path, selected_scene.or(compiled.active_scene.as_deref()), None)}
+            {host_ssr_bootstrap_scripts(
+                compiled,
+                app_path,
+                selected_scene.or(compiled.active_scene.as_deref()),
+                data_mode,
+            )}
             {if chrome_hidden {
                 view! { <></> }.into_any()
             } else {

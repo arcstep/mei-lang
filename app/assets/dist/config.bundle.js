@@ -2079,9 +2079,28 @@
     return resp.json();
   }
 
+  async function applyDraftToConfig(appId) {
+    const resp = await fetch(
+      `/api/ops/layout-tuning/apply/${encodeURIComponent(appId)}`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          ...draftSessionHeaders(),
+        },
+      },
+    );
+    if (!resp.ok) throw new Error(`layoutTuning apply failed: ${resp.status}`);
+    const payload = await resp.json();
+    notifyLayoutTuningOverlay("layout-tuning-persisted");
+    return payload;
+  }
+
   global.MeiOpsLayoutTuningOverlay = {
     applyHot: applyLayoutTuningOverlayHot,
     putSessionDraft,
+    applyDraftToConfig,
     notify: notifyLayoutTuningOverlay,
   };
 })();

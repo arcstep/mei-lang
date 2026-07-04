@@ -38,6 +38,38 @@ fn panel_in_build_preview_scope(panel_path: &str, scope: &str) -> bool {
         || panel_path.starts_with(&format!("{normalized_scope}/"))
 }
 
+fn projection_skeleton_view(
+    label: &str,
+    ui_role: &str,
+    panel_path: &str,
+    ui_role_attr: Option<&str>,
+    ui_scope_attr: Option<&str>,
+) -> AnyView {
+    let skeleton_label = if label.trim().is_empty() {
+        panel_path.to_string()
+    } else {
+        label.to_string()
+    };
+    view! {
+        <section
+            class="preview-card preview-projection-skeleton"
+            data-preview-scope=panel_path.to_string()
+            data-mei-ui-scope=ui_scope_attr.unwrap_or("").to_string()
+            data-mei-ui-role=ui_role_attr.unwrap_or(ui_role).to_string()
+            data-mei-projection-skeleton="true"
+            style="border:1px dashed var(--mei-border-muted, #94a3b8);padding:0.5rem 0.75rem;opacity:0.72;min-height:2.5rem;"
+        >
+            <div class="projection-skeleton-label" style="font-size:0.75rem;line-height:1.2;">
+                <span class="projection-skeleton-role" style="font-weight:600;margin-right:0.35rem;">
+                    {ui_role.to_string()}
+                </span>
+                <span class="projection-skeleton-path">{skeleton_label}</span>
+            </div>
+        </section>
+    }
+    .into_any()
+}
+
 pub(crate) fn panel_view(
     panel: &mei_lang_kernel::PanelDecl,
     frame_layout: Option<&mei_lang_kernel::LayoutDecl>,
@@ -174,7 +206,7 @@ pub(crate) fn panel_view(
         }
     }
 
-    let ui_scope_annotation = if runtime_ctx.build_inspect_enabled {
+    let ui_scope_annotation = if runtime_ctx.structure_anchors_enabled {
         ui_scope_annotation_for_preview_panel(
             compiled,
             scene_contract.scene.id.as_str(),
@@ -194,9 +226,15 @@ pub(crate) fn panel_view(
     };
     let role_for_projection = ui_role_attr.as_deref().unwrap_or("content");
     if !runtime_ctx.ui_role_allowed_for_projection(role_for_projection) {
-        return view! { <></> }.into_any();
+        return projection_skeleton_view(
+            label.as_str(),
+            role_for_projection,
+            panel_path.as_str(),
+            ui_role_attr.as_deref(),
+            ui_scope_attr.as_deref(),
+        );
     }
-    let build_node_id = if runtime_ctx.build_inspect_enabled {
+    let build_node_id = if runtime_ctx.structure_anchors_enabled {
         build_node_id.or_else(|| {
             Some(
                 BuildNodeId::scene_panel(

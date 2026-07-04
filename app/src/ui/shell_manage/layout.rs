@@ -88,6 +88,10 @@ pub(crate) fn manage_shell(
         super::preview_fragment::build_preview_component_use_key(&resolved.node);
     let build_preview_component_use_key =
         build_preview_component_use_key_owned.as_deref();
+    let active_data_mode = data_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| default_build_preset().data_mode);
     let active_review_projection = review_projection
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -100,7 +104,7 @@ pub(crate) fn manage_shell(
         semantic,
         build_preview_scope.as_deref(),
         build_preview_component_use_key,
-        data_mode,
+        Some(active_data_mode),
         Some(active_review_projection),
     );
     let active_scene = ctx.scene_id.as_deref().or(compiled.active_scene.as_deref());
@@ -115,10 +119,6 @@ pub(crate) fn manage_shell(
         data_mode,
         review_projection: Some(active_review_projection),
     };
-    let active_data_mode = data_mode
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default_build_preset().data_mode);
     let active_preset = match_preset(active_data_mode, active_review_projection)
         .copied()
         .unwrap_or_else(|| *default_build_preset());
@@ -169,6 +169,8 @@ pub(crate) fn manage_shell(
         stage_enabled,
         auth_enabled,
         auth_account,
+        Some(active_data_mode),
+        Some(active_review_projection),
     );
     let statusbar = statusbar_view(
         app_path,
@@ -279,7 +281,7 @@ pub(crate) fn manage_shell(
             compiled,
             app_path,
             preview_scene_id,
-            data_mode,
+            Some(active_data_mode),
         ))
     } else {
         None
@@ -375,7 +377,7 @@ pub(crate) fn manage_shell(
                         <div class="manage-workspace-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 pb-2.5">
                             <nav
                                 class="manage-view-tabs workspace-tabs-strip flex min-w-0 flex-1 items-center gap-2"
-                                aria-label="原型工作区"
+                                aria-label="场景原型工作区"
                             >
                                 <div class="manage-view-tabs-cluster manage-view-tabs-cluster--prototype">
                                     <div class="manage-view-tabs-group manage-view-tabs-group--primary" role="presentation">
@@ -415,7 +417,7 @@ pub(crate) fn manage_shell(
                                     data-data-mode=active_data_mode
                                     data-review-projection=active_review_projection
                                 >
-                                    "复制原型调试上下文"
+                                    "复制场景原型调试上下文"
                                 </button>
                             </div>
                         </div>

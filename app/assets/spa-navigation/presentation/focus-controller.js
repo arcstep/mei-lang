@@ -258,8 +258,23 @@
     const entry = readViewpointEntry(viewpointId);
     if (!entry) return false;
     clearViewpointFocus();
-    const selector = `[data-mei-viewpoint="${CSS.escape(viewpointId)}"]`;
-    const target = document.querySelector(selector);
+    let target = null;
+    const anchorApi = globalThis.MeiStructureAnchor;
+    if (anchorApi && typeof anchorApi.resolveAnchor === "function") {
+      const previewScope = String(
+        entry.previewScope || entry.preview_scope || entry.panelPath || entry.panel_path || "",
+      ).trim();
+      const nodeId = String(entry.nodeId || entry.node_id || "").trim();
+      const anchor = anchorApi.resolveAnchor(nodeId, previewScope);
+      const selector = anchorApi.focusSelectorForAnchor(anchor);
+      if (selector) {
+        target = document.querySelector(selector);
+      }
+    }
+    if (!(target instanceof HTMLElement)) {
+      const selector = `[data-mei-viewpoint="${CSS.escape(viewpointId)}"]`;
+      target = document.querySelector(selector);
+    }
     if (!(target instanceof HTMLElement)) return false;
     target.classList.add("mei-viewpoint-focus");
     if (entry.tier) {

@@ -4749,9 +4749,9 @@
 
   function copyButtonLabel(btn, intent) {
     if (btn.id === "build-copy-agent-context-top") {
-      return "复制原型调试上下文";
+      return "复制场景原型调试上下文";
     }
-    return intent === "full" ? "复制原型调试上下文" : "复制 Markdown 简报";
+    return intent === "full" ? "复制场景原型调试上下文" : "复制 Markdown 简报";
   }
 
   function reviewAxesFromShell(shell) {
@@ -6122,6 +6122,46 @@
     return fromScene === toScene;
   }
 
+  function readDataModeFromUrl(rawUrl) {
+    try {
+      const parsed = new URL(rawUrl, global.location.href);
+      const fromQuery = String(parsed.searchParams.get("data_mode") || "").trim();
+      if (fromQuery) return fromQuery.toLowerCase();
+    } catch (_) {}
+    const shell = document.querySelector(".shell");
+    return String(shell?.getAttribute("data-data-mode") || "eval")
+      .trim()
+      .toLowerCase();
+  }
+
+  function readReviewProjectionFromUrl(rawUrl) {
+    try {
+      const parsed = new URL(rawUrl, global.location.href);
+      const fromQuery = String(parsed.searchParams.get("review_projection") || "").trim();
+      if (fromQuery) return fromQuery.toLowerCase().replace(/-/g, "_");
+    } catch (_) {}
+    const shell = document.querySelector(".shell");
+    const fromShell = shell?.getAttribute("data-review-projection");
+    if (fromShell) {
+      return String(fromShell).trim().toLowerCase().replace(/-/g, "_");
+    }
+    return "plane_region_section";
+  }
+
+  function reviewAxesChanged(fromUrl, toUrl) {
+    const fromDataMode = readDataModeFromUrl(fromUrl);
+    const toDataMode = readDataModeFromUrl(toUrl);
+    const dataModeChanged = fromDataMode !== toDataMode;
+    const fromProjection = readReviewProjectionFromUrl(fromUrl);
+    const toProjection = readReviewProjectionFromUrl(toUrl);
+    const reviewProjectionChanged = fromProjection !== toProjection;
+    return {
+      dataModeChanged,
+      reviewProjectionChanged,
+      changed: dataModeChanged || reviewProjectionChanged,
+    };
+  }
+
   function classifyBuildNavTier(fromUrl, toUrl, linkEl) {
     try {
       const from = new URL(fromUrl, global.location.href);
@@ -6133,6 +6173,10 @@
       const previewTab =
         buildTab(toUrl, linkEl) === "preview" || Boolean(inferPreviewTabFromNodeId(toNode));
       if (!previewTab) return "full";
+      const axesChange = reviewAxesChanged(fromUrl, toUrl);
+      if (axesChange.dataModeChanged) {
+        return "fragment";
+      }
       if (isSameSceneStructureNav(fromUrl, toUrl)) {
         return "client";
       }
@@ -6215,6 +6259,518 @@
         const slug = String(panel.getAttribute("data-manage-tab-panel") || "")
           .trim()
           .toLowerCase();
+
+
+/* ===== spa-navigation/spa/revision-contract.js ===== */
+/**
+ * Shared revision contract for access-like scene shell and Build workspace fragments.
+ */
+(function initRevisionContract(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  function revisionsMatch(localRevision, remoteRevision) {
+    if (!localRevision || !remoteRevision) return false;
+    if (localRevision.revision_digest && remoteRevision.revision_digest) {
+      return localRevision.revision_digest === remoteRevision.revision_digest;
+    }
+    if (localRevision.cache_key && remoteRevision.cache_key) {
+      return localRevision.cache_key === remoteRevision.cache_key;
+    }
+    return (
+      localRevision.registry_revision === remoteRevision.registry_revision &&
+      localRevision.client_revision === remoteRevision.client_revision &&
+      localRevision.data_generation === remoteRevision.data_generation &&
+      (localRevision.scene_bundle_revision || "") ===
+        (remoteRevision.scene_bundle_revision || "") &&
+      (localRevision.draft_digest || "") === (remoteRevision.draft_digest || "")
+    );
+  }
+
+  function surfaceRevisionKey(parts) {
+    const payload = parts || {};
+    return [
+      payload.surface || payload.route_mode || "",
+      payload.app_id || payload.appId || "",
+      payload.scene_id || payload.sceneId || "",
+      payload.node || "",
+      payload.data_mode || payload.dataMode || "",
+      payload.review_projection || payload.reviewProjection || "",
+      payload.chrome || "",
+      payload.focus || "",
+      payload.scope || "",
+      payload.draft_session || payload.draftSession || "",
+    ]
+      .filter(Boolean)
+      .join(":");
+  }
+
+  function pruneRevisionStore(store, key, maxEntries) {
+    if (!store || typeof store !== "object") return;
+    const limit = Number.isFinite(maxEntries) ? maxEntries : 32;
+    const keys = Object.keys(store);
+    if (keys.length <= limit) return;
+    for (const stale of keys) {
+      if (stale === key) continue;
+      delete store[stale];
+      if (Object.keys(store).length <= limit) break;
+    }
+  }
+
+  boot.revisionsMatch = revisionsMatch;
+  boot.surfaceRevisionKey = surfaceRevisionKey;
+  boot.pruneRevisionStore = pruneRevisionStore;
+})(window);
+
+
+/* ===== spa-navigation/spa/build-fragment-revision.js ===== */
+/**
+ * Build fragment revision helpers (shared contract with access-like scene revision).
+ */
+(function initBuildFragmentRevision(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const BUILD_FRAGMENT_REVISION_API = "/api/build/fragment-revision";
+  const revisionStoreKey = "mei-build-fragment-revisions";
+  const fragmentHtmlStoreKey = "mei-build-fragment-html";
+  const FRAGMENT_HTML_MAX = 8;
+
+  function readRevisionStore() {
+    try {
+      const raw = global.sessionStorage.getItem(revisionStoreKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeRevisionStore(store) {
+    try {
+      global.sessionStorage.setItem(revisionStoreKey, JSON.stringify(store || {}));
+    } catch (_) {}
+  }
+
+  function buildFragmentRevisionCacheKey(urlLike) {
+    try {
+      const url = new URL(urlLike, global.location.href);
+      const parts = url.pathname.split("/").filter(Boolean);
+      const appId = parts[2] || "";
+      return boot.surfaceRevisionKey({
+        surface: "build",
+        app_id: appId,
+        node: String(url.searchParams.get("node") || "").trim(),
+        data_mode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
+        review_projection: String(url.searchParams.get("review_projection") || "")
+          .trim()
+          .toLowerCase(),
+        focus: String(url.searchParams.get("focus") || "").trim(),
+        scope: String(url.searchParams.get("scope") || "").trim(),
+      });
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function rememberBuildFragmentRevision(urlLike, revision) {
+    const key = buildFragmentRevisionCacheKey(urlLike);
+    if (!key || !revision) return;
+    const store = readRevisionStore();
+    store[key] = revision;
+    if (typeof boot.pruneRevisionStore === "function") {
+      boot.pruneRevisionStore(store, key, 48);
+    }
+    writeRevisionStore(store);
+  }
+
+  function readBuildFragmentRevision(urlLike) {
+    const key = buildFragmentRevisionCacheKey(urlLike);
+    if (!key) return null;
+    const store = readRevisionStore();
+    return store[key] || null;
+  }
+
+  function buildFragmentRevisionStillValid(urlLike, remoteRevision) {
+    const localRevision = readBuildFragmentRevision(urlLike);
+    if (!localRevision || !remoteRevision) return false;
+    return typeof boot.revisionsMatch === "function"
+      ? boot.revisionsMatch(localRevision, remoteRevision)
+      : false;
+  }
+
+  async function fetchBuildFragmentRevision(urlLike, options) {
+    const opts = options || {};
+    const url = new URL(urlLike, global.location.href);
+    const parts = url.pathname.split("/").filter(Boolean);
+    const appId = parts[2] || "";
+    const params = new URLSearchParams({
+      app_id: appId,
+      node: String(url.searchParams.get("node") || "").trim(),
+    });
+    const focus = url.searchParams.get("focus");
+    const scope = url.searchParams.get("scope");
+    const dataMode = url.searchParams.get("data_mode");
+    const reviewProjection = url.searchParams.get("review_projection");
+    if (focus) params.set("focus", focus);
+    if (scope) params.set("scope", scope);
+    if (dataMode) params.set("data_mode", dataMode);
+    if (reviewProjection) params.set("review_projection", reviewProjection);
+    const controller = opts.signal ? null : new AbortController();
+    const signal = opts.signal || controller?.signal;
+    const timer =
+      controller && Number.isFinite(opts.timeoutMs)
+        ? setTimeout(() => controller.abort(), opts.timeoutMs)
+        : null;
+    try {
+      const response = await fetch(`${BUILD_FRAGMENT_REVISION_API}?${params.toString()}`, {
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          ...(typeof ensureDraftSessionId === "function"
+            ? { "x-mei-draft-session": ensureDraftSessionId() }
+            : {}),
+        },
+        signal,
+      });
+      if (!response.ok) {
+        throw new Error(`build fragment revision failed: ${response.status}`);
+      }
+      return await response.json();
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  function readFragmentHtmlStore() {
+    try {
+      const raw = global.sessionStorage.getItem(fragmentHtmlStoreKey);
+      return raw ? JSON.parse(raw) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeFragmentHtmlStore(store) {
+    try {
+      global.sessionStorage.setItem(fragmentHtmlStoreKey, JSON.stringify(store || {}));
+    } catch (_) {}
+  }
+
+  function fragmentHtmlCacheKey(urlLike, revision) {
+    const base = buildFragmentRevisionCacheKey(urlLike);
+    const digest = String(revision?.revision_digest || revision?.cache_key || "").trim();
+    return digest ? `${base}:${digest}` : base;
+  }
+
+  function rememberBuildFragmentHtml(urlLike, revision, payload) {
+    const key = fragmentHtmlCacheKey(urlLike, revision);
+    if (!key || !payload?.preview_html) return;
+    const store = readFragmentHtmlStore();
+    store[key] = {
+      preview_html: String(payload.preview_html || ""),
+      drilldown_script: String(payload.drilldown_script || ""),
+      workspace_scripts: Array.isArray(payload.workspace_scripts)
+        ? payload.workspace_scripts
+        : [],
+      node: payload.node || "",
+      focus: payload.focus || "",
+      revision,
+    };
+    if (typeof boot.pruneRevisionStore === "function") {
+      boot.pruneRevisionStore(store, key, FRAGMENT_HTML_MAX);
+    }
+    writeFragmentHtmlStore(store);
+  }
+
+  function readBuildFragmentHtml(urlLike, revision) {
+    const key = fragmentHtmlCacheKey(urlLike, revision);
+    if (!key) return null;
+    const store = readFragmentHtmlStore();
+    return store[key] || null;
+  }
+
+  boot.buildFragmentRevisionCacheKey = buildFragmentRevisionCacheKey;
+  boot.readBuildFragmentHtml = readBuildFragmentHtml;
+  boot.rememberBuildFragmentHtml = rememberBuildFragmentHtml;
+  boot.fetchBuildFragmentRevision = fetchBuildFragmentRevision;
+  boot.rememberBuildFragmentRevision = rememberBuildFragmentRevision;
+  boot.readBuildFragmentRevision = readBuildFragmentRevision;
+  boot.buildFragmentRevisionStillValid = buildFragmentRevisionStillValid;
+})(window);
+
+
+/* ===== spa-navigation/spa/structure-anchor.js ===== */
+/**
+ * Unified structure anchor resolver for preview DOM and reachability tree.
+ */
+(function initStructureAnchor(global) {
+  "use strict";
+
+  const REVIEW_ROLE_DEPTH = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+
+  function readReachabilityTree() {
+    const script = document.getElementById("mei-build-reachability-tree");
+    if (!(script instanceof HTMLScriptElement) || !script.textContent) return [];
+    try {
+      const roots = JSON.parse(script.textContent);
+      return Array.isArray(roots) ? roots : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function walkReachability(nodes, visitor) {
+    for (const node of nodes || []) {
+      if (!node || typeof node !== "object") continue;
+      const hit = visitor(node);
+      if (hit) return hit;
+      const nested = walkReachability(node.children, visitor);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function findReachabilityNode(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return null;
+    return walkReachability(readReachabilityTree(), (node) =>
+      node?.node_id === id ? node : null,
+    );
+  }
+
+  function readAnchorFromElement(el) {
+    if (!(el instanceof HTMLElement)) return null;
+    const nodeId = String(
+      el.getAttribute("data-build-node") || el.getAttribute("data-build-focus") || "",
+    ).trim();
+    const previewScope = String(
+      el.getAttribute("data-preview-scope") ||
+        el.getAttribute("data-mei-ui-scope") ||
+        el.getAttribute("data-mei-panel-id") ||
+        "",
+    ).trim();
+    const uiRole = String(el.getAttribute("data-mei-ui-role") || "")
+      .trim()
+      .toLowerCase();
+    if (!nodeId && !previewScope && !uiRole) return null;
+    return {
+      node_id: nodeId,
+      preview_scope: previewScope,
+      ui_role: uiRole,
+      element: el,
+    };
+  }
+
+  function resolveAnchorFromDom(nodeId, previewScope) {
+    const id = String(nodeId || "").trim();
+    const scope = String(previewScope || "").trim();
+    if (id) {
+      const byNode = document.querySelector(`[data-build-node="${CSS.escape(id)}"]`);
+      const anchor = readAnchorFromElement(byNode);
+      if (anchor) return anchor;
+      const byFocus = document.querySelector(`[data-build-focus="${CSS.escape(id)}"]`);
+      const focusAnchor = readAnchorFromElement(byFocus);
+      if (focusAnchor) return focusAnchor;
+    }
+    if (scope) {
+      const byScope = document.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      const scopeAnchor = readAnchorFromElement(byScope);
+      if (scopeAnchor) return scopeAnchor;
+      const byUiScope = document.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
+      return readAnchorFromElement(byUiScope);
+    }
+    return null;
+  }
+
+  function resolveAnchor(nodeId, previewScope) {
+    const id = String(nodeId || "").trim();
+    const scope = String(previewScope || "").trim();
+    const fromDom = resolveAnchorFromDom(id, scope);
+    if (fromDom) return fromDom;
+    const treeNode = findReachabilityNode(id);
+    if (treeNode) {
+      return {
+        node_id: String(treeNode.node_id || id),
+        preview_scope: String(treeNode.preview_scope || scope),
+        ui_role: String(treeNode.ui_role || treeNode.role || "")
+          .trim()
+          .toLowerCase(),
+        source_file: String(treeNode.source_file || "").trim(),
+        source_symbol: String(treeNode.source_symbol || "").trim(),
+      };
+    }
+    if (scope) {
+      return { node_id: id, preview_scope: scope, ui_role: "" };
+    }
+    return null;
+  }
+
+  function focusSelectorForAnchor(anchor) {
+    if (!anchor || typeof anchor !== "object") return "";
+    const scope = String(anchor.preview_scope || "").trim();
+    if (scope) return `[data-preview-scope="${CSS.escape(scope)}"]`;
+    const nodeId = String(anchor.node_id || "").trim();
+    if (nodeId) return `[data-build-node="${CSS.escape(nodeId)}"]`;
+    return "";
+  }
+
+  function elementReviewDepth(el) {
+    if (!(el instanceof HTMLElement)) return 99;
+    const role = String(el.getAttribute("data-mei-ui-role") || "")
+      .trim()
+      .toLowerCase();
+    if (role && Object.prototype.hasOwnProperty.call(REVIEW_ROLE_DEPTH, role)) {
+      return REVIEW_ROLE_DEPTH[role];
+    }
+    if (el.hasAttribute("data-mei-panel-id")) return 1;
+    if (el.hasAttribute("data-preview-scope")) return 2;
+    if (el.hasAttribute("data-mei-use-key") || el.hasAttribute("data-build-node")) return 3;
+    return 99;
+  }
+
+  global.MeiStructureAnchor = {
+    resolveAnchor,
+    resolveAnchorFromDom,
+    readAnchorFromElement,
+    findReachabilityNode,
+    focusSelectorForAnchor,
+    elementReviewDepth,
+    REVIEW_ROLE_DEPTH,
+  };
+})(window);
+
+
+/* ===== spa-navigation/spa/projection-depth.js ===== */
+/**
+ * Unified review projection depth consumer (dim / manifest overlay).
+ */
+(function initProjectionDepth(global) {
+  "use strict";
+
+  const REVIEW_PROJECTION_MAX_DEPTH = {
+    plane: 0,
+    plane_region: 1,
+    plane_region_section: 2,
+    static_full: 99,
+    live_full: 99,
+    static: 99,
+    live: 99,
+  };
+
+  function normalizeReviewProjection(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
+  }
+
+  function readReviewProjectionFromUrl() {
+    try {
+      return String(
+        new URL(global.location.href).searchParams.get("review_projection") || "",
+      ).trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function elementReviewDepth(el) {
+    if (global.MeiStructureAnchor?.elementReviewDepth) {
+      return global.MeiStructureAnchor.elementReviewDepth(el);
+    }
+    if (!(el instanceof HTMLElement)) return 99;
+    const role = String(el.getAttribute("data-mei-ui-role") || "")
+      .trim()
+      .toLowerCase();
+    const roleDepth = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    if (role && Object.prototype.hasOwnProperty.call(roleDepth, role)) {
+      return roleDepth[role];
+    }
+    if (el.hasAttribute("data-mei-panel-id")) return 1;
+    if (el.hasAttribute("data-preview-scope")) return 2;
+    if (el.hasAttribute("data-mei-use-key") || el.hasAttribute("data-build-node")) return 3;
+    return 99;
+  }
+
+  function applyReviewProjectionChrome(root, options) {
+    if (!(root instanceof HTMLElement)) return;
+    const opts = options || {};
+    const projection = normalizeReviewProjection(
+      opts.reviewProjection ||
+        root.getAttribute("data-review-projection") ||
+        readReviewProjectionFromUrl(),
+    );
+    const maxDepth = REVIEW_PROJECTION_MAX_DEPTH[projection];
+    root.querySelectorAll(".build-review-projection-dim, .mei-review-projection-dim").forEach((el) => {
+      el.classList.remove("build-review-projection-dim", "mei-review-projection-dim");
+      if (el instanceof HTMLElement) el.style.removeProperty("pointer-events");
+    });
+    if (maxDepth == null || maxDepth >= 99) {
+      root.removeAttribute("data-review-projection-active");
+      return;
+    }
+    root.setAttribute("data-review-projection-active", projection || "static_full");
+    root
+      .querySelectorAll(
+        "[data-mei-ui-role], [data-mei-panel-id], [data-preview-scope], [data-mei-use-key], [data-build-node], .preview-projection-skeleton",
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        if (el.classList.contains("preview-projection-skeleton")) return;
+        const depth = elementReviewDepth(el);
+        if (depth > maxDepth) {
+          el.classList.add("build-review-projection-dim", "mei-review-projection-dim");
+          el.style.pointerEvents = "none";
+        }
+      });
+  }
+
+  function applyLayoutBudgetManifest(doc) {
+    const root = doc || document;
+    const manifest = global.__mei?.layout_budget_manifest;
+    if (!manifest?.entries || typeof manifest.entries !== "object") return;
+    Object.entries(manifest.entries).forEach(([scope, entry]) => {
+      if (!entry || typeof entry !== "object") return;
+      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      if (!(node instanceof HTMLElement)) return;
+      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
+      if (slotHeight != null) {
+        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
+        node.dataset.manifestSlotHeight = String(slotHeight);
+      }
+      const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
+      if (paddingProfile) {
+        node.dataset.manifestPaddingProfile = String(paddingProfile);
+      }
+      const contentRows = entry.content_rows ?? entry.contentRows;
+      if (Array.isArray(contentRows) && contentRows.length > 0) {
+        node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
+        node.dataset.manifestContentRows = contentRows.join(",");
+      }
+      const contentGap = entry.content_gap ?? entry.contentGap;
+      if (contentGap != null && contentGap !== "") {
+        node.style.rowGap = `${contentGap}px`;
+        node.dataset.manifestContentGap = String(contentGap);
+      }
+    });
+  }
+
+  function applyProjectionDepth(root, options) {
+    applyReviewProjectionChrome(root, options);
+    applyLayoutBudgetManifest(root?.ownerDocument || document);
+  }
+
+  global.MeiProjectionDepth = {
+    applyReviewProjectionChrome,
+    applyLayoutBudgetManifest,
+    applyProjectionDepth,
+    normalizeReviewProjection,
+    readReviewProjectionFromUrl,
+    elementReviewDepth,
+    REVIEW_PROJECTION_MAX_DEPTH,
+  };
+})(window);
 
 
 /* ===== build-navigation/p2.js ===== */
@@ -6382,16 +6938,26 @@
     });
     const focus = parsed.searchParams.get("focus");
     if (focus) params.set("focus", focus);
+    const scope = parsed.searchParams.get("scope");
+    if (scope) params.set("scope", scope);
     const reviewProjection = parsed.searchParams.get("review_projection");
     if (reviewProjection) params.set("review_projection", reviewProjection);
     const dataMode = parsed.searchParams.get("data_mode");
     if (dataMode) params.set("data_mode", dataMode);
+    const draftHeaders =
+      typeof ensureDraftSessionId === "function"
+        ? { "x-mei-draft-session": ensureDraftSessionId() }
+        : {};
     const controller = new AbortController();
     const timer = global.setTimeout(() => controller.abort(), FRAGMENT_FETCH_TIMEOUT_MS);
     try {
       const resp = await fetch(`/api/build/workspace-fragment?${params.toString()}`, {
         credentials: "same-origin",
-        headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
+        headers: {
+          Accept: "application/json",
+          "x-mei-spa-nav": "1",
+          ...draftHeaders,
+        },
         signal: controller.signal,
       });
       if (!resp.ok) throw new Error(`fragment failed: ${resp.status}`);
@@ -6405,7 +6971,38 @@
     showBuildNavLoading(url);
     try {
       ensurePreviewTabVisible(url);
-      const { payload } = await fetchWorkspaceFragment(url);
+      let payload = null;
+      if (typeof boot.fetchBuildFragmentRevision === "function") {
+        try {
+          const remoteRevision = await boot.fetchBuildFragmentRevision(url, { timeoutMs: 8000 });
+          if (
+            remoteRevision &&
+            typeof boot.buildFragmentRevisionStillValid === "function" &&
+            boot.buildFragmentRevisionStillValid(url, remoteRevision)
+          ) {
+            const cached =
+              typeof boot.readBuildFragmentHtml === "function"
+                ? boot.readBuildFragmentHtml(url, remoteRevision)
+                : null;
+            if (cached?.preview_html) {
+              payload = { ...cached, revision: remoteRevision };
+            }
+          }
+        } catch (_) {}
+      }
+      if (!payload) {
+        const fetched = await fetchWorkspaceFragment(url);
+        payload = fetched.payload;
+        if (payload?.revision && typeof boot.rememberBuildFragmentRevision === "function") {
+          boot.rememberBuildFragmentRevision(url, payload.revision);
+        }
+        if (
+          payload?.preview_html &&
+          typeof boot.rememberBuildFragmentHtml === "function"
+        ) {
+          boot.rememberBuildFragmentHtml(url, payload.revision, payload);
+        }
+      }
       const ok = swapPreviewFragment(
         String(payload.preview_html || ""),
         String(payload.drilldown_script || ""),
@@ -6448,8 +7045,12 @@
       stats.tier1 += 1;
       runTier0PostNav(url);
       const nextNode = nodeIdFromUrl(url);
+      const axesChange =
+        typeof reviewAxesChanged === "function"
+          ? reviewAxesChanged(lastBuildNavUrl, url)
+          : { dataModeChanged: false };
       wakePreviewRuntime("build-fragment", {
-        resetRuntimeQueryCache: isPackCatalogNodeId(nextNode),
+        resetRuntimeQueryCache: axesChange.dataModeChanged || isPackCatalogNodeId(nextNode),
         pulsePreviewUpdated: true,
       });
       return true;
@@ -6561,6 +7162,9 @@
     isSameSceneStructureNav,
     readCompileCoordinate,
     coordinatesEqual,
+    readDataModeFromUrl,
+    readReviewProjectionFromUrl,
+    reviewAxesChanged,
     classifyBuildNavTier,
     tryNavigateBuild,
     tryHandleBuildClick,
@@ -7321,6 +7925,9 @@
   }
 
   function elementReviewDepth(el) {
+    if (global.MeiStructureAnchor?.elementReviewDepth) {
+      return global.MeiStructureAnchor.elementReviewDepth(el);
+    }
     if (!(el instanceof HTMLElement)) return 99;
     const role = String(el.getAttribute("data-mei-ui-role") || "")
       .trim()
@@ -7335,6 +7942,10 @@
   }
 
   function applyReviewProjectionChrome(root) {
+    if (global.MeiProjectionDepth?.applyReviewProjectionChrome) {
+      global.MeiProjectionDepth.applyReviewProjectionChrome(root);
+      return;
+    }
     if (!(root instanceof HTMLElement)) return;
     const projection = normalizeReviewProjection(
       root.getAttribute("data-review-projection") || readReviewProjectionFromUrl(),
@@ -7783,6 +8394,289 @@
 })(window);
 
 
+/* ===== build-layout-tuning-draft/p1.js ===== */
+/**
+ * Build / 场景原型: layoutTuning session draft WYSIWYG bridge.
+ * selectNode -> resolvePreviewScope -> buildDraftPatch -> putSessionDraft -> applyHot
+ */
+(function initBuildLayoutTuningDraftBridge(global) {
+  "use strict";
+
+  function isBuildRoute() {
+    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+  }
+
+  function appIdFromPath() {
+    const parts = String(global.location.pathname || "")
+      .split("/")
+      .filter(Boolean);
+    const idx = parts.indexOf("build");
+    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+    const manageIdx = parts.indexOf("manage");
+    if (manageIdx >= 0 && parts[manageIdx + 1]) return parts[manageIdx + 1];
+    return String(document.querySelector(".shell[data-app-path]")?.getAttribute("data-app-path") || "")
+      .trim();
+  }
+
+  function activeBuildNode() {
+    try {
+      const fromUrl = String(new URL(global.location.href).searchParams.get("node") || "").trim();
+      if (fromUrl) return fromUrl;
+    } catch (_) {}
+    return String(document.querySelector(".shell[data-build-node]")?.getAttribute("data-build-node") || "")
+      .trim();
+  }
+
+  function readUiScopeMetaFromTree(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return null;
+    const script = document.getElementById("mei-build-reachability-tree");
+    if (!script) return null;
+    try {
+      const roots = JSON.parse(script.textContent || "[]");
+      if (!Array.isArray(roots)) return null;
+      const walk = (nodes) => {
+        for (const node of nodes || []) {
+          if (node?.node_id === id) {
+            return {
+              preview_scope: String(node.preview_scope || "").trim(),
+              ui_role: String(node.ui_role || node.badges?.[0] || "").trim(),
+            };
+          }
+          const nested = walk(node.children);
+          if (nested) return nested;
+        }
+        return null;
+      };
+      for (const root of roots) {
+        const found = walk(root.children);
+        if (found) return found;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function resolvePreviewScopeFromSelection() {
+    const host = document.querySelector(
+      ".preview-pane-scroll[data-build-inspect-scope], .preview-pane-scroll[data-build-inspect-active]",
+    );
+    const scopeFromHost = String(host?.getAttribute("data-build-inspect-scope") || "").trim();
+    if (scopeFromHost) return scopeFromHost;
+    const node = activeBuildNode();
+    if (node.startsWith("ui-scope:")) {
+      const meta = readUiScopeMetaFromTree(node);
+      if (meta?.preview_scope) return meta.preview_scope;
+    }
+    if (node.startsWith("scene-panel:") || node.startsWith("scene-block:")) {
+      const encoded = node.replace(/^scene-(?:panel|block):/i, "");
+      const slash = encoded.indexOf("/");
+      if (slash >= 0) return encoded.slice(slash + 1);
+    }
+    const selected = document.querySelector(
+      "[data-manage-tab-panel='preview'] .build-inspect-selected[data-preview-scope]",
+    );
+    if (selected instanceof HTMLElement) {
+      return String(selected.getAttribute("data-preview-scope") || "").trim();
+    }
+    return "";
+  }
+
+  function buildDraftPatch(previewScope, fields) {
+    const scope = String(previewScope || "").trim();
+    if (!scope) return null;
+    const patch = {};
+    const slotHeight = fields?.slotHeight;
+    if (slotHeight != null && slotHeight !== "") {
+      const numeric = Number(slotHeight);
+      patch.slotHeight = Number.isFinite(numeric) ? `${Math.round(numeric)}px` : String(slotHeight);
+    }
+    const paddingProfile = String(fields?.paddingProfile || "").trim();
+    if (paddingProfile) {
+      patch.paddingProfile = paddingProfile;
+    }
+    const rows = fields?.contentRows;
+    const gap = fields?.contentGap;
+    if ((Array.isArray(rows) && rows.length > 0) || (gap != null && gap !== "")) {
+      patch.contentBudget = {};
+      if (Array.isArray(rows) && rows.length > 0) {
+        patch.contentBudget.rows = rows.map((row) => Number(row));
+      }
+      if (gap != null && gap !== "") {
+        patch.contentBudget.gap = Number(gap);
+      }
+    }
+    if (Object.keys(patch).length === 0) return null;
+    return { tuning: { [scope]: patch } };
+  }
+
+  function inspectBarRoot() {
+    return document.getElementById("build-inspect-bar");
+  }
+
+  function ensureDraftControls() {
+    const bar = inspectBarRoot();
+    if (!bar) return null;
+    let controls = bar.querySelector("#build-layout-tuning-draft-controls");
+    if (controls instanceof HTMLElement) return controls;
+    controls = document.createElement("div");
+    controls.id = "build-layout-tuning-draft-controls";
+    controls.className = "build-layout-tuning-draft-controls flex flex-wrap items-center gap-2 mt-2";
+    controls.hidden = true;
+    controls.innerHTML = [
+      '<label class="flex items-center gap-1 text-xs">',
+      '<span>slotHeight</span>',
+      '<input type="number" min="32" step="4" data-draft-field="slotHeight" class="w-20 rounded border px-1 py-0.5 text-xs" />',
+      "</label>",
+      '<label class="flex items-center gap-1 text-xs">',
+      "<span>padding</span>",
+      '<select data-draft-field="paddingProfile" class="rounded border px-1 py-0.5 text-xs">',
+      '<option value="">—</option>',
+      '<option value="compact">compact</option>',
+      '<option value="comfortable">comfortable</option>',
+      '<option value="spacious">spacious</option>',
+      "</select>",
+      "</label>",
+      '<label class="flex items-center gap-1 text-xs">',
+      "<span>rows</span>",
+      '<input type="text" data-draft-field="contentRows" placeholder="120,80" class="w-24 rounded border px-1 py-0.5 text-xs" />',
+      "</label>",
+      '<label class="flex items-center gap-1 text-xs">',
+      "<span>gap</span>",
+      '<input type="number" min="0" step="2" data-draft-field="contentGap" class="w-16 rounded border px-1 py-0.5 text-xs" />',
+      "</label>",
+      '<button type="button" data-draft-apply class="build-toolbar-btn text-xs">应用 draft 预览</button>',
+      '<button type="button" data-draft-persist class="build-toolbar-btn text-xs">应用到配置</button>',
+      '<span data-draft-scope class="text-xs opacity-70"></span>',
+    ].join("");
+    bar.appendChild(controls);
+    controls.querySelector("[data-draft-apply]")?.addEventListener("click", () => {
+      void applyDraftFromControls();
+    });
+    controls.querySelector("[data-draft-persist]")?.addEventListener("click", () => {
+      void applyDraftFromControls({ persist: true });
+    });
+    return controls;
+  }
+
+  async function applyDraftFromControls(options) {
+    if (!isBuildRoute()) return;
+    const overlay = global.MeiOpsLayoutTuningOverlay;
+    if (!overlay?.putSessionDraft || !overlay?.applyHot) return;
+    const appId = appIdFromPath();
+    if (!appId) return;
+    const controls = ensureDraftControls();
+    if (!controls) return;
+    const scope = resolvePreviewScopeFromSelection();
+    if (!scope) return;
+    const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+    const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
+    const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
+    const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
+    const rows =
+      rowsInput instanceof HTMLInputElement && rowsInput.value
+        ? rowsInput.value
+            .split(",")
+            .map((part) => Number(part.trim()))
+            .filter((value) => Number.isFinite(value))
+        : null;
+    const patch = buildDraftPatch(scope, {
+      slotHeight:
+        slotInput instanceof HTMLInputElement && slotInput.value
+          ? slotInput.value
+          : null,
+      paddingProfile:
+        paddingSelect instanceof HTMLSelectElement ? paddingSelect.value : "",
+      contentRows: rows,
+      contentGap:
+        gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
+    });
+    if (!patch) return;
+    await overlay.putSessionDraft(appId, patch.tuning);
+    if (options?.persist && typeof overlay.applyDraftToConfig === "function") {
+      await overlay.applyDraftToConfig(appId);
+    } else {
+      await overlay.applyHot(appId, global);
+    }
+    try {
+      global.dispatchEvent(
+        new CustomEvent("meilang:preview-updated", {
+          bubbles: true,
+          detail: {
+            scope: "layout-tuning-draft",
+            preview_scope: scope,
+            resetRuntimeQueryCache: false,
+          },
+        }),
+      );
+    } catch (_) {}
+  }
+
+  function syncDraftControls() {
+    if (!isBuildRoute()) return;
+    const controls = ensureDraftControls();
+    if (!controls) return;
+    const scope = resolvePreviewScopeFromSelection();
+    const scopeLabel = controls.querySelector("[data-draft-scope]");
+    if (!(scopeLabel instanceof HTMLElement)) return;
+    if (!scope) {
+      controls.hidden = true;
+      scopeLabel.textContent = "";
+      return;
+    }
+    controls.hidden = false;
+    scopeLabel.textContent = `scope: ${scope}`;
+    const node = document.querySelector(
+      `[data-preview-scope="${CSS.escape(scope)}"]`,
+    );
+    if (node instanceof HTMLElement) {
+      const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+      if (slotInput instanceof HTMLInputElement) {
+        const current =
+          node.dataset.layoutTuningSlotHeight ||
+          node.style.getPropertyValue("--mei-slot-height").replace(/px$/, "");
+        if (current) slotInput.value = String(current).trim();
+      }
+      const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
+      if (paddingSelect instanceof HTMLSelectElement) {
+        const profile = node.dataset.layoutTuningPaddingProfile || "";
+        if (profile) paddingSelect.value = profile;
+      }
+    }
+  }
+
+  function scheduleSync() {
+    global.requestAnimationFrame(() => syncDraftControls());
+  }
+
+  global.addEventListener("popstate", scheduleSync);
+  global.addEventListener("meilang:preview-updated", scheduleSync);
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (
+      target.closest("[data-build-node]") ||
+      target.closest("[data-preview-scope]") ||
+      target.closest(".build-reachability-tree")
+    ) {
+      scheduleSync();
+    }
+  });
+
+  global.MeiBuildLayoutTuningDraft = {
+    resolvePreviewScopeFromSelection,
+    buildDraftPatch,
+    applyDraftFromControls,
+    syncDraftControls,
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scheduleSync, { once: true });
+  } else {
+    scheduleSync();
+  }
+})(window);
+
+
 /* ===== manage-ops-panel/p4.js ===== */
 (function initManageOpsLayoutTuningOverlay() {
   const global = window;
@@ -7903,9 +8797,28 @@
     return resp.json();
   }
 
+  async function applyDraftToConfig(appId) {
+    const resp = await fetch(
+      `/api/ops/layout-tuning/apply/${encodeURIComponent(appId)}`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          ...draftSessionHeaders(),
+        },
+      },
+    );
+    if (!resp.ok) throw new Error(`layoutTuning apply failed: ${resp.status}`);
+    const payload = await resp.json();
+    notifyLayoutTuningOverlay("layout-tuning-persisted");
+    return payload;
+  }
+
   global.MeiOpsLayoutTuningOverlay = {
     applyHot: applyLayoutTuningOverlayHot,
     putSessionDraft,
+    applyDraftToConfig,
     notify: notifyLayoutTuningOverlay,
   };
 })();
@@ -19548,8 +20461,23 @@
     const entry = readViewpointEntry(viewpointId);
     if (!entry) return false;
     clearViewpointFocus();
-    const selector = `[data-mei-viewpoint="${CSS.escape(viewpointId)}"]`;
-    const target = document.querySelector(selector);
+    let target = null;
+    const anchorApi = globalThis.MeiStructureAnchor;
+    if (anchorApi && typeof anchorApi.resolveAnchor === "function") {
+      const previewScope = String(
+        entry.previewScope || entry.preview_scope || entry.panelPath || entry.panel_path || "",
+      ).trim();
+      const nodeId = String(entry.nodeId || entry.node_id || "").trim();
+      const anchor = anchorApi.resolveAnchor(nodeId, previewScope);
+      const selector = anchorApi.focusSelectorForAnchor(anchor);
+      if (selector) {
+        target = document.querySelector(selector);
+      }
+    }
+    if (!(target instanceof HTMLElement)) {
+      const selector = `[data-mei-viewpoint="${CSS.escape(viewpointId)}"]`;
+      target = document.querySelector(selector);
+    }
     if (!(target instanceof HTMLElement)) return false;
     target.classList.add("mei-viewpoint-focus");
     if (entry.tier) {
@@ -23762,7 +24690,7 @@
     return null;
   }
 
-  /** 构建页内 Tab 走客户端切换；配置/上传/模式切换/跨应用 Tab 整页导航。 */
+  /** 配置/上传/模式切换/跨应用 Tab 整页导航；Config/Upload 明确 no-cache + full-page。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
     for (const item of path) {
@@ -23805,6 +24733,20 @@
         }),
       );
     } catch (_) {}
+  }
+
+  function isConfigOrUploadPath(pathname) {
+    return /^\/apps\/(?:config|upload)\//.test(String(pathname || ""));
+  }
+
+  function shouldForceFullPageNavigation(currentUrl, nextUrl) {
+    const current = new URL(currentUrl, window.location.href);
+    const next = new URL(nextUrl, window.location.href);
+    if (isConfigOrUploadPath(next.pathname)) return true;
+    if (isConfigOrUploadPath(current.pathname) && current.pathname !== next.pathname) {
+      return true;
+    }
+    return false;
   }
 
   function normalizePath(rawUrl) {
@@ -25114,6 +26056,18 @@
 
 
 /* ===== spa-navigation/spa/post-navigation.js ===== */
+  function applySceneProjectionDepth(doc) {
+    if (!globalThis.MeiProjectionDepth?.applyProjectionDepth) return;
+    const root =
+      doc.querySelector(".preview-pane-scroll") ||
+      doc.querySelector(".shell.scene-shell") ||
+      doc.querySelector(".shell") ||
+      doc.body;
+    if (root instanceof HTMLElement) {
+      globalThis.MeiProjectionDepth.applyProjectionDepth(root);
+    }
+  }
+
   function stabilizeBuildPreviewRuntime() {
     if (!isBuildWorkspacePathname(window.location.pathname)) return;
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
@@ -25211,6 +26165,7 @@
         if (typeof boot.markLoadingPostSpaDone === "function") {
           boot.markLoadingPostSpaDone(navigationId);
         }
+        applySceneProjectionDepth(doc);
         document.dispatchEvent(new CustomEvent("mei:spa-navigation-complete"));
       } catch (err) {
         console.warn("[spa-navigation] post-spa work failed", err);

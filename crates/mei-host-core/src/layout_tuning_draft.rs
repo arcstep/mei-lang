@@ -1,4 +1,7 @@
 //! Session-scoped layoutTuning draft overlay (Build review; not persisted).
+//!
+//! Hot path uses an in-process `BTreeMap` keyed by `app_id:session_id`.
+//! host-shell additionally mirrors drafts to `{app_var}/layout-tuning-drafts/` for session durability across process restarts.
 
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};

@@ -21861,8 +21861,23 @@
     const entry = readViewpointEntry(viewpointId);
     if (!entry) return false;
     clearViewpointFocus();
-    const selector = `[data-mei-viewpoint="${CSS.escape(viewpointId)}"]`;
-    const target = document.querySelector(selector);
+    let target = null;
+    const anchorApi = globalThis.MeiStructureAnchor;
+    if (anchorApi && typeof anchorApi.resolveAnchor === "function") {
+      const previewScope = String(
+        entry.previewScope || entry.preview_scope || entry.panelPath || entry.panel_path || "",
+      ).trim();
+      const nodeId = String(entry.nodeId || entry.node_id || "").trim();
+      const anchor = anchorApi.resolveAnchor(nodeId, previewScope);
+      const selector = anchorApi.focusSelectorForAnchor(anchor);
+      if (selector) {
+        target = document.querySelector(selector);
+      }
+    }
+    if (!(target instanceof HTMLElement)) {
+      const selector = `[data-mei-viewpoint="${CSS.escape(viewpointId)}"]`;
+      target = document.querySelector(selector);
+    }
     if (!(target instanceof HTMLElement)) return false;
     target.classList.add("mei-viewpoint-focus");
     if (entry.tier) {
@@ -26075,7 +26090,7 @@
     return null;
   }
 
-  /** 构建页内 Tab 走客户端切换；配置/上传/模式切换/跨应用 Tab 整页导航。 */
+  /** 配置/上传/模式切换/跨应用 Tab 整页导航；Config/Upload 明确 no-cache + full-page。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
     for (const item of path) {
@@ -26118,6 +26133,20 @@
         }),
       );
     } catch (_) {}
+  }
+
+  function isConfigOrUploadPath(pathname) {
+    return /^\/apps\/(?:config|upload)\//.test(String(pathname || ""));
+  }
+
+  function shouldForceFullPageNavigation(currentUrl, nextUrl) {
+    const current = new URL(currentUrl, window.location.href);
+    const next = new URL(nextUrl, window.location.href);
+    if (isConfigOrUploadPath(next.pathname)) return true;
+    if (isConfigOrUploadPath(current.pathname) && current.pathname !== next.pathname) {
+      return true;
+    }
+    return false;
   }
 
   function normalizePath(rawUrl) {
@@ -26882,6 +26911,342 @@
   installManagePreviewBoard();
 
 
+/* ===== spa-navigation/spa/revision-contract.js ===== */
+/**
+ * Shared revision contract for access-like scene shell and Build workspace fragments.
+ */
+(function initRevisionContract(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  function revisionsMatch(localRevision, remoteRevision) {
+    if (!localRevision || !remoteRevision) return false;
+    if (localRevision.revision_digest && remoteRevision.revision_digest) {
+      return localRevision.revision_digest === remoteRevision.revision_digest;
+    }
+    if (localRevision.cache_key && remoteRevision.cache_key) {
+      return localRevision.cache_key === remoteRevision.cache_key;
+    }
+    return (
+      localRevision.registry_revision === remoteRevision.registry_revision &&
+      localRevision.client_revision === remoteRevision.client_revision &&
+      localRevision.data_generation === remoteRevision.data_generation &&
+      (localRevision.scene_bundle_revision || "") ===
+        (remoteRevision.scene_bundle_revision || "") &&
+      (localRevision.draft_digest || "") === (remoteRevision.draft_digest || "")
+    );
+  }
+
+  function surfaceRevisionKey(parts) {
+    const payload = parts || {};
+    return [
+      payload.surface || payload.route_mode || "",
+      payload.app_id || payload.appId || "",
+      payload.scene_id || payload.sceneId || "",
+      payload.node || "",
+      payload.data_mode || payload.dataMode || "",
+      payload.review_projection || payload.reviewProjection || "",
+      payload.chrome || "",
+      payload.focus || "",
+      payload.scope || "",
+      payload.draft_session || payload.draftSession || "",
+    ]
+      .filter(Boolean)
+      .join(":");
+  }
+
+  function pruneRevisionStore(store, key, maxEntries) {
+    if (!store || typeof store !== "object") return;
+    const limit = Number.isFinite(maxEntries) ? maxEntries : 32;
+    const keys = Object.keys(store);
+    if (keys.length <= limit) return;
+    for (const stale of keys) {
+      if (stale === key) continue;
+      delete store[stale];
+      if (Object.keys(store).length <= limit) break;
+    }
+  }
+
+  boot.revisionsMatch = revisionsMatch;
+  boot.surfaceRevisionKey = surfaceRevisionKey;
+  boot.pruneRevisionStore = pruneRevisionStore;
+})(window);
+
+
+/* ===== spa-navigation/spa/structure-anchor.js ===== */
+/**
+ * Unified structure anchor resolver for preview DOM and reachability tree.
+ */
+(function initStructureAnchor(global) {
+  "use strict";
+
+  const REVIEW_ROLE_DEPTH = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+
+  function readReachabilityTree() {
+    const script = document.getElementById("mei-build-reachability-tree");
+    if (!(script instanceof HTMLScriptElement) || !script.textContent) return [];
+    try {
+      const roots = JSON.parse(script.textContent);
+      return Array.isArray(roots) ? roots : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function walkReachability(nodes, visitor) {
+    for (const node of nodes || []) {
+      if (!node || typeof node !== "object") continue;
+      const hit = visitor(node);
+      if (hit) return hit;
+      const nested = walkReachability(node.children, visitor);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function findReachabilityNode(nodeId) {
+    const id = String(nodeId || "").trim();
+    if (!id) return null;
+    return walkReachability(readReachabilityTree(), (node) =>
+      node?.node_id === id ? node : null,
+    );
+  }
+
+  function readAnchorFromElement(el) {
+    if (!(el instanceof HTMLElement)) return null;
+    const nodeId = String(
+      el.getAttribute("data-build-node") || el.getAttribute("data-build-focus") || "",
+    ).trim();
+    const previewScope = String(
+      el.getAttribute("data-preview-scope") ||
+        el.getAttribute("data-mei-ui-scope") ||
+        el.getAttribute("data-mei-panel-id") ||
+        "",
+    ).trim();
+    const uiRole = String(el.getAttribute("data-mei-ui-role") || "")
+      .trim()
+      .toLowerCase();
+    if (!nodeId && !previewScope && !uiRole) return null;
+    return {
+      node_id: nodeId,
+      preview_scope: previewScope,
+      ui_role: uiRole,
+      element: el,
+    };
+  }
+
+  function resolveAnchorFromDom(nodeId, previewScope) {
+    const id = String(nodeId || "").trim();
+    const scope = String(previewScope || "").trim();
+    if (id) {
+      const byNode = document.querySelector(`[data-build-node="${CSS.escape(id)}"]`);
+      const anchor = readAnchorFromElement(byNode);
+      if (anchor) return anchor;
+      const byFocus = document.querySelector(`[data-build-focus="${CSS.escape(id)}"]`);
+      const focusAnchor = readAnchorFromElement(byFocus);
+      if (focusAnchor) return focusAnchor;
+    }
+    if (scope) {
+      const byScope = document.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      const scopeAnchor = readAnchorFromElement(byScope);
+      if (scopeAnchor) return scopeAnchor;
+      const byUiScope = document.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
+      return readAnchorFromElement(byUiScope);
+    }
+    return null;
+  }
+
+  function resolveAnchor(nodeId, previewScope) {
+    const id = String(nodeId || "").trim();
+    const scope = String(previewScope || "").trim();
+    const fromDom = resolveAnchorFromDom(id, scope);
+    if (fromDom) return fromDom;
+    const treeNode = findReachabilityNode(id);
+    if (treeNode) {
+      return {
+        node_id: String(treeNode.node_id || id),
+        preview_scope: String(treeNode.preview_scope || scope),
+        ui_role: String(treeNode.ui_role || treeNode.role || "")
+          .trim()
+          .toLowerCase(),
+        source_file: String(treeNode.source_file || "").trim(),
+        source_symbol: String(treeNode.source_symbol || "").trim(),
+      };
+    }
+    if (scope) {
+      return { node_id: id, preview_scope: scope, ui_role: "" };
+    }
+    return null;
+  }
+
+  function focusSelectorForAnchor(anchor) {
+    if (!anchor || typeof anchor !== "object") return "";
+    const scope = String(anchor.preview_scope || "").trim();
+    if (scope) return `[data-preview-scope="${CSS.escape(scope)}"]`;
+    const nodeId = String(anchor.node_id || "").trim();
+    if (nodeId) return `[data-build-node="${CSS.escape(nodeId)}"]`;
+    return "";
+  }
+
+  function elementReviewDepth(el) {
+    if (!(el instanceof HTMLElement)) return 99;
+    const role = String(el.getAttribute("data-mei-ui-role") || "")
+      .trim()
+      .toLowerCase();
+    if (role && Object.prototype.hasOwnProperty.call(REVIEW_ROLE_DEPTH, role)) {
+      return REVIEW_ROLE_DEPTH[role];
+    }
+    if (el.hasAttribute("data-mei-panel-id")) return 1;
+    if (el.hasAttribute("data-preview-scope")) return 2;
+    if (el.hasAttribute("data-mei-use-key") || el.hasAttribute("data-build-node")) return 3;
+    return 99;
+  }
+
+  global.MeiStructureAnchor = {
+    resolveAnchor,
+    resolveAnchorFromDom,
+    readAnchorFromElement,
+    findReachabilityNode,
+    focusSelectorForAnchor,
+    elementReviewDepth,
+    REVIEW_ROLE_DEPTH,
+  };
+})(window);
+
+
+/* ===== spa-navigation/spa/projection-depth.js ===== */
+/**
+ * Unified review projection depth consumer (dim / manifest overlay).
+ */
+(function initProjectionDepth(global) {
+  "use strict";
+
+  const REVIEW_PROJECTION_MAX_DEPTH = {
+    plane: 0,
+    plane_region: 1,
+    plane_region_section: 2,
+    static_full: 99,
+    live_full: 99,
+    static: 99,
+    live: 99,
+  };
+
+  function normalizeReviewProjection(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
+  }
+
+  function readReviewProjectionFromUrl() {
+    try {
+      return String(
+        new URL(global.location.href).searchParams.get("review_projection") || "",
+      ).trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function elementReviewDepth(el) {
+    if (global.MeiStructureAnchor?.elementReviewDepth) {
+      return global.MeiStructureAnchor.elementReviewDepth(el);
+    }
+    if (!(el instanceof HTMLElement)) return 99;
+    const role = String(el.getAttribute("data-mei-ui-role") || "")
+      .trim()
+      .toLowerCase();
+    const roleDepth = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    if (role && Object.prototype.hasOwnProperty.call(roleDepth, role)) {
+      return roleDepth[role];
+    }
+    if (el.hasAttribute("data-mei-panel-id")) return 1;
+    if (el.hasAttribute("data-preview-scope")) return 2;
+    if (el.hasAttribute("data-mei-use-key") || el.hasAttribute("data-build-node")) return 3;
+    return 99;
+  }
+
+  function applyReviewProjectionChrome(root, options) {
+    if (!(root instanceof HTMLElement)) return;
+    const opts = options || {};
+    const projection = normalizeReviewProjection(
+      opts.reviewProjection ||
+        root.getAttribute("data-review-projection") ||
+        readReviewProjectionFromUrl(),
+    );
+    const maxDepth = REVIEW_PROJECTION_MAX_DEPTH[projection];
+    root.querySelectorAll(".build-review-projection-dim, .mei-review-projection-dim").forEach((el) => {
+      el.classList.remove("build-review-projection-dim", "mei-review-projection-dim");
+      if (el instanceof HTMLElement) el.style.removeProperty("pointer-events");
+    });
+    if (maxDepth == null || maxDepth >= 99) {
+      root.removeAttribute("data-review-projection-active");
+      return;
+    }
+    root.setAttribute("data-review-projection-active", projection || "static_full");
+    root
+      .querySelectorAll(
+        "[data-mei-ui-role], [data-mei-panel-id], [data-preview-scope], [data-mei-use-key], [data-build-node], .preview-projection-skeleton",
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        if (el.classList.contains("preview-projection-skeleton")) return;
+        const depth = elementReviewDepth(el);
+        if (depth > maxDepth) {
+          el.classList.add("build-review-projection-dim", "mei-review-projection-dim");
+          el.style.pointerEvents = "none";
+        }
+      });
+  }
+
+  function applyLayoutBudgetManifest(doc) {
+    const root = doc || document;
+    const manifest = global.__mei?.layout_budget_manifest;
+    if (!manifest?.entries || typeof manifest.entries !== "object") return;
+    Object.entries(manifest.entries).forEach(([scope, entry]) => {
+      if (!entry || typeof entry !== "object") return;
+      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+      if (!(node instanceof HTMLElement)) return;
+      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
+      if (slotHeight != null) {
+        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
+        node.dataset.manifestSlotHeight = String(slotHeight);
+      }
+      const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
+      if (paddingProfile) {
+        node.dataset.manifestPaddingProfile = String(paddingProfile);
+      }
+      const contentRows = entry.content_rows ?? entry.contentRows;
+      if (Array.isArray(contentRows) && contentRows.length > 0) {
+        node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
+        node.dataset.manifestContentRows = contentRows.join(",");
+      }
+      const contentGap = entry.content_gap ?? entry.contentGap;
+      if (contentGap != null && contentGap !== "") {
+        node.style.rowGap = `${contentGap}px`;
+        node.dataset.manifestContentGap = String(contentGap);
+      }
+    });
+  }
+
+  function applyProjectionDepth(root, options) {
+    applyReviewProjectionChrome(root, options);
+    applyLayoutBudgetManifest(root?.ownerDocument || document);
+  }
+
+  global.MeiProjectionDepth = {
+    applyReviewProjectionChrome,
+    applyLayoutBudgetManifest,
+    applyProjectionDepth,
+    normalizeReviewProjection,
+    readReviewProjectionFromUrl,
+    elementReviewDepth,
+    REVIEW_PROJECTION_MAX_DEPTH,
+  };
+})(window);
+
+
 /* ===== spa-navigation/spa/scene-revision.js ===== */
   const SCENE_REVISION_API = "/api/host/scene-revision";
 
@@ -26897,6 +27262,7 @@
         appId: decodeURIComponent(match[1]),
         sceneId: decodeURIComponent(match[2]),
         mode,
+        chrome: String(url.searchParams.get("chrome") || "").trim().toLowerCase(),
         dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
         reviewProjection: String(url.searchParams.get("review_projection") || "")
           .trim()
@@ -26909,45 +27275,42 @@
   }
 
   function sceneRevisionCacheKey(ctx) {
-    const dataMode = (() => {
-      try {
-        return String(new URL(ctx.url || window.location.href).searchParams.get("data_mode") || "")
-          .trim()
-          .toLowerCase();
-      } catch (_) {
-        return "";
-      }
-    })();
-    const reviewProjection = (() => {
-      try {
-        return String(
-          new URL(ctx.url || window.location.href).searchParams.get("review_projection") || "",
-        )
-          .trim()
-          .toLowerCase();
-      } catch (_) {
-        return "";
-      }
-    })();
-    return [ctx.appId, ctx.sceneId, ctx.mode, dataMode, reviewProjection]
-      .filter(Boolean)
-      .join(":");
-  }
-
-  function revisionsMatch(localRevision, remoteRevision) {
-    if (!localRevision || !remoteRevision) return false;
-    if (localRevision.revision_digest && remoteRevision.revision_digest) {
-      return localRevision.revision_digest === remoteRevision.revision_digest;
-    }
-    if (localRevision.cache_key && remoteRevision.cache_key) {
-      return localRevision.cache_key === remoteRevision.cache_key;
-    }
-    return (
-      localRevision.registry_revision === remoteRevision.registry_revision &&
-      localRevision.client_revision === remoteRevision.client_revision &&
-      localRevision.data_generation === remoteRevision.data_generation &&
-      localRevision.scene_bundle_revision === remoteRevision.scene_bundle_revision
-    );
+    return boot.surfaceRevisionKey({
+      surface: ctx.mode || "app",
+      app_id: ctx.appId,
+      scene_id: ctx.sceneId,
+      data_mode: (() => {
+        try {
+          return String(
+            new URL(ctx.url || window.location.href).searchParams.get("data_mode") || "",
+          )
+            .trim()
+            .toLowerCase();
+        } catch (_) {
+          return "";
+        }
+      })(),
+      review_projection: (() => {
+        try {
+          return String(
+            new URL(ctx.url || window.location.href).searchParams.get("review_projection") || "",
+          )
+            .trim()
+            .toLowerCase();
+        } catch (_) {
+          return "";
+        }
+      })(),
+      chrome: (() => {
+        try {
+          return String(new URL(ctx.url || window.location.href).searchParams.get("chrome") || "")
+            .trim()
+            .toLowerCase();
+        } catch (_) {
+          return "";
+        }
+      })(),
+    });
   }
 
   async function fetchSceneRevision(ctx, options) {
@@ -26961,8 +27324,10 @@
       const url = new URL(ctx.url || window.location.href);
       const dataMode = String(url.searchParams.get("data_mode") || "").trim();
       const reviewProjection = String(url.searchParams.get("review_projection") || "").trim();
+      const chrome = String(url.searchParams.get("chrome") || "").trim();
       if (dataMode) params.set("data_mode", dataMode);
       if (reviewProjection) params.set("review_projection", reviewProjection);
+      if (chrome) params.set("chrome", chrome);
     } catch (_) {}
     const controller = opts.signal ? null : new AbortController();
     const signal = opts.signal || controller?.signal;
@@ -26987,7 +27352,6 @@
 
   boot.parseAccessSceneContext = parseAccessSceneContext;
   boot.fetchSceneRevision = fetchSceneRevision;
-  boot.revisionsMatch = revisionsMatch;
   boot.sceneRevisionCacheKey = sceneRevisionCacheKey;
 
 
@@ -27023,7 +27387,8 @@
   function snapshotStorageKey(ctx) {
     const dataMode = String(ctx.dataMode || "").trim().toLowerCase();
     const reviewProjection = String(ctx.reviewProjection || "").trim().toLowerCase();
-    return [ctx.appId, ctx.sceneId, ctx.mode || "app", dataMode, reviewProjection]
+    const chrome = String(ctx.chrome || "").trim().toLowerCase();
+    return [ctx.appId, ctx.sceneId, ctx.mode || "app", chrome, dataMode, reviewProjection]
       .filter(Boolean)
       .join(":");
   }
@@ -27412,12 +27777,13 @@
   }
 
   function applyLayoutBudgetManifestProjection(doc) {
+    if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
+      global.MeiProjectionDepth.applyLayoutBudgetManifest(doc);
+      return;
+    }
     const root = doc || document;
     const manifest = window.__mei?.layout_budget_manifest;
     if (!manifest?.entries || typeof manifest.entries !== "object") return;
-    const appId = resolveBootstrapAppId();
-    const sceneId = String(window.__mei?.bootstrap_scope || "").trim();
-    if (appId !== "pretty-panels" || sceneId !== "home") return;
     Object.entries(manifest.entries).forEach(([scope, entry]) => {
       if (!entry || typeof entry !== "object") return;
       const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
@@ -27589,6 +27955,9 @@
       app: ctx.appId,
       scene: ctx.sceneId,
     });
+    if (ctx.dataMode) params.set("data_mode", ctx.dataMode);
+    if (ctx.reviewProjection) params.set("review_projection", ctx.reviewProjection);
+    if (ctx.chrome) params.set("chrome", ctx.chrome);
     const controller = opts.signal ? null : new AbortController();
     const signal = opts.signal || controller?.signal;
     const response = await fetch(`${SCENE_FRAGMENT_API}?${params.toString()}`, {
@@ -28233,6 +28602,18 @@
 
 
 /* ===== spa-navigation/spa/post-navigation.js ===== */
+  function applySceneProjectionDepth(doc) {
+    if (!globalThis.MeiProjectionDepth?.applyProjectionDepth) return;
+    const root =
+      doc.querySelector(".preview-pane-scroll") ||
+      doc.querySelector(".shell.scene-shell") ||
+      doc.querySelector(".shell") ||
+      doc.body;
+    if (root instanceof HTMLElement) {
+      globalThis.MeiProjectionDepth.applyProjectionDepth(root);
+    }
+  }
+
   function stabilizeBuildPreviewRuntime() {
     if (!isBuildWorkspacePathname(window.location.pathname)) return;
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
@@ -28330,6 +28711,7 @@
         if (typeof boot.markLoadingPostSpaDone === "function") {
           boot.markLoadingPostSpaDone(navigationId);
         }
+        applySceneProjectionDepth(doc);
         document.dispatchEvent(new CustomEvent("mei:spa-navigation-complete"));
       } catch (err) {
         console.warn("[spa-navigation] post-spa work failed", err);

@@ -84,6 +84,8 @@ pub(crate) fn runtime_shell(
         false,
         auth_enabled,
         auth_account,
+        None,
+        None,
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::Runtime.slug(), "", None);
     let snapshot_json =
