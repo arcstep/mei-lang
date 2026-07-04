@@ -12,6 +12,13 @@ pub struct PageRenderAxes {
     pub review_projection: ReviewProjection,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageRenderAxesResolution {
+    pub axes: PageRenderAxes,
+    pub requested_data_mode: Option<DataMode>,
+    pub data_mode_clamped: bool,
+}
+
 impl Default for PageRenderAxes {
     fn default() -> Self {
         Self {
@@ -28,28 +35,40 @@ pub fn parse_data_mode_ceiling_arg(value: &str) -> Result<DataModeCeiling, Strin
 }
 
 pub fn resolve_page_render_axes(shell: &ShellState, query: &AppQuery, route_mode: UiRouteMode) -> PageRenderAxes {
-    resolve_page_render_axes_with_ceiling(shell.data_mode_ceiling, query, route_mode)
+    resolve_page_render_axes_detailed(shell, query, route_mode).axes
 }
 
-pub fn resolve_page_render_axes_with_ceiling(
+pub fn resolve_page_render_axes_detailed(
+    shell: &ShellState,
+    query: &AppQuery,
+    route_mode: UiRouteMode,
+) -> PageRenderAxesResolution {
+    resolve_page_render_axes_with_ceiling_detailed(shell.data_mode_ceiling, query, route_mode)
+}
+
+pub fn resolve_page_render_axes_with_ceiling_detailed(
     ceiling: DataModeCeiling,
     query: &AppQuery,
     route_mode: UiRouteMode,
-) -> PageRenderAxes {
-    let requested = query
+) -> PageRenderAxesResolution {
+    let from_query = query
         .data_mode
         .as_deref()
-        .and_then(DataMode::parse)
-        .unwrap_or_else(|| default_data_mode_for_route(route_mode, ceiling));
+        .and_then(DataMode::parse);
+    let requested = from_query.unwrap_or_else(|| default_data_mode_for_route(route_mode, ceiling));
     let data_mode = DataMode::clamp_to_ceiling(requested, ceiling).unwrap_or(DataMode::Static);
     let review_projection = query
         .review_projection
         .as_deref()
         .and_then(ReviewProjection::parse)
         .unwrap_or_else(|| default_projection_for_route(route_mode, data_mode));
-    PageRenderAxes {
-        data_mode,
-        review_projection,
+    PageRenderAxesResolution {
+        axes: PageRenderAxes {
+            data_mode,
+            review_projection,
+        },
+        requested_data_mode: from_query,
+        data_mode_clamped: data_mode != requested,
     }
 }
 
@@ -96,20 +115,16 @@ mod tests {
 
     #[test]
     fn static_ceiling_clamps_eval_request() {
-        let shell = ShellState::new(
-            PathBuf::from("/tmp"),
-            "app".to_string(),
-            PathBuf::from("/pkg"),
-            Default::default(),
-            false,
-        );
-        let mut shell = shell;
-        shell.data_mode_ceiling = DataModeCeiling::Static;
         let query = AppQuery {
             data_mode: Some("eval".to_string()),
             ..Default::default()
         };
-        let axes = resolve_page_render_axes(&shell, &query, UiRouteMode::App);
-        assert_eq!(axes.data_mode, DataMode::Static);
+        let resolution = resolve_page_render_axes_with_ceiling_detailed(
+            DataModeCeiling::Static,
+            &query,
+            UiRouteMode::App,
+        );
+        assert_eq!(resolution.axes.data_mode, DataMode::Static);
+        assert!(resolution.data_mode_clamped);
     }
 }

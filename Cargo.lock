@@ -2482,6 +2482,7 @@ name = "mei-host-shell"
 version = "2.0.13"
 dependencies = [
  "anyhow",
+ "async-stream",
  "axum",
  "clap",
  "http-body-util",

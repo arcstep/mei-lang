@@ -3,6 +3,7 @@ use axum::{
     http::{header, StatusCode},
     response::{IntoResponse, Response},
 };
+use mei_lang_app::prototype_preset::{default_build_preset, match_preset};
 use mei_lang_kernel::{
     build_reachability_tree, resolve_build_node_context, resolve_build_view_query,
     tab_visible_for_node, BuildViewTab, LegacyBuildQuery,
@@ -163,6 +164,14 @@ pub async fn api_build_context_export(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .unwrap_or("plane_region_section");
+    let preset = match_preset(data_mode, review_projection)
+        .map(|value| value.slug)
+        .unwrap_or_else(|| default_build_preset().slug);
+    let scene_id = query
+        .scope
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
     let mut md = String::new();
     md.push_str("## Mei Prototype Debug Context\n\n");
@@ -170,8 +179,15 @@ pub async fn api_build_context_export(
     md.push_str(&format!("- **Node**: `{}`\n", resolved.node.encode()));
     md.push_str(&format!("- **Tab**: `{}`\n", tab.slug()));
     md.push_str(&format!("- **Intent**: `{intent}`\n"));
+    md.push_str(&format!("- **preset**: `{preset}`\n"));
     md.push_str(&format!("- **data_mode**: `{data_mode}`\n"));
     md.push_str(&format!("- **review_projection**: `{review_projection}`\n"));
+    if let Some(scope) = query.scope.as_deref().filter(|s| !s.trim().is_empty()) {
+        md.push_str(&format!("- **scope**: `{scope}`\n"));
+    }
+    if let Some(scene) = scene_id {
+        md.push_str(&format!("- **scene**: `{scene}`\n"));
+    }
     md.push_str(&format!("- **Build URL**: `{build_url}`\n"));
     md.push_str(&format!(
         "- **Gate**: host=`{host_phase}` app=`{}` scope=`registry`\n",

@@ -8,6 +8,8 @@ pub struct PrototypePreset {
     pub label: &'static str,
     pub data_mode: &'static str,
     pub review_projection: &'static str,
+    /// Default ui_structure tree expand depth (`region` / `section` / `content`).
+    pub tree_max_ui_role: &'static str,
 }
 
 pub const PROTOTYPE_PRESETS: &[PrototypePreset] = &[
@@ -16,24 +18,28 @@ pub const PROTOTYPE_PRESETS: &[PrototypePreset] = &[
         label: "完整求值",
         data_mode: "eval",
         review_projection: "live_full",
+        tree_max_ui_role: "content",
     },
     PrototypePreset {
         slug: "fixture_preview",
         label: "样例预览",
         data_mode: "fixture",
         review_projection: "static_full",
+        tree_max_ui_role: "content",
     },
     PrototypePreset {
         slug: "region_layout",
         label: "Region 布局",
         data_mode: "static",
         review_projection: "plane_region",
+        tree_max_ui_role: "region",
     },
     PrototypePreset {
         slug: "section_layout",
         label: "Section 布局",
         data_mode: "static",
         review_projection: "plane_region_section",
+        tree_max_ui_role: "section",
     },
 ];
 
@@ -47,6 +53,12 @@ pub fn match_preset(data_mode: &str, review_projection: &str) -> Option<&'static
 
 pub fn default_build_preset() -> &'static PrototypePreset {
     &PROTOTYPE_PRESETS[3]
+}
+
+pub fn preset_tree_max_ui_role(data_mode: &str, review_projection: &str) -> &'static str {
+    match_preset(data_mode, review_projection)
+        .map(|preset| preset.tree_max_ui_role)
+        .unwrap_or_else(|| default_build_preset().tree_max_ui_role)
 }
 
 /// Primary workspace tabs: preview-first task surface.

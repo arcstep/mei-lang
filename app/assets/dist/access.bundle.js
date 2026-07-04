@@ -26384,7 +26384,7 @@
   function pulseManagePreview(detail, options) {
     if (!shouldRunBuildPreviewRuntimeForUrl(window.location.href)) return;
     const opts = options || {};
-    const resetCache = opts.resetRuntimeQueryCache !== false;
+    const resetCache = opts.resetRuntimeQueryCache === true;
     dispatchManageContextChange(detail);
     requestAnimationFrame(() => {
       if (typeof boot.scheduleFrameViewportRelayout === "function") {

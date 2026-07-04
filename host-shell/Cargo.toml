@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+async-stream = "0.3"
 axum.workspace = true
 clap.workspace = true
 mei-host-auth = { path = "../crates/mei-host-auth" }

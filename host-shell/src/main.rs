@@ -1,3 +1,4 @@
+mod api_error;
 mod api_stubs;
 mod assets;
 mod build_api;
@@ -17,8 +18,10 @@ mod landing;
 mod http;
 mod draft_session;
 mod layout_tuning_draft;
+mod light_pages;
 mod managed_plug;
 mod ops_api;
+mod ops_config_api;
 mod ops_layout_tuning_api;
 mod presentation_compile;
 mod presentation_scripts;
@@ -30,7 +33,8 @@ mod plug_proxy;
 mod request_logging;
 mod state;
 mod tool_exec;
-mod upload_download;
+mod upload_api;
+mod upload_support;
 
 use clap::{CommandFactory, Parser};
 

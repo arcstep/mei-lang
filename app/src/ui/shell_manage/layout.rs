@@ -12,7 +12,7 @@ use super::super::preview;
 use super::super::preview_chrome::asset_preview_body;
 use super::super::route::UiRouteMode;
 use super::super::prototype_preset::{
-    default_build_preset, match_preset, prototype_workspace_primary_tabs,
+    default_build_preset, match_preset, preset_tree_max_ui_role, prototype_workspace_primary_tabs,
     prototype_workspace_tool_tabs, PrototypePreset, PROTOTYPE_PRESETS,
 };
 use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
@@ -52,6 +52,7 @@ pub(crate) fn manage_shell(
     auth_account: Option<&HostAccountView>,
     data_mode: Option<&str>,
     review_projection: Option<&str>,
+    data_mode_ceiling_notice: Option<&str>,
 ) -> AnyView {
     let legacy = LegacyBuildQuery {
         file: target.map(str::to_string),
@@ -119,6 +120,22 @@ pub(crate) fn manage_shell(
     let active_preset = match_preset(active_data_mode, active_review_projection)
         .copied()
         .unwrap_or_else(|| *default_build_preset());
+    let data_mode_clamped_attr = if data_mode_ceiling_notice.is_some() {
+        "true"
+    } else {
+        "false"
+    };
+    let tree_max_ui_role = preset_tree_max_ui_role(active_data_mode, active_review_projection);
+    let ceiling_notice_view = data_mode_ceiling_notice.map(|notice| {
+        view! {
+            <div
+                class="build-ceiling-notice shrink-0 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 mei-font-1 text-amber-100"
+                role="status"
+            >
+                {notice.to_string()}
+            </div>
+        }
+    });
     let build_tree = reachability_tree_view(
         reachability_roots.as_slice(),
         app_path,
@@ -127,6 +144,7 @@ pub(crate) fn manage_shell(
         catalog,
         stock_pack,
         review_axes,
+        tree_max_ui_role,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let active_tab_enum = resolved.tab;
@@ -395,7 +413,7 @@ pub(crate) fn manage_shell(
         .collect_view();
 
     view! {
-        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug>
+        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug data-build-tree-max-ui-role=tree_max_ui_role data-data-mode-clamped=data_mode_clamped_attr>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
             <script
                 id="mei-build-reachability-tree"
@@ -457,6 +475,7 @@ pub(crate) fn manage_shell(
                             >
                                 {preset_links}
                             </div>
+                            {ceiling_notice_view}
                             <details class="build-advanced-axes shrink-0">
                                 <summary class="build-advanced-axes-summary mei-font-1 mei-text-muted">"高级轴"</summary>
                                 <div class="build-advanced-axes-body flex flex-wrap items-center gap-2">

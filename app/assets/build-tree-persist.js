@@ -7,7 +7,16 @@
   const STORAGE_KEY = "mei-build-tree-open";
   const SCROLL_KEY = "mei-build-tree-scroll";
   const MODE_KEY = "mei-build-tree-mode";
+  const PRESET_KEY = "mei-build-tree-preset";
   const CLICK_DELAY_MS = 280;
+
+  const UI_ROLE_RANK = {
+    plane: 0,
+    region: 1,
+    section: 2,
+    content: 3,
+    micro_layout: 2,
+  };
 
   function isBuildRoute() {
     return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
@@ -191,6 +200,49 @@
     );
   }
 
+  function uiRoleRank(role) {
+    const key = String(role || "").trim().toLowerCase();
+    if (!key) return -1;
+    return Object.prototype.hasOwnProperty.call(UI_ROLE_RANK, key) ? UI_ROLE_RANK[key] : 99;
+  }
+
+  function readTreeMaxUiRole(root) {
+    const fromTree = String(root?.getAttribute("data-build-tree-max-ui-role") || "").trim();
+    if (fromTree) return fromTree;
+    const shell = document.querySelector(".shell[data-build-tree-max-ui-role]");
+    return String(shell?.getAttribute("data-build-tree-max-ui-role") || "content").trim() || "content";
+  }
+
+  function readActivePresetSlug() {
+    const shell = document.querySelector(".shell[data-build-preset]");
+    return String(shell?.getAttribute("data-build-preset") || "").trim();
+  }
+
+  function presetChanged() {
+    const preset = readActivePresetSlug();
+    if (!preset) return false;
+    try {
+      const prev = String(global.sessionStorage.getItem(PRESET_KEY) || "").trim();
+      if (prev === preset) return false;
+      global.sessionStorage.setItem(PRESET_KEY, preset);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function applyPresetDefaultExpand(root, openSet) {
+    const maxRole = readTreeMaxUiRole(root);
+    const maxRank = uiRoleRank(maxRole);
+    root.querySelectorAll("details.build-tree-details[data-build-tree-branch]").forEach((details) => {
+      const role = String(details.getAttribute("data-ui-role") || "").trim();
+      const rank = uiRoleRank(role);
+      const shouldOpen = rank >= 0 && rank <= maxRank;
+      details.open = shouldOpen;
+      syncOpenSetForDetails(details, openSet, shouldOpen);
+    });
+  }
+
   function restoreOpenState(root) {
     const openSet = loadOpenSet();
     root.querySelectorAll("details.build-tree-details[data-build-tree-branch]").forEach((details) => {
@@ -226,7 +278,13 @@
   function bindTreePersist(root) {
     if (!root || root.__buildTreePersistBound) return;
     root.__buildTreePersistBound = true;
-    restoreOpenState(root);
+    const openSet = loadOpenSet();
+    if (openSet.size === 0) {
+      applyPresetDefaultExpand(root, openSet);
+      saveOpenSet(openSet);
+    } else {
+      restoreOpenState(root);
+    }
     ensureActivePathOpen(root);
     restoreScroll(root);
     bindTreeExpandBehavior(root);
@@ -389,6 +447,11 @@
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
     if (!root) return;
+    if (presetChanged()) {
+      const openSet = new Set();
+      applyPresetDefaultExpand(root, openSet);
+      saveOpenSet(openSet);
+    }
     bindTreePersist(root);
     bindTreeTabPersist(root);
     bindTreeModeToggle(root);

@@ -1766,7 +1766,7 @@
       view.dispatchEvent(
         new CustomEvent("meilang:preview-updated", {
           bubbles: true,
-          detail: { reason: "ops-theme-overlay" },
+          detail: { reason: "ops-theme-overlay", resetRuntimeQueryCache: false },
         }),
       );
     } catch {
@@ -1926,6 +1926,16 @@
       state.journalRevision = payload.revision || state.journalRevision;
       await loadOpsConfig();
       await broadcastSceneThemeOverlayHot();
+      const usesUploadPath = Object.values(state.ops.sources || {}).some((source) => {
+        const path = String(source?.path || "").trim();
+        return path.startsWith("upload/") && /\.xlsx$/i.test(path);
+      });
+      if (usesUploadPath) {
+        setEditorStatus(
+          "已保存。若引用 upload/*.xlsx，请在 Runtime 执行 prebuild 刷新数据链。",
+          "good",
+        );
+      }
     } catch (error) {
       setEditorStatus(`保存失败：${String(error?.message || error)}`, "danger");
       setBusy(false);

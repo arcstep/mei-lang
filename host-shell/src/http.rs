@@ -1,8 +1,8 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json, Redirect, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use mei_lang_app::scene_theme_style_for_theme_id;
@@ -29,7 +29,12 @@ use crate::presentation_scripts::{
 use crate::landing::build_discovered_app_summaries;
 use crate::runtime_api::{api_host_mrg_activate, api_host_mrg_status, api_runtime_snapshot};
 use crate::state::{HostHttpState, SharedState};
-use crate::upload_download::upload_file_download_get;
+use crate::ops_config_api::{ops_boundary_get, ops_config_get, ops_config_put, ops_journal_get};
+use crate::upload_api::{
+    upload_chunk_complete_post, upload_chunk_init_post, upload_chunk_put, upload_chunk_status_get,
+    upload_dir_create_post, upload_entry_rename_post, upload_file_delete, upload_file_download_get,
+    upload_file_move_post, upload_file_post,
+};
 
 pub fn router(state: HostHttpState) -> Router {
     Router::new()
@@ -117,9 +122,52 @@ pub fn router(state: HostHttpState) -> Router {
             "/api/presentation/scripts/:app_id/:script_id/default",
             post(api_set_default_presentation_script),
         )
+        .route("/api/ops/boundary", get(ops_boundary_get))
+        .route(
+            "/api/ops/journal/:app_id",
+            get(ops_journal_get),
+        )
+        .route(
+            "/api/ops/config/:app_id",
+            get(ops_config_get).put(ops_config_put),
+        )
+        .route(
+            "/api/upload/init/:app_id",
+            post(upload_chunk_init_post).layer(DefaultBodyLimit::max(256 * 1024)),
+        )
+        .route(
+            "/api/upload/status/:app_id",
+            get(upload_chunk_status_get),
+        )
+        .route(
+            "/api/upload/chunk/:app_id",
+            put(upload_chunk_put).layer(DefaultBodyLimit::max(9 * 1024 * 1024)),
+        )
+        .route(
+            "/api/upload/complete/:app_id",
+            post(upload_chunk_complete_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/upload/move/:app_id",
+            post(upload_file_move_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/upload/dir/:app_id",
+            post(upload_dir_create_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/upload/rename/:app_id",
+            post(upload_entry_rename_post).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
         .route(
             "/api/upload/download/:app_id",
             get(upload_file_download_get),
+        )
+        .route(
+            "/api/upload/:app_id",
+            post(upload_file_post)
+                .delete(upload_file_delete)
+                .layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/gis/*path", get(crate::gis_proxy::gis_proxy))
         .route("/apps/:mode/*app_id", get(app_page))

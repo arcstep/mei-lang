@@ -14,6 +14,7 @@ pub(crate) fn reachability_tree_view(
     catalog: Option<&str>,
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
+    tree_max_ui_role: &str,
 ) -> AnyView {
     let flatten_facet = stock_pack.is_some();
     let mut items = Vec::new();
@@ -49,7 +50,7 @@ pub(crate) fn reachability_tree_view(
                 <button type="button" class="build-tree-mode-btn is-active" data-build-tree-mode="structure">"结构"</button>
                 <button type="button" class="build-tree-mode-btn" data-build-tree-mode="compile">"编译"</button>
             </div>
-            <div class="build-reachability-tree" data-build-tree-mode-active="structure">
+            <div class="build-reachability-tree" data-build-tree-mode-active="structure" data-build-tree-max-ui-role=tree_max_ui_role.to_string()>
                 <ul class="build-tree-list">{items}</ul>
             </div>
         </div>
@@ -196,6 +197,7 @@ fn tree_node(
                     data-board-layout-zone=node.board_layout_zone.clone()
                     data-source-file=node.source_file.clone()
                     data-source-symbol=node.source_symbol.clone()
+                    data-ui-role=node.ui_role.clone()
                 >
                     <span class="build-tree-spacer" aria-hidden="true"></span>
                     <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
@@ -222,6 +224,7 @@ fn tree_node(
                     class="build-tree-details"
                     data-build-tree-branch=branch_id
                     data-build-tree-children-count=child_count.to_string()
+                    data-ui-role=node.ui_role.clone()
                     open=default_open
                 >
                     <summary class=summary_class>

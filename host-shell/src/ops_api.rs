@@ -21,6 +21,7 @@ pub async fn api_host_ops_status(State(state): State<SharedState>) -> impl IntoR
 #[derive(Debug, Deserialize, Default)]
 pub struct OpsPrebuildBody {
     pub policy: Option<String>,
+    pub app_id: Option<String>,
 }
 
 pub async fn api_host_ops_reload(State(state): State<SharedState>) -> Response {
@@ -83,7 +84,7 @@ pub async fn api_host_ops_prebuild(
         .filter(|value| !value.is_empty())
         .unwrap_or("standard")
         .to_string();
-    let (workspace, app_id) = {
+    let (workspace, default_app_id) = {
         let mut guard = state.write().expect("state lock");
         if let Err(error) = begin_ops_job(&mut guard, "prebuild") {
             return ops_conflict(error);
@@ -93,6 +94,13 @@ pub async fn api_host_ops_prebuild(
             guard.ctx.app_id.clone(),
         )
     };
+    let app_id = body
+        .app_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default_app_id.as_str())
+        .to_string();
 
     let shell = state.clone();
     let policy_for_response = policy.clone();

@@ -13,7 +13,7 @@ mod document;
 mod manage_routing;
 mod preview;
 mod preview_chrome;
-mod prototype_preset;
+pub mod prototype_preset;
 mod route;
 mod scene_drilldown_context;
 mod shell_access;
@@ -180,6 +180,7 @@ pub fn render_page(
     runtime_snapshot_json: Option<&str>,
     data_mode: Option<&str>,
     review_projection: Option<&str>,
+    data_mode_ceiling_notice: Option<&str>,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -247,6 +248,7 @@ pub fn render_page(
             auth_account,
             data_mode,
             review_projection,
+            data_mode_ceiling_notice,
         ),
         UiRouteMode::Runtime => runtime_shell(
             apps,

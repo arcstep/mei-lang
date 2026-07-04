@@ -235,8 +235,12 @@
     }
 
     if (failedCount === 0) {
-      setStatus(`已成功上传 ${successCount} 个文件，正在刷新列表…`, "good");
-      window.setTimeout(() => window.location.reload(), 280);
+      const configHref = `/apps/config/${encodeURIComponent(appId)}`;
+      setStatus(
+        `已成功上传 ${successCount} 个文件。可在 Config 将 ops.sources.path 指向 upload/*.xlsx，并在 Runtime 执行 prebuild 使数据链生效。`,
+        "good",
+      );
+      window.setTimeout(() => window.location.reload(), 1200);
     } else {
       setStatus(
         `上传完成：成功 ${successCount} 个，失败 ${failedCount} 个`,

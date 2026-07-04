@@ -108,7 +108,7 @@ pub async fn app_page(
             }
             let mut guard = state.write().expect("state lock");
             crate::build_ops::refresh_materialization_flags(&mut guard);
-            let axes =
+        let axes =
                 crate::review_axes::resolve_page_render_axes(&guard, &query, route_mode);
             let readiness = crate::startup::evaluate_access_readiness(
                 &guard,
@@ -155,6 +155,8 @@ pub async fn app_page(
     if !route_mode.is_access_like()
         && route_mode != UiRouteMode::Runtime
         && !route_mode.is_build()
+        && route_mode != UiRouteMode::Config
+        && route_mode != UiRouteMode::Upload
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
@@ -173,7 +175,52 @@ pub async fn app_page(
     );
     let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
     let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
-    let axes = crate::review_axes::resolve_page_render_axes(&guard, &query, route_mode);
+    if route_mode == UiRouteMode::Config || route_mode == UiRouteMode::Upload {
+        let app_title = apps
+            .iter()
+            .find(|app| app.id == app_id)
+            .map(|app| app.title.as_str())
+            .unwrap_or(app_id.as_str());
+        let scene_for_links = query
+            .scene
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let Some(response) = crate::light_pages::try_render_light_page(
+            crate::light_pages::LightPageContext {
+                workspace_root,
+                _package_root: package_root,
+                route_mode,
+                app_id: app_id.as_str(),
+                apps: apps.as_slice(),
+                app_title,
+                topbar_menu: &topbar_menu,
+                lightweight_scene: scene_for_links,
+                request_file: query.file.as_deref(),
+                auth_enabled,
+                account_view: account_view.as_ref(),
+            },
+        ) {
+            return response;
+        }
+        return (
+            StatusCode::NOT_FOUND,
+            format!("route mode `{}` is not available for this app", mode),
+        )
+            .into_response();
+    }
+    let axes_resolution =
+        crate::review_axes::resolve_page_render_axes_detailed(&guard, &query, route_mode);
+    let axes = axes_resolution.axes;
+    let data_mode_ceiling_notice_owned = if axes_resolution.data_mode_clamped {
+        Some(format!(
+            "当前部署 data_mode ceiling 为 `{}`，已将请求降档为 `{}`。",
+            guard.data_mode_ceiling.slug(),
+            axes.data_mode.slug()
+        ))
+    } else {
+        None
+    };
     let cache_key = access_page_cache_key(
         workspace_root,
         app_id.as_str(),
@@ -376,6 +423,7 @@ pub async fn app_page(
                             runtime_json_ref,
                             Some(axes.data_mode.slug()),
                             Some(axes.review_projection.slug()),
+                            data_mode_ceiling_notice_owned.as_deref(),
                         ),
                         workspace_root,
                     ),
