@@ -537,37 +537,40 @@
           ? boot.resolveComposeRoot(surface)
           : document.querySelector(".shell");
       if (isSsrInjectedPreviewRoot(composeRoot)) {
-        if (typeof boot.hideThinShellFallback === "function") {
-          boot.hideThinShellFallback();
-        }
-        const vrCtx = vrCtxFromViewCtx(ctx);
-        const cachedOnly = await boot.viewRevisionClient?.tryClientOnlyAssemble?.(vrCtx);
-        if (cachedOnly?.ok) {
+        if (boot.hostChromeReady?.()) {
+          if (typeof boot.hideThinShellFallback === "function") {
+            boot.hideThinShellFallback();
+          }
+          const vrCtx = vrCtxFromViewCtx(ctx);
+          const cachedOnly = await boot.viewRevisionClient?.tryClientOnlyAssemble?.(vrCtx);
+          if (cachedOnly?.ok) {
+            if (!skipComplete) {
+              await completeMaterializedSurface(ctx, {
+                layers: cachedOnly.layers,
+                ssrPreview: true,
+                warmOnly: true,
+                generation: opts.generation,
+              });
+            }
+            return {
+              restored: true,
+              doc: document,
+              revision: boot.readViewRevision?.(vrCtx) || null,
+              source: "client_cache",
+              viewRevision: { assemble: cachedOnly, layers: cachedOnly.layers },
+            };
+          }
           if (!skipComplete) {
-            await completeMaterializedSurface(ctx, {
-              layers: cachedOnly.layers,
-              ssrPreview: true,
-              warmOnly: true,
-              generation: opts.generation,
-            });
+            await completeMaterializedSurface(ctx, { ssrPreview: true, warmOnly: true, generation: opts.generation });
           }
           return {
             restored: true,
             doc: document,
-            revision: boot.readViewRevision?.(vrCtx) || null,
-            source: "client_cache",
-            viewRevision: { assemble: cachedOnly, layers: cachedOnly.layers },
+            revision: globalThis.__mei?.scene_manifest_refs || null,
+            source: "ssr_preview",
           };
         }
-        if (!skipComplete) {
-          await completeMaterializedSurface(ctx, { ssrPreview: true, warmOnly: true, generation: opts.generation });
-        }
-        return {
-          restored: true,
-          doc: document,
-          revision: globalThis.__mei?.scene_manifest_refs || null,
-          source: "ssr_preview",
-        };
+        /* chrome not ready: fall through to negotiateAndAssemble */
       }
     }
     if (!ctx) {
@@ -578,6 +581,12 @@
       skipComplete,
       generation: opts.generation,
       signal: opts.signal,
+      omit_digests:
+        opts.omit_digests === true ||
+        (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(ctx)),
+      forceRematerialize:
+        opts.forceRematerialize === true ||
+        (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(ctx)),
     });
     if (negotiated?.assemble?.ok) {
       if (typeof boot.hideThinShellFallback === "function") {

@@ -424,7 +424,10 @@
     }
     let result = await negotiateViewRevision(ctx, {
       signal: opts.signal,
-      omit_digests: opts.surfaceSwitch === true,
+      omit_digests:
+        opts.surfaceSwitch === true ||
+        opts.omit_digests === true ||
+        (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(ctx)),
     });
     let plan = result.plan || {
       manifest: result.response?.manifest || null,

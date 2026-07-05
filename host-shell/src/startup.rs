@@ -137,6 +137,15 @@ fn all_apps_access_ready(shell: &ShellState, app_ids: &[String], scene_id: &str)
 
 fn prime_view_layer_artifacts(shell: &ShellState, app_ids: &[String], scene_id: &str) {
     let workspace_root = shell.ctx.workspace_root.as_path();
+    let topbar_menu = mei_lang_app::load_topbar_menu_context(workspace_root);
+    let discovered = crate::landing::discover_workspace_apps(workspace_root).unwrap_or_default();
+    let apps = crate::landing::enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
+    let chrome_host = crate::scene_manifest::SceneChromeHostContext {
+        apps: apps.as_slice(),
+        topbar_menu: Some(&topbar_menu),
+        auth_enabled: false,
+        auth_account: None,
+    };
     for app_id in app_ids {
         if let Err(err) = mei_host_graph::warm_manifest_index_for_app(
             workspace_root,
@@ -148,7 +157,24 @@ fn prime_view_layer_artifacts(shell: &ShellState, app_ids: &[String], scene_id: 
                 app_id = %app_id,
                 scene_id = %scene_id,
                 error = %err,
-                "view layer manifest warmup failed"
+                "view layer semantic warmup failed"
+            );
+        }
+        let mut hits = crate::artifact_observability::ArtifactHitMatrix::default();
+        if let Err(err) = crate::scene_manifest::ensure_manifest_index(
+            workspace_root,
+            app_id.as_str(),
+            scene_id,
+            mei_lang_kernel::DataMode::Eval,
+            &mut hits,
+            Some(&chrome_host),
+        ) {
+            tracing::warn!(
+                target: "mei.startup",
+                app_id = %app_id,
+                scene_id = %scene_id,
+                error = %err,
+                "view layer manifest index with chrome failed"
             );
         }
     }

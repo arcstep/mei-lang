@@ -190,12 +190,22 @@
         if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
           boot.applyHostChromeFromManifestRefs();
         }
-        tracePhase("preview", generation, { ok: true, source: outcome.source });
-        return {
-          outcome,
-          assemble: { ok: true, ...(outcome.viewRevision?.assemble || {}), layers },
-          layers,
-        };
+        const chromeReady =
+          typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true;
+        const ssrShellOk =
+          typeof boot.isSsrShellPlaceholder === "function"
+            ? !boot.isSsrShellPlaceholder(ctx)
+            : true;
+        if (chromeReady && ssrShellOk) {
+          tracePhase("preview", generation, { ok: true, source: outcome.source });
+          return {
+            outcome,
+            assemble: { ok: true, ...(outcome.viewRevision?.assemble || {}), layers },
+            layers,
+          };
+        }
+        negotiateOpts.forceRematerialize = true;
+        negotiateOpts.omit_digests = true;
       }
     }
     if (typeof boot.negotiateAndAssemble === "function") {

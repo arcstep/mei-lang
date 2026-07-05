@@ -329,5 +329,6 @@
     pickShellLayer,
     recomposeFromLayerStore,
     mergePersistedAndSession,
+    isPlaceholderShellDoc,
   };
 })(typeof window !== "undefined" ? window : globalThis);

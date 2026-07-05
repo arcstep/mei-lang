@@ -297,6 +297,9 @@
 
   function readClientDigests(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
+    if (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(resolved)) {
+      return { manifest_revision_digest: "", surface_revision_digest: "" };
+    }
     const stored = readViewRevision(resolved);
     const manifest_revision_digest = String(stored?.manifest_revision_digest || "").trim();
     const surface_revision_digest = String(stored?.surface_revision_digest || "").trim();

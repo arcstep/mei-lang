@@ -32,6 +32,43 @@ async function main() {
 
   await page.goto(appUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
 
+  const chromeOnLoad = await page.evaluate(() => ({
+    topbarButtons: document.querySelectorAll(
+      "#mei-host-topbar-slot .topbar-shell, #mei-host-topbar-slot sl-button[data-mei-app-view]",
+    ).length,
+    statusbar: document.querySelectorAll(
+      "#mei-host-statusbar-slot .statusbar-shell, #mei-host-statusbar-slot .statusbar",
+    ).length,
+    ssrTopbarLen: String(
+      globalThis.__mei?.scene_manifest_refs?.layers?.["shell.app"]?.document?.topbar_html || "",
+    ).length,
+  }));
+  console.log("chrome on load:", chromeOnLoad);
+  if (chromeOnLoad.topbarButtons === 0) {
+    fail(`cold start missing host topbar chrome (buttons=${chromeOnLoad.topbarButtons})`);
+  } else pass("cold start: host topbar chrome visible");
+  if (chromeOnLoad.ssrTopbarLen > 0 && chromeOnLoad.ssrTopbarLen < 240) {
+    fail(`SSR shell.app topbar placeholder len=${chromeOnLoad.ssrTopbarLen}`);
+  } else if (chromeOnLoad.ssrTopbarLen > 240) {
+    pass(`SSR shell.app topbar len=${chromeOnLoad.ssrTopbarLen}`);
+  }
+
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(1500);
+  const chromeAfterF5 = await page.evaluate(() => ({
+    topbarButtons: document.querySelectorAll(
+      "#mei-host-topbar-slot .topbar-shell, #mei-host-topbar-slot sl-button[data-mei-app-view]",
+    ).length,
+    hostChromeReady:
+      typeof window.__meiLangBoot?.hostChromeReady === "function"
+        ? window.__meiLangBoot.hostChromeReady()
+        : null,
+  }));
+  console.log("chrome after F5:", chromeAfterF5);
+  if (chromeAfterF5.topbarButtons === 0) {
+    fail(`F5 reload missing host topbar chrome (buttons=${chromeAfterF5.topbarButtons})`);
+  } else pass("F5 reload: host topbar chrome visible");
+
   const bootCheck = await page.evaluate(() => ({
     navigateInternal: typeof window.__meiLangBoot?.navigateInternal === "function",
     navigateSpa: typeof window.__meiLangBoot?.navigateSpa === "function",

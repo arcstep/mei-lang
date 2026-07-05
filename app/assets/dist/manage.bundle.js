@@ -25815,6 +25815,9 @@
 
   function readClientDigests(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
+    if (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(resolved)) {
+      return { manifest_revision_digest: "", surface_revision_digest: "" };
+    }
     const stored = readViewRevision(resolved);
     const manifest_revision_digest = String(stored?.manifest_revision_digest || "").trim();
     const surface_revision_digest = String(stored?.surface_revision_digest || "").trim();
@@ -26569,12 +26572,22 @@
         if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
           boot.applyHostChromeFromManifestRefs();
         }
-        tracePhase("preview", generation, { ok: true, source: outcome.source });
-        return {
-          outcome,
-          assemble: { ok: true, ...(outcome.viewRevision?.assemble || {}), layers },
-          layers,
-        };
+        const chromeReady =
+          typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true;
+        const ssrShellOk =
+          typeof boot.isSsrShellPlaceholder === "function"
+            ? !boot.isSsrShellPlaceholder(ctx)
+            : true;
+        if (chromeReady && ssrShellOk) {
+          tracePhase("preview", generation, { ok: true, source: outcome.source });
+          return {
+            outcome,
+            assemble: { ok: true, ...(outcome.viewRevision?.assemble || {}), layers },
+            layers,
+          };
+        }
+        negotiateOpts.forceRematerialize = true;
+        negotiateOpts.omit_digests = true;
       }
     }
     if (typeof boot.negotiateAndAssemble === "function") {
@@ -27453,7 +27466,10 @@
     }
     let result = await negotiateViewRevision(ctx, {
       signal: opts.signal,
-      omit_digests: opts.surfaceSwitch === true,
+      omit_digests:
+        opts.surfaceSwitch === true ||
+        opts.omit_digests === true ||
+        (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(ctx)),
     });
     let plan = result.plan || {
       manifest: result.response?.manifest || null,
@@ -28271,6 +28287,7 @@
     pickShellLayer,
     recomposeFromLayerStore,
     mergePersistedAndSession,
+    isPlaceholderShellDoc,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
@@ -29944,37 +29961,40 @@
           ? boot.resolveComposeRoot(surface)
           : document.querySelector(".shell");
       if (isSsrInjectedPreviewRoot(composeRoot)) {
-        if (typeof boot.hideThinShellFallback === "function") {
-          boot.hideThinShellFallback();
-        }
-        const vrCtx = vrCtxFromViewCtx(ctx);
-        const cachedOnly = await boot.viewRevisionClient?.tryClientOnlyAssemble?.(vrCtx);
-        if (cachedOnly?.ok) {
+        if (boot.hostChromeReady?.()) {
+          if (typeof boot.hideThinShellFallback === "function") {
+            boot.hideThinShellFallback();
+          }
+          const vrCtx = vrCtxFromViewCtx(ctx);
+          const cachedOnly = await boot.viewRevisionClient?.tryClientOnlyAssemble?.(vrCtx);
+          if (cachedOnly?.ok) {
+            if (!skipComplete) {
+              await completeMaterializedSurface(ctx, {
+                layers: cachedOnly.layers,
+                ssrPreview: true,
+                warmOnly: true,
+                generation: opts.generation,
+              });
+            }
+            return {
+              restored: true,
+              doc: document,
+              revision: boot.readViewRevision?.(vrCtx) || null,
+              source: "client_cache",
+              viewRevision: { assemble: cachedOnly, layers: cachedOnly.layers },
+            };
+          }
           if (!skipComplete) {
-            await completeMaterializedSurface(ctx, {
-              layers: cachedOnly.layers,
-              ssrPreview: true,
-              warmOnly: true,
-              generation: opts.generation,
-            });
+            await completeMaterializedSurface(ctx, { ssrPreview: true, warmOnly: true, generation: opts.generation });
           }
           return {
             restored: true,
             doc: document,
-            revision: boot.readViewRevision?.(vrCtx) || null,
-            source: "client_cache",
-            viewRevision: { assemble: cachedOnly, layers: cachedOnly.layers },
+            revision: globalThis.__mei?.scene_manifest_refs || null,
+            source: "ssr_preview",
           };
         }
-        if (!skipComplete) {
-          await completeMaterializedSurface(ctx, { ssrPreview: true, warmOnly: true, generation: opts.generation });
-        }
-        return {
-          restored: true,
-          doc: document,
-          revision: globalThis.__mei?.scene_manifest_refs || null,
-          source: "ssr_preview",
-        };
+        /* chrome not ready: fall through to negotiateAndAssemble */
       }
     }
     if (!ctx) {
@@ -29985,6 +30005,12 @@
       skipComplete,
       generation: opts.generation,
       signal: opts.signal,
+      omit_digests:
+        opts.omit_digests === true ||
+        (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(ctx)),
+      forceRematerialize:
+        opts.forceRematerialize === true ||
+        (typeof boot.isSsrShellPlaceholder === "function" && boot.isSsrShellPlaceholder(ctx)),
     });
     if (negotiated?.assemble?.ok) {
       if (typeof boot.hideThinShellFallback === "function") {
@@ -30155,6 +30181,35 @@
     el.classList.add("hidden");
   }
 
+  function shellDocFromManifestRefs(surface) {
+    const layers = globalThis.__mei?.scene_manifest_refs?.layers;
+    if (!layers || typeof layers !== "object") return null;
+    const slug = String(surface || "app").trim().toLowerCase();
+    const shell =
+      layers[`shell.${slug}`] ||
+      layers["shell.app"] ||
+      layers["shell.layout"] ||
+      layers["shell.prototype"] ||
+      null;
+    if (!shell) return null;
+    return shell.document || shell;
+  }
+
+  function isSsrShellPlaceholder(ctx) {
+    const surface = ctx?.surface || ctx?.mode || "app";
+    const doc = shellDocFromManifestRefs(surface);
+    if (boot.viewCompositor?.isPlaceholderShellDoc) {
+      return boot.viewCompositor.isPlaceholderShellDoc(doc);
+    }
+    const top = String(doc?.topbar_html || "").trim();
+    if (!top) return true;
+    return top.includes('class="mei-shell-topbar"') && top.length < 240;
+  }
+
+  function hostChromeReady() {
+    return hostChromeSummary().topbar || hostChromeSummary().statusbar;
+  }
+
   function applyHostChromeFromManifestRefs() {
     const layers = globalThis.__mei?.scene_manifest_refs?.layers;
     if (!layers || typeof layers !== "object") return false;
@@ -30173,6 +30228,15 @@
       layers["shell.build"] ||
       null;
     if (!shell) return false;
+    const shellDoc = shell.document || shell;
+    if (isSsrShellPlaceholder(ctx || { surface })) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("host-chrome-placeholder", {
+          surface,
+          topbar_len: String(shellDoc?.topbar_html || "").length,
+        });
+      }
+    }
     const root =
       typeof boot.resolveComposeRoot === "function"
         ? boot.resolveComposeRoot(surface)
@@ -30237,7 +30301,7 @@
   function hostChromeSummary() {
     return {
       topbar: !!global.document?.querySelector?.(
-        "#mei-host-topbar-slot .topbar-shell, #mei-host-topbar-slot .topbar, .topbar-shell",
+        "#mei-host-topbar-slot .topbar-shell, #mei-host-topbar-slot sl-button[data-mei-app-view], #mei-host-topbar-slot .topbar, .topbar-shell",
       ),
       statusbar: !!global.document?.querySelector?.(
         "#mei-host-statusbar-slot .statusbar-shell, #mei-host-statusbar-slot .statusbar, .statusbar-shell",
@@ -30400,6 +30464,8 @@
   boot.hideThinShellFallback = hideThinShellFallback;
   boot.applyHostChromeFromManifestRefs = applyHostChromeFromManifestRefs;
   boot.ensureViewShellLayout = ensureViewShellLayout;
+  boot.hostChromeReady = hostChromeReady;
+  boot.isSsrShellPlaceholder = isSsrShellPlaceholder;
   boot.hasMaterializedPreview = hasMaterializedPreview;
   boot.hydrateManifestLayerHoldings = hydrateManifestLayerHoldings;
   boot.runThinShellDiagnostic = runThinShellDiagnostic;

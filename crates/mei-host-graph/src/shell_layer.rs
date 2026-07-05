@@ -19,6 +19,41 @@ pub struct ShellLayerDocument {
     pub statusbar_html: String,
 }
 
+/// True when topbar is the bootstrap stub (empty mei-shell-topbar header).
+pub fn is_placeholder_shell_document(doc: &ShellLayerDocument) -> bool {
+    let top = doc.topbar_html.trim();
+    if top.is_empty() {
+        return true;
+    }
+    top.contains("class=\"mei-shell-topbar\"") && top.len() < 240
+}
+
+pub fn store_shell_layer_document(
+    app_id: &str,
+    route_mode: &str,
+    tab: &str,
+    chrome: &str,
+    auth_sig: Option<u64>,
+    document: &ShellLayerDocument,
+) {
+    let cache_key = shell_cache_key(
+        app_id,
+        route_mode,
+        tab,
+        chrome,
+        auth_sig,
+        SHELL_LAYER_SCHEMA,
+    );
+    let bytes = serde_json::to_vec(document).unwrap_or_default();
+    let content_hash = crate::content_store::content_hash_bytes(bytes.as_slice());
+    store_layer(
+        cache_key,
+        format!("shell.{route_mode}").as_str(),
+        content_hash.as_str(),
+        bytes.as_slice(),
+    );
+}
+
 pub fn build_shell_layer_document(
     route_mode: &str,
     tab: &str,
@@ -70,7 +105,9 @@ where
     );
     if let Some(bytes) = take_layer(cache_key.as_str()) {
         if let Ok(doc) = serde_json::from_slice::<ShellLayerDocument>(bytes.as_slice()) {
-            return (doc, true);
+            if !is_placeholder_shell_document(&doc) {
+                return (doc, true);
+            }
         }
     }
     let document = render();

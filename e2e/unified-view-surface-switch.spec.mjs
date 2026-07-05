@@ -4,6 +4,34 @@ const APP_ID = process.env.MEI_UNIFIED_VIEW_APP || "pretty-panels";
 const COLD_START_TREE_TIMEOUT_MS = Number(process.env.MEI_E2E_TREE_TIMEOUT_MS || 15000);
 
 test.describe("unified view surface switch", () => {
+  test("F5 app surface keeps host topbar chrome", async ({ page }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run unified view e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    await page.goto(`${base}/apps/${APP_ID}/view?surface=app`);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() =>
+            document.querySelectorAll(
+              "#mei-host-topbar-slot .topbar-shell, #mei-host-topbar-slot sl-button[data-mei-app-view]",
+            ).length,
+          ),
+        { timeout: COLD_START_TREE_TIMEOUT_MS },
+      )
+      .toBeGreaterThan(0);
+    const chrome = await page.evaluate(() => ({
+      topbarButtons: document.querySelectorAll(
+        "#mei-host-topbar-slot .topbar-shell, #mei-host-topbar-slot sl-button[data-mei-app-view]",
+      ).length,
+      hostChromeReady:
+        typeof window.__meiLangBoot?.hostChromeReady === "function"
+          ? window.__meiLangBoot.hostChromeReady()
+          : false,
+    }));
+    expect(chrome.hostChromeReady).toBeTruthy();
+  });
+
   test("F5 layout surface shows structure tree within 3s", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run unified view e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");

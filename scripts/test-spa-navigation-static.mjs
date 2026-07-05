@@ -50,6 +50,20 @@ const revisionContractSrc = await readFile(
   "utf8",
 );
 assert.match(revisionContractSrc, /ssrManifestMatchesSurface/, "cross-surface digest guard required");
+assert.match(revisionContractSrc, /isSsrShellPlaceholder/, "placeholder shell digest guard required");
+
+const thinShellHostSrc = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/thin-shell-host.js"),
+  "utf8",
+);
+assert.match(thinShellHostSrc, /hostChromeReady/, "hostChromeReady export required");
+assert.match(thinShellHostSrc, /isSsrShellPlaceholder/, "isSsrShellPlaceholder export required");
+
+const viewCompositorSrc = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/view-compositor.js"),
+  "utf8",
+);
+assert.match(viewCompositorSrc, /isPlaceholderShellDoc/, "isPlaceholderShellDoc export required");
 
 const modulesPath = path.join(root, "scripts", "spa-navigation-modules.json");
 const moduleList = JSON.parse(await readFile(modulesPath, "utf8"));

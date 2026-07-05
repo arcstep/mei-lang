@@ -179,32 +179,8 @@ pub fn warm_manifest_index_for_scope(
         } else {
             "scene"
         };
-        let (shell_doc, _) =
-            crate::shell_layer::ensure_shell_layer_cached(app_id, route_mode, tab, "full", None);
         let shell_layer_name = format!("shell.{route_mode}");
-        let shell_key = crate::view_artifact::shell_cache_key(
-            app_id,
-            route_mode,
-            tab,
-            "full",
-            None,
-            crate::shell_layer::SHELL_LAYER_SCHEMA,
-        );
-        let shell_bytes = serde_json::to_vec(&shell_doc)?;
-        let shell_hash = crate::content_store::content_hash_bytes(shell_bytes.as_slice());
-        let shell_doc_value = json!({
-            "artifact_id": shell_key,
-            "content_hash": shell_hash,
-            "document": shell_doc,
-        });
-        let mut shell_layer_ref = BTreeMap::new();
-        if let Some(layer_ref) = layer_ref_from_materialized(&shell_doc_value) {
-            shell_layer_ref.insert(shell_layer_name.clone(), layer_ref.clone());
-        }
-        let mut layers = semantic_layers_from_refs(&semantic_layer_refs);
-        if let Some(layer_ref) = layer_ref_from_materialized(&shell_doc_value) {
-            layers.insert(shell_layer_name.clone(), serde_json::to_value(layer_ref).unwrap_or(Value::Null));
-        }
+        let layers = semantic_layers_from_refs(&semantic_layer_refs);
         let compose_defaults = ComposeRequest {
             route_mode: Some(route_mode.to_string()),
             tab: Some(tab.to_string()),
@@ -230,7 +206,7 @@ pub fn warm_manifest_index_for_scope(
             shell_layer_name,
             surface_revision_digest: surface_revision_digest.unwrap_or_default(),
             compose_defaults,
-            shell_layer_ref,
+            shell_layer_ref: BTreeMap::new(),
         });
     }
 

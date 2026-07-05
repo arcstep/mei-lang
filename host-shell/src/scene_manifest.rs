@@ -356,52 +356,83 @@ fn materialize_shell(
     auth_sig: Option<u64>,
 ) -> Value {
     let route_slug = ctx.route_mode.to_string();
+    if chrome_host.is_some() {
+        if let Err(error) = ensure_materialize_assembled(ctx) {
+            tracing::warn!(
+                target: "mei.scene_manifest",
+                app_id = %ctx.app_id,
+                scene_id = %ctx.scene_id,
+                error = %error,
+                "assemble unavailable for shell chrome"
+            );
+        }
+    }
+    if let (Some(host), Some(compiled)) = (chrome_host, ctx.compiled.as_ref()) {
+        let review_projection =
+            crate::review_axes::ssr_review_projection(route_mode, ctx.data_mode).slug();
+        let (mut topbar_html, mut statusbar_html) = mei_lang_app::render_access_shell_chrome_html(
+            host.apps,
+            compiled,
+            ctx.app_id,
+            host.topbar_menu,
+            route_mode,
+            Some(ctx.scene_id),
+            None,
+            Some(ctx.tab),
+            host.auth_enabled,
+            host.auth_account,
+            Some(ctx.data_mode.slug()),
+            Some(review_projection),
+            ctx.chrome == "none",
+        );
+        topbar_html = crate::build_info::fill_page_shell_placeholders(
+            topbar_html,
+            ctx.workspace_root,
+        );
+        statusbar_html = crate::build_info::fill_page_shell_placeholders(
+            statusbar_html,
+            ctx.workspace_root,
+        );
+        let doc = mei_host_graph::ShellLayerDocument {
+            schema_version: mei_host_graph::SHELL_LAYER_SCHEMA.to_string(),
+            route_mode: route_slug.clone(),
+            tab: ctx.tab.to_string(),
+            chrome: ctx.chrome.to_string(),
+            topbar_html,
+            statusbar_html,
+        };
+        mei_host_graph::store_shell_layer_document(
+            ctx.app_id,
+            ctx.route_mode,
+            ctx.tab,
+            ctx.chrome,
+            auth_sig,
+            &doc,
+        );
+        hits.shell_hit = false;
+        let key = mei_host_graph::shell_cache_key(
+            ctx.app_id,
+            ctx.route_mode,
+            ctx.tab,
+            ctx.chrome,
+            auth_sig,
+            mei_host_graph::SHELL_LAYER_SCHEMA,
+        );
+        let content_hash =
+            mei_host_graph::content_hash_bytes(serde_json::to_vec(&doc).unwrap_or_default().as_slice());
+        return json!({
+            "artifact_id": key,
+            "content_hash": content_hash,
+            "document": doc,
+        });
+    }
     let (doc, hit) = mei_host_graph::ensure_shell_layer_rendered(
         ctx.app_id,
         ctx.route_mode,
         ctx.tab,
         ctx.chrome,
         auth_sig,
-        || {
-            if let (Some(host), Some(compiled)) = (chrome_host, ctx.compiled.as_ref()) {
-                let review_projection =
-                    crate::review_axes::ssr_review_projection(route_mode, ctx.data_mode).slug();
-                let (mut topbar_html, mut statusbar_html) =
-                    mei_lang_app::render_access_shell_chrome_html(
-                        host.apps,
-                        compiled,
-                        ctx.app_id,
-                        host.topbar_menu,
-                        route_mode,
-                        Some(ctx.scene_id),
-                        None,
-                        Some(ctx.tab),
-                        host.auth_enabled,
-                        host.auth_account,
-                        Some(ctx.data_mode.slug()),
-                        Some(review_projection),
-                        ctx.chrome == "none",
-                    );
-                topbar_html = crate::build_info::fill_page_shell_placeholders(
-                    topbar_html,
-                    ctx.workspace_root,
-                );
-                statusbar_html = crate::build_info::fill_page_shell_placeholders(
-                    statusbar_html,
-                    ctx.workspace_root,
-                );
-                mei_host_graph::ShellLayerDocument {
-                    schema_version: mei_host_graph::SHELL_LAYER_SCHEMA.to_string(),
-                    route_mode: route_slug.clone(),
-                    tab: ctx.tab.to_string(),
-                    chrome: ctx.chrome.to_string(),
-                    topbar_html,
-                    statusbar_html,
-                }
-            } else {
-                mei_host_graph::build_shell_layer_document(ctx.route_mode, ctx.tab, ctx.chrome)
-            }
-        },
+        || mei_host_graph::build_shell_layer_document(ctx.route_mode, ctx.tab, ctx.chrome),
     );
     hits.shell_hit = hit;
     let key = mei_host_graph::shell_cache_key(
@@ -425,6 +456,30 @@ fn layer_ref_from_materialized(value: &Value) -> Option<mei_host_graph::LayerRef
     mei_host_graph::layer_ref_from_manifest_entry("layer", value)
 }
 
+fn manifest_index_needs_shell_rebuild(index: &mei_host_graph::ManifestIndexDocument) -> bool {
+    if index.surfaces.is_empty() {
+        return true;
+    }
+    for surface in &index.surfaces {
+        if surface.shell_layer_ref.is_empty() {
+            return true;
+        }
+        for (_, layer_ref) in &surface.shell_layer_ref {
+            let Some(bytes) = mei_host_graph::take_layer(layer_ref.artifact_id.as_str()) else {
+                return true;
+            };
+            let Ok(doc) = serde_json::from_slice::<mei_host_graph::ShellLayerDocument>(bytes.as_slice())
+            else {
+                return true;
+            };
+            if mei_host_graph::is_placeholder_shell_document(&doc) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub(crate) fn ensure_manifest_index(
     workspace_root: &std::path::Path,
     app_id: &str,
@@ -442,7 +497,10 @@ pub(crate) fn ensure_manifest_index(
         data_mode.slug(),
     );
     if let Some(index) = mei_host_graph::take_manifest_index(cache_key.as_str()) {
-        return Ok(index);
+        let rebuild = chrome_host.is_some() && manifest_index_needs_shell_rebuild(&index);
+        if !rebuild {
+            return Ok(index);
+        }
     }
     build_and_store_manifest_index(
         workspace_root,
@@ -1296,5 +1354,113 @@ mod cross_surface_manifest_tests {
             resolve_route_mode_from_surface(Some("prototype")),
             UiRouteMode::Prototype
         );
+    }
+
+    #[test]
+    fn shell_app_topbar_non_placeholder_with_chrome_host() {
+        let Some(workspace_root) = ws_demo_workspace() else {
+            return;
+        };
+        let topbar_menu = load_topbar_menu_context(workspace_root.as_path());
+        let discovered = discover_workspace_apps(workspace_root.as_path()).unwrap_or_default();
+        let apps = enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
+        let chrome_host = SceneChromeHostContext {
+            apps: apps.as_slice(),
+            topbar_menu: Some(&topbar_menu),
+            auth_enabled: false,
+            auth_account: None,
+        };
+        let mut hits = ArtifactHitMatrix::default();
+        let compose = static_compose("app");
+        let manifest = build_scene_view_manifest(
+            workspace_root.as_path(),
+            "data-demo",
+            "home",
+            UiRouteMode::App,
+            DataMode::Static,
+            &compose,
+            "",
+            "",
+            &mut hits,
+            Some(&chrome_host),
+        )
+        .expect("scene manifest");
+        let shell = manifest
+            .layers
+            .get("shell.app")
+            .and_then(|value| value.get("document"))
+            .expect("shell.app document");
+        let topbar = shell
+            .get("topbar_html")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        assert!(
+            topbar.len() > 500,
+            "expected real topbar html, got len {}",
+            topbar.len()
+        );
+        let doc: mei_host_graph::ShellLayerDocument =
+            serde_json::from_value(shell.clone()).expect("shell document");
+        assert!(
+            !mei_host_graph::is_placeholder_shell_document(&doc),
+            "shell.app must not be placeholder"
+        );
+    }
+
+    #[test]
+    fn materialize_shell_replaces_placeholder_cache() {
+        let Some(workspace_root) = ws_demo_workspace() else {
+            return;
+        };
+        let app_id = "data-demo";
+        let route_mode = UiRouteMode::App;
+        let tab = "scene";
+        let chrome = "full";
+        let placeholder = mei_host_graph::build_shell_layer_document(route_mode.slug(), tab, chrome);
+        assert!(mei_host_graph::is_placeholder_shell_document(&placeholder));
+        mei_host_graph::store_shell_layer_document(
+            app_id,
+            route_mode.slug(),
+            tab,
+            chrome,
+            None,
+            &placeholder,
+        );
+        let topbar_menu = load_topbar_menu_context(workspace_root.as_path());
+        let discovered = discover_workspace_apps(workspace_root.as_path()).unwrap_or_default();
+        let apps = enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
+        let chrome_host = SceneChromeHostContext {
+            apps: apps.as_slice(),
+            topbar_menu: Some(&topbar_menu),
+            auth_enabled: false,
+            auth_account: None,
+        };
+        let mut hits = ArtifactHitMatrix::default();
+        let compose = static_compose("app");
+        let manifest = build_scene_view_manifest(
+            workspace_root.as_path(),
+            app_id,
+            "home",
+            route_mode,
+            DataMode::Static,
+            &compose,
+            "",
+            "",
+            &mut hits,
+            Some(&chrome_host),
+        )
+        .expect("scene manifest");
+        let shell = manifest
+            .layers
+            .get("shell.app")
+            .and_then(|value| value.get("document"))
+            .expect("shell.app document");
+        let doc: mei_host_graph::ShellLayerDocument =
+            serde_json::from_value(shell.clone()).expect("shell document");
+        assert!(
+            !mei_host_graph::is_placeholder_shell_document(&doc),
+            "placeholder cache must be replaced by real chrome"
+        );
+        assert!(doc.topbar_html.len() > 500);
     }
 }

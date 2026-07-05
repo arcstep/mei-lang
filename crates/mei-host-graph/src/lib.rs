@@ -73,7 +73,8 @@ pub use runtime_plans::{
 };
 pub use shell_layer::{
     build_shell_layer_document, ensure_shell_layer_cached, ensure_shell_layer_rendered,
-    shell_layer_json, ShellLayerDocument, SHELL_LAYER_SCHEMA,
+    is_placeholder_shell_document, shell_layer_json, store_shell_layer_document,
+    ShellLayerDocument, SHELL_LAYER_SCHEMA,
 };
 pub use semantic_scene::{
     assemble_semantic_scene, collect_world_payloads_from_scene, default_target_for_scene,
