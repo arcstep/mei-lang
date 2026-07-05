@@ -94,6 +94,7 @@ pub(super) fn auth_surface_tabs_visible(
     )
 }
 
+#[allow(dead_code)]
 pub(crate) fn append_scene_query(base: String, scene_id: Option<&str>) -> String {
     let Some(scene_id) = scene_id.map(str::trim).filter(|value| !value.is_empty()) else {
         return base;

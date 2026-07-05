@@ -2096,6 +2096,14 @@ body > .mei-floating-text-pop-backdrop {
 .preview-stage > .mei-cockpit-map-tools-plane .mei-cockpit-floating-layer-control {
   position: absolute;
 }
+.preview-card[data-mei-panel-name="map-tools-slot"] .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools {
+  position: relative;
+  top: auto;
+  right: auto;
+  left: auto;
+  bottom: auto;
+  pointer-events: none;
+}
 /* T0–C 上下文浮层（layer2 内） */
 #mei-layer2-workspace > .mei-viewport-context-plane {
   position: absolute;

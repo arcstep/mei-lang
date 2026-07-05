@@ -53,6 +53,7 @@ pub(crate) fn manage_shell(
     data_mode: Option<&str>,
     review_projection: Option<&str>,
     data_mode_ceiling_notice: Option<&str>,
+    tree_max_ui_role: Option<&str>,
 ) -> AnyView {
     let legacy = LegacyBuildQuery {
         file: target.map(str::to_string),
@@ -127,7 +128,12 @@ pub(crate) fn manage_shell(
     } else {
         "false"
     };
-    let tree_max_ui_role = preset_tree_max_ui_role(active_data_mode, active_review_projection);
+    let tree_max_ui_role = tree_max_ui_role
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            preset_tree_max_ui_role(active_data_mode, active_review_projection)
+        });
     let ceiling_notice_view = data_mode_ceiling_notice.map(|notice| {
         view! {
             <div
@@ -171,6 +177,8 @@ pub(crate) fn manage_shell(
         auth_account,
         Some(active_data_mode),
         Some(active_review_projection),
+        None,
+        false,
     );
     let statusbar = statusbar_view(
         app_path,

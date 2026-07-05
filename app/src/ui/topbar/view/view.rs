@@ -5,13 +5,22 @@ use std::collections::BTreeMap;
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{
-    app_scene_href, build_href_with_catalog, cross_app_href, host_config_href, host_runtime_href,
-    host_upload_href, presentation_scene_href,
+    app_scene_href, build_href_with_catalog, cross_app_href, home_href, host_config_href,
+    host_runtime_href, host_upload_href, mcg_href, presentation_scene_href,
 };
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
 use crate::ui::topbar::menu_groups::build_topbar_menu_groups;
 use super::scene_routing::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShellNavActive {
+    Home,
+    Config,
+    Upload,
+    Runtime,
+    Mcg,
+}
 
 pub(crate) fn topbar_view(
     apps: &[WorkspaceAppMeta],
@@ -23,16 +32,22 @@ pub(crate) fn topbar_view(
     active_tab: Option<&str>,
     active_catalog: Option<&str>,
     active_stock_pack: Option<&str>,
-    upload_enabled: bool,
+    _upload_enabled: bool,
     stage_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
     data_mode: Option<&str>,
     review_projection: Option<&str>,
+    shell_nav_active: Option<ShellNavActive>,
+    hide_app_tabs: bool,
 ) -> AnyView {
     let access_entry_query = access_scene_query(access_scene_for_href);
     let access_disabled = access_entry_query.is_empty();
-    let menu_groups = build_topbar_menu_groups(apps, topbar_menu, route_mode);
+    let menu_groups = if hide_app_tabs {
+        Vec::new()
+    } else {
+        build_topbar_menu_groups(apps, topbar_menu, route_mode)
+    };
     let active_app_label = menu_groups
         .iter()
         .flat_map(|group| group.items.iter())
@@ -185,23 +200,14 @@ pub(crate) fn topbar_view(
     };
     let build_href = append_review_axes_query(
         build_href_with_catalog(
-        active_app_path,
-        Some(build_file),
-        active_tab,
-        active_catalog,
-        active_stock_pack,
+            active_app_path,
+            Some(build_file),
+            active_tab,
+            active_catalog,
+            active_stock_pack,
         ),
         data_mode,
         review_projection,
-    );
-    let runtime_href = host_runtime_href(Some(active_app_path), None, None);
-    let upload_href = append_scene_query(
-        host_upload_href(Some(active_app_path), None),
-        access_scene_for_href,
-    );
-    let config_href = append_scene_query(
-        host_config_href(Some(active_app_path)),
-        access_scene_for_href,
     );
     let presentation_href = if access_disabled {
         "#".to_string()
@@ -225,23 +231,16 @@ pub(crate) fn topbar_view(
             review_projection,
         )
     };
-    let (show_config_tab, show_build_tab, show_data_tab) =
+    let (_show_config_tab, show_build_tab, _show_data_tab) =
         auth_surface_tabs_visible(auth_enabled, auth_account);
-    let show_runtime_tab = show_build_tab;
-    let show_data_tab = show_data_tab && upload_enabled;
     let show_run_tab = true;
     let visible_mode_tab_count = 1usize
-        + usize::from(show_config_tab)
         + usize::from(show_build_tab)
-        + usize::from(show_run_tab)
-        + usize::from(show_runtime_tab)
-        + usize::from(show_data_tab);
+        + usize::from(show_run_tab);
     let app_product_label = UiRouteMode::App.product_label();
     let build_product_label = UiRouteMode::Build.product_label();
-    let data_product_label = UiRouteMode::Upload.product_label();
-    let config_product_label = UiRouteMode::Config.product_label();
-    let runtime_product_label = UiRouteMode::Runtime.product_label();
     let speech_product_label = UiRouteMode::Run.product_label();
+    let shell_nav = shell_nav_view(shell_nav_active);
     let mode_tabs = if visible_mode_tab_count <= 1 {
         view! { <></> }.into_any()
     } else {
@@ -275,22 +274,6 @@ pub(crate) fn topbar_view(
                 } else {
                     view! { <></> }.into_any()
                 }}
-                {if show_data_tab {
-                    view! {
-                        <sl-button
-                            class=if route_mode == UiRouteMode::Upload { "mode-tab-btn is-active" } else { "mode-tab-btn" }
-                            size="small"
-                            href=upload_href.clone()
-                            title="上传物料：上传、下载与文件管理"
-                            aria-label=data_product_label
-                            data-mei-view="upload"
-                        >
-                            <span class="mode-label">{data_product_label}</span>
-                        </sl-button>
-                    }.into_any()
-                } else {
-                    view! { <></> }.into_any()
-                }}
                 {if show_run_tab {
                     view! {
                         <sl-button
@@ -303,38 +286,6 @@ pub(crate) fn topbar_view(
                             data-mei-view="run"
                         >
                             <span class="mode-label">{speech_product_label}</span>
-                        </sl-button>
-                    }.into_any()
-                } else {
-                    view! { <></> }.into_any()
-                }}
-                {if show_config_tab {
-                    view! {
-                        <sl-button
-                            class=if route_mode == UiRouteMode::Config { "mode-tab-btn is-active" } else { "mode-tab-btn" }
-                            size="small"
-                            href=config_href.clone()
-                            title="配置（Client / Server）"
-                            aria-label=config_product_label
-                            data-mei-view="config"
-                        >
-                            <span class="mode-label">{config_product_label}</span>
-                        </sl-button>
-                    }.into_any()
-                } else {
-                    view! { <></> }.into_any()
-                }}
-                {if show_runtime_tab {
-                    view! {
-                        <sl-button
-                            class=if route_mode == UiRouteMode::Runtime { "mode-tab-btn is-active" } else { "mode-tab-btn" }
-                            size="small"
-                            href=runtime_href.clone()
-                            title=runtime_product_label
-                            aria-label=runtime_product_label
-                            data-mei-view="runtime"
-                        >
-                            <span class="mode-label">{runtime_product_label}</span>
                         </sl-button>
                     }.into_any()
                 } else {
@@ -408,6 +359,7 @@ pub(crate) fn topbar_view(
                 </div>
             </div>
             <nav class="app-tabs flex min-w-0 items-center gap-2.5">
+                {shell_nav}
                 <div class="app-tabs-groups flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pr-1">{app_tabs}</div>
                 {active_item_breadcrumb}
             </nav>
@@ -435,6 +387,26 @@ pub(crate) fn topbar_view(
                 {account_view}
             </div>
         </header>
+    }
+    .into_any()
+}
+
+fn shell_nav_view(active: Option<ShellNavActive>) -> AnyView {
+    let nav_class = |item: ShellNavActive| {
+        if active == Some(item) {
+            "shell-nav-link is-active"
+        } else {
+            "shell-nav-link"
+        }
+    };
+    view! {
+        <div class="shell-nav inline-flex shrink-0 items-center gap-1 pr-2" aria-label="工作区导航">
+            <a class=nav_class(ShellNavActive::Home) href=home_href()>"首页"</a>
+            <a class=nav_class(ShellNavActive::Config) href=host_config_href(None)>"配置"</a>
+            <a class=nav_class(ShellNavActive::Upload) href=host_upload_href(None, None)>"上传"</a>
+            <a class=nav_class(ShellNavActive::Runtime) href=host_runtime_href(None, None, None)>"运行"</a>
+            <a class=nav_class(ShellNavActive::Mcg) href=mcg_href(None)>"MCG"</a>
+        </div>
     }
     .into_any()
 }

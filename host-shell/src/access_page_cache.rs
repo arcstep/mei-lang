@@ -524,6 +524,7 @@ pub fn render_access_page_template(
         Some(axes.data_mode.slug()),
         Some(crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug()),
         None,
+        None,
     );
     let html = fill_page_shell_placeholders(html, workspace_root);
     let html = inject_scene_revision_meta(html, revision_payload.as_ref());

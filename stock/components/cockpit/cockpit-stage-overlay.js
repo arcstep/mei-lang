@@ -80,6 +80,22 @@ export function resolveCockpitShellLayout(host) {
   return { ...metrics, shell, stage };
 }
 
+/** T1 center-rail 操作视口内的地图工具挂点（优先于全舞台 plane）。 */
+export function resolveMapToolsMountSlot(host) {
+  const stage = resolveCockpitStageSurface(host);
+  if (!stage) {
+    return null;
+  }
+  const slot = stage.querySelector(
+    '.preview-card[data-mei-panel-name="map-tools-slot"]',
+  );
+  if (!(slot instanceof HTMLElement)) {
+    return null;
+  }
+  const body = slot.querySelector('[data-mei-panel-body="true"]');
+  return body instanceof HTMLElement ? body : slot;
+}
+
 export function ensureCockpitMapToolsPlane(host) {
   const stage = resolveCockpitStageSurface(host);
   if (!stage) {
@@ -173,20 +189,49 @@ export function positionFocusInsetTopRightFixed(node, host, focusInsetPx, gap = 
   return true;
 }
 
+function resetFloatingControlPosition(node) {
+  if (!node) {
+    return;
+  }
+  node.style.position = "";
+  node.style.top = "";
+  node.style.right = "";
+  node.style.left = "";
+  node.style.bottom = "";
+  node.style.margin = "";
+  node.style.transform = "";
+  node.style.zIndex = "";
+}
+
 export function mountCockpitFloatingControl(node, host) {
+  const slot = resolveMapToolsMountSlot(host);
+  if (slot) {
+    if (node.parentElement !== slot) {
+      slot.appendChild(node);
+    }
+    node.classList.add("mei-cockpit-in-viewport-slot");
+    node.classList.remove("mei-cockpit-in-stage-shell");
+    node.setAttribute("data-mei-overlay-role", "map_tools");
+    return "slot";
+  }
   const stage = resolveCockpitStageSurface(host);
   if (stage && mountCockpitMapToolsOverlay(node, host)) {
+    node.classList.remove("mei-cockpit-in-viewport-slot");
     return "stage";
   }
   if (node.parentElement !== document.body) {
     document.body.appendChild(node);
   }
-  node.classList.remove("mei-cockpit-in-stage-shell");
+  node.classList.remove("mei-cockpit-in-stage-shell", "mei-cockpit-in-viewport-slot");
   return "body";
 }
 
 export function positionCockpitFloatingNav(node, host, focusInsetPx, gap = 10) {
   const mount = mountCockpitFloatingControl(node, host);
+  if (mount === "slot") {
+    resetFloatingControlPosition(node);
+    return mount;
+  }
   if (mount === "stage") {
     positionFocusInsetTopRight(node, host, focusInsetPx, gap);
     return mount;
@@ -447,6 +492,7 @@ export function bindCockpitStageLayoutSync(host, callback) {
 if (typeof window !== "undefined") {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
   boot.ensureCockpitMapToolsPlane = ensureCockpitMapToolsPlane;
+  boot.resolveMapToolsMountSlot = resolveMapToolsMountSlot;
   boot.mountCockpitFloatingControl = mountCockpitFloatingControl;
   boot.mountCockpitMapToolsOverlay = mountCockpitMapToolsOverlay;
   boot.positionCockpitFloatingNav = positionCockpitFloatingNav;

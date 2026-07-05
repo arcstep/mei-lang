@@ -9,7 +9,7 @@ use super::runtime_panels::{runtime_json_panel, runtime_overview_panel};
 use super::runtime_snapshot_view::parse_runtime_snapshot;
 use super::runtime_tree::runtime_observability_tree_view;
 use super::statusbar::statusbar_view;
-use super::topbar::{access_scene_for_topbar, topbar_view};
+use super::topbar::{access_scene_for_topbar, topbar_view, ShellNavActive};
 use super::{HostAccountView, TopbarMenuContext};
 
 const RUNTIME_TAB_DETAIL: &str = "overview";
@@ -86,6 +86,8 @@ pub(crate) fn runtime_shell(
         auth_account,
         None,
         None,
+        Some(ShellNavActive::Runtime),
+        false,
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::Runtime.slug(), "", None);
     let snapshot_json =

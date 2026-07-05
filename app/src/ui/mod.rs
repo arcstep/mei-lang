@@ -181,6 +181,7 @@ pub fn render_page(
     data_mode: Option<&str>,
     review_projection: Option<&str>,
     data_mode_ceiling_notice: Option<&str>,
+    tree_max_ui_role: Option<&str>,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -253,6 +254,7 @@ pub fn render_page(
             data_mode,
             review_projection,
             data_mode_ceiling_notice,
+            tree_max_ui_role,
         ),
         UiRouteMode::Runtime => runtime_shell(
             apps,

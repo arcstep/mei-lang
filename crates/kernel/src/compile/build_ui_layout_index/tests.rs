@@ -1457,3 +1457,162 @@ fn ui_layout_index_cross_section_duplicate_labels_disambiguate_in_tree() {
     );
     assert_ne!(inspection_primary.node_id, penalty_primary.node_id);
 }
+
+#[test]
+fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
+    let map_tools_slot = PanelDecl {
+        kind: "panel".to_string(),
+        id: "map-tools-slot".to_string(),
+        title: None,
+        head: None,
+        area: Some("tools".to_string()),
+        layout: None,
+        blocks: vec![],
+        slot: None,
+        props: json!({"__mei_chrome_role": "map_tools", "__mei_tier": "t1"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let interaction_surface = PanelDecl {
+        kind: "panel".to_string(),
+        id: "map-interaction-surface".to_string(),
+        title: None,
+        head: None,
+        area: Some("aperture".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Panel(map_tools_slot)],
+        slot: None,
+        props: json!({"__mei_chrome_role": "map_interaction_surface", "__mei_tier": "t1"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let map_viewport_content = PanelDecl {
+        kind: "panel".to_string(),
+        id: "map-viewport".to_string(),
+        title: None,
+        head: None,
+        area: None,
+        layout: None,
+        blocks: vec![UiNodeDecl::Panel(interaction_surface)],
+        slot: None,
+        props: json!({"__mei_chrome_role": "viewport", "__mei_tier": "t1"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let map_viewport_section = PanelDecl {
+        kind: "panel".to_string(),
+        id: "map_viewport".to_string(),
+        title: None,
+        head: None,
+        area: Some("map_viewport".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Panel(map_viewport_content)],
+        slot: None,
+        props: json!({"__mei_ui_role": "section", "__mei_tier": "t1"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let center_rail = PanelDecl {
+        kind: "panel".to_string(),
+        id: "center_rail".to_string(),
+        title: None,
+        head: None,
+        area: Some("body".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: None,
+            rows: Some(vec!["1fr".to_string(), "1fr".to_string(), "1fr".to_string()]),
+            areas: Some(vec![
+                vec!["indicator_system".to_string()],
+                vec!["map_viewport".to_string()],
+                vec!["realtime_table".to_string()],
+            ]),
+            gap: Some("12px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![UiNodeDecl::Panel(map_viewport_section)],
+        slot: None,
+        props: json!({"__mei_tier": "t1", "__mei_chrome_role": "center_panel"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let compiled = CompiledApp {
+        app_id: "pretty-panels".to_string(),
+        title: "Pretty Panels".to_string(),
+        app_root: "/tmp/pretty-panels".to_string(),
+        scene_routes: vec![CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "src/scene/home/assembly.mei".to_string(),
+            kind: "scene".to_string(),
+            title: Some("首页".to_string()),
+            is_default: true,
+            access_export: true,
+        }],
+        active_scene: Some("home".to_string()),
+        active_target_file: "src/scene/home/assembly.mei".to_string(),
+        file_tree: vec![],
+        scene_contract: Some(SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![center_rail],
+        }),
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
+    };
+    let ui = build_ui_layout_index(&compiled);
+    assert!(
+        ui.index.nodes.values().any(|node| {
+            node.scope_path
+                .iter()
+                .any(|segment| segment == "map-tools-slot")
+        }),
+        "ui index should expose map-tools-slot under map_viewport section"
+    );
+}

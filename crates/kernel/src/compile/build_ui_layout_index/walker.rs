@@ -287,6 +287,23 @@ fn walk_micro_and_content(
             file_hint,
         );
     }
+    for chrome_panel in viewport_chrome_panels_in_deep(panel) {
+        let label = chrome_panel
+            .props
+            .get("__mei_chrome_role")
+            .and_then(|v| v.as_str())
+            .map(|role| format!("viewport:{role}"))
+            .unwrap_or_else(|| chrome_panel.id.clone());
+        walk_content_panel(
+            builder,
+            chrome_panel,
+            tier,
+            parent_id,
+            parent_segments,
+            preview_prefix,
+            Some(label.as_str()),
+        );
+    }
 }
 
 fn walk_micro_layout(
@@ -720,9 +737,7 @@ fn sections_in_region(region: &PanelDecl) -> Vec<(String, PanelDecl)> {
         for area_row in areas {
             for area in area_row {
                 if let Some(panel) = find_nested_panel_by_area(region, area.as_str()) {
-                    if panel_is_section(panel) {
-                        sections.push((area.clone(), panel.clone()));
-                    }
+                    sections.push((area.clone(), panel.clone()));
                 }
             }
         }
@@ -814,6 +829,50 @@ fn child_panels(panel: &PanelDecl) -> Vec<&PanelDecl> {
             _ => None,
         })
         .collect()
+}
+
+const VIEWPORT_CHROME_ROLES: &[&str] = &[
+    "viewport",
+    "viewport_frame",
+    "map_tools",
+    "map_interaction_surface",
+    "stage_aperture",
+];
+
+fn is_viewport_chrome_panel(panel: &PanelDecl) -> bool {
+    if panel
+        .props
+        .get("__mei_chrome_role")
+        .and_then(|v| v.as_str())
+        .is_some_and(|role| VIEWPORT_CHROME_ROLES.contains(&role))
+    {
+        return true;
+    }
+    matches!(
+        panel.id.as_str(),
+        "map-viewport"
+            | "map-interaction-surface"
+            | "map-tools-slot"
+            | "stage-aperture-frame"
+            | "stage-aperture-hint"
+    )
+}
+
+fn viewport_chrome_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
+    let mut result = Vec::new();
+    collect_viewport_chrome_panels(panel, &mut result);
+    result
+}
+
+fn collect_viewport_chrome_panels<'a>(panel: &'a PanelDecl, out: &mut Vec<&'a PanelDecl>) {
+    for child in child_panels(panel) {
+        if is_viewport_chrome_panel(child) {
+            out.push(child);
+        }
+        if !is_micro_layout_panel(child) && !is_metric_card_panel(child) {
+            collect_viewport_chrome_panels(child, out);
+        }
+    }
 }
 
 fn is_metric_card_panel(panel: &PanelDecl) -> bool {

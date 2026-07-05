@@ -13,12 +13,20 @@ use crate::api_stubs::{
     api_agent_config_stub, api_agent_context_preview_stub, api_agent_runtime_stub,
     api_agent_sessions_stub, api_agent_skill_stub,
 };
-use crate::build_api::{api_build_context_export, api_build_fragment_revision, api_build_workspace_fragment};
+use crate::build_api::{
+    api_build_context_export, api_build_fragment_revision, api_build_graph_mcg,
+    api_build_graph_mcg_artifact, api_build_graph_mcg_node, api_build_workspace_fragment,
+};
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
 use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
 use crate::host_home::host_home_page;
+use crate::host_mcg::host_mcg_page;
 use crate::host_scoped::{host_config_page, host_runtime_page, host_upload_page};
+use crate::shell_redirects::{
+    redirect_apps_access, redirect_apps_config, redirect_apps_runtime, redirect_apps_upload,
+    redirect_host_config, redirect_host_runtime, redirect_host_upload, redirect_root_to_home,
+};
 use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_fragment,
     api_scene_revision, app_page, host_starting_page,
@@ -29,7 +37,9 @@ use crate::presentation_scripts::{
     api_put_presentation_script, api_set_default_presentation_script,
 };
 use crate::landing::build_discovered_app_summaries;
-use crate::runtime_api::{api_host_mrg_activate, api_host_mrg_status, api_runtime_snapshot};
+use crate::runtime_api::{
+    api_host_mrg_activate, api_host_mrg_status, api_host_runtime_activate_env, api_runtime_snapshot,
+};
 use crate::state::{HostHttpState, SharedState};
 use crate::ops_config_api::{ops_boundary_get, ops_config_get, ops_config_put, ops_journal_get};
 use crate::upload_api::{
@@ -44,12 +54,21 @@ pub fn router(state: HostHttpState) -> Router {
             "/favicon.ico",
             get(|| async { Redirect::permanent("/app-assets/favicon.svg") }),
         )
-        .route("/", get(host_home_page))
-        .route("/host", get(host_home_page))
-        .route("/host/config", get(host_config_page))
-        .route("/host/upload", get(host_upload_page))
-        .route("/host/runtime", get(host_runtime_page))
+        .route("/", get(redirect_root_to_home))
+        .route("/host", get(redirect_root_to_home))
+        .route("/home", get(host_home_page))
+        .route("/config", get(host_config_page))
+        .route("/upload", get(host_upload_page))
+        .route("/runtime", get(host_runtime_page))
+        .route("/mcg", get(host_mcg_page))
+        .route("/host/config", get(redirect_host_config))
+        .route("/host/upload", get(redirect_host_upload))
+        .route("/host/runtime", get(redirect_host_runtime))
         .route("/host/starting", get(host_starting_page))
+        .route("/apps/upload/:app_id", get(redirect_apps_upload))
+        .route("/apps/config/:app_id", get(redirect_apps_config))
+        .route("/apps/runtime/:app_id", get(redirect_apps_runtime))
+        .route("/apps/access/:app_id", get(redirect_apps_access))
         .route("/login", get(mei_host_auth::login_page))
         .route("/logout", get(mei_host_auth::logout_page))
         .route(
@@ -65,7 +84,23 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/ops/status", get(api_host_ops_status))
         .route("/api/host/ops/reload", post(api_host_ops_reload))
         .route("/api/host/ops/prebuild", post(api_host_ops_prebuild))
+        .route(
+            "/api/host/runtime/activate-env",
+            post(api_host_runtime_activate_env),
+        )
         .route("/api/runtime/snapshot", get(api_runtime_snapshot))
+        .route(
+            "/api/build/graph/mcg",
+            get(api_build_graph_mcg),
+        )
+        .route(
+            "/api/build/graph/mcg/node",
+            get(api_build_graph_mcg_node),
+        )
+        .route(
+            "/api/build/graph/mcg/artifact",
+            get(api_build_graph_mcg_artifact),
+        )
         .route(
             "/api/build/context/export",
             get(api_build_context_export),
@@ -893,5 +928,60 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).expect("json");
         assert!(json.get("scene_manifest").is_some());
         assert!(json.get("preview_html").is_none());
+    }
+
+    #[tokio::test]
+    async fn root_redirects_to_home() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).expect("request"))
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            Some("/home")
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_host_upload_redirects_to_shell_upload() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/host/upload?app=demo")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            Some("/upload?app=demo")
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_apps_access_redirects_to_canonical_access() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/apps/access/pretty-panels")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            Some("/apps/app/pretty-panels/access")
+        );
     }
 }

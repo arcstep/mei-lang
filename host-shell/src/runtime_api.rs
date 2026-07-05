@@ -3,10 +3,9 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
+use mei_lang_kernel::{attach_build_generation, discover_apps};
 use serde::Deserialize;
 use serde_json::json;
-
-use mei_lang_kernel::discover_apps;
 
 use crate::runtime_snapshot::build_runtime_snapshot;
 use crate::state::SharedState;
@@ -149,4 +148,55 @@ pub async fn api_host_mrg_activate(
         })),
     )
         .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ActivateEnvQuery {
+    #[serde(rename = "appId")]
+    pub app_id: String,
+    #[serde(rename = "envVersion")]
+    pub env_version: String,
+}
+
+pub async fn api_host_runtime_activate_env(
+    State(state): State<SharedState>,
+    Query(params): Query<ActivateEnvQuery>,
+) -> impl IntoResponse {
+    let app_id = params.app_id.trim();
+    let env_version = params.env_version.trim();
+    if app_id.is_empty() || env_version.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "appId and envVersion are required"})),
+        )
+            .into_response();
+    }
+    let workspace = {
+        let guard = state.read().expect("state lock");
+        let discovered = discover_apps(guard.ctx.workspace_root.as_path()).unwrap_or_default();
+        if !discovered.iter().any(|app| app.id == app_id) {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": format!("unknown app `{app_id}`")})),
+            )
+                .into_response();
+        }
+        guard.ctx.workspace_root.clone()
+    };
+    match attach_build_generation(workspace.as_path(), &[app_id.to_string()], env_version) {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(json!({
+                "appId": app_id,
+                "envVersion": env_version,
+                "ok": true,
+            })),
+        )
+            .into_response(),
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": error.to_string()})),
+        )
+            .into_response(),
+    }
 }

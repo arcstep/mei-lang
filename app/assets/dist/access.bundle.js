@@ -12283,6 +12283,8 @@
   }
 
   function isRuntimeRoute(pathname = window.location.pathname) {
+    const path = String(pathname || "");
+    if (path === "/runtime" || path.startsWith("/runtime?")) return true;
     return RUNTIME_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
   }
 
@@ -12291,11 +12293,13 @@
   }
 
   function isConfigRoute(pathname = window.location.pathname) {
-    return String(pathname || "").startsWith("/apps/config/");
+    const path = String(pathname || "");
+    return path === "/config" || path.startsWith("/config?") || path.startsWith("/apps/config/");
   }
 
   function isUploadRoute(pathname = window.location.pathname) {
-    return String(pathname || "").startsWith("/apps/upload/");
+    const path = String(pathname || "");
+    return path === "/upload" || path.startsWith("/upload?") || path.startsWith("/apps/upload/");
   }
 
   function isStandaloneViewRoute(pathname = window.location.pathname) {
@@ -14989,7 +14993,7 @@
     if (ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
     }
-    return resolveAppPathByPrefixes(pathname, ["/apps/upload/", "/apps/config/"]);
+    return resolveAppPathByPrefixes(pathname, ["/upload", "/upload?", "/apps/upload/", "/config", "/config?", "/apps/config/"]);
   }
 
 

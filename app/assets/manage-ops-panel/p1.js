@@ -57,7 +57,7 @@
   }
 
   function editorHref() {
-    return `/apps/config/${state.appId}`;
+    return `/config?app=${encodeURIComponent(state.appId)}`;
   }
 
   function availableSourceIds() {

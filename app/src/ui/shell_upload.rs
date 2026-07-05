@@ -6,7 +6,7 @@ use super::manage_routing::encode_query_value;
 use super::route::UiRouteMode;
 use super::source_tree::{self, tree_icon_for_upload_entry};
 use super::statusbar::statusbar_view;
-use super::topbar::topbar_view;
+use super::topbar::{topbar_view, ShellNavActive};
 use super::view_routing::{config_href, upload_href};
 use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
@@ -227,6 +227,8 @@ pub(crate) fn upload_shell(
         auth_account,
         None,
         None,
+        Some(ShellNavActive::Upload),
+        true,
     );
     let statusbar = statusbar_view(
         app_path,

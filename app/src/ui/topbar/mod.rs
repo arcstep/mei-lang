@@ -3,4 +3,4 @@ mod menus;
 mod view;
 
 pub use menus::load_topbar_menu_context;
-pub(crate) use view::{access_scene_for_topbar, topbar_view};
+pub(crate) use view::{access_scene_for_topbar, topbar_view, ShellNavActive};

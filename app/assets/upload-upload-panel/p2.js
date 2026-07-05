@@ -235,7 +235,7 @@
     }
 
     if (failedCount === 0) {
-      const configHref = `/apps/config/${encodeURIComponent(appId)}`;
+      const configHref = `/config?app=${encodeURIComponent(appId)}`;
       setStatus(
         `已成功上传 ${successCount} 个文件。可在 Config 将 ops.sources.path 指向 upload/*.xlsx，并在 Runtime 执行 prebuild 使数据链生效。`,
         "good",

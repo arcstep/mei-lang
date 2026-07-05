@@ -3,7 +3,7 @@ use mei_lang_kernel::WorkspaceAppMeta;
 
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
-use super::topbar::topbar_view;
+use super::topbar::{topbar_view, ShellNavActive};
 use super::view_routing::upload_href;
 use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
@@ -44,6 +44,8 @@ pub(crate) fn config_shell(
         auth_account,
         None,
         None,
+        Some(ShellNavActive::Config),
+        true,
     );
     let statusbar = statusbar_view(
         app_path,

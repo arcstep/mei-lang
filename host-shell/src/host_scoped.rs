@@ -1,5 +1,7 @@
+use std::path::Path;
+
 use axum::{
-    extract::{Extension, OriginalUri, Path, Query, State},
+    extract::{Extension, OriginalUri, Path as AxumPath, Query, State},
     http::HeaderMap,
     response::{Html, IntoResponse, Response},
 };
@@ -14,6 +16,7 @@ use serde::Deserialize;
 
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
 use crate::pages::{app_page, AppQuery};
+use crate::shell_nav::{render_shell_nav_html, ShellNavItem};
 use crate::state::SharedState;
 
 #[derive(Debug, Deserialize, Default)]
@@ -34,13 +37,15 @@ fn resolve_scope_app_id<'a>(
 }
 
 fn render_scope_picker_html(
-    workspace_root: &std::path::Path,
+    workspace_root: &Path,
     apps: &[WorkspaceAppMeta],
     route_label: &str,
     route_path: &str,
+    shell_nav_item: ShellNavItem,
 ) -> String {
     let footer_html = render_host_shell_footer_for_source_root(workspace_root);
     let shell_theme = host_shell_body_theme_style(workspace_root);
+    let shell_nav = render_shell_nav_html(shell_nav_item);
     let rows = if apps.is_empty() {
         r#"<p class="mei-host-shell__message">当前没有可选择的应用。</p>"#.to_string()
     } else {
@@ -65,10 +70,12 @@ fn render_scope_picker_html(
         )
     };
     let body_html = format!(
-        r#"{rows}
+        r#"{shell_nav}
+{rows}
 <div class="mei-host-shell__actions">
-  <a class="mei-host-shell__btn" href="/">返回工作区入口</a>
+  <a class="mei-host-shell__btn" href="/home">返回首页</a>
 </div>"#,
+        shell_nav = shell_nav,
         rows = rows,
     );
     render_auth_card_page(
@@ -120,6 +127,7 @@ async fn host_scoped_light_page(
     route_mode: UiRouteMode,
     route_label: &'static str,
     route_path: &'static str,
+    shell_nav_item: ShellNavItem,
     Query(query): Query<HostScopeQuery>,
 ) -> Response {
     let principal_ref = principal.as_ref().map(|Extension(p)| p);
@@ -131,6 +139,7 @@ async fn host_scoped_light_page(
             apps.as_slice(),
             route_label,
             route_path,
+            shell_nav_item,
         );
         return Html(html).into_response();
     };
@@ -180,7 +189,8 @@ pub async fn host_config_page(
         principal,
         UiRouteMode::Config,
         "配置",
-        "/host/config",
+        "/config",
+        ShellNavItem::Config,
         query,
     )
     .await
@@ -198,13 +208,14 @@ pub async fn host_upload_page(
         principal,
         UiRouteMode::Upload,
         "上传",
-        "/host/upload",
+        "/upload",
+        ShellNavItem::Upload,
         query,
     )
     .await
 }
 
-pub async fn host_runtime_page(
+pub async fn host_runtime_observation_page(
     state: State<SharedState>,
     auth: State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
@@ -220,7 +231,8 @@ pub async fn host_runtime_page(
             workspace_root.as_path(),
             apps.as_slice(),
             "运行",
-            "/host/runtime",
+            "/runtime",
+            ShellNavItem::Runtime,
         );
         return Html(html).into_response();
     };
@@ -230,11 +242,31 @@ pub async fn host_runtime_page(
         principal,
         uri,
         headers,
-        Path((
+        AxumPath((
             UiRouteMode::Runtime.slug().to_string(),
             app.id.clone(),
         )),
         Query(query.page.clone()),
     )
     .await
+}
+
+pub async fn host_runtime_page(
+    state: State<SharedState>,
+    auth: State<AuthServeState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    uri: OriginalUri,
+    headers: HeaderMap,
+    query: Query<HostScopeQuery>,
+) -> Response {
+    if query
+        .app
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return host_runtime_observation_page(state, auth, principal, uri, headers, query).await;
+    }
+    crate::host_runtime_hub::host_runtime_hub_page(state, auth, principal).await
 }

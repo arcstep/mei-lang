@@ -75,6 +75,8 @@ pub(crate) fn access_shell(
         auth_account,
         data_mode,
         review_projection,
+        None,
+        false,
     );
     let statusbar = statusbar_view(app_path, UiRouteMode::App.slug(), current_target, None);
     let shell_class = access_shell_grid_class(chrome_hidden, stage_enabled);

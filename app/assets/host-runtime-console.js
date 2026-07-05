@@ -56,9 +56,9 @@
   }
 
   function runtimeHref(appId, nodeId) {
-    const base = `/apps/runtime/${encodeURIComponent(appId)}`;
+    const base = `/runtime?app=${encodeURIComponent(appId)}`;
     if (!nodeId) return base;
-    return `${base}?node=${encodeURIComponent(nodeId)}`;
+    return `${base}&node=${encodeURIComponent(nodeId)}`;
   }
 
   function navigateToNode(nodeId, options) {

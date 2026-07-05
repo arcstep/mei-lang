@@ -1636,7 +1636,7 @@ if (!customElements.get(TAG)) {
         navCtrl.style.pointerEvents = "";
       }
       const mount = mountCockpitFloatingControl(navCtrl, this);
-      if (mount === "body") {
+      if (mount === "body" || mount === "slot" || mount === "stage") {
         this._portaledNavCtrl = navCtrl;
       }
       this.positionCockpitNavCtrl(navCtrl);

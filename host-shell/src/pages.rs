@@ -39,6 +39,8 @@ pub struct AppQuery {
     pub data_mode: Option<String>,
     /// Build / review projection depth (`plane`, `plane_region`, …).
     pub review_projection: Option<String>,
+    /// Structure tree max ui role depth (`content`, `section`, …).
+    pub tree_max: Option<String>,
     /// `1` / `true` forces experimental thin-shell document (manifest refs only).
     pub thin_shell: Option<String>,
     /// `1` / `true` / `html` — alias of omitting thin_shell; kept for compatibility.
@@ -146,7 +148,16 @@ pub async fn app_page(
     }
     let route_mode = UiRouteMode::from_slug(mode.as_str());
     let app_tail = app_tail.trim_start_matches('/').to_string();
-    let (app_id, scene_id, tour_id) = parse_app_scene_path(&app_tail, query.scene.as_deref(), route_mode);
+    let mut query = query;
+    let (app_id, scene_id, tour_id) = if route_mode == UiRouteMode::Build {
+        let (parsed_app_id, preset) = crate::build_axis::parse_build_app_tail(app_tail.as_str());
+        crate::build_axis::merge_build_preset_into_query(&mut query, &preset);
+        let (app_id, scene_id, tour_id) =
+            parse_app_scene_path(parsed_app_id.as_str(), query.scene.as_deref(), route_mode);
+        (app_id, scene_id, tour_id)
+    } else {
+        parse_app_scene_path(&app_tail, query.scene.as_deref(), route_mode)
+    };
     if app_id.is_empty() {
         return (StatusCode::NOT_FOUND, "app not found").into_response();
     }
@@ -212,6 +223,15 @@ pub async fn app_page(
     );
     if !apps.iter().any(|app| app.id == app_id) {
         return (StatusCode::NOT_FOUND, "app not found").into_response();
+    }
+    let mut scene_id = scene_id;
+    if scene_id == "__default_access__" {
+        let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id.as_str());
+        scene_id = mei_lang_kernel::resolve_default_scene_from_root(&app_root)
+            .ok()
+            .flatten()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "home".to_string());
     }
     if !route_mode.is_access_like()
         && route_mode != UiRouteMode::Runtime
@@ -625,6 +645,7 @@ pub async fn app_page(
                                     .slug(),
                                 ),
                                 data_mode_ceiling_notice_owned.as_deref(),
+                                query.tree_max.as_deref(),
                             ),
                             workspace_root,
                         ),
@@ -1564,6 +1585,18 @@ fn parse_app_scene_path(
     {
         let presentation_id = parts[2].to_string();
         return (app_id, "home".to_string(), Some(presentation_id));
+    }
+    if route_mode.is_access_like() && parts.len() >= 2 && parts[1] == "access" {
+        let scene = if parts.len() >= 4 && parts[2] == "scene" {
+            parts[3].to_string()
+        } else {
+            scene_query
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("__default_access__")
+                .to_string()
+        };
+        return (app_id, scene, None);
     }
     let scene = if parts.len() >= 3 && parts[1] == "scene" {
         parts[2].to_string()

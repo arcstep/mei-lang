@@ -144,6 +144,6 @@
     if (ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
     }
-    return resolveAppPathByPrefixes(pathname, ["/apps/upload/", "/apps/config/"]);
+    return resolveAppPathByPrefixes(pathname, ["/upload", "/upload?", "/apps/upload/", "/config", "/config?", "/apps/config/"]);
   }
 

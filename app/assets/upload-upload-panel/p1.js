@@ -318,9 +318,9 @@
   function uploadPageHref(path) {
     const normalized = normalizeRelativeDir(path);
     if (!normalized) {
-      return `/apps/upload/${encodeURIComponent(appId)}`;
+      return `/upload?app=${encodeURIComponent(appId)}`;
     }
-    return `/apps/upload/${encodeURIComponent(appId)}?file=${encodeURIComponent(normalized)}`;
+    return `/upload?app=${encodeURIComponent(appId)}&file=${encodeURIComponent(normalized)}`;
   }
 
   function navigateToUploadPath(path) {

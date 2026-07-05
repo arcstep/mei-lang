@@ -393,13 +393,15 @@ fn scene_contracts_from_compiled(
         );
     }
     if let Some(contract) = &compiled.scene_contract {
-        if let Some(scene_id) = compiled
+        let scene_id = compiled
             .active_scene
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-        {
-            map.insert(scene_id.to_string(), contract.clone());
+            .map(str::to_string)
+            .unwrap_or_else(|| contract.scene.id.clone());
+        if !scene_id.trim().is_empty() {
+            map.insert(scene_id, contract.clone());
         }
     }
     map

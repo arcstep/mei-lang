@@ -77,7 +77,7 @@ pub use view_artifact::{
     STRUCTURE_FULL_KIND, STRUCTURE_FULL_SCHEMA, THEME_TOKENS_KIND,
 };
 pub use layout_tuning_merge::merge_layout_tuning_into_compiled;
-pub use mcg::registry::{McgRegistry, McgRegistryWriter};
+pub use mcg::registry::{McgNodeRecord, McgRegistry, McgRegistryWriter};
 pub use mrg::eval_cache_plan::{
     build_eval_cache_invalidation_plan, build_eval_cache_invalidation_plan_from_registry,
     invalidate_app_eval_cache,
