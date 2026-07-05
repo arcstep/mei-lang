@@ -6,6 +6,8 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 
+use crate::pages::AppQuery;
+
 fn encode_query_component(value: &str) -> String {
     value
         .chars()
@@ -84,8 +86,17 @@ pub async fn redirect_apps_runtime(
 
 pub async fn redirect_apps_access(Path(app_id): Path<String>) -> Response {
     let target = format!(
-        "/apps/app/{}/access",
+        "/apps/{}/app",
         encode_query_component(app_id.trim())
     );
     Redirect::permanent(target.as_str()).into_response()
+}
+
+pub fn mcg_redirect_for_app(app_id: &str, query: &AppQuery) -> String {
+    let mut target = format!("/mcg?app={}", encode_query_component(app_id.trim()));
+    if let Some(file) = query.file.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        target.push_str("&file=");
+        target.push_str(&encode_query_component(file));
+    }
+    target
 }

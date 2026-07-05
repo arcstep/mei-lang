@@ -29,7 +29,7 @@ use crate::shell_redirects::{
 };
 use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_fragment,
-    api_scene_revision, app_page, host_starting_page,
+    api_scene_revision, app_page, app_surface_page, host_starting_page,
 };
 use crate::presentation_compile::api_presentation_compile;
 use crate::presentation_scripts::{
@@ -223,6 +223,12 @@ pub fn router(state: HostHttpState) -> Router {
                 .layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/gis/*path", get(crate::gis_proxy::gis_proxy))
+        .route("/apps/:app_id/app", get(app_surface_page))
+        .route("/apps/:app_id/app/*tail", get(app_surface_page))
+        .route("/apps/:app_id/layout", get(app_surface_page))
+        .route("/apps/:app_id/layout/*tail", get(app_surface_page))
+        .route("/apps/:app_id/prototype", get(app_surface_page))
+        .route("/apps/:app_id/prototype/*tail", get(app_surface_page))
         .route("/apps/:mode/*app_id", get(app_page))
         .route("/app-bundles/:mode", get(app_bundle))
         .route("/app-assets/*path", get(app_asset))
@@ -844,7 +850,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/")
+                    .uri("/home")
                     .body(Body::empty())
                     .expect("request"),
             )
@@ -858,9 +864,11 @@ mod tests {
             .expect("body")
             .to_bytes();
         let html = String::from_utf8_lossy(&body);
-        assert!(html.contains("欢迎使用 MeiLang"));
+        assert!(html.contains("MeiLang 工作区") || html.contains("mei-workspace-page"));
+        assert!(html.contains("topbar-shell"));
+        assert!(html.contains("statusbar-shell"));
         assert!(html.contains("host-shell.css"));
-        assert!(html.contains("/host/config"));
+        assert!(html.contains("/config"));
     }
 
     #[tokio::test]
@@ -881,7 +889,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/host/config")
+                    .uri("/config")
                     .body(Body::empty())
                     .expect("request"),
             )
@@ -895,8 +903,9 @@ mod tests {
             .expect("body")
             .to_bytes();
         let html = String::from_utf8_lossy(&body);
-        assert!(html.contains("选择应用"));
+        assert!(html.contains("请选择要管理的应用"));
         assert!(html.contains("data-demo"));
+        assert!(html.contains("topbar-shell"));
     }
 
     #[tokio::test]

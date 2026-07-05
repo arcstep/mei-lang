@@ -129,6 +129,49 @@ fn build_page_render_cache_key_for_request(
     ))
 }
 
+pub async fn app_surface_page(
+    State(state): State<SharedState>,
+    State(auth): State<AuthServeState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    Path(app_id): Path<String>,
+    Query(mut query): Query<AppQuery>,
+) -> Response {
+    let path = uri.path();
+    let surface = path
+        .strip_prefix(&format!("/apps/{app_id}/"))
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or("");
+    let route_mode = match surface {
+        "app" => UiRouteMode::App,
+        "layout" => UiRouteMode::Layout,
+        "prototype" => UiRouteMode::Prototype,
+        _ => return (StatusCode::NOT_FOUND, "unknown app surface").into_response(),
+    };
+    let path = uri.path();
+    let tail = path
+        .strip_prefix(&format!("/apps/{app_id}/{surface}"))
+        .unwrap_or("")
+        .trim_start_matches('/');
+    crate::app_surface::merge_surface_query_defaults(&mut query, route_mode);
+    let app_tail = if tail.is_empty() {
+        app_id.clone()
+    } else {
+        format!("{app_id}/{tail}")
+    };
+    app_page(
+        State(state),
+        State(auth),
+        principal,
+        OriginalUri(uri),
+        headers,
+        Path((route_mode.slug().to_string(), app_tail)),
+        Query(query),
+    )
+    .await
+}
+
 pub async fn app_page(
     State(state): State<SharedState>,
     State(auth): State<AuthServeState>,
@@ -149,8 +192,23 @@ pub async fn app_page(
     let route_mode = UiRouteMode::from_slug(mode.as_str());
     let app_tail = app_tail.trim_start_matches('/').to_string();
     let mut query = query;
-    let (app_id, scene_id, tour_id) = if route_mode == UiRouteMode::Build {
+    if route_mode == UiRouteMode::Build {
+        if let Some(target) = crate::app_surface::legacy_build_surface_redirect(app_tail.as_str(), &query) {
+            return Redirect::permanent(target.as_str()).into_response();
+        }
+    }
+    if route_mode == UiRouteMode::App {
+        if let Some(target) = crate::app_surface::legacy_app_access_redirect(app_tail.as_str()) {
+            return Redirect::permanent(target.as_str()).into_response();
+        }
+    }
+    let mut build_tree_mode: Option<String> = None;
+    let (app_id, scene_id, tour_id) = if route_mode.is_app_surface() {
+        crate::app_surface::merge_surface_query_defaults(&mut query, route_mode);
+        crate::app_surface::parse_app_surface_tail(app_tail.as_str(), query.scene.as_deref(), route_mode)
+    } else if route_mode == UiRouteMode::Build {
         let (parsed_app_id, preset) = crate::build_axis::parse_build_app_tail(app_tail.as_str());
+        build_tree_mode = preset.tree_mode.clone();
         crate::build_axis::merge_build_preset_into_query(&mut query, &preset);
         let (app_id, scene_id, tour_id) =
             parse_app_scene_path(parsed_app_id.as_str(), query.scene.as_deref(), route_mode);
@@ -646,6 +704,7 @@ pub async fn app_page(
                                 ),
                                 data_mode_ceiling_notice_owned.as_deref(),
                                 query.tree_max.as_deref(),
+                                build_tree_mode.as_deref(),
                             ),
                             workspace_root,
                         ),

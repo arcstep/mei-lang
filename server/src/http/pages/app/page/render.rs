@@ -329,6 +329,7 @@ pub(super) fn render_compiled_success(
                 query.review_projection.as_deref(),
                 None,
                 None,
+                None,
             );
             fill_page_shell_placeholders(rendered, &gis, state.source_root.as_path())
         });

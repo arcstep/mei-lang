@@ -78,27 +78,36 @@ pub fn resolve_client_review_projection(
     if route_mode == UiRouteMode::App {
         return default_projection_for_route(route_mode, data_mode);
     }
+    if route_mode == UiRouteMode::Layout {
+        return ReviewProjection::PlaneRegionSection;
+    }
+    if route_mode == UiRouteMode::Prototype {
+        return ReviewProjection::StaticFull;
+    }
     query_projection
         .and_then(ReviewProjection::parse)
         .unwrap_or_else(|| default_projection_for_route(route_mode, data_mode))
 }
 
-/// SSR + host page-render-cache always materialize the fullest scene DOM for the data mode.
+/// SSR page-render-cache projection slug passed into preview runtime context.
 pub fn ssr_review_projection(route_mode: UiRouteMode, data_mode: DataMode) -> ReviewProjection {
-    if route_mode == UiRouteMode::App || route_mode == UiRouteMode::Build {
-        return canonical_full_projection_for_data_mode(data_mode);
+    match route_mode {
+        UiRouteMode::App => canonical_full_projection_for_data_mode(data_mode),
+        UiRouteMode::Layout => ReviewProjection::PlaneRegionSection,
+        UiRouteMode::Prototype => ReviewProjection::StaticFull,
+        UiRouteMode::Build => canonical_full_projection_for_data_mode(data_mode),
+        _ => default_projection_for_route(route_mode, data_mode),
     }
-    default_projection_for_route(route_mode, data_mode)
 }
 
 pub fn ssr_review_projection_for_axes(
     route_mode: UiRouteMode,
     axes: PageRenderAxes,
 ) -> ReviewProjection {
-    if route_mode == UiRouteMode::Run || route_mode == UiRouteMode::Copilot {
-        axes.review_projection
-    } else {
-        ssr_review_projection(route_mode, axes.data_mode)
+    match route_mode {
+        UiRouteMode::Run | UiRouteMode::Copilot => axes.review_projection,
+        UiRouteMode::Layout | UiRouteMode::Prototype => axes.review_projection,
+        _ => ssr_review_projection(route_mode, axes.data_mode),
     }
 }
 
@@ -121,20 +130,20 @@ pub fn default_page_render_axes_for_route(
 }
 
 fn default_data_mode_for_route(route_mode: UiRouteMode, ceiling: DataModeCeiling) -> DataMode {
-    if route_mode == UiRouteMode::Build && ceiling != DataModeCeiling::Eval {
-        ceiling.as_data_mode()
-    } else {
-        DataMode::Eval
+    match route_mode {
+        UiRouteMode::Layout | UiRouteMode::Prototype => DataMode::Static,
+        UiRouteMode::Build if ceiling != DataModeCeiling::Eval => ceiling.as_data_mode(),
+        _ => DataMode::Eval,
     }
 }
 
 fn default_projection_for_route(route_mode: UiRouteMode, data_mode: DataMode) -> ReviewProjection {
-    if route_mode == UiRouteMode::Build {
-        ReviewProjection::PlaneRegionSection
-    } else if data_mode == DataMode::Eval {
-        ReviewProjection::LiveFull
-    } else {
-        ReviewProjection::StaticFull
+    match route_mode {
+        UiRouteMode::Layout => ReviewProjection::PlaneRegionSection,
+        UiRouteMode::Prototype => ReviewProjection::StaticFull,
+        UiRouteMode::Build => ReviewProjection::PlaneRegionSection,
+        _ if data_mode == DataMode::Eval => ReviewProjection::LiveFull,
+        _ => ReviewProjection::StaticFull,
     }
 }
 
