@@ -8,6 +8,47 @@ use super::preview;
 use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
 use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
+
+/// Preview surface HTML for revision-first thin shells (custom elements + scopes).
+pub fn render_access_preview_surface_html(
+    compiled: &CompiledApp,
+    app_path: &str,
+    file_target: Option<&str>,
+    route_mode: UiRouteMode,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
+) -> String {
+    let current_target = file_target
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(compiled.active_target_file.as_str());
+    let static_asset = is_static_workspace_asset_target(current_target);
+    let preview = if static_asset {
+        asset_preview_body(app_path, current_target, "")
+    } else {
+        preview::preview_view(
+            compiled,
+            app_path,
+            current_target,
+            route_mode,
+            WorldSemanticQuery::default(),
+            None,
+            None,
+            data_mode,
+            review_projection,
+        )
+    };
+    preview.into_any().to_html()
+}
+
+/// Scene drilldown + host runtime capability scripts for thin-shell SSR.
+pub fn render_host_ssr_bootstrap_html(
+    compiled: &CompiledApp,
+    app_path: &str,
+    preview_scene_id: Option<&str>,
+    data_mode: Option<&str>,
+) -> String {
+    host_ssr_bootstrap_scripts(compiled, app_path, preview_scene_id, data_mode).to_html()
+}
 use super::shell_preview_layout::{
     access_main_preview_class, access_preview_panel_class, access_shell_grid_class,
 };
@@ -127,4 +168,56 @@ pub(crate) fn access_shell(
         </div>
     }
     .into_any()
+}
+
+/// Topbar + statusbar HTML for revision-first thin shells (host frame stability).
+pub fn render_access_shell_chrome_html(
+    apps: &[WorkspaceAppMeta],
+    compiled: &CompiledApp,
+    app_path: &str,
+    topbar_menu: Option<&TopbarMenuContext>,
+    route_mode: UiRouteMode,
+    selected_scene: Option<&str>,
+    file_target: Option<&str>,
+    active_tab: Option<&str>,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+    data_mode: Option<&str>,
+    review_projection: Option<&str>,
+    chrome_hidden: bool,
+) -> (String, String) {
+    if chrome_hidden {
+        return (String::new(), String::new());
+    }
+    let current_target = file_target
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(compiled.active_target_file.as_str());
+    let topbar_access_scene = access_scene_for_topbar(
+        route_mode,
+        compiled,
+        selected_scene,
+        file_target,
+    );
+    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
+    let topbar = topbar_view(
+        apps,
+        app_path,
+        topbar_menu,
+        route_mode,
+        topbar_access_scene,
+        Some(current_target),
+        active_tab,
+        None,
+        None,
+        false,
+        stage_enabled,
+        auth_enabled,
+        auth_account,
+        data_mode,
+        review_projection,
+        None,
+        None,
+    );
+    let statusbar = statusbar_view(app_path, route_mode.slug(), current_target, None);
+    (topbar.to_html(), statusbar.to_html())
 }

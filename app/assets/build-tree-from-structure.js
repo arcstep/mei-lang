@@ -7,11 +7,13 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
 
   const UI_ROLE_RANK = {
+    scene: -1,
     plane: 0,
     region: 1,
     section: 2,
     slot: 2,
     content: 3,
+    budget: 2,
   };
 
   function roleDepthRank(role) {
@@ -30,10 +32,15 @@
   function filteredNodes(structureDoc, maxRole) {
     const maxDepth = roleDepthRank(maxRole);
     const nodes = Array.isArray(structureDoc?.nodes) ? structureDoc.nodes : [];
+    const byId = new Map(nodes.map((node) => [node.node_id, node]));
     const allowed = new Set();
     for (const node of nodes) {
-      if (roleDepthRank(node.ui_role) <= maxDepth) {
-        allowed.add(node.node_id);
+      if (roleDepthRank(node.ui_role) > maxDepth) continue;
+      let cur = node;
+      while (cur) {
+        allowed.add(cur.node_id);
+        const parentId = String(cur.parent_id || "").trim();
+        cur = parentId ? byId.get(parentId) : null;
       }
     }
     return nodes.filter((node) => allowed.has(node.node_id));
@@ -123,9 +130,7 @@
       "section";
     const nodes = filteredNodes(structureDoc, maxRole);
     const roots = childrenForParent(nodes, "");
-    const nav =
-      document.querySelector("aside nav.build-reachability-tree") ||
-      document.querySelector("nav.build-reachability-tree");
+    const nav = document.querySelector("aside nav.build-reachability-tree");
     if (!nav) return false;
     const list = document.createElement("ul");
     list.className = "build-tree-list";

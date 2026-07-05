@@ -40,6 +40,10 @@ pub use shell_workspace::{render_workspace_page, WorkspaceShellNav};
 
 use preview_chrome::{component_script_preloads, component_scripts};
 use shell_access::access_shell;
+pub use shell_access::{
+    render_access_preview_surface_html, render_access_shell_chrome_html,
+    render_host_ssr_bootstrap_html,
+};
 use shell_config::config_shell;
 use shell_manage::manage_shell;
 use shell_presentation::presentation_shell;

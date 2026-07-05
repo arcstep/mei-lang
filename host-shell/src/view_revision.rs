@@ -6,15 +6,17 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use mei_host_auth::AuthServeState;
-use mei_lang_app::UiRouteMode;
+use mei_lang_app::{load_topbar_menu_context, UiRouteMode};
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::artifact_observability::{ArtifactHitMatrix, LayerArtifactObservability};
+use crate::landing::discover_workspace_apps;
 use crate::pages::AppQuery;
 use crate::review_axes::resolve_page_render_axes;
 use crate::scene_manifest::{
     build_scene_view_manifest, materialize_layers_for_request, resolve_route_mode_from_surface,
+    SceneChromeHostContext,
 };
 use crate::state::SharedState;
 
@@ -115,6 +117,7 @@ pub(crate) fn resolve_view_revision_for_surface(
     local_miss: bool,
     missing_layers: Vec<String>,
     hits: &mut ArtifactHitMatrix,
+    chrome_host: Option<&SceneChromeHostContext<'_>>,
 ) -> anyhow::Result<mei_host_graph::ViewRevisionResponse> {
     let manifest = build_scene_view_manifest(
         workspace_root,
@@ -126,6 +129,7 @@ pub(crate) fn resolve_view_revision_for_surface(
         draft_session,
         draft_digest,
         hits,
+        chrome_host,
     )?;
     let surface_digest = surface_revision_digest(&manifest);
     let mut response = mei_host_graph::resolve_view_revision(&mei_host_graph::ViewRevisionInput {
@@ -150,6 +154,7 @@ pub(crate) fn resolve_view_revision_for_surface(
             draft_digest,
             &response.changed_layers,
             hits,
+            chrome_host,
         )?;
         response.inline_layers = Some(inline);
     }
@@ -269,6 +274,16 @@ pub async fn api_host_view_revision(
     let local_miss = parse_bool_flag(query.local_miss.as_deref());
     let missing_layers = parse_missing_layers(query.missing_layers.as_deref());
 
+    let topbar_menu = load_topbar_menu_context(workspace_root);
+    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
+    let apps = crate::landing::enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
+    let chrome_host = SceneChromeHostContext {
+        apps: apps.as_slice(),
+        topbar_menu: Some(&topbar_menu),
+        auth_enabled: false,
+        auth_account: None,
+    };
+
     let mut hits = ArtifactHitMatrix::default();
     let revision = match resolve_view_revision_for_surface(
         workspace_root,
@@ -283,6 +298,7 @@ pub async fn api_host_view_revision(
         local_miss,
         missing_layers,
         &mut hits,
+        Some(&chrome_host),
     ) {
         Ok(value) => value,
         Err(err) => {

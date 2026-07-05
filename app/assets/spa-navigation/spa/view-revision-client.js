@@ -232,6 +232,16 @@
         ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
         : global.document?.querySelector?.(".shell, .preview-pane-scroll");
     const shell = composeRoot instanceof HTMLElement ? composeRoot : null;
+    if (
+      shell &&
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(shell)
+    ) {
+      if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+        boot.applyHostChromeFromManifestRefs();
+      }
+      return { ok: true, missing: [], layers, source: "ssr_preview" };
+    }
     if (boot.viewCompositor?.composeFromLayers && shell) {
       const composed = boot.viewCompositor.composeFromLayers(
         shell,
@@ -239,6 +249,9 @@
         assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx),
       );
       if (composed) {
+        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
         return { ok: true, missing: [], layers, source: ViewRevisionOutcome.ASSEMBLE_LOCAL };
       }
     }

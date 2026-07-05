@@ -81,11 +81,15 @@
 
   function ensureStructureSkeleton(root, structureDoc) {
     if (!(root instanceof HTMLElement)) return false;
+    if (
+      root.querySelector(
+        "[data-preview-scope], [data-mei-ui-role], [data-mei-frame-viewport], [data-mei-use-key], .preview-viewport",
+      )
+    ) {
+      return true;
+    }
     const doc = extractLayerDocument(structureDoc);
     const nodes = Array.isArray(doc?.nodes) ? doc.nodes : [];
-    if (root.querySelector("[data-preview-scope], [data-mei-ui-role]")) {
-      return nodes.length > 0 || !!root.querySelector("[data-preview-scope]");
-    }
     for (const node of nodes) {
       const scope = String(node.preview_scope || "").trim();
       if (!scope) continue;
@@ -98,19 +102,60 @@
     return nodes.length > 0;
   }
 
+  function pickManifestShellLayer() {
+    const layers = globalThis.__mei?.scene_manifest_refs?.layers;
+    if (!layers || typeof layers !== "object") return null;
+    return (
+      layers["shell.build"] ||
+      layers["shell.layout"] ||
+      layers["shell.prototype"] ||
+      layers["shell.app"] ||
+      layers["shell.run"] ||
+      null
+    );
+  }
+
+  function isPlaceholderShellDoc(doc) {
+    if (!doc) return true;
+    const top = String(doc.topbar_html || "").trim();
+    if (!top) return true;
+    return top.includes('class="mei-shell-topbar"') && top.length < 240;
+  }
+
   function applyShellLayer(root, shellLayer) {
     if (!(root instanceof HTMLElement)) return;
-    const doc = extractLayerDocument(shellLayer);
+    let doc = extractLayerDocument(shellLayer);
+    if (isPlaceholderShellDoc(doc)) {
+      const manifestDoc = extractLayerDocument(pickManifestShellLayer());
+      if (manifestDoc && !isPlaceholderShellDoc(manifestDoc)) {
+        doc = manifestDoc;
+      }
+    }
     if (!doc) return;
     if (doc.tab) root.setAttribute("data-tab", String(doc.tab));
     if (doc.chrome) root.setAttribute("data-chrome", String(doc.chrome));
     if (doc.route_mode) root.setAttribute("data-route-mode", String(doc.route_mode));
     const topbar = String(doc.topbar_html || "").trim();
-    if (topbar && !root.querySelector(".mei-shell-topbar")) {
+    const statusbar = String(doc.statusbar_html || "").trim();
+    const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
+    const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
+    if (topbar && topSlot instanceof HTMLElement) {
+      topSlot.innerHTML = topbar;
+    } else if (topbar && !global.document?.querySelector?.(".topbar-shell, .mei-shell-topbar")) {
       const wrap = document.createElement("div");
       wrap.innerHTML = topbar;
       const bar = wrap.firstElementChild;
-      if (bar) root.prepend(bar);
+      const host = global.document?.getElementById?.("mei-compose-host") || root;
+      if (bar && host instanceof HTMLElement) host.prepend(bar);
+    }
+    if (statusbar && bottomSlot instanceof HTMLElement) {
+      bottomSlot.innerHTML = statusbar;
+    } else if (statusbar && !global.document?.querySelector?.(".statusbar-shell, .statusbar")) {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = statusbar;
+      const bar = wrap.firstElementChild;
+      const host = global.document?.getElementById?.("mei-compose-host") || root;
+      if (bar && host instanceof HTMLElement) host.append(bar);
     }
   }
 

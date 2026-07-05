@@ -38,6 +38,16 @@
     }
   }
 
+  function ssrPreviewMaterialized(doc) {
+    const root =
+      doc?.querySelector?.("#mei-compose-root, .preview-pane-scroll, .shell") ||
+      document.querySelector("#mei-compose-root, .preview-pane-scroll, .shell");
+    return (
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(root)
+    );
+  }
+
   function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
     void (async () => {
       try {
@@ -54,6 +64,7 @@
         if (navigationId != null && navigationId !== currentNavigationId) return;
         if (
           typeof boot.bootstrapThinShellComposition === "function" &&
+          !ssrPreviewMaterialized(doc) &&
           (typeof isRevisionFirstShellPage === "function"
             ? isRevisionFirstShellPage(nextUrl.pathname)
             : globalThis.__mei?.thin_shell === true ||
@@ -81,11 +92,12 @@
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
           const skipWake =
-            typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
-            globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
-              currentUrl?.href || window.location.href,
-              nextUrl.href,
-            );
+            ssrPreviewMaterialized(doc) ||
+            (typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+              globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
+                currentUrl?.href || window.location.href,
+                nextUrl.href,
+              ));
           if (!skipWake) {
             publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
           }

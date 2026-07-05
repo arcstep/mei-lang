@@ -54,6 +54,11 @@
     applyHostVersionChip();
   }
 
+  boot.refreshStatusBarChips = function refreshStatusBarChips() {
+    applyComplianceChip();
+    applyHostVersionChip();
+  };
+
   boot.disposeStatusBar = function () {
     boot.statusBarMounted = false;
   };

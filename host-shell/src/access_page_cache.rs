@@ -17,7 +17,7 @@ use mei_lang_kernel::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::build_info::fill_page_shell_placeholders;
+use crate::build_info::{fill_page_shell_placeholders, host_asset_version_stamp};
 use crate::gis_config::GisTilesConfig;
 use crate::pages::{
     inject_client_bootstrap_script, inject_layer_plane_scripts, inject_presentation_manifest_script,
@@ -27,6 +27,7 @@ use crate::pages::{
 use crate::review_axes::{default_page_render_axes_for_route, PageRenderAxes};
 
 pub const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v2";
+pub const THIN_SHELL_PAGE_CACHE_REVISION: &str = "thin-shell-bundle-v2";
 const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
 const MAX_PAGE_RENDER_CACHE_ENTRIES: usize = 64;
 
@@ -146,7 +147,72 @@ pub fn access_page_cache_key(
     account_view: Option<&HostAccountView>,
     gis: &GisTilesConfig,
 ) -> Option<String> {
-    if !route_mode.is_access_like() {
+    page_render_cache_key_for_route(
+        workspace_root,
+        app_id,
+        scene_id,
+        route_mode,
+        axes,
+        chrome_hidden,
+        auth_enabled,
+        account_view,
+        gis,
+        None,
+        None,
+        None,
+    )
+}
+
+pub fn thin_shell_page_cache_key(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    axes: PageRenderAxes,
+    chrome_hidden: bool,
+    auth_enabled: bool,
+    account_view: Option<&HostAccountView>,
+    gis: &GisTilesConfig,
+    node: Option<&str>,
+    focus: Option<&str>,
+    tab: Option<&str>,
+) -> Option<String> {
+    page_render_cache_key_for_route(
+        workspace_root,
+        app_id,
+        scene_id,
+        route_mode,
+        axes,
+        chrome_hidden,
+        auth_enabled,
+        account_view,
+        gis,
+        node,
+        focus,
+        tab,
+    )
+}
+
+fn page_render_cache_key_for_route(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    axes: PageRenderAxes,
+    chrome_hidden: bool,
+    auth_enabled: bool,
+    account_view: Option<&HostAccountView>,
+    gis: &GisTilesConfig,
+    node: Option<&str>,
+    focus: Option<&str>,
+    tab: Option<&str>,
+) -> Option<String> {
+    let thin_shell_route = route_mode.is_access_like()
+        || matches!(
+            route_mode,
+            UiRouteMode::Layout | UiRouteMode::Prototype | UiRouteMode::Build
+        );
+    if !thin_shell_route {
         return None;
     }
     let registry = mei_host_graph::McgRegistryWriter::load(workspace_root, app_id);
@@ -187,8 +253,32 @@ pub fn access_page_cache_key(
         "gis_json_path": gis.json_path,
         "ops_themes_revision": ops_themes_revision_digest(workspace_root, app_id),
         "host_ssr_payload_revision": HOST_SSR_PAYLOAD_REVISION,
+        "thin_shell_page_cache_revision": THIN_SHELL_PAGE_CACHE_REVISION,
+        "host_asset_version": host_asset_version_stamp(),
+        "route_mode": route_mode.slug(),
+        "build_node": node.unwrap_or(""),
+        "focus": focus.unwrap_or(""),
+        "tab": tab.unwrap_or(""),
     });
     serde_json::to_string(&extra).ok()
+}
+
+pub fn resolve_cached_page_template(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+    cache_key: Option<&str>,
+    render: impl FnOnce() -> String,
+) -> (String, bool) {
+    if let Some(key) = cache_key.map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(cached) = take_access_page_template(workspace_root, app_id, scene_id, key) {
+            return (cached, true);
+        }
+        let html = render();
+        let _ = store_access_page_template(workspace_root, app_id, scene_id, key, html.as_str(), None);
+        return (html, false);
+    }
+    (render(), false)
 }
 
 fn inject_scene_revision_meta(html: String, revision: Option<&SceneRevisionPayload>) -> String {

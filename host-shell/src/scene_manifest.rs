@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use mei_host_auth::AuthServeState;
-use mei_lang_app::UiRouteMode;
+use mei_lang_app::{load_topbar_menu_context, UiRouteMode};
 use mei_lang_kernel::{resolve_app_root, DataMode};
 
 use crate::pages::AppQuery;
@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::artifact_observability::{ArtifactHitMatrix, LayerArtifactObservability};
+use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
 use crate::review_axes::resolve_page_render_axes;
 use crate::state::SharedState;
 
@@ -54,6 +55,14 @@ pub struct LayerBatchRequest {
 pub struct LayerBatchResponse {
     pub layers: std::collections::BTreeMap<String, Value>,
     pub hits: ArtifactHitMatrix,
+}
+
+/// Host chrome inputs for `shell.*` layer (real topbar/statusbar SSR).
+pub(crate) struct SceneChromeHostContext<'a> {
+    pub apps: &'a [mei_lang_kernel::WorkspaceAppMeta],
+    pub topbar_menu: Option<&'a mei_lang_app::TopbarMenuContext>,
+    pub auth_enabled: bool,
+    pub auth_account: Option<&'a mei_lang_app::HostAccountView>,
 }
 
 struct MaterializeContext<'a> {
@@ -288,13 +297,48 @@ fn materialize_overlay(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatri
     }))
 }
 
-fn materialize_shell(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatrix) -> Value {
-    let (doc, hit) = mei_host_graph::ensure_shell_layer_cached(
-        ctx.route_mode,
-        ctx.tab,
-        ctx.chrome,
-        None,
-    );
+fn materialize_shell(
+    ctx: &MaterializeContext<'_>,
+    hits: &mut ArtifactHitMatrix,
+    route_mode: UiRouteMode,
+    chrome_host: Option<&SceneChromeHostContext<'_>>,
+) -> Value {
+    let (doc, hit) = if let (Some(host), Some(compiled)) = (chrome_host, ctx.compiled.as_ref()) {
+        let review_projection =
+            crate::review_axes::ssr_review_projection(route_mode, ctx.data_mode).slug();
+        let (mut topbar_html, mut statusbar_html) = mei_lang_app::render_access_shell_chrome_html(
+            host.apps,
+            compiled,
+            ctx.app_id,
+            host.topbar_menu,
+            route_mode,
+            Some(ctx.scene_id),
+            None,
+            Some(ctx.tab),
+            host.auth_enabled,
+            host.auth_account,
+            Some(ctx.data_mode.slug()),
+            Some(review_projection),
+            ctx.chrome == "none",
+        );
+        topbar_html =
+            crate::build_info::fill_page_shell_placeholders(topbar_html, ctx.workspace_root);
+        statusbar_html =
+            crate::build_info::fill_page_shell_placeholders(statusbar_html, ctx.workspace_root);
+        (
+            mei_host_graph::ShellLayerDocument {
+                schema_version: mei_host_graph::SHELL_LAYER_SCHEMA.to_string(),
+                route_mode: ctx.route_mode.to_string(),
+                tab: ctx.tab.to_string(),
+                chrome: ctx.chrome.to_string(),
+                topbar_html,
+                statusbar_html,
+            },
+            false,
+        )
+    } else {
+        mei_host_graph::ensure_shell_layer_cached(ctx.route_mode, ctx.tab, ctx.chrome, None)
+    };
     hits.shell_hit = hit;
     let key = mei_host_graph::shell_cache_key(
         ctx.route_mode,
@@ -323,6 +367,7 @@ pub(crate) fn build_scene_view_manifest(
     draft_session: &str,
     draft_digest: &str,
     hits: &mut ArtifactHitMatrix,
+    chrome_host: Option<&SceneChromeHostContext<'_>>,
 ) -> anyhow::Result<mei_host_graph::SceneViewManifest> {
     let route_slug = route_mode.slug();
     let tab = compose
@@ -380,7 +425,7 @@ pub(crate) fn build_scene_view_manifest(
     let eval_doc = materialize_eval_group(&ctx, "scene:default", hits)?;
     let theme_doc = materialize_theme(&ctx, hits)?;
     let overlay_doc = materialize_overlay(&ctx, hits)?;
-    let shell_doc = materialize_shell(&ctx, hits);
+    let shell_doc = materialize_shell(&ctx, hits, route_mode, chrome_host);
 
     let mut layers = std::collections::BTreeMap::new();
     layers.insert("structure.full".to_string(), json!(structure_ref));
@@ -429,6 +474,8 @@ fn materialize_layer_name(
     ctx: &MaterializeContext<'_>,
     layer: &str,
     hits: &mut ArtifactHitMatrix,
+    route_mode: UiRouteMode,
+    chrome_host: Option<&SceneChromeHostContext<'_>>,
 ) -> anyhow::Result<Value> {
     match layer {
         "structure.full" => {
@@ -453,7 +500,12 @@ fn materialize_layer_name(
             let slot_group_id = name.strip_prefix("eval.slot_group.").unwrap_or("scene:default");
             materialize_eval_group(&ctx, slot_group_id, hits)
         }
-        name if name.starts_with("shell.") => Ok(materialize_shell(&ctx, hits)),
+        name if name.starts_with("shell.") => Ok(materialize_shell(
+            &ctx,
+            hits,
+            route_mode,
+            chrome_host,
+        )),
         _ => Ok(Value::Null),
     }
 }
@@ -525,6 +577,7 @@ pub async fn api_host_scene_manifest(
         draft_session.as_str(),
         draft_digest.as_str(),
         &mut hits,
+        None,
     ) {
         Ok(value) => value,
         Err(err) => {
@@ -578,6 +631,7 @@ pub(crate) fn materialize_layers_for_request(
     draft_digest: &str,
     layer_names: &[String],
     hits: &mut ArtifactHitMatrix,
+    chrome_host: Option<&SceneChromeHostContext<'_>>,
 ) -> anyhow::Result<std::collections::BTreeMap<String, Value>> {
     let route_slug = route_mode.slug();
     let tab = compose
@@ -622,7 +676,7 @@ pub(crate) fn materialize_layers_for_request(
     )?;
     let mut layers = std::collections::BTreeMap::new();
     for layer in layer_names {
-        let value = materialize_layer_name(&ctx, layer.as_str(), hits)?;
+        let value = materialize_layer_name(&ctx, layer.as_str(), hits, route_mode, chrome_host)?;
         layers.insert(layer.clone(), value);
     }
     Ok(layers)
@@ -696,6 +750,15 @@ pub async fn api_host_layer_batch(
     };
 
     let mut hits = ArtifactHitMatrix::default();
+    let topbar_menu = load_topbar_menu_context(workspace_root);
+    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
+    let apps = enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
+    let chrome_host = SceneChromeHostContext {
+        apps: apps.as_slice(),
+        topbar_menu: Some(&topbar_menu),
+        auth_enabled: false,
+        auth_account: None,
+    };
     let layers = match materialize_layers_for_request(
         workspace_root,
         app_id,
@@ -707,6 +770,7 @@ pub async fn api_host_layer_batch(
         draft_digest.as_str(),
         body.layers.as_slice(),
         &mut hits,
+        Some(&chrome_host),
     ) {
         Ok(value) => value,
         Err(err) => {
@@ -820,6 +884,7 @@ mod cross_surface_manifest_tests {
                 "",
                 "",
                 &mut hits,
+                None,
             )
             .expect("scene manifest");
             let artifact_id = structure_artifact_id(&manifest);

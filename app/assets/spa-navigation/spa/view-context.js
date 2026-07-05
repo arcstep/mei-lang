@@ -90,6 +90,8 @@
 
   function resolveComposeRoot(surface) {
     const slug = String(surface || "").trim().toLowerCase();
+    const byId = global.document?.getElementById?.("mei-compose-root");
+    if (byId instanceof HTMLElement) return byId;
     if (isWorkspaceComposeSurface(slug)) {
       const preview =
         global.document?.querySelector?.(".preview-pane-scroll") ||

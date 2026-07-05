@@ -334,6 +334,20 @@ if (!customElements.get(TAG)) {
         if (!shouldReactToPreviewUpdated(event, this)) {
           return;
         }
+        if (
+          event?.detail?.source === "scene_bundle_ready" &&
+          this.map &&
+          this._mapStyleReady
+        ) {
+          const domProps = parseProps(this);
+          const contentSig = stableMapContentSignature(domProps, this);
+          if (
+            this._mapContentSignature != null &&
+            contentSig === this._mapContentSignature
+          ) {
+            return;
+          }
+        }
         if (isWorldStageLifecycleBusy() && this.map) {
           this.scheduleRefresh();
           return;

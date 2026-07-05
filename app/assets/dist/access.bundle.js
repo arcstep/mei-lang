@@ -3917,6 +3917,11 @@
     applyHostVersionChip();
   }
 
+  boot.refreshStatusBarChips = function refreshStatusBarChips() {
+    applyComplianceChip();
+    applyHostVersionChip();
+  };
+
   boot.disposeStatusBar = function () {
     boot.statusBarMounted = false;
   };
@@ -27701,6 +27706,8 @@
 
   function resolveComposeRoot(surface) {
     const slug = String(surface || "").trim().toLowerCase();
+    const byId = global.document?.getElementById?.("mei-compose-root");
+    if (byId instanceof HTMLElement) return byId;
     if (isWorkspaceComposeSurface(slug)) {
       const preview =
         global.document?.querySelector?.(".preview-pane-scroll") ||
@@ -28265,6 +28272,16 @@
         ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
         : global.document?.querySelector?.(".shell, .preview-pane-scroll");
     const shell = composeRoot instanceof HTMLElement ? composeRoot : null;
+    if (
+      shell &&
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(shell)
+    ) {
+      if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+        boot.applyHostChromeFromManifestRefs();
+      }
+      return { ok: true, missing: [], layers, source: "ssr_preview" };
+    }
     if (boot.viewCompositor?.composeFromLayers && shell) {
       const composed = boot.viewCompositor.composeFromLayers(
         shell,
@@ -28272,6 +28289,9 @@
         assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx),
       );
       if (composed) {
+        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
         return { ok: true, missing: [], layers, source: ViewRevisionOutcome.ASSEMBLE_LOCAL };
       }
     }
@@ -28584,11 +28604,15 @@
 
   function ensureStructureSkeleton(root, structureDoc) {
     if (!(root instanceof HTMLElement)) return false;
+    if (
+      root.querySelector(
+        "[data-preview-scope], [data-mei-ui-role], [data-mei-frame-viewport], [data-mei-use-key], .preview-viewport",
+      )
+    ) {
+      return true;
+    }
     const doc = extractLayerDocument(structureDoc);
     const nodes = Array.isArray(doc?.nodes) ? doc.nodes : [];
-    if (root.querySelector("[data-preview-scope], [data-mei-ui-role]")) {
-      return nodes.length > 0 || !!root.querySelector("[data-preview-scope]");
-    }
     for (const node of nodes) {
       const scope = String(node.preview_scope || "").trim();
       if (!scope) continue;
@@ -28601,19 +28625,60 @@
     return nodes.length > 0;
   }
 
+  function pickManifestShellLayer() {
+    const layers = globalThis.__mei?.scene_manifest_refs?.layers;
+    if (!layers || typeof layers !== "object") return null;
+    return (
+      layers["shell.build"] ||
+      layers["shell.layout"] ||
+      layers["shell.prototype"] ||
+      layers["shell.app"] ||
+      layers["shell.run"] ||
+      null
+    );
+  }
+
+  function isPlaceholderShellDoc(doc) {
+    if (!doc) return true;
+    const top = String(doc.topbar_html || "").trim();
+    if (!top) return true;
+    return top.includes('class="mei-shell-topbar"') && top.length < 240;
+  }
+
   function applyShellLayer(root, shellLayer) {
     if (!(root instanceof HTMLElement)) return;
-    const doc = extractLayerDocument(shellLayer);
+    let doc = extractLayerDocument(shellLayer);
+    if (isPlaceholderShellDoc(doc)) {
+      const manifestDoc = extractLayerDocument(pickManifestShellLayer());
+      if (manifestDoc && !isPlaceholderShellDoc(manifestDoc)) {
+        doc = manifestDoc;
+      }
+    }
     if (!doc) return;
     if (doc.tab) root.setAttribute("data-tab", String(doc.tab));
     if (doc.chrome) root.setAttribute("data-chrome", String(doc.chrome));
     if (doc.route_mode) root.setAttribute("data-route-mode", String(doc.route_mode));
     const topbar = String(doc.topbar_html || "").trim();
-    if (topbar && !root.querySelector(".mei-shell-topbar")) {
+    const statusbar = String(doc.statusbar_html || "").trim();
+    const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
+    const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
+    if (topbar && topSlot instanceof HTMLElement) {
+      topSlot.innerHTML = topbar;
+    } else if (topbar && !global.document?.querySelector?.(".topbar-shell, .mei-shell-topbar")) {
       const wrap = document.createElement("div");
       wrap.innerHTML = topbar;
       const bar = wrap.firstElementChild;
-      if (bar) root.prepend(bar);
+      const host = global.document?.getElementById?.("mei-compose-host") || root;
+      if (bar && host instanceof HTMLElement) host.prepend(bar);
+    }
+    if (statusbar && bottomSlot instanceof HTMLElement) {
+      bottomSlot.innerHTML = statusbar;
+    } else if (statusbar && !global.document?.querySelector?.(".statusbar-shell, .statusbar")) {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = statusbar;
+      const bar = wrap.firstElementChild;
+      const host = global.document?.getElementById?.("mei-compose-host") || root;
+      if (bar && host instanceof HTMLElement) host.append(bar);
     }
   }
 
@@ -29771,9 +29836,111 @@
     return null;
   }
 
-  async function wakeRevisionFirstShellRuntime(ctx) {
+  async function ensureThinShellSceneRuntime() {
+    const runtimeReady =
+      window.__meiDatasetRuntime &&
+      typeof window.__meiDatasetRuntime.prefetchVisiblePanelMetrics === "function";
+    if (runtimeReady) return true;
+    const bundleNode = document.querySelector('script[data-mei-scene-bundle="true"][src]');
+    const bundleSrc = bundleNode?.getAttribute("src") || "";
+    const moduleScripts = bundleSrc
+      ? [bundleSrc]
+      : Array.from(document.querySelectorAll('script[type="module"][src^="/workspace-components/"]'))
+          .map((node) => node.getAttribute("src") || "")
+          .filter(Boolean);
+    if (!moduleScripts.length || typeof boot.syncPreviewWorkspaceScripts !== "function") {
+      return false;
+    }
+    try {
+      return await boot.syncPreviewWorkspaceScripts(moduleScripts, null);
+    } catch (error) {
+      console.warn("[spa-navigation] thin shell scene runtime sync skipped", error);
+      return false;
+    }
+  }
+
+  function extractLayerDocument(layerValue) {
+    if (!layerValue) return null;
+    if (typeof layerValue === "string") {
+      try {
+        return JSON.parse(layerValue);
+      } catch (_) {
+        return null;
+      }
+    }
+    if (Array.isArray(layerValue.nodes) || layerValue.schema_version) {
+      return layerValue;
+    }
+    if (layerValue.document) return layerValue.document;
+    return layerValue;
+  }
+
+  function workspaceStructureTreeReady() {
+    const nav =
+      document.querySelector("aside nav.build-reachability-tree") ||
+      document.querySelector("nav.build-reachability-tree");
+    return !!nav?.querySelector(".build-tree-list .build-tree-node");
+  }
+
+  async function ensureWorkspaceStructureTree(ctx, layersFromAssemble) {
+    const surface = ctx?.surface || ctx?.mode || "";
+    if (typeof boot.isWorkspaceComposeSurface === "function" && !boot.isWorkspaceComposeSurface(surface)) {
+      return false;
+    }
+    if (workspaceStructureTreeReady()) return true;
+    const appId = ctx?.app_id || ctx?.appId || "";
+    const sceneId = ctx?.scene_id || ctx?.sceneId || "home";
+    if (!appId) return false;
+
+    let structure = extractLayerDocument(layersFromAssemble?.["structure.full"]);
+    const manifest = globalThis.__mei?.scene_manifest_refs;
+    const ref = manifest?.layers?.["structure.full"];
+    const holding = ref
+      ? {
+          name: "structure.full",
+          artifact_id: ref.artifact_id || ref.artifactId,
+          content_hash: ref.content_hash || ref.contentHash,
+        }
+      : null;
+
+    if (!structure?.nodes?.length && holding && boot.layerStore?.takeLayerByRef) {
+      structure = extractLayerDocument(boot.layerStore.takeLayerByRef(holding));
+    }
+    if (!structure?.nodes?.length && holding?.artifact_id && boot.layerArtifactCache?.getLayer) {
+      const cached = await boot.layerArtifactCache.getLayer(holding.artifact_id);
+      if (cached && (!holding.content_hash || cached.content_hash === holding.content_hash)) {
+        structure = extractLayerDocument(cached.bytes);
+        if (structure?.nodes?.length && boot.layerStore?.putLayerByRef) {
+          await boot.layerStore.putLayerByRef(appId, sceneId, holding, cached.bytes, manifest);
+        }
+      }
+    }
+    if (!structure?.nodes?.length && boot.sceneManifestLoader?.fetchLayerBatch) {
+      try {
+        const batch = await boot.sceneManifestLoader.fetchLayerBatch(
+          appId,
+          sceneId,
+          ["structure.full"],
+          boot.sceneManifestLoader.readShellAxes?.() || {},
+        );
+        structure = extractLayerDocument(batch?.layers?.["structure.full"]);
+      } catch (_) {}
+    }
+    if (structure?.nodes?.length && typeof boot.renderStructureTree === "function") {
+      return boot.renderStructureTree(structure, {
+        appId,
+        sceneId,
+        surface: surface || "layout",
+        activeNode: ctx?.node || "",
+      });
+    }
+    return false;
+  }
+
+  async function wakeRevisionFirstShellRuntime(ctx, options = {}) {
     if (!ctx) return;
     const surface = ctx.surface || ctx.mode || "app";
+    const ssrPreview = options.ssrPreview === true;
     if (typeof boot.isWorkspaceComposeSurface === "function" && boot.isWorkspaceComposeSurface(surface)) {
       if (typeof boot.installManageTabs === "function") {
         boot.installManageTabs();
@@ -29784,6 +29951,9 @@
       if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
         globalThis.MeiBuildInspectHighlight.refresh();
       }
+      if (ssrPreview) {
+        return;
+      }
       if (typeof publishManagePreviewFromDoc === "function") {
         publishManagePreviewFromDoc(document, { resetRuntimeQueryCache: true, pulsePreviewUpdated: true });
       }
@@ -29792,6 +29962,7 @@
       }
       return;
     }
+    await ensureThinShellSceneRuntime();
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
         scope: ctx.sceneId || ctx.scene_id || "home",
@@ -29800,6 +29971,15 @@
         source: "revision-first-cold-start",
       });
     }
+    if (ssrPreview) {
+      if (typeof boot.scheduleFrameViewportRelayout === "function") {
+        boot.scheduleFrameViewportRelayout();
+      }
+      if (typeof dispatchPanelMetricPrefetch === "function") {
+        dispatchPanelMetricPrefetch();
+      }
+      return;
+    }
     if (typeof wakeRuntimeAfterSceneBundleLoaded === "function") {
       wakeRuntimeAfterSceneBundleLoaded();
     }
@@ -29807,6 +29987,26 @@
 
   async function finishRevisionFirstColdStart(ctx, outcome) {
     let resolved = outcome || { restored: false };
+    const surface = ctx?.surface || ctx?.mode || "app";
+    const composeRoot =
+      typeof boot.resolveComposeRoot === "function"
+        ? boot.resolveComposeRoot(surface)
+        : document.querySelector(".shell");
+    const ssrPreviewReady =
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(composeRoot);
+    if (ssrPreviewReady) {
+      if (typeof boot.hideThinShellFallback === "function") {
+        boot.hideThinShellFallback();
+      }
+      if (typeof boot.hydrateManifestLayerHoldings === "function") {
+        boot.hydrateManifestLayerHoldings();
+      }
+      const negotiated = await boot.negotiateAndAssemble?.(ctx, { silent: true });
+      await ensureWorkspaceStructureTree(ctx, negotiated?.assemble?.layers);
+      await wakeRevisionFirstShellRuntime(ctx, { ssrPreview: true });
+      return { ...resolved, restored: true, source: "ssr_preview" };
+    }
     if (!resolved?.restored && boot.negotiateAndAssemble) {
       const retry = await boot.negotiateAndAssemble(ctx, { silent: true });
       if (retry?.assemble?.ok) {
@@ -29819,13 +30019,29 @@
       }
     }
     if (resolved?.restored) {
+      if (typeof boot.hideThinShellFallback === "function") {
+        boot.hideThinShellFallback();
+      }
       await wakeRevisionFirstShellRuntime(ctx);
       return resolved;
     }
     if (typeof boot.bootstrapThinShellComposition === "function") {
-      await boot.bootstrapThinShellComposition();
+      const ok = await boot.bootstrapThinShellComposition();
+      if (ok) {
+        if (typeof boot.hideThinShellFallback === "function") {
+          boot.hideThinShellFallback();
+        }
+        await wakeRevisionFirstShellRuntime(ctx);
+        return { ...resolved, restored: true, source: "thin-bootstrap" };
+      }
     }
     await wakeRevisionFirstShellRuntime(ctx);
+    const scopeCount = document.querySelectorAll("[data-preview-scope]").length;
+    if (scopeCount === 0 && typeof boot.showThinShellFallback === "function") {
+      boot.showThinShellFallback("场景内容暂时无法加载，请刷新重试或检查网络。");
+    } else if (typeof boot.hideThinShellFallback === "function") {
+      boot.hideThinShellFallback();
+    }
     return resolved;
   }
 
@@ -29864,21 +30080,19 @@
           globalThis.MeiBuildTreePersist.refresh();
         }
       }
-      if (
-        typeof boot.renderStructureTree === "function" &&
-        result.assemble?.layers?.["structure.full"]
-      ) {
-        boot.renderStructureTree(result.assemble.layers["structure.full"], {
-          appId: vrCtx.app_id,
-          sceneId: vrCtx.scene_id,
-          surface,
-          activeNode: vrCtx.node || "",
-        });
-      }
+      await ensureWorkspaceStructureTree(vrCtx, result.assemble?.layers);
       if (typeof boot.rememberViewRevision === "function" && result.response) {
         boot.rememberViewRevision(viewCtx, result.response);
       }
-      await wakeRevisionFirstShellRuntime(viewCtx);
+      const ssrPreview =
+        result.assemble?.source === "ssr_preview" ||
+        (typeof boot.hasMaterializedPreview === "function" &&
+          boot.hasMaterializedPreview(
+            typeof boot.resolveComposeRoot === "function"
+              ? boot.resolveComposeRoot(surface)
+              : document.querySelector(".shell"),
+          ));
+      await wakeRevisionFirstShellRuntime(viewCtx, { ssrPreview });
       return result;
     } catch (error) {
       if (!opts.silent) {
@@ -29896,6 +30110,30 @@
         : typeof boot.parseAccessSceneContext === "function"
           ? boot.parseAccessSceneContext(urlLike || window.location.href)
           : null;
+    if (ctx) {
+      const surface = ctx.surface || ctx.mode || "app";
+      const composeRoot =
+        typeof boot.resolveComposeRoot === "function"
+          ? boot.resolveComposeRoot(surface)
+          : document.querySelector(".shell");
+      if (
+        typeof boot.hasMaterializedPreview === "function" &&
+        boot.hasMaterializedPreview(composeRoot)
+      ) {
+        if (typeof boot.hydrateManifestLayerHoldings === "function") {
+          boot.hydrateManifestLayerHoldings();
+        }
+        const negotiated = await boot.negotiateAndAssemble?.(ctx, { silent: true });
+        await ensureWorkspaceStructureTree(ctx, negotiated?.assemble?.layers);
+        await wakeRevisionFirstShellRuntime(ctx, { ssrPreview: true });
+        return {
+          restored: true,
+          doc: document,
+          revision: negotiated?.response || null,
+          source: "ssr_preview",
+        };
+      }
+    }
     if (!ctx) {
       return { restored: false, doc: null, revision: null, source: "none" };
     }
@@ -29930,6 +30168,9 @@
     }
     const negotiated = await negotiateAndAssemble(ctx, opts);
     if (negotiated?.assemble?.ok) {
+      if (typeof boot.hideThinShellFallback === "function") {
+        boot.hideThinShellFallback();
+      }
       const outcome =
         negotiated.outcome === (boot.ViewRevisionOutcome?.REFETCH || "refetch")
           ? "refetch"
@@ -30046,12 +30287,197 @@
   }
 
   boot.finishRevisionFirstColdStart = finishRevisionFirstColdStart;
+  boot.ensureWorkspaceStructureTree = ensureWorkspaceStructureTree;
   boot.wakeRevisionFirstShellRuntime = wakeRevisionFirstShellRuntime;
   boot.fetchSceneFragment = fetchSceneFragment;
   boot.tryRestoreSceneShellFromFragment = tryRestoreSceneShellFromFragment;
   boot.negotiateAndAssemble = negotiateAndAssemble;
   boot.tryCacheFirstViewRestore = tryCacheFirstViewRestore;
   boot.tryCacheFirstSceneAccess = tryCacheFirstSceneAccess;
+
+
+/* ===== spa-navigation/spa/thin-shell-host.js ===== */
+/**
+ * Thin-shell host frame helpers + diagnostic entrypoint.
+ */
+(function initThinShellHost(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  function fallbackEl() {
+    return global.document?.getElementById?.("mei-thin-shell-fallback");
+  }
+
+  function showThinShellFallback(message) {
+    const el = fallbackEl();
+    if (!(el instanceof HTMLElement)) return;
+    if (message) el.textContent = String(message);
+    el.hidden = false;
+    el.classList.remove("hidden");
+  }
+
+  function hideThinShellFallback() {
+    const el = fallbackEl();
+    if (!(el instanceof HTMLElement)) return;
+    el.hidden = true;
+    el.classList.add("hidden");
+  }
+
+  function applyHostChromeFromManifestRefs() {
+    const layers = globalThis.__mei?.scene_manifest_refs?.layers;
+    if (!layers || typeof layers !== "object") return false;
+    const shell =
+      layers["shell.app"] ||
+      layers["shell.layout"] ||
+      layers["shell.prototype"] ||
+      layers["shell.build"] ||
+      null;
+    if (!shell) return false;
+    const root =
+      typeof boot.resolveComposeRoot === "function"
+        ? boot.resolveComposeRoot("app")
+        : global.document?.getElementById?.("mei-compose-root");
+    if (boot.viewCompositor?.applyShellLayer && root instanceof HTMLElement) {
+      boot.viewCompositor.applyShellLayer(root, shell);
+    } else {
+      const doc = shell.document || shell;
+      const top = String(doc?.topbar_html || "").trim();
+      const bottom = String(doc?.statusbar_html || "").trim();
+      const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
+      const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
+      if (top && topSlot instanceof HTMLElement) topSlot.innerHTML = top;
+      if (bottom && bottomSlot instanceof HTMLElement) bottomSlot.innerHTML = bottom;
+    }
+    if (typeof boot.refreshStatusBarChips === "function") {
+      boot.refreshStatusBarChips();
+    }
+    return hostChromeSummary().topbar || hostChromeSummary().statusbar;
+  }
+
+  function scheduleEarlyHostChrome() {
+    const run = () => {
+      applyHostChromeFromManifestRefs();
+    };
+    if (global.document?.readyState === "loading") {
+      global.document.addEventListener("DOMContentLoaded", run, { once: true });
+    } else {
+      run();
+    }
+  }
+
+  scheduleEarlyHostChrome();
+
+  function hostChromeSummary() {
+    return {
+      topbar: !!global.document?.querySelector?.(
+        "#mei-host-topbar-slot .topbar-shell, #mei-host-topbar-slot .topbar, .topbar-shell",
+      ),
+      statusbar: !!global.document?.querySelector?.(
+        "#mei-host-statusbar-slot .statusbar-shell, #mei-host-statusbar-slot .statusbar, .statusbar-shell",
+      ),
+      composeRoot: !!global.document?.getElementById?.("mei-compose-root"),
+      previewScopes: global.document?.querySelectorAll?.("[data-preview-scope]")?.length || 0,
+    };
+  }
+
+  function hasMaterializedPreview(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    return !!root.querySelector(
+      "[data-mei-frame-viewport], [data-mei-use-key], .preview-surface, .preview-viewport",
+    );
+  }
+
+  function hydrateManifestLayerHoldings() {
+    const manifest = globalThis.__mei?.scene_manifest_refs;
+    if (manifest && boot.layerStore?.syncHoldingsFromManifest) {
+      boot.layerStore.syncHoldingsFromManifest(manifest);
+    }
+  }
+
+  hydrateManifestLayerHoldings();
+
+  async function runThinShellDiagnostic() {
+    const url = global.location.href;
+    const ctx =
+      typeof boot.parseViewContext === "function" ? boot.parseViewContext(url) : null;
+    const report = {
+      url,
+      thin_shell: globalThis.__mei?.thin_shell === true,
+      view_revision_enabled: globalThis.__mei?.view_revision_enabled !== false,
+      manifest_layers: Object.keys(globalThis.__mei?.scene_manifest_refs?.layers || {}),
+      host_chrome: hostChromeSummary(),
+      boot_apis: {
+        tryCacheFirstViewRestore: typeof boot.tryCacheFirstViewRestore === "function",
+        negotiateAndAssemble: typeof boot.negotiateAndAssemble === "function",
+        viewRevisionClient: !!boot.viewRevisionClient?.negotiateWithLocalMiss,
+        layerStore: !!boot.layerStore?.putLayerByRef,
+        viewCompositor: !!boot.viewCompositor?.composeFromLayers,
+      },
+      bootstrap_ready: globalThis.__meiBootstrapPayloadReady === 1,
+      client_revision:
+        globalThis.__mei?.scene_manifest_refs?.semantic_core?.client_revision || "",
+      ctx,
+    };
+
+    if (ctx && boot.viewRevisionClient?.fetchViewRevision) {
+      try {
+        const vr = await boot.viewRevisionClient.fetchViewRevision({
+          app_id: ctx.app_id || ctx.appId,
+          scene_id: ctx.scene_id || ctx.sceneId,
+          surface: ctx.surface || ctx.mode || "app",
+        });
+        report.view_revision = {
+          status: vr.status || vr._headers?.status,
+          changed_layers: vr.changed_layers || [],
+          inline_layer_keys: Object.keys(vr.inline_layers || {}),
+          shell_topbar_bytes: String(
+            vr.inline_layers?.["shell.app"]?.document?.topbar_html ||
+              vr.manifest?.layers?.["shell.app"]?.document?.topbar_html ||
+              "",
+          ).length,
+          manifest_topbar_bytes: String(
+            globalThis.__mei?.scene_manifest_refs?.layers?.["shell.app"]?.document
+              ?.topbar_html || "",
+          ).length,
+          slot_topbar_html_bytes: String(
+            global.document?.getElementById?.("mei-host-topbar-slot")?.innerHTML || "",
+          ).length,
+        };
+      } catch (error) {
+        report.view_revision_error = String(error?.message || error);
+      }
+    }
+
+    if (ctx && boot.negotiateAndAssemble) {
+      try {
+        const assembled = await boot.negotiateAndAssemble(ctx, { silent: true });
+        report.assemble = {
+          ok: !!assembled?.assemble?.ok,
+          outcome: assembled?.outcome,
+          missing: assembled?.assemble?.missing || [],
+        };
+        report.host_chrome_after = hostChromeSummary();
+        report.preview_scopes_after =
+          global.document?.querySelectorAll?.("[data-preview-scope]")?.length || 0;
+      } catch (error) {
+        report.assemble_error = String(error?.message || error);
+      }
+    }
+
+    console.table(report.host_chrome);
+    console.log("[mei thin-shell diagnostic]", report);
+    return report;
+  }
+
+  boot.showThinShellFallback = showThinShellFallback;
+  boot.hideThinShellFallback = hideThinShellFallback;
+  boot.applyHostChromeFromManifestRefs = applyHostChromeFromManifestRefs;
+  boot.hasMaterializedPreview = hasMaterializedPreview;
+  boot.hydrateManifestLayerHoldings = hydrateManifestLayerHoldings;
+  boot.runThinShellDiagnostic = runThinShellDiagnostic;
+  global.runMeiThinShellDiagnostic = runThinShellDiagnostic;
+})(typeof window !== "undefined" ? window : globalThis);
 
 
 /* ===== spa-navigation/spa/initial-access-bootstrap.js ===== */
@@ -30712,6 +31138,16 @@
     }
   }
 
+  function ssrPreviewMaterialized(doc) {
+    const root =
+      doc?.querySelector?.("#mei-compose-root, .preview-pane-scroll, .shell") ||
+      document.querySelector("#mei-compose-root, .preview-pane-scroll, .shell");
+    return (
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(root)
+    );
+  }
+
   function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
     void (async () => {
       try {
@@ -30728,6 +31164,7 @@
         if (navigationId != null && navigationId !== currentNavigationId) return;
         if (
           typeof boot.bootstrapThinShellComposition === "function" &&
+          !ssrPreviewMaterialized(doc) &&
           (typeof isRevisionFirstShellPage === "function"
             ? isRevisionFirstShellPage(nextUrl.pathname)
             : globalThis.__mei?.thin_shell === true ||
@@ -30755,11 +31192,12 @@
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
           const skipWake =
-            typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
-            globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
-              currentUrl?.href || window.location.href,
-              nextUrl.href,
-            );
+            ssrPreviewMaterialized(doc) ||
+            (typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
+              globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
+                currentUrl?.href || window.location.href,
+                nextUrl.href,
+              ));
           if (!skipWake) {
             publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
           }
@@ -31177,6 +31615,9 @@
         skipRemoteWhenValid: true,
       });
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
+        if (typeof boot.hideThinShellFallback === "function") {
+          boot.hideThinShellFallback();
+        }
         runPostSpaWork(
           outcome.doc,
           window.location.href,
@@ -31192,6 +31633,13 @@
           : globalThis.__mei?.thin_shell === true)
       ) {
         await boot.finishRevisionFirstColdStart(ctx, outcome);
+      } else if (ctx && typeof boot.dispatchScopeActivation === "function") {
+        boot.dispatchScopeActivation({
+          scope: ctx.scene_id || ctx.sceneId || "home",
+          sceneId: ctx.scene_id || ctx.sceneId || "home",
+          appId: ctx.app_id || ctx.appId || "",
+          source: "revision-first-fallback",
+        });
       }
       if (typeof boot.cacheDiagTrace === "function") {
         boot.cacheDiagTrace("view-cold-start", {

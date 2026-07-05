@@ -31,6 +31,7 @@ pub fn render_build_preview_fragment(
     tab: Option<&str>,
     data_mode: Option<&str>,
     review_projection: Option<&str>,
+    route_mode: Option<UiRouteMode>,
 ) -> Option<BuildPreviewFragment> {
     let legacy = LegacyBuildQuery {
         file: None,
@@ -65,11 +66,12 @@ pub fn render_build_preview_fragment(
         build_preview_component_use_key(&resolved.node);
     let build_preview_component_use_key =
         build_preview_component_use_key_owned.as_deref();
+    let preview_route = route_mode.unwrap_or(UiRouteMode::Build);
     let preview = preview::preview_view(
         compiled,
         app_path,
         selected_target.as_str(),
-        UiRouteMode::Build,
+        preview_route,
         semantic,
         build_preview_scope.as_deref(),
         build_preview_component_use_key,

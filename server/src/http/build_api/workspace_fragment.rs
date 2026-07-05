@@ -199,6 +199,7 @@ pub async fn api_build_workspace_fragment(
         Some("preview"),
         query.data_mode.as_deref(),
         query.review_projection.as_deref(),
+        None,
     ) else {
         return json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

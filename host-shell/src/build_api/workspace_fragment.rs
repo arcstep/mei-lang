@@ -204,6 +204,7 @@ pub async fn api_build_fragment_revision(
         draft_session.as_str(),
         draft_digest.as_str(),
         &mut hits,
+        None,
     ) {
         payload.manifest_revision_digest = manifest.revision_digest;
     }
@@ -245,6 +246,7 @@ fn try_scene_manifest(
         draft_session,
         draft_digest,
         &mut hits,
+        None,
     )
 }
 

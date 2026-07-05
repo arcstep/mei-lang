@@ -22,6 +22,9 @@
         skipRemoteWhenValid: true,
       });
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
+        if (typeof boot.hideThinShellFallback === "function") {
+          boot.hideThinShellFallback();
+        }
         runPostSpaWork(
           outcome.doc,
           window.location.href,
@@ -37,6 +40,13 @@
           : globalThis.__mei?.thin_shell === true)
       ) {
         await boot.finishRevisionFirstColdStart(ctx, outcome);
+      } else if (ctx && typeof boot.dispatchScopeActivation === "function") {
+        boot.dispatchScopeActivation({
+          scope: ctx.scene_id || ctx.sceneId || "home",
+          sceneId: ctx.scene_id || ctx.sceneId || "home",
+          appId: ctx.app_id || ctx.appId || "",
+          source: "revision-first-fallback",
+        });
       }
       if (typeof boot.cacheDiagTrace === "function") {
         boot.cacheDiagTrace("view-cold-start", {

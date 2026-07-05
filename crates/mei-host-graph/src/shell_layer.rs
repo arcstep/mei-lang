@@ -15,6 +15,8 @@ pub struct ShellLayerDocument {
     pub tab: String,
     pub chrome: String,
     pub topbar_html: String,
+    #[serde(default)]
+    pub statusbar_html: String,
 }
 
 pub fn build_shell_layer_document(
@@ -31,6 +33,7 @@ pub fn build_shell_layer_document(
         tab: tab.to_string(),
         chrome: chrome.to_string(),
         topbar_html,
+        statusbar_html: String::new(),
     }
 }
 
