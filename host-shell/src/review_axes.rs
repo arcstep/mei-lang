@@ -57,11 +57,8 @@ pub fn resolve_page_render_axes_with_ceiling_detailed(
         .and_then(DataMode::parse);
     let requested = from_query.unwrap_or_else(|| default_data_mode_for_route(route_mode, ceiling));
     let data_mode = DataMode::clamp_to_ceiling(requested, ceiling).unwrap_or(DataMode::Static);
-    let review_projection = query
-        .review_projection
-        .as_deref()
-        .and_then(ReviewProjection::parse)
-        .unwrap_or_else(|| default_projection_for_route(route_mode, data_mode));
+    let review_projection =
+        resolve_client_review_projection(route_mode, data_mode, query.review_projection.as_deref());
     PageRenderAxesResolution {
         axes: PageRenderAxes {
             data_mode,
@@ -69,6 +66,46 @@ pub fn resolve_page_render_axes_with_ceiling_detailed(
         },
         requested_data_mode: from_query,
         data_mode_clamped: data_mode != requested,
+    }
+}
+
+/// Client-side projection depth (URL / dim chrome). App mode ignores review_projection query params.
+pub fn resolve_client_review_projection(
+    route_mode: UiRouteMode,
+    data_mode: DataMode,
+    query_projection: Option<&str>,
+) -> ReviewProjection {
+    if route_mode == UiRouteMode::App {
+        return default_projection_for_route(route_mode, data_mode);
+    }
+    query_projection
+        .and_then(ReviewProjection::parse)
+        .unwrap_or_else(|| default_projection_for_route(route_mode, data_mode))
+}
+
+/// SSR + host page-render-cache always materialize the fullest scene DOM for the data mode.
+pub fn ssr_review_projection(route_mode: UiRouteMode, data_mode: DataMode) -> ReviewProjection {
+    if route_mode == UiRouteMode::App || route_mode == UiRouteMode::Build {
+        return canonical_full_projection_for_data_mode(data_mode);
+    }
+    default_projection_for_route(route_mode, data_mode)
+}
+
+pub fn ssr_review_projection_for_axes(
+    route_mode: UiRouteMode,
+    axes: PageRenderAxes,
+) -> ReviewProjection {
+    if route_mode == UiRouteMode::Run || route_mode == UiRouteMode::Copilot {
+        axes.review_projection
+    } else {
+        ssr_review_projection(route_mode, axes.data_mode)
+    }
+}
+
+fn canonical_full_projection_for_data_mode(data_mode: DataMode) -> ReviewProjection {
+    match data_mode {
+        DataMode::Static => ReviewProjection::StaticFull,
+        _ => ReviewProjection::LiveFull,
     }
 }
 
@@ -149,5 +186,28 @@ mod tests {
     fn build_default_axes_use_plane_region_section() {
         let axes = default_page_render_axes_for_route(UiRouteMode::Build, DataModeCeiling::Eval);
         assert_eq!(axes.review_projection, ReviewProjection::PlaneRegionSection);
+    }
+
+    #[test]
+    fn app_mode_ignores_review_projection_query() {
+        let query = AppQuery {
+            review_projection: Some("plane_region".to_string()),
+            ..Default::default()
+        };
+        let axes = resolve_page_render_axes_with_ceiling_detailed(
+            DataModeCeiling::Eval,
+            &query,
+            UiRouteMode::App,
+        )
+        .axes;
+        assert_eq!(axes.review_projection, ReviewProjection::LiveFull);
+    }
+
+    #[test]
+    fn build_ssr_projection_is_live_full_for_eval() {
+        assert_eq!(
+            ssr_review_projection(UiRouteMode::Build, DataMode::Eval),
+            ReviewProjection::LiveFull
+        );
     }
 }

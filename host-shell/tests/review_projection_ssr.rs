@@ -63,7 +63,7 @@ fn static_full_allows_content() {
 }
 
 #[test]
-fn app_route_runtime_context_applies_plane_region() {
+fn app_route_ssr_uses_live_full_without_structure_anchors() {
     let ctx = build_preview_runtime_context(
         &minimal_compiled(),
         UiRouteMode::App,
@@ -71,11 +71,10 @@ fn app_route_runtime_context_applies_plane_region() {
         None,
         None,
         None,
-        Some("plane_region"),
+        Some("live_full"),
     );
-    assert!(ctx.structure_anchors_enabled);
-    assert!(!ctx.ui_role_allowed_for_projection("content"));
-    assert!(ctx.ui_role_allowed_for_projection("region"));
+    assert!(!ctx.structure_anchors_enabled);
+    assert!(ctx.ui_role_allowed_for_projection("content"));
 }
 
 #[test]
@@ -89,7 +88,7 @@ fn run_route_runtime_context_applies_plane_region_section() {
         Some("fixture"),
         Some("plane_region_section"),
     );
-    assert!(ctx.structure_anchors_enabled);
+    assert!(!ctx.structure_anchors_enabled);
     assert!(!ctx.ui_role_allowed_for_projection("content"));
     assert!(ctx.ui_role_allowed_for_projection("section"));
 }

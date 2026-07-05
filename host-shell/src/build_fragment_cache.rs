@@ -32,6 +32,7 @@ pub struct CachedBuildFragment {
     pub data_mode: String,
     pub review_projection: String,
     pub revision_digest: String,
+    pub manifest_revision_digest: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +57,8 @@ pub struct BuildFragmentRevisionPayload {
     pub draft_digest: String,
     pub host_ssr_payload_revision: String,
     pub revision_digest: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    pub manifest_revision_digest: String,
     pub cache_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compile_coordinate: Option<BuildCompileCoordinate>,
@@ -177,6 +180,38 @@ fn overlay_revision(
     )
 }
 
+/// Full-page refresh without `x-mei-draft-session` yields ephemeral `host-{N}` ids; ignore them when there is no draft payload.
+pub fn cache_stable_draft_session<'a>(draft_session: &'a str, draft_digest: &str) -> &'a str {
+    if draft_digest.trim().is_empty() {
+        ""
+    } else {
+        draft_session.trim()
+    }
+}
+
+pub fn build_page_render_cache_key(
+    input: &BuildFragmentCacheInput<'_>,
+    tab: &str,
+    file: &str,
+    auth_enabled: bool,
+    chrome_hidden: bool,
+    gis: &crate::gis_config::GisTilesConfig,
+) -> String {
+    let fragment_key = build_fragment_cache_key(input);
+    let wrapper = json!({
+        "surface": "build_page",
+        "fragment_key": fragment_key,
+        "tab": tab,
+        "file": file,
+        "auth_enabled": auth_enabled,
+        "chrome_hidden": chrome_hidden,
+        "gis_base_url": gis.base_url,
+        "gis_json_path": gis.json_path,
+        "ops_themes_revision": ops_layout_tuning_revision(input.workspace_root, input.app_id),
+    });
+    serde_json::to_string(&wrapper).unwrap_or(fragment_key)
+}
+
 pub fn build_fragment_cache_key(input: &BuildFragmentCacheInput<'_>) -> String {
     let registry = mei_host_graph::McgRegistryWriter::load(input.workspace_root, input.app_id);
     let registry_revision = registry.registry_revision.trim().to_string();
@@ -206,9 +241,11 @@ pub fn build_fragment_cache_key(input: &BuildFragmentCacheInput<'_>) -> String {
         compile_epoch,
     );
     let persisted_overlay = ops_layout_tuning_revision(input.workspace_root, input.app_id);
+    let stable_draft_session =
+        cache_stable_draft_session(input.draft_session, input.draft_digest);
     let overlay = overlay_revision(
         persisted_overlay.as_str(),
-        input.draft_session,
+        stable_draft_session,
         input.draft_digest,
     );
     let view_axes = mei_host_graph::build_page_render_view_axes(
@@ -224,7 +261,7 @@ pub fn build_fragment_cache_key(input: &BuildFragmentCacheInput<'_>) -> String {
         "node": input.node,
         "focus": input.focus,
         "scope": input.scope,
-        "draft_session": input.draft_session,
+        "draft_session": stable_draft_session,
         "draft_digest": input.draft_digest,
         "compile_coordinate": input.compile_coordinate,
         "host_ssr_payload_revision": HOST_SSR_PAYLOAD_REVISION,
@@ -282,6 +319,7 @@ pub fn build_fragment_revision_payload(input: &BuildFragmentCacheInput<'_>) -> B
         draft_digest: input.draft_digest.to_string(),
         host_ssr_payload_revision: HOST_SSR_PAYLOAD_REVISION.to_string(),
         revision_digest: revision_digest.clone(),
+        manifest_revision_digest: String::new(),
         cache_key: cache_key.clone(),
         compile_coordinate: input.compile_coordinate.cloned(),
     }
@@ -293,7 +331,15 @@ pub fn take_build_fragment_cache(key: &str) -> Option<CachedBuildFragment> {
     };
     let now = Instant::now();
     cache.retain(|_, entry| entry.expires_at > now);
-    cache.get(key).cloned()
+    cache.get(key).map(|entry| {
+        if !entry.manifest_revision_digest.is_empty() {
+            tracing::trace!(
+                manifest_revision_digest = %entry.manifest_revision_digest,
+                "build fragment cache hit"
+            );
+        }
+        entry.clone()
+    })
 }
 
 pub fn store_build_fragment_cache(key: String, entry: CachedBuildFragment) {
@@ -336,6 +382,7 @@ pub fn cached_build_fragment(
     data_mode: String,
     review_projection: String,
     revision_digest: String,
+    manifest_revision_digest: String,
 ) -> CachedBuildFragment {
     CachedBuildFragment {
         expires_at: Instant::now() + cache_ttl(),
@@ -349,12 +396,80 @@ pub fn cached_build_fragment(
         data_mode,
         review_projection,
         revision_digest,
+        manifest_revision_digest,
     }
+}
+
+pub fn build_fragment_revision_for_page(
+    workspace_root: &Path,
+    app_id: &str,
+    node: &str,
+    focus: &str,
+    scope: &str,
+    data_mode: &str,
+    review_projection: &str,
+    draft_session: &str,
+    draft_digest: &str,
+) -> BuildFragmentRevisionPayload {
+    let scene_id = scene_id_from_build_node(node);
+    let input = BuildFragmentCacheInput {
+        workspace_root,
+        app_id,
+        node,
+        scene_id: scene_id.as_str(),
+        focus,
+        scope,
+        preview_scope: None,
+        data_mode,
+        review_projection,
+        compile_coordinate: None,
+        draft_session,
+        draft_digest,
+    };
+    build_fragment_revision_payload(&input)
+}
+
+pub fn inject_build_fragment_revision_meta(
+    html: String,
+    revision: &BuildFragmentRevisionPayload,
+) -> String {
+    let digest = revision.revision_digest.replace('"', "");
+    let cache_key = revision.cache_key.replace('"', "");
+    let mut injection = format!(
+        r#"<meta name="mei-build-fragment-revision-digest" content="{digest}" />"#
+    );
+    if !cache_key.is_empty() {
+        injection.push_str(&format!(
+            r#"<meta name="mei-build-fragment-cache-key" content="{cache_key}" />"#
+        ));
+    }
+    let manifest_digest = revision.manifest_revision_digest.replace('"', "");
+    if !manifest_digest.is_empty() {
+        injection.push_str(&format!(
+            r#"<meta name="mei-build-manifest-revision-digest" content="{manifest_digest}" />"#
+        ));
+    }
+    if let Some(pos) = html.find("<head>") {
+        let insert_at = pos + "<head>".len();
+        let mut out = String::with_capacity(html.len() + injection.len());
+        out.push_str(&html[..insert_at]);
+        out.push_str(&injection);
+        out.push_str(&html[insert_at..]);
+        return out;
+    }
+    html
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_stable_draft_session_ignores_ephemeral_host_ids_without_digest() {
+        assert_eq!(cache_stable_draft_session("host-1", ""), "");
+        assert_eq!(cache_stable_draft_session("host-99", "  "), "");
+        assert_eq!(cache_stable_draft_session("sess-a", "abc"), "sess-a");
+    }
 
     #[test]
     fn build_fragment_cache_key_parts_differ_by_axes_and_draft() {

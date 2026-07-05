@@ -29,6 +29,20 @@ pub struct PageRequestObservability {
     pub page_render_cache_hit: bool,
     pub ssr_emit_ms: Option<u64>,
     pub artifact_hits: crate::artifact_observability::ArtifactHitMatrix,
+    pub view_revision_status: Option<&'static str>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infer_build_nav_for_spa() {
+        assert_eq!(
+            infer_page_command_kind("/apps/build/demo/scene/home", true),
+            "BUILD_NAV"
+        );
+    }
 }
 
 pub fn parse_client_command_headers(
@@ -68,10 +82,21 @@ pub fn parse_page_observability_from_headers(
         .get("x-mei-ssr-http-response-body-ms")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok());
+    let view_revision_status = headers
+        .get("x-mei-view-revision-status")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| match value.trim() {
+            "bootstrap" => "bootstrap",
+            "assemble_local" => "assemble_local",
+            "refetch" => "refetch",
+            "local_miss" => "local_miss",
+            _ => "unknown",
+        });
     PageRequestObservability {
         page_render_cache_hit,
         ssr_emit_ms,
         artifact_hits: crate::artifact_observability::parse_artifact_hits_from_headers(headers),
+        view_revision_status,
     }
 }
 
@@ -123,12 +148,13 @@ pub fn log_client_command_request(
     let cache = cache_tag(obs);
     let ssr = format_ssr_ms(obs, latency_ms);
     let artifacts = obs.artifact_hits.summary_tag();
+    let view_revision = obs.view_revision_status.unwrap_or("legacy");
     tracing::info!(
         target: "mei_user_cmd",
         client_cmd_id = %ctx.id,
         client_cmd_kind = %ctx.kind,
         page_render_cache_hit = obs.page_render_cache_hit,
-        "USER   ├─ {label}  {method} {uri}  → {status}  total={latency_ms}ms  ssr={ssr}  cache={cache}  artifacts={artifacts}  size={size}"
+        "USER   ├─ {label}  {method} {uri}  → {status}  total={latency_ms}ms  ssr={ssr}  cache={cache}  view_revision={view_revision}  artifacts={artifacts}  size={size}"
     );
 }
 
@@ -147,11 +173,12 @@ pub fn log_user_page_request(
     let cache = cache_tag(obs);
     let ssr = format_ssr_ms(obs, latency_ms);
     let artifacts = obs.artifact_hits.summary_tag();
+    let view_revision = obs.view_revision_status.unwrap_or("legacy");
     tracing::info!(
         target: "mei_user_cmd",
         page_render_cache_hit = obs.page_render_cache_hit,
         route_mode = %path.split('/').nth(2).unwrap_or("-"),
-        "USER ▶ {label}  GET {uri}  → {status}  total={latency_ms}ms  ssr={ssr}  cache={cache}  artifacts={artifacts}  size={size}"
+        "USER ▶ {label}  GET {uri}  → {status}  total={latency_ms}ms  ssr={ssr}  cache={cache}  view_revision={view_revision}  artifacts={artifacts}  size={size}"
     );
 }
 

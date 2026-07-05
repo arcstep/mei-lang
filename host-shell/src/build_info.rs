@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use mei_lang_kernel::{
     discover_apps, read_links_state, resolve_active_build_identity_with_hint,
@@ -122,8 +123,36 @@ pub fn statusbar_version_title(workspace_root: &Path) -> String {
     serde_json::to_string(&descriptor).unwrap_or_else(|_| BUILD_VERSION.to_string())
 }
 
+fn package_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+        .to_path_buf()
+}
+
+fn host_asset_version() -> String {
+    let dist_root = package_root().join("app/assets/dist");
+    let newest_stamp = [
+        dist_root.join("access.bundle.js"),
+        dist_root.join("manage.bundle.js"),
+        dist_root.join("styles.bundle.css"),
+        dist_root.join("shoelace.bundle.js"),
+    ]
+    .into_iter()
+    .filter_map(|path| {
+        let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+        let elapsed = modified.duration_since(UNIX_EPOCH).ok()?;
+        Some(elapsed.as_millis())
+    })
+    .max();
+    match newest_stamp {
+        Some(stamp) => format!("{BUILD_VERSION}.{stamp}"),
+        None => BUILD_VERSION.to_string(),
+    }
+}
+
 pub fn fill_host_build_placeholders(mut html: String, workspace_root: &Path) -> String {
-    html = html.replace("__MEI_HOST_VERSION__", BUILD_VERSION);
+    html = html.replace("__MEI_HOST_VERSION__", host_asset_version().as_str());
     html = html.replace(
         "__MEI_HOST_VERSION_LABEL__",
         &statusbar_version_label(workspace_root),

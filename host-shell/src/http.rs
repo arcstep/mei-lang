@@ -75,6 +75,7 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
         .route("/api/host/scene-revision", get(api_scene_revision))
+        .route("/api/host/view-revision", get(crate::view_revision::api_host_view_revision))
         .route("/api/host/scene-manifest", get(crate::scene_manifest::api_host_scene_manifest))
         .route("/api/host/layer-batch", post(crate::scene_manifest::api_host_layer_batch))
         .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
@@ -744,5 +745,80 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn scene_manifest_route_requires_app_id() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"id":"test","version":"20260628"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/host/scene-manifest")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn layer_batch_route_requires_app_id() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"id":"test","version":"20260628"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/host/layer-batch")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"layers":["structure.full"]}"#))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn workspace_fragment_manifest_only_omits_preview_html() {
+        let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
+        let workspace = match workspace.canonicalize() {
+            Ok(path) if path.join("workspace.json").is_file() => path,
+            _ => return,
+        };
+        let app = router(test_state(workspace));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/build/workspace-fragment?app_id=data-demo&node=scene-panel:home&tab=preview&manifest_only=1")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        if response.status() != StatusCode::OK {
+            return;
+        }
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert!(json.get("scene_manifest").is_some());
+        assert!(json.get("preview_html").is_none());
     }
 }

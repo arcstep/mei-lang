@@ -39,6 +39,7 @@ mod client_trace;
 mod request_logging;
 mod state;
 mod tool_exec;
+mod view_revision;
 mod upload_api;
 mod upload_support;
 

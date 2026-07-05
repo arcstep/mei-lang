@@ -54,6 +54,7 @@ pub fn resolve_scene_client_revision(
 struct CachedPageTemplate {
     expires_at: Instant,
     html: String,
+    manifest_revision_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -235,10 +236,15 @@ fn take_memory_template(key: &str) -> Option<String> {
     };
     let now = Instant::now();
     cache.retain(|_, entry| entry.expires_at > now);
-    cache.get(key).map(|entry| entry.html.clone())
+    cache.get(key).map(|entry| {
+        if let Some(ref digest) = entry.manifest_revision_digest {
+            tracing::trace!(manifest_revision_digest = %digest, "access page template cache hit");
+        }
+        entry.html.clone()
+    })
 }
 
-fn store_memory_template(key: String, html: &str) {
+fn store_memory_template(key: String, html: &str, manifest_revision_digest: Option<String>) {
     let Ok(mut cache) = memory_cache().lock() else {
         return;
     };
@@ -252,6 +258,7 @@ fn store_memory_template(key: String, html: &str) {
         CachedPageTemplate {
             expires_at: now + page_render_cache_ttl(),
             html: html.to_string(),
+            manifest_revision_digest,
         },
     );
 }
@@ -303,7 +310,7 @@ pub fn take_access_page_template(
     }
     let app_root = resolve_app_root(workspace_root, app_id);
     let html = try_load_disk_template(app_root.as_path(), scene_id, cache_key)?;
-    store_memory_template(cache_key.to_string(), html.as_str());
+    store_memory_template(cache_key.to_string(), html.as_str(), None);
     Some(html)
 }
 
@@ -313,8 +320,13 @@ pub fn store_access_page_template(
     scene_id: &str,
     cache_key: &str,
     html: &str,
+    manifest_revision_digest: Option<&str>,
 ) -> anyhow::Result<()> {
-    store_memory_template(cache_key.to_string(), html);
+    let digest = manifest_revision_digest
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    store_memory_template(cache_key.to_string(), html, digest);
     let app_root = resolve_app_root(workspace_root, app_id);
     persist_disk_template(app_root.as_path(), scene_id, cache_key, html)
 }
@@ -387,6 +399,7 @@ pub fn resolve_access_page_html(
                 scene_id,
                 key.as_str(),
                 template.as_str(),
+                None,
             );
             template
         }
@@ -589,7 +602,7 @@ pub fn prime_access_page_render_cache(
         None,
         None,
     )?;
-    store_access_page_template(workspace_root, app_id, scene_id, cache_key.as_str(), template.as_str())?;
+    store_access_page_template(workspace_root, app_id, scene_id, cache_key.as_str(), template.as_str(), None)?;
     Ok(true)
 }
 

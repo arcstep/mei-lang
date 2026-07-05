@@ -35,13 +35,16 @@ pub struct BuildWorkspaceFragmentQuery {
     pub review_projection: Option<String>,
     #[serde(default)]
     pub data_mode: Option<String>,
+    #[serde(default)]
+    pub manifest_only: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct BuildWorkspaceFragmentResponse {
     compile_revision: String,
     compile_coordinate: mei_lang_kernel::BuildCompileCoordinate,
-    preview_html: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview_html: Option<String>,
     drilldown_script: String,
     workspace_scripts: Vec<String>,
     node: String,
@@ -53,8 +56,8 @@ struct BuildWorkspaceFragmentResponse {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     fragment_cache_hit: bool,
     revision: BuildFragmentRevisionPayload,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    scene_manifest: Option<mei_host_graph::SceneViewManifest>,
+    scene_manifest: mei_host_graph::SceneViewManifest,
+    compose_defaults: mei_host_graph::ComposeRequest,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -172,10 +175,49 @@ pub async fn api_build_fragment_revision(
         draft_digest.as_str(),
         None,
     );
-    let payload = build_fragment_revision_payload(&input);
+    let mut payload = build_fragment_revision_payload(&input);
+    let compose = mei_host_graph::ComposeRequest {
+        route_mode: Some(UiRouteMode::Build.slug().to_string()),
+        tab: Some("scene".to_string()),
+        chrome: Some("full".to_string()),
+        review_projection: Some(
+            crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode)
+                .slug()
+                .to_string(),
+        ),
+        data_mode: Some(axes.data_mode.slug().to_string()),
+        focus: query.focus.clone(),
+        scope: query.scope.clone(),
+    };
+    let mut hits = crate::artifact_observability::ArtifactHitMatrix::default();
+    if let Ok(manifest) = crate::scene_manifest::build_scene_view_manifest(
+        workspace_root.as_path(),
+        app_id,
+        scene_id.as_str(),
+        UiRouteMode::Build,
+        axes.data_mode,
+        &compose,
+        draft_session.as_str(),
+        draft_digest.as_str(),
+        &mut hits,
+    ) {
+        payload.manifest_revision_digest = manifest.revision_digest;
+    }
     let mut response = Json(payload).into_response();
     *response.status_mut() = StatusCode::OK;
     response
+}
+
+fn wants_manifest_only(query: &BuildWorkspaceFragmentQuery) -> bool {
+    matches!(
+        query
+            .manifest_only
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1") | Some("true") | Some("manifest")
+    )
 }
 
 fn try_scene_manifest(
@@ -185,21 +227,39 @@ fn try_scene_manifest(
     axes: &crate::review_axes::PageRenderAxes,
     draft_session: &str,
     draft_digest: &str,
-) -> Option<mei_host_graph::SceneViewManifest> {
+) -> anyhow::Result<mei_host_graph::SceneViewManifest> {
     let mut hits = crate::artifact_observability::ArtifactHitMatrix::default();
+    let compose = mei_host_graph::ComposeRequest {
+        route_mode: Some(UiRouteMode::Build.slug().to_string()),
+        tab: Some("scene".to_string()),
+        chrome: Some("full".to_string()),
+        review_projection: Some(
+            crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode)
+                .slug()
+                .to_string(),
+        ),
+        data_mode: Some(axes.data_mode.slug().to_string()),
+        focus: None,
+        scope: None,
+    };
     crate::scene_manifest::build_scene_view_manifest(
         workspace_root,
         app_id,
         scene_id,
+        UiRouteMode::Build,
         axes.data_mode,
-        crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode).slug(),
-        "scene",
-        "full",
+        &compose,
         draft_session,
         draft_digest,
         &mut hits,
     )
-    .ok()
+}
+
+fn compose_defaults_from_manifest(manifest: &mei_host_graph::SceneViewManifest) -> mei_host_graph::ComposeRequest {
+    manifest
+        .compose_defaults
+        .clone()
+        .unwrap_or_default()
 }
 
 pub async fn api_build_workspace_fragment(
@@ -285,18 +345,27 @@ pub async fn api_build_workspace_fragment(
     if let Some(cached) = take_build_fragment_cache(cache_key.as_str()) {
         let revision = build_fragment_revision_payload(&preliminary_input);
         let compile_revision = cached.compile_revision.clone();
-        let scene_manifest = try_scene_manifest(
+        let scene_manifest = match try_scene_manifest(
             workspace_root.as_path(),
             app_id,
             scene_id.as_str(),
             &axes,
             draft_session.as_str(),
             draft_digest.as_str(),
-        );
+        ) {
+            Ok(value) => value,
+            Err(err) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, err.to_string().as_str()),
+        };
+        let compose_defaults = compose_defaults_from_manifest(&scene_manifest);
+        let manifest_only = wants_manifest_only(&query);
         let body = BuildWorkspaceFragmentResponse {
             compile_revision: compile_revision.clone(),
             compile_coordinate: cached.compile_coordinate,
-            preview_html: cached.preview_html,
+            preview_html: if manifest_only {
+                None
+            } else {
+                Some(cached.preview_html.clone())
+            },
             drilldown_script: cached.drilldown_script,
             workspace_scripts: cached.workspace_scripts,
             node: cached.node,
@@ -306,6 +375,7 @@ pub async fn api_build_workspace_fragment(
             fragment_cache_hit: true,
             revision,
             scene_manifest,
+            compose_defaults,
         };
         return fragment_json_response(
             body,
@@ -394,20 +464,30 @@ pub async fn api_build_workspace_fragment(
     );
     let final_cache_key = build_fragment_cache_key(&final_input);
     let final_revision_digest = build_fragment_revision_digest(final_cache_key.as_str());
-    let revision = build_fragment_revision_payload(&final_input);
+    let mut revision = build_fragment_revision_payload(&final_input);
 
-    let scene_manifest = try_scene_manifest(
+    let scene_manifest = match try_scene_manifest(
         workspace_root.as_path(),
         app_id,
         scene_for_key.as_str(),
         &axes,
         draft_session.as_str(),
         draft_digest.as_str(),
-    );
+    ) {
+        Ok(value) => value,
+        Err(err) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, err.to_string().as_str()),
+    };
+    revision.manifest_revision_digest = scene_manifest.revision_digest.clone();
+    let compose_defaults = compose_defaults_from_manifest(&scene_manifest);
+    let manifest_only = wants_manifest_only(&query);
     let body = BuildWorkspaceFragmentResponse {
         compile_revision: assembled.compile_revision.clone(),
         compile_coordinate: fragment.compile_coordinate.clone(),
-        preview_html: fragment.preview_html.clone(),
+        preview_html: if manifest_only {
+            None
+        } else {
+            Some(fragment.preview_html.clone())
+        },
         drilldown_script: fragment.drilldown_script.clone(),
         workspace_scripts: fragment.workspace_scripts.clone(),
         node: fragment.node.clone(),
@@ -417,6 +497,7 @@ pub async fn api_build_workspace_fragment(
         fragment_cache_hit: false,
         revision: revision.clone(),
         scene_manifest,
+        compose_defaults,
     };
 
     store_build_fragment_cache(
@@ -434,6 +515,7 @@ pub async fn api_build_workspace_fragment(
                 .slug()
                 .to_string(),
             final_revision_digest.clone(),
+            body.scene_manifest.revision_digest.clone(),
         ),
     );
 

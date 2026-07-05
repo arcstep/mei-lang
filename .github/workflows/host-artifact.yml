@@ -1,0 +1,48 @@
+name: Host Artifact
+
+on:
+  push:
+    paths:
+      - 'host-shell/**'
+      - 'crates/mei-host-graph/**'
+      - 'app/assets/spa-navigation/**'
+      - 'scripts/test-artifact-*.mjs'
+      - 'scripts/host-perf-sample.mjs'
+      - 'e2e/artifact-navigation.spec.mjs'
+      - 'e2e/view-revision-assemble.spec.mjs'
+      - '.github/workflows/host-artifact.yml'
+  pull_request:
+    paths:
+      - 'host-shell/**'
+      - 'crates/mei-host-graph/**'
+      - 'app/assets/**'
+      - 'scripts/**'
+      - 'e2e/**'
+
+jobs:
+  artifact-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build mei-host-shell (0 warning gate)
+        run: cargo build -p mei-host-shell 2>&1 | tee build.log && ! rg "warning:" build.log
+
+      - name: Rust artifact tests
+        run: |
+          cargo test -p mei-host-graph manifest_revision_digest layout_overlay session_overlay view_revision
+          cargo test -p mei-host-shell scene_manifest artifact_observability inject_scene_manifest view_revision
+
+      - name: Build JS bundles
+        run: npm run assets:build
+
+      - name: JS artifact static gates
+        run: npm run test:artifact-static
