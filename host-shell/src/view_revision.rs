@@ -29,11 +29,14 @@ pub struct ViewRevisionQuery {
     #[serde(default)]
     pub compose: Option<String>,
     #[serde(default)]
-    pub client_layers: Option<String>,
+    pub manifest_revision_digest: Option<String>,
+    #[serde(default)]
+    pub surface_revision_digest: Option<String>,
+    #[serde(default)]
+    pub recover: Option<String>,
+    /// Deprecated: treated as `recover`.
     #[serde(default)]
     pub local_miss: Option<String>,
-    #[serde(default)]
-    pub missing_layers: Option<String>,
     #[serde(default)]
     pub node: Option<String>,
     #[serde(default)]
@@ -55,27 +58,6 @@ fn parse_bool_flag(value: Option<&str>) -> bool {
         value.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
         Some("1") | Some("true") | Some("yes")
     )
-}
-
-fn parse_client_layers(raw: Option<&str>) -> Vec<mei_host_graph::ClientLayerHolding> {
-    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Vec::new();
-    };
-    serde_json::from_str(raw).unwrap_or_default()
-}
-
-fn parse_missing_layers(raw: Option<&str>) -> Vec<String> {
-    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Vec::new();
-    };
-    if raw.starts_with('[') {
-        return serde_json::from_str(raw).unwrap_or_default();
-    }
-    raw.split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .collect()
 }
 
 fn parse_compose_request(
@@ -113,9 +95,10 @@ pub(crate) fn resolve_view_revision_for_surface(
     compose: &mei_host_graph::ComposeRequest,
     draft_session: &str,
     draft_digest: &str,
-    client_layers: Vec<mei_host_graph::ClientLayerHolding>,
+    client_manifest_digest: Option<String>,
+    client_surface_digest: Option<String>,
+    recover: bool,
     local_miss: bool,
-    missing_layers: Vec<String>,
     hits: &mut ArtifactHitMatrix,
     chrome_host: Option<&SceneChromeHostContext<'_>>,
 ) -> anyhow::Result<mei_host_graph::ViewRevisionResponse> {
@@ -134,14 +117,17 @@ pub(crate) fn resolve_view_revision_for_surface(
     let surface_digest = surface_revision_digest(&manifest);
     let mut response = mei_host_graph::resolve_view_revision(&mei_host_graph::ViewRevisionInput {
         manifest: manifest.clone(),
-        client_layers,
+        client_manifest_digest,
+        client_surface_digest,
+        recover,
         local_miss,
-        missing_layers,
+        client_layers: Vec::new(),
+        missing_layers: Vec::new(),
         surface_revision_digest: surface_digest,
     });
     if response.status == mei_host_graph::ViewRevisionStatus::Refetch
         && !response.changed_layers.is_empty()
-        && response.changed_layers.len() <= 5
+        && response.changed_layers.len() <= 24
     {
         let inline = materialize_layers_for_request(
             workspace_root,
@@ -251,9 +237,20 @@ pub async fn api_host_view_revision(
         compose.review_projection = Some(axes.review_projection.slug().to_string());
     }
 
-    let client_layers = parse_client_layers(query.client_layers.as_deref());
+    let client_manifest_digest = query
+        .manifest_revision_digest
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let client_surface_digest = query
+        .surface_revision_digest
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let recover = parse_bool_flag(query.recover.as_deref());
     let local_miss = parse_bool_flag(query.local_miss.as_deref());
-    let missing_layers = parse_missing_layers(query.missing_layers.as_deref());
 
     let topbar_menu = load_topbar_menu_context(workspace_root);
     let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
@@ -275,9 +272,10 @@ pub async fn api_host_view_revision(
         &compose,
         "",
         "",
-        client_layers,
+        client_manifest_digest,
+        client_surface_digest,
+        recover,
         local_miss,
-        missing_layers,
         &mut hits,
         Some(&chrome_host),
     ) {
@@ -294,7 +292,7 @@ pub async fn api_host_view_revision(
     let obs = LayerArtifactObservability { hits };
     let mut response = Json(&revision).into_response();
     apply_view_revision_headers(&mut response, &revision);
-    if local_miss {
+    if recover || local_miss {
         if let Ok(value) = HeaderValue::from_str("1") {
             response
                 .headers_mut()
@@ -309,21 +307,4 @@ pub async fn api_host_view_revision(
         }
     }
     response
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_missing_layers_accepts_csv_and_json() {
-        assert_eq!(
-            parse_missing_layers(Some("structure.full,theme.tokens")),
-            vec!["structure.full".to_string(), "theme.tokens".to_string()]
-        );
-        assert_eq!(
-            parse_missing_layers(Some(r#"["layout.overlay"]"#)),
-            vec!["layout.overlay".to_string()]
-        );
-    }
 }

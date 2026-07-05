@@ -80,6 +80,7 @@ struct MaterializeContext<'a> {
     theme_digest: String,
     semantic_core: mei_host_graph::SemanticCacheCore,
     compiled: Option<mei_lang_kernel::CompiledApp>,
+    assemble_outcome: Option<mei_host_graph::AssembleOutcome>,
 }
 
 fn layout_policy_revision(workspace_root: &std::path::Path, app_id: &str) -> String {
@@ -106,8 +107,8 @@ fn load_materialize_context<'a>(
     let layout_rev = layout_policy_revision(workspace_root, app_id);
     let semantic_core =
         mei_host_graph::build_semantic_core_for_scene(workspace_root, app_id, scene_id);
-    let compiled = mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)?
-        .map(|outcome| outcome.compiled);
+    let assemble_outcome = mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)?;
+    let compiled = assemble_outcome.as_ref().map(|outcome| outcome.compiled.clone());
     Ok(MaterializeContext {
         workspace_root,
         app_id,
@@ -123,6 +124,7 @@ fn load_materialize_context<'a>(
         theme_digest: theme_digest_for_app(workspace_root, app_id),
         semantic_core,
         compiled,
+        assemble_outcome,
     })
 }
 
@@ -215,6 +217,42 @@ fn materialize_eval_group(
         "content_hash": pref.content_hash,
         "document": doc,
         "bootstrap_seed": bootstrap_eval_seed(ctx),
+    }))
+}
+
+fn materialize_runtime_plans(
+    ctx: &MaterializeContext<'_>,
+    _hits: &mut ArtifactHitMatrix,
+) -> anyhow::Result<Value> {
+    let cache_key =
+        mei_host_graph::runtime_plans_cache_key(&ctx.semantic_core, ctx.layout_rev.as_str());
+    if let Some(bytes) = mei_host_graph::take_layer(cache_key.as_str()) {
+        let doc: mei_host_graph::RuntimePlansDocument = serde_json::from_slice(bytes.as_slice())?;
+        let content_hash = mei_host_graph::content_hash_bytes(bytes.as_slice());
+        return Ok(json!({
+            "artifact_id": cache_key,
+            "content_hash": content_hash,
+            "document": doc,
+        }));
+    }
+    let document = if let Some(outcome) = ctx.assemble_outcome.as_ref() {
+        mei_host_graph::runtime_plans_from_outcome(outcome)
+    } else {
+        mei_host_graph::empty_runtime_plans_document(ctx.app_id, ctx.scene_id)
+    };
+    let app_root = mei_lang_kernel::resolve_app_root(ctx.workspace_root, ctx.app_id);
+    let pref = mei_host_graph::persist_runtime_plans(app_root.as_path(), &document)?;
+    let bytes = serde_json::to_vec(&document)?;
+    mei_host_graph::store_layer(
+        cache_key.clone(),
+        mei_host_graph::RUNTIME_PLANS_KIND,
+        pref.content_hash.as_str(),
+        bytes.as_slice(),
+    );
+    Ok(json!({
+        "artifact_id": cache_key,
+        "content_hash": pref.content_hash,
+        "document": document,
     }))
 }
 
@@ -402,14 +440,36 @@ pub(crate) fn build_scene_view_manifest(
         draft,
     )?;
     let structure_ref = materialize_structure(&ctx, hits)?;
-    let eval_doc = materialize_eval_group(&ctx, "scene:default", hits)?;
+    let structure_doc = materialize_structure_document(&ctx);
     let theme_doc = materialize_theme(&ctx, hits)?;
     let overlay_doc = materialize_overlay(&ctx, hits)?;
     let shell_doc = materialize_shell(&ctx, hits, route_mode, chrome_host);
+    let runtime_plans_doc = materialize_runtime_plans(&ctx, hits)?;
 
     let mut layers = std::collections::BTreeMap::new();
     layers.insert("structure.full".to_string(), json!(structure_ref));
-    layers.insert("eval.slot_group.scene:default".to_string(), eval_doc);
+    if let Some(doc_value) = structure_doc {
+        if let Ok(structure) =
+            serde_json::from_value::<mei_host_graph::StructureFullDocument>(doc_value)
+        {
+            for group_id in mei_host_graph::collect_slot_groups(&structure) {
+                let layer_name = format!("eval.slot_group.{group_id}");
+                let eval_doc = materialize_eval_group(&ctx, group_id.as_str(), hits)?;
+                layers.insert(layer_name, eval_doc);
+            }
+        } else {
+            layers.insert(
+                "eval.slot_group.scene:default".to_string(),
+                materialize_eval_group(&ctx, "scene:default", hits)?,
+            );
+        }
+    } else {
+        layers.insert(
+            "eval.slot_group.scene:default".to_string(),
+            materialize_eval_group(&ctx, "scene:default", hits)?,
+        );
+    }
+    layers.insert("runtime.plans".to_string(), runtime_plans_doc);
     layers.insert("theme.tokens".to_string(), theme_doc);
     layers.insert("layout.overlay".to_string(), overlay_doc);
     layers.insert(
@@ -435,6 +495,7 @@ pub(crate) fn build_scene_view_manifest(
         revision_digest: String::new(),
         layers,
         compose_defaults: Some(compose_defaults),
+        surface_revision_digest: None,
     };
     let digest = mei_host_graph::manifest_revision_digest(
         &manifest,
@@ -444,8 +505,10 @@ pub(crate) fn build_scene_view_manifest(
             Some(effective_draft_digest.as_str())
         },
     );
+    let surface_digest = mei_host_graph::surface_revision_digest_from_manifest(&manifest);
     Ok(mei_host_graph::SceneViewManifest {
         revision_digest: digest,
+        surface_revision_digest: surface_digest,
         ..manifest
     })
 }
@@ -476,6 +539,7 @@ fn materialize_layer_name(
         }
         "theme.tokens" => materialize_theme(&ctx, hits),
         "layout.overlay" => materialize_overlay(&ctx, hits),
+        "runtime.plans" => materialize_runtime_plans(&ctx, hits),
         name if name.starts_with("eval.slot_group.") => {
             let slot_group_id = name.strip_prefix("eval.slot_group.").unwrap_or("scene:default");
             materialize_eval_group(&ctx, slot_group_id, hits)
@@ -774,10 +838,12 @@ mod cross_surface_manifest_tests {
             .canonicalize()
             .ok()?;
         let registry = root.join("apps/data-demo/build/active/registry/mcg-registry.json");
-        if registry.is_file() {
-            Some(root)
-        } else {
-            None
+        if !registry.is_file() {
+            return None;
+        }
+        match mei_host_graph::assemble_scope_from_registry(root.as_path(), "data-demo", "home") {
+            Ok(Some(_)) => Some(root),
+            _ => None,
         }
     }
 
@@ -892,6 +958,7 @@ mod cross_surface_manifest_tests {
             "structure.full",
             "theme.tokens",
             "layout.overlay",
+            "runtime.plans",
             "eval.slot_group.scene:default",
         ] {
             let hashes: Vec<String> = manifests
