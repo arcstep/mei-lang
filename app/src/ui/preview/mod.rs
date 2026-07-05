@@ -88,7 +88,7 @@ pub fn build_preview_runtime_context(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     let host_ssr_slim_payload = match data_mode.as_deref() {
-        Some("static") => false,
+        Some("static") => true,
         _ => matches!(
             route_mode,
             UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Layout

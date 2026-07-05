@@ -15,6 +15,7 @@ mod g12a;
 mod g12b;
 mod g13;
 mod g14_review_projection;
+mod static_mode_placeholder;
 
 pub(super) use super::{
     build_preview_runtime_context, nodes, resolve, style, theme, viewport,

@@ -15,6 +15,10 @@ use super::drilldown::resolve_metric_drilldown_meta;
 use super::drilldown::MetricDrilldownMeta;
 use super::host_ssr_payload::{dataset_for_host_ssr, metric_for_host_ssr};
 use super::refs::{normalize_v2_metric_ref, resolve_data_ref, resolve_metric_ref, resolve_rows_expr, with_runtime_ref};
+use super::static_placeholder::{
+    inject_static_chart_data, is_static_data_mode, static_dataset_placeholder,
+    static_metric_fallback, static_metric_placeholder, strip_static_eval_patch,
+};
 
 /// Controls whether nested popup/board_link bindings stay as authored refs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -94,6 +98,10 @@ pub(crate) fn host_runtime_capabilities_value(app_path: &str, data_mode: Option<
         },
         "catalog": host_runtime_capabilities_catalog(),
         "host_contract": host_runtime_contract_descriptor(),
+        "static_display": {
+            "enabled": mode == "static",
+            "origin": "static_skeleton",
+        },
     })
 }
 
@@ -303,6 +311,7 @@ pub(crate) fn resolve_value(
     resource_index: &RuntimeResourceIndex,
     compiled: &CompiledApp,
     host_ssr_slim_payload: bool,
+    data_mode: Option<&str>,
 ) -> Value {
     resolve_value_in_context(
         value,
@@ -314,7 +323,45 @@ pub(crate) fn resolve_value(
         compiled,
         BindingResolveContext::Normal,
         host_ssr_slim_payload,
+        data_mode,
     )
+}
+
+fn resolve_metric_value_for_mode(
+    map: &serde_json::Map<String, Value>,
+    resources: &BTreeMap<String, LoadedResource>,
+    compiled: &CompiledApp,
+    resource_index: &RuntimeResourceIndex,
+    scene_anchor: &RuntimeSceneAnchor,
+    host_ssr_slim_payload: bool,
+    data_mode: Option<&str>,
+) -> Option<Value> {
+    let (metric, dataset_id) =
+        resolve_metric_ref(map, resources, compiled, resource_index)?;
+    let metric_id = map.get("id").and_then(Value::as_str).unwrap_or("");
+    let drilldown = resolve_metric_drilldown_meta(
+        resources,
+        &dataset_id,
+        metric_id,
+        compiled,
+        resource_index,
+    );
+    let payload = if is_static_data_mode(data_mode) {
+        static_metric_placeholder(&metric, metric_id)
+    } else if host_ssr_slim_payload {
+        metric_for_host_ssr(&metric)
+    } else {
+        serde_json::to_value(&metric).unwrap_or(Value::Null)
+    };
+    Some(with_runtime_ref(
+        payload,
+        scene_anchor.runtime_ref_extra(
+            "metric",
+            &dataset_id,
+            Some(metric_id),
+            drilldown.as_ref(),
+        ),
+    ))
 }
 
 fn resolve_value_in_context(
@@ -327,6 +374,7 @@ fn resolve_value_in_context(
     compiled: &CompiledApp,
     binding_context: BindingResolveContext,
     host_ssr_slim_payload: bool,
+    data_mode: Option<&str>,
 ) -> Value {
     if binding_context == BindingResolveContext::PopupPayload && preserve_popup_binding(value) {
         return value.clone();
@@ -345,7 +393,9 @@ fn resolve_value_in_context(
                 {
                     if let Some(resource) = resources.get(&canonical_id) {
                         if let Some(dataset) = resource.dataset.as_ref() {
-                            let payload = if host_ssr_slim_payload {
+                            let payload = if is_static_data_mode(data_mode) {
+                                static_dataset_placeholder(dataset, 5)
+                            } else if host_ssr_slim_payload {
                                 dataset_for_host_ssr(dataset)
                             } else {
                                 serde_json::to_value(dataset).unwrap_or(Value::Null)
@@ -369,7 +419,9 @@ fn resolve_value_in_context(
                 if let Some((dataset, dataset_id)) =
                     resolve_data_ref(map, resources, compiled, resource_index)
                 {
-                    let payload = if host_ssr_slim_payload {
+                    let payload = if is_static_data_mode(data_mode) {
+                        static_dataset_placeholder(&dataset, 5)
+                    } else if host_ssr_slim_payload {
                         dataset_for_host_ssr(&dataset)
                     } else {
                         serde_json::to_value(&dataset).unwrap_or(Value::Null)
@@ -392,34 +444,35 @@ fn resolve_value_in_context(
                         resource_index,
                         compiled,
                         host_ssr_slim_payload,
+                        data_mode,
+                    );
+                }
+                if is_static_data_mode(data_mode) {
+                    return static_metric_fallback(
+                        map.get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("metric"),
                     );
                 }
                 return Value::Null;
             }
             if map.get("__ref").and_then(Value::as_str) == Some("metric") {
-                if let Some((metric, dataset_id)) =
-                    resolve_metric_ref(map, resources, compiled, resource_index)
-                {
-                    let metric_id = map.get("id").and_then(Value::as_str).unwrap_or("");
-                    let drilldown = resolve_metric_drilldown_meta(
-                        resources,
-                        &dataset_id,
-                        metric_id,
-                        compiled,
-                        resource_index,
-                    );
-                    return with_runtime_ref(
-                        if host_ssr_slim_payload {
-                            metric_for_host_ssr(&metric)
-                        } else {
-                            serde_json::to_value(&metric).unwrap_or(Value::Null)
-                        },
-                        scene_anchor.runtime_ref_extra(
-                            "metric",
-                            &dataset_id,
-                            Some(metric_id),
-                            drilldown.as_ref(),
-                        ),
+                if let Some(resolved) = resolve_metric_value_for_mode(
+                    map,
+                    resources,
+                    compiled,
+                    resource_index,
+                    scene_anchor,
+                    host_ssr_slim_payload,
+                    data_mode,
+                ) {
+                    return resolved;
+                }
+                if is_static_data_mode(data_mode) {
+                    return static_metric_fallback(
+                        map.get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("metric"),
                     );
                 }
                 return Value::Null;
@@ -437,30 +490,16 @@ fn resolve_value_in_context(
                 {
                     compat.insert("from_dataset".to_string(), from);
                 }
-                if let Some((metric, dataset_id)) =
-                    resolve_metric_ref(&compat, resources, compiled, resource_index)
-                {
-                    let metric_id = compat.get("id").and_then(Value::as_str).unwrap_or("");
-                    let drilldown = resolve_metric_drilldown_meta(
-                        resources,
-                        &dataset_id,
-                        metric_id,
-                        compiled,
-                        resource_index,
-                    );
-                    return with_runtime_ref(
-                        if host_ssr_slim_payload {
-                            metric_for_host_ssr(&metric)
-                        } else {
-                            serde_json::to_value(&metric).unwrap_or(Value::Null)
-                        },
-                        scene_anchor.runtime_ref_extra(
-                            "metric",
-                            &dataset_id,
-                            Some(metric_id),
-                            drilldown.as_ref(),
-                        ),
-                    );
+                if let Some(resolved) = resolve_metric_value_for_mode(
+                    &compat,
+                    resources,
+                    compiled,
+                    resource_index,
+                    scene_anchor,
+                    host_ssr_slim_payload,
+                    data_mode,
+                ) {
+                    return resolved;
                 }
             }
             if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
@@ -469,7 +508,9 @@ fn resolve_value_in_context(
                 if let Some((dataset, dataset_id)) =
                     resolve_rows_expr(map, resources, compiled, resource_index)
                 {
-                    let payload = if host_ssr_slim_payload {
+                    let payload = if is_static_data_mode(data_mode) {
+                        static_dataset_placeholder(&dataset, 5)
+                    } else if host_ssr_slim_payload {
                         dataset_for_host_ssr(&dataset)
                     } else {
                         serde_json::to_value(&dataset).unwrap_or(Value::Null)
@@ -492,22 +533,38 @@ fn resolve_value_in_context(
                     }
                     _ => BindingResolveContext::Normal,
                 };
-                out.insert(
-                    key.clone(),
-                    resolve_value_in_context(
-                        entry,
-                        shared_context,
-                        scene_contract,
-                        resources,
-                        scene_anchor,
-                        resource_index,
-                        compiled,
-                        child_context,
-                        host_ssr_slim_payload,
-                    ),
+                let resolved_child = resolve_value_in_context(
+                    entry,
+                    shared_context,
+                    scene_contract,
+                    resources,
+                    scene_anchor,
+                    resource_index,
+                    compiled,
+                    child_context,
+                    host_ssr_slim_payload,
+                    data_mode,
                 );
+                let resolved_child = if is_static_data_mode(data_mode)
+                    && matches!(key.as_str(), "patch" | "metric_patch" | "metricPatch")
+                {
+                    strip_static_eval_patch(&resolved_child)
+                } else {
+                    resolved_child
+                };
+                out.insert(key.clone(), resolved_child);
             }
-            Value::Object(out)
+            let mut resolved = Value::Object(out);
+            if is_static_data_mode(data_mode)
+                && (map.contains_key("mapping")
+                    || map
+                        .get("data")
+                        .and_then(|value| value.get("rows"))
+                        .is_some())
+            {
+                inject_static_chart_data(&mut resolved);
+            }
+            resolved
         }
         Value::Array(items) => Value::Array(
             items
@@ -523,6 +580,7 @@ fn resolve_value_in_context(
                         compiled,
                         binding_context,
                         host_ssr_slim_payload,
+                        data_mode,
                     )
                 })
                 .collect(),

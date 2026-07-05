@@ -92,3 +92,18 @@ fn run_route_runtime_context_applies_plane_region_section() {
     assert!(!ctx.ui_role_allowed_for_projection("content"));
     assert!(ctx.ui_role_allowed_for_projection("section"));
 }
+
+#[test]
+fn prototype_runtime_context_enables_static_display() {
+    let ctx = build_preview_runtime_context(
+        &minimal_compiled(),
+        UiRouteMode::Prototype,
+        None,
+        None,
+        None,
+        Some("static"),
+        Some("static_full"),
+    );
+    assert_eq!(ctx.data_mode.as_deref(), Some("static"));
+    assert!(ctx.host_ssr_slim_payload);
+}

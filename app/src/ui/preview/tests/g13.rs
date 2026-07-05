@@ -172,6 +172,7 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            strict_layout_policy: true,
         },
     )
     .unwrap_or_else(|e| panic!("compile zhifa home failed: {e}"));
@@ -207,6 +208,7 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
             &runtime_ctx.index,
             &compiled,
             runtime_ctx.host_ssr_slim_payload,
+            None,
         );
         let props = attach_host_meta(
             resolved,
@@ -268,6 +270,7 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
         CompileOptions {
             scene: None,
             preview_target: Some("scenes/home.mei".to_string()),
+            strict_layout_policy: true,
         },
     )
     .unwrap_or_else(|e| panic!("compile zhifa home failed: {e}"));
@@ -288,8 +291,8 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
         None,
         None,
         None,
-        None,
         Some("scene:home"),
+        None,
         None,
         None,
         None,

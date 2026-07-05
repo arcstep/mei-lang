@@ -72,6 +72,7 @@ fn runtime_scene_anchor_prefers_matching_route_scene_id() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let anchor = RuntimeSceneAnchor::from_compiled(&compiled);
     assert_eq!(anchor.scene_id, "chart.radar");
@@ -112,6 +113,7 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     assert!(
         build_preview_runtime_context(&compiled, UiRouteMode::Layout, None, None, None, None, None)
@@ -158,6 +160,7 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
             shared: json!({}),
             local_nav: serde_json::json!({}),
             params: serde_json::json!({}),
+            capabilities: Value::Null,
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
@@ -262,6 +265,7 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
@@ -282,6 +286,7 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
         &resource_index,
         &compiled,
         false,
+        None,
     );
     assert_eq!(
         resolved

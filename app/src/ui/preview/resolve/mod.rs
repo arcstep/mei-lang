@@ -6,6 +6,7 @@ mod explain_apply;
 mod explain_normalize;
 mod host_ssr_payload;
 mod refs;
+mod static_placeholder;
 
 pub(crate) use context::{
     attach_host_meta, host_runtime_capabilities_value, resolve_value, HostMetaOptions,

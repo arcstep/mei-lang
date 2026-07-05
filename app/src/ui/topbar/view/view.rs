@@ -131,7 +131,7 @@ pub(crate) fn topbar_view(
                     item.pack.as_deref(),
                 );
                 return view! {
-                    <a class=class href=href data-topbar-menu-group=group_id.clone()>
+                    <a class=class href=href data-app-id=item.app_id.clone() data-topbar-menu-group=group_id.clone()>
                         {item.label.clone()}
                     </a>
                 }
@@ -151,7 +151,7 @@ pub(crate) fn topbar_view(
                         item.catalog.as_deref(),
                         item.pack.as_deref(),
                     );
-                    view! { <a class=class href=href>{item.label.clone()}</a> }
+                    view! { <a class=class href=href data-app-id=item.app_id.clone()>{item.label.clone()}</a> }
                 })
                 .collect_view();
             let subgroup_blocks = subgroup_items
@@ -171,7 +171,7 @@ pub(crate) fn topbar_view(
                                 item.catalog.as_deref(),
                                 item.pack.as_deref(),
                             );
-                            view! { <a class=class href=href>{item.label.clone()}</a> }
+                            view! { <a class=class href=href data-app-id=item.app_id.clone()>{item.label.clone()}</a> }
                         })
                         .collect_view();
                     view! {

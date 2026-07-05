@@ -94,6 +94,7 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
             }),
             local_nav: serde_json::json!({}),
             params: serde_json::json!({}),
+            capabilities: Value::Null,
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
@@ -183,6 +184,7 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
             shared: Value::Null,
             local_nav: Value::Null,
             params: serde_json::json!({}),
+            capabilities: Value::Null,
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
@@ -215,6 +217,7 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let index = build_runtime_resource_index(&compiled);
     let props = json!({
@@ -239,6 +242,7 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
         &index,
         &compiled,
         false,
+        None,
     );
     let popup = resolved.get("popup").expect("popup");
     let scene = popup.get("scene").expect("scene locator");
@@ -320,6 +324,7 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let props = attach_host_meta(
         json!({"value": 1}),
@@ -409,6 +414,7 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         HostMetaOptions {
             include_scene_drilldown_context: true,
             host_ssr_slim_payload: false,
+            data_mode: None,
         },
     );
     assert!(drilldown_props
@@ -442,6 +448,7 @@ fn resolve_value_supports_shared_refs() {
             shared: json!({}),
             local_nav: serde_json::json!({}),
             params: serde_json::json!({}),
+            capabilities: Value::Null,
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
@@ -474,6 +481,7 @@ fn resolve_value_supports_shared_refs() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
         scene_id: "home".to_string(),
@@ -491,6 +499,7 @@ fn resolve_value_supports_shared_refs() {
         &build_runtime_resource_index(&compiled),
         &compiled,
         false,
+        None,
     );
     assert_eq!(resolved.get("width").and_then(Value::as_str), Some("520px"));
     assert_eq!(resolved.get("height").and_then(Value::as_i64), Some(74));

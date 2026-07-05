@@ -81,6 +81,7 @@ pub(crate) fn block_view_for_decl(
         &runtime_ctx.index,
         compiled,
         runtime_ctx.host_ssr_slim_payload,
+        runtime_ctx.data_mode.as_deref(),
     );
     let host_meta_options = HostMetaOptions {
         include_scene_drilldown_context: should_include_scene_drilldown_context(

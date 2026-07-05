@@ -60,6 +60,7 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
             shared: json!({}),
             local_nav: serde_json::json!({}),
             params: serde_json::json!({}),
+            capabilities: Value::Null,
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
@@ -196,6 +197,7 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
@@ -212,6 +214,7 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
         &resource_index,
         &compiled,
         false,
+        None,
     );
     assert_eq!(
         resolved

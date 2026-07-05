@@ -58,6 +58,7 @@ fn resolve_value_supports_data_and_metric_refs() {
             shared: json!({}),
             local_nav: serde_json::json!({}),
             params: serde_json::json!({}),
+            capabilities: Value::Null,
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
@@ -176,6 +177,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
@@ -193,6 +195,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         &resource_index,
         &compiled,
         false,
+        None,
     );
     assert_eq!(
         resolved_data.get("id").and_then(|value| value.as_str()),
@@ -216,6 +219,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         &resource_index,
         &compiled,
         false,
+        None,
     );
     assert_eq!(
         resolved_metric.get("id").and_then(|value| value.as_str()),
@@ -239,6 +243,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         &resource_index,
         &compiled,
         false,
+        None,
     );
     assert_eq!(
         resolved_dataset.get("id").and_then(|value| value.as_str()),
@@ -280,6 +285,7 @@ fn resolve_value_resolves_namespaced_world_metric_against_flat_ledger_key() {
             shared: json!({}),
             local_nav: serde_json::json!({}),
             params: serde_json::json!({}),
+            capabilities: Value::Null,
             bindings: serde_json::json!({}),
             examples: serde_json::json!([]),
             access_export: true,
@@ -331,6 +337,7 @@ fn resolve_value_resolves_namespaced_world_metric_against_flat_ledger_key() {
         build_experience_index: Default::default(),
         build_board_index: Default::default(),
         build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
     };
     let resources = build_runtime_resource_map(&compiled);
     let resource_index = build_runtime_resource_index(&compiled);
@@ -352,6 +359,7 @@ fn resolve_value_resolves_namespaced_world_metric_against_flat_ledger_key() {
         &resource_index,
         &compiled,
         true,
+        None,
     );
     assert_eq!(
         resolved.get("id").and_then(|value| value.as_str()),
