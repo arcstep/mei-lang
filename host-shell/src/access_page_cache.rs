@@ -70,6 +70,7 @@ fn ops_layout_tuning_revision_digest(workspace_root: &Path, app_id: &str) -> Str
 
 /// Remove legacy on-disk page-render-cache directories (abolished; one-time hygiene).
 pub fn clear_legacy_page_render_cache_for_app(workspace_root: &Path, app_id: &str) -> usize {
+    crate::thin_shell_page_cache::clear_for_app(app_id);
     let app_root = resolve_app_root(workspace_root, app_id);
     let disk_dir = mei_lang_kernel::resolve_app_var_root(app_root.as_path()).join("page-render-cache");
     if !disk_dir.is_dir() {
@@ -109,6 +110,36 @@ pub fn scene_revision_cache_key(
     )
 }
 
+pub fn unified_view_page_cache_key(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    axes: PageRenderAxes,
+    chrome_hidden: bool,
+    auth_enabled: bool,
+    account_view: Option<&HostAccountView>,
+    gis: &GisTilesConfig,
+    node: Option<&str>,
+    focus: Option<&str>,
+    tab: Option<&str>,
+) -> Option<String> {
+    scene_revision_cache_key_for_route(
+        workspace_root,
+        app_id,
+        scene_id,
+        route_mode,
+        axes,
+        chrome_hidden,
+        auth_enabled,
+        account_view,
+        gis,
+        node,
+        focus,
+        tab,
+    )
+}
+
 fn scene_revision_cache_key_for_route(
     workspace_root: &Path,
     app_id: &str,
@@ -126,7 +157,7 @@ fn scene_revision_cache_key_for_route(
     let thin_shell_route = route_mode.is_access_like()
         || matches!(
             route_mode,
-            UiRouteMode::Layout | UiRouteMode::Prototype
+            UiRouteMode::Layout | UiRouteMode::Prototype | UiRouteMode::App
         );
     if !thin_shell_route {
         return None;

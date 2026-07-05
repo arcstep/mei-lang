@@ -4,6 +4,7 @@ mod assets;
 mod build_api;
 mod build_info;
 mod build_fragment_cache;
+mod thin_shell_page_cache;
 mod access_page_cache;
 mod artifact_observability;
 mod scene_bundle;

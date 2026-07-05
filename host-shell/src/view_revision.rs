@@ -15,8 +15,8 @@ use crate::landing::discover_workspace_apps;
 use crate::pages::AppQuery;
 use crate::review_axes::resolve_page_render_axes;
 use crate::scene_manifest::{
-    build_scene_view_manifest, materialize_layers_for_request, resolve_route_mode_from_surface,
-    SceneChromeHostContext,
+    ensure_manifest_index, manifest_for_surface, materialize_layers_for_request,
+    resolve_route_mode_from_surface, SceneChromeHostContext,
 };
 use crate::state::SharedState;
 
@@ -102,18 +102,17 @@ pub(crate) fn resolve_view_revision_for_surface(
     hits: &mut ArtifactHitMatrix,
     chrome_host: Option<&SceneChromeHostContext<'_>>,
 ) -> anyhow::Result<mei_host_graph::ViewRevisionResponse> {
-    let manifest = build_scene_view_manifest(
+    let index = ensure_manifest_index(
         workspace_root,
         app_id,
         scene_id,
-        route_mode,
         data_mode,
-        compose,
-        draft_session,
-        draft_digest,
         hits,
         chrome_host,
     )?;
+    let manifest = manifest_for_surface(&index, route_mode).ok_or_else(|| {
+        anyhow::anyhow!("manifest index missing surface {}", route_mode.slug())
+    })?;
     let surface_digest = surface_revision_digest(&manifest);
     let mut response = mei_host_graph::resolve_view_revision(&mei_host_graph::ViewRevisionInput {
         manifest: manifest.clone(),
@@ -143,6 +142,9 @@ pub(crate) fn resolve_view_revision_for_surface(
             chrome_host,
         )?;
         response.inline_layers = Some(inline);
+        if response.manifest.is_none() {
+            response.manifest = Some(manifest);
+        }
     }
     Ok(response)
 }

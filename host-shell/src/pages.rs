@@ -383,29 +383,75 @@ pub async fn app_page(
         focus: query.focus.as_deref(),
         scope: query.scope.as_deref(),
     };
-    let (mut html, ssr_emit_ms) = if mode == "view" {
+    let (mut html, ssr_emit_ms, page_cache_hit) = if mode == "view" {
         let render_started = Instant::now();
         let node = resolve_build_node_for_query(&query).unwrap_or_default();
-        let template = render_thin_view_shell(
-            thin_view_shell_document(
+        let cache_key = if revision_first_shell {
+            crate::access_page_cache::unified_view_page_cache_key(
+                workspace_root,
                 app_id.as_str(),
                 scene_id.as_str(),
                 route_mode,
-                node.as_str(),
-                axes.data_mode.slug(),
-                crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
-                query.tree_max.as_deref().unwrap_or(""),
-            ),
-            workspace_root,
-            package_root,
-            app_id.as_str(),
-            scene_id.as_str(),
-            route_mode,
-            &shell_compose,
-            Some(&chrome_host),
-            Some(&thin_preview),
-        );
-        (template, render_started.elapsed().as_millis() as u64)
+                axes,
+                chrome_hidden,
+                auth_enabled,
+                account_view.as_ref(),
+                &gis,
+                Some(node.as_str()),
+                query.focus.as_deref(),
+                query.tab.as_deref(),
+            )
+        } else {
+            None
+        };
+        if let Some(ref key) = cache_key {
+            if let Some(cached_html) = crate::thin_shell_page_cache::get(key.as_str()) {
+                (cached_html, render_started.elapsed().as_millis() as u64, true)
+            } else {
+                let template = render_thin_view_shell(
+                    thin_view_shell_document(
+                        app_id.as_str(),
+                        scene_id.as_str(),
+                        route_mode,
+                        node.as_str(),
+                        axes.data_mode.slug(),
+                        crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
+                        query.tree_max.as_deref().unwrap_or(""),
+                    ),
+                    workspace_root,
+                    package_root,
+                    app_id.as_str(),
+                    scene_id.as_str(),
+                    route_mode,
+                    &shell_compose,
+                    Some(&chrome_host),
+                    Some(&thin_preview),
+                );
+                crate::thin_shell_page_cache::put(key.clone(), template.clone());
+                (template, render_started.elapsed().as_millis() as u64, false)
+            }
+        } else {
+            let template = render_thin_view_shell(
+                thin_view_shell_document(
+                    app_id.as_str(),
+                    scene_id.as_str(),
+                    route_mode,
+                    node.as_str(),
+                    axes.data_mode.slug(),
+                    crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
+                    query.tree_max.as_deref().unwrap_or(""),
+                ),
+                workspace_root,
+                package_root,
+                app_id.as_str(),
+                scene_id.as_str(),
+                route_mode,
+                &shell_compose,
+                Some(&chrome_host),
+                Some(&thin_preview),
+            );
+            (template, render_started.elapsed().as_millis() as u64, false)
+        }
     } else if route_mode.is_access_like() {
         let render_started = Instant::now();
         let template = render_thin_access_shell(
@@ -418,7 +464,7 @@ pub async fn app_page(
             Some(&chrome_host),
             Some(&thin_preview),
         );
-        (template, render_started.elapsed().as_millis() as u64)
+        (template, render_started.elapsed().as_millis() as u64, false)
     } else if route_mode.is_app_surface() && !route_mode.is_app() {
         let render_started = Instant::now();
         let node = resolve_build_node_for_query(&query).unwrap_or_default();
@@ -443,7 +489,7 @@ pub async fn app_page(
             Some(&chrome_host),
             Some(&thin_preview),
         );
-        (template, render_started.elapsed().as_millis() as u64)
+        (template, render_started.elapsed().as_millis() as u64, false)
     } else {
         let assemble_result = mei_host_graph::assemble_scope_from_registry(
             workspace_root,
@@ -564,7 +610,7 @@ pub async fn app_page(
                 &gis,
             );
         let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
-        (rendered, ssr_emit_ms)
+        (rendered, ssr_emit_ms, false)
     };
     html = crate::gis_config::fill_gis_tiles_placeholders(html, &gis);
     let handler_html_ready_ms = request_started.elapsed().as_millis() as u64;
@@ -611,6 +657,13 @@ pub async fn app_page(
             HeaderName::from_static("x-mei-assemble-local"),
             HeaderValue::from_static("0"),
         );
+        let page_cache_status = if page_cache_hit { "hit" } else { "miss" };
+        if let Ok(value) = HeaderValue::from_str(page_cache_status) {
+            response.headers_mut().insert(
+                HeaderName::from_static("x-mei-page-cache"),
+                value,
+            );
+        }
         response.headers_mut().insert(
             axum::http::header::CACHE_CONTROL,
             HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),

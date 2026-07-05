@@ -135,6 +135,25 @@ fn all_apps_access_ready(shell: &ShellState, app_ids: &[String], scene_id: &str)
     })
 }
 
+fn prime_view_layer_artifacts(shell: &ShellState, app_ids: &[String], scene_id: &str) {
+    let workspace_root = shell.ctx.workspace_root.as_path();
+    for app_id in app_ids {
+        if let Err(err) = mei_host_graph::warm_manifest_index_for_app(
+            workspace_root,
+            app_id.as_str(),
+            scene_id,
+        ) {
+            tracing::warn!(
+                target: "mei.startup",
+                app_id = %app_id,
+                scene_id = %scene_id,
+                error = %err,
+                "view layer manifest warmup failed"
+            );
+        }
+    }
+}
+
 fn all_apps_imported(workspace: &Path, app_ids: &[String]) -> bool {
     app_ids
         .iter()
@@ -553,6 +572,7 @@ async fn wait_for_prebuild_warmup(
                 &mut logged_ready,
             );
             if all_apps_access_ready(&guard, wait_app_ids.as_slice(), "home") {
+                prime_view_layer_artifacts(&guard, wait_app_ids.as_slice(), "home");
                 tracing::info!(
                     target: "mei.startup",
                     apps = %wait_app_ids.join(", "),
