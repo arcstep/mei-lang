@@ -373,6 +373,7 @@
         return { ...resolved, restored: true, source: "coordinator" };
       }
     }
+    // Legacy fallback when view_assembly_v2 is disabled or coordinator assemble failed.
     let resolved = outcome || { restored: false };
     const surface = ctx?.surface || ctx?.mode || "app";
     const composeRoot =
@@ -439,6 +440,9 @@
     return resolved;
   }
 
+  /**
+   * @deprecated Prefer boot.viewAssembly.assemble; kept for __mei.view_assembly_v2 rollback.
+   */
   async function negotiateAndAssemble(ctx, options) {
     const opts = options || {};
     const viewCtx =
@@ -469,18 +473,20 @@
       if (opts.surfaceSwitch) {
         clearSurfaceRuntimeWarmedForApp(vrCtx);
       }
-      if (typeof boot.switchSurfacePanel === "function") {
-        boot.switchSurfacePanel(surface);
-      } else if (surface === "layout" || surface === "prototype") {
-        if (typeof boot.installManageTabs === "function") {
-          boot.installManageTabs();
+      if (!opts.skipComplete) {
+        if (typeof boot.switchSurfacePanel === "function") {
+          boot.switchSurfacePanel(surface);
+        } else if (surface === "layout" || surface === "prototype") {
+          if (typeof boot.installManageTabs === "function") {
+            boot.installManageTabs();
+          }
+          if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+            globalThis.MeiBuildTreePersist.refresh();
+          }
         }
-        if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
-          globalThis.MeiBuildTreePersist.refresh();
+        if (typeof boot.syncTopbarActiveState === "function") {
+          boot.syncTopbarActiveState(surface);
         }
-      }
-      if (typeof boot.syncTopbarActiveState === "function") {
-        boot.syncTopbarActiveState(surface);
       }
       if (typeof boot.rememberViewRevision === "function" && result.response) {
         const rememberPayload = {

@@ -54,9 +54,10 @@
     );
   }
 
-  function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
+  function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl, workOpts) {
     void (async () => {
       try {
+        const postOpts = workOpts || {};
         if (navigationId != null && navigationId !== currentNavigationId) return;
         if (!preserveManageWorkspaceFromUrls(currentUrl, nextUrl)) {
           const bundlesReady = await ensureHostBundlesFromDoc(
@@ -79,6 +80,7 @@
           (typeof isWorkspaceSurfaceRoute === "function" &&
             isWorkspaceSurfaceRoute(nextUrl.pathname));
         if (
+          !postOpts.skipViewAssembly &&
           workspaceSurface &&
           sceneCtx &&
           boot.viewAssembly?.assemble &&
@@ -116,7 +118,11 @@
           }
           syncManageTabFromUrl(url);
         }
-        if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
+        const runManagePreview =
+          (typeof isWorkspaceSurfaceUrl === "function" && isWorkspaceSurfaceUrl(url)) ||
+          (typeof isWorkspaceSurfaceUrl === "function" && isWorkspaceSurfaceUrl(nextUrl.href)) ||
+          shouldRunBuildPreviewRuntimeForUrl(nextUrl.href);
+        if (runManagePreview) {
           const skipWake = ssrPreviewMaterialized(doc);
           if (!skipWake) {
             publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });

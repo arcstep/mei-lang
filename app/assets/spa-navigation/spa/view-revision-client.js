@@ -54,6 +54,19 @@
     return refs;
   }
 
+  function defaultReviewProjectionForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "layout") return "plane_region_section";
+    if (slug === "prototype") return "static_full";
+    return "live_full";
+  }
+
+  function defaultDataModeForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "layout" || slug === "prototype") return "static";
+    return "eval";
+  }
+
   function buildComposeRequest(ctx) {
     const resolveSurface =
       boot.sceneManifestLoader?.resolveWorkspaceSurface ||
@@ -63,14 +76,16 @@
       ((surface) => (surface === "layout" || surface === "prototype" ? "preview" : "scene"));
     const surface = resolveSurface(ctx.surface || ctx.mode || "app");
     const tab = String(ctx.tab || "").trim() || defaultTab(surface);
+    const reviewFromCtx = String(ctx.review_projection || ctx.reviewProjection || "").trim();
+    const dataFromCtx = String(ctx.data_mode || ctx.dataMode || "").trim();
     return {
       route_mode: surface,
       tab,
-      chrome: ctx.chrome || "",
-      review_projection: ctx.review_projection || ctx.reviewProjection || "",
-      data_mode: ctx.data_mode || ctx.dataMode || "",
-      focus: ctx.focus || "",
-      scope: ctx.scope || "",
+      chrome: String(ctx.chrome || "").trim(),
+      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
+      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
+      focus: String(ctx.focus || "").trim(),
+      scope: String(ctx.scope || "").trim(),
     };
   }
 
@@ -407,7 +422,10 @@
         };
       }
     }
-    let result = await negotiateViewRevision(ctx, { signal: opts.signal });
+    let result = await negotiateViewRevision(ctx, {
+      signal: opts.signal,
+      omit_digests: opts.surfaceSwitch === true,
+    });
     let plan = result.plan || {
       manifest: result.response?.manifest || null,
       layer_refs: result.response?.assembly_plan?.layer_refs || {},

@@ -227,17 +227,16 @@
 
   function readSharedManifestDigest(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
-    const semantic = semanticRevisionKey(resolved);
-    if (!semantic) return "";
-    const store = readViewRevisionStore();
-    for (const [key, entry] of Object.entries(store)) {
-      if (!key.startsWith(`${semantic}::`)) continue;
-      const digest = String(entry?.manifest_revision_digest || "").trim();
-      if (digest) return digest;
+    const stored = readViewRevision(resolved);
+    if (stored?.manifest_revision_digest) {
+      return String(stored.manifest_revision_digest).trim();
+    }
+    if (!ssrManifestMatchesSurface(resolved)) {
+      return "";
     }
     const refs = globalThis.__mei?.scene_manifest_refs;
     if (refs?.revision_digest) {
-      return String(refs.revision_digest || "").trim();
+      return String(refs.revision_digest || refs.manifest_revision_digest || "").trim();
     }
     return "";
   }
@@ -299,15 +298,10 @@
   function readClientDigests(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
     const stored = readViewRevision(resolved);
-    const manifest_revision_digest = String(
-      stored?.manifest_revision_digest || readSharedManifestDigest(resolved) || "",
-    ).trim();
+    const manifest_revision_digest = String(stored?.manifest_revision_digest || "").trim();
     const surface_revision_digest = String(stored?.surface_revision_digest || "").trim();
     if (manifest_revision_digest && surface_revision_digest) {
       return { manifest_revision_digest, surface_revision_digest };
-    }
-    if (manifest_revision_digest) {
-      return { manifest_revision_digest, surface_revision_digest: "" };
     }
     if (!ssrManifestMatchesSurface(resolved)) {
       return { manifest_revision_digest: "", surface_revision_digest: "" };

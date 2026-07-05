@@ -60,6 +60,26 @@ fn parse_bool_flag(value: Option<&str>) -> bool {
     )
 }
 
+fn blank_option(value: &mut Option<String>) {
+    if value
+        .as_ref()
+        .map(|part| part.trim().is_empty())
+        .unwrap_or(false)
+    {
+        *value = None;
+    }
+}
+
+fn normalize_compose_request(compose: &mut mei_host_graph::ComposeRequest) {
+    blank_option(&mut compose.route_mode);
+    blank_option(&mut compose.tab);
+    blank_option(&mut compose.chrome);
+    blank_option(&mut compose.review_projection);
+    blank_option(&mut compose.data_mode);
+    blank_option(&mut compose.focus);
+    blank_option(&mut compose.scope);
+}
+
 fn parse_compose_request(
     raw: Option<&str>,
     fallback: &mei_host_graph::ComposeRequest,
@@ -232,6 +252,7 @@ pub async fn api_host_view_revision(
 
     let fallback_compose = compose_from_query(&query, route_mode);
     let mut compose = parse_compose_request(query.compose.as_deref(), &fallback_compose);
+    normalize_compose_request(&mut compose);
     if compose.data_mode.is_none() {
         compose.data_mode = Some(axes.data_mode.slug().to_string());
     }

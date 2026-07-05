@@ -73,6 +73,7 @@
           null,
           null,
           new URL(window.location.href),
+          { skipViewAssembly: outcome.source === "coordinator" },
         );
       }
       if (

@@ -102,15 +102,23 @@
     return nodes.length > 0;
   }
 
-  function pickManifestShellLayer() {
+  function pickManifestShellLayer(surface) {
     const layers = globalThis.__mei?.scene_manifest_refs?.layers;
     if (!layers || typeof layers !== "object") return null;
+    const slug = String(surface || "app").trim().toLowerCase();
+    const bySurface = {
+      app: layers["shell.app"],
+      layout: layers["shell.layout"],
+      prototype: layers["shell.prototype"],
+      build: layers["shell.build"],
+      run: layers["shell.run"],
+    };
     return (
-      layers["shell.build"] ||
+      bySurface[slug] ||
+      layers[`shell.${slug}`] ||
       layers["shell.layout"] ||
       layers["shell.prototype"] ||
       layers["shell.app"] ||
-      layers["shell.run"] ||
       null
     );
   }
@@ -124,9 +132,15 @@
 
   function applyShellLayer(root, shellLayer) {
     if (!(root instanceof HTMLElement)) return;
+    const surface =
+      typeof boot.parseViewContext === "function"
+        ? String(boot.parseViewContext(global.location.href)?.surface || "app")
+            .trim()
+            .toLowerCase()
+        : "app";
     let doc = extractLayerDocument(shellLayer);
     if (isPlaceholderShellDoc(doc)) {
-      const manifestDoc = extractLayerDocument(pickManifestShellLayer());
+      const manifestDoc = extractLayerDocument(pickManifestShellLayer(surface));
       if (manifestDoc && !isPlaceholderShellDoc(manifestDoc)) {
         doc = manifestDoc;
       }

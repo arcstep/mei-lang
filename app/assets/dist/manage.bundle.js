@@ -24944,7 +24944,11 @@
   }
 
   function pulseManagePreview(detail, options) {
-    if (!shouldRunBuildPreviewRuntimeForUrl(window.location.href)) return;
+    const onWorkspaceSurface =
+      (typeof isWorkspaceSurfaceUrl === "function" &&
+        isWorkspaceSurfaceUrl(window.location.href)) ||
+      shouldRunBuildPreviewRuntimeForUrl(window.location.href);
+    if (!onWorkspaceSurface) return;
     const opts = options || {};
     const resetCache = opts.resetRuntimeQueryCache === true;
     dispatchManageContextChange(detail);
@@ -25741,17 +25745,16 @@
 
   function readSharedManifestDigest(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
-    const semantic = semanticRevisionKey(resolved);
-    if (!semantic) return "";
-    const store = readViewRevisionStore();
-    for (const [key, entry] of Object.entries(store)) {
-      if (!key.startsWith(`${semantic}::`)) continue;
-      const digest = String(entry?.manifest_revision_digest || "").trim();
-      if (digest) return digest;
+    const stored = readViewRevision(resolved);
+    if (stored?.manifest_revision_digest) {
+      return String(stored.manifest_revision_digest).trim();
+    }
+    if (!ssrManifestMatchesSurface(resolved)) {
+      return "";
     }
     const refs = globalThis.__mei?.scene_manifest_refs;
     if (refs?.revision_digest) {
-      return String(refs.revision_digest || "").trim();
+      return String(refs.revision_digest || refs.manifest_revision_digest || "").trim();
     }
     return "";
   }
@@ -25813,15 +25816,10 @@
   function readClientDigests(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
     const stored = readViewRevision(resolved);
-    const manifest_revision_digest = String(
-      stored?.manifest_revision_digest || readSharedManifestDigest(resolved) || "",
-    ).trim();
+    const manifest_revision_digest = String(stored?.manifest_revision_digest || "").trim();
     const surface_revision_digest = String(stored?.surface_revision_digest || "").trim();
     if (manifest_revision_digest && surface_revision_digest) {
       return { manifest_revision_digest, surface_revision_digest };
-    }
-    if (manifest_revision_digest) {
-      return { manifest_revision_digest, surface_revision_digest: "" };
     }
     if (!ssrManifestMatchesSurface(resolved)) {
       return { manifest_revision_digest: "", surface_revision_digest: "" };
@@ -26442,6 +26440,13 @@
       debounceTimer = null;
     }
     pendingIntent = null;
+    try {
+      global.document?.dispatchEvent(
+        new CustomEvent("mei:abort-runtime-queries", {
+          detail: { reason: "view_assembly_cancel", clearCaches: false },
+        }),
+      );
+    } catch (_) {}
     return assemblyGeneration;
   }
 
@@ -26507,6 +26512,9 @@
 
   async function phaseChrome(ctx, generation) {
     if (isStale(generation)) return;
+    if (typeof boot.ensureViewShellLayout === "function") {
+      boot.ensureViewShellLayout();
+    }
     if (typeof boot.applyHostChromeFromManifestRefs === "function") {
       boot.applyHostChromeFromManifestRefs();
     }
@@ -26558,8 +26566,15 @@
       if (outcome?.restored) {
         const layers = outcome.viewRevision?.assemble?.layers || outcome.layers || null;
         if (layers) notifyLayerResident("structure.full", layers, generation);
+        if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
         tracePhase("preview", generation, { ok: true, source: outcome.source });
-        return { outcome, assemble: outcome.viewRevision?.assemble || { ok: true, layers }, layers };
+        return {
+          outcome,
+          assemble: { ok: true, ...(outcome.viewRevision?.assemble || {}), layers },
+          layers,
+        };
       }
     }
     if (typeof boot.negotiateAndAssemble === "function") {
@@ -26577,6 +26592,9 @@
       if (manifest) {
         updateSceneManifestRefs(manifest, ctx.surface || ctx.mode);
       }
+    }
+    if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
+      boot.applyHostChromeFromManifestRefs();
     }
     tracePhase("preview", generation, { ok: !!result?.assemble?.ok });
     return result;
@@ -26628,14 +26646,14 @@
     const started = performance.now();
 
     await phasePanel(ctx, generation);
-    await phaseChrome(ctx, generation);
     await phaseStructureTree(ctx, generation, null, signal);
 
     const previewResult = await phasePreview(ctx, generation, opts, signal);
     const layers = previewResult?.assemble?.layers || previewResult?.layers;
     await phaseStructureTree(ctx, generation, layers, signal);
+    await phaseChrome(ctx, generation);
 
-    if (previewResult?.assemble?.ok === false) {
+    if (previewResult?.assemble?.ok !== true) {
       tracePhase("failed", generation, { ms: Math.round(performance.now() - started) });
       return { ok: false, generation, preview: previewResult };
     }
@@ -27065,6 +27083,19 @@
     return refs;
   }
 
+  function defaultReviewProjectionForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "layout") return "plane_region_section";
+    if (slug === "prototype") return "static_full";
+    return "live_full";
+  }
+
+  function defaultDataModeForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "layout" || slug === "prototype") return "static";
+    return "eval";
+  }
+
   function buildComposeRequest(ctx) {
     const resolveSurface =
       boot.sceneManifestLoader?.resolveWorkspaceSurface ||
@@ -27074,14 +27105,16 @@
       ((surface) => (surface === "layout" || surface === "prototype" ? "preview" : "scene"));
     const surface = resolveSurface(ctx.surface || ctx.mode || "app");
     const tab = String(ctx.tab || "").trim() || defaultTab(surface);
+    const reviewFromCtx = String(ctx.review_projection || ctx.reviewProjection || "").trim();
+    const dataFromCtx = String(ctx.data_mode || ctx.dataMode || "").trim();
     return {
       route_mode: surface,
       tab,
-      chrome: ctx.chrome || "",
-      review_projection: ctx.review_projection || ctx.reviewProjection || "",
-      data_mode: ctx.data_mode || ctx.dataMode || "",
-      focus: ctx.focus || "",
-      scope: ctx.scope || "",
+      chrome: String(ctx.chrome || "").trim(),
+      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
+      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
+      focus: String(ctx.focus || "").trim(),
+      scope: String(ctx.scope || "").trim(),
     };
   }
 
@@ -27418,7 +27451,10 @@
         };
       }
     }
-    let result = await negotiateViewRevision(ctx, { signal: opts.signal });
+    let result = await negotiateViewRevision(ctx, {
+      signal: opts.signal,
+      omit_digests: opts.surfaceSwitch === true,
+    });
     let plan = result.plan || {
       manifest: result.response?.manifest || null,
       layer_refs: result.response?.assembly_plan?.layer_refs || {},
@@ -28008,15 +28044,23 @@
     return nodes.length > 0;
   }
 
-  function pickManifestShellLayer() {
+  function pickManifestShellLayer(surface) {
     const layers = globalThis.__mei?.scene_manifest_refs?.layers;
     if (!layers || typeof layers !== "object") return null;
+    const slug = String(surface || "app").trim().toLowerCase();
+    const bySurface = {
+      app: layers["shell.app"],
+      layout: layers["shell.layout"],
+      prototype: layers["shell.prototype"],
+      build: layers["shell.build"],
+      run: layers["shell.run"],
+    };
     return (
-      layers["shell.build"] ||
+      bySurface[slug] ||
+      layers[`shell.${slug}`] ||
       layers["shell.layout"] ||
       layers["shell.prototype"] ||
       layers["shell.app"] ||
-      layers["shell.run"] ||
       null
     );
   }
@@ -28030,9 +28074,15 @@
 
   function applyShellLayer(root, shellLayer) {
     if (!(root instanceof HTMLElement)) return;
+    const surface =
+      typeof boot.parseViewContext === "function"
+        ? String(boot.parseViewContext(global.location.href)?.surface || "app")
+            .trim()
+            .toLowerCase()
+        : "app";
     let doc = extractLayerDocument(shellLayer);
     if (isPlaceholderShellDoc(doc)) {
-      const manifestDoc = extractLayerDocument(pickManifestShellLayer());
+      const manifestDoc = extractLayerDocument(pickManifestShellLayer(surface));
       if (manifestDoc && !isPlaceholderShellDoc(manifestDoc)) {
         doc = manifestDoc;
       }
@@ -29730,6 +29780,7 @@
         return { ...resolved, restored: true, source: "coordinator" };
       }
     }
+    // Legacy fallback when view_assembly_v2 is disabled or coordinator assemble failed.
     let resolved = outcome || { restored: false };
     const surface = ctx?.surface || ctx?.mode || "app";
     const composeRoot =
@@ -29796,6 +29847,9 @@
     return resolved;
   }
 
+  /**
+   * @deprecated Prefer boot.viewAssembly.assemble; kept for __mei.view_assembly_v2 rollback.
+   */
   async function negotiateAndAssemble(ctx, options) {
     const opts = options || {};
     const viewCtx =
@@ -29826,18 +29880,20 @@
       if (opts.surfaceSwitch) {
         clearSurfaceRuntimeWarmedForApp(vrCtx);
       }
-      if (typeof boot.switchSurfacePanel === "function") {
-        boot.switchSurfacePanel(surface);
-      } else if (surface === "layout" || surface === "prototype") {
-        if (typeof boot.installManageTabs === "function") {
-          boot.installManageTabs();
+      if (!opts.skipComplete) {
+        if (typeof boot.switchSurfacePanel === "function") {
+          boot.switchSurfacePanel(surface);
+        } else if (surface === "layout" || surface === "prototype") {
+          if (typeof boot.installManageTabs === "function") {
+            boot.installManageTabs();
+          }
+          if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+            globalThis.MeiBuildTreePersist.refresh();
+          }
         }
-        if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
-          globalThis.MeiBuildTreePersist.refresh();
+        if (typeof boot.syncTopbarActiveState === "function") {
+          boot.syncTopbarActiveState(surface);
         }
-      }
-      if (typeof boot.syncTopbarActiveState === "function") {
-        boot.syncTopbarActiveState(surface);
       }
       if (typeof boot.rememberViewRevision === "function" && result.response) {
         const rememberPayload = {
@@ -31453,9 +31509,10 @@
     );
   }
 
-  function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
+  function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl, workOpts) {
     void (async () => {
       try {
+        const postOpts = workOpts || {};
         if (navigationId != null && navigationId !== currentNavigationId) return;
         if (!preserveManageWorkspaceFromUrls(currentUrl, nextUrl)) {
           const bundlesReady = await ensureHostBundlesFromDoc(
@@ -31478,6 +31535,7 @@
           (typeof isWorkspaceSurfaceRoute === "function" &&
             isWorkspaceSurfaceRoute(nextUrl.pathname));
         if (
+          !postOpts.skipViewAssembly &&
           workspaceSurface &&
           sceneCtx &&
           boot.viewAssembly?.assemble &&
@@ -31515,7 +31573,11 @@
           }
           syncManageTabFromUrl(url);
         }
-        if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
+        const runManagePreview =
+          (typeof isWorkspaceSurfaceUrl === "function" && isWorkspaceSurfaceUrl(url)) ||
+          (typeof isWorkspaceSurfaceUrl === "function" && isWorkspaceSurfaceUrl(nextUrl.href)) ||
+          shouldRunBuildPreviewRuntimeForUrl(nextUrl.href);
+        if (runManagePreview) {
           const skipWake = ssrPreviewMaterialized(doc);
           if (!skipWake) {
             publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
@@ -31618,6 +31680,17 @@
     if (global.document?.body instanceof HTMLElement) {
       global.document.body.setAttribute("data-surface", slug);
       global.document.body.setAttribute("data-mei-view", slug);
+      if (slug === "prototype") {
+        global.document.body.setAttribute("data-mei-prototype", "true");
+        global.document.body.setAttribute("data-data-mode", "static");
+      } else {
+        global.document.body.removeAttribute("data-mei-prototype");
+        if (slug === "layout") {
+          global.document.body.setAttribute("data-data-mode", "static");
+        } else {
+          global.document.body.removeAttribute("data-data-mode");
+        }
+      }
     }
     if (showWorkspace) {
       if (typeof boot.installManageTabs === "function") {
@@ -31727,15 +31800,31 @@
       if (boot.viewAssembly?.assemble && globalThis.__mei?.view_assembly_v2 !== false) {
         const assembled = await boot.viewAssembly.assemble(
           { kind: "surface_switch", ...nextCtx, url: canonicalUrl, previousSurface },
-          { debounce: true },
+          { debounce: false, previousSurface },
         );
-        negotiated = assembled?.preview || null;
+        if (navigationId && typeof boot.markLoadingRenderSwapDone === "function") {
+          boot.markLoadingRenderSwapDone(navigationId);
+        }
         if (!assembled?.ok) {
           if (typeof boot.showThinShellFallback === "function") {
             boot.showThinShellFallback("视图切换失败，请刷新后重试。");
           }
           return false;
         }
+        if (typeof boot.hideThinShellFallback === "function") {
+          boot.hideThinShellFallback();
+        }
+        if (typeof runPostSpaWork === "function") {
+          runPostSpaWork(
+            global.document,
+            canonicalUrl,
+            navigationId || null,
+            null,
+            new URL(canonicalUrl, global.location.href),
+            { skipViewAssembly: true },
+          );
+        }
+        return true;
       } else if (typeof boot.negotiateAndAssemble === "function") {
         negotiated = await boot.negotiateAndAssemble(
           { ...nextCtx, url: canonicalUrl },
@@ -31781,6 +31870,7 @@
         navigationId || null,
         null,
         new URL(canonicalUrl, global.location.href),
+        { skipViewAssembly: true },
       );
     }
     return true;
@@ -32289,6 +32379,7 @@
           null,
           null,
           new URL(window.location.href),
+          { skipViewAssembly: outcome.source === "coordinator" },
         );
       }
       if (

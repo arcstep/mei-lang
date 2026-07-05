@@ -39,6 +39,17 @@
     if (global.document?.body instanceof HTMLElement) {
       global.document.body.setAttribute("data-surface", slug);
       global.document.body.setAttribute("data-mei-view", slug);
+      if (slug === "prototype") {
+        global.document.body.setAttribute("data-mei-prototype", "true");
+        global.document.body.setAttribute("data-data-mode", "static");
+      } else {
+        global.document.body.removeAttribute("data-mei-prototype");
+        if (slug === "layout") {
+          global.document.body.setAttribute("data-data-mode", "static");
+        } else {
+          global.document.body.removeAttribute("data-data-mode");
+        }
+      }
     }
     if (showWorkspace) {
       if (typeof boot.installManageTabs === "function") {
@@ -148,15 +159,31 @@
       if (boot.viewAssembly?.assemble && globalThis.__mei?.view_assembly_v2 !== false) {
         const assembled = await boot.viewAssembly.assemble(
           { kind: "surface_switch", ...nextCtx, url: canonicalUrl, previousSurface },
-          { debounce: true },
+          { debounce: false, previousSurface },
         );
-        negotiated = assembled?.preview || null;
+        if (navigationId && typeof boot.markLoadingRenderSwapDone === "function") {
+          boot.markLoadingRenderSwapDone(navigationId);
+        }
         if (!assembled?.ok) {
           if (typeof boot.showThinShellFallback === "function") {
             boot.showThinShellFallback("视图切换失败，请刷新后重试。");
           }
           return false;
         }
+        if (typeof boot.hideThinShellFallback === "function") {
+          boot.hideThinShellFallback();
+        }
+        if (typeof runPostSpaWork === "function") {
+          runPostSpaWork(
+            global.document,
+            canonicalUrl,
+            navigationId || null,
+            null,
+            new URL(canonicalUrl, global.location.href),
+            { skipViewAssembly: true },
+          );
+        }
+        return true;
       } else if (typeof boot.negotiateAndAssemble === "function") {
         negotiated = await boot.negotiateAndAssemble(
           { ...nextCtx, url: canonicalUrl },
@@ -202,6 +229,7 @@
         navigationId || null,
         null,
         new URL(canonicalUrl, global.location.href),
+        { skipViewAssembly: true },
       );
     }
     return true;

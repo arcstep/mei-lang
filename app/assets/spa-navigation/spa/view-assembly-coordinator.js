@@ -61,6 +61,13 @@
       debounceTimer = null;
     }
     pendingIntent = null;
+    try {
+      global.document?.dispatchEvent(
+        new CustomEvent("mei:abort-runtime-queries", {
+          detail: { reason: "view_assembly_cancel", clearCaches: false },
+        }),
+      );
+    } catch (_) {}
     return assemblyGeneration;
   }
 
@@ -126,6 +133,9 @@
 
   async function phaseChrome(ctx, generation) {
     if (isStale(generation)) return;
+    if (typeof boot.ensureViewShellLayout === "function") {
+      boot.ensureViewShellLayout();
+    }
     if (typeof boot.applyHostChromeFromManifestRefs === "function") {
       boot.applyHostChromeFromManifestRefs();
     }
@@ -177,8 +187,15 @@
       if (outcome?.restored) {
         const layers = outcome.viewRevision?.assemble?.layers || outcome.layers || null;
         if (layers) notifyLayerResident("structure.full", layers, generation);
+        if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
         tracePhase("preview", generation, { ok: true, source: outcome.source });
-        return { outcome, assemble: outcome.viewRevision?.assemble || { ok: true, layers }, layers };
+        return {
+          outcome,
+          assemble: { ok: true, ...(outcome.viewRevision?.assemble || {}), layers },
+          layers,
+        };
       }
     }
     if (typeof boot.negotiateAndAssemble === "function") {
@@ -196,6 +213,9 @@
       if (manifest) {
         updateSceneManifestRefs(manifest, ctx.surface || ctx.mode);
       }
+    }
+    if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
+      boot.applyHostChromeFromManifestRefs();
     }
     tracePhase("preview", generation, { ok: !!result?.assemble?.ok });
     return result;
@@ -247,14 +267,14 @@
     const started = performance.now();
 
     await phasePanel(ctx, generation);
-    await phaseChrome(ctx, generation);
     await phaseStructureTree(ctx, generation, null, signal);
 
     const previewResult = await phasePreview(ctx, generation, opts, signal);
     const layers = previewResult?.assemble?.layers || previewResult?.layers;
     await phaseStructureTree(ctx, generation, layers, signal);
+    await phaseChrome(ctx, generation);
 
-    if (previewResult?.assemble?.ok === false) {
+    if (previewResult?.assemble?.ok !== true) {
       tracePhase("failed", generation, { ms: Math.round(performance.now() - started) });
       return { ok: false, generation, preview: previewResult };
     }

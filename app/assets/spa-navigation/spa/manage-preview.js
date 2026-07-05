@@ -24,7 +24,11 @@
   }
 
   function pulseManagePreview(detail, options) {
-    if (!shouldRunBuildPreviewRuntimeForUrl(window.location.href)) return;
+    const onWorkspaceSurface =
+      (typeof isWorkspaceSurfaceUrl === "function" &&
+        isWorkspaceSurfaceUrl(window.location.href)) ||
+      shouldRunBuildPreviewRuntimeForUrl(window.location.href);
+    if (!onWorkspaceSurface) return;
     const opts = options || {};
     const resetCache = opts.resetRuntimeQueryCache === true;
     dispatchManageContextChange(detail);

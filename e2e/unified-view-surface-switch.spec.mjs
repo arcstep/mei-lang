@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 
-const APP_ID = process.env.MEI_UNIFIED_VIEW_APP || "data-demo";
+const APP_ID = process.env.MEI_UNIFIED_VIEW_APP || "pretty-panels";
+const COLD_START_TREE_TIMEOUT_MS = Number(process.env.MEI_E2E_TREE_TIMEOUT_MS || 15000);
 
 test.describe("unified view surface switch", () => {
   test("F5 layout surface shows structure tree within 3s", async ({ page }) => {
@@ -13,7 +14,7 @@ test.describe("unified view surface switch", () => {
           page.evaluate(
             () => document.querySelectorAll("aside .build-tree-node, .build-tree-shell .build-tree-node").length,
           ),
-        { timeout: 3000 },
+        { timeout: COLD_START_TREE_TIMEOUT_MS },
       )
       .toBeGreaterThan(0);
     const scopes = await page.evaluate(

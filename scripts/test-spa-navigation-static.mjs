@@ -34,6 +34,22 @@ const coordinatorSrc = await readFile(
   "utf8",
 );
 assert.match(coordinatorSrc, /boot\.viewAssembly\s*=\s*\{[\s\S]*assemble/, "coordinator must export assemble");
+const previewIdx = coordinatorSrc.indexOf("await phasePreview(");
+const chromeIdx = coordinatorSrc.indexOf("await phaseChrome(");
+assert.ok(previewIdx >= 0 && chromeIdx > previewIdx, "phaseChrome must run after phasePreview");
+
+const viewRevisionClientSrc = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/view-revision-client.js"),
+  "utf8",
+);
+assert.match(viewRevisionClientSrc, /defaultReviewProjectionForSurface/, "compose defaults required");
+assert.match(viewRevisionClientSrc, /omit_digests/, "surface_switch omit_digests required");
+
+const revisionContractSrc = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/revision-contract.js"),
+  "utf8",
+);
+assert.match(revisionContractSrc, /ssrManifestMatchesSurface/, "cross-surface digest guard required");
 
 const modulesPath = path.join(root, "scripts", "spa-navigation-modules.json");
 const moduleList = JSON.parse(await readFile(modulesPath, "utf8"));
