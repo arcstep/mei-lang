@@ -1141,6 +1141,7 @@ if (!customElements.get(TAG)) {
         this.layerControlEl.classList.add("mei-cockpit-floating-layer-control");
         this.layerControlEl.setAttribute("data-mei-overlay-role", "map_tools");
         const mounted = mountCockpitFloatingControl(this.layerControlEl, this);
+        this._portaledLayerControl = this.layerControlEl;
         if (mounted === "stage") {
           positionLayerControlNearAnchor(
             this.layerControlEl,
@@ -1150,7 +1151,6 @@ if (!customElements.get(TAG)) {
             gap,
           );
         } else {
-          this._portaledLayerControl = this.layerControlEl;
           positionLayerControlNearAnchorFixed(
             this.layerControlEl,
             this,
@@ -1651,7 +1651,7 @@ if (!customElements.get(TAG)) {
         navCtrl.style.pointerEvents = "";
       }
       const mount = mountCockpitFloatingControl(navCtrl, this);
-      if (mount === "body" || mount === "slot" || mount === "stage") {
+      if (mount === "body" || mount === "stage") {
         this._portaledNavCtrl = navCtrl;
       }
       this.positionCockpitNavCtrl(navCtrl);

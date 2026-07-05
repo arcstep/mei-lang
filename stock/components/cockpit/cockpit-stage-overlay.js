@@ -189,31 +189,9 @@ export function positionFocusInsetTopRightFixed(node, host, focusInsetPx, gap = 
   return true;
 }
 
-function resetFloatingControlPosition(node) {
-  if (!node) {
-    return;
-  }
-  node.style.position = "";
-  node.style.top = "";
-  node.style.right = "";
-  node.style.left = "";
-  node.style.bottom = "";
-  node.style.margin = "";
-  node.style.transform = "";
-  node.style.zIndex = "";
-}
-
 export function mountCockpitFloatingControl(node, host) {
-  const slot = resolveMapToolsMountSlot(host);
-  if (slot) {
-    if (node.parentElement !== slot) {
-      slot.appendChild(node);
-    }
-    node.classList.add("mei-cockpit-in-viewport-slot");
-    node.classList.remove("mei-cockpit-in-stage-shell");
-    node.setAttribute("data-mei-overlay-role", "map_tools");
-    return "slot";
-  }
+  // map_tools 必须挂在 preview-stage 的 mei-cockpit-map-tools-plane，
+  // 才能高于全部 T1 section（含左右 rail），且低于 T2；不可挂入 map-tools-slot 局部 stacking context。
   const stage = resolveCockpitStageSurface(host);
   if (stage && mountCockpitMapToolsOverlay(node, host)) {
     node.classList.remove("mei-cockpit-in-viewport-slot");
@@ -223,15 +201,12 @@ export function mountCockpitFloatingControl(node, host) {
     document.body.appendChild(node);
   }
   node.classList.remove("mei-cockpit-in-stage-shell", "mei-cockpit-in-viewport-slot");
+  node.setAttribute("data-mei-overlay-role", "map_tools");
   return "body";
 }
 
 export function positionCockpitFloatingNav(node, host, focusInsetPx, gap = 10) {
   const mount = mountCockpitFloatingControl(node, host);
-  if (mount === "slot") {
-    resetFloatingControlPosition(node);
-    return mount;
-  }
   if (mount === "stage") {
     positionFocusInsetTopRight(node, host, focusInsetPx, gap);
     return mount;
