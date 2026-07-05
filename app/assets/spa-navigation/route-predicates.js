@@ -138,3 +138,34 @@
     );
   }
 
+  /** `/apps/{app}/layout|prototype|app` → app id; legacy `/apps/build/{app}` → parts[2]. */
+  function appIdFromAppsPathname(pathname = window.location.pathname) {
+    const segments = pathSegments(pathname);
+    if (segments[0] !== "apps" || segments.length < 2) {
+      return "";
+    }
+    const surface = appSurfaceSlugFromPathname(pathname);
+    if (
+      WORKSPACE_SURFACE_SLUGS.has(surface) ||
+      surface === "app" ||
+      ACCESS_LIKE_ROUTE_SLUGS.has(surface)
+    ) {
+      return String(segments[1] || "").trim();
+    }
+    if (
+      (BUILD_ROUTE_SLUGS.has(segments[1]) || RUNTIME_ROUTE_SLUGS.has(segments[1]))
+      && segments.length >= 3
+    ) {
+      return String(segments[2] || "").trim();
+    }
+    if (ACCESS_LIKE_ROUTE_SLUGS.has(segments[1]) && segments.length >= 3) {
+      return String(segments[2] || "").trim();
+    }
+    return String(segments[1] || "").trim();
+  }
+
+  function workspaceSurfaceSlugFromAppsPathname(pathname = window.location.pathname) {
+    const surface = appSurfaceSlugFromPathname(pathname);
+    return WORKSPACE_SURFACE_SLUGS.has(surface) ? surface : "";
+  }
+

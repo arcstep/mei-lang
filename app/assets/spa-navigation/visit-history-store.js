@@ -44,6 +44,12 @@
     }
     const parts = path.split("/").filter(Boolean);
     if (parts[0] !== "apps") return "";
+    if (parts.length >= 3) {
+      const surface = String(parts[2] || "").toLowerCase();
+      if (surface === "layout" || surface === "prototype" || surface === "app") {
+        return parts[1] || "";
+      }
+    }
     const routeSlug = parts[1] || "";
     const known = new Set([
       "access",

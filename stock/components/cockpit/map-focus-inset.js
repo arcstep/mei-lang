@@ -22,8 +22,91 @@ export function cssLengthToPx(length) {
   return 0;
 }
 
+function isUnresolvedMeiRef(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return "__var" in value || "__member" in value || "__call" in value;
+}
+
+function hasUnresolvedMeiRefs(value) {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.some(hasUnresolvedMeiRefs);
+  }
+  if (isUnresolvedMeiRef(value)) {
+    return true;
+  }
+  return Object.values(value).some(hasUnresolvedMeiRefs);
+}
+
+function buildFocusInsetResult({
+  mode = "",
+  top,
+  right,
+  bottom,
+  left,
+  showFocusGuide = false,
+  focusFrameBorder = null,
+  focusFrameRadius = "4px",
+}) {
+  if (top === "0px" && right === "0px" && bottom === "0px" && left === "0px") {
+    return null;
+  }
+  return {
+    mode,
+    top,
+    right,
+    bottom,
+    left,
+    showFocusGuide,
+    focusFrameBorder,
+    focusFrameRadius,
+    focusInsetPx: {
+      top: cssLengthToPx(top),
+      right: cssLengthToPx(right),
+      bottom: cssLengthToPx(bottom),
+      left: cssLengthToPx(left),
+    },
+  };
+}
+
+/** 从 T1 stage-aperture-frame 实测观察窗，弥补 SSR 未展开的 geo.FOCUS_INSET。 */
+export function measureFocusInsetFromAperture(host) {
+  const stage = resolveCockpitStageSurface(host);
+  if (!stage) {
+    return null;
+  }
+  const frame = stage.querySelector('[data-mei-panel-name="stage-aperture-frame"]');
+  if (!(frame instanceof HTMLElement)) {
+    return null;
+  }
+  const designW = stage.offsetWidth || 1920;
+  const designH = stage.offsetHeight || 1080;
+  const stageRect = stage.getBoundingClientRect();
+  const frameRect = frame.getBoundingClientRect();
+  if (stageRect.width <= 0 || stageRect.height <= 0) {
+    return null;
+  }
+  const scaleX = designW / stageRect.width;
+  const scaleY = designH / stageRect.height;
+  const top = Math.max(0, Math.round((frameRect.top - stageRect.top) * scaleY));
+  const left = Math.max(0, Math.round((frameRect.left - stageRect.left) * scaleX));
+  const right = Math.max(0, Math.round((stageRect.right - frameRect.right) * scaleX));
+  const bottom = Math.max(0, Math.round((stageRect.bottom - frameRect.bottom) * scaleY));
+  return buildFocusInsetResult({
+    mode: "cockpitBleed",
+    top: `${top}px`,
+    right: `${right}px`,
+    bottom: `${bottom}px`,
+    left: `${left}px`,
+  });
+}
+
 /** 驾驶舱全幅底图 + 中间观察区：解析 focusInset */
-export function resolveMapFocusInset(props, basemap = {}) {
+export function resolveMapFocusInset(props, basemap = {}, host = null) {
   const mapSpec = props.mapSpec || props.map || {};
   const raw =
     props.mapViewport ||
@@ -37,15 +120,21 @@ export function resolveMapFocusInset(props, basemap = {}) {
     basemap.mapViewport ||
     basemap.focusInset;
   if (!raw || typeof raw !== "object") {
-    return null;
+    return measureFocusInsetFromAperture(host);
   }
   const inset = raw.focusInset || raw.focus_inset || raw;
+  if (hasUnresolvedMeiRefs(raw) || hasUnresolvedMeiRefs(inset)) {
+    const measured = measureFocusInsetFromAperture(host);
+    if (measured) {
+      return measured;
+    }
+  }
   const top = cssLength(inset.top ?? raw.top, "0px");
   const right = cssLength(inset.right ?? raw.right, "0px");
   const bottom = cssLength(inset.bottom ?? raw.bottom, "0px");
   const left = cssLength(inset.left ?? raw.left, "0px");
   if (top === "0px" && right === "0px" && bottom === "0px" && left === "0px") {
-    return null;
+    return measureFocusInsetFromAperture(host);
   }
   const mode = String(raw.mode || raw.layoutMode || raw.layout_mode || "").trim();
   const explicitGuideOff =
@@ -88,7 +177,7 @@ export function resolveMapFocusInset(props, basemap = {}) {
   if (showFocusGuide && !focusFrameBorder) {
     focusFrameBorder = "2px dashed #facc15";
   }
-  return {
+  return buildFocusInsetResult({
     mode,
     top,
     right,
@@ -97,13 +186,7 @@ export function resolveMapFocusInset(props, basemap = {}) {
     showFocusGuide,
     focusFrameBorder,
     focusFrameRadius,
-    focusInsetPx: {
-      top: cssLengthToPx(top),
-      right: cssLengthToPx(right),
-      bottom: cssLengthToPx(bottom),
-      left: cssLengthToPx(left),
-    },
-  };
+  });
 }
 
 /** 访问态 contain 缩放后，将设计稿 focusInset 换算为视口坐标 */

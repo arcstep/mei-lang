@@ -9298,13 +9298,19 @@
 
   function viewRevisionCtxFromUrl(url) {
     const parsed = new URL(url, global.location.href);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const appId = parts[2] || "";
+    const appId =
+      typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(parsed.pathname)
+        : parsed.pathname.split("/").filter(Boolean)[2] || "";
     const node = resolveBuildNode(url);
+    const surface =
+      typeof workspaceSurfaceSlugFromAppsPathname === "function"
+        ? workspaceSurfaceSlugFromAppsPathname(parsed.pathname) || "build"
+        : "build";
     return {
       app_id: appId,
       scene_id: parsed.searchParams.get("scene") || "home",
-      surface: "build",
+      surface,
       node,
       data_mode: parsed.searchParams.get("data_mode") || "",
       review_projection: parsed.searchParams.get("review_projection") || "",
@@ -9357,8 +9363,10 @@
 
   async function fetchWorkspaceFragment(url) {
     const parsed = new URL(url, global.location.href);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const appId = parts[2] || "";
+    const appId =
+      typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(parsed.pathname)
+        : parsed.pathname.split("/").filter(Boolean)[2] || "";
     const node = resolveBuildNode(url);
     if (!node) {
       throw new Error("build workspace fragment requires resolved node id");
@@ -9646,9 +9654,9 @@
       }
       if (!payload?.preview_html && payload?.scene_manifest && boot.sceneManifestLoader && boot.viewCompositor) {
         const parsed = new URL(url, global.location.href);
-        const appId = parsed.pathname.split("/").filter(Boolean)[2] || "";
-        const sceneId = parsed.searchParams.get("scene") || "home";
         const ctx = viewRevisionCtxFromUrl(url);
+        const appId = ctx.app_id || "";
+        const sceneId = parsed.searchParams.get("scene") || "home";
         await boot.sceneManifestLoader.ensureLayers(
           [
             "structure.full",
@@ -9927,8 +9935,10 @@
   function buildFragmentRevisionCacheKey(urlLike) {
     try {
       const url = new URL(urlLike, global.location.href);
-      const parts = url.pathname.split("/").filter(Boolean);
-      const appId = parts[2] || "";
+      const appId =
+        typeof appIdFromAppsPathname === "function"
+          ? appIdFromAppsPathname(url.pathname)
+          : url.pathname.split("/").filter(Boolean)[2] || "";
       const shell = global.document?.querySelector?.(".shell[data-build-node]");
       const shellAxes =
         shell instanceof HTMLElement
@@ -10050,8 +10060,10 @@
       }
     }
     const url = new URL(urlLike, global.location.href);
-    const parts = url.pathname.split("/").filter(Boolean);
-    const appId = parts[2] || "";
+    const appId =
+      typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(url.pathname)
+        : url.pathname.split("/").filter(Boolean)[2] || "";
     const node = resolveBuildFragmentNode(urlLike);
     if (!node) {
       if (typeof boot.cacheDiagTrace === "function") {
@@ -13344,6 +13356,12 @@
     }
     const parts = path.split("/").filter(Boolean);
     if (parts[0] !== "apps") return "";
+    if (parts.length >= 3) {
+      const surface = String(parts[2] || "").toLowerCase();
+      if (surface === "layout" || surface === "prototype" || surface === "app") {
+        return parts[1] || "";
+      }
+    }
     const routeSlug = parts[1] || "";
     const known = new Set([
       "access",
@@ -14133,6 +14151,37 @@
       path.startsWith("/apps/build/") ||
       path.startsWith("/apps/manage/")
     );
+  }
+
+  /** `/apps/{app}/layout|prototype|app` → app id; legacy `/apps/build/{app}` → parts[2]. */
+  function appIdFromAppsPathname(pathname = window.location.pathname) {
+    const segments = pathSegments(pathname);
+    if (segments[0] !== "apps" || segments.length < 2) {
+      return "";
+    }
+    const surface = appSurfaceSlugFromPathname(pathname);
+    if (
+      WORKSPACE_SURFACE_SLUGS.has(surface) ||
+      surface === "app" ||
+      ACCESS_LIKE_ROUTE_SLUGS.has(surface)
+    ) {
+      return String(segments[1] || "").trim();
+    }
+    if (
+      (BUILD_ROUTE_SLUGS.has(segments[1]) || RUNTIME_ROUTE_SLUGS.has(segments[1]))
+      && segments.length >= 3
+    ) {
+      return String(segments[2] || "").trim();
+    }
+    if (ACCESS_LIKE_ROUTE_SLUGS.has(segments[1]) && segments.length >= 3) {
+      return String(segments[2] || "").trim();
+    }
+    return String(segments[1] || "").trim();
+  }
+
+  function workspaceSurfaceSlugFromAppsPathname(pathname = window.location.pathname) {
+    const surface = appSurfaceSlugFromPathname(pathname);
+    return WORKSPACE_SURFACE_SLUGS.has(surface) ? surface : "";
   }
 
 

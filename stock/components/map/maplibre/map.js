@@ -47,6 +47,7 @@ import {
 } from "../../cockpit/cockpit-stage-overlay.js";
 import {
   focusInsetCssVars,
+  measureFocusInsetFromAperture,
   resolveCockpitStageMetrics,
   resolveMapFocusInset,
   applyFocusFrameGuide,
@@ -654,7 +655,7 @@ if (!customElements.get(TAG)) {
           this._propsSignature = signature;
           const props = this.effectiveProps();
           const { basemap, layers } = normalizeMapSpec(props, this);
-          const layout = resolveMapLayout(props, basemap);
+          const layout = resolveMapLayout(props, basemap, this);
           this._layout = layout;
           this.applyViewportChrome(layout);
           this.renderLayerControl(layers, props);
@@ -681,7 +682,7 @@ if (!customElements.get(TAG)) {
           this._runtimeLayerProps = null;
           this._syncLayersTask = null;
           this._layerMetricsTask = null;
-          const layout = resolveMapLayout(domProps, basemap);
+          const layout = resolveMapLayout(domProps, basemap, this);
           this._layout = layout;
           this.applyViewportChrome(layout);
           this.renderLayerControl(layers, domProps);
@@ -689,7 +690,7 @@ if (!customElements.get(TAG)) {
         } else {
           const props = this.effectiveProps();
           const { basemap, layers } = normalizeMapSpec(props, this);
-          const layout = resolveMapLayout(props, basemap);
+          const layout = resolveMapLayout(props, basemap, this);
           this._layout = layout;
           this.applyViewportChrome(layout);
           this.renderLayerControl(layers, props);
@@ -2020,8 +2021,7 @@ function stableMapContentSignature(props, host) {
   }
 }
 
-function resolveMapLayout(props, basemap = {}) {
-  const focusInset = resolveMapFocusInset(props, basemap);
+function resolveMapLayout(props, basemap = {}, host = null) {
   const fill =
     props.mapFill === true ||
     props.mapFill === "true" ||
@@ -2029,13 +2029,18 @@ function resolveMapLayout(props, basemap = {}) {
   const mode = String(
     props.mapLayoutMode ||
       props.map_layout_mode ||
-      focusInset?.mode ||
       "",
   ).trim();
+  let focusInset = resolveMapFocusInset(props, basemap, host);
   const cockpitBleed =
     mode === "cockpitBleed" ||
     mode === "cockpit_bleed" ||
+    focusInset?.mode === "cockpitBleed" ||
+    focusInset?.mode === "cockpit_bleed" ||
     (focusInset != null && fill);
+  if (cockpitBleed && !focusInset && host) {
+    focusInset = measureFocusInsetFromAperture(host);
+  }
 
   if (cockpitBleed && focusInset) {
     const vars = focusInsetCssVars(focusInset);

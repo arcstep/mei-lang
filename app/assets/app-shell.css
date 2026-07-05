@@ -2117,6 +2117,27 @@ body > .mei-floating-text-pop-backdrop {
   bottom: auto;
   pointer-events: none;
 }
+.preview-card[data-mei-panel-name="map-tools-slot"] {
+  justify-self: end;
+  align-self: start;
+  width: max-content;
+  min-width: max-content;
+  height: max-content;
+  overflow: visible;
+  z-index: calc(var(--mei-z-cockpit-map-tools) + 2);
+}
+.preview-card[data-mei-panel-name="center_rail"] {
+  pointer-events: none;
+}
+.preview-card[data-mei-panel-name="map_viewport"] {
+  pointer-events: none;
+}
+.preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="indicator_system"],
+.preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="realtime_table"],
+.preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="map-tools-slot"],
+.preview-card[data-mei-panel-name="center_rail"] .preview-card[data-mei-panel-name="map_viewport"] .preview-card[data-mei-panel-name="map-tools-slot"] {
+  pointer-events: auto;
+}
 /* T0–C 上下文浮层（layer2 内） */
 #mei-layer2-workspace > .mei-viewport-context-plane {
   position: absolute;

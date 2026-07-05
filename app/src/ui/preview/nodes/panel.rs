@@ -23,6 +23,36 @@ use super::component::{block_view_for_decl, panel_ref_embed_removed_view};
 const SLOT_HEAD: &str = "head";
 const SLOT_BODY: &str = "body";
 
+fn structure_workspace_runtime_panel_always_visible(panel: &PanelDecl) -> bool {
+    matches!(panel.id.as_str(), "gis-map" | "gis_map_layer" | "map_stage")
+}
+
+fn viewport_chrome_panel_always_visible(panel: &PanelDecl) -> bool {
+    const CHROME_ROLES: &[&str] = &[
+        "viewport",
+        "viewport_frame",
+        "map_tools",
+        "map_interaction_surface",
+        "stage_aperture",
+    ];
+    if panel
+        .props
+        .get("__mei_chrome_role")
+        .and_then(|value| value.as_str())
+        .is_some_and(|role| CHROME_ROLES.contains(&role))
+    {
+        return true;
+    }
+    matches!(
+        panel.id.as_str(),
+        "map-viewport"
+            | "map-interaction-surface"
+            | "map-tools-slot"
+            | "stage-aperture-frame"
+            | "stage-aperture-hint"
+    )
+}
+
 fn panel_in_build_preview_scope(panel_path: &str, scope: &str) -> bool {
     let scope_tail = scope
         .split('/')
@@ -235,7 +265,10 @@ pub(crate) fn panel_view(
         None => (None, None, None),
     };
     let role_for_projection = ui_role_attr.as_deref().unwrap_or("content");
-    if !runtime_ctx.ui_role_allowed_for_projection(role_for_projection) {
+    let force_viewport_chrome =
+        viewport_chrome_panel_always_visible(panel)
+            || structure_workspace_runtime_panel_always_visible(panel);
+    if !force_viewport_chrome && !runtime_ctx.ui_role_allowed_for_projection(role_for_projection) {
         if runtime_ctx.omit_beyond_projection_depth {
             return view! { <></> }.into_any();
         }

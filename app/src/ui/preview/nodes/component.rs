@@ -16,6 +16,19 @@ use crate::ui::preview::{
 
 use super::panel::block_ordinal_in_panel;
 
+fn force_structure_workspace_runtime_component(
+    use_key: &str,
+    runtime_ctx: &PreviewRuntimeContext,
+) -> bool {
+    if !runtime_ctx.omit_beyond_projection_depth {
+        return false;
+    }
+    matches!(
+        use_key,
+        "map.maplibre" | "map.basemap-stage" | "cockpit.world-stage" | "mei.world-stage"
+    )
+}
+
 pub(super) fn panel_ref_embed_removed_view(
     embed: &PanelRefEmbedDecl,
     parent_layout: Option<&mei_lang_kernel::LayoutDecl>,
@@ -166,7 +179,9 @@ pub(crate) fn block_view_for_decl(
         .as_ref()
         .map(|annotation| annotation.role.as_str())
         .unwrap_or("content");
-    if !runtime_ctx.ui_role_allowed_for_projection(block_role) {
+    if !force_structure_workspace_runtime_component(block.use_key.as_str(), runtime_ctx)
+        && !runtime_ctx.ui_role_allowed_for_projection(block_role)
+    {
         return view! { <></> }.into_any();
     }
     let build_node_id = if runtime_ctx.structure_anchors_enabled {

@@ -195,13 +195,19 @@
 
   function viewRevisionCtxFromUrl(url) {
     const parsed = new URL(url, global.location.href);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const appId = parts[2] || "";
+    const appId =
+      typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(parsed.pathname)
+        : parsed.pathname.split("/").filter(Boolean)[2] || "";
     const node = resolveBuildNode(url);
+    const surface =
+      typeof workspaceSurfaceSlugFromAppsPathname === "function"
+        ? workspaceSurfaceSlugFromAppsPathname(parsed.pathname) || "build"
+        : "build";
     return {
       app_id: appId,
       scene_id: parsed.searchParams.get("scene") || "home",
-      surface: "build",
+      surface,
       node,
       data_mode: parsed.searchParams.get("data_mode") || "",
       review_projection: parsed.searchParams.get("review_projection") || "",
@@ -254,8 +260,10 @@
 
   async function fetchWorkspaceFragment(url) {
     const parsed = new URL(url, global.location.href);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    const appId = parts[2] || "";
+    const appId =
+      typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(parsed.pathname)
+        : parsed.pathname.split("/").filter(Boolean)[2] || "";
     const node = resolveBuildNode(url);
     if (!node) {
       throw new Error("build workspace fragment requires resolved node id");
@@ -543,9 +551,9 @@
       }
       if (!payload?.preview_html && payload?.scene_manifest && boot.sceneManifestLoader && boot.viewCompositor) {
         const parsed = new URL(url, global.location.href);
-        const appId = parsed.pathname.split("/").filter(Boolean)[2] || "";
-        const sceneId = parsed.searchParams.get("scene") || "home";
         const ctx = viewRevisionCtxFromUrl(url);
+        const appId = ctx.app_id || "";
+        const sceneId = parsed.searchParams.get("scene") || "home";
         await boot.sceneManifestLoader.ensureLayers(
           [
             "structure.full",

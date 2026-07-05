@@ -46,8 +46,10 @@
   function buildFragmentRevisionCacheKey(urlLike) {
     try {
       const url = new URL(urlLike, global.location.href);
-      const parts = url.pathname.split("/").filter(Boolean);
-      const appId = parts[2] || "";
+      const appId =
+        typeof appIdFromAppsPathname === "function"
+          ? appIdFromAppsPathname(url.pathname)
+          : url.pathname.split("/").filter(Boolean)[2] || "";
       const shell = global.document?.querySelector?.(".shell[data-build-node]");
       const shellAxes =
         shell instanceof HTMLElement
@@ -169,8 +171,10 @@
       }
     }
     const url = new URL(urlLike, global.location.href);
-    const parts = url.pathname.split("/").filter(Boolean);
-    const appId = parts[2] || "";
+    const appId =
+      typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(url.pathname)
+        : url.pathname.split("/").filter(Boolean)[2] || "";
     const node = resolveBuildFragmentNode(urlLike);
     if (!node) {
       if (typeof boot.cacheDiagTrace === "function") {
