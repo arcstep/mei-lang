@@ -37,14 +37,30 @@
     return activeCommand;
   }
 
+  // Fetch Headers only accept ISO-8859-1; percent-encode labels for trace headers.
+  function encodeHeaderLabel(label) {
+    const text = String(label || "").trim().slice(0, 180);
+    if (!text) return "";
+    try {
+      return encodeURIComponent(text);
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function annotateCommandHeaders(headers, cmd) {
+    headers.set(HEADER_ID, cmd.id);
+    headers.set(HEADER_KIND, cmd.kind);
+    const encodedLabel = encodeHeaderLabel(cmd.label);
+    if (encodedLabel) headers.set(HEADER_LABEL, encodedLabel);
+  }
+
   function annotateFetchInit(init) {
     const cmd = pruneActiveCommand();
     if (!cmd) return init;
     const base = init && typeof init === "object" ? { ...init } : {};
     const headers = new Headers(base.headers || undefined);
-    headers.set(HEADER_ID, cmd.id);
-    headers.set(HEADER_KIND, cmd.kind);
-    if (cmd.label) headers.set(HEADER_LABEL, cmd.label.slice(0, 180));
+    annotateCommandHeaders(headers, cmd);
     base.headers = headers;
     return base;
   }
@@ -102,9 +118,7 @@
         const cmd = pruneActiveCommand();
         if (cmd) {
           const headers = new Headers(input.headers);
-          headers.set(HEADER_ID, cmd.id);
-          headers.set(HEADER_KIND, cmd.kind);
-          if (cmd.label) headers.set(HEADER_LABEL, cmd.label.slice(0, 180));
+          annotateCommandHeaders(headers, cmd);
           input = new Request(input, { headers });
         }
         return nativeFetch(input, nextInit);

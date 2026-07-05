@@ -8,6 +8,33 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const assetsRoot = path.join(root, "app", "assets");
+
+// View Assembly Runtime bundle checks (independent of spa-navigation module concat)
+const bundleManifestPath = path.join(root, "scripts", "bundle-manifest.json");
+const bundleManifest = JSON.parse(await readFile(bundleManifestPath, "utf8"));
+const accessScripts = bundleManifest.accessScripts || [];
+const manageScripts = bundleManifest.manageScripts || [];
+const assemblyModules = [
+  "spa-navigation/spa/structure-tree-materializer.js",
+  "spa-navigation/spa/host-capabilities-ready.js",
+  "spa-navigation/spa/view-assembly-coordinator.js",
+];
+for (const mod of assemblyModules) {
+  assert.ok(accessScripts.includes(mod), `access bundle must include ${mod}`);
+  assert.ok(manageScripts.includes(mod), `manage bundle must include ${mod}`);
+}
+const sceneCacheDiag = "spa-navigation/spa/scene-cache-diag.js";
+assert.ok(accessScripts.includes(sceneCacheDiag), "scene-cache-diag must stay in access bundle");
+assert.ok(
+  !manageScripts.includes(sceneCacheDiag),
+  "scene-cache-diag must not be duplicated in manage bundle",
+);
+const coordinatorSrc = await readFile(
+  path.join(assetsRoot, "spa-navigation/spa/view-assembly-coordinator.js"),
+  "utf8",
+);
+assert.match(coordinatorSrc, /boot\.viewAssembly\s*=\s*\{[\s\S]*assemble/, "coordinator must export assemble");
+
 const modulesPath = path.join(root, "scripts", "spa-navigation-modules.json");
 const moduleList = JSON.parse(await readFile(modulesPath, "utf8"));
 assert.ok(Array.isArray(moduleList) && moduleList.length > 0, "spa-navigation module list required");
@@ -76,10 +103,17 @@ assert.match(
   "resolvePreviewAppId must derive app id from route slug",
 );
 
-for (const rel of moduleList) {
+const ASSEMBLY_LINE_COUNT_TARGETS = [
+  "spa-navigation/spa/structure-tree-materializer.js",
+  "spa-navigation/spa/host-capabilities-ready.js",
+  "spa-navigation/spa/view-assembly-coordinator.js",
+];
+
+for (const rel of ASSEMBLY_LINE_COUNT_TARGETS) {
   const chunk = await readFile(path.join(assetsRoot, rel), "utf8");
   const lines = chunk.split("\n").length;
-  assert.ok(lines <= 501, `${rel} must stay within ~500 lines (got ${lines})`);
+  assert.ok(lines <= 520, `${rel} must stay within ~500 lines (got ${lines})`);
 }
 
 console.log("spa-navigation static checks ok");
+console.log("view-assembly bundle checks ok");

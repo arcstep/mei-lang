@@ -121,6 +121,7 @@
       return false;
     }
     const surface = surfaceSlugFromContext(nextCtx);
+    const previousSurface = surfaceSlugFromContext(currentCtx);
     const canonicalUrl =
       typeof boot.canonicalizeViewUrl === "function"
         ? boot.canonicalizeViewUrl(url)
@@ -133,6 +134,9 @@
     } else {
       global.history.pushState({}, "", canonicalUrl);
     }
+    if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+      globalThis.MeiBuildTreePersist.refresh();
+    }
 
     if (typeof showLoading === "function") {
       showLoading();
@@ -140,34 +144,37 @@
     recordSurfaceVisit(canonicalUrl, surface);
 
     let negotiated = null;
-    const vrCtx = {
-      app_id: nextCtx.app_id || nextCtx.appId,
-      scene_id: nextCtx.scene_id || nextCtx.sceneId,
-      surface,
-      node: nextCtx.node || "",
-      data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
-      review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
-      chrome: nextCtx.chrome || "",
-      tab: nextCtx.tab || "",
-      focus: nextCtx.focus || "",
-      scope: nextCtx.scope || "",
-    };
     try {
-      if (boot.viewRevisionClient?.tryClientOnlyAssemble) {
-        const cached = await boot.viewRevisionClient.tryClientOnlyAssemble(vrCtx);
-        if (cached?.ok) {
-          negotiated = {
-            outcome: boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local",
-            assemble: cached,
-          };
+      if (boot.viewAssembly?.assemble && globalThis.__mei?.view_assembly_v2 !== false) {
+        const assembled = await boot.viewAssembly.assemble(
+          { kind: "surface_switch", ...nextCtx, url: canonicalUrl, previousSurface },
+          { debounce: true },
+        );
+        negotiated = assembled?.preview || null;
+        if (!assembled?.ok) {
+          if (typeof boot.showThinShellFallback === "function") {
+            boot.showThinShellFallback("视图切换失败，请刷新后重试。");
+          }
+          return false;
         }
-      }
-      if (!negotiated && typeof boot.negotiateAndAssemble === "function") {
+      } else if (typeof boot.negotiateAndAssemble === "function") {
         negotiated = await boot.negotiateAndAssemble(
           { ...nextCtx, url: canonicalUrl },
-          { silent: true, warmOnly: true },
+          { silent: true, surfaceSwitch: true, previousSurface },
         );
-      } else if (!negotiated && boot.viewRevisionClient?.negotiateWithLocalMiss) {
+      } else if (boot.viewRevisionClient?.negotiateWithLocalMiss) {
+        const vrCtx = {
+          app_id: nextCtx.app_id || nextCtx.appId,
+          scene_id: nextCtx.scene_id || nextCtx.sceneId,
+          surface,
+          node: nextCtx.node || "",
+          data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
+          review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
+          chrome: nextCtx.chrome || "",
+          tab: nextCtx.tab || "",
+          focus: nextCtx.focus || "",
+          scope: nextCtx.scope || "",
+        };
         negotiated = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx);
       }
     } catch (error) {
@@ -182,7 +189,7 @@
       if (typeof boot.showThinShellFallback === "function") {
         boot.showThinShellFallback("视图切换失败，请刷新后重试。");
       }
-      return true;
+      return false;
     }
 
     if (typeof boot.hideThinShellFallback === "function") {
@@ -202,6 +209,7 @@
 
   boot.isUnifiedViewPathname = isUnifiedViewPathname;
   boot.switchSurfacePanel = switchSurfacePanel;
+  boot.syncTopbarActiveState = syncTopbarActiveState;
   boot.navigateSurface = navigateSurface;
 
   function initViewSurfacePanelFromLocation() {
@@ -211,7 +219,9 @@
     try {
       const path = new URL(global.location.href).pathname;
       if (isUnifiedViewPathname(path)) {
-        switchSurfacePanel(surfaceSlugFromContext(ctx));
+        const surface = surfaceSlugFromContext(ctx);
+        switchSurfacePanel(surface);
+        syncTopbarActiveState(surface);
       }
     } catch (_) {
       /* ignore */

@@ -11,10 +11,24 @@
 
   function isBuildRoute() {
     const path = String(global.location.pathname || "");
-    return (
+    if (
       /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path) ||
       /^\/apps\/(?:build|manage)\//.test(path)
-    );
+    ) {
+      return true;
+    }
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        const surface = String(ctx?.surface || ctx?.mode || "").trim().toLowerCase();
+        return surface === "layout" || surface === "prototype";
+      }
+      if (typeof isWorkspaceSurfaceRoute === "function" && isWorkspaceSurfaceRoute(path)) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   function activeShell() {

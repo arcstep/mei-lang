@@ -8631,6 +8631,41 @@ a.tree-link {
   gap: 8px;
 }
 
+/* Prototype static skeleton markers (scoped to prototype shell only) */
+[data-mei-prototype="true"] .mei-text--static-skeleton .mei-metric-value,
+[data-mei-prototype="true"] mei-text.mei-text--static-skeleton {
+  letter-spacing: 0.06em;
+  opacity: 0.72;
+}
+
+[data-mei-prototype="true"] .mei-chart--static-skeleton,
+[data-mei-prototype="true"] mei-chart-bar.mei-chart--static-skeleton,
+[data-mei-prototype="true"] mei-chart-line.mei-chart--static-skeleton,
+[data-mei-prototype="true"] mei-chart-pie.mei-chart--static-skeleton {
+  outline: 1px dashed var(--mei-border-muted, rgba(148, 163, 184, 0.45));
+  outline-offset: 2px;
+}
+
+[data-mei-prototype="true"] mei-dataset-table.mei-dataset-table--static-skeleton::after {
+  content: "示意行";
+  display: block;
+  font-size: 11px;
+  line-height: 1.2;
+  margin-top: 4px;
+  color: var(--mei-color-text-muted, #94a3b8);
+  opacity: 0.8;
+}
+
+[data-mei-prototype="true"]::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
 
 
 /* ===== tailwind.css ===== */

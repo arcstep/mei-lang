@@ -242,20 +242,58 @@
     return "";
   }
 
+  function composeDefaultsForSurface(ctx) {
+    const resolved = resolveComposeKeyCtx(ctx);
+    const surface = String(resolved.surface || resolved.mode || "app").trim().toLowerCase();
+    const defaultTab =
+      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
+      (surface === "layout" || surface === "prototype" ? "preview" : "scene");
+    return {
+      route_mode: surface,
+      tab: String(resolved.tab || "").trim() || defaultTab,
+      chrome: resolved.chrome || "",
+      review_projection: resolved.review_projection || resolved.reviewProjection || "",
+      data_mode: resolved.data_mode || resolved.dataMode || "",
+      focus: resolved.focus || "",
+      scope: resolved.scope || "",
+    };
+  }
+
+  const SHARED_MANIFEST_LAYER_NAMES = new Set(["structure.full", "eval", "theme", "overlay"]);
+
+  function pickSharedManifestLayers(layers) {
+    const picked = {};
+    if (!layers || typeof layers !== "object") return picked;
+    for (const name of SHARED_MANIFEST_LAYER_NAMES) {
+      if (layers[name]) picked[name] = layers[name];
+    }
+    return picked;
+  }
+
   function readSharedManifestSnapshot(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
     const semantic = semanticRevisionKey(resolved);
     if (!semantic) return null;
     const store = readViewRevisionStore();
+    let sharedLayers = {};
     for (const [key, entry] of Object.entries(store)) {
       if (!key.startsWith(`${semantic}::`)) continue;
       if (entry?.manifest_snapshot?.layers) {
-        return entry.manifest_snapshot;
+        Object.assign(sharedLayers, pickSharedManifestLayers(entry.manifest_snapshot.layers));
       }
     }
     const refs = globalThis.__mei?.scene_manifest_refs;
-    if (refs?.layers) return refs;
-    return null;
+    if (refs?.layers && ssrManifestMatchesSurface(resolved)) {
+      return refs;
+    }
+    if (refs?.layers) {
+      Object.assign(sharedLayers, pickSharedManifestLayers(refs.layers));
+    }
+    if (!Object.keys(sharedLayers).length) return null;
+    return {
+      layers: sharedLayers,
+      compose_defaults: composeDefaultsForSurface(resolved),
+    };
   }
 
   function readClientDigests(ctx) {

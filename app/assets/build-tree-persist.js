@@ -34,9 +34,25 @@
   };
 
   function isBuildRoute() {
-    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
-        String(global.location.pathname || ""),
-      ) || /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path)) {
+      return true;
+    }
+    if (/^\/apps\/(?:build|manage)\//.test(path)) {
+      return true;
+    }
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        const surface = String(ctx?.surface || ctx?.mode || "").trim().toLowerCase();
+        return surface === "layout" || surface === "prototype";
+      }
+      if (typeof isWorkspaceSurfaceRoute === "function" && isWorkspaceSurfaceRoute(path)) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   function sidebarScrollEl(root) {
@@ -351,16 +367,62 @@
   }
 
   function isWorkspaceSurfaceRoute() {
-    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
-      String(global.location.pathname || ""),
-    );
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path)) {
+      return true;
+    }
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        const surface = String(ctx?.surface || ctx?.mode || "").trim().toLowerCase();
+        return surface === "layout" || surface === "prototype";
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  function workspaceSurfaceFromDom() {
+    const fromBody = String(global.document?.body?.getAttribute("data-surface") || "")
+      .trim()
+      .toLowerCase();
+    if (fromBody === "layout" || fromBody === "prototype") return fromBody;
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        const surface = String(ctx?.surface || ctx?.mode || "").trim().toLowerCase();
+        if (surface === "layout" || surface === "prototype") return surface;
+      }
+    } catch (_) {}
+    try {
+      const surface = String(new URL(global.location.href).searchParams.get("surface") || "layout")
+        .trim()
+        .toLowerCase();
+      return surface === "prototype" ? "prototype" : "layout";
+    } catch (_) {
+      return "layout";
+    }
   }
 
   function syncTreeLinkTabs(root) {
-    if (isWorkspaceSurfaceRoute()) return;
+    const onUnifiedWorkspace =
+      typeof isUnifiedViewRoute === "function" &&
+      isUnifiedViewRoute(global.location.pathname) &&
+      isWorkspaceSurfaceRoute();
     root.querySelectorAll("a.build-tree-link, a.build-tree-label--link").forEach((link) => {
       try {
-        const url = new URL(link.href, global.location.href);
+        const nodeId = String(link.getAttribute("data-build-node") || "").trim();
+        const url = onUnifiedWorkspace
+          ? new URL(global.location.href)
+          : new URL(link.href, global.location.href);
+        if (onUnifiedWorkspace) {
+          url.searchParams.set("surface", workspaceSurfaceFromDom());
+          if (nodeId) {
+            url.searchParams.set("node", nodeId);
+            url.searchParams.delete("focus");
+          }
+        }
         const tab = treeLinkTab(url.toString(), link);
         url.searchParams.set("tab", tab);
         link.href = url.toString();
@@ -386,7 +448,7 @@
           } else if (nodeId) {
             const shell = document.querySelector(".shell[data-build-node]");
             if (shell) shell.setAttribute("data-build-node", nodeId);
-            syncTreeActiveFromNode(root);
+            syncTreeActiveFromNode(root, nodeId);
             if (global.MeiBuildInspectHighlight?.refresh) {
               global.MeiBuildInspectHighlight.refresh();
             }
@@ -404,6 +466,10 @@
           event.preventDefault();
           event.stopImmediatePropagation();
           void global.__meiLangBoot.navigateInternal(link.href, false);
+        } else if (typeof global.__meiLangBoot?.navigateSpa === "function") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          void global.__meiLangBoot.navigateSpa(link.href, false);
         }
       },
       true,
@@ -452,30 +518,78 @@
 
   function refresh(options) {
     if (!isBuildRoute()) return;
-    const root = document.querySelector(".build-reachability-tree");
-    if (!root) return;
+    const roots = document.querySelectorAll(
+      "aside .build-reachability-tree, .build-tree-shell .build-reachability-tree, nav.build-reachability-tree, .build-reachability-tree",
+    );
+    if (!roots.length) return;
     if (presetChanged()) {
       const openSet = new Set();
-      applyPresetDefaultExpand(root, openSet);
+      applyPresetDefaultExpand(roots[0], openSet);
       saveOpenSet(openSet);
     }
-    bindTreePersist(root);
-    bindTreeTabPersist(root);
-    applyTreeMode(root, readTreeMode(root));
-    syncTreeLinkTabs(root);
-    pinSidebarScroll(root, () => {
-      syncTreeActiveFromNode(root);
+    roots.forEach((root) => {
+      if (!(root instanceof HTMLElement)) return;
+      bindTreePersist(root);
+      bindTreeTabPersist(root);
+      applyTreeMode(root, readTreeMode(root));
+      syncTreeLinkTabs(root);
+      pinSidebarScroll(root, () => {
+        syncTreeActiveFromNode(root, options?.activeNode);
+      });
+      if (options && options.restorePersistedScroll) {
+        restoreScroll(root);
+      }
     });
-    if (options && options.restorePersistedScroll) {
-      restoreScroll(root);
-    }
   }
 
-  function syncTreeActiveFromNode(root) {
-    let nodeId = "";
-    try {
-      nodeId = String(new URL(global.location.href).searchParams.get("node") || "").trim();
-    } catch (_) {}
+  function installBuildTreeSpaNavigation() {
+    if (global.document?.documentElement?.dataset?.meiBuildTreeSpaBound === "1") return;
+    if (global.document?.documentElement) {
+      global.document.documentElement.dataset.meiBuildTreeSpaBound = "1";
+    }
+    global.document.addEventListener(
+      "click",
+      (event) => {
+        const link = event.target.closest?.("a.build-tree-link, a.build-tree-label--link");
+        if (!link || !link.href) return;
+        if (isWorkspaceSurfaceRoute()) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          const nodeId = String(link.getAttribute("data-build-node") || "").trim();
+          if (nodeId && global.MeiBuildInspectHighlight?.selectBuildNodeClient) {
+            global.MeiBuildInspectHighlight.selectBuildNodeClient(nodeId);
+          } else if (nodeId) {
+            const shell = document.querySelector(".shell[data-build-node]");
+            if (shell) shell.setAttribute("data-build-node", nodeId);
+            const root = link.closest(".build-reachability-tree");
+            if (root) syncTreeActiveFromNode(root);
+          }
+          return;
+        }
+        if (
+          !(
+            typeof isUnifiedViewRoute === "function" &&
+            isUnifiedViewRoute(global.location.pathname)
+          ) &&
+          isBuildRoute() &&
+          typeof global.__meiLangBoot?.navigateInternal === "function"
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          void global.__meiLangBoot.navigateInternal(link.href, false);
+        }
+      },
+      true,
+    );
+  }
+
+  function syncTreeActiveFromNode(root, nodeIdOverride) {
+    let nodeId = String(nodeIdOverride || "").trim();
+    if (!nodeId) {
+      try {
+        nodeId = String(new URL(global.location.href).searchParams.get("node") || "").trim();
+      } catch (_) {}
+    }
     if (!nodeId) {
       nodeId = String(document.querySelector(".shell[data-build-node]")?.getAttribute("data-build-node") || "").trim();
     }
@@ -501,10 +615,12 @@
   }
 
   function bind() {
+    installBuildTreeSpaNavigation();
     if (!isBuildRoute()) return;
     refresh({ restorePersistedScroll: true });
     global.addEventListener("popstate", refresh);
     global.addEventListener("mei:manage-tab-change", refresh);
+    global.addEventListener("mei:spa-navigation-complete", () => refresh());
   }
 
   if (document.readyState === "loading") {

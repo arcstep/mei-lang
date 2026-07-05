@@ -56,8 +56,12 @@
     return nonEmptyString(value.metric_id, value.metricId);
   }
 
-  function pickExampleParams(assembly) {
-    const rawExamples = assembly?.examples;
+  function pickExampleParams(assembly, context, sceneId) {
+    const rawExamples =
+      assembly?.examples ??
+      (sceneId && context?.scene_examples_by_id
+        ? context.scene_examples_by_id[sceneId]
+        : null);
     const example = Array.isArray(rawExamples)
       ? rawExamples.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
       : rawExamples && typeof rawExamples === "object"
@@ -181,7 +185,7 @@
   function buildManagePreviewDetail(context, sceneId) {
     const assembly = context?.scene_projection_assembly_by_id?.[sceneId];
     if (!assembly || typeof assembly !== "object" || Array.isArray(assembly)) return null;
-    const params = normalizeSceneParams(assembly.preview_params || pickExampleParams(assembly));
+    const params = normalizeSceneParams(assembly.preview_params || pickExampleParams(assembly, context, sceneId));
     const metricId = metricRefId(params.metric);
     if (!metricId) return null;
     const projectionSlots = normalizeProjectionSlots(assembly.projection_slots);

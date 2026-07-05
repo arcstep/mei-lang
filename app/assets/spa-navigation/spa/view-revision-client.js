@@ -119,6 +119,7 @@
     const response = await global.fetch(`${VIEW_REVISION_API}?${params.toString()}`, {
       credentials: "same-origin",
       headers,
+      signal: opts.signal,
     });
     if (!response.ok) {
       throw new Error(`view-revision ${response.status}`);
@@ -203,10 +204,18 @@
     );
   }
 
-  function composeContextChanged(shell, ctx, assemblyPlan) {
+  function composeContextChanged(shell, ctx, assemblyPlan, options = {}) {
+    if (options.forceRematerialize === true) {
+      return true;
+    }
     const defaults = composeDefaultsForPlan(ctx, assemblyPlan);
     const targetProjection = String(defaults?.review_projection || "").trim();
-    const targetMode = String(defaults?.route_mode || ctx.surface || ctx.mode || "").trim();
+    const targetMode = String(defaults?.route_mode || ctx.surface || ctx.mode || "app")
+      .trim()
+      .toLowerCase();
+    const targetSurface = String(ctx.surface || ctx.mode || targetMode || "app")
+      .trim()
+      .toLowerCase();
     const previewScroll =
       shell?.querySelector?.(".preview-pane-scroll[data-review-projection]") ||
       shell?.querySelector?.(".preview-pane-scroll");
@@ -215,17 +224,33 @@
         shell?.getAttribute("data-review-projection") ||
         "",
     ).trim();
-    const bodyMode = String(global.document?.body?.getAttribute("data-route-mode") || "").trim();
+    const bodySurface = String(
+      global.document?.body?.getAttribute("data-surface") ||
+        global.document?.body?.getAttribute("data-mei-view") ||
+        global.document?.body?.getAttribute("data-route-mode") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    const previousSurface = String(options.previousSurface || "")
+      .trim()
+      .toLowerCase();
+    if (previousSurface && targetSurface && previousSurface !== targetSurface) {
+      return true;
+    }
+    if (targetSurface && bodySurface && targetSurface !== bodySurface) {
+      return true;
+    }
     if (targetProjection && currentProjection && targetProjection !== currentProjection) {
       return true;
     }
-    if (targetMode && bodyMode && targetMode !== bodyMode) {
+    if (targetMode && bodySurface && targetMode !== bodySurface) {
       return true;
     }
     return false;
   }
 
-  async function tryAssembleLocal(ctx, plan) {
+  async function tryAssembleLocal(ctx, plan, options = {}) {
     const assemblyPlan = plan || null;
     let layerRefs = assemblyPlan?.layer_refs || {};
     if ((!layerRefs || !Object.keys(layerRefs).length) && assemblyPlan?.manifest) {
@@ -283,10 +308,12 @@
     const ssrPreviewReady =
       shell &&
       boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(shell) === true;
+    const forceRematerialize = options.forceRematerialize === true;
     if (
       shell &&
       ssrPreviewReady &&
-      !composeContextChanged(shell, ctx, assemblyPlan)
+      !forceRematerialize &&
+      !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
         boot.applyHostChromeFromManifestRefs();
@@ -298,7 +325,8 @@
       boot.previewMaterializer?.isClientLayerMaterialized?.(shell) &&
       typeof boot.hasMaterializedPreview === "function" &&
       boot.hasMaterializedPreview(shell) &&
-      !composeContextChanged(shell, ctx, assemblyPlan)
+      !forceRematerialize &&
+      !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
         boot.applyHostChromeFromManifestRefs();
@@ -306,11 +334,11 @@
       return { ok: true, missing: [], layers, source: "ssr_preview", materialized: true };
     }
     if (boot.viewCompositor?.composeFromLayers && shell) {
-      const composed = boot.viewCompositor.composeFromLayers(
-        shell,
-        layers,
-        assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx),
-      );
+      const composeAxes = {
+        ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),
+        forceRematerialize,
+      };
+      const composed = boot.viewCompositor.composeFromLayers(shell, layers, composeAxes);
       if (composed) {
         if (typeof boot.applyHostChromeFromManifestRefs === "function") {
           boot.applyHostChromeFromManifestRefs();
@@ -329,7 +357,7 @@
     return { ok: false, missing: Object.keys(layerRefs), layers };
   }
 
-  async function tryClientOnlyAssemble(ctx) {
+  async function tryClientOnlyAssemble(ctx, options = {}) {
     const stored = boot.readViewRevision?.(ctx);
     let manifest = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx);
     const manifestDigest =
@@ -349,7 +377,7 @@
       layer_refs: layerRefs,
       compose_defaults: manifest.compose_defaults || composeDefaultsFromResponse({ manifest }, ctx),
     };
-    const assembled = await tryAssembleLocal(ctx, plan);
+    const assembled = await tryAssembleLocal(ctx, plan, options);
     if (!assembled?.ok) return null;
     return {
       ...assembled,
@@ -357,31 +385,41 @@
     };
   }
 
-  async function negotiateWithLocalMiss(ctx) {
-    const cached = await tryClientOnlyAssemble(ctx);
-    if (cached?.ok) {
-      boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
-      return {
-        outcome: ViewRevisionOutcome.ASSEMBLE_LOCAL,
-        assemble: cached,
-        response: {
-          status: ViewRevisionOutcome.ASSEMBLE_LOCAL,
-          manifest_revision_digest: boot.readViewRevision?.(ctx)?.manifest_revision_digest,
-          surface_revision_digest: boot.readViewRevision?.(ctx)?.surface_revision_digest,
-          cached_only: true,
-        },
+  async function negotiateWithLocalMiss(ctx, options = {}) {
+    const opts = options || {};
+    const assembleOptions = {
+      forceRematerialize: opts.surfaceSwitch === true || opts.forceRematerialize === true,
+      previousSurface: opts.previousSurface || "",
+    };
+    if (!opts.surfaceSwitch) {
+      const cached = await tryClientOnlyAssemble(ctx, assembleOptions);
+      if (cached?.ok) {
+        boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
+        return {
+          outcome: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+          assemble: cached,
+          response: {
+            status: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+            manifest_revision_digest: boot.readViewRevision?.(ctx)?.manifest_revision_digest,
+            surface_revision_digest: boot.readViewRevision?.(ctx)?.surface_revision_digest,
+            cached_only: true,
+          },
+        };
+      }
+    }
+    let result = await negotiateViewRevision(ctx, { signal: opts.signal });
+    let plan = result.plan || {
+      manifest: result.response?.manifest || null,
+      layer_refs: result.response?.assembly_plan?.layer_refs || {},
+      compose_defaults: composeDefaultsFromResponse(result.response, ctx),
+    };
+    if (opts.surfaceSwitch === true) {
+      plan = {
+        ...plan,
+        compose_defaults: buildComposeRequest(ctx),
       };
     }
-    const digests = boot.readClientDigests ? boot.readClientDigests(ctx) : {};
-    let result = await negotiateViewRevision(ctx, {});
-    let assemble = await tryAssembleLocal(
-      ctx,
-      result.plan || {
-        manifest: result.response?.manifest || null,
-        layer_refs: result.response?.assembly_plan?.layer_refs || {},
-        compose_defaults: composeDefaultsFromResponse(result.response, ctx),
-      },
-    );
+    let assemble = await tryAssembleLocal(ctx, plan, assembleOptions);
     if (assemble.ok) {
       boot.lastViewRevisionOutcome =
         result.outcome === ViewRevisionOutcome.REFETCH
@@ -402,7 +440,7 @@
     }
     const missing = assemble.missing || [];
     if (missing.length) {
-      result = await negotiateViewRevision(ctx, { recover: true });
+      result = await negotiateViewRevision(ctx, { recover: true, signal: opts.signal });
       assemble = await tryAssembleLocal(
         ctx,
         result.plan || {
@@ -410,6 +448,7 @@
           layer_refs: result.response?.assembly_plan?.layer_refs || {},
           compose_defaults: composeDefaultsFromResponse(result.response, ctx),
         },
+        assembleOptions,
       );
       if (assemble.ok) {
         boot.lastViewRevisionOutcome = ViewRevisionOutcome.REFETCH;

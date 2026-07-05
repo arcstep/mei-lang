@@ -264,8 +264,9 @@
     if (!structure) return false;
     applyShellLayer(root, pickShellLayer(layers, composeAxes));
     const materializer = boot.previewMaterializer;
+    const forceRematerialize = composeAxes?.forceRematerialize === true;
     const keepSsrPreview =
-      materializer?.isSsrInjectedPreviewRoot?.(root) === true;
+      !forceRematerialize && materializer?.isSsrInjectedPreviewRoot?.(root) === true;
     if (!keepSsrPreview && materializer?.materializePreview) {
       materializer.materializePreview(root, layers, composeAxes);
     } else if (!keepSsrPreview) {

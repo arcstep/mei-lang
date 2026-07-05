@@ -98,6 +98,9 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "spa-navigation/spa/build-projection-preview.js",
     "spa-navigation/spa/revision-contract.js",
     "spa-navigation/spa/view-context.js",
+    "spa-navigation/spa/structure-tree-materializer.js",
+    "spa-navigation/spa/host-capabilities-ready.js",
+    "spa-navigation/spa/view-assembly-coordinator.js",
     "spa-navigation/spa/layer-artifact-cache.js",
     "spa-navigation/spa/layer-store.js",
     "spa-navigation/spa/view-revision-client.js",
@@ -120,7 +123,6 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "spa-navigation/spa/navigation.js",
     "spa-navigation/spa/initial-load-progress.js",
     "spa-navigation/epilogue.js",
-    "spa-navigation/spa/scene-cache-diag.js",
 ];
 
 pub(super) const BUNDLE_MANAGE_SOURCE_SCRIPTS: &[&str] = &[
@@ -242,6 +244,9 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "spa-navigation/spa/manage-preview-board.js",
     "spa-navigation/spa/revision-contract.js",
     "spa-navigation/spa/view-context.js",
+    "spa-navigation/spa/structure-tree-materializer.js",
+    "spa-navigation/spa/host-capabilities-ready.js",
+    "spa-navigation/spa/view-assembly-coordinator.js",
     "spa-navigation/spa/layer-artifact-cache.js",
     "spa-navigation/spa/layer-store.js",
     "spa-navigation/spa/view-revision-client.js",

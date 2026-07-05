@@ -313,9 +313,22 @@
   }
 
   function isWorkspaceSurfaceRoute() {
-    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
-      String(global.location.pathname || ""),
-    );
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path)) {
+      return true;
+    }
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        const surface = String(ctx?.surface || ctx?.mode || "").trim().toLowerCase();
+        return surface === "layout" || surface === "prototype";
+      }
+      if (typeof isWorkspaceSurfaceRoute === "function" && isWorkspaceSurfaceRoute(path)) {
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   function selectBuildNodeClient(nodeId, options) {
@@ -327,8 +340,20 @@
     }
     const focus = options && options.focus ? String(options.focus).trim() : "";
     syncShellFocus(focus);
+    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(global.location.pathname)) {
+      const url = new URL(global.location.href);
+      url.searchParams.set("node", node);
+      if (focus) {
+        url.searchParams.set("focus", focus);
+      } else {
+        url.searchParams.delete("focus");
+      }
+      if (url.href !== global.location.href) {
+        global.history.replaceState({}, "", url.href);
+      }
+    }
     if (global.MeiBuildTreePersist?.refresh) {
-      global.MeiBuildTreePersist.refresh();
+      global.MeiBuildTreePersist.refresh({ activeNode: node });
     }
     const root = previewRoot();
     if (root) {
@@ -338,11 +363,29 @@
   }
 
   function pushBuildUrl(mutator) {
-    if (!isBuildRoute()) return;
     const shell = activeShell();
     const appPath = shell?.getAttribute("data-app-path") || "";
     if (!appPath) return;
     const url = new URL(global.location.href);
+    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(url.pathname)) {
+      const surface = String(url.searchParams.get("surface") || "layout").trim().toLowerCase();
+      if (surface !== "layout" && surface !== "prototype") {
+        url.searchParams.set("surface", "layout");
+      }
+      mutator(url);
+      const tab = currentManageTab() || String(shell?.getAttribute("data-build-tab") || "").trim().toLowerCase();
+      if (tab) {
+        url.searchParams.set("tab", tab);
+      }
+      if (url.href === global.location.href) {
+        applyHighlight(previewRoot() || document);
+        return;
+      }
+      global.history.pushState({}, "", url.href);
+      global.dispatchEvent(new PopStateEvent("popstate"));
+      return;
+    }
+    if (!isBuildRoute()) return;
     mutator(url);
     const tab = currentManageTab() || String(shell?.getAttribute("data-build-tab") || "").trim().toLowerCase();
     if (tab) {
@@ -354,7 +397,6 @@
       applyHighlight(previewRoot() || document);
       return;
     }
-    const prevUrl = global.location.href;
     global.history.pushState({}, "", url.href);
     global.dispatchEvent(new PopStateEvent("popstate"));
   }

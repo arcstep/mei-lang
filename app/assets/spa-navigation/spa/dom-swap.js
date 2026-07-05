@@ -421,12 +421,14 @@
         if (nh) curLaunch.setAttribute("href", nh);
       }
 
-      const curTabs = currentHeader.querySelectorAll("nav.app-tabs a[href]");
-      const nextTabs = nextHeader.querySelectorAll("nav.app-tabs a[href]");
+      const curTabs = currentHeader.querySelectorAll("a.app-tab[href], a.app-tab-sub[href]");
+      const nextTabs = nextHeader.querySelectorAll("a.app-tab[href], a.app-tab-sub[href]");
       const m = Math.min(curTabs.length, nextTabs.length);
       for (let j = 0; j < m; j++) {
         const h = nextTabs[j].getAttribute("href");
         if (h) curTabs[j].setAttribute("href", h);
+        const active = nextTabs[j].classList.contains("active");
+        curTabs[j].classList.toggle("active", active);
       }
 
       const curBread = currentHeader.querySelector(".app-current-path");
@@ -454,6 +456,96 @@
       console.warn("[spa-navigation] sync topbar skipped", err);
     }
   }
+
+  function syncAppTabActiveState(appId) {
+    const targetApp = String(appId || "").trim();
+    if (!targetApp) return;
+    try {
+      document.querySelectorAll("a.app-tab, a.app-tab-sub").forEach((link) => {
+        if (!(link instanceof HTMLAnchorElement)) return;
+        let linkApp = "";
+        try {
+          const segments = new URL(link.href, window.location.href).pathname.split("/").filter(Boolean);
+          if (segments[0] === "apps" && segments[1]) linkApp = segments[1];
+        } catch (_) {}
+        link.classList.toggle("active", linkApp === targetApp);
+      });
+    } catch (err) {
+      console.warn("[spa-navigation] sync app tab skipped", err);
+    }
+  }
+
+  function resolvePageAppId() {
+    const fromUrl =
+      typeof appIdFromAppsPathname === "function"
+        ? appIdFromAppsPathname(window.location.pathname)
+        : String(window.location.pathname.match(/^\/apps\/([^/]+)/)?.[1] || "").trim();
+    const fromBody = String(document.body?.getAttribute("data-app-id") || "").trim();
+    const appId = fromUrl || fromBody;
+    if (fromUrl && document.body && fromBody !== fromUrl) {
+      document.body.setAttribute("data-app-id", fromUrl);
+    }
+    return appId;
+  }
+
+  function fixTopbarHrefsFromPageContext() {
+    const appId = resolvePageAppId();
+    if (!appId) return;
+    try {
+      document.querySelectorAll("sl-button[data-mei-app-view][href]").forEach((btn) => {
+        if (!(btn instanceof HTMLElement)) return;
+        const rawHref = btn.getAttribute("href") || "";
+        if (!rawHref) return;
+        const url = new URL(rawHref, window.location.href);
+        const segments = url.pathname.split("/").filter(Boolean);
+        if (segments[0] === "apps" && segments[1] && segments[1] !== appId) {
+          url.pathname = `/apps/${appId}/view`;
+          btn.setAttribute("href", `${url.pathname}${url.search}`);
+        }
+      });
+      document.querySelectorAll("a.app-tab, a.app-tab-sub").forEach((link) => {
+        if (!(link instanceof HTMLAnchorElement)) return;
+        const tabAppId = String(link.getAttribute("data-app-id") || "").trim();
+        if (tabAppId) {
+          const url = new URL(link.href, window.location.href);
+          url.pathname = `/apps/${tabAppId}/view`;
+          if (!url.searchParams.get("surface")) {
+            url.searchParams.set("surface", "app");
+          }
+          link.href = url.toString();
+        }
+        let linkApp = tabAppId;
+        if (!linkApp) {
+          try {
+            linkApp = new URL(link.href, window.location.href).pathname.split("/")[2] || "";
+          } catch (_) {}
+        }
+        link.classList.toggle("active", linkApp === appId);
+      });
+    } catch (err) {
+      console.warn("[spa-navigation] fix topbar hrefs skipped", err);
+    }
+  }
+
+  boot.syncManageTopbarFromDoc = syncManageTopbarFromDoc;
+  boot.syncAppTabActiveState = syncAppTabActiveState;
+  boot.fixTopbarHrefsFromPageContext = fixTopbarHrefsFromPageContext;
+
+  function watchTopbarChromeInjection() {
+    const slot = document.getElementById("mei-host-topbar-slot");
+    if (!slot || slot.__meiTopbarWatch) return;
+    slot.__meiTopbarWatch = true;
+    const fix = () => {
+      if (typeof boot.fixTopbarHrefsFromPageContext === "function") {
+        boot.fixTopbarHrefsFromPageContext();
+      }
+    };
+    const observer = new MutationObserver(() => fix());
+    observer.observe(slot, { childList: true, subtree: true });
+    fix();
+  }
+
+  boot.watchTopbarChromeInjection = watchTopbarChromeInjection;
 
   function swapManageWorkspace(doc, url, replaceHistory) {
     const currentShell = document.querySelector(".shell");
@@ -503,7 +595,10 @@
       syncStatusbarContent(currentStatusbar, nextStatusbar);
     }
 
-    syncManageTopbarFromDoc(doc);
+      syncManageTopbarFromDoc(doc);
+      if (typeof boot.fixTopbarHrefsFromPageContext === "function") {
+        boot.fixTopbarHrefsFromPageContext();
+      }
     syncBodyThemeFromDoc(doc);
     syncSceneDrilldownContextFromDoc(doc);
     syncHostRuntimeCapabilitiesFromDoc(doc);

@@ -106,6 +106,7 @@
         local_miss: !!opts.local_miss,
         client_layers: opts.client_layers || [],
       }),
+      signal: opts.signal,
     });
     if (!response.ok) throw new Error(`layer-batch ${response.status}`);
     const payload = await response.json();

@@ -138,3 +138,29 @@
     return undefined;
   }
 
+  function isStaticDataMode(doc = document) {
+    const body = doc?.body;
+    if (!(body instanceof HTMLElement)) return false;
+    const dataMode = String(body.getAttribute("data-data-mode") || "").trim().toLowerCase();
+    if (dataMode === "static") return true;
+    return String(body.getAttribute("data-surface") || "").trim().toLowerCase() === "prototype";
+  }
+
+  function buildStaticTableRows(columns, rowCount = 5) {
+    const normalizedColumns = (Array.isArray(columns) ? columns : [])
+      .map((column, index) => {
+        const name = String(column?.name || column || "").trim();
+        return name || `列${index + 1}`;
+      })
+      .filter(Boolean);
+    const cols = normalizedColumns.length > 0 ? normalizedColumns : ["列1", "列2", "列3"];
+    const count = Math.max(3, Math.min(8, Number(rowCount) || 5));
+    return Array.from({ length: count }, (_entry, rowIndex) => {
+      const row = {};
+      cols.forEach((column, columnIndex) => {
+        row[column] = columnIndex === 0 ? `值${rowIndex + 1}` : `列${columnIndex + 1}-值${rowIndex + 1}`;
+      });
+      return row;
+    });
+  }
+

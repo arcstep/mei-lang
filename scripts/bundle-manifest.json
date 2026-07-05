@@ -97,6 +97,9 @@
     "spa-navigation/spa/build-projection-preview.js",
     "spa-navigation/spa/revision-contract.js",
     "spa-navigation/spa/view-context.js",
+    "spa-navigation/spa/structure-tree-materializer.js",
+    "spa-navigation/spa/host-capabilities-ready.js",
+    "spa-navigation/spa/view-assembly-coordinator.js",
     "spa-navigation/spa/layer-artifact-cache.js",
     "spa-navigation/spa/layer-store.js",
     "spa-navigation/spa/view-revision-client.js",
@@ -118,8 +121,7 @@
     "spa-navigation/spa/surface-navigation.js",
     "spa-navigation/spa/navigation.js",
     "spa-navigation/spa/initial-load-progress.js",
-    "spa-navigation/epilogue.js",
-    "spa-navigation/spa/scene-cache-diag.js"
+    "spa-navigation/epilogue.js"
   ],
   "manageSourceScripts": [
     "vendor/codemirror.js",
@@ -239,6 +241,9 @@
     "spa-navigation/spa/manage-preview-board.js",
     "spa-navigation/spa/revision-contract.js",
     "spa-navigation/spa/view-context.js",
+    "spa-navigation/spa/structure-tree-materializer.js",
+    "spa-navigation/spa/host-capabilities-ready.js",
+    "spa-navigation/spa/view-assembly-coordinator.js",
     "spa-navigation/spa/layer-artifact-cache.js",
     "spa-navigation/spa/layer-store.js",
     "spa-navigation/spa/view-revision-client.js",

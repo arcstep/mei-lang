@@ -5,28 +5,55 @@
   }
   tagExistingBodyScripts();
   installSceneProjectionHost();
+  if (typeof boot.watchTopbarChromeInjection === "function") {
+    boot.watchTopbarChromeInjection();
+  }
   applyDrilldownContextFromQuery();
   applySceneProjectionContextFromStorage();
 
   void (async () => {
-    if (typeof boot.tryCacheFirstViewRestore !== "function") return;
+    if (typeof boot.hostCapabilitiesReady === "function") {
+      try {
+        await boot.hostCapabilitiesReady({ timeoutMs: 5000 });
+      } catch (error) {
+        console.warn("[spa-navigation] host capabilities wait skipped", error);
+      }
+    }
     if (typeof boot.hydrateManifestLayerHoldings === "function") {
       boot.hydrateManifestLayerHoldings();
     }
     if (typeof boot.showThinShellFallback === "function") {
       boot.showThinShellFallback("正在加载场景内容…");
     }
-    const ctx =
-      typeof boot.parseViewContext === "function"
-        ? boot.parseViewContext(window.location.href)
-        : null;
+    const isThinShell =
+      typeof isRevisionFirstShellPage === "function"
+        ? isRevisionFirstShellPage()
+        : globalThis.__mei?.thin_shell === true;
     try {
-      const outcome = await boot.tryCacheFirstViewRestore(window.location.href, {
-        replaceHistory: true,
-        timeoutMs: 4000,
-        coldStart: true,
-        skipRemoteWhenValid: true,
-      });
+      let outcome = { restored: false, source: "none" };
+      if (boot.viewAssembly?.assemble && isThinShell && globalThis.__mei?.view_assembly_v2 !== false) {
+        const result = await boot.viewAssembly.assemble(
+          { kind: "cold_start" },
+          { debounce: false },
+        );
+        outcome = {
+          restored: !!result?.ok,
+          doc: result?.ok ? document : null,
+          source: result?.ok ? "coordinator" : "miss",
+          viewRevision: result?.preview || null,
+        };
+      } else if (typeof boot.tryCacheFirstViewRestore === "function") {
+        outcome = await boot.tryCacheFirstViewRestore(window.location.href, {
+          replaceHistory: true,
+          timeoutMs: 4000,
+          coldStart: true,
+          skipRemoteWhenValid: true,
+        });
+      }
+      const ctx =
+        typeof boot.parseViewContext === "function"
+          ? boot.parseViewContext(window.location.href)
+          : null;
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
         if (typeof boot.hideThinShellFallback === "function") {
           boot.hideThinShellFallback();
@@ -51,12 +78,11 @@
       if (
         ctx &&
         typeof boot.finishRevisionFirstColdStart === "function" &&
-        (typeof isRevisionFirstShellPage === "function"
-          ? isRevisionFirstShellPage()
-          : globalThis.__mei?.thin_shell === true)
+        isThinShell &&
+        outcome.source !== "coordinator"
       ) {
         await boot.finishRevisionFirstColdStart(ctx, outcome);
-      } else if (ctx && typeof boot.dispatchScopeActivation === "function") {
+      } else if (ctx && typeof boot.dispatchScopeActivation === "function" && !outcome.restored) {
         boot.dispatchScopeActivation({
           scope: ctx.scene_id || ctx.sceneId || "home",
           sceneId: ctx.scene_id || ctx.sceneId || "home",
@@ -84,6 +110,9 @@
   document.addEventListener(
     "click",
     async (event) => {
+      if (typeof shouldDeferBuildTreeClick === "function" && shouldDeferBuildTreeClick(event)) {
+        return;
+      }
       if (event.defaultPrevented) return;
       if (event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

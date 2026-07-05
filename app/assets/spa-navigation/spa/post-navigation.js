@@ -3,8 +3,10 @@
       return;
     }
     if (
-      typeof isWorkspaceSurfaceRoute === "function" &&
-      isWorkspaceSurfaceRoute(window.location.pathname)
+      (typeof isWorkspaceSurfaceUrl === "function" &&
+        isWorkspaceSurfaceUrl(window.location.href)) ||
+      (typeof isWorkspaceSurfaceRoute === "function" &&
+        isWorkspaceSurfaceRoute(window.location.pathname))
     ) {
       return;
     }
@@ -66,7 +68,27 @@
           if (!bundlesReady || (navigationId != null && navigationId !== currentNavigationId)) return;
         }
         if (navigationId != null && navigationId !== currentNavigationId) return;
+        const sceneCtx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(url)
+            : typeof boot.parseAccessSceneContext === "function"
+              ? boot.parseAccessSceneContext(url)
+              : null;
+        const workspaceSurface =
+          (typeof isWorkspaceSurfaceUrl === "function" && isWorkspaceSurfaceUrl(url)) ||
+          (typeof isWorkspaceSurfaceRoute === "function" &&
+            isWorkspaceSurfaceRoute(nextUrl.pathname));
         if (
+          workspaceSurface &&
+          sceneCtx &&
+          boot.viewAssembly?.assemble &&
+          globalThis.__mei?.view_assembly_v2 !== false
+        ) {
+          await boot.viewAssembly.assemble(
+            { kind: "spa_nav", ...sceneCtx, url },
+            { debounce: false },
+          );
+        } else if (
           typeof boot.bootstrapThinShellComposition === "function" &&
           !ssrPreviewMaterialized(doc) &&
           (typeof isRevisionFirstShellPage === "function"
@@ -106,12 +128,6 @@
         }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
-        const sceneCtx =
-          typeof boot.parseViewContext === "function"
-            ? boot.parseViewContext(url)
-            : typeof boot.parseAccessSceneContext === "function"
-              ? boot.parseAccessSceneContext(url)
-              : null;
         if (sceneCtx && typeof boot.dispatchScopeActivation === "function") {
           boot.dispatchScopeActivation({
             scope: sceneCtx.sceneId,
@@ -121,6 +137,15 @@
             projection:
               nextUrl instanceof URL ? String(nextUrl.searchParams.get("mei_projection") || "") : "",
           });
+        }
+        if (sceneCtx && typeof boot.syncTopbarActiveState === "function") {
+          boot.syncTopbarActiveState(sceneCtx.surface || sceneCtx.mode || "app");
+        }
+        if (sceneCtx && typeof boot.syncAppTabActiveState === "function") {
+          boot.syncAppTabActiveState(sceneCtx.appId || sceneCtx.app_id);
+        }
+        if (typeof boot.fixTopbarHrefsFromPageContext === "function") {
+          boot.fixTopbarHrefsFromPageContext();
         }
         if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
           try {

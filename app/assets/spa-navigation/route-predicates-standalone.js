@@ -115,6 +115,19 @@
     return WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
+  function isWorkspaceSurfaceUrl(urlLike) {
+    try {
+      const url = new URL(String(urlLike || ""), global.location?.href || "http://localhost");
+      if (isUnifiedViewRoute(url.pathname)) {
+        const surface = String(url.searchParams.get("surface") || "app").trim().toLowerCase();
+        return WORKSPACE_SURFACE_SLUGS.has(surface);
+      }
+      return WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(url.pathname));
+    } catch (_) {
+      return false;
+    }
+  }
+
   function isLegacyRemovedRoute(pathname = global.location?.pathname) {
     return LEGACY_REMOVED_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
@@ -335,6 +348,7 @@
     isAppSurfaceRoute,
     isAppWorkspaceSurfaceRoute,
     isWorkspaceSurfaceRoute,
+    isWorkspaceSurfaceUrl,
     isLegacyRemovedRoute,
     isLegacyPresentationRoute,
     appRoutePrefixesFromSlugs,
@@ -367,6 +381,7 @@
   global.isBuildWorkspacePathname = isBuildWorkspacePathname;
   global.isAppWorkspaceSurfaceRoute = isAppWorkspaceSurfaceRoute;
   global.isWorkspaceSurfaceRoute = isWorkspaceSurfaceRoute;
+  global.isWorkspaceSurfaceUrl = isWorkspaceSurfaceUrl;
   global.isAppSurfaceRoute = isAppSurfaceRoute;
   global.isBuildRoute = isBuildRoute;
   global.isAppRoute = isAppRoute;

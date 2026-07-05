@@ -1,6 +1,22 @@
   async function loadAndSwap(url, replaceHistory, navigationId) {
     const ctx = typeof boot.parseAccessSceneContext === "function" ? boot.parseAccessSceneContext(url) : null;
+    let canCacheFirst = false;
     if (ctx && typeof boot.tryCacheFirstSceneAccess === "function") {
+      try {
+        const currentCtx =
+          typeof boot.parseAccessSceneContext === "function"
+            ? boot.parseAccessSceneContext(window.location.href)
+            : null;
+        const currentUrl = new URL(window.location.href);
+        const nextUrl = new URL(url, window.location.href);
+        const sameApp =
+          currentCtx &&
+          String(currentCtx.appId || currentCtx.app_id || "") ===
+            String(ctx.appId || ctx.app_id || "");
+        canCacheFirst = sameApp && currentUrl.pathname === nextUrl.pathname;
+      } catch (_) {}
+    }
+    if (canCacheFirst) {
       try {
         const outcome = await boot.tryCacheFirstSceneAccess(ctx, {
           url,
@@ -14,6 +30,9 @@
         if (outcome.restored && outcome.doc) {
           if (typeof boot.markLoadingRenderSwapDone === "function") {
             boot.markLoadingRenderSwapDone(navigationId);
+          }
+          if (ctx && typeof boot.syncAppTabActiveState === "function") {
+            boot.syncAppTabActiveState(ctx.appId || ctx.app_id);
           }
           runPostSpaWork(outcome.doc, url, navigationId, null, new URL(url, window.location.href));
           return true;
@@ -78,6 +97,12 @@
       }
     } else {
       replaceShellFromDoc(doc, url, replaceHistory);
+    }
+    if (typeof boot.syncManageTopbarFromDoc === "function") {
+      boot.syncManageTopbarFromDoc(doc);
+    }
+    if (ctx && typeof boot.syncAppTabActiveState === "function") {
+      boot.syncAppTabActiveState(ctx.appId || ctx.app_id);
     }
     if (navigationId !== currentNavigationId) return false;
     if (typeof boot.markLoadingRenderSwapDone === "function") {
@@ -186,4 +211,46 @@
   boot.navigateSpa = function (url, replaceHistory) {
     return navigateInternal(url, !!replaceHistory);
   };
+  boot.navigateInternal = navigateInternal;
+
+  function installTopbarSpaNavigation() {
+    if (document.documentElement.dataset.meiTopbarSpaBound === "1") return;
+    document.documentElement.dataset.meiTopbarSpaBound = "1";
+    if (typeof boot.watchTopbarChromeInjection === "function") {
+      boot.watchTopbarChromeInjection();
+    }
+    document.addEventListener(
+      "click",
+      (event) => {
+        const path = event.composedPath ? event.composedPath() : [];
+        if (typeof boot.fixTopbarHrefsFromPageContext === "function") {
+          boot.fixTopbarHrefsFromPageContext();
+        }
+        for (const item of path) {
+          if (!(item instanceof HTMLElement)) continue;
+          if (item.matches("sl-button[data-mei-app-view], .mode-tab-btn[data-mei-app-view]")) {
+            const href = item.getAttribute("href");
+            if (!href) continue;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            void navigateInternal(new URL(href, window.location.href).href, false);
+            return;
+          }
+          if (
+            item instanceof HTMLAnchorElement &&
+            item.matches("a.app-tab, a.app-tab-sub") &&
+            item.href
+          ) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            void navigateInternal(item.href, false);
+            return;
+          }
+        }
+      },
+      true,
+    );
+  }
+
+  installTopbarSpaNavigation();
 
