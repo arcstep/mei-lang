@@ -131,3 +131,4 @@
   }
 
   boot.bootstrapInitialLoadProgress = bootstrapInitialLoadProgress;
+  boot.finishInitialLoadProgress = finishInitialLoadProgress;

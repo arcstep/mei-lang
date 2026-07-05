@@ -140,25 +140,34 @@
     recordSurfaceVisit(canonicalUrl, surface);
 
     let negotiated = null;
+    const vrCtx = {
+      app_id: nextCtx.app_id || nextCtx.appId,
+      scene_id: nextCtx.scene_id || nextCtx.sceneId,
+      surface,
+      node: nextCtx.node || "",
+      data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
+      review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
+      chrome: nextCtx.chrome || "",
+      tab: nextCtx.tab || "",
+      focus: nextCtx.focus || "",
+      scope: nextCtx.scope || "",
+    };
     try {
-      if (typeof boot.negotiateAndAssemble === "function") {
+      if (boot.viewRevisionClient?.tryClientOnlyAssemble) {
+        const cached = await boot.viewRevisionClient.tryClientOnlyAssemble(vrCtx);
+        if (cached?.ok) {
+          negotiated = {
+            outcome: boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local",
+            assemble: cached,
+          };
+        }
+      }
+      if (!negotiated && typeof boot.negotiateAndAssemble === "function") {
         negotiated = await boot.negotiateAndAssemble(
           { ...nextCtx, url: canonicalUrl },
-          { silent: true },
+          { silent: true, warmOnly: true },
         );
-      } else if (boot.viewRevisionClient?.negotiateWithLocalMiss) {
-        const vrCtx = {
-          app_id: nextCtx.app_id || nextCtx.appId,
-          scene_id: nextCtx.scene_id || nextCtx.sceneId,
-          surface,
-          node: nextCtx.node || "",
-          data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
-          review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
-          chrome: nextCtx.chrome || "",
-          tab: nextCtx.tab || "",
-          focus: nextCtx.focus || "",
-          scope: nextCtx.scope || "",
-        };
+      } else if (!negotiated && boot.viewRevisionClient?.negotiateWithLocalMiss) {
         negotiated = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx);
       }
     } catch (error) {
@@ -178,9 +187,6 @@
 
     if (typeof boot.hideThinShellFallback === "function") {
       boot.hideThinShellFallback();
-    }
-    if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
-      await boot.wakeRevisionFirstShellRuntime(nextCtx);
     }
     if (typeof runPostSpaWork === "function") {
       runPostSpaWork(

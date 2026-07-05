@@ -100,7 +100,7 @@
     if (ctx.node) params.set("node", ctx.node);
     if (opts.recover || opts.local_miss) {
       params.set("recover", "1");
-    } else {
+    } else if (!opts.omit_digests) {
       const digests =
         opts.client_digests ||
         (boot.readClientDigests ? boot.readClientDigests(ctx) : null) ||
@@ -132,12 +132,21 @@
     return payload;
   }
 
+  function extractLayerDocument(layerValue) {
+    if (layerValue == null) return null;
+    if (typeof layerValue === "object" && layerValue.document != null) {
+      return layerValue.document;
+    }
+    return layerValue;
+  }
+
   async function storeInlineLayers(ctx, inlineLayers, manifest) {
     if (!inlineLayers || !boot.layerStore) return;
     for (const [name, bytes] of Object.entries(inlineLayers)) {
       const ref = layerRefFromManifestValue(name, manifest?.layers?.[name]);
       if (!ref) continue;
-      await boot.layerStore.putLayerByRef(ctx.app_id, ctx.scene_id, ref, bytes, manifest);
+      const document = extractLayerDocument(bytes);
+      await boot.layerStore.putLayerByRef(ctx.app_id, ctx.scene_id, ref, document, manifest);
     }
   }
 
@@ -153,6 +162,7 @@
         response,
       };
     }
+    const inlined = new Set(Object.keys(response.inline_layers || {}));
     if (response.inline_layers && boot.layerStore) {
       await storeInlineLayers(
         ctx,
@@ -161,14 +171,17 @@
       );
     }
     if (response.changed_layers?.length && boot.sceneManifestLoader?.ensureLayers) {
-      const manifest = response.manifest || response.assembly_plan?.manifest;
-      await boot.sceneManifestLoader.ensureLayers(
-        response.changed_layers,
-        ctx.app_id,
-        ctx.scene_id,
-        ctx,
-        manifest,
-      );
+      const toFetch = response.changed_layers.filter((name) => !inlined.has(name));
+      if (toFetch.length) {
+        const manifest = response.manifest || response.assembly_plan?.manifest;
+        await boot.sceneManifestLoader.ensureLayers(
+          toFetch,
+          ctx.app_id,
+          ctx.scene_id,
+          ctx,
+          manifest,
+        );
+      }
     }
     return {
       outcome: ViewRevisionOutcome.REFETCH,
@@ -233,7 +246,14 @@
         content_hash: ref.content_hash,
       };
       let bytes = boot.layerStore?.takeLayerByRef?.(holding);
-      if (!bytes && boot.layerArtifactCache) {
+      if (!bytes && boot.sceneManifestLoader?.resolveLayerBytes) {
+        bytes = await boot.sceneManifestLoader.resolveLayerBytes(
+          holding,
+          ctx.app_id || ctx.appId,
+          ctx.scene_id || ctx.sceneId,
+          assemblyPlan?.manifest,
+        );
+      } else if (!bytes && boot.layerArtifactCache) {
         const cached = await boot.layerArtifactCache.getLayer(ref.artifact_id);
         if (
           cached &&
@@ -250,7 +270,7 @@
         missing.push(name);
         continue;
       }
-      layers[name] = bytes;
+      layers[name] = extractLayerDocument(bytes);
     }
     if (missing.length) {
       return { ok: false, missing, layers };
@@ -309,12 +329,56 @@
     return { ok: false, missing: Object.keys(layerRefs), layers };
   }
 
+  async function tryClientOnlyAssemble(ctx) {
+    const stored = boot.readViewRevision?.(ctx);
+    let manifest = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx);
+    const manifestDigest =
+      stored?.manifest_revision_digest || boot.readSharedManifestDigest?.(ctx) || "";
+    const surfaceDigest = stored?.surface_revision_digest || "";
+    if (!manifestDigest || !surfaceDigest || !manifest?.layers) {
+      return null;
+    }
+    const layerRefs = Object.fromEntries(
+      layerRefsFromManifest(manifest).map((ref) => [
+        ref.name,
+        { artifact_id: ref.artifact_id, content_hash: ref.content_hash },
+      ]),
+    );
+    const plan = {
+      manifest,
+      layer_refs: layerRefs,
+      compose_defaults: manifest.compose_defaults || composeDefaultsFromResponse({ manifest }, ctx),
+    };
+    const assembled = await tryAssembleLocal(ctx, plan);
+    if (!assembled?.ok) return null;
+    return {
+      ...assembled,
+      source: "client_cache",
+    };
+  }
+
   async function negotiateWithLocalMiss(ctx) {
+    const cached = await tryClientOnlyAssemble(ctx);
+    if (cached?.ok) {
+      boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
+      return {
+        outcome: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+        assemble: cached,
+        response: {
+          status: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+          manifest_revision_digest: boot.readViewRevision?.(ctx)?.manifest_revision_digest,
+          surface_revision_digest: boot.readViewRevision?.(ctx)?.surface_revision_digest,
+          cached_only: true,
+        },
+      };
+    }
+    const digests = boot.readClientDigests ? boot.readClientDigests(ctx) : {};
     let result = await negotiateViewRevision(ctx, {});
     let assemble = await tryAssembleLocal(
       ctx,
       result.plan || {
         manifest: result.response?.manifest || null,
+        layer_refs: result.response?.assembly_plan?.layer_refs || {},
         compose_defaults: composeDefaultsFromResponse(result.response, ctx),
       },
     );
@@ -323,19 +387,45 @@
         result.outcome === ViewRevisionOutcome.REFETCH
           ? ViewRevisionOutcome.REFETCH
           : ViewRevisionOutcome.ASSEMBLE_LOCAL;
+      if (typeof boot.rememberViewRevision === "function" && result.response) {
+        const rememberPayload = {
+          ...result.response,
+          manifest:
+            result.response.manifest ||
+            result.plan?.manifest ||
+            boot.readSharedManifestSnapshot?.(ctx) ||
+            null,
+        };
+        boot.rememberViewRevision(ctx, rememberPayload);
+      }
       return { ...result, assemble };
     }
-    result = await negotiateViewRevision(ctx, { recover: true });
-    assemble = await tryAssembleLocal(
-      ctx,
-      result.plan || {
-        manifest: result.response?.manifest || null,
-        compose_defaults: composeDefaultsFromResponse(result.response, ctx),
-      },
-    );
-    if (assemble.ok) {
-      boot.lastViewRevisionOutcome = ViewRevisionOutcome.REFETCH;
-      return { ...result, assemble };
+    const missing = assemble.missing || [];
+    if (missing.length) {
+      result = await negotiateViewRevision(ctx, { recover: true });
+      assemble = await tryAssembleLocal(
+        ctx,
+        result.plan || {
+          manifest: result.response?.manifest || null,
+          layer_refs: result.response?.assembly_plan?.layer_refs || {},
+          compose_defaults: composeDefaultsFromResponse(result.response, ctx),
+        },
+      );
+      if (assemble.ok) {
+        boot.lastViewRevisionOutcome = ViewRevisionOutcome.REFETCH;
+        if (typeof boot.rememberViewRevision === "function" && result.response) {
+          const rememberPayload = {
+            ...result.response,
+            manifest:
+              result.response.manifest ||
+              result.plan?.manifest ||
+              boot.readSharedManifestSnapshot?.(ctx) ||
+              null,
+          };
+          boot.rememberViewRevision(ctx, rememberPayload);
+        }
+        return { ...result, assemble };
+      }
     }
     boot.lastViewRevisionOutcome = ViewRevisionOutcome.LOCAL_MISS;
     return { ...result, assemble, outcome: ViewRevisionOutcome.LOCAL_MISS };
@@ -352,6 +442,7 @@
     negotiateWithLocalMiss,
     negotiateViewRevisionWithRecover: negotiateWithLocalMiss,
     tryAssembleLocal,
+    tryClientOnlyAssemble,
     layerRefsFromManifest,
   };
 })(typeof window !== "undefined" ? window : globalThis);

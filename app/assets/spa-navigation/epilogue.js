@@ -31,6 +31,15 @@
         if (typeof boot.hideThinShellFallback === "function") {
           boot.hideThinShellFallback();
         }
+        if (typeof boot.rememberViewRevision === "function" && ctx && outcome.revision) {
+          boot.rememberViewRevision(ctx, outcome.revision);
+        } else if (
+          typeof boot.rememberViewRevision === "function" &&
+          ctx &&
+          globalThis.__mei?.scene_manifest_refs
+        ) {
+          boot.rememberViewRevision(ctx, globalThis.__mei.scene_manifest_refs);
+        }
         runPostSpaWork(
           outcome.doc,
           window.location.href,
@@ -63,6 +72,9 @@
       }
       if (typeof boot.inspectSceneClientCache === "function" && boot.cacheDiagEnabled?.()) {
         void boot.inspectSceneClientCache(ctx);
+      }
+      if (typeof boot.finishInitialLoadProgress === "function") {
+        await boot.finishInitialLoadProgress();
       }
     } catch (error) {
       console.warn("[spa-navigation] view cold start skipped", error);

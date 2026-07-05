@@ -135,38 +135,144 @@
     } catch (_) {}
   }
 
+  function resolveComposeKeyCtx(ctx) {
+    const payload = ctx || {};
+    const tab = String(payload.tab || "").trim();
+    if (tab) return payload;
+    const surface = String(payload.surface || payload.mode || payload.route_mode || "app")
+      .trim()
+      .toLowerCase();
+    const defaultTab =
+      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
+      (surface === "layout" || surface === "prototype" ? "preview" : "scene");
+    return { ...payload, tab: defaultTab };
+  }
+
+  function viewRevisionStoreKey(ctx) {
+    const resolved = resolveComposeKeyCtx(ctx);
+    const semantic = semanticRevisionKey(resolved);
+    const compose = surfaceComposeKey(resolved);
+    if (!semantic || !compose) return semantic || "";
+    return `${semantic}::${compose}`;
+  }
+
+  function ssrManifestMatchesSurface(ctx) {
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (!refs || typeof refs !== "object") return false;
+    const surface = String(ctx?.surface || ctx?.mode || "app")
+      .trim()
+      .toLowerCase();
+    const routeMode = String(refs.compose_defaults?.route_mode || "")
+      .trim()
+      .toLowerCase();
+    return !routeMode || routeMode === surface;
+  }
+
   function rememberViewRevision(ctx, revision) {
-    const semanticKey = semanticRevisionKey(ctx);
-    if (!semanticKey || !revision) return;
+    const resolved = resolveComposeKeyCtx(ctx);
+    const storeKey = viewRevisionStoreKey(resolved);
+    if (!storeKey || !revision) return;
+    let manifest =
+      revision.manifest ||
+      revision.assembly_plan?.manifest ||
+      revision.response?.manifest ||
+      revision.response?.assembly_plan?.manifest ||
+      revision.manifest_snapshot ||
+      null;
+    if (!manifest?.layers) {
+      const refs = globalThis.__mei?.scene_manifest_refs;
+      if (refs?.layers && ssrManifestMatchesSurface(resolved)) {
+        manifest = refs;
+      }
+    }
     const store = readViewRevisionStore();
-    store[semanticKey] = {
+    store[storeKey] = {
       ...normalizeRevision(revision),
-      surface_compose: surfaceComposeKey(ctx),
+      manifest_revision_digest: String(
+        revision.manifest_revision_digest ||
+          manifest?.revision_digest ||
+          revision.assembly_plan?.manifest?.revision_digest ||
+          "",
+      ).trim(),
+      surface_revision_digest: String(
+        revision.surface_revision_digest ||
+          manifest?.surface_revision_digest ||
+          "",
+      ).trim(),
+      surface_compose: surfaceComposeKey(resolved),
+      manifest_snapshot: manifest,
     };
-    pruneRevisionStore(store, semanticKey, 64);
+    pruneRevisionStore(store, storeKey, 96);
     writeViewRevisionStore(store);
   }
 
   function readViewRevision(ctx) {
-    const semanticKey = semanticRevisionKey(ctx);
-    if (!semanticKey) return null;
+    const resolved = resolveComposeKeyCtx(ctx);
+    const storeKey = viewRevisionStoreKey(resolved);
+    if (!storeKey) return null;
     const store = readViewRevisionStore();
-    return store[semanticKey] || null;
+    if (store[storeKey]) return store[storeKey];
+    const legacyKey = semanticRevisionKey(resolved);
+    const legacy = store[legacyKey];
+    const composeKey = surfaceComposeKey(resolved);
+    if (
+      legacy &&
+      legacy.surface_compose === composeKey &&
+      legacy.manifest_revision_digest
+    ) {
+      return legacy;
+    }
+    return null;
+  }
+
+  function readSharedManifestDigest(ctx) {
+    const resolved = resolveComposeKeyCtx(ctx);
+    const semantic = semanticRevisionKey(resolved);
+    if (!semantic) return "";
+    const store = readViewRevisionStore();
+    for (const [key, entry] of Object.entries(store)) {
+      if (!key.startsWith(`${semantic}::`)) continue;
+      const digest = String(entry?.manifest_revision_digest || "").trim();
+      if (digest) return digest;
+    }
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (refs?.revision_digest) {
+      return String(refs.revision_digest || "").trim();
+    }
+    return "";
+  }
+
+  function readSharedManifestSnapshot(ctx) {
+    const resolved = resolveComposeKeyCtx(ctx);
+    const semantic = semanticRevisionKey(resolved);
+    if (!semantic) return null;
+    const store = readViewRevisionStore();
+    for (const [key, entry] of Object.entries(store)) {
+      if (!key.startsWith(`${semantic}::`)) continue;
+      if (entry?.manifest_snapshot?.layers) {
+        return entry.manifest_snapshot;
+      }
+    }
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (refs?.layers) return refs;
+    return null;
   }
 
   function readClientDigests(ctx) {
-    const composeKey = surfaceComposeKey(ctx);
-    const stored = readViewRevision(ctx);
-    if (
-      stored &&
-      stored.surface_compose === composeKey &&
-      stored.manifest_revision_digest &&
-      stored.surface_revision_digest
-    ) {
-      return {
-        manifest_revision_digest: stored.manifest_revision_digest,
-        surface_revision_digest: stored.surface_revision_digest,
-      };
+    const resolved = resolveComposeKeyCtx(ctx);
+    const stored = readViewRevision(resolved);
+    const manifest_revision_digest = String(
+      stored?.manifest_revision_digest || readSharedManifestDigest(resolved) || "",
+    ).trim();
+    const surface_revision_digest = String(stored?.surface_revision_digest || "").trim();
+    if (manifest_revision_digest && surface_revision_digest) {
+      return { manifest_revision_digest, surface_revision_digest };
+    }
+    if (manifest_revision_digest) {
+      return { manifest_revision_digest, surface_revision_digest: "" };
+    }
+    if (!ssrManifestMatchesSurface(resolved)) {
+      return { manifest_revision_digest: "", surface_revision_digest: "" };
     }
     const refs = globalThis.__mei?.scene_manifest_refs;
     if (!refs || typeof refs !== "object") {
@@ -220,11 +326,15 @@
   boot.semanticRevisionKey = semanticRevisionKey;
   boot.surfaceComposeKey = surfaceComposeKey;
   boot.surfaceRevisionKey = surfaceRevisionKey;
+  boot.resolveComposeKeyCtx = resolveComposeKeyCtx;
+  boot.viewRevisionStoreKey = viewRevisionStoreKey;
   boot.readViewRevisionStore = readViewRevisionStore;
   boot.writeViewRevisionStore = writeViewRevisionStore;
   boot.rememberViewRevision = rememberViewRevision;
   boot.readViewRevision = readViewRevision;
   boot.readClientDigests = readClientDigests;
+  boot.readSharedManifestDigest = readSharedManifestDigest;
+  boot.readSharedManifestSnapshot = readSharedManifestSnapshot;
   boot.pruneRevisionStore = pruneRevisionStore;
   boot.ViewRevisionOutcome = ViewRevisionOutcome;
   boot.holdingsFromLayerCache = holdingsFromLayerCache;

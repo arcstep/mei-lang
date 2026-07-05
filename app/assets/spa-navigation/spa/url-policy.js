@@ -119,11 +119,18 @@
 
   /** 配置/上传/模式切换/跨应用 Tab 整页导航；Config/Upload 明确 no-cache + full-page。 */
   function shouldBypassSpaClick(event) {
+    const target = resolveClickTarget(event);
+    if (
+      target?.url &&
+      isSameAppWorkspaceSurfaceSwitch(window.location.href, target.url)
+    ) {
+      return false;
+    }
     const path = event.composedPath ? event.composedPath() : [];
     let appViewSurfaceSwitch = false;
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
-      if (item.matches("sl-button[data-mei-app-view]")) {
+      if (item.matches("sl-button[data-mei-app-view], .mode-tab-btn[data-mei-app-view]")) {
         appViewSurfaceSwitch = true;
         continue;
       }
@@ -153,7 +160,7 @@
     let appViewSurfaceSwitch = false;
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
-      if (item.matches("sl-button[data-mei-app-view]")) {
+      if (item.matches("sl-button[data-mei-app-view], .mode-tab-btn[data-mei-app-view]")) {
         appViewSurfaceSwitch = true;
         continue;
       }

@@ -122,6 +122,27 @@
     }
   }
 
+  async function resolveLayerBytes(ref, appId, sceneId, manifest) {
+    if (!ref) return null;
+    let bytes = boot.layerStore?.takeLayerByRef?.(ref);
+    if (bytes) return bytes;
+    if (boot.layerArtifactCache?.getLayer) {
+      const cached = await boot.layerArtifactCache.getLayer(ref.artifact_id);
+      if (
+        cached &&
+        cached.content_hash === ref.content_hash &&
+        cached.bytes != null
+      ) {
+        bytes = cached.bytes;
+        if (boot.layerStore?.putLayerByRef) {
+          await boot.layerStore.putLayerByRef(appId, sceneId, ref, bytes, manifest);
+        }
+        return bytes;
+      }
+    }
+    return null;
+  }
+
   async function ensureLayers(layerNames, appId, sceneId, ctx, manifest) {
     const axes = readShellAxes();
     let activeManifest = manifest;
@@ -136,7 +157,7 @@
         missing.push(name);
         continue;
       }
-      const cached = boot.layerStore?.takeLayerByRef?.(ref);
+      const cached = await resolveLayerBytes(ref, appId, sceneId, activeManifest);
       if (!cached) missing.push(name);
     }
     if (!missing.length) {
@@ -215,6 +236,7 @@
     ensureStructureFull,
     ensureAccessComposeLayers,
     ensureLayers,
+    resolveLayerBytes,
     syncHoldingsFromManifest,
     readShellAxes,
     resolveWorkspaceSurface,
