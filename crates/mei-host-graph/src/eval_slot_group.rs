@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::content_store::{put_if_absent, EVAL_SLOT_GROUP_KIND};
-use crate::layer_store::{store_layer, take_layer};
+use crate::layer_store::{layer_entry_meta, store_layer, take_layer};
 use crate::semantic_cache::SemanticCacheCore;
 use crate::structure_full::slot_group_id_for_node;
 use crate::types::PayloadRef;
@@ -103,7 +103,11 @@ pub fn ensure_eval_slot_group_cached(
     );
     if let Some(bytes) = take_layer(cache_key.as_str()) {
         let doc: EvalSlotGroupDocument = serde_json::from_slice(bytes.as_slice())?;
-        let pref = PayloadRef::new(EVAL_SLOT_GROUP_KIND, "cached", EVAL_SLOT_GROUP_SCHEMA);
+        let content_hash = layer_entry_meta(cache_key.as_str())
+            .map(|(_, hash)| hash)
+            .filter(|hash| !hash.is_empty())
+            .unwrap_or_else(|| "cached".to_string());
+        let pref = PayloadRef::new(EVAL_SLOT_GROUP_KIND, content_hash.as_str(), EVAL_SLOT_GROUP_SCHEMA);
         return Ok((doc, pref, true));
     }
     let structure = build_structure_full_document(compiled, layout_policy_revision);

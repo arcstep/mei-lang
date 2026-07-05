@@ -88,7 +88,7 @@ pub(crate) fn frame_viewport_style_page_flow_for_route(
     let (safe_top, safe_right, safe_bottom, safe_left) =
         effective_viewport_safe_inset(viewport, route);
     // Manage：水平留白交给 frame grid padding；视窗铺满中间栏，避免「视窗缩窄 + 右侧对齐」假象。
-    let (pad_top, pad_right, pad_bottom, pad_left) = if route == UiRouteMode::Build {
+    let (pad_top, pad_right, pad_bottom, pad_left) = if route == UiRouteMode::Layout {
         (safe_top, 0.0, safe_bottom, 0.0)
     } else {
         (safe_top, safe_right, safe_bottom, safe_left)
@@ -112,7 +112,7 @@ pub(crate) fn frame_viewport_style_fluid_width_for_route(
 ) -> String {
     let (safe_top, safe_right, safe_bottom, safe_left) =
         effective_viewport_safe_inset(viewport, route);
-    if route == UiRouteMode::Build {
+    if route == UiRouteMode::Layout {
         return frame_viewport_style_with_safe(
             viewport,
             "debug",

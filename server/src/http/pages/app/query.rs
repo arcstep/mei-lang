@@ -135,6 +135,8 @@ pub(crate) fn parse_speaker_tour_tail(raw_app_path: &str) -> Option<(String, Str
 }
 
 /// `/apps/speaker/...` → `/apps/copilot/...`；`/tour/` → `/presentation/`。
+/// Legacy speaker URL helper (redirect removed; presentation routes return 404).
+#[allow(dead_code)]
 pub(crate) fn legacy_speaker_redirect_location(app_tail: &str) -> String {
     let tail = app_tail.trim_start_matches('/');
     let normalized = tail.replace(SPEAKER_TOUR_PATH_MARK, PRESENTATION_PATH_MARK);
@@ -240,10 +242,6 @@ pub(crate) fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery)
 
 pub(crate) fn presentation_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
     scene_projection_sanitized_redirect_location(UiRouteMode::Run, app_id, query)
-}
-
-fn build_query_suffix(query: &AppQuery) -> String {
-    build_query_suffix_with_options(query, BuildQuerySuffixOptions::default())
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -359,18 +357,4 @@ pub(crate) fn legacy_access_redirect_location(
         ));
     }
     Some(access_sanitized_redirect_location(&app_id, query))
-}
-
-/// 旧 `/apps/manage/...` → `/apps/build/...` 或 `/apps/config/...`
-pub(crate) fn legacy_manage_redirect_location(app_id: &str, query: &AppQuery) -> String {
-    let app = app_id.trim_start_matches('/');
-    if query
-        .file
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|f| f == ".mei-config.json")
-    {
-        return format!("/apps/config/{app}");
-    }
-    format!("/apps/build/{app}{}", build_query_suffix(query))
 }

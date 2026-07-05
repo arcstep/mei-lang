@@ -4,10 +4,26 @@
 (function (global) {
   "use strict";
 
-  const STORAGE_KEY = "mei-build-tree-open";
-  const SCROLL_KEY = "mei-build-tree-scroll";
-  const PRESET_KEY = "mei-build-tree-preset";
   const CLICK_DELAY_MS = 280;
+
+  function appIdFromPath() {
+    try {
+      const parts = String(global.location.pathname || "").split("/").filter(Boolean);
+      if (parts[0] !== "apps" || parts.length < 2) return "";
+      const slug = String(parts[1] || "").trim().toLowerCase();
+      if (slug === "layout" || slug === "prototype" || slug === "app") {
+        return parts[2] ? decodeURIComponent(parts[2]) : "";
+      }
+      return decodeURIComponent(parts[1]);
+    } catch {
+      return "";
+    }
+  }
+
+  function storageKey(suffix) {
+    const appId = appIdFromPath() || String(global.document?.body?.getAttribute?.("data-app-id") || "").trim() || "_";
+    return `mei-workspace-tree:${appId}:${suffix}`;
+  }
 
   const UI_ROLE_RANK = {
     plane: 0,
@@ -29,7 +45,7 @@
 
   function loadOpenSet() {
     try {
-      const raw = global.sessionStorage.getItem(STORAGE_KEY);
+      const raw = global.sessionStorage.getItem(storageKey("open"));
       if (!raw) return new Set();
       const parsed = JSON.parse(raw);
       return new Set(Array.isArray(parsed) ? parsed : []);
@@ -40,7 +56,7 @@
 
   function saveOpenSet(set) {
     try {
-      global.sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
+      global.sessionStorage.setItem(storageKey("open"), JSON.stringify([...set]));
     } catch {
       /* ignore quota */
     }
@@ -50,7 +66,7 @@
     const scroll = sidebarScrollEl(root);
     if (!scroll) return;
     try {
-      global.sessionStorage.setItem(SCROLL_KEY, String(scroll.scrollTop || 0));
+      global.sessionStorage.setItem(storageKey("scroll"), String(scroll.scrollTop || 0));
     } catch {
       /* ignore */
     }
@@ -64,7 +80,7 @@
         scroll.scrollTop = explicitTop;
         return;
       }
-      const raw = global.sessionStorage.getItem(SCROLL_KEY);
+      const raw = global.sessionStorage.getItem(storageKey("scroll"));
       if (raw == null) return;
       const top = Number(raw);
       if (Number.isFinite(top)) {
@@ -223,9 +239,9 @@
     const preset = readActivePresetSlug();
     if (!preset) return false;
     try {
-      const prev = String(global.sessionStorage.getItem(PRESET_KEY) || "").trim();
+      const prev = String(global.sessionStorage.getItem(storageKey("preset")) || "").trim();
       if (prev === preset) return false;
-      global.sessionStorage.setItem(PRESET_KEY, preset);
+      global.sessionStorage.setItem(storageKey("preset"), preset);
       return true;
     } catch {
       return false;
@@ -318,16 +334,19 @@
     return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
   }
 
+  function inferPreviewTabFromNodeId(nodeId) {
+    const id = String(nodeId || "").trim().toLowerCase();
+    if (!id) return "";
+    if (id.startsWith("scene-panel:") || id.startsWith("scene-block:") || id.includes("projection")) {
+      return "preview";
+    }
+    return "";
+  }
+
   function treeLinkTab(rawUrl, linkEl) {
-    const nav = global.MeiBuildNavigation;
-    if (nav && typeof nav.treeLinkTab === "function") {
-      return nav.treeLinkTab(rawUrl, linkEl);
-    }
-    if (nav && typeof nav.inferPreviewTabFromNodeId === "function") {
-      const nodeId = String(linkEl?.getAttribute?.("data-build-node") || "").trim();
-      const inferred = nav.inferPreviewTabFromNodeId(nodeId);
-      if (inferred) return inferred;
-    }
+    const nodeId = String(linkEl?.getAttribute?.("data-build-node") || "").trim();
+    const inferred = inferPreviewTabFromNodeId(nodeId);
+    if (inferred) return inferred;
     return currentManageTab();
   }
 
@@ -381,27 +400,11 @@
           link.href = url.toString();
         } catch (_) {}
         const nodeId = String(link.getAttribute("data-build-node") || "").trim();
-        const structureNode = /^(?:ui-scope|scene-panel|scene-block):/i.test(nodeId);
-        const nav = global.MeiBuildNavigation;
-        if (!structureNode || typeof nav?.tryNavigateBuild !== "function") return;
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        void nav
-          .tryNavigateBuild(global.location.href, link.href, { linkEl: link })
-          .then((result) => {
-            if (result?.handled) {
-              if (typeof nav.noteUrl === "function") nav.noteUrl(link.href);
-              return;
-            }
-            if (typeof global.__meiLangBoot?.navigateInternal === "function") {
-              void global.__meiLangBoot.navigateInternal(link.href, false, { skipBuildNav: true });
-            }
-          })
-          .catch(() => {
-            if (typeof global.__meiLangBoot?.navigateInternal === "function") {
-              void global.__meiLangBoot.navigateInternal(link.href, false, { skipBuildNav: true });
-            }
-          });
+        if (typeof global.__meiLangBoot?.navigateInternal === "function") {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          void global.__meiLangBoot.navigateInternal(link.href, false);
+        }
       },
       true,
     );

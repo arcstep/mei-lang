@@ -171,6 +171,32 @@
     return ensureLoadedAsync();
   }
 
+  function routeUtils() {
+    return boot.presentationRouteUtils || global.MeiPresentationRouteUtils || null;
+  }
+
+  function rewriteStepRoute(route) {
+    const utils = routeUtils();
+    if (utils?.rewriteStepRoute) return utils.rewriteStepRoute(route);
+    if (typeof global.rewriteLegacyPresentationRoute === "function") {
+      return global.rewriteLegacyPresentationRoute(route);
+    }
+    return String(route || "").trim();
+  }
+
+  function dispatchWorldAction(detail) {
+    const utils = routeUtils();
+    if (utils?.dispatchWorldAction) return utils.dispatchWorldAction(detail);
+    try {
+      global.dispatchEvent(
+        new CustomEvent("mei:presentation-world-action", { detail, bubbles: false }),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function focusApi() {
     return window.MeiPresentation || null;
   }
@@ -206,11 +232,14 @@
     const normalized = normalizePresentationAction(action);
     const type = String(normalized.type || "").trim();
     const api = focusApi();
-    if (!api || typeof api.dispatch !== "function") {
-      if (type === "highlight") return applyHighlight(String(normalized.viewpoint || "").trim());
-      return false;
+    if (api && typeof api.dispatch === "function") {
+      if (api.dispatch(normalized)) return true;
     }
-    return Boolean(api.dispatch(normalized));
+    if (type === "highlight" || type === "focus") {
+      const viewpoint = String(normalized.viewpoint || "").trim();
+      if (viewpoint && applyHighlight(viewpoint)) return true;
+    }
+    return dispatchWorldAction(normalized);
   }
 
   function normalizePresentationAction(action) {
@@ -405,7 +434,7 @@
   }
 
   async function navigateToStepRoute(step) {
-    const route = String(step?.route || step?.cockpit?.route || "").trim();
+    const route = rewriteStepRoute(String(step?.route || step?.cockpit?.route || "").trim());
     if (!route) return;
     if (typeof boot.navigateInternal === "function") {
       await boot.navigateInternal(route, false);

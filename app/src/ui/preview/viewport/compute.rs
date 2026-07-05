@@ -57,8 +57,7 @@ pub(crate) fn effective_viewport_overflow(
     route: UiRouteMode,
 ) -> String {
     match route {
-        UiRouteMode::Build
-        | UiRouteMode::Layout
+        UiRouteMode::Layout
         | UiRouteMode::Prototype
         | UiRouteMode::Config
         | UiRouteMode::Upload
@@ -168,8 +167,7 @@ pub(crate) fn effective_viewport_safe_inset(
     route: UiRouteMode,
 ) -> (f64, f64, f64, f64) {
     match route {
-        UiRouteMode::Build
-        | UiRouteMode::Layout
+        UiRouteMode::Layout
         | UiRouteMode::Prototype
         | UiRouteMode::Config
         | UiRouteMode::Upload

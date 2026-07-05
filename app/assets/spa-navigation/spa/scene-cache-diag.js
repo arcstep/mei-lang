@@ -22,44 +22,17 @@
     }
   }
 
-  function parseBuildCacheContext(urlLike) {
-    try {
-      const url = new URL(urlLike, global.location.href);
-      const parts = url.pathname.split("/").filter(Boolean);
-      if (parts[0] !== "apps" || parts[1] !== "build" || !parts[2]) return null;
-      const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
-      const resolveNode =
-        typeof hostBoot.resolveBuildFragmentNode === "function"
-          ? hostBoot.resolveBuildFragmentNode.bind(hostBoot)
-          : typeof global.MeiBuildFragmentRevision?.resolveBuildFragmentNode === "function"
-            ? global.MeiBuildFragmentRevision.resolveBuildFragmentNode.bind(
-                global.MeiBuildFragmentRevision,
-              )
-            : null;
-      return {
-        surface: "build",
-        appId: decodeURIComponent(parts[2]),
-        url: url.href,
-        node: String(url.searchParams.get("node") || "").trim(),
-        resolvedNode: resolveNode ? String(resolveNode(url.href) || "").trim() : "",
-        tab: String(url.searchParams.get("tab") || "").trim(),
-        dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
-        reviewProjection: String(url.searchParams.get("review_projection") || "")
-          .trim()
-          .toLowerCase(),
-      };
-    } catch (_) {
-      return null;
-    }
-  }
-
   function resolveCacheContext(ctxLike) {
     if (ctxLike) return ctxLike;
+    if (typeof boot.parseViewContext === "function") {
+      const viewCtx = boot.parseViewContext(global.location.href);
+      if (viewCtx) return viewCtx;
+    }
     if (typeof boot.parseAccessSceneContext === "function") {
       const accessCtx = boot.parseAccessSceneContext(global.location.href);
       if (accessCtx) return accessCtx;
     }
-    return parseBuildCacheContext(global.location.href);
+    return null;
   }
 
   function trace(event, detail) {
@@ -96,45 +69,25 @@
   async function inspect(ctxLike) {
     const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
     const ctx = resolveCacheContext(ctxLike);
-    const isBuild = ctx?.surface === "build";
+    const surface = String(ctx?.surface || ctx?.mode || "unknown").trim().toLowerCase() || "unknown";
     const shellKey =
-      !isBuild && typeof boot.snapshotStorageKey === "function" && ctx
-        ? boot.snapshotStorageKey(ctx)
-        : null;
+      typeof boot.snapshotStorageKey === "function" && ctx ? boot.snapshotStorageKey(ctx) : null;
     const revisionKey =
-      !isBuild && typeof boot.sceneRevisionCacheKey === "function" && ctx
+      typeof boot.sceneRevisionCacheKey === "function" && ctx
         ? boot.sceneRevisionCacheKey(ctx)
-        : isBuild && typeof hostBoot.buildFragmentRevisionCacheKey === "function"
-          ? hostBoot.buildFragmentRevisionCacheKey(ctx.url)
-          : isBuild && global.MeiBuildFragmentRevision?.buildFragmentRevisionCacheKey
-            ? global.MeiBuildFragmentRevision.buildFragmentRevisionCacheKey(ctx.url)
-            : null;
+        : null;
     const cachedRevision =
-      !isBuild && ctx && typeof boot.readCachedSceneRevision === "function"
+      ctx && typeof boot.readCachedSceneRevision === "function"
         ? boot.readCachedSceneRevision(ctx)
         : null;
     const ssrRevision =
       typeof boot.readSsrEmbeddedSceneRevision === "function"
         ? boot.readSsrEmbeddedSceneRevision()
-        : isBuild && typeof hostBoot.readSsrEmbeddedBuildRevision === "function"
-          ? hostBoot.readSsrEmbeddedBuildRevision()
-          : null;
-    const buildRevision =
-      isBuild && ctx?.url
-        ? hostBoot.readBuildFragmentRevision?.(ctx.url) ||
-          global.MeiBuildFragmentRevision?.readBuildFragmentRevision?.(ctx.url) ||
-          null
-        : null;
-    const buildFragment =
-      isBuild && ctx?.url && buildRevision
-        ? hostBoot.readBuildFragmentManifest?.(ctx.url, buildRevision) ||
-          global.MeiBuildFragmentRevision?.readBuildFragmentManifest?.(ctx.url, buildRevision) ||
-          null
         : null;
     const report = {
       url: global.location.href,
       ctx,
-      surface: isBuild ? "build" : ctx ? "access" : "unknown",
+      surface,
       thin_shell:
         (typeof isRevisionFirstShellPage === "function" && isRevisionFirstShellPage()) ||
         globalThis.__mei?.thin_shell === true,
@@ -143,30 +96,70 @@
       flags: readFlags(),
       ssrRevision,
       cachedRevision,
-      buildRevision,
-      buildFragment: buildFragment
-        ? {
-            manifestDigest: String(
-              buildFragment.scene_manifest?.revision_digest || "",
-            ).length,
-            node: buildFragment.node || "",
-            revision: buildFragment.revision || buildRevision,
-          }
-        : null,
       snapshot: null,
       bootApi: {
         inspectSceneClientCache: typeof hostBoot.inspectSceneClientCache === "function",
-        fetchBuildFragmentRevision: typeof hostBoot.fetchBuildFragmentRevision === "function",
         viewRevisionClient: typeof hostBoot.viewRevisionClient?.fetchViewRevision === "function",
         layerArtifactCache: typeof hostBoot.layerArtifactCache?.listHoldings === "function",
-        meiBuildFragmentRevision: !!global.MeiBuildFragmentRevision?.fetchBuildFragmentRevision,
-        tryRestoreBuildPreviewFromCache:
-          typeof global.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function",
       },
       viewRevisionOutcome: hostBoot.lastViewRevisionOutcome || null,
       events: (global.__meiCacheDiag?.events || []).slice(-12),
     };
     trace("inspect", report);
+    return report;
+  }
+
+  async function inspectCrossSurfaceCache() {
+    const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
+    const viewCtx =
+      typeof hostBoot.parseViewContext === "function"
+        ? hostBoot.parseViewContext(global.location.href)
+        : null;
+    const appId =
+      viewCtx?.app_id || viewCtx?.appId || document.body?.getAttribute("data-app-id") || "";
+    const sceneId =
+      viewCtx?.scene_id || viewCtx?.sceneId || document.body?.getAttribute("data-scene-id") || "home";
+    const holdings =
+      typeof hostBoot.layerStore?.listHoldings === "function"
+        ? await hostBoot.layerStore.listHoldings(appId, sceneId)
+        : typeof hostBoot.layerArtifactCache?.listHoldings === "function"
+          ? await hostBoot.layerArtifactCache.listHoldings(appId, sceneId)
+          : [];
+    const mapResources = performance
+      .getEntriesByType("resource")
+      .filter((entry) => /tilejson|maplibre|\/gis\//i.test(entry.name))
+      .map((entry) => ({
+        name: entry.name.slice(-72),
+        ms: Math.round(entry.duration),
+        start: Math.round(entry.startTime),
+      }));
+    const sidebarScroll = document.querySelector("aside .sidebar-scroll");
+    const report = {
+      url: global.location.href,
+      appId,
+      sceneId,
+      surface: viewCtx?.surface || "unknown",
+      layerHoldings: holdings,
+      lastViewRevisionOutcome: hostBoot.lastViewRevisionOutcome || null,
+      flags: readFlags(),
+      treeUi: {
+        hasShell: !!document.querySelector(".build-tree-shell"),
+        duplicateChevrons: document.querySelectorAll(".build-tree-summary > .build-tree-kind")
+          .length,
+        treeNodes: document.querySelectorAll(".build-tree-node").length,
+        sidebarScroll: sidebarScroll
+          ? {
+              clientHeight: sidebarScroll.clientHeight,
+              scrollHeight: sidebarScroll.scrollHeight,
+              canScroll: sidebarScroll.scrollHeight > sidebarScroll.clientHeight + 1,
+            }
+          : null,
+      },
+      mapResources,
+      mapNote:
+        "地图为 MapLibre WebGL 客户端组件，不走 SSR 页面缓存；瓦片/tilejson 在整页刷新后重新拉取。",
+    };
+    trace("inspect-cross-surface", report);
     return report;
   }
 
@@ -182,8 +175,7 @@
         url.includes("/api/host/scene-bootstrap") ||
         url.includes("/api/host/scene-fragment") ||
         url.includes("/api/host/layer-batch") ||
-        url.includes("/api/build/fragment-revision") ||
-        url.includes("/api/build/workspace-fragment")
+        url.includes("/api/host/scene-manifest")
       ) {
         trace("fetch", { url, method: init?.method || "GET" });
       }
@@ -194,6 +186,7 @@
   function publishApi() {
     const api = {
       inspect,
+      inspectCrossSurfaceCache,
       trace,
       flags: readFlags,
       enabled: cacheDiagEnabled,
@@ -205,7 +198,7 @@
     boot.cacheDiagEnabled = cacheDiagEnabled;
     boot.cacheDiagTrace = trace;
     boot.inspectSceneClientCache = inspect;
-    boot.parseBuildCacheContext = parseBuildCacheContext;
+    boot.inspectCrossSurfaceCache = inspectCrossSurfaceCache;
   }
 
   publishApi();

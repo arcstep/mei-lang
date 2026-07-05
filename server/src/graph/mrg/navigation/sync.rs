@@ -49,8 +49,8 @@ pub fn sync_navigation_registry(
             continue;
         }
         let access_url = format!("/apps/app/{canonical_app}/scene/{scene_id}");
-        let build_url = format!(
-            "/apps/build/{canonical_app}?scene={scene_id}&file={}",
+        let layout_url = format!(
+            "/apps/{canonical_app}/layout?scene={scene_id}&file={}",
             urlencoding_path_segment(target_file)
         );
         upsert_navigation_node(
@@ -62,8 +62,8 @@ pub fn sync_navigation_registry(
         );
         upsert_navigation_node(
             &mut registry,
-            &format!("build:{scene_id}"),
-            &build_url,
+            &format!("layout:{scene_id}"),
+            &layout_url,
             scene_id,
             target_file,
         );
@@ -95,8 +95,8 @@ pub fn sync_navigation_registry(
     );
     upsert_navigation_node(
         &mut registry,
-        "default_build",
-        &format!("/apps/build/{canonical_app}"),
+        "default_layout",
+        &format!("/apps/{canonical_app}/layout"),
         default_scene.as_str(),
         default_target,
     );
@@ -130,8 +130,8 @@ pub fn sync_navigation_for_compile_scopes(
             continue;
         }
         let access_url = format!("/apps/app/{canonical_app}/scene/{scene_id}");
-        let build_url = format!(
-            "/apps/build/{canonical_app}?scene={scene_id}&file={}",
+        let layout_url = format!(
+            "/apps/{canonical_app}/layout?scene={scene_id}&file={}",
             urlencoding_path_segment(target_file)
         );
         upsert_navigation_node(
@@ -143,8 +143,8 @@ pub fn sync_navigation_for_compile_scopes(
         );
         upsert_navigation_node(
             &mut registry,
-            &format!("build:{scene_id}"),
-            &build_url,
+            &format!("layout:{scene_id}"),
+            &layout_url,
             scene_id,
             target_file,
         );
@@ -209,8 +209,8 @@ pub fn sync_navigation_for_compile_scopes(
     );
     upsert_navigation_node(
         &mut registry,
-        "default_build",
-        &format!("/apps/build/{canonical_app}"),
+        "default_layout",
+        &format!("/apps/{canonical_app}/layout"),
         default_scene.as_str(),
         default_target,
     );
@@ -274,7 +274,7 @@ app_add_scene(scene=scene_ref(id="home", scene_file="scenes/home.mei"))"#,
     }
 
     #[test]
-    fn sync_default_build_uses_main_mei_default_scene() {
+    fn sync_default_layout_uses_main_mei_default_scene() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let ws = tmp.path();
         fs::create_dir_all(ws.join("runtime/platform/graphs/catalog")).expect("mkdir");
@@ -303,12 +303,12 @@ app_add_scene(scene=scene_ref(id="chart.rose", scene_file="../../stock/component
         )
         .expect("sync");
         let registry = MrgRegistryWriter::load(ws, "catalog");
-        let default_build = registry
-            .navigation_by_key("default_build")
-            .expect("default_build");
-        assert_eq!(default_build.scene_id, "analytics-drilldown-board");
+        let default_layout = registry
+            .navigation_by_key("default_layout")
+            .expect("default_layout");
+        assert_eq!(default_layout.scene_id, "analytics-drilldown-board");
         assert_eq!(
-            default_build.target_file,
+            default_layout.target_file,
             "../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei"
         );
     }

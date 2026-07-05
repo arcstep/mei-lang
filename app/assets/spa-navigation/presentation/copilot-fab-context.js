@@ -5,9 +5,19 @@
     return Boolean(document.getElementById("access-external-ai-fab"));
   }
 
-  function isAccessLikeRoute() {
+  function routeUtils() {
+    return boot.presentationRouteUtils || global.MeiPresentationRouteUtils || null;
+  }
+
+  function isPresentationSurfaceRoute() {
+    const utils = routeUtils();
+    if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
     const path = String(window.location.pathname || "");
-    return /^\/apps\/(app|access|access-only|access_only|copilot|speaker|run)\//.test(path);
+    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(path);
+  }
+
+  function isAccessLikeRoute() {
+    return isPresentationSurfaceRoute();
   }
 
   function hasCopilotShellMarkers() {

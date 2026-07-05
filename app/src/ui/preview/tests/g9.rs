@@ -68,7 +68,7 @@ fn frame_stage_style_debug_uses_full_canvas_without_css_scale() {
     assert!(style.contains("min-height:1080px;"));
     assert!(style.contains("height:auto;"));
     assert!(style.contains("transform:none;"));
-    let debug_style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Build);
+    let debug_style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Layout);
     assert!(debug_style.contains("overflow-x:auto;"));
     assert!(viewport_overflow_is_debug("debug"));
     assert!(viewport_overflow_is_debug("scroll"));
@@ -85,7 +85,7 @@ fn frame_viewport_style_page_flow_uses_block_layout() {
         }
     }))
     .expect("viewport config");
-    let style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Build);
+    let style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Layout);
     assert!(style.contains("display:block;"));
     assert!(!style.contains("display:grid;"));
     assert!(style.contains("padding:32px 0px 16px 0px;"));
@@ -104,7 +104,7 @@ fn frame_viewport_style_applies_alignment_and_padding() {
         }
     }))
     .expect("viewport config");
-    let debug_style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Build);
+    let debug_style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Layout);
     assert!(debug_style.contains("justify-items:start;"));
     assert!(debug_style.contains("align-items:start;"));
     assert!(debug_style.contains("padding:18px 18px 18px 18px;"));
@@ -132,7 +132,7 @@ fn effective_viewport_safe_inset_splits_access_and_edit() {
         (0.0, 0.0, 0.0, 0.0)
     );
     assert_eq!(
-        effective_viewport_safe_inset(&vp, UiRouteMode::Build),
+        effective_viewport_safe_inset(&vp, UiRouteMode::Layout),
         (32.0, 16.0, 12.0, 8.0)
     );
 }

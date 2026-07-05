@@ -1,7 +1,8 @@
   // Re-export global route predicates into spa-navigation preamble closure.
   const RP = globalThis.MeiRoutePredicates || {};
   const ACCESS_LIKE_ROUTE_SLUGS = RP.ACCESS_LIKE_ROUTE_SLUGS;
-  const BUILD_ROUTE_SLUGS = RP.BUILD_ROUTE_SLUGS;
+  const LEGACY_REMOVED_ROUTE_SLUGS = RP.LEGACY_REMOVED_ROUTE_SLUGS;
+  const BUILD_ROUTE_SLUGS = LEGACY_REMOVED_ROUTE_SLUGS;
   const WORKSPACE_SURFACE_SLUGS = RP.WORKSPACE_SURFACE_SLUGS;
   const RUNTIME_ROUTE_SLUGS = RP.RUNTIME_ROUTE_SLUGS;
   const pathSegments = RP.pathSegments;

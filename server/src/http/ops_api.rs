@@ -328,22 +328,11 @@ pub async fn ops_layout_tuning_overlay_get(
     let source_root = state.source_root.as_path();
     let config = load_mei_config_for_app(&app_root, Some(source_root));
     let session_id = mei_host_core::resolve_draft_session_id(&headers);
-    let storage_key =
-        mei_host_core::layout_tuning_draft_storage_key(app_id, session_id.as_str());
-    let draft = mei_host_core::layout_tuning_draft(storage_key.as_str());
     let merged = mei_host_core::merge_layout_tuning_overlay(
         config.ops.layout_tuning.as_ref(),
-        draft.as_ref(),
+        None,
     );
-    let revision = if draft.is_some() {
-        format!(
-            "{}+draft:{}",
-            ops_layout_tuning_revision_digest(&config.ops),
-            session_id
-        )
-    } else {
-        ops_layout_tuning_revision_digest(&config.ops)
-    };
+    let revision = ops_layout_tuning_revision_digest(&config.ops);
     let entries = merged
         .as_ref()
         .map(layout_tuning_overlay_keys)
@@ -354,24 +343,16 @@ pub async fn ops_layout_tuning_overlay_get(
             app_id: app_id.to_string(),
             session_id,
             revision,
-            draft_active: draft.is_some(),
+            draft_active: false,
             entries,
         }),
     )
         .into_response()
 }
 
-#[derive(Debug, Deserialize)]
-pub struct LayoutTuningDraftRequest {
-    #[serde(default)]
-    pub tuning: Value,
-}
-
 pub async fn ops_layout_tuning_draft_put(
-    State(_state): State<AppState>,
-    headers: HeaderMap,
     Path(app_id): Path<String>,
-    Json(body): Json<LayoutTuningDraftRequest>,
+    _headers: HeaderMap,
 ) -> impl IntoResponse {
     let app_id = app_id.trim();
     if app_id.is_empty() {
@@ -381,18 +362,12 @@ pub async fn ops_layout_tuning_draft_put(
         )
             .into_response();
     }
-    let session_id = mei_host_core::resolve_draft_session_id(&headers);
-    let storage_key =
-        mei_host_core::layout_tuning_draft_storage_key(app_id, session_id.as_str());
-    mei_host_core::set_layout_tuning_draft(storage_key.as_str(), body.tuning.clone());
-    let draft_active = !body.tuning.is_null();
     (
-        StatusCode::OK,
+        StatusCode::GONE,
         Json(json!({
-            "ok": true,
+            "error": "layoutTuning draft PUT retired",
+            "migration": "layoutTuning session draft is client-only; use MeiDraftLayerStore in the browser (0517 Phase B4)",
             "app_id": app_id,
-            "session_id": session_id,
-            "draft": draft_active,
         })),
     )
         .into_response()

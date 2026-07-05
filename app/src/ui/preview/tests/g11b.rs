@@ -114,7 +114,7 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
         build_template_index: Default::default(),
     };
     assert!(
-        build_preview_runtime_context(&compiled, UiRouteMode::Build, None, None, None, None, None)
+        build_preview_runtime_context(&compiled, UiRouteMode::Layout, None, None, None, None, None)
             .host_ssr_slim_payload
     );
     assert!(
@@ -128,7 +128,7 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
     assert!(
         build_preview_runtime_context(
             &compiled,
-            UiRouteMode::Build,
+            UiRouteMode::Layout,
             None,
             Some("chart.donut"),
             Some("../../stock/components/chart/echarts/previews/chart.donut.mei"),

@@ -40,7 +40,7 @@ fn app_row_from_discover(
         phase,
         access_ready,
         warning_count: registry_app.map(|state| state.warnings.len()).unwrap_or(0),
-        build_href: format!("/apps/build/{}", app.id),
+        build_href: format!("/apps/{}/layout", app.id),
     }
 }
 

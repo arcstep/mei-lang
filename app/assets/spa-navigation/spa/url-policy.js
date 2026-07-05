@@ -1,8 +1,8 @@
   function isManageSamePathNavigation(currentUrl, nextUrl) {
     return (
       currentUrl.pathname === nextUrl.pathname &&
-      (currentUrl.pathname.startsWith("/apps/manage/") ||
-        currentUrl.pathname.startsWith("/apps/build/"))
+      (isWorkspaceSurfaceRoute(currentUrl.pathname) ||
+        isWorkspaceSurfaceRoute(nextUrl.pathname))
     );
   }
 
@@ -88,33 +88,81 @@
     return null;
   }
 
+  function isSameAppWorkspaceSurfaceSwitch(currentUrl, nextUrl) {
+    try {
+      if (typeof isAppWorkspaceSurfaceRoute !== "function") return false;
+      if (typeof appIdFromAppsPathname !== "function") return false;
+      if (typeof isWorkspaceSurfaceRoute !== "function") return false;
+      const from = currentUrl instanceof URL ? currentUrl : new URL(currentUrl, window.location.href);
+      const to = nextUrl instanceof URL ? nextUrl : new URL(nextUrl, window.location.href);
+      if (!isWorkspaceSurfaceRoute(from.pathname) || !isWorkspaceSurfaceRoute(to.pathname)) {
+        return false;
+      }
+      const fromApp = appIdFromAppsPathname(from.pathname);
+      const toApp = appIdFromAppsPathname(to.pathname);
+      return Boolean(fromApp && fromApp === toApp);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /** 配置/上传/模式切换/跨应用 Tab 整页导航；Config/Upload 明确 no-cache + full-page。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
+    let appViewSurfaceSwitch = false;
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
+      if (item.matches("sl-button[data-mei-app-view]")) {
+        appViewSurfaceSwitch = true;
+        continue;
+      }
       if (
         item.matches(
-          "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], sl-button[data-mei-app-view], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
+          "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;
       }
+    }
+    if (appViewSurfaceSwitch) {
+      const target = resolveClickTarget(event);
+      if (
+        target?.url &&
+        isSameAppWorkspaceSurfaceSwitch(window.location.href, target.url)
+      ) {
+        return false;
+      }
+      return true;
     }
     return false;
   }
 
   function shouldAbortRuntimeForBypassNavigation(event) {
     const path = event.composedPath ? event.composedPath() : [];
+    let appViewSurfaceSwitch = false;
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
+      if (item.matches("sl-button[data-mei-app-view]")) {
+        appViewSurfaceSwitch = true;
+        continue;
+      }
       if (
         item.matches(
-          "[data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], sl-button[data-mei-app-view], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
+          "[data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;
       }
+    }
+    if (appViewSurfaceSwitch) {
+      const target = resolveClickTarget(event);
+      if (
+        target?.url &&
+        isSameAppWorkspaceSurfaceSwitch(window.location.href, target.url)
+      ) {
+        return false;
+      }
+      return true;
     }
     return false;
   }

@@ -592,7 +592,7 @@ function buildPageUrl(baseUrl, appId, scenario) {
     return `${baseUrl}/apps/app/${appPath}${pathScene}${query ? `?${query}` : ""}`;
   }
   const query = params.toString();
-  return `${baseUrl}/apps/build/${appPath}${query ? `?${query}` : ""}`;
+  return `${baseUrl}/apps/${appPath}/layout${query ? `?${query}` : ""}`;
 }
 
 async function fetchPage(url, extraHeaders = {}) {
@@ -1044,7 +1044,9 @@ function installBrowserReadinessProbe() {
   }
 
   function isBusy() {
-    const isManageRoute = String(window.location?.pathname || "").includes("/apps/build/");
+    const isManageRoute = /\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+      String(window.location?.pathname || ""),
+    );
     const main = mainElement();
     const manageOverlay = document.querySelector('[data-mei-manage-nav-loading="true"]');
     const globalOverlay = document.getElementById("mei-spa-loading");
@@ -1264,7 +1266,6 @@ function applyPagePerf(target, headers) {
   setNumeric(target, "artifact_cache_hit", headers.get("x-mei-artifact-cache-hit"));
   setNumeric(target, "artifact_load_ms", headers.get("x-mei-artifact-load-ms"));
   setNumeric(target, "compile_cache_lookup_ms", headers.get("x-mei-compile-cache-lookup-ms"));
-  setNumeric(target, "page_render_cache_hit", headers.get("x-mei-page-render-cache-hit"));
   setNumeric(target, "structure_hit", headers.get("x-mei-structure-hit"));
   setNumeric(target, "eval_hit", headers.get("x-mei-eval-hit"));
   setNumeric(target, "theme_hit", headers.get("x-mei-theme-hit"));

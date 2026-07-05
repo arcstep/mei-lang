@@ -1,5 +1,6 @@
 /**
  * Render build reachability tree from shared structure.full artifact (client-side).
+ * DOM/CSS aligned with app/src/ui/build_tree.rs.
  */
 (function initBuildTreeFromStructure(global) {
   "use strict";
@@ -18,6 +19,10 @@
 
   function roleDepthRank(role) {
     return UI_ROLE_RANK[String(role || "").trim().toLowerCase()] ?? 99;
+  }
+
+  function parentKey(node) {
+    return String(node?.parent_id || "").trim();
   }
 
   function nodeHref(appId, surface, nodeId) {
@@ -39,7 +44,7 @@
       let cur = node;
       while (cur) {
         allowed.add(cur.node_id);
-        const parentId = String(cur.parent_id || "").trim();
+        const parentId = parentKey(cur);
         cur = parentId ? byId.get(parentId) : null;
       }
     }
@@ -47,7 +52,63 @@
   }
 
   function childrenForParent(nodes, parentId) {
-    return nodes.filter((node) => (node.parent_id || "") === (parentId || ""));
+    const pid = String(parentId || "").trim();
+    return nodes.filter((node) => parentKey(node) === pid);
+  }
+
+  function resolveRoots(nodes, sceneRoots) {
+    if (Array.isArray(sceneRoots) && sceneRoots.length) {
+      const byId = new Map(nodes.map((node) => [node.node_id, node]));
+      const roots = sceneRoots.map((id) => byId.get(id)).filter(Boolean);
+      if (roots.length) return roots;
+    }
+    return childrenForParent(nodes, "");
+  }
+
+  function displayLabel(node) {
+    const label = String(node?.label || "").trim();
+    if (label) return label;
+    const scope = String(node?.preview_scope || "").trim();
+    if (scope) return scope.replace(/^\.+/, "");
+    return String(node?.node_id || "").trim();
+  }
+
+  function uiScopeGlyph(node) {
+    const role = String(node?.ui_role || "").trim().toLowerCase();
+    switch (role) {
+      case "plane":
+        return "P";
+      case "region":
+        return "R";
+      case "section":
+        return "§";
+      case "micro_layout":
+        return "M";
+      case "slot":
+        return "L";
+      case "content":
+        return "C";
+      case "budget":
+        return "B";
+      case "scene":
+        return "S";
+      default:
+        return "U";
+    }
+  }
+
+  function branchDefaultOpen(node) {
+    const role = String(node?.ui_role || "").trim().toLowerCase();
+    return role === "scene" || role === "plane" || role === "region" || role === "section";
+  }
+
+  function appendCountBadge(labelEl, childCount) {
+    if (!(childCount > 0)) return;
+    const badge = document.createElement("span");
+    badge.className = "build-tree-badge build-tree-badge--count";
+    badge.title = `${childCount} 个子节点`;
+    badge.textContent = String(childCount);
+    labelEl.append(badge);
   }
 
   function renderLeaf(node, options) {
@@ -59,7 +120,7 @@
         ? "build-tree-link build-tree-link--active"
         : "build-tree-link";
     link.href = nodeHref(options.appId, options.surface, node.node_id);
-    link.title = node.label || node.node_id;
+    link.title = displayLabel(node);
     link.setAttribute("data-build-node", node.node_id);
     if (node.ui_role) link.setAttribute("data-ui-role", node.ui_role);
     if (node.preview_scope) link.setAttribute("data-preview-scope", node.preview_scope);
@@ -69,10 +130,10 @@
     const kind = document.createElement("span");
     kind.className = "build-tree-kind";
     kind.setAttribute("aria-hidden", "true");
-    kind.textContent = "·";
+    kind.textContent = uiScopeGlyph(node);
     const label = document.createElement("span");
     label.className = "build-tree-label";
-    label.textContent = node.label || node.node_id;
+    label.textContent = displayLabel(node);
     link.append(spacer, kind, label);
     li.append(link);
     return li;
@@ -87,7 +148,7 @@
     details.setAttribute("data-build-tree-branch", node.node_id);
     details.setAttribute("data-build-tree-children-count", String(kids.length));
     if (node.ui_role) details.setAttribute("data-ui-role", node.ui_role);
-    details.open = true;
+    details.open = branchDefaultOpen(node);
     const summary = document.createElement("summary");
     summary.className =
       node.node_id === options.activeNode
@@ -96,12 +157,13 @@
     const kind = document.createElement("span");
     kind.className = "build-tree-kind";
     kind.setAttribute("aria-hidden", "true");
-    kind.textContent = "▸";
+    kind.textContent = uiScopeGlyph(node);
     const link = document.createElement("a");
     link.className = "build-tree-label build-tree-label--link";
     link.href = nodeHref(options.appId, options.surface, node.node_id);
     link.setAttribute("data-build-node", node.node_id);
-    link.textContent = node.label || node.node_id;
+    link.textContent = displayLabel(node);
+    appendCountBadge(link, kids.length);
     summary.append(kind, link);
     const nested = document.createElement("ul");
     nested.className = "build-tree-list build-tree-list--nested";
@@ -119,6 +181,30 @@
     return renderBranch(node, nodes, options);
   }
 
+  function ensureTreeMount(maxRole) {
+    let shell = document.querySelector("aside .build-tree-shell");
+    if (!shell) {
+      const scroll = document.querySelector("aside .sidebar-scroll");
+      if (!scroll) return null;
+      shell = document.createElement("div");
+      shell.className = "build-tree-shell";
+      shell.setAttribute("data-build-tree-shell", "true");
+      const inner = document.createElement("div");
+      inner.className = "build-reachability-tree";
+      shell.append(inner);
+      scroll.replaceChildren(shell);
+    }
+    let tree = shell.querySelector(".build-reachability-tree");
+    if (!tree) {
+      tree = document.createElement("div");
+      tree.className = "build-reachability-tree";
+      shell.append(tree);
+    }
+    tree.setAttribute("data-build-tree-mode-active", "structure");
+    if (maxRole) tree.setAttribute("data-build-tree-max-ui-role", maxRole);
+    return tree;
+  }
+
   function renderStructureTree(structureDoc, options) {
     const opts = options || {};
     const appId = String(opts.appId || "").trim();
@@ -127,21 +213,28 @@
     const maxRole =
       String(opts.treeMaxUiRole || "").trim() ||
       String(document.body?.getAttribute("data-build-tree-max-ui-role") || "").trim() ||
+      String(
+        document.querySelector(".build-reachability-tree")?.getAttribute(
+          "data-build-tree-max-ui-role",
+        ) || "",
+      ).trim() ||
       "section";
     const nodes = filteredNodes(structureDoc, maxRole);
-    const roots = childrenForParent(nodes, "");
-    const nav = document.querySelector("aside nav.build-reachability-tree");
-    if (!nav) return false;
+    const roots = resolveRoots(nodes, structureDoc.scene_roots);
+    const tree = ensureTreeMount(maxRole);
+    if (!tree) return false;
     const list = document.createElement("ul");
     list.className = "build-tree-list";
     for (const root of roots) {
-      list.append(renderTreeNode(root, nodes, {
-        appId,
-        surface,
-        activeNode: String(opts.activeNode || "").trim(),
-      }));
+      list.append(
+        renderTreeNode(root, nodes, {
+          appId,
+          surface,
+          activeNode: String(opts.activeNode || "").trim(),
+        }),
+      );
     }
-    nav.replaceChildren(list);
+    tree.replaceChildren(list);
     const script = document.getElementById("mei-build-reachability-tree");
     if (script) {
       script.textContent = JSON.stringify(nodes);

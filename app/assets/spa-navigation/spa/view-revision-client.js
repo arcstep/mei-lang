@@ -65,11 +65,14 @@
   }
 
   function buildComposeRequest(ctx) {
-    const surface = String(ctx.surface || ctx.mode || "app")
-      .trim()
-      .toLowerCase();
-    const tab =
-      String(ctx.tab || "").trim() || (surface === "build" ? "preview" : "scene");
+    const resolveSurface =
+      boot.sceneManifestLoader?.resolveWorkspaceSurface ||
+      ((value) => String(value || "app").trim().toLowerCase() || "app");
+    const defaultTab =
+      boot.sceneManifestLoader?.defaultTabForSurface ||
+      ((surface) => (surface === "layout" || surface === "prototype" ? "preview" : "scene"));
+    const surface = resolveSurface(ctx.surface || ctx.mode || "app");
+    const tab = String(ctx.tab || "").trim() || defaultTab(surface);
     return {
       route_mode: surface,
       tab,
@@ -94,10 +97,13 @@
     if (!isViewRevisionEnabled()) {
       return { ready: false, status: ViewRevisionOutcome.REFETCH, disabled: true };
     }
+    const resolveSurface =
+      boot.sceneManifestLoader?.resolveWorkspaceSurface ||
+      ((value) => String(value || "app").trim().toLowerCase() || "app");
     const params = new URLSearchParams({
       app_id: ctx.app_id || ctx.appId || "",
       scene: ctx.scene_id || ctx.sceneId || "home",
-      surface: ctx.surface || ctx.mode || "app",
+      surface: resolveSurface(ctx.surface || ctx.mode || "app"),
     });
     const compose = buildComposeRequest(ctx);
     params.set("compose", JSON.stringify(compose));
@@ -184,6 +190,36 @@
     return applyViewRevision(ctx, response);
   }
 
+  function composeDefaultsForPlan(ctx, assemblyPlan) {
+    return (
+      assemblyPlan?.compose_defaults ||
+      assemblyPlan?.manifest?.compose_defaults ||
+      composeDefaultsFromResponse(assemblyPlan, ctx)
+    );
+  }
+
+  function composeContextChanged(shell, ctx, assemblyPlan) {
+    const defaults = composeDefaultsForPlan(ctx, assemblyPlan);
+    const targetProjection = String(defaults?.review_projection || "").trim();
+    const targetMode = String(defaults?.route_mode || ctx.surface || ctx.mode || "").trim();
+    const previewScroll =
+      shell?.querySelector?.(".preview-pane-scroll[data-review-projection]") ||
+      shell?.querySelector?.(".preview-pane-scroll");
+    const currentProjection = String(
+      previewScroll?.getAttribute("data-review-projection") ||
+        shell?.getAttribute("data-review-projection") ||
+        "",
+    ).trim();
+    const bodyMode = String(global.document?.body?.getAttribute("data-route-mode") || "").trim();
+    if (targetProjection && currentProjection && targetProjection !== currentProjection) {
+      return true;
+    }
+    if (targetMode && bodyMode && targetMode !== bodyMode) {
+      return true;
+    }
+    return false;
+  }
+
   async function tryAssembleLocal(ctx, plan) {
     const assemblyPlan = plan || null;
     let layerRefs = assemblyPlan?.layer_refs || {};
@@ -235,7 +271,8 @@
     if (
       shell &&
       typeof boot.hasMaterializedPreview === "function" &&
-      boot.hasMaterializedPreview(shell)
+      boot.hasMaterializedPreview(shell) &&
+      !composeContextChanged(shell, ctx, assemblyPlan)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
         boot.applyHostChromeFromManifestRefs();

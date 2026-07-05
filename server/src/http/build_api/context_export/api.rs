@@ -100,7 +100,7 @@ pub async fn api_build_context_export(
 
     let build_url = {
         let mut url = format!(
-            "/apps/build/{app_id}?node={}",
+            "/apps/{app_id}/layout?node={}",
             percent_encode_component(node_raw)
         );
         if let Some(focus) = query

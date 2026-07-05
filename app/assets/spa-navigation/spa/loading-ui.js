@@ -26,8 +26,7 @@
     const nextUrl = new URL(url, window.location.href);
     const isSameWorkspaceRoute =
       currentUrl.pathname === nextUrl.pathname &&
-      (currentUrl.pathname.startsWith("/apps/manage/") ||
-        currentUrl.pathname.startsWith("/apps/build/"));
+      isWorkspaceSurfaceRoute(currentUrl.pathname);
     if (!isSameWorkspaceRoute) {
       clearManageWorkspaceLoadingState();
       return;

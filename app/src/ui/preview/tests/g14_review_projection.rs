@@ -74,7 +74,7 @@ fn build_runtime_context_parses_review_projection_depth() {
     let compiled = minimal_compiled();
     let ctx = build_preview_runtime_context(
         &compiled,
-        UiRouteMode::Build,
+        UiRouteMode::Layout,
         None,
         None,
         None,
@@ -93,7 +93,7 @@ fn static_full_projection_allows_all_roles() {
     let compiled = minimal_compiled();
     let ctx = build_preview_runtime_context(
         &compiled,
-        UiRouteMode::Build,
+        UiRouteMode::Layout,
         None,
         None,
         None,

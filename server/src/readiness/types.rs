@@ -43,7 +43,7 @@ pub enum UiMode {
 impl UiMode {
     pub fn from_route_mode(route_mode: UiRouteMode) -> Self {
         match route_mode {
-            UiRouteMode::Build | UiRouteMode::Layout | UiRouteMode::Prototype => Self::Build,
+            UiRouteMode::Layout | UiRouteMode::Prototype => Self::Build,
             UiRouteMode::App => Self::App,
             UiRouteMode::Run => Self::Run,
             UiRouteMode::Copilot => Self::Copilot,

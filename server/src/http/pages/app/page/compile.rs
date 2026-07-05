@@ -232,7 +232,7 @@ pub(super) fn resolve_compile_outcome(
         &compile_options,
         query,
     );
-    if route_mode == UiRouteMode::Build
+    if route_mode == UiRouteMode::Layout
         && compile_options
             .preview_target
             .as_deref()
@@ -322,7 +322,7 @@ fn render_artifact_unavailable(
     target_hint: Option<&str>,
     scope_gate: crate::readiness::scope_gate::ScopeGateReport,
 ) -> Response {
-    let is_build = route_mode == UiRouteMode::Build;
+    let is_build = route_mode == UiRouteMode::Layout;
     let mut actions = vec![
         HostShellAction {
             href: "/host".to_string(),
@@ -337,7 +337,7 @@ fn render_artifact_unavailable(
     ];
     if is_build {
         actions.push(HostShellAction {
-            href: format!("/apps/build/{app_id}?tab=overview"),
+            href: format!("/apps/{app_id}/layout?tab=overview"),
             label: "打开构建概览".to_string(),
             primary: false,
         });
@@ -349,7 +349,7 @@ fn render_artifact_unavailable(
         });
     } else if let Some(target) = target_hint.map(str::trim).filter(|value| !value.is_empty()) {
         actions.push(HostShellAction {
-            href: format!("/apps/build/{app_id}?file={target}"),
+            href: format!("/apps/{app_id}/layout?file={target}"),
             label: "打开构建视图".to_string(),
             primary: false,
         });

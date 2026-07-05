@@ -410,7 +410,7 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
             .headers()
             .get("location")
             .and_then(|value| value.to_str().ok()),
-        Some("/apps/build/020-good")
+        Some("/apps/020-good/layout")
     );
 
     let _ = fs::remove_dir_all(&root);

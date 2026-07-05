@@ -166,7 +166,7 @@ pub(crate) fn resolve_build_preview_compile(
             options,
             components_root,
             RuntimeAccessPolicies::default_for_access_host(),
-            UiRouteMode::Build,
+            UiRouteMode::Layout,
         )
         .ok()
         .flatten()
@@ -179,7 +179,7 @@ pub(crate) fn resolve_build_preview_compile(
         options,
         components_root,
         RuntimeAccessPolicies::default_for_access_host(),
-        UiRouteMode::Build,
+        UiRouteMode::Layout,
     ) {
         let compiled = resolution.outcome.compiled.as_ref();
         if !build_preview_target_requires_scoped_compile(compiled, preview_target) {

@@ -6,10 +6,12 @@
   }
 
   function parseAppIdFromPath() {
-    const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
-    );
-    return match ? String(match[1] || "").trim() : "";
+    const utils = boot.presentationRouteUtils || window.MeiPresentationRouteUtils;
+    if (utils?.parsePresentationAppId) {
+      return String(utils.parsePresentationAppId() || "").trim();
+    }
+    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)\/app(?:\/|$)/);
+    return match && match[1] ? match[1] : "";
   }
 
   async function compileEphemeralPresentation(source, options = {}) {
@@ -134,8 +136,14 @@
     return cleared;
   }
 
+  function isPresentationSurfaceRoute() {
+    const utils = boot.presentationRouteUtils || window.MeiPresentationRouteUtils;
+    if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
+    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(String(window.location.pathname || ""));
+  }
+
   function isCopilotRoute() {
-    return /^\/apps\/(copilot|speaker)\//.test(String(window.location.pathname || ""));
+    return isPresentationSurfaceRoute();
   }
 
   function hasCopilotShell() {

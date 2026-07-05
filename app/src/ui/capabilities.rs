@@ -7,7 +7,7 @@ pub struct HostCapabilities {
     pub access_view: bool,
     /// 配置/上传视图及 `/api/ops/*`、`/api/upload/*`
     pub config_upload: bool,
-    /// 构建视图 `/apps/build/*`
+    /// 应用访问面 `/apps/{id}/app`
     pub build_view: bool,
     /// 访问侧 Agent（session、message、probe、context/preview 等）
     pub access_agent: bool,

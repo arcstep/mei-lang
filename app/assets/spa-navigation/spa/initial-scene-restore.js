@@ -98,7 +98,8 @@
 
   function workspaceStructureTreeReady() {
     const nav =
-      document.querySelector("aside nav.build-reachability-tree") ||
+      document.querySelector("aside .build-reachability-tree") ||
+      document.querySelector(".build-tree-shell .build-reachability-tree") ||
       document.querySelector("nav.build-reachability-tree");
     return !!nav?.querySelector(".build-tree-list .build-tree-node");
   }
@@ -259,7 +260,13 @@
     await wakeRevisionFirstShellRuntime(ctx);
     const scopeCount = document.querySelectorAll("[data-preview-scope]").length;
     if (scopeCount === 0 && typeof boot.showThinShellFallback === "function") {
-      boot.showThinShellFallback("场景内容暂时无法加载，请刷新重试或检查网络。");
+      const missing =
+        resolved?.viewRevision?.assemble?.missing ||
+        boot.lastViewRevisionOutcome === (boot.ViewRevisionOutcome?.LOCAL_MISS || "local_miss")
+          ? ["view-revision local_miss"]
+          : [];
+      const detail = missing.length ? ` 缺失层: ${missing.join(", ")}` : "";
+      boot.showThinShellFallback(`场景内容暂时无法加载，请检查 layer 组装。${detail}`);
     } else if (typeof boot.hideThinShellFallback === "function") {
       boot.hideThinShellFallback();
     }
@@ -293,7 +300,7 @@
         return result;
       }
       const surface = vrCtx.surface || "app";
-      if (surface === "layout" || surface === "prototype" || surface === "build") {
+      if (surface === "layout" || surface === "prototype") {
         if (typeof boot.installManageTabs === "function") {
           boot.installManageTabs();
         }
@@ -357,35 +364,6 @@
     }
     if (!ctx) {
       return { restored: false, doc: null, revision: null, source: "none" };
-    }
-    const surface = ctx.surface || ctx.mode || "app";
-    const isWorkspace =
-      surface === "build" ||
-      surface === "layout" ||
-      surface === "prototype" ||
-      (typeof isBuildWorkspacePathname === "function" &&
-        isBuildWorkspacePathname(new URL(urlLike || window.location.href).pathname));
-    if (isWorkspace && typeof globalThis.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function") {
-      try {
-        const buildOutcome = await globalThis.MeiBuildNavigation.tryRestoreBuildPreviewFromCache(
-          urlLike || window.location.href,
-          {
-            timeoutMs: opts.timeoutMs || 4000,
-            coldStart: opts.coldStart !== false,
-            skipRemoteWhenValid: opts.skipRemoteWhenValid !== false,
-          },
-        );
-        if (buildOutcome?.restored) {
-          return {
-            restored: true,
-            doc: document,
-            revision: buildOutcome.revision,
-            source: buildOutcome.source || "build-cache",
-          };
-        }
-      } catch (error) {
-        console.warn("[spa-navigation] build cache restore skipped", error);
-      }
     }
     const negotiated = await negotiateAndAssemble(ctx, opts);
     if (negotiated?.assemble?.ok) {

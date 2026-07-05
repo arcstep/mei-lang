@@ -49,20 +49,20 @@ fn run_eval_cache_invalidate(args: EvalCacheInvalidateArgs) -> anyhow::Result<()
         args.app.as_str(),
         args.force,
     )?;
-    let page_cache_cleared =
-        crate::access_page_cache::clear_access_page_render_cache_for_app(
+    let legacy_cache_cleared =
+        crate::access_page_cache::clear_legacy_page_render_cache_for_app(
             workspace.as_path(),
             args.app.as_str(),
         );
     println!(
-        "[{}] eval-cache invalidate ok: app={} force={} removed={} retained={} cleared_bootstrap_scopes={} cleared_page_render_cache={} removed_bytes={} ({})",
+        "[{}] eval-cache invalidate ok: app={} force={} removed={} retained={} cleared_bootstrap_scopes={} cleared_legacy_page_render_cache={} removed_bytes={} ({})",
         mei_host_core::log_timestamp_rfc3339(),
         args.app,
         report.force_cleared,
         report.removed_artifact_files,
         report.retained_artifact_files,
         report.cleared_bootstrap_scopes,
-        page_cache_cleared,
+        legacy_cache_cleared,
         report.removed_bytes,
         mei_host_core::format_bytes_human(report.removed_bytes),
     );
@@ -173,17 +173,6 @@ fn run_build_finalize(args: BuildFinalizeArgs) -> anyhow::Result<()> {
         println!("promoted {build_id}");
     } else {
         println!("finalized candidate {}", args.build_id);
-    }
-    let auth_enabled = false;
-    let package_root = resolve_package_root()?;
-    let primed = crate::access_page_cache::warm_access_page_render_caches(
-        workspace.as_path(),
-        package_root.as_path(),
-        &app_ids,
-        auth_enabled,
-    );
-    if primed > 0 {
-        println!("page-render-cache primed={primed}");
     }
     Ok(())
 }
@@ -677,26 +666,25 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
     } else {
         discovered.into_iter().map(|app| app.id).collect()
     };
-    let primed = crate::access_page_cache::warm_access_page_render_caches(
+    let _legacy_cleared = crate::access_page_cache::clear_legacy_page_render_cache_for_apps(
         workspace.as_path(),
-        package_root.as_path(),
         app_ids.as_slice(),
-        args.auth,
     );
-    if primed > 0 {
-        println!("Page SSR cache: primed {primed} access scene(s) from warmup manifest");
+    let draft_files_cleared = crate::layout_tuning_draft_store::purge_legacy_layout_tuning_draft_dirs(
+        workspace.as_path(),
+        app_ids.as_slice(),
+    );
+    if draft_files_cleared > 0 {
+        tracing::info!(
+            files = draft_files_cleared,
+            "cleared legacy layout-tuning-drafts directories"
+        );
     }
     let addr = format!("{}:{}", args.host, args.port);
     let listen_url = format!("http://{addr}");
-    let cache_line = if primed > 0 {
-        format!("page SSR cache primed: {primed} scene(s)")
-    } else {
-        "page SSR cache: skipped or empty".to_string()
-    };
     let guard = shell.read().expect("state lock");
     let mut warmup_lines =
         crate::startup::build_access_ready_banner_lines(&guard, app_ids.as_slice(), "home", listen_url.as_str());
-    warmup_lines.push(cache_line);
     warmup_lines.push("blocking serve — port opens after warmup".to_string());
     drop(guard);
     let warmup_refs: Vec<&str> = warmup_lines.iter().map(String::as_str).collect();
@@ -814,7 +802,6 @@ async fn run_serve_early_bind(args: ServeArgs) -> anyhow::Result<()> {
         package_root: package_root.clone(),
         default_app_id: default_app_id.clone(),
         listen_url,
-        auth_enabled: args.auth,
         app_ids: app_ids.clone(),
         data_mode_ceiling,
         managed_plug_slot: managed_plug,

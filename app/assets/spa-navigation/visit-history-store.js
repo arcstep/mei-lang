@@ -15,17 +15,10 @@
   function resolveAppIdFromPathname(pathname) {
     const path = String(pathname || "");
     const prefixes = [
-      "/apps/build/",
-      "/apps/manage/",
       "/apps/app/",
       "/apps/access/",
-      "/apps/run/",
-      "/apps/copilot/",
-      "/apps/speaker/",
-      "/apps/presentation/",
-      "/apps/slides/",
-      "/apps/upload/",
-      "/apps/config/",
+      "/apps/layout/",
+      "/apps/prototype/",
     ];
     for (const prefix of prefixes) {
       if (!path.startsWith(prefix)) continue;
@@ -46,24 +39,32 @@
     if (parts[0] !== "apps") return "";
     if (parts.length >= 3) {
       const surface = String(parts[2] || "").toLowerCase();
-      if (surface === "layout" || surface === "prototype" || surface === "app") {
+      if (
+        surface === "layout" ||
+        surface === "prototype" ||
+        surface === "app" ||
+        surface === "config" ||
+        surface === "upload" ||
+        surface === "runtime"
+      ) {
         return parts[1] || "";
       }
     }
     const routeSlug = parts[1] || "";
-    const known = new Set([
+    const legacyModeFirst = new Set([
       "access",
-      "manage",
-      "build",
       "run",
       "speaker",
       "presentation",
       "slides",
+      "copilot",
       "upload",
       "config",
       "app",
+      "build",
+      "manage",
     ]);
-    if (known.has(routeSlug) && parts[2]) return parts[2];
+    if (legacyModeFirst.has(routeSlug) && parts[2]) return parts[2];
     return routeSlug;
   }
 

@@ -14,8 +14,8 @@ use crate::api_stubs::{
     api_agent_sessions_stub, api_agent_skill_stub,
 };
 use crate::build_api::{
-    api_build_context_export, api_build_fragment_revision, api_build_graph_mcg,
-    api_build_graph_mcg_artifact, api_build_graph_mcg_node, api_build_workspace_fragment,
+    api_build_context_export, api_build_graph_mcg, api_build_graph_mcg_artifact,
+    api_build_graph_mcg_node,
 };
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
@@ -104,14 +104,6 @@ pub fn router(state: HostHttpState) -> Router {
         .route(
             "/api/build/context/export",
             get(api_build_context_export),
-        )
-        .route(
-            "/api/build/workspace-fragment",
-            get(api_build_workspace_fragment),
-        )
-        .route(
-            "/api/build/fragment-revision",
-            get(api_build_fragment_revision),
         )
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
@@ -774,7 +766,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_workspace_fragment_route_is_registered() {
+    async fn build_workspace_fragment_route_removed() {
         let tmp = tempfile::tempdir().expect("tempdir");
         std::fs::write(
             tmp.path().join("workspace.json"),
@@ -791,7 +783,7 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -906,37 +898,6 @@ mod tests {
         assert!(html.contains("请选择要管理的应用"));
         assert!(html.contains("data-demo"));
         assert!(html.contains("topbar-shell"));
-    }
-
-    #[tokio::test]
-    async fn workspace_fragment_returns_manifest_without_preview_html() {
-        let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
-        let workspace = match workspace.canonicalize() {
-            Ok(path) if path.join("workspace.json").is_file() => path,
-            _ => return,
-        };
-        let app = router(test_state(workspace));
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/build/workspace-fragment?app_id=data-demo&node=scene-panel:home&tab=preview")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        if response.status() != StatusCode::OK {
-            return;
-        }
-        let body = response
-            .into_body()
-            .collect()
-            .await
-            .expect("body")
-            .to_bytes();
-        let json: serde_json::Value = serde_json::from_slice(&body).expect("json");
-        assert!(json.get("scene_manifest").is_some());
-        assert!(json.get("preview_html").is_none());
     }
 
     #[tokio::test]

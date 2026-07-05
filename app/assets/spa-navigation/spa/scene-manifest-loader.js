@@ -30,10 +30,36 @@
     return { name: layerName, artifact_id: artifactId, content_hash: contentHash };
   }
 
+  function legacySurfaceSlug(surface) {
+    const slug = String(surface || "").trim().toLowerCase();
+    if (!slug) return "";
+    if (slug === "build" || slug === "manage") return "layout";
+    return slug;
+  }
+
+  function resolveWorkspaceSurface(surface) {
+    const explicit = legacySurfaceSlug(surface);
+    if (explicit) return explicit;
+    if (typeof global.workspaceSurfaceSlugFromAppsPathname === "function") {
+      const fromPath = String(global.workspaceSurfaceSlugFromAppsPathname() || "")
+        .trim()
+        .toLowerCase();
+      if (fromPath) return fromPath;
+    }
+    return "app";
+  }
+
+  function defaultTabForSurface(surface) {
+    const slug = resolveWorkspaceSurface(surface);
+    return slug === "layout" || slug === "prototype" ? "preview" : "scene";
+  }
+
   async function fetchManifest(appId, sceneId, axes, surface) {
+    const surfaceSlug = resolveWorkspaceSurface(surface);
     const params = new URLSearchParams({
       app_id: appId,
       scene: sceneId || "home",
+      surface: surfaceSlug,
     });
     if (axes?.data_mode) params.set("data_mode", axes.data_mode);
     if (axes?.review_projection) params.set("review_projection", axes.review_projection);
@@ -117,7 +143,7 @@
       return { manifest: activeManifest, layers: {}, hits: boot.lastArtifactHits };
     }
     const batch = await fetchLayerBatch(appId, sceneId, missing, axes, {
-      surface: ctx?.surface || ctx?.mode || "build",
+      surface: resolveWorkspaceSurface(ctx?.surface || ctx?.mode),
       local_miss: !!ctx?.local_miss,
       client_layers: boot.holdingsFromLayerCache
         ? boot.holdingsFromLayerCache(await boot.layerStore?.listHoldings?.(appId, sceneId))
@@ -127,8 +153,9 @@
     return { manifest: activeManifest, layers: batch.layers || {}, hits: batch.hits };
   }
 
-  async function ensureStructureFull(appId, sceneId) {
-    const result = await ensureLayers(["structure.full"], appId, sceneId, { surface: "build" });
+  async function ensureStructureFull(appId, sceneId, surface) {
+    const surfaceSlug = resolveWorkspaceSurface(surface || "layout");
+    const result = await ensureLayers(["structure.full"], appId, sceneId, { surface: surfaceSlug });
     const ref = layerRefFromManifest("structure.full", result.manifest);
     const document = ref ? boot.layerStore?.takeLayerByRef?.(ref) : result.layers?.["structure.full"];
     return { document, hits: result.hits, manifest: result.manifest };
@@ -138,16 +165,31 @@
     const axes = readShellAxes();
     const fetched = await fetchManifest(appId, sceneId, axes, surface || "app");
     const manifest = fetched.manifest;
+    const surfaceSlug = String(surface || "app").trim().toLowerCase() || "app";
+    const shellName = manifest?.layers?.[`shell.${surfaceSlug}`]
+      ? `shell.${surfaceSlug}`
+      : manifest?.layers?.["shell.app"]
+        ? "shell.app"
+        : manifest?.layers?.["shell.build"]
+          ? "shell.build"
+          : null;
     const layerNames = ["structure.full", "theme.tokens", "layout.overlay"];
-    await ensureLayers(layerNames, appId, sceneId, { surface: surface || "app" }, manifest);
+    if (shellName) layerNames.push(shellName);
+    await ensureLayers(layerNames, appId, sceneId, { surface: surfaceSlug }, manifest);
     const take = (name) => {
       const ref = layerRefFromManifest(name, manifest);
       return ref ? boot.layerStore?.takeLayerByRef?.(ref) : null;
     };
+    const layers = {};
+    for (const name of layerNames) {
+      const doc = take(name);
+      if (doc) layers[name] = doc;
+    }
     return {
-      structure: take("structure.full"),
-      theme: take("theme.tokens"),
-      overlay: take("layout.overlay"),
+      structure: layers["structure.full"],
+      theme: layers["theme.tokens"],
+      overlay: layers["layout.overlay"],
+      layers,
       manifest,
       hits: fetched.hits,
     };
@@ -165,5 +207,7 @@
     ensureLayers,
     syncHoldingsFromManifest,
     readShellAxes,
+    resolveWorkspaceSurface,
+    defaultTabForSurface,
   };
 })(typeof window !== "undefined" ? window : globalThis);

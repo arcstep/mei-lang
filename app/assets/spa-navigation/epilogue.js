@@ -84,17 +84,7 @@
         return;
       }
       event.preventDefault();
-      try {
-        if (
-          typeof globalThis.MeiBuildNavigation?.tryHandleBuildClick === "function" &&
-          (await globalThis.MeiBuildNavigation.tryHandleBuildClick(event, target.url, false))
-        ) {
-          return;
-        }
-      } catch (err) {
-        console.warn("[spa-navigation] build fast-nav failed", err);
-      }
-      void navigateInternal(target.url, false, { skipBuildNav: true });
+      void navigateInternal(target.url, false);
     },
     true,
   );
@@ -102,25 +92,7 @@
   window.addEventListener("popstate", () => {
     closeDrilldownOverlay();
     if (shouldHandleUrl(window.location.href)) {
-      const fromUrl =
-        typeof globalThis.MeiBuildNavigation?.getLastUrl === "function"
-          ? globalThis.MeiBuildNavigation.getLastUrl()
-          : window.location.href;
-      if (typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function") {
-        void globalThis.MeiBuildNavigation.tryNavigateBuild(
-          fromUrl,
-          window.location.href,
-          { replaceHistory: true },
-        ).then((result) => {
-          if (result?.handled) {
-            globalThis.MeiBuildNavigation.noteUrl(window.location.href);
-            return;
-          }
-          void navigateInternal(window.location.href, true, { skipBuildNav: true });
-        });
-        return;
-      }
-      void navigateInternal(window.location.href, true, { skipBuildNav: true });
+      void navigateInternal(window.location.href, true);
     }
   });
 

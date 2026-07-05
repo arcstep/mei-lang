@@ -9,8 +9,6 @@ pub enum UiRouteMode {
     Run,
     /// Copilot 演说宿主：presentation 步进、工具条、气泡与 cockpit 动作编排。
     Copilot,
-    /// 兼容旧 `/apps/build/...` 路由（重定向到 layout）。
-    Build,
     Config,
     Upload,
     Runtime,
@@ -24,11 +22,11 @@ impl UiRouteMode {
             "prototype" => Self::Prototype,
             "run" | "presentation" | "slides" => Self::Run,
             "copilot" | "speaker" => Self::Copilot,
-            "build" | "manage" => Self::Build,
+            "build" | "manage" => Self::Layout,
             "config" => Self::Config,
             "upload" => Self::Upload,
             "runtime" => Self::Runtime,
-            _ => Self::Build,
+            _ => Self::Layout,
         }
     }
 
@@ -39,7 +37,6 @@ impl UiRouteMode {
             Self::Prototype => "prototype",
             Self::Run => "run",
             Self::Copilot => "copilot",
-            Self::Build => "build",
             Self::Config => "config",
             Self::Upload => "upload",
             Self::Runtime => "runtime",
@@ -67,7 +64,6 @@ impl UiRouteMode {
             Self::Prototype => "原型",
             Self::Run => "演说",
             Self::Copilot => "Copilot",
-            Self::Build => "构建",
             Self::Config => "配置",
             Self::Upload => "上传",
             Self::Runtime => "运行",
@@ -81,7 +77,6 @@ impl UiRouteMode {
             Self::Layout => "布局",
             Self::Prototype => "原型",
             Self::Run | Self::Copilot => "演说",
-            Self::Build => "开发",
             Self::Config => "配置",
             Self::Upload => "上传",
             Self::Runtime => "运行",
@@ -92,7 +87,7 @@ impl UiRouteMode {
     pub fn is_topbar_product_tab(self) -> bool {
         matches!(
             self,
-            Self::App | Self::Layout | Self::Prototype | Self::Build | Self::Config | Self::Upload | Self::Runtime
+            Self::App | Self::Layout | Self::Prototype | Self::Config | Self::Upload | Self::Runtime
         )
     }
 
@@ -101,7 +96,12 @@ impl UiRouteMode {
     }
 
     pub fn is_access_like(self) -> bool {
-        matches!(self, Self::App | Self::Run | Self::Copilot)
+        self == Self::App
+    }
+
+    /// 独立演说宿主路由（`/apps/run|copilot/*`）已退役；演说在 app surface 上以 action 执行。
+    pub fn is_legacy_presentation_host(self) -> bool {
+        matches!(self, Self::Run | Self::Copilot)
     }
 
     pub fn is_run_like(self) -> bool {
@@ -117,12 +117,18 @@ impl UiRouteMode {
         self.is_copilot_like()
     }
 
+    /// 布局 / 原型工作区（原 build/manage 语义）。
+    pub fn is_workspace(self) -> bool {
+        matches!(self, Self::Layout | Self::Prototype)
+    }
+
+    /// 兼容旧调用点。
     pub fn is_build(self) -> bool {
-        matches!(self, Self::Build | Self::Layout | Self::Prototype)
+        self.is_workspace()
     }
 
     pub fn uses_workspace_tree(self) -> bool {
-        matches!(self, Self::Build | Self::Layout | Self::Prototype | Self::Runtime)
+        matches!(self, Self::Layout | Self::Prototype | Self::Runtime)
     }
 
     pub fn uses_full_page_navigation(self) -> bool {
@@ -158,9 +164,22 @@ mod tests {
     }
 
     #[test]
+    fn legacy_build_manage_slugs_map_to_layout() {
+        assert_eq!(UiRouteMode::from_slug("build"), UiRouteMode::Layout);
+        assert_eq!(UiRouteMode::from_slug("manage"), UiRouteMode::Layout);
+    }
+
+    #[test]
+    fn access_like_is_app_only() {
+        assert!(UiRouteMode::App.is_access_like());
+        assert!(!UiRouteMode::Run.is_access_like());
+        assert!(!UiRouteMode::Copilot.is_access_like());
+    }
+
+    #[test]
     fn product_label_maps_to_ia_names() {
         assert_eq!(UiRouteMode::App.product_label(), "应用");
-        assert_eq!(UiRouteMode::Build.product_label(), "开发");
+        assert_eq!(UiRouteMode::Layout.product_label(), "布局");
         assert_eq!(UiRouteMode::Runtime.product_label(), "运行");
         assert_eq!(UiRouteMode::Upload.product_label(), "上传");
         assert_eq!(UiRouteMode::Run.product_label(), "演说");

@@ -325,7 +325,6 @@ pub(crate) struct ServeStartupPlan {
     pub package_root: PathBuf,
     pub default_app_id: String,
     pub listen_url: String,
-    pub auth_enabled: bool,
     pub app_ids: Vec<String>,
     pub data_mode_ceiling: mei_lang_kernel::DataModeCeiling,
     pub managed_plug_slot: Arc<Mutex<Option<ManagedPlugDsPool>>>,
@@ -419,23 +418,15 @@ async fn run_background_startup_inner(
             wait_for_prebuild_warmup(&shell, &plan).await?;
         }
     } else {
-        set_startup_phase(&shell, StartupPhase::PrimingCache);
-        let skip_page_cache = shell
-            .read()
-            .map(|guard| guard.warmed_up)
-            .unwrap_or(false);
-        let primed = if skip_page_cache {
-            0
-        } else {
-            crate::access_page_cache::warm_access_page_render_caches(
-                plan.workspace.as_path(),
-                plan.package_root.as_path(),
-                plan.app_ids.as_slice(),
-                plan.auth_enabled,
-            )
-        };
-        if primed > 0 {
-            tracing::info!(primed, "page SSR cache primed during startup");
+        let cleared = crate::access_page_cache::clear_legacy_page_render_cache_for_apps(
+            plan.workspace.as_path(),
+            plan.app_ids.as_slice(),
+        );
+        if cleared > 0 {
+            tracing::info!(
+                cleared,
+                "removed legacy page-render-cache entries during startup"
+            );
         }
     }
 

@@ -38,7 +38,7 @@ pub(crate) fn resolve_build_node_compile_hints(
             },
             components_root,
             RuntimeAccessPolicies::default_for_access_host(),
-            UiRouteMode::Build,
+            UiRouteMode::Layout,
         ) {
             let probe = crate::http::compile_cache::compile_outcome_from_shared(resolution.outcome);
             if scene_hint.is_none() {

@@ -9,21 +9,24 @@ test.describe("artifact navigation", () => {
     expect(thinShell).toBeTruthy();
   });
 
-  test("workspace-fragment includes scene_manifest", async ({ page }) => {
+  test("view-revision includes scene_manifest", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run artifact e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     let sawManifest = false;
     page.on("response", async (response) => {
-      if (!response.url().includes("/api/build/workspace-fragment")) return;
+      if (!response.url().includes("/api/view-revision")) return;
       try {
         const json = await response.json();
-        if (json?.scene_manifest?.schema_version) {
+        if (json?.manifest?.schema_version || json?.scene_manifest?.schema_version) {
           sawManifest = true;
         }
       } catch (_) {}
     });
-    await page.goto(`${base}/apps/build/data-demo/scene/home?tab=preview&node=scene-panel:home`);
+    await page.goto(`${base}/apps/data-demo/layout?scene=home&tab=preview&node=scene-panel:home`);
     await page.waitForTimeout(3000);
-    expect(sawManifest).toBeTruthy();
+    const inlineManifest = await page.evaluate(
+      () => window.__mei?.scene_manifest_refs?.schema_version || window.__mei?.scene_manifest?.schema_version,
+    );
+    expect(sawManifest || Boolean(inlineManifest)).toBeTruthy();
   });
 });

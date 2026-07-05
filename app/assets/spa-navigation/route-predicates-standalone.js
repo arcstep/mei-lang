@@ -1,5 +1,5 @@
 /**
- * Route predicates (global). Load before build-navigation / host-heartbeat.
+ * Route predicates (global). Load before host-heartbeat.
  * Keep in sync with `UiRouteMode::from_slug` (app/src/ui/route.rs).
  */
 (function initRoutePredicatesStandalone(global) {
@@ -8,18 +8,21 @@
   const ACCESS_LIKE_ROUTE_SLUGS = new Set([
     "app",
     "access",
-    "run",
-    "copilot",
-    "speaker",
     "access-only",
     "access_only",
-    "presentation",
-    "slides",
   ]);
-  const BUILD_ROUTE_SLUGS = new Set(["build", "manage"]);
   const WORKSPACE_SURFACE_SLUGS = new Set(["layout", "prototype"]);
   const APP_WORKSPACE_SURFACE_SLUGS = new Set(["app", "layout", "prototype"]);
   const RUNTIME_ROUTE_SLUGS = new Set(["runtime"]);
+  const LEGACY_REMOVED_ROUTE_SLUGS = new Set([
+    "build",
+    "manage",
+    "run",
+    "copilot",
+    "speaker",
+    "presentation",
+    "slides",
+  ]);
 
   function pathSegments(pathname = global.location?.pathname) {
     return String(pathname || "")
@@ -57,6 +60,21 @@
     return WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
+  function isLegacyRemovedRoute(pathname = global.location?.pathname) {
+    return LEGACY_REMOVED_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
+  }
+
+  function isLegacyPresentationRoute(pathname = global.location?.pathname) {
+    const slug = legacyRouteSlugFromPathname(pathname);
+    return (
+      slug === "run" ||
+      slug === "copilot" ||
+      slug === "speaker" ||
+      slug === "presentation" ||
+      slug === "slides"
+    );
+  }
+
   function appRoutePrefixesFromSlugs(slugs) {
     return Array.from(slugs, (slug) => `/apps/${slug}/`);
   }
@@ -72,9 +90,9 @@
     return RUNTIME_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
 
+  /** @deprecated Use isWorkspaceSurfaceRoute */
   function isBuildRoute(pathname = global.location?.pathname) {
-    if (isWorkspaceSurfaceRoute(pathname)) return true;
-    return BUILD_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
+    return isWorkspaceSurfaceRoute(pathname);
   }
 
   function isConfigRoute(pathname = global.location?.pathname) {
@@ -95,8 +113,9 @@
     return isAppRoute(pathname);
   }
 
+  /** @deprecated Use isWorkspaceSurfaceRoute */
   function isManageRoute(pathname = global.location?.pathname) {
-    return isBuildRoute(pathname);
+    return isWorkspaceSurfaceRoute(pathname);
   }
 
   function shouldMountDrilldownHost(pathname = global.location?.pathname) {
@@ -104,7 +123,6 @@
     return (
       ACCESS_LIKE_ROUTE_SLUGS.has(slug) ||
       WORKSPACE_SURFACE_SLUGS.has(slug) ||
-      BUILD_ROUTE_SLUGS.has(slug) ||
       RUNTIME_ROUTE_SLUGS.has(slug)
     );
   }
@@ -134,24 +152,16 @@
   function shouldRunBuildPreviewRuntimeForUrl(rawUrl) {
     try {
       const url = new URL(rawUrl, global.location.href);
-      if (isWorkspaceSurfaceRoute(url.pathname)) return true;
-      if (!isBuildRoute(url.pathname)) return true;
-      return buildTabFromUrl(rawUrl) === "preview";
+      return isWorkspaceSurfaceRoute(url.pathname);
     } catch (_) {
-      return true;
+      return false;
     }
   }
 
   function isBuildWorkspacePathname(pathname = global.location?.pathname) {
-    const path = String(pathname || "");
-    return (
-      isWorkspaceSurfaceRoute(path) ||
-      path.startsWith("/apps/build/") ||
-      path.startsWith("/apps/manage/")
-    );
+    return isWorkspaceSurfaceRoute(pathname);
   }
 
-  /** `/apps/{app}/layout|prototype|app` → app id; legacy `/apps/build/{app}` → parts[2]. */
   function appIdFromAppsPathname(pathname = global.location?.pathname) {
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 2) {
@@ -165,10 +175,7 @@
     ) {
       return String(segments[1] || "").trim();
     }
-    if (
-      (BUILD_ROUTE_SLUGS.has(segments[1]) || RUNTIME_ROUTE_SLUGS.has(segments[1])) &&
-      segments.length >= 3
-    ) {
+    if (RUNTIME_ROUTE_SLUGS.has(segments[1]) && segments.length >= 3) {
       return String(segments[2] || "").trim();
     }
     if (ACCESS_LIKE_ROUTE_SLUGS.has(segments[1]) && segments.length >= 3) {
@@ -204,12 +211,52 @@
     return false;
   }
 
+  function isPresentationCapableRoute(pathname = global.location?.pathname) {
+    return isAppSurfaceRoute(pathname) || isAccessRoute(pathname);
+  }
+
+  function rewriteLegacyPresentationRoute(route) {
+    const raw = String(route || "").trim();
+    if (!raw) return raw;
+    try {
+      const base = String(global.location?.origin || "http://localhost");
+      const url = raw.startsWith("/") ? new URL(raw, base) : new URL(raw);
+      let path = url.pathname;
+      let rewritten = false;
+      const runMatch = path.match(/^\/apps\/(?:run|presentation|slides)\/([^/]+)(\/.*)?$/);
+      if (runMatch) {
+        path = `/apps/${runMatch[1]}/app${runMatch[2] || ""}`;
+        rewritten = true;
+      }
+      const copilotMatch = path.match(/^\/apps\/(?:copilot|speaker)\/([^/]+)(\/.*)?$/);
+      if (copilotMatch) {
+        const tail = copilotMatch[2] || "";
+        path =
+          tail.startsWith("/presentation/") || tail.startsWith("/tour/")
+            ? `/apps/${copilotMatch[1]}/app`
+            : `/apps/${copilotMatch[1]}/app${tail}`;
+        rewritten = true;
+      }
+      const legacyAppMatch = path.match(
+        /^\/apps\/(?:app|access|access-only|access_only)\/([^/]+)(\/.*)?$/,
+      );
+      if (legacyAppMatch) {
+        path = `/apps/${legacyAppMatch[1]}/app${legacyAppMatch[2] || ""}`;
+        rewritten = true;
+      }
+      if (!rewritten) return raw;
+      return `${path}${url.search}${url.hash}`;
+    } catch (_) {
+      return raw;
+    }
+  }
+
   const api = {
     ACCESS_LIKE_ROUTE_SLUGS,
-    BUILD_ROUTE_SLUGS,
     WORKSPACE_SURFACE_SLUGS,
     APP_WORKSPACE_SURFACE_SLUGS,
     RUNTIME_ROUTE_SLUGS,
+    LEGACY_REMOVED_ROUTE_SLUGS,
     pathSegments,
     legacyRouteSlugFromPathname,
     appSurfaceSlugFromPathname,
@@ -217,6 +264,8 @@
     isAppSurfaceRoute,
     isAppWorkspaceSurfaceRoute,
     isWorkspaceSurfaceRoute,
+    isLegacyRemovedRoute,
+    isLegacyPresentationRoute,
     appRoutePrefixesFromSlugs,
     isAppRoute,
     isRuntimeRoute,
@@ -236,6 +285,8 @@
     workspaceSurfaceSlugFromAppsPathname,
     sceneIdFromPathname,
     isRevisionFirstShellPage,
+    isPresentationCapableRoute,
+    rewriteLegacyPresentationRoute,
   };
 
   global.MeiRoutePredicates = api;
@@ -250,4 +301,6 @@
   global.isAppRoute = isAppRoute;
   global.isAccessRoute = isAccessRoute;
   global.isRevisionFirstShellPage = isRevisionFirstShellPage;
+  global.isPresentationCapableRoute = isPresentationCapableRoute;
+  global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;
 })(typeof window !== "undefined" ? window : globalThis);

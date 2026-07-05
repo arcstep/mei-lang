@@ -42,7 +42,7 @@ pub(crate) fn preview_view(
         }
     };
     let skip_scene_contract_for_build_world =
-        route_mode == UiRouteMode::Build && is_world_capsule_target(selected_target);
+        route_mode == UiRouteMode::Layout && is_world_capsule_target(selected_target);
     if let Some(scene_contract) = &compiled.scene_contract {
         if skip_scene_contract_for_build_world {
             // Build view may compile a cached home artifact while the selected node targets a
@@ -80,7 +80,7 @@ pub(crate) fn preview_view(
                 if let Some(vp) = vp {
                     let viewport_explicit = viewport::frame_viewport_is_explicit(&frame_props);
                     let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
-                    let is_manage = route_mode == UiRouteMode::Build;
+                    let is_manage = route_mode == UiRouteMode::Layout;
                     let content_bounds =
                         viewport::frame_stage_content_bounds_for_viewport(&frame_props, &vp);
                     let fluid_height = vp.fluid_height;

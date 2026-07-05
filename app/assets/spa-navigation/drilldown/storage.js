@@ -52,7 +52,7 @@
     }
     const routeSlug = appRouteSlugFromPathname(url.pathname);
     const accessLike =
-      ACCESS_LIKE_ROUTE_SLUGS.has(routeSlug) && !BUILD_ROUTE_SLUGS.has(routeSlug);
+      ACCESS_LIKE_ROUTE_SLUGS.has(routeSlug) && !WORKSPACE_SURFACE_SLUGS.has(routeSlug);
     if (accessLike) {
       url.pathname = `/apps/app/${encodeURIComponent(appId)}/scene/${encodeURIComponent(boardSceneId)}`;
       url.searchParams.delete("node");
@@ -63,7 +63,7 @@
       url.searchParams.delete("mei_entry_tab");
       return url.toString();
     }
-    url.pathname = `/apps/build/${appId}`;
+    url.pathname = `/apps/${appId}/layout`;
     url.searchParams.set("node", `board-file:${boardFile}#${boardSceneId}`);
     url.searchParams.set("tab", "preview");
     url.searchParams.delete("file");

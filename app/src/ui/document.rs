@@ -25,7 +25,7 @@ pub(crate) fn render_document(
         UiRouteMode::App => "app-view",
         UiRouteMode::Run => "run-view chrome-none",
         UiRouteMode::Copilot => "copilot-view chrome-none",
-        UiRouteMode::Build | UiRouteMode::Layout | UiRouteMode::Prototype => "build-view",
+        UiRouteMode::Layout | UiRouteMode::Prototype => "build-view",
         UiRouteMode::Runtime => "runtime-view",
         UiRouteMode::Config => "config-view",
         UiRouteMode::Upload => "upload-view",
@@ -69,7 +69,7 @@ pub(crate) fn render_document(
     };
 
     let manage_timing_meta = match route_mode {
-        UiRouteMode::Build | UiRouteMode::Layout | UiRouteMode::Prototype => view! {
+        UiRouteMode::Layout | UiRouteMode::Prototype => view! {
             <meta name="mei-handler-html-ready-ms" content="__MEI_HANDLER_HTML_READY_MS__"/>
             <meta name="mei-ssr-http-response-body-ms" content="__MEI_SSR_HTTP_BODY_MS__"/>
         }

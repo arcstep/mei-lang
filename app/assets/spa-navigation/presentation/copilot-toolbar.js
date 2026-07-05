@@ -18,8 +18,27 @@
     return boot.presentationStepEngine || null;
   }
 
+  function routeUtils() {
+    return boot.presentationRouteUtils || window.MeiPresentationRouteUtils || null;
+  }
+
+  function isPresentationSurfaceRoute() {
+    const utils = routeUtils();
+    if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
+    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(String(window.location.pathname || ""));
+  }
+
+  function parseAppIdFromPath() {
+    const utils = routeUtils();
+    if (utils?.parsePresentationAppId) {
+      return String(utils.parsePresentationAppId() || "").trim();
+    }
+    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)\/app(?:\/|$)/);
+    return match && match[1] ? match[1] : "";
+  }
+
   function isCopilotRoute() {
-    return /^\/apps\/copilot\//.test(String(window.location.pathname || ""));
+    return isPresentationSurfaceRoute();
   }
 
   function hasCopilotShell() {
@@ -196,12 +215,6 @@
     uiState.selectMode = false;
     document.body.classList.remove("mei-presenter-select-mode");
     renderAll();
-    const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:copilot|speaker)\/([^/]+)/,
-    );
-    if (match && match[1]) {
-      window.location.href = `/apps/app/${encodeURIComponent(match[1])}/scene/home`;
-    }
   }
 
   function sessionButtonLabel(eng) {
@@ -565,7 +578,7 @@
     }
     const eng = engine();
     return Boolean(
-      isCopilotRoute() ||
+      isPresentationSurfaceRoute() ||
         hasCopilotShell() ||
         (eng && typeof eng.hasManifest === "function" && eng.hasManifest()),
     );
@@ -607,7 +620,7 @@
       return ctx.shouldMountCopilotToolbar();
     }
     const eng = engine();
-    return Boolean((eng && eng.hasManifest()) || isCopilotRoute() || hasCopilotShell());
+    return Boolean((eng && eng.hasManifest()) || isPresentationSurfaceRoute() || hasCopilotShell());
   }
 
   function mount(options) {
@@ -630,7 +643,7 @@
     } else if (typeof opts.toolbarOpen === "boolean") {
       uiState.toolbarOpen = opts.toolbarOpen;
     }
-    if (opts.autoStart === true && eng && (isCopilotRoute() || hasCopilotShell())) {
+    if (opts.autoStart === true && eng && (isPresentationSurfaceRoute() || hasCopilotShell())) {
       if (typeof eng.ensureLoaded === "function") {
         eng.ensureLoaded();
       }

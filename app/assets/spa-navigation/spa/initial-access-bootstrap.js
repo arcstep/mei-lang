@@ -36,30 +36,47 @@
         if (result?.assemble?.ok) {
           return true;
         }
+        if (result?.assemble?.missing?.length && typeof boot.showThinShellFallback === "function") {
+          boot.showThinShellFallback(
+            `场景层未就绪，缺失: ${result.assemble.missing.join(", ")}`,
+          );
+        }
       } catch (error) {
         console.warn("[spa-navigation] view-revision thin shell composition skipped", error);
       }
     }
 
-    if (!boot.sceneManifestLoader?.ensureAccessComposeLayers || !boot.viewCompositor?.composePreview) {
+    if (!boot.sceneManifestLoader?.ensureAccessComposeLayers || !boot.viewCompositor?.composeFromLayers) {
       return false;
     }
     try {
-      const { structure, theme, overlay } = await boot.sceneManifestLoader.ensureAccessComposeLayers(
+      const { layers, manifest } = await boot.sceneManifestLoader.ensureAccessComposeLayers(
         appId,
         sceneId,
         surface,
       );
-      if (!structure) return false;
+      if (!layers?.["structure.full"]) return false;
       const projection =
         ctx.reviewProjection ||
         ctx.review_projection ||
         String(composeRoot.getAttribute("data-review-projection") || "").trim() ||
+        manifest?.compose_defaults?.review_projection ||
         "live_full";
-      boot.viewCompositor.composePreview(composeRoot, structure, projection, theme, overlay);
-      return true;
+      const composed = boot.viewCompositor.composeFromLayers(composeRoot, layers, {
+        review_projection: projection,
+        route_mode: surface,
+      });
+      if (!composed && typeof boot.showThinShellFallback === "function") {
+        boot.showThinShellFallback("场景结构层组装失败，请检查 view-revision / layer-batch。");
+      }
+      return composed;
     } catch (error) {
       console.warn("[spa-navigation] thin shell composition skipped", error);
+      if (typeof boot.showThinShellFallback === "function") {
+        boot.showThinShellFallback(
+          `场景内容加载失败: ${String(error?.message || error)}`,
+        );
+      }
       return false;
     }
   }

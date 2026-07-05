@@ -1,4 +1,4 @@
-use super::manage_routing::{access_scene_route_suffix, encode_query_value};
+use super::manage_routing::encode_query_value;
 use super::route::UiRouteMode;
 
 pub fn home_href() -> &'static str {
@@ -10,14 +10,6 @@ pub fn mcg_href(app_path: Option<&str>) -> String {
         Some(app) => format!("/mcg?app={}", encode_query_value(app)),
         None => "/mcg".to_string(),
     }
-}
-
-/// Legacy mode-first base (`/apps/{mode}/{app}`) — prefer `app_surface_href`.
-pub fn view_base_href(view: UiRouteMode, app_path: &str) -> String {
-    if view.is_app_surface() {
-        return view.app_surface_href(app_path);
-    }
-    format!("/apps/{}/{}", view.slug(), app_path.trim_start_matches('/'))
 }
 
 pub fn app_surface_href(app_path: &str, surface: UiRouteMode) -> String {
@@ -172,25 +164,8 @@ pub fn app_scene_href(
     }
 }
 
-pub fn run_scene_href(
-    app_path: &str,
-    scene_id: Option<&str>,
-    data_mode: Option<&str>,
-    review_projection: Option<&str>,
-) -> String {
-    format!(
-        "{}{}",
-        view_base_href(UiRouteMode::Run, app_path),
-        access_scene_route_suffix(scene_id, None, None, data_mode, review_projection)
-    )
-}
-
-pub fn copilot_presentation_href(app_path: &str, presentation_id: &str) -> String {
-    format!(
-        "{}/presentation/{}",
-        view_base_href(UiRouteMode::Copilot, app_path),
-        encode_query_value(presentation_id.trim())
-    )
+pub fn copilot_presentation_href(app_path: &str, _presentation_id: &str) -> String {
+    app_access_href(app_path)
 }
 
 /// 兼容旧链接：`/apps/speaker/.../tour/...`。
@@ -211,7 +186,7 @@ pub fn cross_app_href(
             UiRouteMode::Prototype => {
                 workspace_surface_href(app_path, UiRouteMode::Prototype, None, None, None, catalog, pack)
             }
-            UiRouteMode::Layout | UiRouteMode::Build => {
+            UiRouteMode::Layout => {
                 workspace_surface_href(app_path, UiRouteMode::Layout, None, None, None, catalog, pack)
             }
             _ => workspace_surface_href(app_path, UiRouteMode::Layout, None, None, None, catalog, pack),
@@ -219,10 +194,9 @@ pub fn cross_app_href(
     }
     match view {
         UiRouteMode::App => app_access_href(app_path),
-        UiRouteMode::Layout | UiRouteMode::Build => layout_href(app_path, None, None),
+        UiRouteMode::Layout => layout_href(app_path, None, None),
         UiRouteMode::Prototype => prototype_href(app_path, None, None),
-        UiRouteMode::Run => run_scene_href(app_path, None, None, None),
-        UiRouteMode::Copilot => copilot_presentation_href(app_path, "intro"),
+        UiRouteMode::Run | UiRouteMode::Copilot => app_access_href(app_path),
         UiRouteMode::Config => host_config_href(Some(app_path)),
         UiRouteMode::Upload => host_upload_href(Some(app_path), None),
         UiRouteMode::Runtime => host_runtime_href(Some(app_path), None, None),

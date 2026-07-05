@@ -128,7 +128,7 @@ mod tests {
         };
         assert_eq!(
             index_landing_location(root, &app, None, false),
-            "/apps/build/demo"
+            "/apps/demo/layout"
         );
         assert!(
             index_landing_location(root, &app, Some(&admin), false).starts_with("/apps/app/demo")

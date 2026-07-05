@@ -183,7 +183,7 @@ fn apply_view_revision_headers(response: &mut Response, revision: &mei_host_grap
 pub async fn api_host_view_revision(
     State(state): State<SharedState>,
     State(_auth): State<AuthServeState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(query): Query<ViewRevisionQuery>,
 ) -> Response {
     let app_id = query.app_id.trim();
@@ -242,32 +242,13 @@ pub async fn api_host_view_revision(
     };
     let workspace_root = workspace_root.as_path();
 
-    let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-    let draft = if route_mode.is_build() {
-        crate::build_layout_tuning::build_session_layout_tuning_draft(
-            workspace_root,
-            app_id,
-            mei_host_core::layout_tuning_draft_storage_key(app_id, draft_session.as_str()).as_str(),
-        )
-    } else {
-        None
-    };
-    let draft_digest = draft
-        .as_ref()
-        .map(|value| crate::build_fragment_cache::draft_digest_for_tuning(Some(value)))
-        .unwrap_or_default();
-
     let fallback_compose = compose_from_query(&query, route_mode);
     let mut compose = parse_compose_request(query.compose.as_deref(), &fallback_compose);
     if compose.data_mode.is_none() {
         compose.data_mode = Some(axes.data_mode.slug().to_string());
     }
     if compose.review_projection.is_none() {
-        compose.review_projection = Some(
-            crate::review_axes::ssr_review_projection(route_mode, axes.data_mode)
-                .slug()
-                .to_string(),
-        );
+        compose.review_projection = Some(axes.review_projection.slug().to_string());
     }
 
     let client_layers = parse_client_layers(query.client_layers.as_deref());
@@ -292,8 +273,8 @@ pub async fn api_host_view_revision(
         route_mode,
         axes.data_mode,
         &compose,
-        draft_session.as_str(),
-        draft_digest.as_str(),
+        "",
+        "",
         client_layers,
         local_miss,
         missing_layers,

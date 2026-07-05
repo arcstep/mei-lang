@@ -6,7 +6,7 @@ use serde::Deserialize;
 fn kind_label(kind: &str) -> &'static str {
     match kind.trim().to_ascii_uppercase().as_str() {
         "ROUTE" | "NAV" | "NAVIGATION" => "路由",
-        "BUILD_NAV" | "BUILD" => "开发导航",
+        "WORKSPACE_NAV" | "WORKSPACE" => "工作区导航",
         "BOARD" | "BOARD_OPEN" => "看板打开",
         "DRILLDOWN" => "下钻",
         "TAB" => "标签切换",
@@ -26,7 +26,6 @@ pub struct ClientCommandContext {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PageRequestObservability {
-    pub page_render_cache_hit: bool,
     pub ssr_emit_ms: Option<u64>,
     pub artifact_hits: crate::artifact_observability::ArtifactHitMatrix,
     pub view_revision_status: Option<&'static str>,
@@ -37,10 +36,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn infer_build_nav_for_spa() {
+    fn infer_workspace_nav_for_layout() {
         assert_eq!(
-            infer_page_command_kind("/apps/build/demo/scene/home", true),
-            "BUILD_NAV"
+            infer_page_command_kind("/apps/demo/layout?tab=preview", true),
+            "WORKSPACE_NAV"
         );
     }
 }
@@ -56,9 +55,19 @@ pub fn parse_client_command_headers(
     Some(ClientCommandContext { id, kind, label })
 }
 
+fn is_workspace_surface_path(path: &str) -> bool {
+    let path = path.split('?').next().unwrap_or(path);
+    let Some(tail) = path.strip_prefix("/apps/") else {
+        return false;
+    };
+    let mut parts = tail.split('/').filter(|segment| !segment.is_empty());
+    let _app = parts.next();
+    matches!(parts.next(), Some("layout" | "prototype"))
+}
+
 pub fn infer_page_command_kind(path: &str, spa_nav: bool) -> &'static str {
-    if path.starts_with("/apps/build/") || path.starts_with("/apps/manage/") {
-        return if spa_nav { "BUILD_NAV" } else { "REFRESH" };
+    if is_workspace_surface_path(path) {
+        return if spa_nav { "WORKSPACE_NAV" } else { "REFRESH" };
     }
     if spa_nav {
         return "ROUTE";
@@ -73,11 +82,6 @@ pub fn is_user_page_get(method: &str, path: &str) -> bool {
 pub fn parse_page_observability_from_headers(
     headers: &axum::http::HeaderMap,
 ) -> PageRequestObservability {
-    let page_render_cache_hit = headers
-        .get("x-mei-page-render-cache-hit")
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
     let ssr_emit_ms = headers
         .get("x-mei-ssr-http-response-body-ms")
         .and_then(|value| value.to_str().ok())
@@ -93,28 +97,19 @@ pub fn parse_page_observability_from_headers(
             _ => "unknown",
         });
     PageRequestObservability {
-        page_render_cache_hit,
         ssr_emit_ms,
         artifact_hits: crate::artifact_observability::parse_artifact_hits_from_headers(headers),
         view_revision_status,
     }
 }
 
-/// Host SSR page-render-cache (memory/disk template), not browser fragment cache.
-fn cache_tag(obs: PageRequestObservability) -> &'static str {
-    if obs.page_render_cache_hit {
-        "ssr-hit"
-    } else {
-        "miss"
-    }
+fn cache_tag(_obs: PageRequestObservability) -> &'static str {
+    "ssr"
 }
 
 fn format_ssr_ms(obs: PageRequestObservability, total_ms: u128) -> String {
     if let Some(ssr_ms) = obs.ssr_emit_ms {
         return format!("{ssr_ms}ms");
-    }
-    if obs.page_render_cache_hit {
-        return "0ms".to_string();
     }
     format!("{total_ms}ms")
 }
@@ -153,7 +148,6 @@ pub fn log_client_command_request(
         target: "mei_user_cmd",
         client_cmd_id = %ctx.id,
         client_cmd_kind = %ctx.kind,
-        page_render_cache_hit = obs.page_render_cache_hit,
         "USER   ├─ {label}  {method} {uri}  → {status}  total={latency_ms}ms  ssr={ssr}  cache={cache}  view_revision={view_revision}  artifacts={artifacts}  size={size}"
     );
 }
@@ -176,7 +170,6 @@ pub fn log_user_page_request(
     let view_revision = obs.view_revision_status.unwrap_or("legacy");
     tracing::info!(
         target: "mei_user_cmd",
-        page_render_cache_hit = obs.page_render_cache_hit,
         route_mode = %path.split('/').nth(2).unwrap_or("-"),
         "USER ▶ {label}  GET {uri}  → {status}  total={latency_ms}ms  ssr={ssr}  cache={cache}  view_revision={view_revision}  artifacts={artifacts}  size={size}"
     );

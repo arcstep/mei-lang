@@ -180,7 +180,7 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
         .as_ref()
         .expect("home scene contract");
     let runtime_ctx =
-        build_preview_runtime_context(&compiled, UiRouteMode::Build, None, None, None, None, None);
+        build_preview_runtime_context(&compiled, UiRouteMode::Layout, None, None, None, None, None);
     assert!(
         runtime_ctx.host_ssr_slim_payload,
         "build mode must enable host SSR slim payload"
@@ -278,7 +278,7 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
         &compiled,
         "zhifa",
         None,
-        UiRouteMode::Build,
+        UiRouteMode::Layout,
         Some("scenes/home.mei"),
         Some(""),
         None,

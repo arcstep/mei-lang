@@ -8,7 +8,7 @@ use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::shell_preview_layout::{
     access_shell_grid_class, presentation_main_preview_class, presentation_preview_panel_class,
 };
-use super::view_routing::{app_scene_href, run_scene_href};
+use super::view_routing::app_scene_href;
 use super::{HostAccountView, TopbarMenuContext};
 
 const PRESENTATION_KEYBOARD_SCRIPT: &str = r#"
@@ -143,9 +143,11 @@ pub(crate) fn presentation_shell(
     let prev_href = current_index
         .checked_sub(1)
         .map(|index| {
-            run_scene_href(
+            app_scene_href(
                 app_path,
                 Some(deck[index].scene_id.as_str()),
+                None,
+                None,
                 data_mode,
                 review_projection,
             )
@@ -153,9 +155,11 @@ pub(crate) fn presentation_shell(
     let next_href = deck
         .get(current_index + 1)
         .map(|route| {
-            run_scene_href(
+            app_scene_href(
                 app_path,
                 Some(route.scene_id.as_str()),
+                None,
+                None,
                 data_mode,
                 review_projection,
             )

@@ -21,10 +21,7 @@ use std::time::Instant;
 
 use crate::build_info::fill_page_shell_placeholders;
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
-use crate::access_page_cache::{
-    build_scene_revision_payload, insert_page_render_cache_hit_header, resolve_access_page_html,
-    resolve_cached_page_template, thin_shell_page_cache_key,
-};
+use crate::access_page_cache::{build_scene_revision_payload, resolve_access_page_html};
 use crate::page_observability::{
     fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
     measure_page_html_payload,
@@ -122,42 +119,38 @@ pub async fn app_page(
     State(auth): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
     OriginalUri(uri): OriginalUri,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((mode, app_tail)): Path<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Response {
-    if mode == "speaker" {
-        let tail = app_tail.trim_start_matches('/');
-        let location = format!(
-            "/apps/copilot/{}",
-            tail.replace("/tour/", "/presentation/")
-        );
-        return Redirect::temporary(location.as_str()).into_response();
+    if matches!(
+        mode.as_str(),
+        "run" | "copilot" | "presentation" | "slides" | "speaker"
+    ) {
+        return (
+            StatusCode::NOT_FOUND,
+            "legacy /apps/run/* and /apps/copilot/* routes are removed; use /apps/{app_id}/app and presentation actions",
+        )
+            .into_response();
     }
     let route_mode = UiRouteMode::from_slug(mode.as_str());
     let app_tail = app_tail.trim_start_matches('/').to_string();
     let mut query = query;
-    if route_mode == UiRouteMode::Build {
-        if let Some(target) = crate::app_surface::legacy_build_surface_redirect(app_tail.as_str(), &query) {
-            return Redirect::permanent(target.as_str()).into_response();
-        }
+    if mode == "build" || mode == "manage" {
+        return (
+            StatusCode::NOT_FOUND,
+            "legacy /apps/build/* and /apps/manage/* routes are removed; use /apps/{app_id}/layout or /prototype",
+        )
+            .into_response();
     }
     if route_mode == UiRouteMode::App {
         if let Some(target) = crate::app_surface::legacy_app_access_redirect(app_tail.as_str()) {
             return Redirect::permanent(target.as_str()).into_response();
         }
     }
-    let mut build_tree_mode: Option<String> = None;
     let (app_id, scene_id, tour_id) = if route_mode.is_app_surface() {
         crate::app_surface::merge_surface_query_defaults(&mut query, route_mode);
         crate::app_surface::parse_app_surface_tail(app_tail.as_str(), query.scene.as_deref(), route_mode)
-    } else if route_mode == UiRouteMode::Build {
-        let (parsed_app_id, preset) = crate::build_axis::parse_build_app_tail(app_tail.as_str());
-        build_tree_mode = preset.tree_mode.clone();
-        crate::build_axis::merge_build_preset_into_query(&mut query, &preset);
-        let (app_id, scene_id, tour_id) =
-            parse_app_scene_path(parsed_app_id.as_str(), query.scene.as_deref(), route_mode);
-        (app_id, scene_id, tour_id)
     } else {
         parse_app_scene_path(&app_tail, query.scene.as_deref(), route_mode)
     };
@@ -312,7 +305,6 @@ pub async fn app_page(
     } else {
         None
     };
-    let mut page_render_cache_hit = false;
     let chrome_host = crate::scene_manifest::SceneChromeHostContext {
         apps: apps.as_slice(),
         topbar_menu: Some(&topbar_menu),
@@ -326,134 +318,43 @@ pub async fn app_page(
         focus: query.focus.as_deref(),
         scope: query.scope.as_deref(),
     };
-    let thin_shell_cache_key = |route: UiRouteMode, scene: &str| {
-        thin_shell_page_cache_key(
-            workspace_root,
-            app_id.as_str(),
-            scene,
-            route,
-            axes,
-            chrome_hidden,
-            auth_enabled,
-            account_view.as_ref(),
-            &gis,
-            query.node.as_deref(),
-            query.focus.as_deref(),
-            query.tab.as_deref(),
-        )
-    };
     let (mut html, ssr_emit_ms) = if route_mode.is_access_like() {
         let render_started = Instant::now();
-        let (template, hit) = resolve_cached_page_template(
+        let template = render_thin_access_shell(
+            thin_access_shell_document(app_id.as_str(), scene_id.as_str()),
             workspace_root,
+            package_root,
             app_id.as_str(),
             scene_id.as_str(),
-            thin_shell_cache_key(route_mode, scene_id.as_str()).as_deref(),
-            || {
-                render_thin_access_shell(
-                    thin_access_shell_document(app_id.as_str(), scene_id.as_str()),
-                    workspace_root,
-                    package_root,
-                    app_id.as_str(),
-                    scene_id.as_str(),
-                    &shell_compose,
-                    Some(&chrome_host),
-                    Some(&thin_preview),
-                )
-            },
+            &shell_compose,
+            Some(&chrome_host),
+            Some(&thin_preview),
         );
-        page_render_cache_hit = hit;
         (template, render_started.elapsed().as_millis() as u64)
     } else if route_mode.is_app_surface() && !route_mode.is_app() {
         let render_started = Instant::now();
-        let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-        let storage_key =
-            mei_host_core::layout_tuning_draft_storage_key(app_id.as_str(), draft_session.as_str());
-        let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
-            workspace_root,
-            app_id.as_str(),
-            storage_key.as_str(),
-        );
-        let draft_digest = crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
         let node = resolve_build_node_for_query(&query).unwrap_or_default();
-        let (template, hit) = resolve_cached_page_template(
+        let template = render_thin_scene_shell(
+            thin_workspace_shell_document(
+                app_id.as_str(),
+                scene_id.as_str(),
+                route_mode,
+                node.as_str(),
+                axes.data_mode.slug(),
+                crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
+                query.tree_max.as_deref().unwrap_or(""),
+            ),
             workspace_root,
+            package_root,
             app_id.as_str(),
             scene_id.as_str(),
-            thin_shell_cache_key(route_mode, scene_id.as_str()).as_deref(),
-            || {
-                render_thin_scene_shell(
-                    thin_workspace_shell_document(
-                        app_id.as_str(),
-                        scene_id.as_str(),
-                        route_mode,
-                        node.as_str(),
-                        axes.data_mode.slug(),
-                        crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
-                        query.tree_max.as_deref().unwrap_or(""),
-                    ),
-                    workspace_root,
-                    package_root,
-                    app_id.as_str(),
-                    scene_id.as_str(),
-                    route_mode,
-                    &shell_compose,
-                    draft_session.as_str(),
-                    draft_digest.as_str(),
-                    Some(&chrome_host),
-                    Some(&thin_preview),
-                )
-            },
+            route_mode,
+            &shell_compose,
+            "",
+            "",
+            Some(&chrome_host),
+            Some(&thin_preview),
         );
-        page_render_cache_hit = hit;
-        (template, render_started.elapsed().as_millis() as u64)
-    } else if route_mode.is_build() && revision_first_shell {
-        let render_started = Instant::now();
-        let node = resolve_build_node_for_query(&query).unwrap_or_default();
-        let scene_for_node = crate::build_fragment_cache::scene_id_from_build_node(node.as_str());
-        let shell_scene_id = if scene_for_node.trim().is_empty() {
-            scene_id.clone()
-        } else {
-            scene_for_node
-        };
-        let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-        let storage_key =
-            mei_host_core::layout_tuning_draft_storage_key(app_id.as_str(), draft_session.as_str());
-        let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
-            workspace_root,
-            app_id.as_str(),
-            storage_key.as_str(),
-        );
-        let draft_digest = crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
-        let (template, hit) = resolve_cached_page_template(
-            workspace_root,
-            app_id.as_str(),
-            shell_scene_id.as_str(),
-            thin_shell_cache_key(route_mode, shell_scene_id.as_str()).as_deref(),
-            || {
-                render_thin_scene_shell(
-                    thin_build_shell_document(
-                        app_id.as_str(),
-                        shell_scene_id.as_str(),
-                        node.as_str(),
-                        query.focus.as_deref().unwrap_or("").trim(),
-                        axes.data_mode.slug(),
-                        crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
-                    ),
-                    workspace_root,
-                    package_root,
-                    app_id.as_str(),
-                    shell_scene_id.as_str(),
-                    route_mode,
-                    &shell_compose,
-                    draft_session.as_str(),
-                    draft_digest.as_str(),
-                    Some(&chrome_host),
-                    Some(&thin_preview),
-                )
-            },
-        );
-        page_render_cache_hit = hit;
         (template, render_started.elapsed().as_millis() as u64)
     } else {
         let assemble_result = mei_host_graph::assemble_scope_from_registry(
@@ -461,7 +362,7 @@ pub async fn app_page(
             app_id.as_str(),
             scene_id.as_str(),
         );
-        let mut outcome = match assemble_result {
+        let outcome = match assemble_result {
             Ok(Some(outcome)) => outcome,
             Ok(None) => {
                 tracing::warn!(app_id = %app_id, scene_id = %scene_id, "assemble returned None (empty registry or missing scene)");
@@ -487,14 +388,6 @@ pub async fn app_page(
                     .into_response();
             }
         };
-        if route_mode.is_build() {
-            crate::build_layout_tuning::apply_build_session_layout_tuning_draft(
-                &mut outcome.compiled,
-                workspace_root,
-                app_id.as_str(),
-                &headers,
-            );
-        }
         let workspace = load_workspace_config(workspace_root);
         let target_file = query
             .file
@@ -570,7 +463,7 @@ pub async fn app_page(
                                 ),
                                 data_mode_ceiling_notice_owned.as_deref(),
                                 query.tree_max.as_deref(),
-                                build_tree_mode.as_deref(),
+                                None,
                             ),
                             workspace_root,
                         ),
@@ -592,7 +485,7 @@ pub async fn app_page(
     html = fill_page_load_observability_placeholders(
         html,
         ssr_emit_ms,
-        page_render_cache_hit,
+        false,
         payload_stats.html_bytes,
         payload_stats.data_props_bytes,
         payload_stats.data_props_count,
@@ -635,7 +528,6 @@ pub async fn app_page(
             HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
         );
     }
-    insert_page_render_cache_hit_header(&mut response, page_render_cache_hit);
     if route_mode == UiRouteMode::Runtime && !revision_first_shell {
         response.headers_mut().insert(
             axum::http::header::CACHE_CONTROL,
@@ -1375,7 +1267,7 @@ pub async fn api_scene_fragment(
     };
     let shell_html = extract_shell_inner_html(html.as_str());
     let title = extract_document_title(html.as_str());
-    let mut response = Json(json!({
+    let response = Json(json!({
         "appId": app_id,
         "sceneId": scene_id,
         "title": title,
@@ -1383,10 +1275,8 @@ pub async fn api_scene_fragment(
         "surfaceHtml": surface_html,
         "revisionDigest": revision_payload.as_ref().map(|payload| payload.revision_digest.clone()),
         "clientRevision": revision_payload.as_ref().map(|payload| payload.client_revision.clone()),
-        "pageRenderCacheHit": resolved.page_render_cache_hit,
     }))
     .into_response();
-    insert_page_render_cache_hit_header(&mut response, resolved.page_render_cache_hit);
     response
 }
 
@@ -1549,7 +1439,7 @@ fn compose_request_for_shell(
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .unwrap_or(if route_mode == UiRouteMode::Build {
+                .unwrap_or(if route_mode == UiRouteMode::Layout {
                     "preview"
                 } else {
                     "scene"
@@ -1616,7 +1506,7 @@ pub(crate) fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String
 const THIN_WORKSPACE_ROOT_INNER: &str = concat!(
     r#"<div id="workspace-root" class="workspace manage-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 build-thin-shell-root">"#,
     r#"<aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">"#,
-    r#"<div class="sidebar-scroll flex-1 min-h-0 overflow-auto"><nav class="build-reachability-tree" aria-label="场景原型导航"></nav></div></aside>"#,
+    r#"<div class="sidebar-scroll flex-1 min-h-0 overflow-auto"><div class="build-tree-shell" data-build-tree-shell="true"><div class="build-reachability-tree" data-build-tree-mode-active="structure" aria-label="场景原型导航"></div></div></div></aside>"#,
     r#"<div class="splitter splitter-left" data-workspace-splitter="left" role="separator" aria-orientation="vertical" aria-label="调整左侧资源栏宽度"></div>"#,
     r#"<main class="main h-full min-w-0 min-h-0 overflow-hidden px-0">"#,
     r#"<section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">"#,
@@ -1659,20 +1549,6 @@ pub(crate) fn thin_workspace_shell_document(
     let workspace_main = thin_workspace_shell_main(data_mode, review_projection);
     format!(
         r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-app-id="{app_id}" data-scene-id="{scene_id}" data-route-mode="{route_slug}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><div class="shell build-thin-shell" data-scene="{scene_id}" data-build-node="{node}" data-data-mode="{data_mode}" data-review-projection="{review_projection}"{tree_max_attr}>{workspace_main}</div><nav id="mei-build-reachability-tree" class="build-reachability-tree" hidden aria-hidden="true"></nav><script id="mei-build-reachability-tree" type="application/json">[]</script><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></body></html>"#
-    )
-}
-
-pub(crate) fn thin_build_shell_document(
-    app_id: &str,
-    scene_id: &str,
-    node: &str,
-    focus: &str,
-    data_mode: &str,
-    review_projection: &str,
-) -> String {
-    let workspace_main = thin_workspace_shell_main(data_mode, review_projection);
-    format!(
-        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-app-id="{app_id}" data-scene-id="{scene_id}"><div class="shell build-thin-shell" data-scene="{scene_id}" data-build-tab="preview" data-build-node="{node}" data-build-focus="{focus}" data-data-mode="{data_mode}" data-review-projection="{review_projection}">{workspace_main}</div><script id="mei-build-reachability-tree" type="application/json">[]</script></body></html>"#
     )
 }
 
@@ -1772,15 +1648,7 @@ fn inject_thin_shell_preview_surface(
     review_projection: Option<&str>,
 ) -> String {
     if route_mode.is_access_like() {
-        let surface = render_access_preview_surface_html(
-            compiled,
-            app_id,
-            Some(compiled.active_target_file.as_str()),
-            route_mode,
-            data_mode,
-            review_projection,
-        );
-        return inject_compose_root_inner(html, surface.as_str());
+        return html;
     }
     let Some(ctx) = preview else {
         return html;
@@ -1809,16 +1677,6 @@ fn inject_thin_shell_preview_surface(
     html
 }
 
-fn inject_compose_root_inner(html: String, inner: &str) -> String {
-    if inner.trim().is_empty() {
-        return html;
-    }
-    if let Some(injected) = inject_after_element_open(&html, r#"id="mei-compose-root""#, inner) {
-        return injected;
-    }
-    html
-}
-
 fn inject_workspace_preview_panel(html: String, panel_inner: &str) -> String {
     if panel_inner.trim().is_empty() {
         return html;
@@ -1842,17 +1700,6 @@ fn inject_workspace_preview_panel(html: String, panel_inner: &str) -> String {
     out.push_str(panel_inner);
     out.push_str(&html[section_close..]);
     out
-}
-
-fn inject_after_element_open(html: &str, marker: &str, inner: &str) -> Option<String> {
-    let marker_pos = html.find(marker)?;
-    let gt_rel = html[marker_pos..].find('>')?;
-    let insert_at = marker_pos + gt_rel + 1;
-    let mut out = String::with_capacity(html.len() + inner.len());
-    out.push_str(&html[..insert_at]);
-    out.push_str(inner);
-    out.push_str(&html[insert_at..]);
-    Some(out)
 }
 
 fn find_element_close_index(html: &str, open_start: usize, tag: &str) -> Option<usize> {
@@ -1979,7 +1826,6 @@ fn thin_shell_body_class(route_mode: mei_lang_app::UiRouteMode) -> &'static str 
         mei_lang_app::UiRouteMode::App => "app-view sl-theme-dark",
         mei_lang_app::UiRouteMode::Layout => "layout-view sl-theme-dark",
         mei_lang_app::UiRouteMode::Prototype => "prototype-view sl-theme-dark",
-        mei_lang_app::UiRouteMode::Build => "build-view sl-theme-dark",
         mei_lang_app::UiRouteMode::Run => "run-view chrome-none sl-theme-dark",
         mei_lang_app::UiRouteMode::Copilot => "copilot-view chrome-none sl-theme-dark",
         mei_lang_app::UiRouteMode::Runtime => "runtime-view sl-theme-dark",
@@ -2158,7 +2004,7 @@ mod inject_scene_manifest_tests {
         assert!(wants_revision_first_shell(UiRouteMode::App, &query));
         assert!(wants_revision_first_shell(UiRouteMode::Layout, &query));
         assert!(wants_revision_first_shell(UiRouteMode::Prototype, &query));
-        assert!(!wants_revision_first_shell(UiRouteMode::Build, &query));
+        assert!(!wants_revision_first_shell(UiRouteMode::Runtime, &query));
     }
 
     #[test]

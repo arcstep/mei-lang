@@ -330,16 +330,30 @@
     });
   }
 
-  /** 同一 manage 路径下换 file/scene/tab 只换工作区，避免整页重载 manage bundle。 */
+  /** 同一 manage 路径下换 file/scene/tab 只换工作区；同 app 的 layout↔prototype 保留侧栏与 bundle。 */
   function shouldPreserveManageWorkspace(currentUrl, nextUrl) {
     if (!(currentUrl instanceof URL) || !(nextUrl instanceof URL)) {
       return false;
     }
-    return (
+    if (
       currentUrl.pathname === nextUrl.pathname &&
-      (currentUrl.pathname.startsWith("/apps/manage/") ||
-        currentUrl.pathname.startsWith("/apps/build/"))
-    );
+      isWorkspaceSurfaceRoute(currentUrl.pathname)
+    ) {
+      return true;
+    }
+    if (
+      typeof isAppWorkspaceSurfaceRoute === "function" &&
+      isAppWorkspaceSurfaceRoute(currentUrl.pathname) &&
+      isAppWorkspaceSurfaceRoute(nextUrl.pathname) &&
+      typeof appIdFromAppsPathname === "function" &&
+      typeof isWorkspaceSurfaceRoute === "function" &&
+      isWorkspaceSurfaceRoute(currentUrl.pathname) &&
+      isWorkspaceSurfaceRoute(nextUrl.pathname) &&
+      appIdFromAppsPathname(currentUrl.pathname) === appIdFromAppsPathname(nextUrl.pathname)
+    ) {
+      return true;
+    }
+    return false;
   }
 
   function syncSceneDrilldownContextFromDoc(doc) {
@@ -452,9 +466,7 @@
       !currentLeftSidebar ||
       !nextLeftSidebar ||
       !currentMain ||
-      !nextMain ||
-      !currentRightSidebar ||
-      !nextRightSidebar
+      !nextMain
     ) {
       return false;
     }
@@ -463,7 +475,9 @@
     syncElementAttributes(currentShell, nextShell, { preserve: [] });
     syncElementAttributes(currentWorkspace, nextWorkspace, { preserve: ["id"] });
     syncSidebarLinkState(currentLeftSidebar, nextLeftSidebar);
-    currentRightSidebar.className = nextRightSidebar.className;
+    if (currentRightSidebar && nextRightSidebar) {
+      currentRightSidebar.className = nextRightSidebar.className;
+    }
     const preparedMain = cloneNodeOrNull(nextMain);
     if (!preparedMain) return false;
     preparedMain.classList.add("spa-fragment-enter");

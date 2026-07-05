@@ -88,11 +88,7 @@ fn layout_policy_revision(workspace_root: &std::path::Path, app_id: &str) -> Str
 }
 
 fn theme_digest_for_app(workspace_root: &std::path::Path, app_id: &str) -> String {
-    let app_root = resolve_app_root(workspace_root, app_id);
-    format!(
-        "theme:{}",
-        mei_lang_kernel::load_cache_generation(app_root.as_path(), app_id).updated_at_ms
-    )
+    layout_policy_revision(workspace_root, app_id)
 }
 
 fn load_materialize_context<'a>(
@@ -365,7 +361,7 @@ pub(crate) fn build_scene_view_manifest(
     data_mode: DataMode,
     compose: &mei_host_graph::ComposeRequest,
     draft_session: &str,
-    draft_digest: &str,
+    _draft_digest: &str,
     hits: &mut ArtifactHitMatrix,
     chrome_host: Option<&SceneChromeHostContext<'_>>,
 ) -> anyhow::Result<mei_host_graph::SceneViewManifest> {
@@ -391,24 +387,8 @@ pub(crate) fn build_scene_view_manifest(
             crate::review_axes::ssr_review_projection(route_mode, data_mode)
                 .slug()
         });
-    let draft = if route_mode.is_build() {
-        crate::build_layout_tuning::build_session_layout_tuning_draft(
-            workspace_root,
-            app_id,
-            mei_host_core::layout_tuning_draft_storage_key(app_id, draft_session).as_str(),
-        )
-    } else {
-        None
-    };
-    let effective_draft_digest = if route_mode.is_build() {
-        draft
-            .as_ref()
-            .map(|value| crate::build_fragment_cache::draft_digest_for_tuning(Some(value)))
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| draft_digest.to_string())
-    } else {
-        String::new()
-    };
+    let draft = None;
+    let effective_draft_digest = String::new();
     let ctx = load_materialize_context(
         workspace_root,
         app_id,
@@ -513,7 +493,7 @@ fn materialize_layer_name(
 pub async fn api_host_scene_manifest(
     State(state): State<SharedState>,
     State(_auth): State<AuthServeState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(query): Query<SceneManifestQuery>,
 ) -> Response {
     let app_id = query.app_id.trim();
@@ -543,25 +523,13 @@ pub async fn api_host_scene_manifest(
         },
         route_mode,
     );
-    let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-    let draft_digest = if route_mode.is_build() {
-        crate::build_layout_tuning::build_session_layout_tuning_draft(
-            workspace_root,
-            app_id,
-            mei_host_core::layout_tuning_draft_storage_key(app_id, draft_session.as_str()).as_str(),
-        )
-        .as_ref()
-        .map(|draft| crate::build_fragment_cache::draft_digest_for_tuning(Some(draft)))
-        .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let draft_digest = String::new();
 
     let compose = mei_host_graph::ComposeRequest {
         route_mode: Some(route_mode.slug().to_string()),
         tab: query.tab.clone(),
         chrome: query.chrome.clone(),
-        review_projection: query.review_projection.clone(),
+        review_projection: Some(axes.review_projection.slug().to_string()),
         data_mode: Some(axes.data_mode.slug().to_string()),
         focus: None,
         scope: None,
@@ -574,7 +542,7 @@ pub async fn api_host_scene_manifest(
         route_mode,
         axes.data_mode,
         &compose,
-        draft_session.as_str(),
+        "",
         draft_digest.as_str(),
         &mut hits,
         None,
@@ -628,7 +596,7 @@ pub(crate) fn materialize_layers_for_request(
     data_mode: DataMode,
     compose: &mei_host_graph::ComposeRequest,
     draft_session: &str,
-    draft_digest: &str,
+    _draft_digest: &str,
     layer_names: &[String],
     hits: &mut ArtifactHitMatrix,
     chrome_host: Option<&SceneChromeHostContext<'_>>,
@@ -644,24 +612,8 @@ pub(crate) fn materialize_layers_for_request(
         .as_deref()
         .filter(|value| !value.is_empty())
         .unwrap_or("full");
-    let draft = if route_mode.is_build() {
-        crate::build_layout_tuning::build_session_layout_tuning_draft(
-            workspace_root,
-            app_id,
-            mei_host_core::layout_tuning_draft_storage_key(app_id, draft_session).as_str(),
-        )
-    } else {
-        None
-    };
-    let effective_draft_digest = if route_mode.is_build() {
-        draft
-            .as_ref()
-            .map(|value| crate::build_fragment_cache::draft_digest_for_tuning(Some(value)))
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| draft_digest.to_string())
-    } else {
-        String::new()
-    };
+    let draft = None;
+    let effective_draft_digest = String::new();
     let ctx = load_materialize_context(
         workspace_root,
         app_id,
@@ -684,9 +636,10 @@ pub(crate) fn materialize_layers_for_request(
 
 pub(crate) fn resolve_route_mode_from_surface(surface: Option<&str>) -> UiRouteMode {
     match surface.map(str::trim).filter(|value| !value.is_empty()) {
-        Some("build") => UiRouteMode::Build,
-        Some("run") => UiRouteMode::Run,
-        Some("copilot") => UiRouteMode::Copilot,
+        Some("build") | Some("manage") => UiRouteMode::Layout,
+        Some("run") | Some("copilot") | Some("speaker") | Some("presentation") | Some("slides") => {
+            UiRouteMode::App
+        }
         Some("app") | None => UiRouteMode::App,
         Some(other) => UiRouteMode::from_slug(other),
     }
@@ -695,7 +648,7 @@ pub(crate) fn resolve_route_mode_from_surface(surface: Option<&str>) -> UiRouteM
 pub async fn api_host_layer_batch(
     State(state): State<SharedState>,
     State(_auth): State<AuthServeState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<LayerBatchRequest>,
 ) -> Response {
     let app_id = body.app_id.trim();
@@ -725,20 +678,7 @@ pub async fn api_host_layer_batch(
         },
         route_mode,
     );
-    let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-    let draft = if route_mode.is_build() {
-        crate::build_layout_tuning::build_session_layout_tuning_draft(
-            workspace_root,
-            app_id,
-            mei_host_core::layout_tuning_draft_storage_key(app_id, draft_session.as_str()).as_str(),
-        )
-    } else {
-        None
-    };
-    let draft_digest = draft
-        .as_ref()
-        .map(|value| crate::build_fragment_cache::draft_digest_for_tuning(Some(value)))
-        .unwrap_or_default();
+    let draft_digest = String::new();
     let compose = mei_host_graph::ComposeRequest {
         route_mode: Some(route_mode.slug().to_string()),
         tab: body.tab.clone(),
@@ -766,7 +706,7 @@ pub async fn api_host_layer_batch(
         route_mode,
         axes.data_mode,
         &compose,
-        draft_session.as_str(),
+        "",
         draft_digest.as_str(),
         body.layers.as_slice(),
         &mut hits,
@@ -893,5 +833,152 @@ mod cross_surface_manifest_tests {
         }
         assert_eq!(structure_ids[0], structure_ids[1]);
         assert_eq!(structure_ids[1], structure_ids[2]);
+    }
+
+    fn layer_content_hash(manifest: &mei_host_graph::SceneViewManifest, name: &str) -> String {
+        manifest
+            .layers
+            .get(name)
+            .and_then(|value| value.get("content_hash"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn static_compose(route_slug: &str) -> mei_host_graph::ComposeRequest {
+        mei_host_graph::ComposeRequest {
+            route_mode: Some(route_slug.to_string()),
+            tab: Some("scene".to_string()),
+            chrome: Some("full".to_string()),
+            review_projection: None,
+            data_mode: Some("static".to_string()),
+            focus: None,
+            scope: None,
+        }
+    }
+
+    #[test]
+    fn three_surfaces_share_semantic_layer_hashes_and_digest() {
+        let Some(workspace_root) = ws_demo_workspace() else {
+            return;
+        };
+        let app_id = "data-demo";
+        let scene_id = "home";
+        let route_modes = [
+            UiRouteMode::App,
+            UiRouteMode::Layout,
+            UiRouteMode::Prototype,
+        ];
+        let mut manifests = Vec::new();
+        for route_mode in route_modes {
+            let mut hits = ArtifactHitMatrix::default();
+            let compose = static_compose(route_mode.slug());
+            let manifest = build_scene_view_manifest(
+                workspace_root.as_path(),
+                app_id,
+                scene_id,
+                route_mode,
+                DataMode::Static,
+                &compose,
+                "",
+                "",
+                &mut hits,
+                None,
+            )
+            .expect("scene manifest");
+            manifests.push(manifest);
+        }
+        for layer_name in [
+            "structure.full",
+            "theme.tokens",
+            "layout.overlay",
+            "eval.slot_group.scene:default",
+        ] {
+            let hashes: Vec<String> = manifests
+                .iter()
+                .map(|manifest| layer_content_hash(manifest, layer_name))
+                .collect();
+            assert!(
+                hashes.iter().all(|hash| !hash.is_empty()),
+                "missing {layer_name}"
+            );
+            assert_eq!(hashes[0], hashes[1], "{layer_name} app vs layout");
+            assert_eq!(hashes[1], hashes[2], "{layer_name} layout vs prototype");
+        }
+        let semantic: Vec<String> = manifests
+            .iter()
+            .map(|manifest| mei_host_graph::semantic_revision_digest(manifest, None))
+            .collect();
+        assert_eq!(semantic[0], semantic[1]);
+        assert_eq!(semantic[1], semantic[2]);
+        let surface: Vec<Option<String>> = manifests
+            .iter()
+            .map(mei_host_graph::surface_revision_digest_from_manifest)
+            .collect();
+        assert_ne!(surface[0], surface[1]);
+        assert_ne!(surface[1], surface[2]);
+    }
+
+    #[test]
+    fn layout_records_review_projection_override_in_compose_defaults() {
+        let Some(workspace_root) = ws_demo_workspace() else {
+            return;
+        };
+        let mut hits = ArtifactHitMatrix::default();
+        let compose = mei_host_graph::ComposeRequest {
+            route_mode: Some("layout".to_string()),
+            tab: Some("preview".to_string()),
+            chrome: Some("full".to_string()),
+            review_projection: Some("live_full".to_string()),
+            data_mode: Some("static".to_string()),
+            focus: None,
+            scope: None,
+        };
+        let manifest = build_scene_view_manifest(
+            workspace_root.as_path(),
+            "data-demo",
+            "home",
+            UiRouteMode::Layout,
+            DataMode::Static,
+            &compose,
+            "",
+            "",
+            &mut hits,
+            None,
+        )
+        .expect("scene manifest");
+        let defaults = manifest
+            .compose_defaults
+            .as_ref()
+            .expect("compose_defaults");
+        assert_eq!(
+            defaults.review_projection.as_deref(),
+            Some("live_full")
+        );
+    }
+
+    #[test]
+    fn resolve_route_mode_from_surface_maps_legacy_slugs() {
+        assert_eq!(
+            resolve_route_mode_from_surface(Some("build")),
+            UiRouteMode::Layout
+        );
+        assert_eq!(
+            resolve_route_mode_from_surface(Some("manage")),
+            UiRouteMode::Layout
+        );
+        assert_eq!(resolve_route_mode_from_surface(Some("run")), UiRouteMode::App);
+        assert_eq!(
+            resolve_route_mode_from_surface(Some("copilot")),
+            UiRouteMode::App
+        );
+        assert_eq!(
+            resolve_route_mode_from_surface(Some("layout")),
+            UiRouteMode::Layout
+        );
+        assert_eq!(
+            resolve_route_mode_from_surface(Some("prototype")),
+            UiRouteMode::Prototype
+        );
     }
 }

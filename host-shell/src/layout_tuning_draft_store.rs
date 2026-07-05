@@ -65,3 +65,11 @@ pub fn clear_layout_tuning_drafts_for_app(workspace_root: &Path, app_id: &str) -
     let _ = fs::remove_dir_all(dir.as_path());
     count
 }
+
+/// Remove on-disk session draft dirs left from pre-0517 server drafts.
+pub fn purge_legacy_layout_tuning_draft_dirs(workspace_root: &Path, app_ids: &[String]) -> usize {
+    app_ids
+        .iter()
+        .map(|app_id| clear_layout_tuning_drafts_for_app(workspace_root, app_id.as_str()))
+        .sum()
+}

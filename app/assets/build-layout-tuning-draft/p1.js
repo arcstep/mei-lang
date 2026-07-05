@@ -5,18 +5,18 @@
 (function initBuildLayoutTuningDraftBridge(global) {
   "use strict";
 
-  function isBuildRoute() {
-    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+  function isWorkspaceRoute() {
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+      String(global.location.pathname || ""),
+    );
   }
 
   function appIdFromPath() {
     const parts = String(global.location.pathname || "")
       .split("/")
       .filter(Boolean);
-    const idx = parts.indexOf("build");
-    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
-    const manageIdx = parts.indexOf("manage");
-    if (manageIdx >= 0 && parts[manageIdx + 1]) return parts[manageIdx + 1];
+    const appsIdx = parts.indexOf("apps");
+    if (appsIdx >= 0 && parts[appsIdx + 1]) return parts[appsIdx + 1];
     return String(document.querySelector(".shell[data-app-path]")?.getAttribute("data-app-path") || "")
       .trim();
   }
@@ -162,7 +162,7 @@
   }
 
   async function applyDraftFromControls(options) {
-    if (!isBuildRoute()) return;
+    if (!isWorkspaceRoute()) return;
     const overlay = global.MeiOpsLayoutTuningOverlay;
     if (!overlay?.putSessionDraft || !overlay?.applyHot) return;
     const appId = appIdFromPath();
@@ -195,16 +195,8 @@
     });
     if (!patch) return;
     await overlay.putSessionDraft(appId, patch.tuning);
-    if (boot.layerStore && boot.sceneManifestLoader?.fetchManifest) {
-      try {
-        const axes = boot.sceneManifestLoader.readShellAxes?.() || {};
-        await boot.sceneManifestLoader.fetchManifest(appId, resolvePreviewScopeFromSelection() || "home", axes);
-      } catch (_) {}
-    }
     if (options?.persist && typeof overlay.applyDraftToConfig === "function") {
       await overlay.applyDraftToConfig(appId);
-    } else {
-      await overlay.applyHot(appId, global);
     }
     try {
       global.dispatchEvent(
@@ -221,7 +213,7 @@
   }
 
   function syncDraftControls() {
-    if (!isBuildRoute()) return;
+    if (!isWorkspaceRoute()) return;
     const controls = ensureDraftControls();
     if (!controls) return;
     const scope = resolvePreviewScopeFromSelection();

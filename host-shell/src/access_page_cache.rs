@@ -1,15 +1,10 @@
 use std::collections::hash_map::DefaultHasher;
-use std::collections::BTreeMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::path::Path;
 
-use anyhow::Context;
 use mei_lang_app::{
-    load_topbar_menu_context, page_body_theme_style, render_page, HostAccountView,
-    TopbarMenuContext, UiRouteMode,
+    page_body_theme_style, render_page, HostAccountView, TopbarMenuContext, UiRouteMode,
 };
 use mei_lang_kernel::{
     load_mei_config_for_app, load_workspace_config, resolve_app_root, WorkspaceAppMeta,
@@ -21,15 +16,12 @@ use crate::build_info::{fill_page_shell_placeholders, host_asset_version_stamp};
 use crate::gis_config::GisTilesConfig;
 use crate::pages::{
     inject_client_bootstrap_script, inject_layer_plane_scripts, inject_presentation_manifest_script,
-    inject_scene_manifest_refs,
-    AppQuery,
+    inject_scene_manifest_refs, AppQuery,
 };
-use crate::review_axes::{default_page_render_axes_for_route, PageRenderAxes};
+use crate::review_axes::PageRenderAxes;
 
 pub const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v2";
 pub const THIN_SHELL_PAGE_CACHE_REVISION: &str = "thin-shell-bundle-v2";
-const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
-const MAX_PAGE_RENDER_CACHE_ENTRIES: usize = 64;
 
 pub fn resolve_scene_client_revision(
     workspace_root: &Path,
@@ -49,29 +41,6 @@ pub fn resolve_scene_client_revision(
         return Some(mei_host_graph::NO_CLIENT_BOOTSTRAP_REVISION.to_string());
     }
     None
-}
-
-#[derive(Debug, Clone)]
-struct CachedPageTemplate {
-    expires_at: Instant,
-    html: String,
-    manifest_revision_digest: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DiskPageTemplateMeta {
-    cache_key: String,
-    html_bytes: usize,
-    written_at_ms: u64,
-}
-
-fn memory_cache() -> &'static Mutex<BTreeMap<String, CachedPageTemplate>> {
-    static CACHE: OnceLock<Mutex<BTreeMap<String, CachedPageTemplate>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
-}
-
-fn page_render_cache_ttl() -> Duration {
-    Duration::from_millis(PAGE_RENDER_CACHE_TTL_MS)
 }
 
 fn hash_signature(value: &str) -> u64 {
@@ -99,44 +68,21 @@ fn ops_layout_tuning_revision_digest(workspace_root: &Path, app_id: &str) -> Str
     mei_lang_kernel::ops_layout_tuning_revision_digest(&config.ops)
 }
 
-fn page_cache_disk_dir(app_root: &Path) -> PathBuf {
-    mei_lang_kernel::resolve_app_var_root(app_root).join("page-render-cache")
-}
-
-fn page_cache_disk_html_path(app_root: &Path, scene_id: &str) -> PathBuf {
-    page_cache_disk_dir(app_root).join(format!("{scene_id}.html"))
-}
-
-fn page_cache_disk_meta_path(app_root: &Path, scene_id: &str) -> PathBuf {
-    page_cache_disk_dir(app_root).join(format!("{scene_id}.meta.json"))
-}
-
-pub fn clear_access_page_render_cache_for_app(workspace_root: &Path, app_id: &str) -> usize {
-    let mut cleared = 0usize;
-    if let Ok(mut cache) = memory_cache().lock() {
-        let prefix = format!("{app_id}:");
-        let keys: Vec<String> = cache
-            .keys()
-            .filter(|key| key.starts_with(prefix.as_str()))
-            .cloned()
-            .collect();
-        cleared += keys.len();
-        for key in keys {
-            cache.remove(key.as_str());
-        }
-    }
+/// Remove legacy on-disk page-render-cache directories (abolished; one-time hygiene).
+pub fn clear_legacy_page_render_cache_for_app(workspace_root: &Path, app_id: &str) -> usize {
     let app_root = resolve_app_root(workspace_root, app_id);
-    let disk_dir = page_cache_disk_dir(app_root.as_path());
-    if disk_dir.is_dir() {
-        if let Ok(entries) = fs::read_dir(&disk_dir) {
-            cleared += entries.flatten().count();
-        }
-        let _ = fs::remove_dir_all(&disk_dir);
+    let disk_dir = mei_lang_kernel::resolve_app_var_root(app_root.as_path()).join("page-render-cache");
+    if !disk_dir.is_dir() {
+        return 0;
     }
+    let cleared = fs::read_dir(&disk_dir)
+        .map(|entries| entries.flatten().count())
+        .unwrap_or(0);
+    let _ = fs::remove_dir_all(&disk_dir);
     cleared
 }
 
-pub fn access_page_cache_key(
+pub fn scene_revision_cache_key(
     workspace_root: &Path,
     app_id: &str,
     scene_id: &str,
@@ -147,7 +93,7 @@ pub fn access_page_cache_key(
     account_view: Option<&HostAccountView>,
     gis: &GisTilesConfig,
 ) -> Option<String> {
-    page_render_cache_key_for_route(
+    scene_revision_cache_key_for_route(
         workspace_root,
         app_id,
         scene_id,
@@ -163,37 +109,7 @@ pub fn access_page_cache_key(
     )
 }
 
-pub fn thin_shell_page_cache_key(
-    workspace_root: &Path,
-    app_id: &str,
-    scene_id: &str,
-    route_mode: UiRouteMode,
-    axes: PageRenderAxes,
-    chrome_hidden: bool,
-    auth_enabled: bool,
-    account_view: Option<&HostAccountView>,
-    gis: &GisTilesConfig,
-    node: Option<&str>,
-    focus: Option<&str>,
-    tab: Option<&str>,
-) -> Option<String> {
-    page_render_cache_key_for_route(
-        workspace_root,
-        app_id,
-        scene_id,
-        route_mode,
-        axes,
-        chrome_hidden,
-        auth_enabled,
-        account_view,
-        gis,
-        node,
-        focus,
-        tab,
-    )
-}
-
-fn page_render_cache_key_for_route(
+fn scene_revision_cache_key_for_route(
     workspace_root: &Path,
     app_id: &str,
     scene_id: &str,
@@ -210,7 +126,7 @@ fn page_render_cache_key_for_route(
     let thin_shell_route = route_mode.is_access_like()
         || matches!(
             route_mode,
-            UiRouteMode::Layout | UiRouteMode::Prototype | UiRouteMode::Build
+            UiRouteMode::Layout | UiRouteMode::Prototype
         );
     if !thin_shell_route {
         return None;
@@ -263,24 +179,6 @@ fn page_render_cache_key_for_route(
     serde_json::to_string(&extra).ok()
 }
 
-pub fn resolve_cached_page_template(
-    workspace_root: &Path,
-    app_id: &str,
-    scene_id: &str,
-    cache_key: Option<&str>,
-    render: impl FnOnce() -> String,
-) -> (String, bool) {
-    if let Some(key) = cache_key.map(str::trim).filter(|value| !value.is_empty()) {
-        if let Some(cached) = take_access_page_template(workspace_root, app_id, scene_id, key) {
-            return (cached, true);
-        }
-        let html = render();
-        let _ = store_access_page_template(workspace_root, app_id, scene_id, key, html.as_str(), None);
-        return (html, false);
-    }
-    (render(), false)
-}
-
 fn inject_scene_revision_meta(html: String, revision: Option<&SceneRevisionPayload>) -> String {
     let Some(revision) = revision else {
         return html;
@@ -320,111 +218,9 @@ fn access_route_chrome_hidden(route_mode: UiRouteMode, query: &AppQuery) -> bool
             .unwrap_or(false)
 }
 
-fn take_memory_template(key: &str) -> Option<String> {
-    let Ok(mut cache) = memory_cache().lock() else {
-        return None;
-    };
-    let now = Instant::now();
-    cache.retain(|_, entry| entry.expires_at > now);
-    cache.get(key).map(|entry| {
-        if let Some(ref digest) = entry.manifest_revision_digest {
-            tracing::trace!(manifest_revision_digest = %digest, "access page template cache hit");
-        }
-        entry.html.clone()
-    })
-}
-
-fn store_memory_template(key: String, html: &str, manifest_revision_digest: Option<String>) {
-    let Ok(mut cache) = memory_cache().lock() else {
-        return;
-    };
-    let now = Instant::now();
-    cache.retain(|_, entry| entry.expires_at > now);
-    if cache.len() >= MAX_PAGE_RENDER_CACHE_ENTRIES {
-        cache.clear();
-    }
-    cache.insert(
-        key,
-        CachedPageTemplate {
-            expires_at: now + page_render_cache_ttl(),
-            html: html.to_string(),
-            manifest_revision_digest,
-        },
-    );
-}
-
-fn try_load_disk_template(
-    app_root: &Path,
-    scene_id: &str,
-    expected_key: &str,
-) -> Option<String> {
-    let meta_path = page_cache_disk_meta_path(app_root, scene_id);
-    let html_path = page_cache_disk_html_path(app_root, scene_id);
-    let raw = fs::read_to_string(&meta_path).ok()?;
-    let meta: DiskPageTemplateMeta = serde_json::from_str(raw.as_str()).ok()?;
-    if meta.cache_key != expected_key {
-        return None;
-    }
-    fs::read_to_string(&html_path).ok()
-}
-
-fn persist_disk_template(
-    app_root: &Path,
-    scene_id: &str,
-    cache_key: &str,
-    html: &str,
-) -> anyhow::Result<()> {
-    let dir = page_cache_disk_dir(app_root);
-    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-    let meta = DiskPageTemplateMeta {
-        cache_key: cache_key.to_string(),
-        html_bytes: html.len(),
-        written_at_ms: crate::state::current_time_ms(),
-    };
-    fs::write(
-        page_cache_disk_meta_path(app_root, scene_id),
-        serde_json::to_string_pretty(&meta)?,
-    )?;
-    fs::write(page_cache_disk_html_path(app_root, scene_id), html)?;
-    Ok(())
-}
-
-pub fn take_access_page_template(
-    workspace_root: &Path,
-    app_id: &str,
-    scene_id: &str,
-    cache_key: &str,
-) -> Option<String> {
-    if let Some(html) = take_memory_template(cache_key) {
-        return Some(html);
-    }
-    let app_root = resolve_app_root(workspace_root, app_id);
-    let html = try_load_disk_template(app_root.as_path(), scene_id, cache_key)?;
-    store_memory_template(cache_key.to_string(), html.as_str(), None);
-    Some(html)
-}
-
-pub fn store_access_page_template(
-    workspace_root: &Path,
-    app_id: &str,
-    scene_id: &str,
-    cache_key: &str,
-    html: &str,
-    manifest_revision_digest: Option<&str>,
-) -> anyhow::Result<()> {
-    let digest = manifest_revision_digest
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    store_memory_template(cache_key.to_string(), html, digest);
-    let app_root = resolve_app_root(workspace_root, app_id);
-    persist_disk_template(app_root.as_path(), scene_id, cache_key, html)
-}
-
 #[derive(Debug, Clone)]
 pub struct ResolvedAccessPageHtml {
     pub html: String,
-    pub page_render_cache_hit: bool,
 }
 
 pub fn resolve_access_page_html(
@@ -441,78 +237,21 @@ pub fn resolve_access_page_html(
     account_view: Option<&HostAccountView>,
     copilot_presentation_id: Option<&str>,
 ) -> anyhow::Result<ResolvedAccessPageHtml> {
-    let app_ctx = mei_host_core::HostContext::new(workspace_root.to_path_buf(), app_id.to_string());
-    let gis = GisTilesConfig::resolve_for_app(
-        app_ctx.app_root().as_path(),
-        Some(workspace_root),
-        None,
-    );
-    let cache_key = access_page_cache_key(
+    let html = render_access_page_template(
         workspace_root,
+        package_root,
+        apps,
+        topbar_menu,
         app_id,
         scene_id,
         route_mode,
+        query,
         axes,
-        access_route_chrome_hidden(route_mode, query),
         auth_enabled,
         account_view,
-        &gis,
-    );
-    let mut page_render_cache_hit = false;
-    let html = if let Some(ref key) = cache_key {
-        if let Some(cached) = take_access_page_template(
-            workspace_root,
-            app_id,
-            scene_id,
-            key.as_str(),
-        ) {
-            page_render_cache_hit = true;
-            cached
-        } else {
-            let template = render_access_page_template(
-                workspace_root,
-                package_root,
-                apps,
-                topbar_menu,
-                app_id,
-                scene_id,
-                route_mode,
-                query,
-                axes,
-                auth_enabled,
-                account_view,
-                copilot_presentation_id,
-            )?;
-            let _ = store_access_page_template(
-                workspace_root,
-                app_id,
-                scene_id,
-                key.as_str(),
-                template.as_str(),
-                None,
-            );
-            template
-        }
-    } else {
-        render_access_page_template(
-            workspace_root,
-            package_root,
-            apps,
-            topbar_menu,
-            app_id,
-            scene_id,
-            route_mode,
-            query,
-            axes,
-            auth_enabled,
-            account_view,
-            copilot_presentation_id,
-        )?
-    };
-    Ok(ResolvedAccessPageHtml {
-        html,
-        page_render_cache_hit,
-    })
+        copilot_presentation_id,
+    )?;
+    Ok(ResolvedAccessPageHtml { html })
 }
 
 pub fn render_access_page_template(
@@ -631,112 +370,12 @@ pub fn render_access_page_template(
     Ok(crate::gis_config::fill_gis_tiles_placeholders(html, &gis))
 }
 
-pub fn hot_scenes_for_app(workspace_root: &Path, app_id: &str) -> Vec<String> {
-    let config = load_workspace_config(workspace_root);
-    if let Some(app_cfg) = config.warmup.apps.get(app_id) {
-        let scenes: Vec<String> = app_cfg
-            .hot_scenes
-            .iter()
-            .map(|scene| scene.trim().to_string())
-            .filter(|scene| !scene.is_empty())
-            .collect();
-        if !scenes.is_empty() {
-            return scenes;
-        }
-    }
-    vec!["home".to_string()]
-}
-
-pub fn prime_access_page_render_cache(
-    workspace_root: &Path,
-    package_root: &Path,
-    app_id: &str,
-    scene_id: &str,
-    auth_enabled: bool,
-) -> anyhow::Result<bool> {
-    let route_mode = UiRouteMode::App;
-    let app_ctx = mei_host_core::HostContext::new(workspace_root.to_path_buf(), app_id.to_string());
-    let gis = GisTilesConfig::resolve_for_app(
-        app_ctx.app_root().as_path(),
-        Some(workspace_root),
-        None,
-    );
-    let warmup_axes = default_page_render_axes_for_route(
-        route_mode,
-        mei_lang_kernel::DataModeCeiling::Eval,
-    );
-    let cache_key = access_page_cache_key(
-        workspace_root,
-        app_id,
-        scene_id,
-        route_mode,
-        warmup_axes,
-        false,
-        auth_enabled,
-        None,
-        &gis,
-    )
-    .ok_or_else(|| anyhow::anyhow!("page cache key unavailable for {app_id}/{scene_id}"))?;
-    let discovered = crate::landing::discover_workspace_apps(workspace_root)?;
-    let topbar_menu = load_topbar_menu_context(workspace_root);
-    let apps = crate::landing::enrich_discovered_apps(discovered.as_slice(), &topbar_menu);
-    let template = render_access_page_template(
-        workspace_root,
-        package_root,
-        apps.as_slice(),
-        &topbar_menu,
-        app_id,
-        scene_id,
-        route_mode,
-        &AppQuery::default(),
-        warmup_axes,
-        auth_enabled,
-        None,
-        None,
-    )?;
-    store_access_page_template(workspace_root, app_id, scene_id, cache_key.as_str(), template.as_str(), None)?;
-    Ok(true)
-}
-
-pub fn warm_access_page_render_caches(
-    workspace_root: &Path,
-    package_root: &Path,
-    app_ids: &[String],
-    auth_enabled: bool,
-) -> usize {
-    let mut warmed = 0usize;
+pub fn clear_legacy_page_render_cache_for_apps(workspace_root: &Path, app_ids: &[String]) -> usize {
+    let mut cleared = 0usize;
     for app_id in app_ids {
-        for scene_id in hot_scenes_for_app(workspace_root, app_id.as_str()) {
-            match prime_access_page_render_cache(
-                workspace_root,
-                package_root,
-                app_id.as_str(),
-                scene_id.as_str(),
-                auth_enabled,
-            ) {
-                Ok(true) => warmed += 1,
-                Ok(false) => {}
-                Err(error) => {
-                    tracing::warn!(
-                        app_id = %app_id,
-                        scene_id = %scene_id,
-                        detail = %error,
-                        "access page render cache prime skipped"
-                    );
-                }
-            }
-        }
+        cleared += clear_legacy_page_render_cache_for_app(workspace_root, app_id.as_str());
     }
-    warmed
-}
-
-pub fn insert_page_render_cache_hit_header(response: &mut axum::response::Response, cache_hit: bool) {
-    if let Ok(value) = axum::http::HeaderValue::from_str(if cache_hit { "1" } else { "0" }) {
-        response.headers_mut().insert(
-            axum::http::HeaderName::from_static("x-mei-page-render-cache-hit"),
-            value,
-        );
-    }
+    cleared
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -787,7 +426,7 @@ pub fn build_scene_revision_payload(
         .data_generation;
     let ops_themes_revision = ops_themes_revision_digest(workspace_root, app_id);
     let auth_sig = account_view.map(serialized_signature).unwrap_or(0);
-    let cache_key = access_page_cache_key(
+    let cache_key = scene_revision_cache_key(
         workspace_root,
         app_id,
         scene_id,

@@ -33,7 +33,7 @@ use super::page_render::{
 };
 use super::query::{
     access_canonical_location, access_sanitized_redirect_location, copilot_presentation_canonical_location,
-    legacy_access_redirect_location, legacy_manage_redirect_location, legacy_speaker_redirect_location,
+    legacy_access_redirect_location,
     parse_access_scene_path, parse_copilot_presentation_tail, parse_speaker_tour_tail,
     presentation_sanitized_redirect_location, AppQuery,
 };
@@ -68,13 +68,42 @@ pub async fn app_page(
             return Ok(Redirect::temporary(&location).into_response());
         }
     }
-    if mode == "manage" {
-        let location = legacy_manage_redirect_location(&app_id_raw, &query);
-        return Ok(Redirect::temporary(&location).into_response());
+    if mode == "manage" || mode == "build" {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Html(host_error_page::render_error_page(
+                StatusCode::NOT_FOUND,
+                "旧路由已移除",
+                "请使用 /apps/{app_id}/layout 或 /apps/{app_id}/prototype 打开工作区。",
+                None,
+                &[HostShellAction {
+                    href: "/home".to_string(),
+                    label: "返回首页".to_string(),
+                    primary: true,
+                }],
+            )),
+        )
+            .into_response());
     }
-    if mode == "speaker" {
-        let location = legacy_speaker_redirect_location(&app_id_raw);
-        return Ok(Redirect::temporary(&location).into_response());
+    if matches!(
+        mode.as_str(),
+        "run" | "copilot" | "presentation" | "slides" | "speaker"
+    ) {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Html(host_error_page::render_error_page(
+                StatusCode::NOT_FOUND,
+                "演说路由已移除",
+                "请在 /apps/{app_id}/app 上使用演说步进与 Copilot 动作，不再提供独立 /apps/run 或 /apps/copilot 页面。",
+                Some("/apps/{app_id}/app"),
+                &[HostShellAction {
+                    href: "/home".to_string(),
+                    label: "返回首页".to_string(),
+                    primary: true,
+                }],
+            )),
+        )
+            .into_response());
     }
     let route_mode = UiRouteMode::from_slug(&mode);
     let app_id_trimmed = app_id_raw.trim_start_matches('/').to_string();
@@ -122,7 +151,7 @@ pub async fn app_page(
         ));
     }
     let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
-    if route_mode == UiRouteMode::Build {
+    if route_mode == UiRouteMode::Layout {
         if let Some(response) = try_catalog_redirect(&state, app_id.as_str(), &query) {
             return Ok(response);
         }
@@ -181,7 +210,7 @@ pub async fn app_page(
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let manage_file = if route_mode == UiRouteMode::Build {
+    let manage_file = if route_mode == UiRouteMode::Layout {
         request_file.clone()
     } else {
         None
@@ -190,12 +219,12 @@ pub async fn app_page(
         .as_deref()
         .filter(|t| is_script_target(t))
         .map(ToString::to_string);
-    let build_node = if route_mode == UiRouteMode::Build {
+    let build_node = if route_mode == UiRouteMode::Layout {
         query.node.as_deref().and_then(BuildNodeId::parse)
     } else {
         None
     };
-    let (build_node_compile_scene, build_node_preview_target) = if route_mode == UiRouteMode::Build
+    let (build_node_compile_scene, build_node_preview_target) = if route_mode == UiRouteMode::Layout
     {
         if let Some(node) = build_node.as_ref() {
             let probe_components_root = resolve_components_root(&state.source_root);
@@ -212,12 +241,12 @@ pub async fn app_page(
     } else {
         (None, None)
     };
-    let normalized_preview_target = if route_mode == UiRouteMode::Build {
+    let normalized_preview_target = if route_mode == UiRouteMode::Layout {
         manage_script_file.clone().or(build_node_preview_target)
     } else {
         None
     };
-    let mut compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
+    let mut compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Layout {
         if copilot_presentation_id.is_some() {
             Some("home".to_string())
         } else {
@@ -229,7 +258,7 @@ pub async fn app_page(
     } else {
         query.scene.clone()
     };
-    if route_mode == UiRouteMode::Build && compile_scene.is_none() {
+    if route_mode == UiRouteMode::Layout && compile_scene.is_none() {
         if let Some(ref target) = normalized_preview_target {
             if target.ends_with(".board.mei") {
                 let probe_components_root = resolve_components_root(&state.source_root);
@@ -243,7 +272,7 @@ pub async fn app_page(
                     },
                     probe_components_root.as_path(),
                     RuntimeAccessPolicies::default_for_access_host(),
-                    UiRouteMode::Build,
+                    UiRouteMode::Layout,
                 ) {
                     let outcome = compile_outcome_from_shared(resolution.outcome);
                     let exports = outcome
@@ -258,7 +287,7 @@ pub async fn app_page(
         }
     }
     let mut normalized_preview_target = normalized_preview_target;
-    if matches!(route_mode, UiRouteMode::Build | UiRouteMode::Runtime)
+    if matches!(route_mode, UiRouteMode::Layout | UiRouteMode::Runtime)
         && compile_scene.is_none()
         && normalized_preview_target.is_none()
         && build_node.is_none()
@@ -295,7 +324,7 @@ pub async fn app_page(
                 .into_response(),
         );
     }
-    if route_mode == UiRouteMode::Build {
+    if route_mode == UiRouteMode::Layout {
         if request_file
             .as_deref()
             .map(str::trim)
@@ -343,7 +372,7 @@ pub async fn app_page(
         return Ok(response);
     }
     let discover_started = Instant::now();
-    let mut apps = if matches!(route_mode, UiRouteMode::Build | UiRouteMode::Runtime) {
+    let mut apps = if matches!(route_mode, UiRouteMode::Layout | UiRouteMode::Runtime) {
         mei_lang_kernel::discover_build_apps(&state.source_root).map_err(AppError::from)?
     } else {
         discover_apps(&state.source_root).map_err(AppError::from)?

@@ -141,7 +141,7 @@
 
   function resolvePreviewAppId(pathname = window.location.pathname) {
     const slug = appRouteSlugFromPathname(pathname);
-    if (ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug)) {
+    if (WORKSPACE_SURFACE_SLUGS.has(slug) || ACCESS_LIKE_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
     }
     return resolveAppPathByPrefixes(pathname, ["/upload", "/upload?", "/apps/upload/", "/config", "/config?", "/apps/config/"]);

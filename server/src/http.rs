@@ -64,10 +64,6 @@ pub fn router() -> Router<AppState> {
             "/api/build/context/export",
             get(build_api::api_build_context_export),
         )
-        .route(
-            "/api/build/workspace-fragment",
-            get(build_api::api_build_workspace_fragment),
-        )
         .route("/api/build/graph/mcg", get(build_api::api_build_graph_mcg))
         .route(
             "/api/build/graph/mcg/node",

@@ -1979,6 +1979,7 @@
 /* ===== manage-ops-panel/p4.js ===== */
 (function initManageOpsLayoutTuningOverlay() {
   const global = window;
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
 
   function notifyLayoutTuningOverlay(reason) {
     try {
@@ -2094,37 +2095,46 @@
   }
 
   async function putSessionDraft(appId, tuning) {
-    const resp = await fetch(
-      `/api/ops/layout-tuning/draft/${encodeURIComponent(appId)}`,
-      {
-        method: "PUT",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...draftSessionHeaders(),
-        },
-        body: JSON.stringify({ tuning }),
-      },
-    );
-    if (!resp.ok) throw new Error(`layoutTuning draft failed: ${resp.status}`);
-    return resp.json();
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    if (!store?.putLayoutOverlayPatches) {
+      throw new Error("draft layer store unavailable");
+    }
+    store.putLayoutOverlayPatches(appId, tuning);
+    const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
+    if (boot.viewCompositor?.recomposeFromLayerStore) {
+      boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+    }
+    notifyLayoutTuningOverlay("layout-tuning-draft");
+    return { ok: true, local: true };
   }
 
   async function applyDraftToConfig(appId) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const tuning = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.layoutOverlay,
+    );
     const resp = await fetch(
       `/api/ops/layout-tuning/apply/${encodeURIComponent(appId)}`,
       {
         method: "POST",
         credentials: "same-origin",
         headers: {
+          "Content-Type": "application/json",
           Accept: "application/json",
           ...draftSessionHeaders(),
         },
+        body: JSON.stringify({ tuning: tuning || {} }),
       },
     );
     if (!resp.ok) throw new Error(`layoutTuning apply failed: ${resp.status}`);
     const payload = await resp.json();
+    store?.clearSession?.(appId);
+    if (boot.sceneManifestLoader?.fetchManifest) {
+      try {
+        const axes = boot.sceneManifestLoader.readShellAxes?.() || {};
+        await boot.sceneManifestLoader.fetchManifest(appId, "home", axes);
+      } catch (_) {}
+    }
     notifyLayoutTuningOverlay("layout-tuning-persisted");
     return payload;
   }

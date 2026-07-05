@@ -144,8 +144,8 @@
         let kind = "ROUTE";
         try {
           const path = new URL(String(url || global.location.href), global.location.href).pathname;
-          if (path.startsWith("/apps/build/") || path.startsWith("/apps/manage/")) {
-            kind = "BUILD_NAV";
+          if (typeof isWorkspaceSurfaceRoute === "function" && isWorkspaceSurfaceRoute(path)) {
+            kind = "WORKSPACE_NAV";
           }
         } catch (_) {}
         boot.beginClientCommand({ kind, label: String(url || global.location.href) });

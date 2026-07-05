@@ -49,7 +49,7 @@ pub(super) fn preferred_access_scene<'a>(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .or(Some(active_target_file));
-    let build_scene = if route_mode == UiRouteMode::Build {
+    let build_scene = if route_mode == UiRouteMode::Layout {
         canonical_scene_for_target(routes, build_target)
     } else {
         None

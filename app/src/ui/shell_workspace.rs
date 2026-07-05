@@ -33,7 +33,7 @@ impl WorkspaceShellNav {
             Self::Home | Self::Config => UiRouteMode::Config,
             Self::Upload => UiRouteMode::Upload,
             Self::Runtime => UiRouteMode::Runtime,
-            Self::Mcg => UiRouteMode::Build,
+            Self::Mcg => UiRouteMode::Layout,
         }
     }
 

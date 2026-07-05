@@ -90,7 +90,7 @@ pub(super) fn render_compiled_success(
         .as_deref()
         .or(compiled.active_scene.as_deref());
     let manage_default_file = default_file_for_scene(compiled, scene_for_default);
-    let target = if route_mode == UiRouteMode::Build {
+    let target = if route_mode == UiRouteMode::Layout {
         manage_file
             .map(ToString::to_string)
             .unwrap_or(manage_default_file)
@@ -204,7 +204,7 @@ pub(super) fn render_compiled_success(
         query.world_metric.as_deref(),
         query.world_dataset.as_deref(),
         query.explain.as_deref(),
-        if route_mode == UiRouteMode::Build
+        if route_mode == UiRouteMode::Layout
             && query
                 .tab
                 .as_deref()

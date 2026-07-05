@@ -7,8 +7,10 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   let panelEl = null;
 
-  function isBuildRoute() {
-    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+  function isWorkspaceRoute() {
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+      String(global.location.pathname || ""),
+    );
   }
 
   function ensurePanel() {
@@ -43,10 +45,8 @@
     const parts = String(global.location.pathname || "")
       .split("/")
       .filter(Boolean);
-    const idx = parts.indexOf("build");
-    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
-    const manageIdx = parts.indexOf("manage");
-    if (manageIdx >= 0 && parts[manageIdx + 1]) return parts[manageIdx + 1];
+    const appsIdx = parts.indexOf("apps");
+    if (appsIdx >= 0 && parts[appsIdx + 1]) return parts[appsIdx + 1];
     const appIdx = parts.indexOf("app");
     if (appIdx >= 0 && parts[appIdx + 1]) return parts[appIdx + 1];
     return String(document.querySelector(".shell[data-app-path]")?.getAttribute("data-app-path") || "")
@@ -68,16 +68,13 @@
           console.warn("[wysiwyg-panel] session draft failed", error);
         }
       }
-    }
-    if (boot.viewCompositor) {
-      const overlay = { patches: { [patch.preview_scope]: patch.layout || patch.theme || {} } };
-      const theme = patch.theme
-        ? { colors: patch.theme.colors || {}, fonts: patch.theme.fonts || {} }
-        : null;
-      boot.viewCompositor.applyThemeAndOverlay(root, theme, overlay);
-    }
-    if (typeof overlayApi?.applyHot === "function" && appId) {
-      await overlayApi.applyHot(appId, global);
+    } else if (patch.theme && overlayApi?.putSessionDraft && appId) {
+      const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+      store?.putThemeTokensPatch?.(appId, patch.theme);
+      boot.viewCompositor?.recomposeFromLayerStore?.(
+        appId,
+        boot.sceneManifestLoader?.readShellAxes?.() || {},
+      );
     }
     global.dispatchEvent(new CustomEvent("meilang:preview-updated", { detail: { patch } }));
   }
@@ -145,7 +142,7 @@
   }
 
   function openPanelForSelection(meta) {
-    if (!isBuildRoute() || !meta) return;
+    if (!isWorkspaceRoute() || !meta) return;
     const role = String(meta.ui_role || "").toLowerCase();
     if (role === "region" || role === "section") {
       boot.wysiwygPanel = { kind: "layout", meta };

@@ -39,7 +39,7 @@ fn preferred_access_scene_prefers_build_preview_target_scene() {
     ];
     assert_eq!(
         preferred_access_scene(
-            UiRouteMode::Build,
+            UiRouteMode::Layout,
             &routes,
             None,
             Some("scenes/detail.mei"),

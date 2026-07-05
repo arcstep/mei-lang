@@ -16,7 +16,7 @@ pub(crate) fn compile_bootstrap_probe_requested(query: &AppQuery) -> bool {
 pub(crate) fn compile_bootstrap_route_supported(route_mode: UiRouteMode) -> bool {
     matches!(
         route_mode,
-        UiRouteMode::Build | UiRouteMode::App | UiRouteMode::Run
+        UiRouteMode::Layout | UiRouteMode::App | UiRouteMode::Run
     )
 }
 
@@ -27,7 +27,7 @@ mod tests {
 
     #[test]
     fn compile_bootstrap_route_support_matches_access_like_modes() {
-        assert!(compile_bootstrap_route_supported(UiRouteMode::Build));
+        assert!(compile_bootstrap_route_supported(UiRouteMode::Layout));
         assert!(compile_bootstrap_route_supported(UiRouteMode::App));
         assert!(compile_bootstrap_route_supported(UiRouteMode::Run));
         assert!(!compile_bootstrap_route_supported(UiRouteMode::Config));

@@ -45,7 +45,7 @@ pub(super) fn check_access_scene_gate(
                 .into_response(),
             );
         }
-        let loc = format!("/apps/build/{}", app_id.trim_start_matches('/'));
+        let loc = format!("/apps/{}/layout", app_id.trim_start_matches('/'));
         return Some(Redirect::temporary(&loc).into_response());
     }
     let requested = access_path_scene?;
@@ -65,7 +65,7 @@ pub(super) fn check_access_scene_gate(
                         Some(detail.as_str()),
                         &[
                             HostShellAction {
-                                href: format!("/apps/build/{app_esc}"),
+                                href: format!("/apps/{app_esc}/layout"),
                                 label: "返回构建视图".to_string(),
                                 primary: true,
                             },
@@ -95,7 +95,7 @@ pub(super) fn check_access_scene_gate(
                     "该场景不存在，或无法绑定到当前编译结果。",
                     Some(detail.as_str()),
                     &[HostShellAction {
-                        href: format!("/apps/build/{manage_href_app}"),
+                        href: format!("/apps/{manage_href_app}/layout"),
                         label: "返回构建视图".to_string(),
                         primary: true,
                     }],

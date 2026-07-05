@@ -100,7 +100,7 @@ fn effective_viewport_overflow_is_fixed_by_route_not_frame_props() {
     }))
     .expect("viewport config");
     assert_eq!(
-        effective_viewport_overflow(&vp, UiRouteMode::Build),
+        effective_viewport_overflow(&vp, UiRouteMode::Layout),
         "debug"
     );
     assert_eq!(effective_viewport_overflow(&vp, UiRouteMode::App), "clip");

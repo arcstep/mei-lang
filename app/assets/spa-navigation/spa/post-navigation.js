@@ -91,13 +91,7 @@
           syncManageTabFromUrl(url);
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
-          const skipWake =
-            ssrPreviewMaterialized(doc) ||
-            (typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
-              globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
-                currentUrl?.href || window.location.href,
-                nextUrl.href,
-              ));
+          const skipWake = ssrPreviewMaterialized(doc);
           if (!skipWake) {
             publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
           }

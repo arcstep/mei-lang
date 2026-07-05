@@ -159,6 +159,26 @@
     }
   }
 
+  function resolveAppId(composeAxes) {
+    const fromAxes = String(composeAxes?.app_id || composeAxes?.appId || "").trim();
+    if (fromAxes) return fromAxes;
+    return String(
+      global.document?.querySelector?.(".shell[data-app-path]")?.getAttribute("data-app-path") || "",
+    ).trim();
+  }
+
+  function mergePersistedAndSession(persistedTheme, persistedOverlay, appId) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const session = store?.getSessionLayers?.(appId) || {};
+    const themeEffective = store?.mergeThemeDocs
+      ? store.mergeThemeDocs(persistedTheme, session.themeTokens)
+      : persistedTheme;
+    const overlayEffective = store?.mergeOverlayDocs
+      ? store.mergeOverlayDocs(persistedOverlay, session.layoutOverlay)
+      : persistedOverlay;
+    return { themeEffective, overlayEffective };
+  }
+
   function pickShellLayer(layers) {
     if (!layers || typeof layers !== "object") return null;
     return (
@@ -169,6 +189,34 @@
       layers["shell.run"] ||
       null
     );
+  }
+
+  function recomposeFromLayerStore(appId, composeAxes) {
+    const root =
+      global.document?.querySelector?.(".preview-pane-scroll, .preview-pane, #mei-compose-host") ||
+      null;
+    if (!(root instanceof HTMLElement)) return false;
+    const layers = {};
+    const manifestLayers = globalThis.__mei?.scene_manifest_refs?.layers;
+    if (manifestLayers && typeof manifestLayers === "object") {
+      Object.assign(layers, manifestLayers);
+    }
+    if (boot.layerStore?.listHoldings) {
+      const sceneId =
+        String(composeAxes?.scene_id || composeAxes?.sceneId || "").trim() ||
+        String(new URL(global.location.href).searchParams.get("scene") || "home").trim() ||
+        "home";
+      const holdings = boot.layerStore.listHoldings(appId, sceneId);
+      if (Array.isArray(holdings)) {
+        holdings.forEach((holding) => {
+          const doc = boot.layerStore.takeLayerByRef?.(holding);
+          if (doc && holding?.layer_id) {
+            layers[holding.layer_id] = doc;
+          }
+        });
+      }
+    }
+    return composeFromLayers(root, layers, { ...(composeAxes || {}), app_id: appId });
   }
 
   function composeFromLayers(root, layers, composeAxes) {
@@ -183,11 +231,17 @@
     ensureStructureSkeleton(root, structure);
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);
+    const appId = resolveAppId(composeAxes);
+    const { themeEffective, overlayEffective } = mergePersistedAndSession(
+      themeDoc,
+      overlayDoc,
+      appId,
+    );
     const evalDoc = layers["eval.slot_group.scene:default"] || null;
     if (evalDoc?.bootstrap_seed && globalThis.__mei) {
       globalThis.__mei.bootstrap_seed = evalDoc.bootstrap_seed;
     }
-    composePreview(root, structure, projection, themeDoc, overlayDoc);
+    composePreview(root, structure, projection, themeEffective, overlayEffective);
     return true;
   }
 
@@ -215,5 +269,7 @@
     applyThemeAndOverlay,
     clearComposeArtifacts,
     pickShellLayer,
+    recomposeFromLayerStore,
+    mergePersistedAndSession,
   };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -233,7 +233,7 @@ pub fn check_scope_gate_silent(
         match_request_to_navigation_with_opts(
             source_root,
             app_id,
-            UiRouteMode::Build,
+            UiRouteMode::Layout,
             scene_id,
             &query,
             opts,
@@ -463,7 +463,7 @@ mod tests {
         fs::create_dir_all(ws.join("runtime/platform/graphs/demo")).expect("mkdir");
         fs::write(
             ws.join("runtime/platform/graphs/demo/mrg-registry.json"),
-            r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"demo","registryRevision":"x","updatedAtMs":0,"nodes":[{"id":{"kind":"navigation","key":"build:home"},"url":"/apps/build/demo?scene=home&file=scenes/home.mei","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"}],"slots":[],"edges":[]}"#,
+            r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"demo","registryRevision":"x","updatedAtMs":0,"nodes":[{"id":{"kind":"navigation","key":"build:home"},"url":"/apps/demo/layout?scene=home&file=scenes/home.mei","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"}],"slots":[],"edges":[]}"#,
         )
         .expect("write mrg");
         let compile_options = CompileOptions {
@@ -491,7 +491,7 @@ mod tests {
         let gate = resolve_scope_gate_for_compile(
             ws,
             "demo",
-            UiRouteMode::Build,
+            UiRouteMode::Layout,
             &compile_options,
             &query,
         );

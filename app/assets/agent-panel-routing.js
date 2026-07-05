@@ -52,22 +52,20 @@
       try {
         const path = window.location.pathname || "";
         const prefixes = [
-          "/apps/build/",
-          "/apps/manage/",
-          "/apps/app/",
-          "/apps/access/",
+          "/apps/",
         ];
         for (const prefix of prefixes) {
           if (!path.startsWith(prefix)) continue;
           let rest = path.slice(prefix.length);
-          const sceneSeg = "/scene/";
-          const sceneIdx = rest.indexOf(sceneSeg);
-          if (sceneIdx >= 0) {
-            rest = rest.slice(0, sceneIdx);
+          const surfaceSeg = rest.match(/^[^/]+\/(layout|prototype|app|config|upload|runtime)(?:\/|$)/);
+          if (surfaceSeg) {
+            rest = rest.slice(0, rest.indexOf("/"));
+          } else {
+            const legacyBuild = rest.startsWith("build/") || rest.startsWith("manage/");
+            if (legacyBuild) {
+              rest = rest.split("/").slice(1).join("/");
+            }
           }
-          const slashQ = rest.indexOf("/?");
-          if (slashQ >= 0) rest = rest.slice(0, slashQ);
-          rest = rest.replace(/\/+$/, "");
           if (rest) return rest;
           break;
         }

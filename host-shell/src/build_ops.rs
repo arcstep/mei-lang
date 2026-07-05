@@ -84,11 +84,10 @@ pub fn import_with_options(
     let ctx = mei_host_core::HostContext::new(workspace, app.to_string());
     let options = mei_host_graph::ImportOptions { bundle_path: bundle };
     let report = mei_host_graph::import_bundle(&ctx, &options).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let _ = crate::access_page_cache::clear_access_page_render_cache_for_app(
+    let _ = crate::access_page_cache::clear_legacy_page_render_cache_for_app(
         ctx.workspace_root.as_path(),
         app,
     );
-    let _ = crate::build_fragment_cache::clear_build_fragment_cache_for_app(app);
     let _ = crate::layout_tuning_draft_store::clear_layout_tuning_drafts_for_app(
         ctx.workspace_root.as_path(),
         app,

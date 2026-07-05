@@ -250,6 +250,13 @@
     window.addEventListener(WORLD_STAGE_EVENT, onWorldAction);
     boot.worldStageRuntime = {
       applyWorldTarget,
+      dispatchWorldAction(detail) {
+        if (!detail || typeof detail !== "object") return false;
+        window.dispatchEvent(
+          new CustomEvent(WORLD_STAGE_EVENT, { detail, bubbles: false }),
+        );
+        return applyWorldTarget(detail);
+      },
       collectWorldStageHosts,
       resolveStageHost,
       setStageVisibility,
@@ -257,6 +264,7 @@
       enterWorldStageView,
       exitWorldStageView,
     };
+    boot.dispatchWorldAction = (detail) => boot.worldStageRuntime.dispatchWorldAction(detail);
   }
 
   installWorldStageRuntime();

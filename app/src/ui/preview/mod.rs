@@ -91,13 +91,13 @@ pub fn build_preview_runtime_context(
         Some("static") => false,
         _ => matches!(
             route_mode,
-            UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Build
+            UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Layout
         ),
     };
     let omit_beyond_projection_depth = matches!(route_mode, UiRouteMode::Layout | UiRouteMode::Prototype);
     let structure_workspace = matches!(
         route_mode,
-        UiRouteMode::Build | UiRouteMode::Layout | UiRouteMode::Prototype
+        UiRouteMode::Layout | UiRouteMode::Prototype
     );
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),

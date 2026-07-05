@@ -101,8 +101,20 @@ pub(crate) fn classify_route(method: &Method, uri: &Uri) -> (String, String) {
             app_tail("/apps/presentation/"),
         );
     }
+    if *method == Method::GET && path.contains("/layout") {
+        let tail = app_tail("/apps/");
+        if tail.contains("/layout") {
+            return ("layout_page".to_string(), tail);
+        }
+    }
+    if *method == Method::GET && path.contains("/prototype") {
+        let tail = app_tail("/apps/");
+        if tail.contains("/prototype") {
+            return ("prototype_page".to_string(), tail);
+        }
+    }
     if *method == Method::GET && path.starts_with("/apps/build/") {
-        return ("build_page".to_string(), app_tail("/apps/build/"));
+        return ("build_page_legacy".to_string(), app_tail("/apps/build/"));
     }
     if *method == Method::GET && path.starts_with("/apps/app/") {
         return ("app_page".to_string(), app_tail("/apps/app/"));

@@ -33,7 +33,7 @@
     if (slug === "run" || slug === "copilot" || slug === "speaker" || slug === "presentation") {
       return slug === "speaker" ? "copilot" : slug;
     }
-    if (slug === "build" || slug === "manage") return "build";
+    if (slug === "layout" || slug === "prototype") return slug;
     return slug || "app";
   }
 
@@ -85,7 +85,7 @@
 
   function isWorkspaceComposeSurface(surface) {
     const slug = String(surface || "").trim().toLowerCase();
-    return slug === "build" || slug === "layout" || slug === "prototype";
+    return slug === "layout" || slug === "prototype";
   }
 
   function resolveComposeRoot(surface) {

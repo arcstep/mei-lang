@@ -7,11 +7,11 @@
 import { test, expect } from "@playwright/test";
 
 const EXAMPLES_MAIN =
-  "/apps/build/examples/core/02-external-scene-file?file=main.mei&tab=preview";
+  "/apps/examples/core/02-external-scene-file/layout?file=main.mei&tab=preview";
 const EXAMPLES_HOME =
-  "/apps/build/examples/core/02-external-scene-file?file=home.mei&tab=preview";
+  "/apps/examples/core/02-external-scene-file/layout?file=home.mei&tab=preview";
 const SPBJW_HOME =
-  "/apps/build/spbjw?file=scenes/home.mei&tab=preview";
+  "/apps/spbjw/layout?file=scenes/home.mei&tab=preview";
 
 const SPA_HEADER = "x-mei-spa-nav";
 const IDLE_MS = 30000;
@@ -200,7 +200,7 @@ test.describe("customer workspace e2e (opt-in)", () => {
     const report = await auditScenario(page, async () => {
       await page.getByRole("button", { name: "模板库", exact: true }).click();
       await page
-        .locator(".app-group-menu a[href*='/apps/build/templates']")
+        .locator(".app-group-menu a[href*='/apps/templates/layout']")
         .first()
         .click();
     });
@@ -208,7 +208,7 @@ test.describe("customer workspace e2e (opt-in)", () => {
 
     expect(report.spaFetchCount).toBeGreaterThan(0);
     expect(report.idle).toBe(true);
-    expect(report.ui.href).toMatch(/\/apps\/manage\/templates/);
+    expect(report.ui.href).toMatch(/\/apps\/templates\/layout/);
   });
 
   test("E. spbjw：构建 → 应用 → 构建", async ({ page }) => {
@@ -217,7 +217,7 @@ test.describe("customer workspace e2e (opt-in)", () => {
       .locator('header.topbar-shell sl-button[href*="/apps/app/"]')
       .first();
     const buildBtn = page
-      .locator('header.topbar-shell sl-button[href*="/apps/build/"]')
+      .locator('header.topbar-shell sl-button[href*="/layout"]')
       .first();
 
     const report = await auditScenario(page, async () => {
@@ -230,6 +230,6 @@ test.describe("customer workspace e2e (opt-in)", () => {
 
     expect(report.spaFetchCount).toBeGreaterThan(0);
     expect(report.idle).toBe(true);
-    expect(report.ui.href).toMatch(/\/apps\/build\//);
+    expect(report.ui.href).toMatch(/\/layout/);
   });
 });

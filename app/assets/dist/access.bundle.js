@@ -2,7 +2,7 @@
 
 /* ===== spa-navigation/route-predicates-standalone.js ===== */
 /**
- * Route predicates (global). Load before build-navigation / host-heartbeat.
+ * Route predicates (global). Load before host-heartbeat.
  * Keep in sync with `UiRouteMode::from_slug` (app/src/ui/route.rs).
  */
 (function initRoutePredicatesStandalone(global) {
@@ -11,18 +11,21 @@
   const ACCESS_LIKE_ROUTE_SLUGS = new Set([
     "app",
     "access",
-    "run",
-    "copilot",
-    "speaker",
     "access-only",
     "access_only",
-    "presentation",
-    "slides",
   ]);
-  const BUILD_ROUTE_SLUGS = new Set(["build", "manage"]);
   const WORKSPACE_SURFACE_SLUGS = new Set(["layout", "prototype"]);
   const APP_WORKSPACE_SURFACE_SLUGS = new Set(["app", "layout", "prototype"]);
   const RUNTIME_ROUTE_SLUGS = new Set(["runtime"]);
+  const LEGACY_REMOVED_ROUTE_SLUGS = new Set([
+    "build",
+    "manage",
+    "run",
+    "copilot",
+    "speaker",
+    "presentation",
+    "slides",
+  ]);
 
   function pathSegments(pathname = global.location?.pathname) {
     return String(pathname || "")
@@ -60,6 +63,21 @@
     return WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
+  function isLegacyRemovedRoute(pathname = global.location?.pathname) {
+    return LEGACY_REMOVED_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
+  }
+
+  function isLegacyPresentationRoute(pathname = global.location?.pathname) {
+    const slug = legacyRouteSlugFromPathname(pathname);
+    return (
+      slug === "run" ||
+      slug === "copilot" ||
+      slug === "speaker" ||
+      slug === "presentation" ||
+      slug === "slides"
+    );
+  }
+
   function appRoutePrefixesFromSlugs(slugs) {
     return Array.from(slugs, (slug) => `/apps/${slug}/`);
   }
@@ -75,9 +93,9 @@
     return RUNTIME_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
 
+  /** @deprecated Use isWorkspaceSurfaceRoute */
   function isBuildRoute(pathname = global.location?.pathname) {
-    if (isWorkspaceSurfaceRoute(pathname)) return true;
-    return BUILD_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
+    return isWorkspaceSurfaceRoute(pathname);
   }
 
   function isConfigRoute(pathname = global.location?.pathname) {
@@ -98,8 +116,9 @@
     return isAppRoute(pathname);
   }
 
+  /** @deprecated Use isWorkspaceSurfaceRoute */
   function isManageRoute(pathname = global.location?.pathname) {
-    return isBuildRoute(pathname);
+    return isWorkspaceSurfaceRoute(pathname);
   }
 
   function shouldMountDrilldownHost(pathname = global.location?.pathname) {
@@ -107,7 +126,6 @@
     return (
       ACCESS_LIKE_ROUTE_SLUGS.has(slug) ||
       WORKSPACE_SURFACE_SLUGS.has(slug) ||
-      BUILD_ROUTE_SLUGS.has(slug) ||
       RUNTIME_ROUTE_SLUGS.has(slug)
     );
   }
@@ -137,24 +155,16 @@
   function shouldRunBuildPreviewRuntimeForUrl(rawUrl) {
     try {
       const url = new URL(rawUrl, global.location.href);
-      if (isWorkspaceSurfaceRoute(url.pathname)) return true;
-      if (!isBuildRoute(url.pathname)) return true;
-      return buildTabFromUrl(rawUrl) === "preview";
+      return isWorkspaceSurfaceRoute(url.pathname);
     } catch (_) {
-      return true;
+      return false;
     }
   }
 
   function isBuildWorkspacePathname(pathname = global.location?.pathname) {
-    const path = String(pathname || "");
-    return (
-      isWorkspaceSurfaceRoute(path) ||
-      path.startsWith("/apps/build/") ||
-      path.startsWith("/apps/manage/")
-    );
+    return isWorkspaceSurfaceRoute(pathname);
   }
 
-  /** `/apps/{app}/layout|prototype|app` → app id; legacy `/apps/build/{app}` → parts[2]. */
   function appIdFromAppsPathname(pathname = global.location?.pathname) {
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 2) {
@@ -168,10 +178,7 @@
     ) {
       return String(segments[1] || "").trim();
     }
-    if (
-      (BUILD_ROUTE_SLUGS.has(segments[1]) || RUNTIME_ROUTE_SLUGS.has(segments[1])) &&
-      segments.length >= 3
-    ) {
+    if (RUNTIME_ROUTE_SLUGS.has(segments[1]) && segments.length >= 3) {
       return String(segments[2] || "").trim();
     }
     if (ACCESS_LIKE_ROUTE_SLUGS.has(segments[1]) && segments.length >= 3) {
@@ -207,12 +214,52 @@
     return false;
   }
 
+  function isPresentationCapableRoute(pathname = global.location?.pathname) {
+    return isAppSurfaceRoute(pathname) || isAccessRoute(pathname);
+  }
+
+  function rewriteLegacyPresentationRoute(route) {
+    const raw = String(route || "").trim();
+    if (!raw) return raw;
+    try {
+      const base = String(global.location?.origin || "http://localhost");
+      const url = raw.startsWith("/") ? new URL(raw, base) : new URL(raw);
+      let path = url.pathname;
+      let rewritten = false;
+      const runMatch = path.match(/^\/apps\/(?:run|presentation|slides)\/([^/]+)(\/.*)?$/);
+      if (runMatch) {
+        path = `/apps/${runMatch[1]}/app${runMatch[2] || ""}`;
+        rewritten = true;
+      }
+      const copilotMatch = path.match(/^\/apps\/(?:copilot|speaker)\/([^/]+)(\/.*)?$/);
+      if (copilotMatch) {
+        const tail = copilotMatch[2] || "";
+        path =
+          tail.startsWith("/presentation/") || tail.startsWith("/tour/")
+            ? `/apps/${copilotMatch[1]}/app`
+            : `/apps/${copilotMatch[1]}/app${tail}`;
+        rewritten = true;
+      }
+      const legacyAppMatch = path.match(
+        /^\/apps\/(?:app|access|access-only|access_only)\/([^/]+)(\/.*)?$/,
+      );
+      if (legacyAppMatch) {
+        path = `/apps/${legacyAppMatch[1]}/app${legacyAppMatch[2] || ""}`;
+        rewritten = true;
+      }
+      if (!rewritten) return raw;
+      return `${path}${url.search}${url.hash}`;
+    } catch (_) {
+      return raw;
+    }
+  }
+
   const api = {
     ACCESS_LIKE_ROUTE_SLUGS,
-    BUILD_ROUTE_SLUGS,
     WORKSPACE_SURFACE_SLUGS,
     APP_WORKSPACE_SURFACE_SLUGS,
     RUNTIME_ROUTE_SLUGS,
+    LEGACY_REMOVED_ROUTE_SLUGS,
     pathSegments,
     legacyRouteSlugFromPathname,
     appSurfaceSlugFromPathname,
@@ -220,6 +267,8 @@
     isAppSurfaceRoute,
     isAppWorkspaceSurfaceRoute,
     isWorkspaceSurfaceRoute,
+    isLegacyRemovedRoute,
+    isLegacyPresentationRoute,
     appRoutePrefixesFromSlugs,
     isAppRoute,
     isRuntimeRoute,
@@ -239,6 +288,8 @@
     workspaceSurfaceSlugFromAppsPathname,
     sceneIdFromPathname,
     isRevisionFirstShellPage,
+    isPresentationCapableRoute,
+    rewriteLegacyPresentationRoute,
   };
 
   global.MeiRoutePredicates = api;
@@ -253,6 +304,8 @@
   global.isAppRoute = isAppRoute;
   global.isAccessRoute = isAccessRoute;
   global.isRevisionFirstShellPage = isRevisionFirstShellPage;
+  global.isPresentationCapableRoute = isPresentationCapableRoute;
+  global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;
 })(typeof window !== "undefined" ? window : globalThis);
 
 
@@ -4677,22 +4730,20 @@
       try {
         const path = window.location.pathname || "";
         const prefixes = [
-          "/apps/build/",
-          "/apps/manage/",
-          "/apps/app/",
-          "/apps/access/",
+          "/apps/",
         ];
         for (const prefix of prefixes) {
           if (!path.startsWith(prefix)) continue;
           let rest = path.slice(prefix.length);
-          const sceneSeg = "/scene/";
-          const sceneIdx = rest.indexOf(sceneSeg);
-          if (sceneIdx >= 0) {
-            rest = rest.slice(0, sceneIdx);
+          const surfaceSeg = rest.match(/^[^/]+\/(layout|prototype|app|config|upload|runtime)(?:\/|$)/);
+          if (surfaceSeg) {
+            rest = rest.slice(0, rest.indexOf("/"));
+          } else {
+            const legacyBuild = rest.startsWith("build/") || rest.startsWith("manage/");
+            if (legacyBuild) {
+              rest = rest.split("/").slice(1).join("/");
+            }
           }
-          const slashQ = rest.indexOf("/?");
-          if (slashQ >= 0) rest = rest.slice(0, slashQ);
-          rest = rest.replace(/\/+$/, "");
           if (rest) return rest;
           break;
         }
@@ -10110,9 +10161,19 @@
     return Boolean(document.getElementById("access-external-ai-fab"));
   }
 
-  function isAccessLikeRoute() {
+  function routeUtils() {
+    return boot.presentationRouteUtils || global.MeiPresentationRouteUtils || null;
+  }
+
+  function isPresentationSurfaceRoute() {
+    const utils = routeUtils();
+    if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
     const path = String(window.location.pathname || "");
-    return /^\/apps\/(app|access|access-only|access_only|copilot|speaker|run)\//.test(path);
+    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(path);
+  }
+
+  function isAccessLikeRoute() {
+    return isPresentationSurfaceRoute();
   }
 
   function hasCopilotShellMarkers() {
@@ -11838,17 +11899,10 @@
   function resolveAppIdFromPathname(pathname) {
     const path = String(pathname || "");
     const prefixes = [
-      "/apps/build/",
-      "/apps/manage/",
       "/apps/app/",
       "/apps/access/",
-      "/apps/run/",
-      "/apps/copilot/",
-      "/apps/speaker/",
-      "/apps/presentation/",
-      "/apps/slides/",
-      "/apps/upload/",
-      "/apps/config/",
+      "/apps/layout/",
+      "/apps/prototype/",
     ];
     for (const prefix of prefixes) {
       if (!path.startsWith(prefix)) continue;
@@ -11869,24 +11923,32 @@
     if (parts[0] !== "apps") return "";
     if (parts.length >= 3) {
       const surface = String(parts[2] || "").toLowerCase();
-      if (surface === "layout" || surface === "prototype" || surface === "app") {
+      if (
+        surface === "layout" ||
+        surface === "prototype" ||
+        surface === "app" ||
+        surface === "config" ||
+        surface === "upload" ||
+        surface === "runtime"
+      ) {
         return parts[1] || "";
       }
     }
     const routeSlug = parts[1] || "";
-    const known = new Set([
+    const legacyModeFirst = new Set([
       "access",
-      "manage",
-      "build",
       "run",
       "speaker",
       "presentation",
       "slides",
+      "copilot",
       "upload",
       "config",
       "app",
+      "build",
+      "manage",
     ]);
-    if (known.has(routeSlug) && parts[2]) return parts[2];
+    if (legacyModeFirst.has(routeSlug) && parts[2]) return parts[2];
     return routeSlug;
   }
 
@@ -12527,7 +12589,8 @@
   // Re-export global route predicates into spa-navigation preamble closure.
   const RP = globalThis.MeiRoutePredicates || {};
   const ACCESS_LIKE_ROUTE_SLUGS = RP.ACCESS_LIKE_ROUTE_SLUGS;
-  const BUILD_ROUTE_SLUGS = RP.BUILD_ROUTE_SLUGS;
+  const LEGACY_REMOVED_ROUTE_SLUGS = RP.LEGACY_REMOVED_ROUTE_SLUGS;
+  const BUILD_ROUTE_SLUGS = LEGACY_REMOVED_ROUTE_SLUGS;
   const WORKSPACE_SURFACE_SLUGS = RP.WORKSPACE_SURFACE_SLUGS;
   const RUNTIME_ROUTE_SLUGS = RP.RUNTIME_ROUTE_SLUGS;
   const pathSegments = RP.pathSegments;
@@ -15188,7 +15251,7 @@
 
   function resolvePreviewAppId(pathname = window.location.pathname) {
     const slug = appRouteSlugFromPathname(pathname);
-    if (ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug)) {
+    if (WORKSPACE_SURFACE_SLUGS.has(slug) || ACCESS_LIKE_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
     }
     return resolveAppPathByPrefixes(pathname, ["/upload", "/upload?", "/apps/upload/", "/config", "/config?", "/apps/config/"]);
@@ -20526,6 +20589,13 @@
     window.addEventListener(WORLD_STAGE_EVENT, onWorldAction);
     boot.worldStageRuntime = {
       applyWorldTarget,
+      dispatchWorldAction(detail) {
+        if (!detail || typeof detail !== "object") return false;
+        window.dispatchEvent(
+          new CustomEvent(WORLD_STAGE_EVENT, { detail, bubbles: false }),
+        );
+        return applyWorldTarget(detail);
+      },
       collectWorldStageHosts,
       resolveStageHost,
       setStageVisibility,
@@ -20533,6 +20603,7 @@
       enterWorldStageView,
       exitWorldStageView,
     };
+    boot.dispatchWorldAction = (detail) => boot.worldStageRuntime.dispatchWorldAction(detail);
   }
 
   installWorldStageRuntime();
@@ -21402,7 +21473,7 @@
     }
     const routeSlug = appRouteSlugFromPathname(url.pathname);
     const accessLike =
-      ACCESS_LIKE_ROUTE_SLUGS.has(routeSlug) && !BUILD_ROUTE_SLUGS.has(routeSlug);
+      ACCESS_LIKE_ROUTE_SLUGS.has(routeSlug) && !WORKSPACE_SURFACE_SLUGS.has(routeSlug);
     if (accessLike) {
       url.pathname = `/apps/app/${encodeURIComponent(appId)}/scene/${encodeURIComponent(boardSceneId)}`;
       url.searchParams.delete("node");
@@ -21413,7 +21484,7 @@
       url.searchParams.delete("mei_entry_tab");
       return url.toString();
     }
-    url.pathname = `/apps/build/${appId}`;
+    url.pathname = `/apps/${appId}/layout`;
     url.searchParams.set("node", `board-file:${boardFile}#${boardSceneId}`);
     url.searchParams.set("tab", "preview");
     url.searchParams.delete("file");
@@ -22627,6 +22698,76 @@
 })();
 
 
+/* ===== spa-navigation/presentation/presentation-route-utils.js ===== */
+/**
+ * Presentation helpers on app surface (Run/Copilot host routes retired per 0517 Phase C).
+ */
+(function initPresentationRouteUtils(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const RP = global.MeiRoutePredicates || {};
+
+  function isPresentationSurfaceRoute(pathname) {
+    if (typeof RP.isPresentationCapableRoute === "function") {
+      return RP.isPresentationCapableRoute(pathname);
+    }
+    const path = String(pathname || global.location?.pathname || "");
+    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(path) || /^\/apps\/(?:app|access)\//.test(path);
+  }
+
+  function parsePresentationAppId(pathname) {
+    if (typeof RP.appIdFromAppsPathname === "function") {
+      const fromApps = String(RP.appIdFromAppsPathname(pathname) || "").trim();
+      if (fromApps) return fromApps;
+    }
+    const path = String(pathname || global.location?.pathname || "");
+    const appFirst = path.match(/^\/apps\/([^/]+)\/app(?:\/|$)/);
+    if (appFirst && appFirst[1]) return appFirst[1];
+    const legacy = path.match(
+      /^\/apps\/(?:app|access|access-only|access_only|run|copilot|speaker)\/([^/]+)/,
+    );
+    return legacy && legacy[1] ? legacy[1] : "";
+  }
+
+  function rewriteStepRoute(route) {
+    if (typeof RP.rewriteLegacyPresentationRoute === "function") {
+      return RP.rewriteLegacyPresentationRoute(route);
+    }
+    if (typeof global.rewriteLegacyPresentationRoute === "function") {
+      return global.rewriteLegacyPresentationRoute(route);
+    }
+    return String(route || "").trim();
+  }
+
+  function dispatchWorldAction(detail) {
+    if (!detail || typeof detail !== "object") return false;
+    if (boot.worldStageRuntime?.applyWorldTarget) {
+      return Boolean(boot.worldStageRuntime.applyWorldTarget(detail));
+    }
+    try {
+      global.dispatchEvent(
+        new CustomEvent("mei:presentation-world-action", {
+          detail,
+          bubbles: false,
+        }),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  boot.presentationRouteUtils = {
+    isPresentationSurfaceRoute,
+    parsePresentationAppId,
+    rewriteStepRoute,
+    dispatchWorldAction,
+  };
+  global.MeiPresentationRouteUtils = boot.presentationRouteUtils;
+})(typeof window !== "undefined" ? window : globalThis);
+
+
 /* ===== spa-navigation/presentation/presentation-step-engine.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
@@ -22801,6 +22942,32 @@
     return ensureLoadedAsync();
   }
 
+  function routeUtils() {
+    return boot.presentationRouteUtils || global.MeiPresentationRouteUtils || null;
+  }
+
+  function rewriteStepRoute(route) {
+    const utils = routeUtils();
+    if (utils?.rewriteStepRoute) return utils.rewriteStepRoute(route);
+    if (typeof global.rewriteLegacyPresentationRoute === "function") {
+      return global.rewriteLegacyPresentationRoute(route);
+    }
+    return String(route || "").trim();
+  }
+
+  function dispatchWorldAction(detail) {
+    const utils = routeUtils();
+    if (utils?.dispatchWorldAction) return utils.dispatchWorldAction(detail);
+    try {
+      global.dispatchEvent(
+        new CustomEvent("mei:presentation-world-action", { detail, bubbles: false }),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   function focusApi() {
     return window.MeiPresentation || null;
   }
@@ -22836,11 +23003,14 @@
     const normalized = normalizePresentationAction(action);
     const type = String(normalized.type || "").trim();
     const api = focusApi();
-    if (!api || typeof api.dispatch !== "function") {
-      if (type === "highlight") return applyHighlight(String(normalized.viewpoint || "").trim());
-      return false;
+    if (api && typeof api.dispatch === "function") {
+      if (api.dispatch(normalized)) return true;
     }
-    return Boolean(api.dispatch(normalized));
+    if (type === "highlight" || type === "focus") {
+      const viewpoint = String(normalized.viewpoint || "").trim();
+      if (viewpoint && applyHighlight(viewpoint)) return true;
+    }
+    return dispatchWorldAction(normalized);
   }
 
   function normalizePresentationAction(action) {
@@ -23035,7 +23205,7 @@
   }
 
   async function navigateToStepRoute(step) {
-    const route = String(step?.route || step?.cockpit?.route || "").trim();
+    const route = rewriteStepRoute(String(step?.route || step?.cockpit?.route || "").trim());
     if (!route) return;
     if (typeof boot.navigateInternal === "function") {
       await boot.navigateInternal(route, false);
@@ -24110,9 +24280,19 @@
     return Boolean(document.getElementById("access-external-ai-fab"));
   }
 
-  function isAccessLikeRoute() {
+  function routeUtils() {
+    return boot.presentationRouteUtils || global.MeiPresentationRouteUtils || null;
+  }
+
+  function isPresentationSurfaceRoute() {
+    const utils = routeUtils();
+    if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
     const path = String(window.location.pathname || "");
-    return /^\/apps\/(app|access|access-only|access_only|copilot|speaker|run)\//.test(path);
+    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(path);
+  }
+
+  function isAccessLikeRoute() {
+    return isPresentationSurfaceRoute();
   }
 
   function hasCopilotShellMarkers() {
@@ -24264,8 +24444,27 @@
     return boot.presentationStepEngine || null;
   }
 
+  function routeUtils() {
+    return boot.presentationRouteUtils || window.MeiPresentationRouteUtils || null;
+  }
+
+  function isPresentationSurfaceRoute() {
+    const utils = routeUtils();
+    if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
+    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(String(window.location.pathname || ""));
+  }
+
+  function parseAppIdFromPath() {
+    const utils = routeUtils();
+    if (utils?.parsePresentationAppId) {
+      return String(utils.parsePresentationAppId() || "").trim();
+    }
+    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)\/app(?:\/|$)/);
+    return match && match[1] ? match[1] : "";
+  }
+
   function isCopilotRoute() {
-    return /^\/apps\/copilot\//.test(String(window.location.pathname || ""));
+    return isPresentationSurfaceRoute();
   }
 
   function hasCopilotShell() {
@@ -24442,12 +24641,6 @@
     uiState.selectMode = false;
     document.body.classList.remove("mei-presenter-select-mode");
     renderAll();
-    const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:copilot|speaker)\/([^/]+)/,
-    );
-    if (match && match[1]) {
-      window.location.href = `/apps/app/${encodeURIComponent(match[1])}/scene/home`;
-    }
   }
 
   function sessionButtonLabel(eng) {
@@ -24811,7 +25004,7 @@
     }
     const eng = engine();
     return Boolean(
-      isCopilotRoute() ||
+      isPresentationSurfaceRoute() ||
         hasCopilotShell() ||
         (eng && typeof eng.hasManifest === "function" && eng.hasManifest()),
     );
@@ -24853,7 +25046,7 @@
       return ctx.shouldMountCopilotToolbar();
     }
     const eng = engine();
-    return Boolean((eng && eng.hasManifest()) || isCopilotRoute() || hasCopilotShell());
+    return Boolean((eng && eng.hasManifest()) || isPresentationSurfaceRoute() || hasCopilotShell());
   }
 
   function mount(options) {
@@ -24876,7 +25069,7 @@
     } else if (typeof opts.toolbarOpen === "boolean") {
       uiState.toolbarOpen = opts.toolbarOpen;
     }
-    if (opts.autoStart === true && eng && (isCopilotRoute() || hasCopilotShell())) {
+    if (opts.autoStart === true && eng && (isPresentationSurfaceRoute() || hasCopilotShell())) {
       if (typeof eng.ensureLoaded === "function") {
         eng.ensureLoaded();
       }
@@ -24936,10 +25129,12 @@
   }
 
   function parseAppIdFromPath() {
-    const match = String(window.location.pathname || "").match(
-      /^\/apps\/(?:app|access|access-only|access_only|copilot|speaker|run)\/([^/]+)/,
-    );
-    return match ? String(match[1] || "").trim() : "";
+    const utils = boot.presentationRouteUtils || window.MeiPresentationRouteUtils;
+    if (utils?.parsePresentationAppId) {
+      return String(utils.parsePresentationAppId() || "").trim();
+    }
+    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)\/app(?:\/|$)/);
+    return match && match[1] ? match[1] : "";
   }
 
   async function compileEphemeralPresentation(source, options = {}) {
@@ -25064,8 +25259,14 @@
     return cleared;
   }
 
+  function isPresentationSurfaceRoute() {
+    const utils = boot.presentationRouteUtils || window.MeiPresentationRouteUtils;
+    if (utils?.isPresentationSurfaceRoute) return utils.isPresentationSurfaceRoute();
+    return /^\/apps\/[^/]+\/app(?:\/|$)/.test(String(window.location.pathname || ""));
+  }
+
   function isCopilotRoute() {
-    return /^\/apps\/(copilot|speaker)\//.test(String(window.location.pathname || ""));
+    return isPresentationSurfaceRoute();
   }
 
   function hasCopilotShell() {
@@ -25722,12 +25923,6 @@
     const cacheHit = headerText(response, "x-mei-compile-cache-hit");
     if (cacheHit === "1" || cacheHit === "true") session.compile.cacheHit = true;
     else if (cacheHit === "0" || cacheHit === "false") session.compile.cacheHit = false;
-    const pageRenderCacheHit = headerText(response, "x-mei-page-render-cache-hit");
-    if (pageRenderCacheHit === "1" || pageRenderCacheHit === "true") {
-      session.compile.pageRenderCacheHit = true;
-    } else if (pageRenderCacheHit === "0" || pageRenderCacheHit === "false") {
-      session.compile.pageRenderCacheHit = false;
-    }
     const htmlBytes = Number(htmlByteLength);
     const headerHtmlBytes = headerMs(response, "x-mei-html-bytes");
     session.compile.htmlBytes = Number.isFinite(htmlBytes)
@@ -26156,8 +26351,8 @@
         let kind = "ROUTE";
         try {
           const path = new URL(String(url || global.location.href), global.location.href).pathname;
-          if (path.startsWith("/apps/build/") || path.startsWith("/apps/manage/")) {
-            kind = "BUILD_NAV";
+          if (typeof isWorkspaceSurfaceRoute === "function" && isWorkspaceSurfaceRoute(path)) {
+            kind = "WORKSPACE_NAV";
           }
         } catch (_) {}
         boot.beginClientCommand({ kind, label: String(url || global.location.href) });
@@ -26221,8 +26416,7 @@
     const nextUrl = new URL(url, window.location.href);
     const isSameWorkspaceRoute =
       currentUrl.pathname === nextUrl.pathname &&
-      (currentUrl.pathname.startsWith("/apps/manage/") ||
-        currentUrl.pathname.startsWith("/apps/build/"));
+      isWorkspaceSurfaceRoute(currentUrl.pathname);
     if (!isSameWorkspaceRoute) {
       clearManageWorkspaceLoadingState();
       return;
@@ -26496,8 +26690,8 @@
   function isManageSamePathNavigation(currentUrl, nextUrl) {
     return (
       currentUrl.pathname === nextUrl.pathname &&
-      (currentUrl.pathname.startsWith("/apps/manage/") ||
-        currentUrl.pathname.startsWith("/apps/build/"))
+      (isWorkspaceSurfaceRoute(currentUrl.pathname) ||
+        isWorkspaceSurfaceRoute(nextUrl.pathname))
     );
   }
 
@@ -26583,33 +26777,81 @@
     return null;
   }
 
+  function isSameAppWorkspaceSurfaceSwitch(currentUrl, nextUrl) {
+    try {
+      if (typeof isAppWorkspaceSurfaceRoute !== "function") return false;
+      if (typeof appIdFromAppsPathname !== "function") return false;
+      if (typeof isWorkspaceSurfaceRoute !== "function") return false;
+      const from = currentUrl instanceof URL ? currentUrl : new URL(currentUrl, window.location.href);
+      const to = nextUrl instanceof URL ? nextUrl : new URL(nextUrl, window.location.href);
+      if (!isWorkspaceSurfaceRoute(from.pathname) || !isWorkspaceSurfaceRoute(to.pathname)) {
+        return false;
+      }
+      const fromApp = appIdFromAppsPathname(from.pathname);
+      const toApp = appIdFromAppsPathname(to.pathname);
+      return Boolean(fromApp && fromApp === toApp);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /** 配置/上传/模式切换/跨应用 Tab 整页导航；Config/Upload 明确 no-cache + full-page。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
+    let appViewSurfaceSwitch = false;
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
+      if (item.matches("sl-button[data-mei-app-view]")) {
+        appViewSurfaceSwitch = true;
+        continue;
+      }
       if (
         item.matches(
-          "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], sl-button[data-mei-app-view], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
+          "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;
       }
+    }
+    if (appViewSurfaceSwitch) {
+      const target = resolveClickTarget(event);
+      if (
+        target?.url &&
+        isSameAppWorkspaceSurfaceSwitch(window.location.href, target.url)
+      ) {
+        return false;
+      }
+      return true;
     }
     return false;
   }
 
   function shouldAbortRuntimeForBypassNavigation(event) {
     const path = event.composedPath ? event.composedPath() : [];
+    let appViewSurfaceSwitch = false;
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
+      if (item.matches("sl-button[data-mei-app-view]")) {
+        appViewSurfaceSwitch = true;
+        continue;
+      }
       if (
         item.matches(
-          "[data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], sl-button[data-mei-app-view], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
+          "[data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;
       }
+    }
+    if (appViewSurfaceSwitch) {
+      const target = resolveClickTarget(event);
+      if (
+        target?.url &&
+        isSameAppWorkspaceSurfaceSwitch(window.location.href, target.url)
+      ) {
+        return false;
+      }
+      return true;
     }
     return false;
   }
@@ -27649,7 +27891,7 @@
     if (slug === "run" || slug === "copilot" || slug === "speaker" || slug === "presentation") {
       return slug === "speaker" ? "copilot" : slug;
     }
-    if (slug === "build" || slug === "manage") return "build";
+    if (slug === "layout" || slug === "prototype") return slug;
     return slug || "app";
   }
 
@@ -27701,7 +27943,7 @@
 
   function isWorkspaceComposeSurface(surface) {
     const slug = String(surface || "").trim().toLowerCase();
-    return slug === "build" || slug === "layout" || slug === "prototype";
+    return slug === "layout" || slug === "prototype";
   }
 
   function resolveComposeRoot(surface) {
@@ -28105,11 +28347,14 @@
   }
 
   function buildComposeRequest(ctx) {
-    const surface = String(ctx.surface || ctx.mode || "app")
-      .trim()
-      .toLowerCase();
-    const tab =
-      String(ctx.tab || "").trim() || (surface === "build" ? "preview" : "scene");
+    const resolveSurface =
+      boot.sceneManifestLoader?.resolveWorkspaceSurface ||
+      ((value) => String(value || "app").trim().toLowerCase() || "app");
+    const defaultTab =
+      boot.sceneManifestLoader?.defaultTabForSurface ||
+      ((surface) => (surface === "layout" || surface === "prototype" ? "preview" : "scene"));
+    const surface = resolveSurface(ctx.surface || ctx.mode || "app");
+    const tab = String(ctx.tab || "").trim() || defaultTab(surface);
     return {
       route_mode: surface,
       tab,
@@ -28134,10 +28379,13 @@
     if (!isViewRevisionEnabled()) {
       return { ready: false, status: ViewRevisionOutcome.REFETCH, disabled: true };
     }
+    const resolveSurface =
+      boot.sceneManifestLoader?.resolveWorkspaceSurface ||
+      ((value) => String(value || "app").trim().toLowerCase() || "app");
     const params = new URLSearchParams({
       app_id: ctx.app_id || ctx.appId || "",
       scene: ctx.scene_id || ctx.sceneId || "home",
-      surface: ctx.surface || ctx.mode || "app",
+      surface: resolveSurface(ctx.surface || ctx.mode || "app"),
     });
     const compose = buildComposeRequest(ctx);
     params.set("compose", JSON.stringify(compose));
@@ -28224,6 +28472,36 @@
     return applyViewRevision(ctx, response);
   }
 
+  function composeDefaultsForPlan(ctx, assemblyPlan) {
+    return (
+      assemblyPlan?.compose_defaults ||
+      assemblyPlan?.manifest?.compose_defaults ||
+      composeDefaultsFromResponse(assemblyPlan, ctx)
+    );
+  }
+
+  function composeContextChanged(shell, ctx, assemblyPlan) {
+    const defaults = composeDefaultsForPlan(ctx, assemblyPlan);
+    const targetProjection = String(defaults?.review_projection || "").trim();
+    const targetMode = String(defaults?.route_mode || ctx.surface || ctx.mode || "").trim();
+    const previewScroll =
+      shell?.querySelector?.(".preview-pane-scroll[data-review-projection]") ||
+      shell?.querySelector?.(".preview-pane-scroll");
+    const currentProjection = String(
+      previewScroll?.getAttribute("data-review-projection") ||
+        shell?.getAttribute("data-review-projection") ||
+        "",
+    ).trim();
+    const bodyMode = String(global.document?.body?.getAttribute("data-route-mode") || "").trim();
+    if (targetProjection && currentProjection && targetProjection !== currentProjection) {
+      return true;
+    }
+    if (targetMode && bodyMode && targetMode !== bodyMode) {
+      return true;
+    }
+    return false;
+  }
+
   async function tryAssembleLocal(ctx, plan) {
     const assemblyPlan = plan || null;
     let layerRefs = assemblyPlan?.layer_refs || {};
@@ -28275,7 +28553,8 @@
     if (
       shell &&
       typeof boot.hasMaterializedPreview === "function" &&
-      boot.hasMaterializedPreview(shell)
+      boot.hasMaterializedPreview(shell) &&
+      !composeContextChanged(shell, ctx, assemblyPlan)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
         boot.applyHostChromeFromManifestRefs();
@@ -28381,10 +28660,36 @@
     return { name: layerName, artifact_id: artifactId, content_hash: contentHash };
   }
 
+  function legacySurfaceSlug(surface) {
+    const slug = String(surface || "").trim().toLowerCase();
+    if (!slug) return "";
+    if (slug === "build" || slug === "manage") return "layout";
+    return slug;
+  }
+
+  function resolveWorkspaceSurface(surface) {
+    const explicit = legacySurfaceSlug(surface);
+    if (explicit) return explicit;
+    if (typeof global.workspaceSurfaceSlugFromAppsPathname === "function") {
+      const fromPath = String(global.workspaceSurfaceSlugFromAppsPathname() || "")
+        .trim()
+        .toLowerCase();
+      if (fromPath) return fromPath;
+    }
+    return "app";
+  }
+
+  function defaultTabForSurface(surface) {
+    const slug = resolveWorkspaceSurface(surface);
+    return slug === "layout" || slug === "prototype" ? "preview" : "scene";
+  }
+
   async function fetchManifest(appId, sceneId, axes, surface) {
+    const surfaceSlug = resolveWorkspaceSurface(surface);
     const params = new URLSearchParams({
       app_id: appId,
       scene: sceneId || "home",
+      surface: surfaceSlug,
     });
     if (axes?.data_mode) params.set("data_mode", axes.data_mode);
     if (axes?.review_projection) params.set("review_projection", axes.review_projection);
@@ -28468,7 +28773,7 @@
       return { manifest: activeManifest, layers: {}, hits: boot.lastArtifactHits };
     }
     const batch = await fetchLayerBatch(appId, sceneId, missing, axes, {
-      surface: ctx?.surface || ctx?.mode || "build",
+      surface: resolveWorkspaceSurface(ctx?.surface || ctx?.mode),
       local_miss: !!ctx?.local_miss,
       client_layers: boot.holdingsFromLayerCache
         ? boot.holdingsFromLayerCache(await boot.layerStore?.listHoldings?.(appId, sceneId))
@@ -28478,8 +28783,9 @@
     return { manifest: activeManifest, layers: batch.layers || {}, hits: batch.hits };
   }
 
-  async function ensureStructureFull(appId, sceneId) {
-    const result = await ensureLayers(["structure.full"], appId, sceneId, { surface: "build" });
+  async function ensureStructureFull(appId, sceneId, surface) {
+    const surfaceSlug = resolveWorkspaceSurface(surface || "layout");
+    const result = await ensureLayers(["structure.full"], appId, sceneId, { surface: surfaceSlug });
     const ref = layerRefFromManifest("structure.full", result.manifest);
     const document = ref ? boot.layerStore?.takeLayerByRef?.(ref) : result.layers?.["structure.full"];
     return { document, hits: result.hits, manifest: result.manifest };
@@ -28489,16 +28795,31 @@
     const axes = readShellAxes();
     const fetched = await fetchManifest(appId, sceneId, axes, surface || "app");
     const manifest = fetched.manifest;
+    const surfaceSlug = String(surface || "app").trim().toLowerCase() || "app";
+    const shellName = manifest?.layers?.[`shell.${surfaceSlug}`]
+      ? `shell.${surfaceSlug}`
+      : manifest?.layers?.["shell.app"]
+        ? "shell.app"
+        : manifest?.layers?.["shell.build"]
+          ? "shell.build"
+          : null;
     const layerNames = ["structure.full", "theme.tokens", "layout.overlay"];
-    await ensureLayers(layerNames, appId, sceneId, { surface: surface || "app" }, manifest);
+    if (shellName) layerNames.push(shellName);
+    await ensureLayers(layerNames, appId, sceneId, { surface: surfaceSlug }, manifest);
     const take = (name) => {
       const ref = layerRefFromManifest(name, manifest);
       return ref ? boot.layerStore?.takeLayerByRef?.(ref) : null;
     };
+    const layers = {};
+    for (const name of layerNames) {
+      const doc = take(name);
+      if (doc) layers[name] = doc;
+    }
     return {
-      structure: take("structure.full"),
-      theme: take("theme.tokens"),
-      overlay: take("layout.overlay"),
+      structure: layers["structure.full"],
+      theme: layers["theme.tokens"],
+      overlay: layers["layout.overlay"],
+      layers,
       manifest,
       hits: fetched.hits,
     };
@@ -28516,7 +28837,165 @@
     ensureLayers,
     syncHoldingsFromManifest,
     readShellAxes,
+    resolveWorkspaceSurface,
+    defaultTabForSurface,
   };
+})(typeof window !== "undefined" ? window : globalThis);
+
+
+/* ===== spa-navigation/spa/draft-layer-store.js ===== */
+/**
+ * Client-only session draft layers (theme.tokens.session / layout.overlay.session).
+ * Not included in server manifest digest.
+ */
+(function initDraftLayerStore(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const STORAGE_PREFIX = "mei-draft-layer";
+
+  function ensureDraftSessionId() {
+    const cookieKey = "mei-draft-session";
+    const match = String(document.cookie || "").match(/mei-draft-session=([^;]+)/);
+    if (match && match[1]) return decodeURIComponent(match[1].trim());
+    const id = `web-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    document.cookie = `${cookieKey}=${encodeURIComponent(id)};path=/;SameSite=Lax`;
+    return id;
+  }
+
+  function storageKey(appId, layerId) {
+    const sessionId = ensureDraftSessionId();
+    return `${STORAGE_PREFIX}:${String(appId || "").trim()}:${layerId}:${sessionId}`;
+  }
+
+  function readJson(key) {
+    try {
+      const raw = global.sessionStorage?.getItem(key);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeJson(key, value) {
+    try {
+      global.sessionStorage?.setItem(key, JSON.stringify(value));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function removeJson(key) {
+    try {
+      global.sessionStorage?.removeItem(key);
+    } catch (_) {}
+  }
+
+  function normalizeOverlayPatches(doc) {
+    if (!doc || typeof doc !== "object") return {};
+    if (doc.patches && typeof doc.patches === "object") return { ...doc.patches };
+    const entries = doc.entries;
+    if (entries && typeof entries === "object") return { ...entries };
+    const tuning = doc.tuning;
+    if (tuning && typeof tuning === "object") return { ...tuning };
+    return {};
+  }
+
+  function overlayDocFromPatches(patches) {
+    return { patches: { ...(patches || {}) } };
+  }
+
+  function themeDocFromTokens(tokens) {
+    const colors = tokens?.colors && typeof tokens.colors === "object" ? tokens.colors : {};
+    const fonts = tokens?.fonts && typeof tokens.fonts === "object" ? tokens.fonts : {};
+    return { colors: { ...colors }, fonts: { ...fonts } };
+  }
+
+  function mergeThemeDocs(persisted, session) {
+    const base = themeDocFromTokens(persisted);
+    const overlay = themeDocFromTokens(session);
+    return {
+      colors: { ...base.colors, ...overlay.colors },
+      fonts: { ...base.fonts, ...overlay.fonts },
+    };
+  }
+
+  function mergeOverlayDocs(persisted, session) {
+    const basePatches = normalizeOverlayPatches(persisted);
+    const sessionPatches = normalizeOverlayPatches(session);
+    return overlayDocFromPatches({ ...basePatches, ...sessionPatches });
+  }
+
+  function readLayoutOverlaySession(appId) {
+    return readJson(storageKey(appId, "layout.overlay.session"));
+  }
+
+  function readThemeTokensSession(appId) {
+    return readJson(storageKey(appId, "theme.tokens.session"));
+  }
+
+  function putLayoutOverlayPatches(appId, tuning) {
+    const app = String(appId || "").trim();
+    if (!app || !tuning || typeof tuning !== "object") return false;
+    const key = storageKey(app, "layout.overlay.session");
+    const current = normalizeOverlayPatches(readJson(key));
+    const next = overlayDocFromPatches({ ...current, ...tuning });
+    writeJson(key, next);
+    return true;
+  }
+
+  function putThemeTokensPatch(appId, tokens) {
+    const app = String(appId || "").trim();
+    if (!app || !tokens || typeof tokens !== "object") return false;
+    const key = storageKey(app, "theme.tokens.session");
+    const current = themeDocFromTokens(readJson(key));
+    const next = themeDocFromTokens({
+      colors: { ...current.colors, ...(tokens.colors || {}) },
+      fonts: { ...current.fonts, ...(tokens.fonts || {}) },
+    });
+    writeJson(key, next);
+    return true;
+  }
+
+  function getSessionLayers(appId) {
+    return {
+      layoutOverlay: readLayoutOverlaySession(appId),
+      themeTokens: readThemeTokensSession(appId),
+    };
+  }
+
+  function clearSession(appId) {
+    const app = String(appId || "").trim();
+    if (!app) return;
+    removeJson(storageKey(app, "layout.overlay.session"));
+    removeJson(storageKey(app, "theme.tokens.session"));
+  }
+
+  function hasSessionDraft(appId) {
+    const layers = getSessionLayers(appId);
+    const overlayPatches = normalizeOverlayPatches(layers.layoutOverlay);
+    const theme = themeDocFromTokens(layers.themeTokens);
+    return (
+      Object.keys(overlayPatches).length > 0 ||
+      Object.keys(theme.colors).length > 0 ||
+      Object.keys(theme.fonts).length > 0
+    );
+  }
+
+  global.MeiDraftLayerStore = {
+    ensureDraftSessionId,
+    putLayoutOverlayPatches,
+    putThemeTokensPatch,
+    getSessionLayers,
+    clearSession,
+    hasSessionDraft,
+    mergeThemeDocs,
+    mergeOverlayDocs,
+    normalizeOverlayPatches,
+  };
+  boot.draftLayerStore = global.MeiDraftLayerStore;
 })(typeof window !== "undefined" ? window : globalThis);
 
 
@@ -28682,6 +29161,26 @@
     }
   }
 
+  function resolveAppId(composeAxes) {
+    const fromAxes = String(composeAxes?.app_id || composeAxes?.appId || "").trim();
+    if (fromAxes) return fromAxes;
+    return String(
+      global.document?.querySelector?.(".shell[data-app-path]")?.getAttribute("data-app-path") || "",
+    ).trim();
+  }
+
+  function mergePersistedAndSession(persistedTheme, persistedOverlay, appId) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const session = store?.getSessionLayers?.(appId) || {};
+    const themeEffective = store?.mergeThemeDocs
+      ? store.mergeThemeDocs(persistedTheme, session.themeTokens)
+      : persistedTheme;
+    const overlayEffective = store?.mergeOverlayDocs
+      ? store.mergeOverlayDocs(persistedOverlay, session.layoutOverlay)
+      : persistedOverlay;
+    return { themeEffective, overlayEffective };
+  }
+
   function pickShellLayer(layers) {
     if (!layers || typeof layers !== "object") return null;
     return (
@@ -28692,6 +29191,34 @@
       layers["shell.run"] ||
       null
     );
+  }
+
+  function recomposeFromLayerStore(appId, composeAxes) {
+    const root =
+      global.document?.querySelector?.(".preview-pane-scroll, .preview-pane, #mei-compose-host") ||
+      null;
+    if (!(root instanceof HTMLElement)) return false;
+    const layers = {};
+    const manifestLayers = globalThis.__mei?.scene_manifest_refs?.layers;
+    if (manifestLayers && typeof manifestLayers === "object") {
+      Object.assign(layers, manifestLayers);
+    }
+    if (boot.layerStore?.listHoldings) {
+      const sceneId =
+        String(composeAxes?.scene_id || composeAxes?.sceneId || "").trim() ||
+        String(new URL(global.location.href).searchParams.get("scene") || "home").trim() ||
+        "home";
+      const holdings = boot.layerStore.listHoldings(appId, sceneId);
+      if (Array.isArray(holdings)) {
+        holdings.forEach((holding) => {
+          const doc = boot.layerStore.takeLayerByRef?.(holding);
+          if (doc && holding?.layer_id) {
+            layers[holding.layer_id] = doc;
+          }
+        });
+      }
+    }
+    return composeFromLayers(root, layers, { ...(composeAxes || {}), app_id: appId });
   }
 
   function composeFromLayers(root, layers, composeAxes) {
@@ -28706,11 +29233,17 @@
     ensureStructureSkeleton(root, structure);
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);
+    const appId = resolveAppId(composeAxes);
+    const { themeEffective, overlayEffective } = mergePersistedAndSession(
+      themeDoc,
+      overlayDoc,
+      appId,
+    );
     const evalDoc = layers["eval.slot_group.scene:default"] || null;
     if (evalDoc?.bootstrap_seed && globalThis.__mei) {
       globalThis.__mei.bootstrap_seed = evalDoc.bootstrap_seed;
     }
-    composePreview(root, structure, projection, themeDoc, overlayDoc);
+    composePreview(root, structure, projection, themeEffective, overlayEffective);
     return true;
   }
 
@@ -28738,6 +29271,8 @@
     applyThemeAndOverlay,
     clearComposeArtifacts,
     pickShellLayer,
+    recomposeFromLayerStore,
+    mergePersistedAndSession,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
@@ -28752,8 +29287,10 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   let panelEl = null;
 
-  function isBuildRoute() {
-    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+  function isWorkspaceRoute() {
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+      String(global.location.pathname || ""),
+    );
   }
 
   function ensurePanel() {
@@ -28788,10 +29325,8 @@
     const parts = String(global.location.pathname || "")
       .split("/")
       .filter(Boolean);
-    const idx = parts.indexOf("build");
-    if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
-    const manageIdx = parts.indexOf("manage");
-    if (manageIdx >= 0 && parts[manageIdx + 1]) return parts[manageIdx + 1];
+    const appsIdx = parts.indexOf("apps");
+    if (appsIdx >= 0 && parts[appsIdx + 1]) return parts[appsIdx + 1];
     const appIdx = parts.indexOf("app");
     if (appIdx >= 0 && parts[appIdx + 1]) return parts[appIdx + 1];
     return String(document.querySelector(".shell[data-app-path]")?.getAttribute("data-app-path") || "")
@@ -28813,16 +29348,13 @@
           console.warn("[wysiwyg-panel] session draft failed", error);
         }
       }
-    }
-    if (boot.viewCompositor) {
-      const overlay = { patches: { [patch.preview_scope]: patch.layout || patch.theme || {} } };
-      const theme = patch.theme
-        ? { colors: patch.theme.colors || {}, fonts: patch.theme.fonts || {} }
-        : null;
-      boot.viewCompositor.applyThemeAndOverlay(root, theme, overlay);
-    }
-    if (typeof overlayApi?.applyHot === "function" && appId) {
-      await overlayApi.applyHot(appId, global);
+    } else if (patch.theme && overlayApi?.putSessionDraft && appId) {
+      const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+      store?.putThemeTokensPatch?.(appId, patch.theme);
+      boot.viewCompositor?.recomposeFromLayerStore?.(
+        appId,
+        boot.sceneManifestLoader?.readShellAxes?.() || {},
+      );
     }
     global.dispatchEvent(new CustomEvent("meilang:preview-updated", { detail: { patch } }));
   }
@@ -28890,7 +29422,7 @@
   }
 
   function openPanelForSelection(meta) {
-    if (!isBuildRoute() || !meta) return;
+    if (!isWorkspaceRoute() || !meta) return;
     const role = String(meta.ui_role || "").toLowerCase();
     if (role === "region" || role === "section") {
       boot.wysiwygPanel = { kind: "layout", meta };
@@ -29877,7 +30409,8 @@
 
   function workspaceStructureTreeReady() {
     const nav =
-      document.querySelector("aside nav.build-reachability-tree") ||
+      document.querySelector("aside .build-reachability-tree") ||
+      document.querySelector(".build-tree-shell .build-reachability-tree") ||
       document.querySelector("nav.build-reachability-tree");
     return !!nav?.querySelector(".build-tree-list .build-tree-node");
   }
@@ -30038,7 +30571,13 @@
     await wakeRevisionFirstShellRuntime(ctx);
     const scopeCount = document.querySelectorAll("[data-preview-scope]").length;
     if (scopeCount === 0 && typeof boot.showThinShellFallback === "function") {
-      boot.showThinShellFallback("场景内容暂时无法加载，请刷新重试或检查网络。");
+      const missing =
+        resolved?.viewRevision?.assemble?.missing ||
+        boot.lastViewRevisionOutcome === (boot.ViewRevisionOutcome?.LOCAL_MISS || "local_miss")
+          ? ["view-revision local_miss"]
+          : [];
+      const detail = missing.length ? ` 缺失层: ${missing.join(", ")}` : "";
+      boot.showThinShellFallback(`场景内容暂时无法加载，请检查 layer 组装。${detail}`);
     } else if (typeof boot.hideThinShellFallback === "function") {
       boot.hideThinShellFallback();
     }
@@ -30072,7 +30611,7 @@
         return result;
       }
       const surface = vrCtx.surface || "app";
-      if (surface === "layout" || surface === "prototype" || surface === "build") {
+      if (surface === "layout" || surface === "prototype") {
         if (typeof boot.installManageTabs === "function") {
           boot.installManageTabs();
         }
@@ -30136,35 +30675,6 @@
     }
     if (!ctx) {
       return { restored: false, doc: null, revision: null, source: "none" };
-    }
-    const surface = ctx.surface || ctx.mode || "app";
-    const isWorkspace =
-      surface === "build" ||
-      surface === "layout" ||
-      surface === "prototype" ||
-      (typeof isBuildWorkspacePathname === "function" &&
-        isBuildWorkspacePathname(new URL(urlLike || window.location.href).pathname));
-    if (isWorkspace && typeof globalThis.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function") {
-      try {
-        const buildOutcome = await globalThis.MeiBuildNavigation.tryRestoreBuildPreviewFromCache(
-          urlLike || window.location.href,
-          {
-            timeoutMs: opts.timeoutMs || 4000,
-            coldStart: opts.coldStart !== false,
-            skipRemoteWhenValid: opts.skipRemoteWhenValid !== false,
-          },
-        );
-        if (buildOutcome?.restored) {
-          return {
-            restored: true,
-            doc: document,
-            revision: buildOutcome.revision,
-            source: buildOutcome.source || "build-cache",
-          };
-        }
-      } catch (error) {
-        console.warn("[spa-navigation] build cache restore skipped", error);
-      }
     }
     const negotiated = await negotiateAndAssemble(ctx, opts);
     if (negotiated?.assemble?.ok) {
@@ -30519,30 +31029,47 @@
         if (result?.assemble?.ok) {
           return true;
         }
+        if (result?.assemble?.missing?.length && typeof boot.showThinShellFallback === "function") {
+          boot.showThinShellFallback(
+            `场景层未就绪，缺失: ${result.assemble.missing.join(", ")}`,
+          );
+        }
       } catch (error) {
         console.warn("[spa-navigation] view-revision thin shell composition skipped", error);
       }
     }
 
-    if (!boot.sceneManifestLoader?.ensureAccessComposeLayers || !boot.viewCompositor?.composePreview) {
+    if (!boot.sceneManifestLoader?.ensureAccessComposeLayers || !boot.viewCompositor?.composeFromLayers) {
       return false;
     }
     try {
-      const { structure, theme, overlay } = await boot.sceneManifestLoader.ensureAccessComposeLayers(
+      const { layers, manifest } = await boot.sceneManifestLoader.ensureAccessComposeLayers(
         appId,
         sceneId,
         surface,
       );
-      if (!structure) return false;
+      if (!layers?.["structure.full"]) return false;
       const projection =
         ctx.reviewProjection ||
         ctx.review_projection ||
         String(composeRoot.getAttribute("data-review-projection") || "").trim() ||
+        manifest?.compose_defaults?.review_projection ||
         "live_full";
-      boot.viewCompositor.composePreview(composeRoot, structure, projection, theme, overlay);
-      return true;
+      const composed = boot.viewCompositor.composeFromLayers(composeRoot, layers, {
+        review_projection: projection,
+        route_mode: surface,
+      });
+      if (!composed && typeof boot.showThinShellFallback === "function") {
+        boot.showThinShellFallback("场景结构层组装失败，请检查 view-revision / layer-batch。");
+      }
+      return composed;
     } catch (error) {
       console.warn("[spa-navigation] thin shell composition skipped", error);
+      if (typeof boot.showThinShellFallback === "function") {
+        boot.showThinShellFallback(
+          `场景内容加载失败: ${String(error?.message || error)}`,
+        );
+      }
       return false;
     }
   }
@@ -30940,16 +31467,30 @@
     });
   }
 
-  /** 同一 manage 路径下换 file/scene/tab 只换工作区，避免整页重载 manage bundle。 */
+  /** 同一 manage 路径下换 file/scene/tab 只换工作区；同 app 的 layout↔prototype 保留侧栏与 bundle。 */
   function shouldPreserveManageWorkspace(currentUrl, nextUrl) {
     if (!(currentUrl instanceof URL) || !(nextUrl instanceof URL)) {
       return false;
     }
-    return (
+    if (
       currentUrl.pathname === nextUrl.pathname &&
-      (currentUrl.pathname.startsWith("/apps/manage/") ||
-        currentUrl.pathname.startsWith("/apps/build/"))
-    );
+      isWorkspaceSurfaceRoute(currentUrl.pathname)
+    ) {
+      return true;
+    }
+    if (
+      typeof isAppWorkspaceSurfaceRoute === "function" &&
+      isAppWorkspaceSurfaceRoute(currentUrl.pathname) &&
+      isAppWorkspaceSurfaceRoute(nextUrl.pathname) &&
+      typeof appIdFromAppsPathname === "function" &&
+      typeof isWorkspaceSurfaceRoute === "function" &&
+      isWorkspaceSurfaceRoute(currentUrl.pathname) &&
+      isWorkspaceSurfaceRoute(nextUrl.pathname) &&
+      appIdFromAppsPathname(currentUrl.pathname) === appIdFromAppsPathname(nextUrl.pathname)
+    ) {
+      return true;
+    }
+    return false;
   }
 
   function syncSceneDrilldownContextFromDoc(doc) {
@@ -31062,9 +31603,7 @@
       !currentLeftSidebar ||
       !nextLeftSidebar ||
       !currentMain ||
-      !nextMain ||
-      !currentRightSidebar ||
-      !nextRightSidebar
+      !nextMain
     ) {
       return false;
     }
@@ -31073,7 +31612,9 @@
     syncElementAttributes(currentShell, nextShell, { preserve: [] });
     syncElementAttributes(currentWorkspace, nextWorkspace, { preserve: ["id"] });
     syncSidebarLinkState(currentLeftSidebar, nextLeftSidebar);
-    currentRightSidebar.className = nextRightSidebar.className;
+    if (currentRightSidebar && nextRightSidebar) {
+      currentRightSidebar.className = nextRightSidebar.className;
+    }
     const preparedMain = cloneNodeOrNull(nextMain);
     if (!preparedMain) return false;
     preparedMain.classList.add("spa-fragment-enter");
@@ -31191,13 +31732,7 @@
           syncManageTabFromUrl(url);
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
-          const skipWake =
-            ssrPreviewMaterialized(doc) ||
-            (typeof globalThis.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
-              globalThis.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(
-                currentUrl?.href || window.location.href,
-                nextUrl.href,
-              ));
+          const skipWake = ssrPreviewMaterialized(doc);
           if (!skipWake) {
             publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
           }
@@ -31372,23 +31907,6 @@
       currentUrl = new URL(window.location.href);
       nextUrl = new URL(url, window.location.href);
     } catch (_) {}
-    if (
-      !opts.skipBuildNav &&
-      currentUrl &&
-      nextUrl &&
-      typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function"
-    ) {
-      const buildResult = await globalThis.MeiBuildNavigation.tryNavigateBuild(
-        currentUrl.href,
-        nextUrl.href,
-        { replaceHistory, skipFragment: !!opts.skipBuildNav },
-      );
-      if (buildResult?.handled) {
-        spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);
-        boot._spaInFlight = spaNavigationInFlight;
-        return;
-      }
-    }
     const manageSamePath =
       currentUrl && nextUrl && isManageSamePathNavigation(currentUrl, nextUrl);
     if (manageSamePath) {
@@ -31677,17 +32195,7 @@
         return;
       }
       event.preventDefault();
-      try {
-        if (
-          typeof globalThis.MeiBuildNavigation?.tryHandleBuildClick === "function" &&
-          (await globalThis.MeiBuildNavigation.tryHandleBuildClick(event, target.url, false))
-        ) {
-          return;
-        }
-      } catch (err) {
-        console.warn("[spa-navigation] build fast-nav failed", err);
-      }
-      void navigateInternal(target.url, false, { skipBuildNav: true });
+      void navigateInternal(target.url, false);
     },
     true,
   );
@@ -31695,25 +32203,7 @@
   window.addEventListener("popstate", () => {
     closeDrilldownOverlay();
     if (shouldHandleUrl(window.location.href)) {
-      const fromUrl =
-        typeof globalThis.MeiBuildNavigation?.getLastUrl === "function"
-          ? globalThis.MeiBuildNavigation.getLastUrl()
-          : window.location.href;
-      if (typeof globalThis.MeiBuildNavigation?.tryNavigateBuild === "function") {
-        void globalThis.MeiBuildNavigation.tryNavigateBuild(
-          fromUrl,
-          window.location.href,
-          { replaceHistory: true },
-        ).then((result) => {
-          if (result?.handled) {
-            globalThis.MeiBuildNavigation.noteUrl(window.location.href);
-            return;
-          }
-          void navigateInternal(window.location.href, true, { skipBuildNav: true });
-        });
-        return;
-      }
-      void navigateInternal(window.location.href, true, { skipBuildNav: true });
+      void navigateInternal(window.location.href, true);
     }
   });
 
@@ -31754,44 +32244,17 @@
     }
   }
 
-  function parseBuildCacheContext(urlLike) {
-    try {
-      const url = new URL(urlLike, global.location.href);
-      const parts = url.pathname.split("/").filter(Boolean);
-      if (parts[0] !== "apps" || parts[1] !== "build" || !parts[2]) return null;
-      const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
-      const resolveNode =
-        typeof hostBoot.resolveBuildFragmentNode === "function"
-          ? hostBoot.resolveBuildFragmentNode.bind(hostBoot)
-          : typeof global.MeiBuildFragmentRevision?.resolveBuildFragmentNode === "function"
-            ? global.MeiBuildFragmentRevision.resolveBuildFragmentNode.bind(
-                global.MeiBuildFragmentRevision,
-              )
-            : null;
-      return {
-        surface: "build",
-        appId: decodeURIComponent(parts[2]),
-        url: url.href,
-        node: String(url.searchParams.get("node") || "").trim(),
-        resolvedNode: resolveNode ? String(resolveNode(url.href) || "").trim() : "",
-        tab: String(url.searchParams.get("tab") || "").trim(),
-        dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
-        reviewProjection: String(url.searchParams.get("review_projection") || "")
-          .trim()
-          .toLowerCase(),
-      };
-    } catch (_) {
-      return null;
-    }
-  }
-
   function resolveCacheContext(ctxLike) {
     if (ctxLike) return ctxLike;
+    if (typeof boot.parseViewContext === "function") {
+      const viewCtx = boot.parseViewContext(global.location.href);
+      if (viewCtx) return viewCtx;
+    }
     if (typeof boot.parseAccessSceneContext === "function") {
       const accessCtx = boot.parseAccessSceneContext(global.location.href);
       if (accessCtx) return accessCtx;
     }
-    return parseBuildCacheContext(global.location.href);
+    return null;
   }
 
   function trace(event, detail) {
@@ -31828,45 +32291,25 @@
   async function inspect(ctxLike) {
     const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
     const ctx = resolveCacheContext(ctxLike);
-    const isBuild = ctx?.surface === "build";
+    const surface = String(ctx?.surface || ctx?.mode || "unknown").trim().toLowerCase() || "unknown";
     const shellKey =
-      !isBuild && typeof boot.snapshotStorageKey === "function" && ctx
-        ? boot.snapshotStorageKey(ctx)
-        : null;
+      typeof boot.snapshotStorageKey === "function" && ctx ? boot.snapshotStorageKey(ctx) : null;
     const revisionKey =
-      !isBuild && typeof boot.sceneRevisionCacheKey === "function" && ctx
+      typeof boot.sceneRevisionCacheKey === "function" && ctx
         ? boot.sceneRevisionCacheKey(ctx)
-        : isBuild && typeof hostBoot.buildFragmentRevisionCacheKey === "function"
-          ? hostBoot.buildFragmentRevisionCacheKey(ctx.url)
-          : isBuild && global.MeiBuildFragmentRevision?.buildFragmentRevisionCacheKey
-            ? global.MeiBuildFragmentRevision.buildFragmentRevisionCacheKey(ctx.url)
-            : null;
+        : null;
     const cachedRevision =
-      !isBuild && ctx && typeof boot.readCachedSceneRevision === "function"
+      ctx && typeof boot.readCachedSceneRevision === "function"
         ? boot.readCachedSceneRevision(ctx)
         : null;
     const ssrRevision =
       typeof boot.readSsrEmbeddedSceneRevision === "function"
         ? boot.readSsrEmbeddedSceneRevision()
-        : isBuild && typeof hostBoot.readSsrEmbeddedBuildRevision === "function"
-          ? hostBoot.readSsrEmbeddedBuildRevision()
-          : null;
-    const buildRevision =
-      isBuild && ctx?.url
-        ? hostBoot.readBuildFragmentRevision?.(ctx.url) ||
-          global.MeiBuildFragmentRevision?.readBuildFragmentRevision?.(ctx.url) ||
-          null
-        : null;
-    const buildFragment =
-      isBuild && ctx?.url && buildRevision
-        ? hostBoot.readBuildFragmentManifest?.(ctx.url, buildRevision) ||
-          global.MeiBuildFragmentRevision?.readBuildFragmentManifest?.(ctx.url, buildRevision) ||
-          null
         : null;
     const report = {
       url: global.location.href,
       ctx,
-      surface: isBuild ? "build" : ctx ? "access" : "unknown",
+      surface,
       thin_shell:
         (typeof isRevisionFirstShellPage === "function" && isRevisionFirstShellPage()) ||
         globalThis.__mei?.thin_shell === true,
@@ -31875,30 +32318,70 @@
       flags: readFlags(),
       ssrRevision,
       cachedRevision,
-      buildRevision,
-      buildFragment: buildFragment
-        ? {
-            manifestDigest: String(
-              buildFragment.scene_manifest?.revision_digest || "",
-            ).length,
-            node: buildFragment.node || "",
-            revision: buildFragment.revision || buildRevision,
-          }
-        : null,
       snapshot: null,
       bootApi: {
         inspectSceneClientCache: typeof hostBoot.inspectSceneClientCache === "function",
-        fetchBuildFragmentRevision: typeof hostBoot.fetchBuildFragmentRevision === "function",
         viewRevisionClient: typeof hostBoot.viewRevisionClient?.fetchViewRevision === "function",
         layerArtifactCache: typeof hostBoot.layerArtifactCache?.listHoldings === "function",
-        meiBuildFragmentRevision: !!global.MeiBuildFragmentRevision?.fetchBuildFragmentRevision,
-        tryRestoreBuildPreviewFromCache:
-          typeof global.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function",
       },
       viewRevisionOutcome: hostBoot.lastViewRevisionOutcome || null,
       events: (global.__meiCacheDiag?.events || []).slice(-12),
     };
     trace("inspect", report);
+    return report;
+  }
+
+  async function inspectCrossSurfaceCache() {
+    const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
+    const viewCtx =
+      typeof hostBoot.parseViewContext === "function"
+        ? hostBoot.parseViewContext(global.location.href)
+        : null;
+    const appId =
+      viewCtx?.app_id || viewCtx?.appId || document.body?.getAttribute("data-app-id") || "";
+    const sceneId =
+      viewCtx?.scene_id || viewCtx?.sceneId || document.body?.getAttribute("data-scene-id") || "home";
+    const holdings =
+      typeof hostBoot.layerStore?.listHoldings === "function"
+        ? await hostBoot.layerStore.listHoldings(appId, sceneId)
+        : typeof hostBoot.layerArtifactCache?.listHoldings === "function"
+          ? await hostBoot.layerArtifactCache.listHoldings(appId, sceneId)
+          : [];
+    const mapResources = performance
+      .getEntriesByType("resource")
+      .filter((entry) => /tilejson|maplibre|\/gis\//i.test(entry.name))
+      .map((entry) => ({
+        name: entry.name.slice(-72),
+        ms: Math.round(entry.duration),
+        start: Math.round(entry.startTime),
+      }));
+    const sidebarScroll = document.querySelector("aside .sidebar-scroll");
+    const report = {
+      url: global.location.href,
+      appId,
+      sceneId,
+      surface: viewCtx?.surface || "unknown",
+      layerHoldings: holdings,
+      lastViewRevisionOutcome: hostBoot.lastViewRevisionOutcome || null,
+      flags: readFlags(),
+      treeUi: {
+        hasShell: !!document.querySelector(".build-tree-shell"),
+        duplicateChevrons: document.querySelectorAll(".build-tree-summary > .build-tree-kind")
+          .length,
+        treeNodes: document.querySelectorAll(".build-tree-node").length,
+        sidebarScroll: sidebarScroll
+          ? {
+              clientHeight: sidebarScroll.clientHeight,
+              scrollHeight: sidebarScroll.scrollHeight,
+              canScroll: sidebarScroll.scrollHeight > sidebarScroll.clientHeight + 1,
+            }
+          : null,
+      },
+      mapResources,
+      mapNote:
+        "地图为 MapLibre WebGL 客户端组件，不走 SSR 页面缓存；瓦片/tilejson 在整页刷新后重新拉取。",
+    };
+    trace("inspect-cross-surface", report);
     return report;
   }
 
@@ -31914,8 +32397,7 @@
         url.includes("/api/host/scene-bootstrap") ||
         url.includes("/api/host/scene-fragment") ||
         url.includes("/api/host/layer-batch") ||
-        url.includes("/api/build/fragment-revision") ||
-        url.includes("/api/build/workspace-fragment")
+        url.includes("/api/host/scene-manifest")
       ) {
         trace("fetch", { url, method: init?.method || "GET" });
       }
@@ -31926,6 +32408,7 @@
   function publishApi() {
     const api = {
       inspect,
+      inspectCrossSurfaceCache,
       trace,
       flags: readFlags,
       enabled: cacheDiagEnabled,
@@ -31937,7 +32420,7 @@
     boot.cacheDiagEnabled = cacheDiagEnabled;
     boot.cacheDiagTrace = trace;
     boot.inspectSceneClientCache = inspect;
-    boot.parseBuildCacheContext = parseBuildCacheContext;
+    boot.inspectCrossSurfaceCache = inspectCrossSurfaceCache;
   }
 
   publishApi();

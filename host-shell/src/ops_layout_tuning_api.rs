@@ -1,4 +1,4 @@
-//! layoutTuning overlay hot-read + session draft (parallel to ops.themes).
+//! layoutTuning overlay hot-read + apply (session draft is client-only per 0517 Phase B4).
 
 use axum::{
     extract::{Path, State},
@@ -19,6 +19,9 @@ use crate::layout_tuning_draft_store::{
     load_layout_tuning_draft_from_disk, persist_layout_tuning_draft,
 };
 use crate::state::SharedState;
+
+const DRAFT_PUT_RETIRED_MESSAGE: &str =
+    "layoutTuning session draft is client-only; use MeiDraftLayerStore in the browser (0517 Phase B4)";
 
 #[derive(Debug, serde::Serialize)]
 struct LayoutTuningOverlayResponse {
@@ -43,7 +46,6 @@ pub async fn api_ops_layout_tuning_overlay_get(
             .into_response();
     }
     let session_id = resolve_draft_session_id(&headers);
-    let storage_key = layout_tuning_draft_storage_key(app_id, session_id.as_str());
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.clone();
     let app_ctx = guard.host_ctx_for_app(app_id);
@@ -51,23 +53,8 @@ pub async fn api_ops_layout_tuning_overlay_get(
         app_ctx.app_root().as_path(),
         Some(workspace_root.as_path()),
     );
-    let draft = layout_tuning_draft(storage_key.as_str()).or_else(|| {
-        load_layout_tuning_draft_from_disk(
-            workspace_root.as_path(),
-            app_id,
-            storage_key.as_str(),
-        )
-    });
-    let merged = merge_layout_tuning_overlay(config.ops.layout_tuning.as_ref(), draft.as_ref());
-    let revision = if draft.is_some() {
-        format!(
-            "{}+draft:{}",
-            ops_layout_tuning_revision_digest(&config.ops),
-            session_id
-        )
-    } else {
-        ops_layout_tuning_revision_digest(&config.ops)
-    };
+    let merged = merge_layout_tuning_overlay(config.ops.layout_tuning.as_ref(), None);
+    let revision = ops_layout_tuning_revision_digest(&config.ops);
     let entries = merged
         .as_ref()
         .map(layout_tuning_overlay_keys)
@@ -78,7 +65,7 @@ pub async fn api_ops_layout_tuning_overlay_get(
             app_id: app_id.to_string(),
             session_id,
             revision,
-            draft_active: draft.is_some(),
+            draft_active: false,
             entries,
         }),
     )
@@ -92,10 +79,8 @@ pub struct LayoutTuningDraftRequest {
 }
 
 pub async fn api_ops_layout_tuning_draft_put(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
     Path(app_id): Path<String>,
-    Json(body): Json<LayoutTuningDraftRequest>,
+    _headers: HeaderMap,
 ) -> impl IntoResponse {
     let app_id = app_id.trim();
     if app_id.is_empty() {
@@ -105,26 +90,12 @@ pub async fn api_ops_layout_tuning_draft_put(
         )
             .into_response();
     }
-    let session_id = resolve_draft_session_id(&headers);
-    let storage_key = layout_tuning_draft_storage_key(app_id, session_id.as_str());
-    let workspace_root = {
-        let guard = state.read().expect("state lock");
-        guard.ctx.workspace_root.clone()
-    };
-    persist_layout_tuning_draft(
-        workspace_root.as_path(),
-        app_id,
-        storage_key.as_str(),
-        &body.tuning,
-    );
-    let draft_active = !body.tuning.is_null();
     (
-        StatusCode::OK,
+        StatusCode::GONE,
         Json(json!({
-            "ok": true,
+            "error": "layoutTuning draft PUT retired",
+            "migration": DRAFT_PUT_RETIRED_MESSAGE,
             "app_id": app_id,
-            "session_id": session_id,
-            "draft": draft_active,
         })),
     )
         .into_response()
@@ -134,6 +105,7 @@ pub async fn api_ops_layout_tuning_apply_post(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Path(app_id): Path<String>,
+    body: Option<Json<LayoutTuningDraftRequest>>,
 ) -> impl IntoResponse {
     let app_id = app_id.trim();
     if app_id.is_empty() {
@@ -149,17 +121,26 @@ pub async fn api_ops_layout_tuning_apply_post(
         let guard = state.read().expect("state lock");
         guard.ctx.workspace_root.clone()
     };
-    let draft = layout_tuning_draft(storage_key.as_str()).or_else(|| {
-        load_layout_tuning_draft_from_disk(
-            workspace_root.as_path(),
-            app_id,
-            storage_key.as_str(),
-        )
+    let client_tuning = body
+        .as_ref()
+        .map(|Json(req)| req.tuning.clone())
+        .filter(|value| !value.is_null());
+    let draft = client_tuning.or_else(|| {
+        layout_tuning_draft(storage_key.as_str()).or_else(|| {
+            load_layout_tuning_draft_from_disk(
+                workspace_root.as_path(),
+                app_id,
+                storage_key.as_str(),
+            )
+        })
     });
     let Some(draft_value) = draft.filter(|value| !value.is_null()) else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "no active layoutTuning draft"})),
+            Json(json!({
+                "error": "no layoutTuning draft",
+                "hint": "POST tuning from MeiDraftLayerStore or use client session compose",
+            })),
         )
             .into_response();
     };
@@ -190,8 +171,7 @@ pub async fn api_ops_layout_tuning_apply_post(
                 storage_key.as_str(),
                 &Value::Null,
             );
-            crate::build_fragment_cache::clear_build_fragment_cache_for_app(app_id);
-            crate::access_page_cache::clear_access_page_render_cache_for_app(
+            crate::access_page_cache::clear_legacy_page_render_cache_for_app(
                 workspace_root.as_path(),
                 app_id,
             );
@@ -210,5 +190,15 @@ pub async fn api_ops_layout_tuning_apply_post(
             Json(json!({"error": error.to_string()})),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn draft_put_retired_message_documents_migration() {
+        assert!(DRAFT_PUT_RETIRED_MESSAGE.contains("MeiDraftLayerStore"));
     }
 }

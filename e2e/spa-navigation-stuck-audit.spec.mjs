@@ -4,7 +4,7 @@
 import { test, expect } from "@playwright/test";
 
 const EXAMPLES_MAIN =
-  "/apps/build/examples/core/02-external-scene-file?file=main.mei&tab=preview";
+  "/apps/examples/core/02-external-scene-file/layout?file=main.mei&tab=preview";
 
 async function overlaySnapshot(page) {
   return page.evaluate(() => {

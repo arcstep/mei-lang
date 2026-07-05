@@ -95,7 +95,7 @@ pub(crate) fn build_node_href(
 ) -> String {
     let base = match surface {
         UiRouteMode::Prototype => super::view_routing::prototype_href(app_path, None, None),
-        UiRouteMode::Layout | UiRouteMode::Build => super::view_routing::layout_href(app_path, None, None),
+        UiRouteMode::Layout => super::view_routing::layout_href(app_path, None, None),
         _ => super::view_routing::layout_href(app_path, None, None),
     };
     if matches!(surface, UiRouteMode::Layout | UiRouteMode::Prototype) {

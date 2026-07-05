@@ -75,12 +75,6 @@
     const cacheHit = headerText(response, "x-mei-compile-cache-hit");
     if (cacheHit === "1" || cacheHit === "true") session.compile.cacheHit = true;
     else if (cacheHit === "0" || cacheHit === "false") session.compile.cacheHit = false;
-    const pageRenderCacheHit = headerText(response, "x-mei-page-render-cache-hit");
-    if (pageRenderCacheHit === "1" || pageRenderCacheHit === "true") {
-      session.compile.pageRenderCacheHit = true;
-    } else if (pageRenderCacheHit === "0" || pageRenderCacheHit === "false") {
-      session.compile.pageRenderCacheHit = false;
-    }
     const htmlBytes = Number(htmlByteLength);
     const headerHtmlBytes = headerMs(response, "x-mei-html-bytes");
     session.compile.htmlBytes = Number.isFinite(htmlBytes)

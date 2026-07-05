@@ -414,7 +414,7 @@ mod tests {
         fs::create_dir_all(ws.join("runtime/platform/graphs/demo")).expect("mkdir");
         fs::write(
             ws.join("runtime/platform/graphs/demo/mrg-registry.json"),
-            r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"demo","registryRevision":"x","updatedAtMs":0,"nodes":[{"id":{"kind":"navigation","key":"build:home"},"url":"/apps/build/demo?scene=home&file=scenes/home.mei","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"}],"slots":[],"edges":[]}"#,
+            r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"demo","registryRevision":"x","updatedAtMs":0,"nodes":[{"id":{"kind":"navigation","key":"build:home"},"url":"/apps/demo/layout?scene=home&file=scenes/home.mei","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"}],"slots":[],"edges":[]}"#,
         )
         .expect("write mrg");
         fs::create_dir_all(ws.join("apps/demo/src")).expect("mkdir app");
@@ -446,7 +446,7 @@ mod tests {
         data_mode: None,
         review_projection: None,
         };
-        let nav = match_request_to_navigation(ws, "demo", UiRouteMode::Build, None, &query);
+        let nav = match_request_to_navigation(ws, "demo", UiRouteMode::Layout, None, &query);
         assert!(!nav.legacy_fallback);
         assert_eq!(nav.scope.target_file, "main.mei");
         assert_eq!(nav.scope.scene_id, "home");
@@ -459,7 +459,7 @@ mod tests {
         fs::create_dir_all(ws.join("runtime/platform/graphs/demo")).expect("mkdir");
         fs::write(
             ws.join("runtime/platform/graphs/demo/mrg-registry.json"),
-            r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"demo","registryRevision":"x","updatedAtMs":0,"nodes":[{"id":{"kind":"navigation","key":"build:home"},"url":"/apps/build/demo?scene=home&file=scenes/home.mei","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"}],"slots":[],"edges":[]}"#,
+            r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"demo","registryRevision":"x","updatedAtMs":0,"nodes":[{"id":{"kind":"navigation","key":"build:home"},"url":"/apps/demo/layout?scene=home&file=scenes/home.mei","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"}],"slots":[],"edges":[]}"#,
         )
         .expect("write mrg");
         let nav = resolve_default_scope(ws, "demo", UiMode::Build);
@@ -483,8 +483,8 @@ app_add_scene(scene=scene_ref(id="analytics-drilldown-board", scene_file="../../
         fs::write(
             ws.join("runtime/platform/graphs/catalog/mrg-registry.json"),
             r#"{"schemaVersion":"mei-mrg-registry-v1","appId":"catalog","registryRevision":"x","updatedAtMs":0,"nodes":[
-                {"id":{"kind":"navigation","key":"default_build"},"url":"/apps/build/catalog","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"},
-                {"id":{"kind":"navigation","key":"build:analytics-drilldown-board"},"url":"/apps/build/catalog?scene=analytics-drilldown-board&file=../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei","sceneId":"analytics-drilldown-board","targetFile":"../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei","state":"ready"}
+                {"id":{"kind":"navigation","key":"default_build"},"url":"/apps/catalog/layout","sceneId":"home","targetFile":"scenes/home.mei","state":"ready"},
+                {"id":{"kind":"navigation","key":"build:analytics-drilldown-board"},"url":"/apps/catalog/layout?scene=analytics-drilldown-board&file=../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei","sceneId":"analytics-drilldown-board","targetFile":"../../stock/templates/cockpit/drilldown/analytics-drilldown-board.mei","state":"ready"}
             ],"slots":[],"edges":[]}"#,
         )
         .expect("write mrg");

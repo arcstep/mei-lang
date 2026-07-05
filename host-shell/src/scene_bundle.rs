@@ -324,7 +324,7 @@ pub fn schedule_scene_component_bundle_build(
         match result {
             Ok(()) => {
                 let cleared =
-                    crate::access_page_cache::clear_access_page_render_cache_for_app(
+                    crate::access_page_cache::clear_legacy_page_render_cache_for_app(
                         workspace_root.as_path(),
                         app_id.as_str(),
                     );
@@ -332,7 +332,7 @@ pub fn schedule_scene_component_bundle_build(
                     app_id = %app_id,
                     scene_id = %scene_id,
                     revision = %revision,
-                    cleared_page_render_cache_entries = cleared,
+                    cleared_legacy_page_render_cache_entries = cleared,
                     "scene bundle build completed in background"
                 )
             }

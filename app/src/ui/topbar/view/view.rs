@@ -32,7 +32,7 @@ enum AppViewTab {
 fn resolve_active_app_view_tab(route_mode: UiRouteMode) -> Option<AppViewTab> {
     match route_mode {
         UiRouteMode::App => Some(AppViewTab::App),
-        UiRouteMode::Layout | UiRouteMode::Build => Some(AppViewTab::Layout),
+        UiRouteMode::Layout => Some(AppViewTab::Layout),
         UiRouteMode::Prototype => Some(AppViewTab::Prototype),
         _ => None,
     }

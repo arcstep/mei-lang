@@ -296,12 +296,7 @@
     updateInspectBar(node, focus, focusEl);
     } finally {
       const node = activeBuildNode();
-      const prevUrl = String(global.__meiBuildNavPrevUrl || "").trim();
-      const skipWake =
-        (node && node.startsWith("ui-scope:")) ||
-        (prevUrl &&
-          typeof global.MeiBuildNavigation?.shouldSkipPreviewRuntimeWake === "function" &&
-          global.MeiBuildNavigation.shouldSkipPreviewRuntimeWake(prevUrl, global.location.href));
+      const skipWake = !!(node && node.startsWith("ui-scope:"));
       if (!skipWake) {
         schedulePreviewRuntimeWake();
       }
@@ -360,10 +355,6 @@
       return;
     }
     const prevUrl = global.location.href;
-    if (typeof global.MeiBuildNavigation?.tryNavigateBuild === "function") {
-      void global.MeiBuildNavigation.tryNavigateBuild(prevUrl, url.href, { replaceHistory: false });
-      return;
-    }
     global.history.pushState({}, "", url.href);
     global.dispatchEvent(new PopStateEvent("popstate"));
   }

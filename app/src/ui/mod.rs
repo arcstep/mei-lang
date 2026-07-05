@@ -265,36 +265,6 @@ pub fn render_page(
             tree_max_ui_role,
             build_tree_mode,
         ),
-        UiRouteMode::Build => manage_shell(
-            apps,
-            compiled,
-            app_path,
-            topbar_menu,
-            UiRouteMode::Layout,
-            target,
-            source,
-            source_meta,
-            selected_scene,
-            preview_target,
-            active_tab,
-            diag_filter,
-            world_metric,
-            world_dataset,
-            explain,
-            node,
-            scope,
-            focus,
-            catalog,
-            stock_pack,
-            upload_enabled,
-            auth_enabled,
-            auth_account,
-            data_mode,
-            review_projection,
-            data_mode_ceiling_notice,
-            tree_max_ui_role,
-            build_tree_mode,
-        ),
         UiRouteMode::Runtime => runtime_shell(
             apps,
             compiled,
@@ -456,10 +426,10 @@ mod tests {
     }
 
     #[test]
-    fn build_href_uses_build_route() {
+    fn layout_href_uses_app_surface() {
         assert_eq!(
             build_href_with_catalog("zhifa", Some("main.mei"), Some("preview"), None, None),
-            "/apps/build/zhifa?file=main.mei&tab=preview"
+            "/apps/zhifa/layout?file=main.mei&tab=preview"
         );
         assert_eq!(config_href("zhifa"), "/apps/config/zhifa");
     }
@@ -476,13 +446,13 @@ mod tests {
             None,
             WorldSemanticQuery::default(),
         );
-        assert!(href.contains("/apps/build/zhifa"));
+        assert!(href.contains("/apps/zhifa/layout"));
     }
 
     #[test]
     fn route_query_omits_tab_for_cross_app_navigation() {
         assert_eq!(
-            route_query(UiRouteMode::Build, None, None, Some("source")),
+            route_query(UiRouteMode::Layout, None, None, Some("source")),
             ""
         );
     }
@@ -490,7 +460,7 @@ mod tests {
     #[test]
     fn access_scene_query_available_while_build_route_query_empty() {
         assert_eq!(
-            route_query(UiRouteMode::Build, Some("dataset-foo"), None, None),
+            route_query(UiRouteMode::Layout, Some("dataset-foo"), None, None),
             ""
         );
         assert_eq!(
@@ -534,8 +504,7 @@ mod tests {
             None,
             WorldSemanticQuery::default(),
         );
-        assert!(href.contains("/apps/build/examples/demo"));
-        assert!(href.contains("node="));
+        assert!(href.contains("/apps/examples/demo/layout"));
     }
 
     #[test]
