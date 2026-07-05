@@ -2,6 +2,7 @@
 
 pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "spa-navigation/route-predicates-standalone.js",
+    "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
@@ -137,6 +138,7 @@ pub(super) const BUNDLE_MANAGE_SOURCE_SCRIPTS: &[&str] = &[
 
 pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "spa-navigation/route-predicates-standalone.js",
+    "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
@@ -266,6 +268,7 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
 ];
 
 pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
+    "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
@@ -277,6 +280,7 @@ pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
 ];
 
 pub(super) const BUNDLE_UPLOAD_SCRIPTS: &[&str] = &[
+    "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",

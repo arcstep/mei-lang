@@ -434,6 +434,58 @@
   font-family: inherit;
 }
 
+.mei-host-banner--draggable {
+  position: relative;
+}
+
+.mei-host-banner--floating {
+  position: fixed !important;
+  margin: 0 !important;
+}
+
+.mei-host-banner__drag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mei-shell-color-text-muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  font-family: inherit;
+}
+
+.mei-host-http-banner .mei-host-banner__drag {
+  right: 30px;
+}
+
+.mei-host-banner__drag:hover {
+  background: var(--mei-shell-color-hint-bg);
+  color: var(--mei-shell-color-text-primary);
+}
+
+.mei-host-banner__drag-grip {
+  display: block;
+  width: 8px;
+  height: 12px;
+  background:
+    radial-gradient(circle, currentColor 1.25px, transparent 1.35px) 0 0 / 4px 4px;
+  opacity: 0.9;
+}
+
+.mei-host-banner[data-dragging="true"] .mei-host-banner__drag {
+  cursor: grabbing;
+}
+
 @keyframes mei-host-banner-in {
   from {
     opacity: 0;

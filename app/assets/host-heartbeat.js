@@ -246,6 +246,11 @@
         tick();
       });
     }
+    if (window.MeiHostBannerDrag && typeof window.MeiHostBannerDrag.attach === "function") {
+      window.MeiHostBannerDrag.attach(banner, {
+        storageKey: "mei-host-heartbeat-banner-pos",
+      });
+    }
   }
 
   function setAlert(kind) {

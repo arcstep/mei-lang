@@ -8363,6 +8363,57 @@ a.tree-link {
   background: rgba(14, 116, 144, 0.35);
 }
 
+.mei-host-banner--draggable {
+  position: relative;
+}
+
+.mei-host-banner--floating {
+  position: fixed !important;
+  margin: 0 !important;
+}
+
+.mei-host-banner__drag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mei-color-text-muted, #94a3b8);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.mei-host-http-banner .mei-host-banner__drag {
+  right: 30px;
+}
+
+.mei-host-banner__drag:hover {
+  background: rgba(148, 163, 184, 0.16);
+  color: var(--mei-color-text-primary, #e2e8f0);
+}
+
+.mei-host-banner__drag-grip {
+  display: block;
+  width: 8px;
+  height: 12px;
+  background:
+    radial-gradient(circle, currentColor 1.25px, transparent 1.35px) 0 0 / 4px 4px;
+  opacity: 0.9;
+}
+
+.mei-host-banner[data-dragging="true"] .mei-host-banner__drag {
+  cursor: grabbing;
+}
+
 .host-shell-ops-mount {
   width: 100%;
   max-width: none;

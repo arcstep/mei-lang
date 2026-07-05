@@ -7,6 +7,7 @@
     "mcp:author-adapter": "node ./scripts/mcp/mei-author-stdio-adapter.mjs",
     "mcp:access-adapter": "node ./scripts/mcp/mei-access-stdio-adapter.mjs",
     "perf:sample": "node ./scripts/host-perf-sample.mjs",
+    "perf:e2e-timing": "node ./scripts/e2e-timing-audit.mjs",
     "perf:report": "node ./scripts/host-perf-report.mjs",
     "test:mcp:author-adapter": "node ./scripts/test-author-mcp-adapter.mjs",
     "test:mcp:access-adapter": "node ./scripts/test-access-mcp-adapter.mjs",

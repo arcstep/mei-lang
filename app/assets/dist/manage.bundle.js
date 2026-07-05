@@ -381,6 +381,159 @@
 })(typeof window !== "undefined" ? window : globalThis);
 
 
+/* ===== host-banner-drag.js ===== */
+/**
+ * 宿主提示横幅拖拽：为心跳 / HTTP 错误气泡提供拖动手柄。
+ */
+(() => {
+  const MARGIN_PX = 8;
+  const DRAG_THRESHOLD_PX = 4;
+
+  function clampPosition(left, top, width, height) {
+    const viewportWidth = Number(window.innerWidth || 0);
+    const viewportHeight = Number(window.innerHeight || 0);
+    const minLeft = MARGIN_PX;
+    const minTop = MARGIN_PX;
+    const maxLeft = Math.max(minLeft, viewportWidth - width - MARGIN_PX);
+    const maxTop = Math.max(minTop, viewportHeight - height - MARGIN_PX);
+    return {
+      left: Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0))),
+      top: Math.min(maxTop, Math.max(minTop, Math.round(Number(top) || 0))),
+    };
+  }
+
+  function readStoredPosition(storageKey) {
+    if (!storageKey) return null;
+    try {
+      const raw = sessionStorage.getItem(storageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const left = Number(parsed?.left);
+      const top = Number(parsed?.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+      return { left, top };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function storePosition(storageKey, left, top) {
+    if (!storageKey) return;
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify({ left, top }));
+    } catch (_) {}
+  }
+
+  function resolveZIndex(banner, options) {
+    if (options?.zIndex != null && options.zIndex !== "") {
+      return String(options.zIndex);
+    }
+    const root = banner.closest("[id^='mei-host-']");
+    if (root) {
+      const z = getComputedStyle(root).zIndex;
+      if (z && z !== "auto") return z;
+    }
+    return "5800";
+  }
+
+  function applyFloatingPosition(banner, left, top, options) {
+    const rect = banner.getBoundingClientRect();
+    const width = Math.max(1, rect.width || banner.offsetWidth || 0);
+    const height = Math.max(1, rect.height || banner.offsetHeight || 0);
+    const pos = clampPosition(left, top, width, height);
+    banner.classList.add("mei-host-banner--floating");
+    banner.style.position = "fixed";
+    banner.style.left = pos.left + "px";
+    banner.style.top = pos.top + "px";
+    banner.style.right = "auto";
+    banner.style.bottom = "auto";
+    banner.style.margin = "0";
+    banner.style.zIndex = resolveZIndex(banner, options);
+    if (!banner.style.width) {
+      banner.style.width = width + "px";
+    }
+    return pos;
+  }
+
+  function attachHostBannerDrag(banner, options) {
+    if (!banner || banner.dataset.meiDragAttached === "true") return banner;
+    banner.dataset.meiDragAttached = "true";
+    banner.classList.add("mei-host-banner--draggable");
+
+    const storageKey = String(options?.storageKey || "");
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "mei-host-banner__drag";
+    handle.setAttribute("aria-label", "拖动提示");
+    handle.title = "拖动";
+    handle.innerHTML = '<span class="mei-host-banner__drag-grip" aria-hidden="true"></span>';
+    banner.appendChild(handle);
+
+    const stored = readStoredPosition(storageKey);
+    if (stored) {
+      applyFloatingPosition(banner, stored.left, stored.top, options);
+    }
+
+    let dragState = null;
+
+    function onPointerDown(event) {
+      if (event.button != null && event.button !== 0) return;
+      const rect = banner.getBoundingClientRect();
+      dragState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        baseLeft: rect.left,
+        baseTop: rect.top,
+        moved: false,
+      };
+      banner.dataset.dragging = "true";
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch (_) {}
+      event.preventDefault();
+    }
+
+    function onPointerMove(event) {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      const dx = event.clientX - dragState.startX;
+      const dy = event.clientY - dragState.startY;
+      if (!dragState.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      dragState.moved = true;
+      applyFloatingPosition(
+        banner,
+        dragState.baseLeft + dx,
+        dragState.baseTop + dy,
+        options,
+      );
+      event.preventDefault();
+    }
+
+    function finishDrag(event) {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      if (dragState.moved) {
+        const rect = banner.getBoundingClientRect();
+        storePosition(storageKey, rect.left, rect.top);
+      }
+      dragState = null;
+      delete banner.dataset.dragging;
+      try {
+        handle.releasePointerCapture(event.pointerId);
+      } catch (_) {}
+    }
+
+    handle.addEventListener("pointerdown", onPointerDown);
+    handle.addEventListener("pointermove", onPointerMove);
+    handle.addEventListener("pointerup", finishDrag);
+    handle.addEventListener("pointercancel", finishDrag);
+
+    return banner;
+  }
+
+  window.MeiHostBannerDrag = { attach: attachHostBannerDrag };
+})();
+
+
 /* ===== host-http-feedback.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
@@ -527,6 +680,9 @@
     banner.querySelector(".mei-host-http-banner__close").addEventListener("click", () => {
       banner.remove();
     });
+    if (window.MeiHostBannerDrag && typeof window.MeiHostBannerDrag.attach === "function") {
+      window.MeiHostBannerDrag.attach(banner);
+    }
     root.prepend(banner);
     window.setTimeout(() => {
       if (banner.isConnected) banner.remove();
@@ -1072,6 +1228,11 @@
     if (retry) {
       retry.addEventListener("click", () => {
         tick();
+      });
+    }
+    if (window.MeiHostBannerDrag && typeof window.MeiHostBannerDrag.attach === "function") {
+      window.MeiHostBannerDrag.attach(banner, {
+        storageKey: "mei-host-heartbeat-banner-pos",
       });
     }
   }
@@ -24381,11 +24542,18 @@
 
   /** 配置/上传/模式切换/跨应用 Tab 整页导航；Config/Upload 明确 no-cache + full-page。 */
   function shouldBypassSpaClick(event) {
+    const target = resolveClickTarget(event);
+    if (
+      target?.url &&
+      isSameAppWorkspaceSurfaceSwitch(window.location.href, target.url)
+    ) {
+      return false;
+    }
     const path = event.composedPath ? event.composedPath() : [];
     let appViewSurfaceSwitch = false;
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
-      if (item.matches("sl-button[data-mei-app-view]")) {
+      if (item.matches("sl-button[data-mei-app-view], .mode-tab-btn[data-mei-app-view]")) {
         appViewSurfaceSwitch = true;
         continue;
       }
@@ -24415,7 +24583,7 @@
     let appViewSurfaceSwitch = false;
     for (const item of path) {
       if (!(item instanceof HTMLElement) || !item.matches) continue;
-      if (item.matches("sl-button[data-mei-app-view]")) {
+      if (item.matches("sl-button[data-mei-app-view], .mode-tab-btn[data-mei-app-view]")) {
         appViewSurfaceSwitch = true;
         continue;
       }
@@ -25435,38 +25603,144 @@
     } catch (_) {}
   }
 
+  function resolveComposeKeyCtx(ctx) {
+    const payload = ctx || {};
+    const tab = String(payload.tab || "").trim();
+    if (tab) return payload;
+    const surface = String(payload.surface || payload.mode || payload.route_mode || "app")
+      .trim()
+      .toLowerCase();
+    const defaultTab =
+      boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
+      (surface === "layout" || surface === "prototype" ? "preview" : "scene");
+    return { ...payload, tab: defaultTab };
+  }
+
+  function viewRevisionStoreKey(ctx) {
+    const resolved = resolveComposeKeyCtx(ctx);
+    const semantic = semanticRevisionKey(resolved);
+    const compose = surfaceComposeKey(resolved);
+    if (!semantic || !compose) return semantic || "";
+    return `${semantic}::${compose}`;
+  }
+
+  function ssrManifestMatchesSurface(ctx) {
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (!refs || typeof refs !== "object") return false;
+    const surface = String(ctx?.surface || ctx?.mode || "app")
+      .trim()
+      .toLowerCase();
+    const routeMode = String(refs.compose_defaults?.route_mode || "")
+      .trim()
+      .toLowerCase();
+    return !routeMode || routeMode === surface;
+  }
+
   function rememberViewRevision(ctx, revision) {
-    const semanticKey = semanticRevisionKey(ctx);
-    if (!semanticKey || !revision) return;
+    const resolved = resolveComposeKeyCtx(ctx);
+    const storeKey = viewRevisionStoreKey(resolved);
+    if (!storeKey || !revision) return;
+    let manifest =
+      revision.manifest ||
+      revision.assembly_plan?.manifest ||
+      revision.response?.manifest ||
+      revision.response?.assembly_plan?.manifest ||
+      revision.manifest_snapshot ||
+      null;
+    if (!manifest?.layers) {
+      const refs = globalThis.__mei?.scene_manifest_refs;
+      if (refs?.layers && ssrManifestMatchesSurface(resolved)) {
+        manifest = refs;
+      }
+    }
     const store = readViewRevisionStore();
-    store[semanticKey] = {
+    store[storeKey] = {
       ...normalizeRevision(revision),
-      surface_compose: surfaceComposeKey(ctx),
+      manifest_revision_digest: String(
+        revision.manifest_revision_digest ||
+          manifest?.revision_digest ||
+          revision.assembly_plan?.manifest?.revision_digest ||
+          "",
+      ).trim(),
+      surface_revision_digest: String(
+        revision.surface_revision_digest ||
+          manifest?.surface_revision_digest ||
+          "",
+      ).trim(),
+      surface_compose: surfaceComposeKey(resolved),
+      manifest_snapshot: manifest,
     };
-    pruneRevisionStore(store, semanticKey, 64);
+    pruneRevisionStore(store, storeKey, 96);
     writeViewRevisionStore(store);
   }
 
   function readViewRevision(ctx) {
-    const semanticKey = semanticRevisionKey(ctx);
-    if (!semanticKey) return null;
+    const resolved = resolveComposeKeyCtx(ctx);
+    const storeKey = viewRevisionStoreKey(resolved);
+    if (!storeKey) return null;
     const store = readViewRevisionStore();
-    return store[semanticKey] || null;
+    if (store[storeKey]) return store[storeKey];
+    const legacyKey = semanticRevisionKey(resolved);
+    const legacy = store[legacyKey];
+    const composeKey = surfaceComposeKey(resolved);
+    if (
+      legacy &&
+      legacy.surface_compose === composeKey &&
+      legacy.manifest_revision_digest
+    ) {
+      return legacy;
+    }
+    return null;
+  }
+
+  function readSharedManifestDigest(ctx) {
+    const resolved = resolveComposeKeyCtx(ctx);
+    const semantic = semanticRevisionKey(resolved);
+    if (!semantic) return "";
+    const store = readViewRevisionStore();
+    for (const [key, entry] of Object.entries(store)) {
+      if (!key.startsWith(`${semantic}::`)) continue;
+      const digest = String(entry?.manifest_revision_digest || "").trim();
+      if (digest) return digest;
+    }
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (refs?.revision_digest) {
+      return String(refs.revision_digest || "").trim();
+    }
+    return "";
+  }
+
+  function readSharedManifestSnapshot(ctx) {
+    const resolved = resolveComposeKeyCtx(ctx);
+    const semantic = semanticRevisionKey(resolved);
+    if (!semantic) return null;
+    const store = readViewRevisionStore();
+    for (const [key, entry] of Object.entries(store)) {
+      if (!key.startsWith(`${semantic}::`)) continue;
+      if (entry?.manifest_snapshot?.layers) {
+        return entry.manifest_snapshot;
+      }
+    }
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (refs?.layers) return refs;
+    return null;
   }
 
   function readClientDigests(ctx) {
-    const composeKey = surfaceComposeKey(ctx);
-    const stored = readViewRevision(ctx);
-    if (
-      stored &&
-      stored.surface_compose === composeKey &&
-      stored.manifest_revision_digest &&
-      stored.surface_revision_digest
-    ) {
-      return {
-        manifest_revision_digest: stored.manifest_revision_digest,
-        surface_revision_digest: stored.surface_revision_digest,
-      };
+    const resolved = resolveComposeKeyCtx(ctx);
+    const stored = readViewRevision(resolved);
+    const manifest_revision_digest = String(
+      stored?.manifest_revision_digest || readSharedManifestDigest(resolved) || "",
+    ).trim();
+    const surface_revision_digest = String(stored?.surface_revision_digest || "").trim();
+    if (manifest_revision_digest && surface_revision_digest) {
+      return { manifest_revision_digest, surface_revision_digest };
+    }
+    if (manifest_revision_digest) {
+      return { manifest_revision_digest, surface_revision_digest: "" };
+    }
+    if (!ssrManifestMatchesSurface(resolved)) {
+      return { manifest_revision_digest: "", surface_revision_digest: "" };
     }
     const refs = globalThis.__mei?.scene_manifest_refs;
     if (!refs || typeof refs !== "object") {
@@ -25520,11 +25794,15 @@
   boot.semanticRevisionKey = semanticRevisionKey;
   boot.surfaceComposeKey = surfaceComposeKey;
   boot.surfaceRevisionKey = surfaceRevisionKey;
+  boot.resolveComposeKeyCtx = resolveComposeKeyCtx;
+  boot.viewRevisionStoreKey = viewRevisionStoreKey;
   boot.readViewRevisionStore = readViewRevisionStore;
   boot.writeViewRevisionStore = writeViewRevisionStore;
   boot.rememberViewRevision = rememberViewRevision;
   boot.readViewRevision = readViewRevision;
   boot.readClientDigests = readClientDigests;
+  boot.readSharedManifestDigest = readSharedManifestDigest;
+  boot.readSharedManifestSnapshot = readSharedManifestSnapshot;
   boot.pruneRevisionStore = pruneRevisionStore;
   boot.ViewRevisionOutcome = ViewRevisionOutcome;
   boot.holdingsFromLayerCache = holdingsFromLayerCache;
@@ -26094,7 +26372,7 @@
     if (ctx.node) params.set("node", ctx.node);
     if (opts.recover || opts.local_miss) {
       params.set("recover", "1");
-    } else {
+    } else if (!opts.omit_digests) {
       const digests =
         opts.client_digests ||
         (boot.readClientDigests ? boot.readClientDigests(ctx) : null) ||
@@ -26126,12 +26404,21 @@
     return payload;
   }
 
+  function extractLayerDocument(layerValue) {
+    if (layerValue == null) return null;
+    if (typeof layerValue === "object" && layerValue.document != null) {
+      return layerValue.document;
+    }
+    return layerValue;
+  }
+
   async function storeInlineLayers(ctx, inlineLayers, manifest) {
     if (!inlineLayers || !boot.layerStore) return;
     for (const [name, bytes] of Object.entries(inlineLayers)) {
       const ref = layerRefFromManifestValue(name, manifest?.layers?.[name]);
       if (!ref) continue;
-      await boot.layerStore.putLayerByRef(ctx.app_id, ctx.scene_id, ref, bytes, manifest);
+      const document = extractLayerDocument(bytes);
+      await boot.layerStore.putLayerByRef(ctx.app_id, ctx.scene_id, ref, document, manifest);
     }
   }
 
@@ -26147,6 +26434,7 @@
         response,
       };
     }
+    const inlined = new Set(Object.keys(response.inline_layers || {}));
     if (response.inline_layers && boot.layerStore) {
       await storeInlineLayers(
         ctx,
@@ -26155,14 +26443,17 @@
       );
     }
     if (response.changed_layers?.length && boot.sceneManifestLoader?.ensureLayers) {
-      const manifest = response.manifest || response.assembly_plan?.manifest;
-      await boot.sceneManifestLoader.ensureLayers(
-        response.changed_layers,
-        ctx.app_id,
-        ctx.scene_id,
-        ctx,
-        manifest,
-      );
+      const toFetch = response.changed_layers.filter((name) => !inlined.has(name));
+      if (toFetch.length) {
+        const manifest = response.manifest || response.assembly_plan?.manifest;
+        await boot.sceneManifestLoader.ensureLayers(
+          toFetch,
+          ctx.app_id,
+          ctx.scene_id,
+          ctx,
+          manifest,
+        );
+      }
     }
     return {
       outcome: ViewRevisionOutcome.REFETCH,
@@ -26227,7 +26518,14 @@
         content_hash: ref.content_hash,
       };
       let bytes = boot.layerStore?.takeLayerByRef?.(holding);
-      if (!bytes && boot.layerArtifactCache) {
+      if (!bytes && boot.sceneManifestLoader?.resolveLayerBytes) {
+        bytes = await boot.sceneManifestLoader.resolveLayerBytes(
+          holding,
+          ctx.app_id || ctx.appId,
+          ctx.scene_id || ctx.sceneId,
+          assemblyPlan?.manifest,
+        );
+      } else if (!bytes && boot.layerArtifactCache) {
         const cached = await boot.layerArtifactCache.getLayer(ref.artifact_id);
         if (
           cached &&
@@ -26244,7 +26542,7 @@
         missing.push(name);
         continue;
       }
-      layers[name] = bytes;
+      layers[name] = extractLayerDocument(bytes);
     }
     if (missing.length) {
       return { ok: false, missing, layers };
@@ -26303,12 +26601,56 @@
     return { ok: false, missing: Object.keys(layerRefs), layers };
   }
 
+  async function tryClientOnlyAssemble(ctx) {
+    const stored = boot.readViewRevision?.(ctx);
+    let manifest = stored?.manifest_snapshot || boot.readSharedManifestSnapshot?.(ctx);
+    const manifestDigest =
+      stored?.manifest_revision_digest || boot.readSharedManifestDigest?.(ctx) || "";
+    const surfaceDigest = stored?.surface_revision_digest || "";
+    if (!manifestDigest || !surfaceDigest || !manifest?.layers) {
+      return null;
+    }
+    const layerRefs = Object.fromEntries(
+      layerRefsFromManifest(manifest).map((ref) => [
+        ref.name,
+        { artifact_id: ref.artifact_id, content_hash: ref.content_hash },
+      ]),
+    );
+    const plan = {
+      manifest,
+      layer_refs: layerRefs,
+      compose_defaults: manifest.compose_defaults || composeDefaultsFromResponse({ manifest }, ctx),
+    };
+    const assembled = await tryAssembleLocal(ctx, plan);
+    if (!assembled?.ok) return null;
+    return {
+      ...assembled,
+      source: "client_cache",
+    };
+  }
+
   async function negotiateWithLocalMiss(ctx) {
+    const cached = await tryClientOnlyAssemble(ctx);
+    if (cached?.ok) {
+      boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
+      return {
+        outcome: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+        assemble: cached,
+        response: {
+          status: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+          manifest_revision_digest: boot.readViewRevision?.(ctx)?.manifest_revision_digest,
+          surface_revision_digest: boot.readViewRevision?.(ctx)?.surface_revision_digest,
+          cached_only: true,
+        },
+      };
+    }
+    const digests = boot.readClientDigests ? boot.readClientDigests(ctx) : {};
     let result = await negotiateViewRevision(ctx, {});
     let assemble = await tryAssembleLocal(
       ctx,
       result.plan || {
         manifest: result.response?.manifest || null,
+        layer_refs: result.response?.assembly_plan?.layer_refs || {},
         compose_defaults: composeDefaultsFromResponse(result.response, ctx),
       },
     );
@@ -26317,19 +26659,45 @@
         result.outcome === ViewRevisionOutcome.REFETCH
           ? ViewRevisionOutcome.REFETCH
           : ViewRevisionOutcome.ASSEMBLE_LOCAL;
+      if (typeof boot.rememberViewRevision === "function" && result.response) {
+        const rememberPayload = {
+          ...result.response,
+          manifest:
+            result.response.manifest ||
+            result.plan?.manifest ||
+            boot.readSharedManifestSnapshot?.(ctx) ||
+            null,
+        };
+        boot.rememberViewRevision(ctx, rememberPayload);
+      }
       return { ...result, assemble };
     }
-    result = await negotiateViewRevision(ctx, { recover: true });
-    assemble = await tryAssembleLocal(
-      ctx,
-      result.plan || {
-        manifest: result.response?.manifest || null,
-        compose_defaults: composeDefaultsFromResponse(result.response, ctx),
-      },
-    );
-    if (assemble.ok) {
-      boot.lastViewRevisionOutcome = ViewRevisionOutcome.REFETCH;
-      return { ...result, assemble };
+    const missing = assemble.missing || [];
+    if (missing.length) {
+      result = await negotiateViewRevision(ctx, { recover: true });
+      assemble = await tryAssembleLocal(
+        ctx,
+        result.plan || {
+          manifest: result.response?.manifest || null,
+          layer_refs: result.response?.assembly_plan?.layer_refs || {},
+          compose_defaults: composeDefaultsFromResponse(result.response, ctx),
+        },
+      );
+      if (assemble.ok) {
+        boot.lastViewRevisionOutcome = ViewRevisionOutcome.REFETCH;
+        if (typeof boot.rememberViewRevision === "function" && result.response) {
+          const rememberPayload = {
+            ...result.response,
+            manifest:
+              result.response.manifest ||
+              result.plan?.manifest ||
+              boot.readSharedManifestSnapshot?.(ctx) ||
+              null,
+          };
+          boot.rememberViewRevision(ctx, rememberPayload);
+        }
+        return { ...result, assemble };
+      }
     }
     boot.lastViewRevisionOutcome = ViewRevisionOutcome.LOCAL_MISS;
     return { ...result, assemble, outcome: ViewRevisionOutcome.LOCAL_MISS };
@@ -26346,6 +26714,7 @@
     negotiateWithLocalMiss,
     negotiateViewRevisionWithRecover: negotiateWithLocalMiss,
     tryAssembleLocal,
+    tryClientOnlyAssemble,
     layerRefsFromManifest,
   };
 })(typeof window !== "undefined" ? window : globalThis);
@@ -26476,6 +26845,27 @@
     }
   }
 
+  async function resolveLayerBytes(ref, appId, sceneId, manifest) {
+    if (!ref) return null;
+    let bytes = boot.layerStore?.takeLayerByRef?.(ref);
+    if (bytes) return bytes;
+    if (boot.layerArtifactCache?.getLayer) {
+      const cached = await boot.layerArtifactCache.getLayer(ref.artifact_id);
+      if (
+        cached &&
+        cached.content_hash === ref.content_hash &&
+        cached.bytes != null
+      ) {
+        bytes = cached.bytes;
+        if (boot.layerStore?.putLayerByRef) {
+          await boot.layerStore.putLayerByRef(appId, sceneId, ref, bytes, manifest);
+        }
+        return bytes;
+      }
+    }
+    return null;
+  }
+
   async function ensureLayers(layerNames, appId, sceneId, ctx, manifest) {
     const axes = readShellAxes();
     let activeManifest = manifest;
@@ -26490,7 +26880,7 @@
         missing.push(name);
         continue;
       }
-      const cached = boot.layerStore?.takeLayerByRef?.(ref);
+      const cached = await resolveLayerBytes(ref, appId, sceneId, activeManifest);
       if (!cached) missing.push(name);
     }
     if (!missing.length) {
@@ -26569,6 +26959,7 @@
     ensureStructureFull,
     ensureAccessComposeLayers,
     ensureLayers,
+    resolveLayerBytes,
     syncHoldingsFromManifest,
     readShellAxes,
     resolveWorkspaceSurface,
@@ -28349,6 +28740,7 @@
     if (!ctx) return;
     const surface = ctx.surface || ctx.mode || "app";
     const ssrPreview = options.ssrPreview === true;
+    const warmOnly = options.warmOnly === true || isSurfaceRuntimeWarmed(ctx);
     if (typeof boot.isWorkspaceComposeSurface === "function" && boot.isWorkspaceComposeSurface(surface)) {
       if (typeof boot.installManageTabs === "function") {
         boot.installManageTabs();
@@ -28356,45 +28748,54 @@
       if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
         globalThis.MeiBuildTreePersist.refresh();
       }
-      if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
-        globalThis.MeiBuildInspectHighlight.refresh();
-      }
-      if (typeof publishManagePreviewFromDoc === "function") {
-        publishManagePreviewFromDoc(document, { resetRuntimeQueryCache: true, pulsePreviewUpdated: true });
-      }
-      if (typeof boot.syncPreviewWorkspaceScripts === "function") {
-        const scripts = Array.from(
-          document.querySelectorAll('script[type="module"][src^="/workspace-components/"]'),
-        )
-          .map((node) => node.getAttribute("src") || "")
-          .filter(Boolean);
-        if (scripts.length) {
-          try {
-            await boot.syncPreviewWorkspaceScripts(scripts, null);
-          } catch (_) {}
+      if (!warmOnly) {
+        if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
+          globalThis.MeiBuildInspectHighlight.refresh();
         }
-      }
-      if (typeof boot.mountManagePreviewBoard === "function") {
-        await boot.mountManagePreviewBoard(document);
+        if (typeof publishManagePreviewFromDoc === "function") {
+          publishManagePreviewFromDoc(document, {
+            resetRuntimeQueryCache: !ssrPreview,
+            pulsePreviewUpdated: true,
+          });
+        }
+        if (typeof boot.syncPreviewWorkspaceScripts === "function") {
+          const scripts = Array.from(
+            document.querySelectorAll('script[type="module"][src^="/workspace-components/"]'),
+          )
+            .map((node) => node.getAttribute("src") || "")
+            .filter(Boolean);
+          if (scripts.length) {
+            try {
+              await boot.syncPreviewWorkspaceScripts(scripts, null);
+            } catch (_) {}
+          }
+        }
+        if (typeof boot.mountManagePreviewBoard === "function") {
+          await boot.mountManagePreviewBoard(document);
+        }
+        markSurfaceRuntimeWarmed(ctx);
       }
       return;
     }
-    await ensureThinShellSceneRuntime();
+    if (!warmOnly) {
+      await ensureThinShellSceneRuntime();
+      markSurfaceRuntimeWarmed(ctx);
+    }
     if (typeof boot.dispatchScopeActivation === "function") {
       boot.dispatchScopeActivation({
         scope: ctx.sceneId || ctx.scene_id || "home",
         sceneId: ctx.sceneId || ctx.scene_id || "home",
         appId: ctx.appId || ctx.app_id || "",
-        source: "revision-first-cold-start",
+        source: warmOnly ? "revision-first-warm-skip" : "revision-first-cold-start",
       });
     }
     if (typeof boot.scheduleFrameViewportRelayout === "function") {
       boot.scheduleFrameViewportRelayout();
     }
-    if (typeof dispatchPanelMetricPrefetch === "function") {
+    if (!warmOnly && typeof dispatchPanelMetricPrefetch === "function") {
       dispatchPanelMetricPrefetch();
     }
-    if (typeof wakeRuntimeAfterSceneBundleLoaded === "function") {
+    if (!warmOnly && typeof wakeRuntimeAfterSceneBundleLoaded === "function") {
       wakeRuntimeAfterSceneBundleLoaded();
     }
   }
@@ -28411,6 +28812,83 @@
     );
   }
 
+  function vrCtxFromViewCtx(ctx) {
+    const resolved =
+      typeof boot.resolveComposeKeyCtx === "function"
+        ? boot.resolveComposeKeyCtx(ctx)
+        : ctx || {};
+    return {
+      app_id: resolved.app_id || resolved.appId,
+      scene_id: resolved.scene_id || resolved.sceneId,
+      surface: resolved.surface || resolved.mode || "app",
+      node: resolved.node || "",
+      data_mode: resolved.data_mode || resolved.dataMode || "",
+      review_projection: resolved.review_projection || resolved.reviewProjection || "",
+      chrome: resolved.chrome || "",
+      tab: resolved.tab || "",
+      focus: resolved.focus || "",
+      scope: resolved.scope || "",
+    };
+  }
+
+  function rememberSurfaceFromManifestRefs(ctx) {
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (!refs?.layers || typeof boot.rememberViewRevision !== "function") return;
+    const vrCtx = vrCtxFromViewCtx(ctx);
+    const routeMode = String(refs.compose_defaults?.route_mode || "")
+      .trim()
+      .toLowerCase();
+    const surface = String(vrCtx.surface || "app").trim().toLowerCase();
+    if (routeMode && routeMode !== surface) return;
+    boot.rememberViewRevision(vrCtx, {
+      manifest_revision_digest: refs.revision_digest || refs.manifest_revision_digest,
+      surface_revision_digest: refs.surface_revision_digest,
+      manifest: refs,
+    });
+  }
+
+  function surfaceRuntimeKey(ctx) {
+    const vrCtx = vrCtxFromViewCtx(ctx);
+    return [
+      vrCtx.app_id,
+      vrCtx.scene_id,
+      vrCtx.surface,
+    ]
+      .filter(Boolean)
+      .join(":");
+  }
+
+  function markSurfaceRuntimeWarmed(ctx) {
+    const key = surfaceRuntimeKey(ctx);
+    if (!key) return;
+    const warmed =
+      global.__meiSurfaceRuntimeWarmed ||
+      (global.__meiSurfaceRuntimeWarmed = new Set());
+    warmed.add(key);
+  }
+
+  function isSurfaceRuntimeWarmed(ctx) {
+    const key = surfaceRuntimeKey(ctx);
+    if (!key) return false;
+    return Boolean(global.__meiSurfaceRuntimeWarmed?.has(key));
+  }
+
+  async function completeMaterializedSurface(ctx, options) {
+    const opts = options || {};
+    if (typeof boot.hydrateManifestLayerHoldings === "function") {
+      boot.hydrateManifestLayerHoldings();
+    }
+    rememberSurfaceFromManifestRefs(ctx);
+    await ensureWorkspaceStructureTree(ctx, opts.layers || null);
+    if (typeof boot.hideThinShellFallback === "function") {
+      boot.hideThinShellFallback();
+    }
+    await wakeRevisionFirstShellRuntime(ctx, {
+      ssrPreview: opts.ssrPreview !== false,
+      warmOnly: opts.warmOnly === true,
+    });
+  }
+
   async function finishRevisionFirstColdStart(ctx, outcome) {
     let resolved = outcome || { restored: false };
     const surface = ctx?.surface || ctx?.mode || "app";
@@ -28419,16 +28897,20 @@
         ? boot.resolveComposeRoot(surface)
         : document.querySelector(".shell");
     const ssrPreviewReady = isSsrInjectedPreviewRoot(composeRoot);
+    if (
+      resolved?.restored &&
+      (resolved.source === "ssr_preview" || resolved.source === "client_cache")
+    ) {
+      if (typeof boot.hideThinShellFallback === "function") {
+        boot.hideThinShellFallback();
+      }
+      return resolved;
+    }
     if (ssrPreviewReady) {
       if (typeof boot.hideThinShellFallback === "function") {
         boot.hideThinShellFallback();
       }
-      if (typeof boot.hydrateManifestLayerHoldings === "function") {
-        boot.hydrateManifestLayerHoldings();
-      }
-      const negotiated = await boot.negotiateAndAssemble?.(ctx, { silent: true });
-      await ensureWorkspaceStructureTree(ctx, negotiated?.assemble?.layers);
-      await wakeRevisionFirstShellRuntime(ctx, { ssrPreview: true });
+      await completeMaterializedSurface(ctx, { ssrPreview: true });
       return { ...resolved, restored: true, source: "ssr_preview" };
     }
     if (!resolved?.restored && boot.negotiateAndAssemble) {
@@ -28514,10 +28996,22 @@
       }
       await ensureWorkspaceStructureTree(vrCtx, result.assemble?.layers);
       if (typeof boot.rememberViewRevision === "function" && result.response) {
-        boot.rememberViewRevision(viewCtx, result.response);
+        const rememberPayload = {
+          ...result.response,
+          manifest:
+            result.response.manifest ||
+            result.plan?.manifest ||
+            result.response.assembly_plan?.manifest ||
+            null,
+        };
+        boot.rememberViewRevision(vrCtx, rememberPayload);
       }
       const ssrPreview = result.assemble?.source === "ssr_preview";
-      await wakeRevisionFirstShellRuntime(viewCtx, { ssrPreview });
+      const cachedOnly = Boolean(result.response?.cached_only);
+      await wakeRevisionFirstShellRuntime(viewCtx, {
+        ssrPreview,
+        warmOnly: cachedOnly || result.outcome === (boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local"),
+      });
       return result;
     } catch (error) {
       if (!opts.silent) {
@@ -28542,16 +29036,25 @@
           ? boot.resolveComposeRoot(surface)
           : document.querySelector(".shell");
       if (isSsrInjectedPreviewRoot(composeRoot)) {
-        if (typeof boot.hydrateManifestLayerHoldings === "function") {
-          boot.hydrateManifestLayerHoldings();
+        const vrCtx = vrCtxFromViewCtx(ctx);
+        const cachedOnly = await boot.viewRevisionClient?.tryClientOnlyAssemble?.(vrCtx);
+        if (cachedOnly?.ok) {
+          await completeMaterializedSurface(ctx, {
+            layers: cachedOnly.layers,
+            ssrPreview: true,
+          });
+          return {
+            restored: true,
+            doc: document,
+            revision: boot.readViewRevision?.(vrCtx) || null,
+            source: "client_cache",
+          };
         }
-        const negotiated = await boot.negotiateAndAssemble?.(ctx, { silent: true });
-        await ensureWorkspaceStructureTree(ctx, negotiated?.assemble?.layers);
-        await wakeRevisionFirstShellRuntime(ctx, { ssrPreview: true });
+        await completeMaterializedSurface(ctx, { ssrPreview: true });
         return {
           restored: true,
           doc: document,
-          revision: negotiated?.response || null,
+          revision: globalThis.__mei?.scene_manifest_refs || null,
           source: "ssr_preview",
         };
       }
@@ -30217,25 +30720,34 @@
     recordSurfaceVisit(canonicalUrl, surface);
 
     let negotiated = null;
+    const vrCtx = {
+      app_id: nextCtx.app_id || nextCtx.appId,
+      scene_id: nextCtx.scene_id || nextCtx.sceneId,
+      surface,
+      node: nextCtx.node || "",
+      data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
+      review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
+      chrome: nextCtx.chrome || "",
+      tab: nextCtx.tab || "",
+      focus: nextCtx.focus || "",
+      scope: nextCtx.scope || "",
+    };
     try {
-      if (typeof boot.negotiateAndAssemble === "function") {
+      if (boot.viewRevisionClient?.tryClientOnlyAssemble) {
+        const cached = await boot.viewRevisionClient.tryClientOnlyAssemble(vrCtx);
+        if (cached?.ok) {
+          negotiated = {
+            outcome: boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local",
+            assemble: cached,
+          };
+        }
+      }
+      if (!negotiated && typeof boot.negotiateAndAssemble === "function") {
         negotiated = await boot.negotiateAndAssemble(
           { ...nextCtx, url: canonicalUrl },
-          { silent: true },
+          { silent: true, warmOnly: true },
         );
-      } else if (boot.viewRevisionClient?.negotiateWithLocalMiss) {
-        const vrCtx = {
-          app_id: nextCtx.app_id || nextCtx.appId,
-          scene_id: nextCtx.scene_id || nextCtx.sceneId,
-          surface,
-          node: nextCtx.node || "",
-          data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
-          review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
-          chrome: nextCtx.chrome || "",
-          tab: nextCtx.tab || "",
-          focus: nextCtx.focus || "",
-          scope: nextCtx.scope || "",
-        };
+      } else if (!negotiated && boot.viewRevisionClient?.negotiateWithLocalMiss) {
         negotiated = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx);
       }
     } catch (error) {
@@ -30255,9 +30767,6 @@
 
     if (typeof boot.hideThinShellFallback === "function") {
       boot.hideThinShellFallback();
-    }
-    if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
-      await boot.wakeRevisionFirstShellRuntime(nextCtx);
     }
     if (typeof runPostSpaWork === "function") {
       runPostSpaWork(
@@ -30625,6 +31134,7 @@
   }
 
   boot.bootstrapInitialLoadProgress = bootstrapInitialLoadProgress;
+  boot.finishInitialLoadProgress = finishInitialLoadProgress;
 
 
 /* ===== spa-navigation/epilogue.js ===== */
@@ -30661,6 +31171,15 @@
         if (typeof boot.hideThinShellFallback === "function") {
           boot.hideThinShellFallback();
         }
+        if (typeof boot.rememberViewRevision === "function" && ctx && outcome.revision) {
+          boot.rememberViewRevision(ctx, outcome.revision);
+        } else if (
+          typeof boot.rememberViewRevision === "function" &&
+          ctx &&
+          globalThis.__mei?.scene_manifest_refs
+        ) {
+          boot.rememberViewRevision(ctx, globalThis.__mei.scene_manifest_refs);
+        }
         runPostSpaWork(
           outcome.doc,
           window.location.href,
@@ -30693,6 +31212,9 @@
       }
       if (typeof boot.inspectSceneClientCache === "function" && boot.cacheDiagEnabled?.()) {
         void boot.inspectSceneClientCache(ctx);
+      }
+      if (typeof boot.finishInitialLoadProgress === "function") {
+        await boot.finishInitialLoadProgress();
       }
     } catch (error) {
       console.warn("[spa-navigation] view cold start skipped", error);

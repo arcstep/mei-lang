@@ -1,6 +1,7 @@
 {
   "manageScripts": [
     "spa-navigation/route-predicates-standalone.js",
+    "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
@@ -134,6 +135,7 @@
   ],
   "accessScripts": [
     "spa-navigation/route-predicates-standalone.js",
+    "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
@@ -262,6 +264,7 @@
     "spa-navigation/spa/scene-cache-diag.js"
   ],
   "configScripts": [
+    "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
@@ -272,6 +275,7 @@
     "manage-ops-panel/p4.js"
   ],
   "uploadScripts": [
+    "host-banner-drag.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",

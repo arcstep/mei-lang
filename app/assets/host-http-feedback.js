@@ -143,6 +143,9 @@
     banner.querySelector(".mei-host-http-banner__close").addEventListener("click", () => {
       banner.remove();
     });
+    if (window.MeiHostBannerDrag && typeof window.MeiHostBannerDrag.attach === "function") {
+      window.MeiHostBannerDrag.attach(banner);
+    }
     root.prepend(banner);
     window.setTimeout(() => {
       if (banner.isConnected) banner.remove();
