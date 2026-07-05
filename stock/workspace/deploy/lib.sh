@@ -296,7 +296,9 @@ ensure_runtime_binaries() {
   fi
 
   build_plan="compile"
-  if [[ "${MEI_CARGO_FORCE_BUILD:-0}" != "1" && "${MEI_CARGO_SKIP_BUILD_IF_FRESH:-1}" == "1" ]]; then
+  if [[ "${MEI_CARGO_FORCE_BUILD:-0}" == "1" ]]; then
+    build_plan="force-clean"
+  elif [[ "${MEI_CARGO_SKIP_BUILD_IF_FRESH:-0}" == "1" ]]; then
     if cargo_runtime_bins_ready "${workspace_root}"; then
       build_plan="skip"
     fi
@@ -310,6 +312,11 @@ ensure_runtime_binaries() {
   if [[ "${build_plan}" == "skip" ]]; then
     export MEI_CARGO_RUNTIME_READY=1
     return 0
+  fi
+
+  if [[ "${build_plan}" == "force-clean" ]]; then
+    echo "==> force rebuild: cargo clean (profile=${PROFILE}, target=${target_dir})" >&2
+    CARGO_TARGET_DIR="${target_dir}" cargo clean --manifest-path "${mei_lang_root}/Cargo.toml" >&2
   fi
 
   echo "==> building runtime binaries (profile=${PROFILE}, source=lang, mei-lang=${mei_lang_root})" >&2

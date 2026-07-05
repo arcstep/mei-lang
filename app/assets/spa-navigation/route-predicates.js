@@ -11,12 +11,39 @@
     "slides",
   ]);
   const BUILD_ROUTE_SLUGS = new Set(["build", "manage"]);
+  const WORKSPACE_SURFACE_SLUGS = new Set(["layout", "prototype"]);
   const RUNTIME_ROUTE_SLUGS = new Set(["runtime"]);
 
+  function pathSegments(pathname = window.location.pathname) {
+    return String(pathname || "")
+      .split("/")
+      .filter((part) => part.trim().length > 0);
+  }
+
+  function legacyRouteSlugFromPathname(pathname = window.location.pathname) {
+    const segments = pathSegments(pathname);
+    if (segments[0] !== "apps" || segments.length < 2) return "";
+    return String(segments[1] || "").trim().toLowerCase();
+  }
+
+  function appSurfaceSlugFromPathname(pathname = window.location.pathname) {
+    const segments = pathSegments(pathname);
+    if (segments[0] !== "apps" || segments.length < 3) return "";
+    return String(segments[2] || "").trim().toLowerCase();
+  }
+
   function appRouteSlugFromPathname(pathname = window.location.pathname) {
-    const path = String(pathname || "");
-    const match = path.match(/^\/apps\/([^/]+)\//);
-    return match ? String(match[1] || "").trim().toLowerCase() : "";
+    const surface = appSurfaceSlugFromPathname(pathname);
+    if (surface) return surface;
+    return legacyRouteSlugFromPathname(pathname);
+  }
+
+  function isAppSurfaceRoute(pathname = window.location.pathname) {
+    return appSurfaceSlugFromPathname(pathname) === "app";
+  }
+
+  function isWorkspaceSurfaceRoute(pathname = window.location.pathname) {
+    return WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
   function appRoutePrefixesFromSlugs(slugs) {
@@ -24,17 +51,19 @@
   }
 
   function isAppRoute(pathname = window.location.pathname) {
-    return ACCESS_LIKE_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
+    if (isAppSurfaceRoute(pathname)) return true;
+    return ACCESS_LIKE_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
 
   function isRuntimeRoute(pathname = window.location.pathname) {
     const path = String(pathname || "");
     if (path === "/runtime" || path.startsWith("/runtime?")) return true;
-    return RUNTIME_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
+    return RUNTIME_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
 
   function isBuildRoute(pathname = window.location.pathname) {
-    return BUILD_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
+    if (isWorkspaceSurfaceRoute(pathname)) return true;
+    return BUILD_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
 
   function isConfigRoute(pathname = window.location.pathname) {
@@ -62,7 +91,12 @@
   /** Preview-capable host routes: access-like scene shells + build/manage editors. */
   function shouldMountDrilldownHost(pathname = window.location.pathname) {
     const slug = appRouteSlugFromPathname(pathname);
-    return ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug) || RUNTIME_ROUTE_SLUGS.has(slug);
+    return (
+      ACCESS_LIKE_ROUTE_SLUGS.has(slug) ||
+      WORKSPACE_SURFACE_SLUGS.has(slug) ||
+      BUILD_ROUTE_SLUGS.has(slug) ||
+      RUNTIME_ROUTE_SLUGS.has(slug)
+    );
   }
 
   function isBoardLinkConfig(popup) {
@@ -96,9 +130,11 @@
   }
 
   function isBuildWorkspacePathname(pathname = window.location.pathname) {
+    const path = String(pathname || "");
     return (
-      String(pathname || "").startsWith("/apps/build/") ||
-      String(pathname || "").startsWith("/apps/manage/")
+      isWorkspaceSurfaceRoute(path) ||
+      path.startsWith("/apps/build/") ||
+      path.startsWith("/apps/manage/")
     );
   }
 

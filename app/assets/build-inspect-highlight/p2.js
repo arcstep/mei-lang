@@ -317,6 +317,31 @@
     }
   }
 
+  function isWorkspaceSurfaceRoute() {
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+      String(global.location.pathname || ""),
+    );
+  }
+
+  function selectBuildNodeClient(nodeId, options) {
+    const node = String(nodeId || "").trim();
+    if (!node) return;
+    const shell = activeShell();
+    if (shell) {
+      shell.setAttribute("data-build-node", node);
+    }
+    const focus = options && options.focus ? String(options.focus).trim() : "";
+    syncShellFocus(focus);
+    if (global.MeiBuildTreePersist?.refresh) {
+      global.MeiBuildTreePersist.refresh();
+    }
+    const root = previewRoot();
+    if (root) {
+      applyReviewProjectionChrome(root);
+      applyHighlight(root);
+    }
+  }
+
   function pushBuildUrl(mutator) {
     if (!isBuildRoute()) return;
     const shell = activeShell();
@@ -359,6 +384,10 @@
 
   function navigateToBuildNode(node) {
     if (!node) return;
+    if (isWorkspaceSurfaceRoute()) {
+      selectBuildNodeClient(node);
+      return;
+    }
     pushBuildUrl((url) => {
       url.searchParams.set("node", node);
       url.searchParams.delete("focus");
@@ -368,6 +397,10 @@
 
   function navigateToBuildFocus(focus) {
     if (!focus) return;
+    if (isWorkspaceSurfaceRoute()) {
+      selectBuildNodeClient(activeBuildNode(), { focus });
+      return;
+    }
     pushBuildUrl((url) => {
       url.searchParams.set("focus", focus);
       url.searchParams.set("tab", "preview");
@@ -511,5 +544,10 @@
     bind();
   }
 
-  global.MeiBuildInspectHighlight = { refresh, navigateToBuildNode, navigateToBuildFocus };
+  global.MeiBuildInspectHighlight = {
+    refresh,
+    navigateToBuildNode,
+    navigateToBuildFocus,
+    selectBuildNodeClient,
+  };
 })(window);

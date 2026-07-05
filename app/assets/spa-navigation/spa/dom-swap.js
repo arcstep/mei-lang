@@ -394,6 +394,8 @@
         for (let i = 0; i < n; i++) {
           const nh = nextBtns[i].getAttribute("href");
           if (nh) curBtns[i].setAttribute("href", nh);
+          const active = nextBtns[i].classList.contains("is-active");
+          curBtns[i].classList.toggle("is-active", active);
         }
       }
 

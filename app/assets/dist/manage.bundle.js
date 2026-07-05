@@ -5143,7 +5143,6 @@
 
   const STORAGE_KEY = "mei-build-tree-open";
   const SCROLL_KEY = "mei-build-tree-scroll";
-  const MODE_KEY = "mei-build-tree-mode";
   const PRESET_KEY = "mei-build-tree-preset";
   const CLICK_DELAY_MS = 280;
 
@@ -5156,7 +5155,9 @@
   };
 
   function isBuildRoute() {
-    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+        String(global.location.pathname || ""),
+      ) || /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
   }
 
   function sidebarScrollEl(root) {
@@ -5467,7 +5468,14 @@
     return currentManageTab();
   }
 
+  function isWorkspaceSurfaceRoute() {
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+      String(global.location.pathname || ""),
+    );
+  }
+
   function syncTreeLinkTabs(root) {
+    if (isWorkspaceSurfaceRoute()) return;
     root.querySelectorAll("a.build-tree-link, a.build-tree-label--link").forEach((link) => {
       try {
         const url = new URL(link.href, global.location.href);
@@ -5487,6 +5495,22 @@
         const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
         if (!link || !link.href) return;
         captureScroll(root);
+        if (isWorkspaceSurfaceRoute()) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          const nodeId = String(link.getAttribute("data-build-node") || "").trim();
+          if (nodeId && global.MeiBuildInspectHighlight?.selectBuildNodeClient) {
+            global.MeiBuildInspectHighlight.selectBuildNodeClient(nodeId);
+          } else if (nodeId) {
+            const shell = document.querySelector(".shell[data-build-node]");
+            if (shell) shell.setAttribute("data-build-node", nodeId);
+            syncTreeActiveFromNode(root);
+            if (global.MeiBuildInspectHighlight?.refresh) {
+              global.MeiBuildInspectHighlight.refresh();
+            }
+          }
+          return;
+        }
         try {
           const url = new URL(link.href, global.location.href);
           url.searchParams.set("tab", treeLinkTab(url.toString(), link));
@@ -5530,31 +5554,17 @@
     );
   }
 
-  function loadTreeMode() {
-    try {
-      const raw = String(global.sessionStorage.getItem(MODE_KEY) || "").trim().toLowerCase();
-      return raw === "compile" ? "compile" : "structure";
-    } catch {
-      return "structure";
-    }
-  }
-
-  function saveTreeMode(mode) {
-    try {
-      global.sessionStorage.setItem(MODE_KEY, mode);
-    } catch {
-      /* ignore */
-    }
+  function readTreeMode(root) {
+    const fromTree = String(root?.getAttribute("data-build-tree-mode-active") || "").trim().toLowerCase();
+    if (fromTree === "compile" || fromTree === "structure") return fromTree;
+    const shell = document.querySelector(".shell[data-build-tree-mode]");
+    const fromShell = String(shell?.getAttribute("data-build-tree-mode") || "").trim().toLowerCase();
+    return fromShell === "compile" ? "compile" : "structure";
   }
 
   function applyTreeMode(root, mode) {
-    const shell = root.closest(".build-tree-shell") || root.parentElement;
     const activeMode = mode === "compile" ? "compile" : "structure";
     root.setAttribute("data-build-tree-mode-active", activeMode);
-    shell?.querySelectorAll(".build-tree-mode-btn").forEach((btn) => {
-      const btnMode = String(btn.getAttribute("data-build-tree-mode") || "");
-      btn.classList.toggle("is-active", btnMode === activeMode);
-    });
     root.querySelectorAll("[data-build-tree-root-group]").forEach((details) => {
       const group = String(details.getAttribute("data-build-tree-root-group") || "");
       const branch = details.closest(".build-tree-node");
@@ -5574,19 +5584,6 @@
     });
   }
 
-  function bindTreeModeToggle(root) {
-    const shell = root.closest(".build-tree-shell");
-    if (!shell || shell.__buildTreeModeBound) return;
-    shell.__buildTreeModeBound = true;
-    shell.querySelectorAll(".build-tree-mode-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const mode = String(btn.getAttribute("data-build-tree-mode") || "structure");
-        saveTreeMode(mode);
-        applyTreeMode(root, mode);
-      });
-    });
-  }
-
   function refresh(options) {
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
@@ -5598,8 +5595,7 @@
     }
     bindTreePersist(root);
     bindTreeTabPersist(root);
-    bindTreeModeToggle(root);
-    applyTreeMode(root, loadTreeMode());
+    applyTreeMode(root, readTreeMode(root));
     syncTreeLinkTabs(root);
     pinSidebarScroll(root, () => {
       syncTreeActiveFromNode(root);
@@ -5827,7 +5823,11 @@
   let buildNavInFlight = false;
 
   function isBuildWorkspacePathname(pathname) {
-    return /^\/apps\/(?:build|manage)\//.test(String(pathname || ""));
+    const path = String(pathname || "");
+    return (
+      /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path) ||
+      /^\/apps\/(?:build|manage)\//.test(path)
+    );
   }
 
   function inferPreviewTabFromNodeId(nodeId) {
@@ -6279,7 +6279,11 @@
       if (reviewProjection) {
         shell.setAttribute("data-review-projection", reviewProjection);
       } else if (isBuildWorkspacePathname(parsed.pathname)) {
-        shell.setAttribute("data-review-projection", "plane_region_section");
+        const surface = parsed.pathname.match(/\/apps\/[^/]+\/([^/]+)/)?.[1];
+        shell.setAttribute(
+          "data-review-projection",
+          surface === "prototype" ? "static_full" : "plane_region_section",
+        );
       }
       const resolvedTab = tab || inferredTab;
       if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
@@ -10216,7 +10220,11 @@
   const SELECTOR = `${PANEL_SELECTOR}, ${BLOCK_SELECTOR}`;
 
   function isBuildRoute() {
-    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+    const path = String(global.location.pathname || "");
+    return (
+      /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path) ||
+      /^\/apps\/(?:build|manage)\//.test(path)
+    );
   }
 
   function activeShell() {
@@ -11218,6 +11226,31 @@
     }
   }
 
+  function isWorkspaceSurfaceRoute() {
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+      String(global.location.pathname || ""),
+    );
+  }
+
+  function selectBuildNodeClient(nodeId, options) {
+    const node = String(nodeId || "").trim();
+    if (!node) return;
+    const shell = activeShell();
+    if (shell) {
+      shell.setAttribute("data-build-node", node);
+    }
+    const focus = options && options.focus ? String(options.focus).trim() : "";
+    syncShellFocus(focus);
+    if (global.MeiBuildTreePersist?.refresh) {
+      global.MeiBuildTreePersist.refresh();
+    }
+    const root = previewRoot();
+    if (root) {
+      applyReviewProjectionChrome(root);
+      applyHighlight(root);
+    }
+  }
+
   function pushBuildUrl(mutator) {
     if (!isBuildRoute()) return;
     const shell = activeShell();
@@ -11260,6 +11293,10 @@
 
   function navigateToBuildNode(node) {
     if (!node) return;
+    if (isWorkspaceSurfaceRoute()) {
+      selectBuildNodeClient(node);
+      return;
+    }
     pushBuildUrl((url) => {
       url.searchParams.set("node", node);
       url.searchParams.delete("focus");
@@ -11269,6 +11306,10 @@
 
   function navigateToBuildFocus(focus) {
     if (!focus) return;
+    if (isWorkspaceSurfaceRoute()) {
+      selectBuildNodeClient(activeBuildNode(), { focus });
+      return;
+    }
     pushBuildUrl((url) => {
       url.searchParams.set("focus", focus);
       url.searchParams.set("tab", "preview");
@@ -11412,7 +11453,12 @@
     bind();
   }
 
-  global.MeiBuildInspectHighlight = { refresh, navigateToBuildNode, navigateToBuildFocus };
+  global.MeiBuildInspectHighlight = {
+    refresh,
+    navigateToBuildNode,
+    navigateToBuildFocus,
+    selectBuildNodeClient,
+  };
 })(window);
 
 
@@ -13962,12 +14008,39 @@
     "slides",
   ]);
   const BUILD_ROUTE_SLUGS = new Set(["build", "manage"]);
+  const WORKSPACE_SURFACE_SLUGS = new Set(["layout", "prototype"]);
   const RUNTIME_ROUTE_SLUGS = new Set(["runtime"]);
 
+  function pathSegments(pathname = window.location.pathname) {
+    return String(pathname || "")
+      .split("/")
+      .filter((part) => part.trim().length > 0);
+  }
+
+  function legacyRouteSlugFromPathname(pathname = window.location.pathname) {
+    const segments = pathSegments(pathname);
+    if (segments[0] !== "apps" || segments.length < 2) return "";
+    return String(segments[1] || "").trim().toLowerCase();
+  }
+
+  function appSurfaceSlugFromPathname(pathname = window.location.pathname) {
+    const segments = pathSegments(pathname);
+    if (segments[0] !== "apps" || segments.length < 3) return "";
+    return String(segments[2] || "").trim().toLowerCase();
+  }
+
   function appRouteSlugFromPathname(pathname = window.location.pathname) {
-    const path = String(pathname || "");
-    const match = path.match(/^\/apps\/([^/]+)\//);
-    return match ? String(match[1] || "").trim().toLowerCase() : "";
+    const surface = appSurfaceSlugFromPathname(pathname);
+    if (surface) return surface;
+    return legacyRouteSlugFromPathname(pathname);
+  }
+
+  function isAppSurfaceRoute(pathname = window.location.pathname) {
+    return appSurfaceSlugFromPathname(pathname) === "app";
+  }
+
+  function isWorkspaceSurfaceRoute(pathname = window.location.pathname) {
+    return WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
   function appRoutePrefixesFromSlugs(slugs) {
@@ -13975,17 +14048,19 @@
   }
 
   function isAppRoute(pathname = window.location.pathname) {
-    return ACCESS_LIKE_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
+    if (isAppSurfaceRoute(pathname)) return true;
+    return ACCESS_LIKE_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
 
   function isRuntimeRoute(pathname = window.location.pathname) {
     const path = String(pathname || "");
     if (path === "/runtime" || path.startsWith("/runtime?")) return true;
-    return RUNTIME_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
+    return RUNTIME_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
 
   function isBuildRoute(pathname = window.location.pathname) {
-    return BUILD_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
+    if (isWorkspaceSurfaceRoute(pathname)) return true;
+    return BUILD_ROUTE_SLUGS.has(legacyRouteSlugFromPathname(pathname));
   }
 
   function isConfigRoute(pathname = window.location.pathname) {
@@ -14013,7 +14088,12 @@
   /** Preview-capable host routes: access-like scene shells + build/manage editors. */
   function shouldMountDrilldownHost(pathname = window.location.pathname) {
     const slug = appRouteSlugFromPathname(pathname);
-    return ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug) || RUNTIME_ROUTE_SLUGS.has(slug);
+    return (
+      ACCESS_LIKE_ROUTE_SLUGS.has(slug) ||
+      WORKSPACE_SURFACE_SLUGS.has(slug) ||
+      BUILD_ROUTE_SLUGS.has(slug) ||
+      RUNTIME_ROUTE_SLUGS.has(slug)
+    );
   }
 
   function isBoardLinkConfig(popup) {
@@ -14047,9 +14127,11 @@
   }
 
   function isBuildWorkspacePathname(pathname = window.location.pathname) {
+    const path = String(pathname || "");
     return (
-      String(pathname || "").startsWith("/apps/build/") ||
-      String(pathname || "").startsWith("/apps/manage/")
+      isWorkspaceSurfaceRoute(path) ||
+      path.startsWith("/apps/build/") ||
+      path.startsWith("/apps/manage/")
     );
   }
 
@@ -28088,7 +28170,7 @@
       if (!(item instanceof HTMLElement) || !item.matches) continue;
       if (
         item.matches(
-          "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
+          "a.host-runtime-nav-link, a[data-runtime-node-link='1'], a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], sl-button[data-mei-app-view], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;
@@ -28103,7 +28185,7 @@
       if (!(item instanceof HTMLElement) || !item.matches) continue;
       if (
         item.matches(
-          "[data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
+          "[data-mei-view='config'], [data-mei-view='upload'], [data-mei-view='app'], [data-mei-view='build'], [data-mei-view='runtime'], sl-button[data-mei-app-view], a[data-manage-config-link='1'], a.app-tab, a.app-tab-sub, sl-button[data-mei-view]",
         )
       ) {
         return true;
@@ -29358,6 +29440,8 @@
         for (let i = 0; i < n; i++) {
           const nh = nextBtns[i].getAttribute("href");
           if (nh) curBtns[i].setAttribute("href", nh);
+          const active = nextBtns[i].classList.contains("is-active");
+          curBtns[i].classList.toggle("is-active", active);
         }
       }
 
@@ -29451,6 +29535,15 @@
 
 /* ===== spa-navigation/spa/post-navigation.js ===== */
   function applySceneProjectionDepth(doc) {
+    if (typeof isAppSurfaceRoute === "function" && isAppSurfaceRoute(window.location.pathname)) {
+      return;
+    }
+    if (
+      typeof isWorkspaceSurfaceRoute === "function" &&
+      isWorkspaceSurfaceRoute(window.location.pathname)
+    ) {
+      return;
+    }
     if (!globalThis.MeiProjectionDepth?.applyProjectionDepth) return;
     const root =
       doc.querySelector(".preview-pane-scroll") ||

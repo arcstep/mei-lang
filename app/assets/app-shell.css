@@ -449,6 +449,21 @@ a { color: inherit; text-decoration: none; }
   border-bottom: 1px solid var(--mei-chrome-border-top);
   background: var(--mei-chrome-top-bg);
   box-shadow: none;
+  justify-content: space-between;
+}
+.topbar-left {
+  min-width: 0;
+}
+.topbar-right {
+  flex-shrink: 0;
+}
+.topbar-app-toolbar {
+  min-width: 0;
+  overflow-y: visible !important;
+}
+.topbar-system-toolbar {
+  border-left: 1px solid var(--mei-shell-color-chrome-divider);
+  padding-left: 0.5rem;
 }
 .chrome-inset {
   margin-left: 0;
@@ -510,6 +525,7 @@ a { color: inherit; text-decoration: none; }
   padding-right: 6px;
 }
 .topbar-account {
+  padding-left: 0.5rem;
   border-left: 1px solid var(--mei-shell-color-chrome-divider);
 }
 .topbar-account-name {
@@ -5896,6 +5912,7 @@ body.build-view .preview-pane-scroll {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  min-width: min-content;
 }
 .build-reachability-tree .build-tree-list--nested {
   margin-top: 2px;
@@ -5924,11 +5941,11 @@ body.build-view .preview-pane-scroll {
 .build-reachability-tree .build-tree-summary,
 .build-reachability-tree .build-tree-link {
   display: grid;
-  grid-template-columns: 0.75rem 1rem minmax(0, 1fr);
+  grid-template-columns: 0.75rem 1rem auto;
   column-gap: 0.375rem;
   align-items: center;
-  min-width: 0;
-  width: 100%;
+  min-width: 100%;
+  width: max-content;
   padding: 0.2rem 0.35rem 0.2rem 0.45rem;
   box-shadow: inset 2px 0 0 transparent;
   border-radius: 0;
@@ -5992,7 +6009,7 @@ body.build-view .preview-pane-scroll {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  overflow: hidden;
+  white-space: nowrap;
 }
 .build-reachability-tree .build-tree-label--link {
   color: inherit;
@@ -6001,7 +6018,7 @@ body.build-view .preview-pane-scroll {
   align-items: center;
   gap: 0.35rem;
   min-width: 0;
-  overflow: hidden;
+  white-space: nowrap;
 }
 .build-reachability-tree .build-tree-label--link:hover {
   color: var(--mei-shell-color-text-primary);

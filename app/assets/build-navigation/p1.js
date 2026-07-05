@@ -13,7 +13,11 @@
   let buildNavInFlight = false;
 
   function isBuildWorkspacePathname(pathname) {
-    return /^\/apps\/(?:build|manage)\//.test(String(pathname || ""));
+    const path = String(pathname || "");
+    return (
+      /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path) ||
+      /^\/apps\/(?:build|manage)\//.test(path)
+    );
   }
 
   function inferPreviewTabFromNodeId(nodeId) {
@@ -465,7 +469,11 @@
       if (reviewProjection) {
         shell.setAttribute("data-review-projection", reviewProjection);
       } else if (isBuildWorkspacePathname(parsed.pathname)) {
-        shell.setAttribute("data-review-projection", "plane_region_section");
+        const surface = parsed.pathname.match(/\/apps\/[^/]+\/([^/]+)/)?.[1];
+        shell.setAttribute(
+          "data-review-projection",
+          surface === "prototype" ? "static_full" : "plane_region_section",
+        );
       }
       const resolvedTab = tab || inferredTab;
       if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);

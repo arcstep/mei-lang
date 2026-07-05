@@ -10,7 +10,11 @@
   const SELECTOR = `${PANEL_SELECTOR}, ${BLOCK_SELECTOR}`;
 
   function isBuildRoute() {
-    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+    const path = String(global.location.pathname || "");
+    return (
+      /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path) ||
+      /^\/apps\/(?:build|manage)\//.test(path)
+    );
   }
 
   function activeShell() {

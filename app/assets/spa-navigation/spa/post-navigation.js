@@ -1,4 +1,13 @@
   function applySceneProjectionDepth(doc) {
+    if (typeof isAppSurfaceRoute === "function" && isAppSurfaceRoute(window.location.pathname)) {
+      return;
+    }
+    if (
+      typeof isWorkspaceSurfaceRoute === "function" &&
+      isWorkspaceSurfaceRoute(window.location.pathname)
+    ) {
+      return;
+    }
     if (!globalThis.MeiProjectionDepth?.applyProjectionDepth) return;
     const root =
       doc.querySelector(".preview-pane-scroll") ||

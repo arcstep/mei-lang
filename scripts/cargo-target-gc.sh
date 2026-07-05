@@ -275,7 +275,7 @@ cargo_target_emit_startup_panel() {
 
   case "${build_plan}" in
     skip)
-      build_line="skipped (binaries present; --force-build after mei-lang edits)"
+      build_line="skipped (MEI_CARGO_SKIP_BUILD_IF_FRESH=1; binaries present)"
       local total_bytes max_bytes
       total_bytes="$(_cargo_target_optional_dir_size_bytes "${target_dir}")"
       max_bytes="$(_cargo_target_gc_max_bytes)"
@@ -285,12 +285,12 @@ cargo_target_emit_startup_panel() {
         title="编译缓存检查 · CARGO TARGET OK"
       fi
       ;;
+    force-clean)
+      build_line="cargo clean + build (--force-build; full rebuild)"
+      title="编译与缓存 · CARGO RUNTIME FORCE BUILD"
+      ;;
     compile)
-      if [[ "${MEI_CARGO_FORCE_BUILD:-0}" == "1" ]]; then
-        build_line="cargo build (--force-build; skips only when binaries missing)"
-      else
-        build_line="compiling mei-compiler + mei-plug-ds + mei-host-shell (${active_profile})"
-      fi
+      build_line="cargo build (incremental — Cargo rebuilds only changed crates)"
       title="编译与缓存 · CARGO RUNTIME BUILD"
       ;;
     *)

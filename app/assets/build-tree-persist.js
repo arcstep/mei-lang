@@ -6,7 +6,6 @@
 
   const STORAGE_KEY = "mei-build-tree-open";
   const SCROLL_KEY = "mei-build-tree-scroll";
-  const MODE_KEY = "mei-build-tree-mode";
   const PRESET_KEY = "mei-build-tree-preset";
   const CLICK_DELAY_MS = 280;
 
@@ -19,7 +18,9 @@
   };
 
   function isBuildRoute() {
-    return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+        String(global.location.pathname || ""),
+      ) || /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
   }
 
   function sidebarScrollEl(root) {
@@ -330,7 +331,14 @@
     return currentManageTab();
   }
 
+  function isWorkspaceSurfaceRoute() {
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
+      String(global.location.pathname || ""),
+    );
+  }
+
   function syncTreeLinkTabs(root) {
+    if (isWorkspaceSurfaceRoute()) return;
     root.querySelectorAll("a.build-tree-link, a.build-tree-label--link").forEach((link) => {
       try {
         const url = new URL(link.href, global.location.href);
@@ -350,6 +358,22 @@
         const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
         if (!link || !link.href) return;
         captureScroll(root);
+        if (isWorkspaceSurfaceRoute()) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          const nodeId = String(link.getAttribute("data-build-node") || "").trim();
+          if (nodeId && global.MeiBuildInspectHighlight?.selectBuildNodeClient) {
+            global.MeiBuildInspectHighlight.selectBuildNodeClient(nodeId);
+          } else if (nodeId) {
+            const shell = document.querySelector(".shell[data-build-node]");
+            if (shell) shell.setAttribute("data-build-node", nodeId);
+            syncTreeActiveFromNode(root);
+            if (global.MeiBuildInspectHighlight?.refresh) {
+              global.MeiBuildInspectHighlight.refresh();
+            }
+          }
+          return;
+        }
         try {
           const url = new URL(link.href, global.location.href);
           url.searchParams.set("tab", treeLinkTab(url.toString(), link));
@@ -393,31 +417,17 @@
     );
   }
 
-  function loadTreeMode() {
-    try {
-      const raw = String(global.sessionStorage.getItem(MODE_KEY) || "").trim().toLowerCase();
-      return raw === "compile" ? "compile" : "structure";
-    } catch {
-      return "structure";
-    }
-  }
-
-  function saveTreeMode(mode) {
-    try {
-      global.sessionStorage.setItem(MODE_KEY, mode);
-    } catch {
-      /* ignore */
-    }
+  function readTreeMode(root) {
+    const fromTree = String(root?.getAttribute("data-build-tree-mode-active") || "").trim().toLowerCase();
+    if (fromTree === "compile" || fromTree === "structure") return fromTree;
+    const shell = document.querySelector(".shell[data-build-tree-mode]");
+    const fromShell = String(shell?.getAttribute("data-build-tree-mode") || "").trim().toLowerCase();
+    return fromShell === "compile" ? "compile" : "structure";
   }
 
   function applyTreeMode(root, mode) {
-    const shell = root.closest(".build-tree-shell") || root.parentElement;
     const activeMode = mode === "compile" ? "compile" : "structure";
     root.setAttribute("data-build-tree-mode-active", activeMode);
-    shell?.querySelectorAll(".build-tree-mode-btn").forEach((btn) => {
-      const btnMode = String(btn.getAttribute("data-build-tree-mode") || "");
-      btn.classList.toggle("is-active", btnMode === activeMode);
-    });
     root.querySelectorAll("[data-build-tree-root-group]").forEach((details) => {
       const group = String(details.getAttribute("data-build-tree-root-group") || "");
       const branch = details.closest(".build-tree-node");
@@ -437,19 +447,6 @@
     });
   }
 
-  function bindTreeModeToggle(root) {
-    const shell = root.closest(".build-tree-shell");
-    if (!shell || shell.__buildTreeModeBound) return;
-    shell.__buildTreeModeBound = true;
-    shell.querySelectorAll(".build-tree-mode-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const mode = String(btn.getAttribute("data-build-tree-mode") || "structure");
-        saveTreeMode(mode);
-        applyTreeMode(root, mode);
-      });
-    });
-  }
-
   function refresh(options) {
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
@@ -461,8 +458,7 @@
     }
     bindTreePersist(root);
     bindTreeTabPersist(root);
-    bindTreeModeToggle(root);
-    applyTreeMode(root, loadTreeMode());
+    applyTreeMode(root, readTreeMode(root));
     syncTreeLinkTabs(root);
     pinSidebarScroll(root, () => {
       syncTreeActiveFromNode(root);
