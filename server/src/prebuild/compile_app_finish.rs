@@ -629,6 +629,25 @@ pub(crate) fn finish_run_prebuild_for_app(
             "failed to persist last build summary"
         );
     }
+    for scope in compile_reports.iter() {
+        let scene_id = scope
+            .active_scene_id
+            .as_deref()
+            .or(scope.requested_scene_id.as_deref())
+            .unwrap_or("home");
+        if let Err(error) = mei_host_graph::warm_manifest_index_for_app(
+            source_root,
+            app.app_id.as_str(),
+            scene_id,
+        ) {
+            tracing::warn!(
+                app_id = %app.app_id,
+                scene_id = %scene_id,
+                error = %error,
+                "view layer manifest warmup failed during prebuild"
+            );
+        }
+    }
     Ok(PrebuildAppReport {
         app_id: app.app_id.clone(),
         compile_scopes: compile_reports,
