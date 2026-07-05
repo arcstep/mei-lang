@@ -431,6 +431,7 @@ pub fn layout_overlay_session_cache_key(app_id: &str, draft_session: &str, draft
 }
 
 pub fn shell_cache_key(
+    app_id: &str,
     route_mode: &str,
     tab: &str,
     chrome: &str,
@@ -438,6 +439,7 @@ pub fn shell_cache_key(
     shell_schema_revision: &str,
 ) -> String {
     json!({
+        "app_id": app_id,
         "artifact": format!("shell.{route_mode}"),
         "tab": tab,
         "chrome": chrome,

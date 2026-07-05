@@ -42,6 +42,53 @@ mod tests {
             "WORKSPACE_NAV"
         );
     }
+
+    #[test]
+    fn decode_client_cmd_label_round_trip() {
+        assert_eq!(decode_client_cmd_label(""), "");
+        assert_eq!(decode_client_cmd_label("route"), "route");
+        assert_eq!(
+            decode_client_cmd_label("%E6%89%A7%E6%B3%95%E5%8D%95%E4%BD%8D"),
+            "执法单位"
+        );
+        assert_eq!(
+            decode_client_cmd_label("%E7%A3%81%E5%99%A8%E5%8F%A3%E8%A1%97%E9%81%93"),
+            "磁器口街道"
+        );
+    }
+}
+
+fn decode_client_cmd_label(raw: &str) -> String {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    let mut bytes = Vec::with_capacity(raw.len());
+    let input = raw.as_bytes();
+    let mut index = 0usize;
+    while index < input.len() {
+        if input[index] == b'%' && index + 2 < input.len() {
+            let hi = input[index + 1];
+            let lo = input[index + 2];
+            if let (Some(hi), Some(lo)) = (from_hex(hi), from_hex(lo)) {
+                bytes.push(hi << 4 | lo);
+                index += 3;
+                continue;
+            }
+        }
+        bytes.push(input[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+fn from_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 pub fn parse_client_command_headers(
@@ -51,7 +98,10 @@ pub fn parse_client_command_headers(
 ) -> Option<ClientCommandContext> {
     let id = id.map(str::trim).filter(|value| !value.is_empty())?.to_string();
     let kind = kind.map(str::trim).unwrap_or("CMD").to_string();
-    let label = label.map(str::trim).unwrap_or("").to_string();
+    let label = label
+        .map(str::trim)
+        .map(decode_client_cmd_label)
+        .unwrap_or_default();
     Some(ClientCommandContext { id, kind, label })
 }
 

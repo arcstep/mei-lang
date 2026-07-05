@@ -409,6 +409,34 @@ fn ws_demo_v2_all_board_scenes_assemble() {
 }
 
 #[test]
+fn ws_demo_v2_scene_routes_include_graph_native_t2_boards() {
+    let workspace = ensure_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let page_routes: Vec<_> = outcome
+        .compiled
+        .scene_routes
+        .iter()
+        .filter(|route| route.kind == "page")
+        .collect();
+    assert!(
+        page_routes.len() >= 30,
+        "expected T2 page routes in scene_routes, got {}",
+        page_routes.len()
+    );
+    let enforcement = page_routes
+        .iter()
+        .find(|route| route.scene_id == "enforcement_units_analytics_page")
+        .expect("enforcement_units_analytics_page route");
+    assert!(
+        enforcement.target_file.contains("c-enforcement-units-analytics/content.mei"),
+        "unexpected target_file: {}",
+        enforcement.target_file
+    );
+}
+
+#[test]
 fn ws_demo_v2_assemble_without_reimport() {
     let workspace = ws_demo_v2_root();
     if !bundle_path().is_file() {
@@ -1444,5 +1472,85 @@ fn ws_demo_v2_mini_park_home_assembles_when_prebuilt() {
     assert_eq!(
         outcome.compiled.app_id, "mini-park",
         "mini-park home should assemble when bundle exists"
+    );
+}
+
+#[test]
+fn ws_demo_v2_home_assemble_populates_scene_examples_map() {
+    let workspace = ensure_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    assert!(
+        outcome
+            .compiled
+            .scene_examples_by_id
+            .contains_key("enforcement_units_analytics_page"),
+        "home assemble should index T2 board examples, keys={:?}",
+        outcome.compiled.scene_examples_by_id.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn ws_demo_v2_prototype_render_uses_static_metric_skeleton() {
+    let workspace = ensure_imported();
+    let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "data-demo");
+    let apps = vec![mei_lang_kernel::WorkspaceAppMeta {
+        id: "data-demo".to_string(),
+        title: outcome.compiled.title.clone(),
+        root: app_root.display().to_string(),
+    }];
+    let workspace_cfg = mei_lang_kernel::load_workspace_config(workspace.as_path());
+    let theme_style =
+        mei_lang_app::page_body_theme_style(&workspace_cfg, Some(&outcome.compiled), None);
+    let html = mei_lang_app::render_page(
+        &apps,
+        &outcome.compiled,
+        "data-demo",
+        None,
+        mei_lang_app::UiRouteMode::Prototype,
+        Some(outcome.compiled.active_target_file.as_str()),
+        None,
+        None,
+        Some("home"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &[],
+        false,
+        None,
+        None,
+        theme_style.as_str(),
+        None,
+        None,
+        Some("static"),
+        Some("static_full"),
+        None,
+        None,
+        None,
+    );
+    assert!(
+        html.contains("mei-text--static-skeleton") || html.contains("static_skeleton"),
+        "prototype SSR should mark static skeleton metrics"
+    );
+    assert!(
+        html.contains(r#""data_mode":"static""#)
+            || html.contains("static_display")
+            || html.contains("xxxx"),
+        "prototype SSR should expose static data mode contract"
     );
 }

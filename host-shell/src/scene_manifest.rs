@@ -357,6 +357,7 @@ fn materialize_shell(
 ) -> Value {
     let route_slug = ctx.route_mode.to_string();
     let (doc, hit) = mei_host_graph::ensure_shell_layer_rendered(
+        ctx.app_id,
         ctx.route_mode,
         ctx.tab,
         ctx.chrome,
@@ -404,6 +405,7 @@ fn materialize_shell(
     );
     hits.shell_hit = hit;
     let key = mei_host_graph::shell_cache_key(
+        ctx.app_id,
         ctx.route_mode,
         ctx.tab,
         ctx.chrome,

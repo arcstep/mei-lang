@@ -586,12 +586,17 @@ fn scope_payload_from_manifest(
 }
 
 fn resolve_target_file_for_scope(workspace_root: &Path, app_id: &str, scope: &str) -> String {
+    let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
+    let registry = crate::mcg::registry::McgRegistryWriter::load(workspace_root, app_id);
     if let Ok(routes) = crate::assemble::list_scope_routes(workspace_root, app_id) {
         if let Some(route) = routes.into_iter().find(|route| route.scene_id == scope) {
-            return crate::assemble::assembly_key_to_target(route.assembly_key.as_str());
+            return crate::assemble::assembly_target_for_key(
+                app_root.as_path(),
+                &registry,
+                route.assembly_key.as_str(),
+            );
         }
     }
-    let registry = crate::mcg::registry::McgRegistryWriter::load(workspace_root, app_id);
     if let Some(node) = registry
         .nodes_of_kind(crate::types::GraphNodeKind::AssemblyView)
         .into_iter()
@@ -599,7 +604,16 @@ fn resolve_target_file_for_scope(workspace_root: &Path, app_id: &str, scope: &st
             node.id.key.contains(&format!("#{scope}")) || node.id.key.contains(&format!("{scope}@"))
         })
     {
-        return crate::assemble::assembly_key_to_target(node.id.key.as_str());
+        return crate::assemble::assembly_target_for_node(app_root.as_path(), node);
+    }
+    if let Some(assembly_key) =
+        crate::assemble::find_assembly_key_by_scene(app_root.as_path(), &registry, scope)
+    {
+        return crate::assemble::assembly_target_for_key(
+            app_root.as_path(),
+            &registry,
+            assembly_key.as_str(),
+        );
     }
     format!("src/scene/{scope}/assembly.mei")
 }

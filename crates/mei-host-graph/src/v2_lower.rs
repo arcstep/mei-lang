@@ -10,7 +10,7 @@ use mei_lang_kernel::{
 };
 use serde_json::{json, Map, Value};
 
-use crate::assemble::assembly_key_to_target;
+use crate::assemble::{assembly_key_to_target, assembly_source_file_from_payload};
 use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::presentation_map::resolve_viewpoint_id;
@@ -2177,7 +2177,8 @@ fn resolve_board_assembly_target(
     let payload = artifact.get("payload")?;
     Some(BoardSceneTarget {
         scene_id: payload.get("scene").and_then(|v| v.as_str())?.to_string(),
-        scene_file: assembly_key_to_target(board_key),
+        scene_file: assembly_source_file_from_payload(payload)
+            .unwrap_or_else(|| assembly_key_to_target(board_key)),
         accepts: payload
             .get("accepts")
             .cloned()

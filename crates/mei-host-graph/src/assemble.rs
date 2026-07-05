@@ -88,26 +88,18 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
 /// Collect scene ids for all T2 page assembly views (warmup / smoke tests).
 pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
     let registry = McgRegistryWriter::load(source_root, app_id);
-    registry
-        .nodes
-        .iter()
-        .filter(|node| {
-            matches!(
-                node.id.kind,
-                GraphNodeKind::AssemblyView | GraphNodeKind::SemanticGraph
-            )
-        })
-        .filter_map(|node| {
-            if node.id.key.contains("home@") {
-                return Some("home".to_string());
-            }
-            node.id
-                .key
-                .rsplit('#')
-                .next()
-                .map(str::to_string)
-        })
-        .collect()
+    let app_root = resolve_app_root(source_root, app_id);
+    let mut scenes = BTreeSet::new();
+    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        if node.id.key.contains("home@") {
+            scenes.insert("home".to_string());
+            continue;
+        }
+        if let Some(scene_id) = board_scene_id_for_node(app_root.as_path(), node) {
+            scenes.insert(scene_id);
+        }
+    }
+    scenes.into_iter().collect()
 }
 
 pub fn assemble_scope_from_registry(
@@ -152,10 +144,11 @@ fn assemble_scope_from_registry_uncached(
         crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?,
     );
     let projection_map = load_projection_map(app_root.as_path(), &registry, &resources);
+    let scene_examples_by_id = load_scene_examples_by_id(app_root.as_path(), &registry);
     let mut scene_local_nav_by_target = load_scene_local_nav_by_target(app_root.as_path(), &registry);
-    let active_target = assembly_key_to_target(&assembly_key);
+    let active_target = assembly_target_for_key(app_root.as_path(), &registry, assembly_key.as_str());
     let overlay_defaults = load_overlay_defaults(app_root.as_path(), &registry);
-    let (scene_summary, scene_profile, scene_theme, scene_shared, scene_local_nav, scene_params, scene_capabilities, scene_bindings, frame, mut panels, panel_payloads, mut panel_diagnostics) =
+    let (scene_summary, scene_profile, scene_theme, scene_shared, scene_local_nav, scene_params, scene_capabilities, scene_bindings, scene_examples, frame, mut panels, panel_payloads, mut panel_diagnostics) =
         if has_semantic_scene(&registry)
             && registry
                 .nodes
@@ -182,6 +175,7 @@ fn assemble_scope_from_registry_uncached(
                 semantic.params,
                 semantic.capabilities,
                 semantic.bindings,
+                json!({}),
                 Some(semantic.frame),
                 semantic.panels,
                 semantic.panel_payloads,
@@ -222,6 +216,10 @@ fn assemble_scope_from_registry_uncached(
                     .unwrap_or(Value::Null),
                 assembly_payload
                     .get("bindings")
+                    .cloned()
+                    .unwrap_or(json!({})),
+                assembly_payload
+                    .get("examples")
                     .cloned()
                     .unwrap_or(json!({})),
                 Some(lower_frame_from_assembly(&assembly_payload)),
@@ -267,7 +265,7 @@ fn assemble_scope_from_registry_uncached(
             params: scene_params,
             capabilities: scene_capabilities,
             bindings: scene_bindings,
-            examples: json!({}),
+            examples: scene_examples,
             access_export: true,
         },
         themes: Vec::new(),
@@ -289,7 +287,7 @@ fn assemble_scope_from_registry_uncached(
         scene_contract: Some(scene_contract),
         scene_local_nav_by_target,
         scene_bindings_by_id: load_link_bindings(app_root.as_path(), &registry),
-        scene_examples_by_id: BTreeMap::new(),
+        scene_examples_by_id,
         scene_projection_assembly_by_id: projection_map,
         resources,
         world_metrics: BTreeMap::new(),
@@ -439,6 +437,10 @@ fn resolve_assembly_key(
             return route.assembly_key;
         }
     }
+    let app_root = resolve_app_root(source_root, app_id);
+    if let Some(key) = find_assembly_key_by_scene(app_root.as_path(), registry, scene_id.as_str()) {
+        return key;
+    }
     registry
         .nodes
         .iter()
@@ -448,6 +450,47 @@ fn resolve_assembly_key(
         })
         .map(|n| n.id.key.clone())
         .unwrap_or_else(|| format!("overlay/t2/{scene_id}"))
+}
+
+fn board_scene_id_for_node(
+    app_root: &Path,
+    node: &crate::mcg::registry::McgNodeRecord,
+) -> Option<String> {
+    if let Some(pref) = node.payload_ref.as_ref() {
+        if let Ok(Some(artifact)) = load_block_artifact(app_root, pref) {
+            if let Some(scene_id) = artifact
+                .get("payload")
+                .and_then(|payload| payload.get("scene"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                return Some(scene_id.to_string());
+            }
+        }
+    }
+    node.id
+        .key
+        .split('#')
+        .next_back()
+        .map(str::to_string)
+        .filter(|value| !value.is_empty() && value != &node.id.key)
+}
+
+pub(crate) fn find_assembly_key_by_scene(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    scene_id: &str,
+) -> Option<String> {
+    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        if node.id.key.contains("home@") {
+            continue;
+        }
+        if board_scene_id_for_node(app_root, node).as_deref() == Some(scene_id) {
+            return Some(node.id.key.clone());
+        }
+    }
+    None
 }
 
 fn load_assembly_payload(
@@ -467,6 +510,52 @@ fn load_assembly_payload(
     let artifact = load_block_artifact(app_root, pref)?
         .with_context(|| format!("assembly artifact missing for {assembly_key}"))?;
     Ok(artifact.get("payload").cloned().unwrap_or(json!({})))
+}
+
+pub(crate) fn assembly_source_file_from_payload(payload: &Value) -> Option<String> {
+    payload
+        .get("source_file")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|source_file| {
+            if source_file.starts_with("src/") {
+                source_file.to_string()
+            } else {
+                format!("src/{source_file}")
+            }
+        })
+}
+
+pub(crate) fn assembly_target_for_node(
+    app_root: &Path,
+    node: &crate::mcg::registry::McgNodeRecord,
+) -> String {
+    if let Some(pref) = node.payload_ref.as_ref() {
+        if let Ok(Some(artifact)) = load_block_artifact(app_root, pref) {
+            if let Some(payload) = artifact.get("payload") {
+                if let Some(target) = assembly_source_file_from_payload(payload) {
+                    return target;
+                }
+            }
+        }
+    }
+    assembly_key_to_target(&node.id.key)
+}
+
+pub(crate) fn assembly_target_for_key(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+    assembly_key: &str,
+) -> String {
+    if let Some(node) = registry
+        .nodes
+        .iter()
+        .find(|node| node.id.kind == GraphNodeKind::AssemblyView && node.id.key == assembly_key)
+    {
+        return assembly_target_for_node(app_root, node);
+    }
+    assembly_key_to_target(assembly_key)
 }
 
 pub(crate) fn assembly_key_to_target(assembly_key: &str) -> String {
@@ -501,15 +590,54 @@ fn build_scene_routes(
     app_id: &str,
     registry: &crate::mcg::registry::McgRegistry,
 ) -> Result<Vec<CompiledSceneRoute>> {
+    let app_root = resolve_app_root(source_root, app_id);
     let mut routes = Vec::new();
+    let mut seen_scenes = BTreeSet::new();
     for route in list_scope_routes(source_root, app_id)? {
+        seen_scenes.insert(route.scene_id.clone());
         routes.push(CompiledSceneRoute {
             scene_id: route.scene_id.clone(),
             frame_id: None,
-            target_file: assembly_key_to_target(&route.assembly_key),
+            target_file: assembly_target_for_key(
+                app_root.as_path(),
+                registry,
+                route.assembly_key.as_str(),
+            ),
             kind: "scene".to_string(),
             title: None,
             is_default: route.scene_id == "home",
+            access_export: true,
+        });
+    }
+    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        if node.id.key.contains("home@") {
+            continue;
+        }
+        let Some(scene_id) = board_scene_id_for_node(app_root.as_path(), node) else {
+            continue;
+        };
+        if !seen_scenes.insert(scene_id.clone()) {
+            continue;
+        }
+        let title = node
+            .payload_ref
+            .as_ref()
+            .and_then(|pref| load_block_artifact(app_root.as_path(), pref).ok())
+            .flatten()
+            .and_then(|artifact| {
+                artifact
+                    .get("payload")
+                    .and_then(|payload| payload.get("summary"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
+        routes.push(CompiledSceneRoute {
+            scene_id,
+            frame_id: None,
+            target_file: assembly_target_for_node(app_root.as_path(), node),
+            kind: "page".to_string(),
+            title,
+            is_default: false,
             access_export: true,
         });
     }
@@ -519,7 +647,7 @@ fn build_scene_routes(
             routes.push(CompiledSceneRoute {
                 scene_id: scene.to_string(),
                 frame_id: None,
-                target_file: assembly_key_to_target(&node.id.key),
+                target_file: assembly_target_for_node(app_root.as_path(), node),
                 kind: if node.id.key.contains("home@") {
                     "scene".to_string()
                 } else {
@@ -597,6 +725,45 @@ fn load_projection_map(
     map
 }
 
+fn load_scene_examples_by_id(
+    app_root: &Path,
+    registry: &crate::mcg::registry::McgRegistry,
+) -> BTreeMap<String, Value> {
+    let mut map = BTreeMap::new();
+    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        if node.id.key.contains("home@") {
+            continue;
+        }
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Ok(Some(artifact)) = load_block_artifact(app_root, pref) else {
+            continue;
+        };
+        let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
+        let scene_id = payload
+            .get("scene")
+            .and_then(|v| v.as_str())
+            .or_else(|| node.id.key.split('#').next_back())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if scene_id.is_empty() {
+            continue;
+        }
+        let examples = payload.get("examples").cloned().unwrap_or(Value::Null);
+        let is_empty = examples.is_null()
+            || examples
+                .as_object()
+                .is_some_and(|obj| obj.is_empty())
+            || examples.as_array().is_some_and(|items| items.is_empty());
+        if !is_empty {
+            map.insert(scene_id, examples);
+        }
+    }
+    map
+}
+
 fn load_scene_local_nav_by_target(
     app_root: &Path,
     registry: &crate::mcg::registry::McgRegistry,
@@ -618,7 +785,10 @@ fn load_scene_local_nav_by_target(
         if is_empty {
             continue;
         }
-        map.insert(assembly_key_to_target(&node.id.key), local_nav);
+        map.insert(
+            assembly_target_for_node(app_root, node),
+            local_nav,
+        );
     }
     map
 }
@@ -846,6 +1016,28 @@ fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &mut BTreeSet
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn assembly_source_file_from_payload_normalizes_src_prefix() {
+        let payload = json!({"source_file": "scene/home/t2/r-drilldown/s-enforcement-elements/c-enforcement-units-analytics/content.mei"});
+        assert_eq!(
+            assembly_source_file_from_payload(&payload),
+            Some("src/scene/home/t2/r-drilldown/s-enforcement-elements/c-enforcement-units-analytics/content.mei".to_string())
+        );
+        let prefixed = json!({"source_file": "src/scene/home/assembly.mei"});
+        assert_eq!(
+            assembly_source_file_from_payload(&prefixed),
+            Some("src/scene/home/assembly.mei".to_string())
+        );
+    }
+
+    #[test]
+    fn assembly_key_to_target_graph_native_fallback() {
+        assert_eq!(
+            assembly_key_to_target("data-demo/home/t2/r-drilldown/c-enforcement-units-analytics"),
+            "src/data-demo/home/t2/r-drilldown/c-enforcement-units-analytics.mei"
+        );
+    }
 
     #[test]
     fn assembly_key_to_target_home() {

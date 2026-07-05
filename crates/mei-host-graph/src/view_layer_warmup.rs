@@ -180,9 +180,10 @@ pub fn warm_manifest_index_for_scope(
             "scene"
         };
         let (shell_doc, _) =
-            crate::shell_layer::ensure_shell_layer_cached(route_mode, tab, "full", None);
+            crate::shell_layer::ensure_shell_layer_cached(app_id, route_mode, tab, "full", None);
         let shell_layer_name = format!("shell.{route_mode}");
         let shell_key = crate::view_artifact::shell_cache_key(
+            app_id,
             route_mode,
             tab,
             "full",
