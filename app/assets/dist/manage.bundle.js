@@ -39,9 +39,43 @@
     return String(segments[1] || "").trim().toLowerCase();
   }
 
+  function isUnifiedViewRoute(pathname = global.location?.pathname) {
+    const segments = pathSegments(pathname);
+    return segments[0] === "apps" && segments.length >= 3 && segments[2] === "view";
+  }
+
+  function surfaceSlugFromViewUrl(urlLike, search) {
+    try {
+      const raw = String(urlLike || "");
+      const url =
+        raw.includes("://") || raw.includes("?")
+          ? new URL(raw, global.location?.href || "http://localhost")
+          : new URL(
+              `${raw}${search || global.location?.search || ""}`,
+              global.location?.href || "http://localhost",
+            );
+      if (!isUnifiedViewRoute(url.pathname)) return "";
+      const surface = String(url.searchParams.get("surface") || "app")
+        .trim()
+        .toLowerCase();
+      if (surface === "layout" || surface === "prototype" || surface === "app") {
+        return surface;
+      }
+      return "app";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function appSurfaceSlugFromPathname(pathname = global.location?.pathname) {
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 3) return "";
+    if (segments[2] === "view") {
+      if (global.location?.pathname === pathname) {
+        return surfaceSlugFromViewUrl(pathname, global.location?.search) || "app";
+      }
+      return "app";
+    }
     return String(segments[2] || "").trim().toLowerCase();
   }
 
@@ -52,14 +86,35 @@
   }
 
   function isAppSurfaceRoute(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      const surface =
+        global.location?.pathname === pathname
+          ? surfaceSlugFromViewUrl(pathname, global.location?.search)
+          : "app";
+      return (surface || "app") === "app";
+    }
     return appSurfaceSlugFromPathname(pathname) === "app";
   }
 
   function isAppWorkspaceSurfaceRoute(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      const surface =
+        global.location?.pathname === pathname
+          ? surfaceSlugFromViewUrl(pathname, global.location?.search)
+          : "app";
+      return APP_WORKSPACE_SURFACE_SLUGS.has(surface || "app");
+    }
     return APP_WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
   function isWorkspaceSurfaceRoute(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      const surface =
+        global.location?.pathname === pathname
+          ? surfaceSlugFromViewUrl(pathname, global.location?.search)
+          : "";
+      return WORKSPACE_SURFACE_SLUGS.has(surface);
+    }
     return WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
@@ -172,6 +227,7 @@
     }
     const surface = appSurfaceSlugFromPathname(pathname);
     if (
+      surface === "view" ||
       WORKSPACE_SURFACE_SLUGS.has(surface) ||
       surface === "app" ||
       ACCESS_LIKE_ROUTE_SLUGS.has(surface)
@@ -188,11 +244,22 @@
   }
 
   function workspaceSurfaceSlugFromAppsPathname(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      const surface = surfaceSlugFromViewUrl(pathname);
+      return WORKSPACE_SURFACE_SLUGS.has(surface) ? surface : "";
+    }
     const surface = appSurfaceSlugFromPathname(pathname);
     return WORKSPACE_SURFACE_SLUGS.has(surface) ? surface : "";
   }
 
-  function sceneIdFromPathname(pathname = global.location?.pathname) {
+  function sceneIdFromPathname(pathname = global.location?.pathname, search = global.location?.search) {
+    if (isUnifiedViewRoute(pathname)) {
+      try {
+        const url = new URL(pathname + (search || ""), global.location?.href || "http://localhost");
+        const fromQuery = String(url.searchParams.get("scene") || "").trim();
+        if (fromQuery) return fromQuery;
+      } catch (_) {}
+    }
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps") return "";
     const sceneIdx = segments.indexOf("scene");
@@ -209,6 +276,7 @@
 
   function isRevisionFirstShellPage(pathname = global.location?.pathname) {
     if (globalThis.__mei?.thin_shell === true) return true;
+    if (isUnifiedViewRoute(pathname)) return true;
     if (isAppWorkspaceSurfaceRoute(pathname)) return true;
     if (isAccessRoute(pathname)) return true;
     return false;
@@ -228,23 +296,24 @@
       let rewritten = false;
       const runMatch = path.match(/^\/apps\/(?:run|presentation|slides)\/([^/]+)(\/.*)?$/);
       if (runMatch) {
-        path = `/apps/${runMatch[1]}/app${runMatch[2] || ""}`;
+        path = `/apps/${runMatch[1]}/view?surface=app`;
         rewritten = true;
       }
       const copilotMatch = path.match(/^\/apps\/(?:copilot|speaker)\/([^/]+)(\/.*)?$/);
       if (copilotMatch) {
-        const tail = copilotMatch[2] || "";
-        path =
-          tail.startsWith("/presentation/") || tail.startsWith("/tour/")
-            ? `/apps/${copilotMatch[1]}/app`
-            : `/apps/${copilotMatch[1]}/app${tail}`;
+        path = `/apps/${copilotMatch[1]}/view?surface=app`;
         rewritten = true;
       }
       const legacyAppMatch = path.match(
         /^\/apps\/(?:app|access|access-only|access_only)\/([^/]+)(\/.*)?$/,
       );
       if (legacyAppMatch) {
-        path = `/apps/${legacyAppMatch[1]}/app${legacyAppMatch[2] || ""}`;
+        path = `/apps/${legacyAppMatch[1]}/view?surface=app`;
+        rewritten = true;
+      }
+      const legacySurfaceMatch = path.match(/^\/apps\/([^/]+)\/(layout|prototype)(\/.*)?$/);
+      if (legacySurfaceMatch) {
+        path = `/apps/${legacySurfaceMatch[1]}/view?surface=${legacySurfaceMatch[2]}`;
         rewritten = true;
       }
       if (!rewritten) return raw;
@@ -261,6 +330,8 @@
     RUNTIME_ROUTE_SLUGS,
     LEGACY_REMOVED_ROUTE_SLUGS,
     pathSegments,
+    isUnifiedViewRoute,
+    surfaceSlugFromViewUrl,
     legacyRouteSlugFromPathname,
     appSurfaceSlugFromPathname,
     appRouteSlugFromPathname,
@@ -303,7 +374,8 @@
   global.isBuildRoute = isBuildRoute;
   global.isAppRoute = isAppRoute;
   global.isAccessRoute = isAccessRoute;
-  global.isRevisionFirstShellPage = isRevisionFirstShellPage;
+  global.isUnifiedViewRoute = isUnifiedViewRoute;
+  global.surfaceSlugFromViewUrl = surfaceSlugFromViewUrl;
   global.isPresentationCapableRoute = isPresentationCapableRoute;
   global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;
 })(typeof window !== "undefined" ? window : globalThis);
@@ -24361,6 +24433,17 @@
 
   function isSameAppWorkspaceSurfaceSwitch(currentUrl, nextUrl) {
     try {
+      if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(currentUrl.pathname) && isUnifiedViewRoute(nextUrl.pathname)) {
+        const fromApp =
+          typeof appIdFromAppsPathname === "function"
+            ? appIdFromAppsPathname(currentUrl.pathname)
+            : "";
+        const toApp =
+          typeof appIdFromAppsPathname === "function"
+            ? appIdFromAppsPathname(nextUrl.pathname)
+            : "";
+        return Boolean(fromApp && fromApp === toApp);
+      }
       if (typeof isAppWorkspaceSurfaceRoute !== "function") return false;
       if (typeof appIdFromAppsPathname !== "function") return false;
       if (typeof isWorkspaceSurfaceRoute !== "function") return false;
@@ -25516,7 +25599,16 @@
     return "";
   }
 
-  function resolveSurface(pathname) {
+  function resolveSurface(pathname, searchParams) {
+    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
+      const fromQuery = String(searchParams?.get("surface") || "app")
+        .trim()
+        .toLowerCase();
+      if (fromQuery === "layout" || fromQuery === "prototype" || fromQuery === "app") {
+        return fromQuery;
+      }
+      return "app";
+    }
     const wsSurface =
       typeof workspaceSurfaceSlugFromAppsPathname === "function"
         ? workspaceSurfaceSlugFromAppsPathname(pathname)
@@ -25545,11 +25637,13 @@
           ? appIdFromAppsPathname(pathname)
           : "";
       if (!appId) return null;
-      const surface = resolveSurface(pathname);
-      const sceneId =
-        typeof sceneIdFromPathname === "function"
-          ? sceneIdFromPathname(pathname)
-          : String(url.searchParams.get("scene") || "home").trim() || "home";
+      const surface = resolveSurface(pathname, url.searchParams);
+      const sceneFromQuery = String(url.searchParams.get("scene") || "").trim();
+      const sceneId = sceneFromQuery
+        || (typeof sceneIdFromPathname === "function"
+          ? sceneIdFromPathname(pathname, url.search)
+          : "")
+        || "home";
       const dataMode = String(url.searchParams.get("data_mode") || "")
         .trim()
         .toLowerCase();
@@ -25589,10 +25683,13 @@
 
   function resolveComposeRoot(surface) {
     const slug = String(surface || "").trim().toLowerCase();
-    const byId = global.document?.getElementById?.("mei-compose-root");
-    if (byId instanceof HTMLElement) return byId;
+    if (slug === "app") {
+      const byId = global.document?.getElementById?.("mei-compose-root");
+      if (byId instanceof HTMLElement) return byId;
+    }
     if (isWorkspaceComposeSurface(slug)) {
       const preview =
+        global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll") ||
         global.document?.querySelector?.(".preview-pane-scroll") ||
         global.document?.querySelector?.('[data-manage-tab-panel="preview"] .preview-pane-scroll');
       if (preview instanceof HTMLElement) return preview;
@@ -25601,7 +25698,28 @@
     return shell instanceof HTMLElement ? shell : null;
   }
 
+  function canonicalizeViewUrl(urlLike) {
+    try {
+      const url = new URL(urlLike, global.location.href);
+      if (typeof isUnifiedViewRoute !== "function" || !isUnifiedViewRoute(url.pathname)) {
+        return url.href;
+      }
+      const surface = String(url.searchParams.get("surface") || "app").trim().toLowerCase();
+      const next = new URL(url.href);
+      next.search = "";
+      next.searchParams.set("surface", surface);
+      const scene = String(url.searchParams.get("scene") || "").trim();
+      if (scene) next.searchParams.set("scene", scene);
+      const chrome = String(url.searchParams.get("chrome") || "").trim().toLowerCase();
+      if (chrome && chrome !== "full") next.searchParams.set("chrome", chrome);
+      return next.href;
+    } catch (_) {
+      return urlLike;
+    }
+  }
+
   boot.parseViewContext = parseViewContext;
+  boot.canonicalizeViewUrl = canonicalizeViewUrl;
   boot.isWorkspaceComposeSurface = isWorkspaceComposeSurface;
   boot.resolveComposeRoot = resolveComposeRoot;
 })(typeof window !== "undefined" ? window : globalThis);
@@ -26822,9 +26940,32 @@
     return { themeEffective, overlayEffective };
   }
 
-  function pickShellLayer(layers) {
+  function surfaceSlugFromComposeAxes(composeAxes) {
+    const fromAxes = String(composeAxes?.surface || composeAxes?.mode || "")
+      .trim()
+      .toLowerCase();
+    if (fromAxes) return fromAxes;
+    if (typeof boot.parseViewContext === "function") {
+      const ctx = boot.parseViewContext(global.location.href);
+      return String(ctx?.surface || ctx?.mode || "app")
+        .trim()
+        .toLowerCase();
+    }
+    return "app";
+  }
+
+  function pickShellLayer(layers, composeAxes) {
     if (!layers || typeof layers !== "object") return null;
+    const surface = surfaceSlugFromComposeAxes(composeAxes);
+    const bySurface = {
+      app: layers["shell.app"],
+      layout: layers["shell.layout"],
+      prototype: layers["shell.prototype"],
+      build: layers["shell.build"],
+      run: layers["shell.run"],
+    };
     return (
+      bySurface[surface] ||
       layers["shell.build"] ||
       layers["shell.layout"] ||
       layers["shell.prototype"] ||
@@ -26870,7 +27011,7 @@
       "live_full";
     const structure = extractLayerDocument(layers["structure.full"]);
     if (!structure) return false;
-    applyShellLayer(root, pickShellLayer(layers));
+    applyShellLayer(root, pickShellLayer(layers, composeAxes));
     ensureStructureSkeleton(root, structure);
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);
@@ -27967,7 +28108,9 @@
         return result;
       }
       const surface = vrCtx.surface || "app";
-      if (surface === "layout" || surface === "prototype") {
+      if (typeof boot.switchSurfacePanel === "function") {
+        boot.switchSurfacePanel(surface);
+      } else if (surface === "layout" || surface === "prototype") {
         if (typeof boot.installManageTabs === "function") {
           boot.installManageTabs();
         }
@@ -28193,7 +28336,15 @@
   function applyHostChromeFromManifestRefs() {
     const layers = globalThis.__mei?.scene_manifest_refs?.layers;
     if (!layers || typeof layers !== "object") return false;
+    const ctx =
+      typeof boot.parseViewContext === "function"
+        ? boot.parseViewContext(global.location.href)
+        : null;
+    const surface = String(ctx?.surface || ctx?.mode || "app")
+      .trim()
+      .toLowerCase();
     const shell =
+      layers[`shell.${surface}`] ||
       layers["shell.app"] ||
       layers["shell.layout"] ||
       layers["shell.prototype"] ||
@@ -28202,7 +28353,7 @@
     if (!shell) return false;
     const root =
       typeof boot.resolveComposeRoot === "function"
-        ? boot.resolveComposeRoot("app")
+        ? boot.resolveComposeRoot(surface)
         : global.document?.getElementById?.("mei-compose-root");
     if (boot.viewCompositor?.applyShellLayer && root instanceof HTMLElement) {
       boot.viewCompositor.applyShellLayer(root, shell);
@@ -28784,6 +28935,7 @@
     currentShell.replaceChildren(
       ...Array.from(nextShell.childNodes).map((node) => node.cloneNode(true)),
     );
+    syncBodyThemeFromDoc(doc);
     if (replaceHistory) {
       window.history.replaceState({}, "", url);
     } else {
@@ -29211,6 +29363,22 @@
       if (curBread && nextBread) {
         curBread.replaceWith(nextBread.cloneNode(true));
       }
+
+      const curAppCtx = currentHeader.querySelector(".topbar-app-context");
+      const nextAppCtx = nextHeader.querySelector(".topbar-app-context");
+      if (curAppCtx && nextAppCtx) {
+        curAppCtx.className = nextAppCtx.className;
+      }
+
+      const curNavLinks = currentHeader.querySelectorAll(".shell-nav .shell-nav-link");
+      const nextNavLinks = nextHeader.querySelectorAll(".shell-nav .shell-nav-link");
+      const navCount = Math.min(curNavLinks.length, nextNavLinks.length);
+      for (let k = 0; k < navCount; k++) {
+        const href = nextNavLinks[k].getAttribute("href");
+        if (href) curNavLinks[k].setAttribute("href", href);
+        const active = nextNavLinks[k].classList.contains("is-active");
+        curNavLinks[k].classList.toggle("is-active", active);
+      }
     } catch (err) {
       console.warn("[spa-navigation] sync topbar skipped", err);
     }
@@ -29428,6 +29596,192 @@
 
 
 
+/* ===== spa-navigation/spa/surface-navigation.js ===== */
+/**
+ * Unified /apps/{id}/view surface switching without document fetch.
+ */
+(function initSurfaceNavigation(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  function isUnifiedViewPathname(pathname) {
+    const segments = String(pathname || "")
+      .split("/")
+      .filter((part) => part.trim().length > 0);
+    return segments[0] === "apps" && segments.length >= 3 && segments[2] === "view";
+  }
+
+  function surfaceSlugFromContext(ctx) {
+    return String(ctx?.surface || ctx?.mode || "app")
+      .trim()
+      .toLowerCase();
+  }
+
+  function isWorkspaceSurface(slug) {
+    return slug === "layout" || slug === "prototype";
+  }
+
+  function switchSurfacePanel(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    const appPanel = global.document?.getElementById?.("mei-surface-app");
+    const workspacePanel = global.document?.getElementById?.("mei-surface-workspace");
+    const showWorkspace = isWorkspaceSurface(slug);
+    if (appPanel instanceof HTMLElement) {
+      appPanel.hidden = showWorkspace;
+      appPanel.classList.toggle("hidden", showWorkspace);
+    }
+    if (workspacePanel instanceof HTMLElement) {
+      workspacePanel.hidden = !showWorkspace;
+      workspacePanel.classList.toggle("hidden", !showWorkspace);
+    }
+    if (global.document?.body instanceof HTMLElement) {
+      global.document.body.setAttribute("data-surface", slug);
+      global.document.body.setAttribute("data-mei-view", slug);
+    }
+    if (showWorkspace) {
+      if (typeof boot.installManageTabs === "function") {
+        boot.installManageTabs();
+      }
+      if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+        globalThis.MeiBuildTreePersist.refresh();
+      }
+    }
+  }
+
+  function syncTopbarActiveState(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    const labelMap = {
+      app: "应用",
+      layout: "布局",
+      prototype: "原型",
+    };
+    const label = labelMap[slug] || "";
+    const buttons = global.document?.querySelectorAll?.("sl-button[data-mei-app-view]");
+    if (!buttons) return;
+    buttons.forEach((button) => {
+      if (!(button instanceof HTMLElement)) return;
+      const active = String(button.getAttribute("data-mei-app-view") || "").trim() === label;
+      button.classList.toggle("is-active", active);
+      if (button.classList.contains("mode-tab-btn")) {
+        button.classList.toggle("is-active", active);
+      }
+    });
+  }
+
+  function isSameAppViewHost(current, next) {
+    if (!current || !next) return false;
+    const currentApp = String(current.app_id || current.appId || "").trim();
+    const nextApp = String(next.app_id || next.appId || "").trim();
+    if (!currentApp || currentApp !== nextApp) return false;
+    try {
+      const curPath = new URL(current.url || global.location.href, global.location.href).pathname;
+      const nextPath = new URL(next.url || global.location.href, global.location.href).pathname;
+      return isUnifiedViewPathname(curPath) && isUnifiedViewPathname(nextPath);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isSurfaceOnlyNavigation(current, next) {
+    if (!isSameAppViewHost(current, next)) return false;
+    try {
+      const curUrl = new URL(current.url || global.location.href, global.location.href);
+      const nextUrl = new URL(next.url || global.location.href, global.location.href);
+      if (curUrl.pathname !== nextUrl.pathname) return false;
+      if (surfaceSlugFromContext(current) === surfaceSlugFromContext(next)) {
+        return false;
+      }
+      const keys = ["scene", "chrome", "tab", "file", "node", "scope", "focus", "data_mode", "review_projection"];
+      return keys.every((key) => curUrl.searchParams.get(key) === nextUrl.searchParams.get(key));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function navigateSurface(url, replaceHistory) {
+    if (typeof boot.parseViewContext !== "function") return false;
+    const nextCtx = boot.parseViewContext(url);
+    const currentCtx = boot.parseViewContext(global.location.href);
+    if (!nextCtx || !isSurfaceOnlyNavigation(currentCtx, nextCtx)) {
+      return false;
+    }
+    const surface = surfaceSlugFromContext(nextCtx);
+    if (typeof boot.showThinShellFallback === "function") {
+      boot.showThinShellFallback("正在切换视图…");
+    }
+    switchSurfacePanel(surface);
+    let negotiated = null;
+    if (typeof boot.negotiateAndAssemble === "function") {
+      negotiated = await boot.negotiateAndAssemble(nextCtx, { silent: true });
+    } else if (boot.viewRevisionClient?.negotiateWithLocalMiss) {
+      const vrCtx = {
+        app_id: nextCtx.app_id || nextCtx.appId,
+        scene_id: nextCtx.scene_id || nextCtx.sceneId,
+        surface,
+        node: nextCtx.node || "",
+        data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
+        review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
+        chrome: nextCtx.chrome || "",
+        tab: nextCtx.tab || "",
+        focus: nextCtx.focus || "",
+        scope: nextCtx.scope || "",
+      };
+      negotiated = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx);
+    }
+    if (!negotiated?.assemble?.ok) {
+      if (typeof boot.showThinShellFallback === "function") {
+        boot.showThinShellFallback("视图切换失败，请刷新后重试。");
+      }
+      return false;
+    }
+    if (typeof boot.hideThinShellFallback === "function") {
+      boot.hideThinShellFallback();
+    }
+    syncTopbarActiveState(surface);
+    const canonicalUrl =
+      typeof boot.canonicalizeViewUrl === "function"
+        ? boot.canonicalizeViewUrl(url)
+        : url;
+    if (replaceHistory) {
+      global.history.replaceState({}, "", canonicalUrl);
+    } else {
+      global.history.pushState({}, "", canonicalUrl);
+    }
+    if (typeof runPostSpaWork === "function") {
+      runPostSpaWork(global.document, canonicalUrl, null, null, new URL(canonicalUrl, global.location.href));
+    }
+    return true;
+  }
+
+  boot.isUnifiedViewPathname = isUnifiedViewPathname;
+  boot.switchSurfacePanel = switchSurfacePanel;
+  boot.navigateSurface = navigateSurface;
+
+  function initViewSurfacePanelFromLocation() {
+    if (typeof boot.parseViewContext !== "function") return;
+    const ctx = boot.parseViewContext(global.location.href);
+    if (!ctx) return;
+    try {
+      const path = new URL(global.location.href).pathname;
+      if (isUnifiedViewPathname(path)) {
+        switchSurfacePanel(surfaceSlugFromContext(ctx));
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  if (global.document?.readyState === "loading") {
+    global.document.addEventListener("DOMContentLoaded", initViewSurfacePanelFromLocation, {
+      once: true,
+    });
+  } else {
+    initViewSurfacePanelFromLocation();
+  }
+})(typeof window !== "undefined" ? window : globalThis);
+
+
 /* ===== spa-navigation/spa/navigation.js ===== */
   async function loadAndSwap(url, replaceHistory, navigationId) {
     const ctx = typeof boot.parseAccessSceneContext === "function" ? boot.parseAccessSceneContext(url) : null;
@@ -29502,9 +29856,6 @@
       } catch (_) {}
     }
     document.title = doc.title || document.title;
-    if (document.body.className !== doc.body.className) {
-      document.body.className = doc.body.className;
-    }
     if (preserveManageWorkspace) {
       const swapped = swapManageWorkspace(doc, url, replaceHistory);
       if (!swapped) {
@@ -29560,7 +29911,13 @@
       boot.beginLoadingProgressSession(navigationId, url);
     }
     try {
-      const completed = await loadAndSwap(url, replaceHistory, navigationId);
+      const completed = await (async () => {
+        if (typeof boot.navigateSurface === "function") {
+          const surfaceHandled = await boot.navigateSurface(url, replaceHistory);
+          if (surfaceHandled) return true;
+        }
+        return loadAndSwap(url, replaceHistory, navigationId);
+      })();
       if (!completed && navigationId === currentNavigationId) {
         console.warn("[spa-navigation] navigation superseded", url);
       }

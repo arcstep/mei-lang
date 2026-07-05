@@ -39,7 +39,7 @@ test.describe("0517 convergence hand checklist", () => {
     const payload = await manifestRes.json();
     expect(payload.manifest?.compose_defaults?.route_mode).toBe("layout");
 
-    await page.goto(`/apps/${APP}/layout?scene=home&tab=preview`);
+    await page.goto(`/apps/${APP}/view?surface=layout&scene=home&tab=preview`);
     await expect(page.locator(".shell, #mei-compose-root, .preview-pane-scroll").first()).toBeVisible({
       timeout: 60000,
     });
@@ -57,7 +57,7 @@ test.describe("0517 convergence hand checklist", () => {
       const res = await request.get(path);
       expect(res.status(), path).toBe(404);
     }
-    const response = await page.goto(`/apps/${APP}/app?scene=home`, {
+    const response = await page.goto(`/apps/${APP}/view?surface=app&scene=home`, {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
@@ -68,5 +68,41 @@ test.describe("0517 convergence hand checklist", () => {
     await page.keyboard.press("ArrowRight");
     await page.waitForTimeout(500);
     expect(page.url()).not.toMatch(/\/apps\/(?:run|copilot)\//);
+  });
+
+  test("legacy layout URL 301 redirects to unified view", async ({ request }) => {
+    const res = await request.get(`/apps/${APP}/layout?scene=home`, {
+      maxRedirects: 0,
+    });
+    expect(res.status()).toBe(301);
+    const location = res.headers().location || "";
+    expect(location).toContain(`/apps/${APP}/view`);
+    expect(location).toContain("surface=layout");
+  });
+
+  test("surface switch avoids full document navigation", async ({ page, request }) => {
+    const manifestRes = await request.get(
+      `/api/host/scene-manifest?app_id=${APP}&scene=home&surface=app`,
+    );
+    if (manifestRes.status() === 404) {
+      test.skip(true, "requires mei-host-shell stack");
+    }
+    let documentLoads = 0;
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) documentLoads += 1;
+    });
+    await page.goto(`/apps/${APP}/view?surface=app&scene=home`, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    });
+    const loadsAfterColdStart = documentLoads;
+    const layoutTab = page.locator('sl-button[data-mei-app-view="布局"]');
+    if ((await layoutTab.count()) === 0) {
+      test.skip(true, "topbar mode tabs not rendered for this app");
+    }
+    await layoutTab.first().click();
+    await page.waitForTimeout(2000);
+    expect(page.url()).toContain("surface=layout");
+    expect(documentLoads).toBe(loadsAfterColdStart);
   });
 });

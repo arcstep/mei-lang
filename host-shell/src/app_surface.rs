@@ -1,8 +1,9 @@
-//! App-id-first surface routes: `/apps/{id}/app|layout|prototype`.
+//! App-id-first surface routes: `/apps/{id}/view?surface=app|layout|prototype`.
 
 use mei_lang_app::UiRouteMode;
 
 use crate::pages::AppQuery;
+use crate::scene_manifest::resolve_route_mode_from_surface;
 
 #[allow(dead_code)]
 pub fn parse_apps_surface_path(path: &str) -> Option<(String, UiRouteMode, String)> {
@@ -83,9 +84,47 @@ pub fn parse_app_surface_tail(
 pub fn legacy_app_access_redirect(app_tail: &str) -> Option<String> {
     let parts: Vec<&str> = app_tail.split('/').filter(|p| !p.is_empty()).collect();
     if parts.len() >= 2 && parts[1] == "access" {
-        return Some(format!("/apps/{}/app", parts[0]));
+        return Some(format!("/apps/{}/view?surface=app", parts[0]));
     }
     None
+}
+
+/// Parse optional `/view/scene/{id}` tail segment.
+pub fn parse_view_scene_tail(tail: &str) -> Option<String> {
+    let parts: Vec<&str> = tail.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.len() >= 2 && parts[0] == "scene" {
+        return Some(parts[1].to_string());
+    }
+    None
+}
+
+pub fn route_mode_for_view_query(query: &AppQuery) -> UiRouteMode {
+    resolve_route_mode_from_surface(query.surface.as_deref())
+}
+
+pub fn parse_view_app_scene(
+    app_id: &str,
+    tail: &str,
+    query: &AppQuery,
+    route_mode: UiRouteMode,
+) -> (String, String) {
+    let scene = parse_view_scene_tail(tail)
+        .or_else(|| {
+            query
+                .scene
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| {
+            if route_mode == UiRouteMode::App {
+                "__default_access__".to_string()
+            } else {
+                "home".to_string()
+            }
+        });
+    (app_id.to_string(), scene)
 }
 
 #[cfg(test)]

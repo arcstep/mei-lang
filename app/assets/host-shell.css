@@ -650,19 +650,4 @@
   font-size: var(--mei-shell-font-1);
 }
 
-.shell-nav {
-  border-right: 1px solid color-mix(in srgb, var(--mei-shell-color-border-slate) 70%, transparent);
-}
-
-.shell-nav-link {
-  color: var(--mei-shell-color-text-body);
-  text-decoration: none;
-  font-size: var(--mei-shell-font-1);
-  padding: 2px 8px;
-  border-radius: 999px;
-}
-
-.shell-nav-link.is-active {
-  background: color-mix(in srgb, var(--mei-shell-color-accent) 24%, transparent);
-  color: var(--mei-shell-color-text-inverse);
-}
+/* shell-nav 样式已迁至 app-shell.css（.topbar-system-toolbar 作用域），避免与应用视图样式分叉 */

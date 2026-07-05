@@ -71,9 +71,6 @@
       } catch (_) {}
     }
     document.title = doc.title || document.title;
-    if (document.body.className !== doc.body.className) {
-      document.body.className = doc.body.className;
-    }
     if (preserveManageWorkspace) {
       const swapped = swapManageWorkspace(doc, url, replaceHistory);
       if (!swapped) {
@@ -129,7 +126,13 @@
       boot.beginLoadingProgressSession(navigationId, url);
     }
     try {
-      const completed = await loadAndSwap(url, replaceHistory, navigationId);
+      const completed = await (async () => {
+        if (typeof boot.navigateSurface === "function") {
+          const surfaceHandled = await boot.navigateSurface(url, replaceHistory);
+          if (surfaceHandled) return true;
+        }
+        return loadAndSwap(url, replaceHistory, navigationId);
+      })();
       if (!completed && navigationId === currentNavigationId) {
         console.warn("[spa-navigation] navigation superseded", url);
       }

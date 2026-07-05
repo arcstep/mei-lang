@@ -17,7 +17,16 @@
     return "";
   }
 
-  function resolveSurface(pathname) {
+  function resolveSurface(pathname, searchParams) {
+    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
+      const fromQuery = String(searchParams?.get("surface") || "app")
+        .trim()
+        .toLowerCase();
+      if (fromQuery === "layout" || fromQuery === "prototype" || fromQuery === "app") {
+        return fromQuery;
+      }
+      return "app";
+    }
     const wsSurface =
       typeof workspaceSurfaceSlugFromAppsPathname === "function"
         ? workspaceSurfaceSlugFromAppsPathname(pathname)
@@ -46,11 +55,13 @@
           ? appIdFromAppsPathname(pathname)
           : "";
       if (!appId) return null;
-      const surface = resolveSurface(pathname);
-      const sceneId =
-        typeof sceneIdFromPathname === "function"
-          ? sceneIdFromPathname(pathname)
-          : String(url.searchParams.get("scene") || "home").trim() || "home";
+      const surface = resolveSurface(pathname, url.searchParams);
+      const sceneFromQuery = String(url.searchParams.get("scene") || "").trim();
+      const sceneId = sceneFromQuery
+        || (typeof sceneIdFromPathname === "function"
+          ? sceneIdFromPathname(pathname, url.search)
+          : "")
+        || "home";
       const dataMode = String(url.searchParams.get("data_mode") || "")
         .trim()
         .toLowerCase();
@@ -90,10 +101,13 @@
 
   function resolveComposeRoot(surface) {
     const slug = String(surface || "").trim().toLowerCase();
-    const byId = global.document?.getElementById?.("mei-compose-root");
-    if (byId instanceof HTMLElement) return byId;
+    if (slug === "app") {
+      const byId = global.document?.getElementById?.("mei-compose-root");
+      if (byId instanceof HTMLElement) return byId;
+    }
     if (isWorkspaceComposeSurface(slug)) {
       const preview =
+        global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll") ||
         global.document?.querySelector?.(".preview-pane-scroll") ||
         global.document?.querySelector?.('[data-manage-tab-panel="preview"] .preview-pane-scroll');
       if (preview instanceof HTMLElement) return preview;
@@ -102,7 +116,28 @@
     return shell instanceof HTMLElement ? shell : null;
   }
 
+  function canonicalizeViewUrl(urlLike) {
+    try {
+      const url = new URL(urlLike, global.location.href);
+      if (typeof isUnifiedViewRoute !== "function" || !isUnifiedViewRoute(url.pathname)) {
+        return url.href;
+      }
+      const surface = String(url.searchParams.get("surface") || "app").trim().toLowerCase();
+      const next = new URL(url.href);
+      next.search = "";
+      next.searchParams.set("surface", surface);
+      const scene = String(url.searchParams.get("scene") || "").trim();
+      if (scene) next.searchParams.set("scene", scene);
+      const chrome = String(url.searchParams.get("chrome") || "").trim().toLowerCase();
+      if (chrome && chrome !== "full") next.searchParams.set("chrome", chrome);
+      return next.href;
+    } catch (_) {
+      return urlLike;
+    }
+  }
+
   boot.parseViewContext = parseViewContext;
+  boot.canonicalizeViewUrl = canonicalizeViewUrl;
   boot.isWorkspaceComposeSurface = isWorkspaceComposeSurface;
   boot.resolveComposeRoot = resolveComposeRoot;
 })(typeof window !== "undefined" ? window : globalThis);

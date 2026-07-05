@@ -46,8 +46,8 @@ pub fn render_host_home_body_html(
             .iter()
             .map(|app| {
                 let access_ready = app_has_prebuilt_access_entry(workspace_root, app.id.as_str());
-                let access_href = format!("/apps/{}/app", app.id);
-                let build_href = format!("/apps/{}/layout", app.id);
+                let access_href = format!("/apps/{}/view?surface=app", app.id);
+                let build_href = format!("/apps/{}/view?surface=layout", app.id);
                 let status = if access_ready { "ready" } else { "missing" };
                 let status_label = if access_ready { "已编译" } else { "待预构建" };
                 let default_mark = if default_app == Some(app.id.as_str()) {

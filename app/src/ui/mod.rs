@@ -429,7 +429,7 @@ mod tests {
     fn layout_href_uses_app_surface() {
         assert_eq!(
             build_href_with_catalog("zhifa", Some("main.mei"), Some("preview"), None, None),
-            "/apps/zhifa/layout?file=main.mei&tab=preview"
+            "/apps/zhifa/view?surface=layout"
         );
         assert_eq!(config_href("zhifa"), "/apps/config/zhifa");
     }

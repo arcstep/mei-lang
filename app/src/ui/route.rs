@@ -49,11 +49,7 @@ impl UiRouteMode {
     }
 
     pub fn app_surface_href(self, app_path: &str) -> String {
-        format!(
-            "/apps/{}/{}",
-            app_path.trim_start_matches('/'),
-            self.slug()
-        )
+        super::view_routing::app_surface_href(app_path, self)
     }
 
     /// 技术/历史显示名（兼容旧文案与内部日志）。

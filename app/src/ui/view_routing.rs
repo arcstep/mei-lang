@@ -12,8 +12,30 @@ pub fn mcg_href(app_path: Option<&str>) -> String {
     }
 }
 
+pub fn view_href(
+    app_path: &str,
+    surface: UiRouteMode,
+    scene: Option<&str>,
+    _file: Option<&str>,
+    _tab: Option<&str>,
+    _node: Option<&str>,
+    chrome: Option<&str>,
+    _catalog: Option<&str>,
+    _pack: Option<&str>,
+) -> String {
+    let app = app_path.trim_start_matches('/');
+    let mut parts = vec![format!("surface={}", encode_query_value(surface.slug()))];
+    if let Some(scene) = scene.map(str::trim).filter(|value| !value.is_empty()) {
+        parts.push(format!("scene={}", encode_query_value(scene)));
+    }
+    if let Some(c) = chrome.map(str::trim).filter(|value| !value.is_empty()) {
+        parts.push(format!("chrome={}", encode_query_value(c)));
+    }
+    format!("/apps/{app}/view?{}", parts.join("&"))
+}
+
 pub fn app_surface_href(app_path: &str, surface: UiRouteMode) -> String {
-    surface.app_surface_href(app_path)
+    view_href(app_path, surface, None, None, None, None, None, None, None)
 }
 
 pub fn workspace_surface_href(
@@ -25,23 +47,17 @@ pub fn workspace_surface_href(
     catalog: Option<&str>,
     pack: Option<&str>,
 ) -> String {
-    let mut parts = Vec::new();
-    append_catalog_query(&mut parts, catalog, pack);
-    if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {
-        parts.push(format!("file={}", encode_query_value(f)));
-    }
-    if let Some(t) = tab.map(str::trim).filter(|s| !s.is_empty()) {
-        parts.push(format!("tab={}", encode_query_value(t)));
-    }
-    if let Some(n) = node.map(str::trim).filter(|s| !s.is_empty()) {
-        parts.push(format!("node={}", encode_query_value(n)));
-    }
-    let base = app_surface_href(app_path, surface);
-    if parts.is_empty() {
-        base
-    } else {
-        format!("{base}?{}", parts.join("&"))
-    }
+    view_href(
+        app_path,
+        surface,
+        None,
+        file,
+        tab,
+        node,
+        None,
+        catalog,
+        pack,
+    )
 }
 
 pub fn app_access_href(app_path: &str) -> String {
@@ -144,24 +160,17 @@ pub fn app_scene_href(
     _data_mode: Option<&str>,
     _review_projection: Option<&str>,
 ) -> String {
-    let mut base = app_surface_href(app_path, UiRouteMode::App);
-    if let Some(scene) = scene_id.map(str::trim).filter(|value| !value.is_empty()) {
-        base = format!("{base}/scene/{}", encode_query_value(scene));
-    }
-    let mut parts = Vec::new();
-    if let Some(t) = tab.map(str::trim).filter(|value| !value.is_empty()) {
-        parts.push(format!("tab={}", encode_query_value(t)));
-    }
-    if let Some(c) = chrome.map(str::trim).filter(|value| !value.is_empty()) {
-        parts.push(format!("chrome={}", encode_query_value(c)));
-    }
-    if parts.is_empty() {
-        base
-    } else if base.contains('?') {
-        format!("{base}&{}", parts.join("&"))
-    } else {
-        format!("{base}?{}", parts.join("&"))
-    }
+    view_href(
+        app_path,
+        UiRouteMode::App,
+        scene_id,
+        None,
+        tab,
+        None,
+        chrome,
+        None,
+        None,
+    )
 }
 
 pub fn copilot_presentation_href(app_path: &str, _presentation_id: &str) -> String {
@@ -252,13 +261,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn app_surface_hrefs_use_app_id_first() {
-        assert_eq!(app_access_href("pretty-panels"), "/apps/pretty-panels/app");
+    fn app_surface_hrefs_use_unified_view_route() {
+        assert_eq!(
+            app_access_href("pretty-panels"),
+            "/apps/pretty-panels/view?surface=app"
+        );
         assert_eq!(
             layout_href("pretty-panels", Some("main.mei"), Some("preview")),
-            "/apps/pretty-panels/layout?file=main.mei&tab=preview"
+            "/apps/pretty-panels/view?surface=layout"
         );
-        assert_eq!(prototype_href("demo", None, None), "/apps/demo/prototype");
+        assert_eq!(
+            prototype_href("demo", None, None),
+            "/apps/demo/view?surface=prototype"
+        );
     }
 
     #[test]
@@ -271,7 +286,7 @@ mod tests {
             Some("static"),
             Some("plane_region_section"),
         );
-        assert!(href.starts_with("/apps/demo/app/scene/home"));
+        assert!(href.starts_with("/apps/demo/view?surface=app&scene=home"));
         assert!(!href.contains("review_projection"));
         assert!(!href.contains("data_mode"));
     }

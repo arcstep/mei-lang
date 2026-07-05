@@ -6,6 +6,7 @@
     currentShell.replaceChildren(
       ...Array.from(nextShell.childNodes).map((node) => node.cloneNode(true)),
     );
+    syncBodyThemeFromDoc(doc);
     if (replaceHistory) {
       window.history.replaceState({}, "", url);
     } else {
@@ -432,6 +433,22 @@
       const nextBread = nextHeader.querySelector(".app-current-path");
       if (curBread && nextBread) {
         curBread.replaceWith(nextBread.cloneNode(true));
+      }
+
+      const curAppCtx = currentHeader.querySelector(".topbar-app-context");
+      const nextAppCtx = nextHeader.querySelector(".topbar-app-context");
+      if (curAppCtx && nextAppCtx) {
+        curAppCtx.className = nextAppCtx.className;
+      }
+
+      const curNavLinks = currentHeader.querySelectorAll(".shell-nav .shell-nav-link");
+      const nextNavLinks = nextHeader.querySelectorAll(".shell-nav .shell-nav-link");
+      const navCount = Math.min(curNavLinks.length, nextNavLinks.length);
+      for (let k = 0; k < navCount; k++) {
+        const href = nextNavLinks[k].getAttribute("href");
+        if (href) curNavLinks[k].setAttribute("href", href);
+        const active = nextNavLinks[k].classList.contains("is-active");
+        curNavLinks[k].classList.toggle("is-active", active);
       }
     } catch (err) {
       console.warn("[spa-navigation] sync topbar skipped", err);

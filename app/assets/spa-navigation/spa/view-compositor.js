@@ -179,9 +179,32 @@
     return { themeEffective, overlayEffective };
   }
 
-  function pickShellLayer(layers) {
+  function surfaceSlugFromComposeAxes(composeAxes) {
+    const fromAxes = String(composeAxes?.surface || composeAxes?.mode || "")
+      .trim()
+      .toLowerCase();
+    if (fromAxes) return fromAxes;
+    if (typeof boot.parseViewContext === "function") {
+      const ctx = boot.parseViewContext(global.location.href);
+      return String(ctx?.surface || ctx?.mode || "app")
+        .trim()
+        .toLowerCase();
+    }
+    return "app";
+  }
+
+  function pickShellLayer(layers, composeAxes) {
     if (!layers || typeof layers !== "object") return null;
+    const surface = surfaceSlugFromComposeAxes(composeAxes);
+    const bySurface = {
+      app: layers["shell.app"],
+      layout: layers["shell.layout"],
+      prototype: layers["shell.prototype"],
+      build: layers["shell.build"],
+      run: layers["shell.run"],
+    };
     return (
+      bySurface[surface] ||
       layers["shell.build"] ||
       layers["shell.layout"] ||
       layers["shell.prototype"] ||
@@ -227,7 +250,7 @@
       "live_full";
     const structure = extractLayerDocument(layers["structure.full"]);
     if (!structure) return false;
-    applyShellLayer(root, pickShellLayer(layers));
+    applyShellLayer(root, pickShellLayer(layers, composeAxes));
     ensureStructureSkeleton(root, structure);
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);

@@ -43,6 +43,8 @@ pub struct AppQuery {
     pub review_projection: Option<String>,
     /// Structure tree max ui role depth (`content`, `section`, …).
     pub tree_max: Option<String>,
+    /// Unified view surface (`app` | `layout` | `prototype`); canonical on `/apps/{id}/view`.
+    pub surface: Option<String>,
 }
 
 fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
@@ -71,6 +73,41 @@ fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
     .map(|resolved| resolved.node.encode())
 }
 
+pub async fn app_view_page(
+    State(state): State<SharedState>,
+    State(auth): State<AuthServeState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+    Path(app_id): Path<String>,
+    Query(mut query): Query<AppQuery>,
+) -> Response {
+    let tail = uri
+        .path()
+        .strip_prefix(&format!("/apps/{app_id}/view"))
+        .unwrap_or("")
+        .trim_start_matches('/');
+    if let Some(scene) = crate::app_surface::parse_view_scene_tail(tail) {
+        if query.scene.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            query.scene = Some(scene);
+        }
+    }
+    let route_mode = crate::app_surface::route_mode_for_view_query(&query);
+    query.surface = Some(route_mode.slug().to_string());
+    crate::app_surface::merge_surface_query_defaults(&mut query, route_mode);
+    app_page(
+        State(state),
+        State(auth),
+        principal,
+        OriginalUri(uri),
+        headers,
+        Path(("view".to_string(), app_id)),
+        Query(query),
+    )
+    .await
+}
+
+#[allow(dead_code)]
 pub async fn app_surface_page(
     State(state): State<SharedState>,
     State(auth): State<AuthServeState>,
@@ -133,7 +170,11 @@ pub async fn app_page(
         )
             .into_response();
     }
-    let route_mode = UiRouteMode::from_slug(mode.as_str());
+    let route_mode = if mode.as_str() == "view" {
+        crate::app_surface::route_mode_for_view_query(&query)
+    } else {
+        UiRouteMode::from_slug(mode.as_str())
+    };
     let app_tail = app_tail.trim_start_matches('/').to_string();
     let mut query = query;
     if mode == "build" || mode == "manage" {
@@ -148,7 +189,16 @@ pub async fn app_page(
             return Redirect::permanent(target.as_str()).into_response();
         }
     }
-    let (app_id, scene_id, tour_id) = if route_mode.is_app_surface() {
+    let (app_id, scene_id, tour_id) = if mode == "view" {
+        let tail = uri
+            .path()
+            .strip_prefix(&format!("/apps/{app_tail}/view"))
+            .unwrap_or("")
+            .trim_start_matches('/');
+        let (id, scene) =
+            crate::app_surface::parse_view_app_scene(app_tail.as_str(), tail, &query, route_mode);
+        (id, scene, None)
+    } else if route_mode.is_app_surface() {
         crate::app_surface::merge_surface_query_defaults(&mut query, route_mode);
         crate::app_surface::parse_app_surface_tail(app_tail.as_str(), query.scene.as_deref(), route_mode)
     } else {
@@ -234,6 +284,7 @@ pub async fn app_page(
         && !route_mode.is_build()
         && route_mode != UiRouteMode::Config
         && route_mode != UiRouteMode::Upload
+        && mode != "view"
     {
         return (
             StatusCode::NOT_IMPLEMENTED,
@@ -318,7 +369,30 @@ pub async fn app_page(
         focus: query.focus.as_deref(),
         scope: query.scope.as_deref(),
     };
-    let (mut html, ssr_emit_ms) = if route_mode.is_access_like() {
+    let (mut html, ssr_emit_ms) = if mode == "view" {
+        let render_started = Instant::now();
+        let node = resolve_build_node_for_query(&query).unwrap_or_default();
+        let template = render_thin_view_shell(
+            thin_view_shell_document(
+                app_id.as_str(),
+                scene_id.as_str(),
+                route_mode,
+                node.as_str(),
+                axes.data_mode.slug(),
+                crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
+                query.tree_max.as_deref().unwrap_or(""),
+            ),
+            workspace_root,
+            package_root,
+            app_id.as_str(),
+            scene_id.as_str(),
+            route_mode,
+            &shell_compose,
+            Some(&chrome_host),
+            Some(&thin_preview),
+        );
+        (template, render_started.elapsed().as_millis() as u64)
+    } else if route_mode.is_access_like() {
         let render_started = Instant::now();
         let template = render_thin_access_shell(
             thin_access_shell_document(app_id.as_str(), scene_id.as_str()),
@@ -1503,6 +1577,106 @@ pub(crate) fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String
     )
 }
 
+pub(crate) fn thin_view_shell_document(
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    node: &str,
+    data_mode: &str,
+    review_projection: &str,
+    tree_max_ui_role: &str,
+) -> String {
+    let surface_slug = route_mode.slug();
+    let app_panel_hidden = if route_mode == UiRouteMode::App {
+        ""
+    } else {
+        " hidden"
+    };
+    let workspace_panel_hidden = if route_mode.uses_workspace_tree() {
+        ""
+    } else {
+        " hidden"
+    };
+    let tree_max_attr = if tree_max_ui_role.trim().is_empty() {
+        String::new()
+    } else {
+        format!(r#" data-build-tree-max-ui-role="{tree_max_ui_role}""#)
+    };
+    let workspace_main = thin_workspace_shell_main(data_mode, review_projection);
+    format!(
+        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="{surface_slug}" data-app-id="{app_id}" data-scene-id="{scene_id}" data-surface="{surface_slug}"><div id="mei-host-topbar-slot" data-mei-host-chrome="top"></div><div id="mei-view-host" class="mei-view-host flex min-h-0 flex-1 flex-col"><section id="mei-surface-app" class="mei-surface-panel flex min-h-0 flex-1 flex-col"{app_panel_hidden}><div class="shell shell-surface scene-shell mei-text-primary min-h-0 flex flex-1 flex-col" id="mei-compose-host" data-scene="{scene_id}"><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}"></div></main></div></section><section id="mei-surface-workspace" class="mei-surface-panel flex min-h-0 flex-1 flex-col"{workspace_panel_hidden}><div class="shell build-thin-shell min-h-0 flex flex-1 flex-col" data-scene="{scene_id}" data-build-node="{node}" data-data-mode="{data_mode}" data-review-projection="{review_projection}"{tree_max_attr}>{workspace_main}</div></section></div><nav id="mei-build-reachability-tree" class="build-reachability-tree" hidden aria-hidden="true"></nav><script id="mei-build-reachability-tree" type="application/json">[]</script><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div><div id="mei-host-statusbar-slot" data-mei-host-chrome="bottom"></div></body></html>"#
+    )
+}
+
+pub(crate) fn render_thin_view_shell(
+    html: String,
+    workspace_root: &std::path::Path,
+    package_root: &std::path::Path,
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    compose: &mei_host_graph::ComposeRequest,
+    chrome_host: Option<&crate::scene_manifest::SceneChromeHostContext<'_>>,
+    preview: Option<&ThinShellPreviewContext<'_>>,
+) -> String {
+    let _ = preview;
+    let assemble_outcome =
+        mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
+            .ok()
+            .flatten();
+    let html = inject_thin_shell_body_presentation(
+        html,
+        workspace_root,
+        route_mode,
+        assemble_outcome.as_ref().map(|outcome| &outcome.compiled),
+    );
+    let html = inject_thin_view_shell_runtime_assets(html, route_mode);
+    let html = fill_page_shell_placeholders(html, workspace_root);
+    let mut html = inject_scene_manifest_refs_for_route(
+        html,
+        workspace_root,
+        app_id,
+        scene_id,
+        route_mode,
+        compose,
+        "",
+        "",
+        chrome_host,
+    );
+    if let Some(outcome) = assemble_outcome.as_ref() {
+        let data_mode = compose
+            .data_mode
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let bootstrap_html = render_host_ssr_bootstrap_html(
+            &outcome.compiled,
+            app_id,
+            Some(scene_id),
+            data_mode,
+        );
+        if !bootstrap_html.trim().is_empty() {
+            html = inject_html_before_head_close(html, bootstrap_html.as_str());
+        }
+        let scene_bundle_url = resolve_thin_shell_scene_bundle_url(
+            package_root,
+            workspace_root,
+            app_id,
+            scene_id,
+            route_mode,
+            &outcome.compiled,
+        );
+        html = inject_thin_shell_component_scripts(
+            html,
+            &outcome.compiled,
+            scene_bundle_url.as_deref(),
+        );
+        html = inject_layer_plane_scripts(html, outcome);
+        html = inject_presentation_manifest_script(html, workspace_root, app_id, None);
+    }
+    html
+}
+
 const THIN_WORKSPACE_ROOT_INNER: &str = concat!(
     r#"<div id="workspace-root" class="workspace manage-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 build-thin-shell-root">"#,
     r#"<aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">"#,
@@ -1851,6 +2025,51 @@ fn inject_thin_shell_body_presentation(
     html = html.replace("__MEI_THIN_BODY_CLASS__", thin_shell_body_class(route_mode));
     html = html.replace("__MEI_ROUTE_MODE_SLUG__", route_mode.slug());
     html
+}
+
+fn inject_thin_view_shell_runtime_assets(
+    html: String,
+    route_mode: mei_lang_app::UiRouteMode,
+) -> String {
+    let access_src = "/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__";
+    let manage_src = "/app-bundles/manage.js?v=__MEI_HOST_ASSET_VERSION__";
+    let runtime = format!(
+        concat!(
+            r#"<meta name="viewport" content="width=device-width, initial-scale=1"/>"#,
+            r#"<meta name="mei-tiles-base-url" content="__MEI_TILES_BASE_URL__"/>"#,
+            r#"<meta name="mei-tiles-json-path" content="__MEI_TILES_JSON_PATH__"/>"#,
+            r#"<meta name="mei-host-version" content="__MEI_HOST_VERSION__"/>"#,
+            r#"<meta name="mei-host-version-label" content="__MEI_HOST_VERSION_LABEL__"/>"#,
+            r#"<meta name="mei-host-icp-record" content="__MEI_HOST_ICP_RECORD__"/>"#,
+            r#"<meta name="mei-host-psb-record" content="__MEI_HOST_PSB_RECORD__"/>"#,
+            r#"<meta name="mei-host-copyright" content="__MEI_HOST_COPYRIGHT__"/>"#,
+            r#"<meta name="mei-workspace-label" content="__MEI_WORKSPACE_LABEL__"/>"#,
+            r#"<meta name="mei-view" content="{route_slug}"/>"#,
+            r#"<link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>"#,
+            r#"<link rel="stylesheet" href="/app-bundles/styles.css?v=__MEI_HOST_ASSET_VERSION__"/>"#,
+            r#"<script src="/app-assets/spa-navigation/visit-history-store.js"></script>"#,
+            r#"<script src="/app-assets/page-load-progress-shell.js"></script>"#,
+            r#"<script>(function(){{try{{if(window.MeiPageLoadProgress){{window.MeiPageLoadProgress.mountEarlyHandoffOverlay();}}}}catch(e){{}}}})();</script>"#,
+            r#"<link rel="preload" href="{access_src}" as="script"/>"#,
+            r#"<link rel="preload" href="{manage_src}" as="script"/>"#,
+            r#"<script defer src="/app-assets/host-http-feedback.js"></script>"#,
+            r#"<script type="module" src="/app-bundles/shoelace.js"></script>"#,
+            r#"<script defer src="{access_src}"></script>"#,
+            r#"<script defer src="{manage_src}"></script>"#
+        ),
+        route_slug = route_mode.slug(),
+        access_src = access_src,
+        manage_src = manage_src,
+    );
+    if let Some(pos) = html.find("</head>") {
+        let mut out = String::with_capacity(html.len() + runtime.len());
+        out.push_str(&html[..pos]);
+        out.push_str(&runtime);
+        out.push_str(&html[pos..]);
+        out
+    } else {
+        format!("{runtime}{html}")
+    }
 }
 
 fn inject_thin_shell_runtime_assets(html: String, route_mode: mei_lang_app::UiRouteMode) -> String {

@@ -300,7 +300,9 @@
         return result;
       }
       const surface = vrCtx.surface || "app";
-      if (surface === "layout" || surface === "prototype") {
+      if (typeof boot.switchSurfacePanel === "function") {
+        boot.switchSurfacePanel(surface);
+      } else if (surface === "layout" || surface === "prototype") {
         if (typeof boot.installManageTabs === "function") {
           boot.installManageTabs();
         }

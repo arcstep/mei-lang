@@ -90,6 +90,17 @@
 
   function isSameAppWorkspaceSurfaceSwitch(currentUrl, nextUrl) {
     try {
+      if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(currentUrl.pathname) && isUnifiedViewRoute(nextUrl.pathname)) {
+        const fromApp =
+          typeof appIdFromAppsPathname === "function"
+            ? appIdFromAppsPathname(currentUrl.pathname)
+            : "";
+        const toApp =
+          typeof appIdFromAppsPathname === "function"
+            ? appIdFromAppsPathname(nextUrl.pathname)
+            : "";
+        return Boolean(fromApp && fromApp === toApp);
+      }
       if (typeof isAppWorkspaceSurfaceRoute !== "function") return false;
       if (typeof appIdFromAppsPathname !== "function") return false;
       if (typeof isWorkspaceSurfaceRoute !== "function") return false;

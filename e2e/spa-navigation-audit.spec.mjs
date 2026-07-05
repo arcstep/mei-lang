@@ -7,11 +7,11 @@
 import { test, expect } from "@playwright/test";
 
 const EXAMPLES_MAIN =
-  "/apps/examples/core/02-external-scene-file/layout?file=main.mei&tab=preview";
+  "/apps/examples/core/02-external-scene-file/view?surface=layout&file=main.mei&tab=preview";
 const EXAMPLES_HOME =
-  "/apps/examples/core/02-external-scene-file/layout?file=home.mei&tab=preview";
+  "/apps/examples/core/02-external-scene-file/view?surface=layout&file=home.mei&tab=preview";
 const SPBJW_HOME =
-  "/apps/spbjw/layout?file=scenes/home.mei&tab=preview";
+  "/apps/spbjw/view?surface=layout&file=scenes/home.mei&tab=preview";
 
 const SPA_HEADER = "x-mei-spa-nav";
 const IDLE_MS = 30000;

@@ -212,7 +212,7 @@ pub(crate) fn topbar_view(
         view! { <></> }.into_any()
     } else {
         view! {
-        <div class="app-current-path inline-flex min-w-0 max-w-[min(300px,30vw)] items-center gap-1 pl-2 mei-font-1 mei-text-muted" aria-label=breadcrumb_aria>
+        <div class="app-current-path inline-flex min-w-0 max-w-[min(300px,30vw)] items-center gap-1 mei-font-1 mei-text-muted" aria-label=breadcrumb_aria>
             <span class="app-current-path-prefix shrink-0 mei-text-muted">{"应用："}</span>
             <span class="app-current-path-trail inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
                 <span class="app-current-path-workspace shrink-0 mei-text-muted">{breadcrumb_root_label}</span>
@@ -358,32 +358,38 @@ pub(crate) fn topbar_view(
     } else {
         view! { <></> }.into_any()
     };
+    let app_context_class = if has_app_context {
+        "topbar-app-context has-app-context"
+    } else {
+        "topbar-app-context"
+    };
     view! {
-        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-50 flex items-center gap-2.5 py-1.5 backdrop-blur-md">
-            <div class="topbar-left flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                <div class="brand flex shrink-0 items-center gap-2">
-                    <div class="brand-title-row flex min-w-0 items-center gap-2">
-                        <img
-                            class="brand-mark block h-[18px] w-[18px] shrink-0"
-                            src="/app-assets/favicon.svg"
-                            width="18"
-                            height="18"
-                            alt=""
-                            aria-hidden="true"
-                        />
-                        <strong class="topbar-brand-title mei-font-2 mei-text-inverse">"MeiLang"</strong>
-                    </div>
+        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-50 flex items-center gap-2 py-1.5 backdrop-blur-md">
+            <div class="brand flex shrink-0 items-center gap-2">
+                <div class="brand-title-row flex min-w-0 items-center gap-2">
+                    <img
+                        class="brand-mark block h-[18px] w-[18px] shrink-0"
+                        src="/app-assets/favicon.svg"
+                        width="18"
+                        height="18"
+                        alt=""
+                        aria-hidden="true"
+                    />
+                    <strong class="topbar-brand-title mei-font-2 mei-text-inverse">"MeiLang"</strong>
                 </div>
+            </div>
+            <div class=app_context_class>
                 <div
-                    class="topbar-app-toolbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
+                    class="topbar-app-toolbar flex min-w-0 items-center gap-1 overflow-x-auto"
                     aria-label="应用工具栏"
                 >
-                    <div class="app-tabs-groups flex min-w-0 shrink-0 flex-nowrap items-center gap-1.5">{app_tabs}</div>
+                    <div class="app-tabs-groups flex min-w-0 shrink-0 flex-nowrap items-center gap-1">{app_tabs}</div>
                     {active_item_breadcrumb}
                     {app_view_tabs}
                     {standalone_launch}
                 </div>
             </div>
+            <div class="topbar-spacer" aria-hidden="true"></div>
             <div class="topbar-right flex shrink-0 items-center gap-2">
                 <div class="topbar-system-toolbar shrink-0" aria-label="系统工具栏">
                     {system_toolbar}

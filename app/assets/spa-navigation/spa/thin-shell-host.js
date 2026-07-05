@@ -28,7 +28,15 @@
   function applyHostChromeFromManifestRefs() {
     const layers = globalThis.__mei?.scene_manifest_refs?.layers;
     if (!layers || typeof layers !== "object") return false;
+    const ctx =
+      typeof boot.parseViewContext === "function"
+        ? boot.parseViewContext(global.location.href)
+        : null;
+    const surface = String(ctx?.surface || ctx?.mode || "app")
+      .trim()
+      .toLowerCase();
     const shell =
+      layers[`shell.${surface}`] ||
       layers["shell.app"] ||
       layers["shell.layout"] ||
       layers["shell.prototype"] ||
@@ -37,7 +45,7 @@
     if (!shell) return false;
     const root =
       typeof boot.resolveComposeRoot === "function"
-        ? boot.resolveComposeRoot("app")
+        ? boot.resolveComposeRoot(surface)
         : global.document?.getElementById?.("mei-compose-root");
     if (boot.viewCompositor?.applyShellLayer && root instanceof HTMLElement) {
       boot.viewCompositor.applyShellLayer(root, shell);

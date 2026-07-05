@@ -24,12 +24,14 @@ use crate::host_home::host_home_page;
 use crate::host_mcg::host_mcg_page;
 use crate::host_scoped::{host_config_page, host_runtime_page, host_upload_page};
 use crate::shell_redirects::{
-    redirect_apps_access, redirect_apps_config, redirect_apps_runtime, redirect_apps_upload,
-    redirect_host_config, redirect_host_runtime, redirect_host_upload, redirect_root_to_home,
+    redirect_apps_access, redirect_apps_app_scene, redirect_apps_app_to_view,
+    redirect_apps_config, redirect_apps_layout_to_view, redirect_apps_prototype_to_view,
+    redirect_apps_runtime, redirect_apps_upload, redirect_host_config, redirect_host_runtime,
+    redirect_host_upload, redirect_root_to_home,
 };
 use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_fragment,
-    api_scene_revision, app_page, app_surface_page, host_starting_page,
+    api_scene_revision, app_page, app_view_page, host_starting_page,
 };
 use crate::presentation_compile::api_presentation_compile;
 use crate::presentation_scripts::{
@@ -215,12 +217,14 @@ pub fn router(state: HostHttpState) -> Router {
                 .layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/gis/*path", get(crate::gis_proxy::gis_proxy))
-        .route("/apps/:app_id/app", get(app_surface_page))
-        .route("/apps/:app_id/app/*tail", get(app_surface_page))
-        .route("/apps/:app_id/layout", get(app_surface_page))
-        .route("/apps/:app_id/layout/*tail", get(app_surface_page))
-        .route("/apps/:app_id/prototype", get(app_surface_page))
-        .route("/apps/:app_id/prototype/*tail", get(app_surface_page))
+        .route("/apps/:app_id/view", get(app_view_page))
+        .route("/apps/:app_id/view/*tail", get(app_view_page))
+        .route("/apps/:app_id/app", get(redirect_apps_app_to_view))
+        .route("/apps/:app_id/app/*tail", get(redirect_apps_app_scene))
+        .route("/apps/:app_id/layout", get(redirect_apps_layout_to_view))
+        .route("/apps/:app_id/layout/*tail", get(redirect_apps_layout_to_view))
+        .route("/apps/:app_id/prototype", get(redirect_apps_prototype_to_view))
+        .route("/apps/:app_id/prototype/*tail", get(redirect_apps_prototype_to_view))
         .route("/apps/:mode/*app_id", get(app_page))
         .route("/app-bundles/:mode", get(app_bundle))
         .route("/app-assets/*path", get(app_asset))
@@ -936,7 +940,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_apps_access_redirects_to_canonical_access() {
+    async fn legacy_apps_access_redirects_to_unified_view() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let app = router(test_state(tmp.path().to_path_buf()));
         let response = app
@@ -951,7 +955,47 @@ mod tests {
         assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
         assert_eq!(
             response.headers().get("location").and_then(|v| v.to_str().ok()),
-            Some("/apps/app/pretty-panels/access")
+            Some("/apps/pretty-panels/view?surface=app")
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_apps_layout_redirects_to_unified_view() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/apps/demo/layout?scene=home&tab=preview")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            Some("/apps/demo/view?surface=layout&scene=home")
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_apps_app_redirects_to_unified_view() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/apps/demo/app?scene=home")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(
+            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            Some("/apps/demo/view?surface=app&scene=home")
         );
     }
 }

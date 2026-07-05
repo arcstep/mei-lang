@@ -36,9 +36,43 @@
     return String(segments[1] || "").trim().toLowerCase();
   }
 
+  function isUnifiedViewRoute(pathname = global.location?.pathname) {
+    const segments = pathSegments(pathname);
+    return segments[0] === "apps" && segments.length >= 3 && segments[2] === "view";
+  }
+
+  function surfaceSlugFromViewUrl(urlLike, search) {
+    try {
+      const raw = String(urlLike || "");
+      const url =
+        raw.includes("://") || raw.includes("?")
+          ? new URL(raw, global.location?.href || "http://localhost")
+          : new URL(
+              `${raw}${search || global.location?.search || ""}`,
+              global.location?.href || "http://localhost",
+            );
+      if (!isUnifiedViewRoute(url.pathname)) return "";
+      const surface = String(url.searchParams.get("surface") || "app")
+        .trim()
+        .toLowerCase();
+      if (surface === "layout" || surface === "prototype" || surface === "app") {
+        return surface;
+      }
+      return "app";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function appSurfaceSlugFromPathname(pathname = global.location?.pathname) {
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps" || segments.length < 3) return "";
+    if (segments[2] === "view") {
+      if (global.location?.pathname === pathname) {
+        return surfaceSlugFromViewUrl(pathname, global.location?.search) || "app";
+      }
+      return "app";
+    }
     return String(segments[2] || "").trim().toLowerCase();
   }
 
@@ -49,14 +83,35 @@
   }
 
   function isAppSurfaceRoute(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      const surface =
+        global.location?.pathname === pathname
+          ? surfaceSlugFromViewUrl(pathname, global.location?.search)
+          : "app";
+      return (surface || "app") === "app";
+    }
     return appSurfaceSlugFromPathname(pathname) === "app";
   }
 
   function isAppWorkspaceSurfaceRoute(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      const surface =
+        global.location?.pathname === pathname
+          ? surfaceSlugFromViewUrl(pathname, global.location?.search)
+          : "app";
+      return APP_WORKSPACE_SURFACE_SLUGS.has(surface || "app");
+    }
     return APP_WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
   function isWorkspaceSurfaceRoute(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      const surface =
+        global.location?.pathname === pathname
+          ? surfaceSlugFromViewUrl(pathname, global.location?.search)
+          : "";
+      return WORKSPACE_SURFACE_SLUGS.has(surface);
+    }
     return WORKSPACE_SURFACE_SLUGS.has(appSurfaceSlugFromPathname(pathname));
   }
 
@@ -169,6 +224,7 @@
     }
     const surface = appSurfaceSlugFromPathname(pathname);
     if (
+      surface === "view" ||
       WORKSPACE_SURFACE_SLUGS.has(surface) ||
       surface === "app" ||
       ACCESS_LIKE_ROUTE_SLUGS.has(surface)
@@ -185,11 +241,22 @@
   }
 
   function workspaceSurfaceSlugFromAppsPathname(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      const surface = surfaceSlugFromViewUrl(pathname);
+      return WORKSPACE_SURFACE_SLUGS.has(surface) ? surface : "";
+    }
     const surface = appSurfaceSlugFromPathname(pathname);
     return WORKSPACE_SURFACE_SLUGS.has(surface) ? surface : "";
   }
 
-  function sceneIdFromPathname(pathname = global.location?.pathname) {
+  function sceneIdFromPathname(pathname = global.location?.pathname, search = global.location?.search) {
+    if (isUnifiedViewRoute(pathname)) {
+      try {
+        const url = new URL(pathname + (search || ""), global.location?.href || "http://localhost");
+        const fromQuery = String(url.searchParams.get("scene") || "").trim();
+        if (fromQuery) return fromQuery;
+      } catch (_) {}
+    }
     const segments = pathSegments(pathname);
     if (segments[0] !== "apps") return "";
     const sceneIdx = segments.indexOf("scene");
@@ -206,6 +273,7 @@
 
   function isRevisionFirstShellPage(pathname = global.location?.pathname) {
     if (globalThis.__mei?.thin_shell === true) return true;
+    if (isUnifiedViewRoute(pathname)) return true;
     if (isAppWorkspaceSurfaceRoute(pathname)) return true;
     if (isAccessRoute(pathname)) return true;
     return false;
@@ -225,23 +293,24 @@
       let rewritten = false;
       const runMatch = path.match(/^\/apps\/(?:run|presentation|slides)\/([^/]+)(\/.*)?$/);
       if (runMatch) {
-        path = `/apps/${runMatch[1]}/app${runMatch[2] || ""}`;
+        path = `/apps/${runMatch[1]}/view?surface=app`;
         rewritten = true;
       }
       const copilotMatch = path.match(/^\/apps\/(?:copilot|speaker)\/([^/]+)(\/.*)?$/);
       if (copilotMatch) {
-        const tail = copilotMatch[2] || "";
-        path =
-          tail.startsWith("/presentation/") || tail.startsWith("/tour/")
-            ? `/apps/${copilotMatch[1]}/app`
-            : `/apps/${copilotMatch[1]}/app${tail}`;
+        path = `/apps/${copilotMatch[1]}/view?surface=app`;
         rewritten = true;
       }
       const legacyAppMatch = path.match(
         /^\/apps\/(?:app|access|access-only|access_only)\/([^/]+)(\/.*)?$/,
       );
       if (legacyAppMatch) {
-        path = `/apps/${legacyAppMatch[1]}/app${legacyAppMatch[2] || ""}`;
+        path = `/apps/${legacyAppMatch[1]}/view?surface=app`;
+        rewritten = true;
+      }
+      const legacySurfaceMatch = path.match(/^\/apps\/([^/]+)\/(layout|prototype)(\/.*)?$/);
+      if (legacySurfaceMatch) {
+        path = `/apps/${legacySurfaceMatch[1]}/view?surface=${legacySurfaceMatch[2]}`;
         rewritten = true;
       }
       if (!rewritten) return raw;
@@ -258,6 +327,8 @@
     RUNTIME_ROUTE_SLUGS,
     LEGACY_REMOVED_ROUTE_SLUGS,
     pathSegments,
+    isUnifiedViewRoute,
+    surfaceSlugFromViewUrl,
     legacyRouteSlugFromPathname,
     appSurfaceSlugFromPathname,
     appRouteSlugFromPathname,
@@ -300,7 +371,8 @@
   global.isBuildRoute = isBuildRoute;
   global.isAppRoute = isAppRoute;
   global.isAccessRoute = isAccessRoute;
-  global.isRevisionFirstShellPage = isRevisionFirstShellPage;
+  global.isUnifiedViewRoute = isUnifiedViewRoute;
+  global.surfaceSlugFromViewUrl = surfaceSlugFromViewUrl;
   global.isPresentationCapableRoute = isPresentationCapableRoute;
   global.rewriteLegacyPresentationRoute = rewriteLegacyPresentationRoute;
 })(typeof window !== "undefined" ? window : globalThis);
