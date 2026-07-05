@@ -93,14 +93,27 @@
       if (surfaceSlugFromContext(current) === surfaceSlugFromContext(next)) {
         return false;
       }
-      const keys = ["scene", "chrome", "tab", "file", "node", "scope", "focus", "data_mode", "review_projection"];
+      const keys = ["scene", "chrome"];
       return keys.every((key) => curUrl.searchParams.get(key) === nextUrl.searchParams.get(key));
     } catch (_) {
       return false;
     }
   }
 
-  async function navigateSurface(url, replaceHistory) {
+  function recordSurfaceVisit(url, surface) {
+    if (typeof boot.finalizeLoadSession !== "function" || typeof boot.getActiveLoadSession !== "function") {
+      return;
+    }
+    const session = boot.getActiveLoadSession();
+    if (!session || session.finalized) return;
+    session.label = `surface:${surface}`;
+    session.path = url;
+    session.url = url;
+    session.surface = surface;
+    session.kind = session.kind || "navigation";
+  }
+
+  async function navigateSurface(url, replaceHistory, navigationId) {
     if (typeof boot.parseViewContext !== "function") return false;
     const nextCtx = boot.parseViewContext(url);
     const currentCtx = boot.parseViewContext(global.location.href);
@@ -108,49 +121,75 @@
       return false;
     }
     const surface = surfaceSlugFromContext(nextCtx);
-    if (typeof boot.showThinShellFallback === "function") {
-      boot.showThinShellFallback("正在切换视图…");
-    }
-    switchSurfacePanel(surface);
-    let negotiated = null;
-    if (typeof boot.negotiateAndAssemble === "function") {
-      negotiated = await boot.negotiateAndAssemble(nextCtx, { silent: true });
-    } else if (boot.viewRevisionClient?.negotiateWithLocalMiss) {
-      const vrCtx = {
-        app_id: nextCtx.app_id || nextCtx.appId,
-        scene_id: nextCtx.scene_id || nextCtx.sceneId,
-        surface,
-        node: nextCtx.node || "",
-        data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
-        review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
-        chrome: nextCtx.chrome || "",
-        tab: nextCtx.tab || "",
-        focus: nextCtx.focus || "",
-        scope: nextCtx.scope || "",
-      };
-      negotiated = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx);
-    }
-    if (!negotiated?.assemble?.ok) {
-      if (typeof boot.showThinShellFallback === "function") {
-        boot.showThinShellFallback("视图切换失败，请刷新后重试。");
-      }
-      return false;
-    }
-    if (typeof boot.hideThinShellFallback === "function") {
-      boot.hideThinShellFallback();
-    }
-    syncTopbarActiveState(surface);
     const canonicalUrl =
       typeof boot.canonicalizeViewUrl === "function"
         ? boot.canonicalizeViewUrl(url)
         : url;
+
+    switchSurfacePanel(surface);
+    syncTopbarActiveState(surface);
     if (replaceHistory) {
       global.history.replaceState({}, "", canonicalUrl);
     } else {
       global.history.pushState({}, "", canonicalUrl);
     }
+
+    if (typeof showLoading === "function") {
+      showLoading();
+    }
+    recordSurfaceVisit(canonicalUrl, surface);
+
+    let negotiated = null;
+    try {
+      if (typeof boot.negotiateAndAssemble === "function") {
+        negotiated = await boot.negotiateAndAssemble(
+          { ...nextCtx, url: canonicalUrl },
+          { silent: true },
+        );
+      } else if (boot.viewRevisionClient?.negotiateWithLocalMiss) {
+        const vrCtx = {
+          app_id: nextCtx.app_id || nextCtx.appId,
+          scene_id: nextCtx.scene_id || nextCtx.sceneId,
+          surface,
+          node: nextCtx.node || "",
+          data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
+          review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
+          chrome: nextCtx.chrome || "",
+          tab: nextCtx.tab || "",
+          focus: nextCtx.focus || "",
+          scope: nextCtx.scope || "",
+        };
+        negotiated = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx);
+      }
+    } catch (error) {
+      console.warn("[surface-navigation] negotiate failed", error);
+    }
+
+    if (navigationId && typeof boot.markLoadingRenderSwapDone === "function") {
+      boot.markLoadingRenderSwapDone(navigationId);
+    }
+
+    if (!negotiated?.assemble?.ok) {
+      if (typeof boot.showThinShellFallback === "function") {
+        boot.showThinShellFallback("视图切换失败，请刷新后重试。");
+      }
+      return true;
+    }
+
+    if (typeof boot.hideThinShellFallback === "function") {
+      boot.hideThinShellFallback();
+    }
+    if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
+      await boot.wakeRevisionFirstShellRuntime(nextCtx);
+    }
     if (typeof runPostSpaWork === "function") {
-      runPostSpaWork(global.document, canonicalUrl, null, null, new URL(canonicalUrl, global.location.href));
+      runPostSpaWork(
+        global.document,
+        canonicalUrl,
+        navigationId || null,
+        null,
+        new URL(canonicalUrl, global.location.href),
+      );
     }
     return true;
   }

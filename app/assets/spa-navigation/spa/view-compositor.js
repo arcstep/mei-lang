@@ -242,6 +242,18 @@
     return composeFromLayers(root, layers, { ...(composeAxes || {}), app_id: appId });
   }
 
+  function resolveEvalBootstrapSeed(evalRaw) {
+    if (evalRaw && typeof evalRaw === "object" && evalRaw.bootstrap_seed) {
+      return evalRaw.bootstrap_seed;
+    }
+    const manifestEval =
+      globalThis.__mei?.scene_manifest_refs?.layers?.["eval.slot_group.scene:default"];
+    if (manifestEval?.bootstrap_seed) {
+      return manifestEval.bootstrap_seed;
+    }
+    return null;
+  }
+
   function composeFromLayers(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     const projection =
@@ -251,7 +263,14 @@
     const structure = extractLayerDocument(layers["structure.full"]);
     if (!structure) return false;
     applyShellLayer(root, pickShellLayer(layers, composeAxes));
-    ensureStructureSkeleton(root, structure);
+    const materializer = boot.previewMaterializer;
+    const keepSsrPreview =
+      materializer?.isSsrInjectedPreviewRoot?.(root) === true;
+    if (!keepSsrPreview && materializer?.materializePreview) {
+      materializer.materializePreview(root, layers, composeAxes);
+    } else if (!keepSsrPreview) {
+      ensureStructureSkeleton(root, structure);
+    }
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);
     const appId = resolveAppId(composeAxes);
@@ -260,9 +279,10 @@
       overlayDoc,
       appId,
     );
-    const evalDoc = layers["eval.slot_group.scene:default"] || null;
-    if (evalDoc?.bootstrap_seed && globalThis.__mei) {
-      globalThis.__mei.bootstrap_seed = evalDoc.bootstrap_seed;
+    const evalRaw = layers["eval.slot_group.scene:default"] || null;
+    const bootstrapSeed = resolveEvalBootstrapSeed(evalRaw);
+    if (bootstrapSeed && globalThis.__mei) {
+      globalThis.__mei.bootstrap_seed = bootstrapSeed;
     }
     composePreview(root, structure, projection, themeEffective, overlayEffective);
     return true;

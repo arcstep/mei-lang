@@ -173,7 +173,16 @@
         : manifest?.layers?.["shell.build"]
           ? "shell.build"
           : null;
-    const layerNames = ["structure.full", "theme.tokens", "layout.overlay"];
+    const evalLayerNames = Object.keys(manifest?.layers || {}).filter((name) =>
+      name.startsWith("eval.slot_group."),
+    );
+    const layerNames = [
+      "structure.full",
+      "runtime.plans",
+      "theme.tokens",
+      "layout.overlay",
+      ...evalLayerNames,
+    ];
     if (shellName) layerNames.push(shellName);
     await ensureLayers(layerNames, appId, sceneId, { surface: surfaceSlug }, manifest);
     const take = (name) => {
@@ -187,6 +196,7 @@
     }
     return {
       structure: layers["structure.full"],
+      runtimePlans: layers["runtime.plans"],
       theme: layers["theme.tokens"],
       overlay: layers["layout.overlay"],
       layers,

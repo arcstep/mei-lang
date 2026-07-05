@@ -64,8 +64,35 @@
     return hostChromeSummary().topbar || hostChromeSummary().statusbar;
   }
 
+  function ensureViewShellLayout() {
+    const body = global.document?.body;
+    if (body instanceof HTMLElement) {
+      body.classList.add("mei-view-shell-body", "min-h-screen", "flex", "flex-col", "overflow-hidden");
+    }
+    const viewHost = global.document?.getElementById?.("mei-view-host");
+    if (viewHost instanceof HTMLElement) {
+      viewHost.classList.add("relative", "flex-1", "min-h-0", "overflow-hidden");
+      const fallback = global.document?.getElementById?.("mei-thin-shell-fallback");
+      if (
+        fallback instanceof HTMLElement &&
+        fallback.parentElement !== viewHost &&
+        viewHost.isConnected
+      ) {
+        viewHost.appendChild(fallback);
+        fallback.classList.add("mei-view-loading-overlay");
+      }
+    }
+    const topSlot = global.document?.getElementById?.("mei-host-topbar-slot");
+    const bottomSlot = global.document?.getElementById?.("mei-host-statusbar-slot");
+    if (topSlot instanceof HTMLElement) topSlot.classList.add("mei-host-chrome-slot", "shrink-0");
+    if (bottomSlot instanceof HTMLElement) {
+      bottomSlot.classList.add("mei-host-chrome-slot", "shrink-0", "mt-auto");
+    }
+  }
+
   function scheduleEarlyHostChrome() {
     const run = () => {
+      ensureViewShellLayout();
       applyHostChromeFromManifestRefs();
     };
     if (global.document?.readyState === "loading") {
@@ -90,17 +117,75 @@
     };
   }
 
+  function previewRenderSummary() {
+    const ctx =
+      typeof boot.parseViewContext === "function"
+        ? boot.parseViewContext(global.location.href)
+        : null;
+    const surface = ctx?.surface || ctx?.mode || "app";
+    const el =
+      (typeof boot.resolveComposeRoot === "function"
+        ? boot.resolveComposeRoot(surface)
+        : null) ||
+      global.document?.getElementById?.("mei-compose-root") ||
+      global.document?.querySelector?.(".preview-pane-scroll");
+    if (!(el instanceof HTMLElement)) {
+      return {
+        composeRootBytes: 0,
+        componentHosts: 0,
+        emptyHosts: 0,
+        customElements: 0,
+        dataProps: 0,
+        ssrInjected: false,
+        clientMaterialized: false,
+      };
+    }
+    const hosts = Array.from(el.querySelectorAll(".component-host"));
+    const emptyHosts = hosts.filter((host) => !host.firstElementChild).length;
+    const customElements = hosts.filter((host) => host.firstElementChild).length;
+    return {
+      composeRootBytes: String(el.innerHTML || "").length,
+      componentHosts: hosts.length,
+      emptyHosts,
+      customElements,
+      dataProps: el.querySelectorAll("[data-props]").length,
+      ssrInjected: !!boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(el),
+      clientMaterialized: !!boot.previewMaterializer?.isClientLayerMaterialized?.(el),
+      sampleTags: hosts
+        .map((host) => host.firstElementChild?.tagName?.toLowerCase() || "")
+        .filter(Boolean)
+        .slice(0, 6),
+    };
+  }
+
   function hasMaterializedPreview(root) {
+    if (boot.previewMaterializer?.hasMaterializedPreview) {
+      return boot.previewMaterializer.hasMaterializedPreview(root);
+    }
     if (!(root instanceof HTMLElement)) return false;
     return !!root.querySelector(
-      "[data-mei-frame-viewport], [data-mei-use-key], .preview-surface, .preview-viewport",
+      "[data-mei-frame-viewport], [data-mei-use-key], .preview-surface, .preview-viewport, .mei-structure-tree",
     );
   }
 
   function hydrateManifestLayerHoldings() {
     const manifest = globalThis.__mei?.scene_manifest_refs;
-    if (manifest && boot.layerStore?.syncHoldingsFromManifest) {
-      boot.layerStore.syncHoldingsFromManifest(manifest);
+    if (!manifest || !boot.layerStore) return;
+    const appId = String(manifest.app_id || manifest.appId || "").trim();
+    const sceneId = String(manifest.scene_id || manifest.sceneId || "").trim();
+    boot.layerStore.syncHoldingsFromManifest(manifest);
+    if (!appId || !sceneId || !manifest.layers) return;
+    for (const [name, value] of Object.entries(manifest.layers)) {
+      if (!value || typeof value !== "object") continue;
+      const document = value.document;
+      if (!document) continue;
+      const holding = {
+        name,
+        artifact_id: String(value.artifact_id || "").trim(),
+        content_hash: String(value.content_hash || "").trim(),
+      };
+      if (!holding.artifact_id || !holding.content_hash) continue;
+      void boot.layerStore.putLayerByRef(appId, sceneId, holding, document, manifest);
     }
   }
 
@@ -116,6 +201,7 @@
       view_revision_enabled: globalThis.__mei?.view_revision_enabled !== false,
       manifest_layers: Object.keys(globalThis.__mei?.scene_manifest_refs?.layers || {}),
       host_chrome: hostChromeSummary(),
+      preview_render: previewRenderSummary(),
       boot_apis: {
         tryCacheFirstViewRestore: typeof boot.tryCacheFirstViewRestore === "function",
         negotiateAndAssemble: typeof boot.negotiateAndAssemble === "function",
@@ -167,6 +253,7 @@
           missing: assembled?.assemble?.missing || [],
         };
         report.host_chrome_after = hostChromeSummary();
+        report.preview_render_after = previewRenderSummary();
         report.preview_scopes_after =
           global.document?.querySelectorAll?.("[data-preview-scope]")?.length || 0;
       } catch (error) {
@@ -182,6 +269,7 @@
   boot.showThinShellFallback = showThinShellFallback;
   boot.hideThinShellFallback = hideThinShellFallback;
   boot.applyHostChromeFromManifestRefs = applyHostChromeFromManifestRefs;
+  boot.ensureViewShellLayout = ensureViewShellLayout;
   boot.hasMaterializedPreview = hasMaterializedPreview;
   boot.hydrateManifestLayerHoldings = hydrateManifestLayerHoldings;
   boot.runThinShellDiagnostic = runThinShellDiagnostic;

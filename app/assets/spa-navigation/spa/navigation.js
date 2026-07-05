@@ -114,12 +114,16 @@
       currentUrl = new URL(window.location.href);
       nextUrl = new URL(url, window.location.href);
     } catch (_) {}
+    const unifiedSurfaceSwitch =
+      currentUrl &&
+      nextUrl &&
+      typeof isUnifiedViewRoute === "function" &&
+      isUnifiedViewRoute(currentUrl.pathname) &&
+      isUnifiedViewRoute(nextUrl.pathname) &&
+      currentUrl.pathname === nextUrl.pathname;
     const manageSamePath =
       currentUrl && nextUrl && isManageSamePathNavigation(currentUrl, nextUrl);
-    if (manageSamePath) {
-      showManageWorkspaceLoadingState(url);
-    } else {
-      showManageWorkspaceLoadingState(url);
+    if (unifiedSurfaceSwitch || !manageSamePath) {
       showLoading();
     }
     if (typeof boot.beginLoadingProgressSession === "function") {
@@ -128,7 +132,7 @@
     try {
       const completed = await (async () => {
         if (typeof boot.navigateSurface === "function") {
-          const surfaceHandled = await boot.navigateSurface(url, replaceHistory);
+          const surfaceHandled = await boot.navigateSurface(url, replaceHistory, navigationId);
           if (surfaceHandled) return true;
         }
         return loadAndSwap(url, replaceHistory, navigationId);

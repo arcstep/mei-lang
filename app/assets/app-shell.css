@@ -91,6 +91,41 @@ body {
 .mei-surface-panel-muted { background: color-mix(in srgb, var(--mei-surface-panel-tool) 45%, transparent); }
 .mei-border-default { border-color: var(--mei-shell-color-border-default); }
 .mei-border-muted { border-color: var(--mei-surface-border-nav); }
+.mei-view-shell-body {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.mei-host-chrome-slot {
+  flex-shrink: 0;
+  z-index: 40;
+}
+#mei-host-topbar-slot:not(:empty) {
+  position: sticky;
+  top: 0;
+}
+#mei-host-statusbar-slot:not(:empty) {
+  position: sticky;
+  bottom: 0;
+}
+.mei-view-host {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.mei-thin-shell-fallback.mei-view-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: var(--mei-shell-color-panel-bg);
+  opacity: 0.88;
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+.mei-thin-shell-fallback.mei-view-loading-overlay[hidden],
+.mei-thin-shell-fallback.mei-view-loading-overlay.hidden {
+  display: none !important;
+}
 .spa-loading-overlay {
   position: fixed;
   inset: 0;

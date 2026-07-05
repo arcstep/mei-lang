@@ -5,6 +5,10 @@
       const fromShell = String(shell.getAttribute("data-app-path") || "").trim();
       if (fromShell) return fromShell;
     }
+    if (typeof appIdFromAppsPathname === "function") {
+      const fromApps = String(appIdFromAppsPathname(global.location.pathname) || "").trim();
+      if (fromApps) return fromApps;
+    }
     const pathMatch = String(global.location.pathname || "").match(
       /^\/apps\/(?:build|manage)\/([^/]+)/,
     );

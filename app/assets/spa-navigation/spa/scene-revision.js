@@ -207,8 +207,29 @@
     return null;
   }
 
+  function isAccessLikeSceneRevisionMode(mode) {
+    const slug = String(mode || "app").trim().toLowerCase();
+    return (
+      slug === "app" ||
+      slug === "access" ||
+      slug === "run" ||
+      slug === "copilot" ||
+      slug === "presentation" ||
+      slug === "slides"
+    );
+  }
+
   async function fetchSceneRevision(ctx, options) {
     const opts = options || {};
+    if (!isAccessLikeSceneRevisionMode(ctx.mode)) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("revision-skip-network", {
+          reason: "non-access-like-mode",
+          mode: ctx.mode || "app",
+        });
+      }
+      return readCachedSceneRevision(ctx) || resolveRevisionWithoutNetwork(ctx, null);
+    }
     let snapshotRevision = null;
     if (opts.preloadSnapshotRevision && typeof boot.loadSceneShellSnapshot === "function") {
       const snapshot = await boot.loadSceneShellSnapshot(ctx);

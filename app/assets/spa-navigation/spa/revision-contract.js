@@ -20,6 +20,9 @@
       manifest_revision_digest: String(
         revision.manifest_revision_digest || revision.manifestRevisionDigest || "",
       ).trim(),
+      surface_revision_digest: String(
+        revision.surface_revision_digest || revision.surfaceRevisionDigest || "",
+      ).trim(),
       cache_key: String(revision.cache_key || revision.cacheKey || "").trim() || undefined,
       client_revision: String(
         revision.client_revision || revision.clientRevision || "",
@@ -151,6 +154,32 @@
     return store[semanticKey] || null;
   }
 
+  function readClientDigests(ctx) {
+    const composeKey = surfaceComposeKey(ctx);
+    const stored = readViewRevision(ctx);
+    if (
+      stored &&
+      stored.surface_compose === composeKey &&
+      stored.manifest_revision_digest &&
+      stored.surface_revision_digest
+    ) {
+      return {
+        manifest_revision_digest: stored.manifest_revision_digest,
+        surface_revision_digest: stored.surface_revision_digest,
+      };
+    }
+    const refs = globalThis.__mei?.scene_manifest_refs;
+    if (!refs || typeof refs !== "object") {
+      return { manifest_revision_digest: "", surface_revision_digest: "" };
+    }
+    return {
+      manifest_revision_digest: String(
+        refs.revision_digest || refs.manifest_revision_digest || "",
+      ).trim(),
+      surface_revision_digest: String(refs.surface_revision_digest || "").trim(),
+    };
+  }
+
   function pruneRevisionStore(store, key, maxEntries) {
     if (!store || typeof store !== "object") return;
     const limit = Number.isFinite(maxEntries) ? maxEntries : 32;
@@ -195,6 +224,7 @@
   boot.writeViewRevisionStore = writeViewRevisionStore;
   boot.rememberViewRevision = rememberViewRevision;
   boot.readViewRevision = readViewRevision;
+  boot.readClientDigests = readClientDigests;
   boot.pruneRevisionStore = pruneRevisionStore;
   boot.ViewRevisionOutcome = ViewRevisionOutcome;
   boot.holdingsFromLayerCache = holdingsFromLayerCache;

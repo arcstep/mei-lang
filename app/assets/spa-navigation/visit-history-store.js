@@ -37,6 +37,9 @@
     }
     const parts = path.split("/").filter(Boolean);
     if (parts[0] !== "apps") return "";
+    if (parts.length >= 3 && parts[2] === "view") {
+      return parts[1] || "";
+    }
     if (parts.length >= 3) {
       const surface = String(parts[2] || "").toLowerCase();
       if (
@@ -192,7 +195,11 @@
     const appTitle = appPathItem ? String(appPathItem.textContent || "").trim() : "";
     return {
       workspace: readMeta("mei-workspace-label"),
-      routeMode: document.body?.dataset?.meiView || readMeta("mei-view") || "",
+      routeMode:
+        document.body?.dataset?.surface ||
+        document.body?.dataset?.meiView ||
+        readMeta("mei-view") ||
+        "",
       appId: resolveAppIdFromPathname(url.pathname),
       appTitle,
       pathname: url.pathname,

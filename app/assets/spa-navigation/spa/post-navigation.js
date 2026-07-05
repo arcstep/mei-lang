@@ -42,9 +42,13 @@
     const root =
       doc?.querySelector?.("#mei-compose-root, .preview-pane-scroll, .shell") ||
       document.querySelector("#mei-compose-root, .preview-pane-scroll, .shell");
+    if (boot.previewMaterializer?.isSsrInjectedPreviewRoot) {
+      return boot.previewMaterializer.isSsrInjectedPreviewRoot(root);
+    }
     return (
       typeof boot.hasMaterializedPreview === "function" &&
-      boot.hasMaterializedPreview(root)
+      boot.hasMaterializedPreview(root) &&
+      !boot.previewMaterializer?.isClientLayerMaterialized?.(root)
     );
   }
 
@@ -103,9 +107,11 @@
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
         const sceneCtx =
-          typeof boot.parseAccessSceneContext === "function"
-            ? boot.parseAccessSceneContext(url)
-            : null;
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(url)
+            : typeof boot.parseAccessSceneContext === "function"
+              ? boot.parseAccessSceneContext(url)
+              : null;
         if (sceneCtx && typeof boot.dispatchScopeActivation === "function") {
           boot.dispatchScopeActivation({
             scope: sceneCtx.sceneId,

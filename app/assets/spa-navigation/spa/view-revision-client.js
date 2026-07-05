@@ -54,16 +54,6 @@
     return refs;
   }
 
-  async function listClientHoldings(ctx) {
-    if (boot.layerStore?.listHoldings) {
-      return boot.layerStore.listHoldings(ctx.app_id, ctx.scene_id);
-    }
-    if (boot.layerArtifactCache?.listHoldings) {
-      return boot.layerArtifactCache.listHoldings(ctx.app_id, ctx.scene_id);
-    }
-    return [];
-  }
-
   function buildComposeRequest(ctx) {
     const resolveSurface =
       boot.sceneManifestLoader?.resolveWorkspaceSurface ||
@@ -108,15 +98,17 @@
     const compose = buildComposeRequest(ctx);
     params.set("compose", JSON.stringify(compose));
     if (ctx.node) params.set("node", ctx.node);
-    if (opts.local_miss) {
-      params.set("local_miss", "1");
-      if (opts.missing_layers?.length) {
-        params.set("missing_layers", opts.missing_layers.join(","));
-      }
-    }
-    const holdings = opts.client_layers || (await listClientHoldings(ctx));
-    if (holdings.length) {
-      params.set("client_layers", JSON.stringify(holdingsFromLayerCache(holdings)));
+    if (opts.recover || opts.local_miss) {
+      params.set("recover", "1");
+    } else {
+      const digests =
+        opts.client_digests ||
+        (boot.readClientDigests ? boot.readClientDigests(ctx) : null) ||
+        {};
+      const manifestDigest = String(digests.manifest_revision_digest || "").trim();
+      const surfaceDigest = String(digests.surface_revision_digest || "").trim();
+      if (manifestDigest) params.set("manifest_revision_digest", manifestDigest);
+      if (surfaceDigest) params.set("surface_revision_digest", surfaceDigest);
     }
     const headers = {
       ...(boot.clientCommandHeaders ? boot.clientCommandHeaders("REVISION", "view-revision") : {}),
@@ -268,8 +260,22 @@
         ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
         : global.document?.querySelector?.(".shell, .preview-pane-scroll");
     const shell = composeRoot instanceof HTMLElement ? composeRoot : null;
+    const ssrPreviewReady =
+      shell &&
+      boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(shell) === true;
     if (
       shell &&
+      ssrPreviewReady &&
+      !composeContextChanged(shell, ctx, assemblyPlan)
+    ) {
+      if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+        boot.applyHostChromeFromManifestRefs();
+      }
+      return { ok: true, missing: [], layers, source: "ssr_preview", materialized: true };
+    }
+    if (
+      shell &&
+      boot.previewMaterializer?.isClientLayerMaterialized?.(shell) &&
       typeof boot.hasMaterializedPreview === "function" &&
       boot.hasMaterializedPreview(shell) &&
       !composeContextChanged(shell, ctx, assemblyPlan)
@@ -277,7 +283,7 @@
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
         boot.applyHostChromeFromManifestRefs();
       }
-      return { ok: true, missing: [], layers, source: "ssr_preview" };
+      return { ok: true, missing: [], layers, source: "ssr_preview", materialized: true };
     }
     if (boot.viewCompositor?.composeFromLayers && shell) {
       const composed = boot.viewCompositor.composeFromLayers(
@@ -289,7 +295,15 @@
         if (typeof boot.applyHostChromeFromManifestRefs === "function") {
           boot.applyHostChromeFromManifestRefs();
         }
-        return { ok: true, missing: [], layers, source: ViewRevisionOutcome.ASSEMBLE_LOCAL };
+        const materialized =
+          typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(shell);
+        return {
+          ok: true,
+          missing: [],
+          layers,
+          source: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+          materialized,
+        };
       }
     }
     return { ok: false, missing: Object.keys(layerRefs), layers };
@@ -311,10 +325,7 @@
           : ViewRevisionOutcome.ASSEMBLE_LOCAL;
       return { ...result, assemble };
     }
-    result = await negotiateViewRevision(ctx, {
-      local_miss: true,
-      missing_layers: assemble.missing,
-    });
+    result = await negotiateViewRevision(ctx, { recover: true });
     assemble = await tryAssembleLocal(
       ctx,
       result.plan || {
@@ -339,6 +350,7 @@
     applyViewRevision,
     negotiateViewRevision,
     negotiateWithLocalMiss,
+    negotiateViewRevisionWithRecover: negotiateWithLocalMiss,
     tryAssembleLocal,
     layerRefsFromManifest,
   };

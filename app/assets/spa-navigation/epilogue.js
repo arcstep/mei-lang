@@ -10,6 +10,12 @@
 
   void (async () => {
     if (typeof boot.tryCacheFirstViewRestore !== "function") return;
+    if (typeof boot.hydrateManifestLayerHoldings === "function") {
+      boot.hydrateManifestLayerHoldings();
+    }
+    if (typeof boot.showThinShellFallback === "function") {
+      boot.showThinShellFallback("正在加载场景内容…");
+    }
     const ctx =
       typeof boot.parseViewContext === "function"
         ? boot.parseViewContext(window.location.href)
@@ -32,7 +38,8 @@
           null,
           new URL(window.location.href),
         );
-      } else if (
+      }
+      if (
         ctx &&
         typeof boot.finishRevisionFirstColdStart === "function" &&
         (typeof isRevisionFirstShellPage === "function"

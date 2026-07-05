@@ -173,11 +173,20 @@
       if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
         globalThis.MeiBuildInspectHighlight.refresh();
       }
-      if (ssrPreview) {
-        return;
-      }
       if (typeof publishManagePreviewFromDoc === "function") {
         publishManagePreviewFromDoc(document, { resetRuntimeQueryCache: true, pulsePreviewUpdated: true });
+      }
+      if (typeof boot.syncPreviewWorkspaceScripts === "function") {
+        const scripts = Array.from(
+          document.querySelectorAll('script[type="module"][src^="/workspace-components/"]'),
+        )
+          .map((node) => node.getAttribute("src") || "")
+          .filter(Boolean);
+        if (scripts.length) {
+          try {
+            await boot.syncPreviewWorkspaceScripts(scripts, null);
+          } catch (_) {}
+        }
       }
       if (typeof boot.mountManagePreviewBoard === "function") {
         await boot.mountManagePreviewBoard(document);
@@ -193,18 +202,27 @@
         source: "revision-first-cold-start",
       });
     }
-    if (ssrPreview) {
-      if (typeof boot.scheduleFrameViewportRelayout === "function") {
-        boot.scheduleFrameViewportRelayout();
-      }
-      if (typeof dispatchPanelMetricPrefetch === "function") {
-        dispatchPanelMetricPrefetch();
-      }
-      return;
+    if (typeof boot.scheduleFrameViewportRelayout === "function") {
+      boot.scheduleFrameViewportRelayout();
+    }
+    if (typeof dispatchPanelMetricPrefetch === "function") {
+      dispatchPanelMetricPrefetch();
     }
     if (typeof wakeRuntimeAfterSceneBundleLoaded === "function") {
       wakeRuntimeAfterSceneBundleLoaded();
     }
+  }
+
+  function isSsrInjectedPreviewRoot(root) {
+    if (boot.previewMaterializer?.isSsrInjectedPreviewRoot) {
+      return boot.previewMaterializer.isSsrInjectedPreviewRoot(root);
+    }
+    if (boot.previewMaterializer?.isClientLayerMaterialized?.(root)) {
+      return false;
+    }
+    return (
+      typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root)
+    );
   }
 
   async function finishRevisionFirstColdStart(ctx, outcome) {
@@ -214,9 +232,7 @@
       typeof boot.resolveComposeRoot === "function"
         ? boot.resolveComposeRoot(surface)
         : document.querySelector(".shell");
-    const ssrPreviewReady =
-      typeof boot.hasMaterializedPreview === "function" &&
-      boot.hasMaterializedPreview(composeRoot);
+    const ssrPreviewReady = isSsrInjectedPreviewRoot(composeRoot);
     if (ssrPreviewReady) {
       if (typeof boot.hideThinShellFallback === "function") {
         boot.hideThinShellFallback();
@@ -314,14 +330,7 @@
       if (typeof boot.rememberViewRevision === "function" && result.response) {
         boot.rememberViewRevision(viewCtx, result.response);
       }
-      const ssrPreview =
-        result.assemble?.source === "ssr_preview" ||
-        (typeof boot.hasMaterializedPreview === "function" &&
-          boot.hasMaterializedPreview(
-            typeof boot.resolveComposeRoot === "function"
-              ? boot.resolveComposeRoot(surface)
-              : document.querySelector(".shell"),
-          ));
+      const ssrPreview = result.assemble?.source === "ssr_preview";
       await wakeRevisionFirstShellRuntime(viewCtx, { ssrPreview });
       return result;
     } catch (error) {
@@ -346,10 +355,7 @@
         typeof boot.resolveComposeRoot === "function"
           ? boot.resolveComposeRoot(surface)
           : document.querySelector(".shell");
-      if (
-        typeof boot.hasMaterializedPreview === "function" &&
-        boot.hasMaterializedPreview(composeRoot)
-      ) {
+      if (isSsrInjectedPreviewRoot(composeRoot)) {
         if (typeof boot.hydrateManifestLayerHoldings === "function") {
           boot.hydrateManifestLayerHoldings();
         }
