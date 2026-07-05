@@ -11,16 +11,10 @@
     REFETCH: "refetch",
     ASSEMBLE_LOCAL: "assemble_local",
     LOCAL_MISS: "local_miss",
-    FALLBACK_SSR: "fallback_ssr",
   };
 
   function isViewRevisionEnabled() {
-    if (globalThis.__mei?.view_revision_enabled === false) return false;
-    try {
-      const params = new URLSearchParams(global.location?.search || "");
-      if (params.get("fallback") === "1") return false;
-    } catch (_) {}
-    return true;
+    return globalThis.__mei?.view_revision_enabled !== false;
   }
 
   function holdingsFromLayerCache(holdings) {
@@ -71,15 +65,28 @@
   }
 
   function buildComposeRequest(ctx) {
+    const surface = String(ctx.surface || ctx.mode || "app")
+      .trim()
+      .toLowerCase();
+    const tab =
+      String(ctx.tab || "").trim() || (surface === "build" ? "preview" : "scene");
     return {
-      route_mode: ctx.surface || ctx.mode || "app",
-      tab: ctx.tab || "",
+      route_mode: surface,
+      tab,
       chrome: ctx.chrome || "",
       review_projection: ctx.review_projection || ctx.reviewProjection || "",
       data_mode: ctx.data_mode || ctx.dataMode || "",
       focus: ctx.focus || "",
       scope: ctx.scope || "",
     };
+  }
+
+  function composeDefaultsFromResponse(response, ctx) {
+    return (
+      response?.compose_defaults ||
+      response?.manifest?.compose_defaults ||
+      buildComposeRequest(ctx)
+    );
   }
 
   async function fetchViewRevision(ctx, options) {
@@ -138,7 +145,7 @@
 
   async function applyViewRevision(ctx, response) {
     if (!response || response.disabled) {
-      return { outcome: ViewRevisionOutcome.FALLBACK_SSR, response };
+      return { outcome: ViewRevisionOutcome.LOCAL_MISS, response };
     }
     const status = String(response.status || response._headers?.status || "").trim();
     if (status === ViewRevisionOutcome.ASSEMBLE_LOCAL && response.assembly_plan) {
@@ -220,12 +227,16 @@
     if (missing.length) {
       return { ok: false, missing, layers };
     }
-    const shell = global.document?.querySelector?.(".shell, .preview-pane-scroll");
+    const composeRoot =
+      typeof boot.resolveComposeRoot === "function"
+        ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
+        : global.document?.querySelector?.(".shell, .preview-pane-scroll");
+    const shell = composeRoot instanceof HTMLElement ? composeRoot : null;
     if (boot.viewCompositor?.composeFromLayers && shell) {
       const composed = boot.viewCompositor.composeFromLayers(
         shell,
         layers,
-        assemblyPlan?.compose_defaults || buildComposeRequest(ctx),
+        assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx),
       );
       if (composed) {
         return { ok: true, missing: [], layers, source: ViewRevisionOutcome.ASSEMBLE_LOCAL };
@@ -240,8 +251,7 @@
       ctx,
       result.plan || {
         manifest: result.response?.manifest || null,
-        compose_defaults:
-          result.response?.manifest?.compose_defaults || buildComposeRequest(ctx),
+        compose_defaults: composeDefaultsFromResponse(result.response, ctx),
       },
     );
     if (assemble.ok) {
@@ -259,8 +269,7 @@
       ctx,
       result.plan || {
         manifest: result.response?.manifest || null,
-        compose_defaults:
-          result.response?.manifest?.compose_defaults || buildComposeRequest(ctx),
+        compose_defaults: composeDefaultsFromResponse(result.response, ctx),
       },
     );
     if (assemble.ok) {

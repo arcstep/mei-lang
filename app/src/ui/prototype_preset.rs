@@ -61,30 +61,25 @@ pub fn preset_tree_max_ui_role(data_mode: &str, review_projection: &str) -> &'st
 pub fn prototype_workspace_retired_tab(tab: BuildViewTab) -> bool {
     matches!(
         tab,
-        BuildViewTab::Overview | BuildViewTab::Provenance | BuildViewTab::Agent
+        BuildViewTab::Overview
+            | BuildViewTab::Preview
+            | BuildViewTab::Provenance
+            | BuildViewTab::Agent
     )
 }
 
 /// Map legacy tab query to the active prototype surface (usually Preview).
-pub fn prototype_normalize_workspace_tab(kind: BuildNodeKind, tab: BuildViewTab) -> BuildViewTab {
+pub fn prototype_normalize_workspace_tab(_kind: BuildNodeKind, tab: BuildViewTab) -> BuildViewTab {
     if prototype_workspace_retired_tab(tab) {
-        prototype_workspace_primary_tabs(kind)
-            .first()
-            .copied()
-            .unwrap_or(BuildViewTab::Preview)
+        BuildViewTab::Preview
     } else {
         tab
     }
 }
 
-/// Primary workspace tabs: preview-first task surface.
-pub fn prototype_workspace_primary_tabs(kind: BuildNodeKind) -> Vec<BuildViewTab> {
-    let all = tabs_for_node_kind(kind);
-    if all.contains(&BuildViewTab::Preview) {
-        vec![BuildViewTab::Preview]
-    } else {
-        all.first().copied().into_iter().collect()
-    }
+/// Primary workspace tabs (empty: preview is the default surface without a tab chip).
+pub fn prototype_workspace_primary_tabs(_kind: BuildNodeKind) -> Vec<BuildViewTab> {
+    Vec::new()
 }
 
 /// Remaining specialist tabs (e.g. 执行 / 语义图) when the node kind still needs them.
@@ -110,14 +105,20 @@ mod tests {
     }
 
     #[test]
-    fn scene_node_preview_is_primary_tab() {
+    fn scene_node_has_no_visible_workspace_tabs() {
         let primary = prototype_workspace_primary_tabs(BuildNodeKind::Scene);
-        assert_eq!(primary, vec![BuildViewTab::Preview]);
+        assert!(primary.is_empty());
         let tools = prototype_workspace_tool_tabs(BuildNodeKind::Scene);
         assert!(tools.is_empty());
         assert_eq!(
             prototype_normalize_workspace_tab(BuildNodeKind::Scene, BuildViewTab::Overview),
             BuildViewTab::Preview
         );
+    }
+
+    #[test]
+    fn projection_shows_semantic_as_tool_tab() {
+        let tools = prototype_workspace_tool_tabs(BuildNodeKind::Projection);
+        assert_eq!(tools, vec![BuildViewTab::Semantic]);
     }
 }

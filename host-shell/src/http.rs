@@ -909,7 +909,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn workspace_fragment_manifest_only_omits_preview_html() {
+    async fn workspace_fragment_returns_manifest_without_preview_html() {
         let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../workspaces/ws-demo-v2");
         let workspace = match workspace.canonicalize() {
             Ok(path) if path.join("workspace.json").is_file() => path,
@@ -919,7 +919,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri("/api/build/workspace-fragment?app_id=data-demo&node=scene-panel:home&tab=preview&manifest_only=1")
+                    .uri("/api/build/workspace-fragment?app_id=data-demo&node=scene-panel:home&tab=preview")
                     .body(Body::empty())
                     .expect("request"),
             )

@@ -21,6 +21,8 @@ use crate::state::SharedState;
 pub struct SceneManifestQuery {
     pub app_id: String,
     pub scene: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
     pub data_mode: Option<String>,
     pub review_projection: Option<String>,
     pub tab: Option<String>,
@@ -344,7 +346,7 @@ pub(crate) fn build_scene_view_manifest(
             crate::review_axes::ssr_review_projection(route_mode, data_mode)
                 .slug()
         });
-    let draft = if route_mode == UiRouteMode::Build {
+    let draft = if route_mode.is_build() {
         crate::build_layout_tuning::build_session_layout_tuning_draft(
             workspace_root,
             app_id,
@@ -353,7 +355,7 @@ pub(crate) fn build_scene_view_manifest(
     } else {
         None
     };
-    let effective_draft_digest = if route_mode == UiRouteMode::Build {
+    let effective_draft_digest = if route_mode.is_build() {
         draft
             .as_ref()
             .map(|value| crate::build_fragment_cache::draft_digest_for_tuning(Some(value)))
@@ -479,6 +481,7 @@ pub async fn api_host_scene_manifest(
         .to_string();
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
+    let route_mode = resolve_route_mode_from_surface(query.surface.as_deref());
     let axes = resolve_page_render_axes(
         &guard,
         &AppQuery {
@@ -486,20 +489,24 @@ pub async fn api_host_scene_manifest(
             review_projection: query.review_projection.clone(),
             ..Default::default()
         },
-        UiRouteMode::Build,
+        route_mode,
     );
     let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-    let draft_digest = crate::build_layout_tuning::build_session_layout_tuning_draft(
-        workspace_root,
-        app_id,
-        mei_host_core::layout_tuning_draft_storage_key(app_id, draft_session.as_str()).as_str(),
-    )
-    .as_ref()
-    .map(|draft| crate::build_fragment_cache::draft_digest_for_tuning(Some(draft)))
-    .unwrap_or_default();
+    let draft_digest = if route_mode.is_build() {
+        crate::build_layout_tuning::build_session_layout_tuning_draft(
+            workspace_root,
+            app_id,
+            mei_host_core::layout_tuning_draft_storage_key(app_id, draft_session.as_str()).as_str(),
+        )
+        .as_ref()
+        .map(|draft| crate::build_fragment_cache::draft_digest_for_tuning(Some(draft)))
+        .unwrap_or_default()
+    } else {
+        String::new()
+    };
 
     let compose = mei_host_graph::ComposeRequest {
-        route_mode: Some(UiRouteMode::Build.slug().to_string()),
+        route_mode: Some(route_mode.slug().to_string()),
         tab: query.tab.clone(),
         chrome: query.chrome.clone(),
         review_projection: query.review_projection.clone(),
@@ -512,7 +519,7 @@ pub async fn api_host_scene_manifest(
         workspace_root,
         app_id,
         scene_id.as_str(),
-        UiRouteMode::Build,
+        route_mode,
         axes.data_mode,
         &compose,
         draft_session.as_str(),
@@ -583,7 +590,7 @@ pub(crate) fn materialize_layers_for_request(
         .as_deref()
         .filter(|value| !value.is_empty())
         .unwrap_or("full");
-    let draft = if route_mode == UiRouteMode::Build {
+    let draft = if route_mode.is_build() {
         crate::build_layout_tuning::build_session_layout_tuning_draft(
             workspace_root,
             app_id,
@@ -592,7 +599,7 @@ pub(crate) fn materialize_layers_for_request(
     } else {
         None
     };
-    let effective_draft_digest = if route_mode == UiRouteMode::Build {
+    let effective_draft_digest = if route_mode.is_build() {
         draft
             .as_ref()
             .map(|value| crate::build_fragment_cache::draft_digest_for_tuning(Some(value)))
@@ -665,7 +672,7 @@ pub async fn api_host_layer_batch(
         route_mode,
     );
     let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-    let draft = if route_mode == UiRouteMode::Build {
+    let draft = if route_mode.is_build() {
         crate::build_layout_tuning::build_session_layout_tuning_draft(
             workspace_root,
             app_id,
@@ -749,4 +756,77 @@ pub async fn api_host_layer_batch(
         }
     }
     response
+}
+
+#[cfg(test)]
+mod cross_surface_manifest_tests {
+    use super::*;
+    use mei_lang_kernel::DataMode;
+    use std::path::PathBuf;
+
+    fn ws_demo_workspace() -> Option<PathBuf> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../workspaces/ws-demo-v2")
+            .canonicalize()
+            .ok()?;
+        let registry = root.join("apps/data-demo/build/active/registry/mcg-registry.json");
+        if registry.is_file() {
+            Some(root)
+        } else {
+            None
+        }
+    }
+
+    fn structure_artifact_id(manifest: &mei_host_graph::SceneViewManifest) -> String {
+        manifest
+            .layers
+            .get("structure.full")
+            .and_then(|value| value.get("artifact_id"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string()
+    }
+
+    #[test]
+    fn app_layout_prototype_share_structure_full_artifact_id() {
+        let Some(workspace_root) = ws_demo_workspace() else {
+            return;
+        };
+        let app_id = "data-demo";
+        let scene_id = "home";
+        let compose = mei_host_graph::ComposeRequest {
+            route_mode: Some("app".to_string()),
+            tab: Some("scene".to_string()),
+            chrome: Some("full".to_string()),
+            review_projection: None,
+            data_mode: Some("static".to_string()),
+            focus: None,
+            scope: None,
+        };
+        let mut structure_ids = Vec::new();
+        for route_mode in [
+            UiRouteMode::App,
+            UiRouteMode::Layout,
+            UiRouteMode::Prototype,
+        ] {
+            let mut hits = ArtifactHitMatrix::default();
+            let manifest = build_scene_view_manifest(
+                workspace_root.as_path(),
+                app_id,
+                scene_id,
+                route_mode,
+                DataMode::Static,
+                &compose,
+                "",
+                "",
+                &mut hits,
+            )
+            .expect("scene manifest");
+            let artifact_id = structure_artifact_id(&manifest);
+            assert!(!artifact_id.is_empty(), "missing structure.full for {route_mode:?}");
+            structure_ids.push(artifact_id);
+        }
+        assert_eq!(structure_ids[0], structure_ids[1]);
+        assert_eq!(structure_ids[1], structure_ids[2]);
+    }
 }

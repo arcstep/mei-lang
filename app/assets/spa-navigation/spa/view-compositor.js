@@ -114,6 +114,18 @@
     }
   }
 
+  function pickShellLayer(layers) {
+    if (!layers || typeof layers !== "object") return null;
+    return (
+      layers["shell.build"] ||
+      layers["shell.layout"] ||
+      layers["shell.prototype"] ||
+      layers["shell.app"] ||
+      layers["shell.run"] ||
+      null
+    );
+  }
+
   function composeFromLayers(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     const projection =
@@ -122,7 +134,7 @@
       "live_full";
     const structure = extractLayerDocument(layers["structure.full"]);
     if (!structure) return false;
-    applyShellLayer(root, layers["shell.build"] || layers["shell.app"] || layers["shell.run"]);
+    applyShellLayer(root, pickShellLayer(layers));
     ensureStructureSkeleton(root, structure);
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);
@@ -157,5 +169,6 @@
     applyShellLayer,
     applyThemeAndOverlay,
     clearComposeArtifacts,
+    pickShellLayer,
   };
 })(typeof window !== "undefined" ? window : globalThis);

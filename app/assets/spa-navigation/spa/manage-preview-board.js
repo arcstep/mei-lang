@@ -166,7 +166,11 @@
   function shouldMountManagePreviewBoard(doc = document) {
     if (!isBuildRoute()) return false;
     const url = new URL(window.location.href);
-    if (nonEmptyString(url.searchParams.get("tab"), "preview") !== "preview") return false;
+    const layoutProto =
+      typeof isWorkspaceSurfaceRoute === "function" && isWorkspaceSurfaceRoute(url.pathname);
+    if (!layoutProto && nonEmptyString(url.searchParams.get("tab"), "preview") !== "preview") {
+      return false;
+    }
     const viewport = doc.querySelector("[data-mei-frame-viewport][data-target-file], [data-target-file]");
     const surfaceTarget = nonEmptyString(viewport?.dataset?.targetFile);
     const target = boardTargetFromUrl(url) || surfaceTarget;

@@ -8,7 +8,7 @@ use axum::{
 use mei_host_auth::AuthServeState;
 use mei_lang_app::UiRouteMode;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::artifact_observability::{ArtifactHitMatrix, LayerArtifactObservability};
 use crate::pages::AppQuery;
@@ -87,15 +87,7 @@ fn parse_compose_request(
 }
 
 fn surface_revision_digest(manifest: &mei_host_graph::SceneViewManifest) -> Option<String> {
-    for (name, value) in &manifest.layers {
-        if name.starts_with("shell.") {
-            return value
-                .get("content_hash")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-        }
-    }
-    None
+    mei_host_graph::surface_revision_digest_from_manifest(manifest)
 }
 
 fn compose_from_query(query: &ViewRevisionQuery, route_mode: UiRouteMode) -> mei_host_graph::ComposeRequest {
@@ -219,7 +211,7 @@ pub async fn api_host_view_revision(
         }
     }
     let route_mode = resolve_route_mode_from_surface(query.surface.as_deref());
-    let scene_id = if route_mode == UiRouteMode::Build {
+    let scene_id = if route_mode.is_build() {
         query
             .node
             .as_deref()
@@ -246,7 +238,7 @@ pub async fn api_host_view_revision(
     let workspace_root = workspace_root.as_path();
 
     let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-    let draft = if route_mode == UiRouteMode::Build {
+    let draft = if route_mode.is_build() {
         crate::build_layout_tuning::build_session_layout_tuning_draft(
             workspace_root,
             app_id,

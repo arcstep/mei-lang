@@ -3,8 +3,10 @@ use axum::{
     http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use mei_lang_app::{render_build_preview_fragment, UiRouteMode};
-use mei_lang_kernel::{resolve_build_view_query, BuildViewTab, LegacyBuildQuery};
+use mei_lang_app::UiRouteMode;
+use mei_lang_kernel::{
+    compile_coordinate_for_node, resolve_build_view_query, BuildViewTab, LegacyBuildQuery,
+};
 use serde::Serialize;
 use serde_json::json;
 
@@ -18,7 +20,7 @@ use crate::build_fragment_cache::{
 use crate::build_layout_tuning::{
     apply_build_session_layout_tuning_draft, build_session_layout_tuning_draft,
 };
-use crate::review_axes::resolve_page_render_axes;
+use crate::review_axes::{resolve_page_render_axes, ssr_review_projection_for_axes};
 use crate::state::SharedState;
 
 #[derive(Debug, serde::Deserialize)]
@@ -36,15 +38,13 @@ pub struct BuildWorkspaceFragmentQuery {
     #[serde(default)]
     pub data_mode: Option<String>,
     #[serde(default)]
-    pub manifest_only: Option<String>,
+    pub surface: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 struct BuildWorkspaceFragmentResponse {
     compile_revision: String,
     compile_coordinate: mei_lang_kernel::BuildCompileCoordinate,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    preview_html: Option<String>,
     drilldown_script: String,
     workspace_scripts: Vec<String>,
     node: String,
@@ -72,6 +72,12 @@ pub struct BuildFragmentRevisionQuery {
     pub review_projection: Option<String>,
     #[serde(default)]
     pub data_mode: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
+}
+
+fn resolve_fragment_route_mode(surface: Option<&str>) -> UiRouteMode {
+    crate::scene_manifest::resolve_route_mode_from_surface(surface)
 }
 
 fn draft_context(
@@ -99,6 +105,7 @@ fn cache_input<'a>(
     focus: &'a str,
     scope: &'a str,
     preview_scope: Option<&'a str>,
+    route_mode: UiRouteMode,
     axes: &crate::review_axes::PageRenderAxes,
     draft_session: &'a str,
     draft_digest: &'a str,
@@ -112,12 +119,9 @@ fn cache_input<'a>(
         focus,
         scope,
         preview_scope,
+        route_mode: route_mode.slug(),
         data_mode: axes.data_mode.slug(),
-        review_projection: crate::review_axes::ssr_review_projection(
-            UiRouteMode::Build,
-            axes.data_mode,
-        )
-        .slug(),
+        review_projection: ssr_review_projection_for_axes(route_mode, *axes).slug(),
         compile_coordinate,
         draft_session,
         draft_digest,
@@ -141,6 +145,7 @@ pub async fn api_build_fragment_revision(
         let guard = state.read().expect("state lock");
         guard.ctx.workspace_root.clone()
     };
+    let route_mode = resolve_fragment_route_mode(query.surface.as_deref());
     let axes = {
         let guard = state.read().expect("state lock");
         resolve_page_render_axes(
@@ -150,7 +155,7 @@ pub async fn api_build_fragment_revision(
                 review_projection: query.review_projection.clone(),
                 ..Default::default()
             },
-            UiRouteMode::Build,
+            route_mode,
         )
     };
     let (draft_session, draft_digest, _) = draft_context(workspace_root.as_path(), app_id, &headers);
@@ -170,6 +175,7 @@ pub async fn api_build_fragment_revision(
         focus,
         scope,
         None,
+        route_mode,
         &axes,
         draft_session.as_str(),
         draft_digest.as_str(),
@@ -177,13 +183,11 @@ pub async fn api_build_fragment_revision(
     );
     let mut payload = build_fragment_revision_payload(&input);
     let compose = mei_host_graph::ComposeRequest {
-        route_mode: Some(UiRouteMode::Build.slug().to_string()),
+        route_mode: Some(route_mode.slug().to_string()),
         tab: Some("scene".to_string()),
         chrome: Some("full".to_string()),
         review_projection: Some(
-            crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode)
-                .slug()
-                .to_string(),
+            ssr_review_projection_for_axes(route_mode, axes).slug().to_string(),
         ),
         data_mode: Some(axes.data_mode.slug().to_string()),
         focus: query.focus.clone(),
@@ -194,7 +198,7 @@ pub async fn api_build_fragment_revision(
         workspace_root.as_path(),
         app_id,
         scene_id.as_str(),
-        UiRouteMode::Build,
+        route_mode,
         axes.data_mode,
         &compose,
         draft_session.as_str(),
@@ -208,33 +212,22 @@ pub async fn api_build_fragment_revision(
     response
 }
 
-fn wants_manifest_only(query: &BuildWorkspaceFragmentQuery) -> bool {
-    matches!(
-        query
-            .manifest_only
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1") | Some("true") | Some("manifest")
-    )
-}
-
 fn try_scene_manifest(
     workspace_root: &std::path::Path,
     app_id: &str,
     scene_id: &str,
+    route_mode: UiRouteMode,
     axes: &crate::review_axes::PageRenderAxes,
     draft_session: &str,
     draft_digest: &str,
 ) -> anyhow::Result<mei_host_graph::SceneViewManifest> {
     let mut hits = crate::artifact_observability::ArtifactHitMatrix::default();
     let compose = mei_host_graph::ComposeRequest {
-        route_mode: Some(UiRouteMode::Build.slug().to_string()),
+        route_mode: Some(route_mode.slug().to_string()),
         tab: Some("scene".to_string()),
         chrome: Some("full".to_string()),
         review_projection: Some(
-            crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode)
+            ssr_review_projection_for_axes(route_mode, *axes)
                 .slug()
                 .to_string(),
         ),
@@ -246,7 +239,7 @@ fn try_scene_manifest(
         workspace_root,
         app_id,
         scene_id,
-        UiRouteMode::Build,
+        route_mode,
         axes.data_mode,
         &compose,
         draft_session,
@@ -308,6 +301,7 @@ pub async fn api_build_workspace_fragment(
         guard.ctx.workspace_root.clone()
     };
 
+    let route_mode = resolve_fragment_route_mode(query.surface.as_deref());
     let axes = {
         let guard = state.read().expect("state lock");
         resolve_page_render_axes(
@@ -317,7 +311,7 @@ pub async fn api_build_workspace_fragment(
                 review_projection: query.review_projection.clone(),
                 ..Default::default()
             },
-            UiRouteMode::Build,
+            route_mode,
         )
     };
 
@@ -326,6 +320,7 @@ pub async fn api_build_workspace_fragment(
     let scope = resolved.scope.slug();
     let scene_id = scene_id_from_build_node(node_raw);
     let preview_scope_hint = query.scope.as_deref().map(str::trim).filter(|v| !v.is_empty());
+    let ssr_projection = ssr_review_projection_for_axes(route_mode, axes).slug();
 
     let preliminary_input = cache_input(
         workspace_root.as_path(),
@@ -335,6 +330,7 @@ pub async fn api_build_workspace_fragment(
         focus,
         scope,
         preview_scope_hint,
+        route_mode,
         &axes,
         draft_session.as_str(),
         draft_digest.as_str(),
@@ -349,6 +345,7 @@ pub async fn api_build_workspace_fragment(
             workspace_root.as_path(),
             app_id,
             scene_id.as_str(),
+            route_mode,
             &axes,
             draft_session.as_str(),
             draft_digest.as_str(),
@@ -357,15 +354,9 @@ pub async fn api_build_workspace_fragment(
             Err(err) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, err.to_string().as_str()),
         };
         let compose_defaults = compose_defaults_from_manifest(&scene_manifest);
-        let manifest_only = wants_manifest_only(&query);
         let body = BuildWorkspaceFragmentResponse {
             compile_revision: compile_revision.clone(),
             compile_coordinate: cached.compile_coordinate,
-            preview_html: if manifest_only {
-                None
-            } else {
-                Some(cached.preview_html.clone())
-            },
             drilldown_script: cached.drilldown_script,
             workspace_scripts: cached.workspace_scripts,
             node: cached.node,
@@ -418,32 +409,20 @@ pub async fn api_build_workspace_fragment(
         &headers,
     );
 
-    let app_path = app_id.to_string();
+    let Some(compile_coordinate) =
+        compile_coordinate_for_node(&resolved.node, &assembled.compiled)
+    else {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to resolve compile coordinate",
+        );
+    };
+
     let preview_scope = mei_lang_kernel::resolve_build_preview_scope_for_ssr(
         &assembled.compiled,
         &resolved.node,
     );
-    let Some(fragment) = render_build_preview_fragment(
-        &[],
-        &assembled.compiled,
-        app_path.as_str(),
-        Some(node_raw),
-        query.scope.as_deref(),
-        query.focus.as_deref(),
-        Some("preview"),
-        Some(axes.data_mode.slug()),
-        Some(
-            crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode).slug(),
-        ),
-    ) else {
-        return json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "failed to render preview fragment",
-        );
-    };
-
-    let scene_for_key = fragment
-        .compile_coordinate
+    let scene_for_key = compile_coordinate
         .scene_id
         .as_deref()
         .filter(|value| !value.trim().is_empty())
@@ -457,10 +436,11 @@ pub async fn api_build_workspace_fragment(
         focus,
         scope,
         preview_scope.as_deref(),
+        route_mode,
         &axes,
         draft_session.as_str(),
         draft_digest.as_str(),
-        Some(&fragment.compile_coordinate),
+        Some(&compile_coordinate),
     );
     let final_cache_key = build_fragment_cache_key(&final_input);
     let final_revision_digest = build_fragment_revision_digest(final_cache_key.as_str());
@@ -470,6 +450,7 @@ pub async fn api_build_workspace_fragment(
         workspace_root.as_path(),
         app_id,
         scene_for_key.as_str(),
+        route_mode,
         &axes,
         draft_session.as_str(),
         draft_digest.as_str(),
@@ -479,19 +460,13 @@ pub async fn api_build_workspace_fragment(
     };
     revision.manifest_revision_digest = scene_manifest.revision_digest.clone();
     let compose_defaults = compose_defaults_from_manifest(&scene_manifest);
-    let manifest_only = wants_manifest_only(&query);
     let body = BuildWorkspaceFragmentResponse {
         compile_revision: assembled.compile_revision.clone(),
-        compile_coordinate: fragment.compile_coordinate.clone(),
-        preview_html: if manifest_only {
-            None
-        } else {
-            Some(fragment.preview_html.clone())
-        },
-        drilldown_script: fragment.drilldown_script.clone(),
-        workspace_scripts: fragment.workspace_scripts.clone(),
-        node: fragment.node.clone(),
-        focus: fragment.focus.clone(),
+        compile_coordinate: compile_coordinate.clone(),
+        drilldown_script: String::new(),
+        workspace_scripts: vec![],
+        node: node_raw.to_string(),
+        focus: focus.to_string(),
         data_mode: Some(axes.data_mode.slug().to_string()),
         review_projection: Some(axes.review_projection.slug().to_string()),
         fragment_cache_hit: false,
@@ -503,17 +478,14 @@ pub async fn api_build_workspace_fragment(
     store_build_fragment_cache(
         final_cache_key,
         cached_build_fragment(
-            fragment.preview_html,
-            fragment.drilldown_script,
-            fragment.workspace_scripts,
-            fragment.node,
-            fragment.focus,
+            String::new(),
+            vec![],
+            node_raw.to_string(),
+            focus.to_string(),
             assembled.compile_revision.clone(),
-            fragment.compile_coordinate,
+            compile_coordinate,
             axes.data_mode.slug().to_string(),
-            crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode)
-                .slug()
-                .to_string(),
+            ssr_projection.to_string(),
             final_revision_digest.clone(),
             body.scene_manifest.revision_digest.clone(),
         ),

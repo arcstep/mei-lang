@@ -26,6 +26,19 @@
   }
 
   function parseAccessSceneContext(urlLike) {
+    if (typeof boot.parseViewContext === "function") {
+      const ctx = boot.parseViewContext(urlLike);
+      if (!ctx) return null;
+      return {
+        appId: ctx.appId,
+        sceneId: ctx.sceneId,
+        mode: ctx.surface || ctx.mode || "app",
+        chrome: ctx.chrome || "",
+        dataMode: ctx.dataMode || "",
+        reviewProjection: ctx.reviewProjection || "",
+        url: ctx.url,
+      };
+    }
     try {
       const url = new URL(urlLike, window.location.href);
       const match = url.pathname.match(
@@ -56,6 +69,9 @@
   }
 
   function sceneRevisionCacheKey(ctx) {
+    if (typeof boot.semanticRevisionKey === "function") {
+      return boot.semanticRevisionKey(ctx);
+    }
     return boot.surfaceRevisionKey({
       surface: ctx.mode || "app",
       app_id: ctx.appId,

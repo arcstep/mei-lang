@@ -16,9 +16,7 @@ use std::time::Instant;
 use crate::build_info::fill_page_shell_placeholders;
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
 use crate::access_page_cache::{
-    access_page_cache_key, build_scene_revision_payload, insert_page_render_cache_hit_header,
-    render_access_page_template, resolve_access_page_html, store_access_page_template,
-    take_access_page_template,
+    build_scene_revision_payload, insert_page_render_cache_hit_header, resolve_access_page_html,
 };
 use crate::page_observability::{
     fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
@@ -41,10 +39,6 @@ pub struct AppQuery {
     pub review_projection: Option<String>,
     /// Structure tree max ui role depth (`content`, `section`, …).
     pub tree_max: Option<String>,
-    /// `1` / `true` forces experimental thin-shell document (manifest refs only).
-    pub thin_shell: Option<String>,
-    /// `1` / `true` / `html` — alias of omitting thin_shell; kept for compatibility.
-    pub fallback: Option<String>,
 }
 
 fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
@@ -71,62 +65,6 @@ fn resolve_build_node_for_query(query: &AppQuery) -> Option<String> {
         &legacy,
     )
     .map(|resolved| resolved.node.encode())
-}
-
-fn build_page_render_cache_key_for_request(
-    workspace_root: &std::path::Path,
-    app_id: &str,
-    query: &AppQuery,
-    headers: &HeaderMap,
-    axes: crate::review_axes::PageRenderAxes,
-    auth_enabled: bool,
-    chrome_hidden: bool,
-    gis: &crate::gis_config::GisTilesConfig,
-) -> Option<String> {
-    let node = resolve_build_node_for_query(query)?;
-    let session_id = mei_host_core::resolve_draft_session_id(headers);
-    let storage_key =
-        mei_host_core::layout_tuning_draft_storage_key(app_id, session_id.as_str());
-    let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
-        workspace_root,
-        app_id,
-        storage_key.as_str(),
-    );
-    let draft_digest = crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
-    let focus = query.focus.as_deref().unwrap_or("").trim();
-    let scope = query
-        .scope
-        .as_deref()
-        .map(mei_lang_kernel::BuildExecScope::parse_slug)
-        .map(|value| value.slug())
-        .unwrap_or("warmup");
-    let scene_for_node = crate::build_fragment_cache::scene_id_from_build_node(node.as_str());
-    let input = crate::build_fragment_cache::BuildFragmentCacheInput {
-        workspace_root,
-        app_id,
-        node: node.as_str(),
-        scene_id: scene_for_node.as_str(),
-        focus,
-        scope,
-        preview_scope: None,
-        data_mode: axes.data_mode.slug(),
-        review_projection: crate::review_axes::ssr_review_projection(
-            UiRouteMode::Build,
-            axes.data_mode,
-        )
-        .slug(),
-        compile_coordinate: None,
-        draft_session: session_id.as_str(),
-        draft_digest: draft_digest.as_str(),
-    };
-    Some(crate::build_fragment_cache::build_page_render_cache_key(
-        &input,
-        query.tab.as_deref().unwrap_or("").trim(),
-        query.file.as_deref().unwrap_or("").trim(),
-        auth_enabled,
-        chrome_hidden,
-        gis,
-    ))
 }
 
 pub async fn app_surface_page(
@@ -219,7 +157,7 @@ pub async fn app_page(
     if app_id.is_empty() {
         return (StatusCode::NOT_FOUND, "app not found").into_response();
     }
-    let copilot_presentation_id = tour_id.as_deref();
+    let _copilot_presentation_id = tour_id.as_deref();
     if route_mode.is_access_like() {
         let starting_location = {
             let workspace_root = {
@@ -367,229 +305,85 @@ pub async fn app_page(
     } else {
         None
     };
-    let cache_key = access_page_cache_key(
-        workspace_root,
-        app_id.as_str(),
-        scene_id.as_str(),
-        route_mode,
-        axes,
-        chrome_hidden,
-        auth_enabled,
-        account_view.as_ref(),
-        &gis,
-    );
-    let mut page_render_cache_hit = false;
+    let page_render_cache_hit = false;
     let (mut html, ssr_emit_ms) = if route_mode.is_access_like() {
-        if revision_first_shell {
-            let render_started = Instant::now();
-            let template = render_thin_access_shell(
-                thin_access_shell_document(app_id.as_str(), scene_id.as_str()),
-                workspace_root,
-                app_id.as_str(),
-                scene_id.as_str(),
-                &shell_compose,
-            );
-            let prefetched = resolve_access_page_html(
-                workspace_root,
-                package_root,
-                apps.as_slice(),
-                &topbar_menu,
-                app_id.as_str(),
-                scene_id.as_str(),
-                route_mode,
-                &query,
-                axes,
-                auth_enabled,
-                account_view.as_ref(),
-                copilot_presentation_id,
-            )
-            .ok();
-            let template = if let Some(prefetched) = prefetched {
-                inject_prefetched_access_shell_fragment(
-                    template,
-                    extract_shell_inner_html(prefetched.html.as_str()),
-                    extract_document_title(prefetched.html.as_str()),
-                )
-            } else {
-                template
-            };
-            (template, render_started.elapsed().as_millis() as u64)
-        } else if let Some(ref key) = cache_key {
-            if let Some(cached) = take_access_page_template(
-                workspace_root,
-                app_id.as_str(),
-                scene_id.as_str(),
-                key.as_str(),
-            ) {
-                page_render_cache_hit = true;
-                (cached, 0)
-            } else {
-                let render_started = Instant::now();
-                let template = match render_access_page_template(
-                    workspace_root,
-                    package_root,
-                    apps.as_slice(),
-                    &topbar_menu,
-                    app_id.as_str(),
-                    scene_id.as_str(),
-                    route_mode,
-                    &query,
-                    axes,
-                    auth_enabled,
-                    account_view.as_ref(),
-                    copilot_presentation_id,
-                ) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        tracing::warn!(
-                            app_id = %app_id,
-                            scene_id = %scene_id,
-                            error = %error,
-                            "access page render failed"
-                        );
-                        return (
-                            StatusCode::NOT_FOUND,
-                            format!("scene not assembled: {error}"),
-                        )
-                            .into_response();
-                    }
-                };
-                let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
-                let _ = store_access_page_template(
-                    workspace_root,
-                    app_id.as_str(),
-                    scene_id.as_str(),
-                    key.as_str(),
-                    template.as_str(),
-                    None,
-                );
-                (template, ssr_emit_ms)
-            }
-        } else {
-            let render_started = Instant::now();
-            match render_access_page_template(
-                workspace_root,
-                package_root,
-                apps.as_slice(),
-                &topbar_menu,
+        let render_started = Instant::now();
+        let template = render_thin_access_shell(
+            thin_access_shell_document(app_id.as_str(), scene_id.as_str()),
+            workspace_root,
+            app_id.as_str(),
+            scene_id.as_str(),
+            &shell_compose,
+        );
+        (template, render_started.elapsed().as_millis() as u64)
+    } else if route_mode.is_app_surface() && !route_mode.is_app() {
+        let render_started = Instant::now();
+        let draft_session = mei_host_core::resolve_draft_session_id(&headers);
+        let storage_key =
+            mei_host_core::layout_tuning_draft_storage_key(app_id.as_str(), draft_session.as_str());
+        let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
+            workspace_root,
+            app_id.as_str(),
+            storage_key.as_str(),
+        );
+        let draft_digest = crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
+        let node = resolve_build_node_for_query(&query).unwrap_or_default();
+        let template = render_thin_scene_shell(
+            thin_workspace_shell_document(
                 app_id.as_str(),
                 scene_id.as_str(),
                 route_mode,
-                &query,
-                axes,
-                auth_enabled,
-                account_view.as_ref(),
-                copilot_presentation_id,
-            ) {
-                Ok(template) => (template, render_started.elapsed().as_millis() as u64),
-                Err(error) => {
-                    tracing::warn!(
-                        app_id = %app_id,
-                        scene_id = %scene_id,
-                        error = %error,
-                        "access page render failed"
-                    );
-                    return (
-                        StatusCode::NOT_FOUND,
-                        format!("scene not assembled: {error}"),
-                    )
-                        .into_response();
-                }
-            }
-        }
-    } else {
-        let build_page_cache_key = if route_mode.is_build() && !revision_first_shell {
-            build_page_render_cache_key_for_request(
-                workspace_root,
-                app_id.as_str(),
-                &query,
-                &headers,
-                axes,
-                auth_enabled,
-                chrome_hidden,
-                &gis,
-            )
+                node.as_str(),
+                axes.data_mode.slug(),
+                crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
+                query.tree_max.as_deref().unwrap_or(""),
+            ),
+            workspace_root,
+            app_id.as_str(),
+            scene_id.as_str(),
+            route_mode,
+            &shell_compose,
+            draft_session.as_str(),
+            draft_digest.as_str(),
+        );
+        (template, render_started.elapsed().as_millis() as u64)
+    } else if route_mode.is_build() && revision_first_shell {
+        let render_started = Instant::now();
+        let node = resolve_build_node_for_query(&query).unwrap_or_default();
+        let scene_for_node = crate::build_fragment_cache::scene_id_from_build_node(node.as_str());
+        let shell_scene_id = if scene_for_node.trim().is_empty() {
+            scene_id.clone()
         } else {
-            None
+            scene_for_node
         };
-        let build_early_hit = build_page_cache_key.as_ref().and_then(|cache_key| {
-            take_access_page_template(
-                workspace_root,
-                app_id.as_str(),
-                scene_id.as_str(),
-                cache_key.as_str(),
-            )
-        });
-        if let Some(cached) = build_early_hit {
-            page_render_cache_hit = true;
-            (cached, 0)
-        } else if route_mode.is_build() && revision_first_shell {
-            let render_started = Instant::now();
-            let node = resolve_build_node_for_query(&query).unwrap_or_default();
-            let scene_for_node = crate::build_fragment_cache::scene_id_from_build_node(node.as_str());
-            let shell_scene_id = if scene_for_node.trim().is_empty() {
-                scene_id.clone()
-            } else {
-                scene_for_node
-            };
-            let draft_session = mei_host_core::resolve_draft_session_id(&headers);
-            let storage_key =
-                mei_host_core::layout_tuning_draft_storage_key(app_id.as_str(), draft_session.as_str());
-            let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
-                workspace_root,
-                app_id.as_str(),
-                storage_key.as_str(),
-            );
-            let draft_digest = crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
-            let mut template = render_thin_scene_shell(
-                thin_build_shell_document(
-                    app_id.as_str(),
-                    shell_scene_id.as_str(),
-                    node.as_str(),
-                    query.focus.as_deref().unwrap_or("").trim(),
-                    axes.data_mode.slug(),
-                    axes.review_projection.slug(),
-                ),
-                workspace_root,
+        let draft_session = mei_host_core::resolve_draft_session_id(&headers);
+        let storage_key =
+            mei_host_core::layout_tuning_draft_storage_key(app_id.as_str(), draft_session.as_str());
+        let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
+            workspace_root,
+            app_id.as_str(),
+            storage_key.as_str(),
+        );
+        let draft_digest = crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
+        let template = render_thin_scene_shell(
+            thin_build_shell_document(
                 app_id.as_str(),
                 shell_scene_id.as_str(),
-                UiRouteMode::Build,
-                &shell_compose,
-                draft_session.as_str(),
-                draft_digest.as_str(),
-            );
-            if let Ok(Some(mut outcome)) = mei_host_graph::assemble_scope_from_registry(
-                workspace_root,
-                app_id.as_str(),
-                shell_scene_id.as_str(),
-            ) {
-                crate::build_layout_tuning::apply_build_session_layout_tuning_draft(
-                    &mut outcome.compiled,
-                    workspace_root,
-                    app_id.as_str(),
-                    &headers,
-                );
-                if let Some(fragment) = mei_lang_app::render_build_preview_fragment(
-                    apps.as_slice(),
-                    &outcome.compiled,
-                    app_id.as_str(),
-                    query.node.as_deref(),
-                    query.scope.as_deref(),
-                    query.focus.as_deref(),
-                    query.tab.as_deref(),
-                    Some(axes.data_mode.slug()),
-                    Some(axes.review_projection.slug()),
-                ) {
-                    template = inject_prefetched_build_preview_fragment(
-                        template,
-                        Some(fragment.preview_html),
-                        Some(fragment.drilldown_script),
-                        fragment.workspace_scripts,
-                    );
-                }
-            }
-            (template, render_started.elapsed().as_millis() as u64)
-        } else {
+                node.as_str(),
+                query.focus.as_deref().unwrap_or("").trim(),
+                axes.data_mode.slug(),
+                crate::review_axes::ssr_review_projection_for_axes(route_mode, axes).slug(),
+            ),
+            workspace_root,
+            app_id.as_str(),
+            shell_scene_id.as_str(),
+            route_mode,
+            &shell_compose,
+            draft_session.as_str(),
+            draft_digest.as_str(),
+        );
+        (template, render_started.elapsed().as_millis() as u64)
+    } else {
         let assemble_result = mei_host_graph::assemble_scope_from_registry(
             workspace_root,
             app_id.as_str(),
@@ -716,54 +510,9 @@ pub async fn app_page(
                 ),
                 &gis,
             );
-        if let Some(cache_key) = build_page_cache_key.as_ref() {
-            let _ = store_access_page_template(
-                workspace_root,
-                app_id.as_str(),
-                scene_id.as_str(),
-                cache_key.as_str(),
-                rendered.as_str(),
-                None,
-            );
-        }
         let ssr_emit_ms = render_started.elapsed().as_millis() as u64;
         (rendered, ssr_emit_ms)
-        }
     };
-    if route_mode.is_build() && !revision_first_shell {
-        if let Some(node) = resolve_build_node_for_query(&query) {
-            let session_id = mei_host_core::resolve_draft_session_id(&headers);
-            let storage_key =
-                mei_host_core::layout_tuning_draft_storage_key(app_id.as_str(), session_id.as_str());
-            let draft = crate::build_layout_tuning::build_session_layout_tuning_draft(
-                workspace_root,
-                app_id.as_str(),
-                storage_key.as_str(),
-            );
-            let draft_digest =
-                crate::build_fragment_cache::draft_digest_for_tuning(draft.as_ref());
-            let focus = query.focus.as_deref().unwrap_or("").trim();
-            let scope = query
-                .scope
-                .as_deref()
-                .map(mei_lang_kernel::BuildExecScope::parse_slug)
-                .map(|value| value.slug())
-                .unwrap_or("warmup");
-            let revision = crate::build_fragment_cache::build_fragment_revision_for_page(
-                workspace_root,
-                app_id.as_str(),
-                node.as_str(),
-                focus,
-                scope,
-                axes.data_mode.slug(),
-                crate::review_axes::ssr_review_projection(UiRouteMode::Build, axes.data_mode)
-                    .slug(),
-                session_id.as_str(),
-                draft_digest.as_str(),
-            );
-            html = crate::build_fragment_cache::inject_build_fragment_revision_meta(html, &revision);
-        }
-    }
     let handler_html_ready_ms = request_started.elapsed().as_millis() as u64;
     html = fill_manage_wall_clock_placeholders(html, ssr_emit_ms, handler_html_ready_ms);
     let payload_stats = measure_page_html_payload(html.as_str());
@@ -1669,18 +1418,6 @@ fn parse_app_scene_path(
     (app_id, scene, None)
 }
 
-fn wants_html_fallback(query: &AppQuery) -> bool {
-    matches!(
-        query
-            .fallback
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1") | Some("true") | Some("html")
-    )
-}
-
 fn build_preview_route_requested(query: &AppQuery) -> bool {
     if matches!(
         query
@@ -1697,22 +1434,10 @@ fn build_preview_route_requested(query: &AppQuery) -> bool {
 }
 
 fn wants_revision_first_shell(route_mode: UiRouteMode, query: &AppQuery) -> bool {
-    if wants_html_fallback(query) {
-        return false;
+    if route_mode.is_access_like() || route_mode.is_app_surface() {
+        return true;
     }
-    // Thin-shell bootstrap is opt-in; default SSR keeps body theme + full assemble stable.
-    if !matches!(
-        query
-            .thin_shell
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("1") | Some("true") | Some("on")
-    ) {
-        return false;
-    }
-    route_mode.is_access_like() || (route_mode.is_build() && build_preview_route_requested(query))
+    route_mode.is_build() && build_preview_route_requested(query)
 }
 
 fn compose_request_for_shell(
@@ -1729,7 +1454,11 @@ fn compose_request_for_shell(
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .unwrap_or(if route_mode.is_build() { "preview" } else { "scene" })
+                .unwrap_or(if route_mode == UiRouteMode::Build {
+                    "preview"
+                } else {
+                    "scene"
+                })
                 .to_string(),
         ),
         chrome: Some(if chrome_hidden { "none" } else { "full" }.to_string()),
@@ -1775,6 +1504,31 @@ pub(crate) fn thin_access_shell_document(app_id: &str, scene_id: &str) -> String
     )
 }
 
+pub(crate) fn thin_workspace_shell_document(
+    app_id: &str,
+    scene_id: &str,
+    route_mode: UiRouteMode,
+    node: &str,
+    data_mode: &str,
+    review_projection: &str,
+    tree_max_ui_role: &str,
+) -> String {
+    let body_class = match route_mode {
+        UiRouteMode::Layout => "layout-view",
+        UiRouteMode::Prototype => "prototype-view",
+        _ => "build-view",
+    };
+    let route_slug = route_mode.slug();
+    let tree_max_attr = if tree_max_ui_role.trim().is_empty() {
+        String::new()
+    } else {
+        format!(r#" data-build-tree-max-ui-role="{tree_max_ui_role}""#)
+    };
+    format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>{app_id}</title></head><body class="{body_class}" data-app-id="{app_id}" data-scene-id="{scene_id}" data-route-mode="{route_slug}"><div class="shell build-thin-shell" data-scene="{scene_id}" data-build-node="{node}" data-data-mode="{data_mode}" data-review-projection="{review_projection}"{tree_max_attr}><div id="workspace-root" class="workspace-root build-thin-shell-root"><aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5"><div class="sidebar-scroll flex-1 min-h-0 overflow-auto"><nav class="build-reachability-tree" aria-label="场景原型导航"></nav></div></aside><main class="main h-full min-w-0 min-h-0 overflow-hidden px-0"><section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5"><div class="manage-tab-stage min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden"><section class="manage-tab-panel preview-pane min-h-0 min-w-0 flex flex-col overflow-hidden" data-manage-tab-panel="preview"><div class="preview-pane-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-review-projection="{review_projection}" data-data-mode="{data_mode}"></div><div id="build-inspect-bar" class="build-inspect-bar shrink-0 border-t mei-border-default px-3 py-2 mei-font-1 mei-text-muted" data-build-inspect-bar="true"><span id="build-inspect-bar-label">在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。</span></div></section><section class="manage-tab-panel min-h-0 min-w-0 overflow-auto" data-manage-tab-panel="exec" hidden></section><section class="manage-tab-panel min-h-0 min-w-0 overflow-auto" data-manage-tab-panel="semantic" hidden></section><section class="manage-tab-panel min-h-0 min-w-0 overflow-auto" data-manage-tab-panel="eval" hidden></section><section class="manage-tab-panel min-h-0 min-w-0 overflow-auto" data-manage-tab-panel="artifact" hidden></section></div></section></main></div></div><nav id="mei-build-reachability-tree" class="build-reachability-tree" hidden aria-hidden="true"></nav><script id="mei-build-reachability-tree" type="application/json">[]</script></body></html>"#
+    )
+}
+
 pub(crate) fn thin_build_shell_document(
     app_id: &str,
     scene_id: &str,
@@ -1813,7 +1567,7 @@ pub(crate) fn render_thin_scene_shell(
 }
 
 fn inject_thin_shell_runtime_assets(html: String, route_mode: mei_lang_app::UiRouteMode) -> String {
-    let (preload_href, bundle_src) = if route_mode.is_build() || route_mode == mei_lang_app::UiRouteMode::Runtime {
+    let (preload_href, bundle_src) = if route_mode.uses_workspace_tree() {
         (
             "/app-bundles/manage.js?v=__MEI_HOST_ASSET_VERSION__",
             "/app-bundles/manage.js?v=__MEI_HOST_ASSET_VERSION__",
@@ -1933,76 +1687,18 @@ pub(crate) fn inject_scene_manifest_refs_for_route(
     }
 }
 
-fn inject_prefetched_access_shell_fragment(
-    html: String,
-    shell_html: Option<String>,
-    title: String,
-) -> String {
-    let Some(shell_html) = shell_html.filter(|value| !value.trim().is_empty()) else {
-        return html;
-    };
-    let payload = json!({
-        "shellHtml": shell_html,
-        "title": title,
-        "headScripts": {},
-    });
-    let payload = payload.to_string().replace("</script>", r#"<\/script>"#);
-    let script = format!(
-        r#"<script>window.__mei=window.__mei||{{}};window.__mei.prefetched_scene_fragment={payload};</script>"#
-    );
-    if let Some(pos) = html.find("</head>") {
-        let mut out = String::with_capacity(html.len() + script.len());
-        out.push_str(&html[..pos]);
-        out.push_str(&script);
-        out.push_str(&html[pos..]);
-        out
-    } else {
-        format!("{script}{html}")
-    }
-}
-
-fn inject_prefetched_build_preview_fragment(
-    html: String,
-    preview_html: Option<String>,
-    drilldown_script: Option<String>,
-    workspace_scripts: Vec<String>,
-) -> String {
-    let Some(preview_html) = preview_html.filter(|value| !value.trim().is_empty()) else {
-        return html;
-    };
-    let payload = json!({
-        "preview_html": preview_html,
-        "drilldown_script": drilldown_script.unwrap_or_default(),
-        "workspace_scripts": workspace_scripts,
-    });
-    let payload = payload.to_string().replace("</script>", r#"<\/script>"#);
-    let script = format!(
-        r#"<script>window.__mei=window.__mei||{{}};window.__mei.prefetched_build_fragment={payload};</script>"#
-    );
-    if let Some(pos) = html.find("</head>") {
-        let mut out = String::with_capacity(html.len() + script.len());
-        out.push_str(&html[..pos]);
-        out.push_str(&script);
-        out.push_str(&html[pos..]);
-        out
-    } else {
-        format!("{script}{html}")
-    }
-}
-
 #[cfg(test)]
 mod inject_scene_manifest_tests {
     use super::inject_scene_manifest_refs;
 
     #[test]
-    fn wants_revision_first_shell_is_opt_in() {
+    fn wants_revision_first_shell_defaults_on_app_surfaces() {
         use super::{wants_revision_first_shell, AppQuery, UiRouteMode};
-        let mut query = AppQuery::default();
-        assert!(!wants_revision_first_shell(UiRouteMode::App, &query));
-        query.thin_shell = Some("1".to_string());
+        let query = AppQuery::default();
         assert!(wants_revision_first_shell(UiRouteMode::App, &query));
-        query.thin_shell = Some("0".to_string());
-        assert!(!wants_revision_first_shell(UiRouteMode::App, &query));
+        assert!(wants_revision_first_shell(UiRouteMode::Layout, &query));
+        assert!(wants_revision_first_shell(UiRouteMode::Prototype, &query));
+        assert!(!wants_revision_first_shell(UiRouteMode::Build, &query));
     }
 
     #[test]

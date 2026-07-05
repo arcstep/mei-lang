@@ -345,18 +345,60 @@ pub fn shell_cache_key(
 }
 
 pub fn manifest_revision_digest(manifest: &SceneViewManifest, draft_digest: Option<&str>) -> String {
+    semantic_revision_digest(manifest, draft_digest)
+}
+
+/// Digest over semantic layers only (excludes shell.* and view-only compose axes).
+pub fn semantic_revision_digest(manifest: &SceneViewManifest, draft_digest: Option<&str>) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
-    let mut wrapper = serde_json::to_value(manifest).unwrap_or(Value::Null);
-    if let Some(digest) = draft_digest.filter(|value| !value.is_empty()) {
-        if let Some(obj) = wrapper.as_object_mut() {
-            obj.insert("draft_digest".to_string(), json!(digest));
+    let mut semantic_layers = std::collections::BTreeMap::new();
+    for (name, value) in &manifest.layers {
+        if !name.starts_with("shell.") {
+            semantic_layers.insert(name.clone(), value.clone());
         }
     }
-    let raw = serde_json::to_string(&wrapper).unwrap_or_default();
+    let data_mode = manifest
+        .compose_defaults
+        .as_ref()
+        .and_then(|compose| compose.data_mode.as_deref())
+        .unwrap_or("");
+    let payload = json!({
+        "semantic_core": manifest.semantic_core,
+        "layers": semantic_layers,
+        "data_mode": data_mode,
+        "draft_digest": draft_digest.filter(|value| !value.is_empty()),
+    });
+    let raw = serde_json::to_string(&payload).unwrap_or_default();
     let mut hasher = DefaultHasher::new();
     raw.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
+}
+
+/// Digest over shell layer + tab/chrome/route compose axes.
+pub fn surface_revision_digest_from_manifest(manifest: &SceneViewManifest) -> Option<String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let shell_layer = manifest
+        .layers
+        .iter()
+        .find(|(name, _)| name.starts_with("shell."))
+        .map(|(_, value)| value.clone());
+    let compose = manifest.compose_defaults.as_ref();
+    let payload = json!({
+        "shell": shell_layer,
+        "route_mode": compose.and_then(|value| value.route_mode.as_deref()),
+        "tab": compose.and_then(|value| value.tab.as_deref()),
+        "chrome": compose.and_then(|value| value.chrome.as_deref()),
+        "review_projection": compose.and_then(|value| value.review_projection.as_deref()),
+    });
+    let raw = serde_json::to_string(&payload).unwrap_or_default();
+    if raw == "null" || raw == "{}" {
+        return None;
+    }
+    let mut hasher = DefaultHasher::new();
+    raw.hash(&mut hasher);
+    Some(format!("{:016x}", hasher.finish()))
 }
 
 #[cfg(test)]
@@ -383,9 +425,66 @@ mod manifest_revision_tests {
             layers: Default::default(),
             compose_defaults: None,
         };
-        let base = manifest_revision_digest(&manifest, None);
-        let with_draft = manifest_revision_digest(&manifest, Some("draft-abc"));
+        let base = semantic_revision_digest(&manifest, None);
+        let with_draft = semantic_revision_digest(&manifest, Some("draft-abc"));
         assert_ne!(base, with_draft);
+    }
+
+    #[test]
+    fn semantic_revision_digest_ignores_shell_and_compose_view_axes() {
+        let mut layers = std::collections::BTreeMap::new();
+        layers.insert(
+            "structure.full".to_string(),
+            json!({"artifact_id": "s1", "content_hash": "h1"}),
+        );
+        layers.insert(
+            "shell.app".to_string(),
+            json!({"artifact_id": "sh1", "content_hash": "shell-a"}),
+        );
+        let base_manifest = SceneViewManifest {
+            schema_version: "1".to_string(),
+            app_id: "demo".to_string(),
+            scene_id: "home".to_string(),
+            semantic_core: crate::SemanticCacheCore {
+                app_id: "demo".to_string(),
+                scene_id: "home".to_string(),
+                preview_scope: None,
+                registry_revision: "r1".to_string(),
+                client_revision: "c1".to_string(),
+                data_generation: "g1".to_string(),
+                compile_epoch: "e1".to_string(),
+            },
+            revision_digest: String::new(),
+            layers: layers.clone(),
+            compose_defaults: Some(ComposeRequest {
+                route_mode: Some("app".to_string()),
+                tab: Some("scene".to_string()),
+                chrome: Some("full".to_string()),
+                review_projection: Some("live_full".to_string()),
+                data_mode: Some("eval".to_string()),
+                focus: None,
+                scope: None,
+            }),
+        };
+        let mut shell_variant = base_manifest.clone();
+        if let Some(shell) = shell_variant.layers.get_mut("shell.app") {
+            *shell = json!({"artifact_id": "sh2", "content_hash": "shell-b"});
+        }
+        shell_variant.compose_defaults = Some(ComposeRequest {
+            route_mode: Some("layout".to_string()),
+            tab: Some("preview".to_string()),
+            chrome: Some("none".to_string()),
+            review_projection: Some("plane_region_section".to_string()),
+            data_mode: Some("eval".to_string()),
+            focus: None,
+            scope: None,
+        });
+        let semantic_a = semantic_revision_digest(&base_manifest, None);
+        let semantic_b = semantic_revision_digest(&shell_variant, None);
+        assert_eq!(semantic_a, semantic_b);
+        let surface_a = surface_revision_digest_from_manifest(&base_manifest);
+        let surface_b = surface_revision_digest_from_manifest(&shell_variant);
+        assert_ne!(surface_a, surface_b);
     }
 }
 

@@ -9,7 +9,7 @@
     if (ctx.dataMode) params.set("data_mode", ctx.dataMode);
     if (ctx.reviewProjection) params.set("review_projection", ctx.reviewProjection);
     if (ctx.chrome) params.set("chrome", ctx.chrome);
-    if (!opts.htmlFallback) params.set("format", "manifest");
+    params.set("format", "manifest");
     const controller = opts.signal ? null : new AbortController();
     const signal = opts.signal || controller?.signal;
     const response = await fetch(`${SCENE_FRAGMENT_API}?${params.toString()}`, {
@@ -42,7 +42,10 @@
           ctx.reviewProjection ||
           fragment.compose_defaults?.review_projection ||
           "live_full";
-        const root = document.querySelector(".shell");
+        const root =
+          typeof boot.resolveComposeRoot === "function"
+            ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
+            : document.querySelector(".shell");
         if (!root?.querySelector("[data-preview-scope], [data-mei-ui-role]")) {
           return null;
         }
@@ -51,39 +54,192 @@
         return document;
       }
     }
-    if (!fragment?.shellHtml) return null;
-    const normalizedRevision =
-      typeof boot.normalizeRevision === "function"
-        ? boot.normalizeRevision(revision)
-        : revision;
-    if (
-      fragment.revisionDigest &&
-      normalizedRevision?.revision_digest &&
-      fragment.revisionDigest !== normalizedRevision.revision_digest
-    ) {
+    return null;
+  }
+
+  async function wakeRevisionFirstShellRuntime(ctx) {
+    if (!ctx) return;
+    const surface = ctx.surface || ctx.mode || "app";
+    if (typeof boot.isWorkspaceComposeSurface === "function" && boot.isWorkspaceComposeSurface(surface)) {
+      if (typeof boot.installManageTabs === "function") {
+        boot.installManageTabs();
+      }
+      if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+        globalThis.MeiBuildTreePersist.refresh();
+      }
+      if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
+        globalThis.MeiBuildInspectHighlight.refresh();
+      }
+      if (typeof publishManagePreviewFromDoc === "function") {
+        publishManagePreviewFromDoc(document, { resetRuntimeQueryCache: true, pulsePreviewUpdated: true });
+      }
+      if (typeof boot.mountManagePreviewBoard === "function") {
+        await boot.mountManagePreviewBoard(document);
+      }
+      return;
+    }
+    if (typeof boot.dispatchScopeActivation === "function") {
+      boot.dispatchScopeActivation({
+        scope: ctx.sceneId || ctx.scene_id || "home",
+        sceneId: ctx.sceneId || ctx.scene_id || "home",
+        appId: ctx.appId || ctx.app_id || "",
+        source: "revision-first-cold-start",
+      });
+    }
+    if (typeof wakeRuntimeAfterSceneBundleLoaded === "function") {
+      wakeRuntimeAfterSceneBundleLoaded();
+    }
+  }
+
+  async function finishRevisionFirstColdStart(ctx, outcome) {
+    let resolved = outcome || { restored: false };
+    if (!resolved?.restored && boot.negotiateAndAssemble) {
+      const retry = await boot.negotiateAndAssemble(ctx, { silent: true });
+      if (retry?.assemble?.ok) {
+        resolved = {
+          restored: true,
+          doc: document,
+          revision: retry.response,
+          source: retry.outcome || "assemble_local",
+        };
+      }
+    }
+    if (resolved?.restored) {
+      await wakeRevisionFirstShellRuntime(ctx);
+      return resolved;
+    }
+    if (typeof boot.bootstrapThinShellComposition === "function") {
+      await boot.bootstrapThinShellComposition();
+    }
+    await wakeRevisionFirstShellRuntime(ctx);
+    return resolved;
+  }
+
+  async function negotiateAndAssemble(ctx, options) {
+    const opts = options || {};
+    const viewCtx =
+      typeof boot.parseViewContext === "function"
+        ? boot.parseViewContext(ctx?.url || window.location.href)
+        : ctx;
+    if (!viewCtx || !boot.viewRevisionClient?.negotiateWithLocalMiss) {
       return null;
     }
-    const snapshot = {
-      shellHtml: fragment.shellHtml,
-      title: fragment.title || document.title,
-      bodyClassName: document.body.className,
-      headScripts:
-        typeof boot.collectHeadJsonScripts === "function" ? boot.collectHeadJsonScripts() : {},
+    const vrCtx = {
+      app_id: viewCtx.app_id || viewCtx.appId,
+      scene_id: viewCtx.scene_id || viewCtx.sceneId,
+      surface: viewCtx.surface || viewCtx.mode || "app",
+      node: viewCtx.node || "",
+      data_mode: viewCtx.data_mode || viewCtx.dataMode || "",
+      review_projection: viewCtx.review_projection || viewCtx.reviewProjection || "",
+      chrome: viewCtx.chrome || "",
+      tab: viewCtx.tab || "",
+      focus: viewCtx.focus || "",
+      scope: viewCtx.scope || "",
     };
-    if (typeof boot.restoreSceneShellSnapshot !== "function") return null;
-    const restored = boot.restoreSceneShellSnapshot(snapshot, url, replaceHistory);
-    if (!restored) return null;
-    window.__meiShellRestoredFromFragment = 1;
-    if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("shell-restored", { source: "fragment", url: url || null });
+    try {
+      const result = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx);
+      if (!result?.assemble?.ok) {
+        return result;
+      }
+      const surface = vrCtx.surface || "app";
+      if (surface === "layout" || surface === "prototype" || surface === "build") {
+        if (typeof boot.installManageTabs === "function") {
+          boot.installManageTabs();
+        }
+        if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+          globalThis.MeiBuildTreePersist.refresh();
+        }
+      }
+      if (
+        typeof boot.renderStructureTree === "function" &&
+        result.assemble?.layers?.["structure.full"]
+      ) {
+        boot.renderStructureTree(result.assemble.layers["structure.full"], {
+          appId: vrCtx.app_id,
+          sceneId: vrCtx.scene_id,
+          surface,
+          activeNode: vrCtx.node || "",
+        });
+      }
+      if (typeof boot.rememberViewRevision === "function" && result.response) {
+        boot.rememberViewRevision(viewCtx, result.response);
+      }
+      await wakeRevisionFirstShellRuntime(viewCtx);
+      return result;
+    } catch (error) {
+      if (!opts.silent) {
+        console.warn("[spa-navigation] negotiateAndAssemble skipped", error);
+      }
+      return null;
     }
-    if (typeof boot.buildDocFromSceneShellSnapshot === "function") {
-      return boot.buildDocFromSceneShellSnapshot(snapshot);
+  }
+
+  async function tryCacheFirstViewRestore(urlLike, options) {
+    const opts = options || {};
+    const ctx =
+      typeof boot.parseViewContext === "function"
+        ? boot.parseViewContext(urlLike || window.location.href)
+        : typeof boot.parseAccessSceneContext === "function"
+          ? boot.parseAccessSceneContext(urlLike || window.location.href)
+          : null;
+    if (!ctx) {
+      return { restored: false, doc: null, revision: null, source: "none" };
     }
-    return new DOMParser().parseFromString(
-      `<!DOCTYPE html><html><head><title>${snapshot.title || ""}</title></head><body><div class="shell">${snapshot.shellHtml}</div></body></html>`,
-      "text/html",
-    );
+    const surface = ctx.surface || ctx.mode || "app";
+    const isWorkspace =
+      surface === "build" ||
+      surface === "layout" ||
+      surface === "prototype" ||
+      (typeof isBuildWorkspacePathname === "function" &&
+        isBuildWorkspacePathname(new URL(urlLike || window.location.href).pathname));
+    if (isWorkspace && typeof globalThis.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function") {
+      try {
+        const buildOutcome = await globalThis.MeiBuildNavigation.tryRestoreBuildPreviewFromCache(
+          urlLike || window.location.href,
+          {
+            timeoutMs: opts.timeoutMs || 4000,
+            coldStart: opts.coldStart !== false,
+            skipRemoteWhenValid: opts.skipRemoteWhenValid !== false,
+          },
+        );
+        if (buildOutcome?.restored) {
+          return {
+            restored: true,
+            doc: document,
+            revision: buildOutcome.revision,
+            source: buildOutcome.source || "build-cache",
+          };
+        }
+      } catch (error) {
+        console.warn("[spa-navigation] build cache restore skipped", error);
+      }
+    }
+    const negotiated = await negotiateAndAssemble(ctx, opts);
+    if (negotiated?.assemble?.ok) {
+      const outcome =
+        negotiated.outcome === (boot.ViewRevisionOutcome?.REFETCH || "refetch")
+          ? "refetch"
+          : (boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local");
+      return {
+        restored: true,
+        doc: document,
+        revision: negotiated.response,
+        source: outcome,
+        viewRevision: negotiated,
+      };
+    }
+    if (typeof boot.tryCacheFirstSceneAccess === "function") {
+      return boot.tryCacheFirstSceneAccess(ctx, {
+        ...opts,
+        url: urlLike || window.location.href,
+      });
+    }
+    return {
+      restored: false,
+      doc: null,
+      revision: negotiated?.response || null,
+      source: negotiated?.outcome || "miss",
+    };
   }
 
   async function tryViewRevisionAssemble(ctx) {
@@ -92,9 +248,9 @@
       return null;
     }
     const vrCtx = {
-      app_id: ctx.appId,
-      scene_id: ctx.sceneId,
-      surface: ctx.mode || "app",
+      app_id: ctx.appId || ctx.app_id,
+      scene_id: ctx.sceneId || ctx.scene_id,
+      surface: ctx.mode || ctx.surface || "app",
       data_mode: ctx.dataMode,
       review_projection: ctx.reviewProjection,
       chrome: ctx.chrome,
@@ -143,31 +299,6 @@
       return { restored: false, doc: null, revision: null, source: "none" };
     }
 
-    const prefetchedFragment = globalThis.__mei?.prefetched_scene_fragment;
-    if (
-      prefetchedFragment?.shellHtml &&
-      typeof boot.restoreSceneShellSnapshot === "function"
-    ) {
-      const restored = boot.restoreSceneShellSnapshot(
-        {
-          shellHtml: prefetchedFragment.shellHtml,
-          title: prefetchedFragment.title || document.title,
-          bodyClassName: document.body.className,
-          headScripts: prefetchedFragment.headScripts || {},
-        },
-        opts.url || window.location.href,
-        !!opts.replaceHistory,
-      );
-      if (restored) {
-        return {
-          restored: true,
-          doc: document,
-          revision: null,
-          source: "prefetched_fragment",
-        };
-      }
-    }
-
     const viewRevisionOutcome = await tryViewRevisionAssemble(ctx);
     if (viewRevisionOutcome?.restored) {
       if (typeof boot.ensureSceneBootstrapPayload === "function") {
@@ -176,82 +307,34 @@
       return viewRevisionOutcome;
     }
 
-    if (!ctx || typeof boot.fetchSceneRevision !== "function") {
-      return { restored: false, doc: null, revision: null, source: "none" };
-    }
-    const timeoutMs =
-      opts.timeoutMs ||
-      (typeof SPA_FETCH_TIMEOUT_MS !== "undefined" ? SPA_FETCH_TIMEOUT_MS : 30000);
-    const coldStart = opts.coldStart === true;
-    const revision = await boot.fetchSceneRevision(ctx, {
-      timeoutMs,
-      skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
-      preloadSnapshotRevision: true,
-    });
-    if (
-      opts.navigationId != null &&
-      typeof currentNavigationId !== "undefined" &&
-      opts.navigationId !== currentNavigationId
-    ) {
-      return { restored: false, doc: null, revision, source: "superseded" };
-    }
-
-    if (typeof boot.tryRestoreSceneShellFromCache === "function") {
-      const restoredDoc = await boot.tryRestoreSceneShellFromCache(
-        ctx,
-        revision,
-        opts.url || window.location.href,
-        !!opts.replaceHistory,
-      );
-      if (restoredDoc) {
-        if (typeof boot.ensureSceneBootstrapPayload === "function") {
-          await boot.ensureSceneBootstrapPayload(ctx, revision);
-        }
-        if (typeof boot.cacheDiagTrace === "function") {
-          boot.cacheDiagTrace("cache-first-outcome", { source: "snapshot", coldStart });
-        }
-        return { restored: true, doc: restoredDoc, revision, source: "snapshot" };
-      }
-    }
-
-    if (!coldStart && opts.allowFragment !== false) {
-      try {
-        const fragmentDoc = await tryRestoreSceneShellFromFragment(
-          ctx,
-          revision,
-          opts.url || null,
-          !!opts.replaceHistory,
-        );
-        if (fragmentDoc) {
-          if (typeof boot.ensureSceneBootstrapPayload === "function") {
-            await boot.ensureSceneBootstrapPayload(ctx, revision);
-          }
-          if (typeof boot.cacheDiagTrace === "function") {
-            boot.cacheDiagTrace("cache-first-outcome", { source: "fragment", coldStart });
-          }
-          return { restored: true, doc: fragmentDoc, revision, source: "fragment" };
-        }
-      } catch (error) {
-        console.warn("[spa-navigation] scene fragment restore skipped", error);
-      }
-    }
-
     if (viewRevisionOutcome?.source === "local_miss") {
       return viewRevisionOutcome;
     }
 
-    if (typeof boot.ensureSceneBootstrapPayload === "function") {
-      await boot.ensureSceneBootstrapPayload(ctx, revision);
-    }
-    if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("cache-first-outcome", {
-        source: coldStart ? "cold-miss" : "miss",
-        coldStart,
+    if (typeof boot.fetchSceneRevision === "function") {
+      const revision = await boot.fetchSceneRevision(ctx, {
+        timeoutMs: opts.timeoutMs || 30000,
+        skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
+        preloadSnapshotRevision: false,
       });
+      if (typeof boot.ensureSceneBootstrapPayload === "function") {
+        await boot.ensureSceneBootstrapPayload(ctx, revision);
+      }
+      return {
+        restored: false,
+        doc: null,
+        revision,
+        source: viewRevisionOutcome?.source || "miss",
+      };
     }
-    return { restored: false, doc: null, revision, source: coldStart ? "cold-miss" : "miss" };
+
+    return { restored: false, doc: null, revision: null, source: "none" };
   }
 
+  boot.finishRevisionFirstColdStart = finishRevisionFirstColdStart;
+  boot.wakeRevisionFirstShellRuntime = wakeRevisionFirstShellRuntime;
   boot.fetchSceneFragment = fetchSceneFragment;
   boot.tryRestoreSceneShellFromFragment = tryRestoreSceneShellFromFragment;
+  boot.negotiateAndAssemble = negotiateAndAssemble;
+  boot.tryCacheFirstViewRestore = tryCacheFirstViewRestore;
   boot.tryCacheFirstSceneAccess = tryCacheFirstSceneAccess;

@@ -1,5 +1,6 @@
 {
   "manageScripts": [
+    "spa-navigation/route-predicates-standalone.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
@@ -19,9 +20,11 @@
     "build-copy-context.js",
     "build-scoped-rebuild.js",
     "build-tree-persist.js",
+    "build-tree-from-structure.js",
     "runtime-refresh.js",
     "build-navigation/p1.js",
     "spa-navigation/spa/revision-contract.js",
+    "spa-navigation/spa/view-context.js",
     "spa-navigation/spa/layer-artifact-cache.js",
     "spa-navigation/spa/layer-store.js",
     "spa-navigation/spa/view-revision-client.js",
@@ -128,6 +131,7 @@
     "source-highlight.js"
   ],
   "accessScripts": [
+    "spa-navigation/route-predicates-standalone.js",
     "host-http-feedback.js",
     "host-auth-session.js",
     "host-heartbeat.js",
@@ -229,6 +233,7 @@
     "spa-navigation/spa/manage-preview.js",
     "spa-navigation/spa/manage-preview-board.js",
     "spa-navigation/spa/revision-contract.js",
+    "spa-navigation/spa/view-context.js",
     "spa-navigation/spa/layer-artifact-cache.js",
     "spa-navigation/spa/layer-store.js",
     "spa-navigation/spa/view-revision-client.js",

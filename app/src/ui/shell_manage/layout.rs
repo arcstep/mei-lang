@@ -237,6 +237,8 @@ pub(crate) fn manage_shell(
 
     let primary_tabs = prototype_workspace_primary_tabs(resolved.node.kind);
     let tool_tabs = prototype_workspace_tool_tabs(resolved.node.kind);
+    let show_workspace_tabs = !primary_tabs.is_empty() || !tool_tabs.is_empty();
+    let show_workspace_head = show_workspace_tabs || data_mode_ceiling_notice.is_some();
 
     let tab_link = |tab: BuildViewTab, class: String| {
         let href = build_node_href(
@@ -371,46 +373,51 @@ pub(crate) fn manage_shell(
                 ></div>
                 <main class="main h-full min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
-                        <div class="manage-workspace-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 pb-2.5">
-                            <nav
-                                class="manage-view-tabs workspace-tabs-strip flex min-w-0 flex-1 items-center gap-2"
-                                aria-label="场景原型工作区"
-                            >
-                                <div class="manage-view-tabs-cluster manage-view-tabs-cluster--prototype">
-                                    <div class="manage-view-tabs-group manage-view-tabs-group--primary" role="presentation">
-                                        {primary_tab_links}
-                                    </div>
-                                    {if !tool_tabs.is_empty() {
+                        {if show_workspace_head {
+                            view! {
+                                <div class="manage-workspace-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 pb-2.5">
+                                    {if show_workspace_tabs {
                                         view! {
-                                            <div
-                                                class="manage-view-tabs-group manage-view-tabs-group--secondary"
-                                                role="presentation"
+                                            <nav
+                                                class="manage-view-tabs workspace-tabs-strip flex min-w-0 flex-1 items-center gap-2"
+                                                aria-label="场景原型工作区"
                                             >
-                                                {tool_tab_links}
+                                                <div class="manage-view-tabs-cluster manage-view-tabs-cluster--prototype">
+                                                    <div class="manage-view-tabs-group manage-view-tabs-group--primary" role="presentation">
+                                                        {primary_tab_links}
+                                                    </div>
+                                                    {if !tool_tabs.is_empty() {
+                                                        view! {
+                                                            <div
+                                                                class="manage-view-tabs-group manage-view-tabs-group--secondary"
+                                                                role="presentation"
+                                                            >
+                                                                {tool_tab_links}
+                                                            </div>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! { <></> }.into_any()
+                                                    }}
+                                                </div>
+                                            </nav>
+                                        }.into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }}
+                                    {if data_mode_ceiling_notice.is_some() {
+                                        view! {
+                                            <div class="manage-workspace-head-actions flex shrink-0 flex-wrap items-center gap-2">
+                                                {ceiling_notice_view}
                                             </div>
                                         }.into_any()
                                     } else {
                                         view! { <></> }.into_any()
                                     }}
                                 </div>
-                            </nav>
-                            <div class="manage-workspace-head-actions flex shrink-0 flex-wrap items-center gap-2">
-                                {ceiling_notice_view}
-                                <button
-                                    type="button"
-                                    id="build-copy-agent-context-top"
-                                    class="build-toolbar-btn build-toolbar-btn--accent shrink-0"
-                                    data-app-path=app_path.to_string()
-                                    data-node=node_encoded.clone()
-                                    data-tab=tab_slug.clone()
-                                    data-intent="full"
-                                    data-data-mode=active_data_mode
-                                    data-review-projection=active_review_projection
-                                >
-                                    "复制场景原型调试上下文"
-                                </button>
-                            </div>
-                        </div>
+                            }.into_any()
+                        } else {
+                            view! { <></> }.into_any()
+                        }}
                         <div class="manage-tab-stage min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
                         <section
                             class="manage-tab-panel preview-pane min-h-0 min-w-0 flex flex-col overflow-hidden"

@@ -5,6 +5,10 @@
   "use strict";
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const VIEW_REVISION_STORE_KEY = "mei-view-revisions";
+  const VIEW_REVISION_LS_KEY = "mei:view-revisions:v1";
+  const LEGACY_SCENE_REVISION_STORE_KEY = "mei-scene-revisions";
+  const LEGACY_BUILD_REVISION_STORE_KEY = "mei-build-fragment-revisions";
 
   function normalizeRevision(revision) {
     if (!revision || typeof revision !== "object") return revision;
@@ -54,6 +58,29 @@
     );
   }
 
+  function semanticRevisionKey(ctx) {
+    const payload = ctx || {};
+    return [
+      payload.app_id || payload.appId || "",
+      payload.scene_id || payload.sceneId || "",
+      payload.data_mode || payload.dataMode || "",
+    ]
+      .filter(Boolean)
+      .join(":");
+  }
+
+  function surfaceComposeKey(ctx) {
+    const payload = ctx || {};
+    return [
+      payload.surface || payload.mode || payload.route_mode || "",
+      payload.tab || "",
+      payload.chrome || "",
+      payload.review_projection || payload.reviewProjection || "",
+    ]
+      .filter(Boolean)
+      .join(":");
+  }
+
   function surfaceRevisionKey(parts) {
     const payload = parts || {};
     return [
@@ -72,6 +99,58 @@
       .join(":");
   }
 
+  function readViewRevisionStore() {
+    try {
+      const raw = global.sessionStorage.getItem(VIEW_REVISION_STORE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    try {
+      const raw = global.localStorage.getItem(VIEW_REVISION_LS_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    const merged = {};
+    try {
+      const sceneRaw =
+        global.sessionStorage.getItem(LEGACY_SCENE_REVISION_STORE_KEY) ||
+        global.localStorage.getItem("mei:scene-revisions:v1");
+      if (sceneRaw) Object.assign(merged, JSON.parse(sceneRaw));
+    } catch (_) {}
+    try {
+      const buildRaw = global.sessionStorage.getItem(LEGACY_BUILD_REVISION_STORE_KEY);
+      if (buildRaw) Object.assign(merged, JSON.parse(buildRaw));
+    } catch (_) {}
+    return merged;
+  }
+
+  function writeViewRevisionStore(store) {
+    const payload = JSON.stringify(store || {});
+    try {
+      global.sessionStorage.setItem(VIEW_REVISION_STORE_KEY, payload);
+    } catch (_) {}
+    try {
+      global.localStorage.setItem(VIEW_REVISION_LS_KEY, payload);
+    } catch (_) {}
+  }
+
+  function rememberViewRevision(ctx, revision) {
+    const semanticKey = semanticRevisionKey(ctx);
+    if (!semanticKey || !revision) return;
+    const store = readViewRevisionStore();
+    store[semanticKey] = {
+      ...normalizeRevision(revision),
+      surface_compose: surfaceComposeKey(ctx),
+    };
+    pruneRevisionStore(store, semanticKey, 64);
+    writeViewRevisionStore(store);
+  }
+
+  function readViewRevision(ctx) {
+    const semanticKey = semanticRevisionKey(ctx);
+    if (!semanticKey) return null;
+    const store = readViewRevisionStore();
+    return store[semanticKey] || null;
+  }
+
   function pruneRevisionStore(store, key, maxEntries) {
     if (!store || typeof store !== "object") return;
     const limit = Number.isFinite(maxEntries) ? maxEntries : 32;
@@ -88,7 +167,6 @@
     REFETCH: "refetch",
     ASSEMBLE_LOCAL: "assemble_local",
     LOCAL_MISS: "local_miss",
-    FALLBACK_SSR: "fallback_ssr",
   };
 
   function holdingsFromLayerCache(holdings) {
@@ -110,7 +188,13 @@
 
   boot.revisionsMatch = revisionsMatch;
   boot.normalizeRevision = normalizeRevision;
+  boot.semanticRevisionKey = semanticRevisionKey;
+  boot.surfaceComposeKey = surfaceComposeKey;
   boot.surfaceRevisionKey = surfaceRevisionKey;
+  boot.readViewRevisionStore = readViewRevisionStore;
+  boot.writeViewRevisionStore = writeViewRevisionStore;
+  boot.rememberViewRevision = rememberViewRevision;
+  boot.readViewRevision = readViewRevision;
   boot.pruneRevisionStore = pruneRevisionStore;
   boot.ViewRevisionOutcome = ViewRevisionOutcome;
   boot.holdingsFromLayerCache = holdingsFromLayerCache;

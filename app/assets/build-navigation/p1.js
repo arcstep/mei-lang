@@ -20,6 +20,13 @@
     );
   }
 
+  function isLayoutPrototypeWorkspace(pathname) {
+    if (typeof isWorkspaceSurfaceRoute === "function") {
+      return isWorkspaceSurfaceRoute(pathname);
+    }
+    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(String(pathname || ""));
+  }
+
   function inferPreviewTabFromNodeId(nodeId) {
     const id = String(nodeId || "").trim();
     if (!id) return "";
@@ -43,6 +50,7 @@
   function currentManageTabFromUrl(rawUrl) {
     try {
       const parsed = new URL(rawUrl, global.location.href);
+      if (isLayoutPrototypeWorkspace(parsed.pathname)) return "";
       const tab = String(parsed.searchParams.get("tab") || "").trim().toLowerCase();
       if (tab) return tab;
     } catch (_) {}
@@ -52,12 +60,13 @@
 
   function buildTab(rawUrl, linkEl) {
     try {
+      const parsed = new URL(rawUrl, global.location.href);
+      if (isLayoutPrototypeWorkspace(parsed.pathname)) return "";
       const nodeId =
         (linkEl && linkEl.getAttribute && linkEl.getAttribute("data-build-node")) ||
         nodeIdFromUrl(rawUrl);
       const fromNode = inferPreviewTabFromNodeId(nodeId);
       if (fromNode) return fromNode;
-      const parsed = new URL(rawUrl, global.location.href);
       const fromQuery = String(parsed.searchParams.get("tab") || "").trim().toLowerCase();
       if (fromQuery) return fromQuery;
       const shell = document.querySelector(".shell[data-build-tab]");
@@ -372,16 +381,42 @@
     };
   }
 
+  function isCrossAppWorkspaceSurfaceNav(from, to) {
+    if (typeof isAppWorkspaceSurfaceRoute !== "function") return false;
+    if (!isAppWorkspaceSurfaceRoute(from.pathname) || !isAppWorkspaceSurfaceRoute(to.pathname)) {
+      return false;
+    }
+    const fromApp =
+      typeof appIdFromAppsPathname === "function" ? appIdFromAppsPathname(from.pathname) : "";
+    const toApp =
+      typeof appIdFromAppsPathname === "function" ? appIdFromAppsPathname(to.pathname) : "";
+    if (!fromApp || fromApp !== toApp) return false;
+    const fromParts = from.pathname.split("/").filter(Boolean);
+    const toParts = to.pathname.split("/").filter(Boolean);
+    const fromSurface = fromParts[2] || "";
+    const toSurface = toParts[2] || "";
+    return fromSurface !== toSurface;
+  }
+
   function classifyBuildNavTier(fromUrl, toUrl, linkEl) {
     try {
       const from = new URL(fromUrl, global.location.href);
       const to = new URL(toUrl, global.location.href);
+      if (isCrossAppWorkspaceSurfaceNav(from, to)) {
+        const fromScene =
+          typeof sceneIdFromPathname === "function" ? sceneIdFromPathname(from.pathname) : "home";
+        const toScene =
+          typeof sceneIdFromPathname === "function" ? sceneIdFromPathname(to.pathname) : "home";
+        if (fromScene === toScene) return "view_revision";
+      }
       if (!isBuildWorkspacePathname(to.pathname)) return "full";
       if (!isBuildWorkspacePathname(from.pathname)) return "full";
       if (from.pathname !== to.pathname) return "full";
       const toNode = nodeIdFromUrl(toUrl);
       const previewTab =
-        buildTab(toUrl, linkEl) === "preview" || Boolean(inferPreviewTabFromNodeId(toNode));
+        isLayoutPrototypeWorkspace(to.pathname) ||
+        buildTab(toUrl, linkEl) === "preview" ||
+        Boolean(inferPreviewTabFromNodeId(toNode));
       if (!previewTab) return "full";
       const axesChange = reviewAxesChanged(fromUrl, toUrl);
       if (axesChange.dataModeChanged) {
@@ -447,14 +482,20 @@
   function syncBuildShellUrl(url, replaceHistory, linkEl) {
     const parsed = new URL(url, global.location.href);
     const shell = document.querySelector(".shell");
+    const layoutProto = isLayoutPrototypeWorkspace(parsed.pathname);
     if (shell) {
       const node = String(parsed.searchParams.get("node") || "").trim();
       const focus = String(parsed.searchParams.get("focus") || "").trim();
       let tab = String(parsed.searchParams.get("tab") || "").trim();
       const inferredTab = inferPreviewTabFromNodeId(node);
-      if (!tab && inferredTab) {
-        tab = inferredTab;
-        parsed.searchParams.set("tab", inferredTab);
+      if (!layoutProto) {
+        if (!tab && inferredTab) {
+          tab = inferredTab;
+          parsed.searchParams.set("tab", inferredTab);
+          url = parsed.href;
+        }
+      } else {
+        parsed.searchParams.delete("tab");
         url = parsed.href;
       }
       if (node) shell.setAttribute("data-build-node", node);
@@ -475,8 +516,12 @@
           surface === "prototype" ? "static_full" : "plane_region_section",
         );
       }
-      const resolvedTab = tab || inferredTab;
-      if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
+      if (layoutProto) {
+        shell.removeAttribute("data-build-tab");
+      } else {
+        const resolvedTab = tab || inferredTab;
+        if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
+      }
       const coord = readCompileCoordinate(url, linkEl);
       if (coord) {
         shell.setAttribute("data-compile-scene", coord.scene);
@@ -494,13 +539,20 @@
 
   function ensurePreviewTabVisible(rawUrl, linkEl, options) {
     const opts = options && typeof options === "object" ? options : {};
-    const tab = buildTab(rawUrl, linkEl);
+    let tab = buildTab(rawUrl, linkEl);
+    let layoutProto = false;
+    try {
+      layoutProto = isLayoutPrototypeWorkspace(new URL(rawUrl, global.location.href).pathname);
+      if (!tab && layoutProto) tab = "preview";
+    } catch (_) {}
     const shell = document.querySelector(".shell[data-build-tab]");
-    const current = String(
-      shell?.getAttribute("data-build-tab") || buildTab(global.location.href, linkEl),
-    )
-      .trim()
-      .toLowerCase();
+    const shellTab = String(shell?.getAttribute("data-build-tab") || "").trim().toLowerCase();
+    const current =
+      layoutProto && !shellTab
+        ? "preview"
+        : String(shellTab || buildTab(global.location.href, linkEl))
+            .trim()
+            .toLowerCase();
     if (current === tab) {
       document.querySelectorAll("[data-manage-tab-panel]").forEach((panel) => {
         if (!(panel instanceof HTMLElement)) return;

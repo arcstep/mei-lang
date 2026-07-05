@@ -22,7 +22,6 @@ const MAX_BUILD_FRAGMENT_CACHE_ENTRIES: usize = 128;
 #[derive(Debug, Clone)]
 pub struct CachedBuildFragment {
     pub expires_at: Instant,
-    pub preview_html: String,
     pub drilldown_script: String,
     pub workspace_scripts: Vec<String>,
     pub node: String,
@@ -73,6 +72,7 @@ pub struct BuildFragmentCacheInput<'a> {
     pub focus: &'a str,
     pub scope: &'a str,
     pub preview_scope: Option<&'a str>,
+    pub route_mode: &'a str,
     pub data_mode: &'a str,
     pub review_projection: &'a str,
     pub compile_coordinate: Option<&'a BuildCompileCoordinate>,
@@ -189,29 +189,6 @@ pub fn cache_stable_draft_session<'a>(draft_session: &'a str, draft_digest: &str
     }
 }
 
-pub fn build_page_render_cache_key(
-    input: &BuildFragmentCacheInput<'_>,
-    tab: &str,
-    file: &str,
-    auth_enabled: bool,
-    chrome_hidden: bool,
-    gis: &crate::gis_config::GisTilesConfig,
-) -> String {
-    let fragment_key = build_fragment_cache_key(input);
-    let wrapper = json!({
-        "surface": "build_page",
-        "fragment_key": fragment_key,
-        "tab": tab,
-        "file": file,
-        "auth_enabled": auth_enabled,
-        "chrome_hidden": chrome_hidden,
-        "gis_base_url": gis.base_url,
-        "gis_json_path": gis.json_path,
-        "ops_themes_revision": ops_layout_tuning_revision(input.workspace_root, input.app_id),
-    });
-    serde_json::to_string(&wrapper).unwrap_or(fragment_key)
-}
-
 pub fn build_fragment_cache_key(input: &BuildFragmentCacheInput<'_>) -> String {
     let registry = mei_host_graph::McgRegistryWriter::load(input.workspace_root, input.app_id);
     let registry_revision = registry.registry_revision.trim().to_string();
@@ -249,7 +226,7 @@ pub fn build_fragment_cache_key(input: &BuildFragmentCacheInput<'_>) -> String {
         input.draft_digest,
     );
     let view_axes = mei_host_graph::build_page_render_view_axes(
-        "build",
+        input.route_mode,
         input.data_mode,
         input.review_projection,
         None,
@@ -300,7 +277,7 @@ pub fn build_fragment_revision_payload(input: &BuildFragmentCacheInput<'_>) -> B
         app_id: input.app_id.to_string(),
         node: input.node.to_string(),
         scene_id: input.scene_id.to_string(),
-        route_mode: "build".to_string(),
+        route_mode: input.route_mode.to_string(),
         data_mode: input.data_mode.to_string(),
         review_projection: input.review_projection.to_string(),
         focus: input.focus.to_string(),
@@ -372,7 +349,6 @@ pub fn clear_build_fragment_cache_for_app(app_id: &str) -> usize {
 }
 
 pub fn cached_build_fragment(
-    preview_html: String,
     drilldown_script: String,
     workspace_scripts: Vec<String>,
     node: String,
@@ -386,7 +362,6 @@ pub fn cached_build_fragment(
 ) -> CachedBuildFragment {
     CachedBuildFragment {
         expires_at: Instant::now() + cache_ttl(),
-        preview_html,
         drilldown_script,
         workspace_scripts,
         node,
@@ -398,66 +373,6 @@ pub fn cached_build_fragment(
         revision_digest,
         manifest_revision_digest,
     }
-}
-
-pub fn build_fragment_revision_for_page(
-    workspace_root: &Path,
-    app_id: &str,
-    node: &str,
-    focus: &str,
-    scope: &str,
-    data_mode: &str,
-    review_projection: &str,
-    draft_session: &str,
-    draft_digest: &str,
-) -> BuildFragmentRevisionPayload {
-    let scene_id = scene_id_from_build_node(node);
-    let input = BuildFragmentCacheInput {
-        workspace_root,
-        app_id,
-        node,
-        scene_id: scene_id.as_str(),
-        focus,
-        scope,
-        preview_scope: None,
-        data_mode,
-        review_projection,
-        compile_coordinate: None,
-        draft_session,
-        draft_digest,
-    };
-    build_fragment_revision_payload(&input)
-}
-
-pub fn inject_build_fragment_revision_meta(
-    html: String,
-    revision: &BuildFragmentRevisionPayload,
-) -> String {
-    let digest = revision.revision_digest.replace('"', "");
-    let cache_key = revision.cache_key.replace('"', "");
-    let mut injection = format!(
-        r#"<meta name="mei-build-fragment-revision-digest" content="{digest}" />"#
-    );
-    if !cache_key.is_empty() {
-        injection.push_str(&format!(
-            r#"<meta name="mei-build-fragment-cache-key" content="{cache_key}" />"#
-        ));
-    }
-    let manifest_digest = revision.manifest_revision_digest.replace('"', "");
-    if !manifest_digest.is_empty() {
-        injection.push_str(&format!(
-            r#"<meta name="mei-build-manifest-revision-digest" content="{manifest_digest}" />"#
-        ));
-    }
-    if let Some(pos) = html.find("<head>") {
-        let insert_at = pos + "<head>".len();
-        let mut out = String::with_capacity(html.len() + injection.len());
-        out.push_str(&html[..insert_at]);
-        out.push_str(&injection);
-        out.push_str(&html[insert_at..]);
-        return out;
-    }
-    html
 }
 
 #[cfg(test)]

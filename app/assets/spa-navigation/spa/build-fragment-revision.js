@@ -7,12 +7,8 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   const BUILD_FRAGMENT_REVISION_API = "/api/build/fragment-revision";
   const revisionStoreKey = "mei-build-fragment-revisions";
-  const fragmentHtmlStoreKey = "mei-build-fragment-html";
-  const FRAGMENT_HTML_MAX = 8;
-
-  function legacyFragmentHtmlEnabled() {
-    return global.__mei?.allow_legacy_fragment_html === true;
-  }
+  const fragmentManifestStoreKey = "mei-build-fragment-manifest";
+  const FRAGMENT_MANIFEST_MAX = 8;
 
   function readRevisionStore() {
     try {
@@ -62,8 +58,18 @@
                 .toLowerCase(),
             }
           : { data_mode: "", review_projection: "" };
+      const wsSurface =
+        typeof workspaceSurfaceSlugFromAppsPathname === "function"
+          ? workspaceSurfaceSlugFromAppsPathname(url.pathname)
+          : "";
+      const surface =
+        wsSurface ||
+        (typeof boot.parseViewContext === "function"
+          ? boot.parseViewContext(urlLike)?.surface
+          : "") ||
+        "build";
       return boot.surfaceRevisionKey({
-        surface: "build",
+        surface,
         app_id: appId,
         node: resolveBuildFragmentNode(urlLike),
         data_mode:
@@ -131,14 +137,14 @@
     if (opts.skipRemoteWhenValid) {
       const localRevision = readBuildFragmentRevision(urlLike);
       const cached =
-        localRevision && typeof boot.readBuildFragmentHtml === "function"
-          ? readBuildFragmentHtml(urlLike, localRevision)
+        localRevision && typeof readBuildFragmentManifest === "function"
+          ? readBuildFragmentManifest(urlLike, localRevision)
           : null;
-      if (localRevision && cached?.preview_html) {
+      if (localRevision && cached?.scene_manifest) {
         global.__meiBuildRevisionSkippedNetwork = 1;
         if (typeof boot.cacheDiagTrace === "function") {
           boot.cacheDiagTrace("build-revision-skip-network", {
-            reason: "local-fragment-hit",
+            reason: "local-manifest-hit",
             revision_digest: localRevision.revision_digest,
           });
         }
@@ -224,80 +230,62 @@
     }
   }
 
-  function readFragmentHtmlStore() {
-    if (!legacyFragmentHtmlEnabled()) return {};
+  function readFragmentManifestStore() {
     try {
       const raw =
-        global.localStorage.getItem(fragmentHtmlStoreKey) ||
-        global.sessionStorage.getItem(fragmentHtmlStoreKey);
+        global.localStorage.getItem(fragmentManifestStoreKey) ||
+        global.sessionStorage.getItem(fragmentManifestStoreKey);
       return raw ? JSON.parse(raw) : {};
     } catch (_) {
       return {};
     }
   }
 
-  function writeFragmentHtmlStore(store) {
-    if (!legacyFragmentHtmlEnabled()) return;
+  function writeFragmentManifestStore(store) {
     const payload = JSON.stringify(store || {});
     try {
-      global.localStorage.setItem(fragmentHtmlStoreKey, payload);
+      global.localStorage.setItem(fragmentManifestStoreKey, payload);
       return;
-    } catch (error) {
-      if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("build-fragment-store-fallback", {
-          reason: String(error?.message || error || "localStorage-failed"),
-        });
-      }
-    }
+    } catch (_) {}
     try {
-      global.sessionStorage.setItem(fragmentHtmlStoreKey, payload);
+      global.sessionStorage.setItem(fragmentManifestStoreKey, payload);
     } catch (_) {}
   }
 
-  function fragmentHtmlCacheKey(urlLike, revision) {
+  function fragmentManifestCacheKey(urlLike, revision) {
     const base = buildFragmentRevisionCacheKey(urlLike);
     const digest = String(revision?.revision_digest || revision?.cache_key || "").trim();
     return digest ? `${base}:${digest}` : base;
   }
 
-  function rememberBuildFragmentHtml(urlLike, revision, payload) {
-    if (!legacyFragmentHtmlEnabled()) return;
-    const key = fragmentHtmlCacheKey(urlLike, revision);
-    if (!key) return;
-    const store = readFragmentHtmlStore();
-    const entry = {
-      drilldown_script: String(payload?.drilldown_script || ""),
-      workspace_scripts: Array.isArray(payload?.workspace_scripts)
-        ? payload.workspace_scripts
-        : [],
+  function rememberBuildFragmentManifest(urlLike, revision, payload) {
+    const key = fragmentManifestCacheKey(urlLike, revision);
+    if (!key || !payload?.scene_manifest) return;
+    const store = readFragmentManifestStore();
+    store[key] = {
       node: payload?.node || "",
       focus: payload?.focus || "",
       revision,
-      scene_manifest: payload?.scene_manifest || null,
-      compose_defaults: payload?.compose_defaults || null,
+      scene_manifest: payload.scene_manifest,
+      compose_defaults: payload.compose_defaults || null,
     };
-    if (payload?.preview_html) {
-      entry.preview_html = String(payload.preview_html);
-    }
-    store[key] = entry;
     if (typeof boot.pruneRevisionStore === "function") {
-      boot.pruneRevisionStore(store, key, FRAGMENT_HTML_MAX);
+      boot.pruneRevisionStore(store, key, FRAGMENT_MANIFEST_MAX);
     }
-    writeFragmentHtmlStore(store);
+    writeFragmentManifestStore(store);
   }
 
-  function readBuildFragmentHtml(urlLike, revision) {
-    if (!legacyFragmentHtmlEnabled()) return null;
-    const key = fragmentHtmlCacheKey(urlLike, revision);
+  function readBuildFragmentManifest(urlLike, revision) {
+    const key = fragmentManifestCacheKey(urlLike, revision);
     if (!key) return null;
-    const store = readFragmentHtmlStore();
+    const store = readFragmentManifestStore();
     return store[key] || null;
   }
 
   boot.buildFragmentRevisionCacheKey = buildFragmentRevisionCacheKey;
   boot.resolveBuildFragmentNode = resolveBuildFragmentNode;
-  boot.readBuildFragmentHtml = readBuildFragmentHtml;
-  boot.rememberBuildFragmentHtml = rememberBuildFragmentHtml;
+  boot.readBuildFragmentManifest = readBuildFragmentManifest;
+  boot.rememberBuildFragmentManifest = rememberBuildFragmentManifest;
   boot.fetchBuildFragmentRevision = fetchBuildFragmentRevision;
   boot.rememberBuildFragmentRevision = rememberBuildFragmentRevision;
   boot.readBuildFragmentRevision = readBuildFragmentRevision;
@@ -307,8 +295,8 @@
   global.MeiBuildFragmentRevision = {
     buildFragmentRevisionCacheKey,
     resolveBuildFragmentNode,
-    readBuildFragmentHtml,
-    rememberBuildFragmentHtml,
+    readBuildFragmentManifest,
+    rememberBuildFragmentManifest,
     fetchBuildFragmentRevision,
     rememberBuildFragmentRevision,
     readBuildFragmentRevision,
@@ -319,9 +307,9 @@
     Object.assign(global.MeiBuildNavigation, {
       fetchBuildFragmentRevision,
       readBuildFragmentRevision,
-      readBuildFragmentHtml,
+      readBuildFragmentManifest,
       rememberBuildFragmentRevision,
-      rememberBuildFragmentHtml,
+      rememberBuildFragmentManifest,
       buildFragmentRevisionStillValid,
       buildFragmentRevisionCacheKey,
       resolveBuildFragmentNode,

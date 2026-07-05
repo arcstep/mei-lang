@@ -8,117 +8,47 @@
   applyDrilldownContextFromQuery();
   applySceneProjectionContextFromStorage();
 
-  function scheduleAccessSceneSnapshotPersist(ctx, revision) {
-    if (!ctx || !revision || typeof boot.saveCurrentSceneShellSnapshot !== "function") return;
-    const run = () => {
-      void boot.saveCurrentSceneShellSnapshot(ctx, revision, document);
-    };
-    window.addEventListener("pagehide", run, { once: true });
-    window.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") run();
-    });
-  }
-
   void (async () => {
-    if (
-      typeof isBuildWorkspacePathname === "function" &&
-      isBuildWorkspacePathname(window.location.pathname) &&
-      typeof globalThis.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function"
-    ) {
-      try {
-        const prefetchedBuild = window.__mei?.prefetched_build_fragment;
-        if (
-          prefetchedBuild?.preview_html &&
-          typeof globalThis.MeiBuildNavigation?.swapPreviewFragment === "function"
-        ) {
-          globalThis.MeiBuildNavigation.swapPreviewFragment(
-            String(prefetchedBuild.preview_html || ""),
-            String(prefetchedBuild.drilldown_script || ""),
-          );
-          if (
-            Array.isArray(prefetchedBuild.workspace_scripts) &&
-            typeof boot.syncPreviewWorkspaceScripts === "function"
-          ) {
-            await boot.syncPreviewWorkspaceScripts(prefetchedBuild.workspace_scripts);
-          }
-        }
-        const buildOutcome = await globalThis.MeiBuildNavigation.tryRestoreBuildPreviewFromCache(
-          window.location.href,
-          { timeoutMs: 4000, coldStart: true, skipRemoteWhenValid: true },
-        );
-        if (typeof boot.cacheDiagTrace === "function") {
-          boot.cacheDiagTrace("build-cold-start", buildOutcome || {});
-        }
-        if (
-          !buildOutcome?.restored &&
-          buildOutcome?.revision &&
-          typeof globalThis.MeiBuildNavigation?.scheduleEagerBuildPreviewPersist === "function"
-        ) {
-          globalThis.MeiBuildNavigation.scheduleEagerBuildPreviewPersist(
-            window.location.href,
-            buildOutcome.revision,
-          );
-        } else if (
-          !buildOutcome?.restored &&
-          typeof globalThis.MeiBuildNavigation?.scheduleEagerBuildPreviewPersist === "function"
-        ) {
-          globalThis.MeiBuildNavigation.scheduleEagerBuildPreviewPersist(window.location.href);
-        }
-      } catch (error) {
-        console.warn("[spa-navigation] initial build preview cache restore skipped", error);
-      }
-      if (typeof boot.inspectSceneClientCache === "function" && boot.cacheDiagEnabled?.()) {
-        void boot.inspectSceneClientCache();
-      }
-      return;
-    }
+    if (typeof boot.tryCacheFirstViewRestore !== "function") return;
     const ctx =
-      typeof boot.parseAccessSceneContext === "function"
-        ? boot.parseAccessSceneContext(window.location.href)
+      typeof boot.parseViewContext === "function"
+        ? boot.parseViewContext(window.location.href)
         : null;
-    if (!ctx || typeof boot.tryCacheFirstSceneAccess !== "function") return;
     try {
-      const outcome = await boot.tryCacheFirstSceneAccess(ctx, {
-        url: window.location.href,
+      const outcome = await boot.tryCacheFirstViewRestore(window.location.href, {
         replaceHistory: true,
         timeoutMs: 4000,
-        allowFragment: true,
         coldStart: true,
         skipRemoteWhenValid: true,
       });
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
-        runPostSpaWork(outcome.doc, window.location.href, null, null, new URL(window.location.href));
+        runPostSpaWork(
+          outcome.doc,
+          window.location.href,
+          null,
+          null,
+          new URL(window.location.href),
+        );
       } else if (
-        !outcome.restored &&
-        outcome.source === "local_miss" &&
-        typeof boot.bootstrapColdAccessSceneRuntime === "function"
+        ctx &&
+        typeof boot.finishRevisionFirstColdStart === "function" &&
+        (typeof isRevisionFirstShellPage === "function"
+          ? isRevisionFirstShellPage()
+          : globalThis.__mei?.thin_shell === true)
       ) {
-        boot.bootstrapColdAccessSceneRuntime();
-      } else if (
-        !outcome.restored &&
-        outcome.source !== "local_miss" &&
-        typeof boot.bootstrapColdAccessSceneRuntime === "function"
-      ) {
-        boot.bootstrapColdAccessSceneRuntime();
-      }
-      if (outcome.revision) {
-        scheduleAccessSceneSnapshotPersist(ctx, outcome.revision);
-        if (!outcome.restored) {
-          await boot.saveCurrentSceneShellSnapshot(ctx, outcome.revision, document);
-        }
+        await boot.finishRevisionFirstColdStart(ctx, outcome);
       }
       if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("access-cold-start", {
+        boot.cacheDiagTrace("view-cold-start", {
           restored: !!outcome.restored,
           source: outcome.source,
-          revision_digest: outcome.revision?.revision_digest,
         });
       }
       if (typeof boot.inspectSceneClientCache === "function" && boot.cacheDiagEnabled?.()) {
         void boot.inspectSceneClientCache(ctx);
       }
     } catch (error) {
-      console.warn("[spa-navigation] initial scene cache bootstrap skipped", error);
+      console.warn("[spa-navigation] view cold start skipped", error);
     }
   })();
 
@@ -152,7 +82,7 @@
           return;
         }
       } catch (err) {
-        console.warn("[spa-navigation] build fast-nav failed; fallback to SPA", err);
+        console.warn("[spa-navigation] build fast-nav failed", err);
       }
       void navigateInternal(target.url, false, { skipBuildNav: true });
     },

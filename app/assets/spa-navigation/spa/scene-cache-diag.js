@@ -109,10 +109,6 @@
           : isBuild && global.MeiBuildFragmentRevision?.buildFragmentRevisionCacheKey
             ? global.MeiBuildFragmentRevision.buildFragmentRevisionCacheKey(ctx.url)
             : null;
-    let snapshot = null;
-    if (!isBuild && ctx && typeof boot.loadSceneShellSnapshot === "function") {
-      snapshot = await boot.loadSceneShellSnapshot(ctx);
-    }
     const cachedRevision =
       !isBuild && ctx && typeof boot.readCachedSceneRevision === "function"
         ? boot.readCachedSceneRevision(ctx)
@@ -131,27 +127,17 @@
         : null;
     const buildFragment =
       isBuild && ctx?.url && buildRevision
-        ? hostBoot.readBuildFragmentHtml?.(ctx.url, buildRevision) ||
-          global.MeiBuildFragmentRevision?.readBuildFragmentHtml?.(ctx.url, buildRevision) ||
+        ? hostBoot.readBuildFragmentManifest?.(ctx.url, buildRevision) ||
+          global.MeiBuildFragmentRevision?.readBuildFragmentManifest?.(ctx.url, buildRevision) ||
           null
         : null;
-    const revisionMatch =
-      snapshot?.revision &&
-      cachedRevision &&
-      typeof boot.revisionsMatch === "function"
-        ? boot.revisionsMatch(snapshot.revision, cachedRevision)
-        : false;
-    const ssrMatch =
-      snapshot?.revision &&
-      ssrRevision &&
-      typeof boot.revisionsMatch === "function"
-        ? boot.revisionsMatch(snapshot.revision, ssrRevision)
-        : false;
     const report = {
       url: global.location.href,
       ctx,
       surface: isBuild ? "build" : ctx ? "access" : "unknown",
-      thin_shell: globalThis.__mei?.thin_shell === true,
+      thin_shell:
+        (typeof isRevisionFirstShellPage === "function" && isRevisionFirstShellPage()) ||
+        globalThis.__mei?.thin_shell === true,
       artifact_hits: globalThis.__mei?.artifact_hits || boot.lastArtifactHits || null,
       keys: { shell: shellKey, revision: revisionKey },
       flags: readFlags(),
@@ -160,21 +146,14 @@
       buildRevision,
       buildFragment: buildFragment
         ? {
-            previewHtmlBytes: String(buildFragment.preview_html || "").length,
+            manifestDigest: String(
+              buildFragment.scene_manifest?.revision_digest || "",
+            ).length,
             node: buildFragment.node || "",
             revision: buildFragment.revision || buildRevision,
           }
         : null,
-      snapshot: snapshot
-        ? {
-            key: snapshot.key,
-            savedAtMs: snapshot.savedAtMs,
-            revision: snapshot.revision,
-            shellHtmlBytes: String(snapshot.shellHtml || "").length,
-          }
-        : null,
-      revisionMatch,
-      ssrMatch,
+      snapshot: null,
       bootApi: {
         inspectSceneClientCache: typeof hostBoot.inspectSceneClientCache === "function",
         fetchBuildFragmentRevision: typeof hostBoot.fetchBuildFragmentRevision === "function",

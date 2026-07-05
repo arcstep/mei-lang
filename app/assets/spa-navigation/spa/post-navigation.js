@@ -54,7 +54,10 @@
         if (navigationId != null && navigationId !== currentNavigationId) return;
         if (
           typeof boot.bootstrapThinShellComposition === "function" &&
-          (globalThis.__mei?.thin_shell === true || doc?.documentElement?.innerHTML?.includes("thin_shell=true"))
+          (typeof isRevisionFirstShellPage === "function"
+            ? isRevisionFirstShellPage(nextUrl.pathname)
+            : globalThis.__mei?.thin_shell === true ||
+              doc?.documentElement?.innerHTML?.includes("thin_shell=true"))
         ) {
           await boot.bootstrapThinShellComposition();
         }

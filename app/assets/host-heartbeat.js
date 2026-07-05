@@ -136,10 +136,14 @@
   function currentPageAppId() {
     const fromRuntime = String(window.__meiRuntimeAppId || "").trim();
     if (fromRuntime) return fromRuntime;
-    const match = String(window.location.pathname || "").match(
-      /^\/apps\/[^/]+\/([^/]+)/,
-    );
-    return match ? String(match[1] || "").trim() : "";
+    if (typeof appIdFromAppsPathname === "function") {
+      const fromPath = String(appIdFromAppsPathname(window.location.pathname || "") || "").trim();
+      if (fromPath) return fromPath;
+    }
+    const shell = document.querySelector(".shell[data-app-path]");
+    const fromShell = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+    if (fromShell) return fromShell;
+    return "";
   }
 
   function isShellSurface() {
