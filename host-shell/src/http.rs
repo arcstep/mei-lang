@@ -17,9 +17,11 @@ use crate::build_api::{api_build_context_export, api_build_fragment_revision, ap
 use crate::assets::{app_asset, app_bundle, component_asset, workspace_app_asset};
 use crate::build_info::{self, BUILD_VERSION};
 use crate::ops_api::{api_host_ops_prebuild, api_host_ops_reload, api_host_ops_status};
+use crate::host_home::host_home_page;
+use crate::host_scoped::{host_config_page, host_runtime_page, host_upload_page};
 use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_fragment,
-    api_scene_revision, app_page, host_starting_page, index,
+    api_scene_revision, app_page, host_starting_page,
 };
 use crate::presentation_compile::api_presentation_compile;
 use crate::presentation_scripts::{
@@ -42,7 +44,11 @@ pub fn router(state: HostHttpState) -> Router {
             "/favicon.ico",
             get(|| async { Redirect::permanent("/app-assets/favicon.svg") }),
         )
-        .route("/", get(index))
+        .route("/", get(host_home_page))
+        .route("/host", get(host_home_page))
+        .route("/host/config", get(host_config_page))
+        .route("/host/upload", get(host_upload_page))
+        .route("/host/runtime", get(host_runtime_page))
         .route("/host/starting", get(host_starting_page))
         .route("/login", get(mei_host_auth::login_page))
         .route("/logout", get(mei_host_auth::logout_page))
@@ -789,6 +795,73 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn host_home_route_returns_shell_page() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"id":"test","version":"20260628"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains("欢迎使用 MeiLang"));
+        assert!(html.contains("host-shell.css"));
+        assert!(html.contains("/host/config"));
+    }
+
+    #[tokio::test]
+    async fn host_config_route_without_app_shows_picker() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(tmp.path().join("apps/data-demo")).expect("mkdir app");
+        std::fs::write(
+            tmp.path().join("apps/data-demo/app.config.json"),
+            r#"{"schemaVersion":1,"app":{"id":"data-demo"}}"#,
+        )
+        .expect("write app.config");
+        std::fs::write(
+            tmp.path().join("workspace.json"),
+            r#"{"schemaVersion":2,"workspace":{"id":"test","version":"20260628"}}"#,
+        )
+        .expect("write workspace.json");
+        let app = router(test_state(tmp.path().to_path_buf()));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/host/config")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("body")
+            .to_bytes();
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains("选择应用"));
+        assert!(html.contains("data-demo"));
     }
 
     #[tokio::test]

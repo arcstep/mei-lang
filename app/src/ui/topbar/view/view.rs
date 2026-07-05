@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{
-    app_scene_href, build_href_with_catalog, config_href, cross_app_href, presentation_scene_href,
-    runtime_href, upload_href,
+    app_scene_href, build_href_with_catalog, cross_app_href, host_config_href, host_runtime_href,
+    host_upload_href, presentation_scene_href,
 };
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
@@ -194,9 +194,15 @@ pub(crate) fn topbar_view(
         data_mode,
         review_projection,
     );
-    let runtime_href = runtime_href(active_app_path, None, None);
-    let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
-    let config_href = append_scene_query(config_href(active_app_path), access_scene_for_href);
+    let runtime_href = host_runtime_href(Some(active_app_path), None, None);
+    let upload_href = append_scene_query(
+        host_upload_href(Some(active_app_path), None),
+        access_scene_for_href,
+    );
+    let config_href = append_scene_query(
+        host_config_href(Some(active_app_path)),
+        access_scene_for_href,
+    );
     let presentation_href = if access_disabled {
         "#".to_string()
     } else {

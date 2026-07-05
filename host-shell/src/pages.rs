@@ -4,7 +4,7 @@ use axum::{
     response::{Html, IntoResponse, Json, Redirect, Response},
 };
 use mei_host_auth::{
-    account_view_for_principal, filter_apps_for_principal, v2_index_landing_location,
+    account_view_for_principal, filter_apps_for_principal,
     AuthEnforcement, AuthPrincipal, AuthServeState,
 };
 use mei_lang_app::{load_topbar_menu_context, page_body_theme_style, render_page, UiRouteMode};
@@ -14,7 +14,7 @@ use serde_json::json;
 use std::time::Instant;
 
 use crate::build_info::fill_page_shell_placeholders;
-use crate::landing::{choose_default_app, discover_workspace_apps, enrich_discovered_apps};
+use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
 use crate::access_page_cache::{
     access_page_cache_key, build_scene_revision_payload, insert_page_render_cache_hit_header,
     render_access_page_template, resolve_access_page_html, store_access_page_template,
@@ -26,7 +26,7 @@ use crate::page_observability::{
 };
 use crate::state::SharedState;
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 pub struct AppQuery {
     pub tab: Option<String>,
     pub scene: Option<String>,
@@ -1546,33 +1546,6 @@ fn extract_preview_surface_html(html: &str) -> Option<String> {
         }
     }
     None
-}
-
-pub async fn index(
-    State(state): State<SharedState>,
-    principal: Option<Extension<AuthPrincipal>>,
-) -> impl IntoResponse {
-    let guard = state.read().expect("state lock");
-    let workspace_root = guard.ctx.workspace_root.as_path();
-    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
-    let apps = filter_apps_for_principal(
-        discovered.as_slice(),
-        principal.as_ref().map(|Extension(p)| p),
-    );
-    let app = choose_default_app(workspace_root, apps.as_slice()).or_else(|| apps.first());
-    let Some(app) = app else {
-        return (
-            StatusCode::NOT_FOUND,
-            "no discoverable app with prebuilt access entry; run prebuild",
-        )
-            .into_response();
-    };
-    let location = v2_index_landing_location(
-        workspace_root,
-        app,
-        principal.as_ref().map(|Extension(p)| p),
-    );
-    Redirect::temporary(&location).into_response()
 }
 
 fn parse_app_scene_path(

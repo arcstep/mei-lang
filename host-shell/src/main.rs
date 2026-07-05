@@ -18,6 +18,8 @@ mod cli;
 mod commands;
 mod gis_config;
 mod gis_proxy;
+mod host_home;
+mod host_scoped;
 mod landing;
 mod http;
 mod draft_session;

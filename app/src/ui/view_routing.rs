@@ -29,31 +29,50 @@ pub fn build_href_with_catalog(
 }
 
 pub fn runtime_href(app_path: &str, node: Option<&str>, tab: Option<&str>) -> String {
+    host_runtime_href(Some(app_path), node, tab)
+}
+
+pub fn config_href(app_path: &str) -> String {
+    host_config_href(Some(app_path))
+}
+
+pub fn upload_href(app_path: &str, file: Option<&str>) -> String {
+    host_upload_href(Some(app_path), file)
+}
+
+pub fn host_config_href(app_path: Option<&str>) -> String {
+    match app_path.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(app) => format!("/host/config?app={}", encode_query_value(app)),
+        None => "/host/config".to_string(),
+    }
+}
+
+pub fn host_upload_href(app_path: Option<&str>, file: Option<&str>) -> String {
+    let mut base = match app_path.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(app) => format!("/host/upload?app={}", encode_query_value(app)),
+        None => "/host/upload".to_string(),
+    };
+    if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {
+        base = format!("{base}&file={}", encode_query_value(f));
+    }
+    base
+}
+
+pub fn host_runtime_href(app_path: Option<&str>, node: Option<&str>, tab: Option<&str>) -> String {
     let mut parts = Vec::new();
+    if let Some(app) = app_path.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("app={}", encode_query_value(app)));
+    }
     if let Some(n) = node.map(str::trim).filter(|s| !s.is_empty()) {
         parts.push(format!("node={}", encode_query_value(n)));
     }
     if let Some(t) = tab.map(str::trim).filter(|s| !s.is_empty()) {
         parts.push(format!("tab={}", encode_query_value(t)));
     }
-    let base = view_base_href(UiRouteMode::Runtime, app_path);
     if parts.is_empty() {
-        base
+        "/host/runtime".to_string()
     } else {
-        format!("{base}?{}", parts.join("&"))
-    }
-}
-
-pub fn config_href(app_path: &str) -> String {
-    view_base_href(UiRouteMode::Config, app_path)
-}
-
-pub fn upload_href(app_path: &str, file: Option<&str>) -> String {
-    let base = view_base_href(UiRouteMode::Upload, app_path);
-    if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {
-        format!("{base}?file={}", encode_query_value(f))
-    } else {
-        base
+        format!("/host/runtime?{}", parts.join("&"))
     }
 }
 
@@ -141,9 +160,9 @@ pub fn cross_app_href(
         UiRouteMode::Run => run_scene_href(app_path, None, None, None),
         UiRouteMode::Copilot => copilot_presentation_href(app_path, "intro"),
         UiRouteMode::Build => build_href_with_catalog(app_path, None, None, catalog, pack),
-        UiRouteMode::Config => config_href(app_path),
-        UiRouteMode::Upload => upload_href(app_path, None),
-        UiRouteMode::Runtime => runtime_href(app_path, None, None),
+        UiRouteMode::Config => host_config_href(Some(app_path)),
+        UiRouteMode::Upload => host_upload_href(Some(app_path), None),
+        UiRouteMode::Runtime => host_runtime_href(Some(app_path), None, None),
     }
 }
 
@@ -182,6 +201,28 @@ pub fn runtime_href_with_catalog(
 #[cfg(test)]
 mod tests {
     use super::{copilot_presentation_href, speaker_tour_href};
+
+    #[test]
+    fn host_config_href_uses_host_scope_route() {
+        assert_eq!(super::host_config_href(None), "/host/config");
+        assert_eq!(
+            super::host_config_href(Some("pretty-panels")),
+            "/host/config?app=pretty-panels"
+        );
+    }
+
+    #[test]
+    fn host_runtime_href_uses_host_scope_route() {
+        assert_eq!(
+            super::host_runtime_href(Some("mini-park"), Some("node-1"), Some("json")),
+            "/host/runtime?app=mini-park&node=node-1&tab=json"
+        );
+    }
+
+    #[test]
+    fn legacy_config_href_aliases_host_scope_route() {
+        assert_eq!(super::config_href("data-demo"), "/host/config?app=data-demo");
+    }
 
     #[test]
     fn speaker_tour_href_aliases_copilot_presentation() {

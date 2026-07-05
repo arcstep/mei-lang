@@ -32,7 +32,9 @@ pub use landing::{
 };
 pub use runtime::{load_auth_runtime, normalize_id, SESSION_REFRESH_LEAD_SECONDS};
 pub use shell_chrome::{
-    host_starting_html_response, startup_failed_html_response, startup_warming_html_response,
+    host_shell_body_theme_style, host_starting_html_response, html_escape,
+    render_auth_card_page, render_host_shell_footer_for_source_root,
+    startup_failed_html_response, startup_warming_html_response,
 };
 pub use state::AuthServeState;
 pub use types::{AuthEnforcement, AuthPrincipal, AuthRole, AuthRuntime};

@@ -36,6 +36,10 @@ fn is_public_path(path: &str) -> bool {
         || path == "/api/host/scene-revision"
         || path == "/api/host/version"
         || path == "/host/starting"
+        || path == "/host"
+        || path == "/host/config"
+        || path == "/host/upload"
+        || path == "/host/runtime"
         || path == "/api/auth/public-key"
         || path == "/api/auth/login"
         || path == "/api/auth/session"
@@ -208,6 +212,24 @@ pub fn authorize_next_path(next: Option<&str>, principal: &AuthPrincipal) -> Str
 
 pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
     let caps = principal.capabilities();
+    if let Some(host_mode) = match path {
+        "/" | "/host" => Some("home"),
+        "/host/config" => Some("config"),
+        "/host/upload" => Some("upload"),
+        "/host/runtime" => Some("runtime"),
+        _ => None,
+    } {
+        let allowed = match host_mode {
+            "home" => true,
+            "config" | "upload" => caps.config_upload,
+            "runtime" => caps.build_view,
+            _ => false,
+        };
+        if !allowed {
+            anyhow::bail!("current role cannot access host `{host_mode}` route");
+        }
+        return Ok(());
+    }
     if let Some((mode, app_id, scene_id)) = extract_app_route_context(path) {
         if !principal.can_access_app(app_id.as_str()) {
             anyhow::bail!("app `{app_id}` is not in guest allowlist");
