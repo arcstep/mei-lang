@@ -3,6 +3,7 @@ import {
   escapeHtmlAttr,
   fetchDatasetRows,
   getQueryState,
+  isStaticSkeletonDisplay,
   mergeFilters,
   parseProps,
   queryStateIdOf,
@@ -221,6 +222,15 @@ class MeiDatasetFilterBar extends HTMLElement {
   }
 
   async loadDynamicOptions() {
+    if (isStaticSkeletonDisplay(this._props)) {
+      for (const field of this._fields) {
+        if (!shouldLoadRowsetOptions(field)) continue;
+        this._fieldOptions.set(fieldQueryKey(field), ["选项1", "选项2", "选项3"]);
+      }
+      this._optionsLoaded = true;
+      this.render();
+      return;
+    }
     const profileCatalog = this._schemaMode ? this._schemaFields : this._columnCatalog;
     const needsRowset = this._schemaMode || this._additiveMode
       ? profileCatalog.length > 0

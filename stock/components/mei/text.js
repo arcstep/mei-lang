@@ -5,6 +5,7 @@ import {
   findRuntimeMetricInResults,
   isDrilldownOverlayOpen,
   isRuntimeDrilldownOverlayElement,
+  isStaticSkeletonDisplay,
   parseProps,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
@@ -280,6 +281,17 @@ function metricDisplayFromContent(props) {
   const content = metricContentObject(props);
   if (!content) {
     return null;
+  }
+  if (isStaticSkeletonDisplay(props)) {
+    return applyMetricPatch(
+      {
+        label: String(content.label ?? "指标名"),
+        value: String(content.value ?? "xxxx"),
+        unit: String(content.unit ?? "单位"),
+        desc: String(content.desc ?? ""),
+      },
+      props,
+    );
   }
   if (content.shape === "scalar") {
     return metricDisplayFromScalar(content, props);
@@ -630,6 +642,10 @@ class MeiText extends HTMLElement {
     if (!this._isMetricContent(initialProps)) {
       return;
     }
+    if (isStaticSkeletonDisplay(initialProps)) {
+      this.classList.add("mei-text--static-skeleton");
+      return;
+    }
     const runtimeRef = resolveRuntimeMetricRef(initialProps);
     if (!runtimeRef) {
       return;
@@ -727,6 +743,11 @@ class MeiText extends HTMLElement {
     const content = resolvedDisplay ? String(resolvedDisplay[role] ?? "") : "";
     const drilldown = role === "value" ? metricDrilldownMeta(props) : null;
     this._setDrilldownState(drilldown, resolvedDisplay);
+    if (isStaticSkeletonDisplay(props)) {
+      this.classList.add("mei-text--static-skeleton");
+    } else {
+      this.classList.remove("mei-text--static-skeleton");
+    }
     this._render(
       { ...props, content, _mei_drilldown_clickable: Boolean(drilldown) },
       content,

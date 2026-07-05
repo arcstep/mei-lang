@@ -197,6 +197,33 @@ function runtimeCapabilityMap(props) {
   return raw;
 }
 
+export function isStaticSkeletonDisplay(props) {
+  const caps = runtimeCapabilityMap(props);
+  if (caps?.static_display?.enabled) {
+    return true;
+  }
+  const candidates = [
+    props?.content,
+    props?.metric,
+    props?.data,
+    props?.value,
+    props?.dataset,
+    props?.dataset?.dataset,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      continue;
+    }
+    if (candidate.__mei_data_origin === "static_skeleton") {
+      return true;
+    }
+    if (candidate.dataset?.__mei_data_origin === "static_skeleton") {
+      return true;
+    }
+  }
+  return false;
+}
+
 function normalizeRuntimeQueryCapability(
   rawCapability,
   {
@@ -986,7 +1013,7 @@ function flushScheduledSceneMetricBatches() {
       schedule.cancelFlush = null;
     }
     if (typeof schedule.flush === "function") {
-      void schedule.flush();
+      attachAbortRejectionGuard(schedule.flush());
     }
   }
 }
@@ -1325,10 +1352,12 @@ function schedulePanelMetricBatch(panel, element, props, options = {}) {
       flush: null,
     };
     PANEL_METRIC_BATCHES.set(batchKey, batch);
-    batch.promise = new Promise((resolve, reject) => {
-      batch.resolve = resolve;
-      batch.reject = reject;
-    });
+    batch.promise = attachAbortRejectionGuard(
+      new Promise((resolve, reject) => {
+        batch.resolve = resolve;
+        batch.reject = reject;
+      }),
+    );
   } else {
     batch.panel = panel;
     batch.props = props;
@@ -1385,7 +1414,7 @@ function schedulePanelMetricBatch(panel, element, props, options = {}) {
   const aggressivePrefetch =
     options.prefetchEager === true || isPrefetchMetricRequest(options.meta);
   batch.cancelFlush = scheduleAfterStablePaint(() => {
-    void batch.flush();
+    attachAbortRejectionGuard(batch.flush());
   }, { aggressive: true });
 
   return batch.promise;
@@ -2364,6 +2393,18 @@ export function isAbortError(error) {
   if (error.name === "AbortError") return true;
   const msg = String(error.message || error || "");
   return msg.includes("aborted") || msg.includes("AbortError");
+}
+
+function attachAbortRejectionGuard(promise) {
+  if (!promise || typeof promise.catch !== "function") {
+    return promise;
+  }
+  void promise.catch((error) => {
+    if (isAbortError(error)) {
+      return;
+    }
+  });
+  return promise;
 }
 
 /**
@@ -3749,7 +3790,7 @@ function scheduleSceneRuntimeMetricRequest(
     };
   }
   scheduleSceneMetricBatchFlush();
-  return waitForSharedPromise(promise, signal);
+  return attachAbortRejectionGuard(waitForSharedPromise(promise, signal));
 }
 
 export async function fetchDatasetRows(
@@ -3981,6 +4022,9 @@ export async function fetchRuntimeMetrics(
     meta = {},
   } = {}
 ) {
+  if (isStaticSkeletonDisplay(props)) {
+    return null;
+  }
   const capability = metricQueryCapabilityConfig(props);
   const api = capability.api;
   const effectiveQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();

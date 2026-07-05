@@ -5,6 +5,7 @@ import {
   fetchPanelRuntimeMetrics,
   findRuntimeMetricInResults,
   formatRuntimeQueryDisplayMessage,
+  isStaticSkeletonDisplay,
   parseProps,
   queryStateIdOf,
   resolveRuntimeDataRef,
@@ -47,7 +48,27 @@ function pickRuntimeMetricFromResult(result, metricRef) {
 }
 
 function chartPropsNeedRuntimeFetch(props) {
+  if (isStaticSkeletonDisplay(props)) {
+    return false;
+  }
   return Boolean(resolveRuntimeMetricRef(props) || resolveRuntimeDataRef(props));
+}
+
+function buildStaticChartRows(mapping, rowCount = 4) {
+  const xField =
+    mapping?.x?.[0]?.field ||
+    mapping?.x?.[0]?.name ||
+    "category";
+  const yField =
+    mapping?.y?.[0]?.field ||
+    mapping?.y?.[0]?.name ||
+    "value";
+  const yValues = [12, 34, 56, 78, 90, 62];
+  const count = Math.max(4, Math.min(6, Number(rowCount) || 4));
+  return Array.from({ length: count }, (_entry, index) => ({
+    [xField]: `类目${index + 1}`,
+    [yField]: yValues[index] ?? 12,
+  }));
 }
 
 function chartPropsHaveInitialRows(props) {
@@ -179,6 +200,11 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
 
     async renderChart() {
       const props = Object.assign({}, parseProps(this), this._runtimeProps || {}, { __host: this });
+      if (isStaticSkeletonDisplay(props)) {
+        this.classList.add("mei-chart--static-skeleton");
+      } else {
+        this.classList.remove("mei-chart--static-skeleton");
+      }
       this._renderTrace?.mark("render_start", {
         has_runtime_props: Boolean(this._runtimeProps),
       });
@@ -849,6 +875,9 @@ function resolveRows(props) {
   const dataset = props.dataset?.dataset || props.dataset || {};
   if (Array.isArray(dataset.rows)) {
     return dataset.rows;
+  }
+  if (isStaticSkeletonDisplay(props)) {
+    return buildStaticChartRows(props.mapping);
   }
   return [];
 }

@@ -5,6 +5,7 @@ import {
   escapeHtmlAttr,
   fetchDatasetRows,
   getQueryState,
+  isStaticSkeletonDisplay,
   mergeFilters,
   parseProps,
   queryStateIdOf,
@@ -69,7 +70,13 @@ class MeiDatasetTable extends HTMLElement {
 
   bootstrapDatasetTable() {
     const props = parseProps(this);
-    const data = resolveDataSource(props);
+    let data = resolveDataSource(props);
+    if (isStaticSkeletonDisplay(props)) {
+      data = ensureStaticTableData(data);
+      this.classList.add("mei-dataset-table--static-skeleton");
+    } else {
+      this.classList.remove("mei-dataset-table--static-skeleton");
+    }
     const queryStateId = queryStateIdOf(props);
     const paging = resolveServerPaging(props, data);
     const initialPageSize = paging.defaultPageSize || 20;
@@ -676,6 +683,16 @@ function sourceLooksFileBacked(data) {
 }
 
 function resolveServerPaging(props, data) {
+  if (isStaticSkeletonDisplay(props)) {
+    const capability = resolveDatasetQueryCapability(props);
+    return {
+      server: false,
+      canQuery: false,
+      capability,
+      defaultPageSize: 20,
+      maxPageSize: 1000,
+    };
+  }
   const capability = resolveDatasetQueryCapability(props);
   const source = data?.source || {};
   const sourceMeta = parseSourceMeta(source.content);
@@ -797,6 +814,46 @@ function compareCellValues(left, right, type) {
     if (Number.isFinite(lhs) && Number.isFinite(rhs)) return lhs - rhs;
   }
   return String(left).localeCompare(String(right), "zh-CN", { numeric: true, sensitivity: "base" });
+}
+
+function staticCellValue(columnIndex, rowIndex) {
+  if (columnIndex === 0) {
+    return `值${rowIndex + 1}`;
+  }
+  return `列${columnIndex + 1}-值${rowIndex + 1}`;
+}
+
+export function buildStaticTableRows(columns, rowCount = 5) {
+  const normalizedColumns = (Array.isArray(columns) ? columns : [])
+    .map((column, index) => {
+      const name = String(column?.name || column || "").trim();
+      return name || `列${index + 1}`;
+    })
+    .filter(Boolean);
+  const cols = normalizedColumns.length > 0 ? normalizedColumns : ["列1", "列2", "列3"];
+  const count = Math.max(3, Math.min(8, Number(rowCount) || 5));
+  return Array.from({ length: count }, (_entry, rowIndex) => {
+    const row = {};
+    cols.forEach((column, columnIndex) => {
+      row[column] = staticCellValue(columnIndex, rowIndex);
+    });
+    return row;
+  });
+}
+
+function ensureStaticTableData(data) {
+  const next = { ...(data || {}) };
+  const rows = Array.isArray(next.rows) ? next.rows : [];
+  if (rows.length > 0) {
+    return next;
+  }
+  const columns = Array.isArray(next.columns) && next.columns.length > 0
+    ? next.columns
+    : columnsFromSchemaOrRows(next.schema, rows);
+  next.columns = columns;
+  next.rows = buildStaticTableRows(columns);
+  next.__mei_data_origin = "static_skeleton";
+  return next;
 }
 
 customElements.define("mei-dataset-table", MeiDatasetTable);
