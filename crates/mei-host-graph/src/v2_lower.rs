@@ -690,9 +690,9 @@ fn apply_tier_and_placement(
             map.insert("__mei_chrome_role".to_string(), json!(role));
             let ui_role = match role {
                 "header" => "header",
-                "viewport" | "viewport_frame" => "viewport_chrome",
+                "viewport" | "viewport_frame" | "map_tools" => "viewport_chrome",
                 "center_float" | "float_dock" => "float_dock",
-                "map" | "stage" | "map_stage" | "stage_aperture" => "stage",
+                "map" | "stage" | "map_stage" | "stage_aperture" | "map_interaction_surface" => "stage",
                 _ => "region",
             };
             map.insert("__mei_ui_role".to_string(), json!(ui_role));

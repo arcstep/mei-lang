@@ -68,11 +68,21 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         "map_stage should nest map.maplibre block, blocks={}",
         map_stage.blocks.len()
     );
-    let viewport_frame = find_panel_by_id(&contract.panels, "viewport_frame")
-        .expect("viewport_frame nested under center_rail map viewport");
+    let map_operation_viewport = contract
+        .panels
+        .iter()
+        .find(|p| p.id == "map_operation_viewport")
+        .expect("map_operation_viewport region");
     assert_eq!(
-        viewport_frame.props.get("variant").and_then(|v| v.as_str()),
-        Some("container")
+        map_operation_viewport
+            .props
+            .get("__mei_chrome_role")
+            .and_then(|v| v.as_str()),
+        Some("viewport_frame")
+    );
+    assert!(
+        find_panel_by_id(&contract.panels, "map-interaction-surface").is_some(),
+        "map-interaction-surface should be nested under map_operation_viewport"
     );
     fn panel_has_content_role_child(panel: &mei_lang_kernel::PanelDecl) -> bool {
         panel.blocks.iter().any(|node| match node {

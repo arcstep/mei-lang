@@ -87,6 +87,8 @@ pub fn default_z_index_for_chrome_role(role: &str) -> Option<i64> {
         "center_panel" => Some(Z_T1_CENTER_PANEL),
         "stage_aperture" => Some(Z_T1_STAGE_APERTURE),
         "viewport_frame" => Some(Z_T1_VIEWPORT_FRAME),
+        "map_interaction_surface" => Some(Z_T1_STAGE_APERTURE),
+        "map_tools" => Some(Z_T1_MAP_TOOLS),
         _ => None,
     }
 }

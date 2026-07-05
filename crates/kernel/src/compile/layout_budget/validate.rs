@@ -192,6 +192,8 @@ fn placement_absolute_allowed(panel: &PanelDecl) -> bool {
             | Some("center_float")
             | Some("center_panel")
             | Some("stage_aperture")
+            | Some("map_interaction_surface")
+            | Some("map_tools")
             | Some("float_dock")
     )
 }
