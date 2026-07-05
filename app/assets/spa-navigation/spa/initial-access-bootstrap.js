@@ -1,6 +1,6 @@
   async function bootstrapThinShellComposition() {
     if (globalThis.__mei?.thin_shell !== true) return false;
-    if (!boot.sceneManifestLoader?.ensureStructureFull || !boot.viewCompositor?.composePreview) {
+    if (!boot.sceneManifestLoader?.ensureAccessComposeLayers || !boot.viewCompositor?.composePreview) {
       return false;
     }
     const ctx =
@@ -11,16 +11,17 @@
     const shell = global.document?.querySelector?.(".shell");
     if (!(shell instanceof HTMLElement)) return false;
     try {
-      const { document: structure } = await boot.sceneManifestLoader.ensureStructureFull(
+      const { structure, theme, overlay } = await boot.sceneManifestLoader.ensureAccessComposeLayers(
         ctx.appId,
         ctx.sceneId,
+        "app",
       );
       if (!structure) return false;
       const projection =
         ctx.reviewProjection ||
         String(shell.getAttribute("data-review-projection") || "").trim() ||
         "live_full";
-      boot.viewCompositor.composePreview(shell, structure, projection, null, null);
+      boot.viewCompositor.composePreview(shell, structure, projection, theme, overlay);
       return true;
     } catch (error) {
       console.warn("[spa-navigation] thin shell composition skipped", error);

@@ -152,7 +152,8 @@ fn host_asset_version() -> String {
 }
 
 pub fn fill_host_build_placeholders(mut html: String, workspace_root: &Path) -> String {
-    html = html.replace("__MEI_HOST_VERSION__", host_asset_version().as_str());
+    html = html.replace("__MEI_HOST_VERSION__", BUILD_VERSION);
+    html = html.replace("__MEI_HOST_ASSET_VERSION__", host_asset_version().as_str());
     html = html.replace(
         "__MEI_HOST_VERSION_LABEL__",
         &statusbar_version_label(workspace_root),

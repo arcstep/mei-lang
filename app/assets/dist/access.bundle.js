@@ -477,6 +477,13 @@
     return readMeta("mei-host-version");
   }
 
+  function normalizeBuildVersion(version) {
+    const value = String(version || "").trim();
+    if (!value) return "";
+    // Asset cache-bust suffix on bundle URLs must not trip version alerts.
+    return value.replace(/\.(\d{10,})$/, "");
+  }
+
   function formatDurationMs(value) {
     if (value == null || value === "") return "";
     const ms = Number(value);
@@ -755,12 +762,13 @@
       }
       const payload = await response.json();
       lastHeartbeat = payload && typeof payload === "object" ? payload : null;
-      const nextVersion = String((payload && payload.buildVersion) || "").trim();
-      remoteVersion = nextVersion;
+      const heartbeatBuildVersion = String((payload && payload.buildVersion) || "").trim();
+      remoteVersion = heartbeatBuildVersion;
       failureStreak = 0;
 
-      const pageVersion = pageBuildVersion();
-      if (pageVersion && nextVersion && pageVersion !== nextVersion) {
+      const pageVersion = normalizeBuildVersion(pageBuildVersion());
+      const remoteBuildVersion = normalizeBuildVersion(heartbeatBuildVersion);
+      if (pageVersion && remoteBuildVersion && pageVersion !== remoteBuildVersion) {
         setAlert("version");
         return;
       }
@@ -28054,6 +28062,25 @@
     return { document, hits: result.hits, manifest: result.manifest };
   }
 
+  async function ensureAccessComposeLayers(appId, sceneId, surface) {
+    const axes = readShellAxes();
+    const fetched = await fetchManifest(appId, sceneId, axes, surface || "app");
+    const manifest = fetched.manifest;
+    const layerNames = ["structure.full", "theme.tokens", "layout.overlay"];
+    await ensureLayers(layerNames, appId, sceneId, { surface: surface || "app" }, manifest);
+    const take = (name) => {
+      const ref = layerRefFromManifest(name, manifest);
+      return ref ? boot.layerStore?.takeLayerByRef?.(ref) : null;
+    };
+    return {
+      structure: take("structure.full"),
+      theme: take("theme.tokens"),
+      overlay: take("layout.overlay"),
+      manifest,
+      hits: fetched.hits,
+    };
+  }
+
   function syncHoldingsFromManifest(manifest) {
     return boot.layerStore?.syncHoldingsFromManifest?.(manifest) || [];
   }
@@ -28062,6 +28089,7 @@
     fetchManifest,
     fetchLayerBatch,
     ensureStructureFull,
+    ensureAccessComposeLayers,
     ensureLayers,
     syncHoldingsFromManifest,
     readShellAxes,
@@ -29878,7 +29906,7 @@
 /* ===== spa-navigation/spa/initial-access-bootstrap.js ===== */
   async function bootstrapThinShellComposition() {
     if (globalThis.__mei?.thin_shell !== true) return false;
-    if (!boot.sceneManifestLoader?.ensureStructureFull || !boot.viewCompositor?.composePreview) {
+    if (!boot.sceneManifestLoader?.ensureAccessComposeLayers || !boot.viewCompositor?.composePreview) {
       return false;
     }
     const ctx =
@@ -29889,16 +29917,17 @@
     const shell = global.document?.querySelector?.(".shell");
     if (!(shell instanceof HTMLElement)) return false;
     try {
-      const { document: structure } = await boot.sceneManifestLoader.ensureStructureFull(
+      const { structure, theme, overlay } = await boot.sceneManifestLoader.ensureAccessComposeLayers(
         ctx.appId,
         ctx.sceneId,
+        "app",
       );
       if (!structure) return false;
       const projection =
         ctx.reviewProjection ||
         String(shell.getAttribute("data-review-projection") || "").trim() ||
         "live_full";
-      boot.viewCompositor.composePreview(shell, structure, projection, null, null);
+      boot.viewCompositor.composePreview(shell, structure, projection, theme, overlay);
       return true;
     } catch (error) {
       console.warn("[spa-navigation] thin shell composition skipped", error);

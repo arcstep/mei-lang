@@ -6,16 +6,16 @@ use super::super::route::UiRouteMode;
 pub(crate) fn chrome_script_preload_markup(route_mode: UiRouteMode) -> &'static str {
     match route_mode {
         UiRouteMode::Build | UiRouteMode::Runtime => {
-            r#"<link rel="preload" href="/app-bundles/manage.js?v=__MEI_HOST_VERSION__" as="script"/>"#
+            r#"<link rel="preload" href="/app-bundles/manage.js?v=__MEI_HOST_ASSET_VERSION__" as="script"/>"#
         }
         UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot => {
-            r#"<link rel="preload" href="/app-bundles/access.js?v=__MEI_HOST_VERSION__" as="script"/>"#
+            r#"<link rel="preload" href="/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__" as="script"/>"#
         }
         UiRouteMode::Config => {
-            r#"<link rel="preload" href="/app-bundles/config.js?v=__MEI_HOST_VERSION__" as="script"/>"#
+            r#"<link rel="preload" href="/app-bundles/config.js?v=__MEI_HOST_ASSET_VERSION__" as="script"/>"#
         }
         UiRouteMode::Upload => {
-            r#"<link rel="preload" href="/app-bundles/upload.js?v=__MEI_HOST_VERSION__" as="script"/>"#
+            r#"<link rel="preload" href="/app-bundles/upload.js?v=__MEI_HOST_ASSET_VERSION__" as="script"/>"#
         }
     }
 }
@@ -24,25 +24,25 @@ pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     match route_mode {
         UiRouteMode::Build | UiRouteMode::Runtime => view! {
             <>
-                <script defer src="/app-bundles/manage.js?v=__MEI_HOST_VERSION__"></script>
+                <script defer src="/app-bundles/manage.js?v=__MEI_HOST_ASSET_VERSION__"></script>
             </>
         }
         .into_any(),
         UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot => view! {
             <>
-                <script defer src="/app-bundles/access.js?v=__MEI_HOST_VERSION__"></script>
+                <script defer src="/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__"></script>
             </>
         }
         .into_any(),
         UiRouteMode::Config => view! {
             <>
-                <script defer src="/app-bundles/config.js?v=__MEI_HOST_VERSION__"></script>
+                <script defer src="/app-bundles/config.js?v=__MEI_HOST_ASSET_VERSION__"></script>
             </>
         }
         .into_any(),
         UiRouteMode::Upload => view! {
             <>
-                <script defer src="/app-bundles/upload.js?v=__MEI_HOST_VERSION__"></script>
+                <script defer src="/app-bundles/upload.js?v=__MEI_HOST_ASSET_VERSION__"></script>
             </>
         }
         .into_any(),

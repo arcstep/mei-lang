@@ -134,6 +134,25 @@
     return { document, hits: result.hits, manifest: result.manifest };
   }
 
+  async function ensureAccessComposeLayers(appId, sceneId, surface) {
+    const axes = readShellAxes();
+    const fetched = await fetchManifest(appId, sceneId, axes, surface || "app");
+    const manifest = fetched.manifest;
+    const layerNames = ["structure.full", "theme.tokens", "layout.overlay"];
+    await ensureLayers(layerNames, appId, sceneId, { surface: surface || "app" }, manifest);
+    const take = (name) => {
+      const ref = layerRefFromManifest(name, manifest);
+      return ref ? boot.layerStore?.takeLayerByRef?.(ref) : null;
+    };
+    return {
+      structure: take("structure.full"),
+      theme: take("theme.tokens"),
+      overlay: take("layout.overlay"),
+      manifest,
+      hits: fetched.hits,
+    };
+  }
+
   function syncHoldingsFromManifest(manifest) {
     return boot.layerStore?.syncHoldingsFromManifest?.(manifest) || [];
   }
@@ -142,6 +161,7 @@
     fetchManifest,
     fetchLayerBatch,
     ensureStructureFull,
+    ensureAccessComposeLayers,
     ensureLayers,
     syncHoldingsFromManifest,
     readShellAxes,

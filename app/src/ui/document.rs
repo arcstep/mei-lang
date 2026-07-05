@@ -154,7 +154,7 @@ mod tests {
             "<script defer src=\"/app-assets/host-http-feedback.js\"></script>".to_string(),
             UiRouteMode::App,
         );
-        assert!(html.contains(r#"rel="preload" href="/app-bundles/access.js?v=__MEI_HOST_VERSION__" as="script""#));
+        assert!(html.contains(r#"rel="preload" href="/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__" as="script""#));
         assert!(!html.contains(r#"rel="preload" href="/app-bundles/access.js"/>"#));
     }
 }

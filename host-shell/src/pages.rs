@@ -1608,14 +1608,15 @@ fn wants_revision_first_shell(route_mode: UiRouteMode, query: &AppQuery) -> bool
     if wants_html_fallback(query) {
         return false;
     }
-    if matches!(
+    // Thin-shell bootstrap is opt-in; default SSR keeps body theme + full assemble stable.
+    if !matches!(
         query
             .thin_shell
             .as_deref()
             .map(str::trim)
             .map(str::to_ascii_lowercase)
             .as_deref(),
-        Some("0") | Some("false") | Some("off")
+        Some("1") | Some("true") | Some("on")
     ) {
         return false;
     }
@@ -1722,13 +1723,13 @@ pub(crate) fn render_thin_scene_shell(
 fn inject_thin_shell_runtime_assets(html: String, route_mode: mei_lang_app::UiRouteMode) -> String {
     let (preload_href, bundle_src) = if route_mode.is_build() || route_mode == mei_lang_app::UiRouteMode::Runtime {
         (
-            "/app-bundles/manage.js?v=__MEI_HOST_VERSION__",
-            "/app-bundles/manage.js?v=__MEI_HOST_VERSION__",
+            "/app-bundles/manage.js?v=__MEI_HOST_ASSET_VERSION__",
+            "/app-bundles/manage.js?v=__MEI_HOST_ASSET_VERSION__",
         )
     } else {
         (
-            "/app-bundles/access.js?v=__MEI_HOST_VERSION__",
-            "/app-bundles/access.js?v=__MEI_HOST_VERSION__",
+            "/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__",
+            "/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__",
         )
     };
     let runtime = format!(
@@ -1900,6 +1901,17 @@ fn inject_prefetched_build_preview_fragment(
 #[cfg(test)]
 mod inject_scene_manifest_tests {
     use super::inject_scene_manifest_refs;
+
+    #[test]
+    fn wants_revision_first_shell_is_opt_in() {
+        use super::{wants_revision_first_shell, AppQuery, UiRouteMode};
+        let mut query = AppQuery::default();
+        assert!(!wants_revision_first_shell(UiRouteMode::App, &query));
+        query.thin_shell = Some("1".to_string());
+        assert!(wants_revision_first_shell(UiRouteMode::App, &query));
+        query.thin_shell = Some("0".to_string());
+        assert!(!wants_revision_first_shell(UiRouteMode::App, &query));
+    }
 
     #[test]
     fn inject_scene_manifest_refs_sets_thin_shell_flags() {

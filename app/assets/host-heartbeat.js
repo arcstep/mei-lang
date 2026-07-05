@@ -30,6 +30,13 @@
     return readMeta("mei-host-version");
   }
 
+  function normalizeBuildVersion(version) {
+    const value = String(version || "").trim();
+    if (!value) return "";
+    // Asset cache-bust suffix on bundle URLs must not trip version alerts.
+    return value.replace(/\.(\d{10,})$/, "");
+  }
+
   function formatDurationMs(value) {
     if (value == null || value === "") return "";
     const ms = Number(value);
@@ -308,12 +315,13 @@
       }
       const payload = await response.json();
       lastHeartbeat = payload && typeof payload === "object" ? payload : null;
-      const nextVersion = String((payload && payload.buildVersion) || "").trim();
-      remoteVersion = nextVersion;
+      const heartbeatBuildVersion = String((payload && payload.buildVersion) || "").trim();
+      remoteVersion = heartbeatBuildVersion;
       failureStreak = 0;
 
-      const pageVersion = pageBuildVersion();
-      if (pageVersion && nextVersion && pageVersion !== nextVersion) {
+      const pageVersion = normalizeBuildVersion(pageBuildVersion());
+      const remoteBuildVersion = normalizeBuildVersion(heartbeatBuildVersion);
+      if (pageVersion && remoteBuildVersion && pageVersion !== remoteBuildVersion) {
         setAlert("version");
         return;
       }
