@@ -6,6 +6,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use serde_json::json;
+
 use crate::assemble::{assemble_scope_from_registry, AssembleOutcome};
 use crate::content_store::put_if_absent;
 use crate::layer_store::{store_layer, take_layer};
@@ -29,10 +31,13 @@ pub struct RuntimePlansDocument {
 }
 
 pub fn runtime_plans_cache_key(semantic_core: &SemanticCacheCore, layout_policy_revision: &str) -> String {
-    format!(
-        "runtime.plans:{}:{}:{}",
-        semantic_core.app_id, semantic_core.scene_id, layout_policy_revision
-    )
+    json!({
+        "artifact": RUNTIME_PLANS_KIND,
+        "semantic_core": semantic_core,
+        "layout_policy_revision": layout_policy_revision,
+        "schema_version": RUNTIME_PLANS_SCHEMA,
+    })
+    .to_string()
 }
 
 pub fn runtime_plans_from_outcome(outcome: &AssembleOutcome) -> RuntimePlansDocument {

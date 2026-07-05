@@ -115,6 +115,28 @@ pub fn assemble_scope_from_registry(
     app_id: &str,
     scene_id: &str,
 ) -> Result<Option<AssembleOutcome>> {
+    let semantic_core =
+        crate::view_artifact::build_semantic_core_for_scene(source_root, app_id, scene_id);
+    if let Some(cache_key) = crate::assemble_cache::assemble_cache_key(&semantic_core) {
+        if let Some(cached) = crate::assemble_cache::take_assemble_outcome(cache_key.as_str()) {
+            return Ok(Some(cached));
+        }
+    }
+    let outcome = assemble_scope_from_registry_uncached(source_root, app_id, scene_id)?;
+    if let (Some(outcome), Some(cache_key)) = (
+        outcome.as_ref(),
+        crate::assemble_cache::assemble_cache_key(&semantic_core),
+    ) {
+        crate::assemble_cache::store_assemble_outcome(cache_key, outcome.clone());
+    }
+    Ok(outcome)
+}
+
+fn assemble_scope_from_registry_uncached(
+    source_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Result<Option<AssembleOutcome>> {
     let registry = McgRegistryWriter::load(source_root, app_id);
     if registry.nodes.is_empty() {
         return Ok(None);

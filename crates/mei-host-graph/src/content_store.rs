@@ -86,3 +86,8 @@ pub fn read_payload_json(
     let raw = std::fs::read_to_string(path)?;
     Ok(Some(serde_json::from_str(&raw)?))
 }
+
+pub fn read_payload_bytes(app_root: &Path, kind: &str, content_hash: &str) -> Option<Vec<u8>> {
+    let path = get(app_root, kind, content_hash)?;
+    std::fs::read(path).ok()
+}

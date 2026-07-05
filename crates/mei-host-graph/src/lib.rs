@@ -2,6 +2,7 @@
 
 mod artifact_biz_macros;
 mod assemble;
+mod assemble_cache;
 mod bridge;
 mod content_store;
 mod data_snapshot;
@@ -17,6 +18,7 @@ mod shell_layer;
 mod semantic_scene;
 mod structure_full;
 mod view_artifact;
+mod manifest_index;
 mod layout_tuning_merge;
 mod mcg;
 mod metric_hydrate;
@@ -31,11 +33,21 @@ mod types;
 mod v2_bundle_constants;
 mod v2_lower;
 mod v2_metric_lower;
+mod view_layer_warmup;
 mod world_plan;
 
 pub use assemble::{
     assemble_scope_from_registry, collect_all_board_scenes, list_scope_routes, AssembleOutcome,
     ScopeRoute,
+};
+pub use assemble_cache::{
+    assemble_cache_key, clear_assemble_cache_for_app, store_assemble_outcome, take_assemble_outcome,
+};
+pub use manifest_index::{
+    clear_manifest_index_for_app, load_manifest_index_from_content_store,
+    manifest_index_cache_key, manifest_index_to_scene_manifest, persist_manifest_index,
+    store_manifest_index_memory, take_manifest_index, ManifestIndexDocument, SurfaceManifestSlice,
+    MANIFEST_INDEX_KIND, MANIFEST_INDEX_SCHEMA,
 };
 pub use enrich_compiled_scope::{
     enrich_compiled_scope, EnrichCompiledScopeOptions,
@@ -60,8 +72,8 @@ pub use runtime_plans::{
     RuntimePlansDocument, RUNTIME_PLANS_KIND, RUNTIME_PLANS_SCHEMA,
 };
 pub use shell_layer::{
-    build_shell_layer_document, ensure_shell_layer_cached, shell_layer_json, ShellLayerDocument,
-    SHELL_LAYER_SCHEMA,
+    build_shell_layer_document, ensure_shell_layer_cached, ensure_shell_layer_rendered,
+    shell_layer_json, ShellLayerDocument, SHELL_LAYER_SCHEMA,
 };
 pub use semantic_scene::{
     assemble_semantic_scene, collect_world_payloads_from_scene, default_target_for_scene,
@@ -131,9 +143,10 @@ pub use tier::{
     TIER_T2,
 };
 pub use content_store::{
-    content_hash_bytes, get, put_if_absent, read_payload_json, resolve_payload_ref,
-    APP_SKELETON, METRIC_DEF_BUNDLE, METRIC_RESPONSE, NAVIGATION, PANEL_CONTRACT,
-    PROJECTION_ASSEMBLY, WARMUP_POLICY,
+    content_hash_bytes, get, put_if_absent, read_payload_bytes, read_payload_json,
+    resolve_payload_ref, APP_SKELETON, METRIC_DEF_BUNDLE, METRIC_RESPONSE, NAVIGATION,
+    PANEL_CONTRACT, PROJECTION_ASSEMBLY, WARMUP_POLICY,
 };
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
+pub use view_layer_warmup::{warm_manifest_index_for_app, warm_manifest_index_for_scope};
 pub use world_plan::{build_world_exchange, build_map_projection, build_world_plan, WorldCompileOutcome};

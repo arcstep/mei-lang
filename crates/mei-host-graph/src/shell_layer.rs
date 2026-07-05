@@ -43,19 +43,35 @@ pub fn ensure_shell_layer_cached(
     chrome: &str,
     auth_sig: Option<u64>,
 ) -> (ShellLayerDocument, bool) {
+    ensure_shell_layer_rendered(route_mode, tab, chrome, auth_sig, || {
+        build_shell_layer_document(route_mode, tab, chrome)
+    })
+}
+
+pub fn ensure_shell_layer_rendered<F>(
+    route_mode: &str,
+    tab: &str,
+    chrome: &str,
+    auth_sig: Option<u64>,
+    render: F,
+) -> (ShellLayerDocument, bool)
+where
+    F: FnOnce() -> ShellLayerDocument,
+{
     let cache_key = shell_cache_key(route_mode, tab, chrome, auth_sig, SHELL_LAYER_SCHEMA);
     if let Some(bytes) = take_layer(cache_key.as_str()) {
         if let Ok(doc) = serde_json::from_slice::<ShellLayerDocument>(bytes.as_slice()) {
             return (doc, true);
         }
     }
-    let document = build_shell_layer_document(route_mode, tab, chrome);
+    let document = render();
     let bytes = serde_json::to_vec(&document).unwrap_or_default();
+    let content_hash = crate::content_store::content_hash_bytes(bytes.as_slice());
     let artifact_id = format!("shell.{route_mode}");
     store_layer(
         cache_key,
         artifact_id.as_str(),
-        "shell",
+        content_hash.as_str(),
         bytes.as_slice(),
     );
     (document, false)

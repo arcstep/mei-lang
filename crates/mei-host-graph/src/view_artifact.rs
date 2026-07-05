@@ -126,7 +126,8 @@ pub struct ClientLayerHolding {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AssemblyPlan {
-    pub manifest: SceneViewManifest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<SceneViewManifest>,
     pub layer_refs: std::collections::BTreeMap<String, LayerRef>,
     pub compose_defaults: ComposeRequest,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -334,9 +335,9 @@ pub fn resolve_view_revision(input: &ViewRevisionInput) -> ViewRevisionResponse 
             semantic_core: manifest.semantic_core.clone(),
             manifest_revision_digest,
             surface_revision_digest: server_surface_digest,
-            manifest: Some(manifest.clone()),
+            manifest: None,
             assembly_plan: Some(AssemblyPlan {
-                manifest: manifest.clone(),
+                manifest: None,
                 layer_refs,
                 compose_defaults,
                 optional_layers: Vec::new(),
