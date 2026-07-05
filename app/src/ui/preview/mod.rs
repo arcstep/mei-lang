@@ -50,6 +50,8 @@ pub struct PreviewRuntimeContext {
     pub data_mode: Option<String>,
     /// 审阅投影：`plane` | `plane_region` | `plane_region_section` | `static_full` | `live_full`。
     pub review_projection: Option<String>,
+    /// Layout/Prototype：超出投影深度的节点直接省略（不用 skeleton 蒙板）。
+    pub omit_beyond_projection_depth: bool,
 }
 
 impl PreviewRuntimeContext {
@@ -92,12 +94,17 @@ pub fn build_preview_runtime_context(
             UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Build
         ),
     };
+    let omit_beyond_projection_depth = matches!(route_mode, UiRouteMode::Layout | UiRouteMode::Prototype);
+    let structure_workspace = matches!(
+        route_mode,
+        UiRouteMode::Build | UiRouteMode::Layout | UiRouteMode::Prototype
+    );
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),
         resources: build_runtime_resource_map(compiled),
         host_ssr_slim_payload,
-        structure_anchors_enabled: route_mode == UiRouteMode::Build,
-        dev_inspect_chrome_enabled: route_mode == UiRouteMode::Build,
+        structure_anchors_enabled: structure_workspace,
+        dev_inspect_chrome_enabled: structure_workspace,
         build_preview_scope: build_preview_scope
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -108,6 +115,7 @@ pub fn build_preview_runtime_context(
             .map(str::to_string),
         data_mode,
         review_projection,
+        omit_beyond_projection_depth,
     }
 }
 mod view;

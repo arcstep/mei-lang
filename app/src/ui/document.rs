@@ -17,18 +17,24 @@ pub(crate) fn render_document(
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
     body_theme_style: &str,
+    body_class_extra: Option<&str>,
+    extra_head_markup: Option<&str>,
 ) -> String {
     let shell_mode_class = match route_mode {
         UiRouteMode::App if chrome_hidden => "app-view chrome-none",
         UiRouteMode::App => "app-view",
         UiRouteMode::Run => "run-view chrome-none",
         UiRouteMode::Copilot => "copilot-view chrome-none",
-        UiRouteMode::Build => "build-view",
+        UiRouteMode::Build | UiRouteMode::Layout | UiRouteMode::Prototype => "build-view",
         UiRouteMode::Runtime => "runtime-view",
         UiRouteMode::Config => "config-view",
         UiRouteMode::Upload => "upload-view",
     };
-    let body_class = format!("{shell_mode_class} sl-theme-dark");
+    let body_class = if let Some(extra) = body_class_extra.filter(|value| !value.is_empty()) {
+        format!("{shell_mode_class} {extra} sl-theme-dark")
+    } else {
+        format!("{shell_mode_class} sl-theme-dark")
+    };
     let chrome_scripts = chrome_scripts_view(route_mode);
     let chrome_script_preloads = chrome_script_preloads_view(route_mode);
     let auth_user_meta = if auth_enabled {
@@ -63,7 +69,7 @@ pub(crate) fn render_document(
     };
 
     let manage_timing_meta = match route_mode {
-        UiRouteMode::Build => view! {
+        UiRouteMode::Build | UiRouteMode::Layout | UiRouteMode::Prototype => view! {
             <meta name="mei-handler-html-ready-ms" content="__MEI_HANDLER_HTML_READY_MS__"/>
             <meta name="mei-ssr-http-response-body-ms" content="__MEI_SSR_HTTP_BODY_MS__"/>
         }
@@ -131,10 +137,23 @@ pub(crate) fn render_document(
             </body>
         </html>
     };
-    inject_chrome_script_preloads(page.to_html(), route_mode)
+    inject_chrome_script_preloads(page.to_html(), route_mode, extra_head_markup)
 }
 
-fn inject_chrome_script_preloads(html: String, route_mode: UiRouteMode) -> String {
+fn inject_chrome_script_preloads(
+    html: String,
+    route_mode: UiRouteMode,
+    extra_head_markup: Option<&str>,
+) -> String {
+    let mut html = html;
+    if let Some(markup) = extra_head_markup.filter(|value| !value.is_empty()) {
+        if let Some(pos) = html.find("/app-bundles/styles.css") {
+            if let Some(close) = html[pos..].find('>') {
+                let insert_at = pos + close + 1;
+                html.insert_str(insert_at, markup);
+            }
+        }
+    }
     let preload = chrome_script_preload_markup(route_mode);
     if preload.is_empty() {
         return html;
@@ -153,6 +172,7 @@ mod tests {
         let html = inject_chrome_script_preloads(
             "<script defer src=\"/app-assets/host-http-feedback.js\"></script>".to_string(),
             UiRouteMode::App,
+            None,
         );
         assert!(html.contains(r#"rel="preload" href="/app-bundles/access.js?v=__MEI_HOST_ASSET_VERSION__" as="script""#));
         assert!(!html.contains(r#"rel="preload" href="/app-bundles/access.js"/>"#));

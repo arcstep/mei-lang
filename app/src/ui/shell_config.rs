@@ -44,8 +44,8 @@ pub(crate) fn config_shell(
         auth_account,
         None,
         None,
+        None,
         Some(ShellNavActive::Config),
-        true,
     );
     let statusbar = statusbar_view(
         app_path,

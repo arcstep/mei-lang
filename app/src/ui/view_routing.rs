@@ -12,54 +12,26 @@ pub fn mcg_href(app_path: Option<&str>) -> String {
     }
 }
 
+/// Legacy mode-first base (`/apps/{mode}/{app}`) — prefer `app_surface_href`.
 pub fn view_base_href(view: UiRouteMode, app_path: &str) -> String {
+    if view.is_app_surface() {
+        return view.app_surface_href(app_path);
+    }
     format!("/apps/{}/{}", view.slug(), app_path.trim_start_matches('/'))
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct BuildAxisHrefPreset {
-    pub data_mode: Option<String>,
-    pub review_projection: Option<String>,
-    pub tree_max_ui_role: Option<String>,
+pub fn app_surface_href(app_path: &str, surface: UiRouteMode) -> String {
+    surface.app_surface_href(app_path)
 }
 
-impl BuildAxisHrefPreset {
-    pub fn path_suffix(&self) -> String {
-        let mut segments = Vec::new();
-        if self.data_mode.as_deref() == Some("eval") {
-            segments.push("eval");
-        }
-        if self.review_projection.as_deref() == Some("plane_region") {
-            segments.push("region");
-        }
-        if self.tree_max_ui_role.as_deref() == Some("content") {
-            segments.push("content");
-        }
-        if segments.is_empty() {
-            String::new()
-        } else {
-            format!("/{}", segments.join("/"))
-        }
-    }
-}
-
-pub fn build_href_with_catalog(
+pub fn workspace_surface_href(
     app_path: &str,
+    surface: UiRouteMode,
     file: Option<&str>,
     tab: Option<&str>,
+    node: Option<&str>,
     catalog: Option<&str>,
     pack: Option<&str>,
-) -> String {
-    build_href_with_catalog_and_axis(app_path, file, tab, catalog, pack, &BuildAxisHrefPreset::default())
-}
-
-pub fn build_href_with_catalog_and_axis(
-    app_path: &str,
-    file: Option<&str>,
-    tab: Option<&str>,
-    catalog: Option<&str>,
-    pack: Option<&str>,
-    axis: &BuildAxisHrefPreset,
 ) -> String {
     let mut parts = Vec::new();
     append_catalog_query(&mut parts, catalog, pack);
@@ -69,40 +41,50 @@ pub fn build_href_with_catalog_and_axis(
     if let Some(t) = tab.map(str::trim).filter(|s| !s.is_empty()) {
         parts.push(format!("tab={}", encode_query_value(t)));
     }
-    if let Some(dm) = axis
-        .data_mode
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        parts.push(format!("data_mode={}", encode_query_value(dm)));
+    if let Some(n) = node.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("node={}", encode_query_value(n)));
     }
-    if let Some(rp) = axis
-        .review_projection
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        parts.push(format!("review_projection={}", encode_query_value(rp)));
-    }
-    if let Some(tree_max) = axis
-        .tree_max_ui_role
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        parts.push(format!("tree_max={}", encode_query_value(tree_max)));
-    }
-    let base = format!(
-        "/apps/build/{}{}",
-        app_path.trim_start_matches('/'),
-        axis.path_suffix()
-    );
+    let base = app_surface_href(app_path, surface);
     if parts.is_empty() {
         base
     } else {
         format!("{base}?{}", parts.join("&"))
     }
+}
+
+pub fn app_access_href(app_path: &str) -> String {
+    app_surface_href(app_path, UiRouteMode::App)
+}
+
+pub fn layout_href(app_path: &str, file: Option<&str>, tab: Option<&str>) -> String {
+    workspace_surface_href(app_path, UiRouteMode::Layout, file, tab, None, None, None)
+}
+
+pub fn prototype_href(app_path: &str, file: Option<&str>, tab: Option<&str>) -> String {
+    workspace_surface_href(app_path, UiRouteMode::Prototype, file, tab, None, None, None)
+}
+
+#[allow(dead_code)]
+pub fn build_href_with_catalog(
+    app_path: &str,
+    file: Option<&str>,
+    tab: Option<&str>,
+    _catalog: Option<&str>,
+    _pack: Option<&str>,
+) -> String {
+    layout_href(app_path, file, tab)
+}
+
+#[allow(dead_code)]
+pub fn build_href_with_catalog_and_axis(
+    app_path: &str,
+    file: Option<&str>,
+    tab: Option<&str>,
+    catalog: Option<&str>,
+    pack: Option<&str>,
+    _axis: &BuildAxisHrefPreset,
+) -> String {
+    workspace_surface_href(app_path, UiRouteMode::Layout, file, tab, None, catalog, pack)
 }
 
 pub fn runtime_href(app_path: &str, node: Option<&str>, tab: Option<&str>) -> String {
@@ -153,14 +135,11 @@ pub fn host_runtime_href(app_path: Option<&str>, node: Option<&str>, tab: Option
     }
 }
 
-pub fn app_access_href(app_path: &str) -> String {
-    format!("/apps/app/{}/access", app_path.trim_start_matches('/'))
-}
-
+#[allow(dead_code)]
 pub fn app_href(app_path: &str, scene_suffix: &str) -> String {
     format!(
         "{}{}",
-        view_base_href(UiRouteMode::App, app_path),
+        app_surface_href(app_path, UiRouteMode::App),
         scene_suffix
     )
 }
@@ -170,20 +149,26 @@ pub fn app_scene_href(
     scene_id: Option<&str>,
     tab: Option<&str>,
     chrome: Option<&str>,
-    data_mode: Option<&str>,
-    review_projection: Option<&str>,
+    _data_mode: Option<&str>,
+    _review_projection: Option<&str>,
 ) -> String {
-    let suffix = access_scene_route_suffix(
-        scene_id,
-        tab,
-        chrome,
-        data_mode,
-        review_projection,
-    );
-    if suffix.is_empty() {
-        app_access_href(app_path)
+    let mut base = app_surface_href(app_path, UiRouteMode::App);
+    if let Some(scene) = scene_id.map(str::trim).filter(|value| !value.is_empty()) {
+        base = format!("{base}/scene/{}", encode_query_value(scene));
+    }
+    let mut parts = Vec::new();
+    if let Some(t) = tab.map(str::trim).filter(|value| !value.is_empty()) {
+        parts.push(format!("tab={}", encode_query_value(t)));
+    }
+    if let Some(c) = chrome.map(str::trim).filter(|value| !value.is_empty()) {
+        parts.push(format!("chrome={}", encode_query_value(c)));
+    }
+    if parts.is_empty() {
+        base
+    } else if base.contains('?') {
+        format!("{base}&{}", parts.join("&"))
     } else {
-        app_href(app_path, &suffix)
+        format!("{base}?{}", parts.join("&"))
     }
 }
 
@@ -198,16 +183,6 @@ pub fn run_scene_href(
         view_base_href(UiRouteMode::Run, app_path),
         access_scene_route_suffix(scene_id, None, None, data_mode, review_projection)
     )
-}
-
-/// 兼容旧链接：`/apps/presentation/...` 与 `/apps/run/...` 等价。
-pub fn presentation_scene_href(
-    app_path: &str,
-    scene_id: Option<&str>,
-    data_mode: Option<&str>,
-    review_projection: Option<&str>,
-) -> String {
-    run_scene_href(app_path, scene_id, data_mode, review_projection)
 }
 
 pub fn copilot_presentation_href(app_path: &str, presentation_id: &str) -> String {
@@ -233,15 +208,21 @@ pub fn cross_app_href(
     if catalog.is_some() || pack.is_some() {
         return match view {
             UiRouteMode::Runtime => runtime_href_with_catalog(app_path, None, None, catalog, pack),
-            UiRouteMode::Build => build_href_with_catalog(app_path, None, None, catalog, pack),
-            _ => build_href_with_catalog(app_path, None, None, catalog, pack),
+            UiRouteMode::Prototype => {
+                workspace_surface_href(app_path, UiRouteMode::Prototype, None, None, None, catalog, pack)
+            }
+            UiRouteMode::Layout | UiRouteMode::Build => {
+                workspace_surface_href(app_path, UiRouteMode::Layout, None, None, None, catalog, pack)
+            }
+            _ => workspace_surface_href(app_path, UiRouteMode::Layout, None, None, None, catalog, pack),
         };
     }
     match view {
         UiRouteMode::App => app_access_href(app_path),
+        UiRouteMode::Layout | UiRouteMode::Build => layout_href(app_path, None, None),
+        UiRouteMode::Prototype => prototype_href(app_path, None, None),
         UiRouteMode::Run => run_scene_href(app_path, None, None, None),
         UiRouteMode::Copilot => copilot_presentation_href(app_path, "intro"),
-        UiRouteMode::Build => build_href_with_catalog(app_path, None, None, catalog, pack),
         UiRouteMode::Config => host_config_href(Some(app_path)),
         UiRouteMode::Upload => host_upload_href(Some(app_path), None),
         UiRouteMode::Runtime => host_runtime_href(Some(app_path), None, None),
@@ -282,61 +263,42 @@ pub fn runtime_href_with_catalog(
     }
 }
 
+/// Legacy build-axis href preset (compat redirects).
+#[allow(dead_code)]
+#[derive(Debug, Clone, Default)]
+pub struct BuildAxisHrefPreset {
+    pub data_mode: Option<String>,
+    pub review_projection: Option<String>,
+    pub tree_max_ui_role: Option<String>,
+    pub compile_view: bool,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{app_access_href, copilot_presentation_href, speaker_tour_href, BuildAxisHrefPreset};
+    use super::*;
 
     #[test]
-    fn host_config_href_uses_shell_route() {
-        assert_eq!(super::host_config_href(None), "/config");
+    fn app_surface_hrefs_use_app_id_first() {
+        assert_eq!(app_access_href("pretty-panels"), "/apps/pretty-panels/app");
         assert_eq!(
-            super::host_config_href(Some("pretty-panels")),
-            "/config?app=pretty-panels"
+            layout_href("pretty-panels", Some("main.mei"), Some("preview")),
+            "/apps/pretty-panels/layout?file=main.mei&tab=preview"
         );
+        assert_eq!(prototype_href("demo", None, None), "/apps/demo/prototype");
     }
 
     #[test]
-    fn host_runtime_href_uses_shell_route() {
-        assert_eq!(
-            super::host_runtime_href(Some("mini-park"), Some("node-1"), Some("json")),
-            "/runtime?app=mini-park&node=node-1&tab=json"
-        );
-    }
-
-    #[test]
-    fn build_axis_path_suffix_eval_content() {
-        let axis = BuildAxisHrefPreset {
-            data_mode: Some("eval".to_string()),
-            tree_max_ui_role: Some("content".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(axis.path_suffix(), "/eval/content");
-        assert!(super::build_href_with_catalog_and_axis(
-            "pretty-panels",
-            None,
+    fn app_scene_href_omits_review_axes() {
+        let href = app_scene_href(
+            "demo",
+            Some("home"),
             Some("preview"),
             None,
-            None,
-            &axis,
-        )
-        .contains("/apps/build/pretty-panels/eval/content?tab=preview"));
-    }
-
-    #[test]
-    fn app_access_href_is_canonical_entry() {
-        assert_eq!(app_access_href("demo"), "/apps/app/demo/access");
-    }
-
-    #[test]
-    fn legacy_config_href_aliases_shell_route() {
-        assert_eq!(super::config_href("data-demo"), "/config?app=data-demo");
-    }
-
-    #[test]
-    fn speaker_tour_href_aliases_copilot_presentation() {
-        assert_eq!(
-            speaker_tour_href("mini-park", "intro"),
-            copilot_presentation_href("mini-park", "intro")
+            Some("static"),
+            Some("plane_region_section"),
         );
+        assert!(href.starts_with("/apps/demo/app/scene/home"));
+        assert!(!href.contains("review_projection"));
+        assert!(!href.contains("data_mode"));
     }
 }

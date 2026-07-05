@@ -12,9 +12,9 @@ use super::super::preview;
 use super::super::preview_chrome::asset_preview_body;
 use super::super::route::UiRouteMode;
 use super::super::prototype_preset::{
-    default_build_preset, match_preset, preset_tree_max_ui_role, prototype_normalize_workspace_tab,
-    prototype_workspace_primary_tabs, prototype_workspace_tool_tabs, PrototypePreset,
-    PROTOTYPE_PRESETS,
+    default_build_preset, match_preset, preset_for_route_mode, preset_tree_max_ui_role,
+    prototype_normalize_workspace_tab, prototype_workspace_primary_tabs,
+    prototype_workspace_tool_tabs,
 };
 use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::super::statusbar::statusbar_view;
@@ -32,6 +32,7 @@ pub(crate) fn manage_shell(
     compiled: &CompiledApp,
     app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
+    route_mode: UiRouteMode,
     target: Option<&str>,
     source: Option<&str>,
     _source_meta: Option<&SourcePanelMeta>,
@@ -54,6 +55,7 @@ pub(crate) fn manage_shell(
     review_projection: Option<&str>,
     data_mode_ceiling_notice: Option<&str>,
     tree_max_ui_role: Option<&str>,
+    _build_tree_mode: Option<&str>,
 ) -> AnyView {
     let legacy = LegacyBuildQuery {
         file: target.map(str::to_string),
@@ -89,19 +91,32 @@ pub(crate) fn manage_shell(
         super::preview_fragment::build_preview_component_use_key(&resolved.node);
     let build_preview_component_use_key =
         build_preview_component_use_key_owned.as_deref();
+    let workspace_route_mode = match route_mode {
+        UiRouteMode::Layout | UiRouteMode::Prototype => route_mode,
+        other if other.is_build() => other,
+        _ => UiRouteMode::Layout,
+    };
     let active_data_mode = data_mode
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default_build_preset().data_mode);
+        .unwrap_or_else(|| {
+            preset_for_route_mode(workspace_route_mode)
+                .map(|preset| preset.data_mode)
+                .unwrap_or_else(|| default_build_preset().data_mode)
+        });
     let active_review_projection = review_projection
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default_build_preset().review_projection);
+        .unwrap_or_else(|| {
+            preset_for_route_mode(workspace_route_mode)
+                .map(|preset| preset.review_projection)
+                .unwrap_or_else(|| default_build_preset().review_projection)
+        });
     let preview = preview::preview_view(
         compiled,
         app_path,
         selected_target.as_str(),
-        UiRouteMode::Build,
+        workspace_route_mode,
         semantic,
         build_preview_scope.as_deref(),
         build_preview_component_use_key,
@@ -120,14 +135,16 @@ pub(crate) fn manage_shell(
         data_mode,
         review_projection: Some(active_review_projection),
     };
-    let active_preset = match_preset(active_data_mode, active_review_projection)
+    let active_preset = preset_for_route_mode(workspace_route_mode)
         .copied()
+        .or_else(|| match_preset(active_data_mode, active_review_projection).copied())
         .unwrap_or_else(|| *default_build_preset());
     let data_mode_clamped_attr = if data_mode_ceiling_notice.is_some() {
         "true"
     } else {
         "false"
     };
+    let active_tree_mode = "structure";
     let tree_max_ui_role = tree_max_ui_role
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -153,6 +170,7 @@ pub(crate) fn manage_shell(
         stock_pack,
         review_axes,
         tree_max_ui_role,
+        workspace_route_mode,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let active_tab_enum = resolved.tab;
@@ -160,9 +178,9 @@ pub(crate) fn manage_shell(
         apps,
         app_path,
         topbar_menu,
-        UiRouteMode::Build,
+        route_mode,
         access_scene_for_topbar(
-            UiRouteMode::Build,
+            workspace_route_mode,
             compiled,
             scene_for_links,
             preview_target,
@@ -178,11 +196,11 @@ pub(crate) fn manage_shell(
         Some(active_data_mode),
         Some(active_review_projection),
         None,
-        false,
+        None,
     );
     let statusbar = statusbar_view(
         app_path,
-        UiRouteMode::Build.slug(),
+        workspace_route_mode.slug(),
         selected_target.as_str(),
         None,
     );
@@ -220,6 +238,7 @@ pub(crate) fn manage_shell(
             catalog,
             stock_pack,
             review_axes,
+            workspace_route_mode,
         );
         let is_active = tab == active_tab_enum;
         view! {
@@ -313,47 +332,8 @@ pub(crate) fn manage_shell(
         })
         .unwrap_or_else(|| view! { <></> }.into_any());
 
-    let preset_link = |preset: &PrototypePreset| {
-        let href = build_node_href(
-            app_path,
-            &resolved.node,
-            active_tab_enum,
-            resolved.scope,
-            catalog,
-            stock_pack,
-            BuildReviewAxes {
-                data_mode: Some(preset.data_mode),
-                review_projection: Some(preset.review_projection),
-            },
-        );
-        let class = if preset.slug == active_preset.slug {
-            "manage-view-tab manage-view-tab--preset is-active".to_string()
-        } else {
-            "manage-view-tab manage-view-tab--preset".to_string()
-        };
-        view! {
-            <a
-                class=class
-                href=href
-                role="tab"
-                aria-selected=if preset.slug == active_preset.slug { "true" } else { "false" }
-                data-build-preset=preset.slug
-                data-build-data-mode=preset.data_mode
-                data-build-review-projection=preset.review_projection
-                title=format!("{} · data_mode={} · review_projection={}", preset.label, preset.data_mode, preset.review_projection)
-            >
-                {preset.label}
-            </a>
-        }
-    };
-
-    let preset_links = PROTOTYPE_PRESETS
-        .iter()
-        .map(preset_link)
-        .collect_view();
-
     view! {
-        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug data-build-tree-max-ui-role=tree_max_ui_role data-data-mode-clamped=data_mode_clamped_attr>
+        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug data-build-tree-mode=active_tree_mode data-build-tree-max-ui-role=tree_max_ui_role data-data-mode-clamped=data_mode_clamped_attr>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
             <script
                 id="mei-build-reachability-tree"
@@ -390,13 +370,6 @@ pub(crate) fn manage_shell(
                                 <div class="manage-view-tabs-cluster manage-view-tabs-cluster--prototype">
                                     <div class="manage-view-tabs-group manage-view-tabs-group--primary" role="presentation">
                                         {primary_tab_links}
-                                    </div>
-                                    <div
-                                        class="manage-view-tabs-group manage-view-tabs-group--presets"
-                                        role="tablist"
-                                        aria-label="审阅任务预设"
-                                    >
-                                        {preset_links}
                                     </div>
                                     {if !tool_tabs.is_empty() {
                                         view! {

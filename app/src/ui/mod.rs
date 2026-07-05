@@ -24,6 +24,7 @@ mod shell_copilot;
 mod shell_preview_layout;
 mod shell_runtime;
 mod shell_upload;
+mod shell_workspace;
 mod runtime_panels;
 mod runtime_snapshot_view;
 mod runtime_tree;
@@ -35,6 +36,7 @@ mod view_routing;
 pub use capabilities::HostCapabilities;
 pub use route::UiRouteMode;
 pub use shell_upload::UploadFileEntry;
+pub use shell_workspace::{render_workspace_page, WorkspaceShellNav};
 
 use preview_chrome::{component_script_preloads, component_scripts};
 use shell_access::access_shell;
@@ -182,6 +184,7 @@ pub fn render_page(
     review_projection: Option<&str>,
     data_mode_ceiling_notice: Option<&str>,
     tree_max_ui_role: Option<&str>,
+    build_tree_mode: Option<&str>,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -228,11 +231,12 @@ pub fn render_page(
             auth_enabled,
             auth_account,
         ),
-        UiRouteMode::Build => manage_shell(
+        UiRouteMode::Layout | UiRouteMode::Prototype => manage_shell(
             apps,
             compiled,
             app_path,
             topbar_menu,
+            route_mode,
             target,
             source,
             source_meta,
@@ -255,6 +259,37 @@ pub fn render_page(
             review_projection,
             data_mode_ceiling_notice,
             tree_max_ui_role,
+            build_tree_mode,
+        ),
+        UiRouteMode::Build => manage_shell(
+            apps,
+            compiled,
+            app_path,
+            topbar_menu,
+            UiRouteMode::Layout,
+            target,
+            source,
+            source_meta,
+            selected_scene,
+            preview_target,
+            active_tab,
+            diag_filter,
+            world_metric,
+            world_dataset,
+            explain,
+            node,
+            scope,
+            focus,
+            catalog,
+            stock_pack,
+            upload_enabled,
+            auth_enabled,
+            auth_account,
+            data_mode,
+            review_projection,
+            data_mode_ceiling_notice,
+            tree_max_ui_role,
+            build_tree_mode,
         ),
         UiRouteMode::Runtime => runtime_shell(
             apps,
@@ -306,6 +341,8 @@ pub fn render_page(
         auth_enabled,
         auth_account,
         shell_body_theme_style,
+        None,
+        None,
     )
 }
 
@@ -344,6 +381,8 @@ pub fn render_config_page(
         auth_enabled,
         auth_account,
         shell_body_theme_style,
+        None,
+        None,
     )
 }
 
@@ -388,6 +427,8 @@ pub fn render_upload_page(
         auth_enabled,
         auth_account,
         shell_body_theme_style,
+        None,
+        None,
     )
 }
 
@@ -474,8 +515,7 @@ mod tests {
             WorldSemanticQuery::default(),
             BuildReviewAxes::default(),
         );
-        assert!(href.contains("node=scene%3Awarnings_analytics_board"));
-        assert!(href.contains("tab=preview"));
+        assert_eq!(href, "/apps/zhifa/layout");
     }
 
     #[test]

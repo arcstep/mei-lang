@@ -1,4 +1,4 @@
-//! Prototype workspace task presets: product-facing mapping to `data_mode × review_projection`.
+//! Workspace surface presets: layout (structure) vs prototype (static draft).
 
 use mei_lang_kernel::{tabs_for_node_kind, BuildNodeKind, BuildViewTab};
 
@@ -8,40 +8,36 @@ pub struct PrototypePreset {
     pub label: &'static str,
     pub data_mode: &'static str,
     pub review_projection: &'static str,
-    /// Default ui_structure tree expand depth (`region` / `section` / `content`).
+    /// Default ui_structure tree expand depth.
     pub tree_max_ui_role: &'static str,
 }
 
-pub const PROTOTYPE_PRESETS: &[PrototypePreset] = &[
-    PrototypePreset {
-        slug: "eval",
-        label: "Eval",
-        data_mode: "eval",
-        review_projection: "live_full",
-        tree_max_ui_role: "plane",
-    },
-    PrototypePreset {
-        slug: "content",
-        label: "Content",
-        data_mode: "static",
-        review_projection: "static_full",
-        tree_max_ui_role: "plane",
-    },
-    PrototypePreset {
-        slug: "section",
-        label: "Section",
-        data_mode: "static",
-        review_projection: "plane_region_section",
-        tree_max_ui_role: "plane",
-    },
-    PrototypePreset {
-        slug: "region",
-        label: "Region",
-        data_mode: "static",
-        review_projection: "plane_region",
-        tree_max_ui_role: "plane",
-    },
-];
+pub const LAYOUT_PRESET: PrototypePreset = PrototypePreset {
+    slug: "layout",
+    label: "布局",
+    data_mode: "static",
+    review_projection: "plane_region_section",
+    tree_max_ui_role: "section",
+};
+
+pub const PROTOTYPE_SURFACE_PRESET: PrototypePreset = PrototypePreset {
+    slug: "prototype",
+    label: "原型",
+    data_mode: "static",
+    review_projection: "static_full",
+    tree_max_ui_role: "plane",
+};
+
+pub const PROTOTYPE_PRESETS: &[PrototypePreset] = &[LAYOUT_PRESET, PROTOTYPE_SURFACE_PRESET];
+
+pub fn preset_for_route_mode(route_mode: crate::ui::route::UiRouteMode) -> Option<&'static PrototypePreset> {
+    use crate::ui::route::UiRouteMode;
+    match route_mode {
+        UiRouteMode::Layout => Some(&LAYOUT_PRESET),
+        UiRouteMode::Prototype => Some(&PROTOTYPE_SURFACE_PRESET),
+        _ => None,
+    }
+}
 
 pub fn match_preset(data_mode: &str, review_projection: &str) -> Option<&'static PrototypePreset> {
     let dm = data_mode.trim();
@@ -52,7 +48,7 @@ pub fn match_preset(data_mode: &str, review_projection: &str) -> Option<&'static
 }
 
 pub fn default_build_preset() -> &'static PrototypePreset {
-    &PROTOTYPE_PRESETS[2]
+    &LAYOUT_PRESET
 }
 
 pub fn preset_tree_max_ui_role(data_mode: &str, review_projection: &str) -> &'static str {
@@ -107,11 +103,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presets_map_to_review_axes() {
-        let preset = match_preset("eval", "live_full").expect("full eval preset");
-        assert_eq!(preset.slug, "eval");
-        assert_eq!(default_build_preset().data_mode, "static");
-        assert_eq!(default_build_preset().review_projection, "plane_region_section");
+    fn layout_and_prototype_presets_map_to_review_axes() {
+        assert_eq!(default_build_preset().slug, "layout");
+        let proto = match_preset("static", "static_full").expect("prototype preset");
+        assert_eq!(proto.slug, "prototype");
     }
 
     #[test]

@@ -6,18 +6,17 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use mei_host_auth::{
-    account_view_for_principal, filter_apps_for_principal, html_escape, render_auth_card_page,
-    render_host_shell_footer_for_source_root, host_shell_body_theme_style, AuthEnforcement,
+    account_view_for_principal, filter_apps_for_principal, html_escape, AuthEnforcement,
     AuthPrincipal, AuthServeState,
 };
-use mei_lang_app::{load_topbar_menu_context, UiRouteMode};
+use mei_lang_app::{load_topbar_menu_context, UiRouteMode, WorkspaceShellNav};
 use mei_lang_kernel::WorkspaceAppMeta;
 use serde::Deserialize;
 
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
 use crate::pages::{app_page, AppQuery};
-use crate::shell_nav::{render_shell_nav_html, ShellNavItem};
 use crate::state::SharedState;
+use crate::workspace_page::render_workspace_shell_page;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct HostScopeQuery {
@@ -36,16 +35,16 @@ fn resolve_scope_app_id<'a>(
     None
 }
 
-fn render_scope_picker_html(
-    workspace_root: &Path,
-    apps: &[WorkspaceAppMeta],
-    route_label: &str,
-    route_path: &str,
-    shell_nav_item: ShellNavItem,
-) -> String {
-    let footer_html = render_host_shell_footer_for_source_root(workspace_root);
-    let shell_theme = host_shell_body_theme_style(workspace_root);
-    let shell_nav = render_shell_nav_html(shell_nav_item);
+fn workspace_shell_nav_for_route(route_path: &str) -> WorkspaceShellNav {
+    match route_path {
+        "/config" => WorkspaceShellNav::Config,
+        "/upload" => WorkspaceShellNav::Upload,
+        "/runtime" => WorkspaceShellNav::Runtime,
+        _ => WorkspaceShellNav::Home,
+    }
+}
+
+fn render_scope_picker_body_html(apps: &[WorkspaceAppMeta], route_path: &str) -> String {
     let rows = if apps.is_empty() {
         r#"<p class="mei-host-shell__message">当前没有可选择的应用。</p>"#.to_string()
     } else {
@@ -63,27 +62,38 @@ fn render_scope_picker_html(
             .collect::<Vec<_>>()
             .join("");
         format!(
-            r#"<p class="mei-host-shell__message">请选择要管理的应用（{route_label} 可按应用分别配置）：</p>
-<ul class="mei-host-shell__setup">{links}</ul>"#,
-            route_label = html_escape(route_label),
+            r#"<ul class="mei-host-shell__setup">{links}</ul>"#,
             links = links,
         )
     };
-    let body_html = format!(
-        r#"{shell_nav}
-{rows}
+    format!(
+        r#"{rows}
 <div class="mei-host-shell__actions">
-  <a class="mei-host-shell__btn" href="/home">返回首页</a>
+  <a class="mei-host-shell__btn mei-host-shell__btn--ghost" href="/home">返回首页</a>
 </div>"#,
-        shell_nav = shell_nav,
         rows = rows,
-    );
-    render_auth_card_page(
+    )
+}
+
+fn render_scope_picker_html(
+    workspace_root: &Path,
+    apps: &[WorkspaceAppMeta],
+    topbar_menu: &mei_lang_app::TopbarMenuContext,
+    route_label: &str,
+    route_path: &str,
+    auth_enabled: bool,
+    account_view: Option<&mei_lang_app::HostAccountView>,
+) -> String {
+    let body_html = render_scope_picker_body_html(apps, route_path);
+    render_workspace_shell_page(
+        workspace_root,
+        apps,
+        topbar_menu,
+        workspace_shell_nav_for_route(route_path),
         route_label,
-        format!("选择应用 · {route_label}").as_str(),
         body_html.as_str(),
-        footer_html.as_str(),
-        shell_theme.as_str(),
+        auth_enabled,
+        account_view,
     )
 }
 
@@ -127,19 +137,21 @@ async fn host_scoped_light_page(
     route_mode: UiRouteMode,
     route_label: &'static str,
     route_path: &'static str,
-    shell_nav_item: ShellNavItem,
     Query(query): Query<HostScopeQuery>,
 ) -> Response {
     let principal_ref = principal.as_ref().map(|Extension(p)| p);
     let (workspace_root, apps, auth_enabled, account_view) =
         host_scoped_context(&state, &auth, principal_ref).await;
+    let topbar_menu = load_topbar_menu_context(workspace_root.as_path());
     let Some(app) = resolve_scope_app_id(apps.as_slice(), query.app.as_deref()) else {
         let html = render_scope_picker_html(
             workspace_root.as_path(),
             apps.as_slice(),
+            &topbar_menu,
             route_label,
             route_path,
-            shell_nav_item,
+            auth_enabled,
+            account_view.as_ref(),
         );
         return Html(html).into_response();
     };
@@ -190,7 +202,6 @@ pub async fn host_config_page(
         UiRouteMode::Config,
         "配置",
         "/config",
-        ShellNavItem::Config,
         query,
     )
     .await
@@ -209,7 +220,6 @@ pub async fn host_upload_page(
         UiRouteMode::Upload,
         "上传",
         "/upload",
-        ShellNavItem::Upload,
         query,
     )
     .await
@@ -224,15 +234,18 @@ pub async fn host_runtime_observation_page(
     query: Query<HostScopeQuery>,
 ) -> Response {
     let principal_ref = principal.as_ref().map(|Extension(p)| p);
-    let (workspace_root, apps, _auth_enabled, _account_view) =
+    let (workspace_root, apps, auth_enabled, account_view) =
         host_scoped_context(&state, &auth, principal_ref).await;
+    let topbar_menu = load_topbar_menu_context(workspace_root.as_path());
     let Some(app) = resolve_scope_app_id(apps.as_slice(), query.app.as_deref()) else {
         let html = render_scope_picker_html(
             workspace_root.as_path(),
             apps.as_slice(),
+            &topbar_menu,
             "运行",
             "/runtime",
-            ShellNavItem::Runtime,
+            auth_enabled,
+            account_view.as_ref(),
         );
         return Html(html).into_response();
     };

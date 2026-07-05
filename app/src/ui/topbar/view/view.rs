@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use crate::ui::manage_routing::access_scene_query;
 use crate::ui::route::UiRouteMode;
 use crate::ui::view_routing::{
-    app_scene_href, build_href_with_catalog, cross_app_href, home_href, host_config_href,
-    host_runtime_href, host_upload_href, mcg_href, presentation_scene_href,
+    app_access_href, app_scene_href, cross_app_href, home_href, host_config_href, host_runtime_href,
+    host_upload_href, layout_href, mcg_href, prototype_href,
 };
 use crate::ui::{HostAccountView, TopbarMenuContext};
 
@@ -22,32 +22,55 @@ pub(crate) enum ShellNavActive {
     Mcg,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppViewTab {
+    App,
+    Layout,
+    Prototype,
+}
+
+fn resolve_active_app_view_tab(route_mode: UiRouteMode) -> Option<AppViewTab> {
+    match route_mode {
+        UiRouteMode::App => Some(AppViewTab::App),
+        UiRouteMode::Layout | UiRouteMode::Build => Some(AppViewTab::Layout),
+        UiRouteMode::Prototype => Some(AppViewTab::Prototype),
+        _ => None,
+    }
+}
+
+/// 应用入口菜单的链接目标：工作区页无当前应用时用 App，有应用时用当前面 route。
+fn app_menu_link_mode(route_mode: UiRouteMode, active_app_path: &str) -> UiRouteMode {
+    if active_app_path.trim().is_empty() {
+        UiRouteMode::App
+    } else {
+        route_mode
+    }
+}
+
 pub(crate) fn topbar_view(
     apps: &[WorkspaceAppMeta],
     active_app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
     route_mode: UiRouteMode,
     access_scene_for_href: Option<&str>,
-    build_file: Option<&str>,
+    _build_file: Option<&str>,
     active_tab: Option<&str>,
     active_catalog: Option<&str>,
     active_stock_pack: Option<&str>,
     _upload_enabled: bool,
-    stage_enabled: bool,
+    _stage_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
-    data_mode: Option<&str>,
-    review_projection: Option<&str>,
+    _data_mode: Option<&str>,
+    _review_projection: Option<&str>,
+    _build_tree_mode: Option<&str>,
     shell_nav_active: Option<ShellNavActive>,
-    hide_app_tabs: bool,
 ) -> AnyView {
+    let has_app_context = !active_app_path.trim().is_empty();
+    let menu_link_mode = app_menu_link_mode(route_mode, active_app_path);
     let access_entry_query = access_scene_query(access_scene_for_href);
     let access_disabled = access_entry_query.is_empty();
-    let menu_groups = if hide_app_tabs {
-        Vec::new()
-    } else {
-        build_topbar_menu_groups(apps, topbar_menu, route_mode)
-    };
+    let menu_groups = build_topbar_menu_groups(apps, topbar_menu, menu_link_mode);
     let active_app_label = menu_groups
         .iter()
         .flat_map(|group| group.items.iter())
@@ -64,7 +87,6 @@ pub(crate) fn topbar_view(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or("工作区");
     let breadcrumb_root_label = workspace_label;
-    let breadcrumb_kind = "当前应用";
     let app_tabs = menu_groups
         .into_iter()
         .map(|group| {
@@ -102,7 +124,12 @@ pub(crate) fn topbar_view(
                 } else {
                     "app-tab"
                 };
-                let href = cross_app_href(route_mode, &item.app_id, item.catalog.as_deref(), item.pack.as_deref());
+                let href = cross_app_href(
+                    menu_link_mode,
+                    &item.app_id,
+                    item.catalog.as_deref(),
+                    item.pack.as_deref(),
+                );
                 return view! {
                     <a class=class href=href data-topbar-menu-group=group_id.clone()>
                         {item.label.clone()}
@@ -118,7 +145,12 @@ pub(crate) fn topbar_view(
                     } else {
                         "app-tab app-tab-sub"
                     };
-                    let href = cross_app_href(route_mode, &item.app_id, item.catalog.as_deref(), item.pack.as_deref());
+                    let href = cross_app_href(
+                        menu_link_mode,
+                        &item.app_id,
+                        item.catalog.as_deref(),
+                        item.pack.as_deref(),
+                    );
                     view! { <a class=class href=href>{item.label.clone()}</a> }
                 })
                 .collect_view();
@@ -133,7 +165,12 @@ pub(crate) fn topbar_view(
                             } else {
                                 "app-tab app-tab-sub"
                             };
-                            let href = cross_app_href(route_mode, &item.app_id, item.catalog.as_deref(), item.pack.as_deref());
+                            let href = cross_app_href(
+                                menu_link_mode,
+                                &item.app_id,
+                                item.catalog.as_deref(),
+                                item.pack.as_deref(),
+                            );
                             view! { <a class=class href=href>{item.label.clone()}</a> }
                         })
                         .collect_view();
@@ -170,8 +207,11 @@ pub(crate) fn topbar_view(
             .into_any()
         })
         .collect_view();
-    let breadcrumb_aria = format!("{breadcrumb_kind}：{breadcrumb_root_label} / {active_app_label}");
-    let active_item_breadcrumb = view! {
+    let breadcrumb_aria = format!("当前应用：{breadcrumb_root_label} / {active_app_label}");
+    let active_item_breadcrumb = if !has_app_context {
+        view! { <></> }.into_any()
+    } else {
+        view! {
         <div class="app-current-path inline-flex min-w-0 max-w-[min(300px,30vw)] items-center gap-1 pl-2 mei-font-1 mei-text-muted" aria-label=breadcrumb_aria>
             <span class="app-current-path-prefix shrink-0 mei-text-muted">{"应用："}</span>
             <span class="app-current-path-trail inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
@@ -181,45 +221,14 @@ pub(crate) fn topbar_view(
             </span>
         </div>
     }
-    .into_any();
-    let build_file = build_file
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("main.mei");
-    let app_href = if access_disabled {
+    .into_any()
+    };
+    let app_href = if access_disabled || !has_app_context {
         "#".to_string()
     } else {
-        app_scene_href(
-            active_app_path,
-            access_scene_for_href,
-            active_tab,
-            None,
-            data_mode,
-            review_projection,
-        )
+        app_access_href(active_app_path)
     };
-    let build_href = append_review_axes_query(
-        build_href_with_catalog(
-            active_app_path,
-            Some(build_file),
-            active_tab,
-            active_catalog,
-            active_stock_pack,
-        ),
-        data_mode,
-        review_projection,
-    );
-    let presentation_href = if access_disabled {
-        "#".to_string()
-    } else {
-        presentation_scene_href(
-            active_app_path,
-            access_scene_for_href,
-            data_mode,
-            review_projection,
-        )
-    };
-    let standalone_app_href = if access_disabled {
+    let standalone_app_href = if access_disabled || !has_app_context {
         "#".to_string()
     } else {
         app_scene_href(
@@ -227,70 +236,51 @@ pub(crate) fn topbar_view(
             access_scene_for_href,
             active_tab,
             Some("none"),
-            data_mode,
-            review_projection,
+            None,
+            None,
         )
     };
-    let (_show_config_tab, show_build_tab, _show_data_tab) =
+    let (_show_config_tab, show_build_views, _show_data_tab) =
         auth_surface_tabs_visible(auth_enabled, auth_account);
-    let show_run_tab = true;
-    let visible_mode_tab_count = 1usize
-        + usize::from(show_build_tab)
-        + usize::from(show_run_tab);
-    let app_product_label = UiRouteMode::App.product_label();
-    let build_product_label = UiRouteMode::Build.product_label();
-    let speech_product_label = UiRouteMode::Run.product_label();
-    let shell_nav = shell_nav_view(shell_nav_active);
-    let mode_tabs = if visible_mode_tab_count <= 1 {
+    let active_app_view = resolve_active_app_view_tab(route_mode);
+    let app_view_tabs = if !has_app_context {
+        view! { <></> }.into_any()
+    } else if !show_build_views {
         view! { <></> }.into_any()
     } else {
-        view! {
-        <div class="mode-tabs inline-flex items-center">
-            <sl-button-group class="mode-tab-group" label="视图切换" data-mei-view-tabs="1">
+        let surface_tab = |tab: AppViewTab, label: &'static str, href: String| {
+            let class = if active_app_view == Some(tab) {
+                "mode-tab-btn is-active"
+            } else {
+                "mode-tab-btn"
+            };
+            view! {
                 <sl-button
-                    class=if route_mode == UiRouteMode::App { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                    class=class
                     size="small"
-                    href=app_href.clone()
-                    disabled=access_disabled
-                    title=if access_disabled { "当前没有可发布的 scene route" } else { app_product_label }
-                    aria-label=app_product_label
-                    data-mei-view="app"
+                    href=href
+                    title=label
+                    aria-label=label
+                    data-mei-app-view=label
                 >
-                    <span class="mode-label">{app_product_label}</span>
+                    <span class="mode-label">{label}</span>
                 </sl-button>
-                {if show_build_tab {
-                    view! {
-                        <sl-button
-                            class=if route_mode == UiRouteMode::Build { "mode-tab-btn is-active" } else { "mode-tab-btn" }
-                            size="small"
-                            href=build_href.clone()
-                            title=build_product_label
-                            aria-label=build_product_label
-                            data-mei-view="build"
-                        >
-                            <span class="mode-label">{build_product_label}</span>
-                        </sl-button>
-                    }.into_any()
-                } else {
-                    view! { <></> }.into_any()
-                }}
-                {if show_run_tab {
-                    view! {
-                        <sl-button
-                            class=if route_mode == UiRouteMode::Run { "mode-tab-btn is-active" } else { "mode-tab-btn" }
-                            size="small"
-                            href=presentation_href.clone()
-                            disabled=access_disabled
-                            title=if access_disabled { "当前没有可进入演说的 scene route" } else { speech_product_label }
-                            aria-label=speech_product_label
-                            data-mei-view="run"
-                        >
-                            <span class="mode-label">{speech_product_label}</span>
-                        </sl-button>
-                    }.into_any()
-                } else {
-                    view! { <></> }.into_any()
-                }}
+            }
+        };
+        view! {
+        <div class="mode-tabs inline-flex shrink-0 items-center">
+            <sl-button-group class="mode-tab-group" label="应用视图" data-mei-app-view-tabs="1">
+                {surface_tab(AppViewTab::App, "应用", app_href.clone())}
+                {surface_tab(
+                    AppViewTab::Layout,
+                    "布局",
+                    layout_href(active_app_path, None, None),
+                )}
+                {surface_tab(
+                    AppViewTab::Prototype,
+                    "原型",
+                    prototype_href(active_app_path, None, None),
+                )}
             </sl-button-group>
         </div>
     }
@@ -298,12 +288,37 @@ pub(crate) fn topbar_view(
     };
     let launch_title = if access_disabled {
         "当前没有可独立打开的 scene route".to_string()
-    } else if stage_enabled {
-        "独立打开（新标签页，无 shell）".to_string()
     } else {
         "独立打开（新标签页，无 shell）".to_string()
     };
     let launch_aria_label = launch_title.clone();
+    let standalone_launch = if !has_app_context {
+        view! { <></> }.into_any()
+    } else {
+        view! {
+            <sl-tooltip content=launch_title placement="bottom">
+                <sl-button
+                    class="topbar-launch-btn"
+                    size="small"
+                    href=standalone_app_href
+                    disabled=access_disabled
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label=launch_aria_label
+                >
+                    <span class="mode-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 3h7v7"/>
+                            <path d="M10 14L21 3"/>
+                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"/>
+                        </svg>
+                    </span>
+                </sl-button>
+            </sl-tooltip>
+        }
+        .into_any()
+    };
+    let system_toolbar = shell_nav_view(shell_nav_active);
     let account_view = if auth_enabled {
         if let Some(account) = auth_account.filter(|item| item.logged_in) {
             let display = if account.profile.trim().is_empty() {
@@ -344,47 +359,38 @@ pub(crate) fn topbar_view(
         view! { <></> }.into_any()
     };
     view! {
-        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-50 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-1.5 backdrop-blur-md">
-            <div class="brand flex min-w-0 items-center gap-2">
-                <div class="brand-title-row flex min-w-0 items-center gap-2">
-                    <img
-                        class="brand-mark block h-[18px] w-[18px] shrink-0"
-                        src="/app-assets/favicon.svg"
-                        width="18"
-                        height="18"
-                        alt=""
-                        aria-hidden="true"
-                    />
-                    <strong class="topbar-brand-title mei-font-2 mei-text-inverse">"MeiLang"</strong>
+        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-50 flex items-center gap-2.5 py-1.5 backdrop-blur-md">
+            <div class="topbar-left flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                <div class="brand flex shrink-0 items-center gap-2">
+                    <div class="brand-title-row flex min-w-0 items-center gap-2">
+                        <img
+                            class="brand-mark block h-[18px] w-[18px] shrink-0"
+                            src="/app-assets/favicon.svg"
+                            width="18"
+                            height="18"
+                            alt=""
+                            aria-hidden="true"
+                        />
+                        <strong class="topbar-brand-title mei-font-2 mei-text-inverse">"MeiLang"</strong>
+                    </div>
+                </div>
+                <div
+                    class="topbar-app-toolbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
+                    aria-label="应用工具栏"
+                >
+                    <div class="app-tabs-groups flex min-w-0 shrink-0 flex-nowrap items-center gap-1.5">{app_tabs}</div>
+                    {active_item_breadcrumb}
+                    {app_view_tabs}
+                    {standalone_launch}
                 </div>
             </div>
-            <nav class="app-tabs flex min-w-0 items-center gap-2.5">
-                {shell_nav}
-                <div class="app-tabs-groups flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pr-1">{app_tabs}</div>
-                {active_item_breadcrumb}
-            </nav>
-            <div class="topbar-actions flex shrink-0 flex-nowrap items-center justify-end gap-1">
-                {mode_tabs}
-                <sl-tooltip content=launch_title placement="bottom">
-                    <sl-button
-                        class="topbar-launch-btn"
-                        size="small"
-                        href=standalone_app_href
-                        disabled=access_disabled
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        aria-label=launch_aria_label
-                    >
-                        <span class="mode-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M14 3h7v7"/>
-                                <path d="M10 14L21 3"/>
-                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"/>
-                            </svg>
-                        </span>
-                    </sl-button>
-                </sl-tooltip>
-                {account_view}
+            <div class="topbar-right flex shrink-0 items-center gap-2">
+                <div class="topbar-system-toolbar shrink-0" aria-label="系统工具栏">
+                    {system_toolbar}
+                </div>
+                <div class="topbar-actions flex shrink-0 flex-nowrap items-center justify-end gap-1">
+                    {account_view}
+                </div>
             </div>
         </header>
     }
@@ -400,39 +406,15 @@ fn shell_nav_view(active: Option<ShellNavActive>) -> AnyView {
         }
     };
     view! {
-        <div class="shell-nav inline-flex shrink-0 items-center gap-1 pr-2" aria-label="工作区导航">
+        <div class="shell-nav inline-flex shrink-0 items-center gap-1" aria-label="系统">
             <a class=nav_class(ShellNavActive::Home) href=home_href()>"首页"</a>
             <a class=nav_class(ShellNavActive::Config) href=host_config_href(None)>"配置"</a>
-            <a class=nav_class(ShellNavActive::Upload) href=host_upload_href(None, None)>"上传"</a>
             <a class=nav_class(ShellNavActive::Runtime) href=host_runtime_href(None, None, None)>"运行"</a>
+            <a class=nav_class(ShellNavActive::Upload) href=host_upload_href(None, None)>"上传"</a>
             <a class=nav_class(ShellNavActive::Mcg) href=mcg_href(None)>"MCG"</a>
         </div>
     }
     .into_any()
-}
-
-fn append_review_axes_query(
-    base: String,
-    data_mode: Option<&str>,
-    review_projection: Option<&str>,
-) -> String {
-    let mut parts = Vec::new();
-    if let Some(mode) = data_mode.map(str::trim).filter(|value| !value.is_empty()) {
-        parts.push(format!("data_mode={mode}"));
-    }
-    if let Some(projection) = review_projection
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        parts.push(format!("review_projection={projection}"));
-    }
-    if parts.is_empty() {
-        base
-    } else if base.contains('?') {
-        format!("{base}&{}", parts.join("&"))
-    } else {
-        format!("{base}?{}", parts.join("&"))
-    }
 }
 
 fn menu_item_is_active(

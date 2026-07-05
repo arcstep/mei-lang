@@ -236,6 +236,9 @@ pub(crate) fn panel_view(
     };
     let role_for_projection = ui_role_attr.as_deref().unwrap_or("content");
     if !runtime_ctx.ui_role_allowed_for_projection(role_for_projection) {
+        if runtime_ctx.omit_beyond_projection_depth {
+            return view! { <></> }.into_any();
+        }
         return projection_skeleton_view(
             label.as_str(),
             role_for_projection,

@@ -47,6 +47,8 @@ fn menu_item_visible_for_route(
         normalized == slug
             || (normalized == "manage" && route_mode == UiRouteMode::Build)
             || (normalized == "access" && route_mode == UiRouteMode::App)
+            || (normalized == "layout" && route_mode == UiRouteMode::Layout)
+            || (normalized == "prototype" && route_mode == UiRouteMode::Prototype)
     })
 }
 

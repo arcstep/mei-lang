@@ -1,21 +1,18 @@
-use std::path::Path;
-
 use axum::{
     extract::{Extension, Query, State},
     response::{Html, IntoResponse, Response},
 };
 use mei_host_auth::{
-    filter_apps_for_principal, html_escape, render_auth_card_page,
-    render_host_shell_footer_for_source_root, host_shell_body_theme_style, AuthPrincipal,
-    AuthServeState,
+    account_view_for_principal, filter_apps_for_principal, html_escape, AuthEnforcement,
+    AuthPrincipal, AuthServeState,
 };
-use mei_lang_app::load_topbar_menu_context;
+use mei_lang_app::{load_topbar_menu_context, WorkspaceShellNav};
 use mei_lang_kernel::WorkspaceAppMeta;
 use serde::Deserialize;
 
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
-use crate::shell_nav::{render_shell_nav_html, ShellNavItem};
 use crate::state::SharedState;
+use crate::workspace_page::render_workspace_shell_page;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct McgPageQuery {
@@ -23,16 +20,11 @@ pub struct McgPageQuery {
     pub bundle: Option<String>,
 }
 
-fn render_mcg_viewer_html(
-    workspace_root: &Path,
+fn render_mcg_viewer_body_html(
     apps: &[WorkspaceAppMeta],
     selected_app: Option<&str>,
     bundle: Option<&str>,
 ) -> String {
-    let footer_html = render_host_shell_footer_for_source_root(workspace_root);
-    let shell_theme = host_shell_body_theme_style(workspace_root);
-    let shell_nav = render_shell_nav_html(ShellNavItem::Mcg);
-
     let app_options = apps
         .iter()
         .map(|app| {
@@ -48,10 +40,8 @@ fn render_mcg_viewer_html(
         .join("");
 
     let bundle_value = bundle.unwrap_or("");
-    let body_html = format!(
-        r#"{shell_nav}
-<p class="mei-host-shell__message">MCG 编译图只读检视（无 preview）。选择应用或 bundle 来源后浏览节点树与 artifact 元数据。</p>
-<div class="mei-host-shell__mcg-toolbar">
+    format!(
+        r#"<div class="mei-host-shell__mcg-toolbar">
   <label>应用
     <select id="mei-mcg-app-select">{app_options}</select>
   </label>
@@ -144,36 +134,24 @@ fn render_mcg_viewer_html(
   if (currentApp()) loadRegistry();
 }})();
 </script>"#,
-        shell_nav = shell_nav,
         app_options = app_options,
         bundle_value = html_escape(bundle_value),
-    );
-
-    render_auth_card_page(
-        "MCG 检视",
-        "编译图",
-        body_html.as_str(),
-        footer_html.as_str(),
-        shell_theme.as_str(),
     )
 }
 
 pub async fn host_mcg_page(
     State(state): State<SharedState>,
-    State(_auth): State<AuthServeState>,
+    State(auth): State<AuthServeState>,
     principal: Option<Extension<AuthPrincipal>>,
     Query(query): Query<McgPageQuery>,
 ) -> Response {
+    let principal_ref = principal.as_ref().map(|Extension(p)| p);
     let guard = state.read().expect("state lock");
     let workspace_root = guard.ctx.workspace_root.as_path();
     let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
     let topbar_menu = load_topbar_menu_context(workspace_root);
     let apps = enrich_discovered_apps(
-        filter_apps_for_principal(
-            discovered.as_slice(),
-            principal.as_ref().map(|Extension(p)| p),
-        )
-        .as_slice(),
+        filter_apps_for_principal(discovered.as_slice(), principal_ref).as_slice(),
         &topbar_menu,
     );
     let selected_app = query
@@ -187,11 +165,18 @@ pub async fn host_mcg_page(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let html = render_mcg_viewer_html(
+    let body_html = render_mcg_viewer_body_html(apps.as_slice(), selected_app, bundle);
+    let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
+    let account_view = account_view_for_principal(principal_ref);
+    let html = render_workspace_shell_page(
         workspace_root,
         apps.as_slice(),
-        selected_app,
-        bundle,
+        &topbar_menu,
+        WorkspaceShellNav::Mcg,
+        "MCG 检视",
+        body_html.as_str(),
+        auth_enabled,
+        account_view.as_ref(),
     );
     Html(html).into_response()
 }

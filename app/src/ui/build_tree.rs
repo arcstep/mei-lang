@@ -5,6 +5,7 @@ use mei_lang_kernel::{
 };
 
 use super::manage_routing::{build_node_href, BuildReviewAxes};
+use super::route::UiRouteMode;
 
 pub(crate) fn reachability_tree_view(
     roots: &[ReachabilityTreeRoot],
@@ -15,6 +16,7 @@ pub(crate) fn reachability_tree_view(
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
     tree_max_ui_role: &str,
+    workspace_surface: UiRouteMode,
 ) -> AnyView {
     let flatten_facet = stock_pack.is_some();
     let mut items = Vec::new();
@@ -29,6 +31,7 @@ pub(crate) fn reachability_tree_view(
                     catalog,
                     stock_pack,
                     review_axes,
+                    workspace_surface,
                 ));
             }
         } else {
@@ -40,17 +43,19 @@ pub(crate) fn reachability_tree_view(
                 catalog,
                 stock_pack,
                 review_axes,
+                workspace_surface,
             ));
         }
     }
     let items = items.into_view();
+    let tree_mode_attr = "structure";
     view! {
         <div class="build-tree-shell" data-build-tree-shell="true">
-            <div class="build-tree-mode-toggle mb-2 flex gap-1" role="tablist" aria-label="资源树视图">
-                <button type="button" class="build-tree-mode-btn is-active" data-build-tree-mode="structure">"结构"</button>
-                <button type="button" class="build-tree-mode-btn" data-build-tree-mode="compile">"编译"</button>
-            </div>
-            <div class="build-reachability-tree" data-build-tree-mode-active="structure" data-build-tree-max-ui-role=tree_max_ui_role.to_string()>
+            <div
+                class="build-reachability-tree"
+                data-build-tree-mode-active=tree_mode_attr
+                data-build-tree-max-ui-role=tree_max_ui_role.to_string()
+            >
                 <ul class="build-tree-list">{items}</ul>
             </div>
         </div>
@@ -66,12 +71,13 @@ fn root_branch(
     catalog: Option<&str>,
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
+    workspace_surface: UiRouteMode,
 ) -> AnyView {
     let child_count = root.children.len();
     let children = root
         .children
         .iter()
-        .map(|node| tree_node(node, app_path, active_node, active_tab, catalog, stock_pack, review_axes))
+        .map(|node| tree_node(node, app_path, active_node, active_tab, catalog, stock_pack, review_axes, workspace_surface))
         .collect_view();
     view! {
         <li class="build-tree-node build-tree-node--branch">
@@ -111,6 +117,7 @@ fn tree_node(
     catalog: Option<&str>,
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
+    workspace_surface: UiRouteMode,
 ) -> AnyView {
     let child_count = node.children.len();
     if node.node_id.trim().is_empty() && !node.children.is_empty() {
@@ -123,6 +130,7 @@ fn tree_node(
                 catalog,
                 stock_pack,
                 review_axes,
+                workspace_surface,
             );
         }
         let children = node
@@ -137,6 +145,7 @@ fn tree_node(
                     catalog,
                     stock_pack,
                     review_axes,
+                    workspace_surface,
                 )
             })
             .collect_view();
@@ -173,6 +182,7 @@ fn tree_node(
                 catalog,
                 stock_pack,
                 review_axes,
+                workspace_surface,
             )
         })
         .unwrap_or_else(|| "#".to_string());
@@ -255,6 +265,7 @@ fn tree_node(
                                     catalog,
                                     stock_pack,
                                     review_axes,
+                                    workspace_surface,
                                 )
                             })
                             .collect_view()}
@@ -274,6 +285,7 @@ fn template_category_section(
     catalog: Option<&str>,
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
+    workspace_surface: UiRouteMode,
 ) -> AnyView {
     let child_count = node.children.len();
     let children = node
@@ -288,6 +300,7 @@ fn template_category_section(
                 catalog,
                 stock_pack,
                 review_axes,
+                workspace_surface,
             )
         })
         .collect_view();

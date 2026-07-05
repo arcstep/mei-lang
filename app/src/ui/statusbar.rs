@@ -110,7 +110,15 @@ fn statusbar_left_path(
     upload_root: Option<&str>,
 ) -> Option<String> {
     match route_mode {
-        "build" | "manage" => {
+        "workspace" => {
+            let path = current_target.trim();
+            if path.is_empty() {
+                None
+            } else {
+                Some(path.to_string())
+            }
+        }
+        "build" | "manage" | "layout" | "prototype" => {
             let target = current_target.trim();
             if target.is_empty() {
                 None

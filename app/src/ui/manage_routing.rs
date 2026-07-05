@@ -15,24 +15,13 @@ pub(crate) struct WorldSemanticQuery<'a> {
     pub explain: Option<&'a str>,
 }
 
-/// Build 审阅轴：`data_mode` + `review_projection`，在 tree / tab / preview / fragment 链接中稳定保留。
+/// Build 审阅轴（由路由表面隐含；链接中不再附带 query）。
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct BuildReviewAxes<'a> {
+    #[allow(dead_code)]
     pub data_mode: Option<&'a str>,
+    #[allow(dead_code)]
     pub review_projection: Option<&'a str>,
-}
-
-fn append_build_review_axes(query: &mut Vec<String>, axes: BuildReviewAxes<'_>) {
-    if let Some(dm) = axes.data_mode.map(str::trim).filter(|value| !value.is_empty()) {
-        query.push(format!("data_mode={}", encode_query_value(dm)));
-    }
-    if let Some(rp) = axes
-        .review_projection
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        query.push(format!("review_projection={}", encode_query_value(rp)));
-    }
 }
 
 impl WorldSemanticQuery<'_> {
@@ -102,12 +91,21 @@ pub(crate) fn build_node_href(
     catalog: Option<&str>,
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
+    surface: UiRouteMode,
 ) -> String {
-    let query = build_node_query_parts(node, tab, scope, catalog, stock_pack, review_axes);
+    let base = match surface {
+        UiRouteMode::Prototype => super::view_routing::prototype_href(app_path, None, None),
+        UiRouteMode::Layout | UiRouteMode::Build => super::view_routing::layout_href(app_path, None, None),
+        _ => super::view_routing::layout_href(app_path, None, None),
+    };
+    if matches!(surface, UiRouteMode::Layout | UiRouteMode::Prototype) {
+        return base;
+    }
+    let query = build_node_query_parts(node, tab, scope, catalog, stock_pack, review_axes, surface);
     if query.is_empty() {
-        format!("/apps/build/{app_path}")
+        base
     } else {
-        format!("/apps/build/{app_path}?{}", query.join("&"))
+        format!("{base}?{}", query.join("&"))
     }
 }
 
@@ -117,7 +115,8 @@ pub(crate) fn build_node_query_parts(
     scope: BuildExecScope,
     catalog: Option<&str>,
     stock_pack: Option<&str>,
-    review_axes: BuildReviewAxes<'_>,
+    _review_axes: BuildReviewAxes<'_>,
+    _surface: UiRouteMode,
 ) -> Vec<String> {
     let mut query = vec![format!("node={}", encode_query_value(&node.encode()))];
     if let Some(c) = catalog.map(str::trim).filter(|value| !value.is_empty()) {
@@ -132,7 +131,6 @@ pub(crate) fn build_node_query_parts(
     if scope != BuildExecScope::Warmup {
         query.push(format!("scope={}", encode_query_value(scope.slug())));
     }
-    append_build_review_axes(&mut query, review_axes);
     query
 }
 
@@ -167,6 +165,7 @@ pub(crate) fn manage_tab_href(
             None,
             None,
             BuildReviewAxes::default(),
+            UiRouteMode::Layout,
         );
     }
     build_preview_href(
@@ -208,13 +207,15 @@ pub(crate) fn build_preview_href(
             None,
             None,
             review_axes,
+            UiRouteMode::Layout,
         );
     }
     let query = build_preview_query_parts(file, scene, tab, diag_filter, semantic, review_axes);
+    let base = super::view_routing::layout_href(app_path, file, tab);
     if query.is_empty() {
-        format!("/apps/build/{app_path}")
+        base
     } else {
-        format!("/apps/build/{app_path}?{}", query.join("&"))
+        format!("{base}?{}", query.join("&"))
     }
 }
 
@@ -243,6 +244,7 @@ pub(crate) fn build_preview_query_parts(
             None,
             None,
             review_axes,
+            UiRouteMode::Layout,
         );
     }
     let mut query = Vec::new();
@@ -277,7 +279,6 @@ pub(crate) fn build_preview_query_parts(
             query.push("diag_filter=all".to_string());
         }
     }
-    append_build_review_axes(&mut query, review_axes);
     query
 }
 

@@ -1,0 +1,124 @@
+use leptos::prelude::*;
+use mei_lang_kernel::WorkspaceAppMeta;
+
+use super::document::render_document;
+use super::route::UiRouteMode;
+use super::statusbar::statusbar_view;
+use super::topbar::{topbar_view, ShellNavActive};
+use super::{HostAccountView, TopbarMenuContext};
+
+/// Shell 全局导航高亮项（工作区级页面，不绑定 app）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceShellNav {
+    Home,
+    Config,
+    Upload,
+    Runtime,
+    Mcg,
+}
+
+impl WorkspaceShellNav {
+    fn shell_nav_active(self) -> ShellNavActive {
+        match self {
+            Self::Home => ShellNavActive::Home,
+            Self::Config => ShellNavActive::Config,
+            Self::Upload => ShellNavActive::Upload,
+            Self::Runtime => ShellNavActive::Runtime,
+            Self::Mcg => ShellNavActive::Mcg,
+        }
+    }
+
+    fn document_route_mode(self) -> UiRouteMode {
+        match self {
+            Self::Home | Self::Config => UiRouteMode::Config,
+            Self::Upload => UiRouteMode::Upload,
+            Self::Runtime => UiRouteMode::Runtime,
+            Self::Mcg => UiRouteMode::Build,
+        }
+    }
+
+    fn status_path(self) -> &'static str {
+        match self {
+            Self::Home => "/home",
+            Self::Config => "/config",
+            Self::Upload => "/upload",
+            Self::Runtime => "/runtime",
+            Self::Mcg => "/mcg",
+        }
+    }
+}
+
+pub(crate) fn workspace_shell(
+    apps: &[WorkspaceAppMeta],
+    topbar_menu: Option<&TopbarMenuContext>,
+    shell_nav: WorkspaceShellNav,
+    main_inner_html: &str,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+) -> AnyView {
+    let topbar = topbar_view(
+        apps,
+        "",
+        topbar_menu,
+        UiRouteMode::App,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        auth_enabled,
+        auth_account,
+        None,
+        None,
+        None,
+        Some(shell_nav.shell_nav_active()),
+    );
+    let statusbar = statusbar_view("", "workspace", shell_nav.status_path(), None);
+    view! {
+        <div class="shell shell-surface workspace-view-shell mei-text-primary min-h-0 flex flex-1 flex-col">
+            {topbar}
+            <main class="workspace-view-main chrome-inset min-h-0 flex flex-1 flex-col overflow-auto px-4 py-3">
+                <div class="mei-workspace-page" inner_html=main_inner_html.to_string()></div>
+            </main>
+            {statusbar}
+        </div>
+    }
+    .into_any()
+}
+
+pub fn render_workspace_page(
+    page_title: &str,
+    shell_nav: WorkspaceShellNav,
+    apps: &[WorkspaceAppMeta],
+    topbar_menu: Option<&TopbarMenuContext>,
+    main_inner_html: &str,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+    shell_body_theme_style: &str,
+) -> String {
+    let route_mode = shell_nav.document_route_mode();
+    let shell = workspace_shell(
+        apps,
+        topbar_menu,
+        shell_nav,
+        main_inner_html,
+        auth_enabled,
+        auth_account,
+    );
+    let html = render_document(
+        page_title,
+        route_mode,
+        false,
+        shell,
+        view! { <></> }.into_any(),
+        view! { <></> }.into_any(),
+        auth_enabled,
+        auth_account,
+        shell_body_theme_style,
+        Some("workspace-view"),
+        Some(r#"<link rel="stylesheet" href="/app-assets/host-shell.css" />"#),
+    );
+    html
+}
