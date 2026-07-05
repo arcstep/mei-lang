@@ -42,6 +42,7 @@ fn manifest_compose_defaults_are_view_only() {
             review_projection: Some("plane_region".to_string()),
             ..Default::default()
         }),
+        surface_revision_digest: None,
     };
     let serialized = serde_json::to_string(&manifest).expect("serialize");
     assert!(serialized.contains("plane_region"));

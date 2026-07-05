@@ -12,6 +12,7 @@ mod eval_slot_group;
 mod layer_overlay;
 mod layer_plan;
 mod layer_store;
+mod runtime_plans;
 mod shell_layer;
 mod semantic_scene;
 mod structure_full;
@@ -53,6 +54,11 @@ pub use layer_overlay::{
     LayoutOverlayDocument, ThemeTokensDocument, LAYOUT_OVERLAY_SCHEMA, THEME_TOKENS_SCHEMA,
 };
 pub use layer_store::{clear_layers_for_app, layer_entry_meta, store_layer, take_layer};
+pub use runtime_plans::{
+    build_runtime_plans_document, empty_runtime_plans_document, ensure_runtime_plans_cached,
+    persist_runtime_plans, runtime_plans_cache_key, runtime_plans_from_outcome,
+    RuntimePlansDocument, RUNTIME_PLANS_KIND, RUNTIME_PLANS_SCHEMA,
+};
 pub use shell_layer::{
     build_shell_layer_document, ensure_shell_layer_cached, shell_layer_json, ShellLayerDocument,
     SHELL_LAYER_SCHEMA,
@@ -72,7 +78,8 @@ pub use view_artifact::{
     layout_overlay_session_cache_key, manifest_revision_digest, resolve_view_revision,
     semantic_revision_digest, shell_cache_key, surface_revision_digest_from_manifest,
     structure_full_cache_key, theme_tokens_cache_key, AssemblyPlan,
-    ClientLayerHolding, ComposeRequest, LayerRef, SceneViewManifest, StructureFullDocument,
+    ClientLayerHolding, ComposeRequest, FrameViewportMeta, LayerRef, SceneViewManifest,
+    StructureFullDocument,
     StructureFullNode, ViewRevisionInput, ViewRevisionResponse, ViewRevisionStatus,
     WysiwygPanelPatch, EVAL_SLOT_GROUP_KIND, LAYOUT_OVERLAY_KIND, SCENE_VIEW_MANIFEST_SCHEMA,
     STRUCTURE_FULL_KIND, STRUCTURE_FULL_SCHEMA, THEME_TOKENS_KIND,

@@ -13,6 +13,26 @@ pub const EVAL_SLOT_GROUP_KIND: &str = "eval_slot_group";
 pub const SCENE_VIEW_MANIFEST_SCHEMA: &str = "scene-view-manifest-v1";
 pub const STRUCTURE_FULL_SCHEMA: &str = "structure-full-v1";
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct FrameViewportMeta {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design_height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overflow_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_mode: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StructureFullNode {
     pub node_id: String,
@@ -27,6 +47,12 @@ pub struct StructureFullNode {
     pub plane: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panel_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub use_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_viewport: Option<FrameViewportMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,6 +64,8 @@ pub struct StructureFullDocument {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scene_roots: Vec<String>,
     pub nodes: Vec<StructureFullNode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_viewport: Option<FrameViewportMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -78,6 +106,8 @@ pub struct SceneViewManifest {
     pub layers: std::collections::BTreeMap<String, Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compose_defaults: Option<ComposeRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface_revision_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -124,10 +154,17 @@ pub struct ViewRevisionResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ViewRevisionInput {
     pub manifest: SceneViewManifest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_manifest_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_surface_digest: Option<String>,
     #[serde(default)]
-    pub client_layers: Vec<ClientLayerHolding>,
+    pub recover: bool,
+    /// Deprecated: treated as `recover`.
     #[serde(default)]
     pub local_miss: bool,
+    #[serde(default)]
+    pub client_layers: Vec<ClientLayerHolding>,
     #[serde(default)]
     pub missing_layers: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -184,57 +221,119 @@ pub fn collect_manifest_layer_refs(
     refs
 }
 
+pub fn semantic_layer_names(manifest: &SceneViewManifest) -> Vec<String> {
+    manifest
+        .layers
+        .keys()
+        .filter(|name| !name.starts_with("shell."))
+        .cloned()
+        .collect()
+}
+
+pub fn shell_layer_names(manifest: &SceneViewManifest) -> Vec<String> {
+    manifest
+        .layers
+        .keys()
+        .filter(|name| name.starts_with("shell."))
+        .cloned()
+        .collect()
+}
+
+pub fn all_layer_names(manifest: &SceneViewManifest) -> Vec<String> {
+    manifest.layers.keys().cloned().collect()
+}
+
+fn digest_matches(client: Option<&str>, server: &str) -> bool {
+    let server = server.trim();
+    if server.is_empty() {
+        return false;
+    }
+    client
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some_and(|value| value == server)
+}
+
+fn client_digests_ready(input: &ViewRevisionInput) -> bool {
+    input
+        .client_manifest_digest
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+        && input
+            .client_surface_digest
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+}
+
+fn refetch_view_revision_response(
+    manifest: &SceneViewManifest,
+    manifest_revision_digest: String,
+    surface_revision_digest: Option<String>,
+    changed_layers: Vec<String>,
+) -> ViewRevisionResponse {
+    ViewRevisionResponse {
+        ready: true,
+        status: ViewRevisionStatus::Refetch,
+        semantic_core: manifest.semantic_core.clone(),
+        manifest_revision_digest,
+        surface_revision_digest,
+        manifest: Some(manifest.clone()),
+        assembly_plan: None,
+        changed_layers,
+        inline_layers: None,
+    }
+}
+
 pub fn resolve_view_revision(input: &ViewRevisionInput) -> ViewRevisionResponse {
     let manifest = &input.manifest;
     let layer_refs = collect_manifest_layer_refs(manifest);
     let compose_defaults = manifest.compose_defaults.clone().unwrap_or_default();
     let manifest_revision_digest = manifest.revision_digest.clone();
+    let server_surface_digest = input
+        .surface_revision_digest
+        .clone()
+        .or_else(|| manifest.surface_revision_digest.clone());
+    let all_layers = all_layer_names(manifest);
+    let shell_layers = shell_layer_names(manifest);
+    let semantic_layers = semantic_layer_names(manifest);
 
-    let client_by_name: std::collections::BTreeMap<_, _> = input
-        .client_layers
-        .iter()
-        .map(|holding| (holding.name.as_str(), holding))
-        .collect();
-
-    let mut stale_layers = Vec::new();
-    for (name, server_ref) in &layer_refs {
-        let client = client_by_name.get(name.as_str());
-        let matches = client.is_some_and(|holding| {
-            holding.artifact_id == server_ref.artifact_id
-                && holding.content_hash == server_ref.content_hash
-        });
-        if !matches {
-            stale_layers.push(name.clone());
-        }
-    }
-
-    if input.local_miss {
-        let mut changed = input.missing_layers.clone();
-        for layer in stale_layers {
-            if !changed.iter().any(|existing| existing == &layer) {
-                changed.push(layer);
-            }
-        }
-        return ViewRevisionResponse {
-            ready: true,
-            status: ViewRevisionStatus::Refetch,
-            semantic_core: manifest.semantic_core.clone(),
+    if input.recover || input.local_miss {
+        return refetch_view_revision_response(
+            manifest,
             manifest_revision_digest,
-            surface_revision_digest: input.surface_revision_digest.clone(),
-            manifest: Some(manifest.clone()),
-            assembly_plan: None,
-            changed_layers: changed,
-            inline_layers: None,
-        };
+            server_surface_digest,
+            all_layers,
+        );
     }
 
-    if stale_layers.is_empty() {
+    if !client_digests_ready(input) {
+        return refetch_view_revision_response(
+            manifest,
+            manifest_revision_digest,
+            server_surface_digest,
+            all_layers,
+        );
+    }
+
+    let manifest_ok = digest_matches(
+        input.client_manifest_digest.as_deref(),
+        manifest_revision_digest.as_str(),
+    );
+    let surface_ok = server_surface_digest.as_deref().is_some_and(|server| {
+        digest_matches(input.client_surface_digest.as_deref(), server)
+    });
+
+    if manifest_ok && surface_ok {
         return ViewRevisionResponse {
             ready: true,
             status: ViewRevisionStatus::AssembleLocal,
             semantic_core: manifest.semantic_core.clone(),
             manifest_revision_digest,
-            surface_revision_digest: input.surface_revision_digest.clone(),
+            surface_revision_digest: server_surface_digest,
             manifest: Some(manifest.clone()),
             assembly_plan: Some(AssemblyPlan {
                 manifest: manifest.clone(),
@@ -247,17 +346,20 @@ pub fn resolve_view_revision(input: &ViewRevisionInput) -> ViewRevisionResponse 
         };
     }
 
-    ViewRevisionResponse {
-        ready: true,
-        status: ViewRevisionStatus::Refetch,
-        semantic_core: manifest.semantic_core.clone(),
+    let changed_layers = if !manifest_ok && !surface_ok {
+        all_layers
+    } else if manifest_ok {
+        shell_layers
+    } else {
+        semantic_layers
+    };
+
+    refetch_view_revision_response(
+        manifest,
         manifest_revision_digest,
-        surface_revision_digest: input.surface_revision_digest.clone(),
-        manifest: Some(manifest.clone()),
-        assembly_plan: None,
-        changed_layers: stale_layers,
-        inline_layers: None,
-    }
+        server_surface_digest,
+        changed_layers,
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -424,6 +526,7 @@ mod manifest_revision_tests {
             revision_digest: String::new(),
             layers: Default::default(),
             compose_defaults: None,
+            surface_revision_digest: None,
         };
         let base = semantic_revision_digest(&manifest, None);
         let with_draft = semantic_revision_digest(&manifest, Some("draft-abc"));
@@ -465,6 +568,7 @@ mod manifest_revision_tests {
                 focus: None,
                 scope: None,
             }),
+            surface_revision_digest: None,
         };
         let mut shell_variant = base_manifest.clone();
         if let Some(shell) = shell_variant.layers.get_mut("shell.app") {
@@ -587,37 +691,40 @@ mod view_revision_tests {
                 "content_hash": overlay_hash,
             }),
         );
-        SceneViewManifest {
+        layers.insert(
+            "shell.app".to_string(),
+            json!({
+                "artifact_id": "shell-key",
+                "content_hash": "shell-hash",
+            }),
+        );
+        let mut manifest = SceneViewManifest {
             schema_version: SCENE_VIEW_MANIFEST_SCHEMA.to_string(),
             app_id: "demo".to_string(),
             scene_id: "home".to_string(),
             semantic_core: core,
-            revision_digest: "manifest-digest".to_string(),
+            revision_digest: String::new(),
             layers,
             compose_defaults: None,
-        }
+            surface_revision_digest: None,
+        };
+        manifest.revision_digest = manifest_revision_digest(&manifest, None);
+        manifest.surface_revision_digest = surface_revision_digest_from_manifest(&manifest);
+        manifest
     }
 
     #[test]
-    fn resolve_view_revision_assemble_local_when_all_layers_match() {
+    fn resolve_view_revision_assemble_local_when_digests_match() {
         let manifest = sample_manifest("hash-a", "hash-b");
         let response = resolve_view_revision(&ViewRevisionInput {
-            manifest,
-            client_layers: vec![
-                ClientLayerHolding {
-                    name: "structure.full".to_string(),
-                    artifact_id: "struct-key".to_string(),
-                    content_hash: "hash-a".to_string(),
-                },
-                ClientLayerHolding {
-                    name: "layout.overlay".to_string(),
-                    artifact_id: "overlay-key".to_string(),
-                    content_hash: "hash-b".to_string(),
-                },
-            ],
+            manifest: manifest.clone(),
+            client_manifest_digest: Some(manifest.revision_digest.clone()),
+            client_surface_digest: manifest.surface_revision_digest.clone(),
+            recover: false,
             local_miss: false,
+            client_layers: Vec::new(),
             missing_layers: Vec::new(),
-            surface_revision_digest: None,
+            surface_revision_digest: manifest.surface_revision_digest.clone(),
         });
         assert_eq!(response.status, ViewRevisionStatus::AssembleLocal);
         assert!(response.assembly_plan.is_some());
@@ -625,77 +732,127 @@ mod view_revision_tests {
     }
 
     #[test]
-    fn resolve_view_revision_refetch_when_layer_stale() {
+    fn resolve_view_revision_refetch_when_manifest_digest_stale() {
         let manifest = sample_manifest("hash-a-new", "hash-b");
         let response = resolve_view_revision(&ViewRevisionInput {
-            manifest,
-            client_layers: vec![ClientLayerHolding {
-                name: "structure.full".to_string(),
-                artifact_id: "struct-key".to_string(),
-                content_hash: "hash-a-old".to_string(),
-            }],
+            manifest: manifest.clone(),
+            client_manifest_digest: Some("stale-manifest-digest".to_string()),
+            client_surface_digest: manifest.surface_revision_digest.clone(),
+            recover: false,
             local_miss: false,
+            client_layers: Vec::new(),
             missing_layers: Vec::new(),
-            surface_revision_digest: None,
+            surface_revision_digest: manifest.surface_revision_digest.clone(),
         });
         assert_eq!(response.status, ViewRevisionStatus::Refetch);
         assert!(response
             .changed_layers
             .iter()
             .any(|layer| layer == "structure.full"));
+        assert!(!response
+            .changed_layers
+            .iter()
+            .any(|layer| layer.starts_with("shell.")));
     }
 
     #[test]
-    fn resolve_view_revision_local_miss_forces_refetch() {
+    fn resolve_view_revision_recover_forces_full_refetch() {
         let manifest = sample_manifest("hash-a", "hash-b");
         let response = resolve_view_revision(&ViewRevisionInput {
-            manifest,
-            client_layers: vec![ClientLayerHolding {
-                name: "structure.full".to_string(),
-                artifact_id: "struct-key".to_string(),
-                content_hash: "hash-a".to_string(),
-            }],
-            local_miss: true,
-            missing_layers: vec!["structure.full".to_string()],
-            surface_revision_digest: None,
+            manifest: manifest.clone(),
+            client_manifest_digest: Some(manifest.revision_digest.clone()),
+            client_surface_digest: manifest.surface_revision_digest.clone(),
+            recover: true,
+            local_miss: false,
+            client_layers: Vec::new(),
+            missing_layers: Vec::new(),
+            surface_revision_digest: manifest.surface_revision_digest.clone(),
         });
         assert_eq!(response.status, ViewRevisionStatus::Refetch);
         assert!(response.assembly_plan.is_none());
-        assert!(response
-            .changed_layers
-            .iter()
-            .any(|layer| layer == "structure.full"));
+        assert_eq!(response.changed_layers.len(), manifest.layers.len());
     }
 
     #[test]
-    fn draft_only_stale_overlay_not_structure_when_client_missing_overlay() {
-        let manifest = sample_manifest("hash-a", "hash-b-new");
+    fn resolve_view_revision_refetch_all_layers_without_client_digests() {
+        let manifest = sample_manifest("hash-a", "hash-b");
         let response = resolve_view_revision(&ViewRevisionInput {
-            manifest,
-            client_layers: vec![
-                ClientLayerHolding {
-                    name: "structure.full".to_string(),
-                    artifact_id: "struct-key".to_string(),
-                    content_hash: "hash-a".to_string(),
-                },
-                ClientLayerHolding {
-                    name: "layout.overlay".to_string(),
-                    artifact_id: "overlay-key".to_string(),
-                    content_hash: "hash-b-old".to_string(),
-                },
-            ],
+            manifest: manifest.clone(),
+            client_manifest_digest: None,
+            client_surface_digest: None,
+            recover: false,
             local_miss: false,
+            client_layers: Vec::new(),
             missing_layers: Vec::new(),
-            surface_revision_digest: None,
+            surface_revision_digest: manifest.surface_revision_digest.clone(),
         });
         assert_eq!(response.status, ViewRevisionStatus::Refetch);
+        assert_eq!(response.changed_layers.len(), manifest.layers.len());
+    }
+
+    #[test]
+    fn resolve_view_revision_refetch_shell_only_when_surface_digest_stale() {
+        let manifest = sample_manifest("hash-a", "hash-b");
+        let response = resolve_view_revision(&ViewRevisionInput {
+            manifest: manifest.clone(),
+            client_manifest_digest: Some(manifest.revision_digest.clone()),
+            client_surface_digest: Some("stale-surface-digest".to_string()),
+            recover: false,
+            local_miss: false,
+            client_layers: Vec::new(),
+            missing_layers: Vec::new(),
+            surface_revision_digest: manifest.surface_revision_digest.clone(),
+        });
+        assert_eq!(response.status, ViewRevisionStatus::Refetch);
+        assert!(response
+            .changed_layers
+            .iter()
+            .all(|layer| layer.starts_with("shell.")));
         assert!(!response
             .changed_layers
             .iter()
             .any(|layer| layer == "structure.full"));
+    }
+
+    #[test]
+    fn resolve_view_revision_local_miss_maps_to_recover() {
+        let manifest = sample_manifest("hash-a", "hash-b");
+        let response = resolve_view_revision(&ViewRevisionInput {
+            manifest: manifest.clone(),
+            client_manifest_digest: Some(manifest.revision_digest.clone()),
+            client_surface_digest: manifest.surface_revision_digest.clone(),
+            recover: false,
+            local_miss: true,
+            client_layers: Vec::new(),
+            missing_layers: vec!["structure.full".to_string()],
+            surface_revision_digest: manifest.surface_revision_digest.clone(),
+        });
+        assert_eq!(response.status, ViewRevisionStatus::Refetch);
+        assert_eq!(response.changed_layers.len(), manifest.layers.len());
+    }
+
+    #[test]
+    fn resolve_view_revision_refetch_semantic_layers_when_overlay_stale() {
+        let manifest = sample_manifest("hash-a", "hash-b-new");
+        let stale_manifest = sample_manifest("hash-a", "hash-b");
+        let response = resolve_view_revision(&ViewRevisionInput {
+            manifest,
+            client_manifest_digest: Some(stale_manifest.revision_digest.clone()),
+            client_surface_digest: stale_manifest.surface_revision_digest.clone(),
+            recover: false,
+            local_miss: false,
+            client_layers: Vec::new(),
+            missing_layers: Vec::new(),
+            surface_revision_digest: stale_manifest.surface_revision_digest.clone(),
+        });
+        assert_eq!(response.status, ViewRevisionStatus::Refetch);
         assert!(response
             .changed_layers
             .iter()
             .any(|layer| layer == "layout.overlay"));
+        assert!(!response
+            .changed_layers
+            .iter()
+            .any(|layer| layer.starts_with("shell.")));
     }
 }
