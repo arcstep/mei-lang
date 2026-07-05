@@ -12,6 +12,8 @@ mod eval_slot_group;
 mod layer_overlay;
 mod layer_plan;
 mod layer_store;
+mod shell_layer;
+mod semantic_scene;
 mod structure_full;
 mod view_artifact;
 mod layout_tuning_merge;
@@ -51,17 +53,27 @@ pub use layer_overlay::{
     LayoutOverlayDocument, ThemeTokensDocument, LAYOUT_OVERLAY_SCHEMA, THEME_TOKENS_SCHEMA,
 };
 pub use layer_store::{clear_layers_for_app, layer_entry_meta, store_layer, take_layer};
+pub use shell_layer::{
+    build_shell_layer_document, ensure_shell_layer_cached, shell_layer_json, ShellLayerDocument,
+    SHELL_LAYER_SCHEMA,
+};
+pub use semantic_scene::{
+    assemble_semantic_scene, collect_world_payloads_from_scene, default_target_for_scene,
+    has_semantic_scene, load_semantic_scene_payload, target_key_from_payload, SemanticSceneAssembly,
+};
 pub use structure_full::{
     build_structure_full_document, build_structure_index_document, nodes_within_projection,
     persist_structure_full, slot_group_id_for_node, structure_full_from_compiled,
     ui_role_depth_rank,
 };
 pub use view_artifact::{
-    build_semantic_core_for_scene, eval_slot_group_cache_key, layout_overlay_persisted_cache_key,
-    layout_overlay_session_cache_key, manifest_revision_digest, shell_cache_key,
-    structure_full_cache_key, theme_tokens_cache_key, ComposeRequest, LayerRef,
-    SceneViewManifest, StructureFullDocument, StructureFullNode, WysiwygPanelPatch,
-    EVAL_SLOT_GROUP_KIND, LAYOUT_OVERLAY_KIND, SCENE_VIEW_MANIFEST_SCHEMA,
+    build_semantic_core_for_scene, collect_manifest_layer_refs, eval_slot_group_cache_key,
+    layer_ref_from_manifest_entry, layout_overlay_persisted_cache_key,
+    layout_overlay_session_cache_key, manifest_revision_digest, resolve_view_revision,
+    shell_cache_key, structure_full_cache_key, theme_tokens_cache_key, AssemblyPlan,
+    ClientLayerHolding, ComposeRequest, LayerRef, SceneViewManifest, StructureFullDocument,
+    StructureFullNode, ViewRevisionInput, ViewRevisionResponse, ViewRevisionStatus,
+    WysiwygPanelPatch, EVAL_SLOT_GROUP_KIND, LAYOUT_OVERLAY_KIND, SCENE_VIEW_MANIFEST_SCHEMA,
     STRUCTURE_FULL_KIND, STRUCTURE_FULL_SCHEMA, THEME_TOKENS_KIND,
 };
 pub use layout_tuning_merge::merge_layout_tuning_into_compiled;

@@ -120,3 +120,15 @@ pub fn ensure_layout_overlay_cached(
     );
     Ok((document, false))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_overlay_key_differs_from_persisted() {
+        let persisted = layout_overlay_persisted_cache_key("layout0");
+        let session = layout_overlay_session_cache_key("demo", "sess-1", "digest-a");
+        assert_ne!(persisted, session);
+    }
+}

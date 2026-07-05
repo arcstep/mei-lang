@@ -69,8 +69,8 @@ fn pretty_panels_enforcement_section_carries_body_padding() {
             .body_props
             .get("padding")
             .and_then(|v| v.as_str()),
-        Some("8px 4px 2px 4px"),
-        "body_props: {:?}",
+        Some("8px 6px 6px 6px"),
+        "body_props should reflect layoutTuning paddingProfile override: {:?}",
         enforcement.body_props,
     );
 }

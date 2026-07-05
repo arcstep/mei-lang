@@ -503,7 +503,9 @@ fn lower_section_shell_panel(
                     .as_object()
                     .cloned()
                     .unwrap_or_default();
-                body_map.insert("padding".to_string(), json!(padding));
+                body_map
+                    .entry("padding".to_string())
+                    .or_insert_with(|| json!(padding));
                 body_map
                     .entry("box_sizing".to_string())
                     .or_insert_with(|| json!("border-box"));
@@ -1997,8 +1999,6 @@ struct BoardSceneTarget {
 fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option<Value> {
     let payload = load_link_decl_payload(ctx, link_key)?;
     let target_ref = payload.get("target").or_else(|| payload.get("board"))?;
-    let board_key = v2_ref_arg0(target_ref)?;
-    let target = resolve_board_assembly_target(ctx, board_key.as_str())?;
     let params = payload
         .get("params")
         .cloned()
@@ -2014,6 +2014,48 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         .and_then(|v| v.as_str())
         .unwrap_or("large");
     let overlay_workspace = payload.get("overlay_workspace").cloned();
+    if v2_ref_name(target_ref) == Some("panel_ref") {
+        let panel_ref = v2_ref_arg0(target_ref)?;
+        let panel_payload = load_panel_contract_payload(ctx, panel_ref.as_str()).ok()?;
+        let panel_id = panel_payload
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .or_else(|| panel_ref.split(':').next_back().map(str::to_string))?;
+        let mut popup = json!({
+            "kind": "t2_panel_open",
+            "mode": "popup",
+            "type": popup_type.clone(),
+            "projection": "t2",
+            "overlay_size": overlay_size,
+            "plane": "t2",
+            "link_key": normalized_link_key(link_key),
+            "panel_id": panel_id.clone(),
+            "page_panel_id": panel_id.clone(),
+            "panel_ref": panel_ref.clone(),
+            "page_panel_ref": panel_ref.clone(),
+            "params": params.clone(),
+            "context": {
+                "params": params,
+            },
+            "target": {
+                "kind": "panel",
+                "panel_id": panel_id.clone(),
+                "panel_ref": panel_ref,
+                "plane": "t2",
+            },
+        });
+        if let Some(title) = panel_payload.get("title").cloned().filter(|v| !v.is_null()) {
+            if let Some(map) = popup.as_object_mut() {
+                map.insert("title".to_string(), title);
+            }
+        }
+        return Some(popup);
+    }
+    let board_key = v2_ref_arg0(target_ref)?;
+    let target = resolve_board_assembly_target(ctx, board_key.as_str())?;
     let target_scene_id = target.scene_id.clone();
     let target_scene_file = target.scene_file.clone();
     let mut target_json = json!({
@@ -2100,6 +2142,8 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
 fn normalized_link_key(link_key: &str) -> String {
     let trimmed = link_key.trim();
     if trimmed.starts_with("overlay/links/") {
+        trimmed.to_string()
+    } else if trimmed.contains('/') {
         trimmed.to_string()
     } else {
         format!("overlay/links/{trimmed}")
@@ -2217,6 +2261,25 @@ fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> V
                     }
                 }
             }
+            if v2_ref_name(&value) == Some("world_ref") {
+                if let Some(key) = v2_ref_arg0(&value) {
+                    return json!(resolve_world_ref_id(ctx, key.as_str()));
+                }
+            }
+            if v2_ref_name(&value) == Some("map_ref") {
+                if let Some(key) = v2_ref_arg0(&value) {
+                    if let Some(resolved) = resolve_semantic_resource_value(ctx, key.as_str(), "map_spec") {
+                        return resolve_config_refs_in_value(&resolved, ctx);
+                    }
+                }
+            }
+            if v2_ref_name(&value) == Some("view_ref") {
+                if let Some(key) = v2_ref_arg0(&value) {
+                    if let Some(resolved) = resolve_semantic_resource_value(ctx, key.as_str(), "view_spec") {
+                        return resolve_config_refs_in_value(&resolved, ctx);
+                    }
+                }
+            }
             if v2_ref_name(&value) == Some("asset_ref") {
                 return resolve_asset_value(&value, ctx.app_id);
             }
@@ -2239,6 +2302,66 @@ fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> V
 fn resolve_ops_param(ctx: &PanelLowerContext<'_>, key: &str) -> Option<Value> {
     let config = load_mei_config_for_app(ctx.app_root, None);
     config.ops.params.get(key).cloned()
+}
+
+fn resolve_world_ref_id(ctx: &PanelLowerContext<'_>, key: &str) -> String {
+    let normalized = key.trim();
+    if normalized.is_empty() {
+        return String::new();
+    }
+    if let Some(payload) = load_semantic_resource_payload(ctx, normalized, "world") {
+        if let Some(id) = payload.get("id").and_then(Value::as_str).map(str::trim).filter(|id| !id.is_empty()) {
+            return id.to_string();
+        }
+    }
+    normalized.to_string()
+}
+
+fn resolve_semantic_resource_value(
+    ctx: &PanelLowerContext<'_>,
+    key: &str,
+    expected_kind: &str,
+) -> Option<Value> {
+    let payload = load_semantic_resource_payload(ctx, key, expected_kind)?;
+    Some(semantic_resource_value(&payload))
+}
+
+fn semantic_resource_value(payload: &Value) -> Value {
+    if let Some(value) = payload.get("value") {
+        return value.clone();
+    }
+    let Some(obj) = payload.as_object() else {
+        return payload.clone();
+    };
+    let mut out = Map::new();
+    for (key, value) in obj {
+        if matches!(key.as_str(), "id" | "key" | "source_file") {
+            continue;
+        }
+        out.insert(key.clone(), value.clone());
+    }
+    Value::Object(out)
+}
+
+fn load_semantic_resource_payload(
+    ctx: &PanelLowerContext<'_>,
+    key: &str,
+    expected_kind: &str,
+) -> Option<Value> {
+    let normalized = key.trim();
+    let node = ctx.registry.nodes.iter().find(|node| {
+        node.id.kind == GraphNodeKind::SemanticGraph
+            && (node.id.key == normalized
+                || node.id.key == format!("{expected_kind}:{normalized}")
+                || node.id.stable_key() == normalized)
+    })?;
+    let pref = node.payload_ref.as_ref()?;
+    let artifact = load_block_artifact(ctx.app_root, pref).ok()??;
+    let kind = artifact.get("kind").and_then(Value::as_str).unwrap_or_default();
+    if kind != expected_kind && !(expected_kind == "world" && kind == "world") {
+        return None;
+    }
+    artifact.get("payload").cloned()
 }
 
 fn resolve_config_ref_expr(
@@ -2461,7 +2584,7 @@ fn lower_component(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<BlockDe
                 continue;
             }
             if let Some(value) = args.get(source_key).cloned() {
-                map.insert(target_key.to_string(), value);
+                map.insert(target_key.to_string(), resolve_config_refs_in_value(&value, ctx));
             }
         }
     }
@@ -2538,7 +2661,10 @@ pub fn find_panel_contract_node<'a>(
     None
 }
 
-fn load_panel_contract_payload(ctx: &PanelLowerContext<'_>, ref_path: &str) -> Result<Value> {
+pub(crate) fn load_panel_contract_payload(
+    ctx: &PanelLowerContext<'_>,
+    ref_path: &str,
+) -> Result<Value> {
     let node = find_panel_contract_node(ctx.registry, ref_path, ctx.scene_id)
         .with_context(|| format!("panel contract not found for ref `{ref_path}`"))?;
     let pref = node
@@ -2547,7 +2673,21 @@ fn load_panel_contract_payload(ctx: &PanelLowerContext<'_>, ref_path: &str) -> R
         .context("panel contract missing payload ref")?;
     let artifact = load_block_artifact(ctx.app_root, pref)?
         .with_context(|| format!("panel artifact missing for ref `{ref_path}`"))?;
-    Ok(artifact.get("payload").cloned().unwrap_or(json!({})))
+    let mut payload = artifact.get("payload").cloned().unwrap_or(json!({}));
+    if let Some(obj) = payload.as_object_mut() {
+        if let Some(viewpoints) = obj.get("viewpoints").cloned() {
+            obj.insert(
+                "viewpoints".to_string(),
+                resolve_config_refs_in_value(&viewpoints, ctx),
+            );
+        }
+        for key in ["worldRef", "world_ref"] {
+            if let Some(value) = obj.get(key).cloned() {
+                obj.insert(key.to_string(), resolve_config_refs_in_value(&value, ctx));
+            }
+        }
+    }
+    Ok(payload)
 }
 
 fn v2_call_name(value: &Value) -> Option<&str> {

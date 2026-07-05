@@ -92,15 +92,11 @@ pub fn build_preview_runtime_context(
             UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Build
         ),
     };
-    let scene_preview_route = matches!(
-        route_mode,
-        UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Build
-    );
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),
         resources: build_runtime_resource_map(compiled),
         host_ssr_slim_payload,
-        structure_anchors_enabled: scene_preview_route,
+        structure_anchors_enabled: route_mode == UiRouteMode::Build,
         dev_inspect_chrome_enabled: route_mode == UiRouteMode::Build,
         build_preview_scope: build_preview_scope
             .map(str::trim)

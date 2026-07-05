@@ -184,8 +184,23 @@ fn placement_absolute_allowed(panel: &PanelDecl) -> bool {
     }
     matches!(
         chrome_role(panel),
-        Some("rail") | Some("header") | Some("viewport") | Some("viewport_frame") | Some("map") | Some("center_float") | Some("center_panel") | Some("stage_aperture")
+        Some("rail")
+            | Some("header")
+            | Some("viewport")
+            | Some("viewport_frame")
+            | Some("map")
+            | Some("center_float")
+            | Some("center_panel")
+            | Some("stage_aperture")
+            | Some("float_dock")
     )
+}
+
+fn has_structural_children(panel: &PanelDecl) -> bool {
+    panel.blocks.iter().any(|node| match node {
+        UiNodeDecl::Panel(child) => matches!(ui_role(child), Some("region") | Some("section")),
+        _ => false,
+    })
 }
 
 fn is_author_section_height(panel: &PanelDecl) -> bool {
@@ -261,25 +276,29 @@ fn validate_panel(
     }
 
     if role == Some("region") {
-        if panel
-            .props
-            .as_object()
-            .and_then(|m| m.get("__mei_region_rows_materialized"))
-            .and_then(Value::as_bool)
-            != Some(true)
-        {
-            if let Some(rows) = panel.layout.as_ref().and_then(|l| l.rows.as_ref()) {
-                for row in rows {
-                    if !track_is_fr_only(row) {
-                        push_error(
-                            diagnostics,
-                            "layout_policy_region_px_track_forbidden",
-                            format!(
-                                "region `{}`: row track `{row}` must be Nfr only (no px/minmax/auto)",
-                                panel.id
-                            ),
-                            source_path,
-                        );
+        let should_enforce_region_tracks =
+            chrome_role(panel) == Some("rail") || has_structural_children(panel);
+        if should_enforce_region_tracks {
+            if panel
+                .props
+                .as_object()
+                .and_then(|m| m.get("__mei_region_rows_materialized"))
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
+                if let Some(rows) = panel.layout.as_ref().and_then(|l| l.rows.as_ref()) {
+                    for row in rows {
+                        if !track_is_fr_only(row) {
+                            push_error(
+                                diagnostics,
+                                "layout_policy_region_px_track_forbidden",
+                                format!(
+                                    "region `{}`: row track `{row}` must be Nfr only (no px/minmax/auto)",
+                                    panel.id
+                                ),
+                                source_path,
+                            );
+                        }
                     }
                 }
             }

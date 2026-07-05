@@ -194,6 +194,16 @@ pub(crate) fn panel_view(
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| panel.id.clone());
+    let t2_page_attr = panel
+        .props
+        .get("__mei_t2_page")
+        .and_then(|value| {
+            value
+                .as_bool()
+                .map(|flag| if flag { "true" } else { "" })
+                .or_else(|| value.as_str())
+        })
+        .filter(|value| !value.is_empty());
 
     let panel_path = match parent_panel_path {
         Some(parent) => format!("{parent}/{}", panel.id),
@@ -294,6 +304,7 @@ pub(crate) fn panel_view(
             class=card_class
             style=card_style.clone()
             data-mei-panel-id=panel_path.clone()
+            data-mei-panel-name=panel.id.clone()
             data-mei-panel-area=panel.area.clone().unwrap_or_default()
             data-mei-tier=panel_tier
             data-mei-viewpoint=panel_viewpoint
@@ -307,6 +318,7 @@ pub(crate) fn panel_view(
             data-preview-scope=panel_path.clone()
             data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
             data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
+            data-mei-t2-page=t2_page_attr.unwrap_or_default()
             data-mei-slot-frame-bg=slot_frame_bg_attr.unwrap_or_default()
             data-mei-metric-card=metric_card_attr.unwrap_or_default()
         >
@@ -360,6 +372,7 @@ pub(crate) fn panel_view(
                     class=card_class
                     style=scaled_section_style
                     data-mei-panel-id=panel_path.clone()
+                    data-mei-panel-name=panel.id.clone()
                     data-mei-tier=panel_tier
                     data-mei-viewpoint=panel_viewpoint
                     data-mei-view-family=panel_view_family
@@ -372,6 +385,7 @@ pub(crate) fn panel_view(
                     data-preview-scope=panel_path.clone()
                     data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
                     data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
+                    data-mei-t2-page=t2_page_attr.unwrap_or_default()
                     data-mei-slot-frame-bg=slot_frame_bg_attr.unwrap_or_default()
                     data-mei-metric-card=metric_card_attr.unwrap_or_default()
                 >

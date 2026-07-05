@@ -94,8 +94,14 @@ pub enum BinOp {
 pub const V2_TOP_LEVEL_CONSTRUCTORS: &[&str] = &[
     "app_skeleton",
     "navigation",
+    "scene",
+    "plane_layout",
+    "region_layout",
+    "section_layout",
     "assembly_view",
     "panel_contract",
+    "map_spec",
+    "view_spec",
     "metric_def_bundle",
     "board_assembly",
     "link_decl",
@@ -104,10 +110,16 @@ pub const V2_TOP_LEVEL_CONSTRUCTORS: &[&str] = &[
 ];
 
 pub const V2_REF_KEYWORDS: &[&str] = &[
+    "plane_ref",
+    "region_ref",
+    "section_ref",
     "panel_ref",
     "metric_ref",
     "assembly_ref",
     "link_ref",
+    "world_ref",
+    "map_ref",
+    "view_ref",
     "template_ref",
     "asset_ref",
     "source_ref",

@@ -14,6 +14,9 @@ use crate::layer_plan::{build_layer_plan, layer_plan_to_value};
 use crate::mcg::registry::McgRegistryWriter;
 use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
 use crate::projection_normalize::normalize_board_assembly_payload;
+use crate::semantic_scene::{
+    assemble_semantic_scene, has_semantic_scene, load_semantic_scene_payload,
+};
 use crate::tier::canonical_tier;
 use crate::types::GraphNodeKind;
 use crate::v2_lower::{
@@ -86,7 +89,14 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
 pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
     let registry = McgRegistryWriter::load(source_root, app_id);
     registry
-        .nodes_of_kind(GraphNodeKind::AssemblyView)
+        .nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.id.kind,
+                GraphNodeKind::AssemblyView | GraphNodeKind::SemanticGraph
+            )
+        })
         .filter_map(|node| {
             if node.id.key.contains("home@") {
                 return Some("home".to_string());
@@ -115,36 +125,100 @@ pub fn assemble_scope_from_registry(
     let (title, _default_scene) = load_app_meta(app_root.as_path(), &registry)?;
     let scene_id = resolve_scene_id_for_assembly(source_root, app_id, &registry, scene_id);
     let assembly_key = resolve_assembly_key(source_root, app_id, &registry, scene_id.as_str());
-    let assembly_payload = normalize_board_assembly_payload(load_assembly_payload(
-        app_root.as_path(),
-        &registry,
-        &assembly_key,
-    )?);
     let scene_routes = build_scene_routes(source_root, app_id, &registry)?;
     let resources = expand_runtime_metric_resources(
         crate::metric_hydrate::load_metric_resources_hydrated(app_root.as_path(), &registry)?,
     );
     let projection_map = load_projection_map(app_root.as_path(), &registry, &resources);
-    let scene_local_nav_by_target = load_scene_local_nav_by_target(app_root.as_path(), &registry);
-    let (mut panels, panel_payloads) = load_panels_for_assembly(
-        app_root.as_path(),
-        app_id,
-        &registry,
-        &assembly_payload,
-        &scene_id,
-    );
-    let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &panels));
-    let overlay_defaults = load_overlay_defaults(app_root.as_path(), &registry);
+    let mut scene_local_nav_by_target = load_scene_local_nav_by_target(app_root.as_path(), &registry);
     let active_target = assembly_key_to_target(&assembly_key);
-    let mut panel_diagnostics = Vec::new();
+    let overlay_defaults = load_overlay_defaults(app_root.as_path(), &registry);
+    let (scene_summary, scene_profile, scene_theme, scene_shared, scene_local_nav, scene_params, scene_capabilities, scene_bindings, frame, mut panels, panel_payloads, mut panel_diagnostics) =
+        if has_semantic_scene(&registry)
+            && registry
+                .nodes
+                .iter()
+                .any(|node| node.id.kind == GraphNodeKind::SemanticGraph && node.id.key == assembly_key)
+        {
+            let semantic_payload =
+                load_semantic_scene_payload(app_root.as_path(), &registry, &assembly_key)?;
+            let semantic_ctx = PanelLowerContext {
+                app_root: app_root.as_path(),
+                app_id,
+                registry: &registry,
+                scene_id: scene_id.as_str(),
+                panel_constants: BTreeMap::new(),
+                assembly_stack_order: None,
+            };
+            let semantic = assemble_semantic_scene(&semantic_payload, &semantic_ctx)?;
+            (
+                semantic.summary,
+                semantic.profile,
+                semantic.theme,
+                semantic.shared,
+                semantic.local_nav,
+                semantic.params,
+                semantic.capabilities,
+                semantic.bindings,
+                Some(semantic.frame),
+                semantic.panels,
+                semantic.panel_payloads,
+                Vec::new(),
+            )
+        } else {
+            let assembly_payload = normalize_board_assembly_payload(load_assembly_payload(
+                app_root.as_path(),
+                &registry,
+                &assembly_key,
+            )?);
+            let (panels, panel_payloads) = load_panels_for_assembly(
+                app_root.as_path(),
+                app_id,
+                &registry,
+                &assembly_payload,
+                &scene_id,
+            );
+            (
+                assembly_payload
+                    .get("summary")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                assembly_payload
+                    .get("profile")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                assembly_payload.get("theme").cloned(),
+                assembly_payload.get("shared").cloned().unwrap_or(json!({})),
+                assembly_payload
+                    .get("local_nav")
+                    .cloned()
+                    .unwrap_or(json!({})),
+                assembly_payload.get("params").cloned().unwrap_or(json!({})),
+                assembly_payload
+                    .get("capabilities")
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                assembly_payload
+                    .get("bindings")
+                    .cloned()
+                    .unwrap_or(json!({})),
+                Some(lower_frame_from_assembly(&assembly_payload)),
+                panels,
+                panel_payloads,
+                Vec::new(),
+            )
+        };
     normalize_panel_slots(&mut panels, &mut panel_diagnostics, active_target.as_str());
+    let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &panels));
     let presentation_map =
         presentation_map_to_value(&build_presentation_map(&scene_id, &panels, &panel_payloads));
     let world_exchange = build_world_exchange(app_root.as_path(), &registry, app_id)
         .unwrap_or_default();
-    let frame = Some(lower_frame_from_assembly(&assembly_payload));
     let component_assets =
         collect_component_assets_for_panels(source_root, &panels)?;
+    if !scene_contract_local_nav_is_empty(&scene_local_nav) {
+        scene_local_nav_by_target.insert(active_target.clone(), scene_local_nav.clone());
+    }
 
     let scene_contract = SceneContract {
         scene: SceneDecl {
@@ -153,39 +227,24 @@ pub fn assemble_scope_from_registry(
             world: None,
             flow: None,
             frame: None,
-            profile: assembly_payload
-                .get("profile")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
-            theme: assembly_payload
-                .get("theme")
+            profile: scene_profile,
+            theme: scene_theme
+                .as_ref()
                 .and_then(theme_ref_to_id)
                 .or_else(|| {
-                    assembly_payload
-                        .get("theme")
+                    scene_theme
+                        .as_ref()
                         .and_then(|v| v.as_str())
                         .map(str::to_string)
                 }),
-            summary: assembly_payload
-                .get("summary")
-                .and_then(|v| v.as_str())
-                .map(str::to_string),
+            summary: scene_summary,
             goal: None,
             state: json!({}),
-            shared: assembly_payload.get("shared").cloned().unwrap_or(json!({})),
-            local_nav: assembly_payload
-                .get("local_nav")
-                .cloned()
-                .unwrap_or(json!({})),
-            params: assembly_payload.get("params").cloned().unwrap_or(json!({})),
-            capabilities: assembly_payload
-                .get("capabilities")
-                .cloned()
-                .unwrap_or(Value::Null),
-            bindings: assembly_payload
-                .get("bindings")
-                .cloned()
-                .unwrap_or(json!({})),
+            shared: scene_shared,
+            local_nav: scene_local_nav,
+            params: scene_params,
+            capabilities: scene_capabilities,
+            bindings: scene_bindings,
             examples: json!({}),
             access_export: true,
         },
@@ -294,7 +353,7 @@ fn resolve_scene_id_for_assembly(
         .nodes
         .iter()
         .filter(|n| {
-            n.id.kind == GraphNodeKind::AssemblyView
+            matches!(n.id.kind, GraphNodeKind::AssemblyView | GraphNodeKind::SemanticGraph)
                 && n.id.key.contains("/assembly.mei")
         })
         .filter_map(|n| {
@@ -346,7 +405,10 @@ fn resolve_assembly_key(
         return registry
             .nodes
             .iter()
-            .find(|n| n.id.kind == GraphNodeKind::AssemblyView && n.id.key.contains("home@"))
+            .find(|n| {
+                matches!(n.id.kind, GraphNodeKind::AssemblyView | GraphNodeKind::SemanticGraph)
+                    && n.id.key.contains("home@")
+            })
             .map(|n| n.id.key.clone())
             .unwrap_or_else(|| "home@src/scene/home/assembly.mei".to_string());
     }
@@ -359,7 +421,7 @@ fn resolve_assembly_key(
         .nodes
         .iter()
         .find(|n| {
-            n.id.kind == GraphNodeKind::AssemblyView
+            matches!(n.id.kind, GraphNodeKind::AssemblyView | GraphNodeKind::SemanticGraph)
                 && n.id.key.split('#').next_back() == Some(scene_id.as_str())
         })
         .map(|n| n.id.key.clone())
@@ -682,6 +744,15 @@ fn theme_ref_to_id(value: &Value) -> Option<String> {
             .map(str::to_string);
     }
     None
+}
+
+fn scene_contract_local_nav_is_empty(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Object(map) => map.is_empty(),
+        Value::Array(items) => items.is_empty(),
+        _ => false,
+    }
 }
 
 fn extract_panel_ref_key(value: &Value) -> Option<String> {

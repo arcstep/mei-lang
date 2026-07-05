@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 
 use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
+use crate::semantic_scene::collect_world_payloads_from_scene;
 use crate::types::GraphNodeKind;
 
 const PRIMITIVE_CALLS: &[&str] = &[
@@ -63,6 +64,22 @@ fn load_world_payloads(
         let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
         let world_id = string_field_value(&payload, &["id"]).unwrap_or_else(|| node.id.key.clone());
         out.insert(world_id, payload);
+    }
+    for node in registry
+        .nodes
+        .iter()
+        .filter(|n| n.id.kind == GraphNodeKind::SemanticGraph)
+    {
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Some(artifact) = load_block_artifact(app_root, pref)? else {
+            continue;
+        };
+        let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
+        for (world_id, world_payload) in collect_world_payloads_from_scene(&payload) {
+            out.insert(world_id, world_payload);
+        }
     }
     let world_dir = app_root.join("src/world");
     if world_dir.is_dir() {
@@ -1971,12 +1988,12 @@ mod tests {
             .canonicalize()
             .expect("ws-demo-v2");
         let app_root = mei_lang_kernel::resolve_app_root(workspace.as_path(), "mini-park");
-        let world_path = app_root.join("src/world/plaza-native.world.mei");
+        let world_path = app_root.join("src/world/3d/plaza-native.world.mei");
         assert!(world_path.is_file(), "missing {}", world_path.display());
         let file = mei_syntax::v2::parse_v2_source_file(&world_path).expect("parse");
         let catalog = mei_graph::WorldContextCatalog::load_from_app(app_root.as_path());
         let expanded = mei_graph::expand_world_v2_file(&file, &catalog).expect("expand");
-        let rel = "src/world/plaza-native.world.mei";
+        let rel = "src/world/3d/plaza-native.world.mei";
         let outcome = mei_graph::lower_v2_file(rel, &expanded).expect("lower");
         let payload = outcome
             .blocks

@@ -8,6 +8,7 @@ use crate::types::PayloadRef;
 
 pub const PANEL_CONTRACT: &str = "panel_contract";
 pub const APP_SKELETON: &str = "app_skeleton";
+pub const SEMANTIC_SCENE: &str = "semantic_scene";
 pub const METRIC_DEF_BUNDLE: &str = "metric_def_bundle";
 pub const METRIC_RESPONSE: &str = "metric_response";
 pub const PROJECTION_ASSEMBLY: &str = "projection_assembly";

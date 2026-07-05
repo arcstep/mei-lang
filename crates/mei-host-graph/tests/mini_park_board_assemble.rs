@@ -16,9 +16,7 @@ fn ws_demo_v2() -> PathBuf {
 fn ensure_imported() {
     INIT.call_once(|| {
         let workspace = ws_demo_v2();
-        let bundle = workspace.join(
-            "apps/mini-park/env/2.0.7-ws20260628/build/exchange/mini-park.meibundle",
-        );
+        let bundle = workspace.join("apps/mini-park/env/current/build/exchange/mini-park.meibundle");
         assert!(bundle.is_file(), "compile mini-park first");
         let ctx = HostContext::new(workspace, "mini-park");
         import_bundle(
@@ -31,16 +29,26 @@ fn ensure_imported() {
     });
 }
 
+fn has_panel_id(panel: &mei_lang_kernel::PanelDecl, target: &str) -> bool {
+    if panel.id == target {
+        return true;
+    }
+    panel.blocks.iter().any(|node| match node {
+        mei_lang_kernel::UiNodeDecl::Panel(child) => has_panel_id(child, target),
+        _ => false,
+    })
+}
+
 #[test]
-fn mini_park_park_point_board_assembles_inline_panels() {
+fn mini_park_home_assembles_t2_pages_inside_scene_tree() {
     ensure_imported();
     let outcome = assemble_scope_from_registry(
         ws_demo_v2().as_path(),
         "mini-park",
-        "park_point_1_board",
+        "home",
     )
     .expect("assemble")
-    .expect("park_point_1_board outcome");
+    .expect("home outcome");
     let panels = &outcome
         .compiled
         .scene_contract
@@ -48,8 +56,8 @@ fn mini_park_park_point_board_assembles_inline_panels() {
         .expect("scene contract")
         .panels;
     assert!(
-        panels.len() >= 2,
-        "expected title/body panels, got {:?}",
+        panels.iter().any(|panel| has_panel_id(panel, "park_point_1_page")),
+        "expected T2 page inside home scene tree, got {:?}",
         panels.iter().map(|panel| panel.id.clone()).collect::<Vec<_>>()
     );
 }

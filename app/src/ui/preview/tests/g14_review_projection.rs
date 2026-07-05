@@ -34,7 +34,7 @@ fn minimal_compiled() -> CompiledApp {
 }
 
 #[test]
-fn app_route_applies_review_projection_depth() {
+fn app_route_does_not_enable_structure_anchors() {
     let compiled = minimal_compiled();
     let ctx = build_preview_runtime_context(
         &compiled,
@@ -45,11 +45,9 @@ fn app_route_applies_review_projection_depth() {
         None,
         Some("plane_region"),
     );
-    assert!(ctx.structure_anchors_enabled);
+    assert!(!ctx.structure_anchors_enabled);
     assert!(!ctx.dev_inspect_chrome_enabled);
     assert_eq!(ctx.review_projection_max_ui_role(), Some("region"));
-    assert!(!ctx.ui_role_allowed_for_projection("content"));
-    assert!(ctx.ui_role_allowed_for_projection("region"));
 }
 
 #[test]
@@ -64,7 +62,7 @@ fn run_route_applies_review_projection_depth() {
         Some("static"),
         Some("plane_region_section"),
     );
-    assert!(ctx.structure_anchors_enabled);
+    assert!(!ctx.structure_anchors_enabled);
     assert!(!ctx.dev_inspect_chrome_enabled);
     assert_eq!(ctx.review_projection_max_ui_role(), Some("section"));
     assert!(!ctx.ui_role_allowed_for_projection("content"));

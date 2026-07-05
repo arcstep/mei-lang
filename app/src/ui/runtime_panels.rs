@@ -228,6 +228,7 @@ fn mcg_build_href_for_runtime_node(app_path: &str, runtime_node_id: &str) -> Opt
     }
     let node_key = if raw_key.starts_with("scene_payload:")
         || raw_key.starts_with("metric_def_bundle:")
+        || raw_key.starts_with("semantic_graph:")
         || raw_key.starts_with("assembly_view:")
     {
         raw_key.to_string()

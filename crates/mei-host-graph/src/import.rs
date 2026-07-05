@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use crate::bridge::export_bridge_from_mcg;
 use crate::content_store::{
     self, APP_SKELETON, METRIC_DEF_BUNDLE, NAVIGATION, PANEL_CONTRACT, PROJECTION_ASSEMBLY,
-    WARMUP_POLICY,
+    SEMANTIC_SCENE, WARMUP_POLICY,
 };
 use crate::mcg::registry::{McgNodeRecord, McgRegistryWriter};
 use crate::types::{stable_hash, GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
@@ -136,6 +136,12 @@ fn wrap_block_artifact(block: &GraphBlock, revision: &str) -> Value {
 fn cas_kind_for_block(block: &GraphBlock) -> (&'static str, &'static str) {
     match block.kind.as_str() {
         "app_skeleton" => (APP_SKELETON, "mei-app-skeleton-artifact-v1"),
+        "scene" => (SEMANTIC_SCENE, "mei-scene-semantic-v1"),
+        "plane_layout" | "region_layout" | "section_layout" => {
+            (SEMANTIC_SCENE, "mei-scene-layout-fragment-v1")
+        }
+        "map_spec" => (SEMANTIC_SCENE, "mei-map-spec-v1"),
+        "view_spec" => (SEMANTIC_SCENE, "mei-view-spec-v1"),
         "panel_contract" => (PANEL_CONTRACT, "mei-panel-contract-artifact-v1"),
         "metric_def_bundle" => (METRIC_DEF_BUNDLE, "mei-metric-def-bundle-artifact-v1"),
         "assembly_view" | "board_assembly" => (PROJECTION_ASSEMBLY, "mei-projection-assembly-v1"),
