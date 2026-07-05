@@ -49,7 +49,17 @@ fn lower_top_level(
     args: &CallArgs,
 ) -> Result<GraphBlock, LowerGraphError> {
     let mut payload = call_args_to_json(args)?;
-    if matches!(name, "scene" | "plane_layout" | "region_layout" | "section_layout" | "map_spec" | "view_spec") {
+    if matches!(
+        name,
+        "scene"
+            | "plane_layout"
+            | "region_layout"
+            | "section_layout"
+            | "map_spec"
+            | "view_spec"
+            | "assembly_view"
+            | "board_assembly"
+    ) {
         if let Some(obj) = payload.as_object_mut() {
             obj.entry("source_file".to_string())
                 .or_insert(JsonValue::String(source_file.to_string()));
