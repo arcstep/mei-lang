@@ -1265,6 +1265,11 @@ function applyPagePerf(target, headers) {
   setNumeric(target, "artifact_load_ms", headers.get("x-mei-artifact-load-ms"));
   setNumeric(target, "compile_cache_lookup_ms", headers.get("x-mei-compile-cache-lookup-ms"));
   setNumeric(target, "page_render_cache_hit", headers.get("x-mei-page-render-cache-hit"));
+  setNumeric(target, "structure_hit", headers.get("x-mei-structure-hit"));
+  setNumeric(target, "eval_hit", headers.get("x-mei-eval-hit"));
+  setNumeric(target, "theme_hit", headers.get("x-mei-theme-hit"));
+  setNumeric(target, "overlay_hit", headers.get("x-mei-overlay-hit"));
+  setNumeric(target, "shell_hit", headers.get("x-mei-shell-hit"));
   setNumeric(target, "scene_bundle_probe_ms", headers.get("x-mei-scene-bundle-probe-ms"));
   setNumeric(
     target,

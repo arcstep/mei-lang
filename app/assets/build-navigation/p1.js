@@ -410,6 +410,36 @@
     }
   }
 
+  function syncBuildPresetTabs(dataMode, reviewProjection) {
+    const dm = String(dataMode || "").trim().toLowerCase();
+    const rp = String(reviewProjection || "")
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
+    document.querySelectorAll("a.manage-view-tab--preset[data-build-preset]").forEach((tab) => {
+      if (!(tab instanceof HTMLElement)) return;
+      const tabDm = String(tab.getAttribute("data-build-data-mode") || "")
+        .trim()
+        .toLowerCase();
+      const tabRp = String(tab.getAttribute("data-build-review-projection") || "")
+        .trim()
+        .toLowerCase()
+        .replace(/-/g, "_");
+      const active = tabDm === dm && tabRp === rp;
+      tab.classList.toggle("is-active", active);
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+    });
+    const shell = document.querySelector(".shell");
+    if (shell) {
+      const preset = document.querySelector(
+        `a.manage-view-tab--preset.is-active[data-build-preset]`,
+      );
+      if (preset instanceof HTMLElement) {
+        shell.setAttribute("data-build-preset", preset.getAttribute("data-build-preset") || "");
+      }
+    }
+  }
+
   function syncBuildShellUrl(url, replaceHistory, linkEl) {
     const parsed = new URL(url, global.location.href);
     const shell = document.querySelector(".shell");
@@ -444,6 +474,10 @@
         shell.setAttribute("data-compile-scene", coord.scene);
         shell.setAttribute("data-compile-target", coord.target);
       }
+      syncBuildPresetTabs(
+        dataMode || shell.getAttribute("data-data-mode"),
+        reviewProjection || shell.getAttribute("data-review-projection"),
+      );
     }
     if (replaceHistory) global.history.replaceState({}, "", url);
     else global.history.pushState({}, "", url);

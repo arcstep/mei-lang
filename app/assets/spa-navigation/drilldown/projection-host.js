@@ -284,6 +284,24 @@
       if (!shouldMountDrilldownHost()) return;
       if (typeof isBuildRoute === "function" && isBuildRoute()) return;
       const detail = event?.detail || {};
+      const popup = detail?.popup && typeof detail.popup === "object" ? detail.popup : {};
+      const inlineT2Kind = String(detail?.kind || popup?.kind || "").trim();
+      if (inlineT2Kind === "t2_panel_open") {
+        const panelId = String(
+          detail?.page_panel_id ||
+            detail?.pagePanelId ||
+            popup?.page_panel_id ||
+            popup?.pagePanelId ||
+            popup?.panel_id ||
+            popup?.panelId ||
+            "",
+        ).trim();
+        if (!panelId || typeof boot.openT2Panel !== "function") {
+          return;
+        }
+        boot.openT2Panel(panelId);
+        return;
+      }
       const config = resolveSceneOpenRequest(detail);
       if (markProjectionOpenHandled(detail, config)) return;
       if (!config.enabled || !(config.boardSceneId || config.sceneId)) {

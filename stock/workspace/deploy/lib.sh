@@ -87,6 +87,7 @@ parse_common_args() {
       --runtime) RUNTIME="$2"; shift 2 ;;
       --runtime=*) RUNTIME="${1#*=}"; shift ;;
       --cargo) SOURCE="lang"; shift ;;
+      --force-build) export MEI_CARGO_FORCE_BUILD=1; shift ;;
       --release) PROFILE="release"; shift ;;
       --debug) PROFILE="debug"; shift ;;
       *) break ;;
@@ -219,6 +220,52 @@ ensure_local_bins() {
   "${workspace_root}/deploy/install.sh"
 }
 
+cargo_runtime_bins_ready() {
+  local workspace_root="$1"
+  local bin_name
+  for bin_name in mei-host-shell mei-compiler mei-plug-ds; do
+    if [[ ! -x "$(resolve_bin_path "${workspace_root}" "${bin_name}")" ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+run_cargo_runtime_build() {
+  local workspace_root="$1"
+  local mei_lang_root target_dir build_script
+  mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
+  target_dir="$(cargo_target_dir "${workspace_root}")"
+  build_script="${mei_lang_root}/scripts/build.sh"
+  export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
+
+  if [[ -f "${build_script}" ]]; then
+    if [[ "${PROFILE}" == "release" ]]; then
+      MEI_CARGO_TARGET_HYGIENE_RAN="${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" \
+        MEI_CARGO_RUNTIME_PANEL_EMITTED="${MEI_CARGO_RUNTIME_PANEL_EMITTED:-0}" \
+        CARGO_TARGET_DIR="${target_dir}" "${build_script}" --release
+    else
+      MEI_CARGO_TARGET_HYGIENE_RAN="${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" \
+        MEI_CARGO_RUNTIME_PANEL_EMITTED="${MEI_CARGO_RUNTIME_PANEL_EMITTED:-0}" \
+        CARGO_TARGET_DIR="${target_dir}" "${build_script}" --debug
+    fi
+    return 0
+  fi
+
+  if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" && "${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" != "1" ]]; then
+    # shellcheck source=/dev/null
+    source "${mei_lang_root}/scripts/cargo-target-gc.sh"
+    maybe_cargo_target_hygiene "${mei_lang_root}"
+  fi
+  local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
+    -p mei-compiler -p mei-plug-ds -p mei-host-shell)
+  if [[ "${PROFILE}" == "release" ]]; then
+    cargo_args=(build --release --manifest-path "${mei_lang_root}/Cargo.toml" \
+      -p mei-compiler -p mei-plug-ds -p mei-host-shell)
+  fi
+  CARGO_TARGET_DIR="${target_dir}" cargo "${cargo_args[@]}"
+}
+
 ensure_runtime_binaries() {
   local workspace_root="$1"
   if [[ "${SOURCE}" != "lang" ]]; then
@@ -228,29 +275,45 @@ ensure_runtime_binaries() {
   if [[ "${MEI_CARGO_RUNTIME_READY:-0}" == "1" ]]; then
     return 0
   fi
-  local mei_lang_root target_dir build_script
+
+  local mei_lang_root target_dir gc_script build_plan
   mei_lang_root="$(resolve_mei_lang_root "${workspace_root}")"
   target_dir="$(cargo_target_dir "${workspace_root}")"
-  build_script="${mei_lang_root}/scripts/build.sh"
-  echo "==> building runtime binaries (profile=${PROFILE}, source=lang, mei-lang=${mei_lang_root})" >&2
-  if [[ -f "${build_script}" ]]; then
-    if [[ "${PROFILE}" == "release" ]]; then
-      CARGO_TARGET_DIR="${target_dir}" "${build_script}" --release
-    else
-      CARGO_TARGET_DIR="${target_dir}" "${build_script}" --debug
-    fi
-  else
+  gc_script="${mei_lang_root}/scripts/cargo-target-gc.sh"
+  if [[ -f "${gc_script}" ]]; then
     # shellcheck source=/dev/null
-    source "${mei_lang_root}/scripts/cargo-target-gc.sh"
-    maybe_cargo_target_hygiene "${mei_lang_root}"
-    local cargo_args=(build --manifest-path "${mei_lang_root}/Cargo.toml" \
-      -p mei-compiler -p mei-plug-ds -p mei-host-shell)
-    if [[ "${PROFILE}" == "release" ]]; then
-      cargo_args=(build --release --manifest-path "${mei_lang_root}/Cargo.toml" \
-        -p mei-compiler -p mei-plug-ds -p mei-host-shell)
-    fi
-    CARGO_TARGET_DIR="${target_dir}" cargo "${cargo_args[@]}"
+    source "${gc_script}"
   fi
+
+  unset MEI_CARGO_TARGET_HYGIENE_SUMMARY
+  export MEI_CARGO_BUILD_PROFILE="${PROFILE}"
+  if cargo_runtime_bins_ready "${workspace_root}"; then
+    export MEI_CARGO_TARGET_DEFER_CLEAN=1
+  fi
+  if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" ]]; then
+    maybe_cargo_target_hygiene "${mei_lang_root}"
+    export MEI_CARGO_TARGET_HYGIENE_RAN=1
+  fi
+
+  build_plan="compile"
+  if [[ "${MEI_CARGO_FORCE_BUILD:-0}" != "1" && "${MEI_CARGO_SKIP_BUILD_IF_FRESH:-1}" == "1" ]]; then
+    if cargo_runtime_bins_ready "${workspace_root}"; then
+      build_plan="skip"
+    fi
+  fi
+
+  if declare -F cargo_target_emit_startup_panel >/dev/null 2>&1; then
+    cargo_target_emit_startup_panel "${target_dir}" "${PROFILE}" "${build_plan}" "" "${workspace_root}"
+    export MEI_CARGO_RUNTIME_PANEL_EMITTED=1
+  fi
+
+  if [[ "${build_plan}" == "skip" ]]; then
+    export MEI_CARGO_RUNTIME_READY=1
+    return 0
+  fi
+
+  echo "==> building runtime binaries (profile=${PROFILE}, source=lang, mei-lang=${mei_lang_root})" >&2
+  run_cargo_runtime_build "${workspace_root}"
   export MEI_CARGO_RUNTIME_READY=1
 }
 
@@ -364,6 +427,7 @@ run_workspace_serve() {
       --runtime) RUNTIME="$2"; shift 2 ;;
       --runtime=*) RUNTIME="${1#*=}"; shift ;;
       --cargo) SOURCE="lang"; shift ;;
+      --force-build) export MEI_CARGO_FORCE_BUILD=1; shift ;;
       --release) PROFILE="release"; shift ;;
       --debug) PROFILE="debug"; shift ;;
       *) break ;;

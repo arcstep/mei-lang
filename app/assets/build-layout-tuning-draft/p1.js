@@ -195,6 +195,12 @@
     });
     if (!patch) return;
     await overlay.putSessionDraft(appId, patch.tuning);
+    if (boot.layerStore && boot.sceneManifestLoader?.fetchManifest) {
+      try {
+        const axes = boot.sceneManifestLoader.readShellAxes?.() || {};
+        await boot.sceneManifestLoader.fetchManifest(appId, resolvePreviewScopeFromSelection() || "home", axes);
+      } catch (_) {}
+    }
     if (options?.persist && typeof overlay.applyDraftToConfig === "function") {
       await overlay.applyDraftToConfig(appId);
     } else {
@@ -231,19 +237,69 @@
     const node = document.querySelector(
       `[data-preview-scope="${CSS.escape(scope)}"]`,
     );
-    if (node instanceof HTMLElement) {
+    const applyEntryToControls = (entry) => {
+      if (!entry || typeof entry !== "object") return;
+      const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
+      const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
       const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
-      if (slotInput instanceof HTMLInputElement) {
-        const current =
-          node.dataset.layoutTuningSlotHeight ||
-          node.style.getPropertyValue("--mei-slot-height").replace(/px$/, "");
-        if (current) slotInput.value = String(current).trim();
-      }
       const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-      if (paddingSelect instanceof HTMLSelectElement) {
-        const profile = node.dataset.layoutTuningPaddingProfile || "";
-        if (profile) paddingSelect.value = profile;
+      const contentBudget = entry.contentBudget || entry.content_budget;
+      if (contentBudget && typeof contentBudget === "object") {
+        const rows = contentBudget.rows || contentBudget.content_rows;
+        if (rowsInput instanceof HTMLInputElement && Array.isArray(rows)) {
+          rowsInput.value = rows.join(",");
+        }
+        const gap = contentBudget.gap ?? contentBudget.content_gap;
+        if (gapInput instanceof HTMLInputElement && gap != null) {
+          gapInput.value = String(gap);
+        }
       }
+      if (slotInput instanceof HTMLInputElement) {
+        const slotHeight =
+          entry.slotHeight ??
+          entry.slot_height ??
+          (node instanceof HTMLElement
+            ? node.dataset.layoutTuningSlotHeight ||
+              node.style.getPropertyValue("--mei-slot-height").replace(/px$/, "")
+            : "");
+        if (slotHeight) slotInput.value = String(slotHeight).trim();
+      }
+      if (paddingSelect instanceof HTMLSelectElement) {
+        const profile =
+          entry.paddingProfile ??
+          entry.padding_profile ??
+          (node instanceof HTMLElement ? node.dataset.layoutTuningPaddingProfile : "");
+        if (profile) paddingSelect.value = String(profile);
+      }
+    };
+    if (node instanceof HTMLElement) {
+      applyEntryToControls({
+        slotHeight:
+          node.dataset.layoutTuningSlotHeight ||
+          node.style.getPropertyValue("--mei-slot-height").replace(/px$/, ""),
+        paddingProfile: node.dataset.layoutTuningPaddingProfile || "",
+        contentBudget: {
+          rows: (node.dataset.layoutTuningContentRows || node.dataset.manifestContentRows || "")
+            .split(",")
+            .map((part) => Number(part.trim()))
+            .filter((value) => Number.isFinite(value)),
+          gap:
+            node.dataset.layoutTuningContentGap ||
+            node.dataset.manifestContentGap ||
+            node.style.rowGap?.replace(/px$/, ""),
+        },
+      });
+    }
+    const appId = appIdFromPath();
+    const overlay = global.MeiOpsLayoutTuningOverlay;
+    if (appId && overlay?.fetchOverlay) {
+      void overlay
+        .fetchOverlay(appId)
+        .then((payload) => {
+          const entry = payload?.entries?.[scope];
+          if (entry) applyEntryToControls(entry);
+        })
+        .catch(() => {});
     }
   }
 

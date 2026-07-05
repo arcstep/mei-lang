@@ -32,3 +32,6 @@ node_modules/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# 本地 cargo target 编译前后对比快照（scripts/compare-build-snapshot.sh 输出）
+/.build-snapshot-*.txt

@@ -241,16 +241,84 @@
     return SUPPORTED_PLANES.includes(planeId) ? planeId : "";
   }
 
+  function defaultHiddenPlanes() {
+    const root = document.documentElement;
+    const explicit = String(root.getAttribute("data-mei-default-hidden-planes") || "")
+      .trim()
+      .toLowerCase();
+    if (explicit) {
+      return explicit
+        .split(/[,\s]+/)
+        .map((entry) => normalizePlaneId(entry))
+        .filter(Boolean);
+    }
+    if (document.querySelector("[data-mei-t2-page='true']")) {
+      root.setAttribute("data-mei-default-hidden-planes", "t2");
+      return ["t2"];
+    }
+    return [];
+  }
+
+  function t2PageSelector(panelId = "") {
+    const normalized = String(panelId || "").trim();
+    const nameSelector = normalized
+      ? `[data-mei-t2-page="true"][data-mei-panel-name="${CSS.escape(normalized)}"]`
+      : "";
+    const scopeSelector = normalized
+      ? `[data-mei-t2-page="true"][data-preview-scope$="/${CSS.escape(normalized)}"]`
+      : "";
+    return [nameSelector, scopeSelector].filter(Boolean).join(", ");
+  }
+
+  function allT2PagePanels() {
+    return Array.from(document.querySelectorAll("[data-mei-t2-page='true']")).filter(
+      (node) => node instanceof HTMLElement,
+    );
+  }
+
+  function resetT2Panels() {
+    document.documentElement.removeAttribute("data-mei-active-t2-panel");
+    allT2PagePanels().forEach((node) => {
+      node.toggleAttribute("hidden", true);
+      node.classList.remove("mei-t2-page-active");
+    });
+  }
+
+  function openT2Panel(panelId) {
+    const selector = t2PageSelector(panelId);
+    if (!selector) return false;
+    const target = document.querySelector(selector);
+    if (!(target instanceof HTMLElement)) return false;
+    setPlaneVisibility("t2", true);
+    const normalized = String(
+      target.getAttribute("data-mei-panel-name") || panelId || "",
+    ).trim();
+    allT2PagePanels().forEach((node) => {
+      const active = node === target;
+      node.toggleAttribute("hidden", !active);
+      node.classList.toggle("mei-t2-page-active", active);
+    });
+    document.documentElement.setAttribute("data-mei-active-t2-panel", normalized);
+    return true;
+  }
+
   function resetPlaneVisibility() {
     SUPPORTED_PLANES.forEach((planeId) => {
       document.documentElement.classList.remove(planeHiddenClass(planeId));
     });
+    defaultHiddenPlanes().forEach((planeId) => {
+      document.documentElement.classList.add(planeHiddenClass(planeId));
+    });
+    resetT2Panels();
   }
 
   function setPlaneVisibility(planeId, visible) {
     const normalized = normalizePlaneId(planeId);
     if (!normalized) return false;
     document.documentElement.classList.toggle(planeHiddenClass(normalized), !visible);
+    if (!visible && normalized === "t2") {
+      resetT2Panels();
+    }
     return true;
   }
 
@@ -350,6 +418,16 @@
         return true;
       case "open_t2_page":
       case "open_board": {
+        const panelId = String(
+          action.pagePanelId ||
+            action.page_panel_id ||
+            action.panelId ||
+            action.panel_id ||
+            "",
+        ).trim();
+        if (panelId) {
+          return openT2Panel(panelId);
+        }
         const sceneId = String(
           action.pageSceneId ||
             action.page_scene_id ||
@@ -380,6 +458,8 @@
     root.MeiPresentation.showPlane = (planeId) => setPlaneVisibility(planeId, true);
     root.MeiPresentation.hidePlane = (planeId) => setPlaneVisibility(planeId, false);
     root.MeiPresentation.resetPlanes = resetPlaneVisibility;
+    root.MeiPresentation.openT2Panel = openT2Panel;
+    root.MeiPresentation.resetT2Panels = resetT2Panels;
     root.MeiPresentation.resetStages = resetStageVisibility;
     root.MeiPresentation.showStage = (stageKind) => setStageVisibility(stageKind, true);
     root.MeiPresentation.hideStage = (stageKind) => setStageVisibility(stageKind, false);
@@ -388,6 +468,8 @@
     root.MeiPresentation.resolveViewpoint = readViewpointEntry;
     root.MeiPresentation.zTiers = PRESENTATION_Z_TIERS;
     boot.dispatchPresentationAction = dispatchPresentationAction;
+    boot.openT2Panel = openT2Panel;
+    resetPlaneVisibility();
   }
 
   installFocusController();

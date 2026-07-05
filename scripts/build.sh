@@ -27,7 +27,15 @@ export MEI_CARGO_SWEEP_KEEP_PKGS="${MEI_CARGO_SWEEP_KEEP_PKGS:-mei-compiler,mei-
 
 # shellcheck source=cargo-target-gc.sh
 source "${SCRIPT_DIR}/cargo-target-gc.sh"
-maybe_cargo_target_hygiene "${MEI_LANG_ROOT}"
+
+if [[ "${MEI_CARGO_TARGET_HYGIENE:-1}" != "0" && "${MEI_CARGO_TARGET_HYGIENE_RAN:-0}" != "1" ]]; then
+  maybe_cargo_target_hygiene "${MEI_LANG_ROOT}"
+fi
+
+if [[ "${MEI_CARGO_RUNTIME_PANEL_EMITTED:-0}" != "1" ]]; then
+  cargo_target_emit_startup_panel "${TARGET_DIR}" "${PROFILE}" "compile"
+  export MEI_CARGO_RUNTIME_PANEL_EMITTED=1
+fi
 
 echo "==> mei-lang build (profile=${PROFILE}, root=${MEI_LANG_ROOT})"
 CARGO_TARGET_DIR="${TARGET_DIR}" cargo "${CARGO_ARGS[@]}"

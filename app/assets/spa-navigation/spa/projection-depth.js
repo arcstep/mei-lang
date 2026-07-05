@@ -58,6 +58,11 @@
         readReviewProjectionFromUrl(),
     );
     const maxDepth = REVIEW_PROJECTION_MAX_DEPTH[projection];
+    root.querySelectorAll(".mei-compose-hidden, [hidden].mei-compose-hidden").forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      el.classList.remove("mei-compose-hidden");
+      el.removeAttribute("hidden");
+    });
     root.querySelectorAll(".build-review-projection-dim, .mei-review-projection-dim").forEach((el) => {
       el.classList.remove("build-review-projection-dim", "mei-review-projection-dim");
       if (el instanceof HTMLElement) el.style.removeProperty("pointer-events");
@@ -84,7 +89,7 @@
 
   function applyLayoutBudgetManifest(doc) {
     const root = doc || document;
-    const manifest = global.__mei?.layout_budget_manifest;
+    const manifest = globalThis.__mei?.layout_budget_manifest;
     if (!manifest?.entries || typeof manifest.entries !== "object") return;
     Object.entries(manifest.entries).forEach(([scope, entry]) => {
       if (!entry || typeof entry !== "object") return;
@@ -101,7 +106,14 @@
       }
       const contentRows = entry.content_rows ?? entry.contentRows;
       if (Array.isArray(contentRows) && contentRows.length > 0) {
-        node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
+        const total = contentRows.reduce((sum, row) => sum + Number(row), 0);
+        if (total > 0) {
+          node.style.gridTemplateRows = contentRows
+            .map((row) => `${(Number(row) / total) * 100}fr`)
+            .join(" ");
+        } else {
+          node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
+        }
         node.dataset.manifestContentRows = contentRows.join(",");
       }
       const contentGap = entry.content_gap ?? entry.contentGap;

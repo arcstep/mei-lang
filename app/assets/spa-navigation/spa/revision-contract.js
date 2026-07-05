@@ -13,6 +13,9 @@
       revision_digest: String(
         revision.revision_digest || revision.revisionDigest || "",
       ).trim(),
+      manifest_revision_digest: String(
+        revision.manifest_revision_digest || revision.manifestRevisionDigest || "",
+      ).trim(),
       cache_key: String(revision.cache_key || revision.cacheKey || "").trim() || undefined,
       client_revision: String(
         revision.client_revision || revision.clientRevision || "",
@@ -35,6 +38,9 @@
     if (!local || !remote) return false;
     if (local.revision_digest && remote.revision_digest) {
       return local.revision_digest === remote.revision_digest;
+    }
+    if (local.manifest_revision_digest && remote.manifest_revision_digest) {
+      return local.manifest_revision_digest === remote.manifest_revision_digest;
     }
     if (local.cache_key && remote.cache_key) {
       return local.cache_key === remote.cache_key;
@@ -78,8 +84,35 @@
     }
   }
 
+  const ViewRevisionOutcome = {
+    REFETCH: "refetch",
+    ASSEMBLE_LOCAL: "assemble_local",
+    LOCAL_MISS: "local_miss",
+    FALLBACK_SSR: "fallback_ssr",
+  };
+
+  function holdingsFromLayerCache(holdings) {
+    return (holdings || [])
+      .map((row) => ({
+        name: String(row?.name || "").trim(),
+        artifact_id: String(row?.artifact_id || "").trim(),
+        content_hash: String(row?.content_hash || "").trim(),
+      }))
+      .filter((row) => row.name && row.artifact_id && row.content_hash);
+  }
+
+  function revisionsMatchManifest(manifestDigest, localDigest) {
+    const a = String(manifestDigest || "").trim();
+    const b = String(localDigest || "").trim();
+    if (!a || !b) return false;
+    return a === b;
+  }
+
   boot.revisionsMatch = revisionsMatch;
   boot.normalizeRevision = normalizeRevision;
   boot.surfaceRevisionKey = surfaceRevisionKey;
   boot.pruneRevisionStore = pruneRevisionStore;
+  boot.ViewRevisionOutcome = ViewRevisionOutcome;
+  boot.holdingsFromLayerCache = holdingsFromLayerCache;
+  boot.revisionsMatchManifest = revisionsMatchManifest;
 })(window);

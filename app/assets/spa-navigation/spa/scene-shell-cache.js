@@ -1,9 +1,14 @@
+  // Tier-3 fallback store: pre-rendered shell HTML snapshots. Primary path: layerArtifactCache + view-revision assemble_local.
   const SCENE_SHELL_DB = "mei-scene-shell-cache-v1";
   const SCENE_SHELL_STORE = "snapshots";
   const SCENE_SHELL_DB_VERSION = 1;
   const SCENE_SHELL_LS_PREFIX = "mei:scene-shell:v1:";
   const SCENE_SHELL_MAX_ENTRIES = 12;
   const SCENE_SHELL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+  function legacyShellCacheEnabled() {
+    return globalThis.__mei?.allow_legacy_shell_cache === true;
+  }
 
   function openSceneShellDb() {
     if (typeof indexedDB === "undefined") {
@@ -77,6 +82,9 @@
       title: sourceDoc.title || document.title,
       bodyClassName: sourceDoc.body?.className || document.body.className,
       shellHtml: shell.innerHTML,
+      manifestDigest:
+        String(globalThis.__mei?.scene_manifest_refs?.revision_digest || "").trim() || null,
+      layerRevisions: globalThis.__mei?.artifact_hits || null,
       headScripts: collectHeadJsonScripts(),
       sceneBundle: collectSceneBundleMeta(sourceDoc),
       url: ctx.url || window.location.href,
@@ -225,6 +233,7 @@
   }
 
   async function persistSceneShellSnapshot(snapshot) {
+    if (!legacyShellCacheEnabled()) return false;
     if (!snapshot || !snapshot.key) return false;
     const db = await openSceneShellDb();
     if (db) {
@@ -288,6 +297,7 @@
   }
 
   async function loadSceneShellSnapshot(ctx) {
+    if (!legacyShellCacheEnabled()) return null;
     const keys = [
       snapshotStorageKey(ctx),
       legacySnapshotStorageKey(ctx),
@@ -378,6 +388,7 @@
   }
 
   async function tryRestoreSceneShellFromCache(ctx, revision, url, replaceHistory) {
+    if (!legacyShellCacheEnabled()) return null;
     const snapshot = await loadSceneShellSnapshot(ctx);
     if (!snapshot) return null;
     const normalizedRevision =
@@ -402,6 +413,7 @@
   }
 
   async function saveCurrentSceneShellSnapshot(ctx, revision, doc) {
+    if (!legacyShellCacheEnabled()) return false;
     const snapshot = buildSceneShellSnapshot(ctx, revision, doc);
     if (!snapshot) return false;
     if (typeof boot.rememberSceneRevision === "function" && revision) {

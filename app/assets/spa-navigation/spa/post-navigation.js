@@ -32,7 +32,7 @@
   function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
     void (async () => {
       try {
-        if (navigationId !== currentNavigationId) return;
+        if (navigationId != null && navigationId !== currentNavigationId) return;
         if (!preserveManageWorkspaceFromUrls(currentUrl, nextUrl)) {
           const bundlesReady = await ensureHostBundlesFromDoc(
             doc,
@@ -40,11 +40,18 @@
             currentUrl,
             nextUrl,
           );
-          if (!bundlesReady || navigationId !== currentNavigationId) return;
+          if (!bundlesReady || (navigationId != null && navigationId !== currentNavigationId)) return;
         }
-        if (navigationId !== currentNavigationId) return;
+        if (navigationId != null && navigationId !== currentNavigationId) return;
+        if (
+          typeof boot.bootstrapThinShellComposition === "function" &&
+          (globalThis.__mei?.thin_shell === true || doc?.documentElement?.innerHTML?.includes("thin_shell=true"))
+        ) {
+          await boot.bootstrapThinShellComposition();
+        }
+        if (navigationId != null && navigationId !== currentNavigationId) return;
         await syncMissingWorkspaceModulesOnly(doc, navigationId);
-        if (navigationId !== currentNavigationId) return;
+        if (navigationId != null && navigationId !== currentNavigationId) return;
         if (isBuildWorkspacePathname(nextUrl.pathname)) {
           stabilizeBuildPreviewRuntime();
           if (typeof globalThis.__meiBuildCopyContextInit === "function") {

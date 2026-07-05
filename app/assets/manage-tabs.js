@@ -13,6 +13,7 @@
   ];
 
   const PROTOTYPE_RETIRED_TABS = new Set(["overview", "provenance", "agent"]);
+  // 配置视图已降级为高级/兼容入口；主流布局/字体/颜色请在「场景原型」WYSIWYG 面板完成。
 
   function isBuildPrototypeRoute() {
     return /^\/apps\/(?:build|manage)\//.test(String(window.location.pathname || ""));
@@ -139,9 +140,13 @@
   }
 
   function emitTabChange(nextTab) {
+    const active = resolveRenderableTab(nextTab);
+    if (typeof boot.beginClientCommand === "function") {
+      boot.beginClientCommand({ kind: "TAB", label: `tab=${active}` });
+    }
     document.dispatchEvent(
       new CustomEvent("mei:manage-tab-change", {
-        detail: { tab: resolveRenderableTab(nextTab) },
+        detail: { tab: active },
       }),
     );
   }

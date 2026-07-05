@@ -27,11 +27,21 @@
       const url = new URL(urlLike, global.location.href);
       const parts = url.pathname.split("/").filter(Boolean);
       if (parts[0] !== "apps" || parts[1] !== "build" || !parts[2]) return null;
+      const hostBoot = global.__meiLangBoot || globalThis.__meiLangBoot || boot;
+      const resolveNode =
+        typeof hostBoot.resolveBuildFragmentNode === "function"
+          ? hostBoot.resolveBuildFragmentNode.bind(hostBoot)
+          : typeof global.MeiBuildFragmentRevision?.resolveBuildFragmentNode === "function"
+            ? global.MeiBuildFragmentRevision.resolveBuildFragmentNode.bind(
+                global.MeiBuildFragmentRevision,
+              )
+            : null;
       return {
         surface: "build",
         appId: decodeURIComponent(parts[2]),
         url: url.href,
         node: String(url.searchParams.get("node") || "").trim(),
+        resolvedNode: resolveNode ? String(resolveNode(url.href) || "").trim() : "",
         tab: String(url.searchParams.get("tab") || "").trim(),
         dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
         reviewProjection: String(url.searchParams.get("review_projection") || "")
@@ -77,7 +87,8 @@
       shellRestoredFromFragment: !!global.__meiShellRestoredFromFragment,
       buildPreviewRestoredFromCache: !!global.__meiBuildPreviewRestoredFromCache,
       bootstrapPayloadReady: !!global.__meiBootstrapPayloadReady,
-      revisionSkippedNetwork: !!global.__meiRevisionSkippedNetwork,
+      revisionSkippedNetwork:
+        !!global.__meiRevisionSkippedNetwork || !!global.__meiBuildRevisionSkippedNetwork,
       bootstrapFromLocalStorage: !!global.__meiBootstrapFromLocalStorage,
     };
   }
@@ -109,7 +120,9 @@
     const ssrRevision =
       typeof boot.readSsrEmbeddedSceneRevision === "function"
         ? boot.readSsrEmbeddedSceneRevision()
-        : null;
+        : isBuild && typeof hostBoot.readSsrEmbeddedBuildRevision === "function"
+          ? hostBoot.readSsrEmbeddedBuildRevision()
+          : null;
     const buildRevision =
       isBuild && ctx?.url
         ? hostBoot.readBuildFragmentRevision?.(ctx.url) ||
@@ -138,6 +151,8 @@
       url: global.location.href,
       ctx,
       surface: isBuild ? "build" : ctx ? "access" : "unknown",
+      thin_shell: globalThis.__mei?.thin_shell === true,
+      artifact_hits: globalThis.__mei?.artifact_hits || boot.lastArtifactHits || null,
       keys: { shell: shellKey, revision: revisionKey },
       flags: readFlags(),
       ssrRevision,
@@ -163,10 +178,13 @@
       bootApi: {
         inspectSceneClientCache: typeof hostBoot.inspectSceneClientCache === "function",
         fetchBuildFragmentRevision: typeof hostBoot.fetchBuildFragmentRevision === "function",
+        viewRevisionClient: typeof hostBoot.viewRevisionClient?.fetchViewRevision === "function",
+        layerArtifactCache: typeof hostBoot.layerArtifactCache?.listHoldings === "function",
         meiBuildFragmentRevision: !!global.MeiBuildFragmentRevision?.fetchBuildFragmentRevision,
         tryRestoreBuildPreviewFromCache:
           typeof global.MeiBuildNavigation?.tryRestoreBuildPreviewFromCache === "function",
       },
+      viewRevisionOutcome: hostBoot.lastViewRevisionOutcome || null,
       events: (global.__meiCacheDiag?.events || []).slice(-12),
     };
     trace("inspect", report);
@@ -181,8 +199,10 @@
       const url = String(input?.url || input || "");
       if (
         url.includes("/api/host/scene-revision") ||
+        url.includes("/api/host/view-revision") ||
         url.includes("/api/host/scene-bootstrap") ||
         url.includes("/api/host/scene-fragment") ||
+        url.includes("/api/host/layer-batch") ||
         url.includes("/api/build/fragment-revision") ||
         url.includes("/api/build/workspace-fragment")
       ) {

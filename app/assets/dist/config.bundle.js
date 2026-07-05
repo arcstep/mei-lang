@@ -2005,7 +2005,14 @@
     const rows = budget.rows ?? budget.content_rows ?? budget.contentRows;
     const gap = budget.gap ?? budget.content_gap ?? budget.contentGap;
     if (Array.isArray(rows) && rows.length > 0) {
-      node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
+      const total = rows.reduce((sum, row) => sum + Number(row), 0);
+      if (total > 0) {
+        node.style.gridTemplateRows = rows
+          .map((row) => `${(Number(row) / total) * 100}fr`)
+          .join(" ");
+      } else {
+        node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
+      }
       node.dataset.layoutTuningContentRows = rows.join(",");
       patched = true;
     }
@@ -2051,6 +2058,14 @@
     const root =
       view.document.querySelector(".preview-pane-scroll") ||
       view.document.querySelector(".preview-pane");
+    const boot = view.__meiLangBoot || global.__meiLangBoot || {};
+    if (boot.viewCompositor?.applyThemeAndOverlay) {
+      boot.viewCompositor.applyThemeAndOverlay(root, null, {
+        patches: payload.entries || {},
+      });
+      notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
+      return;
+    }
     if (applyOverlayEntries(root, payload.entries || {})) {
       notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
       if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
@@ -2101,6 +2116,7 @@
     applyHot: applyLayoutTuningOverlayHot,
     putSessionDraft,
     applyDraftToConfig,
+    fetchOverlay,
     notify: notifyLayoutTuningOverlay,
   };
 })();

@@ -15,6 +15,14 @@
 
   function wakePreviewRuntime(scope, options) {
     const opts = options || {};
+    if (opts.fromCache === true) {
+      if (typeof boot.scheduleFrameViewportRelayout === "function") {
+        try {
+          boot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
+      return;
+    }
     const resetCache = opts.resetRuntimeQueryCache === true;
     if (typeof boot.scheduleFrameViewportRelayout === "function") {
       try {
@@ -60,6 +68,20 @@
   function runTier0PostNav(prevUrl) {
     global.__meiBuildNavPrevUrl = String(prevUrl || global.location.href);
     ensurePreviewTabVisible(global.location.href, null, { emit: false });
+    const previewRoot =
+      document.querySelector(".preview-pane-scroll") ||
+      document.querySelector('[data-manage-tab-panel="preview"] .preview-pane-scroll');
+    if (previewRoot instanceof HTMLElement && global.MeiProjectionDepth?.applyProjectionDepth) {
+      try {
+        const parsed = new URL(global.location.href);
+        global.MeiProjectionDepth.applyProjectionDepth(previewRoot, {
+          reviewProjection: parsed.searchParams.get("review_projection") || "",
+        });
+      } catch (_) {}
+    }
+    if (boot.viewCompositor?.clearComposeArtifacts && previewRoot instanceof HTMLElement) {
+      boot.viewCompositor.clearComposeArtifacts(previewRoot);
+    }
     document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     if (typeof closeDrilldownOverlay === "function") {
       try {
@@ -148,16 +170,99 @@
       curBar.replaceWith(document.importNode(nextBar, true));
     }
     applyBootstrapScripts(drilldownScript);
+    const previewScroll = panel.querySelector(".preview-pane-scroll");
+    if (previewScroll instanceof HTMLElement && global.MeiProjectionDepth?.applyProjectionDepth) {
+      try {
+        const parsed = new URL(global.location.href);
+        global.MeiProjectionDepth.applyProjectionDepth(previewScroll, {
+          reviewProjection: parsed.searchParams.get("review_projection") || "",
+        });
+      } catch (_) {}
+    }
     return true;
+  }
+
+  function resolveBuildNode(url) {
+    const host = hostBoot();
+    const fn =
+      host.resolveBuildFragmentNode || global.MeiBuildFragmentRevision?.resolveBuildFragmentNode;
+    if (typeof fn === "function") {
+      const resolved = fn.call(host, url);
+      if (resolved) return resolved;
+    }
+    return nodeIdFromUrl(url);
+  }
+
+  function viewRevisionCtxFromUrl(url) {
+    const parsed = new URL(url, global.location.href);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    const appId = parts[2] || "";
+    const node = resolveBuildNode(url);
+    return {
+      app_id: appId,
+      scene_id: parsed.searchParams.get("scene") || "home",
+      surface: "build",
+      node,
+      data_mode: parsed.searchParams.get("data_mode") || "",
+      review_projection: parsed.searchParams.get("review_projection") || "",
+      focus: parsed.searchParams.get("focus") || "",
+      scope: parsed.searchParams.get("scope") || "",
+      tab: parsed.searchParams.get("tab") || "preview",
+    };
+  }
+
+  async function tryBuildViewRevisionAssemble(url) {
+    const host = hostBoot();
+    if (!host.viewRevisionClient?.negotiateWithLocalMiss) return null;
+    if (host.viewRevisionClient.isEnabled && !host.viewRevisionClient.isEnabled()) {
+      return null;
+    }
+    try {
+      const ctx = viewRevisionCtxFromUrl(url);
+      const result = await host.viewRevisionClient.negotiateWithLocalMiss(ctx);
+      if (result?.assemble?.ok) {
+        const outcome =
+          result.outcome === (host.ViewRevisionOutcome?.REFETCH || "refetch")
+            ? "refetch"
+            : (host.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local");
+        ensurePreviewTabVisible(url, null, { emit: false });
+        wakePreviewRuntime("build-view-revision", { fromCache: true });
+        global.__meiBuildPreviewRestoredFromCache = 1;
+        if (typeof host.cacheDiagTrace === "function") {
+          host.cacheDiagTrace("view-revision-outcome", {
+            outcome,
+            surface: "build",
+          });
+        }
+        return {
+          restored: true,
+          source: outcome,
+          revision: result.response,
+        };
+      }
+      if (result?.outcome === (host.ViewRevisionOutcome?.LOCAL_MISS || "local_miss")) {
+        if (typeof host.cacheDiagTrace === "function") {
+          host.cacheDiagTrace("view-revision-outcome", { outcome: "local_miss", surface: "build" });
+        }
+        return { restored: false, source: "local_miss", revision: result.response };
+      }
+    } catch (error) {
+      console.warn("[build-navigation] view-revision assemble skipped", error);
+    }
+    return null;
   }
 
   async function fetchWorkspaceFragment(url) {
     const parsed = new URL(url, global.location.href);
     const parts = parsed.pathname.split("/").filter(Boolean);
     const appId = parts[2] || "";
+    const node = resolveBuildNode(url);
+    if (!node) {
+      throw new Error("build workspace fragment requires resolved node id");
+    }
     const params = new URLSearchParams({
       app_id: appId,
-      node: String(parsed.searchParams.get("node") || ""),
+      node,
       tab: buildTab(url) || "preview",
     });
     const focus = parsed.searchParams.get("focus");
@@ -241,19 +346,13 @@
     return typeof fn === "function" ? fn.call(host, url, revision) : false;
   }
 
-  async function persistBuildPreviewSnapshot(url) {
+  async function persistBuildPreviewSnapshot(url, knownRevision) {
     const tab = buildTab(url);
     if (tab && tab !== "preview") return false;
     const panel = document.querySelector('[data-manage-tab-panel="preview"]');
     const scroll = panel?.querySelector(".preview-pane-scroll");
     if (!(scroll instanceof HTMLElement)) return false;
-    let revision = readBuildRevision(url);
-    if (!revision) {
-      revision = await fetchBuildRevision(url, {
-        timeoutMs: 4000,
-        skipRemoteWhenValid: true,
-      });
-    }
+    let revision = knownRevision || readBuildRevision(url);
     if (!revision) return false;
     const drilldownParts = ["mei-scene-drilldown-context", "mei-host-runtime-capabilities"]
       .map((id) => {
@@ -266,7 +365,7 @@
       preview_html: scroll.outerHTML,
       drilldown_script: drilldownParts.join(""),
       workspace_scripts: [],
-      node: String(parsed.searchParams.get("node") || ""),
+      node: resolveBuildNode(url),
       focus: String(parsed.searchParams.get("focus") || ""),
       revision,
     };
@@ -282,9 +381,21 @@
     return true;
   }
 
-  function scheduleBuildPreviewPersist(url) {
+  function scheduleEagerBuildPreviewPersist(url, revision) {
     const run = () => {
-      void persistBuildPreviewSnapshot(url);
+      void persistBuildPreviewSnapshot(url, revision || readBuildRevision(url));
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", run, { once: true });
+    } else {
+      global.requestAnimationFrame(run);
+    }
+    scheduleBuildPreviewPersist(url, revision);
+  }
+
+  function scheduleBuildPreviewPersist(url, knownRevision) {
+    const run = () => {
+      void persistBuildPreviewSnapshot(url, knownRevision || readBuildRevision(url));
     };
     global.addEventListener("pagehide", run, { once: true });
     document.addEventListener("visibilitychange", () => {
@@ -306,37 +417,90 @@
       return { restored: false, source: "no-revision-api" };
     }
     try {
-      const remoteRevision = await fetchBuildRevision(url, {
+      const viewRevisionOutcome = await tryBuildViewRevisionAssemble(url);
+      if (viewRevisionOutcome?.restored) {
+        return viewRevisionOutcome;
+      }
+
+      let revision = await fetchBuildRevision(url, {
         timeoutMs: opts.timeoutMs || 8000,
         skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
       });
-      if (!remoteRevision || !buildRevisionStillValid(url, remoteRevision)) {
-        return { restored: false, source: "revision-miss", revision: remoteRevision };
+      if (!revision) {
+        revision = await fetchBuildRevision(url, { timeoutMs: opts.timeoutMs || 8000 });
       }
-      const cached = readBuildFragmentCache(url, remoteRevision);
-      if (!cached?.preview_html) {
-        return { restored: false, source: "fragment-miss", revision: remoteRevision };
+      if (!revision) {
+        return { restored: false, source: "revision-miss", revision: null };
       }
-      const ok = swapPreviewFragment(
-        String(cached.preview_html || ""),
-        String(cached.drilldown_script || ""),
-      );
-      if (!ok) {
-        return { restored: false, source: "swap-failed", revision: remoteRevision };
+      const cached = readBuildFragmentCache(url, revision);
+      if (cached?.preview_html) {
+        const ok = swapPreviewFragment(
+          String(cached.preview_html || ""),
+          String(cached.drilldown_script || ""),
+        );
+        if (!ok) {
+          return { restored: false, source: "swap-failed", revision };
+        }
+        if (
+          Array.isArray(cached.workspace_scripts) &&
+          typeof boot.syncPreviewWorkspaceScripts === "function"
+        ) {
+          await boot.syncPreviewWorkspaceScripts(cached.workspace_scripts);
+        }
+        ensurePreviewTabVisible(url, null, { emit: false });
+        wakePreviewRuntime("build-cold-cache", { fromCache: true });
+        global.__meiBuildPreviewRestoredFromCache = 1;
+        return { restored: true, source: "fragment-cache", revision };
       }
       if (
-        Array.isArray(cached.workspace_scripts) &&
-        typeof boot.syncPreviewWorkspaceScripts === "function"
+        !cached?.preview_html &&
+        cached?.scene_manifest &&
+        boot.viewRevisionClient?.tryAssembleLocal
       ) {
-        await boot.syncPreviewWorkspaceScripts(cached.workspace_scripts);
+        const ctx = viewRevisionCtxFromUrl(url);
+        const assemble = await boot.viewRevisionClient.tryAssembleLocal(ctx, {
+          manifest: cached.scene_manifest,
+          compose_defaults: cached.scene_manifest?.compose_defaults,
+        });
+        if (assemble?.ok) {
+          ensurePreviewTabVisible(url, null, { emit: false });
+          wakePreviewRuntime("build-manifest-cache", { fromCache: true });
+          return { restored: true, source: "assemble_local", revision };
+        }
       }
-      ensurePreviewTabVisible(url, null, { emit: false });
-      wakePreviewRuntime("build-cold-cache", { pulsePreviewUpdated: true });
-      global.__meiBuildPreviewRestoredFromCache = 1;
-      return { restored: true, source: "fragment-cache", revision: remoteRevision };
+      rememberBuildRevision(url, revision);
+      if (viewRevisionOutcome?.source === "local_miss") {
+        return { restored: false, source: "local_miss", revision };
+      }
+      scheduleEagerBuildPreviewPersist(url, revision);
+      return { restored: false, source: "fragment-miss", revision };
     } catch (error) {
       console.warn("[build-navigation] cold preview cache restore skipped", error);
       return { restored: false, source: "error" };
+    }
+  }
+
+  async function tryComposeProjectionOnly(url) {
+    try {
+      const parsed = new URL(url, global.location.href);
+      const reviewProjection = String(parsed.searchParams.get("review_projection") || "").trim();
+      if (!reviewProjection) return false;
+      const root = document.querySelector(".preview-pane-scroll, .shell");
+      if (!root?.querySelector("[data-preview-scope], [data-mei-ui-role]")) {
+        return false;
+      }
+      if (boot.viewCompositor?.clearComposeArtifacts) {
+        boot.viewCompositor.clearComposeArtifacts(root);
+      }
+      if (global.MeiProjectionDepth?.applyReviewProjectionChrome) {
+        global.MeiProjectionDepth.applyReviewProjectionChrome(root, {
+          reviewProjection,
+        });
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -344,6 +508,14 @@
     showBuildNavLoading(url);
     try {
       ensurePreviewTabVisible(url);
+      if (await tryComposeProjectionOnly(url)) {
+        global.__meiBuildPreviewRestoredFromCache = 1;
+        return true;
+      }
+      const viewRevisionOutcome = await tryBuildViewRevisionAssemble(url);
+      if (viewRevisionOutcome?.restored) {
+        return true;
+      }
       let payload = null;
       const fetchRev = fetchBuildRevision;
       if (typeof fetchRev === "function") {
@@ -365,10 +537,54 @@
         }
         if (payload?.preview_html) {
           rememberBuildFragment(url, payload.revision, payload);
+        } else if (payload?.scene_manifest) {
+          rememberBuildFragment(url, payload.revision, payload);
         }
       }
+      if (!payload?.preview_html && payload?.scene_manifest && boot.sceneManifestLoader && boot.viewCompositor) {
+        const parsed = new URL(url, global.location.href);
+        const appId = parsed.pathname.split("/").filter(Boolean)[2] || "";
+        const sceneId = parsed.searchParams.get("scene") || "home";
+        const ctx = viewRevisionCtxFromUrl(url);
+        await boot.sceneManifestLoader.ensureLayers(
+          [
+            "structure.full",
+            "eval.slot_group.scene:default",
+            "theme.tokens",
+            "layout.overlay",
+            "shell.build",
+          ],
+          appId,
+          sceneId,
+          ctx,
+          payload.scene_manifest,
+        );
+        if (boot.viewRevisionClient?.tryAssembleLocal) {
+          const assemble = await boot.viewRevisionClient.tryAssembleLocal(ctx, {
+            manifest: payload.scene_manifest,
+            compose_defaults: payload.compose_defaults,
+          });
+          if (assemble?.ok) {
+            return true;
+          }
+        }
+        const batch = await boot.sceneManifestLoader.fetchLayerBatch(
+          appId,
+          sceneId,
+          ["structure.full"],
+          boot.sceneManifestLoader.readShellAxes(),
+        );
+        const structure = batch?.layers?.["structure.full"];
+        const projection =
+          parsed.searchParams.get("review_projection") ||
+          payload.compose_defaults?.review_projection ||
+          "live_full";
+        const root = document.querySelector(".preview-pane-scroll, .shell");
+        boot.viewCompositor.composePreview(root, structure, projection, null, null);
+        return true;
+      }
       const ok = swapPreviewFragment(
-        String(payload.preview_html || ""),
+        String(payload?.preview_html || ""),
         String(payload.drilldown_script || ""),
       );
       if (!ok) return false;
@@ -402,6 +618,12 @@
         }
         const resolvedTab = tab || inferPreviewTabFromNodeId(node);
         if (resolvedTab) shell.setAttribute("data-build-tab", resolvedTab);
+        if (typeof syncBuildPresetTabs === "function") {
+          syncBuildPresetTabs(
+            dataMode || shell.getAttribute("data-data-mode"),
+            reviewProjection || shell.getAttribute("data-review-projection"),
+          );
+        }
       }
       if (replaceHistory) global.history.replaceState({}, "", url);
       else global.history.pushState({}, "", url);
@@ -426,6 +648,10 @@
   async function tryNavigateBuild(fromUrl, toUrl, options) {
     if (buildNavInFlight) {
       return { handled: false, tier: 2, reason: "in_flight" };
+    }
+    const host = hostBoot();
+    if (typeof host.beginClientCommand === "function") {
+      host.beginClientCommand({ kind: "BUILD_NAV", label: String(toUrl || "") });
     }
     const opts = options || {};
     const structureNav = isSameSceneStructureNav(fromUrl, toUrl);
@@ -532,6 +758,7 @@
     classifyBuildNavTier,
     tryNavigateBuild,
     tryRestoreBuildPreviewFromCache,
+    scheduleEagerBuildPreviewPersist,
     scheduleBuildPreviewPersist,
     persistBuildPreviewSnapshot,
     tryHandleBuildClick,

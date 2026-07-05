@@ -29,13 +29,19 @@
     try {
       const url = new URL(urlLike, window.location.href);
       const match = url.pathname.match(
-        /^\/apps\/(?:app|access|run|presentation|slides|copilot)\/([^/]+)\/scene\/([^/]+)/,
+        /^\/apps\/(?:app|access|run|presentation|slides|copilot)\/([^/]+)(?:\/scene\/([^/]+))?/,
       );
       if (!match) return null;
       const mode = url.pathname.split("/")[2] || "app";
+      const fallbackSceneId =
+        String(
+          document.body?.getAttribute("data-scene-id") ||
+            document.querySelector(".shell")?.getAttribute("data-scene") ||
+            "home",
+        ).trim() || "home";
       return {
         appId: decodeURIComponent(match[1]),
-        sceneId: decodeURIComponent(match[2]),
+        sceneId: decodeURIComponent(match[2] || fallbackSceneId),
         mode,
         chrome: String(url.searchParams.get("chrome") || "").trim().toLowerCase(),
         dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),

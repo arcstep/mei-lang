@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Remove stale Cargo target artifacts before a full `cargo clean`.
+"""Remove reclaimable Cargo target artifacts before `cargo clean`.
 
-Phases (when enabled via flags / env-backed CLI args):
-  1. Drop the inactive profile directory (debug vs release).
-  2. Remove workspace packages outside the runtime dependency closure.
-  3. Remove integration-test fingerprints and binaries.
-  4. Drop duplicate / orphaned deps for superseded fingerprint hashes.
-  5. Optionally wipe incremental (phase-2 hygiene; slower rebuild than clean).
+Safe to delete without forcing a full dependency rebuild:
+  - Stale fingerprint dirs and deps/build files for superseded hashes
+  - Workspace crates outside the runtime dependency closure
+  - Integration-test artifacts
+  - Inactive profile directory (debug vs release)
+  - Linker intermediates (*.o, *.rcgu.o) under deps/ — rlib/rmeta kept
+
+May slow the next incremental compile (still not a cold rebuild):
+  - Entire incremental/ cache
+
+`cargo clean` remains the only way to shrink below the live dependency closure.
 """
 from __future__ import annotations
 
@@ -328,6 +333,21 @@ def sweep_stale_hashes(profile_dir: Path, dry_run: bool) -> int:
     return freed
 
 
+def sweep_linker_intermediates(profile_dir: Path, dry_run: bool) -> int:
+    """Drop LLVM object files in deps/; linked .rlib/.rmeta stay for reuse."""
+    freed = 0
+    deps = profile_dir / "deps"
+    if not deps.is_dir():
+        return 0
+    for artifact in deps.iterdir():
+        if not artifact.is_file():
+            continue
+        name = artifact.name
+        if name.endswith(".o") or ".rcgu.o" in name:
+            freed += _remove_path(artifact, dry_run)
+    return freed
+
+
 def sweep_profile(
     profile_dir: Path,
     dry_run: bool,
@@ -335,6 +355,7 @@ def sweep_profile(
     outside_crate_keys: set[str],
     sweep_tests: bool,
     sweep_incremental: bool,
+    prune_link_intermediates: bool,
 ) -> int:
     freed = 0
     if sweep_incremental:
@@ -346,6 +367,8 @@ def sweep_profile(
     if sweep_tests:
         freed += sweep_test_artifacts(profile_dir, dry_run)
     freed += sweep_stale_hashes(profile_dir, dry_run)
+    if prune_link_intermediates:
+        freed += sweep_linker_intermediates(profile_dir, dry_run)
     return freed
 
 
@@ -370,9 +393,16 @@ def sweep_target(
     drop_other_profile: bool,
     sweep_tests: bool,
     sweep_incremental: bool,
+    prune_link_intermediates: bool,
     incremental_only: bool = False,
+    profile_drop_only: bool = False,
 ) -> int:
     if not target_dir.is_dir():
+        return 0
+
+    if profile_drop_only:
+        if active_profile in {"debug", "release"}:
+            return drop_inactive_profile(target_dir, active_profile, dry_run)
         return 0
 
     if incremental_only:
@@ -402,6 +432,7 @@ def sweep_target(
                 outside_crate_keys=outside_crate_keys,
                 sweep_tests=sweep_tests,
                 sweep_incremental=sweep_incremental,
+                prune_link_intermediates=prune_link_intermediates,
             )
     return total
 
@@ -446,7 +477,17 @@ def main() -> int:
     parser.add_argument(
         "--incremental-only",
         action="store_true",
-        help="only remove incremental caches (used by phase-2 hygiene)",
+        help="only remove incremental caches (used by phase-3 hygiene)",
+    )
+    parser.add_argument(
+        "--no-prune-link-intermediates",
+        action="store_true",
+        help="keep deps/*.o and deps/*.rcgu.o (linker intermediates)",
+    )
+    parser.add_argument(
+        "--profile-drop-only",
+        action="store_true",
+        help="only remove the inactive profile directory (used by phase-2 hygiene)",
     )
     args = parser.parse_args()
 
@@ -465,7 +506,9 @@ def main() -> int:
         drop_other_profile=args.drop_inactive_profile,
         sweep_tests=args.sweep_tests,
         sweep_incremental=args.sweep_incremental,
+        prune_link_intermediates=not args.no_prune_link_intermediates,
         incremental_only=args.incremental_only,
+        profile_drop_only=args.profile_drop_only,
     )
     print(f"freed_bytes={freed}")
     return 0

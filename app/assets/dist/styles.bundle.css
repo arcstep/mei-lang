@@ -5859,15 +5859,15 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   border-color: var(--mei-shell-color-accent, rgba(96, 165, 250, 0.6));
   background: rgba(96, 165, 250, 0.12);
 }
-[data-mei-ui-role="region"] {
+body.build-view [data-mei-ui-role="region"] {
   outline: 1px dashed rgba(250, 204, 21, 0.75);
   outline-offset: -1px;
 }
-[data-mei-ui-role="section"] {
+body.build-view [data-mei-ui-role="section"] {
   outline: 1px dashed rgba(192, 132, 252, 0.75);
   outline-offset: -1px;
 }
-[data-mei-ui-role="slot"] {
+body.build-view [data-mei-ui-role="slot"] {
   outline: 1px dashed rgba(248, 113, 113, 0.75);
   outline-offset: -1px;
 }

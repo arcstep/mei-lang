@@ -63,9 +63,9 @@ install_from_lang() {
   echo "==> building from mei-lang (profile=${PROFILE}, root=${mei_lang_root})"
   if [[ -f "${build_script}" ]]; then
     if [[ "${PROFILE}" == "release" ]]; then
-      CARGO_TARGET_DIR="${target_dir}" "${build_script}" --release
+      MEI_CARGO_TARGET_HYGIENE=1 CARGO_TARGET_DIR="${target_dir}" "${build_script}" --release
     else
-      CARGO_TARGET_DIR="${target_dir}" "${build_script}" --debug
+      MEI_CARGO_TARGET_HYGIENE=1 CARGO_TARGET_DIR="${target_dir}" "${build_script}" --debug
     fi
   else
     # shellcheck source=/dev/null

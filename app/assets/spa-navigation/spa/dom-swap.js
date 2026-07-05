@@ -332,6 +332,9 @@
 
   /** 同一 manage 路径下换 file/scene/tab 只换工作区，避免整页重载 manage bundle。 */
   function shouldPreserveManageWorkspace(currentUrl, nextUrl) {
+    if (!(currentUrl instanceof URL) || !(nextUrl instanceof URL)) {
+      return false;
+    }
     return (
       currentUrl.pathname === nextUrl.pathname &&
       (currentUrl.pathname.startsWith("/apps/manage/") ||
