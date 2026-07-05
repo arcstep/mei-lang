@@ -4,7 +4,7 @@
 # Env:
 #   MEI_CARGO_TARGET_GC=0           disable auto clean (default: 1)
 #   MEI_CARGO_TARGET_SWEEP=0          disable stale-artifact sweep (default: 1)
-#   MEI_CARGO_TARGET_MAX_GB=5         budget in GiB (default: 5)
+#   MEI_CARGO_TARGET_MAX_GB=10         budget in GiB (default: 10)
 #   MEI_CARGO_TARGET_MAX_BYTES=…      override budget in bytes
 #   MEI_CARGO_TARGET_GC_DRY_RUN=1     print action only, do not clean
 #   MEI_CARGO_SWEEP_KEEP_PKGS=…       runtime closure roots (default: mei-compiler,mei-plug-ds,mei-host-shell)
@@ -24,7 +24,7 @@ _cargo_target_gc_max_bytes() {
     printf '%s' "${MEI_CARGO_TARGET_MAX_BYTES}"
     return 0
   fi
-  local max_gb="${MEI_CARGO_TARGET_MAX_GB:-5}"
+  local max_gb="${MEI_CARGO_TARGET_MAX_GB:-10}"
   if [[ ! "${max_gb}" =~ ^[0-9]+$ ]]; then
     echo "error: MEI_CARGO_TARGET_MAX_GB must be an integer, got: ${max_gb}" >&2
     return 1

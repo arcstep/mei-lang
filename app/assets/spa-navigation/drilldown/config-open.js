@@ -135,11 +135,25 @@
     return "";
   }
 
+  function resolveAppIdFromUnifiedView(pathname = window.location.pathname) {
+    if (typeof isUnifiedViewRoute !== "function" || !isUnifiedViewRoute(pathname)) {
+      return "";
+    }
+    if (typeof appIdFromAppsPathname !== "function") {
+      return "";
+    }
+    return nonEmptyString(appIdFromAppsPathname(pathname));
+  }
+
   function resolveAccessAppPath(pathname = window.location.pathname) {
+    const unifiedAppId = resolveAppIdFromUnifiedView(pathname);
+    if (unifiedAppId) return unifiedAppId;
     return resolveAppPathByPrefixes(pathname, appRoutePrefixesFromSlugs(ACCESS_LIKE_ROUTE_SLUGS));
   }
 
   function resolvePreviewAppId(pathname = window.location.pathname) {
+    const unifiedAppId = resolveAppIdFromUnifiedView(pathname);
+    if (unifiedAppId) return unifiedAppId;
     const slug = appRouteSlugFromPathname(pathname);
     if (WORKSPACE_SURFACE_SLUGS.has(slug) || ACCESS_LIKE_ROUTE_SLUGS.has(slug)) {
       return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);

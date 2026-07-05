@@ -365,7 +365,9 @@
         (config?.hasRowPreviewZone ||
           nonEmptyString(config?.rowPreviewZoneId, config?.row_preview_zone_id)),
     );
-    return {
+    const staticMode = isStaticDataMode();
+    const staticRows = staticMode ? buildStaticTableRows(columns) : [];
+    const tableProps = {
       columns,
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
       column_state: columnState,
@@ -389,28 +391,43 @@
       columnMinWidth,
       columnFormats,
       pagination: true,
-      paginationMode: metricId ? "server" : "client",
+      paginationMode: staticMode ? "client" : metricId ? "server" : "client",
       dataset: {
         shape: metricId ? "dataframe" : "table",
         __mei_runtime_ref: runtimeRef,
+        ...(staticMode
+          ? {
+              columns,
+              rows: staticRows,
+              __mei_data_origin: "static_skeleton",
+            }
+          : {}),
       },
       _mei: {
         runtime_capabilities: {
           rows_query: {
-            enabled: true,
+            enabled: !staticMode,
             api: `/api/datasets/query/${appPath}`,
             scene_qualified: true,
           },
           metric_query: {
-            enabled: true,
+            enabled: !staticMode,
             api: `/api/datasets/metrics/${appPath}`,
             scene_qualified: true,
           },
           metric_batch_query: {
-            enabled: true,
+            enabled: !staticMode,
             api: `/api/datasets/metrics/${appPath}`,
             scene_qualified: true,
           },
+          ...(staticMode
+            ? {
+                static_display: {
+                  enabled: true,
+                  origin: "static_skeleton",
+                },
+              }
+            : {}),
         },
         active_scene_id: resolvedSceneId,
         active_target_file: resolvedScenePath,
@@ -418,5 +435,6 @@
       },
       query_state: queryStateId || undefined,
     };
+    return tableProps;
   }
 

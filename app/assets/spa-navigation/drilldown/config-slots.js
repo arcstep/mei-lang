@@ -1,4 +1,11 @@
   function resolveAccessAppBasePath(pathname = window.location.pathname) {
+    if (typeof isUnifiedViewRoute === "function" && isUnifiedViewRoute(pathname)) {
+      const appId =
+        typeof appIdFromAppsPathname === "function"
+          ? nonEmptyString(appIdFromAppsPathname(pathname))
+          : "";
+      if (appId) return `/apps/${appId}/`;
+    }
     const slug = appRouteSlugFromPathname(pathname);
     if (!ACCESS_LIKE_ROUTE_SLUGS.has(slug)) return "";
     const prefix = `/apps/${slug}/`;
