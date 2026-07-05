@@ -1,5 +1,5 @@
 /**
- * 专查「正在切换预览」遮罩是否长时间不消失（用户报告路径）
+ * 专查 SPA 导航后 loading 遮罩是否长时间不消失（用户报告路径）
  */
 import { test, expect } from "@playwright/test";
 
@@ -41,6 +41,6 @@ test("main→home：点击后 5/15/30s 遮罩与 inFlight 快照", async ({ page
   console.log("[stuck-audit]", JSON.stringify(snapshots, null, 2));
 
   const t60 = snapshots.t60s;
-  expect(t60.overlay, "60s 后「正在切换预览」遮罩应已消失").toBe(false);
+  expect(t60.overlay, "60s 后 manage-nav loading 遮罩应已消失").toBe(false);
   expect(t60.href).toMatch(/file=home\.mei/);
 });

@@ -136,7 +136,7 @@ test.describe("SPA 审计（对齐用户操作路径）", () => {
     console.log("[audit A]", JSON.stringify(report, null, 2));
 
     expect(report.spaFetchCount, "应出现带 x-mei-spa-nav 的 fetch").toBeGreaterThan(0);
-    expect(report.idle, "应在 30s 内结束「正在切换预览」遮罩").toBe(true);
+    expect(report.idle, "应在 30s 内结束 SPA loading / 导航遮罩").toBe(true);
     expect(report.ui.href, "URL 应含 home.mei").toMatch(/file=home\.mei/);
     expect(
       report.manageJsLoadsDuring,
