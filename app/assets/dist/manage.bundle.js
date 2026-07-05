@@ -5562,7 +5562,14 @@
       if (activeMode === "structure") {
         branch.hidden = group !== "ui_structure";
       } else {
-        branch.hidden = group === "ui_structure";
+        branch.hidden = ![
+          "mcg",
+          "scenes",
+          "routes",
+          "world",
+          "datasets",
+          "artifacts",
+        ].includes(group);
       }
     });
   }

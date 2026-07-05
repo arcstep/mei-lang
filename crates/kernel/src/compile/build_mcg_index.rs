@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use serde::Deserialize;
 
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
-use crate::mei_config::resolve_workspace_graph_root;
+use crate::mei_config::{resolve_app_registry_root, resolve_app_root};
 use crate::model::{BuildNodeId, BuildNodeKind};
 
 #[derive(Debug, Deserialize)]
@@ -20,105 +21,151 @@ struct McgNodeFile {
     state: String,
     #[serde(default, rename = "ownerResourceId")]
     owner_resource_id: Option<String>,
+    #[serde(default)]
+    deps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct McgNodeIdFile {
-    kind: McgKindSlug,
+    kind: McgNodeKindField,
     key: String,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum McgKindSlug {
-    ScenePayload,
-    MetricDefBundle,
-    AssemblyView,
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum McgNodeKindField {
+    Slug(String),
+    Object { kind: String },
 }
 
-impl McgKindSlug {
-    fn slug(self) -> &'static str {
+impl McgNodeKindField {
+    fn slug(&self) -> String {
         match self {
-            Self::ScenePayload => "scene_payload",
-            Self::MetricDefBundle => "metric_def_bundle",
-            Self::AssemblyView => "assembly_view",
+            Self::Slug(value) => value.clone(),
+            Self::Object { kind } => kind.clone(),
         }
     }
 }
 
+const MCG_KIND_ORDER: &[&str] = &[
+    "semantic_graph",
+    "panel_contract",
+    "navigation",
+    "metric_def_bundle",
+    "app_skeleton",
+    "warmup_policy",
+    "world_model",
+    "assembly_view",
+    "scene_payload",
+    "catalog_resource",
+    "data_source",
+    "eval_plan",
+    "workset",
+    "material_slot",
+];
+
+fn mcg_kind_label(kind: &str) -> String {
+    match kind {
+        "semantic_graph" => "SemanticGraph",
+        "panel_contract" => "PanelContract",
+        "navigation" => "Navigation",
+        "metric_def_bundle" => "MetricDefBundle",
+        "app_skeleton" => "AppSkeleton",
+        "warmup_policy" => "WarmupPolicy",
+        "world_model" => "WorldModel",
+        "assembly_view" => "AssemblyView (legacy)",
+        "scene_payload" => "ScenePayload (legacy)",
+        other => other,
+    }
+    .to_string()
+}
+
 pub fn build_mcg_tree_root(source_root: &Path, app_id: &str) -> ReachabilityTreeRoot {
-    let path = resolve_workspace_graph_root(source_root, app_id).join("mcg-registry.json");
+    let path = resolve_app_registry_root(&resolve_app_root(source_root, app_id))
+        .join("mcg-registry.json");
     let nodes = fs::read_to_string(&path)
         .ok()
         .and_then(|raw| serde_json::from_str::<McgRegistryFile>(&raw).ok())
         .map(|registry| registry.nodes)
         .unwrap_or_default();
-    let mut groups: [Vec<McgNodeFile>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+
+    let mut grouped: BTreeMap<String, Vec<McgNodeFile>> = BTreeMap::new();
     for node in nodes {
-        match node.id.kind.slug() {
-            "scene_payload" => groups[0].push(node),
-            "metric_def_bundle" => groups[1].push(node),
-            "assembly_view" => groups[2].push(node),
-            _ => {}
+        grouped
+            .entry(node.id.kind.slug())
+            .or_default()
+            .push(node);
+    }
+
+    let mut kind_order: Vec<String> = MCG_KIND_ORDER
+        .iter()
+        .map(|kind| kind.to_string())
+        .collect();
+    for kind in grouped.keys() {
+        if !kind_order.iter().any(|entry| entry == kind) {
+            kind_order.push(kind.clone());
         }
     }
-    let children = [
-        ("scene_payload", "ScenePayload", &groups[0]),
-        ("metric_def_bundle", "MetricDefBundle", &groups[1]),
-        ("assembly_view", "AssemblyView", &groups[2]),
-    ]
-    .into_iter()
-    .filter_map(|(kind_slug, kind_label, entries)| {
-        if entries.is_empty() {
-            return None;
-        }
-        let mut sorted = entries.to_vec();
-        sorted.sort_by(|left, right| left.id.key.cmp(&right.id.key));
-        Some(ReachabilityTreeNode {
-            id: format!("mcg-group-{kind_slug}"),
-            node_id: String::new(),
-            kind: "mcg_group".to_string(),
-            label: kind_label.to_string(),
-            badges: Vec::new(),
-            compile_scene: String::new(),
-            compile_target: String::new(),
-            board_layout_zone: String::new(),
-            children: sorted
-                .into_iter()
-                .map(|node| mcg_leaf_node(&node))
-                .collect(),
-            ..Default::default()
+
+    let children = kind_order
+        .into_iter()
+        .filter_map(|kind_slug| {
+            let entries = grouped.get(&kind_slug)?;
+            if entries.is_empty() {
+                return None;
+            }
+            let mut sorted = entries.clone();
+            sorted.sort_by(|left, right| left.id.key.cmp(&right.id.key));
+            let kind_label = mcg_kind_label(kind_slug.as_str());
+            Some(ReachabilityTreeNode {
+                id: format!("mcg-group-{kind_slug}"),
+                node_id: String::new(),
+                kind: "mcg_group".to_string(),
+                label: kind_label,
+                badges: vec![format!("count:{}", sorted.len())],
+                compile_scene: String::new(),
+                compile_target: String::new(),
+                board_layout_zone: String::new(),
+                children: sorted
+                    .into_iter()
+                    .map(|node| mcg_leaf_node(&kind_slug, &node))
+                    .collect(),
+                ..Default::default()
+            })
         })
-    })
-    .collect();
+        .collect();
+
     ReachabilityTreeRoot {
         group: "mcg".to_string(),
-        label: "Compile · MCG".to_string(),
-        default_open: false,
+        label: "MCG".to_string(),
+        default_open: true,
         children,
     }
 }
 
-fn mcg_leaf_node(node: &McgNodeFile) -> ReachabilityTreeNode {
-    let node_id = BuildNodeId::new(
-        BuildNodeKind::McgNode,
-        format!("{}:{}", node.id.kind.slug(), node.id.key),
-    );
-    let mut label = node.id.key.clone();
+fn mcg_leaf_node(kind_slug: &str, node: &McgNodeFile) -> ReachabilityTreeNode {
+    let stable_key = format!("{kind_slug}:{}", node.id.key);
+    let node_id = BuildNodeId::new(BuildNodeKind::McgNode, stable_key.clone());
+    let mut badges = vec![
+        format!("state:{}", node.state),
+        format!("rev:{}", node.revision),
+    ];
+    if !node.deps.is_empty() {
+        badges.push(format!("deps:{}", node.deps.len()));
+    }
     if let Some(owner) = node
         .owner_resource_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        label = format!("{label} · {owner}");
+        badges.push(format!("owner:{owner}"));
     }
-    let badges = vec![node.state.clone(), format!("rev:{}", node.revision)];
     ReachabilityTreeNode {
-        id: format!("mcg-{}-{}", node.id.kind.slug(), node.id.key),
+        id: format!("mcg-{kind_slug}-{}", node.id.key),
         node_id: node_id.encode(),
         kind: "mcg_node".to_string(),
-        label,
+        label: node.id.key.clone(),
         badges,
         compile_scene: String::new(),
         compile_target: String::new(),

@@ -92,9 +92,7 @@ fn strip_stock_facet_roots_for_business_app(
 }
 
 fn ensure_mcg_root(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp) {
-    if roots.iter().any(|root| root.group == "mcg") {
-        return;
-    }
+    roots.retain(|root| root.group != "mcg");
     let source_root = source_root_from_app(compiled);
     let mcg_root = crate::compile::build_mcg_index::build_mcg_tree_root(
         source_root.as_path(),
@@ -103,7 +101,7 @@ fn ensure_mcg_root(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp
     if mcg_root.children.is_empty() {
         return;
     }
-    roots.push(mcg_root);
+    roots.insert(0, mcg_root);
 }
 
 fn normalize_reachability_tree_roots(roots: &mut [ReachabilityTreeRoot]) {

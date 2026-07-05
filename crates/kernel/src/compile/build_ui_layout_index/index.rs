@@ -460,7 +460,12 @@ pub fn filter_roots_for_tree_mode(
             .collect(),
         "compile" => roots
             .iter()
-            .filter(|root| root.group != "ui_structure")
+            .filter(|root| {
+                matches!(
+                    root.group.as_str(),
+                    "mcg" | "scenes" | "routes" | "world" | "datasets" | "artifacts"
+                )
+            })
             .cloned()
             .collect(),
         _ => roots.to_vec(),

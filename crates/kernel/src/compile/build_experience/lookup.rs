@@ -1,7 +1,5 @@
 use super::{dedupe_preserve_order};
 
-use std::collections::BTreeMap;
-
 use serde_json::Value;
 
 use crate::model::{
@@ -14,25 +12,6 @@ pub fn backing_refs_from_block_props(props: &Value) -> Vec<String> {
     collect_backing_refs(props, &mut refs);
     dedupe_preserve_order(&mut refs);
     refs
-}
-
-pub fn aggregate_use_key_badges(blocks: &[UiNodeDecl]) -> Vec<String> {
-    let mut counts = BTreeMap::<String, usize>::new();
-    for block in blocks {
-        if let UiNodeDecl::Block(block) = block {
-            *counts.entry(block.use_key.clone()).or_default() += 1;
-        }
-    }
-    counts
-        .into_iter()
-        .map(|(use_key, count)| {
-            if count > 1 {
-                format!("{use_key} ×{count}")
-            } else {
-                use_key
-            }
-        })
-        .collect()
 }
 
 pub(super) fn scene_label(compiled: &CompiledApp, scene_id: &str) -> Vec<String> {

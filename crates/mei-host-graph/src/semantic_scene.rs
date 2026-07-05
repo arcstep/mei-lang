@@ -208,6 +208,20 @@ fn build_panel_payload(
     if !has_shell {
         match role {
             "region" => {
+                if !child_nodes(value, &["contents", "content"], "", ctx)?.is_empty() {
+                    anyhow::bail!(
+                        "region `{id}` must use section_ref children; direct content is not allowed"
+                    );
+                }
+                if args
+                    .and_then(|map| map.get("blocks"))
+                    .and_then(Value::as_array)
+                    .is_some_and(|items| !items.is_empty())
+                {
+                    anyhow::bail!(
+                        "region `{id}` must use section_ref children; direct blocks are not allowed"
+                    );
+                }
                 for section in child_nodes(value, &["sections"], "section_ref", ctx)? {
                     blocks.push(panel_call(build_panel_payload(
                         &section,
@@ -217,17 +231,10 @@ fn build_panel_payload(
                         ctx,
                     )?));
                 }
-                for content in child_nodes(value, &["contents", "content"], "", ctx)? {
-                    blocks.push(panel_call(build_panel_payload(
-                        &content,
-                        "content",
-                        tier,
-                        plane_id,
-                        ctx,
-                    )?));
-                }
-                if blocks.is_empty() {
-                    blocks.extend(collect_leaf_blocks(args)?);
+                if blocks.is_empty() && !region_allows_empty_sections(args) {
+                    anyhow::bail!(
+                        "region `{id}` must declare at least one section_ref child"
+                    );
                 }
             }
             "section" => {
@@ -415,6 +422,14 @@ fn copy_if_present(args: Option<&Map<String, Value>>, out: &mut Map<String, Valu
     if let Some(value) = args.and_then(|map| map.get(key)).cloned() {
         out.insert(key.to_string(), value);
     }
+}
+
+fn region_allows_empty_sections(args: Option<&Map<String, Value>>) -> bool {
+    let Some(args) = args else {
+        return false;
+    };
+    string_field_map(Some(args), &["id"]) == Some("stage_aperture_frame")
+        || string_field_map(Some(args), &["chrome_role"]) == Some("stage_aperture")
 }
 
 fn config_value(config: &Map<String, Value>, key: &str) -> Value {

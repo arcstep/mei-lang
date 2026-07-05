@@ -19,7 +19,7 @@ fn demo_v2_compiles_graph_blocks() {
     }
     let outcome = compile_app(&workspace, "data-demo").expect("compile data-demo");
     assert_eq!(outcome.syntax_version, env!("CARGO_PKG_VERSION"));
-    assert_eq!(outcome.files.len(), 43, "expected 43 v2 author files");
+    assert_eq!(outcome.files.len(), 47, "expected 47 v2 author files");
     assert!(
         outcome.blocks.len() >= 120,
         "expected many graph blocks, got {}",

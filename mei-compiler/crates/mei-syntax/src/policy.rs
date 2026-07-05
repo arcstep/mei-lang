@@ -116,6 +116,8 @@ pub fn validate_authoring_policy_for_path(
         .replace('\\', "/")
         .ends_with(WORLD_MEI_SUFFIX);
     validate_authoring_policy_with_world_override(source, is_world_mei)?;
+    validate_region_layout_policy(path, source)?;
+    validate_section_layout_policy(path, source)?;
     if !should_enforce_grid_only(path) {
         return Ok(());
     }
@@ -126,6 +128,94 @@ pub fn validate_authoring_policy_for_path(
         }
     }
     Ok(())
+}
+
+fn validate_region_layout_policy(path: &Path, source: &str) -> Result<(), ForbiddenTokenError> {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    if !raw.contains("/r-") || !raw.ends_with("/layout.mei") {
+        return Ok(());
+    }
+    if !source.contains("region_layout(") {
+        return Ok(());
+    }
+    if region_layout_allows_empty_sections(source) {
+        return Ok(());
+    }
+    let sanitized = sanitize_for_policy(source);
+    if sanitized.contains("contents =") || sanitized.contains("contents=") {
+        return Err(ForbiddenTokenError::region_layout_violation(
+            "contents",
+            "region_layout must use sections = [section_ref(...)]; direct content(...) is not allowed",
+        ));
+    }
+    if sanitized.contains("blocks =") || sanitized.contains("blocks=") {
+        return Err(ForbiddenTokenError::region_layout_violation(
+            "blocks",
+            "region_layout must use sections = [section_ref(...)]; direct blocks are not allowed",
+        ));
+    }
+    if !sanitized.contains("sections =") && !sanitized.contains("sections=") {
+        return Err(ForbiddenTokenError::region_layout_violation(
+            "sections",
+            "region_layout must declare non-empty sections = [section_ref(...)]",
+        ));
+    }
+    Ok(())
+}
+
+fn region_layout_allows_empty_sections(source: &str) -> bool {
+    source.contains("chrome_role = \"stage_aperture\"")
+        || source.contains("chrome_role=\"stage_aperture\"")
+        || source.contains("id = \"stage_aperture_frame\"")
+        || source.contains("id=\"stage_aperture_frame\"")
+}
+
+fn validate_section_layout_policy(path: &Path, source: &str) -> Result<(), ForbiddenTokenError> {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    if !raw.contains("/s-") || !raw.ends_with("/layout.mei") {
+        return Ok(());
+    }
+    if !source.contains("section_layout(") {
+        return Ok(());
+    }
+    if section_layout_uses_panel_ref_passthrough(source) {
+        return Err(ForbiddenTokenError::section_layout_violation(
+            "contents+panel_ref_passthrough",
+            "section_layout must mount body via shell, not contents = [content(..., source = panel_ref(...))]. \
+             The content wrapper hides map/viewport under build preview (PlaneRegionSection). \
+             Use section_shell(title = \"...\", body = panel_ref(\"content/...\")) for titled panels, \
+             or shell = panel_contract(chrome = \"bare\", show_heading = False, blocks = [panel_ref(\"home:...\")]) \
+             for bare stage/map pass-through. See r-left-rail/s-enforcement/layout.mei.",
+        ));
+    }
+    Ok(())
+}
+
+fn section_layout_uses_panel_ref_passthrough(source: &str) -> bool {
+    let has_contents = source.contains("contents =") || source.contains("contents=");
+    if !has_contents || !source.contains("content(") {
+        return false;
+    }
+    source.contains("source = panel_ref(")
+        || source.contains("source=panel_ref(")
+        || source.contains("source =panel_ref(")
+        || source.contains("source= panel_ref(")
+}
+
+impl ForbiddenTokenError {
+    fn section_layout_violation(token: &str, message: &str) -> Self {
+        Self {
+            token: token.to_string(),
+            message: message.to_string(),
+        }
+    }
+
+    fn region_layout_violation(token: &str, message: &str) -> Self {
+        Self {
+            token: token.to_string(),
+            message: message.to_string(),
+        }
+    }
 }
 
 pub fn forbidden_authoring_tokens() -> &'static [&'static str] {
@@ -175,12 +265,130 @@ mod tests {
     }
 
     #[test]
-    fn world_mei_allows_for_and_enum_tokens() {
-        let path = Path::new("/tmp/apps/mini-park/src/world/park.world.mei");
+    fn region_layout_rejects_direct_contents() {
+        let path = Path::new(
+            "/tmp/workspaces/ws-demo-v2/apps/mini-park/src/scene/home/t1/r-header/layout.mei",
+        );
+        let err = validate_authoring_policy_for_path(
+            path,
+            r#"region_layout(
+                id = "home_header",
+                contents = [content(id = "x", source = panel_ref("home:home_header"))],
+            )"#,
+        )
+        .expect_err("contents should be rejected");
+        assert!(err.to_string().contains("sections"));
+    }
+
+    #[test]
+    fn region_layout_rejects_direct_blocks() {
+        let path = Path::new(
+            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-layout-debug-controller/layout.mei",
+        );
+        let err = validate_authoring_policy_for_path(
+            path,
+            r#"region_layout(
+                id = "layout_debug_controller",
+                blocks = [component("cockpit.layout-debug")],
+            )"#,
+        )
+        .expect_err("blocks should be rejected");
+        assert!(err.to_string().contains("sections"));
+    }
+
+    #[test]
+    fn region_layout_allows_stage_aperture_frame_without_sections() {
+        let path = Path::new(
+            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-stage-aperture-frame/layout.mei",
+        );
         validate_authoring_policy_for_path(
             path,
-            r#"world(id = "x", for row in dataset_ref(id = "y") { building(id = row.id) })"#,
+            r#"region_layout(
+                id = "stage_aperture_frame",
+                chrome_role = "stage_aperture",
+                placement = stage_anchor(top = "0", left = "0", width = "100%", height = "100%"),
+            )"#,
         )
-        .expect("for should be allowed in .world.mei");
+        .expect("stage_aperture frame-only region should be allowed");
+    }
+
+    #[test]
+    fn section_layout_rejects_panel_ref_passthrough_contents() {
+        let path = Path::new(
+            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
+        );
+        let err = validate_authoring_policy_for_path(
+            path,
+            r#"section_layout(
+                id = "map_stage",
+                contents = [
+                    content(
+                        id = "map_stage_content",
+                        content_kind = "map_view",
+                        source = panel_ref("home:map_stage"),
+                    ),
+                ],
+            )"#,
+        )
+        .expect_err("panel_ref passthrough contents should be rejected");
+        assert!(err.to_string().contains("shell"));
+        assert!(err.to_string().contains("s-enforcement"));
+    }
+
+    #[test]
+    fn section_layout_allows_shell_body_panel_ref() {
+        let path = Path::new(
+            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-left-rail/s-enforcement/layout.mei",
+        );
+        validate_authoring_policy_for_path(
+            path,
+            r#"section_layout(
+                id = "enforcement",
+                shell = section_shell(
+                    title = "执法要素",
+                    body = panel_ref("content/enforcement-stats"),
+                ),
+            )"#,
+        )
+        .expect("section_shell body = panel_ref should be allowed");
+    }
+
+    #[test]
+    fn section_layout_allows_bare_panel_contract_shell() {
+        let path = Path::new(
+            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
+        );
+        validate_authoring_policy_for_path(
+            path,
+            r#"section_layout(
+                id = "map_stage_body",
+                shell = panel_contract(
+                    chrome = "bare",
+                    show_heading = False,
+                    blocks = [panel_ref("home:map_stage")],
+                ),
+            )"#,
+        )
+        .expect("bare panel_contract shell should be allowed");
+    }
+
+    #[test]
+    fn section_layout_allows_contents_with_inline_block() {
+        let path = Path::new(
+            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-layout-debug-controller/s-layout-debug/layout.mei",
+        );
+        validate_authoring_policy_for_path(
+            path,
+            r#"section_layout(
+                id = "layout_debug",
+                contents = [
+                    content(
+                        id = "layout_debug_content",
+                        block = component("cockpit.layout-debug"),
+                    ),
+                ],
+            )"#,
+        )
+        .expect("content with inline block should remain allowed");
     }
 }

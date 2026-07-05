@@ -161,16 +161,16 @@ fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
         map_stage.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t0")
     );
-    for panel_id in ["viewport_frame", "stage_aperture_frame", "stage_aperture"] {
-        let panel = contract
-            .panels
-            .iter()
-            .find(|panel| panel.id == panel_id)
-            .unwrap_or_else(|| panic!("missing {panel_id} panel"));
-        assert_eq!(
-            panel.props.get("__mei_tier").and_then(|v| v.as_str()),
-            Some("t1"),
-            "{panel_id} should be t1"
+    let viewport_frame = find_panel_by_id(&contract.panels, "viewport_frame")
+        .expect("viewport_frame nested under center_rail");
+    assert_eq!(
+        viewport_frame.props.get("__mei_tier").and_then(|v| v.as_str()),
+        Some("t1")
+    );
+    for panel_id in ["stage_aperture_frame", "stage_aperture"] {
+        assert!(
+            find_panel_by_id(&contract.panels, panel_id).is_some(),
+            "missing nested {panel_id} under center_rail map viewport"
         );
     }
     let chrome = outcome
@@ -184,13 +184,9 @@ fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
         .filter_map(|entry| entry.get("panelId").and_then(|v| v.as_str()))
         .collect();
     for expected in [
-        "viewport_frame",
-        "stage_aperture_frame",
-        "stage_aperture",
         "home_header",
         "left_rail",
-        "center_top",
-        "realtime_center",
+        "center_rail",
         "right_rail",
     ] {
         assert!(

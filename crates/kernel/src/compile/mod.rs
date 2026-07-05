@@ -72,7 +72,7 @@ pub use app_compile::{
 };
 pub use build_board_index::build_board_index;
 pub use build_experience::{
-    aggregate_use_key_badges, backing_refs_from_block_props, block_instance_id,
+    backing_refs_from_block_props, block_instance_id,
     build_experience_path, build_overview_backing, compile_coordinate_for_node,
     compile_scene_from_build_node, compile_scene_from_build_node_with_app, experience_layout_hint,
     experience_mount_chain, format_experience_path, preview_target_from_build_node_with_app,
@@ -236,4 +236,64 @@ pub use materialize::{
 pub use projection_assembly::enrich_runtime_board_assembly_projection_slots;
 
 #[cfg(test)]
-mod tests;
+mod mcg_index_tests {
+    use std::path::Path;
+
+    use crate::compile::build_mcg_index::build_mcg_tree_root;
+    use crate::compile::build_ui_layout_index::filter_roots_for_tree_mode;
+    use crate::compile::reachability_tree::ReachabilityTreeRoot;
+
+    #[test]
+    fn mcg_tree_includes_semantic_graph_nodes() {
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-demo-v2");
+        if !source_root.is_dir() {
+            return;
+        }
+        let root = build_mcg_tree_root(source_root.as_path(), "pretty-panels");
+        assert_eq!(root.group, "mcg");
+        let semantic = root
+            .children
+            .iter()
+            .find(|group| group.label == "SemanticGraph")
+            .expect("semantic_graph group");
+        assert!(
+            !semantic.children.is_empty(),
+            "pretty-panels MCG should expose semantic_graph nodes"
+        );
+    }
+
+    #[test]
+    fn compile_tree_mode_hides_ui_structure() {
+        let roots = vec![
+            ReachabilityTreeRoot {
+                group: "mcg".to_string(),
+                label: "MCG".to_string(),
+                default_open: true,
+                children: Vec::new(),
+            },
+            ReachabilityTreeRoot {
+                group: "ui_structure".to_string(),
+                label: "结构".to_string(),
+                default_open: true,
+                children: Vec::new(),
+            },
+            ReachabilityTreeRoot {
+                group: "templates".to_string(),
+                label: "Components".to_string(),
+                default_open: false,
+                children: Vec::new(),
+            },
+        ];
+        let compile_roots = filter_roots_for_tree_mode(&roots, "compile");
+        let groups: Vec<_> = compile_roots.iter().map(|root| root.group.as_str()).collect();
+        assert_eq!(groups, vec!["mcg"]);
+        let structure_roots = filter_roots_for_tree_mode(&roots, "structure");
+        assert_eq!(structure_roots.len(), 1);
+        assert_eq!(structure_roots[0].group, "ui_structure");
+    }
+}

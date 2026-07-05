@@ -172,6 +172,13 @@ fn expand_expr(expr: &V2Expr, ctx: &ExpandContext<'_>) -> Result<V2Expr, ExpandE
             name: name.clone(),
             args: expand_call_args(args, ctx)?,
         }),
+        V2Expr::VarRef(name) => {
+            if let Some(bound) = ctx.module_consts.get(name) {
+                expand_expr(bound, ctx)
+            } else {
+                Ok(V2Expr::VarRef(name.clone()))
+            }
+        }
         other => Ok(other.clone()),
     }
 }
@@ -225,10 +232,12 @@ fn apply_macro(def: &MacroDef, args: &CallArgs, ctx: &ExpandContext<'_>) -> Resu
         if let Some((_, value)) = args.keywords.iter().find(|(k, _)| k == &param.name) {
             bindings.insert(param.name.clone(), expand_expr(value, ctx)?);
         } else if let Some(default) = &param.default {
-            bindings.insert(
-                param.name.clone(),
-                eval_const_expr(default, &bindings)?,
-            );
+            let local = ExpandContext {
+                registry: ctx.registry,
+                imports: ctx.imports.clone(),
+                module_consts: bindings.clone(),
+            };
+            bindings.insert(param.name.clone(), expand_expr(default, &local)?);
         } else if let Some(value) = args.positional.get(
             def.params
                 .iter()

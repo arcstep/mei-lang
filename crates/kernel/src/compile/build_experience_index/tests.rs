@@ -1,8 +1,8 @@
 use super::*;
 
 use crate::model::{
-    BlockDecl, BuildExperienceIndex, BuildNodeId, CompiledApp, CompiledSceneRoute,
-    ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, SceneContract, SceneDecl, UiNodeDecl,
+    BuildExperienceIndex, CompiledApp, CompiledSceneRoute,
+    ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, SceneContract, SceneDecl,
     PanelDecl,
 };
 use serde_json::Value;
@@ -39,68 +39,46 @@ fn sample_scene_contract(panels: Vec<PanelDecl>) -> SceneContract {
 }
 
 #[test]
-fn experience_index_expands_nested_panels() {
-    let inner = PanelDecl {
-        kind: "panel".to_string(),
-        id: "supervision_warning_stats".to_string(),
-        title: Some("监督预警".to_string()),
-        head: None,
-        area: Some("warning".to_string()),
-        layout: None,
-        blocks: vec![UiNodeDecl::Block(BlockDecl {
-            kind: "block".to_string(),
-            use_key: "cockpit.metric-card".to_string(),
-            id: Some("card_one".to_string()),
-            title: Some("预警数".to_string()),
-            area: None,
-            props: Value::Null,
-            base: None,
+fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
+    let mut contracts = BTreeMap::new();
+    contracts.insert(
+        "home".to_string(),
+        sample_scene_contract(vec![PanelDecl {
+            kind: "panel".to_string(),
+            id: "header".to_string(),
+            title: Some("Header".to_string()),
+            head: None,
+            area: Some("header".to_string()),
             layout: None,
             blocks: Vec::new(),
-            component: None,
-            placement: None,
-            interactions: Vec::new(),
-            lifecycle: None,
-            constraints: None,
-            data: None,
-        })],
-        slot: None,
-        props: Value::Null,
-        head_props: Value::Null,
-        body_props: Value::Null,
-        base: None,
-        import_scope: Some("scenes/05-监督预警.mei".to_string()),
-    };
-    let shell = PanelDecl {
-        kind: "panel".to_string(),
-        id: "right_rail_float".to_string(),
-        title: None,
-        head: None,
-        area: Some("body".to_string()),
-        layout: None,
-        blocks: vec![UiNodeDecl::Panel(inner)],
-        slot: None,
-        props: serde_json::json!({
-            "position": "absolute",
-            "top": "84px",
-            "right": "0",
-        }),
-        head_props: Value::Null,
-        body_props: Value::Null,
-        base: None,
-        import_scope: Some("scenes/layout-右栏.mei".to_string()),
-    };
-    let mut contracts = BTreeMap::new();
-    contracts.insert("home".to_string(), sample_scene_contract(vec![shell]));
-    let routes = vec![CompiledSceneRoute {
-        scene_id: "home".to_string(),
-        frame_id: None,
-        target_file: "scenes/home.mei".to_string(),
-        kind: "file_ref".to_string(),
-        title: Some("首页".to_string()),
-        is_default: true,
-        access_export: true,
-    }];
+            slot: None,
+            props: Value::Null,
+            head_props: Value::Null,
+            body_props: Value::Null,
+            base: None,
+            import_scope: None,
+        }]),
+    );
+    let routes = vec![
+        CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "scenes/home.mei".to_string(),
+            kind: "file_ref".to_string(),
+            title: Some("首页".to_string()),
+            is_default: true,
+            access_export: true,
+        },
+        CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "scenes/home-alt.mei".to_string(),
+            kind: "file_ref".to_string(),
+            title: Some("首页副本".to_string()),
+            is_default: false,
+            access_export: true,
+        },
+    ];
     let compiled_stub = CompiledApp {
         app_id: "demo".to_string(),
         title: "demo".to_string(),
@@ -125,36 +103,17 @@ fn experience_index_expands_nested_panels() {
         ui_layout_index: Default::default(),
     };
     let index = build_experience_index(&routes, &BTreeMap::new(), &contracts, &compiled_stub);
-    let nested_id =
-        BuildNodeId::scene_panel("home", "right_rail_float/supervision_warning_stats").encode();
-    let nested = index
-        .node_manifest
-        .get(&nested_id)
-        .expect("nested panel manifest");
-    assert_eq!(nested.label, "监督预警");
-    assert!(nested
-        .mount_chain
-        .iter()
-        .any(|entry| entry.file.contains("05-监督预警")));
-    let shell_id = BuildNodeId::scene_panel("home", "right_rail_float").encode();
-    let shell = index
-        .node_manifest
-        .get(&shell_id)
-        .expect("shell panel manifest");
-    assert!(shell
-        .mount_chain
-        .iter()
-        .any(|entry| entry.file.contains("layout")));
     let scenes = &index.reachability_snapshot[0];
+    assert_eq!(scenes.children.len(), 1, "duplicate scene_id routes should collapse");
     let home = scenes.children.first().expect("home scene");
-    let panels = home
-        .children
-        .iter()
-        .find(|node| node.label == "Panels")
-        .expect("panels group");
-    assert_eq!(panels.children.len(), 1);
-    assert_eq!(panels.children[0].children.len(), 1);
-    assert_eq!(panels.children[0].children[0].label, "监督预警");
+    assert!(
+        !home.children.iter().any(|node| node.label == "Panels"),
+        "experience index should not expose Panels subtree"
+    );
+    assert!(
+        index.node_manifest.is_empty(),
+        "panel manifests should not be populated without Panels subtree"
+    );
 }
 
 #[test]
