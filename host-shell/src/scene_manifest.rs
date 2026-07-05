@@ -409,7 +409,11 @@ pub(crate) fn build_scene_view_manifest(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("scene");
+        .unwrap_or(if route_mode.uses_workspace_tree() {
+            "preview"
+        } else {
+            "scene"
+        });
     let chrome = compose
         .chrome
         .as_deref()

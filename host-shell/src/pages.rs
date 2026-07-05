@@ -1527,7 +1527,7 @@ fn compose_request_for_shell(
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .unwrap_or(if route_mode == UiRouteMode::Layout {
+                .unwrap_or(if route_mode.uses_workspace_tree() {
                     "preview"
                 } else {
                     "scene"
