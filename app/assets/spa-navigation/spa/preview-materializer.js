@@ -151,11 +151,28 @@
     return parentEl;
   }
 
-  function buildStructureTree(root, structureDoc) {
+  function buildStructureTree(root, structureDoc, options) {
     if (!(root instanceof HTMLElement)) return false;
     const doc = extractLayerDocument(structureDoc);
-    const nodes = Array.isArray(doc?.nodes) ? doc.nodes : [];
-    if (!nodes.length) return false;
+    const allNodes = Array.isArray(doc?.nodes) ? doc.nodes : [];
+    if (!allNodes.length) return false;
+
+    const projection = options?.review_projection || options?.reviewProjection || "";
+    let nodes = allNodes;
+    if (projection && boot.viewCompositor?.nodesForProjection) {
+      const visible = boot.viewCompositor.nodesForProjection(doc, projection);
+      const allowed = new Set(visible.map((node) => node.node_id));
+      const byId = new Map(allNodes.map((node) => [node.node_id, node]));
+      for (const node of visible) {
+        let parentId = String(node.parent_id || "").trim();
+        while (parentId) {
+          if (allowed.has(parentId)) break;
+          allowed.add(parentId);
+          parentId = String(byId.get(parentId)?.parent_id || "").trim();
+        }
+      }
+      nodes = allNodes.filter((node) => allowed.has(node.node_id));
+    }
 
     const nodeById = new Map();
     nodes.forEach((node) => nodeById.set(node.node_id, node));
@@ -324,7 +341,7 @@
     );
   }
 
-  function materializePreview(root, layers, _composeAxes) {
+  function materializePreview(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     currentTagLookup = buildComponentTagLookup(layers);
     const structure = extractLayerDocument(layers["structure.full"]);
@@ -333,9 +350,17 @@
     applyRuntimePlans(layers["runtime.plans"]);
 
     root.querySelectorAll(".mei-structure-tree").forEach((el) => el.remove());
-    buildStructureTree(root, structure);
+    buildStructureTree(root, structure, composeAxes || {});
 
-    bindEvalSlots(root, collectEvalDocs(layers));
+    const projection = String(
+      composeAxes?.review_projection || composeAxes?.reviewProjection || "",
+    ).trim()
+      .toLowerCase();
+    const bindEvalContent =
+      !projection || projection.includes("full") || projection === "live" || projection === "static";
+    if (bindEvalContent) {
+      bindEvalSlots(root, collectEvalDocs(layers));
+    }
 
     root.setAttribute("data-mei-compose-materialized", "1");
     return true;

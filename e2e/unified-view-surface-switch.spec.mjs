@@ -69,7 +69,10 @@ test.describe("unified view surface switch", () => {
         url.searchParams.set("surface", slug);
         window.history.pushState({}, "", url.toString());
         return window.__meiLangBoot?.viewAssembly?.assemble
-          ? window.__meiLangBoot.viewAssembly.assemble({ kind: "surface_switch" }, { debounce: false })
+          ? window.__meiLangBoot.viewAssembly.assemble(
+              { kind: "cold_start", surfaceSwitch: true, url: url.toString() },
+              { debounce: false, surfaceSwitch: true, omit_digests: true },
+            )
           : window.__meiLangBoot?.navigateSurface?.(url.toString(), true);
       }, surface);
       await page.waitForTimeout(20000);

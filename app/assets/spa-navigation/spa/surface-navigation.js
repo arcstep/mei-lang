@@ -1,10 +1,11 @@
 /**
- * Unified /apps/{id}/view surface switching without document fetch.
+ * Unified /apps/{id}/view surface switching — same cold_start assembly as F5.
  */
 (function initSurfaceNavigation(global) {
   "use strict";
 
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const surfacePreviewSnapshots = new Map();
 
   function isUnifiedViewPathname(pathname) {
     const segments = String(pathname || "")
@@ -23,74 +24,72 @@
     return slug === "layout" || slug === "prototype";
   }
 
-  let workspacePreviewSnapshot = "";
-  let appPreviewSnapshot = "";
-
   function workspacePreviewRoot() {
     return global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
-  }
-
-  function stashWorkspacePreviewSnapshot() {
-    const el = workspacePreviewRoot();
-    if (!(el instanceof HTMLElement)) return;
-    if (
-      el.querySelector(
-        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted",
-      )
-    ) {
-      workspacePreviewSnapshot = el.innerHTML;
-    }
-  }
-
-  function restoreWorkspacePreviewSnapshot() {
-    const el = workspacePreviewRoot();
-    if (!(el instanceof HTMLElement)) return false;
-    if (
-      el.querySelector(
-        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted",
-      )
-    ) {
-      return true;
-    }
-    if (!workspacePreviewSnapshot) return false;
-    el.innerHTML = workspacePreviewSnapshot;
-    el.removeAttribute("data-mei-compose-materialized");
-    return true;
   }
 
   function appPreviewRoot() {
     return global.document?.getElementById?.("mei-compose-root");
   }
 
-  function stashAppPreviewSnapshot() {
-    const el = appPreviewRoot();
-    if (!(el instanceof HTMLElement)) return;
-    if (
-      el.querySelector(
-        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, [data-mei-compose-materialized]",
-      )
-    ) {
-      appPreviewSnapshot = el.innerHTML;
-    }
+  function previewRootForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "app") return appPreviewRoot();
+    if (isWorkspaceSurface(slug)) return workspacePreviewRoot();
+    return null;
   }
 
-  function restoreAppPreviewSnapshot() {
-    const el = appPreviewRoot();
+  function previewHasMarkers(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    return !!root.querySelector(
+      "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted, [data-mei-compose-materialized]",
+    );
+  }
+
+  function captureSurfacePreviewSnapshot(surface) {
+    const slug = String(surface || "").trim().toLowerCase();
+    if (!slug) return;
+    const el = previewRootForSurface(slug);
+    if (!(el instanceof HTMLElement) || !previewHasMarkers(el)) return;
+    surfacePreviewSnapshots.set(slug, el.innerHTML);
+  }
+
+  function restoreSurfacePreviewSnapshot(surface) {
+    const slug = String(surface || "").trim().toLowerCase();
+    const el = previewRootForSurface(slug);
     if (!(el instanceof HTMLElement)) return false;
-    if (
-      el.querySelector(
-        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, [data-mei-compose-materialized]",
-      )
-    ) {
-      return true;
-    }
-    if (!appPreviewSnapshot) return false;
-    el.innerHTML = appPreviewSnapshot;
+    if (previewHasMarkers(el)) return true;
+    const html = surfacePreviewSnapshots.get(slug);
+    if (!html) return false;
+    el.innerHTML = html;
     el.removeAttribute("data-mei-compose-materialized");
     return true;
   }
 
-  function switchSurfacePanel(surface) {
+  function stashWorkspacePreviewSnapshot() {
+    captureSurfacePreviewSnapshot("layout");
+    captureSurfacePreviewSnapshot("prototype");
+  }
+
+  function restoreWorkspacePreviewSnapshot() {
+    const surface = String(
+      global.document?.body?.getAttribute("data-surface") || "layout",
+    )
+      .trim()
+      .toLowerCase();
+    return restoreSurfacePreviewSnapshot(isWorkspaceSurface(surface) ? surface : "layout");
+  }
+
+  function stashAppPreviewSnapshot() {
+    captureSurfacePreviewSnapshot("app");
+  }
+
+  function restoreAppPreviewSnapshot() {
+    return restoreSurfacePreviewSnapshot("app");
+  }
+
+  function switchSurfacePanel(surface, options) {
+    const opts = options || {};
     const slug = String(surface || "app").trim().toLowerCase();
     const previousSlug = String(
       global.document?.body?.getAttribute("data-surface") ||
@@ -99,11 +98,8 @@
     )
       .trim()
       .toLowerCase();
-    if (isWorkspaceSurface(previousSlug) && !isWorkspaceSurface(slug)) {
-      stashWorkspacePreviewSnapshot();
-    }
-    if (previousSlug === "app" && slug !== "app") {
-      stashAppPreviewSnapshot();
+    if (previousSlug !== slug) {
+      captureSurfacePreviewSnapshot(previousSlug);
     }
     const appPanel = global.document?.getElementById?.("mei-surface-app");
     const workspacePanel = global.document?.getElementById?.("mei-surface-workspace");
@@ -131,16 +127,16 @@
         }
       }
     }
+    if (!opts.skipPreviewRestore) {
+      restoreSurfacePreviewSnapshot(slug);
+    }
     if (showWorkspace) {
-      restoreWorkspacePreviewSnapshot();
       if (typeof boot.installManageTabs === "function") {
         boot.installManageTabs();
       }
       if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
         globalThis.MeiBuildTreePersist.refresh();
       }
-    } else if (slug === "app") {
-      restoreAppPreviewSnapshot();
     }
   }
 
@@ -215,113 +211,26 @@
       return false;
     }
     const surface = surfaceSlugFromContext(nextCtx);
-    const previousSurface = surfaceSlugFromContext(currentCtx);
     const canonicalUrl =
       typeof boot.canonicalizeViewUrl === "function"
         ? boot.canonicalizeViewUrl(url)
         : url;
 
-    switchSurfacePanel(surface);
-    syncTopbarActiveState(surface);
-    if (replaceHistory) {
-      global.history.replaceState({}, "", canonicalUrl);
-    } else {
-      global.history.pushState({}, "", canonicalUrl);
-    }
-    if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
-      globalThis.MeiBuildTreePersist.refresh();
-    }
-
-    if (typeof showLoading === "function") {
-      showLoading();
-    }
     recordSurfaceVisit(canonicalUrl, surface);
 
-    let negotiated = null;
-    try {
-      if (boot.viewAssembly?.assemble && globalThis.__mei?.view_assembly_v2 !== false) {
-        const assembled = await boot.viewAssembly.assemble(
-          { kind: "surface_switch", ...nextCtx, url: canonicalUrl, previousSurface },
-          { debounce: false, previousSurface },
-        );
-        if (navigationId && typeof boot.markLoadingRenderSwapDone === "function") {
-          boot.markLoadingRenderSwapDone(navigationId);
-        }
-        if (!assembled?.ok) {
-          if (typeof boot.showThinShellFallback === "function") {
-            boot.showThinShellFallback("视图切换失败，请刷新后重试。");
-          }
-          return false;
-        }
-        if (typeof boot.hideThinShellFallback === "function") {
-          boot.hideThinShellFallback();
-        }
-        if (typeof runPostSpaWork === "function") {
-          runPostSpaWork(
-            global.document,
-            canonicalUrl,
-            navigationId || null,
-            null,
-            new URL(canonicalUrl, global.location.href),
-            { skipViewAssembly: true },
-          );
-        }
-        return true;
-      } else if (typeof boot.negotiateAndAssemble === "function") {
-        negotiated = await boot.negotiateAndAssemble(
-          { ...nextCtx, url: canonicalUrl },
-          { silent: true, surfaceSwitch: true, previousSurface },
-        );
-      } else if (boot.viewRevisionClient?.negotiateWithLocalMiss) {
-        const vrCtx = {
-          app_id: nextCtx.app_id || nextCtx.appId,
-          scene_id: nextCtx.scene_id || nextCtx.sceneId,
-          surface,
-          node: nextCtx.node || "",
-          data_mode: nextCtx.data_mode || nextCtx.dataMode || "",
-          review_projection: nextCtx.review_projection || nextCtx.reviewProjection || "",
-          chrome: nextCtx.chrome || "",
-          tab: nextCtx.tab || "",
-          focus: nextCtx.focus || "",
-          scope: nextCtx.scope || "",
-        };
-        negotiated = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx);
-      }
-    } catch (error) {
-      console.warn("[surface-navigation] negotiate failed", error);
-    }
-
-    if (navigationId && typeof boot.markLoadingRenderSwapDone === "function") {
-      boot.markLoadingRenderSwapDone(navigationId);
-    }
-
-    if (!negotiated?.assemble?.ok) {
-      if (typeof boot.showThinShellFallback === "function") {
-        boot.showThinShellFallback("视图切换失败，请刷新后重试。");
-      }
-      return false;
-    }
-
-    if (typeof boot.hideThinShellFallback === "function") {
-      boot.hideThinShellFallback();
-    }
-    if (typeof runPostSpaWork === "function") {
-      runPostSpaWork(
-        global.document,
-        canonicalUrl,
-        navigationId || null,
-        null,
-        new URL(canonicalUrl, global.location.href),
-        { skipViewAssembly: true },
-      );
+    if (replaceHistory) {
+      global.location.replace(canonicalUrl);
+    } else {
+      global.location.assign(canonicalUrl);
     }
     return true;
   }
 
   boot.isUnifiedViewPathname = isUnifiedViewPathname;
   boot.switchSurfacePanel = switchSurfacePanel;
+  boot.captureSurfacePreviewSnapshot = captureSurfacePreviewSnapshot;
+  boot.restoreSurfacePreviewSnapshot = restoreSurfacePreviewSnapshot;
   boot.stashWorkspacePreviewSnapshot = stashWorkspacePreviewSnapshot;
-  boot.restoreWorkspacePreviewSnapshot = restoreWorkspacePreviewSnapshot;
   boot.stashAppPreviewSnapshot = stashAppPreviewSnapshot;
   boot.restoreAppPreviewSnapshot = restoreAppPreviewSnapshot;
   boot.syncTopbarActiveState = syncTopbarActiveState;

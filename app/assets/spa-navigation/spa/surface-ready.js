@@ -40,13 +40,7 @@
     )
       .trim()
       .toLowerCase();
-    if (!routeMode || routeMode === expected) return true;
-    if (!bodySurfaceMatches(ctx)) return false;
-    const root =
-      typeof boot.resolveComposeRoot === "function" ? boot.resolveComposeRoot(expected) : null;
-    const markers =
-      expected === "app" ? countAppPreviewMarkers(root) : countWorkspacePreviewMarkers(root);
-    return markers > 0;
+    return !routeMode || routeMode === expected;
   }
 
   function countAppPreviewMarkers(root) {

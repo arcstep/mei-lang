@@ -324,16 +324,10 @@
       shell &&
       boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(shell) === true;
     const forceRematerialize = options.forceRematerialize === true;
-    const surfaceSwitch = options.surfaceSwitch === true || forceRematerialize;
-    const blockSsrShortcut =
-      surfaceSwitch &&
-      typeof boot.isSurfaceMaterialized === "function" &&
-      !boot.isSurfaceMaterialized(ctx);
     if (
       shell &&
       ssrPreviewReady &&
       !forceRematerialize &&
-      !blockSsrShortcut &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
@@ -347,7 +341,6 @@
       typeof boot.hasMaterializedPreview === "function" &&
       boot.hasMaterializedPreview(shell) &&
       !forceRematerialize &&
-      !blockSsrShortcut &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
@@ -414,21 +407,19 @@
       previousSurface: opts.previousSurface || "",
       surfaceSwitch: opts.surfaceSwitch === true,
     };
-    if (!opts.surfaceSwitch) {
-      const cached = await tryClientOnlyAssemble(ctx, assembleOptions);
-      if (cached?.ok) {
-        boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
-        return {
-          outcome: ViewRevisionOutcome.ASSEMBLE_LOCAL,
-          assemble: cached,
-          response: {
-            status: ViewRevisionOutcome.ASSEMBLE_LOCAL,
-            manifest_revision_digest: boot.readViewRevision?.(ctx)?.manifest_revision_digest,
-            surface_revision_digest: boot.readViewRevision?.(ctx)?.surface_revision_digest,
-            cached_only: true,
-          },
-        };
-      }
+    const cached = await tryClientOnlyAssemble(ctx, assembleOptions);
+    if (cached?.ok) {
+      boot.lastViewRevisionOutcome = ViewRevisionOutcome.ASSEMBLE_LOCAL;
+      return {
+        outcome: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+        assemble: cached,
+        response: {
+          status: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+          manifest_revision_digest: boot.readViewRevision?.(ctx)?.manifest_revision_digest,
+          surface_revision_digest: boot.readViewRevision?.(ctx)?.surface_revision_digest,
+          cached_only: true,
+        },
+      };
     }
     let result = await negotiateViewRevision(ctx, {
       signal: opts.signal,

@@ -36,10 +36,12 @@ const coordinatorSrc = await readFile(
   "utf8",
 );
 assert.match(coordinatorSrc, /boot\.viewAssembly\s*=\s*\{[\s\S]*assemble/, "coordinator must export assemble");
-const previewIdx = coordinatorSrc.indexOf("await phasePreview(");
+const previewIdx = coordinatorSrc.indexOf("tryCacheFirstViewRestore");
 const verifyIdx = coordinatorSrc.indexOf("await phaseVerify(");
 const chromeIdx = coordinatorSrc.indexOf("await phaseChrome(");
-assert.ok(previewIdx >= 0 && verifyIdx > previewIdx && chromeIdx > verifyIdx, "phaseVerify must run between phasePreview and phaseChrome");
+assert.ok(previewIdx >= 0 && verifyIdx > previewIdx && chromeIdx > verifyIdx, "phaseVerify must run after preview and before chrome");
+assert.match(coordinatorSrc, /surfaceSwitch/, "unified cold_start surfaceSwitch flag required");
+assert.match(coordinatorSrc, /normalizeAssemblyOpts/, "normalizeAssemblyOpts required");
 
 const surfaceReadySrc = await readFile(
   path.join(assetsRoot, "spa-navigation/spa/surface-ready.js"),
@@ -54,7 +56,6 @@ const viewRevisionClientSrc = await readFile(
 );
 assert.match(viewRevisionClientSrc, /defaultReviewProjectionForSurface/, "compose defaults required");
 assert.match(viewRevisionClientSrc, /omit_digests/, "surface_switch omit_digests required");
-assert.match(viewRevisionClientSrc, /blockSsrShortcut/, "surface_switch ssr shortcut guard required");
 
 const revisionContractSrc = await readFile(
   path.join(assetsRoot, "spa-navigation/spa/revision-contract.js"),

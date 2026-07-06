@@ -301,13 +301,22 @@
     const forceRematerialize = composeAxes?.forceRematerialize === true;
     const workspacePreviewRoot = isWorkspacePreviewRoot(root, composeAxes);
     const preserveWorkspaceDom =
-      workspacePreviewRoot && hasEstablishedWorkspacePreview(root);
+      !forceRematerialize &&
+      workspacePreviewRoot &&
+      hasEstablishedWorkspacePreview(root);
     const keepSsrPreview =
       !forceRematerialize && materializer?.isSsrInjectedPreviewRoot?.(root) === true;
     const shouldMaterializePreview =
       !keepSsrPreview &&
       !preserveWorkspaceDom &&
       typeof materializer?.materializePreview === "function";
+    if (shouldMaterializePreview && forceRematerialize && root instanceof HTMLElement) {
+      root.innerHTML = "";
+      root.removeAttribute("data-mei-compose-materialized");
+      root.removeAttribute("data-compose-projection");
+      root.removeAttribute("data-review-projection");
+      root.removeAttribute("data-review-projection-active");
+    }
     if (shouldMaterializePreview) {
       materializer.materializePreview(root, layers, composeAxes);
     } else if (!keepSsrPreview && !preserveWorkspaceDom) {
@@ -317,7 +326,12 @@
       if (typeof materializer?.applyRuntimePlans === "function") {
         materializer.applyRuntimePlans(layers["runtime.plans"]);
       }
-      if (typeof materializer?.bindEvalSlots === "function") {
+      const projectionSlug = String(projection || "").trim().toLowerCase();
+      const bindEvalContent =
+        !projectionSlug ||
+        projectionSlug.includes("full") ||
+        roleDepth(PROJECTION_MAX_ROLE[projectionSlug] || "content") >= roleDepth("content");
+      if (bindEvalContent && typeof materializer?.bindEvalSlots === "function") {
         const evalDocs =
           typeof materializer.collectEvalDocs === "function"
             ? materializer.collectEvalDocs(layers)
