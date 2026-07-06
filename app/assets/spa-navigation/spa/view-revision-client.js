@@ -348,6 +348,29 @@
       }
       return { ok: true, missing: [], layers, source: "ssr_preview", materialized: true };
     }
+    if (
+      shell &&
+      shell.getAttribute("data-mei-compose-placeholder") === "1" &&
+      typeof boot.previewMaterializer?.hydratePlaceholderFromFragment === "function"
+    ) {
+      const hydrated = await boot.previewMaterializer.hydratePlaceholderFromFragment(
+        ctx,
+        shell,
+        options,
+      );
+      if (hydrated) {
+        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
+        return {
+          ok: true,
+          missing: [],
+          layers,
+          source: "ssr_preview",
+          materialized: true,
+        };
+      }
+    }
     if (boot.viewCompositor?.composeFromLayers && shell) {
       const composeAxes = {
         ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),

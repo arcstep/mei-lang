@@ -110,10 +110,27 @@
     ).trim();
   }
 
+  function readBootstrapMeta(name) {
+    const el = document.querySelector(`meta[name="${name}"]`);
+    return el ? String(el.content || "").trim() : "";
+  }
+
+  function resolveBootstrapRevision(revision) {
+    const fromArg = String(revision?.client_revision || revision?.clientRevision || "").trim();
+    if (fromArg) return fromArg;
+    const fromMeta = readBootstrapMeta("mei-bootstrap-client-revision");
+    if (fromMeta) return fromMeta;
+    return String(window.__mei?.client_revision || "").trim();
+  }
+
+  function isBootstrapRevisionOnly() {
+    return readBootstrapMeta("mei-bootstrap-inlined") === "0";
+  }
+
   async function ensureSceneBootstrapPayload(ctx, revision) {
     const appId = ctx?.appId;
     const sceneId = ctx?.sceneId;
-    const clientRevision = revision?.client_revision;
+    const clientRevision = resolveBootstrapRevision(revision);
     if (!appId || !sceneId) return null;
     if (clientRevision === NO_CLIENT_BOOTSTRAP_REVISION) {
       window.__meiBootstrapPayloadReady = 1;
@@ -133,6 +150,7 @@
       try {
         const payload = JSON.parse(inline.textContent || "{}");
         applyBootstrapPayload(payload);
+        window.__meiEvalPackSource = "bootstrap_inline";
         if (clientRevision) {
           writeLocalBootstrapArtifact(appId, sceneId, clientRevision, payload);
         }
@@ -144,6 +162,7 @@
       if (cached) {
         applyBootstrapPayload(cached);
         window.__meiBootstrapFromLocalStorage = 1;
+        window.__meiEvalPackSource = "scene_bootstrap_local";
         if (typeof boot.cacheDiagTrace === "function") {
           boot.cacheDiagTrace("bootstrap-local-hit", { appId, sceneId, clientRevision });
         }
@@ -160,6 +179,8 @@
     }
     const payload = await response.json();
     applyBootstrapPayload(payload);
+    window.__meiEvalPackFromApi = 1;
+    window.__meiEvalPackSource = "scene_bootstrap_api";
     if (clientRevision || payload?.clientRevision) {
       writeLocalBootstrapArtifact(
         appId,
@@ -174,7 +195,9 @@
   function seedBootstrapRuntimeCache() {
     const sourceMeta = window.__meiBootstrapFromLocalStorage
       ? "scene_bootstrap_local"
-      : window.__meiEvalPackSource || "bootstrap_inline";
+      : window.__meiEvalPackFromApi
+        ? "scene_bootstrap_api"
+        : window.__meiEvalPackSource || "bootstrap_inline";
     if (boot.evalStore?.seedPack) {
       return boot.evalStore.seedPack(window.__mei, { source: sourceMeta });
     }
@@ -304,5 +327,7 @@
   boot.seedBootstrapRuntimeCache = seedBootstrapRuntimeCache;
   boot.fetchJitEvalPack = fetchJitEvalPack;
   boot.applyBootstrapPayload = applyBootstrapPayload;
+  boot.isBootstrapRevisionOnly = isBootstrapRevisionOnly;
+  boot.readBootstrapMeta = readBootstrapMeta;
   boot.dispatchScopeActivation = dispatchScopeActivation;
   window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);

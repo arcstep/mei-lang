@@ -25,6 +25,7 @@
     "test:spa": "npm run test:spa-static && npm run assets:build && npm run test:spa-static",
     "test:theme-tokens": "node ./scripts/check-theme-tokens.mjs",
     "test:eval-pack-audit": "node ./scripts/eval-pack-audit.mjs",
+    "test:thin-document-audit": "node ./scripts/thin-document-size-audit.mjs",
     "test:eval-board-audit": "node ./scripts/eval-board-audit.mjs",
     "test:eval-filter-jit-audit": "node ./scripts/eval-filter-jit-audit.mjs",
     "test:eval-page-audit": "node ./scripts/eval-page-audit.mjs",
@@ -33,7 +34,7 @@
     "test:eval-snapshot-audit": "node ./scripts/eval-snapshot-audit.mjs",
     "test:spa-same-scene-audit": "node ./scripts/spa-same-scene-audit.mjs",
     "test:eval-store": "node ./scripts/eval-store.test.mjs",
-    "test:eval-suite": "npm run test:eval-store && node ./scripts/eval-pack-audit.mjs && node ./scripts/eval-board-audit.mjs && node ./scripts/eval-filter-jit-audit.mjs && node ./scripts/eval-page-audit.mjs && node ./scripts/eval-view-revision-audit.mjs && node ./scripts/eval-warmup-restart-audit.mjs && node ./scripts/eval-snapshot-audit.mjs && node ./scripts/spa-same-scene-audit.mjs",
+    "test:eval-suite": "npm run test:eval-store && node ./scripts/eval-pack-audit.mjs && node ./scripts/eval-board-audit.mjs && node ./scripts/eval-filter-jit-audit.mjs && node ./scripts/eval-page-audit.mjs && node ./scripts/eval-view-revision-audit.mjs && node ./scripts/eval-warmup-restart-audit.mjs && node ./scripts/eval-snapshot-audit.mjs && node ./scripts/spa-same-scene-audit.mjs && node ./scripts/thin-document-size-audit.mjs",
     "test:eval-board-ui-audit": "node ./scripts/eval-board-audit.mjs --ui"
   },
   "devDependencies": {

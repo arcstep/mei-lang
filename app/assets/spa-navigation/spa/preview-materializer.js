@@ -341,6 +341,68 @@
     );
   }
 
+  function injectPreviewSurfaceHtml(root, surfaceHtml) {
+    const html = String(surfaceHtml || "").trim();
+    if (!(root instanceof HTMLElement) || !html) return false;
+    root.innerHTML = html;
+    root.removeAttribute("data-mei-compose-placeholder");
+    root.removeAttribute("aria-busy");
+    root.removeAttribute("data-mei-compose-materialized");
+    return true;
+  }
+
+  async function fetchScenePreviewFragment(ctx, options) {
+    const opts = options || {};
+    const appId = String(ctx?.appId || ctx?.app_id || "").trim();
+    const sceneId = String(ctx?.sceneId || ctx?.scene_id || "home").trim() || "home";
+    if (!appId) return null;
+    const params = new URLSearchParams({ app: appId, scene: sceneId, format: "html" });
+    const dataMode = String(ctx?.dataMode || ctx?.data_mode || "").trim();
+    const reviewProjection = String(ctx?.reviewProjection || ctx?.review_projection || "").trim();
+    const chrome = String(ctx?.chrome || "").trim();
+    if (dataMode) params.set("data_mode", dataMode);
+    if (reviewProjection) params.set("review_projection", reviewProjection);
+    if (chrome) params.set("chrome", chrome);
+    const controller = opts.signal ? null : new AbortController();
+    const signal = opts.signal || controller?.signal;
+    const response = await fetch(`/api/host/scene-fragment?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`scene preview fragment failed: ${response.status}`);
+    }
+    return await response.json();
+  }
+
+  async function hydratePlaceholderFromFragment(ctx, root, options) {
+    if (!(root instanceof HTMLElement)) return false;
+    if (root.getAttribute("data-mei-compose-placeholder") !== "1") return false;
+    if (boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(root) === true) return true;
+    try {
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("preview_fragment:begin");
+      }
+      const fragment = await fetchScenePreviewFragment(ctx, options);
+      if (!fragment?.surfaceHtml) return false;
+      const ok = injectPreviewSurfaceHtml(root, fragment.surfaceHtml);
+      if (ok && typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("preview_fragment:end", {
+          bytes: fragment.surfaceHtml.length,
+        });
+      }
+      return ok;
+    } catch (error) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("preview-fragment-hydrate-miss", {
+          message: String(error?.message || error || "fragment hydrate failed"),
+        });
+      }
+      return false;
+    }
+  }
+
   function materializePreview(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     currentTagLookup = buildComponentTagLookup(layers);
@@ -386,6 +448,9 @@
     isClientLayerMaterialized,
     isSsrInjectedPreviewRoot,
     collectEvalDocs,
+    injectPreviewSurfaceHtml,
+    fetchScenePreviewFragment,
+    hydratePlaceholderFromFragment,
   };
   boot.hasMaterializedPreview = hasMaterializedPreview;
 })(typeof window !== "undefined" ? window : globalThis);

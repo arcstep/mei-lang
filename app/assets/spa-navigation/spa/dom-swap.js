@@ -360,11 +360,37 @@
   function syncSceneDrilldownContextFromDoc(doc) {
     const currentCtx = document.getElementById("mei-scene-drilldown-context");
     const nextCtx = doc.getElementById("mei-scene-drilldown-context");
-    if (!currentCtx || !nextCtx) return;
-    currentCtx.textContent = nextCtx.textContent || "";
-    try {
-      delete window.__meiSceneDrilldownContext;
-    } catch (_) {}
+    if (nextCtx && nextCtx.textContent) {
+      if (!currentCtx) return;
+      currentCtx.textContent = nextCtx.textContent || "";
+      try {
+        delete window.__meiSceneDrilldownContext;
+      } catch (_) {}
+      return;
+    }
+    if (
+      doc.querySelector('meta[name="mei-drilldown-inlined"][content="0"]') &&
+      typeof boot.copyDrilldownMetaFromDoc === "function"
+    ) {
+      boot.copyDrilldownMetaFromDoc(doc);
+      const nextInline = doc.getElementById("mei-scene-drilldown-context");
+      if (nextInline && nextInline.textContent && currentCtx) {
+        currentCtx.textContent = nextInline.textContent || "";
+        try {
+          delete window.__meiSceneDrilldownContext;
+        } catch (_) {}
+        return;
+      }
+      if (typeof boot.ensureSceneDrilldownContext === "function") {
+        const ctx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(doc.baseURI || window.location.href)
+            : null;
+        void boot.ensureSceneDrilldownContext(ctx || {}).catch((error) => {
+          console.warn("[spa-navigation] drilldown context sync skipped", error);
+        });
+      }
+    }
   }
 
   function syncHostRuntimeCapabilitiesFromDoc(doc) {

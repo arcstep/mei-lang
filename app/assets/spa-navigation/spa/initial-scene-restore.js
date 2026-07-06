@@ -201,7 +201,7 @@
         globalThis.MeiBuildTreePersist.refresh();
       }
       if (!warmOnly) {
-        if (typeof boot.restoreWorkspacePreviewSnapshot === "function") {
+        if (ssrPreview && typeof boot.restoreWorkspacePreviewSnapshot === "function") {
           boot.restoreWorkspacePreviewSnapshot();
         }
         if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
@@ -367,7 +367,7 @@
     }
     if (opts.skipRuntimeWake) return;
     await wakeRevisionFirstShellRuntime(ctx, {
-      ssrPreview: opts.ssrPreview !== false,
+      ssrPreview: opts.ssrPreview === true,
       warmOnly: opts.warmOnly === true,
       forceRuntimeWake: opts.forceRuntimeWake === true,
     });

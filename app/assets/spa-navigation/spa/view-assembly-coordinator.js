@@ -191,6 +191,13 @@
 
   async function phaseChrome(ctx, generation) {
     if (isStale(generation)) return;
+    if (typeof boot.ensureSceneDrilldownContext === "function") {
+      try {
+        await boot.ensureSceneDrilldownContext(ctx || {});
+      } catch (error) {
+        console.warn("[view-assembly] drilldown context load skipped", error);
+      }
+    }
     if (typeof boot.ensureViewShellLayout === "function") {
       boot.ensureViewShellLayout();
     }

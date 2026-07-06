@@ -8,10 +8,20 @@
   if (typeof boot.watchTopbarChromeInjection === "function") {
     boot.watchTopbarChromeInjection();
   }
-  applyDrilldownContextFromQuery();
-  applySceneProjectionContextFromStorage();
-
   void (async () => {
+    if (typeof boot.ensureSceneDrilldownContext === "function") {
+      try {
+        const ctx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(window.location.href)
+            : null;
+        await boot.ensureSceneDrilldownContext(ctx || {});
+      } catch (error) {
+        console.warn("[spa-navigation] drilldown context load skipped", error);
+      }
+    }
+    applyDrilldownContextFromQuery();
+    applySceneProjectionContextFromStorage();
     if (typeof boot.hostCapabilitiesReady === "function") {
       try {
         await boot.hostCapabilitiesReady({ timeoutMs: 5000 });
@@ -30,6 +40,9 @@
         ? isRevisionFirstShellPage()
         : globalThis.__mei?.thin_shell === true;
     try {
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("cold_start:begin", { thinShell: isThinShell });
+      }
       let outcome = { restored: false, source: "none" };
       if (boot.viewAssembly?.assemble && isThinShell && globalThis.__mei?.view_assembly_v2 !== false) {
         const result = await boot.viewAssembly.assemble(
@@ -57,6 +70,9 @@
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
         if (typeof boot.hideThinShellFallback === "function") {
           boot.hideThinShellFallback();
+        }
+        if (typeof boot.scheduleFrameViewportRelayout === "function") {
+          boot.scheduleFrameViewportRelayout();
         }
         if (typeof boot.rememberViewRevision === "function" && ctx && outcome.revision) {
           boot.rememberViewRevision(ctx, outcome.revision);
@@ -89,6 +105,18 @@
           sceneId: ctx.scene_id || ctx.sceneId || "home",
           appId: ctx.app_id || ctx.appId || "",
           source: "revision-first-fallback",
+        });
+      }
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("cold_start:end", {
+          restored: !!outcome.restored,
+          source: outcome.source,
+        });
+      }
+      if (typeof boot.renderPipelineFinalize === "function") {
+        boot.renderPipelineFinalize({
+          restored: !!outcome.restored,
+          source: outcome.source,
         });
       }
       if (typeof boot.cacheDiagTrace === "function") {
