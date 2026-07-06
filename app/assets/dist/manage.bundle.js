@@ -10357,6 +10357,417 @@
   boot.loadPhaseProgress = loadPhaseProgress;
 
 
+/* ===== spa-navigation/spa/render-pipeline-timeline.js ===== */
+/**
+ * Client render pipeline timeline: request → cache → assembly → surface-ready.
+ *
+ * Always records the latest run to window.__meiRenderPipeline.last
+ * Verbose console + server log: ?mei_render_pipeline=1 or localStorage mei:render-pipeline=1
+ *   (also follows mei_cache_diag=1)
+ */
+(function initRenderPipelineTimeline(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const PIPELINE_LS = "mei:render-pipeline";
+  const PIPELINE_REPORT_API = "/api/host/client-trace";
+  const HOST_API_RE =
+    /\/api\/host\/(view-revision|layer-batch|scene-revision|scene-manifest|scene-bootstrap|scene-fragment|scene-drilldown-context)/;
+  const BUNDLE_RE = /\/(access|manage)\.bundle\.js(\?|$)/;
+
+  const state = {
+    runId: "",
+    url: "",
+    surface: "",
+    startedAt: 0,
+    marks: [],
+    fetches: [],
+    reported: false,
+    lastSummary: null,
+  };
+
+  function nowMs() {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
+  }
+
+  function pipelineEnabled() {
+    try {
+      if (global.localStorage?.getItem(PIPELINE_LS) === "1") return true;
+      if (new URL(global.location.href).searchParams.get("mei_render_pipeline") === "1") {
+        return true;
+      }
+      if (typeof boot.cacheDiagEnabled === "function" && boot.cacheDiagEnabled()) return true;
+    } catch (_) {}
+    return false;
+  }
+
+  function beginRun(meta) {
+    const detail = meta && typeof meta === "object" ? meta : {};
+    state.runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    state.url = String(detail.url || global.location?.href || "");
+    state.surface = String(detail.surface || "").trim().toLowerCase();
+    state.startedAt = nowMs();
+    state.marks = [];
+    state.fetches = [];
+    state.reported = false;
+    mark("run_begin", detail);
+  }
+
+  function mark(name, detail) {
+    const entry = {
+      name: String(name || "mark"),
+      ms: Math.round(nowMs() - (state.startedAt || 0)),
+      at: new Date().toISOString(),
+      detail: detail && typeof detail === "object" ? { ...detail } : {},
+    };
+    state.marks.push(entry);
+    if (state.marks.length > 96) state.marks.shift();
+    return entry;
+  }
+
+  function markAt(name, offsetMs, detail) {
+    const entry = {
+      name: String(name || "mark"),
+      ms: Math.round(Number(offsetMs) || 0),
+      at: new Date().toISOString(),
+      detail: detail && typeof detail === "object" ? { ...detail } : {},
+    };
+    state.marks.push(entry);
+    return entry;
+  }
+
+  function classifyFetchUrl(url) {
+    const text = String(url || "");
+    if (BUNDLE_RE.test(text)) return "bundle";
+    if (text.includes("/api/host/scene-fragment")) return "scene-fragment";
+    if (text.includes("/api/host/view-revision")) return "view-revision";
+    if (text.includes("/api/host/layer-batch")) return "layer-batch";
+    if (text.includes("/api/host/scene-bootstrap")) return "scene-bootstrap";
+    if (text.includes("/api/host/scene-drilldown-context")) return "scene-drilldown";
+    if (text.includes("/api/host/scene-manifest")) return "scene-manifest";
+    if (text.includes("/api/dataset") || text.includes("/api/metric")) return "metric-api";
+    if (text.includes("/api/host/")) return "host-other";
+    if (/\/view(\?|$)/.test(text) && !text.includes("/api/")) return "document";
+    return "other";
+  }
+
+  function ingestResourceTiming() {
+    if (typeof performance === "undefined" || typeof performance.getEntriesByType !== "function") {
+      return [];
+    }
+    const seen = new Set(state.fetches.map((row) => row.name));
+    const rows = [];
+    for (const entry of performance.getEntriesByType("resource")) {
+      const name = String(entry.name || "");
+      if (!HOST_API_RE.test(name) && !BUNDLE_RE.test(name) && !name.includes("/styles.bundle.css")) {
+        continue;
+      }
+      if (seen.has(name)) continue;
+      const kind = classifyFetchUrl(name);
+      rows.push({
+        kind,
+        name: name.slice(-96),
+        ms: Math.round(entry.duration || 0),
+        startMs: Math.round(entry.startTime || 0),
+        transferSize: Number(entry.transferSize) || 0,
+        fromCache: Number(entry.transferSize) === 0 && Number(entry.decodedBodySize) > 0,
+      });
+    }
+    state.fetches.push(...rows);
+    return rows;
+  }
+
+  function readBodyPerf() {
+    const body = global.document?.body;
+    if (!body?.dataset) return {};
+    return {
+      handlerReadyMs: Number(body.dataset.meiHandlerHtmlReadyMs),
+      ssrBodyMs: Number(body.dataset.meiSsrHttpResponseBodyMs),
+      htmlBytes: Number(body.dataset.meiHtmlBytes),
+    };
+  }
+
+  function phaseSpan(prefix) {
+    const hits = state.marks.filter((row) => row.name === prefix || row.name.startsWith(`${prefix}:`));
+    if (!hits.length) return null;
+    const first = hits[0].ms;
+    const last = hits[hits.length - 1].ms;
+    return { startMs: first, endMs: last, durationMs: Math.max(0, last - first), count: hits.length };
+  }
+
+  function buildSummary(options) {
+    const opts = options || {};
+    ingestResourceTiming();
+    const bodyPerf = readBodyPerf();
+    const wallMs = Math.round(nowMs() - (state.startedAt || 0));
+    const lastMark = state.marks[state.marks.length - 1];
+    const surfaceReady = state.marks.find((row) => row.name === "surface_ready");
+    const coldStart = phaseSpan("cold_start");
+    const assembly = phaseSpan("assembly");
+    const fragment = phaseSpan("preview_fragment");
+    const byKind = {};
+    for (const row of state.fetches) {
+      const bucket = byKind[row.kind] || {
+        count: 0,
+        ms: 0,
+        maxMs: 0,
+        bytes: 0,
+        cached: 0,
+      };
+      bucket.count += 1;
+      bucket.ms += row.ms || 0;
+      bucket.maxMs = Math.max(bucket.maxMs, row.ms || 0);
+      bucket.bytes += row.transferSize || 0;
+      if (row.fromCache) bucket.cached += 1;
+      byKind[row.kind] = bucket;
+    }
+    const documentMs = Number.isFinite(bodyPerf.handlerReadyMs)
+      ? Math.round(bodyPerf.handlerReadyMs)
+      : byKind.document?.maxMs || 0;
+    const clientAfterDocumentMs = Math.max(0, wallMs - documentMs);
+    const summary = {
+      runId: state.runId,
+      url: state.url,
+      surface: state.surface,
+      wallMs,
+      documentMs,
+      clientAfterDocumentMs,
+      surfaceReadyMs: surfaceReady?.ms ?? null,
+      coldStartMs: coldStart?.durationMs ?? null,
+      assemblyMs: assembly?.durationMs ?? null,
+      previewFragmentMs: fragment?.durationMs ?? null,
+      bodyPerf,
+      fetchByKind: byKind,
+      marks: state.marks.slice(-32),
+      fetches: state.fetches.slice(-24),
+      flags: {
+        restored: opts.restored,
+        source: opts.source || "",
+        ssrPreview: opts.ssrPreview === true,
+        viewRevisionOutcome: boot.lastViewRevisionOutcome || null,
+      },
+      endedAt: lastMark?.name || "",
+    };
+    state.lastSummary = summary;
+    return summary;
+  }
+
+  function formatBytes(bytes) {
+    const n = Number(bytes) || 0;
+    if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)}MB`;
+    if (n >= 1024) return `${Math.round(n / 1024)}KB`;
+    return `${n}B`;
+  }
+
+  function logSummaryToConsole(summary) {
+    const lines = [
+      `[mei-render-pipeline] wall=${summary.wallMs}ms`,
+      `  document≈${summary.documentMs}ms`,
+      `  client_after_doc≈${summary.clientAfterDocumentMs}ms`,
+    ];
+    if (summary.previewFragmentMs != null) {
+      lines.push(`  preview_fragment≈${summary.previewFragmentMs}ms`);
+    }
+    if (summary.assemblyMs != null) lines.push(`  assembly≈${summary.assemblyMs}ms`);
+    if (summary.surfaceReadyMs != null) lines.push(`  surface_ready@${summary.surfaceReadyMs}ms`);
+    Object.entries(summary.fetchByKind || {}).forEach(([kind, bucket]) => {
+      lines.push(
+        `  fetch ${kind}: n=${bucket.count} sum=${bucket.ms}ms max=${bucket.maxMs}ms bytes=${formatBytes(bucket.bytes)} cached=${bucket.cached}`,
+      );
+    });
+    try {
+      console.info(lines.join("\n"));
+      console.table(summary.marks.map((row) => ({ ms: row.ms, event: row.name, ...row.detail })));
+    } catch (_) {}
+  }
+
+  function reportSummary(summary) {
+    if (state.reported) return;
+    state.reported = true;
+    state.lastSummary = summary;
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("render-pipeline", summary);
+    }
+    if (!pipelineEnabled()) return;
+    logSummaryToConsole(summary);
+    try {
+      const body = JSON.stringify({
+        id: summary.runId || `pipe-${Date.now()}`,
+        kind: "RENDER_PIPELINE",
+        label: `${summary.surface || "app"} wall=${summary.wallMs}ms`,
+        pipeline: summary,
+      });
+      if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+        const blob = new Blob([body], { type: "application/json" });
+        navigator.sendBeacon(PIPELINE_REPORT_API, blob);
+        return;
+      }
+      void fetch(PIPELINE_REPORT_API, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body,
+        keepalive: true,
+      });
+    } catch (_) {}
+  }
+
+  function finalizeRun(options) {
+    const summary = buildSummary(options);
+    reportSummary(summary);
+    return summary;
+  }
+
+  function installFetchTap() {
+    if (global.__meiRenderPipelineFetchTap || typeof global.fetch !== "function") return;
+    global.__meiRenderPipelineFetchTap = true;
+    const nativeFetch = global.fetch.bind(global);
+    global.fetch = function meiRenderPipelineFetch(input, init) {
+      const url = String(input?.url || input || "");
+      const track = HOST_API_RE.test(url) || url.includes("/api/dataset") || url.includes("/api/metric");
+      const started = nowMs();
+      const kind = classifyFetchUrl(url);
+      if (track) mark(`fetch_start:${kind}`, { url: url.slice(-96) });
+      return nativeFetch(input, init).then(
+        (response) => {
+          if (track) {
+            const ms = Math.round(nowMs() - started);
+            state.fetches.push({
+              kind,
+              name: url.slice(-96),
+              ms,
+              startMs: Math.round(started - (state.startedAt || 0)),
+              transferSize: 0,
+              fromCache: false,
+              status: response.status,
+            });
+            mark(`fetch_done:${kind}`, { ms, status: response.status, url: url.slice(-96) });
+          }
+          return response;
+        },
+        (error) => {
+          if (track) {
+            mark(`fetch_fail:${kind}`, {
+              ms: Math.round(nowMs() - started),
+              message: String(error?.message || error),
+            });
+          }
+          throw error;
+        },
+      );
+    };
+  }
+
+  function hookCacheDiag() {
+    if (hookCacheDiag._done || typeof boot.cacheDiagTrace !== "function") return;
+    hookCacheDiag._done = true;
+    const original = boot.cacheDiagTrace.bind(boot);
+    boot.cacheDiagTrace = function wrappedCacheDiagTrace(event, detail) {
+      const name = String(event || "");
+      if (
+        name === "assembly-phase" ||
+        name === "view-cold-start" ||
+        name === "view-revision-outcome" ||
+        name === "preview-fragment-hydrate-miss" ||
+        name === "render-pipeline"
+      ) {
+        mark(name, detail || {});
+      }
+      return original(event, detail);
+    };
+  }
+
+  function hookAssemblyCoordinator() {
+    if (hookAssemblyCoordinator._done || !boot.viewAssembly) return;
+    hookAssemblyCoordinator._done = true;
+    const original = boot.viewAssembly.assemble?.bind(boot.viewAssembly);
+    if (typeof original !== "function") return;
+    boot.viewAssembly.assemble = async function wrappedAssemble(intent, options) {
+      mark("assembly:begin", { kind: intent?.kind || "" });
+      try {
+        const result = await original(intent, options);
+        mark("assembly:end", { ok: !!result?.ok, reason: result?.reason || "" });
+        return result;
+      } catch (error) {
+        mark("assembly:error", { message: String(error?.message || error) });
+        throw error;
+      }
+    };
+  }
+
+  function readSurfaceFromDom() {
+    const body = global.document?.body;
+    return String(
+      body?.getAttribute("data-surface") || body?.getAttribute("data-mei-view") || "app",
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  function tryMarkSurfaceReady() {
+    const ctx =
+      typeof boot.parseViewContext === "function"
+        ? boot.parseViewContext(global.location.href)
+        : { surface: readSurfaceFromDom() };
+    if (typeof boot.isSurfaceMaterialized === "function" && boot.isSurfaceMaterialized(ctx)) {
+      mark("surface_ready", boot.surfaceSnapshot?.(ctx) || {});
+      finalizeRun({ source: "surface_ready_poll" });
+      return true;
+    }
+    return false;
+  }
+
+  function installLifecycleHooks() {
+    beginRun({ url: global.location?.href, surface: readSurfaceFromDom() });
+    mark("bundle_boot");
+    installFetchTap();
+    hookCacheDiag();
+    hookAssemblyCoordinator();
+
+    global.addEventListener("mei:spa-navigation-complete", () => {
+      mark("spa_navigation_complete");
+      if (!tryMarkSurfaceReady()) {
+        finalizeRun({ source: "spa_navigation_complete" });
+      }
+    });
+
+    if (global.document?.readyState === "loading") {
+      global.document.addEventListener("DOMContentLoaded", () => mark("dom_ready"), { once: true });
+    } else {
+      mark("dom_ready");
+    }
+
+    global.addEventListener("load", () => {
+      mark("window_load");
+      setTimeout(() => {
+        if (!state.reported) finalizeRun({ source: "window_load_timeout" });
+      }, 8000);
+    });
+  }
+
+  boot.renderPipelineMark = mark;
+  boot.renderPipelineFinalize = finalizeRun;
+  boot.renderPipelineEnabled = pipelineEnabled;
+  global.__meiRenderPipeline = {
+    mark,
+    finalize: finalizeRun,
+    summary: () => buildSummary(),
+    enabled: pipelineEnabled,
+    get marks() {
+      return state.marks.slice();
+    },
+    get last() {
+      return state.lastSummary;
+    },
+  };
+
+  installLifecycleHooks();
+})(typeof window !== "undefined" ? window : globalThis);
+
+
 /* ===== spa-navigation/route-predicates.js ===== */
   // Re-export global route predicates into spa-navigation preamble closure.
   const RP = globalThis.MeiRoutePredicates || {};
@@ -26792,6 +27203,13 @@
 
   async function phaseChrome(ctx, generation) {
     if (isStale(generation)) return;
+    if (typeof boot.ensureSceneDrilldownContext === "function") {
+      try {
+        await boot.ensureSceneDrilldownContext(ctx || {});
+      } catch (error) {
+        console.warn("[view-assembly] drilldown context load skipped", error);
+      }
+    }
     if (typeof boot.ensureViewShellLayout === "function") {
       boot.ensureViewShellLayout();
     }
@@ -27731,6 +28149,29 @@
         boot.applyHostChromeFromManifestRefs();
       }
       return { ok: true, missing: [], layers, source: "ssr_preview", materialized: true };
+    }
+    if (
+      shell &&
+      shell.getAttribute("data-mei-compose-placeholder") === "1" &&
+      typeof boot.previewMaterializer?.hydratePlaceholderFromFragment === "function"
+    ) {
+      const hydrated = await boot.previewMaterializer.hydratePlaceholderFromFragment(
+        ctx,
+        shell,
+        options,
+      );
+      if (hydrated) {
+        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
+        return {
+          ok: true,
+          missing: [],
+          layers,
+          source: "ssr_preview",
+          materialized: true,
+        };
+      }
     }
     if (boot.viewCompositor?.composeFromLayers && shell) {
       const composeAxes = {
@@ -29067,6 +29508,68 @@
     );
   }
 
+  function injectPreviewSurfaceHtml(root, surfaceHtml) {
+    const html = String(surfaceHtml || "").trim();
+    if (!(root instanceof HTMLElement) || !html) return false;
+    root.innerHTML = html;
+    root.removeAttribute("data-mei-compose-placeholder");
+    root.removeAttribute("aria-busy");
+    root.removeAttribute("data-mei-compose-materialized");
+    return true;
+  }
+
+  async function fetchScenePreviewFragment(ctx, options) {
+    const opts = options || {};
+    const appId = String(ctx?.appId || ctx?.app_id || "").trim();
+    const sceneId = String(ctx?.sceneId || ctx?.scene_id || "home").trim() || "home";
+    if (!appId) return null;
+    const params = new URLSearchParams({ app: appId, scene: sceneId, format: "html" });
+    const dataMode = String(ctx?.dataMode || ctx?.data_mode || "").trim();
+    const reviewProjection = String(ctx?.reviewProjection || ctx?.review_projection || "").trim();
+    const chrome = String(ctx?.chrome || "").trim();
+    if (dataMode) params.set("data_mode", dataMode);
+    if (reviewProjection) params.set("review_projection", reviewProjection);
+    if (chrome) params.set("chrome", chrome);
+    const controller = opts.signal ? null : new AbortController();
+    const signal = opts.signal || controller?.signal;
+    const response = await fetch(`/api/host/scene-fragment?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`scene preview fragment failed: ${response.status}`);
+    }
+    return await response.json();
+  }
+
+  async function hydratePlaceholderFromFragment(ctx, root, options) {
+    if (!(root instanceof HTMLElement)) return false;
+    if (root.getAttribute("data-mei-compose-placeholder") !== "1") return false;
+    if (boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(root) === true) return true;
+    try {
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("preview_fragment:begin");
+      }
+      const fragment = await fetchScenePreviewFragment(ctx, options);
+      if (!fragment?.surfaceHtml) return false;
+      const ok = injectPreviewSurfaceHtml(root, fragment.surfaceHtml);
+      if (ok && typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("preview_fragment:end", {
+          bytes: fragment.surfaceHtml.length,
+        });
+      }
+      return ok;
+    } catch (error) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("preview-fragment-hydrate-miss", {
+          message: String(error?.message || error || "fragment hydrate failed"),
+        });
+      }
+      return false;
+    }
+  }
+
   function materializePreview(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     currentTagLookup = buildComponentTagLookup(layers);
@@ -29112,6 +29615,9 @@
     isClientLayerMaterialized,
     isSsrInjectedPreviewRoot,
     collectEvalDocs,
+    injectPreviewSurfaceHtml,
+    fetchScenePreviewFragment,
+    hydratePlaceholderFromFragment,
   };
   boot.hasMaterializedPreview = hasMaterializedPreview;
 })(typeof window !== "undefined" ? window : globalThis);
@@ -29653,6 +30159,167 @@
   boot.SCENE_SHELL_MAX_AGE_MS = 0;
 
 
+/* ===== spa-navigation/spa/drilldown-context-loader.js ===== */
+/**
+ * Fetch or restore scene drilldown context when SSR uses revision-only meta injection.
+ */
+(function initDrilldownContextLoader(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const SS_PREFIX = "mei:drilldown:v1:";
+
+  function readDrilldownMeta(name) {
+    const el = document.querySelector(`meta[name="${name}"]`);
+    return el ? String(el.content || "").trim() : "";
+  }
+
+  function isDrilldownRevisionOnly() {
+    return readDrilldownMeta("mei-drilldown-inlined") === "0";
+  }
+
+  function drilldownStorageKey(appId, sceneId, revision) {
+    return `${SS_PREFIX}${appId}:${sceneId}:${revision || "default"}`;
+  }
+
+  function resolveDrilldownAppId(ctx) {
+    const fromCtx = String(ctx?.appId || ctx?.app_id || "").trim();
+    if (fromCtx) return fromCtx;
+    const fromMeta = readDrilldownMeta("mei-drilldown-app-id");
+    if (fromMeta) return fromMeta;
+    const host =
+      document.querySelector("[data-mei-app-id]") ||
+      document.querySelector("[data-app-id]") ||
+      document.querySelector("[data-app]");
+    if (!(host instanceof HTMLElement)) return "";
+    return String(
+      host.dataset.meiAppId || host.dataset.appId || host.dataset.app || "",
+    ).trim();
+  }
+
+  function resolveDrilldownSceneId(ctx) {
+    const fromCtx = String(ctx?.sceneId || ctx?.scene_id || "").trim();
+    if (fromCtx) return fromCtx;
+    const fromMeta = readDrilldownMeta("mei-drilldown-scope");
+    if (fromMeta) return fromMeta;
+    const host = document.querySelector("[data-scene-id], [data-scene]");
+    if (!(host instanceof HTMLElement)) return "home";
+    return String(host.dataset.sceneId || host.dataset.scene || "home").trim() || "home";
+  }
+
+  function resolveDrilldownRevision() {
+    const refs = global.__mei?.scene_manifest_refs;
+    const fromRefs = String(
+      refs?.registry_revision || refs?.registryRevision || refs?.revision || "",
+    ).trim();
+    if (fromRefs) return fromRefs;
+    return String(global.__mei?.compile_epoch || global.__mei?.bootstrap_compile_epoch || "")
+      .trim();
+  }
+
+  function ensureDrilldownScriptElement() {
+    let el = document.getElementById("mei-scene-drilldown-context");
+    if (!el) {
+      el = document.createElement("script");
+      el.id = "mei-scene-drilldown-context";
+      el.type = "application/json";
+      document.head.appendChild(el);
+    }
+    return el;
+  }
+
+  function injectDrilldownPayload(payloadText) {
+    const text = String(payloadText || "").trim();
+    if (!text) return false;
+    const el = ensureDrilldownScriptElement();
+    el.textContent = text;
+    try {
+      delete global.__meiSceneDrilldownContext;
+    } catch (_) {}
+    try {
+      document.dispatchEvent(new CustomEvent("mei-drilldown-context-ready"));
+    } catch (_) {}
+    return true;
+  }
+
+  function readSessionDrilldown(appId, sceneId, revision) {
+    try {
+      return sessionStorage.getItem(drilldownStorageKey(appId, sceneId, revision));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeSessionDrilldown(appId, sceneId, revision, payloadText) {
+    try {
+      sessionStorage.setItem(drilldownStorageKey(appId, sceneId, revision), payloadText);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function copyDrilldownMetaFromDoc(doc) {
+    if (!doc) return;
+    const names = [
+      "mei-drilldown-inlined",
+      "mei-drilldown-scope",
+      "mei-drilldown-app-id",
+      "mei-drilldown-artifact-url",
+    ];
+    names.forEach((name) => {
+      const next = doc.querySelector(`meta[name="${name}"]`);
+      if (!next) return;
+      let current = document.querySelector(`meta[name="${name}"]`);
+      if (!current) {
+        current = document.createElement("meta");
+        current.setAttribute("name", name);
+        document.head.appendChild(current);
+      }
+      current.setAttribute("content", next.getAttribute("content") || "");
+    });
+  }
+
+  async function ensureSceneDrilldownContext(ctx) {
+    const inline = document.getElementById("mei-scene-drilldown-context");
+    if (inline && inline.textContent && !isDrilldownRevisionOnly()) {
+      return JSON.parse(inline.textContent || "{}");
+    }
+    const appId = resolveDrilldownAppId(ctx);
+    const sceneId = resolveDrilldownSceneId(ctx);
+    if (!appId) return null;
+    const revision = resolveDrilldownRevision();
+    const cached = readSessionDrilldown(appId, sceneId, revision);
+    if (cached) {
+      injectDrilldownPayload(cached);
+      global.__meiDrilldownSource = "session_storage";
+      return JSON.parse(cached);
+    }
+    const artifactUrl =
+      readDrilldownMeta("mei-drilldown-artifact-url") ||
+      `/api/host/scene-drilldown-context?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
+    const response = await fetch(artifactUrl, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`scene drilldown context failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    const payloadText = JSON.stringify(payload);
+    writeSessionDrilldown(appId, sceneId, revision, payloadText);
+    injectDrilldownPayload(payloadText);
+    global.__meiDrilldownSource = "scene_drilldown_api";
+    return payload;
+  }
+
+  boot.isDrilldownRevisionOnly = isDrilldownRevisionOnly;
+  boot.ensureSceneDrilldownContext = ensureSceneDrilldownContext;
+  boot.copyDrilldownMetaFromDoc = copyDrilldownMetaFromDoc;
+  boot.injectDrilldownPayload = injectDrilldownPayload;
+})(typeof window !== "undefined" ? window : globalThis);
+
+
 /* ===== spa-navigation/spa/scene-bootstrap-loader.js ===== */
   const SCENE_BOOTSTRAP_API = "/api/host/scene-bootstrap";
   const BOOTSTRAP_ARTIFACT_LS_PREFIX = "mei:scene-bootstrap:v1:";
@@ -29766,10 +30433,27 @@
     ).trim();
   }
 
+  function readBootstrapMeta(name) {
+    const el = document.querySelector(`meta[name="${name}"]`);
+    return el ? String(el.content || "").trim() : "";
+  }
+
+  function resolveBootstrapRevision(revision) {
+    const fromArg = String(revision?.client_revision || revision?.clientRevision || "").trim();
+    if (fromArg) return fromArg;
+    const fromMeta = readBootstrapMeta("mei-bootstrap-client-revision");
+    if (fromMeta) return fromMeta;
+    return String(window.__mei?.client_revision || "").trim();
+  }
+
+  function isBootstrapRevisionOnly() {
+    return readBootstrapMeta("mei-bootstrap-inlined") === "0";
+  }
+
   async function ensureSceneBootstrapPayload(ctx, revision) {
     const appId = ctx?.appId;
     const sceneId = ctx?.sceneId;
-    const clientRevision = revision?.client_revision;
+    const clientRevision = resolveBootstrapRevision(revision);
     if (!appId || !sceneId) return null;
     if (clientRevision === NO_CLIENT_BOOTSTRAP_REVISION) {
       window.__meiBootstrapPayloadReady = 1;
@@ -29789,6 +30473,7 @@
       try {
         const payload = JSON.parse(inline.textContent || "{}");
         applyBootstrapPayload(payload);
+        window.__meiEvalPackSource = "bootstrap_inline";
         if (clientRevision) {
           writeLocalBootstrapArtifact(appId, sceneId, clientRevision, payload);
         }
@@ -29800,6 +30485,7 @@
       if (cached) {
         applyBootstrapPayload(cached);
         window.__meiBootstrapFromLocalStorage = 1;
+        window.__meiEvalPackSource = "scene_bootstrap_local";
         if (typeof boot.cacheDiagTrace === "function") {
           boot.cacheDiagTrace("bootstrap-local-hit", { appId, sceneId, clientRevision });
         }
@@ -29816,6 +30502,8 @@
     }
     const payload = await response.json();
     applyBootstrapPayload(payload);
+    window.__meiEvalPackFromApi = 1;
+    window.__meiEvalPackSource = "scene_bootstrap_api";
     if (clientRevision || payload?.clientRevision) {
       writeLocalBootstrapArtifact(
         appId,
@@ -29830,7 +30518,9 @@
   function seedBootstrapRuntimeCache() {
     const sourceMeta = window.__meiBootstrapFromLocalStorage
       ? "scene_bootstrap_local"
-      : window.__meiEvalPackSource || "bootstrap_inline";
+      : window.__meiEvalPackFromApi
+        ? "scene_bootstrap_api"
+        : window.__meiEvalPackSource || "bootstrap_inline";
     if (boot.evalStore?.seedPack) {
       return boot.evalStore.seedPack(window.__mei, { source: sourceMeta });
     }
@@ -29960,6 +30650,8 @@
   boot.seedBootstrapRuntimeCache = seedBootstrapRuntimeCache;
   boot.fetchJitEvalPack = fetchJitEvalPack;
   boot.applyBootstrapPayload = applyBootstrapPayload;
+  boot.isBootstrapRevisionOnly = isBootstrapRevisionOnly;
+  boot.readBootstrapMeta = readBootstrapMeta;
   boot.dispatchScopeActivation = dispatchScopeActivation;
   window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
 
@@ -30396,7 +31088,7 @@
         globalThis.MeiBuildTreePersist.refresh();
       }
       if (!warmOnly) {
-        if (typeof boot.restoreWorkspacePreviewSnapshot === "function") {
+        if (ssrPreview && typeof boot.restoreWorkspacePreviewSnapshot === "function") {
           boot.restoreWorkspacePreviewSnapshot();
         }
         if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
@@ -30562,7 +31254,7 @@
     }
     if (opts.skipRuntimeWake) return;
     await wakeRevisionFirstShellRuntime(ctx, {
-      ssrPreview: opts.ssrPreview !== false,
+      ssrPreview: opts.ssrPreview === true,
       warmOnly: opts.warmOnly === true,
       forceRuntimeWake: opts.forceRuntimeWake === true,
     });
@@ -30955,6 +31647,23 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   const doc = global.document;
 
+  async function tryHydratePlaceholderPreview(ctx, root, force) {
+    if (!(root instanceof HTMLElement)) return false;
+    const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
+    const ssrReady = boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(root) === true;
+    if (!placeholder && !force) return false;
+    if (ssrReady && !placeholder) return true;
+    if (typeof boot.previewMaterializer?.hydratePlaceholderFromFragment !== "function") {
+      return false;
+    }
+    try {
+      return await boot.previewMaterializer.hydratePlaceholderFromFragment(ctx, root);
+    } catch (error) {
+      console.warn("[spa-navigation] preview fragment hydrate skipped", error);
+      return false;
+    }
+  }
+
   async function composeAppPreviewIfNeeded(ctx, layers, force) {
     const surface = ctx?.surface || ctx?.mode || "app";
     if (surface !== "app") return false;
@@ -30966,9 +31675,19 @@
         ? boot.resolveComposeRoot(surface)
         : doc?.getElementById?.("mei-compose-root");
     if (!(root instanceof HTMLElement)) return false;
+    const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
     const materialized =
       typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
-    if (materialized && !force) return true;
+    if (materialized && !force && !placeholder) return true;
+    if (placeholder || force) {
+      const hydrated = await tryHydratePlaceholderPreview(ctx, root, force);
+      if (hydrated) {
+        if (typeof boot.stashAppPreviewSnapshot === "function") {
+          boot.stashAppPreviewSnapshot();
+        }
+        return "fragment";
+      }
+    }
     if (!boot.viewCompositor?.composeFromLayers || !layers) return false;
     const composeAxes =
       typeof boot.viewRevisionClient?.buildComposeRequest === "function"
@@ -30976,7 +31695,44 @@
         : boot.composeDefaultsForSurface?.(ctx) || {};
     return boot.viewCompositor.composeFromLayers(root, layers, {
       ...composeAxes,
-      forceRematerialize: force === true,
+      forceRematerialize: force === true || placeholder,
+    });
+  }
+
+  async function composeWorkspacePreviewIfNeeded(ctx, layers, force) {
+    const surface = ctx?.surface || ctx?.mode || "app";
+    if (
+      typeof boot.isWorkspaceComposeSurface !== "function" ||
+      !boot.isWorkspaceComposeSurface(surface)
+    ) {
+      return false;
+    }
+    const root =
+      typeof boot.resolveComposeRoot === "function"
+        ? boot.resolveComposeRoot(surface)
+        : doc?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
+    if (!(root instanceof HTMLElement)) return false;
+    const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
+    const materialized =
+      typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
+    if (materialized && !force && !placeholder) return true;
+    if (placeholder || force) {
+      const hydrated = await tryHydratePlaceholderPreview(ctx, root, force);
+      if (hydrated) {
+        if (typeof boot.stashWorkspacePreviewSnapshot === "function") {
+          boot.stashWorkspacePreviewSnapshot();
+        }
+        return "fragment";
+      }
+    }
+    if (!boot.viewCompositor?.composeFromLayers || !layers) return false;
+    const composeAxes =
+      typeof boot.viewRevisionClient?.buildComposeRequest === "function"
+        ? boot.viewRevisionClient.buildComposeRequest(ctx)
+        : boot.composeDefaultsForSurface?.(ctx) || {};
+    return boot.viewCompositor.composeFromLayers(root, layers, {
+      ...composeAxes,
+      forceRematerialize: force === true || placeholder,
     });
   }
 
@@ -30985,14 +31741,22 @@
     const force = opts.force === true || opts.forceRuntimeWake === true;
     const layers = opts.layers || null;
     const surface = ctx?.surface || ctx?.mode || "app";
+    let hydratedFromFragment = false;
 
     if (surface === "app") {
-      await composeAppPreviewIfNeeded(ctx, layers, force);
+      const composed = await composeAppPreviewIfNeeded(ctx, layers, force);
+      hydratedFromFragment = composed === "fragment";
+    } else if (
+      typeof boot.isWorkspaceComposeSurface === "function" &&
+      boot.isWorkspaceComposeSurface(surface)
+    ) {
+      const composed = await composeWorkspacePreviewIfNeeded(ctx, layers, force);
+      hydratedFromFragment = composed === "fragment";
     }
 
     if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
       await boot.wakeRevisionFirstShellRuntime(ctx, {
-        ssrPreview: opts.ssrPreview !== false,
+        ssrPreview: opts.ssrPreview === true || hydratedFromFragment,
         warmOnly: !force && opts.warmOnly === true,
         forceRuntimeWake: force,
       });
@@ -32160,11 +32924,37 @@
   function syncSceneDrilldownContextFromDoc(doc) {
     const currentCtx = document.getElementById("mei-scene-drilldown-context");
     const nextCtx = doc.getElementById("mei-scene-drilldown-context");
-    if (!currentCtx || !nextCtx) return;
-    currentCtx.textContent = nextCtx.textContent || "";
-    try {
-      delete window.__meiSceneDrilldownContext;
-    } catch (_) {}
+    if (nextCtx && nextCtx.textContent) {
+      if (!currentCtx) return;
+      currentCtx.textContent = nextCtx.textContent || "";
+      try {
+        delete window.__meiSceneDrilldownContext;
+      } catch (_) {}
+      return;
+    }
+    if (
+      doc.querySelector('meta[name="mei-drilldown-inlined"][content="0"]') &&
+      typeof boot.copyDrilldownMetaFromDoc === "function"
+    ) {
+      boot.copyDrilldownMetaFromDoc(doc);
+      const nextInline = doc.getElementById("mei-scene-drilldown-context");
+      if (nextInline && nextInline.textContent && currentCtx) {
+        currentCtx.textContent = nextInline.textContent || "";
+        try {
+          delete window.__meiSceneDrilldownContext;
+        } catch (_) {}
+        return;
+      }
+      if (typeof boot.ensureSceneDrilldownContext === "function") {
+        const ctx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(doc.baseURI || window.location.href)
+            : null;
+        void boot.ensureSceneDrilldownContext(ctx || {}).catch((error) => {
+          console.warn("[spa-navigation] drilldown context sync skipped", error);
+        });
+      }
+    }
   }
 
   function syncHostRuntimeCapabilitiesFromDoc(doc) {
@@ -33271,10 +34061,20 @@
   if (typeof boot.watchTopbarChromeInjection === "function") {
     boot.watchTopbarChromeInjection();
   }
-  applyDrilldownContextFromQuery();
-  applySceneProjectionContextFromStorage();
-
   void (async () => {
+    if (typeof boot.ensureSceneDrilldownContext === "function") {
+      try {
+        const ctx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(window.location.href)
+            : null;
+        await boot.ensureSceneDrilldownContext(ctx || {});
+      } catch (error) {
+        console.warn("[spa-navigation] drilldown context load skipped", error);
+      }
+    }
+    applyDrilldownContextFromQuery();
+    applySceneProjectionContextFromStorage();
     if (typeof boot.hostCapabilitiesReady === "function") {
       try {
         await boot.hostCapabilitiesReady({ timeoutMs: 5000 });
@@ -33293,6 +34093,9 @@
         ? isRevisionFirstShellPage()
         : globalThis.__mei?.thin_shell === true;
     try {
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("cold_start:begin", { thinShell: isThinShell });
+      }
       let outcome = { restored: false, source: "none" };
       if (boot.viewAssembly?.assemble && isThinShell && globalThis.__mei?.view_assembly_v2 !== false) {
         const result = await boot.viewAssembly.assemble(
@@ -33320,6 +34123,9 @@
       if (outcome.restored && outcome.doc && typeof runPostSpaWork === "function") {
         if (typeof boot.hideThinShellFallback === "function") {
           boot.hideThinShellFallback();
+        }
+        if (typeof boot.scheduleFrameViewportRelayout === "function") {
+          boot.scheduleFrameViewportRelayout();
         }
         if (typeof boot.rememberViewRevision === "function" && ctx && outcome.revision) {
           boot.rememberViewRevision(ctx, outcome.revision);
@@ -33352,6 +34158,18 @@
           sceneId: ctx.scene_id || ctx.sceneId || "home",
           appId: ctx.app_id || ctx.appId || "",
           source: "revision-first-fallback",
+        });
+      }
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("cold_start:end", {
+          restored: !!outcome.restored,
+          source: outcome.source,
+        });
+      }
+      if (typeof boot.renderPipelineFinalize === "function") {
+        boot.renderPipelineFinalize({
+          restored: !!outcome.restored,
+          source: outcome.source,
         });
       }
       if (typeof boot.cacheDiagTrace === "function") {
