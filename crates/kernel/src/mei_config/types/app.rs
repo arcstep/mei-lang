@@ -269,6 +269,13 @@ pub struct ClientBootstrapConfig {
         rename = "maxNeighborScopes"
     )]
     pub max_neighbor_scopes: usize,
+    /// `inline` embeds full JSON in HTML; `revision_only` exposes meta + artifact URL only.
+    #[serde(default = "default_client_bootstrap_embed_mode", rename = "embedMode")]
+    pub embed_mode: String,
+}
+
+fn default_client_bootstrap_embed_mode() -> String {
+    "revision_only".to_string()
 }
 
 fn default_client_bootstrap_max_metrics() -> usize {
@@ -287,6 +294,7 @@ impl Default for ClientBootstrapConfig {
             max_metrics_per_scope: default_client_bootstrap_max_metrics(),
             neighbor_hops: 0,
             max_neighbor_scopes: default_client_bootstrap_max_neighbor_scopes(),
+            embed_mode: default_client_bootstrap_embed_mode(),
         }
     }
 }

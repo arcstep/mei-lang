@@ -309,23 +309,52 @@ pub fn scene_requires_client_bootstrap(
     })
 }
 
+fn client_bootstrap_embed_inline(workspace_root: &Path, app_id: &str) -> bool {
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let config = load_mei_config_for_app(app_root.as_path(), None);
+    let embed_mode = config
+        .runtime
+        .client_bootstrap
+        .as_ref()
+        .map(|cfg| cfg.embed_mode.as_str())
+        .unwrap_or("revision_only");
+    embed_mode.trim().eq_ignore_ascii_case("inline")
+}
+
 pub fn build_client_bootstrap_head_fragment(
     workspace_root: &Path,
     app_id: &str,
     scene_id: &str,
 ) -> Option<String> {
     let payload = build_client_bootstrap_payload(workspace_root, app_id, scene_id)?;
-    let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
     let metric_count = payload
         .bootstrap_scopes
         .iter()
         .map(|scope| scope.metrics.len())
         .sum::<usize>();
-    let artifact_url = scene_bootstrap_artifact_public_url(app_id, scene_id, payload.client_revision.as_str());
+    let artifact_url =
+        scene_bootstrap_artifact_public_url(app_id, scene_id, payload.client_revision.as_str());
     let _ = write_scene_bootstrap_artifact(workspace_root, app_id, scene_id, &payload);
+    if client_bootstrap_embed_inline(workspace_root, app_id) {
+        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+        return Some(format!(
+            r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><meta name="mei-bootstrap-artifact-url" content="{artifact_url}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.clientRevision)window.__mei.client_revision=p.clientRevision;if(p.bootstrapScope)window.__mei.bootstrap_scope=p.bootstrapScope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;if(Array.isArray(p.bootstrapScopes))window.__mei.bootstrap_scopes=p.bootstrapScopes;window.__mei.bootstrap_artifact_url="{artifact_url}";window.__meiBootstrapPayloadReady=1;}}catch(e){{window.__meiBootstrapSeedError="bootstrap_parse_failed";}}try{{document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));}}catch(e){{}}}})();</script>"#
+        ));
+    }
+    let client_revision = html_escape_attr(payload.client_revision.as_str());
+    let data_generation = html_escape_attr(payload.data_generation.as_str());
+    let bootstrap_scope = html_escape_attr(payload.bootstrap_scope.as_str());
+    let app_id_attr = html_escape_attr(payload.app_id.as_str());
     Some(format!(
-        r#"<meta name="mei-bootstrap-inlined" content="1" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><meta name="mei-bootstrap-artifact-url" content="{artifact_url}" /><script type="application/json" id="mei-client-bootstrap">{payload_json}</script><script>window.__mei=window.__mei||{{}};(function(){{try{{var el=document.getElementById("mei-client-bootstrap");if(!el)return;var p=JSON.parse(el.textContent||"{{}}");if(p.clientRevision)window.__mei.client_revision=p.clientRevision;if(p.bootstrapScope)window.__mei.bootstrap_scope=p.bootstrapScope;if(p.targetFile)window.__mei.bootstrap_target_file=p.targetFile;if(p.compileEpoch)window.__mei.bootstrap_compile_epoch=p.compileEpoch;if(p.dataGeneration)window.__mei.bootstrap_data_generation=p.dataGeneration;if(p.appId)window.__mei.bootstrap_app_id=p.appId;if(Array.isArray(p.metrics))window.__mei.bootstrap_metrics=p.metrics;if(Array.isArray(p.bootstrapScopes))window.__mei.bootstrap_scopes=p.bootstrapScopes;window.__mei.bootstrap_artifact_url="{artifact_url}";window.__meiBootstrapPayloadReady=1;}}catch(e){{window.__meiBootstrapSeedError="bootstrap_parse_failed";}}try{{document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));}}catch(e){{}}}})();</script>"#
+        r#"<meta name="mei-bootstrap-inlined" content="0" /><meta name="mei-bootstrap-client-revision" content="{client_revision}" /><meta name="mei-bootstrap-data-generation" content="{data_generation}" /><meta name="mei-bootstrap-scope" content="{bootstrap_scope}" /><meta name="mei-bootstrap-app-id" content="{app_id_attr}" /><meta name="mei-bootstrap-metric-count" content="{metric_count}" /><meta name="mei-bootstrap-artifact-url" content="{artifact_url}" /><script>window.__mei=window.__mei||{{}};(function(){{try{{function meta(n){{var el=document.querySelector('meta[name="'+n+'"]');return el?String(el.content||"").trim():"";}}var rev=meta("mei-bootstrap-client-revision");if(rev)window.__mei.client_revision=rev;var gen=meta("mei-bootstrap-data-generation");if(gen){{window.__mei.bootstrap_data_generation=gen;window.__mei.data_generation=gen;}}var scope=meta("mei-bootstrap-scope");if(scope)window.__mei.bootstrap_scope=scope;var appId=meta("mei-bootstrap-app-id");if(appId)window.__mei.bootstrap_app_id=appId;window.__mei.bootstrap_artifact_url="{artifact_url}";}}catch(e){{window.__meiBootstrapSeedError="bootstrap_meta_failed";}}}})();</script>"#
     ))
+}
+
+fn html_escape_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
 }
 
 pub fn build_client_bootstrap_payload(
@@ -949,8 +978,60 @@ mod tests {
         crate::mrg::registry::MrgRegistryWriter::save(workspace, &registry).expect("save mrg");
         let fragment =
             build_client_bootstrap_head_fragment(workspace, "demo", "home").expect("fragment");
-        assert!(fragment.contains("mei-client-bootstrap"));
         assert!(fragment.contains("mei-bootstrap-inlined"));
+        assert!(fragment.contains("mei-bootstrap-client-revision") || fragment.contains("mei-client-bootstrap"));
+    }
+
+    #[test]
+    fn build_client_bootstrap_head_fragment_inline_includes_payload_json() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let workspace = temp.path();
+        let app_root = workspace.join("apps").join("demo");
+        std::fs::create_dir_all(app_root.join("var/active")).expect("var");
+        std::fs::write(
+            app_root.join("app.config.json"),
+            r#"{"runtime":{"clientBootstrap":{"enabled":true,"embedMode":"inline"}}}"#,
+        )
+        .expect("app.config");
+        let mut metrics = BTreeMap::new();
+        metrics.insert(
+            "metric_a".to_string(),
+            MetricContract {
+                id: "metric_a".to_string(),
+                label: None,
+                unit: None,
+                value_format: None,
+                purpose: None,
+                shape: MetricShape::Scalar,
+                schema: vec![],
+                dataset: None,
+                transforms: vec![],
+                value: serde_json::json!(7),
+            },
+        );
+        let descriptor = sample_descriptor("workset:home:0::metric_a", "hash-a");
+        write_client_bootstrap(
+            app_root.as_path(),
+            "demo",
+            "home",
+            "workset:home:0",
+            std::slice::from_ref(&descriptor),
+            &metrics,
+            &BTreeMap::new(),
+            32,
+        )
+        .expect("write");
+        let mut registry = MrgRegistry::empty("demo");
+        registry.upsert_slot(sample_slot(
+            MaterialState::Ready,
+            "workset:home:0::metric_a",
+            "hash-a",
+        ));
+        crate::mrg::registry::MrgRegistryWriter::save(workspace, &registry).expect("save mrg");
+        let fragment =
+            build_client_bootstrap_head_fragment(workspace, "demo", "home").expect("fragment");
+        assert!(fragment.contains("mei-client-bootstrap"));
+        assert!(fragment.contains(r#"mei-bootstrap-inlined" content="1""#));
         assert!(fragment.contains("bootstrap_compile_epoch") || fragment.contains("compileEpoch"));
     }
 }

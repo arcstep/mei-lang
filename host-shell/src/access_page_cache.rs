@@ -21,7 +21,7 @@ use crate::pages::{
 use crate::review_axes::PageRenderAxes;
 
 pub const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v2";
-pub const THIN_SHELL_PAGE_CACHE_REVISION: &str = "thin-shell-bundle-v3";
+pub const THIN_SHELL_PAGE_CACHE_REVISION: &str = "thin-shell-bundle-v6";
 
 pub fn resolve_scene_client_revision(
     workspace_root: &Path,

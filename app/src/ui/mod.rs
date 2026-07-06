@@ -42,8 +42,9 @@ use preview_chrome::{component_script_preloads, component_scripts};
 use shell_access::access_shell;
 pub use shell_access::{
     render_access_preview_surface_html, render_access_shell_chrome_html,
-    render_host_ssr_bootstrap_html,
+    render_host_ssr_bootstrap_head_revision_only, render_host_ssr_bootstrap_html,
 };
+pub use scene_drilldown_context::scene_drilldown_context_json_for_host_ssr;
 use shell_config::config_shell;
 use shell_manage::manage_shell;
 use shell_presentation::presentation_shell;

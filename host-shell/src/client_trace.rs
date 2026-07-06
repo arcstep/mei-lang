@@ -29,6 +29,7 @@ pub struct PageRequestObservability {
     pub ssr_emit_ms: Option<u64>,
     pub artifact_hits: crate::artifact_observability::ArtifactHitMatrix,
     pub view_revision_status: Option<&'static str>,
+    pub page_cache_status: Option<&'static str>,
 }
 
 #[cfg(test)]
@@ -146,10 +147,19 @@ pub fn parse_page_observability_from_headers(
             "local_miss" => "local_miss",
             _ => "unknown",
         });
+    let page_cache_status = headers
+        .get("x-mei-page-cache")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| match value.trim() {
+            "hit" => "hit",
+            "miss" => "miss",
+            _ => "unknown",
+        });
     PageRequestObservability {
         ssr_emit_ms,
         artifact_hits: crate::artifact_observability::parse_artifact_hits_from_headers(headers),
         view_revision_status,
+        page_cache_status,
     }
 }
 
@@ -213,15 +223,16 @@ pub fn log_user_page_request(
 ) {
     let kind = infer_page_command_kind(path, spa_nav);
     let label = kind_label(kind);
-    let size = format_bytes(response_bytes);
+    let html_bytes = format_bytes(response_bytes);
     let cache = cache_tag(obs);
+    let page_cache = obs.page_cache_status.unwrap_or("-");
     let ssr = format_ssr_ms(obs, latency_ms);
     let artifacts = obs.artifact_hits.summary_tag();
     let view_revision = obs.view_revision_status.unwrap_or("legacy");
     tracing::info!(
         target: "mei_user_cmd",
         route_mode = %path.split('/').nth(2).unwrap_or("-"),
-        "USER ▶ {label}  GET {uri}  → {status}  total={latency_ms}ms  ssr={ssr}  cache={cache}  view_revision={view_revision}  artifacts={artifacts}  size={size}"
+        "USER ▶ {label}  GET {uri}  → {status}  total={latency_ms}ms  ssr={ssr}  cache={cache}  page_cache={page_cache}  view_revision={view_revision}  artifacts={artifacts}  html_bytes={html_bytes}"
     );
 }
 
@@ -248,6 +259,57 @@ pub struct ClientTracePayload {
     pub kind: String,
     #[serde(default)]
     pub label: String,
+    #[serde(default)]
+    pub pipeline: Option<serde_json::Value>,
+}
+
+fn pipeline_u64(value: &serde_json::Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|n| u64::try_from(n).ok()))
+}
+
+fn log_client_render_pipeline(ctx: &ClientCommandContext, pipeline: &serde_json::Value) {
+    let wall_ms = pipeline.get("wallMs").and_then(pipeline_u64);
+    let document_ms = pipeline.get("documentMs").and_then(pipeline_u64);
+    let client_ms = pipeline.get("clientAfterDocumentMs").and_then(pipeline_u64);
+    let fragment_ms = pipeline.get("previewFragmentMs").and_then(pipeline_u64);
+    let assembly_ms = pipeline.get("assemblyMs").and_then(pipeline_u64);
+    let surface_ms = pipeline.get("surfaceReadyMs").and_then(pipeline_u64);
+    let source = pipeline
+        .get("flags")
+        .and_then(|flags| flags.get("source"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("-");
+    tracing::info!(
+        target: "mei_user_cmd",
+        client_cmd_id = %ctx.id,
+        client_cmd_kind = %ctx.kind,
+        wall_ms = ?wall_ms,
+        document_ms = ?document_ms,
+        client_ms = ?client_ms,
+        fragment_ms = ?fragment_ms,
+        assembly_ms = ?assembly_ms,
+        surface_ms = ?surface_ms,
+        source = %source,
+        "USER ◀ 渲染链路  wall={wall}  document={document}  client={client}  fragment={fragment}  assembly={assembly}  surface={surface}  source={source}",
+        wall = wall_ms.map(|ms| format!("{ms}ms")).unwrap_or_else(|| "-".to_string()),
+        document = document_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "-".to_string()),
+        client = client_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "-".to_string()),
+        fragment = fragment_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "-".to_string()),
+        assembly = assembly_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "-".to_string()),
+        surface = surface_ms
+            .map(|ms| format!("{ms}ms"))
+            .unwrap_or_else(|| "-".to_string()),
+    );
 }
 
 pub async fn api_host_client_trace(Json(payload): Json<ClientTracePayload>) -> impl IntoResponse {
@@ -260,6 +322,14 @@ pub async fn api_host_client_trace(Json(payload): Json<ClientTracePayload>) -> i
         kind: payload.kind.trim().to_string(),
         label: payload.label.trim().to_string(),
     };
-    log_client_command_banner(&ctx);
+    if payload.kind.eq_ignore_ascii_case("RENDER_PIPELINE") {
+        if let Some(pipeline) = payload.pipeline.as_ref() {
+            log_client_render_pipeline(&ctx, pipeline);
+        } else {
+            log_client_command_banner(&ctx);
+        }
+    } else {
+        log_client_command_banner(&ctx);
+    }
     StatusCode::NO_CONTENT.into_response()
 }

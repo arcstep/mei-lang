@@ -92,12 +92,60 @@ fn ssr_bootstrap_head_fragment_contains_json_script_and_meta() {
 
     let fragment =
         build_client_bootstrap_head_fragment(workspace, "demo", "home").expect("fragment");
+    assert!(fragment.contains(r#"mei-bootstrap-inlined" content="0""#));
+    assert!(fragment.contains("mei-bootstrap-client-revision"));
+    assert!(fragment.contains("mei-bootstrap-artifact-url"));
+    assert!(!fragment.contains(r#"id="mei-client-bootstrap""#));
+}
+
+#[test]
+fn ssr_bootstrap_head_fragment_inline_mode_contains_json_script() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let workspace = temp.path();
+    let app_root = workspace.join("apps").join("demo");
+    seed_test_app_env(app_root.as_path());
+    std::fs::write(
+        app_root.join("app.config.json"),
+        r#"{"runtime":{"clientBootstrap":{"enabled":true,"embedMode":"inline"}}}"#,
+    )
+    .expect("app.config");
+
+    let mut metrics = BTreeMap::new();
+    metrics.insert(
+        "metric_a".to_string(),
+        MetricContract {
+            id: "metric_a".to_string(),
+            label: None,
+            unit: None,
+            value_format: None,
+            purpose: None,
+            shape: MetricShape::Scalar,
+            schema: vec![],
+            dataset: None,
+            transforms: vec![],
+            value: serde_json::json!(99),
+        },
+    );
+    let descriptor = sample_descriptor("workset:home:0::metric_a", "hash-a");
+    write_client_bootstrap(
+        app_root.as_path(),
+        "demo",
+        "home",
+        "workset:home:0",
+        std::slice::from_ref(&descriptor),
+        &metrics,
+        &BTreeMap::new(),
+        64,
+    )
+    .expect("write manifest");
+    record_slots_from_descriptors(workspace, "demo", std::slice::from_ref(&descriptor))
+        .expect("record mrg slot");
+
+    let fragment =
+        build_client_bootstrap_head_fragment(workspace, "demo", "home").expect("fragment");
     assert!(fragment.contains(r#"id="mei-client-bootstrap""#));
-    assert!(fragment.contains("mei-bootstrap-inlined"));
-    assert!(fragment.contains("mei-bootstrap-metric-count"));
+    assert!(fragment.contains(r#"mei-bootstrap-inlined" content="1""#));
     assert!(fragment.contains("metric_a"));
-    assert!(fragment.contains("bootstrap_metrics"));
-    assert!(fragment.contains("bootstrapScopes"));
 }
 
 #[test]

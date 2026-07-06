@@ -30,7 +30,8 @@ use crate::shell_redirects::{
     redirect_host_upload, redirect_root_to_home,
 };
 use crate::pages::{
-    api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_fragment,
+    api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_drilldown_context,
+    api_scene_fragment,
     api_scene_revision, app_page, app_view_page, host_starting_page,
 };
 use crate::presentation_compile::api_presentation_compile;
@@ -114,6 +115,10 @@ pub fn router(state: HostHttpState) -> Router {
         .route("/api/host/scene-manifest", get(crate::scene_manifest::api_host_scene_manifest))
         .route("/api/host/layer-batch", post(crate::scene_manifest::api_host_layer_batch))
         .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
+        .route(
+            "/api/host/scene-drilldown-context",
+            get(api_scene_drilldown_context),
+        )
         .route("/api/host/scene-fragment", get(api_scene_fragment))
         .route(
             "/api/agent/context/preview",

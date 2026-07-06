@@ -9,11 +9,11 @@ use mei_host_auth::{
 };
 use mei_lang_app::{
     load_topbar_menu_context, page_body_theme_style, render_access_preview_surface_html,
-    render_build_preview_fragment, render_host_ssr_bootstrap_html, render_page, UiRouteMode,
+    render_host_ssr_bootstrap_head_revision_only, render_page,
+    scene_drilldown_context_json_for_host_ssr, UiRouteMode,
 };
 use mei_lang_kernel::{
     load_workspace_config, resolve_app_root, resolve_build_view_query, LegacyBuildQuery,
-    WorkspaceAppMeta,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -376,13 +376,6 @@ pub async fn app_page(
         auth_enabled,
         auth_account: account_view.as_ref(),
     };
-    let thin_preview = ThinShellPreviewContext {
-        apps: apps.as_slice(),
-        node: query.node.as_deref(),
-        tab: query.tab.as_deref(),
-        focus: query.focus.as_deref(),
-        scope: query.scope.as_deref(),
-    };
     let (mut html, ssr_emit_ms, page_cache_hit) = if mode == "view" {
         let render_started = Instant::now();
         let node = resolve_build_node_for_query(&query).unwrap_or_default();
@@ -425,7 +418,6 @@ pub async fn app_page(
                     route_mode,
                     &shell_compose,
                     Some(&chrome_host),
-                    Some(&thin_preview),
                 );
                 crate::thin_shell_page_cache::put(key.clone(), template.clone());
                 (template, render_started.elapsed().as_millis() as u64, false)
@@ -448,7 +440,6 @@ pub async fn app_page(
                 route_mode,
                 &shell_compose,
                 Some(&chrome_host),
-                Some(&thin_preview),
             );
             (template, render_started.elapsed().as_millis() as u64, false)
         }
@@ -462,7 +453,6 @@ pub async fn app_page(
             scene_id.as_str(),
             &shell_compose,
             Some(&chrome_host),
-            Some(&thin_preview),
         );
         (template, render_started.elapsed().as_millis() as u64, false)
     } else if route_mode.is_app_surface() && !route_mode.is_app() {
@@ -487,7 +477,6 @@ pub async fn app_page(
             "",
             "",
             Some(&chrome_host),
-            Some(&thin_preview),
         );
         (template, render_started.elapsed().as_millis() as u64, false)
     } else {
@@ -1196,6 +1185,77 @@ pub async fn api_scene_bootstrap(
 }
 
 #[derive(Debug, Deserialize, Default)]
+pub struct SceneDrilldownQuery {
+    pub app: String,
+    pub scene: Option<String>,
+}
+
+pub async fn api_scene_drilldown_context(
+    State(state): State<SharedState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    Query(query): Query<SceneDrilldownQuery>,
+) -> Response {
+    let app_id = query.app.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app is required"})),
+        )
+            .into_response();
+    }
+    let scene_id = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home")
+        .to_string();
+    let guard = state.read().expect("state lock");
+    let workspace_root = guard.ctx.workspace_root.as_path();
+    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
+    let apps = filter_apps_for_principal(
+        discovered.as_slice(),
+        principal.as_ref().map(|Extension(p)| p),
+    );
+    if !apps.iter().any(|app| app.id == app_id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    }
+    let Some(outcome) =
+        mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id.as_str())
+            .ok()
+            .flatten()
+    else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "scene not found"})),
+        )
+            .into_response();
+    };
+    let payload_text =
+        scene_drilldown_context_json_for_host_ssr(&outcome.compiled, Some(scene_id.as_str()));
+    let payload: serde_json::Value = serde_json::from_str(payload_text.as_str()).unwrap_or(json!({}));
+    let etag = format!(
+        "\"{app_id}:{scene_id}:{}\"",
+        outcome.compile_revision.trim()
+    );
+    let mut response = Json(payload).into_response();
+    response.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    if let Ok(value) = HeaderValue::from_str(etag.as_str()) {
+        response
+            .headers_mut()
+            .insert(axum::http::header::ETAG, value);
+    }
+    response
+}
+
+#[derive(Debug, Deserialize, Default)]
 pub struct SceneFragmentQuery {
     pub app: String,
     pub scene: Option<String>,
@@ -1620,14 +1680,6 @@ fn compose_request_for_shell(
     }
 }
 
-pub(crate) struct ThinShellPreviewContext<'a> {
-    pub apps: &'a [WorkspaceAppMeta],
-    pub node: Option<&'a str>,
-    pub tab: Option<&'a str>,
-    pub focus: Option<&'a str>,
-    pub scope: Option<&'a str>,
-}
-
 pub(crate) fn render_thin_access_shell(
     html: String,
     workspace_root: &std::path::Path,
@@ -1636,7 +1688,6 @@ pub(crate) fn render_thin_access_shell(
     scene_id: &str,
     compose: &mei_host_graph::ComposeRequest,
     chrome_host: Option<&crate::scene_manifest::SceneChromeHostContext<'_>>,
-    preview: Option<&ThinShellPreviewContext<'_>>,
 ) -> String {
     render_thin_scene_shell(
         html,
@@ -1649,7 +1700,6 @@ pub(crate) fn render_thin_access_shell(
         "",
         "",
         chrome_host,
-        preview,
     )
 }
 
@@ -1691,7 +1741,7 @@ pub(crate) fn thin_view_shell_document(
     };
     let workspace_main = thin_workspace_shell_main(data_mode, review_projection);
     format!(
-        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__ mei-view-shell-body min-h-screen flex min-h-0 flex-col overflow-hidden" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="{surface_slug}" data-app-id="{app_id}" data-scene-id="{scene_id}" data-surface="{surface_slug}" data-data-mode="{data_mode}"{prototype_attr}><div id="mei-host-topbar-slot" class="mei-host-chrome-slot shrink-0" data-mei-host-chrome="top"></div><div id="mei-view-host" class="mei-view-host relative flex min-h-0 flex-1 flex-col overflow-hidden"><section id="mei-surface-app" class="mei-surface-panel flex min-h-0 flex-1 flex-col overflow-hidden"{app_panel_hidden}><div class="shell shell-surface scene-shell frame-stage-enabled mei-text-primary min-h-0 flex flex-1 flex-col" id="mei-compose-host" data-scene="{scene_id}"><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner frame-stage-enabled min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}"></div></main></div></section><section id="mei-surface-workspace" class="mei-surface-panel flex min-h-0 flex-1 flex-col overflow-hidden"{workspace_panel_hidden}><div class="shell build-thin-shell min-h-0 flex flex-1 flex-col" data-scene="{scene_id}" data-build-node="{node}" data-data-mode="{data_mode}" data-review-projection="{review_projection}"{tree_max_attr}>{workspace_main}</div></section><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-view-loading-overlay mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></div><nav id="mei-build-reachability-tree" class="build-reachability-tree" hidden aria-hidden="true"></nav><script id="mei-build-reachability-tree" type="application/json">[]</script><div id="mei-host-statusbar-slot" class="mei-host-chrome-slot shrink-0 mt-auto" data-mei-host-chrome="bottom"></div></body></html>"#
+        r#"<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>{app_id}</title></head><body class="__MEI_THIN_BODY_CLASS__ mei-view-shell-body min-h-screen flex min-h-0 flex-col overflow-hidden" style="__MEI_PAGE_BODY_THEME_STYLE__" data-mei-view="{surface_slug}" data-app-id="{app_id}" data-scene-id="{scene_id}" data-surface="{surface_slug}" data-data-mode="{data_mode}"{prototype_attr}><div id="mei-host-topbar-slot" class="mei-host-chrome-slot shrink-0" data-mei-host-chrome="top"></div><div id="mei-view-host" class="mei-view-host relative flex min-h-0 flex-1 flex-col overflow-hidden"><section id="mei-surface-app" class="mei-surface-panel flex min-h-0 flex-1 flex-col overflow-hidden"{app_panel_hidden}><div class="shell shell-surface scene-shell frame-stage-enabled mei-text-primary min-h-0 flex flex-1 flex-col" id="mei-compose-host" data-scene="{scene_id}"><main class="main flex min-h-0 flex-1 flex-col overflow-hidden"><div class="preview-pane-scroll shell-inner frame-stage-enabled min-h-0 flex-1 overflow-auto" id="mei-compose-root" data-scene="{scene_id}" data-mei-compose-placeholder="1" aria-busy="true"></div></main></div></section><section id="mei-surface-workspace" class="mei-surface-panel flex min-h-0 flex-1 flex-col overflow-hidden"{workspace_panel_hidden}><div class="shell build-thin-shell min-h-0 flex flex-1 flex-col" data-scene="{scene_id}" data-build-node="{node}" data-data-mode="{data_mode}" data-review-projection="{review_projection}"{tree_max_attr}>{workspace_main}</div></section><div id="mei-thin-shell-fallback" class="mei-thin-shell-fallback mei-view-loading-overlay mei-p-4 mei-text-muted hidden" role="status" hidden>正在加载场景内容…</div></div><nav id="mei-build-reachability-tree" class="build-reachability-tree" hidden aria-hidden="true"></nav><script id="mei-build-reachability-tree" type="application/json">[]</script><div id="mei-host-statusbar-slot" class="mei-host-chrome-slot shrink-0 mt-auto" data-mei-host-chrome="bottom"></div></body></html>"#
     )
 }
 
@@ -1704,7 +1754,6 @@ pub(crate) fn render_thin_view_shell(
     route_mode: UiRouteMode,
     compose: &mei_host_graph::ComposeRequest,
     chrome_host: Option<&crate::scene_manifest::SceneChromeHostContext<'_>>,
-    preview: Option<&ThinShellPreviewContext<'_>>,
 ) -> String {
     let assemble_outcome =
         mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
@@ -1738,8 +1787,9 @@ pub(crate) fn render_thin_view_shell(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let bootstrap_html = render_host_ssr_bootstrap_html(
+        let bootstrap_html = render_host_ssr_bootstrap_head_revision_only(
             &outcome.compiled,
+            app_id,
             app_id,
             Some(scene_id),
             data_mode,
@@ -1762,33 +1812,6 @@ pub(crate) fn render_thin_view_shell(
         );
         html = inject_layer_plane_scripts(html, outcome);
         html = inject_presentation_manifest_script(html, workspace_root, app_id, None);
-        let review_projection = compose
-            .review_projection
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        if route_mode.is_access_like() {
-            let preview_html = render_access_preview_surface_html(
-                &outcome.compiled,
-                app_id,
-                Some(outcome.compiled.active_target_file.as_str()),
-                route_mode,
-                data_mode,
-                review_projection,
-            );
-            html = inject_app_compose_preview(html, preview_html.as_str());
-        } else if route_mode.uses_workspace_tree() {
-            html = inject_thin_shell_preview_surface(
-                html,
-                route_mode,
-                app_id,
-                scene_id,
-                preview,
-                &outcome.compiled,
-                data_mode,
-                review_projection,
-            );
-        }
     }
     html
 }
@@ -1802,7 +1825,7 @@ const THIN_WORKSPACE_ROOT_INNER: &str = concat!(
     r#"<section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">"#,
     r#"<div class="manage-tab-stage min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">"#,
     r#"<section class="manage-tab-panel preview-pane min-h-0 min-w-0 flex flex-col overflow-hidden" data-manage-tab-panel="preview">"#,
-    r#"<div class="preview-pane-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-review-projection="{review_projection}" data-data-mode="{data_mode}"></div>"#,
+    r#"<div class="preview-pane-scroll min-h-0 min-w-0 flex-1 overflow-auto" data-review-projection="{review_projection}" data-data-mode="{data_mode}" data-mei-compose-placeholder="1" aria-busy="true"></div>"#,
     r#"<div id="build-inspect-bar" class="build-inspect-bar shrink-0 border-t mei-border-default px-3 py-2 mei-font-1 mei-text-muted" data-build-inspect-bar="true">"#,
     r#"<span id="build-inspect-bar-label">在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。</span></div></section>"#,
     r#"<section class="manage-tab-panel min-h-0 min-w-0 overflow-auto" data-manage-tab-panel="exec" hidden></section>"#,
@@ -1853,7 +1876,6 @@ pub(crate) fn render_thin_scene_shell(
     draft_session: &str,
     draft_digest: &str,
     chrome_host: Option<&crate::scene_manifest::SceneChromeHostContext<'_>>,
-    preview: Option<&ThinShellPreviewContext<'_>>,
 ) -> String {
     let assemble_outcome =
         mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
@@ -1887,13 +1909,9 @@ pub(crate) fn render_thin_scene_shell(
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let review_projection = compose
-            .review_projection
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let bootstrap_html = render_host_ssr_bootstrap_html(
+        let bootstrap_html = render_host_ssr_bootstrap_head_revision_only(
             &outcome.compiled,
+            app_id,
             app_id,
             Some(scene_id),
             data_mode,
@@ -1916,108 +1934,8 @@ pub(crate) fn render_thin_scene_shell(
         );
         html = inject_layer_plane_scripts(html, outcome);
         html = inject_presentation_manifest_script(html, workspace_root, app_id, None);
-        html = inject_thin_shell_preview_surface(
-            html,
-            route_mode,
-            app_id,
-            scene_id,
-            preview,
-            &outcome.compiled,
-            data_mode,
-            review_projection,
-        );
     }
     html
-}
-
-fn inject_thin_shell_preview_surface(
-    html: String,
-    route_mode: UiRouteMode,
-    app_id: &str,
-    _scene_id: &str,
-    preview: Option<&ThinShellPreviewContext<'_>>,
-    compiled: &mei_lang_kernel::CompiledApp,
-    data_mode: Option<&str>,
-    review_projection: Option<&str>,
-) -> String {
-    if route_mode.is_access_like() {
-        return html;
-    }
-    let Some(ctx) = preview else {
-        return html;
-    };
-    if !route_mode.uses_workspace_tree() {
-        return html;
-    }
-    let Some(fragment) = render_build_preview_fragment(
-        ctx.apps,
-        compiled,
-        app_id,
-        ctx.node,
-        ctx.scope,
-        ctx.focus,
-        ctx.tab.or(Some("preview")),
-        data_mode,
-        review_projection,
-        Some(route_mode),
-    ) else {
-        return html;
-    };
-    let mut html = inject_workspace_preview_panel(html, fragment.preview_html.as_str());
-    if !fragment.drilldown_script.trim().is_empty() {
-        html = inject_html_before_head_close(html, fragment.drilldown_script.as_str());
-    }
-    html
-}
-
-fn inject_app_compose_preview(html: String, preview_inner: &str) -> String {
-    if preview_inner.trim().is_empty() {
-        return html;
-    }
-    let marker = r#"id="mei-compose-root""#;
-    let Some(marker_pos) = html.find(marker) else {
-        return html;
-    };
-    let Some(open_start) = html[..marker_pos].rfind("<div") else {
-        return html;
-    };
-    let Some(content_start_rel) = html[open_start..].find('>') else {
-        return html;
-    };
-    let content_start = open_start + content_start_rel + 1;
-    let Some(close_pos) = find_element_close_index(html.as_str(), open_start, "div") else {
-        return html;
-    };
-    let mut out = String::with_capacity(html.len() + preview_inner.len());
-    out.push_str(&html[..content_start]);
-    out.push_str(preview_inner);
-    out.push_str(&html[close_pos..]);
-    out
-}
-
-fn inject_workspace_preview_panel(html: String, panel_inner: &str) -> String {
-    if panel_inner.trim().is_empty() {
-        return html;
-    }
-    let marker = r#"data-manage-tab-panel="preview""#;
-    let Some(marker_pos) = html.find(marker) else {
-        return html;
-    };
-    let Some(section_open) = html[..marker_pos].rfind("<section") else {
-        return html;
-    };
-    let Some(content_start_rel) = html[section_open..].find('>') else {
-        return html;
-    };
-    let content_start = section_open + content_start_rel + 1;
-    let Some(section_close) = find_element_close_index(&html, section_open, "section") else {
-        return html;
-    };
-    let mut out = String::with_capacity(html.len() + panel_inner.len());
-    out.push_str(&html[..content_start]);
-    out.push_str(panel_inner);
-    out.push_str(&html[section_close..]);
-    out
 }
 
 fn find_element_close_index(html: &str, open_start: usize, tag: &str) -> Option<usize> {

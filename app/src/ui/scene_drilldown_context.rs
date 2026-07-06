@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use super::preview::host_runtime_capabilities_value;
 
-pub(crate) fn scene_drilldown_context_json_for_host_ssr(
+pub fn scene_drilldown_context_json_for_host_ssr(
     compiled: &CompiledApp,
     preview_scene_id: Option<&str>,
 ) -> String {
@@ -26,9 +26,52 @@ pub(crate) fn scene_drilldown_context_json_for_host_ssr(
     .unwrap_or_else(|_| "{}".to_string())
 }
 
-pub(crate) fn host_runtime_capabilities_json(app_path: &str, data_mode: Option<&str>) -> String {
+pub fn host_runtime_capabilities_json(app_path: &str, data_mode: Option<&str>) -> String {
     serde_json::to_string(&host_runtime_capabilities_value(app_path, data_mode))
         .unwrap_or_else(|_| "{}".to_string())
+}
+
+pub fn scene_drilldown_artifact_public_url(app_id: &str, scene_id: &str) -> String {
+    format!(
+        "/api/host/scene-drilldown-context?app={app_id}&scene={scene_id}"
+    )
+}
+
+fn html_escape_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+}
+
+/// Thin-shell head: drilldown via API meta; runtime capabilities stay inline (~2KB).
+pub fn render_host_ssr_bootstrap_head_revision_only(
+    _compiled: &CompiledApp,
+    app_path: &str,
+    app_id: &str,
+    preview_scene_id: Option<&str>,
+    data_mode: Option<&str>,
+) -> String {
+    let artifact_url = scene_drilldown_artifact_public_url(app_id, preview_scene_id.unwrap_or("home"));
+    let runtime_payload = host_runtime_capabilities_json(app_path, data_mode);
+    let scope = html_escape_attr(preview_scene_id.unwrap_or("home"));
+    let app_attr = html_escape_attr(app_id);
+    let url_attr = html_escape_attr(artifact_url.as_str());
+    format!(
+        concat!(
+            r#"<meta name="mei-drilldown-inlined" content="0" />"#,
+            r#"<meta name="mei-drilldown-scope" content="{scope}" />"#,
+            r#"<meta name="mei-drilldown-app-id" content="{app_attr}" />"#,
+            r#"<meta name="mei-drilldown-artifact-url" content="{url_attr}" />"#,
+            r#"<script id="mei-host-runtime-capabilities" type="application/json">"#,
+            "{runtime_payload}",
+            r#"</script>"#
+        ),
+        scope = scope,
+        app_attr = app_attr,
+        url_attr = url_attr,
+        runtime_payload = runtime_payload,
+    )
 }
 
 pub(crate) fn host_ssr_bootstrap_scripts(

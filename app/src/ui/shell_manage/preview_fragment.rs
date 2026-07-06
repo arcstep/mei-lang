@@ -9,7 +9,6 @@ use super::super::manage_routing::WorldSemanticQuery;
 use super::super::preview;
 use super::super::preview_chrome::{asset_preview_body, workspace_component_script_urls};
 use super::super::route::UiRouteMode;
-use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BuildPreviewFragment {
@@ -109,9 +108,7 @@ pub fn render_build_preview_fragment(
             <span id="build-inspect-bar-label">"在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。"</span>
         </div>
     };
-    let drilldown_script =
-        host_ssr_bootstrap_scripts(compiled, app_path, ctx.scene_id.as_deref(), data_mode)
-            .to_html();
+    let drilldown_script = String::new();
     Some(BuildPreviewFragment {
         node: resolved.node.encode(),
         focus: focus.unwrap_or("").to_string(),

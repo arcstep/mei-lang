@@ -49,6 +49,23 @@ pub fn render_host_ssr_bootstrap_html(
 ) -> String {
     host_ssr_bootstrap_scripts(compiled, app_path, preview_scene_id, data_mode).to_html()
 }
+
+/// Revision-only thin head: drilldown fetched via API; runtime capabilities inline.
+pub fn render_host_ssr_bootstrap_head_revision_only(
+    compiled: &CompiledApp,
+    app_path: &str,
+    app_id: &str,
+    preview_scene_id: Option<&str>,
+    data_mode: Option<&str>,
+) -> String {
+    super::scene_drilldown_context::render_host_ssr_bootstrap_head_revision_only(
+        compiled,
+        app_path,
+        app_id,
+        preview_scene_id,
+        data_mode,
+    )
+}
 use super::shell_preview_layout::{
     access_main_preview_class, access_preview_panel_class, access_shell_grid_class,
 };
