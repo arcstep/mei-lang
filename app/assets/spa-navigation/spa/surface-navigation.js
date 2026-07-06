@@ -23,8 +23,52 @@
     return slug === "layout" || slug === "prototype";
   }
 
+  let workspacePreviewSnapshot = "";
+
+  function workspacePreviewRoot() {
+    return global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
+  }
+
+  function stashWorkspacePreviewSnapshot() {
+    const el = workspacePreviewRoot();
+    if (!(el instanceof HTMLElement)) return;
+    if (
+      el.querySelector(
+        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted",
+      )
+    ) {
+      workspacePreviewSnapshot = el.innerHTML;
+    }
+  }
+
+  function restoreWorkspacePreviewSnapshot() {
+    const el = workspacePreviewRoot();
+    if (!(el instanceof HTMLElement)) return false;
+    if (
+      el.querySelector(
+        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted",
+      )
+    ) {
+      return true;
+    }
+    if (!workspacePreviewSnapshot) return false;
+    el.innerHTML = workspacePreviewSnapshot;
+    el.removeAttribute("data-mei-compose-materialized");
+    return true;
+  }
+
   function switchSurfacePanel(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
+    const previousSlug = String(
+      global.document?.body?.getAttribute("data-surface") ||
+        global.document?.body?.getAttribute("data-mei-view") ||
+        "app",
+    )
+      .trim()
+      .toLowerCase();
+    if (isWorkspaceSurface(previousSlug) && !isWorkspaceSurface(slug)) {
+      stashWorkspacePreviewSnapshot();
+    }
     const appPanel = global.document?.getElementById?.("mei-surface-app");
     const workspacePanel = global.document?.getElementById?.("mei-surface-workspace");
     const showWorkspace = isWorkspaceSurface(slug);
@@ -52,6 +96,7 @@
       }
     }
     if (showWorkspace) {
+      restoreWorkspacePreviewSnapshot();
       if (typeof boot.installManageTabs === "function") {
         boot.installManageTabs();
       }
@@ -237,6 +282,8 @@
 
   boot.isUnifiedViewPathname = isUnifiedViewPathname;
   boot.switchSurfacePanel = switchSurfacePanel;
+  boot.stashWorkspacePreviewSnapshot = stashWorkspacePreviewSnapshot;
+  boot.restoreWorkspacePreviewSnapshot = restoreWorkspacePreviewSnapshot;
   boot.syncTopbarActiveState = syncTopbarActiveState;
   boot.navigateSurface = navigateSurface;
 

@@ -268,6 +268,26 @@
     return null;
   }
 
+  function isWorkspacePreviewRoot(root, composeAxes) {
+    const surface = surfaceSlugFromComposeAxes(composeAxes);
+    if (typeof boot.isWorkspaceComposeSurface === "function" && !boot.isWorkspaceComposeSurface(surface)) {
+      return false;
+    }
+    const workspaceRoot = global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
+    return (
+      root instanceof HTMLElement &&
+      workspaceRoot instanceof HTMLElement &&
+      (root === workspaceRoot || !!root.closest?.("#mei-surface-workspace"))
+    );
+  }
+
+  function hasEstablishedWorkspacePreview(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    return !!root.querySelector(
+      "[data-mei-frame-viewport], [data-preview-scope], .preview-viewport, .preview-board-mounted",
+    );
+  }
+
   function composeFromLayers(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     const projection =
@@ -279,12 +299,31 @@
     applyShellLayer(root, pickShellLayer(layers, composeAxes));
     const materializer = boot.previewMaterializer;
     const forceRematerialize = composeAxes?.forceRematerialize === true;
+    const workspacePreviewRoot = isWorkspacePreviewRoot(root, composeAxes);
+    const preserveWorkspaceDom =
+      workspacePreviewRoot && hasEstablishedWorkspacePreview(root);
     const keepSsrPreview =
       !forceRematerialize && materializer?.isSsrInjectedPreviewRoot?.(root) === true;
-    if (!keepSsrPreview && materializer?.materializePreview) {
+    const shouldMaterializePreview =
+      !keepSsrPreview &&
+      !preserveWorkspaceDom &&
+      typeof materializer?.materializePreview === "function";
+    if (shouldMaterializePreview) {
       materializer.materializePreview(root, layers, composeAxes);
-    } else if (!keepSsrPreview) {
+    } else if (!keepSsrPreview && !preserveWorkspaceDom) {
       ensureStructureSkeleton(root, structure);
+    }
+    if (workspacePreviewRoot) {
+      if (typeof materializer?.applyRuntimePlans === "function") {
+        materializer.applyRuntimePlans(layers["runtime.plans"]);
+      }
+      if (typeof materializer?.bindEvalSlots === "function") {
+        const evalDocs =
+          typeof materializer.collectEvalDocs === "function"
+            ? materializer.collectEvalDocs(layers)
+            : [];
+        materializer.bindEvalSlots(root, evalDocs);
+      }
     }
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);

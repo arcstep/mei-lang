@@ -189,8 +189,10 @@
     const surface = ctx.surface || ctx.mode || "app";
     const ssrPreview = options.ssrPreview === true;
     const warmOnly =
-      options.warmOnly === true ||
-      (options.forceRuntimeWake !== true && isSurfaceRuntimeWarmed(ctx));
+      options.forceRuntimeWake === true
+        ? false
+        : options.warmOnly === true ||
+          (options.forceRuntimeWake !== true && isSurfaceRuntimeWarmed(ctx));
     if (typeof boot.isWorkspaceComposeSurface === "function" && boot.isWorkspaceComposeSurface(surface)) {
       if (typeof boot.installManageTabs === "function") {
         boot.installManageTabs();
@@ -199,12 +201,15 @@
         globalThis.MeiBuildTreePersist.refresh();
       }
       if (!warmOnly) {
+        if (typeof boot.restoreWorkspacePreviewSnapshot === "function") {
+          boot.restoreWorkspacePreviewSnapshot();
+        }
         if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
           globalThis.MeiBuildInspectHighlight.refresh();
         }
         if (typeof publishManagePreviewFromDoc === "function") {
           publishManagePreviewFromDoc(document, {
-            resetRuntimeQueryCache: !ssrPreview,
+            resetRuntimeQueryCache: options.forceRuntimeWake === true || !ssrPreview,
             pulsePreviewUpdated: true,
           });
         }

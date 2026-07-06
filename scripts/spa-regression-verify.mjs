@@ -89,13 +89,20 @@ async function main() {
   console.log("before layout:", { beforeLayoutUrl, layoutHref });
   const layoutBtn = page.locator('sl-button[data-mei-app-view="布局"]').first();
   await layoutBtn.evaluate((el) => el.click());
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2500);
   const layoutDocFetches = documentFetches;
 
   const afterLayout = await page.evaluate(() => ({
     href: location.href,
     surface: document.body.getAttribute("data-surface"),
     treeBound: !!document.querySelector(".build-reachability-tree")?.__buildTreeTabBound,
+    wsPreviewScopes: document.querySelectorAll(
+      "#mei-surface-workspace .preview-pane-scroll [data-preview-scope], #mei-surface-workspace .preview-pane-scroll [data-mei-frame-viewport]",
+    ).length,
+    wsProjection:
+      document
+        .querySelector("#mei-surface-workspace .preview-pane-scroll")
+        ?.getAttribute("data-compose-projection") || "",
     activeView: Array.from(
       document.querySelectorAll("sl-button[data-mei-app-view]"),
     )
@@ -112,6 +119,9 @@ async function main() {
   else pass("surface switch: URL updated");
   if (afterLayout.surface !== "layout") fail(`body data-surface=${afterLayout.surface}`);
   else pass("surface switch: body data-surface=layout");
+  if (afterLayout.wsPreviewScopes === 0) {
+    fail(`layout preview empty after app->layout (scopes=${afterLayout.wsPreviewScopes})`);
+  } else pass(`layout preview scopes=${afterLayout.wsPreviewScopes}`);
   if (!afterLayout.activeView.includes("布局")) fail(`topbar active=${JSON.stringify(afterLayout.activeView)}`);
   else pass("surface switch: topbar 布局 active");
 
@@ -200,6 +210,27 @@ async function main() {
     if (afterProtoTree.surfaceParam !== "prototype") {
       fail(`prototype tree click lost surface=prototype: ${afterProtoTree.href}`);
     } else pass("prototype tree click: stayed on prototype surface");
+  }
+
+  documentFetches = 0;
+  const appTabBtn = page.locator('sl-button[data-mei-app-view="应用"]').first();
+  if ((await appTabBtn.count()) > 0) {
+    await appTabBtn.evaluate((el) => el.click());
+    await page.waitForTimeout(2000);
+    await layoutBtn.evaluate((el) => el.click());
+    await page.waitForTimeout(2500);
+    const roundtrip = await page.evaluate(() => ({
+      surface: document.body.getAttribute("data-surface"),
+      wsPreviewScopes: document.querySelectorAll(
+        "#mei-surface-workspace .preview-pane-scroll [data-preview-scope], #mei-surface-workspace .preview-pane-scroll [data-mei-frame-viewport]",
+      ).length,
+    }));
+    console.log("app->layout roundtrip:", { ...roundtrip, roundtripDocFetches: documentFetches });
+    if (documentFetches > 0) fail(`app->layout roundtrip caused ${documentFetches} document fetch(es)`);
+    else pass("app->layout roundtrip: no full page reload");
+    if (roundtrip.wsPreviewScopes === 0) {
+      fail(`layout preview empty on app->layout roundtrip (scopes=${roundtrip.wsPreviewScopes})`);
+    } else pass(`app->layout roundtrip preview scopes=${roundtrip.wsPreviewScopes}`);
   }
 
   documentFetches = 0;

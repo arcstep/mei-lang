@@ -26109,9 +26109,19 @@
   }
 
   function resolveRoots(nodes, sceneRoots) {
+    const byId = new Map(nodes.map((node) => [node.node_id, node]));
+    const lookup = (id) => {
+      const key = String(id || "").trim();
+      if (!key) return null;
+      if (byId.has(key)) return byId.get(key);
+      const prefixed = key.startsWith("ui-scope:") ? key : `ui-scope:${key}`;
+      if (byId.has(prefixed)) return byId.get(prefixed);
+      const stripped = key.replace(/^ui-scope:/, "");
+      if (byId.has(stripped)) return byId.get(stripped);
+      return null;
+    };
     if (Array.isArray(sceneRoots) && sceneRoots.length) {
-      const byId = new Map(nodes.map((node) => [node.node_id, node]));
-      const roots = sceneRoots.map((id) => byId.get(id)).filter(Boolean);
+      const roots = sceneRoots.map((id) => lookup(id)).filter(Boolean);
       if (roots.length) return roots;
     }
     return childrenForParent(nodes, "");
@@ -26320,6 +26330,7 @@
     ensureTreeMount,
     workspaceStructureTreeReady,
     filteredNodes,
+    resolveRoots,
   };
   boot.renderStructureTree = renderStructureTree;
   boot.workspaceStructureTreeReady = workspaceStructureTreeReady;
@@ -28226,6 +28237,26 @@
     return null;
   }
 
+  function isWorkspacePreviewRoot(root, composeAxes) {
+    const surface = surfaceSlugFromComposeAxes(composeAxes);
+    if (typeof boot.isWorkspaceComposeSurface === "function" && !boot.isWorkspaceComposeSurface(surface)) {
+      return false;
+    }
+    const workspaceRoot = global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
+    return (
+      root instanceof HTMLElement &&
+      workspaceRoot instanceof HTMLElement &&
+      (root === workspaceRoot || !!root.closest?.("#mei-surface-workspace"))
+    );
+  }
+
+  function hasEstablishedWorkspacePreview(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    return !!root.querySelector(
+      "[data-mei-frame-viewport], [data-preview-scope], .preview-viewport, .preview-board-mounted",
+    );
+  }
+
   function composeFromLayers(root, layers, composeAxes) {
     if (!(root instanceof HTMLElement) || !layers) return false;
     const projection =
@@ -28237,12 +28268,31 @@
     applyShellLayer(root, pickShellLayer(layers, composeAxes));
     const materializer = boot.previewMaterializer;
     const forceRematerialize = composeAxes?.forceRematerialize === true;
+    const workspacePreviewRoot = isWorkspacePreviewRoot(root, composeAxes);
+    const preserveWorkspaceDom =
+      workspacePreviewRoot && hasEstablishedWorkspacePreview(root);
     const keepSsrPreview =
       !forceRematerialize && materializer?.isSsrInjectedPreviewRoot?.(root) === true;
-    if (!keepSsrPreview && materializer?.materializePreview) {
+    const shouldMaterializePreview =
+      !keepSsrPreview &&
+      !preserveWorkspaceDom &&
+      typeof materializer?.materializePreview === "function";
+    if (shouldMaterializePreview) {
       materializer.materializePreview(root, layers, composeAxes);
-    } else if (!keepSsrPreview) {
+    } else if (!keepSsrPreview && !preserveWorkspaceDom) {
       ensureStructureSkeleton(root, structure);
+    }
+    if (workspacePreviewRoot) {
+      if (typeof materializer?.applyRuntimePlans === "function") {
+        materializer.applyRuntimePlans(layers["runtime.plans"]);
+      }
+      if (typeof materializer?.bindEvalSlots === "function") {
+        const evalDocs =
+          typeof materializer.collectEvalDocs === "function"
+            ? materializer.collectEvalDocs(layers)
+            : [];
+        materializer.bindEvalSlots(root, evalDocs);
+      }
     }
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);
@@ -28455,11 +28505,22 @@
     const nodeById = new Map();
     nodes.forEach((node) => nodeById.set(node.node_id, node));
 
+    const resolveRoots =
+      boot.structureTreeMaterializer?.resolveRoots ||
+      ((allNodes, sceneRoots) => {
+        if (Array.isArray(sceneRoots) && sceneRoots.length) {
+          const roots = sceneRoots
+            .map((id) => nodeById.get(id))
+            .filter(Boolean);
+          if (roots.length) return roots;
+        }
+        return allNodes.filter((node) => !String(node.parent_id || "").trim());
+      });
+
     const container = document.createElement("div");
     container.className = "mei-structure-tree";
 
-    function mountSubtree(nodeId, parentEl) {
-      const node = nodeById.get(nodeId);
+    function mountSubtree(node, parentEl) {
       if (!node || !(parentEl instanceof HTMLElement)) return;
       const created = createNodeElement(node, doc);
       const target = mountTargetForParent(parentEl);
@@ -28468,26 +28529,22 @@
         const childIds = Array.isArray(node.children) && node.children.length
           ? node.children
           : nodes
-              .filter((candidate) => candidate.parent_id === nodeId)
+              .filter((candidate) => candidate.parent_id === node.node_id)
               .map((candidate) => candidate.node_id);
-        childIds.forEach((childId) => mountSubtree(childId, created));
+        childIds.forEach((childId) => {
+          const child = nodeById.get(childId);
+          if (child) mountSubtree(child, created);
+        });
         return;
       }
-      if (created instanceof DocumentFragment || created?.childNodes) {
-        const wrap = created instanceof DocumentFragment ? created : null;
-        if (wrap) {
-          target.appendChild(wrap);
-        }
+      if (created instanceof DocumentFragment) {
+        target.appendChild(created);
       }
     }
 
-    const roots =
-      Array.isArray(doc.scene_roots) && doc.scene_roots.length
-        ? doc.scene_roots
-        : nodes.filter((node) => !node.parent_id).map((node) => node.node_id);
-
+    const roots = resolveRoots(nodes, doc.scene_roots);
     if (roots.length) {
-      roots.forEach((rootId) => mountSubtree(rootId, container));
+      roots.forEach((node) => mountSubtree(node, container));
     } else {
       nodes.forEach((node) => {
         const created = createNodeElement(node, doc);
@@ -28499,7 +28556,7 @@
 
     root.querySelectorAll(".mei-structure-tree").forEach((el) => el.remove());
     root.appendChild(container);
-    return true;
+    return container.childNodes.length > 0;
   }
 
   function collectEvalDocs(layers) {
@@ -29613,8 +29670,10 @@
     const surface = ctx.surface || ctx.mode || "app";
     const ssrPreview = options.ssrPreview === true;
     const warmOnly =
-      options.warmOnly === true ||
-      (options.forceRuntimeWake !== true && isSurfaceRuntimeWarmed(ctx));
+      options.forceRuntimeWake === true
+        ? false
+        : options.warmOnly === true ||
+          (options.forceRuntimeWake !== true && isSurfaceRuntimeWarmed(ctx));
     if (typeof boot.isWorkspaceComposeSurface === "function" && boot.isWorkspaceComposeSurface(surface)) {
       if (typeof boot.installManageTabs === "function") {
         boot.installManageTabs();
@@ -29623,12 +29682,15 @@
         globalThis.MeiBuildTreePersist.refresh();
       }
       if (!warmOnly) {
+        if (typeof boot.restoreWorkspacePreviewSnapshot === "function") {
+          boot.restoreWorkspacePreviewSnapshot();
+        }
         if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
           globalThis.MeiBuildInspectHighlight.refresh();
         }
         if (typeof publishManagePreviewFromDoc === "function") {
           publishManagePreviewFromDoc(document, {
-            resetRuntimeQueryCache: !ssrPreview,
+            resetRuntimeQueryCache: options.forceRuntimeWake === true || !ssrPreview,
             pulsePreviewUpdated: true,
           });
         }
@@ -31730,8 +31792,52 @@
     return slug === "layout" || slug === "prototype";
   }
 
+  let workspacePreviewSnapshot = "";
+
+  function workspacePreviewRoot() {
+    return global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
+  }
+
+  function stashWorkspacePreviewSnapshot() {
+    const el = workspacePreviewRoot();
+    if (!(el instanceof HTMLElement)) return;
+    if (
+      el.querySelector(
+        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted",
+      )
+    ) {
+      workspacePreviewSnapshot = el.innerHTML;
+    }
+  }
+
+  function restoreWorkspacePreviewSnapshot() {
+    const el = workspacePreviewRoot();
+    if (!(el instanceof HTMLElement)) return false;
+    if (
+      el.querySelector(
+        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted",
+      )
+    ) {
+      return true;
+    }
+    if (!workspacePreviewSnapshot) return false;
+    el.innerHTML = workspacePreviewSnapshot;
+    el.removeAttribute("data-mei-compose-materialized");
+    return true;
+  }
+
   function switchSurfacePanel(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
+    const previousSlug = String(
+      global.document?.body?.getAttribute("data-surface") ||
+        global.document?.body?.getAttribute("data-mei-view") ||
+        "app",
+    )
+      .trim()
+      .toLowerCase();
+    if (isWorkspaceSurface(previousSlug) && !isWorkspaceSurface(slug)) {
+      stashWorkspacePreviewSnapshot();
+    }
     const appPanel = global.document?.getElementById?.("mei-surface-app");
     const workspacePanel = global.document?.getElementById?.("mei-surface-workspace");
     const showWorkspace = isWorkspaceSurface(slug);
@@ -31759,6 +31865,7 @@
       }
     }
     if (showWorkspace) {
+      restoreWorkspacePreviewSnapshot();
       if (typeof boot.installManageTabs === "function") {
         boot.installManageTabs();
       }
@@ -31944,6 +32051,8 @@
 
   boot.isUnifiedViewPathname = isUnifiedViewPathname;
   boot.switchSurfacePanel = switchSurfacePanel;
+  boot.stashWorkspacePreviewSnapshot = stashWorkspacePreviewSnapshot;
+  boot.restoreWorkspacePreviewSnapshot = restoreWorkspacePreviewSnapshot;
   boot.syncTopbarActiveState = syncTopbarActiveState;
   boot.navigateSurface = navigateSurface;
 

@@ -65,9 +65,19 @@
   }
 
   function resolveRoots(nodes, sceneRoots) {
+    const byId = new Map(nodes.map((node) => [node.node_id, node]));
+    const lookup = (id) => {
+      const key = String(id || "").trim();
+      if (!key) return null;
+      if (byId.has(key)) return byId.get(key);
+      const prefixed = key.startsWith("ui-scope:") ? key : `ui-scope:${key}`;
+      if (byId.has(prefixed)) return byId.get(prefixed);
+      const stripped = key.replace(/^ui-scope:/, "");
+      if (byId.has(stripped)) return byId.get(stripped);
+      return null;
+    };
     if (Array.isArray(sceneRoots) && sceneRoots.length) {
-      const byId = new Map(nodes.map((node) => [node.node_id, node]));
-      const roots = sceneRoots.map((id) => byId.get(id)).filter(Boolean);
+      const roots = sceneRoots.map((id) => lookup(id)).filter(Boolean);
       if (roots.length) return roots;
     }
     return childrenForParent(nodes, "");
@@ -276,6 +286,7 @@
     ensureTreeMount,
     workspaceStructureTreeReady,
     filteredNodes,
+    resolveRoots,
   };
   boot.renderStructureTree = renderStructureTree;
   boot.workspaceStructureTreeReady = workspaceStructureTreeReady;

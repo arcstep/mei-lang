@@ -160,11 +160,22 @@
     const nodeById = new Map();
     nodes.forEach((node) => nodeById.set(node.node_id, node));
 
+    const resolveRoots =
+      boot.structureTreeMaterializer?.resolveRoots ||
+      ((allNodes, sceneRoots) => {
+        if (Array.isArray(sceneRoots) && sceneRoots.length) {
+          const roots = sceneRoots
+            .map((id) => nodeById.get(id))
+            .filter(Boolean);
+          if (roots.length) return roots;
+        }
+        return allNodes.filter((node) => !String(node.parent_id || "").trim());
+      });
+
     const container = document.createElement("div");
     container.className = "mei-structure-tree";
 
-    function mountSubtree(nodeId, parentEl) {
-      const node = nodeById.get(nodeId);
+    function mountSubtree(node, parentEl) {
       if (!node || !(parentEl instanceof HTMLElement)) return;
       const created = createNodeElement(node, doc);
       const target = mountTargetForParent(parentEl);
@@ -173,26 +184,22 @@
         const childIds = Array.isArray(node.children) && node.children.length
           ? node.children
           : nodes
-              .filter((candidate) => candidate.parent_id === nodeId)
+              .filter((candidate) => candidate.parent_id === node.node_id)
               .map((candidate) => candidate.node_id);
-        childIds.forEach((childId) => mountSubtree(childId, created));
+        childIds.forEach((childId) => {
+          const child = nodeById.get(childId);
+          if (child) mountSubtree(child, created);
+        });
         return;
       }
-      if (created instanceof DocumentFragment || created?.childNodes) {
-        const wrap = created instanceof DocumentFragment ? created : null;
-        if (wrap) {
-          target.appendChild(wrap);
-        }
+      if (created instanceof DocumentFragment) {
+        target.appendChild(created);
       }
     }
 
-    const roots =
-      Array.isArray(doc.scene_roots) && doc.scene_roots.length
-        ? doc.scene_roots
-        : nodes.filter((node) => !node.parent_id).map((node) => node.node_id);
-
+    const roots = resolveRoots(nodes, doc.scene_roots);
     if (roots.length) {
-      roots.forEach((rootId) => mountSubtree(rootId, container));
+      roots.forEach((node) => mountSubtree(node, container));
     } else {
       nodes.forEach((node) => {
         const created = createNodeElement(node, doc);
@@ -204,7 +211,7 @@
 
     root.querySelectorAll(".mei-structure-tree").forEach((el) => el.remove());
     root.appendChild(container);
-    return true;
+    return container.childNodes.length > 0;
   }
 
   function collectEvalDocs(layers) {
