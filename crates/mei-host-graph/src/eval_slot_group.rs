@@ -144,13 +144,9 @@ pub fn build_eval_slot_group_document(
             "panel_id": node.panel_id,
             "use_keys": node.use_keys,
         });
-        if let Some(obj) = entry.as_object_mut() {
-            if slot_group_id == "scene:default" {
+        if slot_group_id == "scene:default" {
+            if let Some(obj) = entry.as_object_mut() {
                 obj.insert("mounts".to_string(), Value::Array(scene_mounts.clone()));
-            } else if !scene_mounts.is_empty() {
-                obj.insert("mounts".to_string(), Value::Array(scene_mounts.clone()));
-            } else {
-                obj.insert("mounts".to_string(), Value::Array(Vec::new()));
             }
         }
         slots.insert(scope_key, entry);

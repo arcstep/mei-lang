@@ -16,12 +16,12 @@ use crate::build_info::{fill_page_shell_placeholders, host_asset_version_stamp};
 use crate::gis_config::GisTilesConfig;
 use crate::pages::{
     inject_client_bootstrap_script, inject_layer_plane_scripts, inject_presentation_manifest_script,
-    inject_scene_manifest_refs, AppQuery,
+    inject_scene_manifest_refs, should_inject_eval_pack, AppQuery,
 };
 use crate::review_axes::PageRenderAxes;
 
 pub const HOST_SSR_PAYLOAD_REVISION: &str = "host-shell-ssr-v2";
-pub const THIN_SHELL_PAGE_CACHE_REVISION: &str = "thin-shell-bundle-v2";
+pub const THIN_SHELL_PAGE_CACHE_REVISION: &str = "thin-shell-bundle-v3";
 
 pub fn resolve_scene_client_revision(
     workspace_root: &Path,
@@ -389,7 +389,11 @@ pub fn render_access_page_template(
     );
     let html = fill_page_shell_placeholders(html, workspace_root);
     let html = inject_scene_revision_meta(html, revision_payload.as_ref());
-    let html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
+    let html = if should_inject_eval_pack(workspace_root, app_id, scene_id) {
+        inject_client_bootstrap_script(html, workspace_root, app_id, scene_id)
+    } else {
+        html
+    };
     let html = inject_scene_manifest_refs(html, workspace_root, app_id, scene_id);
     let html = inject_layer_plane_scripts(html, &outcome);
     let presentation_id = if route_mode == UiRouteMode::Copilot {

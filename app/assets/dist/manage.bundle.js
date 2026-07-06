@@ -28557,6 +28557,17 @@
   }
 
   function resolveEvalBootstrapSeed(evalRaw) {
+    if (
+      Array.isArray(globalThis.__mei?.bootstrap_metrics) &&
+      globalThis.__mei.bootstrap_metrics.length > 0
+    ) {
+      return {
+        client_revision: globalThis.__mei.client_revision || "",
+        scope: globalThis.__mei.bootstrap_scope || "",
+        workset_id: globalThis.__mei.bootstrap_compile_epoch || "",
+        metrics: globalThis.__mei.bootstrap_metrics,
+      };
+    }
     const docSeed = evalRaw?.document?.bootstrap_seed;
     if (docSeed && typeof docSeed === "object") {
       return docSeed;

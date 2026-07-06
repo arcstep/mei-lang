@@ -1729,7 +1729,7 @@ pub(crate) fn render_thin_view_shell(
         "",
         chrome_host,
     );
-    if route_mode.is_access_like() {
+    if should_inject_eval_pack(workspace_root, app_id, scene_id) {
         html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
     }
     if let Some(outcome) = assemble_outcome.as_ref() {
@@ -1878,7 +1878,7 @@ pub(crate) fn render_thin_scene_shell(
         draft_digest,
         chrome_host,
     );
-    if route_mode.is_access_like() {
+    if should_inject_eval_pack(workspace_root, app_id, scene_id) {
         html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
     }
     if let Some(outcome) = assemble_outcome.as_ref() {
@@ -2452,6 +2452,14 @@ pub(crate) fn inject_layer_plane_scripts(html: String, outcome: &mei_host_graph:
     } else {
         format!("{scripts}{html}")
     }
+}
+
+pub(crate) fn should_inject_eval_pack(
+    workspace_root: &std::path::Path,
+    app_id: &str,
+    scene_id: &str,
+) -> bool {
+    mei_host_graph::build_client_bootstrap_payload(workspace_root, app_id, scene_id).is_some()
 }
 
 pub(crate) fn inject_client_bootstrap_script(

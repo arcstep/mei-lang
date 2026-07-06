@@ -194,6 +194,44 @@ fn materialize_structure_document(ctx: &mut MaterializeContext<'_>) -> Option<Va
     Some(serde_json::to_value(document).unwrap_or(Value::Null))
 }
 
+fn eval_slot_group_layer_ref(
+    ctx: &mut MaterializeContext<'_>,
+    slot_group_id: &str,
+    hits: &mut ArtifactHitMatrix,
+) -> anyhow::Result<mei_host_graph::LayerRef> {
+    let eval_key = mei_host_graph::eval_slot_group_cache_key(
+        &ctx.semantic_core,
+        slot_group_id,
+        ctx.data_mode.slug(),
+        "default",
+    );
+    if mei_host_graph::take_layer(eval_key.as_str()).is_some() {
+        hits.eval_hit = true;
+    }
+    ensure_materialize_assembled(ctx)?;
+    let compiled = ctx
+        .compiled
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("assemble unavailable"))?;
+    let (_doc, pref, cached) = mei_host_graph::ensure_eval_slot_group_cached(
+        ctx.workspace_root,
+        compiled,
+        &ctx.semantic_core,
+        slot_group_id,
+        ctx.data_mode,
+        ctx.layout_rev.as_str(),
+    )?;
+    if cached {
+        hits.eval_hit = true;
+    }
+    Ok(mei_host_graph::LayerRef {
+        artifact_id: eval_key,
+        content_hash: pref.content_hash,
+        bytes: None,
+        encoding: Some("json".to_string()),
+    })
+}
+
 fn materialize_eval_group(
     ctx: &mut MaterializeContext<'_>,
     slot_group_id: &str,
@@ -228,7 +266,6 @@ fn materialize_eval_group(
         "artifact_id": eval_key,
         "content_hash": pref.content_hash,
         "document": doc,
-        "bootstrap_seed": bootstrap_eval_seed(ctx),
     }))
 }
 
@@ -271,11 +308,6 @@ fn materialize_runtime_plans(
         "content_hash": pref.content_hash,
         "document": document,
     }))
-}
-
-fn bootstrap_eval_seed(ctx: &MaterializeContext<'_>) -> Value {
-    mei_host_graph::client_bootstrap_eval_seed_json(ctx.workspace_root, ctx.app_id, ctx.scene_id)
-        .unwrap_or(Value::Null)
 }
 
 fn materialize_theme(ctx: &MaterializeContext<'_>, hits: &mut ArtifactHitMatrix) -> anyhow::Result<Value> {
@@ -557,10 +589,8 @@ fn build_and_store_manifest_index(
         {
             eval_slot_group_ids = mei_host_graph::collect_slot_groups(&structure);
             for group_id in &eval_slot_group_ids {
-                let eval_doc = materialize_eval_group(&mut ctx, group_id.as_str(), hits)?;
-                if let Some(layer_ref) = layer_ref_from_materialized(&eval_doc) {
-                    semantic_layer_refs.insert(format!("eval.slot_group.{group_id}"), layer_ref);
-                }
+                let layer_ref = eval_slot_group_layer_ref(&mut ctx, group_id.as_str(), hits)?;
+                semantic_layer_refs.insert(format!("eval.slot_group.{group_id}"), layer_ref);
             }
         }
     }
@@ -718,7 +748,17 @@ pub(crate) fn build_scene_view_manifest(
             crate::review_axes::ssr_review_projection(route_mode, data_mode)
                 .slug()
         });
-    let draft = None;
+    let index = ensure_manifest_index(
+        workspace_root,
+        app_id,
+        scene_id,
+        data_mode,
+        hits,
+        chrome_host,
+    )?;
+    let mut manifest = manifest_for_surface(&index, route_mode).ok_or_else(|| {
+        anyhow::anyhow!("manifest surface missing for route `{route_slug}`")
+    })?;
     let effective_draft_digest = String::new();
     let mut ctx = load_materialize_context(
         workspace_root,
@@ -730,49 +770,13 @@ pub(crate) fn build_scene_view_manifest(
         chrome,
         draft_session,
         effective_draft_digest.as_str(),
-        draft,
+        None,
     )?;
-    let structure_ref = materialize_structure(&mut ctx, hits)?;
-    let structure_doc = materialize_structure_document(&mut ctx);
-    let theme_doc = materialize_theme(&ctx, hits)?;
-    let overlay_doc = materialize_overlay(&ctx, hits)?;
-    ensure_materialize_assembled(&mut ctx)?;
     let shell_doc = materialize_shell(&mut ctx, hits, route_mode, chrome_host, None);
-    let runtime_plans_doc = materialize_runtime_plans(&mut ctx, hits)?;
-
-    let mut layers = std::collections::BTreeMap::new();
-    layers.insert("structure.full".to_string(), json!(structure_ref));
-    if let Some(doc_value) = structure_doc {
-        if let Ok(structure) =
-            serde_json::from_value::<mei_host_graph::StructureFullDocument>(doc_value)
-        {
-            for group_id in mei_host_graph::collect_slot_groups(&structure) {
-                let layer_name = format!("eval.slot_group.{group_id}");
-                let eval_doc = materialize_eval_group(&mut ctx, group_id.as_str(), hits)?;
-                layers.insert(layer_name, eval_doc);
-            }
-        } else {
-            layers.insert(
-                "eval.slot_group.scene:default".to_string(),
-                materialize_eval_group(&mut ctx, "scene:default", hits)?,
-            );
-        }
-    } else {
-        layers.insert(
-            "eval.slot_group.scene:default".to_string(),
-            materialize_eval_group(&mut ctx, "scene:default", hits)?,
-        );
-    }
-    layers.insert("runtime.plans".to_string(), runtime_plans_doc);
-    layers.insert("theme.tokens".to_string(), theme_doc);
-    layers.insert("layout.overlay".to_string(), overlay_doc);
-    layers.insert(
-        format!("shell.{route_slug}"),
-        shell_doc,
-    );
-
-    let semantic_core = ctx.semantic_core;
-    let compose_defaults = mei_host_graph::ComposeRequest {
+    manifest
+        .layers
+        .insert(format!("shell.{route_slug}"), shell_doc);
+    manifest.compose_defaults = Some(mei_host_graph::ComposeRequest {
         route_mode: Some(route_slug.to_string()),
         tab: Some(tab.to_string()),
         chrome: Some(chrome.to_string()),
@@ -780,17 +784,7 @@ pub(crate) fn build_scene_view_manifest(
         data_mode: Some(data_mode.slug().to_string()),
         focus: compose.focus.clone(),
         scope: compose.scope.clone(),
-    };
-    let manifest = mei_host_graph::SceneViewManifest {
-        schema_version: mei_host_graph::SCENE_VIEW_MANIFEST_SCHEMA.to_string(),
-        app_id: app_id.to_string(),
-        scene_id: scene_id.to_string(),
-        semantic_core,
-        revision_digest: String::new(),
-        layers,
-        compose_defaults: Some(compose_defaults),
-        surface_revision_digest: None,
-    };
+    });
     let digest = mei_host_graph::manifest_revision_digest(
         &manifest,
         if effective_draft_digest.is_empty() {
@@ -1322,6 +1316,47 @@ mod cross_surface_manifest_tests {
             defaults.review_projection.as_deref(),
             Some("live_full")
         );
+    }
+
+    #[test]
+    fn data_demo_ssr_manifest_refs_stay_compact() {
+        let Some(workspace_root) = ws_demo_workspace() else {
+            return;
+        };
+        let mut hits = ArtifactHitMatrix::default();
+        let compose = static_compose("layout");
+        let manifest = build_scene_view_manifest(
+            workspace_root.as_path(),
+            "data-demo",
+            "home",
+            UiRouteMode::Layout,
+            DataMode::Eval,
+            &compose,
+            "",
+            "",
+            &mut hits,
+            None,
+        )
+        .expect("scene manifest");
+        let serialized =
+            serde_json::to_string(&manifest).expect("manifest should serialize");
+        assert!(
+            serialized.len() < 512 * 1024,
+            "SSR manifest refs should be compact (got {} bytes)",
+            serialized.len()
+        );
+        for (name, layer) in &manifest.layers {
+            if name.starts_with("eval.slot_group.") {
+                assert!(
+                    layer.get("document").is_none(),
+                    "eval layer `{name}` should be ref-only in SSR manifest"
+                );
+                assert!(
+                    layer.get("bootstrap_seed").is_none(),
+                    "eval layer `{name}` must not duplicate bootstrap_seed"
+                );
+            }
+        }
     }
 
     #[test]
