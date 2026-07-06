@@ -34,6 +34,7 @@ mod v2_bundle_constants;
 mod v2_lower;
 mod v2_metric_lower;
 mod view_layer_warmup;
+mod warmup_last_run;
 mod world_plan;
 
 pub use assemble::{
@@ -110,7 +111,7 @@ pub use mrg::client_bootstrap::{
     client_bootstrap_path, empty_client_bootstrap_payload, read_client_bootstrap,
     read_scene_bootstrap_artifact, scene_bootstrap_artifact_public_url,
     scene_requires_client_bootstrap, write_client_bootstrap, write_scene_bootstrap_artifact,
-    ClientBootstrapManifest, ClientBootstrapPayload, ClientBootstrapScopePayload,
+    client_bootstrap_eval_seed_json, delivery_class_counts_for_scope, ClientBootstrapManifest, ClientBootstrapPayload, ClientBootstrapScopePayload,
     NO_CLIENT_BOOTSTRAP_REVISION,
 };
 pub use mrg::frontier::{
@@ -150,4 +151,8 @@ pub use content_store::{
 };
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
 pub use view_layer_warmup::{warm_manifest_index_for_app, warm_manifest_index_for_scope};
+pub use warmup_last_run::{
+    current_time_ms as warmup_last_run_time_ms, read_warmup_last_run, warmup_last_run_json,
+    write_warmup_last_run, WarmupLastRunRecord, WARMUP_LAST_RUN_REL,
+};
 pub use world_plan::{build_world_exchange, build_map_projection, build_world_plan, WorldCompileOutcome};

@@ -203,6 +203,26 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
     let content_store = scan_content_store(app_root.as_path());
     let data_generation = load_cache_generation(app_root.as_path(), app_id).data_generation;
 
+    let eval_pack_embed = mei_host_graph::bootstrap_embed_status(workspace, app_id, default_scope.as_str());
+    let delivery_class_counts = mei_host_graph::delivery_class_counts_for_scope(
+        workspace,
+        app_id,
+        default_scope.as_str(),
+    );
+    let warmup_last_run = mei_host_graph::warmup_last_run_json(app_root.as_path());
+    let eval_pack = json!({
+        "warmupLastRun": warmup_last_run,
+        "deliveryClassCounts": delivery_class_counts,
+        "evalPackMissReason": if eval_pack_embed.allowed { Value::Null } else { json!(eval_pack_embed.reason) },
+        "bootstrapEmbed": {
+            "allowed": eval_pack_embed.allowed,
+            "reason": eval_pack_embed.reason,
+            "metricCount": eval_pack_embed.metric_count,
+            "clientRevision": eval_pack_embed.client_revision,
+            "expectedRevision": eval_pack_embed.expected_revision,
+        },
+    });
+
     let hot_scopes = mrg_status
         .get("hotScopes")
         .cloned()
@@ -367,6 +387,7 @@ pub fn build_runtime_snapshot(shell: &ShellState, app_id: &str) -> Value {
             }
         },
         "scopes": scope_values,
+        "evalPack": eval_pack,
         "diagnostics": diagnostics,
     })
 }

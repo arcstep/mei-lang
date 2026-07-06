@@ -28557,6 +28557,10 @@
   }
 
   function resolveEvalBootstrapSeed(evalRaw) {
+    const docSeed = evalRaw?.document?.bootstrap_seed;
+    if (docSeed && typeof docSeed === "object") {
+      return docSeed;
+    }
     if (evalRaw && typeof evalRaw === "object" && evalRaw.bootstrap_seed) {
       return evalRaw.bootstrap_seed;
     }
@@ -28651,6 +28655,27 @@
     const bootstrapSeed = resolveEvalBootstrapSeed(evalRaw);
     if (bootstrapSeed && globalThis.__mei) {
       globalThis.__mei.bootstrap_seed = bootstrapSeed;
+      if (Array.isArray(bootstrapSeed.metrics) && typeof boot.applyBootstrapPayload === "function") {
+        boot.applyBootstrapPayload({
+          clientRevision: bootstrapSeed.client_revision || bootstrapSeed.clientRevision,
+          bootstrapScope: bootstrapSeed.scope || bootstrapSeed.bootstrapScope,
+          metrics: bootstrapSeed.metrics,
+          appId: globalThis.__mei.bootstrap_app_id || appId,
+        });
+      }
+      if (
+        bootstrapSeed.client_revision &&
+        typeof boot.ensureBootstrapSeeded === "function"
+      ) {
+        void boot.ensureBootstrapSeeded(
+          {
+            appId,
+            sceneId:
+              String(composeAxes?.scene_id || composeAxes?.sceneId || "").trim() || "home",
+          },
+          { client_revision: bootstrapSeed.client_revision },
+        );
+      }
     }
     composePreview(root, structure, projection, themeEffective, overlayEffective);
     return true;
@@ -29632,8 +29657,14 @@
     if (payload.clientRevision) window.__mei.client_revision = payload.clientRevision;
     if (payload.bootstrapScope) window.__mei.bootstrap_scope = payload.bootstrapScope;
     if (payload.targetFile) window.__mei.bootstrap_target_file = payload.targetFile;
-    if (payload.compileEpoch) window.__mei.bootstrap_compile_epoch = payload.compileEpoch;
-    if (payload.dataGeneration) window.__mei.bootstrap_data_generation = payload.dataGeneration;
+    if (payload.compileEpoch) {
+      window.__mei.bootstrap_compile_epoch = payload.compileEpoch;
+      window.__mei.compile_epoch = payload.compileEpoch;
+    }
+    if (payload.dataGeneration) {
+      window.__mei.bootstrap_data_generation = payload.dataGeneration;
+      window.__mei.data_generation = payload.dataGeneration;
+    }
     if (payload.appId) window.__mei.bootstrap_app_id = payload.appId;
     if (Array.isArray(payload.metrics)) window.__mei.bootstrap_metrics = payload.metrics;
     if (Array.isArray(payload.bootstrapScopes)) {
@@ -29785,6 +29816,77 @@
     return payload;
   }
 
+  function seedBootstrapRuntimeCache() {
+    const sourceMeta = window.__meiBootstrapFromLocalStorage
+      ? "scene_bootstrap_local"
+      : window.__meiEvalPackSource || "bootstrap_inline";
+    if (boot.evalStore?.seedPack) {
+      return boot.evalStore.seedPack(window.__mei, { source: sourceMeta });
+    }
+    if (typeof seedFromBootstrap !== "function") {
+      return 0;
+    }
+    const count = seedFromBootstrap(window.__mei);
+    if (count > 0) {
+      window.__meiBootstrapSeeded = true;
+      window.__meiBootstrapSeedCount = count;
+      delete window.__meiBootstrapSeedError;
+      window.__meiEvalPackSource = sourceMeta;
+    }
+    return count;
+  }
+
+  async function ensureBootstrapSeeded(ctx, revision) {
+    const payload = await ensureSceneBootstrapPayload(ctx, revision || {});
+    const count = seedBootstrapRuntimeCache();
+    void prefetchNeighborBootstrapScopes(ctx?.appId, payload);
+    return count;
+  }
+
+  async function prefetchNeighborBootstrapScopes(appId, payload) {
+    const scopes = Array.isArray(payload?.bootstrapScopes) ? payload.bootstrapScopes : [];
+    if (!appId || scopes.length === 0) {
+      return;
+    }
+    for (const entry of scopes) {
+      const neighborScope = String(entry?.bootstrapScope || entry?.bootstrap_scope || "").trim();
+      const neighborRevision = String(entry?.clientRevision || entry?.client_revision || "").trim();
+      if (!neighborScope) continue;
+      const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
+      if (neighborScope === currentScope) continue;
+      try {
+        await ensureBootstrapSeeded(
+          { appId, sceneId: neighborScope },
+          { client_revision: neighborRevision },
+        );
+      } catch (_) {
+        /* neighbor warmup is best-effort */
+      }
+    }
+  }
+
+  async function fetchJitEvalPack(ctx, { fingerprint = "" } = {}) {
+    const appId = ctx?.appId;
+    const sceneId = ctx?.sceneId || "home";
+    if (!appId) return 0;
+    const params = new URLSearchParams({ app: appId, scene: sceneId });
+    const fp = String(fingerprint || "").trim();
+    if (fp) {
+      params.set("fingerprint", fp);
+    }
+    const response = await fetch(`${SCENE_BOOTSTRAP_API}?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`jit eval pack failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    applyBootstrapPayload(payload);
+    window.__meiEvalPackSource = fp ? "jit_eval_pack" : "scene_bootstrap_fetch";
+    return seedBootstrapRuntimeCache();
+  }
+
   function resolveActivationSceneId(detail) {
     return String(
       detail?.scope || detail?.sceneId || detail?.boardSceneId || detail?.pageSceneId || "",
@@ -29834,7 +29936,7 @@
     if (!sceneId || inflightScopes.has(inflightKey)) return;
     inflightScopes.add(inflightKey);
     try {
-      await ensureSceneBootstrapPayload({ appId, sceneId }, {});
+      await ensureBootstrapSeeded({ appId, sceneId }, {});
     } catch (_) {
       /* allow next activation to retry */
     } finally {
@@ -29843,9 +29945,240 @@
   }
 
   boot.ensureSceneBootstrapPayload = ensureSceneBootstrapPayload;
+  boot.ensureBootstrapSeeded = ensureBootstrapSeeded;
+  boot.seedBootstrapRuntimeCache = seedBootstrapRuntimeCache;
+  boot.fetchJitEvalPack = fetchJitEvalPack;
   boot.applyBootstrapPayload = applyBootstrapPayload;
   boot.dispatchScopeActivation = dispatchScopeActivation;
   window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
+
+
+/* ===== spa-navigation/spa/eval-store-cache.js ===== */
+/**
+ * Physical EvalStore cache maps (0524 E8). Loaded before eval-store.js in access bundle.
+ */
+(function initEvalStoreCaches(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  const caches = {
+    metricInflight: new Map(),
+    metricResults: new Map(),
+    metricScopeInflight: new Map(),
+    metricScopeResults: new Map(),
+    datasetInflight: new Map(),
+    datasetResults: new Map(),
+  };
+
+  function clearAll() {
+    caches.metricInflight.clear();
+    caches.metricResults.clear();
+    caches.metricScopeInflight.clear();
+    caches.metricScopeResults.clear();
+    caches.datasetInflight.clear();
+    caches.datasetResults.clear();
+  }
+
+  boot.evalStoreCaches = caches;
+  boot.evalStoreCache = {
+    caches,
+    clearAll,
+    metricResults: () => caches.metricResults,
+    datasetResults: () => caches.datasetResults,
+    metricScopeResults: () => caches.metricScopeResults,
+  };
+
+  global.__meiEvalStoreCaches = caches;
+})(typeof window !== "undefined" ? window : globalThis);
+
+
+/* ===== spa-navigation/spa/eval-store.js ===== */
+(function initEvalStore(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  const REVISION_LS_PREFIX = "mei:eval-store-revision:v1:";
+
+  function revisionStorageKey(appId, scope) {
+    return `${String(appId || "").trim()}:${String(scope || "home").trim()}`;
+  }
+
+  function readStoredRevision(appId, scope) {
+    try {
+      return (
+        localStorage.getItem(`${REVISION_LS_PREFIX}${revisionStorageKey(appId, scope)}`) || ""
+      ).trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function writeStoredRevision(appId, scope, revision) {
+    try {
+      localStorage.setItem(
+        `${REVISION_LS_PREFIX}${revisionStorageKey(appId, scope)}`,
+        String(revision || ""),
+      );
+    } catch (_) {}
+  }
+
+  function currentRevisionCoords() {
+    const mei = window.__mei || {};
+    return {
+      appId: String(mei.bootstrap_app_id || mei.app_id || window.__meiRuntimeAppId || "").trim(),
+      scope: String(mei.bootstrap_scope || mei.active_scene_id || "home").trim(),
+      clientRevision: String(mei.client_revision || mei.clientRevision || "").trim(),
+      dataGeneration: String(
+        mei.bootstrap_data_generation || mei.data_generation || window.__meiRuntimeDataGeneration || "",
+      ).trim(),
+      fingerprint: `${mei.compile_epoch || mei.bootstrap_compile_epoch || ""}|${mei.bootstrap_data_generation || mei.data_generation || ""}`,
+    };
+  }
+
+  function clearRuntimeQueryCaches() {
+    if (typeof boot.evalStoreCache?.clearAll === "function") {
+      boot.evalStoreCache.clearAll();
+      return;
+    }
+    if (typeof window.clearEvalRuntimeCaches === "function") {
+      window.clearEvalRuntimeCaches();
+    }
+  }
+
+  function ensureRevisionAligned() {
+    const coords = currentRevisionCoords();
+    if (!coords.appId || !coords.clientRevision) {
+      return coords;
+    }
+    const prev = readStoredRevision(coords.appId, coords.scope);
+    if (prev && prev !== coords.clientRevision) {
+      clearRuntimeQueryCaches();
+      window.__meiBootstrapSeeded = false;
+      window.__meiBootstrapSeedCount = 0;
+    }
+    writeStoredRevision(coords.appId, coords.scope, coords.clientRevision);
+    return coords;
+  }
+
+  function seedPack(source, meta = {}) {
+    ensureRevisionAligned();
+    if (typeof seedFromBootstrap !== "function") {
+      return 0;
+    }
+    const count = seedFromBootstrap(source || window.__mei);
+    if (count > 0) {
+      window.__meiBootstrapSeeded = true;
+      window.__meiBootstrapSeedCount = count;
+      delete window.__meiBootstrapSeedError;
+      window.__meiEvalPackSource = meta.source || window.__meiEvalPackSource || "eval_store";
+    }
+    return count;
+  }
+
+  function readEvalReaders() {
+    return window.__meiEvalStoreReaders || {};
+  }
+
+  function getMetric(api, payload, fingerprint = "") {
+    const metricMap = boot.evalStoreCache?.metricResults?.() || boot.evalStoreCaches?.metricResults;
+    if (!metricMap) {
+      return readEvalReaders().readMetric?.(api, payload, fingerprint) || null;
+    }
+    const readers = readEvalReaders();
+    const cacheKey =
+      typeof readers.metricCacheKey === "function"
+        ? readers.metricCacheKey(api, payload, fingerprint)
+        : "";
+    return cacheKey ? metricMap.get(cacheKey)?.data || null : null;
+  }
+
+  function getDatasetPage1(api, payload, fingerprint = "") {
+    const datasetMap = boot.evalStoreCache?.datasetResults?.() || boot.evalStoreCaches?.datasetResults;
+    if (!datasetMap) {
+      return readEvalReaders().readDataset?.(api, payload, fingerprint) || null;
+    }
+    const readers = readEvalReaders();
+    const cacheKey =
+      typeof readers.datasetCacheKey === "function"
+        ? readers.datasetCacheKey(api, payload, fingerprint)
+        : "";
+    return cacheKey ? datasetMap.get(cacheKey)?.data || null : null;
+  }
+
+  function clear(revisionCoords = null) {
+    const coords = revisionCoords || currentRevisionCoords();
+    clearRuntimeQueryCaches();
+    if (coords.appId && coords.scope) {
+      writeStoredRevision(coords.appId, coords.scope, "");
+    }
+    window.__meiBootstrapSeeded = false;
+    window.__meiBootstrapSeedCount = 0;
+    delete window.__meiEvalDeliveryClassByMetric;
+  }
+
+  let jitPackInflight = null;
+
+  function queryStateHasFilterDelta(state) {
+    if (!state || typeof state !== "object") {
+      return false;
+    }
+    if (String(state.search || "").trim()) {
+      return true;
+    }
+    const filters = state.filters && typeof state.filters === "object" ? state.filters : {};
+    return Object.keys(filters).length > 0;
+  }
+
+  function installQueryStateJitListener() {
+    if (installQueryStateJitListener._installed) {
+      return;
+    }
+    installQueryStateJitListener._installed = true;
+    window.addEventListener("mei:query-state-change", (event) => {
+      const state = event?.detail?.state;
+      if (!queryStateHasFilterDelta(state)) {
+        return;
+      }
+      const coords = currentRevisionCoords();
+      if (!coords.appId) {
+        return;
+      }
+      if (jitPackInflight) {
+        return;
+      }
+      const fingerprint = [
+        coords.fingerprint,
+        String(event?.detail?.id || "").trim(),
+        JSON.stringify(state.filters || {}),
+        String(state.search || "").trim(),
+      ].join("|");
+      jitPackInflight = Promise.resolve(
+        boot.fetchJitEvalPack?.(
+          { appId: coords.appId, sceneId: coords.scope },
+          { fingerprint },
+        ),
+      )
+        .catch(() => 0)
+        .finally(() => {
+          jitPackInflight = null;
+        });
+    });
+  }
+
+  installQueryStateJitListener();
+
+  boot.evalStore = {
+    ensureRevisionAligned,
+    seedPack,
+    getMetric,
+    getDatasetPage1,
+    clear,
+    clearRuntimeQueryCaches,
+    currentRevisionCoords,
+  };
+})(typeof window !== "undefined" ? window : globalThis);
 
 
 /* ===== spa-navigation/spa/initial-scene-restore.js ===== */
@@ -30084,6 +30417,22 @@
       return;
     }
     if (!warmOnly) {
+      const accessLike =
+        !(typeof boot.isWorkspaceComposeSurface === "function" &&
+          boot.isWorkspaceComposeSurface(surface));
+      if (accessLike && typeof boot.ensureBootstrapSeeded === "function") {
+        try {
+          await boot.ensureBootstrapSeeded(
+            {
+              appId: ctx.appId || ctx.app_id || "",
+              sceneId: ctx.sceneId || ctx.scene_id || "home",
+            },
+            {},
+          );
+        } catch (error) {
+          console.warn("[spa-navigation] ensureBootstrapSeeded skipped", error);
+        }
+      }
       await ensureThinShellSceneRuntime();
       markSurfaceRuntimeWarmed(ctx);
     }
@@ -31060,11 +31409,24 @@
         String(composeRoot.getAttribute("data-review-projection") || "").trim() ||
         manifest?.compose_defaults?.review_projection ||
         "live_full";
-      const composed = boot.viewCompositor.composeFromLayers(composeRoot, layers, {
-        review_projection: projection,
-        route_mode: surface,
-      });
-      if (!composed && typeof boot.showThinShellFallback === "function") {
+        const composed = boot.viewCompositor.composeFromLayers(composeRoot, layers, {
+          review_projection: projection,
+          route_mode: surface,
+        });
+        if (composed && typeof boot.ensureBootstrapSeeded === "function") {
+          try {
+            await boot.ensureBootstrapSeeded(
+              {
+                appId,
+                sceneId,
+              },
+              {},
+            );
+          } catch (error) {
+            console.warn("[spa-navigation] thin shell bootstrap seed skipped", error);
+          }
+        }
+        if (!composed && typeof boot.showThinShellFallback === "function") {
         boot.showThinShellFallback("场景结构层组装失败，请检查 view-revision / layer-batch。");
       }
       return composed;

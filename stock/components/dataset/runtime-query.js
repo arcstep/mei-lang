@@ -13,13 +13,23 @@ import {
 
 const STORE_KEY = "__meiQueryStateStore";
 const EVENT_NAME = "mei:query-state-change";
-const METRIC_QUERY_INFLIGHT = new Map();
-const METRIC_QUERY_RESULT_CACHE = new Map();
-const METRIC_QUERY_SCOPE_INFLIGHT = new Map();
-const METRIC_QUERY_SCOPE_RESULT_CACHE = new Map();
+const FALLBACK_EVAL_CACHES = {
+  metricInflight: new Map(),
+  metricResults: new Map(),
+  metricScopeInflight: new Map(),
+  metricScopeResults: new Map(),
+  datasetInflight: new Map(),
+  datasetResults: new Map(),
+};
+
+function cacheStore() {
+  if (typeof window !== "undefined" && window.__meiEvalStoreCaches) {
+    return window.__meiEvalStoreCaches;
+  }
+  return FALLBACK_EVAL_CACHES;
+}
+
 const METRIC_QUERY_CACHE_TTL_MS = 300_000;
-const DATASET_QUERY_INFLIGHT = new Map();
-const DATASET_QUERY_RESULT_CACHE = new Map();
 const DATASET_QUERY_CACHE_TTL_MS = 300_000;
 const SCENE_METRIC_BATCH_INFLIGHT = new Map();
 const SCENE_METRIC_BATCH_SCHEDULES = new Map();
@@ -1618,7 +1628,159 @@ function readHostMetricQueryApi() {
   return "";
 }
 
-const BOOTSTRAP_DATASET_PAGE_SIZES = [16, 20, 64];
+const BOOTSTRAP_DATASET_PAGE_SIZES = [0, 3, 5, 10, 16, 20, 64];
+
+function bootstrapDatasetPageSizesForMetric(contract) {
+  const sizes = new Set(BOOTSTRAP_DATASET_PAGE_SIZES);
+  const fromContract = Number(contract?.page_size ?? contract?.pageSize ?? 0);
+  if (Number.isFinite(fromContract) && fromContract > 0) {
+    sizes.add(Math.round(fromContract));
+  }
+  return [...sizes].sort((left, right) => left - right);
+}
+
+function normalizeDatasetQueryCachePayload(payload = {}) {
+  const normalized = { ...(payload || {}) };
+  if (!normalized.full) {
+    delete normalized.full;
+  }
+  if (!normalized.summary) {
+    delete normalized.summary;
+  }
+  if (normalizePositiveInt(normalized.page, 1, { min: 1 }) === 1 && normalized.full === true) {
+    delete normalized.full;
+  }
+  if (!Array.isArray(normalized.sort) || normalized.sort.length === 0) {
+    delete normalized.sort;
+  }
+  delete normalized.column_state;
+  if (!safeTrim(normalized.target)) {
+    delete normalized.target;
+  }
+  if (!safeTrim(normalized.metric_id)) {
+    delete normalized.metric_id;
+  }
+  if (!safeTrim(normalized.search)) {
+    delete normalized.search;
+    if (normalized.query_state && typeof normalized.query_state === "object") {
+      const nextQueryState = { ...normalized.query_state };
+      if (!safeTrim(nextQueryState.search)) {
+        delete nextQueryState.search;
+      }
+      normalized.query_state =
+        Object.keys(nextQueryState).length > 0 ? nextQueryState : { filters: normalized.filters || {} };
+    }
+  }
+  if (!normalized.filter_intents || normalized.filter_intents.length === 0) {
+    delete normalized.filter_intents;
+  }
+  if (normalized.query_state && typeof normalized.query_state === "object") {
+    const queryState = { ...normalized.query_state };
+    if (!Array.isArray(queryState.group) || queryState.group.length === 0) {
+      delete queryState.group;
+    }
+    if (!queryState.time_range) {
+      delete queryState.time_range;
+    }
+    if (!safeTrim(queryState.search)) {
+      delete queryState.search;
+    }
+    if (!queryState.filters || typeof queryState.filters !== "object") {
+      queryState.filters = {};
+    }
+    normalized.query_state = queryState;
+  }
+  return normalized;
+}
+
+function datasetQueryPayloadVariants(payload = {}) {
+  const base = normalizeDatasetQueryCachePayload(payload);
+  const variants = [base];
+  const withMetric = { ...base };
+  const metricId = safeTrim(payload?.metric_id);
+  if (metricId) {
+    withMetric.metric_id = metricId;
+    variants.push(withMetric);
+  }
+  const withoutMetric = { ...base };
+  delete withoutMetric.metric_id;
+  variants.push(withoutMetric);
+  const target = safeTrim(payload?.target);
+  if (target) {
+    const withoutTarget = { ...base };
+    delete withoutTarget.target;
+    variants.push(withoutTarget);
+    if (metricId) {
+      variants.push({ ...withoutTarget, metric_id: metricId });
+    }
+  }
+  const seen = new Set();
+  return variants.filter((candidate) => {
+    const key = stableSerialize(candidate);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function resolveBootstrapDatasetCacheEntry(api, payload, fingerprint, now = Date.now(), props = null) {
+  const datasetId = safeTrim(payload?.dataset_id);
+  const page = normalizePositiveInt(payload?.page, 1, { min: 1 });
+  if (!datasetId || page !== 1) {
+    return null;
+  }
+  const fingerprints = props
+    ? datasetQueryFingerprintCandidates(props, fingerprint)
+    : [String(fingerprint || "").trim()].filter(Boolean);
+  const pageSizes = bootstrapDatasetPageSizesForMetric({
+    page_size: payload?.page_size,
+    pageSize: payload?.page_size,
+  });
+  for (const fp of fingerprints) {
+    for (const pageSize of pageSizes) {
+      for (const variant of datasetQueryPayloadVariants({ ...payload, page: 1, page_size: pageSize })) {
+        const cacheKey = datasetQueryCacheKey(api, variant, fp);
+        const cached = cacheStore().datasetResults.get(cacheKey);
+        if (cached && cached.expiresAt > now) {
+          return { cacheKey, cached, variant, fingerprint: fp };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function rememberDatasetQueryCacheEntry(api, payload, fingerprint, data, expiresAt) {
+  const cacheKey = datasetQueryCacheKey(api, payload, fingerprint);
+  cacheStore().datasetResults.set(cacheKey, { data, expiresAt });
+  return cacheKey;
+}
+
+if (typeof window !== "undefined") {
+  window.__meiEvalStoreReaders = {
+    readMetric(api, payload, fingerprint) {
+      const cacheKey = metricQueryCacheKey(api, payload, fingerprint);
+      return cacheStore().metricResults.get(cacheKey)?.data || null;
+    },
+    readDataset(api, payload, fingerprint) {
+      return resolveBootstrapDatasetCacheEntry(api, payload, fingerprint)?.cached?.data || null;
+    },
+    metricCacheKey(api, payload, fingerprint) {
+      return metricQueryCacheKey(api, payload, fingerprint);
+    },
+    datasetCacheKey(api, payload, fingerprint) {
+      return datasetQueryCacheKey(api, payload, fingerprint);
+    },
+    datasetCacheSize() {
+      return cacheStore().datasetResults.size;
+    },
+    sampleDatasetCacheKeys(limit = 5) {
+      return [...cacheStore().datasetResults.keys()].slice(0, limit);
+    },
+  };
+}
 
 function readBootstrapSeedPageContext(bootstrap = window.__mei) {
   const shell = document.querySelector(".shell[data-compile-target]");
@@ -1732,9 +1894,9 @@ function buildBootstrapMetricQueryPayload(pageCtx, datasetId, metricIds, querySt
     filters: queryStatePayload.filters,
     query_state: {
       filters: queryStatePayload.filters,
-      search: queryStatePayload.search || undefined,
-      group: queryStatePayload.group.length > 0 ? queryStatePayload.group : undefined,
-      time_range: queryStatePayload.timeRange || undefined,
+      ...(safeTrim(queryStatePayload.search) ? { search: queryStatePayload.search } : {}),
+      ...(queryStatePayload.group.length > 0 ? { group: queryStatePayload.group } : {}),
+      ...(queryStatePayload.timeRange ? { time_range: queryStatePayload.timeRange } : {}),
     },
     filter_intents:
       queryStatePayload.filterIntents.length > 0 ? queryStatePayload.filterIntents : undefined,
@@ -1807,9 +1969,9 @@ function buildBootstrapDatasetQueryPayload(
     filters: queryStatePayload.filters,
     query_state: {
       filters: queryStatePayload.filters,
-      search: queryStatePayload.search || undefined,
-      group: queryStatePayload.group.length > 0 ? queryStatePayload.group : undefined,
-      time_range: queryStatePayload.timeRange || undefined,
+      ...(safeTrim(queryStatePayload.search) ? { search: queryStatePayload.search } : {}),
+      ...(queryStatePayload.group.length > 0 ? { group: queryStatePayload.group } : {}),
+      ...(queryStatePayload.timeRange ? { time_range: queryStatePayload.timeRange } : {}),
     },
     filter_intents:
       queryStatePayload.filterIntents.length > 0 ? queryStatePayload.filterIntents : undefined,
@@ -1879,9 +2041,9 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
     }
   });
   if (shouldReset) {
-    METRIC_QUERY_RESULT_CACHE.clear();
-    METRIC_QUERY_SCOPE_RESULT_CACHE.clear();
-    DATASET_QUERY_RESULT_CACHE.clear();
+    cacheStore().metricResults.clear();
+    cacheStore().metricScopeResults.clear();
+    cacheStore().datasetResults.clear();
   }
   const metricApi = readBootstrapMetricQueryApi();
   const rowsApi = readBootstrapRowsQueryApi();
@@ -1967,7 +2129,7 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
         metrics: datasetMetrics,
         perf: { bootstrap: 1 },
       };
-      METRIC_QUERY_RESULT_CACHE.set(cacheKey, { data, expiresAt });
+      cacheStore().metricResults.set(cacheKey, { data, expiresAt });
       rememberMetricScopeResult(scopeKey, metricIds, data, expiresAt);
       seededCount += 1;
       if (
@@ -2006,7 +2168,7 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
       if (!rowsData) {
         continue;
       }
-      for (const pageSize of BOOTSTRAP_DATASET_PAGE_SIZES) {
+      for (const pageSize of bootstrapDatasetPageSizesForMetric(contract)) {
         const payload = buildBootstrapDatasetQueryPayload(
           pageCtx,
           datasetId,
@@ -2014,35 +2176,161 @@ export function seedFromBootstrap(bootstrap = window.__mei) {
           queryStatePayload,
           pageSize,
         );
-        const cacheKey = datasetQueryCacheKey(rowsApi, payload, queryFingerprint);
-        DATASET_QUERY_RESULT_CACHE.set(cacheKey, {
-          data: { ...rowsData, page_size: pageSize },
-          expiresAt,
-        });
-        seededCount += 1;
-        if (
-          pageCtx.app_id &&
-          pageCtx.data_generation &&
-          String(cacheConfig.persist || "").toLowerCase() === "sessionstorage"
-        ) {
-          writeSessionRuntimeQueryCache(
-            pageCtx.app_id,
-            cacheKey,
-            pageCtx.data_generation,
-            "dataset",
-            { ...rowsData, page_size: pageSize },
-            METRIC_QUERY_CACHE_TTL_MS,
-            cacheConfig.maxEntries,
-          );
+        const rowsDataWithPage = { ...rowsData, page_size: pageSize };
+        const payloadVariants = [
+          ...datasetQueryPayloadVariants(payload),
+          ...datasetQueryPayloadVariants({ ...payload, full: true }),
+        ];
+        const seenVariants = new Set();
+        for (const variant of payloadVariants) {
+          const variantKey = stableSerialize(normalizeDatasetQueryCachePayload(variant));
+          if (seenVariants.has(variantKey)) {
+            continue;
+          }
+          seenVariants.add(variantKey);
+          const cacheKey = datasetQueryCacheKey(rowsApi, variant, queryFingerprint);
+          cacheStore().datasetResults.set(cacheKey, {
+            data: rowsDataWithPage,
+            expiresAt,
+          });
+          seededCount += 1;
+          if (
+            pageCtx.app_id &&
+            pageCtx.data_generation &&
+            String(cacheConfig.persist || "").toLowerCase() === "sessionstorage"
+          ) {
+            writeSessionRuntimeQueryCache(
+              pageCtx.app_id,
+              cacheKey,
+              pageCtx.data_generation,
+              "dataset",
+              rowsDataWithPage,
+              METRIC_QUERY_CACHE_TTL_MS,
+              cacheConfig.maxEntries,
+            );
+          }
         }
       }
     }
   });
   window.__meiBootstrapRevisionByScope = revisionByScope;
+  rebuildEvalDeliveryClassIndex(bootstrap);
   if (seededCount > 0) {
     notifyClientRuntimeQueryCacheHit("bootstrap");
   }
   return seededCount;
+}
+
+function deliveryClassForMetricShape(shape) {
+  const normalized = safeTrim(shape).toLowerCase();
+  if (normalized === "dataframe") {
+    return "dataframe_page1";
+  }
+  return "metric_scalar";
+}
+
+function rebuildEvalDeliveryClassIndex(bootstrap = window.__mei) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const index = {};
+  const metrics = Array.isArray(bootstrap?.bootstrap_metrics) ? bootstrap.bootstrap_metrics : [];
+  metrics.forEach((entry) => {
+    const contract = entry?.contract && typeof entry.contract === "object" ? entry.contract : entry;
+    const id = safeTrim(contract?.id || entry?.id);
+    if (!id) {
+      return;
+    }
+    const fromMount = safeTrim(entry?.delivery_class || contract?.delivery_class);
+    index[id] = fromMount || deliveryClassForMetricShape(contract?.shape || entry?.shape);
+  });
+  const seed = bootstrap?.bootstrap_seed;
+  const mounts = Array.isArray(seed?.mounts) ? seed.mounts : [];
+  mounts.forEach((mount) => {
+    const id = safeTrim(mount?.metric_id);
+    const deliveryClass = safeTrim(mount?.delivery_class);
+    if (id && deliveryClass) {
+      index[id] = deliveryClass;
+    }
+  });
+  window.__meiEvalDeliveryClassByMetric = index;
+}
+
+function metricDeliveryClass(metricId) {
+  const map = typeof window !== "undefined" ? window.__meiEvalDeliveryClassByMetric : null;
+  if (!map || typeof map !== "object") {
+    return "";
+  }
+  return safeTrim(map[safeTrim(metricId)]);
+}
+
+function deliveryClassAllowsIndependentFetch(deliveryClass, { page = 1 } = {}) {
+  const cls = safeTrim(deliveryClass);
+  const normalizedPage = normalizePositiveInt(page, 1, { min: 1 });
+  if (!cls) {
+    return normalizedPage > 1;
+  }
+  if (cls === "dataframe_page_n" || cls === "dataframe_page1") {
+    return normalizedPage > 1;
+  }
+  return ["media_blob", "map_tile", "mesh_asset"].includes(cls);
+}
+
+function packFirstAppliesToDatasetFetch(props, { metricId = "", page = 1, ...options } = {}) {
+  const deliveryClass = metricDeliveryClass(metricId);
+  if (deliveryClassAllowsIndependentFetch(deliveryClass, { page })) {
+    return false;
+  }
+  return shouldEnforcePackFirst(props, { ...options, page });
+}
+
+function readEvalStoreMetricData(api, payload, fingerprint) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const boot = window.__meiLangBoot || {};
+  if (typeof boot.evalStore?.getMetric !== "function") {
+    return null;
+  }
+  return boot.evalStore.getMetric(api, payload, fingerprint);
+}
+
+function readEvalStoreDatasetData(api, payload, fingerprint) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const boot = window.__meiLangBoot || {};
+  if (typeof boot.evalStore?.getDatasetPage1 !== "function") {
+    return null;
+  }
+  return boot.evalStore.getDatasetPage1(api, payload, fingerprint);
+}
+
+export function clearEvalRuntimeCaches() {
+  if (typeof window !== "undefined" && window.__meiLangBoot?.evalStoreCache?.clearAll) {
+    window.__meiLangBoot.evalStoreCache.clearAll();
+  } else {
+    cacheStore().metricInflight.clear();
+    cacheStore().metricResults.clear();
+    cacheStore().metricScopeInflight.clear();
+    cacheStore().metricScopeResults.clear();
+    cacheStore().datasetInflight.clear();
+    cacheStore().datasetResults.clear();
+  }
+  if (typeof window !== "undefined") {
+    window.__meiBootstrapSeeded = false;
+    window.__meiBootstrapSeedCount = 0;
+    delete window.__meiEvalDeliveryClassByMetric;
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.clearEvalRuntimeCaches = clearEvalRuntimeCaches;
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  boot.setQueryState = setQueryState;
+  boot.getQueryState = getQueryState;
+  boot.metricDeliveryClass = metricDeliveryClass;
+  boot.deliveryClassAllowsIndependentFetch = deliveryClassAllowsIndependentFetch;
 }
 
 function readRuntimeQueryAppId() {
@@ -2115,22 +2403,22 @@ function hydrateSessionRuntimeQueryCaches() {
   let hydrated = 0;
   for (const entry of enumerateSessionRuntimeQueryCaches(appId, dataGen, now)) {
     if (entry.kind === "dataset") {
-      const existing = DATASET_QUERY_RESULT_CACHE.get(entry.cacheKey);
+      const existing = cacheStore().datasetResults.get(entry.cacheKey);
       if (existing && existing.expiresAt > now) {
         continue;
       }
-      DATASET_QUERY_RESULT_CACHE.set(entry.cacheKey, {
+      cacheStore().datasetResults.set(entry.cacheKey, {
         data: entry.data,
         expiresAt: entry.expiresAt,
       });
       hydrated += 1;
       continue;
     }
-    const existing = METRIC_QUERY_RESULT_CACHE.get(entry.cacheKey);
+    const existing = cacheStore().metricResults.get(entry.cacheKey);
     if (existing && existing.expiresAt > now) {
       continue;
     }
-    METRIC_QUERY_RESULT_CACHE.set(entry.cacheKey, {
+    cacheStore().metricResults.set(entry.cacheKey, {
       data: entry.data,
       expiresAt: entry.expiresAt,
     });
@@ -2225,6 +2513,22 @@ export function bootstrapDatasetPageSizesForTest() {
   return [...BOOTSTRAP_DATASET_PAGE_SIZES];
 }
 
+export function bootstrapDatasetCacheKeyForTest(api, pageCtx, datasetId, metricId, pageSize = 20) {
+  const queryStatePayload = buildBootstrapQueryStatePayload();
+  const payload = buildBootstrapDatasetQueryPayload(
+    pageCtx,
+    datasetId,
+    metricId,
+    queryStatePayload,
+    pageSize,
+  );
+  return datasetQueryCacheKey(api, payload, bootstrapQueryFingerprint(pageCtx));
+}
+
+export function resolveBootstrapDatasetCacheEntryForTest(api, payload, fingerprint) {
+  return resolveBootstrapDatasetCacheEntry(api, payload, fingerprint);
+}
+
 export function bootstrapMetricCacheKeyForTest(api, pageCtx, datasetId, metricIds) {
   const queryStatePayload = buildBootstrapQueryStatePayload();
   const payload = buildBootstrapMetricQueryPayload(pageCtx, datasetId, metricIds, queryStatePayload);
@@ -2246,9 +2550,9 @@ export function runtimeMetricCacheKeyForTest(api, props, datasetId, metricIds) {
     filters: queryStatePayload.filters,
     query_state: {
       filters: queryStatePayload.filters,
-      search: queryStatePayload.search || undefined,
-      group: queryStatePayload.group.length > 0 ? queryStatePayload.group : undefined,
-      time_range: queryStatePayload.timeRange || undefined,
+      ...(safeTrim(queryStatePayload.search) ? { search: queryStatePayload.search } : {}),
+      ...(queryStatePayload.group.length > 0 ? { group: queryStatePayload.group } : {}),
+      ...(queryStatePayload.timeRange ? { time_range: queryStatePayload.timeRange } : {}),
     },
     filter_intents:
       queryStatePayload.filterIntents.length > 0 ? queryStatePayload.filterIntents : undefined,
@@ -2475,43 +2779,260 @@ function mergeServerAndClientPerf(serverPerf, clientPerf) {
 }
 
 function pruneMetricQueryCaches(now = Date.now()) {
-  for (const [key, entry] of METRIC_QUERY_RESULT_CACHE.entries()) {
+  for (const [key, entry] of cacheStore().metricResults.entries()) {
     if (!entry || !Number.isFinite(entry.expiresAt) || entry.expiresAt <= now) {
-      METRIC_QUERY_RESULT_CACHE.delete(key);
+      cacheStore().metricResults.delete(key);
     }
   }
-  for (const [key, entries] of METRIC_QUERY_SCOPE_RESULT_CACHE.entries()) {
+  for (const [key, entries] of cacheStore().metricScopeResults.entries()) {
     const next = (Array.isArray(entries) ? entries : []).filter(
       (entry) => entry && Number.isFinite(entry.expiresAt) && entry.expiresAt > now
     );
     if (next.length > 0) {
-      METRIC_QUERY_SCOPE_RESULT_CACHE.set(key, next);
+      cacheStore().metricScopeResults.set(key, next);
     } else {
-      METRIC_QUERY_SCOPE_RESULT_CACHE.delete(key);
+      cacheStore().metricScopeResults.delete(key);
     }
   }
 }
 
 function pruneDatasetQueryCaches(now = Date.now()) {
-  for (const [key, entry] of DATASET_QUERY_RESULT_CACHE.entries()) {
+  for (const [key, entry] of cacheStore().datasetResults.entries()) {
     if (!entry || !Number.isFinite(entry.expiresAt) || entry.expiresAt <= now) {
-      DATASET_QUERY_RESULT_CACHE.delete(key);
+      cacheStore().datasetResults.delete(key);
     }
   }
 }
 
 function runtimeCompileEpoch(props) {
-  return String(props?._mei?.compile_epoch || "").trim();
+  const fromProps = String(props?._mei?.compile_epoch || "").trim();
+  if (fromProps) {
+    return fromProps;
+  }
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return String(
+    window.__mei?.compile_epoch || window.__mei?.bootstrap_compile_epoch || "",
+  ).trim();
 }
 
 function runtimeDataGeneration(props) {
-  return String(props?._mei?.data_generation || "").trim();
+  const fromProps = String(props?._mei?.data_generation || "").trim();
+  if (fromProps) {
+    return fromProps;
+  }
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return String(
+    window.__mei?.data_generation ||
+      window.__mei?.bootstrap_data_generation ||
+      window.__meiRuntimeDataGeneration ||
+      "",
+  ).trim();
 }
 
 function runtimeQueryFingerprint(props) {
+  if (typeof window !== "undefined" && bootstrapPackExpected()) {
+    const boot = window.__mei || {};
+    const compileEpoch = String(
+      boot.bootstrap_compile_epoch ||
+        boot.compileEpoch ||
+        boot.compile_epoch ||
+        props?._mei?.compile_epoch ||
+        "",
+    ).trim();
+    const dataGen = String(
+      boot.bootstrap_data_generation ||
+        boot.dataGeneration ||
+        boot.data_generation ||
+        props?._mei?.data_generation ||
+        window.__meiRuntimeDataGeneration ||
+        "",
+    ).trim();
+    if (compileEpoch || dataGen) {
+      return `${compileEpoch}|${dataGen}`;
+    }
+  }
   const compileEpoch = runtimeCompileEpoch(props);
   const dataGen = runtimeDataGeneration(props);
   return `${compileEpoch}|${dataGen}`;
+}
+
+function datasetQueryFingerprintCandidates(props, primaryFingerprint = "") {
+  const candidates = [];
+  const push = (value) => {
+    const normalized = String(value || "").trim();
+    if (normalized && !candidates.includes(normalized)) {
+      candidates.push(normalized);
+    }
+  };
+  push(primaryFingerprint);
+  if (typeof window !== "undefined" && window.__mei) {
+    const boot = window.__mei;
+    push(
+      bootstrapQueryFingerprint({
+        compile_epoch:
+          boot.bootstrap_compile_epoch || boot.compileEpoch || boot.compile_epoch || "",
+        data_generation:
+          boot.bootstrap_data_generation ||
+            boot.dataGeneration ||
+            boot.data_generation ||
+            "",
+      }),
+    );
+  }
+  const propsEpoch = String(props?._mei?.compile_epoch || "").trim();
+  const propsGen = String(props?._mei?.data_generation || "").trim();
+  if (propsEpoch || propsGen) {
+    push(`${propsEpoch}|${propsGen}`);
+  }
+  return candidates;
+}
+
+const BOOTSTRAP_SEED_WAIT_MS = 8000;
+
+function bootstrapSeedReady() {
+  return !!(typeof window !== "undefined" && window.__meiBootstrapSeeded && (window.__meiBootstrapSeedCount || 0) > 0);
+}
+
+function bootstrapManifestMetricIds() {
+  const ids = new Set();
+  const list = window.__mei?.bootstrap_metrics;
+  if (!Array.isArray(list)) {
+    return ids;
+  }
+  list.forEach((entry) => {
+    const id = safeTrim(entry?.id || entry?.contract?.id);
+    if (id) {
+      ids.add(id);
+    }
+  });
+  return ids;
+}
+
+function bootstrapCoversRequestedMetrics(metricIds = []) {
+  const manifest = bootstrapManifestMetricIds();
+  if (!manifest.size) {
+    return false;
+  }
+  return (Array.isArray(metricIds) ? metricIds : []).every((id) =>
+    manifest.has(safeTrim(id)),
+  );
+}
+
+function shouldDeferUncoveredBootstrapMetricFetch(props, metricIds = []) {
+  if (!bootstrapPackExpected() || !shouldEnforcePackFirst(props)) {
+    return false;
+  }
+  if (bootstrapCoversRequestedMetrics(metricIds)) {
+    return false;
+  }
+  const datasetId = String(resolveRuntimeMetricRef(props)?.dataset_id || "").trim();
+  if (datasetId.includes("map.bundle.mei")) {
+    return true;
+  }
+  return false;
+}
+
+function bootstrapPackExpected() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const metrics = window.__mei?.bootstrap_metrics;
+  if (Array.isArray(metrics) && metrics.length > 0) {
+    return true;
+  }
+  const inlined = document.querySelector('meta[name="mei-bootstrap-inlined"]');
+  if (inlined && String(inlined.getAttribute("content") || "").trim() === "1") {
+    return true;
+  }
+  if (window.__meiBootstrapPayloadReady) {
+    return true;
+  }
+  return false;
+}
+
+function isDefaultExplanatoryQuery(
+  props,
+  { queryStateId = "", search = "", filters = {}, page = 1 } = {},
+) {
+  const normalizedPage = normalizePositiveInt(page, 1, { min: 1 });
+  if (normalizedPage > 1) {
+    return false;
+  }
+  const qsPayload = mergedQueryStatePayload(queryStateId, filters, { search });
+  if (safeTrim(qsPayload.search)) {
+    return false;
+  }
+  if (qsPayload.filters && Object.keys(qsPayload.filters).length > 0) {
+    return false;
+  }
+  if (Array.isArray(qsPayload.group) && qsPayload.group.length > 0) {
+    return false;
+  }
+  if (qsPayload.timeRange) {
+    return false;
+  }
+  const dataMode = String(props?._mei?.data_mode || props?.dataMode || "eval")
+    .trim()
+    .toLowerCase();
+  if (dataMode && dataMode !== "eval") {
+    return false;
+  }
+  return true;
+}
+
+function shouldEnforcePackFirst(props, options = {}) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  if (!isDefaultExplanatoryQuery(props, options)) {
+    return false;
+  }
+  return bootstrapPackExpected();
+}
+
+function awaitBootstrapSeedIfNeeded(props) {
+  if (bootstrapSeedReady()) {
+    return Promise.resolve(true);
+  }
+  if (!shouldEnforcePackFirst(props)) {
+    return Promise.resolve(false);
+  }
+  scheduleBootstrapSeed();
+  return new Promise((resolve) => {
+    const finish = (ready) => {
+      cleanup();
+      resolve(ready);
+    };
+    const onReady = () => {
+      finish(bootstrapSeedReady());
+    };
+    const timer = setTimeout(() => {
+      if (!bootstrapSeedReady()) {
+        window.__meiEvalPackMissReason = window.__meiEvalPackMissReason || "bootstrap_seed_timeout";
+      }
+      finish(bootstrapSeedReady());
+    }, BOOTSTRAP_SEED_WAIT_MS);
+    const cleanup = () => {
+      clearTimeout(timer);
+      document.removeEventListener("mei-bootstrap-ready", onReady);
+    };
+    document.addEventListener("mei-bootstrap-ready", onReady, { once: true });
+    if (bootstrapSeedReady()) {
+      finish(true);
+    }
+  });
+}
+
+export function isDefaultExplanatoryQueryForTest(props, options = {}) {
+  return isDefaultExplanatoryQuery(props, options);
+}
+
+export function bootstrapPackExpectedForTest() {
+  return bootstrapPackExpected();
 }
 
 function rememberHostRuntimeQueryMeta(props) {
@@ -2544,12 +3065,12 @@ function persistRuntimeQueryMemoryCachesToSession() {
   const dataGen = String(window.__meiRuntimeDataGeneration || "").trim();
   const now = Date.now();
   const metricEntries = [];
-  for (const [cacheKey, entry] of METRIC_QUERY_RESULT_CACHE.entries()) {
+  for (const [cacheKey, entry] of cacheStore().metricResults.entries()) {
     if (entry && Number.isFinite(entry.expiresAt) && entry.expiresAt > now && entry.data) {
       metricEntries.push({ cacheKey, kind: "metric", data: entry.data });
     }
   }
-  for (const [cacheKey, entry] of DATASET_QUERY_RESULT_CACHE.entries()) {
+  for (const [cacheKey, entry] of cacheStore().datasetResults.entries()) {
     if (entry && Number.isFinite(entry.expiresAt) && entry.expiresAt > now && entry.data) {
       metricEntries.push({ cacheKey, kind: "dataset", data: entry.data });
     }
@@ -2584,7 +3105,9 @@ function maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch, dataGene
 
 function datasetQueryCacheKey(api, payload, fingerprint = "") {
   const epoch = String(fingerprint || "").trim();
-  return `dataset|${String(api || "").trim()}|${epoch}|${stableSerialize(payload)}`;
+  return `dataset|${String(api || "").trim()}|${epoch}|${stableSerialize(
+    normalizeDatasetQueryCachePayload(payload),
+  )}`;
 }
 
 function stableSerialize(value) {
@@ -2600,13 +3123,66 @@ function stableSerialize(value) {
   return JSON.stringify(value ?? null);
 }
 
+function normalizeMetricQueryCachePayload(payload = {}) {
+  const normalized = normalizeDatasetQueryCachePayload({ ...(payload || {}) });
+  if (Array.isArray(normalized.metric_ids)) {
+    normalized.metric_ids = [...normalized.metric_ids]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .sort();
+  }
+  return normalized;
+}
+
+function metricQueryPayloadVariants(payload = {}) {
+  return datasetQueryPayloadVariants(payload);
+}
+
+function resolveBootstrapMetricCacheEntry(
+  api,
+  payload,
+  fingerprint,
+  requestedIds,
+  now = Date.now(),
+  props = null,
+) {
+  const fingerprints = props
+    ? datasetQueryFingerprintCandidates(props, fingerprint)
+    : [String(fingerprint || "").trim()].filter(Boolean);
+  for (const fp of fingerprints) {
+    for (const variant of metricQueryPayloadVariants(payload)) {
+      const cacheKey = metricQueryCacheKey(api, variant, fp);
+      const cached = cacheStore().metricResults.get(cacheKey);
+      if (cached && cached.expiresAt > now) {
+        return { cacheKey, cached, variant, fingerprint: fp };
+      }
+      const scopeKey = metricQueryScopeCacheKey(api, variant, fp);
+      const scopeCached = findCoveringMetricScopeResult(scopeKey, requestedIds, now);
+      if (scopeCached) {
+        return {
+          cacheKey,
+          cached: scopeCached,
+          variant,
+          fingerprint: fp,
+          scope: true,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function metricQueryCacheKey(api, payload, fingerprint = "") {
   const epoch = String(fingerprint || "").trim();
-  return `${String(api || "").trim()}|${epoch}|${stableSerialize(payload)}`;
+  return `${String(api || "").trim()}|${epoch}|${stableSerialize(
+    normalizeMetricQueryCachePayload(payload),
+  )}`;
 }
 
 function metricQueryScopeCacheKey(api, payload, fingerprint = "") {
-  const scopePayload = payload && typeof payload === "object" ? { ...payload } : {};
+  const scopePayload = normalizeMetricQueryCachePayload(
+    payload && typeof payload === "object" ? { ...payload } : {},
+  );
   delete scopePayload.metric_ids;
   const epoch = String(fingerprint || "").trim();
   return `scope|${String(api || "").trim()}|${epoch}|${stableSerialize(scopePayload)}`;
@@ -2630,7 +3206,7 @@ function metricQueryScopeEntryCovers(entry, requestedIds) {
 }
 
 function findCoveringMetricScopeResult(scopeKey, requestedIds, now = Date.now()) {
-  const entries = METRIC_QUERY_SCOPE_RESULT_CACHE.get(scopeKey);
+  const entries = cacheStore().metricScopeResults.get(scopeKey);
   if (!Array.isArray(entries) || entries.length === 0) {
     return null;
   }
@@ -2639,9 +3215,9 @@ function findCoveringMetricScopeResult(scopeKey, requestedIds, now = Date.now())
   );
   if (active.length !== entries.length) {
     if (active.length > 0) {
-      METRIC_QUERY_SCOPE_RESULT_CACHE.set(scopeKey, active);
+      cacheStore().metricScopeResults.set(scopeKey, active);
     } else {
-      METRIC_QUERY_SCOPE_RESULT_CACHE.delete(scopeKey);
+      cacheStore().metricScopeResults.delete(scopeKey);
     }
   }
   return active.find((entry) => metricQueryScopeEntryCovers(entry, requestedIds)) || null;
@@ -2656,16 +3232,16 @@ function rememberMetricScopeResult(scopeKey, requestedIds, data, expiresAt) {
     metricIds,
     complete,
   };
-  const existing = Array.isArray(METRIC_QUERY_SCOPE_RESULT_CACHE.get(scopeKey))
-    ? METRIC_QUERY_SCOPE_RESULT_CACHE.get(scopeKey)
+  const existing = Array.isArray(cacheStore().metricScopeResults.get(scopeKey))
+    ? cacheStore().metricScopeResults.get(scopeKey)
     : [];
   const filtered = existing.filter((entry) => !metricQueryScopeEntryCovers(entry, requestedIds));
   filtered.unshift(nextEntry);
-  METRIC_QUERY_SCOPE_RESULT_CACHE.set(scopeKey, filtered.slice(0, 8));
+  cacheStore().metricScopeResults.set(scopeKey, filtered.slice(0, 8));
 }
 
 function findCoveringMetricScopeInflight(scopeKey, requestedIds) {
-  const entries = METRIC_QUERY_SCOPE_INFLIGHT.get(scopeKey);
+  const entries = cacheStore().metricScopeInflight.get(scopeKey);
   if (!Array.isArray(entries) || entries.length === 0) {
     return null;
   }
@@ -2673,7 +3249,7 @@ function findCoveringMetricScopeInflight(scopeKey, requestedIds) {
 }
 
 function findAnyMetricScopeInflight(scopeKey) {
-  const entries = METRIC_QUERY_SCOPE_INFLIGHT.get(scopeKey);
+  const entries = cacheStore().metricScopeInflight.get(scopeKey);
   if (!Array.isArray(entries) || entries.length === 0) {
     return null;
   }
@@ -2687,23 +3263,23 @@ function registerMetricScopeInflight(scopeKey, requestedIds, promise) {
     metricIds: complete ? new Set() : new Set(requestedIds),
     complete,
   };
-  const entries = Array.isArray(METRIC_QUERY_SCOPE_INFLIGHT.get(scopeKey))
-    ? METRIC_QUERY_SCOPE_INFLIGHT.get(scopeKey)
+  const entries = Array.isArray(cacheStore().metricScopeInflight.get(scopeKey))
+    ? cacheStore().metricScopeInflight.get(scopeKey)
     : [];
   entries.push(entry);
-  METRIC_QUERY_SCOPE_INFLIGHT.set(scopeKey, entries);
+  cacheStore().metricScopeInflight.set(scopeKey, entries);
   return entry;
 }
 
 function unregisterMetricScopeInflight(scopeKey, entry) {
-  const entries = Array.isArray(METRIC_QUERY_SCOPE_INFLIGHT.get(scopeKey))
-    ? METRIC_QUERY_SCOPE_INFLIGHT.get(scopeKey)
+  const entries = Array.isArray(cacheStore().metricScopeInflight.get(scopeKey))
+    ? cacheStore().metricScopeInflight.get(scopeKey)
     : [];
   const next = entries.filter((candidate) => candidate !== entry);
   if (next.length > 0) {
-    METRIC_QUERY_SCOPE_INFLIGHT.set(scopeKey, next);
+    cacheStore().metricScopeInflight.set(scopeKey, next);
   } else {
-    METRIC_QUERY_SCOPE_INFLIGHT.delete(scopeKey);
+    cacheStore().metricScopeInflight.delete(scopeKey);
   }
 }
 
@@ -2714,14 +3290,14 @@ function clearRuntimeQueryCaches(options = {}) {
       clearSessionRuntimeQueryCaches(appId);
     }
   }
-  METRIC_QUERY_INFLIGHT.clear();
-  METRIC_QUERY_RESULT_CACHE.clear();
-  METRIC_QUERY_SCOPE_INFLIGHT.clear();
-  METRIC_QUERY_SCOPE_RESULT_CACHE.clear();
+  cacheStore().metricInflight.clear();
+  cacheStore().metricResults.clear();
+  cacheStore().metricScopeInflight.clear();
+  cacheStore().metricScopeResults.clear();
   SCENE_METRIC_BATCH_INFLIGHT.clear();
   SCENE_METRIC_BATCH_SCHEDULES.clear();
-  DATASET_QUERY_INFLIGHT.clear();
-  DATASET_QUERY_RESULT_CACHE.clear();
+  cacheStore().datasetInflight.clear();
+  cacheStore().datasetResults.clear();
 }
 
 function notifyClientRuntimeQueryCacheHit(kind) {
@@ -3122,7 +3698,7 @@ function resolveMetricScopeInflight(scopeKey, requestedIds) {
   if (covering) {
     return covering;
   }
-  const entries = METRIC_QUERY_SCOPE_INFLIGHT.get(scopeKey);
+  const entries = cacheStore().metricScopeInflight.get(scopeKey);
   if (!Array.isArray(entries) || entries.length === 0) {
     return null;
   }
@@ -3263,7 +3839,7 @@ function registerSceneMetricBatchGroupInflight(api, batchPayload, group, compile
     rejectPromise = reject;
   });
   const scopeEntry = registerMetricScopeInflight(scopeKey, requestedIds, promise);
-  METRIC_QUERY_INFLIGHT.set(cacheKey, { promise });
+  cacheStore().metricInflight.set(cacheKey, { promise });
   return {
     datasetId: safeTrim(group?.dataset_id),
     cacheKey,
@@ -3272,7 +3848,7 @@ function registerSceneMetricBatchGroupInflight(api, batchPayload, group, compile
     resolve: resolvePromise,
     reject: rejectPromise,
     cleanup() {
-      METRIC_QUERY_INFLIGHT.delete(cacheKey);
+      cacheStore().metricInflight.delete(cacheKey);
       unregisterMetricScopeInflight(scopeKey, scopeEntry);
     },
   };
@@ -3348,7 +3924,7 @@ export async function fetchSceneRuntimeMetricBatch(
   const capability = metricBatchQueryCapabilityConfig(props);
   const api = capability.api;
   const normalizedGroups = normalizeSceneMetricBatchGroups(groups);
-  if (!capability.enabled || normalizedGroups.length <= 1) {
+  if (!capability.enabled || normalizedGroups.length === 0) {
     return null;
   }
   const runtimeRef = resolveRuntimeMetricRef(props);
@@ -3379,9 +3955,9 @@ export async function fetchSceneRuntimeMetricBatch(
     filters: queryStatePayload.filters,
     query_state: {
       filters: queryStatePayload.filters,
-      search: queryStatePayload.search || undefined,
-      group: queryStatePayload.group.length > 0 ? queryStatePayload.group : undefined,
-      time_range: queryStatePayload.timeRange || undefined,
+      ...(safeTrim(queryStatePayload.search) ? { search: queryStatePayload.search } : {}),
+      ...(queryStatePayload.group.length > 0 ? { group: queryStatePayload.group } : {}),
+      ...(queryStatePayload.timeRange ? { time_range: queryStatePayload.timeRange } : {}),
     },
     filter_intents:
       queryStatePayload.filterIntents.length > 0 ? queryStatePayload.filterIntents : undefined,
@@ -3393,13 +3969,13 @@ export async function fetchSceneRuntimeMetricBatch(
     const cacheKey = metricQueryCacheKey(api, singlePayload, queryFingerprint);
     const scopeKey = metricQueryScopeCacheKey(api, singlePayload, queryFingerprint);
     const requestedIds = metricQueryRequestedIds(singlePayload);
-    const cached = METRIC_QUERY_RESULT_CACHE.get(cacheKey);
+    const cached = cacheStore().metricResults.get(cacheKey);
     if (cached && cached.expiresAt > now) {
       return false;
     }
     const sessionCached = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, now);
     if (sessionCached?.data) {
-      METRIC_QUERY_RESULT_CACHE.set(cacheKey, {
+      cacheStore().metricResults.set(cacheKey, {
         data: sessionCached.data,
         expiresAt: sessionCached.expiresAt,
       });
@@ -3413,7 +3989,7 @@ export async function fetchSceneRuntimeMetricBatch(
     }
     return true;
   });
-  if (pendingGroups.length <= 1) {
+  if (pendingGroups.length === 0) {
     return null;
   }
   const payload = {
@@ -3458,7 +4034,7 @@ export async function fetchSceneRuntimeMetricBatch(
             metrics: Array.isArray(group?.metrics) ? group.metrics : [],
             perf: sceneMetricBatchGroupPerf(group?.perf, clientPerf, registrations.length),
           };
-          METRIC_QUERY_RESULT_CACHE.set(registration.cacheKey, {
+          cacheStore().metricResults.set(registration.cacheKey, {
             data: normalized,
             expiresAt,
           });
@@ -3861,9 +4437,9 @@ export async function fetchDatasetRows(
     filters: queryStatePayload.filters,
     query_state: {
       filters: queryStatePayload.filters,
-      search: queryStatePayload.search || undefined,
-      group: queryStatePayload.group.length > 0 ? queryStatePayload.group : undefined,
-      time_range: queryStatePayload.timeRange || undefined,
+      ...(safeTrim(queryStatePayload.search) ? { search: queryStatePayload.search } : {}),
+      ...(queryStatePayload.group.length > 0 ? { group: queryStatePayload.group } : {}),
+      ...(queryStatePayload.timeRange ? { time_range: queryStatePayload.timeRange } : {}),
     },
     filter_intents:
       metricId && queryStatePayload.filterIntents.length > 0
@@ -3901,7 +4477,15 @@ export async function fetchDatasetRows(
   const appId = String(props?._mei?.app_id || "").trim();
   const dataGen = runtimeDataGeneration(props);
   pruneDatasetQueryCaches(now);
-  const cached = DATASET_QUERY_RESULT_CACHE.get(cacheKey);
+  const evalStoreDataset = readEvalStoreDatasetData(api, payload, queryFingerprint);
+  if (evalStoreDataset) {
+    notifyClientRuntimeQueryCacheHit("dataset_eval_store");
+    return waitForSharedPromise(
+      Promise.resolve(withClientResultCachePerf(evalStoreDataset, "dataset_eval_store")),
+      signal,
+    );
+  }
+  const cached = cacheStore().datasetResults.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     notifyClientRuntimeQueryCacheHit("dataset");
     return waitForSharedPromise(
@@ -3911,7 +4495,7 @@ export async function fetchDatasetRows(
   }
   const sessionCached = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, now);
   if (sessionCached?.data) {
-    DATASET_QUERY_RESULT_CACHE.set(cacheKey, {
+    cacheStore().datasetResults.set(cacheKey, {
       data: sessionCached.data,
       expiresAt: sessionCached.expiresAt,
     });
@@ -3921,7 +4505,73 @@ export async function fetchDatasetRows(
       signal,
     );
   }
-  let shared = DATASET_QUERY_INFLIGHT.get(cacheKey);
+  if (
+    packFirstAppliesToDatasetFetch(props, {
+      metricId,
+      queryStateId: effectiveQueryStateId,
+      search,
+      filters,
+      page: normalizedPage,
+    })
+  ) {
+    await awaitBootstrapSeedIfNeeded(props);
+    const nowAfterSeed = Date.now();
+    const cachedAfterSeed = cacheStore().datasetResults.get(cacheKey);
+    if (cachedAfterSeed && cachedAfterSeed.expiresAt > nowAfterSeed) {
+      notifyClientRuntimeQueryCacheHit("dataset_bootstrap");
+      return waitForSharedPromise(
+        Promise.resolve(withClientResultCachePerf(cachedAfterSeed.data, "dataset_bootstrap")),
+        signal,
+      );
+    }
+    const bootstrapHit = resolveBootstrapDatasetCacheEntry(
+      api,
+      payload,
+      queryFingerprint,
+      nowAfterSeed,
+      props,
+    );
+    if (bootstrapHit?.cached) {
+      cacheStore().datasetResults.set(cacheKey, bootstrapHit.cached);
+      notifyClientRuntimeQueryCacheHit("dataset_bootstrap_variant");
+      window.__meiEvalPackSource = window.__meiEvalPackSource || "bootstrap_seed";
+      delete window.__meiEvalPackMissReason;
+      return waitForSharedPromise(
+        Promise.resolve(withClientResultCachePerf(bootstrapHit.cached.data, "dataset_bootstrap_variant")),
+        signal,
+      );
+    }
+    const sessionAfterSeed = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, nowAfterSeed);
+    if (sessionAfterSeed?.data) {
+      cacheStore().datasetResults.set(cacheKey, {
+        data: sessionAfterSeed.data,
+        expiresAt: sessionAfterSeed.expiresAt,
+      });
+      notifyClientRuntimeQueryCacheHit("dataset_bootstrap_session");
+      return waitForSharedPromise(
+        Promise.resolve(withClientResultCachePerf(sessionAfterSeed.data, "dataset_bootstrap_session")),
+        signal,
+      );
+    }
+    if (bootstrapPackExpected() && bootstrapSeedReady()) {
+      const metricIds = safeTrim(metricId) ? [metricId] : [];
+      if (!bootstrapCoversRequestedMetrics(metricIds) && String(datasetId).includes("map.bundle.mei")) {
+        window.__meiEvalPackSource = window.__meiEvalPackSource || "bootstrap_partial_defer";
+        return waitForSharedPromise(Promise.resolve(null), signal);
+      }
+      window.__meiEvalPackMissReason = window.__meiEvalPackMissReason || "dataset_cache_miss_after_seed";
+      if (typeof window !== "undefined") {
+        window.__meiLastDatasetCacheMiss = {
+          api,
+          cacheKey,
+          fingerprint: queryFingerprint,
+          payload: normalizeDatasetQueryCachePayload(payload),
+        };
+      }
+      return waitForSharedPromise(Promise.resolve(null), signal);
+    }
+  }
+  let shared = cacheStore().datasetInflight.get(cacheKey);
   if (!shared) {
     const managedController = createManagedAbortController();
     const promise = fetchDatasetRowsUncached(api, payload, errorContext, {
@@ -3931,7 +4581,7 @@ export async function fetchDatasetRows(
     })
       .then((data) => {
         const expiresAt = Date.now() + cacheConfig.ttlMs;
-        DATASET_QUERY_RESULT_CACHE.set(cacheKey, {
+        cacheStore().datasetResults.set(cacheKey, {
           data,
           expiresAt,
         });
@@ -3948,10 +4598,10 @@ export async function fetchDatasetRows(
       })
       .finally(() => {
         managedController.__meiRelease?.();
-        DATASET_QUERY_INFLIGHT.delete(cacheKey);
+        cacheStore().datasetInflight.delete(cacheKey);
       });
     shared = { promise };
-    DATASET_QUERY_INFLIGHT.set(cacheKey, shared);
+    cacheStore().datasetInflight.set(cacheKey, shared);
   }
   return waitForSharedPromise(shared.promise, signal);
 }
@@ -4038,6 +4688,10 @@ export async function fetchRuntimeMetrics(
       : runtimeRef.metric_id
       ? [runtimeRef.metric_id]
       : [];
+  if (shouldDeferUncoveredBootstrapMetricFetch(props, ids)) {
+    window.__meiEvalPackSource = window.__meiEvalPackSource || "bootstrap_partial_defer";
+    return null;
+  }
   const queryStatePayload = mergedQueryStatePayload(effectiveQueryStateId, filters, {
     search,
     filterIntentSource: meta?.filter_intent_source ?? meta?.filterIntentSource,
@@ -4054,9 +4708,9 @@ export async function fetchRuntimeMetrics(
     filters: queryStatePayload.filters,
     query_state: {
       filters: queryStatePayload.filters,
-      search: queryStatePayload.search || undefined,
-      group: queryStatePayload.group.length > 0 ? queryStatePayload.group : undefined,
-      time_range: queryStatePayload.timeRange || undefined,
+      ...(safeTrim(queryStatePayload.search) ? { search: queryStatePayload.search } : {}),
+      ...(queryStatePayload.group.length > 0 ? { group: queryStatePayload.group } : {}),
+      ...(queryStatePayload.timeRange ? { time_range: queryStatePayload.timeRange } : {}),
     },
     filter_intents: queryStatePayload.filterIntents.length > 0 ? queryStatePayload.filterIntents : undefined,
   };
@@ -4093,7 +4747,15 @@ export async function fetchRuntimeMetrics(
   const appId = String(props?._mei?.app_id || "").trim();
   const dataGen = runtimeDataGeneration(props);
   pruneMetricQueryCaches(now);
-  const cached = METRIC_QUERY_RESULT_CACHE.get(cacheKey);
+  const evalStoreMetric = readEvalStoreMetricData(api, payload, queryFingerprint);
+  if (evalStoreMetric) {
+    notifyClientRuntimeQueryCacheHit("metric_eval_store");
+    return waitForSharedPromise(
+      Promise.resolve(withClientResultCachePerf(evalStoreMetric, "metric_eval_store")),
+      signal,
+    );
+  }
+  const cached = cacheStore().metricResults.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     notifyClientRuntimeQueryCacheHit("metric");
     return waitForSharedPromise(
@@ -4103,7 +4765,7 @@ export async function fetchRuntimeMetrics(
   }
   const sessionCached = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, now);
   if (sessionCached?.data) {
-    METRIC_QUERY_RESULT_CACHE.set(cacheKey, {
+    cacheStore().metricResults.set(cacheKey, {
       data: sessionCached.data,
       expiresAt: sessionCached.expiresAt,
     });
@@ -4129,10 +4791,152 @@ export async function fetchRuntimeMetrics(
       signal
     );
   }
+  if (
+    shouldEnforcePackFirst(props, {
+      queryStateId: effectiveQueryStateId,
+      search,
+      filters,
+    })
+  ) {
+    await awaitBootstrapSeedIfNeeded(props);
+    const nowAfterSeed = Date.now();
+    const cachedAfterSeed = cacheStore().metricResults.get(cacheKey);
+    if (cachedAfterSeed && cachedAfterSeed.expiresAt > nowAfterSeed) {
+      notifyClientRuntimeQueryCacheHit("metric_bootstrap");
+      return waitForSharedPromise(
+        Promise.resolve(withClientResultCachePerf(cachedAfterSeed.data, "metric_bootstrap")),
+        signal,
+      );
+    }
+    const sessionAfterSeed = readSessionRuntimeQueryCache(appId, cacheKey, dataGen, nowAfterSeed);
+    if (sessionAfterSeed?.data) {
+      cacheStore().metricResults.set(cacheKey, {
+        data: sessionAfterSeed.data,
+        expiresAt: sessionAfterSeed.expiresAt,
+      });
+      notifyClientRuntimeQueryCacheHit("metric_bootstrap_session");
+      return waitForSharedPromise(
+        Promise.resolve(withClientResultCachePerf(sessionAfterSeed.data, "metric_bootstrap_session")),
+        signal,
+      );
+    }
+    const scopeAfterSeed = findCoveringMetricScopeResult(scopeKey, requestedIds, nowAfterSeed);
+    if (scopeAfterSeed) {
+      notifyClientRuntimeQueryCacheHit("metric_bootstrap_scope");
+      return waitForSharedPromise(
+        Promise.resolve(
+          withMetricScopeSharePerf(
+            {
+              ...(scopeAfterSeed.data && typeof scopeAfterSeed.data === "object" ? scopeAfterSeed.data : {}),
+              metrics: filterMetricsForRequestedIds(scopeAfterSeed.data?.metrics, requestedIds),
+            },
+            { cacheHit: true },
+          ),
+        ),
+        signal,
+      );
+    }
+    const bootstrapMetricHit = resolveBootstrapMetricCacheEntry(
+      api,
+      payload,
+      queryFingerprint,
+      requestedIds,
+      nowAfterSeed,
+      props,
+    );
+    if (bootstrapMetricHit?.cached) {
+      if (!bootstrapMetricHit.scope) {
+        cacheStore().metricResults.set(cacheKey, bootstrapMetricHit.cached);
+      }
+      notifyClientRuntimeQueryCacheHit(
+        bootstrapMetricHit.scope ? "metric_bootstrap_scope_variant" : "metric_bootstrap_variant",
+      );
+      window.__meiEvalPackSource = window.__meiEvalPackSource || "bootstrap_seed";
+      delete window.__meiEvalPackMissReason;
+      if (bootstrapMetricHit.scope) {
+        return waitForSharedPromise(
+          Promise.resolve(
+            withMetricScopeSharePerf(
+              {
+                ...(bootstrapMetricHit.cached.data && typeof bootstrapMetricHit.cached.data === "object"
+                  ? bootstrapMetricHit.cached.data
+                  : {}),
+                metrics: filterMetricsForRequestedIds(
+                  bootstrapMetricHit.cached.data?.metrics,
+                  requestedIds,
+                ),
+              },
+              { cacheHit: true },
+            ),
+          ),
+          signal,
+        );
+      }
+      return waitForSharedPromise(
+        Promise.resolve(
+          withClientResultCachePerf(bootstrapMetricHit.cached.data, "metric_bootstrap_variant"),
+        ),
+        signal,
+      );
+    }
+    if (bootstrapPackExpected() && bootstrapSeedReady()) {
+      if (!bootstrapCoversRequestedMetrics(requestedIds)) {
+        window.__meiEvalPackSource = window.__meiEvalPackSource || "bootstrap_partial";
+      } else {
+        window.__meiEvalPackMissReason = window.__meiEvalPackMissReason || "metric_cache_miss_after_seed";
+        if (typeof window !== "undefined") {
+          window.__meiLastMetricCacheMiss = {
+            api,
+            cacheKey,
+            fingerprint: queryFingerprint,
+            payload: normalizeMetricQueryCachePayload(payload),
+          };
+        }
+        return waitForSharedPromise(Promise.resolve(null), signal);
+      }
+    }
+  }
+  if (
+    !isDefaultExplanatoryQuery(props, {
+      queryStateId: effectiveQueryStateId,
+      search,
+      filters,
+    }) &&
+    metricBatchQueryCapabilityConfig(props).enabled
+  ) {
+    try {
+      await fetchSceneRuntimeMetricBatch(
+        props,
+        [
+          {
+            dataset_id: runtimeRef.dataset_id,
+            metric_ids: [...ids].sort(),
+          },
+        ],
+        {
+          queryStateId: effectiveQueryStateId,
+          search,
+          filters,
+          signal,
+          meta,
+        },
+      );
+      const jitCached = cacheStore().metricResults.get(cacheKey);
+      if (jitCached && jitCached.expiresAt > Date.now()) {
+        window.__meiEvalPackSource = "jit_metric_batch";
+        return waitForSharedPromise(
+          Promise.resolve(withClientResultCachePerf(jitCached.data, "metric_jit_batch")),
+          signal,
+        );
+      }
+    } catch (_) {
+      /* fall through to single metric fetch */
+    }
+  }
   if (shouldPauseHomeRuntimeMetricFetch(props)) {
     return null;
   }
-  let shared = METRIC_QUERY_INFLIGHT.get(cacheKey);
+  let shared = cacheStore().metricInflight.get(cacheKey);
   if (!shared) {
     const scopeInflight = resolveMetricScopeInflight(scopeKey, requestedIds);
     if (scopeInflight) {
@@ -4159,7 +4963,7 @@ export async function fetchRuntimeMetrics(
     )
       .then((data) => {
         const expiresAt = Date.now() + cacheConfig.ttlMs;
-        METRIC_QUERY_RESULT_CACHE.set(cacheKey, {
+        cacheStore().metricResults.set(cacheKey, {
           data,
           expiresAt,
         });
@@ -4177,12 +4981,12 @@ export async function fetchRuntimeMetrics(
       })
       .finally(() => {
         managedController.__meiRelease?.();
-        METRIC_QUERY_INFLIGHT.delete(cacheKey);
+        cacheStore().metricInflight.delete(cacheKey);
         unregisterMetricScopeInflight(scopeKey, scopeEntry);
       });
     shared = { promise };
     const scopeEntry = registerMetricScopeInflight(scopeKey, requestedIds, promise);
-    METRIC_QUERY_INFLIGHT.set(cacheKey, shared);
+    cacheStore().metricInflight.set(cacheKey, shared);
   }
   return waitForSharedPromise(shared.promise, signal);
 }

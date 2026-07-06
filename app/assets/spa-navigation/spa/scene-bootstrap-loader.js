@@ -12,8 +12,14 @@
     if (payload.clientRevision) window.__mei.client_revision = payload.clientRevision;
     if (payload.bootstrapScope) window.__mei.bootstrap_scope = payload.bootstrapScope;
     if (payload.targetFile) window.__mei.bootstrap_target_file = payload.targetFile;
-    if (payload.compileEpoch) window.__mei.bootstrap_compile_epoch = payload.compileEpoch;
-    if (payload.dataGeneration) window.__mei.bootstrap_data_generation = payload.dataGeneration;
+    if (payload.compileEpoch) {
+      window.__mei.bootstrap_compile_epoch = payload.compileEpoch;
+      window.__mei.compile_epoch = payload.compileEpoch;
+    }
+    if (payload.dataGeneration) {
+      window.__mei.bootstrap_data_generation = payload.dataGeneration;
+      window.__mei.data_generation = payload.dataGeneration;
+    }
     if (payload.appId) window.__mei.bootstrap_app_id = payload.appId;
     if (Array.isArray(payload.metrics)) window.__mei.bootstrap_metrics = payload.metrics;
     if (Array.isArray(payload.bootstrapScopes)) {
@@ -165,6 +171,77 @@
     return payload;
   }
 
+  function seedBootstrapRuntimeCache() {
+    const sourceMeta = window.__meiBootstrapFromLocalStorage
+      ? "scene_bootstrap_local"
+      : window.__meiEvalPackSource || "bootstrap_inline";
+    if (boot.evalStore?.seedPack) {
+      return boot.evalStore.seedPack(window.__mei, { source: sourceMeta });
+    }
+    if (typeof seedFromBootstrap !== "function") {
+      return 0;
+    }
+    const count = seedFromBootstrap(window.__mei);
+    if (count > 0) {
+      window.__meiBootstrapSeeded = true;
+      window.__meiBootstrapSeedCount = count;
+      delete window.__meiBootstrapSeedError;
+      window.__meiEvalPackSource = sourceMeta;
+    }
+    return count;
+  }
+
+  async function ensureBootstrapSeeded(ctx, revision) {
+    const payload = await ensureSceneBootstrapPayload(ctx, revision || {});
+    const count = seedBootstrapRuntimeCache();
+    void prefetchNeighborBootstrapScopes(ctx?.appId, payload);
+    return count;
+  }
+
+  async function prefetchNeighborBootstrapScopes(appId, payload) {
+    const scopes = Array.isArray(payload?.bootstrapScopes) ? payload.bootstrapScopes : [];
+    if (!appId || scopes.length === 0) {
+      return;
+    }
+    for (const entry of scopes) {
+      const neighborScope = String(entry?.bootstrapScope || entry?.bootstrap_scope || "").trim();
+      const neighborRevision = String(entry?.clientRevision || entry?.client_revision || "").trim();
+      if (!neighborScope) continue;
+      const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
+      if (neighborScope === currentScope) continue;
+      try {
+        await ensureBootstrapSeeded(
+          { appId, sceneId: neighborScope },
+          { client_revision: neighborRevision },
+        );
+      } catch (_) {
+        /* neighbor warmup is best-effort */
+      }
+    }
+  }
+
+  async function fetchJitEvalPack(ctx, { fingerprint = "" } = {}) {
+    const appId = ctx?.appId;
+    const sceneId = ctx?.sceneId || "home";
+    if (!appId) return 0;
+    const params = new URLSearchParams({ app: appId, scene: sceneId });
+    const fp = String(fingerprint || "").trim();
+    if (fp) {
+      params.set("fingerprint", fp);
+    }
+    const response = await fetch(`${SCENE_BOOTSTRAP_API}?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`jit eval pack failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    applyBootstrapPayload(payload);
+    window.__meiEvalPackSource = fp ? "jit_eval_pack" : "scene_bootstrap_fetch";
+    return seedBootstrapRuntimeCache();
+  }
+
   function resolveActivationSceneId(detail) {
     return String(
       detail?.scope || detail?.sceneId || detail?.boardSceneId || detail?.pageSceneId || "",
@@ -214,7 +291,7 @@
     if (!sceneId || inflightScopes.has(inflightKey)) return;
     inflightScopes.add(inflightKey);
     try {
-      await ensureSceneBootstrapPayload({ appId, sceneId }, {});
+      await ensureBootstrapSeeded({ appId, sceneId }, {});
     } catch (_) {
       /* allow next activation to retry */
     } finally {
@@ -223,6 +300,9 @@
   }
 
   boot.ensureSceneBootstrapPayload = ensureSceneBootstrapPayload;
+  boot.ensureBootstrapSeeded = ensureBootstrapSeeded;
+  boot.seedBootstrapRuntimeCache = seedBootstrapRuntimeCache;
+  boot.fetchJitEvalPack = fetchJitEvalPack;
   boot.applyBootstrapPayload = applyBootstrapPayload;
   boot.dispatchScopeActivation = dispatchScopeActivation;
   window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);

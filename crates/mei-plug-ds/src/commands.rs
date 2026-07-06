@@ -26,6 +26,19 @@ pub async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
         targets.len()
     );
     let report = run_warmup_targets_with_tier(&ctx, &targets, tier)?;
+    let _ = mei_host_graph::write_warmup_last_run(
+        ctx.app_root().as_path(),
+        &mei_host_graph::WarmupLastRunRecord {
+            policy: args.policy.clone(),
+            at_ms: mei_host_graph::warmup_last_run_time_ms(),
+            eval_compute: report.eval_compute_count,
+            cache_hit: report.eval_cache_hit_count,
+            disk_hit: report.disk_artifact_hit_count,
+            l1_hit: report.l1_cache_hit_count,
+            slot_count: report.slot_count,
+            elapsed_ms: report.elapsed_ms,
+        },
+    );
     if args.hops > 0 {
         let scope = args
             .frontier

@@ -4,8 +4,9 @@ use std::time::Instant;
 
 use mei_host_core::{dir_tree_bytes, CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{
-    collect_eval_frontier_with_hops, linked_board_scenes_for_scope, record_slot_failed,
-    record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter, WarmupTier,
+    collect_eval_frontier, collect_eval_frontier_with_hops, linked_board_scenes_for_scope,
+    record_slot_failed, record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter,
+    WarmupTier,
 };
 use mei_lang_kernel::{
     load_mei_config_for_app, resolve_app_eval_cache_root, resolve_app_var_root,
@@ -280,7 +281,18 @@ fn expand_targets_for_client_neighbors(
         .filter(|metric| linked_scope_set.contains(metric.scope_key.as_str()))
         .collect::<Vec<_>>();
     if neighbor_frontier.is_empty() {
-        return Ok(targets.to_vec());
+        if linked_scope_set.is_empty() {
+            return Ok(targets.to_vec());
+        }
+        let mut expanded = targets.to_vec();
+        for scope in &linked_scope_set {
+            let metrics = collect_eval_frontier(ctx, scope.as_str())?;
+            expanded.extend(frontier_targets_from_metrics(
+                root_scope,
+                &metrics,
+            ));
+        }
+        return Ok(expanded);
     }
     let mut expanded = targets.to_vec();
     expanded.extend(frontier_targets_from_metrics(

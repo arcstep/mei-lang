@@ -257,6 +257,10 @@
   }
 
   function resolveEvalBootstrapSeed(evalRaw) {
+    const docSeed = evalRaw?.document?.bootstrap_seed;
+    if (docSeed && typeof docSeed === "object") {
+      return docSeed;
+    }
     if (evalRaw && typeof evalRaw === "object" && evalRaw.bootstrap_seed) {
       return evalRaw.bootstrap_seed;
     }
@@ -351,6 +355,27 @@
     const bootstrapSeed = resolveEvalBootstrapSeed(evalRaw);
     if (bootstrapSeed && globalThis.__mei) {
       globalThis.__mei.bootstrap_seed = bootstrapSeed;
+      if (Array.isArray(bootstrapSeed.metrics) && typeof boot.applyBootstrapPayload === "function") {
+        boot.applyBootstrapPayload({
+          clientRevision: bootstrapSeed.client_revision || bootstrapSeed.clientRevision,
+          bootstrapScope: bootstrapSeed.scope || bootstrapSeed.bootstrapScope,
+          metrics: bootstrapSeed.metrics,
+          appId: globalThis.__mei.bootstrap_app_id || appId,
+        });
+      }
+      if (
+        bootstrapSeed.client_revision &&
+        typeof boot.ensureBootstrapSeeded === "function"
+      ) {
+        void boot.ensureBootstrapSeeded(
+          {
+            appId,
+            sceneId:
+              String(composeAxes?.scene_id || composeAxes?.sceneId || "").trim() || "home",
+          },
+          { client_revision: bootstrapSeed.client_revision },
+        );
+      }
     }
     composePreview(root, structure, projection, themeEffective, overlayEffective);
     return true;

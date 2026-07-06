@@ -210,9 +210,61 @@ fn direct_linked_board_scenes(ctx: &HostContext, scope_key: &str) -> anyhow::Res
         }
     }
     scenes.extend(linked_board_scenes_from_scope_contract(ctx, scope_key)?);
+    append_section_children_for_regions(ctx, scope_key, &mut scenes)?;
+    scenes.retain(|scene| !scene.starts_with("overlay/"));
+    if scenes.iter().any(|scene| scene.contains("/s-")) {
+        scenes.retain(|scene| scene.contains("/s-"));
+    } else {
+        scenes.retain(|scene| !scene.contains("/c-"));
+    }
     scenes.sort();
     scenes.dedup();
     Ok(scenes)
+}
+
+fn append_section_children_for_regions(
+    ctx: &HostContext,
+    scope_key: &str,
+    scenes: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
+    let app_root = ctx.app_root();
+    let mut extras = Vec::new();
+    let mut region_candidates = scenes.clone();
+    if scope_key == "home" {
+        region_candidates.push(format!("{}/home/t2/r-drilldown", ctx.app_id));
+        region_candidates.push("home/t2/r-drilldown".to_string());
+    }
+    for scene in region_candidates {
+        if scene.contains("/s-") {
+            continue;
+        }
+        let region_keys = [
+            format!("{}/{}", ctx.app_id, scene),
+            scene.clone(),
+        ];
+        for node in registry.nodes.iter() {
+            if !region_keys.iter().any(|key| node.id.key == *key) {
+                continue;
+            }
+            let Some(pref) = node.payload_ref.as_ref() else {
+                continue;
+            };
+            let Some(artifact) = load_block_artifact(app_root.as_path(), pref)? else {
+                continue;
+            };
+            let payload = artifact.get("payload").cloned().unwrap_or(Value::Null);
+            let mut section_refs = Vec::new();
+            collect_navigation_refs(&payload, &mut section_refs);
+            for reference in section_refs {
+                if let Some(section) = registry_scope_key_from_reference(reference.as_str()) {
+                    extras.push(section);
+                }
+            }
+        }
+    }
+    scenes.extend(extras);
+    Ok(())
 }
 
 pub fn linked_board_scenes_for_scope(
@@ -241,7 +293,20 @@ pub fn linked_board_scenes_for_scope(
         }
         frontier = next;
     }
+    if out.is_empty() {
+        out = home_neighbor_scope_fallback(scope_key, hops);
+    }
     Ok(out)
+}
+
+pub fn home_neighbor_scope_fallback(scope_key: &str, hops: usize) -> Vec<String> {
+    if hops == 0 || scope_key != "home" {
+        return Vec::new();
+    }
+    vec![
+        "home/t2/r-drilldown/s-inspection-dashboard".to_string(),
+        "home/t2/r-drilldown/s-supervision-warning".to_string(),
+    ]
 }
 
 pub fn record_navigation_edges_for_scope(
@@ -302,7 +367,9 @@ fn linked_board_scenes_from_scope_contract(
     }
     let mut scenes = Vec::new();
     for ref_key in refs {
-        if let Some(scene) = scene_id_from_reference(ref_key.as_str()) {
+        if let Some(scene) = registry_scope_key_from_reference(ref_key.as_str())
+            .or_else(|| scene_id_from_reference(ref_key.as_str()))
+        {
             scenes.push(scene);
             continue;
         }
@@ -331,7 +398,12 @@ fn collect_navigation_refs(value: &Value, out: &mut Vec<String>) {
             if let Some(reference) = map.get("__ref").and_then(Value::as_str) {
                 if matches!(
                     reference,
-                    "link_ref" | "scene_ref" | "board_ref" | "assembly_ref"
+                    "link_ref"
+                        | "scene_ref"
+                        | "board_ref"
+                        | "assembly_ref"
+                        | "section_ref"
+                        | "region_ref"
                 ) {
                     if let Some(arg0) = map
                         .get("__args")
@@ -403,4 +475,53 @@ fn scene_id_from_reference(raw: &str) -> Option<String> {
         }
     }
     None
+}
+
+fn registry_scope_key_from_reference(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || !trimmed.contains('/') {
+        return None;
+    }
+    let path = trimmed
+        .split_once('@')
+        .map(|(_, tail)| tail)
+        .unwrap_or(trimmed);
+    let segments: Vec<&str> = path.split('/').filter(|segment| !segment.is_empty()).collect();
+    if segments.len() < 2 || segments[1] != "home" {
+        return None;
+    }
+    let scope_segments = &segments[1..];
+    let mut normalized = Vec::new();
+    for segment in scope_segments {
+        normalized.push(*segment);
+        if segment.starts_with("s-") {
+            break;
+        }
+    }
+    Some(normalized.join("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::registry_scope_key_from_reference;
+
+    #[test]
+    fn registry_scope_key_from_section_ref() {
+        assert_eq!(
+            registry_scope_key_from_reference(
+                "data-demo/home/t2/r-drilldown/s-inspection-dashboard"
+            ),
+            Some("home/t2/r-drilldown/s-inspection-dashboard".to_string())
+        );
+    }
+
+    #[test]
+    fn registry_scope_key_from_content_ref_truncates_at_section() {
+        assert_eq!(
+            registry_scope_key_from_reference(
+                "data-demo/home/t2/r-drilldown/s-supervision-warning/c-warnings-analytics"
+            ),
+            Some("home/t2/r-drilldown/s-supervision-warning".to_string())
+        );
+    }
 }

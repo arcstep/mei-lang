@@ -272,7 +272,7 @@ pub struct ClientBootstrapConfig {
 }
 
 fn default_client_bootstrap_max_metrics() -> usize {
-    32
+    256
 }
 
 fn default_client_bootstrap_max_neighbor_scopes() -> usize {

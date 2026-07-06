@@ -233,6 +233,22 @@
       return;
     }
     if (!warmOnly) {
+      const accessLike =
+        !(typeof boot.isWorkspaceComposeSurface === "function" &&
+          boot.isWorkspaceComposeSurface(surface));
+      if (accessLike && typeof boot.ensureBootstrapSeeded === "function") {
+        try {
+          await boot.ensureBootstrapSeeded(
+            {
+              appId: ctx.appId || ctx.app_id || "",
+              sceneId: ctx.sceneId || ctx.scene_id || "home",
+            },
+            {},
+          );
+        } catch (error) {
+          console.warn("[spa-navigation] ensureBootstrapSeeded skipped", error);
+        }
+      }
       await ensureThinShellSceneRuntime();
       markSurfaceRuntimeWarmed(ctx);
     }

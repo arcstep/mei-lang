@@ -274,14 +274,7 @@ fn materialize_runtime_plans(
 }
 
 fn bootstrap_eval_seed(ctx: &MaterializeContext<'_>) -> Value {
-    mei_host_graph::read_client_bootstrap(ctx.workspace_root, ctx.app_id, ctx.scene_id)
-        .map(|manifest| {
-            json!({
-                "client_revision": manifest.client_revision,
-                "workset_id": manifest.workset_id,
-                "metric_count": manifest.metrics.len(),
-            })
-        })
+    mei_host_graph::client_bootstrap_eval_seed_json(ctx.workspace_root, ctx.app_id, ctx.scene_id)
         .unwrap_or(Value::Null)
 }
 

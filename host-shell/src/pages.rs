@@ -1105,6 +1105,7 @@ pub async fn api_scene_revision(
 pub struct SceneBootstrapQuery {
     pub app: String,
     pub scene: Option<String>,
+    pub fingerprint: Option<String>,
 }
 
 pub async fn api_scene_bootstrap(
@@ -1177,7 +1178,21 @@ pub async fn api_scene_bootstrap(
         scene_id.as_str(),
         &payload,
     );
-    Json(payload).into_response()
+    let mut response = Json(payload).into_response();
+    if let Some(fingerprint) = query
+        .fingerprint
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Ok(value) = axum::http::HeaderValue::from_str(fingerprint) {
+            response.headers_mut().insert(
+                axum::http::HeaderName::from_static("x-mei-eval-fingerprint"),
+                value,
+            );
+        }
+    }
+    response
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -1714,6 +1729,9 @@ pub(crate) fn render_thin_view_shell(
         "",
         chrome_host,
     );
+    if route_mode.is_access_like() {
+        html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
+    }
     if let Some(outcome) = assemble_outcome.as_ref() {
         let data_mode = compose
             .data_mode
@@ -1860,6 +1878,9 @@ pub(crate) fn render_thin_scene_shell(
         draft_digest,
         chrome_host,
     );
+    if route_mode.is_access_like() {
+        html = inject_client_bootstrap_script(html, workspace_root, app_id, scene_id);
+    }
     if let Some(outcome) = assemble_outcome.as_ref() {
         let data_mode = compose
             .data_mode

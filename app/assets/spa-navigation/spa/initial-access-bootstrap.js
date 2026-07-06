@@ -62,11 +62,24 @@
         String(composeRoot.getAttribute("data-review-projection") || "").trim() ||
         manifest?.compose_defaults?.review_projection ||
         "live_full";
-      const composed = boot.viewCompositor.composeFromLayers(composeRoot, layers, {
-        review_projection: projection,
-        route_mode: surface,
-      });
-      if (!composed && typeof boot.showThinShellFallback === "function") {
+        const composed = boot.viewCompositor.composeFromLayers(composeRoot, layers, {
+          review_projection: projection,
+          route_mode: surface,
+        });
+        if (composed && typeof boot.ensureBootstrapSeeded === "function") {
+          try {
+            await boot.ensureBootstrapSeeded(
+              {
+                appId,
+                sceneId,
+              },
+              {},
+            );
+          } catch (error) {
+            console.warn("[spa-navigation] thin shell bootstrap seed skipped", error);
+          }
+        }
+        if (!composed && typeof boot.showThinShellFallback === "function") {
         boot.showThinShellFallback("场景结构层组装失败，请检查 view-revision / layer-batch。");
       }
       return composed;

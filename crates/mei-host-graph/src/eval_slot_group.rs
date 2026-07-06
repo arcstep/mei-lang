@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::Result;
-use mei_lang_kernel::{CompiledApp, DataMode};
+use mei_lang_kernel::{CompiledApp, DataMode, MetricShape};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -25,6 +25,8 @@ pub struct EvalSlotGroupDocument {
     pub slot_group_id: String,
     pub data_mode: String,
     pub slots: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootstrap_seed: Option<Value>,
 }
 
 pub fn collect_slot_groups(structure: &crate::view_artifact::StructureFullDocument) -> Vec<String> {
@@ -48,7 +50,29 @@ fn material_state_slug(state: &MaterialState) -> &'static str {
     }
 }
 
-fn slot_mount_json(slot: &crate::mrg::registry::MrgSlotRecord, data_mode: &str) -> Value {
+fn delivery_class_for_metric(
+    manifest: Option<&crate::mrg::client_bootstrap::ClientBootstrapManifest>,
+    metric_id: &str,
+) -> String {
+    manifest
+        .and_then(|doc| {
+            doc.metrics
+                .iter()
+                .find(|metric| metric.id == metric_id)
+                .map(|metric| match metric.contract.shape {
+                    MetricShape::Dataframe => "dataframe_page1".to_string(),
+                    MetricShape::Scalar => "metric_scalar".to_string(),
+                    _ => "metric_scalar".to_string(),
+                })
+        })
+        .unwrap_or_else(|| "metric_scalar".to_string())
+}
+
+fn slot_mount_json(
+    slot: &crate::mrg::registry::MrgSlotRecord,
+    data_mode: &str,
+    manifest: Option<&crate::mrg::client_bootstrap::ClientBootstrapManifest>,
+) -> Value {
     let metric_id = slot
         .slot_id
         .node
@@ -65,6 +89,7 @@ fn slot_mount_json(slot: &crate::mrg::registry::MrgSlotRecord, data_mode: &str) 
         "state": material_state_slug(&slot.state),
         "data_mode": data_mode,
         "client_eligible": slot.client_eligible,
+        "delivery_class": delivery_class_for_metric(manifest, metric_id.as_str()),
     })
 }
 
@@ -77,12 +102,14 @@ fn scene_mounts(
     let Some(workspace_root) = workspace_root else {
         return Vec::new();
     };
+    let manifest =
+        crate::mrg::client_bootstrap::read_client_bootstrap(workspace_root, app_id, scene_id);
     let registry = MrgRegistryWriter::load(workspace_root, app_id);
     registry
         .slots
         .iter()
         .filter(|slot| slot.slot_id.scope_key == scene_id)
-        .map(|slot| slot_mount_json(slot, data_mode))
+        .map(|slot| slot_mount_json(slot, data_mode, manifest.as_ref()))
         .collect()
 }
 
@@ -143,6 +170,17 @@ pub fn build_eval_slot_group_document(
         slot_group_id: slot_group_id.to_string(),
         data_mode: mode_slug.to_string(),
         slots,
+        bootstrap_seed: if slot_group_id == "scene:default" {
+            workspace_root.and_then(|root| {
+                crate::mrg::client_bootstrap::client_bootstrap_eval_seed_json(
+                    root,
+                    compiled.app_id.as_str(),
+                    scene_id.as_str(),
+                )
+            })
+        } else {
+            None
+        },
     }
 }
 

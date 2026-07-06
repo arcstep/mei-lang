@@ -531,6 +531,21 @@ pub fn read_client_bootstrap(
     serde_json::from_str(&raw).ok()
 }
 
+pub fn client_bootstrap_eval_seed_json(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Option<serde_json::Value> {
+    read_client_bootstrap(workspace_root, app_id, scene_id).map(|manifest| {
+        serde_json::json!({
+            "client_revision": manifest.client_revision,
+            "workset_id": manifest.workset_id,
+            "scope": manifest.scope,
+            "metrics": manifest.metrics,
+        })
+    })
+}
+
 fn content_hashes_for_manifest_metrics(
     registry: &MrgRegistry,
     manifest: &ClientBootstrapManifest,
@@ -616,6 +631,26 @@ fn resolve_target_file_for_scope(workspace_root: &Path, app_id: &str, scope: &st
         );
     }
     format!("src/scene/{scope}/assembly.mei")
+}
+
+pub fn delivery_class_counts_for_scope(
+    workspace: &Path,
+    app_id: &str,
+    scope: &str,
+) -> BTreeMap<String, usize> {
+    let Some(manifest) = read_client_bootstrap(workspace, app_id, scope) else {
+        return BTreeMap::new();
+    };
+    let mut counts = BTreeMap::new();
+    for metric in manifest.metrics {
+        let class = match metric.contract.shape {
+            mei_lang_kernel::MetricShape::Dataframe => "dataframe_page1",
+            mei_lang_kernel::MetricShape::Scalar => "metric_scalar",
+            _ => "metric_scalar",
+        };
+        *counts.entry(class.to_string()).or_insert(0) += 1;
+    }
+    counts
 }
 
 #[cfg(test)]
