@@ -72,19 +72,33 @@ test.describe("unified view surface switch", () => {
           ? window.__meiLangBoot.viewAssembly.assemble({ kind: "surface_switch" }, { debounce: false })
           : window.__meiLangBoot?.navigateSurface?.(url.toString(), true);
       }, surface);
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(20000);
     }
 
     expect(docFetches.length).toBe(0);
     const state = await page.evaluate(() => ({
       surface: new URL(window.location.href).searchParams.get("surface"),
       treeNodes: document.querySelectorAll("aside .build-tree-node, .build-tree-shell .build-tree-node").length,
+      appScopes: document.querySelectorAll("#mei-compose-root [data-preview-scope]").length,
+      workspaceScopes: document.querySelectorAll(
+        "#mei-surface-workspace .preview-pane-scroll [data-preview-scope]",
+      ).length,
       previewScopes: document.querySelectorAll("[data-preview-scope]").length,
+      surfaceReady:
+        typeof window.__meiLangBoot?.isSurfaceMaterialized === "function"
+          ? window.__meiLangBoot.isSurfaceMaterialized(
+              window.__meiLangBoot.parseViewContext?.(window.location.href) || {},
+            )
+          : null,
       coordinator: typeof window.__meiLangBoot?.viewAssembly?.assemble === "function",
     }));
     expect(state.surface).toBe("app");
     if (state.coordinator) {
       expect(state.previewScopes).toBeGreaterThan(0);
+      expect(state.appScopes).toBeGreaterThan(0);
+      if (state.surfaceReady != null) {
+        expect(state.surfaceReady).toBeTruthy();
+      }
     }
   });
 

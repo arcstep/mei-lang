@@ -241,24 +241,85 @@
     return "";
   }
 
+  function defaultReviewProjectionForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "layout") return "plane_region_section";
+    if (slug === "prototype") return "static_full";
+    return "live_full";
+  }
+
+  function defaultDataModeForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "layout" || slug === "prototype") return "static";
+    return "eval";
+  }
+
   function composeDefaultsForSurface(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
     const surface = String(resolved.surface || resolved.mode || "app").trim().toLowerCase();
     const defaultTab =
       boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
       (surface === "layout" || surface === "prototype" ? "preview" : "scene");
+    const reviewFromCtx = String(
+      resolved.review_projection || resolved.reviewProjection || "",
+    ).trim();
+    const dataFromCtx = String(resolved.data_mode || resolved.dataMode || "").trim();
     return {
       route_mode: surface,
       tab: String(resolved.tab || "").trim() || defaultTab,
       chrome: resolved.chrome || "",
-      review_projection: resolved.review_projection || resolved.reviewProjection || "",
-      data_mode: resolved.data_mode || resolved.dataMode || "",
+      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
+      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
       focus: resolved.focus || "",
       scope: resolved.scope || "",
     };
   }
 
-  const SHARED_MANIFEST_LAYER_NAMES = new Set(["structure.full", "eval", "theme", "overlay"]);
+  const SHARED_MANIFEST_LAYER_NAMES = new Set([
+    "structure.full",
+    "eval",
+    "theme",
+    "overlay",
+    "runtime.plans",
+  ]);
+
+  function mergeSemanticManifestLayers(prev, manifest) {
+    const prevLayers = prev?.layers || {};
+    const manifestLayers = manifest?.layers || {};
+    const merged = { ...prevLayers };
+    for (const name of SHARED_MANIFEST_LAYER_NAMES) {
+      if (manifestLayers[name]) merged[name] = manifestLayers[name];
+    }
+    return merged;
+  }
+
+  function replaceSurfaceManifestSlice(manifest, ctx) {
+    const surface = String(ctx?.surface || ctx?.mode || "app").trim().toLowerCase();
+    const compose =
+      typeof boot.viewRevisionClient?.buildComposeRequest === "function"
+        ? boot.viewRevisionClient.buildComposeRequest(ctx)
+        : composeDefaultsForSurface(ctx);
+    const layers = {};
+    const shellKey = `shell.${surface}`;
+    const shellLayer = manifest?.layers?.[shellKey];
+    if (shellLayer) layers[shellKey] = shellLayer;
+    return { layers, compose_defaults: compose };
+  }
+
+  function applySceneManifestRefs(manifest, ctx) {
+    if (!manifest || typeof manifest !== "object") return;
+    globalThis.__mei = globalThis.__mei || {};
+    const prev = globalThis.__mei.scene_manifest_refs || {};
+    const semanticLayers = mergeSemanticManifestLayers(prev, manifest);
+    const surfaceSlice = replaceSurfaceManifestSlice(manifest, ctx);
+    globalThis.__mei.scene_manifest_refs = {
+      ...prev,
+      ...manifest,
+      layers: { ...semanticLayers, ...surfaceSlice.layers },
+      compose_defaults: surfaceSlice.compose_defaults,
+    };
+    delete globalThis.__mei.scene_manifest_refs_stale;
+  }
 
   function pickSharedManifestLayers(layers) {
     const picked = {};
@@ -370,6 +431,10 @@
   boot.readClientDigests = readClientDigests;
   boot.readSharedManifestDigest = readSharedManifestDigest;
   boot.readSharedManifestSnapshot = readSharedManifestSnapshot;
+  boot.composeDefaultsForSurface = composeDefaultsForSurface;
+  boot.mergeSemanticManifestLayers = mergeSemanticManifestLayers;
+  boot.replaceSurfaceManifestSlice = replaceSurfaceManifestSlice;
+  boot.applySceneManifestRefs = applySceneManifestRefs;
   boot.pruneRevisionStore = pruneRevisionStore;
   boot.ViewRevisionOutcome = ViewRevisionOutcome;
   boot.holdingsFromLayerCache = holdingsFromLayerCache;

@@ -24,6 +24,7 @@
   }
 
   let workspacePreviewSnapshot = "";
+  let appPreviewSnapshot = "";
 
   function workspacePreviewRoot() {
     return global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
@@ -57,6 +58,38 @@
     return true;
   }
 
+  function appPreviewRoot() {
+    return global.document?.getElementById?.("mei-compose-root");
+  }
+
+  function stashAppPreviewSnapshot() {
+    const el = appPreviewRoot();
+    if (!(el instanceof HTMLElement)) return;
+    if (
+      el.querySelector(
+        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, [data-mei-compose-materialized]",
+      )
+    ) {
+      appPreviewSnapshot = el.innerHTML;
+    }
+  }
+
+  function restoreAppPreviewSnapshot() {
+    const el = appPreviewRoot();
+    if (!(el instanceof HTMLElement)) return false;
+    if (
+      el.querySelector(
+        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, [data-mei-compose-materialized]",
+      )
+    ) {
+      return true;
+    }
+    if (!appPreviewSnapshot) return false;
+    el.innerHTML = appPreviewSnapshot;
+    el.removeAttribute("data-mei-compose-materialized");
+    return true;
+  }
+
   function switchSurfacePanel(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
     const previousSlug = String(
@@ -68,6 +101,9 @@
       .toLowerCase();
     if (isWorkspaceSurface(previousSlug) && !isWorkspaceSurface(slug)) {
       stashWorkspacePreviewSnapshot();
+    }
+    if (previousSlug === "app" && slug !== "app") {
+      stashAppPreviewSnapshot();
     }
     const appPanel = global.document?.getElementById?.("mei-surface-app");
     const workspacePanel = global.document?.getElementById?.("mei-surface-workspace");
@@ -103,6 +139,8 @@
       if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
         globalThis.MeiBuildTreePersist.refresh();
       }
+    } else if (slug === "app") {
+      restoreAppPreviewSnapshot();
     }
   }
 
@@ -284,6 +322,8 @@
   boot.switchSurfacePanel = switchSurfacePanel;
   boot.stashWorkspacePreviewSnapshot = stashWorkspacePreviewSnapshot;
   boot.restoreWorkspacePreviewSnapshot = restoreWorkspacePreviewSnapshot;
+  boot.stashAppPreviewSnapshot = stashAppPreviewSnapshot;
+  boot.restoreAppPreviewSnapshot = restoreAppPreviewSnapshot;
   boot.syncTopbarActiveState = syncTopbarActiveState;
   boot.navigateSurface = navigateSurface;
 

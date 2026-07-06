@@ -25759,24 +25759,85 @@
     return "";
   }
 
+  function defaultReviewProjectionForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "layout") return "plane_region_section";
+    if (slug === "prototype") return "static_full";
+    return "live_full";
+  }
+
+  function defaultDataModeForSurface(surface) {
+    const slug = String(surface || "app").trim().toLowerCase();
+    if (slug === "layout" || slug === "prototype") return "static";
+    return "eval";
+  }
+
   function composeDefaultsForSurface(ctx) {
     const resolved = resolveComposeKeyCtx(ctx);
     const surface = String(resolved.surface || resolved.mode || "app").trim().toLowerCase();
     const defaultTab =
       boot.sceneManifestLoader?.defaultTabForSurface?.(surface) ||
       (surface === "layout" || surface === "prototype" ? "preview" : "scene");
+    const reviewFromCtx = String(
+      resolved.review_projection || resolved.reviewProjection || "",
+    ).trim();
+    const dataFromCtx = String(resolved.data_mode || resolved.dataMode || "").trim();
     return {
       route_mode: surface,
       tab: String(resolved.tab || "").trim() || defaultTab,
       chrome: resolved.chrome || "",
-      review_projection: resolved.review_projection || resolved.reviewProjection || "",
-      data_mode: resolved.data_mode || resolved.dataMode || "",
+      review_projection: reviewFromCtx || defaultReviewProjectionForSurface(surface),
+      data_mode: dataFromCtx || defaultDataModeForSurface(surface),
       focus: resolved.focus || "",
       scope: resolved.scope || "",
     };
   }
 
-  const SHARED_MANIFEST_LAYER_NAMES = new Set(["structure.full", "eval", "theme", "overlay"]);
+  const SHARED_MANIFEST_LAYER_NAMES = new Set([
+    "structure.full",
+    "eval",
+    "theme",
+    "overlay",
+    "runtime.plans",
+  ]);
+
+  function mergeSemanticManifestLayers(prev, manifest) {
+    const prevLayers = prev?.layers || {};
+    const manifestLayers = manifest?.layers || {};
+    const merged = { ...prevLayers };
+    for (const name of SHARED_MANIFEST_LAYER_NAMES) {
+      if (manifestLayers[name]) merged[name] = manifestLayers[name];
+    }
+    return merged;
+  }
+
+  function replaceSurfaceManifestSlice(manifest, ctx) {
+    const surface = String(ctx?.surface || ctx?.mode || "app").trim().toLowerCase();
+    const compose =
+      typeof boot.viewRevisionClient?.buildComposeRequest === "function"
+        ? boot.viewRevisionClient.buildComposeRequest(ctx)
+        : composeDefaultsForSurface(ctx);
+    const layers = {};
+    const shellKey = `shell.${surface}`;
+    const shellLayer = manifest?.layers?.[shellKey];
+    if (shellLayer) layers[shellKey] = shellLayer;
+    return { layers, compose_defaults: compose };
+  }
+
+  function applySceneManifestRefs(manifest, ctx) {
+    if (!manifest || typeof manifest !== "object") return;
+    globalThis.__mei = globalThis.__mei || {};
+    const prev = globalThis.__mei.scene_manifest_refs || {};
+    const semanticLayers = mergeSemanticManifestLayers(prev, manifest);
+    const surfaceSlice = replaceSurfaceManifestSlice(manifest, ctx);
+    globalThis.__mei.scene_manifest_refs = {
+      ...prev,
+      ...manifest,
+      layers: { ...semanticLayers, ...surfaceSlice.layers },
+      compose_defaults: surfaceSlice.compose_defaults,
+    };
+    delete globalThis.__mei.scene_manifest_refs_stale;
+  }
 
   function pickSharedManifestLayers(layers) {
     const picked = {};
@@ -25888,6 +25949,10 @@
   boot.readClientDigests = readClientDigests;
   boot.readSharedManifestDigest = readSharedManifestDigest;
   boot.readSharedManifestSnapshot = readSharedManifestSnapshot;
+  boot.composeDefaultsForSurface = composeDefaultsForSurface;
+  boot.mergeSemanticManifestLayers = mergeSemanticManifestLayers;
+  boot.replaceSurfaceManifestSlice = replaceSurfaceManifestSlice;
+  boot.applySceneManifestRefs = applySceneManifestRefs;
   boot.pruneRevisionStore = pruneRevisionStore;
   boot.ViewRevisionOutcome = ViewRevisionOutcome;
   boot.holdingsFromLayerCache = holdingsFromLayerCache;
@@ -26038,6 +26103,155 @@
   boot.canonicalizeViewUrl = canonicalizeViewUrl;
   boot.isWorkspaceComposeSurface = isWorkspaceComposeSurface;
   boot.resolveComposeRoot = resolveComposeRoot;
+})(typeof window !== "undefined" ? window : globalThis);
+
+
+/* ===== spa-navigation/spa/surface-ready.js ===== */
+/**
+ * Surface readiness gate: observable parity with F5 cold-start for a given surface URL.
+ */
+(function initSurfaceReady(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const doc = global.document;
+
+  function surfaceSlug(ctx) {
+    return String(ctx?.surface || ctx?.mode || "app").trim().toLowerCase();
+  }
+
+  function buildComposeAxes(ctx) {
+    if (typeof boot.viewRevisionClient?.buildComposeRequest === "function") {
+      return boot.viewRevisionClient.buildComposeRequest(ctx);
+    }
+    if (typeof boot.composeDefaultsForSurface === "function") {
+      return boot.composeDefaultsForSurface(ctx);
+    }
+    return { route_mode: surfaceSlug(ctx), review_projection: "live_full" };
+  }
+
+  function bodySurfaceMatches(ctx) {
+    const expected = surfaceSlug(ctx);
+    const body = doc?.body;
+    if (!(body instanceof HTMLElement)) return false;
+    const actual = String(
+      body.getAttribute("data-surface") || body.getAttribute("data-mei-view") || "",
+    )
+      .trim()
+      .toLowerCase();
+    return actual === expected;
+  }
+
+  function manifestRouteModeMatches(ctx) {
+    const expected = surfaceSlug(ctx);
+    const routeMode = String(
+      globalThis.__mei?.scene_manifest_refs?.compose_defaults?.route_mode || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (!routeMode || routeMode === expected) return true;
+    if (!bodySurfaceMatches(ctx)) return false;
+    const root =
+      typeof boot.resolveComposeRoot === "function" ? boot.resolveComposeRoot(expected) : null;
+    const markers =
+      expected === "app" ? countAppPreviewMarkers(root) : countWorkspacePreviewMarkers(root);
+    return markers > 0;
+  }
+
+  function countAppPreviewMarkers(root) {
+    if (!(root instanceof HTMLElement)) return 0;
+    return root.querySelectorAll(
+      "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, [data-mei-compose-materialized]",
+    ).length;
+  }
+
+  function countWorkspacePreviewMarkers(root) {
+    if (!(root instanceof HTMLElement)) return 0;
+    return root.querySelectorAll(
+      "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, .preview-board-mounted",
+    ).length;
+  }
+
+  function workspaceTreeNodeCount() {
+    return (
+      doc?.querySelectorAll?.("aside .build-tree-node, .build-tree-shell .build-tree-node")
+        ?.length || 0
+    );
+  }
+
+  function projectionMatches(ctx, root) {
+    if (!(root instanceof HTMLElement)) return false;
+    const expected = String(buildComposeAxes(ctx).review_projection || "").trim();
+    const actual = String(root.getAttribute("data-compose-projection") || "").trim();
+    if (!expected) return true;
+    if (!actual) return countWorkspacePreviewMarkers(root) > 0;
+    return actual === expected;
+  }
+
+  function isSurfaceMaterialized(ctx, options) {
+    const opts = options || {};
+    const surface = surfaceSlug(ctx);
+    if (!bodySurfaceMatches(ctx)) return false;
+    if (!manifestRouteModeMatches(ctx)) return false;
+    const chromeReady =
+      typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true;
+    if (!chromeReady) return false;
+
+    if (surface === "app") {
+      const root =
+        typeof boot.resolveComposeRoot === "function"
+          ? boot.resolveComposeRoot(surface)
+          : doc?.getElementById?.("mei-compose-root");
+      const markers = countAppPreviewMarkers(root);
+      const materialized =
+        typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
+      return markers > 0 || materialized;
+    }
+
+    if (
+      typeof boot.isWorkspaceComposeSurface === "function" &&
+      boot.isWorkspaceComposeSurface(surface)
+    ) {
+      const root =
+        typeof boot.resolveComposeRoot === "function"
+          ? boot.resolveComposeRoot(surface)
+          : doc?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
+      const markers = countWorkspacePreviewMarkers(root);
+      if (markers === 0) return false;
+      if (!projectionMatches(ctx, root)) return false;
+      if (!opts.relaxTree && workspaceTreeNodeCount() === 0) return false;
+      return true;
+    }
+
+    return false;
+  }
+
+  function surfaceSnapshot(ctx) {
+    const surface = surfaceSlug(ctx);
+    const root =
+      typeof boot.resolveComposeRoot === "function" ? boot.resolveComposeRoot(surface) : null;
+    const axes = buildComposeAxes(ctx);
+    return {
+      surface,
+      bodySurface: doc?.body?.getAttribute("data-surface") || "",
+      routeMode: globalThis.__mei?.scene_manifest_refs?.compose_defaults?.route_mode || "",
+      projection: root instanceof HTMLElement ? root.getAttribute("data-compose-projection") : "",
+      expectedProjection: axes.review_projection || "",
+      previewMarkers:
+        surface === "app" ? countAppPreviewMarkers(root) : countWorkspacePreviewMarkers(root),
+      treeNodes: workspaceTreeNodeCount(),
+      chromeReady:
+        typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : null,
+      ready:
+        typeof boot.isSurfaceMaterialized === "function"
+          ? boot.isSurfaceMaterialized(ctx, { relaxTree: true })
+          : null,
+    };
+  }
+
+  boot.isSurfaceMaterialized = isSurfaceMaterialized;
+  boot.surfaceSnapshot = surfaceSnapshot;
+  global.surfaceSnapshot = surfaceSnapshot;
 })(typeof window !== "undefined" ? window : globalThis);
 
 
@@ -26492,24 +26706,45 @@
     }
   }
 
-  function updateSceneManifestRefs(manifest, surface) {
-    if (!manifest?.layers) return;
+  function syncManifestRefs(manifest, ctx) {
+    if (!manifest) return;
+    if (typeof boot.applySceneManifestRefs === "function") {
+      boot.applySceneManifestRefs(manifest, ctx);
+      return;
+    }
+    if (!manifest.layers) return;
     globalThis.__mei = globalThis.__mei || {};
     const prev = globalThis.__mei.scene_manifest_refs || {};
     globalThis.__mei.scene_manifest_refs = {
       ...prev,
       ...manifest,
       layers: { ...(prev.layers || {}), ...manifest.layers },
-      compose_defaults: {
-        ...(prev.compose_defaults || {}),
-        ...(manifest.compose_defaults || {}),
-        route_mode:
-          surface ||
-          manifest.compose_defaults?.route_mode ||
-          prev.compose_defaults?.route_mode,
-      },
     };
     delete globalThis.__mei.scene_manifest_refs_stale;
+  }
+
+  function needsSurfaceReadyGate(kind) {
+    return kind === "surface_switch" || kind === "spa_nav" || kind === "cold_start";
+  }
+
+  async function waitForSurfaceMaterialized(ctx, generation, signal) {
+    if (typeof boot.isSurfaceMaterialized !== "function") return true;
+    let ready = boot.isSurfaceMaterialized(ctx);
+    const surface = ctx.surface || ctx.mode || "app";
+    const isWorkspace =
+      typeof boot.isWorkspaceComposeSurface === "function" &&
+      boot.isWorkspaceComposeSurface(surface);
+    if (!ready && isWorkspace) {
+      const deadline = performance.now() + 3000;
+      while (!ready && performance.now() < deadline && !isStale(generation, signal)) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        ready = boot.isSurfaceMaterialized(ctx);
+      }
+    }
+    if (!ready && isWorkspace) {
+      ready = boot.isSurfaceMaterialized(ctx, { relaxTree: true });
+    }
+    return ready;
   }
 
   async function phasePanel(ctx, generation) {
@@ -26583,13 +26818,14 @@
         if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
           boot.applyHostChromeFromManifestRefs();
         }
-        const chromeReady =
-          typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true;
-        const ssrShellOk =
-          typeof boot.isSsrShellPlaceholder === "function"
-            ? !boot.isSsrShellPlaceholder(ctx)
-            : true;
-        if (chromeReady && ssrShellOk) {
+        const surfaceReady =
+          typeof boot.isSurfaceMaterialized === "function"
+            ? boot.isSurfaceMaterialized(ctx)
+            : (typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true) &&
+              (typeof boot.isSsrShellPlaceholder === "function"
+                ? !boot.isSsrShellPlaceholder(ctx)
+                : true);
+        if (surfaceReady) {
           tracePhase("preview", generation, { ok: true, source: outcome.source });
           return {
             outcome,
@@ -26613,8 +26849,8 @@
         result.response?.manifest ||
         result.plan?.manifest ||
         result.response?.assembly_plan?.manifest;
-      if (manifest) {
-        updateSceneManifestRefs(manifest, ctx.surface || ctx.mode);
+      if (manifest || opts.kind === "surface_switch" || opts.kind === "spa_nav") {
+        syncManifestRefs(manifest || { layers: result.assemble.layers }, ctx);
       }
     }
     if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
@@ -26624,30 +26860,66 @@
     return result;
   }
 
+  async function retryPreviewForSurfaceReady(ctx, generation, options, signal) {
+    if (!boot.negotiateAndAssemble) return null;
+    return boot.negotiateAndAssemble(
+      { ...ctx, url: ctx.url || global.location.href },
+      {
+        silent: true,
+        surfaceSwitch: options?.kind === "surface_switch",
+        forceRematerialize: true,
+        omit_digests: true,
+        skipComplete: true,
+        signal,
+        generation,
+      },
+    );
+  }
+
+  async function phaseVerify(ctx, generation, options, signal) {
+    if (isStale(generation, signal)) return { ok: false };
+    const kind = options?.kind || "";
+    if (!needsSurfaceReadyGate(kind)) {
+      tracePhase("verify", generation, { skipped: true });
+      return { ok: true };
+    }
+    const ready = await waitForSurfaceMaterialized(ctx, generation, signal);
+    tracePhase("verify", generation, { ready });
+    return { ok: ready };
+  }
+
   async function phaseRuntime(ctx, generation, previewResult, options, signal) {
     if (isStale(generation, signal)) return;
     const opts = options || {};
     const layers = previewResult?.assemble?.layers || previewResult?.layers;
-    const cachedOnly = Boolean(previewResult?.response?.cached_only);
-    const assembleLocal =
-      previewResult?.outcome === (boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local");
-    const warmOnly =
-      opts.kind !== "surface_switch" &&
-      opts.kind !== "spa_nav" &&
-      (cachedOnly || assembleLocal);
-    if (typeof boot.completeMaterializedSurface === "function") {
+    const forceWake = opts.kind === "surface_switch" || opts.kind === "spa_nav";
+    if (typeof boot.ensureSurfaceRuntime === "function") {
+      await boot.ensureSurfaceRuntime(ctx, {
+        force: forceWake,
+        layers,
+        forceRuntimeWake: forceWake,
+        warmOnly: !forceWake && (opts.warmOnly === true),
+      });
+    } else if (typeof boot.completeMaterializedSurface === "function") {
+      const cachedOnly = Boolean(previewResult?.response?.cached_only);
+      const assembleLocal =
+        previewResult?.outcome === (boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local");
+      const warmOnly =
+        opts.kind !== "surface_switch" &&
+        opts.kind !== "spa_nav" &&
+        (cachedOnly || assembleLocal);
       await boot.completeMaterializedSurface(ctx, {
         layers,
         ssrPreview: previewResult?.assemble?.source === "ssr_preview",
         warmOnly: warmOnly && !opts.forceRuntimeWake,
-        forceRuntimeWake: opts.kind === "surface_switch" || opts.kind === "spa_nav",
+        forceRuntimeWake: forceWake,
         skipTree: true,
         generation,
         signal,
       });
     } else if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
       await boot.wakeRevisionFirstShellRuntime(ctx, {
-        forceRuntimeWake: opts.kind === "surface_switch",
+        forceRuntimeWake: forceWake,
       });
     }
     tracePhase("runtime", generation);
@@ -26672,9 +26944,57 @@
     await phasePanel(ctx, generation);
     await phaseStructureTree(ctx, generation, null, signal);
 
-    const previewResult = await phasePreview(ctx, generation, opts, signal);
-    const layers = previewResult?.assemble?.layers || previewResult?.layers;
+    let previewResult = await phasePreview(ctx, generation, opts, signal);
+    let layers = previewResult?.assemble?.layers || previewResult?.layers;
+
+    if (
+      needsSurfaceReadyGate(opts.kind) &&
+      previewResult?.assemble?.ok === true &&
+      typeof boot.isSurfaceMaterialized === "function" &&
+      !boot.isSurfaceMaterialized(ctx) &&
+      !opts._surfaceReadyRetried
+    ) {
+      const retry = await retryPreviewForSurfaceReady(ctx, generation, opts, signal);
+      if (retry?.assemble?.layers) {
+        notifyLayerResident("structure.full", retry.assemble.layers, generation);
+        const manifest =
+          retry.response?.manifest || retry.plan?.manifest || retry.response?.assembly_plan?.manifest;
+        if (manifest || opts.kind === "surface_switch" || opts.kind === "spa_nav") {
+          syncManifestRefs(manifest || { layers: retry.assemble.layers }, ctx);
+        }
+        previewResult = retry;
+        layers = retry.assemble.layers;
+      } else if (retry) {
+        previewResult = {
+          ...previewResult,
+          assemble: { ...(previewResult?.assemble || {}), ok: false, reason: "surface_not_materialized" },
+        };
+      }
+    }
+
     await phaseStructureTree(ctx, generation, layers, signal);
+
+    const verify = await phaseVerify(ctx, generation, opts, signal);
+    if (previewResult?.assemble?.ok === true && !verify.ok) {
+      const surface = ctx.surface || ctx.mode || "app";
+      const root =
+        typeof boot.resolveComposeRoot === "function" ? boot.resolveComposeRoot(surface) : null;
+      const hasPreview =
+        typeof boot.isSurfaceMaterialized === "function"
+          ? boot.isSurfaceMaterialized(ctx, { relaxTree: true })
+          : false;
+      if (!hasPreview) {
+        previewResult = {
+          ...previewResult,
+          assemble: {
+            ...(previewResult.assemble || {}),
+            ok: false,
+            reason: "surface_not_materialized",
+          },
+        };
+      }
+    }
+
     await phaseChrome(ctx, generation);
 
     if (previewResult?.assemble?.ok !== true) {
@@ -27377,10 +27697,16 @@
       shell &&
       boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(shell) === true;
     const forceRematerialize = options.forceRematerialize === true;
+    const surfaceSwitch = options.surfaceSwitch === true || forceRematerialize;
+    const blockSsrShortcut =
+      surfaceSwitch &&
+      typeof boot.isSurfaceMaterialized === "function" &&
+      !boot.isSurfaceMaterialized(ctx);
     if (
       shell &&
       ssrPreviewReady &&
       !forceRematerialize &&
+      !blockSsrShortcut &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
@@ -27394,6 +27720,7 @@
       typeof boot.hasMaterializedPreview === "function" &&
       boot.hasMaterializedPreview(shell) &&
       !forceRematerialize &&
+      !blockSsrShortcut &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
@@ -27458,6 +27785,7 @@
     const assembleOptions = {
       forceRematerialize: opts.surfaceSwitch === true || opts.forceRematerialize === true,
       previousSurface: opts.previousSurface || "",
+      surfaceSwitch: opts.surfaceSwitch === true,
     };
     if (!opts.surfaceSwitch) {
       const cached = await tryClientOnlyAssemble(ctx, assembleOptions);
@@ -27557,6 +27885,7 @@
     tryAssembleLocal,
     tryClientOnlyAssemble,
     layerRefsFromManifest,
+    buildComposeRequest,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
@@ -30215,6 +30544,96 @@
   boot.tryCacheFirstSceneAccess = tryCacheFirstSceneAccess;
 
 
+/* ===== spa-navigation/spa/ensure-surface-runtime.js ===== */
+/**
+ * Unified surface runtime wake: workspace manage preview + app compose activation.
+ */
+(function initEnsureSurfaceRuntime(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const doc = global.document;
+
+  async function composeAppPreviewIfNeeded(ctx, layers, force) {
+    const surface = ctx?.surface || ctx?.mode || "app";
+    if (surface !== "app") return false;
+    if (typeof boot.restoreAppPreviewSnapshot === "function") {
+      boot.restoreAppPreviewSnapshot();
+    }
+    const root =
+      typeof boot.resolveComposeRoot === "function"
+        ? boot.resolveComposeRoot(surface)
+        : doc?.getElementById?.("mei-compose-root");
+    if (!(root instanceof HTMLElement)) return false;
+    const materialized =
+      typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
+    if (materialized && !force) return true;
+    if (!boot.viewCompositor?.composeFromLayers || !layers) return false;
+    const composeAxes =
+      typeof boot.viewRevisionClient?.buildComposeRequest === "function"
+        ? boot.viewRevisionClient.buildComposeRequest(ctx)
+        : boot.composeDefaultsForSurface?.(ctx) || {};
+    return boot.viewCompositor.composeFromLayers(root, layers, {
+      ...composeAxes,
+      forceRematerialize: force === true,
+    });
+  }
+
+  async function ensureSurfaceRuntime(ctx, options) {
+    const opts = options || {};
+    const force = opts.force === true || opts.forceRuntimeWake === true;
+    const layers = opts.layers || null;
+    const surface = ctx?.surface || ctx?.mode || "app";
+
+    if (surface === "app") {
+      await composeAppPreviewIfNeeded(ctx, layers, force);
+    }
+
+    if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
+      await boot.wakeRevisionFirstShellRuntime(ctx, {
+        ssrPreview: opts.ssrPreview !== false,
+        warmOnly: !force && opts.warmOnly === true,
+        forceRuntimeWake: force,
+      });
+      return;
+    }
+
+    if (
+      typeof boot.isWorkspaceComposeSurface === "function" &&
+      boot.isWorkspaceComposeSurface(surface)
+    ) {
+      if (typeof boot.restoreWorkspacePreviewSnapshot === "function") {
+        boot.restoreWorkspacePreviewSnapshot();
+      }
+      if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+        boot.applyHostChromeFromManifestRefs();
+      }
+      if (typeof boot.mountManagePreviewBoard === "function") {
+        await boot.mountManagePreviewBoard(doc);
+      }
+      if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+        globalThis.MeiBuildTreePersist.refresh();
+      }
+      return;
+    }
+
+    if (typeof boot.ensureThinShellSceneRuntime === "function") {
+      await boot.ensureThinShellSceneRuntime();
+    }
+    if (typeof boot.dispatchScopeActivation === "function") {
+      boot.dispatchScopeActivation({
+        scope: ctx.sceneId || ctx.scene_id || "home",
+        sceneId: ctx.sceneId || ctx.scene_id || "home",
+        appId: ctx.appId || ctx.app_id || "",
+        source: force ? "surface-switch-runtime" : "revision-first-cold-start",
+      });
+    }
+  }
+
+  boot.ensureSurfaceRuntime = ensureSurfaceRuntime;
+})(typeof window !== "undefined" ? window : globalThis);
+
+
 /* ===== spa-navigation/spa/thin-shell-host.js ===== */
 /**
  * Thin-shell host frame helpers + diagnostic entrypoint.
@@ -31793,6 +32212,7 @@
   }
 
   let workspacePreviewSnapshot = "";
+  let appPreviewSnapshot = "";
 
   function workspacePreviewRoot() {
     return global.document?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
@@ -31826,6 +32246,38 @@
     return true;
   }
 
+  function appPreviewRoot() {
+    return global.document?.getElementById?.("mei-compose-root");
+  }
+
+  function stashAppPreviewSnapshot() {
+    const el = appPreviewRoot();
+    if (!(el instanceof HTMLElement)) return;
+    if (
+      el.querySelector(
+        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, [data-mei-compose-materialized]",
+      )
+    ) {
+      appPreviewSnapshot = el.innerHTML;
+    }
+  }
+
+  function restoreAppPreviewSnapshot() {
+    const el = appPreviewRoot();
+    if (!(el instanceof HTMLElement)) return false;
+    if (
+      el.querySelector(
+        "[data-preview-scope], [data-mei-frame-viewport], .preview-viewport, [data-mei-compose-materialized]",
+      )
+    ) {
+      return true;
+    }
+    if (!appPreviewSnapshot) return false;
+    el.innerHTML = appPreviewSnapshot;
+    el.removeAttribute("data-mei-compose-materialized");
+    return true;
+  }
+
   function switchSurfacePanel(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
     const previousSlug = String(
@@ -31837,6 +32289,9 @@
       .toLowerCase();
     if (isWorkspaceSurface(previousSlug) && !isWorkspaceSurface(slug)) {
       stashWorkspacePreviewSnapshot();
+    }
+    if (previousSlug === "app" && slug !== "app") {
+      stashAppPreviewSnapshot();
     }
     const appPanel = global.document?.getElementById?.("mei-surface-app");
     const workspacePanel = global.document?.getElementById?.("mei-surface-workspace");
@@ -31872,6 +32327,8 @@
       if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
         globalThis.MeiBuildTreePersist.refresh();
       }
+    } else if (slug === "app") {
+      restoreAppPreviewSnapshot();
     }
   }
 
@@ -32053,6 +32510,8 @@
   boot.switchSurfacePanel = switchSurfacePanel;
   boot.stashWorkspacePreviewSnapshot = stashWorkspacePreviewSnapshot;
   boot.restoreWorkspacePreviewSnapshot = restoreWorkspacePreviewSnapshot;
+  boot.stashAppPreviewSnapshot = stashAppPreviewSnapshot;
+  boot.restoreAppPreviewSnapshot = restoreAppPreviewSnapshot;
   boot.syncTopbarActiveState = syncTopbarActiveState;
   boot.navigateSurface = navigateSurface;
 

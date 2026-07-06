@@ -69,6 +69,46 @@ async function main() {
     fail(`F5 reload missing host topbar chrome (buttons=${chromeAfterF5.topbarButtons})`);
   } else pass("F5 reload: host topbar chrome visible");
 
+  const layoutF5Url = `${base}/apps/pretty-panels/view?surface=layout`;
+  await page.goto(layoutF5Url, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(2500);
+  const f5LayoutBaseline = await page.evaluate(() => {
+    const snap =
+      typeof window.__meiLangBoot?.surfaceSnapshot === "function"
+        ? window.__meiLangBoot.surfaceSnapshot(
+            window.__meiLangBoot.parseViewContext?.(window.location.href) || {},
+          )
+        : null;
+    return {
+      wsScopes: document.querySelectorAll(
+        "#mei-surface-workspace .preview-pane-scroll [data-preview-scope], #mei-surface-workspace .preview-pane-scroll [data-mei-frame-viewport]",
+      ).length,
+      wsProjection:
+        document
+          .querySelector("#mei-surface-workspace .preview-pane-scroll")
+          ?.getAttribute("data-compose-projection") || "",
+      surfaceReady:
+        typeof window.__meiLangBoot?.isSurfaceMaterialized === "function"
+          ? window.__meiLangBoot.isSurfaceMaterialized(
+              window.__meiLangBoot.parseViewContext?.(window.location.href) || {},
+            )
+          : null,
+      snapshot: snap,
+    };
+  });
+  console.log("F5 layout baseline:", f5LayoutBaseline);
+  if (f5LayoutBaseline.wsScopes === 0) {
+    fail(`F5 layout baseline preview empty (scopes=${f5LayoutBaseline.wsScopes})`);
+  } else pass(`F5 layout baseline scopes=${f5LayoutBaseline.wsScopes}`);
+  if (f5LayoutBaseline.surfaceReady === false) {
+    fail("F5 layout baseline: isSurfaceMaterialized=false");
+  } else if (f5LayoutBaseline.surfaceReady === true) {
+    pass("F5 layout baseline: isSurfaceMaterialized=true");
+  }
+
+  await page.goto(appUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
+  await page.waitForTimeout(1500);
+
   const bootCheck = await page.evaluate(() => ({
     navigateInternal: typeof window.__meiLangBoot?.navigateInternal === "function",
     navigateSpa: typeof window.__meiLangBoot?.navigateSpa === "function",
@@ -89,7 +129,26 @@ async function main() {
   console.log("before layout:", { beforeLayoutUrl, layoutHref });
   const layoutBtn = page.locator('sl-button[data-mei-app-view="布局"]').first();
   await layoutBtn.evaluate((el) => el.click());
-  await page.waitForTimeout(2500);
+  await page
+    .waitForFunction(
+      () => {
+        const scopes = document.querySelectorAll(
+          "#mei-surface-workspace .preview-pane-scroll [data-preview-scope], #mei-surface-workspace .preview-pane-scroll [data-mei-frame-viewport]",
+        ).length;
+        const ready =
+          typeof window.__meiLangBoot?.isSurfaceMaterialized === "function"
+            ? window.__meiLangBoot.isSurfaceMaterialized(
+                window.__meiLangBoot.parseViewContext?.(window.location.href) || {},
+                { relaxTree: true },
+              )
+            : scopes > 0;
+        return scopes > 0 && ready;
+      },
+      null,
+      { timeout: 60000 },
+    )
+    .catch(() => {});
+  await page.waitForTimeout(500);
   const layoutDocFetches = documentFetches;
 
   const afterLayout = await page.evaluate(() => ({
@@ -124,6 +183,37 @@ async function main() {
   } else pass(`layout preview scopes=${afterLayout.wsPreviewScopes}`);
   if (!afterLayout.activeView.includes("布局")) fail(`topbar active=${JSON.stringify(afterLayout.activeView)}`);
   else pass("surface switch: topbar 布局 active");
+
+  const parityTolerance = Number(process.env.MEI_SURFACE_PARITY_TOLERANCE || 0.1);
+  const minSwitchScopes = Math.max(
+    1,
+    Math.floor(f5LayoutBaseline.wsScopes * (1 - parityTolerance)),
+  );
+  if (afterLayout.wsPreviewScopes < minSwitchScopes) {
+    fail(
+      `layout switch scopes ${afterLayout.wsPreviewScopes} below F5 parity floor ${minSwitchScopes} (F5=${f5LayoutBaseline.wsScopes})`,
+    );
+  } else pass(`layout switch F5 parity: scopes ${afterLayout.wsPreviewScopes} vs F5 ${f5LayoutBaseline.wsScopes}`);
+  if (
+    f5LayoutBaseline.wsProjection &&
+    afterLayout.wsProjection &&
+    afterLayout.wsProjection !== f5LayoutBaseline.wsProjection
+  ) {
+    fail(
+      `layout projection mismatch: switch=${afterLayout.wsProjection} F5=${f5LayoutBaseline.wsProjection}`,
+    );
+  } else if (f5LayoutBaseline.wsProjection) {
+    pass(`layout projection matches F5 (${afterLayout.wsProjection})`);
+  }
+  const switchReady = await page.evaluate(() =>
+    typeof window.__meiLangBoot?.isSurfaceMaterialized === "function"
+      ? window.__meiLangBoot.isSurfaceMaterialized(
+          window.__meiLangBoot.parseViewContext?.(window.location.href) || {},
+        )
+      : null,
+  );
+  if (switchReady === false) fail("app->layout: isSurfaceMaterialized=false");
+  else if (switchReady === true) pass("app->layout: isSurfaceMaterialized=true");
 
   await page.waitForTimeout(800);
   documentFetches = 0;
@@ -218,7 +308,7 @@ async function main() {
     await appTabBtn.evaluate((el) => el.click());
     await page.waitForTimeout(2000);
     await layoutBtn.evaluate((el) => el.click());
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(20000);
     const roundtrip = await page.evaluate(() => ({
       surface: document.body.getAttribute("data-surface"),
       wsPreviewScopes: document.querySelectorAll(

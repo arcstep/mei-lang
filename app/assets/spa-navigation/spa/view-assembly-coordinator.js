@@ -99,24 +99,45 @@
     }
   }
 
-  function updateSceneManifestRefs(manifest, surface) {
-    if (!manifest?.layers) return;
+  function syncManifestRefs(manifest, ctx) {
+    if (!manifest) return;
+    if (typeof boot.applySceneManifestRefs === "function") {
+      boot.applySceneManifestRefs(manifest, ctx);
+      return;
+    }
+    if (!manifest.layers) return;
     globalThis.__mei = globalThis.__mei || {};
     const prev = globalThis.__mei.scene_manifest_refs || {};
     globalThis.__mei.scene_manifest_refs = {
       ...prev,
       ...manifest,
       layers: { ...(prev.layers || {}), ...manifest.layers },
-      compose_defaults: {
-        ...(prev.compose_defaults || {}),
-        ...(manifest.compose_defaults || {}),
-        route_mode:
-          surface ||
-          manifest.compose_defaults?.route_mode ||
-          prev.compose_defaults?.route_mode,
-      },
     };
     delete globalThis.__mei.scene_manifest_refs_stale;
+  }
+
+  function needsSurfaceReadyGate(kind) {
+    return kind === "surface_switch" || kind === "spa_nav" || kind === "cold_start";
+  }
+
+  async function waitForSurfaceMaterialized(ctx, generation, signal) {
+    if (typeof boot.isSurfaceMaterialized !== "function") return true;
+    let ready = boot.isSurfaceMaterialized(ctx);
+    const surface = ctx.surface || ctx.mode || "app";
+    const isWorkspace =
+      typeof boot.isWorkspaceComposeSurface === "function" &&
+      boot.isWorkspaceComposeSurface(surface);
+    if (!ready && isWorkspace) {
+      const deadline = performance.now() + 3000;
+      while (!ready && performance.now() < deadline && !isStale(generation, signal)) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        ready = boot.isSurfaceMaterialized(ctx);
+      }
+    }
+    if (!ready && isWorkspace) {
+      ready = boot.isSurfaceMaterialized(ctx, { relaxTree: true });
+    }
+    return ready;
   }
 
   async function phasePanel(ctx, generation) {
@@ -190,13 +211,14 @@
         if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
           boot.applyHostChromeFromManifestRefs();
         }
-        const chromeReady =
-          typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true;
-        const ssrShellOk =
-          typeof boot.isSsrShellPlaceholder === "function"
-            ? !boot.isSsrShellPlaceholder(ctx)
-            : true;
-        if (chromeReady && ssrShellOk) {
+        const surfaceReady =
+          typeof boot.isSurfaceMaterialized === "function"
+            ? boot.isSurfaceMaterialized(ctx)
+            : (typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true) &&
+              (typeof boot.isSsrShellPlaceholder === "function"
+                ? !boot.isSsrShellPlaceholder(ctx)
+                : true);
+        if (surfaceReady) {
           tracePhase("preview", generation, { ok: true, source: outcome.source });
           return {
             outcome,
@@ -220,8 +242,8 @@
         result.response?.manifest ||
         result.plan?.manifest ||
         result.response?.assembly_plan?.manifest;
-      if (manifest) {
-        updateSceneManifestRefs(manifest, ctx.surface || ctx.mode);
+      if (manifest || opts.kind === "surface_switch" || opts.kind === "spa_nav") {
+        syncManifestRefs(manifest || { layers: result.assemble.layers }, ctx);
       }
     }
     if (!isStale(generation, signal) && typeof boot.applyHostChromeFromManifestRefs === "function") {
@@ -231,30 +253,66 @@
     return result;
   }
 
+  async function retryPreviewForSurfaceReady(ctx, generation, options, signal) {
+    if (!boot.negotiateAndAssemble) return null;
+    return boot.negotiateAndAssemble(
+      { ...ctx, url: ctx.url || global.location.href },
+      {
+        silent: true,
+        surfaceSwitch: options?.kind === "surface_switch",
+        forceRematerialize: true,
+        omit_digests: true,
+        skipComplete: true,
+        signal,
+        generation,
+      },
+    );
+  }
+
+  async function phaseVerify(ctx, generation, options, signal) {
+    if (isStale(generation, signal)) return { ok: false };
+    const kind = options?.kind || "";
+    if (!needsSurfaceReadyGate(kind)) {
+      tracePhase("verify", generation, { skipped: true });
+      return { ok: true };
+    }
+    const ready = await waitForSurfaceMaterialized(ctx, generation, signal);
+    tracePhase("verify", generation, { ready });
+    return { ok: ready };
+  }
+
   async function phaseRuntime(ctx, generation, previewResult, options, signal) {
     if (isStale(generation, signal)) return;
     const opts = options || {};
     const layers = previewResult?.assemble?.layers || previewResult?.layers;
-    const cachedOnly = Boolean(previewResult?.response?.cached_only);
-    const assembleLocal =
-      previewResult?.outcome === (boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local");
-    const warmOnly =
-      opts.kind !== "surface_switch" &&
-      opts.kind !== "spa_nav" &&
-      (cachedOnly || assembleLocal);
-    if (typeof boot.completeMaterializedSurface === "function") {
+    const forceWake = opts.kind === "surface_switch" || opts.kind === "spa_nav";
+    if (typeof boot.ensureSurfaceRuntime === "function") {
+      await boot.ensureSurfaceRuntime(ctx, {
+        force: forceWake,
+        layers,
+        forceRuntimeWake: forceWake,
+        warmOnly: !forceWake && (opts.warmOnly === true),
+      });
+    } else if (typeof boot.completeMaterializedSurface === "function") {
+      const cachedOnly = Boolean(previewResult?.response?.cached_only);
+      const assembleLocal =
+        previewResult?.outcome === (boot.ViewRevisionOutcome?.ASSEMBLE_LOCAL || "assemble_local");
+      const warmOnly =
+        opts.kind !== "surface_switch" &&
+        opts.kind !== "spa_nav" &&
+        (cachedOnly || assembleLocal);
       await boot.completeMaterializedSurface(ctx, {
         layers,
         ssrPreview: previewResult?.assemble?.source === "ssr_preview",
         warmOnly: warmOnly && !opts.forceRuntimeWake,
-        forceRuntimeWake: opts.kind === "surface_switch" || opts.kind === "spa_nav",
+        forceRuntimeWake: forceWake,
         skipTree: true,
         generation,
         signal,
       });
     } else if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
       await boot.wakeRevisionFirstShellRuntime(ctx, {
-        forceRuntimeWake: opts.kind === "surface_switch",
+        forceRuntimeWake: forceWake,
       });
     }
     tracePhase("runtime", generation);
@@ -279,9 +337,57 @@
     await phasePanel(ctx, generation);
     await phaseStructureTree(ctx, generation, null, signal);
 
-    const previewResult = await phasePreview(ctx, generation, opts, signal);
-    const layers = previewResult?.assemble?.layers || previewResult?.layers;
+    let previewResult = await phasePreview(ctx, generation, opts, signal);
+    let layers = previewResult?.assemble?.layers || previewResult?.layers;
+
+    if (
+      needsSurfaceReadyGate(opts.kind) &&
+      previewResult?.assemble?.ok === true &&
+      typeof boot.isSurfaceMaterialized === "function" &&
+      !boot.isSurfaceMaterialized(ctx) &&
+      !opts._surfaceReadyRetried
+    ) {
+      const retry = await retryPreviewForSurfaceReady(ctx, generation, opts, signal);
+      if (retry?.assemble?.layers) {
+        notifyLayerResident("structure.full", retry.assemble.layers, generation);
+        const manifest =
+          retry.response?.manifest || retry.plan?.manifest || retry.response?.assembly_plan?.manifest;
+        if (manifest || opts.kind === "surface_switch" || opts.kind === "spa_nav") {
+          syncManifestRefs(manifest || { layers: retry.assemble.layers }, ctx);
+        }
+        previewResult = retry;
+        layers = retry.assemble.layers;
+      } else if (retry) {
+        previewResult = {
+          ...previewResult,
+          assemble: { ...(previewResult?.assemble || {}), ok: false, reason: "surface_not_materialized" },
+        };
+      }
+    }
+
     await phaseStructureTree(ctx, generation, layers, signal);
+
+    const verify = await phaseVerify(ctx, generation, opts, signal);
+    if (previewResult?.assemble?.ok === true && !verify.ok) {
+      const surface = ctx.surface || ctx.mode || "app";
+      const root =
+        typeof boot.resolveComposeRoot === "function" ? boot.resolveComposeRoot(surface) : null;
+      const hasPreview =
+        typeof boot.isSurfaceMaterialized === "function"
+          ? boot.isSurfaceMaterialized(ctx, { relaxTree: true })
+          : false;
+      if (!hasPreview) {
+        previewResult = {
+          ...previewResult,
+          assemble: {
+            ...(previewResult.assemble || {}),
+            ok: false,
+            reason: "surface_not_materialized",
+          },
+        };
+      }
+    }
+
     await phaseChrome(ctx, generation);
 
     if (previewResult?.assemble?.ok !== true) {

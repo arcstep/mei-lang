@@ -324,10 +324,16 @@
       shell &&
       boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(shell) === true;
     const forceRematerialize = options.forceRematerialize === true;
+    const surfaceSwitch = options.surfaceSwitch === true || forceRematerialize;
+    const blockSsrShortcut =
+      surfaceSwitch &&
+      typeof boot.isSurfaceMaterialized === "function" &&
+      !boot.isSurfaceMaterialized(ctx);
     if (
       shell &&
       ssrPreviewReady &&
       !forceRematerialize &&
+      !blockSsrShortcut &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
@@ -341,6 +347,7 @@
       typeof boot.hasMaterializedPreview === "function" &&
       boot.hasMaterializedPreview(shell) &&
       !forceRematerialize &&
+      !blockSsrShortcut &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
@@ -405,6 +412,7 @@
     const assembleOptions = {
       forceRematerialize: opts.surfaceSwitch === true || opts.forceRematerialize === true,
       previousSurface: opts.previousSurface || "",
+      surfaceSwitch: opts.surfaceSwitch === true,
     };
     if (!opts.surfaceSwitch) {
       const cached = await tryClientOnlyAssemble(ctx, assembleOptions);
@@ -504,5 +512,6 @@
     tryAssembleLocal,
     tryClientOnlyAssemble,
     layerRefsFromManifest,
+    buildComposeRequest,
   };
 })(typeof window !== "undefined" ? window : globalThis);
