@@ -95,6 +95,8 @@ fn ssr_bootstrap_head_fragment_contains_json_script_and_meta() {
     assert!(fragment.contains(r#"mei-bootstrap-inlined" content="0""#));
     assert!(fragment.contains("mei-bootstrap-client-revision"));
     assert!(fragment.contains("mei-bootstrap-artifact-url"));
+    assert!(fragment.contains("mei:scene-bootstrap:v1:"));
+    assert!(fragment.contains("localStorage.getItem"));
     assert!(!fragment.contains(r#"id="mei-client-bootstrap""#));
 }
 

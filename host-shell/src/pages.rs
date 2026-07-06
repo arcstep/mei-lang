@@ -1755,6 +1755,7 @@ pub(crate) fn render_thin_view_shell(
     compose: &mei_host_graph::ComposeRequest,
     chrome_host: Option<&crate::scene_manifest::SceneChromeHostContext<'_>>,
 ) -> String {
+    let handler_started = std::time::Instant::now();
     let assemble_outcome =
         mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
             .ok()
@@ -1813,7 +1814,7 @@ pub(crate) fn render_thin_view_shell(
         html = inject_layer_plane_scripts(html, outcome);
         html = inject_presentation_manifest_script(html, workspace_root, app_id, None);
     }
-    html
+    inject_handler_html_ready_ms(html, handler_started)
 }
 
 const THIN_WORKSPACE_ROOT_INNER: &str = concat!(
@@ -1877,6 +1878,7 @@ pub(crate) fn render_thin_scene_shell(
     draft_digest: &str,
     chrome_host: Option<&crate::scene_manifest::SceneChromeHostContext<'_>>,
 ) -> String {
+    let handler_started = std::time::Instant::now();
     let assemble_outcome =
         mei_host_graph::assemble_scope_from_registry(workspace_root, app_id, scene_id)
             .ok()
@@ -1935,7 +1937,7 @@ pub(crate) fn render_thin_scene_shell(
         html = inject_layer_plane_scripts(html, outcome);
         html = inject_presentation_manifest_script(html, workspace_root, app_id, None);
     }
-    html
+    inject_handler_html_ready_ms(html, handler_started)
 }
 
 fn find_element_close_index(html: &str, open_start: usize, tag: &str) -> Option<usize> {
@@ -2086,6 +2088,23 @@ fn inject_thin_shell_body_presentation(
     );
     html = html.replace("__MEI_THIN_BODY_CLASS__", thin_shell_body_class(route_mode));
     html = html.replace("__MEI_ROUTE_MODE_SLUG__", route_mode.slug());
+    html
+}
+
+fn inject_handler_html_ready_ms(mut html: String, started: std::time::Instant) -> String {
+    if html.contains("data-mei-handler-html-ready-ms=") {
+        return html;
+    }
+    let ms = started.elapsed().as_millis();
+    if let Some(body_start) = html.find("<body") {
+        if let Some(rel_close) = html[body_start..].find('>') {
+            let insert_at = body_start + rel_close;
+            html.insert_str(
+                insert_at,
+                format!(r#" data-mei-handler-html-ready-ms="{}""#, ms).as_str(),
+            );
+        }
+    }
     html
 }
 

@@ -48,6 +48,20 @@
     }
   }
 
+  function tryRestoreBootstrapFromLocalStorage(appId, sceneId, clientRevision) {
+    const revision = String(clientRevision || "").trim();
+    if (!appId || !sceneId || !revision) return null;
+    const cached = readLocalBootstrapArtifact(appId, sceneId, revision);
+    if (!cached) return null;
+    applyBootstrapPayload(cached);
+    window.__meiBootstrapFromLocalStorage = 1;
+    window.__meiEvalPackSource = "scene_bootstrap_local";
+    if (typeof boot.cacheDiagTrace === "function") {
+      boot.cacheDiagTrace("bootstrap-local-hit", { appId, sceneId, clientRevision: revision });
+    }
+    return cached;
+  }
+
   function writeLocalBootstrapArtifact(appId, sceneId, revision, payload) {
     try {
       localStorage.setItem(
@@ -158,15 +172,9 @@
       } catch (_) {}
     }
     if (clientRevision) {
-      const cached = readLocalBootstrapArtifact(appId, sceneId, clientRevision);
-      if (cached) {
-        applyBootstrapPayload(cached);
-        window.__meiBootstrapFromLocalStorage = 1;
-        window.__meiEvalPackSource = "scene_bootstrap_local";
-        if (typeof boot.cacheDiagTrace === "function") {
-          boot.cacheDiagTrace("bootstrap-local-hit", { appId, sceneId, clientRevision });
-        }
-        return cached;
+      const restored = tryRestoreBootstrapFromLocalStorage(appId, sceneId, clientRevision);
+      if (restored) {
+        return restored;
       }
     }
     const params = new URLSearchParams({ app: appId, scene: sceneId });
@@ -327,7 +335,12 @@
   boot.seedBootstrapRuntimeCache = seedBootstrapRuntimeCache;
   boot.fetchJitEvalPack = fetchJitEvalPack;
   boot.applyBootstrapPayload = applyBootstrapPayload;
+  boot.tryRestoreBootstrapFromLocalStorage = tryRestoreBootstrapFromLocalStorage;
   boot.isBootstrapRevisionOnly = isBootstrapRevisionOnly;
   boot.readBootstrapMeta = readBootstrapMeta;
   boot.dispatchScopeActivation = dispatchScopeActivation;
   window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
+
+  if (window.__meiBootstrapFromLocalStorage && window.__meiBootstrapPayloadReady) {
+    seedBootstrapRuntimeCache();
+  }

@@ -363,6 +363,9 @@
       return { ok: false, reason: "disabled" };
     }
     await boot.hostCapabilitiesReady?.({ timeoutMs: 5000 });
+    if (typeof boot.renderPipelineMark === "function") {
+      boot.renderPipelineMark("host_capabilities:ready");
+    }
     const generation = options?.generation ?? cancel();
     const signal = options?.signal || null;
     const opts = normalizeAssemblyOpts(intentLike, options);
@@ -371,8 +374,41 @@
 
     const started = performance.now();
 
+    const bootstrapPromise =
+      typeof boot.ensureBootstrapSeeded === "function"
+        ? (typeof boot.renderPipelineMark === "function"
+            ? boot.renderPipelineMark("bootstrap_seed:begin")
+            : undefined,
+          boot.ensureBootstrapSeeded(
+            {
+              appId: ctx.appId || ctx.app_id || "",
+              sceneId: ctx.sceneId || ctx.scene_id || "home",
+            },
+            {
+              client_revision:
+                boot.readBootstrapMeta?.("mei-bootstrap-client-revision") ||
+                global.__mei?.client_revision ||
+                "",
+            },
+          )
+            .then((count) => {
+              if (typeof boot.renderPipelineMark === "function") {
+                boot.renderPipelineMark("bootstrap_seed:end", { seedCount: count });
+              }
+              return count;
+            })
+            .catch((error) => {
+              console.warn("[view-assembly] ensureBootstrapSeeded skipped", error);
+              if (typeof boot.renderPipelineMark === "function") {
+                boot.renderPipelineMark("bootstrap_seed:end", { skipped: true });
+              }
+              return 0;
+            }))
+        : Promise.resolve(0);
+
     await phasePanel(ctx, generation, opts);
     await phaseStructureTree(ctx, generation, null, signal);
+    await bootstrapPromise;
 
     let previewResult = await phasePreview(ctx, generation, opts, signal);
     let layers = previewResult?.assemble?.layers || previewResult?.layers;

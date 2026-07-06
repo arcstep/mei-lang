@@ -106,6 +106,24 @@ test.describe("view-revision assemble", () => {
     expect(materialized.propsOrHost).toBeTruthy();
   });
 
+  test("data-demo second F5 avoids html fragment network", async ({ page }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    const htmlFragmentRequests = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.includes("/api/host/scene-fragment") && url.includes("format=html")) {
+        htmlFragmentRequests.push(url);
+      }
+    });
+    await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
+      waitUntil: "networkidle",
+    });
+    htmlFragmentRequests.length = 0;
+    await page.reload({ waitUntil: "networkidle" });
+    expect(htmlFragmentRequests).toEqual([]);
+  });
+
   test("app to layout switch reuses semantic layers via assemble_local", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");

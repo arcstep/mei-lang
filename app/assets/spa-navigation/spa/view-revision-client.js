@@ -351,6 +351,38 @@
     if (
       shell &&
       shell.getAttribute("data-mei-compose-placeholder") === "1" &&
+      typeof boot.previewMaterializer?.materializePlaceholderPreview === "function"
+    ) {
+      const composeAxes = {
+        ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),
+        forceRematerialize,
+      };
+      const materialized = await boot.previewMaterializer.materializePlaceholderPreview(
+        ctx,
+        shell,
+        layers,
+        { ...options, composeAxes, forceRematerialize },
+      );
+      if (materialized?.ok) {
+        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
+        const previewSource = materialized.source || "fragment";
+        return {
+          ok: true,
+          missing: [],
+          layers,
+          source:
+            previewSource === "compose"
+              ? ViewRevisionOutcome.ASSEMBLE_LOCAL
+              : "ssr_preview",
+          materialized: true,
+          preview_source: previewSource,
+        };
+      }
+    } else if (
+      shell &&
+      shell.getAttribute("data-mei-compose-placeholder") === "1" &&
       typeof boot.previewMaterializer?.hydratePlaceholderFromFragment === "function"
     ) {
       const hydrated = await boot.previewMaterializer.hydratePlaceholderFromFragment(
@@ -368,6 +400,7 @@
           layers,
           source: "ssr_preview",
           materialized: true,
+          preview_source: "fragment",
         };
       }
     }

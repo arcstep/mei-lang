@@ -6,9 +6,9 @@
 
   const STORAGE_KEY = "mei.browser_runtime_diag";
   const SCHEMA_VERSION = 2;
-  const MAX_EVENTS = 96;
-  const MAX_GIS = 48;
-  const MAX_ALERTS = 32;
+  const MAX_EVENTS = 48;
+  const MAX_GIS = 24;
+  const MAX_ALERTS = 16;
   const FLUSH_MS = 2000;
   const SLOW_GIS_MS = 800;
   const SLOW_LONG_TASK_MS = 50;
@@ -48,7 +48,7 @@
     } catch (_) {
       /* ignore */
     }
-    return true;
+    return false;
   }
 
   function emptyState() {

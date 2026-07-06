@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 /**
- * Phase A acceptance: data-demo home default query should not hit metrics/dataset APIs.
- * Usage: node scripts/eval-pack-audit.mjs [baseUrl]
+ * Phase A acceptance: data-demo default query should not hit metrics/dataset APIs.
+ * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/eval-pack-audit.mjs [baseUrl]
  */
 import { chromium } from "@playwright/test";
 
-const base = (process.argv[2] || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appUrl = `${base}/apps/data-demo/app`;
+const base = (process.env.MEI_E2E_BASE_URL || process.argv[2] || "http://127.0.0.1:9527").replace(
+  /\/+$/,
+  "");
+const paths = [
+  "/apps/data-demo/app",
+  "/apps/data-demo/view?surface=app",
+];
 
 function isEvalRuntimeApi(url) {
   const u = new URL(url);
@@ -17,8 +22,7 @@ function isEvalRuntimeApi(url) {
   return false;
 }
 
-async function main() {
-  const browser = await chromium.launch({ headless: true });
+async function auditPath(browser, appUrl) {
   const page = await browser.newPage();
   const evalApiCalls = [];
   const sceneBootstrapCalls = [];
@@ -60,9 +64,10 @@ async function main() {
     metricCount: Array.isArray(window.__mei?.bootstrap_metrics)
       ? window.__mei.bootstrap_metrics.length
       : 0,
+    bootstrapFromLocal: !!window.__meiBootstrapFromLocalStorage,
   }));
 
-  await browser.close();
+  await page.close();
 
   const failures = [];
   if (evalApiCalls.length > 0) {
@@ -87,19 +92,35 @@ async function main() {
   if (
     clientState.bootstrapRevisionOnly &&
     clientState.evalPackSource &&
-    !["scene_bootstrap_api", "scene_bootstrap_local", "bootstrap_inline"].includes(
+    !["scene_bootstrap_api", "scene_bootstrap_local", "bootstrap_inline", "eval_store"].includes(
       clientState.evalPackSource,
     )
   ) {
     failures.push(`unexpected evalPackSource under revision_only: ${clientState.evalPackSource}`);
   }
 
-  const report = {
+  return {
     ok: failures.length === 0,
     url: appUrl,
     evalApiCalls,
     sceneBootstrapCalls,
     clientState,
+    failures,
+  };
+}
+
+async function main() {
+  const browser = await chromium.launch({ headless: true });
+  const results = [];
+  for (const path of paths) {
+    results.push(await auditPath(browser, `${base}${path}`));
+  }
+  await browser.close();
+
+  const failures = results.flatMap((r) => r.failures.map((f) => `${r.url}: ${f}`));
+  const report = {
+    ok: failures.length === 0,
+    results,
     failures,
   };
 

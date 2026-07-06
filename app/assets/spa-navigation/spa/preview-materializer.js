@@ -376,23 +376,83 @@
     return await response.json();
   }
 
+  async function ensureBootstrapBeforeInject(ctx) {
+    if (typeof boot.ensureBootstrapSeeded !== "function") return;
+    const appId = String(ctx?.appId || ctx?.app_id || "").trim();
+    const sceneId = String(ctx?.sceneId || ctx?.scene_id || "home").trim() || "home";
+    if (!appId) return;
+    try {
+      await boot.ensureBootstrapSeeded(ctx, {
+        client_revision:
+          ctx?.client_revision ||
+          ctx?.clientRevision ||
+          boot.readBootstrapMeta?.("mei-bootstrap-client-revision") ||
+          "",
+      });
+    } catch (error) {
+      console.warn("[preview-materializer] ensureBootstrapSeeded skipped", error);
+    }
+  }
+
+  async function tryInjectCachedSurface(ctx, root, options) {
+    if (!(root instanceof HTMLElement)) return false;
+    const cached = await boot.previewSurfaceCache?.tryGetCachedSurface?.(ctx, options);
+    if (!cached?.surfaceHtml) return false;
+    if (typeof boot.renderPipelineMark === "function") {
+      boot.renderPipelineMark("preview_fragment:begin");
+    }
+    const ok = injectPreviewSurfaceHtml(root, cached.surfaceHtml);
+    if (ok && typeof boot.renderPipelineMark === "function") {
+      boot.renderPipelineMark("preview_fragment:end", {
+        bytes: cached.bytes || cached.surfaceHtml.length,
+        source: "idb",
+      });
+    }
+    return ok;
+  }
+
+  function preferComposePreview() {
+    return global.__mei?.prefer_compose_preview !== false;
+  }
+
+  async function storeSurfaceHtmlCache(ctx, root, options) {
+    if (!(root instanceof HTMLElement) || !boot.previewSurfaceCache?.storeCachedSurface) return;
+    const html = String(root.innerHTML || "").trim();
+    if (!html) return;
+    void boot.previewSurfaceCache.storeCachedSurface(ctx, html, options);
+  }
+
+  async function fetchAndInjectFragment(ctx, root, options) {
+    const fragment = await fetchScenePreviewFragment(ctx, options);
+    if (!fragment?.surfaceHtml) return false;
+    const ok = injectPreviewSurfaceHtml(root, fragment.surfaceHtml);
+    if (ok) {
+      void boot.previewSurfaceCache?.storeCachedSurface?.(ctx, fragment.surfaceHtml, options);
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("preview_fragment:end", {
+          bytes: fragment.surfaceHtml.length,
+          source: "network",
+        });
+      }
+    }
+    return ok;
+  }
+
   async function hydratePlaceholderFromFragment(ctx, root, options) {
     if (!(root instanceof HTMLElement)) return false;
     if (root.getAttribute("data-mei-compose-placeholder") !== "1") return false;
     if (boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(root) === true) return true;
+    const opts = options || {};
     try {
+      await ensureBootstrapBeforeInject(ctx);
+      if (opts.skipIdb !== true) {
+        const fromCache = await tryInjectCachedSurface(ctx, root, opts);
+        if (fromCache) return true;
+      }
       if (typeof boot.renderPipelineMark === "function") {
         boot.renderPipelineMark("preview_fragment:begin");
       }
-      const fragment = await fetchScenePreviewFragment(ctx, options);
-      if (!fragment?.surfaceHtml) return false;
-      const ok = injectPreviewSurfaceHtml(root, fragment.surfaceHtml);
-      if (ok && typeof boot.renderPipelineMark === "function") {
-        boot.renderPipelineMark("preview_fragment:end", {
-          bytes: fragment.surfaceHtml.length,
-        });
-      }
-      return ok;
+      return await fetchAndInjectFragment(ctx, root, opts);
     } catch (error) {
       if (typeof boot.cacheDiagTrace === "function") {
         boot.cacheDiagTrace("preview-fragment-hydrate-miss", {
@@ -400,6 +460,47 @@
         });
       }
       return false;
+    }
+  }
+
+  async function materializePlaceholderPreview(ctx, root, layers, options) {
+    if (!(root instanceof HTMLElement)) return { ok: false, source: null };
+    if (root.getAttribute("data-mei-compose-placeholder") !== "1") {
+      return { ok: false, source: null };
+    }
+    if (isSsrInjectedPreviewRoot(root)) {
+      return { ok: true, source: "ssr_preview" };
+    }
+    const opts = options || {};
+    try {
+      await ensureBootstrapBeforeInject(ctx);
+      const fromCache = await tryInjectCachedSurface(ctx, root, opts);
+      if (fromCache) return { ok: true, source: "idb" };
+
+      if (preferComposePreview() && layers && boot.viewCompositor?.composeFromLayers) {
+        const composeAxes = {
+          ...(opts.composeAxes || {}),
+          forceRematerialize: opts.forceRematerialize === true,
+        };
+        const composed = boot.viewCompositor.composeFromLayers(root, layers, composeAxes);
+        if (composed) {
+          await storeSurfaceHtmlCache(ctx, root, opts);
+          return { ok: true, source: "compose" };
+        }
+      }
+
+      const hydrated = await hydratePlaceholderFromFragment(ctx, root, {
+        ...opts,
+        skipIdb: true,
+      });
+      return { ok: hydrated, source: hydrated ? "fragment" : null };
+    } catch (error) {
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("preview-materialize-miss", {
+          message: String(error?.message || error || "materialize failed"),
+        });
+      }
+      return { ok: false, source: null };
     }
   }
 
@@ -451,6 +552,8 @@
     injectPreviewSurfaceHtml,
     fetchScenePreviewFragment,
     hydratePlaceholderFromFragment,
+    materializePlaceholderPreview,
+    ensureBootstrapBeforeInject,
   };
   boot.hasMaterializedPreview = hasMaterializedPreview;
 })(typeof window !== "undefined" ? window : globalThis);
