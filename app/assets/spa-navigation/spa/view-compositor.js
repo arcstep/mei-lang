@@ -85,6 +85,15 @@
             node.dataset.layoutTuningContentGap = String(gap);
           }
         }
+        const sectionRows = patch.sectionRows || patch.section_rows;
+        if (Array.isArray(sectionRows) && sectionRows.length > 0) {
+          node.style.gridTemplateRows = sectionRows.map((row) => String(row)).join(" ");
+          node.dataset.layoutTuningSectionRows = sectionRows.join(",");
+        }
+        const gapFr = patch.gap ?? patch.stripGap;
+        if (gapFr != null && gapFr !== "" && !contentBudget) {
+          node.style.gap = String(gapFr).endsWith("px") ? String(gapFr) : `${gapFr}px`;
+        }
       });
     }
   }

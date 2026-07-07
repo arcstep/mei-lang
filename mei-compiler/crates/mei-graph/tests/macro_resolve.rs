@@ -44,11 +44,11 @@ fn screen_header_default_assets_macro_fully_expanded_at_compile() {
         "nested macro defaults must expand before lower; got: {dumped}"
     );
     assert!(
-        dumped.contains("/workspace-app-assets/templates/cockpit/assets/header/screen-title-bg@3x.svg"),
-        "expected template title_bg URL in expanded IR: {dumped}"
+        dumped.contains("header/screen-title-bg@3x.svg"),
+        "expected title_bg asset ref in expanded IR: {dumped}"
     );
     assert!(
-        dumped.contains("/workspace-app-assets/templates/cockpit/assets/header/screen-title-center@3x.svg"),
-        "expected template title_mid URL in expanded IR: {dumped}"
+        dumped.contains("header/screen-title-center@3x.svg"),
+        "expected title_mid asset ref in expanded IR: {dumped}"
     );
 }

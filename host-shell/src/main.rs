@@ -35,6 +35,7 @@ mod managed_plug;
 mod ops_api;
 mod ops_config_api;
 mod ops_layout_tuning_api;
+mod ops_theme_layout_api;
 mod presentation_compile;
 mod presentation_scripts;
 mod review_axes;

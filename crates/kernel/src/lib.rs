@@ -67,8 +67,11 @@ pub use compile::{
     load_xlsx_table_snapshot, local_dataset_id_from_namespaced_token,
     materialize_xlsx_column_headers, normalize_panel_slots, panel_resolved_has_head, parquet_snapshot_path,
     resolve_layout_budgets,
+    materialize_fill_section_derived_heights,
     materialize_layout_budget_px,
     validate_layout_budget_policy,
+    validate_layout_budget_policy_with_options,
+    LayoutBudgetValidateOptions,
     preview_target_from_build_node, preview_target_from_build_node_with_app,
     catalog_preview_target_for_build_node,
     publish_xlsx_data_snapshots_for_paths, read_data_snapshot_import_manifest,
@@ -113,6 +116,8 @@ pub use mei_config::{
     load_mei_config_for_app, load_workspace_auth_bundle,
     load_workspace_config, mei_config_compile_revision_digest, merge_ops_section,
     ops_layout_tuning_revision_digest, format_layout_tuning_diff, layout_tuning_overlay_keys,
+    ops_theme_layout_revision_digest, merge_theme_layout_overlay, merge_theme_layout_draft_into_theme,
+    theme_layout_overlay_keys,
     ops_themes_revision_digest,
     resolve_app_entry_main, resolve_app_main_path,
     resolve_app_id, resolve_app_mei_file_path, resolve_app_root, resolve_app_mei_store_root, resolve_app_build_root,
@@ -225,7 +230,8 @@ pub use source_version::{
 pub use theme_tokens::{
     is_font_scale_key, is_literal_color, is_literal_font_size, is_literal_gradient,
     validate_frame_token_refs, validate_panel_token_refs, validate_scene_theme_value_from_ops,
-    validate_shell_theme_value, validate_theme_decl, validate_theme_value_from_ops,
+    validate_shell_theme_value, validate_theme_decl, validate_theme_layout_value,
+    validate_theme_value_from_ops,
 };
 pub use typed_refs::{
     decode_binding_value, decode_ref_value, ref_to_json, BindingValue, RefExpr, RefKind,

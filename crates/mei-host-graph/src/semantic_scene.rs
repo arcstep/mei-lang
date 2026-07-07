@@ -10,7 +10,8 @@ use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::types::GraphNodeKind;
 use crate::v2_lower::{
-    lower_frame_from_assembly, lower_panel_payload, PanelLowerContext,
+    load_panel_contract_payload, lower_frame_from_assembly, lower_layout, lower_panel_payload,
+    PanelLowerContext,
 };
 
 #[derive(Debug, Clone)]
@@ -91,7 +92,73 @@ pub fn assemble_semantic_scene(
         let tier = string_field_map(plane_args, &["tier", "id"])
             .map(str::to_string)
             .unwrap_or_else(|| plane_id.clone());
-        for region in child_nodes(&plane, &["regions", "nodes"], "region_ref", ctx)? {
+        let plane_grid = plane_args.and_then(|map| map.get("layout"));
+        let regions = child_nodes(&plane, &["regions", "nodes"], "region_ref", ctx)?;
+        if plane_grid.is_some() {
+            let mut grid_regions = Vec::new();
+            let mut overlay_regions = Vec::new();
+            for region in regions {
+                let region_args = call_args(&region);
+                if is_plane_grid_overlay_region(region_args) {
+                    overlay_regions.push(region);
+                } else {
+                    grid_regions.push(region);
+                }
+            }
+            let mut plane_children = Vec::new();
+            for region in grid_regions {
+                let region_payload = build_plane_grid_region_payload(
+                    &region,
+                    &tier,
+                    plane_id.as_str(),
+                    ctx,
+                )?;
+                let counter = tier_counters.entry(tier.clone()).or_insert(0);
+                let panel_ctx = ctx.with_assembly_stack_order(*counter);
+                let lowered = lower_panel_payload(
+                    &region_payload,
+                    region_payload
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("region"),
+                    &panel_ctx,
+                )?;
+                *counter = counter.saturating_add(1);
+                collect_payload_index(&region_payload, &mut panel_payloads, ctx);
+                let mut lowered = lowered;
+                apply_padding_profile_body_props(&mut lowered);
+                plane_children.push(lowered);
+            }
+            if !plane_children.is_empty() {
+                panels.push(build_plane_grid_panel(
+                    plane_id.as_str(),
+                    tier.as_str(),
+                    plane_grid,
+                    plane_children,
+                )?);
+            }
+            for region in overlay_regions {
+                let region_payload =
+                    build_panel_payload(&region, "region", &tier, Some(&plane_id), ctx)?;
+                let counter = tier_counters.entry(tier.clone()).or_insert(0);
+                let panel_ctx = ctx.with_assembly_stack_order(*counter);
+                let lowered = lower_panel_payload(
+                    &region_payload,
+                    region_payload
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("region"),
+                    &panel_ctx,
+                )?;
+                *counter = counter.saturating_add(1);
+                collect_payload_index(&region_payload, &mut panel_payloads, ctx);
+                let mut lowered = lowered;
+                apply_padding_profile_body_props(&mut lowered);
+                panels.push(lowered);
+            }
+            continue;
+        }
+        for region in regions {
             let region_payload =
                 build_panel_payload(&region, "region", &tier, Some(&plane_id), ctx)?;
             let counter = tier_counters.entry(tier.clone()).or_insert(0);
@@ -125,6 +192,8 @@ pub fn assemble_semantic_scene(
         .and_then(call_args)
         .cloned()
         .unwrap_or_default();
+
+    enrich_panel_payloads_from_tree(&panels, &mut panel_payloads, ctx);
 
     Ok(SemanticSceneAssembly {
         scene_id,
@@ -463,16 +532,58 @@ fn insert_budget_props(props: &mut Map<String, Value>, budget: &Map<String, Valu
     }
 }
 
+fn enrich_panel_payloads_from_tree(
+    panels: &[PanelDecl],
+    out: &mut BTreeMap<String, Value>,
+    ctx: &PanelLowerContext<'_>,
+) {
+    for panel in crate::layer_plan::flatten_panel_tree(panels) {
+        for ref_key in [
+            format!("home:{}", panel.id),
+            format!("content/{}", panel.id),
+            panel.id.clone(),
+        ] {
+            if let Ok(payload) = load_panel_contract_payload(ctx, ref_key.as_str()) {
+                out.insert(panel.id.clone(), payload);
+                break;
+            }
+        }
+    }
+}
+
 fn collect_payload_index(
     payload: &Value,
     out: &mut BTreeMap<String, Value>,
     ctx: &PanelLowerContext<'_>,
 ) {
+    let payload = if payload.get("__call").and_then(Value::as_str) == Some("panel_contract") {
+        payload
+            .get("__args")
+            .unwrap_or(payload)
+    } else {
+        payload
+    };
     let Some(obj) = payload.as_object() else {
         return;
     };
     if let Some(id) = obj.get("id").and_then(Value::as_str) {
         out.insert(id.to_string(), payload.clone());
+    }
+    if let Some(shell) = obj.get("shell") {
+        collect_payload_index(shell, out, ctx);
+    }
+    if let Some(sections) = obj.get("sections").and_then(Value::as_array) {
+        for section in sections {
+            if v2_ref_name(section) == Some("section_ref") {
+                if let Some(ref_key) = v2_ref_arg0(section) {
+                    if let Ok(payload) =
+                        load_semantic_fragment_payload(ctx, ref_key.as_str(), "section_ref")
+                    {
+                        collect_payload_index(&payload, out, ctx);
+                    }
+                }
+            }
+        }
     }
     if let Some(blocks) = obj.get("blocks").and_then(Value::as_array) {
         for block in blocks {
@@ -482,13 +593,9 @@ fn collect_payload_index(
                 }
                 continue;
             }
-            if block.get("__ref").and_then(Value::as_str) == Some("panel_ref") {
-                if let Some(ref_key) = block
-                    .get("__args")
-                    .and_then(|args| args.get("arg0"))
-                    .and_then(Value::as_str)
-                {
-                    if let Ok(payload) = crate::v2_lower::load_panel_contract_payload(ctx, ref_key) {
+            if v2_ref_name(block) == Some("panel_ref") {
+                if let Some(ref_key) = v2_ref_arg0(block) {
+                    if let Ok(payload) = load_panel_contract_payload(ctx, ref_key.as_str()) {
                         collect_payload_index(&payload, out, ctx);
                     }
                 }
@@ -552,6 +659,84 @@ fn apply_padding_profile_body_props(panel: &mut PanelDecl) {
     }
 }
 
+fn is_plane_grid_overlay_region(args: Option<&serde_json::Map<String, Value>>) -> bool {
+    let Some(args) = args else {
+        return false;
+    };
+    if matches!(
+        string_field_map(Some(args), &["chrome_role"]),
+        Some("float_dock") | Some("viewport_frame") | Some("stage_aperture")
+    ) {
+        return true;
+    }
+    false
+}
+
+fn grid_area_name_for_region(args: Option<&serde_json::Map<String, Value>>) -> Option<String> {
+    let id = string_field_map(args, &["id"])?;
+    if let Some(area) = string_field_map(args, &["area"]) {
+        if area != "body" {
+            return Some(area.to_string());
+        }
+    }
+    Some(match id {
+        "home_header" => "header".to_string(),
+        other => other.to_string(),
+    })
+}
+
+fn build_plane_grid_region_payload(
+    region: &Value,
+    tier: &str,
+    plane_id: &str,
+    ctx: &PanelLowerContext<'_>,
+) -> Result<Value> {
+    let area = grid_area_name_for_region(call_args(region));
+    let mut region_value = region.clone();
+    if let Some(obj) = region_value.as_object_mut() {
+        obj.remove("placement");
+        if let Some(area) = area {
+            obj.insert("area".to_string(), Value::String(area));
+        }
+    }
+    build_panel_payload(&region_value, "region", tier, Some(plane_id), ctx)
+}
+
+fn build_plane_grid_panel(
+    plane_id: &str,
+    tier: &str,
+    plane_grid: Option<&Value>,
+    children: Vec<PanelDecl>,
+) -> Result<PanelDecl> {
+    Ok(PanelDecl {
+        kind: "panel".to_string(),
+        id: plane_id.to_string(),
+        title: None,
+        head: None,
+        area: None,
+        layout: plane_grid.and_then(lower_layout),
+        blocks: children
+            .into_iter()
+            .map(UiNodeDecl::Panel)
+            .collect(),
+        slot: None,
+        props: json!({
+            "__mei_ui_role": "plane",
+            "__mei_tier": tier,
+            "__mei_plane_id": plane_id,
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "box_sizing": "border-box",
+            "overflow": "hidden",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    })
+}
+
 pub fn target_key_from_payload(payload: &Value) -> Option<String> {
     payload
         .get("key")
@@ -566,4 +751,31 @@ pub fn target_key_from_payload(payload: &Value) -> Option<String> {
 
 pub fn default_target_for_scene(scene_id: &str) -> String {
     assembly_key_to_target(&format!("{scene_id}@src/scene/{scene_id}/assembly.mei"))
+}
+
+#[cfg(test)]
+mod plane_grid_overlay_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn is_plane_grid_overlay_region_includes_mini_park_chrome_roles() {
+        let stage = json!({"chrome_role": "stage_aperture"});
+        let viewport = json!({"chrome_role": "viewport_frame"});
+        let float_dock = json!({"chrome_role": "float_dock"});
+        let rail = json!({"chrome_role": "rail"});
+        assert!(is_plane_grid_overlay_region(stage.as_object()));
+        assert!(is_plane_grid_overlay_region(viewport.as_object()));
+        assert!(is_plane_grid_overlay_region(float_dock.as_object()));
+        assert!(!is_plane_grid_overlay_region(rail.as_object()));
+    }
+
+    #[test]
+    fn is_plane_grid_overlay_region_rejects_unknown_chrome_role() {
+        let region = json!({
+            "chrome_role": "overlay",
+            "placement": {"top": "0", "left": "0", "width": "0px", "height": "0px"}
+        });
+        assert!(!is_plane_grid_overlay_region(region.as_object()));
+    }
 }

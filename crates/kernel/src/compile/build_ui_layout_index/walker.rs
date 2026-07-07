@@ -1610,6 +1610,13 @@ fn content_budget_panel_in_deep(panel: &PanelDecl) -> Option<&PanelDecl> {
     if panel
         .props
         .as_object()
+        .is_some_and(|map| map.get("__mei_layout_fill").and_then(Value::as_bool) == Some(true))
+    {
+        return Some(panel);
+    }
+    if panel
+        .props
+        .as_object()
         .is_some_and(|map| map.contains_key("__mei_content_budget"))
     {
         return Some(panel);

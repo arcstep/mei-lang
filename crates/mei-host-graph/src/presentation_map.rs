@@ -233,6 +233,7 @@ fn collect_block_viewpoints(
     panel: &PanelDecl,
     path_prefix: &str,
     inherited_hints: &ViewpointHints,
+    panel_payloads: &BTreeMap<String, Value>,
     out: &mut BTreeMap<String, ViewpointMapEntry>,
 ) {
     for (index, node) in nodes.iter().enumerate() {
@@ -291,7 +292,23 @@ fn collect_block_viewpoints(
                     }
                 }
                 let nested_hints = panel_viewpoint_hints(nested).with_fallbacks(inherited_hints);
-                collect_block_viewpoints(&nested.blocks, nested, &block_path, &nested_hints, out);
+                if let Some(payload) = panel_payloads.get(nested.id.as_str()) {
+                    merge_panel_contract_viewpoints(
+                        payload,
+                        nested.id.as_str(),
+                        panel_tier(nested).as_str(),
+                        &nested_hints,
+                        out,
+                    );
+                }
+                collect_block_viewpoints(
+                    &nested.blocks,
+                    nested,
+                    &block_path,
+                    &nested_hints,
+                    panel_payloads,
+                    out,
+                );
             }
             _ => {}
         }
@@ -325,6 +342,30 @@ pub fn resolve_viewpoint_id(value: &Value) -> Option<String> {
     None
 }
 
+fn viewpoints_array<'a>(payload: &'a Value) -> Option<&'a Vec<Value>> {
+    let viewpoints = payload.get("viewpoints")?;
+    viewpoints.as_array().or_else(|| {
+        viewpoints
+            .as_object()
+            .and_then(|obj| obj.get("value"))
+            .and_then(Value::as_array)
+    })
+}
+
+fn viewpoint_entry_args(entry: &Value) -> Option<&Value> {
+    match entry.get("__call").and_then(Value::as_str) {
+        Some("viewpoint") => Some(entry.get("__args").unwrap_or(entry)),
+        _ => {
+            let obj = entry.as_object()?;
+            if obj.get("id").and_then(Value::as_str).is_some_and(|id| !id.is_empty()) {
+                Some(entry)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 fn merge_panel_contract_viewpoints(
     payload: &Value,
     panel_id: &str,
@@ -332,16 +373,14 @@ fn merge_panel_contract_viewpoints(
     inherited_hints: &ViewpointHints,
     out: &mut BTreeMap<String, ViewpointMapEntry>,
 ) {
-    let Some(viewpoints) = payload.get("viewpoints").and_then(|v| v.as_array()) else {
+    let Some(viewpoints) = viewpoints_array(payload) else {
         return;
     };
     for entry in viewpoints {
-        let call = entry.get("__call").and_then(|v| v.as_str());
-        if call != Some("viewpoint") {
+        let Some(args) = viewpoint_entry_args(entry) else {
             continue;
-        }
-        let args = entry.get("__args").unwrap_or(entry);
-        let id = args.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        };
+        let id = args.get("id").and_then(Value::as_str).unwrap_or("");
         if id.is_empty() {
             continue;
         }
@@ -406,7 +445,14 @@ pub fn build_presentation_map(
                 &mut viewpoints,
             );
         }
-        collect_block_viewpoints(&panel.blocks, panel, "", &panel_hints, &mut viewpoints);
+        collect_block_viewpoints(
+            &panel.blocks,
+            panel,
+            "",
+            &panel_hints,
+            panel_payloads,
+            &mut viewpoints,
+        );
     }
     PresentationMapDocument {
         schema_version: "mei-presentation-map-v1".to_string(),

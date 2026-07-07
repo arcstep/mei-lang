@@ -374,6 +374,9 @@ pub struct OpsConfig {
     /// P1–P2: layout budget overlay (see docs/mei-lang-v2/03-ui/0325-layout-budget-contract.md §8).
     #[serde(default, rename = "layoutTuning")]
     pub layout_tuning: Option<Value>,
+    /// When true, T1 cockpit sections must use Fill-down (`__mei_layout_fill`).
+    #[serde(default, rename = "strictFillDown")]
+    pub strict_fill_down: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

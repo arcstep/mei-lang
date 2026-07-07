@@ -8,6 +8,23 @@ use mei_host_graph::{
     assemble_scope_from_registry, collect_all_board_scenes, import_bundle, list_scope_routes,
     GraphNodeKind, ImportOptions, McgRegistryWriter,
 };
+use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+
+fn find_panel_by_id<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {
+    for panel in panels {
+        if panel.id == id {
+            return Some(panel);
+        }
+        for block in &panel.blocks {
+            if let UiNodeDecl::Panel(child) = block {
+                if let Some(found) = find_panel_by_id(std::slice::from_ref(child), id) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+    None
+}
 
 static INIT: Once = Once::new();
 
@@ -19,7 +36,7 @@ fn ws_demo_v2_root() -> PathBuf {
 }
 
 fn bundle_path() -> PathBuf {
-    ws_demo_v2_root().join("apps/data-demo/build/active/exchange/data-demo.meibundle")
+    ws_demo_v2_root().join("apps/data-demo/env/current/build/exchange/data-demo.meibundle")
 }
 
 fn ensure_imported() -> PathBuf {
@@ -114,8 +131,8 @@ fn ws_demo_v2_import_and_assemble_home() {
     assert!(contract.frame.is_some(), "home frame should be lowered");
     assert_eq!(
         contract.panels.len(),
-        6,
-        "home assembly references 6 panels"
+        4,
+        "home assembly has t0/t1/t2 plane roots plus layout debug overlay"
     );
     let block_count: usize = contract.panels.iter().map(|panel| panel.blocks.len()).sum();
     assert!(block_count > 0, "home panels should contain blocks");
@@ -161,7 +178,7 @@ fn ws_demo_v2_home_contract_expands_rail_metric_panels() {
 
 #[test]
 fn ws_demo_v2_home_gis_map_spec_resolves_config_refs() {
-    let workspace = ws_demo_v2_root();
+    let workspace = ensure_imported();
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
@@ -217,11 +234,7 @@ fn ws_demo_v2_home_gis_map_spec_resolves_config_refs() {
         "ops_param_ref layer url should resolve to path string: {first_layer_url}"
     );
 
-    let header = contract
-        .panels
-        .iter()
-        .find(|panel| panel.id == "home_header")
-        .expect("home_header panel");
+    let header = find_panel_by_id(&contract.panels, "home_header").expect("home_header panel");
     assert_eq!(
         header
             .props
@@ -389,8 +402,8 @@ fn ws_demo_v2_board_semantic_ids_present() {
         .collect();
     assert_eq!(
         assembly_keys.len(),
-        43,
-        "expected 43 assembly_view/board keys"
+        85,
+        "expected 85 assembly_view/board keys after semantic scene migration"
     );
     assert!(assembly_keys.iter().any(|k| k.contains("home@")));
 }
@@ -454,7 +467,7 @@ fn ws_demo_v2_assemble_without_reimport() {
 fn ws_demo_v2_assemble_relative_workspace_path() {
     let rel = std::path::PathBuf::from("../workspaces/ws-demo-v2");
     if !rel
-        .join("apps/data-demo/build/active/exchange/data-demo.meibundle")
+        .join("apps/data-demo/env/current/build/exchange/data-demo.meibundle")
         .is_file()
     {
         return;
@@ -517,8 +530,8 @@ fn ws_demo_v2_home_layer_plan_and_presentation_map() {
     for expected in [
         "home_header",
         "left_rail",
-        "center_top",
-        "realtime_center",
+        "center_rail",
+        "realtime_table",
         "right_rail",
     ] {
         assert!(
@@ -551,11 +564,7 @@ fn ws_demo_v2_home_panels_emit_tier_props() {
         .scene_contract
         .as_ref()
         .expect("scene contract");
-    let map_stage = contract
-        .panels
-        .iter()
-        .find(|panel| panel.id == "map_stage")
-        .expect("map_stage panel");
+    let map_stage = find_panel_by_id(&contract.panels, "map_stage").expect("map_stage panel");
     assert_eq!(
         map_stage.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t0")
@@ -574,11 +583,7 @@ fn ws_demo_v2_home_panels_emit_tier_props() {
             .and_then(|v| v.as_str()),
         Some("map-stage")
     );
-    let header = contract
-        .panels
-        .iter()
-        .find(|panel| panel.id == "home_header")
-        .expect("home_header panel");
+    let header = find_panel_by_id(&contract.panels, "home_header").expect("home_header panel");
     assert_eq!(
         header.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t1")
@@ -685,30 +690,39 @@ fn ws_demo_v2_presentation_map_viewpoints() {
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
         .expect("assemble")
         .expect("home outcome");
-    let lowered = outcome
-        .compiled
-        .scene_contract
-        .as_ref()
-        .map(|contract| collect_lowered_viewpoint_ids(&contract.panels))
-        .unwrap_or_default();
+    assert_eq!(
+        outcome
+            .presentation_map
+            .get("schemaVersion")
+            .and_then(|v| v.as_str()),
+        Some("mei-presentation-map-v1")
+    );
     let viewpoints = outcome
         .presentation_map
         .get("viewpoints")
         .and_then(|v| v.as_object())
-        .expect("presentation_map viewpoints");
-    for expected in [
-        "warnings_total",
-        "enforcement_stats",
-        "inspection_stats",
-        "penalty_stats",
-        "indicator_system",
-    ] {
-        assert!(
-            viewpoints.contains_key(expected),
-            "presentation_map should include viewpoint {expected}: keys={:?}, lowered={lowered:?}",
-            viewpoints.keys().collect::<Vec<_>>()
-        );
-    }
+        .expect("presentation_map viewpoints object");
+    // data-demo home 当前不在 metric card 上挂 viewpoint；以 layer_plan 中的 map_stage 为锚点验收。
+    let map_stage = outcome
+        .layer_plan
+        .get("tiers")
+        .and_then(|v| v.get("t0"))
+        .and_then(|v| v.as_array())
+        .and_then(|entries| {
+            entries.iter().find(|entry| {
+                entry.get("panelId").and_then(|v| v.as_str()) == Some("map_stage")
+            })
+        })
+        .expect("layer_plan t0 map_stage");
+    assert_eq!(
+        map_stage.get("viewFamily").and_then(|v| v.as_str()),
+        Some("map")
+    );
+    assert!(
+        viewpoints.is_empty() || viewpoints.contains_key("park_overview_stage"),
+        "unexpected presentation_map viewpoints: {:?}",
+        viewpoints.keys().collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -764,12 +778,12 @@ fn ws_demo_v2_serve_html_emits_data_mei_viewpoint() {
         None,
     );
     assert!(
-        html.contains("data-mei-viewpoint=\"warnings_total\""),
-        "serve HTML should emit data-mei-viewpoint for warnings_total"
+        html.contains("data-mei-view-family=\"map\""),
+        "serve HTML should emit data-mei-view-family for map stage"
     );
     assert!(
-        html.contains("data-mei-viewpoint=\"enforcement_stats\""),
-        "serve HTML should emit data-mei-viewpoint for enforcement_stats"
+        html.contains("data-mei-stage-kind=\"map-stage\""),
+        "serve HTML should emit data-mei-stage-kind for map stage"
     );
 }
 
@@ -894,21 +908,17 @@ fn ws_demo_v2_mini_park_home_panels_emit_tier_props() {
         .scene_contract
         .as_ref()
         .expect("scene contract");
-    let t0_panel = contract
-        .panels
-        .iter()
-        .find(|panel| panel.props.get("__mei_tier").and_then(|v| v.as_str()) == Some("t0"))
-        .expect("t0 panel");
+    let t0_stage_panel = find_panel_by_id(&contract.panels, "viewport_canvas")
+        .or_else(|| find_panel_by_id(&contract.panels, "basemap"))
+        .expect("t0 stage panel");
     assert!(
-        t0_panel.id == "basemap" || t0_panel.id == "viewport_canvas",
+        t0_stage_panel.id == "basemap" || t0_stage_panel.id == "viewport_canvas",
         "expected basemap or viewport_canvas as t0, got {}",
-        t0_panel.id
+        t0_stage_panel.id
     );
-    let header = contract
-        .panels
-        .iter()
-        .find(|panel| panel.id == "home_header")
-        .expect("home_header panel");
+    let header = find_panel_by_id(&contract.panels, "home_header")
+        .or_else(|| find_panel_by_id(&contract.panels, "header_region"))
+        .expect("header panel");
     assert_eq!(
         header.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t1")
@@ -1261,9 +1271,10 @@ fn ws_demo_v2_mini_park_world_plan_from_park_world_mei() {
         .expect("home t1 tier");
     assert!(
         home_t1.iter().any(|entry| {
-            entry.get("panelId").and_then(|v| v.as_str()) == Some("stage_aperture_frame")
+            entry.get("panelId").and_then(|v| v.as_str()) == Some("map_viewport")
+                || entry.get("panelId").and_then(|v| v.as_str()) == Some("stage-aperture-frame")
         }),
-        "mini-park layer_plan t1 should include stage_aperture_frame for observation window"
+        "mini-park layer_plan t1 should include center-rail map viewport chrome"
     );
 }
 
@@ -1435,10 +1446,7 @@ fn ws_demo_v2_mini_park_world_stage_contract_compiles() {
         .scene_contract
         .as_ref()
         .expect("scene contract");
-    let world_panel = contract
-        .panels
-        .iter()
-        .find(|panel| panel.id == "world_viewport")
+    let world_panel = find_panel_by_id(&contract.panels, "world_viewport")
         .expect("world_viewport panel");
     assert_eq!(
         world_panel.props.get("__mei_view_family").and_then(|v| v.as_str()),

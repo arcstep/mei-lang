@@ -11,6 +11,7 @@ mod layout_overlay;
 mod ops;
 mod shell_theme;
 mod stock_catalog;
+mod theme_layout_overlay;
 mod theme_overlay;
 mod types;
 mod workspace_paths;
@@ -63,6 +64,10 @@ pub use layout_overlay::{
 };
 pub use ops::{merge_ops_section, OpsConfigPatch};
 pub use shell_theme::{resolve_workspace_shell_theme, validate_workspace_shell_theme};
+pub use theme_layout_overlay::{
+    merge_theme_layout_draft_into_theme, merge_theme_layout_overlay,
+    ops_theme_layout_revision_digest, theme_layout_overlay_keys,
+};
 pub use theme_overlay::{
     mei_config_compile_revision_digest, ops_themes_revision_digest, resolve_live_ops_theme_value,
 };

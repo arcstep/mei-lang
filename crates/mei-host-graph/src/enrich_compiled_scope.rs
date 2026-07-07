@@ -3,8 +3,9 @@
 use std::path::Path;
 
 use mei_lang_kernel::{
-    build_ui_layout_index, load_mei_config_for_app, materialize_layout_budget_px,
-    resolve_app_root, validate_layout_budget_policy, CompiledApp,
+    build_ui_layout_index, load_mei_config_for_app, materialize_fill_section_derived_heights,
+    materialize_layout_budget_px, resolve_app_root, validate_layout_budget_policy_with_options,
+    CompiledApp, LayoutBudgetValidateOptions,
 };
 
 use crate::layout_tuning_merge::merge_layout_tuning_into_compiled;
@@ -31,17 +32,31 @@ pub fn enrich_compiled_scope(
     let app_root = resolve_app_root(workspace_root, app_id);
     let mei_config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
     compiled.ui_layout_index = build_ui_layout_index(&compiled).index;
+    let theme_id = compiled
+        .scene_contract
+        .as_ref()
+        .and_then(|c| c.scene.theme.clone())
+        .unwrap_or_else(|| "cockpit".to_string());
     merge_layout_tuning_into_compiled(
         &mut compiled,
         mei_config.ops.layout_tuning.as_ref(),
     );
+    crate::theme_layout_merge::merge_theme_layout_into_compiled(
+        &mut compiled,
+        theme_id.as_str(),
+        &mei_config.ops.themes,
+    );
+    let layout_options = LayoutBudgetValidateOptions {
+        strict_t1_fill_down: mei_config.ops.strict_fill_down,
+    };
     if let Some(contract) = compiled.scene_contract.as_mut() {
         let source_path = compiled.active_target_file.as_str();
         if options.materialize_px {
-            validate_layout_budget_policy(
+            validate_layout_budget_policy_with_options(
                 &mut contract.panels,
                 &mut compiled.diagnostics,
                 source_path,
+                &layout_options,
             );
             materialize_layout_budget_px(
                 &mut contract.panels,
@@ -49,7 +64,13 @@ pub fn enrich_compiled_scope(
                 source_path,
             );
         } else {
-            validate_layout_budget_policy(
+            validate_layout_budget_policy_with_options(
+                &mut contract.panels,
+                &mut compiled.diagnostics,
+                source_path,
+                &layout_options,
+            );
+            materialize_fill_section_derived_heights(
                 &mut contract.panels,
                 &mut compiled.diagnostics,
                 source_path,

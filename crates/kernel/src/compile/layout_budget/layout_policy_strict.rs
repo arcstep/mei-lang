@@ -1,5 +1,8 @@
-use crate::compile::layout_budget::resolve_layout_budgets;
-use crate::model::{LayoutDecl, PanelDecl, Severity, UiNodeDecl};
+use crate::compile::layout_budget::{
+    materialize_fill_section_derived_heights, resolve_layout_budgets,
+    validate_layout_budget_policy_with_options, LayoutBudgetValidateOptions,
+};
+use crate::model::{Diagnostic, LayoutDecl, PanelDecl, Severity, UiNodeDecl};
 use serde_json::{json, Value};
 
 fn empty_panel(id: &str) -> PanelDecl {
@@ -79,6 +82,22 @@ fn section_with_body(id: &str, body: PanelDecl, extra_props: serde_json::Value) 
     panel.props = extra_props;
     panel.blocks = vec![UiNodeDecl::Panel(body)];
     panel
+}
+
+fn strict_fill_options() -> LayoutBudgetValidateOptions {
+    LayoutBudgetValidateOptions {
+        strict_t1_fill_down: true,
+    }
+}
+
+fn resolve_with_strict(panels: &mut [PanelDecl], diagnostics: &mut Vec<Diagnostic>, source_path: &str) {
+    validate_layout_budget_policy_with_options(
+        panels,
+        diagnostics,
+        source_path,
+        &strict_fill_options(),
+    );
+    materialize_fill_section_derived_heights(panels, diagnostics, source_path);
 }
 
 fn assert_has_code(diagnostics: &[crate::model::Diagnostic], code: &str) {
@@ -312,6 +331,139 @@ fn layout_policy_content_fill_with_budget_forbidden() {
     let mut diagnostics = Vec::new();
     resolve_layout_budgets(&mut panels, &mut diagnostics, "test.mei");
     assert_has_code(&diagnostics, "layout_policy_content_budget_px_forbidden");
+}
+
+#[test]
+fn layout_policy_content_budget_px_forbidden_on_t1_emits_error() {
+    let mut body = content_panel("penalty-stats", &[144], &["1fr"]);
+    body.props = json!({
+        "__mei_content_budget": {"rows": [144], "gap": "0"},
+        "__mei_tier": "t1",
+    });
+    let mut panels = vec![body];
+    let mut diagnostics = Vec::new();
+    resolve_with_strict(&mut panels, &mut diagnostics, "test.mei");
+    assert_has_code(&diagnostics, "layout_policy_content_budget_px_forbidden");
+}
+
+#[test]
+fn layout_policy_body_not_fill_on_t1_section_emits_error() {
+    let body = content_panel("inspection-stats", &[100], &["1fr"]);
+    let section = section_with_body(
+        "inspection",
+        body,
+        json!({
+            "__mei_ui_role": "section",
+            "__mei_tier": "t1",
+            "__mei_padding_profile": "compact_ai",
+        }),
+    );
+    let mut panels = vec![section];
+    let mut diagnostics = Vec::new();
+    resolve_with_strict(&mut panels, &mut diagnostics, "test.mei");
+    assert_has_code(&diagnostics, "layout_policy_body_not_fill");
+}
+
+#[test]
+fn layout_policy_slot_height_px_forbidden_under_fill_emits_error() {
+    let mut slot = empty_panel("metric_slot");
+    slot.props = json!({
+        "__mei_slot_frame_bg": true,
+        "height": "104px",
+        "background": {
+            "size": "100% 100%",
+            "origin": "border-box",
+            "clip": "border-box",
+        },
+    });
+    let mut body = empty_panel("enforcement-stats");
+    body.props = json!({
+        "__mei_layout_fill": true,
+        "height": "100%",
+    });
+    body.blocks = vec![UiNodeDecl::Panel(slot)];
+    let mut panels = vec![body];
+    let mut diagnostics = Vec::new();
+    resolve_layout_budgets(&mut panels, &mut diagnostics, "test.mei");
+    assert_has_code(&diagnostics, "layout_policy_slot_height_px_forbidden");
+}
+
+#[test]
+fn layout_policy_inline_font_forbidden_emits_error() {
+    let block = crate::model::BlockDecl {
+        kind: "metric_card".to_string(),
+        use_key: "row".to_string(),
+        id: Some("card_a".to_string()),
+        title: None,
+        area: None,
+        props: json!({"font_size": "13px"}),
+        base: None,
+        layout: None,
+        blocks: vec![],
+        component: None,
+        placement: None,
+        interactions: vec![],
+        lifecycle: None,
+        constraints: None,
+        data: None,
+    };
+    let mut body = empty_panel("strip");
+    body.props = json!({"__mei_layout_fill": true});
+    body.blocks = vec![UiNodeDecl::Block(block)];
+    let section = section_with_body(
+        "enforcement",
+        body,
+        json!({"__mei_ui_role": "section", "__mei_tier": "t1"}),
+    );
+    let mut region = empty_panel("left_rail");
+    region.blocks = vec![UiNodeDecl::Panel(section)];
+    region.props = json!({"__mei_ui_role": "region", "__mei_tier": "t1"});
+    let mut panels = vec![region];
+    let mut diagnostics = Vec::new();
+    resolve_with_strict(&mut panels, &mut diagnostics, "test.mei");
+    assert_has_code(&diagnostics, "layout_policy_inline_font_forbidden");
+}
+
+#[test]
+fn materialize_fill_section_derived_heights_stamps_fill_section() {
+    use super::validate::materialize_fill_section_derived_heights;
+
+    let mut body = content_panel("enforcement-stats", &[], &["1fr"]);
+    body.props = json!({"__mei_layout_fill": true, "height": "100%"});
+    let section = section_with_body(
+        "enforcement",
+        body,
+        json!({
+            "__mei_ui_role": "section",
+            "__mei_padding_profile": "dense_strip_100",
+        }),
+    );
+    let mut region = empty_panel("left_rail");
+    region.layout = Some(LayoutDecl {
+        layout_type: "grid".to_string(),
+        direction: None,
+        columns: None,
+        rows: Some(vec!["1fr".to_string()]),
+        areas: None,
+        gap: None,
+        padding: None,
+        align: None,
+        justify: None,
+    });
+    region.props = json!({
+        "__mei_ui_role": "region",
+        "viewport": {"design_height": 520},
+    });
+    region.blocks = vec![UiNodeDecl::Panel(section)];
+    let mut panels = vec![region];
+    let mut diagnostics = Vec::new();
+    materialize_fill_section_derived_heights(&mut panels, &mut diagnostics, "test.mei");
+    let enforcement = find_panel_by_id_in_tree(&panels, "enforcement").expect("enforcement");
+    let derived = enforcement
+        .props
+        .get("__mei_section_derived_height_px")
+        .and_then(Value::as_f64);
+    assert!(derived.is_some(), "expected derived height, diagnostics={diagnostics:?}");
 }
 
 fn find_panel_by_id_in_tree<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {

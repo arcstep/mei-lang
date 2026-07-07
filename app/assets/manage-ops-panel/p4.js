@@ -193,4 +193,88 @@
     fetchOverlay,
     notify: notifyLayoutTuningOverlay,
   };
+
+  async function fetchThemeLayoutOverlay(appId) {
+    const resp = await fetch(
+      `/api/ops/themes/layout/overlay/${encodeURIComponent(appId)}`,
+      {
+        credentials: "same-origin",
+        headers: { Accept: "application/json", ...draftSessionHeaders() },
+      },
+    );
+    if (!resp.ok) throw new Error(`theme.layout overlay failed: ${resp.status}`);
+    return resp.json();
+  }
+
+  async function applyThemeLayoutOverlayHot(appId, targetWindow) {
+    const view = targetWindow || global;
+    const payload = await fetchThemeLayoutOverlay(appId);
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const sessionPatches = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.themeLayout,
+    );
+    const merged = { ...(payload.entries || {}), ...(sessionPatches || {}) };
+    const root =
+      view.document.querySelector(".preview-pane-scroll") ||
+      view.document.querySelector(".preview-pane");
+    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
+    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
+      compositor.applyThemeAndOverlay(root, null, { patches: merged });
+      notifyLayoutTuningOverlay("theme-layout-overlay");
+      return;
+    }
+    applyOverlayEntries(root, merged);
+    notifyLayoutTuningOverlay("theme-layout-overlay");
+  }
+
+  async function putThemeLayoutSessionDraft(appId, layout, options) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    if (!store?.putThemeLayoutPatches) {
+      throw new Error("theme layout draft store unavailable");
+    }
+    store.putThemeLayoutPatches(appId, layout);
+    if (options?.forceRematerialize && boot.viewCompositor?.recomposeFromLayerStore) {
+      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
+      boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
+      global.MeiLayoutTuningForm.applySessionHot(appId);
+    } else {
+      await applyThemeLayoutOverlayHot(appId);
+    }
+    notifyLayoutTuningOverlay("theme-layout-draft");
+    return { ok: true, local: true };
+  }
+
+  async function applyThemeLayoutDraftToConfig(appId) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const layout = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.themeLayout,
+    );
+    const resp = await fetch(
+      `/api/ops/themes/layout/apply/${encodeURIComponent(appId)}`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...draftSessionHeaders(),
+        },
+        body: JSON.stringify({ layout: layout || {} }),
+      },
+    );
+    if (!resp.ok) throw new Error(`theme.layout apply failed: ${resp.status}`);
+    const payload = await resp.json();
+    store?.clearSession?.(appId);
+    notifyLayoutTuningOverlay("theme-layout-persisted");
+    return payload;
+  }
+
+  global.MeiOpsThemeLayoutOverlay = {
+    applyHot: applyThemeLayoutOverlayHot,
+    putSessionDraft: putThemeLayoutSessionDraft,
+    applyDraftToConfig: applyThemeLayoutDraftToConfig,
+    fetchOverlay: fetchThemeLayoutOverlay,
+    notify: notifyLayoutTuningOverlay,
+  };
 })();

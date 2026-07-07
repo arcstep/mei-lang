@@ -1,6 +1,9 @@
 
 
-use super::{theme_decl_to_value, validate_required_scene_theme_tokens, validate_required_shell_theme_tokens, validate_theme_value_refs, walk_value_for_token_refs};
+use super::{
+    theme_decl_to_value, validate_required_scene_theme_tokens, validate_required_shell_theme_tokens,
+    validate_theme_layout_value, validate_theme_value_refs, walk_value_for_token_refs,
+};
 
 use serde_json::Value;
 
@@ -30,6 +33,14 @@ pub fn validate_scene_theme_value_from_ops(
         diagnostics,
     );
     validate_required_scene_theme_tokens(value, id, target_file, diagnostics);
+    if let Some(layout) = value.get("layout") {
+        validate_theme_layout_value(
+            layout,
+            &format!("ops.themes.`{id}`"),
+            target_file,
+            diagnostics,
+        );
+    }
 }
 
 /// Workspace / host shell theme (`ops.themes` on `.mei-workspace.json`).

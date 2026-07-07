@@ -8327,11 +8327,31 @@
     return false;
   }
 
-  function mergedSessionPatches(appId) {
+  function resolveThemeLayoutScope(previewScope) {
+    const key = normalizeScope(previewScope);
+    const parts = key.split("/").filter(Boolean);
+    if (parts[0] === "home" && parts.length >= 3) {
+      return `home/${parts[1].toUpperCase()}/${parts[2]}`;
+    }
+    if (parts.length >= 1) {
+      return `home/T1/${parts[0]}`;
+    }
+    return key;
+  }
+
+  function mergedThemeLayoutPatches(appId) {
     const store = global.MeiDraftLayerStore || boot.draftLayerStore;
     return (
-      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.layoutOverlay) || {}
+      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.themeLayout) || {}
     );
+  }
+
+  function mergedSessionPatches(appId) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const layoutOverlay =
+      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.layoutOverlay) || {};
+    const themeLayout = mergedThemeLayoutPatches(appId);
+    return { ...layoutOverlay, ...themeLayout };
   }
 
   function applySessionHot(appId, targetWindow) {
@@ -8389,24 +8409,21 @@
 
   function applyEntryToControls(controls, entry) {
     if (!controls || !entry || typeof entry !== "object") return;
-    const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
-    const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
-    const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+    const sectionRowsInput = controls.querySelector('[data-draft-field="sectionRows"]');
+    const gapInput = controls.querySelector('[data-draft-field="gap"]');
+    const compoundInput = controls.querySelector('[data-draft-field="compoundWidth"]');
     const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-    const contentBudget = entry.contentBudget || entry.content_budget;
-    if (contentBudget && typeof contentBudget === "object") {
-      const rows = contentBudget.rows || contentBudget.content_rows;
-      if (rowsInput instanceof HTMLInputElement && Array.isArray(rows)) {
-        rowsInput.value = rows.join(",");
-      }
-      const gap = contentBudget.gap ?? contentBudget.content_gap;
-      if (gapInput instanceof HTMLInputElement && gap != null) {
-        gapInput.value = String(gap);
-      }
+    const sectionRows = entry.sectionRows || entry.section_rows;
+    if (sectionRowsInput instanceof HTMLInputElement && Array.isArray(sectionRows)) {
+      sectionRowsInput.value = sectionRows.join(",");
     }
-    const slotHeight = entry.slotHeight ?? entry.slot_height;
-    if (slotInput instanceof HTMLInputElement && slotHeight != null) {
-      slotInput.value = String(slotHeight).replace(/px$/i, "").trim();
+    const gap = entry.gap ?? entry.stripGap;
+    if (gapInput instanceof HTMLInputElement && gap != null) {
+      gapInput.value = String(gap);
+    }
+    const compoundWidth = entry.compoundWidth ?? entry.compound_width;
+    if (compoundInput instanceof HTMLInputElement && compoundWidth) {
+      compoundInput.value = String(compoundWidth);
     }
     const profile = entry.paddingProfile ?? entry.padding_profile;
     if (paddingSelect instanceof HTMLSelectElement && profile) {
@@ -8417,6 +8434,7 @@
   global.MeiLayoutTuningForm = {
     resolveLayoutTuningEntry,
     resolveLayoutTuningScope,
+    resolveThemeLayoutScope,
     resolvePatchScopes,
     fetchOverlayEntries,
     putSessionPatch,
@@ -8578,44 +8596,57 @@
     return rawScope;
   }
 
+  function themeLayoutScopeForPreview(previewScope) {
+    const raw = String(previewScope || "").trim();
+    if (!raw) return "";
+    const parts = raw.split("/").filter(Boolean);
+    if (parts.length >= 2 && parts[0] === "home") {
+      const tier = parts[1].toUpperCase();
+      const tail = parts.slice(1).join("/");
+      return `home/${tier}/${tail.split("/")[0]}`;
+    }
+    return raw.split("/").slice(0, 2).join("/");
+  }
+
   function buildDraftPatch(previewScope, fields) {
     const rawScope = String(previewScope || "").trim();
     if (!rawScope) return null;
-    const patchScopes =
-      global.MeiLayoutTuningForm?.resolvePatchScopes?.(rawScope) || {
-        rows: rawScope,
-        slot: rawScope,
-        padding: rawScope,
-        primary: rawScope,
+    const layoutScope =
+      global.MeiLayoutTuningForm?.resolveThemeLayoutScope?.(rawScope) ||
+      themeLayoutScopeForPreview(rawScope);
+    const layout = {};
+    const sectionRows = fields?.sectionRows;
+    if (Array.isArray(sectionRows) && sectionRows.length > 0) {
+      layout[layoutScope] = {
+        ...(layout[layoutScope] || {}),
+        sectionRows: sectionRows.map((row) => String(row).trim()).filter(Boolean),
       };
-    const tuning = {};
-    const slotHeight = fields?.slotHeight;
-    if (slotHeight != null && slotHeight !== "") {
-      const numeric = Number(slotHeight);
-      const value = Number.isFinite(numeric) ? `${Math.round(numeric)}px` : String(slotHeight);
-      const slotKey = patchScopes.slot || rawScope;
-      tuning[slotKey] = { ...(tuning[slotKey] || {}), slotHeight: value };
     }
     const paddingProfile = String(fields?.paddingProfile || "").trim();
     if (paddingProfile) {
-      const paddingKey = patchScopes.padding || rawScope;
-      tuning[paddingKey] = { ...(tuning[paddingKey] || {}), paddingProfile };
+      const paddingScope =
+        global.MeiLayoutTuningForm?.resolveLayoutTuningScope?.(rawScope) || rawScope;
+      layout[paddingScope] = {
+        ...(layout[paddingScope] || {}),
+        paddingProfile,
+      };
     }
-    const rows = fields?.contentRows;
-    const gap = fields?.contentGap;
-    if ((Array.isArray(rows) && rows.length > 0) || (gap != null && gap !== "")) {
-      const rowsKey = patchScopes.rows || rawScope;
-      const budget = { ...((tuning[rowsKey] || {}).contentBudget || {}) };
-      if (Array.isArray(rows) && rows.length > 0) {
-        budget.rows = rows.map((row) => Number(row));
-      }
-      if (gap != null && gap !== "") {
-        budget.gap = Number(gap);
-      }
-      tuning[rowsKey] = { ...(tuning[rowsKey] || {}), contentBudget: budget };
+    const compoundWidth = String(fields?.compoundWidth || "").trim();
+    if (compoundWidth) {
+      layout[rawScope] = {
+        ...(layout[rawScope] || {}),
+        compoundWidth,
+      };
     }
-    if (Object.keys(tuning).length === 0) return null;
-    return { tuning, primaryScope: patchScopes.primary || rawScope };
+    const gap = fields?.gap;
+    if (gap != null && gap !== "") {
+      layout[layoutScope] = {
+        ...(layout[layoutScope] || {}),
+        gap: String(gap).trim(),
+      };
+    }
+    if (Object.keys(layout).length === 0) return null;
+    return { layout, primaryScope: layoutScope };
   }
 
   function inspectBarRoot() {
@@ -8633,8 +8664,8 @@
     controls.hidden = true;
     controls.innerHTML = [
       '<label class="flex items-center gap-1 text-xs">',
-      '<span>slotHeight</span>',
-      '<input type="number" min="32" step="4" data-draft-field="slotHeight" class="w-20 rounded border px-1 py-0.5 text-xs" />',
+      "<span>sectionRows</span>",
+      '<input type="text" data-draft-field="sectionRows" placeholder="1fr,2fr,3fr" class="w-28 rounded border px-1 py-0.5 text-xs" />',
       "</label>",
       '<label class="flex items-center gap-1 text-xs">',
       "<span>padding</span>",
@@ -8646,12 +8677,12 @@
       "</select>",
       "</label>",
       '<label class="flex items-center gap-1 text-xs">',
-      "<span>rows</span>",
-      '<input type="text" data-draft-field="contentRows" placeholder="120,80" class="w-24 rounded border px-1 py-0.5 text-xs" />',
+      "<span>gap</span>",
+      '<input type="text" data-draft-field="gap" placeholder="12px" class="w-16 rounded border px-1 py-0.5 text-xs" />',
       "</label>",
       '<label class="flex items-center gap-1 text-xs">',
-      "<span>gap</span>",
-      '<input type="number" min="0" step="2" data-draft-field="contentGap" class="w-16 rounded border px-1 py-0.5 text-xs" />',
+      "<span>compoundW</span>",
+      '<input type="text" data-draft-field="compoundWidth" placeholder="220px" class="w-16 rounded border px-1 py-0.5 text-xs" />',
       "</label>",
       '<button type="button" data-draft-apply class="build-toolbar-btn text-xs">应用 draft 预览</button>',
       '<button type="button" data-draft-persist class="build-toolbar-btn text-xs">应用到配置</button>',
@@ -8671,28 +8702,29 @@
         const appId = appIdFromPath();
         const scope = resolvePreviewScopeFromSelection();
         if (!appId || !scope) return;
-        const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+        const sectionRowsInput = controls.querySelector('[data-draft-field="sectionRows"]');
         const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-        const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
-        const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
-        const rows =
-          rowsInput instanceof HTMLInputElement && rowsInput.value
-            ? rowsInput.value
+        const gapInput = controls.querySelector('[data-draft-field="gap"]');
+        const compoundInput = controls.querySelector('[data-draft-field="compoundWidth"]');
+        const sectionRows =
+          sectionRowsInput instanceof HTMLInputElement && sectionRowsInput.value
+            ? sectionRowsInput.value
                 .split(",")
-                .map((part) => Number(part.trim()))
-                .filter((value) => Number.isFinite(value))
+                .map((part) => part.trim())
+                .filter(Boolean)
             : null;
         const built = buildDraftPatch(scope, {
-          slotHeight:
-            slotInput instanceof HTMLInputElement && slotInput.value ? slotInput.value : null,
+          sectionRows,
           paddingProfile:
             paddingSelect instanceof HTMLSelectElement ? paddingSelect.value : "",
-          contentRows: rows,
-          contentGap:
-            gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
+          gap: gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
+          compoundWidth:
+            compoundInput instanceof HTMLInputElement && compoundInput.value
+              ? compoundInput.value
+              : null,
         });
-        if (!built?.tuning || Object.keys(built.tuning).length === 0) return;
-        void global.MeiOpsLayoutTuningOverlay?.putSessionDraft?.(appId, built.tuning);
+        if (!built?.layout || Object.keys(built.layout).length === 0) return;
+        void global.MeiOpsThemeLayoutOverlay?.putSessionDraft?.(appId, built.layout);
         const formApi = global.MeiLayoutTuningForm;
         if (formApi?.applySessionHot) {
           formApi.applySessionHot(appId);
@@ -8710,7 +8742,7 @@
 
   async function applyDraftFromControls(options) {
     if (!isWorkspaceRoute()) return;
-    const overlay = global.MeiOpsLayoutTuningOverlay;
+    const overlay = global.MeiOpsThemeLayoutOverlay || global.MeiOpsLayoutTuningOverlay;
     if (!overlay?.putSessionDraft || !overlay?.applyHot) return;
     const appId = appIdFromPath();
     if (!appId) return;
@@ -8718,30 +8750,29 @@
     if (!controls) return;
     const scope = resolvePreviewScopeFromSelection();
     if (!scope) return;
-    const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+    const sectionRowsInput = controls.querySelector('[data-draft-field="sectionRows"]');
     const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-    const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
-    const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
-    const rows =
-      rowsInput instanceof HTMLInputElement && rowsInput.value
-        ? rowsInput.value
+    const gapInput = controls.querySelector('[data-draft-field="gap"]');
+    const compoundInput = controls.querySelector('[data-draft-field="compoundWidth"]');
+    const sectionRows =
+      sectionRowsInput instanceof HTMLInputElement && sectionRowsInput.value
+        ? sectionRowsInput.value
             .split(",")
-            .map((part) => Number(part.trim()))
-            .filter((value) => Number.isFinite(value))
+            .map((part) => part.trim())
+            .filter(Boolean)
         : null;
     const patch = buildDraftPatch(scope, {
-      slotHeight:
-        slotInput instanceof HTMLInputElement && slotInput.value
-          ? slotInput.value
-          : null,
+      sectionRows,
       paddingProfile:
         paddingSelect instanceof HTMLSelectElement ? paddingSelect.value : "",
-      contentRows: rows,
-      contentGap:
-        gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
+      gap: gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
+      compoundWidth:
+        compoundInput instanceof HTMLInputElement && compoundInput.value
+          ? compoundInput.value
+          : null,
     });
     if (!patch) return;
-    await overlay.putSessionDraft(appId, patch.tuning);
+    await overlay.putSessionDraft(appId, patch.layout);
     if (options?.persist && typeof overlay.applyDraftToConfig === "function") {
       await overlay.applyDraftToConfig(appId);
     }
@@ -8750,7 +8781,7 @@
         new CustomEvent("meilang:preview-updated", {
           bubbles: true,
           detail: {
-            scope: "layout-tuning-draft",
+            scope: "theme-layout-draft",
             preview_scope: scope,
             resetRuntimeQueryCache: false,
           },
@@ -8786,17 +8817,22 @@
       const local = formApi.resolveLayoutTuningEntry(scope, { appId });
       if (local) fillFromEntry(local);
     }
-    const overlay = global.MeiOpsLayoutTuningOverlay;
+    const overlay = global.MeiOpsThemeLayoutOverlay || global.MeiOpsLayoutTuningOverlay;
     if (appId && overlay?.fetchOverlay) {
       void overlay
         .fetchOverlay(appId)
         .then((payload) => {
-          const entry = formApi?.resolveLayoutTuningEntry
-            ? formApi.resolveLayoutTuningEntry(scope, {
-                appId,
-                overlayEntries: payload?.entries || {},
-              })
-            : payload?.entries?.[scope];
+          const layoutScope =
+            formApi?.resolveThemeLayoutScope?.(scope) || themeLayoutScopeForPreview(scope);
+          const entry =
+            payload?.entries?.[layoutScope] ||
+            payload?.entries?.[scope] ||
+            (formApi?.resolveLayoutTuningEntry
+              ? formApi.resolveLayoutTuningEntry(scope, {
+                  appId,
+                  overlayEntries: payload?.entries || {},
+                })
+              : null);
           if (entry) fillFromEntry(entry);
         })
         .catch(() => {});
@@ -9050,6 +9086,90 @@
     putSessionDraft,
     applyDraftToConfig,
     fetchOverlay,
+    notify: notifyLayoutTuningOverlay,
+  };
+
+  async function fetchThemeLayoutOverlay(appId) {
+    const resp = await fetch(
+      `/api/ops/themes/layout/overlay/${encodeURIComponent(appId)}`,
+      {
+        credentials: "same-origin",
+        headers: { Accept: "application/json", ...draftSessionHeaders() },
+      },
+    );
+    if (!resp.ok) throw new Error(`theme.layout overlay failed: ${resp.status}`);
+    return resp.json();
+  }
+
+  async function applyThemeLayoutOverlayHot(appId, targetWindow) {
+    const view = targetWindow || global;
+    const payload = await fetchThemeLayoutOverlay(appId);
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const sessionPatches = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.themeLayout,
+    );
+    const merged = { ...(payload.entries || {}), ...(sessionPatches || {}) };
+    const root =
+      view.document.querySelector(".preview-pane-scroll") ||
+      view.document.querySelector(".preview-pane");
+    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
+    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
+      compositor.applyThemeAndOverlay(root, null, { patches: merged });
+      notifyLayoutTuningOverlay("theme-layout-overlay");
+      return;
+    }
+    applyOverlayEntries(root, merged);
+    notifyLayoutTuningOverlay("theme-layout-overlay");
+  }
+
+  async function putThemeLayoutSessionDraft(appId, layout, options) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    if (!store?.putThemeLayoutPatches) {
+      throw new Error("theme layout draft store unavailable");
+    }
+    store.putThemeLayoutPatches(appId, layout);
+    if (options?.forceRematerialize && boot.viewCompositor?.recomposeFromLayerStore) {
+      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
+      boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
+      global.MeiLayoutTuningForm.applySessionHot(appId);
+    } else {
+      await applyThemeLayoutOverlayHot(appId);
+    }
+    notifyLayoutTuningOverlay("theme-layout-draft");
+    return { ok: true, local: true };
+  }
+
+  async function applyThemeLayoutDraftToConfig(appId) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const layout = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.themeLayout,
+    );
+    const resp = await fetch(
+      `/api/ops/themes/layout/apply/${encodeURIComponent(appId)}`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          ...draftSessionHeaders(),
+        },
+        body: JSON.stringify({ layout: layout || {} }),
+      },
+    );
+    if (!resp.ok) throw new Error(`theme.layout apply failed: ${resp.status}`);
+    const payload = await resp.json();
+    store?.clearSession?.(appId);
+    notifyLayoutTuningOverlay("theme-layout-persisted");
+    return payload;
+  }
+
+  global.MeiOpsThemeLayoutOverlay = {
+    applyHot: applyThemeLayoutOverlayHot,
+    putSessionDraft: putThemeLayoutSessionDraft,
+    applyDraftToConfig: applyThemeLayoutDraftToConfig,
+    fetchOverlay: fetchThemeLayoutOverlay,
     notify: notifyLayoutTuningOverlay,
   };
 })();
@@ -29947,9 +30067,24 @@
     return true;
   }
 
+  function readThemeLayoutSession(appId) {
+    return readJson(storageKey(appId, "theme.layout.session"));
+  }
+
+  function putThemeLayoutPatches(appId, layout) {
+    const app = String(appId || "").trim();
+    if (!app || !layout || typeof layout !== "object") return false;
+    const key = storageKey(app, "theme.layout.session");
+    const current = normalizeOverlayPatches(readJson(key));
+    const next = overlayDocFromPatches({ ...current, ...layout });
+    writeJson(key, next);
+    return true;
+  }
+
   function getSessionLayers(appId) {
     return {
       layoutOverlay: readLayoutOverlaySession(appId),
+      themeLayout: readThemeLayoutSession(appId),
       themeTokens: readThemeTokensSession(appId),
     };
   }
@@ -29958,15 +30093,18 @@
     const app = String(appId || "").trim();
     if (!app) return;
     removeJson(storageKey(app, "layout.overlay.session"));
+    removeJson(storageKey(app, "theme.layout.session"));
     removeJson(storageKey(app, "theme.tokens.session"));
   }
 
   function hasSessionDraft(appId) {
     const layers = getSessionLayers(appId);
     const overlayPatches = normalizeOverlayPatches(layers.layoutOverlay);
+    const themeLayoutPatches = normalizeOverlayPatches(layers.themeLayout);
     const theme = themeDocFromTokens(layers.themeTokens);
     return (
       Object.keys(overlayPatches).length > 0 ||
+      Object.keys(themeLayoutPatches).length > 0 ||
       Object.keys(theme.colors).length > 0 ||
       Object.keys(theme.fonts).length > 0
     );
@@ -29975,6 +30113,7 @@
   global.MeiDraftLayerStore = {
     ensureDraftSessionId,
     putLayoutOverlayPatches,
+    putThemeLayoutPatches,
     putThemeTokensPatch,
     getSessionLayers,
     clearSession,
@@ -30074,6 +30213,15 @@
             node.style.rowGap = `${gap}px`;
             node.dataset.layoutTuningContentGap = String(gap);
           }
+        }
+        const sectionRows = patch.sectionRows || patch.section_rows;
+        if (Array.isArray(sectionRows) && sectionRows.length > 0) {
+          node.style.gridTemplateRows = sectionRows.map((row) => String(row)).join(" ");
+          node.dataset.layoutTuningSectionRows = sectionRows.join(",");
+        }
+        const gapFr = patch.gap ?? patch.stripGap;
+        if (gapFr != null && gapFr !== "" && !contentBudget) {
+          node.style.gap = String(gapFr).endsWith("px") ? String(gapFr) : `${gapFr}px`;
         }
       });
     }

@@ -20,6 +20,7 @@ mod structure_full;
 mod view_artifact;
 mod manifest_index;
 mod layout_tuning_merge;
+mod theme_layout_merge;
 mod mcg;
 mod metric_hydrate;
 mod mrg;

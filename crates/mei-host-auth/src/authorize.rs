@@ -274,6 +274,18 @@ pub fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
         }
         return Ok(());
     }
+    if path.starts_with("/api/ops/themes/layout/overlay/") {
+        if !(caps.build_view || caps.access_view) {
+            anyhow::bail!("current role cannot access theme layout overlay api");
+        }
+        return Ok(());
+    }
+    if path.starts_with("/api/ops/themes/layout/apply/") {
+        if !caps.build_view {
+            anyhow::bail!("current role cannot apply theme layout draft");
+        }
+        return Ok(());
+    }
     if path.starts_with("/api/ops/layout-tuning/draft/") {
         if !caps.build_view {
             anyhow::bail!("current role cannot access layout tuning draft api");

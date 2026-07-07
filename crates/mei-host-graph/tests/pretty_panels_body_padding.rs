@@ -48,6 +48,12 @@ fn find_panel<'a>(panel: &'a PanelDecl, id: &str) -> Option<&'a PanelDecl> {
     None
 }
 
+fn find_panel_in_tree<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {
+    panels
+        .iter()
+        .find_map(|panel| find_panel(panel, id))
+}
+
 #[test]
 fn pretty_panels_enforcement_section_carries_body_padding() {
     let outcome = assemble_scope_from_registry(ensure_pretty_panels_imported().as_path(), "pretty-panels", "home")
@@ -59,18 +65,14 @@ fn pretty_panels_enforcement_section_carries_body_padding() {
         .as_ref()
         .expect("scene contract")
         .panels;
-    let left_rail = panels
-        .iter()
-        .find(|panel| panel.id == "left_rail")
-        .expect("left_rail panel");
-    let enforcement = find_panel(left_rail, "enforcement").expect("enforcement section");
+    let enforcement = find_panel_in_tree(panels, "enforcement").expect("enforcement section");
     assert_eq!(
         enforcement
             .body_props
             .get("padding")
             .and_then(|v| v.as_str()),
-        Some("8px 6px 6px 6px"),
-        "body_props should reflect layoutTuning paddingProfile override: {:?}",
+        Some("8px 4px 2px 4px"),
+        "body_props should reflect theme.layout paddingProfile dense_strip_100: {:?}",
         enforcement.body_props,
     );
 }

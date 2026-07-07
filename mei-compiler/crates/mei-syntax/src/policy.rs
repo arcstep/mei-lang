@@ -138,10 +138,16 @@ fn validate_region_layout_policy(path: &Path, source: &str) -> Result<(), Forbid
     if !source.contains("region_layout(") {
         return Ok(());
     }
+    let sanitized = sanitize_for_policy(source);
+    if sanitized.contains("stage_anchor(") {
+        return Err(ForbiddenTokenError::region_layout_violation(
+            "stage_anchor",
+            "region_layout must not use stage_anchor(...); use plane_layout grid + region area instead",
+        ));
+    }
     if region_layout_allows_empty_sections(source) {
         return Ok(());
     }
-    let sanitized = sanitize_for_policy(source);
     if sanitized.contains("contents =") || sanitized.contains("contents=") {
         return Err(ForbiddenTokenError::region_layout_violation(
             "contents",
@@ -297,6 +303,23 @@ mod tests {
     }
 
     #[test]
+    fn region_layout_rejects_stage_anchor() {
+        let path = Path::new(
+            "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t0/r-map-stage/layout.mei",
+        );
+        let err = validate_authoring_policy_for_path(
+            path,
+            r#"region_layout(
+                id = "map_stage",
+                placement = stage_anchor(top = "0", left = "0", width = "100%", height = "1080px"),
+                sections = [section_ref("pretty-panels/home/t0/r-map-stage/s-map-stage")],
+            )"#,
+        )
+        .expect_err("stage_anchor should be rejected");
+        assert!(err.to_string().contains("stage_anchor"));
+    }
+
+    #[test]
     fn region_layout_allows_stage_aperture_frame_without_sections() {
         let path = Path::new(
             "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-stage-aperture-frame/layout.mei",
@@ -306,7 +329,6 @@ mod tests {
             r#"region_layout(
                 id = "stage_aperture_frame",
                 chrome_role = "stage_aperture",
-                placement = stage_anchor(top = "0", left = "0", width = "100%", height = "100%"),
             )"#,
         )
         .expect("stage_aperture frame-only region should be allowed");

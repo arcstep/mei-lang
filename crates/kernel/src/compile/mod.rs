@@ -110,7 +110,9 @@ pub use materialize_cache::TableSnapshot;
 pub use materialize_cache::TableSnapshotKey;
 pub use panel_normalize::{normalize_panel_slots, panel_resolved_has_head};
 pub use layout_budget::{
-    materialize_layout_budget_px, resolve_layout_budgets, validate_layout_budget_policy,
+    materialize_fill_section_derived_heights, materialize_layout_budget_px,
+    resolve_layout_budgets, validate_layout_budget_policy,
+    validate_layout_budget_policy_with_options, LayoutBudgetValidateOptions,
 };
 pub use scene_payload_cache::scene_payload_cache_epoch;
 

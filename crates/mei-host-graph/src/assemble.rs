@@ -10,7 +10,7 @@ use mei_lang_kernel::{
 use serde_json::{json, Value};
 
 use crate::import::load_block_artifact;
-use crate::layer_plan::{build_layer_plan, layer_plan_to_value};
+use crate::layer_plan::{build_layer_plan, flatten_panel_tree, layer_plan_to_value};
 use crate::mcg::registry::McgRegistryWriter;
 use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
 use crate::projection_normalize::normalize_board_assembly_payload;
@@ -317,9 +317,10 @@ fn assemble_scope_from_registry_uncached(
             )
         };
     normalize_panel_slots(&mut panels, &mut panel_diagnostics, active_target.as_str());
-    let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &panels));
+    let flat_panels = flatten_panel_tree(&panels);
+    let layer_plan = layer_plan_to_value(&build_layer_plan(&scene_id, &flat_panels));
     let presentation_map =
-        presentation_map_to_value(&build_presentation_map(&scene_id, &panels, &panel_payloads));
+        presentation_map_to_value(&build_presentation_map(&scene_id, &flat_panels, &panel_payloads));
     let world_exchange = build_world_exchange(app_root.as_path(), &registry, app_id)
         .unwrap_or_default();
     let component_assets =

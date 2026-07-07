@@ -28,10 +28,12 @@ pub fn layout_tuning_overlay_keys(tuning: &Value) -> BTreeMap<String, Value> {
 }
 
 /// P1: read-only diff lines between index budget and ops.layoutTuning entry.
+/// When `theme_layout` is set, duplicate keys surface a migration hint (0327 §5.2).
 pub fn format_layout_tuning_diff(
     preview_scope: &str,
     budget: Option<&crate::model::UiBudgetSummary>,
     tuning: Option<&Value>,
+    theme_layout: Option<&Value>,
 ) -> Option<String> {
     let tuning_obj = tuning?.as_object()?;
     let patch = tuning_obj.get(preview_scope)?;
@@ -89,6 +91,19 @@ pub fn format_layout_tuning_diff(
         }
     }
 
+    if let Some(theme_layout) = theme_layout.and_then(Value::as_object) {
+        if let Some(theme_scope) = theme_layout_scope_for_tuning_key(preview_scope) {
+            if let Some(theme_patch) = theme_layout.get(theme_scope.as_str()) {
+                if theme_patch_duplicates_tuning(theme_patch, patch) {
+                    lines.push(
+                        "layoutTuning: 与 ops.themes.*.layout 重复，请合并进 theme profile"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+    }
+
     if lines.is_empty() {
         if patch.is_object() {
             return Some("layoutTuning: 与 index 一致（或无可比字段）".to_string());
@@ -96,6 +111,37 @@ pub fn format_layout_tuning_diff(
         return None;
     }
     Some(lines.join("\n"))
+}
+
+fn theme_layout_scope_for_tuning_key(tuning_key: &str) -> Option<String> {
+    let key = tuning_key.trim().trim_matches('/');
+    if key.is_empty() {
+        return None;
+    }
+    if key.starts_with("home/") {
+        return Some(key.to_string());
+    }
+    Some(format!("home/T1/{key}"))
+}
+
+fn theme_patch_duplicates_tuning(theme_patch: &Value, tuning_patch: &Value) -> bool {
+    let Some(theme_obj) = theme_patch.as_object() else {
+        return false;
+    };
+    let Some(tuning_obj) = tuning_patch.as_object() else {
+        return false;
+    };
+    for (field, tuning_value) in tuning_obj {
+        if field == "contentBudget" || field == "content_budget" || field == "slotHeight" {
+            continue;
+        }
+        if let Some(theme_value) = theme_obj.get(field) {
+            if theme_value == tuning_value {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -131,10 +177,33 @@ mod tests {
             padding_profile: Some("dense_strip_100".to_string()),
             ..Default::default()
         };
-        let diff = format_layout_tuning_diff("left_rail/enforcement", Some(&budget), Some(&tuning))
-            .expect("diff");
+        let diff = format_layout_tuning_diff(
+            "left_rail/enforcement",
+            Some(&budget),
+            Some(&tuning),
+            None,
+        )
+        .expect("diff");
         assert!(diff.contains("padding_profile"));
         assert!(diff.contains("dense_strip_100"));
         assert!(diff.contains("compact"));
+    }
+
+    #[test]
+    fn format_layout_tuning_diff_hints_theme_layout_duplicate() {
+        let tuning = json!({
+            "left_rail/enforcement": {"paddingProfile": "dense_strip_100"}
+        });
+        let theme_layout = json!({
+            "home/T1/left_rail/enforcement": {"paddingProfile": "dense_strip_100"}
+        });
+        let diff = format_layout_tuning_diff(
+            "left_rail/enforcement",
+            None,
+            Some(&tuning),
+            Some(&theme_layout),
+        )
+        .expect("diff");
+        assert!(diff.contains("theme profile"));
     }
 }

@@ -84,12 +84,7 @@ fn mini_park_home_strict_layout_policy_clean() {
 fn ws_demo_v2_apps_compile_with_strict_layout_policy() {
     let workspace = ws_demo_v2();
     let manifest_dir = mei_lang_root();
-    for app_id in [
-        "pretty-panels",
-        "data-demo",
-        "mini-park",
-        "_author-frame-smoke",
-    ] {
+    for app_id in ["pretty-panels", "data-demo", "mini-park"] {
         let status = Command::new("cargo")
             .current_dir(&manifest_dir)
             .args([

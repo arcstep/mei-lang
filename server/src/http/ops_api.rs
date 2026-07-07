@@ -10,10 +10,11 @@ use mei_lang_app::{scene_theme_style_for_theme_id, scene_viewport_theme_style};
 use mei_lang_kernel::{
     apply_ops_patch_with_journal, compile_app_from_root_with_options, decode_theme_ref_token,
     journal_path, layout_tuning_overlay_keys, load_mei_config_for_app,
-    ops_layout_tuning_revision_digest, ops_themes_revision_digest,
+    merge_theme_layout_draft_into_theme, ops_layout_tuning_revision_digest,
+    ops_theme_layout_revision_digest, ops_themes_revision_digest,
     resolve_app_root as kernel_resolve_app_root, resolve_components_root,
-    resolve_default_scene_from_root, resolve_mei_config_path, CompileOptions, MeiConfig,
-    OpsConfigPatch, OpsJournal,
+    resolve_default_scene_from_root, resolve_mei_config_path, theme_layout_overlay_keys,
+    CompileOptions, MeiConfig, OpsConfigPatch, OpsJournal,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -384,4 +385,171 @@ fn theme_id_from_scene_contract(
         .or_else(|| contract.scene.theme.clone())
         .or_else(|| contract.scene.profile.clone())
         .unwrap_or_else(|| "page".to_string())
+}
+
+fn resolve_ops_theme_id(config: &MeiConfig) -> String {
+    config
+        .ops
+        .themes
+        .keys()
+        .next()
+        .cloned()
+        .unwrap_or_else(|| "cockpit".to_string())
+}
+
+#[derive(Debug, Serialize)]
+struct ThemeLayoutOverlayResponse {
+    app_id: String,
+    theme_id: String,
+    session_id: String,
+    revision: String,
+    themes_revision: String,
+    draft_active: bool,
+    deprecated_layout_tuning: bool,
+    entries: std::collections::BTreeMap<String, Value>,
+}
+
+pub async fn ops_theme_layout_overlay_get(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(app_id): Path<String>,
+) -> impl IntoResponse {
+    let app_id = app_id.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app_id is required"})),
+        )
+            .into_response();
+    }
+    let Some(app_root) = resolve_app_root(&state, app_id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    };
+    let source_root = state.source_root.as_path();
+    let config = load_mei_config_for_app(&app_root, Some(source_root));
+    let theme_id = resolve_ops_theme_id(&config);
+    let session_id = mei_host_core::resolve_draft_session_id(&headers);
+    let entries = config
+        .ops
+        .themes
+        .get(theme_id.as_str())
+        .and_then(|theme| theme.get("layout"))
+        .map(theme_layout_overlay_keys)
+        .unwrap_or_default();
+    let revision = ops_theme_layout_revision_digest(&config, theme_id.as_str());
+    (
+        StatusCode::OK,
+        Json(ThemeLayoutOverlayResponse {
+            app_id: app_id.to_string(),
+            theme_id,
+            session_id,
+            revision,
+            themes_revision: ops_themes_revision_digest(&config),
+            draft_active: false,
+            deprecated_layout_tuning: config.ops.layout_tuning.is_some(),
+            entries,
+        }),
+    )
+        .into_response()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ThemeLayoutDraftRequest {
+    #[serde(default)]
+    pub layout: Value,
+}
+
+pub async fn ops_theme_layout_apply_post(
+    State(state): State<AppState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    headers: HeaderMap,
+    Path(app_id): Path<String>,
+    body: Option<Json<ThemeLayoutDraftRequest>>,
+) -> impl IntoResponse {
+    let app_id = app_id.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app_id is required"})),
+        )
+            .into_response();
+    }
+    if state.auth_enforcement == mei_host_auth::AuthEnforcement::Required && principal.is_none() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "auth required for theme layout apply"})),
+        )
+            .into_response();
+    }
+    let Some(app_root) = resolve_app_root(&state, app_id) else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    };
+    let _session_id = mei_host_core::resolve_draft_session_id(&headers);
+    let client_layout = body
+        .as_ref()
+        .map(|Json(req)| req.layout.clone())
+        .filter(|value| !value.is_null() && value.as_object().is_some_and(|obj| !obj.is_empty()));
+    let Some(draft_value) = client_layout else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "no theme.layout draft",
+                "hint": "POST layout from MeiDraftLayerStore themeLayout session",
+            })),
+        )
+            .into_response();
+    };
+    let source_root = state.source_root.as_path();
+    let config_path = resolve_mei_config_path(&app_root, Some(source_root));
+    let config = load_mei_config_for_app(&app_root, Some(source_root));
+    let theme_id = resolve_ops_theme_id(&config);
+    let existing_theme = config
+        .ops
+        .themes
+        .get(theme_id.as_str())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let merged_theme = merge_theme_layout_draft_into_theme(&existing_theme, &draft_value);
+    let patch = OpsConfigPatch {
+        themes: Some(std::collections::BTreeMap::from([(
+            theme_id.clone(),
+            merged_theme,
+        )])),
+        ..Default::default()
+    };
+    match apply_ops_patch_with_journal(
+        &app_root,
+        config_path.as_path(),
+        "build-theme-layout",
+        "apply theme.layout draft to ops.themes",
+        &patch,
+    ) {
+        Ok((updated, entry)) => {
+            clear_page_render_cache();
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "ok": true,
+                    "revision": entry.revision,
+                    "theme_layout_revision": ops_theme_layout_revision_digest(&updated, theme_id.as_str()),
+                    "themes_revision": ops_themes_revision_digest(&updated),
+                    "migration": "layoutTuning is deprecated; use ops.themes.*.layout",
+                })),
+            )
+                .into_response()
+        }
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": error.to_string()})),
+        )
+            .into_response(),
+    }
 }

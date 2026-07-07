@@ -751,7 +751,21 @@ pub async fn host_starting_page(
             crate::startup::parse_warm_poll_from_path(return_path.as_str(), default_app.as_str());
         (app, scene, mode)
     };
-    let route_mode = UiRouteMode::from_slug(poll_mode.as_str());
+    let route_mode = if poll_mode.as_str() == "view" {
+        let surface = return_path
+            .split('?')
+            .nth(1)
+            .and_then(|query| {
+                query.split('&').find_map(|pair| {
+                    let (key, value) = pair.split_once('=')?;
+                    (key == "surface").then(|| value)
+                })
+            })
+            .unwrap_or("app");
+        crate::scene_manifest::resolve_route_mode_from_surface(Some(surface))
+    } else {
+        UiRouteMode::from_slug(poll_mode.as_str())
+    };
     let already_ready = {
         if let Err(error) = crate::startup::try_ensure_app_registry_materialized(
             workspace.as_path(),
@@ -770,14 +784,22 @@ pub async fn host_starting_page(
             &AppQuery::default(),
             route_mode,
         );
-        crate::startup::evaluate_access_readiness(
+        let readiness = crate::startup::evaluate_access_readiness(
             &guard,
             poll_app.as_str(),
             poll_scene.as_str(),
             route_mode,
             axes,
-        )
-        .ready
+        );
+        let assemble_ready = matches!(
+            mei_host_graph::assemble_scope_from_registry(
+                workspace.as_path(),
+                poll_app.as_str(),
+                poll_scene.as_str(),
+            ),
+            Ok(Some(_))
+        );
+        readiness.ready && assemble_ready
     };
     if already_ready {
         tracing::info!(

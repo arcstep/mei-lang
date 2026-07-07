@@ -113,9 +113,24 @@
     return true;
   }
 
+  function readThemeLayoutSession(appId) {
+    return readJson(storageKey(appId, "theme.layout.session"));
+  }
+
+  function putThemeLayoutPatches(appId, layout) {
+    const app = String(appId || "").trim();
+    if (!app || !layout || typeof layout !== "object") return false;
+    const key = storageKey(app, "theme.layout.session");
+    const current = normalizeOverlayPatches(readJson(key));
+    const next = overlayDocFromPatches({ ...current, ...layout });
+    writeJson(key, next);
+    return true;
+  }
+
   function getSessionLayers(appId) {
     return {
       layoutOverlay: readLayoutOverlaySession(appId),
+      themeLayout: readThemeLayoutSession(appId),
       themeTokens: readThemeTokensSession(appId),
     };
   }
@@ -124,15 +139,18 @@
     const app = String(appId || "").trim();
     if (!app) return;
     removeJson(storageKey(app, "layout.overlay.session"));
+    removeJson(storageKey(app, "theme.layout.session"));
     removeJson(storageKey(app, "theme.tokens.session"));
   }
 
   function hasSessionDraft(appId) {
     const layers = getSessionLayers(appId);
     const overlayPatches = normalizeOverlayPatches(layers.layoutOverlay);
+    const themeLayoutPatches = normalizeOverlayPatches(layers.themeLayout);
     const theme = themeDocFromTokens(layers.themeTokens);
     return (
       Object.keys(overlayPatches).length > 0 ||
+      Object.keys(themeLayoutPatches).length > 0 ||
       Object.keys(theme.colors).length > 0 ||
       Object.keys(theme.fonts).length > 0
     );
@@ -141,6 +159,7 @@
   global.MeiDraftLayerStore = {
     ensureDraftSessionId,
     putLayoutOverlayPatches,
+    putThemeLayoutPatches,
     putThemeTokensPatch,
     getSessionLayers,
     clearSession,

@@ -218,11 +218,31 @@
     return false;
   }
 
-  function mergedSessionPatches(appId) {
+  function resolveThemeLayoutScope(previewScope) {
+    const key = normalizeScope(previewScope);
+    const parts = key.split("/").filter(Boolean);
+    if (parts[0] === "home" && parts.length >= 3) {
+      return `home/${parts[1].toUpperCase()}/${parts[2]}`;
+    }
+    if (parts.length >= 1) {
+      return `home/T1/${parts[0]}`;
+    }
+    return key;
+  }
+
+  function mergedThemeLayoutPatches(appId) {
     const store = global.MeiDraftLayerStore || boot.draftLayerStore;
     return (
-      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.layoutOverlay) || {}
+      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.themeLayout) || {}
     );
+  }
+
+  function mergedSessionPatches(appId) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const layoutOverlay =
+      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.layoutOverlay) || {};
+    const themeLayout = mergedThemeLayoutPatches(appId);
+    return { ...layoutOverlay, ...themeLayout };
   }
 
   function applySessionHot(appId, targetWindow) {
@@ -280,24 +300,21 @@
 
   function applyEntryToControls(controls, entry) {
     if (!controls || !entry || typeof entry !== "object") return;
-    const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
-    const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
-    const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+    const sectionRowsInput = controls.querySelector('[data-draft-field="sectionRows"]');
+    const gapInput = controls.querySelector('[data-draft-field="gap"]');
+    const compoundInput = controls.querySelector('[data-draft-field="compoundWidth"]');
     const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-    const contentBudget = entry.contentBudget || entry.content_budget;
-    if (contentBudget && typeof contentBudget === "object") {
-      const rows = contentBudget.rows || contentBudget.content_rows;
-      if (rowsInput instanceof HTMLInputElement && Array.isArray(rows)) {
-        rowsInput.value = rows.join(",");
-      }
-      const gap = contentBudget.gap ?? contentBudget.content_gap;
-      if (gapInput instanceof HTMLInputElement && gap != null) {
-        gapInput.value = String(gap);
-      }
+    const sectionRows = entry.sectionRows || entry.section_rows;
+    if (sectionRowsInput instanceof HTMLInputElement && Array.isArray(sectionRows)) {
+      sectionRowsInput.value = sectionRows.join(",");
     }
-    const slotHeight = entry.slotHeight ?? entry.slot_height;
-    if (slotInput instanceof HTMLInputElement && slotHeight != null) {
-      slotInput.value = String(slotHeight).replace(/px$/i, "").trim();
+    const gap = entry.gap ?? entry.stripGap;
+    if (gapInput instanceof HTMLInputElement && gap != null) {
+      gapInput.value = String(gap);
+    }
+    const compoundWidth = entry.compoundWidth ?? entry.compound_width;
+    if (compoundInput instanceof HTMLInputElement && compoundWidth) {
+      compoundInput.value = String(compoundWidth);
     }
     const profile = entry.paddingProfile ?? entry.padding_profile;
     if (paddingSelect instanceof HTMLSelectElement && profile) {
@@ -308,6 +325,7 @@
   global.MeiLayoutTuningForm = {
     resolveLayoutTuningEntry,
     resolveLayoutTuningScope,
+    resolveThemeLayoutScope,
     resolvePatchScopes,
     fetchOverlayEntries,
     putSessionPatch,

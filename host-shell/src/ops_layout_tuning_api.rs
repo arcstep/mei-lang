@@ -29,6 +29,8 @@ struct LayoutTuningOverlayResponse {
     session_id: String,
     revision: String,
     draft_active: bool,
+    deprecated: bool,
+    migration: &'static str,
     entries: std::collections::BTreeMap<String, Value>,
 }
 
@@ -66,6 +68,8 @@ pub async fn api_ops_layout_tuning_overlay_get(
             session_id,
             revision,
             draft_active: false,
+            deprecated: config.ops.layout_tuning.is_some(),
+            migration: "layoutTuning is deprecated; use ops.themes.*.layout via MeiOpsThemeLayoutOverlay",
             entries,
         }),
     )

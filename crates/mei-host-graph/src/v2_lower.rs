@@ -703,6 +703,7 @@ fn apply_tier_and_placement(
         }
     }
     apply_placement(payload.get("placement"), props);
+    apply_float_dock_overlay_defaults(payload, props);
     if let Some(tier) = tier {
         let chrome_role = payload.get("chrome_role").and_then(|v| v.as_str());
         let explicit_stack = payload
@@ -957,7 +958,7 @@ fn apply_placement(placement: Option<&Value>, props: &mut Value) {
     let Some(map) = props.as_object_mut() else {
         return;
     };
-    if call.as_deref() == Some("absolute") || call.as_deref() == Some("stage_anchor") {
+    if call.as_deref() == Some("absolute") {
         map.insert("position".to_string(), json!("absolute"));
     }
     if let Some(args_obj) = args.as_object() {
@@ -979,6 +980,29 @@ fn apply_placement(placement: Option<&Value>, props: &mut Value) {
             map.insert(key.clone(), value.clone());
         }
     }
+}
+
+fn apply_float_dock_overlay_defaults(payload: &Value, props: &mut Value) {
+    if payload.get("placement").is_some() {
+        return;
+    }
+    if payload.get("chrome_role").and_then(Value::as_str) != Some("float_dock") {
+        return;
+    }
+    let Some(map) = props.as_object_mut() else {
+        return;
+    };
+    map.entry("position".to_string())
+        .or_insert_with(|| json!("absolute"));
+    map.entry("top".to_string()).or_insert_with(|| json!("0"));
+    map.entry("left".to_string()).or_insert_with(|| json!("0"));
+    map.entry("width".to_string())
+        .or_insert_with(|| json!("0px"));
+    map.entry("height".to_string())
+        .or_insert_with(|| json!("0px"));
+    map.entry("pointer_events".to_string())
+        .or_insert_with(|| json!("none"));
+    map.insert("__mei_platform_placement".to_string(), json!(true));
 }
 
 fn dimension_values_conflict(existing: &Value, incoming: &Value) -> bool {
@@ -1009,7 +1033,7 @@ fn dimension_as_text(value: &Value) -> Option<String> {
         .or_else(|| value.as_i64().map(|n| format!("{n}px")))
 }
 
-fn lower_layout(value: &Value) -> Option<LayoutDecl> {
+pub(crate) fn lower_layout(value: &Value) -> Option<LayoutDecl> {
     let layout_type = v2_call_name(value)?.to_string();
     let args = v2_call_args(value).unwrap_or(value);
     let obj = args.as_object()?;
@@ -2262,19 +2286,25 @@ fn resolve_config_refs_in_value(value: &Value, ctx: &PanelLowerContext<'_>) -> V
                     }
                 }
             }
-            if v2_ref_name(&value) == Some("world_ref") {
+            if v2_ref_name(&value) == Some("world_ref")
+                || v2_call_name(&value) == Some("world_ref")
+            {
                 if let Some(key) = v2_ref_arg0(&value) {
                     return json!(resolve_world_ref_id(ctx, key.as_str()));
                 }
             }
-            if v2_ref_name(&value) == Some("map_ref") {
+            if v2_ref_name(&value) == Some("map_ref")
+                || v2_call_name(&value) == Some("map_ref")
+            {
                 if let Some(key) = v2_ref_arg0(&value) {
                     if let Some(resolved) = resolve_semantic_resource_value(ctx, key.as_str(), "map_spec") {
                         return resolve_config_refs_in_value(&resolved, ctx);
                     }
                 }
             }
-            if v2_ref_name(&value) == Some("view_ref") {
+            if v2_ref_name(&value) == Some("view_ref")
+                || v2_call_name(&value) == Some("view_ref")
+            {
                 if let Some(key) = v2_ref_arg0(&value) {
                     if let Some(resolved) = resolve_semantic_resource_value(ctx, key.as_str(), "view_spec") {
                         return resolve_config_refs_in_value(&resolved, ctx);

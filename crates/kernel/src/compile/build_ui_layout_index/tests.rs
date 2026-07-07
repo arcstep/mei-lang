@@ -1821,3 +1821,170 @@ fn ui_layout_index_synthesizes_default_section_for_bare_region() {
         "default section should expose slot/content children"
     );
 }
+
+#[test]
+fn ui_layout_index_exposes_fill_section_derived_height() {
+    use crate::materialize_fill_section_derived_heights;
+
+    let fill_body = PanelDecl {
+        kind: "panel".to_string(),
+        id: "enforcement-stats".to_string(),
+        title: None,
+        head: None,
+        area: None,
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: None,
+            rows: Some(vec!["1fr".to_string()]),
+            areas: None,
+            gap: None,
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![],
+        slot: None,
+        props: json!({"__mei_layout_fill": true, "height": "100%"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let section = PanelDecl {
+        kind: "panel".to_string(),
+        id: "enforcement".to_string(),
+        title: Some("执法要素".to_string()),
+        head: None,
+        area: Some("enforcement".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Panel(fill_body)],
+        slot: None,
+        props: json!({
+            "__mei_ui_role": "section",
+            "__mei_tier": "t1",
+            "__mei_padding_profile": "dense_strip_100",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let mut region = PanelDecl {
+        kind: "panel".to_string(),
+        id: "left_rail".to_string(),
+        title: None,
+        head: None,
+        area: Some("body".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: None,
+            rows: Some(vec!["1fr".to_string()]),
+            areas: Some(vec![vec!["enforcement".to_string()]]),
+            gap: Some("12px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![UiNodeDecl::Panel(section)],
+        slot: None,
+        props: json!({
+            "__mei_ui_role": "region",
+            "__mei_tier": "t1",
+            "viewport": {"design_height": 520},
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let mut panels = vec![region];
+    let mut diagnostics = Vec::new();
+    materialize_fill_section_derived_heights(&mut panels, &mut diagnostics, "test.mei");
+    let enforcement = panels[0]
+        .blocks
+        .iter()
+        .filter_map(|n| match n {
+            UiNodeDecl::Panel(p) if p.id == "enforcement" => Some(p),
+            _ => None,
+        })
+        .next()
+        .expect("enforcement section");
+    let derived = enforcement
+        .props
+        .get("__mei_section_derived_height_px")
+        .and_then(|v| v.as_f64())
+        .expect("fill section derived height px");
+    assert!(
+        (derived - 520.0).abs() < 2.0,
+        "expected ~520px from single 1fr of 520, got {derived}"
+    );
+
+    let compiled = CompiledApp {
+        app_id: "pretty-panels".to_string(),
+        title: "Pretty Panels".to_string(),
+        app_root: "/tmp/pretty-panels".to_string(),
+        scene_routes: vec![CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "src/scene/home/assembly.mei".to_string(),
+            kind: "scene".to_string(),
+            title: None,
+            is_default: true,
+            access_export: true,
+        }],
+        active_scene: Some("home".to_string()),
+        active_target_file: "src/scene/home/assembly.mei".to_string(),
+        file_tree: vec![],
+        scene_contract: Some(SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels,
+        }),
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics,
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
+    };
+    let ui = build_ui_layout_index(&compiled);
+    let section_node = ui.index.nodes.values().find(|n| n.preview_scope.contains("enforcement"));
+    assert!(
+        section_node
+            .and_then(|n| n.budget.as_ref())
+            .and_then(|b| b.section_derived_height_px)
+            .is_some(),
+        "ui index should surface section_derived_height_px for fill section"
+    );
+}

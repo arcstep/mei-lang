@@ -160,6 +160,14 @@ pub fn router(state: HostHttpState) -> Router {
             "/api/ops/layout-tuning/apply/:app_id",
             axum::routing::post(crate::ops_layout_tuning_api::api_ops_layout_tuning_apply_post),
         )
+        .route(
+            "/api/ops/themes/layout/overlay/:app_id",
+            get(crate::ops_theme_layout_api::api_ops_theme_layout_overlay_get),
+        )
+        .route(
+            "/api/ops/themes/layout/apply/:app_id",
+            axum::routing::post(crate::ops_theme_layout_api::api_ops_theme_layout_apply_post),
+        )
         .route("/api/presentation/map/:app_id", get(api_presentation_map))
         .route("/api/presentation/compile", post(api_presentation_compile))
         .route(

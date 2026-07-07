@@ -78,7 +78,7 @@ fn merge_layout_tuning_fallback(
     }
 }
 
-fn resolve_preview_scope_for_tuning_key(index: &UiLayoutIndex, scope_key: &str) -> Option<String> {
+pub(crate) fn resolve_preview_scope_for_tuning_key(index: &UiLayoutIndex, scope_key: &str) -> Option<String> {
     let key = normalize_preview_scope(scope_key);
     if key.is_empty() {
         return None;
@@ -128,7 +128,7 @@ fn normalize_preview_scope(scope: &str) -> String {
     scope.trim().trim_matches('/').to_string()
 }
 
-fn resolve_panel_id_for_tuning_scope(panels: &[PanelDecl], scope_key: &str) -> Option<String> {
+pub(crate) fn resolve_panel_id_for_tuning_scope(panels: &[PanelDecl], scope_key: &str) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     walk_panels_with_path(panels, "", &mut |path, panel| {
         let score = tuning_scope_match_score(
@@ -164,7 +164,7 @@ where
     }
 }
 
-fn find_panel_mut_for_preview_scope<'a>(
+pub(crate) fn find_panel_mut_for_preview_scope<'a>(
     panels: &'a mut [PanelDecl],
     scope: &str,
 ) -> Option<&'a mut PanelDecl> {
@@ -221,7 +221,7 @@ fn find_panel_mut_in_children<'a>(
     None
 }
 
-fn find_panel_mut_by_id<'a>(
+pub(crate) fn find_panel_mut_by_id<'a>(
     panels: &'a mut [PanelDecl],
     panel_id: &str,
 ) -> Option<&'a mut PanelDecl> {
@@ -449,5 +449,20 @@ mod tests {
                 .and_then(Value::as_str),
             Some("compact")
         );
+    }
+
+    #[test]
+    fn resolve_panel_id_for_tuning_scope_finds_nested_section_under_plane() {
+        let mut enforcement = section_panel("enforcement");
+        enforcement.props = json!({"__mei_ui_role": "section"});
+        let mut left_rail = section_panel("left_rail");
+        left_rail.props = json!({"__mei_ui_role": "region"});
+        left_rail.blocks = vec![UiNodeDecl::Panel(enforcement)];
+        let mut t1 = section_panel("t1");
+        t1.props = json!({"__mei_ui_role": "plane"});
+        t1.blocks = vec![UiNodeDecl::Panel(left_rail)];
+        let panel_id =
+            resolve_panel_id_for_tuning_scope(&[t1], "left_rail/enforcement").expect("panel id");
+        assert_eq!(panel_id, "enforcement");
     }
 }

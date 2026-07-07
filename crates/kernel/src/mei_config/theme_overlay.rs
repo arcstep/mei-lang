@@ -50,7 +50,8 @@ pub fn ops_themes_revision_digest(config: &MeiConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mei_config::types::{AppEntryConfig, AppFeaturesConfig, AppPathsConfig, OpsSourceEntry};
+    use crate::mei_config::types::{AppEntryConfig, AppFeaturesConfig, AppPathsConfig};
+    use serde_json::json;
     use std::collections::BTreeMap;
 
     fn sample_config(themes: BTreeMap<String, Value>) -> MeiConfig {
@@ -63,24 +64,7 @@ mod tests {
             features: AppFeaturesConfig::default(),
             ops: OpsConfig {
                 themes,
-                sources: BTreeMap::from([(
-                    "demo".to_string(),
-                    OpsSourceEntry {
-                        kind: "xlsx".to_string(),
-                        path: "upload/demo.xlsx".to_string(),
-                        sheet: None,
-                        header_row: Some(1),
-                        preview_rows: None,
-                        page_size: None,
-                        max_page_size: None,
-                        table: None,
-                        query: None,
-                        connection: None,
-                    },
-                )]),
-                basemaps: BTreeMap::new(),
-                params: BTreeMap::new(),
-                layout_tuning: None,
+                ..Default::default()
             },
             ..Default::default()
         }
