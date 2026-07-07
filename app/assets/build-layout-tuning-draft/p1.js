@@ -5,10 +5,38 @@
 (function initBuildLayoutTuningDraftBridge(global) {
   "use strict";
 
+  function isLayoutWorkspaceRoute() {
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/layout(?:\/|$)/.test(path)) {
+      const fromShell = String(
+        document.querySelector(".shell[data-surface]")?.getAttribute("data-surface") || "",
+      )
+        .trim()
+        .toLowerCase();
+      return !fromShell || fromShell === "layout";
+    }
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        return String(ctx?.surface || "").trim().toLowerCase() === "layout";
+      }
+    } catch (_) {}
+    return false;
+  }
+
   function isWorkspaceRoute() {
-    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
-      String(global.location.pathname || ""),
-    );
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/layout(?:\/|$)/.test(path)) return isLayoutWorkspaceRoute();
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        const surface = String(ctx?.surface || "").trim().toLowerCase();
+        return surface === "layout";
+      }
+    } catch (_) {}
+    return false;
   }
 
   function appIdFromPath() {
@@ -31,6 +59,10 @@
   }
 
   function readUiScopeMetaFromTree(nodeId) {
+    const inspect = global.MeiBuildInspectHighlight;
+    if (typeof inspect?.readUiScopeMetaFromNode === "function") {
+      return inspect.readUiScopeMetaFromNode(nodeId);
+    }
     const id = String(nodeId || "").trim();
     if (!id) return null;
     const script = document.getElementById("mei-build-reachability-tree");
@@ -38,6 +70,22 @@
     try {
       const roots = JSON.parse(script.textContent || "[]");
       if (!Array.isArray(roots)) return null;
+      const flat =
+        roots.length > 0 &&
+        typeof roots[0]?.node_id === "string" &&
+        (Object.prototype.hasOwnProperty.call(roots[0], "parent_id") ||
+          (Array.isArray(roots[0]?.children) &&
+            roots[0].children.length > 0 &&
+            typeof roots[0].children[0] === "string") ||
+          (Array.isArray(roots[0]?.children) && roots[0].children.length === 0));
+      if (flat) {
+        const node = roots.find((entry) => String(entry?.node_id || "").trim() === id);
+        if (!node) return null;
+        return {
+          preview_scope: String(node.preview_scope || "").trim(),
+          ui_role: String(node.ui_role || node.badges?.[0] || "").trim(),
+        };
+      }
       const walk = (nodes) => {
         for (const node of nodes || []) {
           if (node?.node_id === id) {
@@ -64,52 +112,76 @@
       ".preview-pane-scroll[data-build-inspect-scope], .preview-pane-scroll[data-build-inspect-active]",
     );
     const scopeFromHost = String(host?.getAttribute("data-build-inspect-scope") || "").trim();
-    if (scopeFromHost) return scopeFromHost;
-    const node = activeBuildNode();
-    if (node.startsWith("ui-scope:")) {
-      const meta = readUiScopeMetaFromTree(node);
-      if (meta?.preview_scope) return meta.preview_scope;
+    const rawScope = (() => {
+      if (scopeFromHost) return scopeFromHost;
+      const node = activeBuildNode();
+      if (node.startsWith("ui-scope:")) {
+        const meta = readUiScopeMetaFromTree(node);
+        if (meta?.preview_scope) return meta.preview_scope;
+      }
+      if (node.startsWith("scene-panel:") || node.startsWith("scene-block:")) {
+        const encoded = node.replace(/^scene-(?:panel|block):/i, "");
+        const slash = encoded.indexOf("/");
+        if (slash >= 0) return encoded.slice(slash + 1);
+      }
+      const selected = document.querySelector(
+        "[data-manage-tab-panel='preview'] .build-inspect-selected[data-preview-scope], [data-manage-tab-panel='preview'] .build-inspect-selected[data-mei-panel-id]",
+      );
+      if (selected instanceof HTMLElement) {
+        return String(
+          selected.getAttribute("data-preview-scope") ||
+            selected.getAttribute("data-mei-ui-scope") ||
+            selected.getAttribute("data-mei-panel-id") ||
+            "",
+        ).trim();
+      }
+      return "";
+    })();
+    const formApi = global.MeiLayoutTuningForm;
+    if (formApi?.resolveLayoutTuningScope) {
+      return formApi.resolveLayoutTuningScope(rawScope);
     }
-    if (node.startsWith("scene-panel:") || node.startsWith("scene-block:")) {
-      const encoded = node.replace(/^scene-(?:panel|block):/i, "");
-      const slash = encoded.indexOf("/");
-      if (slash >= 0) return encoded.slice(slash + 1);
-    }
-    const selected = document.querySelector(
-      "[data-manage-tab-panel='preview'] .build-inspect-selected[data-preview-scope]",
-    );
-    if (selected instanceof HTMLElement) {
-      return String(selected.getAttribute("data-preview-scope") || "").trim();
-    }
-    return "";
+    return rawScope;
   }
 
   function buildDraftPatch(previewScope, fields) {
-    const scope = String(previewScope || "").trim();
-    if (!scope) return null;
-    const patch = {};
+    const rawScope = String(previewScope || "").trim();
+    if (!rawScope) return null;
+    const patchScopes =
+      global.MeiLayoutTuningForm?.resolvePatchScopes?.(rawScope) || {
+        rows: rawScope,
+        slot: rawScope,
+        padding: rawScope,
+        primary: rawScope,
+      };
+    const tuning = {};
     const slotHeight = fields?.slotHeight;
     if (slotHeight != null && slotHeight !== "") {
       const numeric = Number(slotHeight);
-      patch.slotHeight = Number.isFinite(numeric) ? `${Math.round(numeric)}px` : String(slotHeight);
+      const value = Number.isFinite(numeric) ? `${Math.round(numeric)}px` : String(slotHeight);
+      const slotKey = patchScopes.slot || rawScope;
+      tuning[slotKey] = { ...(tuning[slotKey] || {}), slotHeight: value };
     }
     const paddingProfile = String(fields?.paddingProfile || "").trim();
     if (paddingProfile) {
-      patch.paddingProfile = paddingProfile;
+      const paddingKey = patchScopes.padding || rawScope;
+      tuning[paddingKey] = { ...(tuning[paddingKey] || {}), paddingProfile };
     }
     const rows = fields?.contentRows;
     const gap = fields?.contentGap;
     if ((Array.isArray(rows) && rows.length > 0) || (gap != null && gap !== "")) {
-      patch.contentBudget = {};
+      const rowsKey = patchScopes.rows || rawScope;
+      const budget = { ...((tuning[rowsKey] || {}).contentBudget || {}) };
       if (Array.isArray(rows) && rows.length > 0) {
-        patch.contentBudget.rows = rows.map((row) => Number(row));
+        budget.rows = rows.map((row) => Number(row));
       }
       if (gap != null && gap !== "") {
-        patch.contentBudget.gap = Number(gap);
+        budget.gap = Number(gap);
       }
+      tuning[rowsKey] = { ...(tuning[rowsKey] || {}), contentBudget: budget };
     }
-    if (Object.keys(patch).length === 0) return null;
-    return { tuning: { [scope]: patch } };
+    if (Object.keys(tuning).length === 0) return null;
+    return { tuning, primaryScope: patchScopes.primary || rawScope };
   }
 
   function inspectBarRoot() {
@@ -158,6 +230,47 @@
     controls.querySelector("[data-draft-persist]")?.addEventListener("click", () => {
       void applyDraftFromControls({ persist: true });
     });
+    if (!controls.__layoutTuningLiveBound) {
+      controls.__layoutTuningLiveBound = true;
+      const onLiveChange = () => {
+        if (!isLayoutWorkspaceRoute()) return;
+        const appId = appIdFromPath();
+        const scope = resolvePreviewScopeFromSelection();
+        if (!appId || !scope) return;
+        const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+        const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
+        const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
+        const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
+        const rows =
+          rowsInput instanceof HTMLInputElement && rowsInput.value
+            ? rowsInput.value
+                .split(",")
+                .map((part) => Number(part.trim()))
+                .filter((value) => Number.isFinite(value))
+            : null;
+        const built = buildDraftPatch(scope, {
+          slotHeight:
+            slotInput instanceof HTMLInputElement && slotInput.value ? slotInput.value : null,
+          paddingProfile:
+            paddingSelect instanceof HTMLSelectElement ? paddingSelect.value : "",
+          contentRows: rows,
+          contentGap:
+            gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
+        });
+        if (!built?.tuning || Object.keys(built.tuning).length === 0) return;
+        void global.MeiOpsLayoutTuningOverlay?.putSessionDraft?.(appId, built.tuning);
+        const formApi = global.MeiLayoutTuningForm;
+        if (formApi?.applySessionHot) {
+          formApi.applySessionHot(appId);
+        } else if (formApi?.scheduleSessionHot) {
+          for (const [patchScope, patch] of Object.entries(built.tuning)) {
+            formApi.scheduleSessionHot(appId, patchScope, patch, { debounceMs: 150 });
+          }
+        }
+      };
+      controls.addEventListener("input", onLiveChange);
+      controls.addEventListener("change", onLiveChange);
+    }
     return controls;
   }
 
@@ -225,88 +338,63 @@
       return;
     }
     controls.hidden = false;
-    scopeLabel.textContent = `scope: ${scope}`;
-    const node = document.querySelector(
-      `[data-preview-scope="${CSS.escape(scope)}"]`,
-    );
-    const applyEntryToControls = (entry) => {
-      if (!entry || typeof entry !== "object") return;
-      const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
-      const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
-      const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
-      const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-      const contentBudget = entry.contentBudget || entry.content_budget;
-      if (contentBudget && typeof contentBudget === "object") {
-        const rows = contentBudget.rows || contentBudget.content_rows;
-        if (rowsInput instanceof HTMLInputElement && Array.isArray(rows)) {
-          rowsInput.value = rows.join(",");
-        }
-        const gap = contentBudget.gap ?? contentBudget.content_gap;
-        if (gapInput instanceof HTMLInputElement && gap != null) {
-          gapInput.value = String(gap);
-        }
-      }
-      if (slotInput instanceof HTMLInputElement) {
-        const slotHeight =
-          entry.slotHeight ??
-          entry.slot_height ??
-          (node instanceof HTMLElement
-            ? node.dataset.layoutTuningSlotHeight ||
-              node.style.getPropertyValue("--mei-slot-height").replace(/px$/, "")
-            : "");
-        if (slotHeight) slotInput.value = String(slotHeight).trim();
-      }
-      if (paddingSelect instanceof HTMLSelectElement) {
-        const profile =
-          entry.paddingProfile ??
-          entry.padding_profile ??
-          (node instanceof HTMLElement ? node.dataset.layoutTuningPaddingProfile : "");
-        if (profile) paddingSelect.value = String(profile);
+    const displayScope =
+      global.MeiLayoutTuningForm?.resolveLayoutTuningScope?.(scope) || scope;
+    scopeLabel.textContent = `scope: ${scope}${displayScope !== scope ? ` → ${displayScope}` : ""}`;
+    const formApi = global.MeiLayoutTuningForm;
+    const appId = appIdFromPath();
+    const fillFromEntry = (entry) => {
+      if (formApi?.applyEntryToControls) {
+        formApi.applyEntryToControls(controls, entry);
       }
     };
-    if (node instanceof HTMLElement) {
-      applyEntryToControls({
-        slotHeight:
-          node.dataset.layoutTuningSlotHeight ||
-          node.style.getPropertyValue("--mei-slot-height").replace(/px$/, ""),
-        paddingProfile: node.dataset.layoutTuningPaddingProfile || "",
-        contentBudget: {
-          rows: (node.dataset.layoutTuningContentRows || node.dataset.manifestContentRows || "")
-            .split(",")
-            .map((part) => Number(part.trim()))
-            .filter((value) => Number.isFinite(value)),
-          gap:
-            node.dataset.layoutTuningContentGap ||
-            node.dataset.manifestContentGap ||
-            node.style.rowGap?.replace(/px$/, ""),
-        },
-      });
+    if (formApi?.resolveLayoutTuningEntry) {
+      const local = formApi.resolveLayoutTuningEntry(scope, { appId });
+      if (local) fillFromEntry(local);
     }
-    const appId = appIdFromPath();
     const overlay = global.MeiOpsLayoutTuningOverlay;
     if (appId && overlay?.fetchOverlay) {
       void overlay
         .fetchOverlay(appId)
         .then((payload) => {
-          const entry = payload?.entries?.[scope];
-          if (entry) applyEntryToControls(entry);
+          const entry = formApi?.resolveLayoutTuningEntry
+            ? formApi.resolveLayoutTuningEntry(scope, {
+                appId,
+                overlayEntries: payload?.entries || {},
+              })
+            : payload?.entries?.[scope];
+          if (entry) fillFromEntry(entry);
         })
         .catch(() => {});
     }
   }
 
+  function selectionMetaFromActiveNode() {
+    const node = activeBuildNode();
+    if (!node.startsWith("ui-scope:")) return null;
+    return readUiScopeMetaFromTree(node);
+  }
+
   function scheduleSync() {
     global.requestAnimationFrame(() => {
       syncDraftControls();
-      const meta = resolvePreviewScopeFromSelection();
-      if (meta && global.__meiLangBoot?.wysiwygPanelApi?.openPanelForSelection) {
+      const meta = selectionMetaFromActiveNode();
+      if (meta?.preview_scope && global.__meiLangBoot?.wysiwygPanelApi?.openPanelForSelection) {
         global.__meiLangBoot.wysiwygPanelApi.openPanelForSelection(meta);
       }
     });
   }
 
+  global.addEventListener("mei:build-node-selected", () => {
+    scheduleSync();
+  });
   global.addEventListener("popstate", scheduleSync);
   global.addEventListener("meilang:preview-updated", scheduleSync);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scheduleSync);
+  } else {
+    scheduleSync();
+  }
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;

@@ -5322,10 +5322,16 @@
   }
 
   function copyButtonLabel(btn, intent) {
-    if (btn.id === "build-copy-agent-context-top") {
-      return "复制场景原型调试上下文";
+    const surface = String(
+      document.querySelector(".shell[data-surface]")?.getAttribute("data-surface") || "layout",
+    ).trim();
+    if (surface === "prototype") {
+      return intent === "full" ? "复制原型/content 上下文" : "复制原型 Markdown 简报";
     }
-    return intent === "full" ? "复制场景原型调试上下文" : "复制 Markdown 简报";
+    if (btn.id === "build-copy-agent-context-top") {
+      return "复制布局调试上下文";
+    }
+    return intent === "full" ? "复制布局调试上下文" : "复制布局 Markdown 简报";
   }
 
   function reviewAxesFromShell(shell) {
@@ -5360,6 +5366,7 @@
     btn.disabled = true;
     try {
       const shell = document.querySelector(".shell[data-build-node]");
+      const surface = String(shell?.getAttribute("data-surface") || "layout").trim();
       const axes = {
         ...reviewAxesFromShell(shell),
         ...reviewAxesFromButton(btn),
@@ -5370,6 +5377,7 @@
         tab,
         intent,
         include_readiness: "1",
+        surface,
       };
       if (axes.dataMode) params.data_mode = axes.dataMode;
       if (axes.reviewProjection) params.review_projection = axes.reviewProjection;
@@ -5718,16 +5726,38 @@
     }
   }
 
+  function workspaceSurfaceFromDom() {
+    const fromShell = String(
+      global.document?.querySelector?.(".shell[data-surface]")?.getAttribute("data-surface") || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromShell === "layout" || fromShell === "prototype") return fromShell;
+    const fromBody = String(global.document?.body?.getAttribute("data-surface") || "")
+      .trim()
+      .toLowerCase();
+    if (fromBody === "layout" || fromBody === "prototype") return fromBody;
+    try {
+      const parts = String(global.location.pathname || "").split("/").filter(Boolean);
+      if (parts[0] === "apps" && (parts[1] === "layout" || parts[1] === "prototype")) {
+        return parts[1];
+      }
+    } catch (_) {}
+    return "layout";
+  }
+
   function storageKey(suffix) {
     const appId = appIdFromPath() || String(global.document?.body?.getAttribute?.("data-app-id") || "").trim() || "_";
-    return `mei-workspace-tree:${appId}:${suffix}`;
+    const surface = workspaceSurfaceFromDom();
+    return `mei-workspace-tree:${appId}:${surface}:${suffix}`;
   }
 
   const UI_ROLE_RANK = {
     plane: 0,
     region: 1,
     section: 2,
-    content: 3,
+    slot: 3,
+    content: 4,
     micro_layout: 2,
   };
 
@@ -6567,10 +6597,24 @@
     return document.getElementById("build-inspect-bar-label");
   }
 
+  function readStructureDomScope(el) {
+    if (!(el instanceof HTMLElement)) return "";
+    return normalizePreviewScopePath(
+      el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
+    );
+  }
+
   function clearHighlights(root) {
     root.querySelectorAll(".build-inspect-selected, .build-inspect-focus-selected").forEach((el) => {
-      el.classList.remove("build-inspect-selected", "build-inspect-focus-selected");
+      el.classList.remove("build-inspect-selected", "build-inspect-focus-selected", "mei-structure-focus");
     });
+  }
+
+  function finalizeInspectHighlight(_root, selected) {
+    const target = Array.isArray(selected) ? selected[0] : null;
+    if (target instanceof HTMLElement) {
+      target.classList.add("mei-structure-focus");
+    }
   }
 
   function inferPlaneTierFromMeta(meta, nodeId) {
@@ -6616,6 +6660,14 @@
     try {
       const roots = JSON.parse(script.textContent || "[]");
       if (!Array.isArray(roots)) return null;
+      if (isFlatStructureNodes(roots)) {
+        const node = roots.find((entry) => String(entry?.node_id || "").trim() === id);
+        if (!node) return null;
+        const file = String(node.source_file || "").trim();
+        const symbol = String(node.source_symbol || "").trim();
+        if (file || symbol) return { file, symbol };
+        return null;
+      }
       const walk = (nodes) => {
         for (const node of nodes || []) {
           if (node?.node_id === id) {
@@ -6831,9 +6883,37 @@
     }
   }
 
+  function isFlatStructureNodes(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return false;
+    const first = nodes[0];
+    if (!first || typeof first !== "object" || typeof first.node_id !== "string") {
+      return false;
+    }
+    if (Array.isArray(first.children) && first.children.length > 0) {
+      return typeof first.children[0] === "string";
+    }
+    return nodes.some((node) =>
+      Object.prototype.hasOwnProperty.call(node, "parent_id"),
+    );
+  }
+
   function findReachabilityNodeEntry(nodeId) {
     const target = String(nodeId || "").trim();
     if (!target) return null;
+    const roots = readReachabilityTreeRoots();
+    if (!roots.length) return null;
+
+    if (isFlatStructureNodes(roots)) {
+      const byId = new Map(
+        roots.map((node) => [String(node?.node_id || "").trim(), node]).filter(([id]) => id),
+      );
+      const node = byId.get(target);
+      if (!node) return null;
+      const parentId = String(node.parent_id || "").trim();
+      const parent = parentId ? byId.get(parentId) || null : null;
+      return { node, parent };
+    }
+
     let found = null;
     const walk = (nodes, parent) => {
       for (const node of nodes || []) {
@@ -6845,7 +6925,7 @@
       }
       return false;
     };
-    for (const root of readReachabilityTreeRoots()) {
+    for (const root of roots) {
       if (walk(root?.children, root)) break;
     }
     return found;
@@ -6911,10 +6991,7 @@
     let best = pool[0];
     let bestScore = -1;
     for (const el of pool) {
-      let score = scopeAlignScore(
-        el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
-        target,
-      );
+      let score = scopeAlignScore(readStructureDomScope(el), target);
       if (isInspectTargetVisible(el)) score += 50;
       if (score > bestScore) {
         bestScore = score;
@@ -6926,9 +7003,7 @@
 
   function scopePathLength(el) {
     if (!(el instanceof HTMLElement)) return 0;
-    const path = String(
-      el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
-    ).trim();
+    const path = readStructureDomScope(el);
     return path.length;
   }
 
@@ -6955,6 +7030,134 @@
     return keys;
   }
 
+  function isLayoutWorkspaceSurface() {
+    try {
+      const surface = String(
+        document.querySelector(".shell[data-surface]")?.getAttribute("data-surface") ||
+          new URL(global.location.href).searchParams.get("surface") ||
+          "",
+      )
+        .trim()
+        .toLowerCase();
+      return surface === "layout";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isLayoutInspectHighlightRejected(el) {
+    if (!(el instanceof HTMLElement)) return true;
+    if (el.classList.contains("build-tree-link")) return true;
+    return Boolean(
+      el.closest(".preview-stage, .preview-surface, .preview-stage-shell") === el ||
+        el.matches(".preview-pane-scroll, .preview-surface, .frame-stage-enabled"),
+    );
+  }
+
+  function previewScopeAffinityDepth(panelPath, uiScope, targetScope) {
+    const target = normalizePreviewScopePath(targetScope);
+    if (!target) return -1;
+    const panel = normalizePreviewScopePath(panelPath);
+    const scope = normalizePreviewScopePath(uiScope);
+    let best = -1;
+    const targetParts = target.split("/").filter(Boolean);
+    for (let len = targetParts.length; len >= 1; len -= 1) {
+      const prefix = targetParts.slice(0, len).join("/");
+      if (scope && scope === prefix) {
+        best = Math.max(best, len);
+        continue;
+      }
+      if (scopeAlignScore(scope, prefix) > 0) {
+        best = Math.max(best, len);
+      }
+      if (scopeAlignScore(panel, prefix) > 0) {
+        best = Math.max(best, len);
+      }
+    }
+    return best;
+  }
+
+  function isScopePathAncestor(ancestorScope, descendantScope) {
+    const ancestor = normalizePreviewScopePath(ancestorScope);
+    const descendant = normalizePreviewScopePath(descendantScope);
+    if (!ancestor || !descendant) return false;
+    if (ancestor === descendant) return true;
+    return descendant.startsWith(`${ancestor}/`);
+  }
+
+  function findClosestLayoutDomAnchor(root, targetScope) {
+    const target = normalizePreviewScopePath(targetScope);
+    if (!target) return null;
+
+    for (const attr of ["data-mei-ui-scope", "data-preview-scope"]) {
+      const exact = root.querySelector(`[${attr}="${CSS.escape(target)}"]`);
+      if (exact instanceof HTMLElement && !isLayoutInspectHighlightRejected(exact)) {
+        return exact;
+      }
+    }
+
+    let best = null;
+    let bestDepth = -1;
+    for (const el of root.querySelectorAll(
+      "[data-mei-panel-id], [data-preview-scope], [data-mei-ui-scope]",
+    )) {
+      if (!(el instanceof HTMLElement) || isLayoutInspectHighlightRejected(el)) continue;
+      const panelPath = String(el.getAttribute("data-mei-panel-id") || "").trim();
+      const uiScope = String(el.getAttribute("data-mei-ui-scope") || "").trim();
+      const previewScope = String(el.getAttribute("data-preview-scope") || "").trim();
+      const depth = previewScopeAffinityDepth(
+        panelPath || previewScope,
+        uiScope,
+        target,
+      );
+      if (depth > bestDepth) {
+        bestDepth = depth;
+        best = el;
+      }
+    }
+    return best;
+  }
+
+  function resolveLayoutScopeHighlightTargets(root, scope, role) {
+    const normalizedRole = String(role || "").trim().toLowerCase();
+    const normalizedScope = normalizePreviewScopePath(scope);
+    if (!normalizedScope) return [];
+
+    if (normalizedRole === "budget") {
+      const parentScope = normalizedScope.replace(/\/budget$/i, "");
+      if (parentScope && parentScope !== normalizedScope) {
+        return resolveLayoutScopeHighlightTargets(root, parentScope, "slot");
+      }
+      return [];
+    }
+
+    let scopeWalk = normalizedScope;
+    while (scopeWalk) {
+      const anchor = findClosestLayoutDomAnchor(root, scopeWalk);
+      if (anchor) return [anchor];
+      const parts = scopeWalk.split("/").filter(Boolean);
+      if (parts.length <= 1) break;
+      parts.pop();
+      scopeWalk = parts.join("/");
+    }
+    return [];
+  }
+
+  function layoutHighlightScopeMessage(meta, selectedEl) {
+    const targetScope = normalizePreviewScopePath(meta?.preview_scope || "");
+    if (!(selectedEl instanceof HTMLElement) || !targetScope) return "";
+    const role = String(meta?.ui_role || "").trim().toLowerCase();
+    const matchedScope = readStructureDomScope(selectedEl);
+    if (!matchedScope || matchedScope === targetScope) return "";
+    if (role === "budget") {
+      return `Budget 为布局元数据节点，已高亮所属 slot「${matchedScope}」`;
+    }
+    if (role === "content") {
+      return `布局预览不渲染 content，已高亮最近布局锚点「${matchedScope}」`;
+    }
+    return `Layout 面无独立锚点「${targetScope}」，已高亮最近父级「${matchedScope}」`;
+  }
+
   function resolveUiScopeHighlightTargets(root, node, meta) {
     const role = String(meta?.ui_role || "").trim().toLowerCase();
     const scope = String(meta?.preview_scope || "").trim();
@@ -6971,6 +7174,22 @@
     }
 
     if (scope) {
+      if (isLayoutWorkspaceSurface()) {
+        const layoutTargets = resolveLayoutScopeHighlightTargets(root, scope, role);
+        if (layoutTargets.length) return layoutTargets;
+        const exactPreview = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+        if (exactPreview instanceof HTMLElement) return [exactPreview];
+        const slotChrome = root.querySelector(
+          `[data-preview-scope="${CSS.escape(scope)}"] [data-mei-layout-slot-chrome], [data-preview-scope="${CSS.escape(scope)}"] .preview-layout-slot-chrome`,
+        );
+        if (slotChrome instanceof HTMLElement) {
+          const host =
+            slotChrome.closest("[data-preview-scope]") instanceof HTMLElement
+              ? slotChrome.closest("[data-preview-scope]")
+              : slotChrome;
+          return [host];
+        }
+      }
       const exactScope = root.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
       if (exactScope instanceof HTMLElement) return [exactScope];
       const normalizedScope = normalizePreviewScopePath(scope);
@@ -7244,11 +7463,12 @@
     }
   }
 
-  const REVIEW_ROLE_DEPTH = { plane: 0, region: 1, section: 2, slot: 3 };
+  const REVIEW_ROLE_DEPTH = { plane: 0, region: 1, section: 2, slot: 3, content: 4 };
   const REVIEW_PROJECTION_MAX_DEPTH = {
     plane: 0,
     plane_region: 1,
     plane_region_section: 2,
+    plane_region_section_slot: 3,
     static_full: 99,
     live_full: 99,
     static: 99,
@@ -7442,10 +7662,47 @@
       }
       selected.forEach((el) => el.classList.add("build-inspect-selected"));
       applyInspectFocusChrome(root, meta, node);
+      finalizeInspectHighlight(root, selected);
       if (!focusEl) {
         scrollIntoViewIfOne(selected, root);
       }
-      updateInspectBar(node, focus, focusEl || selected[0] || null);
+      if (selected.length === 0) {
+        const scope = String(meta?.preview_scope || "").trim();
+        const role = String(meta?.ui_role || "").trim().toLowerCase();
+        if (role === "content" && isLayoutWorkspaceSurface()) {
+          updateInspectBar(
+            node,
+            focus,
+            null,
+            "布局预览不渲染 content；请选 section/slot 节点，或切换到原型视图。",
+          );
+        } else if (role === "budget" && isLayoutWorkspaceSurface()) {
+          updateInspectBar(
+            node,
+            focus,
+            null,
+            "Budget 为 gap/padding 元数据节点，无独立 DOM；请选其父 slot 试调布局。",
+          );
+        } else {
+          updateInspectBar(
+            node,
+            focus,
+            null,
+            scope
+              ? `预览区无 scope 锚点「${scope}」（需先 compose 或检查 scene）`
+              : "预览区无对应锚点",
+          );
+        }
+      } else {
+        const layoutMsg = isLayoutWorkspaceSurface()
+          ? layoutHighlightScopeMessage(meta, selected[0])
+          : "";
+        if (layoutMsg) {
+          updateInspectBar(node, focus, focusEl || selected[0] || null, layoutMsg);
+        } else {
+          updateInspectBar(node, focus, focusEl || selected[0] || null);
+        }
+      }
       return;
     }
 
@@ -7464,6 +7721,7 @@
         selected = [selected[0]];
       }
       selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      finalizeInspectHighlight(root, selected);
       if (!focusEl) {
         scrollIntoViewIfOne(selected, root);
       }
@@ -7476,6 +7734,7 @@
       const meta = resolveBoardSlotMeta(node, slotId);
       const selected = resolveBoardSlotHighlightTargets(root, meta);
       selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      finalizeInspectHighlight(root, selected);
       scrollIntoViewIfOne(selected, root);
       updateInspectBar(node, focus, selected[0] || null);
       return;
@@ -7577,6 +7836,20 @@
       applyReviewProjectionChrome(root);
       applyHighlight(root);
     }
+    const meta = node.startsWith("ui-scope:") ? readUiScopeMetaFromNode(node) : null;
+    try {
+      global.dispatchEvent(
+        new CustomEvent("mei:build-node-selected", {
+          bubbles: true,
+          detail: {
+            nodeId: node,
+            preview_scope: String(meta?.preview_scope || "").trim(),
+            ui_role: String(meta?.ui_role || "").trim(),
+            focus,
+          },
+        }),
+      );
+    } catch (_) {}
   }
 
   function pushBuildUrl(mutator) {
@@ -7794,13 +8067,368 @@
     bind();
   }
 
+  function debugInspectAnchor(node) {
+    const nodeId = String(node || activeBuildNode() || "").trim();
+    const meta = readUiScopeMetaFromNode(nodeId);
+    const root = previewRoot() || document;
+    const selected = resolveUiScopeHighlightTargets(root, nodeId, meta);
+    const el = selected[0] || null;
+    const targetScope = String(meta?.preview_scope || "").trim();
+    const panelPath = el?.getAttribute("data-mei-panel-id") || "";
+    const uiScope = el?.getAttribute("data-mei-ui-scope") || "";
+    return {
+      node: nodeId,
+      preview_scope: targetScope,
+      ui_role: String(meta?.ui_role || "").trim(),
+      matched: el ? readStructureDomScope(el) : "",
+      matched_panel: panelPath,
+      matched_ui_scope: uiScope,
+      affinity_depth: el
+        ? previewScopeAffinityDepth(panelPath, uiScope, targetScope)
+        : -1,
+      panel_id: panelPath,
+      rect: el?.getBoundingClientRect?.() || null,
+      element: el,
+    };
+  }
+
   global.MeiBuildInspectHighlight = {
     refresh,
     navigateToBuildNode,
     navigateToBuildFocus,
     selectBuildNodeClient,
+    readUiScopeMetaFromNode,
+    readStructureDomScope,
+    scopeAlignScore,
+    previewScopeAffinityDepth,
+    debugInspectAnchor,
   };
 })(window);
+
+
+/* ===== spa-navigation/spa/layout-tuning-form.js ===== */
+/**
+ * Layout tuning form: resolve preview_scope values and apply session overlay hot patches.
+ */
+(function initLayoutTuningForm(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+
+  function previewRoot() {
+    return (
+      document.querySelector("[data-manage-tab-panel='preview'] .preview-pane-scroll") ||
+      document.querySelector(".preview-pane-scroll") ||
+      document.querySelector(".preview-pane")
+    );
+  }
+
+  function normalizeScope(scope) {
+    return String(scope || "").trim();
+  }
+
+  function domEntryForScope(scope) {
+    const key = normalizeScope(scope);
+    if (!key) return null;
+    const inspect = global.MeiBuildInspectHighlight;
+    let node = document.querySelector(`[data-preview-scope="${CSS.escape(key)}"]`);
+    if (!(node instanceof HTMLElement) && inspect?.readStructureDomScope) {
+      const root = previewRoot();
+      const candidates = root
+        ? Array.from(
+            root.querySelectorAll(
+              "[data-preview-scope], [data-mei-ui-scope], [data-mei-panel-id]",
+            ),
+          )
+        : [];
+      let best = null;
+      let bestScore = -1;
+      for (const el of candidates) {
+        if (!(el instanceof HTMLElement)) continue;
+        const domScope = inspect.readStructureDomScope(el);
+        const score =
+          typeof inspect.scopeAlignScore === "function"
+            ? inspect.scopeAlignScore(domScope, key)
+            : domScope === key
+              ? 10_000
+              : 0;
+        if (score > bestScore) {
+          bestScore = score;
+          best = el;
+        }
+      }
+      node = best;
+    }
+    if (!(node instanceof HTMLElement)) return null;
+    const slotHeight =
+      node.dataset.layoutTuningSlotHeight ||
+      node.style.getPropertyValue("--mei-slot-height").replace(/px$/i, "").trim();
+    const paddingProfile = node.dataset.layoutTuningPaddingProfile || "";
+    const rowsRaw =
+      node.dataset.layoutTuningContentRows || node.dataset.manifestContentRows || "";
+    const gapRaw =
+      node.dataset.layoutTuningContentGap ||
+      node.dataset.manifestContentGap ||
+      node.style.rowGap?.replace(/px$/i, "").trim() ||
+      "";
+    const entry = {};
+    if (slotHeight) entry.slotHeight = slotHeight;
+    if (paddingProfile) entry.paddingProfile = paddingProfile;
+    const rows = rowsRaw
+      .split(",")
+      .map((part) => Number(part.trim()))
+      .filter((value) => Number.isFinite(value));
+    if (rows.length > 0 || gapRaw) {
+      entry.contentBudget = {};
+      if (rows.length > 0) entry.contentBudget.rows = rows;
+      if (gapRaw) entry.contentBudget.gap = Number(gapRaw);
+    }
+    return Object.keys(entry).length > 0 ? entry : null;
+  }
+
+  function manifestEntryForScope(scope) {
+    const key = normalizeScope(scope);
+    if (!key) return null;
+    const manifest = globalThis.__mei?.layout_budget_manifest?.entries;
+    if (!manifest || typeof manifest !== "object") return null;
+    const raw = manifest[key];
+    if (!raw || typeof raw !== "object") return null;
+    const entry = {};
+    const slotHeight = raw.slot_height_px ?? raw.slotHeightPx ?? raw.slotHeight;
+    if (slotHeight != null) entry.slotHeight = slotHeight;
+    const paddingProfile = raw.padding_profile ?? raw.paddingProfile;
+    if (paddingProfile) entry.paddingProfile = String(paddingProfile);
+    const rows = raw.content_rows ?? raw.contentRows;
+    const gap = raw.content_gap ?? raw.contentGap;
+    if ((Array.isArray(rows) && rows.length > 0) || gap != null) {
+      entry.contentBudget = {};
+      if (Array.isArray(rows) && rows.length > 0) {
+        entry.contentBudget.rows = rows.map((row) => Number(row));
+      }
+      if (gap != null && gap !== "") entry.contentBudget.gap = Number(gap);
+    }
+    return Object.keys(entry).length > 0 ? entry : null;
+  }
+
+  function mergeEntry(base, overlay) {
+    const out = { ...(base || {}) };
+    if (!overlay || typeof overlay !== "object") return out;
+    if (overlay.slotHeight != null || overlay.slot_height != null) {
+      out.slotHeight = overlay.slotHeight ?? overlay.slot_height;
+    }
+    if (overlay.paddingProfile || overlay.padding_profile) {
+      out.paddingProfile = overlay.paddingProfile ?? overlay.padding_profile;
+    }
+    const budget = overlay.contentBudget || overlay.content_budget;
+    if (budget && typeof budget === "object") {
+      out.contentBudget = { ...(out.contentBudget || {}), ...budget };
+    }
+    return out;
+  }
+
+  function ancestorScopes(scope) {
+    const parts = normalizeScope(scope).split("/").filter(Boolean);
+    const out = [];
+    while (parts.length > 0) {
+      out.push(parts.join("/"));
+      parts.pop();
+    }
+    return out;
+  }
+
+  function resolveLayoutTuningScope(previewScope) {
+    const key = normalizeScope(previewScope);
+    if (!key) return "";
+    const ancestors = ancestorScopes(key);
+    for (const candidate of ancestors) {
+      if (manifestEntryForScope(candidate)) return candidate;
+    }
+    return key;
+  }
+
+  function resolvePatchScopes(previewScope) {
+    const key = normalizeScope(previewScope);
+    const ancestors = ancestorScopes(key);
+    let rowsScope = "";
+    let slotScope = "";
+    let paddingScope = "";
+    for (const candidate of ancestors) {
+      const entry = manifestEntryForScope(candidate);
+      if (!entry) continue;
+      if (!rowsScope && entry.contentBudget?.rows?.length) rowsScope = candidate;
+      if (!paddingScope && entry.paddingProfile) paddingScope = candidate;
+      if (!slotScope && entry.slotHeight != null) slotScope = candidate;
+    }
+    const fallback = ancestors[ancestors.length - 1] || key;
+    return {
+      rows: rowsScope || fallback,
+      slot: slotScope || fallback,
+      padding: paddingScope || fallback,
+      primary: resolveLayoutTuningScope(key),
+    };
+  }
+
+  function resolveLayoutTuningEntry(scope, options) {
+    const opts = options || {};
+    const key = normalizeScope(scope);
+    if (!key) return null;
+    let entry = {};
+    for (const ancestor of ancestorScopes(key).reverse()) {
+      entry = mergeEntry(entry, manifestEntryForScope(ancestor) || {});
+    }
+    const primary = resolveLayoutTuningScope(key);
+    if (opts.overlayEntries?.[primary]) {
+      entry = mergeEntry(entry, opts.overlayEntries[primary]);
+    }
+    for (const ancestor of ancestorScopes(key)) {
+      if (opts.overlayEntries?.[ancestor]) {
+        entry = mergeEntry(entry, opts.overlayEntries[ancestor]);
+      }
+    }
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const sessionPatches = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(opts.appId)?.layoutOverlay,
+    );
+    for (const ancestor of ancestorScopes(key)) {
+      if (sessionPatches?.[ancestor]) {
+        entry = mergeEntry(entry, sessionPatches[ancestor]);
+      }
+    }
+    const domEntry = domEntryForScope(key);
+    if (domEntry) {
+      entry = mergeEntry(entry, domEntry);
+    }
+    return Object.keys(entry).length > 0 ? entry : null;
+  }
+
+  async function fetchOverlayEntries(appId) {
+    const overlayApi = global.MeiOpsLayoutTuningOverlay;
+    if (!overlayApi?.fetchOverlay || !appId) return {};
+    try {
+      const payload = await overlayApi.fetchOverlay(appId);
+      return payload?.entries && typeof payload.entries === "object" ? payload.entries : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function applyMergedOverlayPatches(patches, targetWindow) {
+    const view = targetWindow || global;
+    const root = previewRoot();
+    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
+    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
+      compositor.applyThemeAndOverlay(root, null, { patches: patches || {} });
+      return true;
+    }
+    const overlayApi = view.MeiOpsLayoutTuningOverlay || global.MeiOpsLayoutTuningOverlay;
+    if (overlayApi?.applyHot && patches) {
+      return false;
+    }
+    return false;
+  }
+
+  function mergedSessionPatches(appId) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    return (
+      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.layoutOverlay) || {}
+    );
+  }
+
+  function applySessionHot(appId, targetWindow) {
+    const patches = mergedSessionPatches(appId);
+    const applied = applyMergedOverlayPatches(patches, targetWindow);
+    const view = targetWindow || global;
+    if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
+      try {
+        view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
+      } catch (_) {}
+    }
+    return applied;
+  }
+
+  function putSessionPatch(appId, scope, patch, options) {
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    if (!store?.putLayoutOverlayPatches) return false;
+    const key = normalizeScope(scope);
+    if (!key || !patch || typeof patch !== "object") return false;
+    store.putLayoutOverlayPatches(appId, { [key]: patch });
+    if (options?.forceRematerialize && boot.viewCompositor?.recomposeFromLayerStore) {
+      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
+      boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+      return true;
+    }
+    return applySessionHot(appId, options?.targetWindow);
+  }
+
+  const debouncers = new Map();
+
+  function scheduleSessionHot(appId, scope, patch, options) {
+    const opts = options || {};
+    const delay = Number(opts.debounceMs ?? 150);
+    const token = `${appId}:${normalizeScope(scope)}`;
+    const prev = debouncers.get(token);
+    if (prev) global.clearTimeout(prev);
+    const handle = global.setTimeout(() => {
+      debouncers.delete(token);
+      putSessionPatch(appId, scope, patch, opts);
+      try {
+        global.dispatchEvent(
+          new CustomEvent("meilang:preview-updated", {
+            bubbles: true,
+            detail: {
+              scope: "layout-tuning-draft",
+              preview_scope: normalizeScope(scope),
+              resetRuntimeQueryCache: false,
+            },
+          }),
+        );
+      } catch (_) {}
+    }, delay);
+    debouncers.set(token, handle);
+  }
+
+  function applyEntryToControls(controls, entry) {
+    if (!controls || !entry || typeof entry !== "object") return;
+    const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
+    const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
+    const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+    const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
+    const contentBudget = entry.contentBudget || entry.content_budget;
+    if (contentBudget && typeof contentBudget === "object") {
+      const rows = contentBudget.rows || contentBudget.content_rows;
+      if (rowsInput instanceof HTMLInputElement && Array.isArray(rows)) {
+        rowsInput.value = rows.join(",");
+      }
+      const gap = contentBudget.gap ?? contentBudget.content_gap;
+      if (gapInput instanceof HTMLInputElement && gap != null) {
+        gapInput.value = String(gap);
+      }
+    }
+    const slotHeight = entry.slotHeight ?? entry.slot_height;
+    if (slotInput instanceof HTMLInputElement && slotHeight != null) {
+      slotInput.value = String(slotHeight).replace(/px$/i, "").trim();
+    }
+    const profile = entry.paddingProfile ?? entry.padding_profile;
+    if (paddingSelect instanceof HTMLSelectElement && profile) {
+      paddingSelect.value = String(profile);
+    }
+  }
+
+  global.MeiLayoutTuningForm = {
+    resolveLayoutTuningEntry,
+    resolveLayoutTuningScope,
+    resolvePatchScopes,
+    fetchOverlayEntries,
+    putSessionPatch,
+    scheduleSessionHot,
+    applySessionHot,
+    applyEntryToControls,
+    mergedSessionPatches,
+    domEntryForScope,
+    manifestEntryForScope,
+  };
+  boot.layoutTuningForm = global.MeiLayoutTuningForm;
+})(typeof window !== "undefined" ? window : globalThis);
 
 
 /* ===== build-layout-tuning-draft/p1.js ===== */
@@ -7811,10 +8439,38 @@
 (function initBuildLayoutTuningDraftBridge(global) {
   "use strict";
 
+  function isLayoutWorkspaceRoute() {
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/layout(?:\/|$)/.test(path)) {
+      const fromShell = String(
+        document.querySelector(".shell[data-surface]")?.getAttribute("data-surface") || "",
+      )
+        .trim()
+        .toLowerCase();
+      return !fromShell || fromShell === "layout";
+    }
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        return String(ctx?.surface || "").trim().toLowerCase() === "layout";
+      }
+    } catch (_) {}
+    return false;
+  }
+
   function isWorkspaceRoute() {
-    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
-      String(global.location.pathname || ""),
-    );
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/layout(?:\/|$)/.test(path)) return isLayoutWorkspaceRoute();
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const ctx = boot.parseViewContext(global.location.href);
+        const surface = String(ctx?.surface || "").trim().toLowerCase();
+        return surface === "layout";
+      }
+    } catch (_) {}
+    return false;
   }
 
   function appIdFromPath() {
@@ -7837,6 +8493,10 @@
   }
 
   function readUiScopeMetaFromTree(nodeId) {
+    const inspect = global.MeiBuildInspectHighlight;
+    if (typeof inspect?.readUiScopeMetaFromNode === "function") {
+      return inspect.readUiScopeMetaFromNode(nodeId);
+    }
     const id = String(nodeId || "").trim();
     if (!id) return null;
     const script = document.getElementById("mei-build-reachability-tree");
@@ -7844,6 +8504,22 @@
     try {
       const roots = JSON.parse(script.textContent || "[]");
       if (!Array.isArray(roots)) return null;
+      const flat =
+        roots.length > 0 &&
+        typeof roots[0]?.node_id === "string" &&
+        (Object.prototype.hasOwnProperty.call(roots[0], "parent_id") ||
+          (Array.isArray(roots[0]?.children) &&
+            roots[0].children.length > 0 &&
+            typeof roots[0].children[0] === "string") ||
+          (Array.isArray(roots[0]?.children) && roots[0].children.length === 0));
+      if (flat) {
+        const node = roots.find((entry) => String(entry?.node_id || "").trim() === id);
+        if (!node) return null;
+        return {
+          preview_scope: String(node.preview_scope || "").trim(),
+          ui_role: String(node.ui_role || node.badges?.[0] || "").trim(),
+        };
+      }
       const walk = (nodes) => {
         for (const node of nodes || []) {
           if (node?.node_id === id) {
@@ -7870,52 +8546,76 @@
       ".preview-pane-scroll[data-build-inspect-scope], .preview-pane-scroll[data-build-inspect-active]",
     );
     const scopeFromHost = String(host?.getAttribute("data-build-inspect-scope") || "").trim();
-    if (scopeFromHost) return scopeFromHost;
-    const node = activeBuildNode();
-    if (node.startsWith("ui-scope:")) {
-      const meta = readUiScopeMetaFromTree(node);
-      if (meta?.preview_scope) return meta.preview_scope;
+    const rawScope = (() => {
+      if (scopeFromHost) return scopeFromHost;
+      const node = activeBuildNode();
+      if (node.startsWith("ui-scope:")) {
+        const meta = readUiScopeMetaFromTree(node);
+        if (meta?.preview_scope) return meta.preview_scope;
+      }
+      if (node.startsWith("scene-panel:") || node.startsWith("scene-block:")) {
+        const encoded = node.replace(/^scene-(?:panel|block):/i, "");
+        const slash = encoded.indexOf("/");
+        if (slash >= 0) return encoded.slice(slash + 1);
+      }
+      const selected = document.querySelector(
+        "[data-manage-tab-panel='preview'] .build-inspect-selected[data-preview-scope], [data-manage-tab-panel='preview'] .build-inspect-selected[data-mei-panel-id]",
+      );
+      if (selected instanceof HTMLElement) {
+        return String(
+          selected.getAttribute("data-preview-scope") ||
+            selected.getAttribute("data-mei-ui-scope") ||
+            selected.getAttribute("data-mei-panel-id") ||
+            "",
+        ).trim();
+      }
+      return "";
+    })();
+    const formApi = global.MeiLayoutTuningForm;
+    if (formApi?.resolveLayoutTuningScope) {
+      return formApi.resolveLayoutTuningScope(rawScope);
     }
-    if (node.startsWith("scene-panel:") || node.startsWith("scene-block:")) {
-      const encoded = node.replace(/^scene-(?:panel|block):/i, "");
-      const slash = encoded.indexOf("/");
-      if (slash >= 0) return encoded.slice(slash + 1);
-    }
-    const selected = document.querySelector(
-      "[data-manage-tab-panel='preview'] .build-inspect-selected[data-preview-scope]",
-    );
-    if (selected instanceof HTMLElement) {
-      return String(selected.getAttribute("data-preview-scope") || "").trim();
-    }
-    return "";
+    return rawScope;
   }
 
   function buildDraftPatch(previewScope, fields) {
-    const scope = String(previewScope || "").trim();
-    if (!scope) return null;
-    const patch = {};
+    const rawScope = String(previewScope || "").trim();
+    if (!rawScope) return null;
+    const patchScopes =
+      global.MeiLayoutTuningForm?.resolvePatchScopes?.(rawScope) || {
+        rows: rawScope,
+        slot: rawScope,
+        padding: rawScope,
+        primary: rawScope,
+      };
+    const tuning = {};
     const slotHeight = fields?.slotHeight;
     if (slotHeight != null && slotHeight !== "") {
       const numeric = Number(slotHeight);
-      patch.slotHeight = Number.isFinite(numeric) ? `${Math.round(numeric)}px` : String(slotHeight);
+      const value = Number.isFinite(numeric) ? `${Math.round(numeric)}px` : String(slotHeight);
+      const slotKey = patchScopes.slot || rawScope;
+      tuning[slotKey] = { ...(tuning[slotKey] || {}), slotHeight: value };
     }
     const paddingProfile = String(fields?.paddingProfile || "").trim();
     if (paddingProfile) {
-      patch.paddingProfile = paddingProfile;
+      const paddingKey = patchScopes.padding || rawScope;
+      tuning[paddingKey] = { ...(tuning[paddingKey] || {}), paddingProfile };
     }
     const rows = fields?.contentRows;
     const gap = fields?.contentGap;
     if ((Array.isArray(rows) && rows.length > 0) || (gap != null && gap !== "")) {
-      patch.contentBudget = {};
+      const rowsKey = patchScopes.rows || rawScope;
+      const budget = { ...((tuning[rowsKey] || {}).contentBudget || {}) };
       if (Array.isArray(rows) && rows.length > 0) {
-        patch.contentBudget.rows = rows.map((row) => Number(row));
+        budget.rows = rows.map((row) => Number(row));
       }
       if (gap != null && gap !== "") {
-        patch.contentBudget.gap = Number(gap);
+        budget.gap = Number(gap);
       }
+      tuning[rowsKey] = { ...(tuning[rowsKey] || {}), contentBudget: budget };
     }
-    if (Object.keys(patch).length === 0) return null;
-    return { tuning: { [scope]: patch } };
+    if (Object.keys(tuning).length === 0) return null;
+    return { tuning, primaryScope: patchScopes.primary || rawScope };
   }
 
   function inspectBarRoot() {
@@ -7964,6 +8664,47 @@
     controls.querySelector("[data-draft-persist]")?.addEventListener("click", () => {
       void applyDraftFromControls({ persist: true });
     });
+    if (!controls.__layoutTuningLiveBound) {
+      controls.__layoutTuningLiveBound = true;
+      const onLiveChange = () => {
+        if (!isLayoutWorkspaceRoute()) return;
+        const appId = appIdFromPath();
+        const scope = resolvePreviewScopeFromSelection();
+        if (!appId || !scope) return;
+        const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
+        const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
+        const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
+        const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
+        const rows =
+          rowsInput instanceof HTMLInputElement && rowsInput.value
+            ? rowsInput.value
+                .split(",")
+                .map((part) => Number(part.trim()))
+                .filter((value) => Number.isFinite(value))
+            : null;
+        const built = buildDraftPatch(scope, {
+          slotHeight:
+            slotInput instanceof HTMLInputElement && slotInput.value ? slotInput.value : null,
+          paddingProfile:
+            paddingSelect instanceof HTMLSelectElement ? paddingSelect.value : "",
+          contentRows: rows,
+          contentGap:
+            gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
+        });
+        if (!built?.tuning || Object.keys(built.tuning).length === 0) return;
+        void global.MeiOpsLayoutTuningOverlay?.putSessionDraft?.(appId, built.tuning);
+        const formApi = global.MeiLayoutTuningForm;
+        if (formApi?.applySessionHot) {
+          formApi.applySessionHot(appId);
+        } else if (formApi?.scheduleSessionHot) {
+          for (const [patchScope, patch] of Object.entries(built.tuning)) {
+            formApi.scheduleSessionHot(appId, patchScope, patch, { debounceMs: 150 });
+          }
+        }
+      };
+      controls.addEventListener("input", onLiveChange);
+      controls.addEventListener("change", onLiveChange);
+    }
     return controls;
   }
 
@@ -8031,88 +8772,63 @@
       return;
     }
     controls.hidden = false;
-    scopeLabel.textContent = `scope: ${scope}`;
-    const node = document.querySelector(
-      `[data-preview-scope="${CSS.escape(scope)}"]`,
-    );
-    const applyEntryToControls = (entry) => {
-      if (!entry || typeof entry !== "object") return;
-      const rowsInput = controls.querySelector('[data-draft-field="contentRows"]');
-      const gapInput = controls.querySelector('[data-draft-field="contentGap"]');
-      const slotInput = controls.querySelector('[data-draft-field="slotHeight"]');
-      const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-      const contentBudget = entry.contentBudget || entry.content_budget;
-      if (contentBudget && typeof contentBudget === "object") {
-        const rows = contentBudget.rows || contentBudget.content_rows;
-        if (rowsInput instanceof HTMLInputElement && Array.isArray(rows)) {
-          rowsInput.value = rows.join(",");
-        }
-        const gap = contentBudget.gap ?? contentBudget.content_gap;
-        if (gapInput instanceof HTMLInputElement && gap != null) {
-          gapInput.value = String(gap);
-        }
-      }
-      if (slotInput instanceof HTMLInputElement) {
-        const slotHeight =
-          entry.slotHeight ??
-          entry.slot_height ??
-          (node instanceof HTMLElement
-            ? node.dataset.layoutTuningSlotHeight ||
-              node.style.getPropertyValue("--mei-slot-height").replace(/px$/, "")
-            : "");
-        if (slotHeight) slotInput.value = String(slotHeight).trim();
-      }
-      if (paddingSelect instanceof HTMLSelectElement) {
-        const profile =
-          entry.paddingProfile ??
-          entry.padding_profile ??
-          (node instanceof HTMLElement ? node.dataset.layoutTuningPaddingProfile : "");
-        if (profile) paddingSelect.value = String(profile);
+    const displayScope =
+      global.MeiLayoutTuningForm?.resolveLayoutTuningScope?.(scope) || scope;
+    scopeLabel.textContent = `scope: ${scope}${displayScope !== scope ? ` → ${displayScope}` : ""}`;
+    const formApi = global.MeiLayoutTuningForm;
+    const appId = appIdFromPath();
+    const fillFromEntry = (entry) => {
+      if (formApi?.applyEntryToControls) {
+        formApi.applyEntryToControls(controls, entry);
       }
     };
-    if (node instanceof HTMLElement) {
-      applyEntryToControls({
-        slotHeight:
-          node.dataset.layoutTuningSlotHeight ||
-          node.style.getPropertyValue("--mei-slot-height").replace(/px$/, ""),
-        paddingProfile: node.dataset.layoutTuningPaddingProfile || "",
-        contentBudget: {
-          rows: (node.dataset.layoutTuningContentRows || node.dataset.manifestContentRows || "")
-            .split(",")
-            .map((part) => Number(part.trim()))
-            .filter((value) => Number.isFinite(value)),
-          gap:
-            node.dataset.layoutTuningContentGap ||
-            node.dataset.manifestContentGap ||
-            node.style.rowGap?.replace(/px$/, ""),
-        },
-      });
+    if (formApi?.resolveLayoutTuningEntry) {
+      const local = formApi.resolveLayoutTuningEntry(scope, { appId });
+      if (local) fillFromEntry(local);
     }
-    const appId = appIdFromPath();
     const overlay = global.MeiOpsLayoutTuningOverlay;
     if (appId && overlay?.fetchOverlay) {
       void overlay
         .fetchOverlay(appId)
         .then((payload) => {
-          const entry = payload?.entries?.[scope];
-          if (entry) applyEntryToControls(entry);
+          const entry = formApi?.resolveLayoutTuningEntry
+            ? formApi.resolveLayoutTuningEntry(scope, {
+                appId,
+                overlayEntries: payload?.entries || {},
+              })
+            : payload?.entries?.[scope];
+          if (entry) fillFromEntry(entry);
         })
         .catch(() => {});
     }
   }
 
+  function selectionMetaFromActiveNode() {
+    const node = activeBuildNode();
+    if (!node.startsWith("ui-scope:")) return null;
+    return readUiScopeMetaFromTree(node);
+  }
+
   function scheduleSync() {
     global.requestAnimationFrame(() => {
       syncDraftControls();
-      const meta = resolvePreviewScopeFromSelection();
-      if (meta && global.__meiLangBoot?.wysiwygPanelApi?.openPanelForSelection) {
+      const meta = selectionMetaFromActiveNode();
+      if (meta?.preview_scope && global.__meiLangBoot?.wysiwygPanelApi?.openPanelForSelection) {
         global.__meiLangBoot.wysiwygPanelApi.openPanelForSelection(meta);
       }
     });
   }
 
+  global.addEventListener("mei:build-node-selected", () => {
+    scheduleSync();
+  });
   global.addEventListener("popstate", scheduleSync);
   global.addEventListener("meilang:preview-updated", scheduleSync);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scheduleSync);
+  } else {
+    scheduleSync();
+  }
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -8237,18 +8953,26 @@
   async function applyLayoutTuningOverlayHot(appId, targetWindow) {
     const view = targetWindow || global;
     const payload = await fetchOverlay(appId);
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const sessionPatches = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.layoutOverlay,
+    );
+    const merged = { ...(payload.entries || {}), ...(sessionPatches || {}) };
     const root =
       view.document.querySelector(".preview-pane-scroll") ||
       view.document.querySelector(".preview-pane");
-    const boot = view.__meiLangBoot || global.__meiLangBoot || {};
-    if (boot.viewCompositor?.applyThemeAndOverlay) {
-      boot.viewCompositor.applyThemeAndOverlay(root, null, {
-        patches: payload.entries || {},
-      });
+    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
+    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
+      compositor.applyThemeAndOverlay(root, null, { patches: merged });
       notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
+      if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
+        try {
+          view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
       return;
     }
-    if (applyOverlayEntries(root, payload.entries || {})) {
+    if (applyOverlayEntries(root, merged)) {
       notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
       if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
         try {
@@ -8258,18 +8982,36 @@
     }
   }
 
-  async function putSessionDraft(appId, tuning) {
+  async function putSessionDraft(appId, tuning, options) {
     const store = global.MeiDraftLayerStore || boot.draftLayerStore;
     if (!store?.putLayoutOverlayPatches) {
       throw new Error("draft layer store unavailable");
     }
     store.putLayoutOverlayPatches(appId, tuning);
-    const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
-    if (boot.viewCompositor?.recomposeFromLayerStore) {
-      boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+    if (options?.forceRematerialize) {
+      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
+      if (boot.viewCompositor?.recomposeFromLayerStore) {
+        boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+      }
+    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
+      global.MeiLayoutTuningForm.applySessionHot(appId);
+    } else {
+      await applyLayoutTuningOverlayHot(appId);
     }
     notifyLayoutTuningOverlay("layout-tuning-draft");
     return { ok: true, local: true };
+  }
+
+  function activeSceneId() {
+    try {
+      const fromAxes = boot.sceneManifestLoader?.readShellAxes?.()?.scene;
+      if (fromAxes) return String(fromAxes).trim();
+      return (
+        String(new URL(global.location.href).searchParams.get("scene") || "home").trim() || "home"
+      );
+    } catch (_) {
+      return "home";
+    }
   }
 
   async function applyDraftToConfig(appId) {
@@ -8296,7 +9038,7 @@
     if (boot.sceneManifestLoader?.fetchManifest) {
       try {
         const axes = boot.sceneManifestLoader.readShellAxes?.() || {};
-        await boot.sceneManifestLoader.fetchManifest(appId, "home", axes);
+        await boot.sceneManifestLoader.fetchManifest(appId, activeSceneId(), axes);
       } catch (_) {}
     }
     notifyLayoutTuningOverlay("layout-tuning-persisted");
@@ -19529,6 +20271,31 @@
     });
   }
 
+  function resolveAppIdFromShell() {
+    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+    return shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+  }
+
+  function dispatchLayer2ScopeActivation(sceneId, source) {
+    const scope = nonEmptyString(sceneId);
+    if (!scope) return;
+    const appId = resolveAppIdFromShell();
+    if (typeof boot.dispatchScopeActivation === "function") {
+      boot.dispatchScopeActivation({
+        scope,
+        sceneId: scope,
+        appId,
+        source: source || "layer2",
+      });
+      return;
+    }
+    document.dispatchEvent(
+      new CustomEvent("meilang:scope-activation", {
+        detail: { scope, sceneId: scope, appId, source: source || "layer2" },
+      }),
+    );
+  }
+
   function activateLayer2Tab(tabId) {
     const root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
     if (!root) return;
@@ -19541,6 +20308,10 @@
       panel.classList.toggle("is-active", active);
     });
     syncLayer2TabBar(root);
+    const tab = session.tabs.find((entry) => entry.id === tabId);
+    if (tab?.sceneId) {
+      dispatchLayer2ScopeActivation(tab.sceneId, "layer2-tab");
+    }
   }
 
   function openLayer2Tab(config) {
@@ -19600,6 +20371,7 @@
       boot.dispatchScopeActivation({
         scope: sceneId,
         sceneId,
+        appId: resolveAppIdFromShell(),
         source: "layer2",
         overlaySize,
       });
@@ -19608,6 +20380,8 @@
         new CustomEvent("meilang:scope-activation", {
           detail: {
             scope: sceneId,
+            sceneId,
+            appId: resolveAppIdFromShell(),
             source: "layer2",
             overlaySize,
           },
@@ -19921,42 +20695,72 @@
     }
   }
 
-  function triggerScopeActivationWarmup(config) {
+  function resolveAppIdFromShell() {
+    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+    return shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+  }
+
+  function resolveClientBootstrapNeighborHops() {
+    const raw =
+      window.__mei?.runtime?.clientBootstrap?.neighborHops ??
+      window.__mei?.clientBootstrapNeighborHops ??
+      1;
+    const hops = Number(raw);
+    return Number.isFinite(hops) && hops > 0 ? Math.floor(hops) : 1;
+  }
+
+  async function activateProjectionScope(config) {
     const scope = nonEmptyString(config?.pageSceneId, config?.boardSceneId, config?.sceneId);
     if (!scope || typeof fetch !== "function") {
-      return;
+      return false;
     }
-    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
-    const appId = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+    const appId = resolveAppIdFromShell();
+    const hops = resolveClientBootstrapNeighborHops();
     const appQuery = appId ? `&appId=${encodeURIComponent(appId)}` : "";
-    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=1${appQuery}`;
-    void fetch(url, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((result) => {
-        const payload =
-          result?.payload && typeof result.payload === "object" ? result.payload : null;
-        if (payload && typeof boot.applyBootstrapPayload === "function") {
-          boot.applyBootstrapPayload(payload);
-        }
-        if (typeof boot.dispatchScopeActivation === "function") {
-          boot.dispatchScopeActivation({
-            scope,
-            sceneId: scope,
-            appId,
-            source: "mrg-activate",
-            projection: nonEmptyString(config?.projection, "overlay"),
-          });
-        }
-        if (payload && typeof seedFromBootstrap === "function") {
-          seedFromBootstrap(window.__mei || payload);
-        }
-      })
-      .catch(() => {
-        /* ignore activation warmup failures; runtime API path remains fallback */
+    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=${hops}${appQuery}`;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Accept: "application/json" },
       });
+      if (!response.ok) {
+        return false;
+      }
+      const result = await response.json();
+      const payload =
+        result?.payload && typeof result.payload === "object" ? result.payload : null;
+      if (payload && typeof boot.applyBootstrapPayload === "function") {
+        boot.applyBootstrapPayload(payload);
+      }
+      if (typeof boot.dispatchScopeActivation === "function") {
+        boot.dispatchScopeActivation({
+          scope,
+          sceneId: scope,
+          appId,
+          source: "mrg-activate",
+          projection: nonEmptyString(config?.projection, "overlay"),
+        });
+      } else {
+        document.dispatchEvent(
+          new CustomEvent("meilang:scope-activation", {
+            detail: { scope, sceneId: scope, appId, source: "mrg-activate" },
+          }),
+        );
+      }
+      if (typeof seedFromBootstrap === "function") {
+        seedFromBootstrap(window.__mei || payload);
+      }
+      if (typeof window !== "undefined") {
+        window.__meiLastScopeActivation = { scope, sceneId: scope, appId, at: Date.now() };
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function triggerScopeActivationWarmup(config) {
+    void activateProjectionScope(config);
   }
 
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
@@ -19994,6 +20798,7 @@
       ),
     };
     await prewarmProjectionScope(layer2Config);
+    await activateProjectionScope(layer2Config);
     const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
     if (useLayer2 && typeof boot.openLayer2Tab === "function") {
       closeSceneBoardOverlay();
@@ -20001,7 +20806,12 @@
       if (typeof boot.beginDrilldownLoadSession === "function") {
         boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
       }
-      triggerScopeActivationWarmup(layer2Config);
+      if (
+        root &&
+        typeof window.__meiDatasetRuntime?.prefetchVisiblePanelMetrics === "function"
+      ) {
+        window.__meiDatasetRuntime.prefetchVisiblePanelMetrics(root);
+      }
       if (config.boardFrameScene) {
         await renderFrameBoardSceneContent(root, detail, config);
         return;
@@ -20026,7 +20836,9 @@
       if (typeof boot.beginDrilldownLoadSession === "function") {
         boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
       }
-      triggerScopeActivationWarmup(layer2Config);
+      if (typeof window.__meiDatasetRuntime?.prefetchVisiblePanelMetrics === "function") {
+        window.__meiDatasetRuntime.prefetchVisiblePanelMetrics(root);
+      }
       await renderStructuredDrilldownContent(root, detail, config);
       return;
     }
@@ -20039,7 +20851,6 @@
     if (typeof boot.beginDrilldownLoadSession === "function") {
       boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
-    triggerScopeActivationWarmup(layer2Config);
     if (config.boardFrameScene) {
       if (!(await renderFrameBoardSceneContent(root, detail, config))) {
         return;
@@ -20376,8 +21187,8 @@
   }
 
   function clearViewpointFocus() {
-    document.querySelectorAll(".mei-viewpoint-focus").forEach((node) => {
-      node.classList.remove("mei-viewpoint-focus");
+    document.querySelectorAll(".mei-viewpoint-focus, .mei-structure-focus").forEach((node) => {
+      node.classList.remove("mei-viewpoint-focus", "mei-structure-focus");
     });
     document.documentElement.classList.remove("mei-tier-dim");
   }
@@ -20434,6 +21245,31 @@
     });
   }
 
+  function resolveT2PanelSceneId(panel, panelId) {
+    const candidates = [
+      panel.getAttribute("data-mei-board-scene"),
+      panel.getAttribute("data-mei-scene-id"),
+      panel.querySelector("[data-mei-drilldown-scene]")?.getAttribute("data-mei-drilldown-scene"),
+    ];
+    for (const value of candidates) {
+      const trimmed = String(value || "").trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+    const assemblies = window.__mei?.scene_projection_assembly_by_id;
+    const panelName = String(panel.getAttribute("data-mei-panel-name") || panelId || "").trim();
+    if (panelName && assemblies && typeof assemblies === "object") {
+      for (const [sceneId, assembly] of Object.entries(assemblies)) {
+        const key = String(assembly?.key || "");
+        if (key.includes(panelName)) {
+          return sceneId;
+        }
+      }
+    }
+    return panelName;
+  }
+
   function openT2Panel(panelId) {
     const selector = t2PageSelector(panelId);
     if (!selector) return false;
@@ -20449,6 +21285,17 @@
       node.classList.toggle("mei-t2-page-active", active);
     });
     document.documentElement.setAttribute("data-mei-active-t2-panel", normalized);
+    const sceneId = resolveT2PanelSceneId(target, panelId);
+    if (sceneId && typeof boot.dispatchScopeActivation === "function") {
+      const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+      const appId = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+      boot.dispatchScopeActivation({
+        scope: sceneId,
+        sceneId,
+        appId,
+        source: "t2-inline",
+      });
+    }
     return true;
   }
 
@@ -20494,7 +21341,7 @@
       target = document.querySelector(selector);
     }
     if (!(target instanceof HTMLElement)) return false;
-    target.classList.add("mei-viewpoint-focus");
+    target.classList.add("mei-viewpoint-focus", "mei-structure-focus");
     if (entry.tier) {
       document.documentElement.classList.add("mei-tier-dim");
     }
@@ -26172,7 +27019,7 @@
 
   function defaultReviewProjectionForSurface(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section";
+    if (slug === "layout") return "plane_region_section_slot";
     if (slug === "prototype") return "static_full";
     return "live_full";
   }
@@ -26722,9 +27569,34 @@
     return nodes.filter((node) => allowed.has(node.node_id));
   }
 
-  function childrenForParent(nodes, parentId) {
+  function isCompoundSlotWrapper(node, nodes) {
+    const role = String(node?.ui_role || "").trim().toLowerCase();
+    if (role !== "slot") return false;
+    const label = String(node?.label || "").trim().toLowerCase();
+    if (label !== "compound" && !label.endsWith("_compound")) return false;
+    const kids = childrenForParentRaw(nodes, node.node_id);
+    return (
+      kids.length > 0 &&
+      kids.every((child) => String(child?.ui_role || "").trim().toLowerCase() === "slot")
+    );
+  }
+
+  function childrenForParentRaw(nodes, parentId) {
     const pid = String(parentId || "").trim();
     return nodes.filter((node) => parentKey(node) === pid);
+  }
+
+  function childrenForParent(nodes, parentId) {
+    const direct = childrenForParentRaw(nodes, parentId);
+    const out = [];
+    for (const child of direct) {
+      if (isCompoundSlotWrapper(child, nodes)) {
+        out.push(...childrenForParentRaw(nodes, child.node_id));
+      } else {
+        out.push(child);
+      }
+    }
+    return out;
   }
 
   function resolveRoots(nodes, sceneRoots) {
@@ -26910,11 +27782,20 @@
       String(opts.treeMaxUiRole || "").trim() ||
       String(document.body?.getAttribute("data-build-tree-max-ui-role") || "").trim() ||
       String(
+        document.querySelector(".shell[data-build-tree-max-ui-role]")?.getAttribute(
+          "data-build-tree-max-ui-role",
+        ) || "",
+      ).trim() ||
+      String(
         document.querySelector(".build-reachability-tree")?.getAttribute(
           "data-build-tree-max-ui-role",
         ) || "",
       ).trim() ||
-      "section";
+      (String(opts.surface || global.location?.pathname || "")
+        .toLowerCase()
+        .includes("layout")
+        ? "content"
+        : "slot");
     const nodes = filteredNodes(structureDoc, maxRole);
     const roots = resolveRoots(nodes, structureDoc.scene_roots);
     const tree = ensureTreeMount(maxRole);
@@ -27749,7 +28630,7 @@
     if (!appId || !sceneId || !surfaceDigest) return "";
     const composeHash = stableComposeHash(ctx);
     const dataGen = resolveDataGeneration();
-    return `${appId}:${sceneId}:${surfaceDigest}:${composeHash}:${dataGen}`;
+    return `${appId}:${sceneId}:${surfaceDigest}:${composeHash}:${dataGen}:fragment`;
   }
 
   function openDb() {
@@ -28193,7 +29074,7 @@
 
   function defaultReviewProjectionForSurface(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section";
+    if (slug === "layout") return "plane_region_section_slot";
     if (slug === "prototype") return "static_full";
     return "live_full";
   }
@@ -29118,13 +29999,14 @@
   const PROJECTION_MAX_ROLE = {
     plane_region: "region",
     plane_region_section: "section",
+    plane_region_section_slot: "slot",
     content: "content",
     live_full: "content",
     static_full: "content",
   };
 
   function roleDepth(role) {
-    const map = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    const map = { plane: 0, region: 1, section: 2, slot: 3, content: 4 };
     return map[String(role || "").toLowerCase()] ?? 99;
   }
 
@@ -29161,18 +30043,36 @@
         if (!patch || typeof patch !== "object") return;
         const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
         if (!(node instanceof HTMLElement)) return;
+        const slotHeight =
+          patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
+        if (slotHeight != null && slotHeight !== "") {
+          const numeric = Number(String(slotHeight).replace(/px$/i, "").trim());
+          const px = Number.isFinite(numeric) ? `${numeric}px` : String(slotHeight);
+          node.style.setProperty("--mei-slot-height", px);
+          node.dataset.layoutTuningSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
+        }
+        const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
+        if (paddingProfile) {
+          node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
+        }
         const contentBudget = patch.contentBudget || patch.content_budget;
         if (contentBudget && typeof contentBudget === "object") {
           const rows = contentBudget.rows || contentBudget.content_rows;
           if (Array.isArray(rows) && rows.length > 0) {
             const total = rows.reduce((sum, row) => sum + Number(row), 0);
             if (total > 0) {
-              node.style.gridTemplateRows = rows.map((row) => `${(Number(row) / total) * 100}fr`).join(" ");
+              node.style.gridTemplateRows = rows
+                .map((row) => `${(Number(row) / total) * 100}fr`)
+                .join(" ");
+            } else {
+              node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
             }
+            node.dataset.layoutTuningContentRows = rows.join(",");
           }
           const gap = contentBudget.gap ?? contentBudget.content_gap;
           if (gap != null && gap !== "") {
             node.style.rowGap = `${gap}px`;
+            node.dataset.layoutTuningContentGap = String(gap);
           }
         }
       });
@@ -29947,14 +30847,26 @@
   }
 
   function preferComposePreview() {
-    return global.__mei?.prefer_compose_preview !== false;
+    return global.__mei?.prefer_compose_preview === true;
   }
 
-  async function storeSurfaceHtmlCache(ctx, root, options) {
-    if (!(root instanceof HTMLElement) || !boot.previewSurfaceCache?.storeCachedSurface) return;
-    const html = String(root.innerHTML || "").trim();
-    if (!html) return;
-    void boot.previewSurfaceCache.storeCachedSurface(ctx, html, options);
+  function composePreviewMaterialized(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    if (typeof boot.hasMaterializedPreview === "function" && !boot.hasMaterializedPreview(root)) {
+      return false;
+    }
+    return !!root.querySelector(
+      "[data-mei-frame-viewport], [data-preview-scope], [data-mei-use-key], .preview-viewport",
+    );
+  }
+
+  async function storeSurfaceHtmlCache(ctx, surfaceHtml, options) {
+    const html = String(surfaceHtml || "").trim();
+    if (!html || !boot.previewSurfaceCache?.storeCachedSurface) return;
+    void boot.previewSurfaceCache.storeCachedSurface(ctx, html, {
+      ...(options || {}),
+      source: "fragment",
+    });
   }
 
   async function fetchAndInjectFragment(ctx, root, options) {
@@ -29962,7 +30874,7 @@
     if (!fragment?.surfaceHtml) return false;
     const ok = injectPreviewSurfaceHtml(root, fragment.surfaceHtml);
     if (ok) {
-      void boot.previewSurfaceCache?.storeCachedSurface?.(ctx, fragment.surfaceHtml, options);
+      void storeSurfaceHtmlCache(ctx, fragment.surfaceHtml, options);
       if (typeof boot.renderPipelineMark === "function") {
         boot.renderPipelineMark("preview_fragment:end", {
           bytes: fragment.surfaceHtml.length,
@@ -30018,8 +30930,7 @@
           forceRematerialize: opts.forceRematerialize === true,
         };
         const composed = boot.viewCompositor.composeFromLayers(root, layers, composeAxes);
-        if (composed) {
-          await storeSurfaceHtmlCache(ctx, root, opts);
+        if (composed && composePreviewMaterialized(root)) {
           return { ok: true, source: "compose" };
         }
       }
@@ -30104,10 +31015,48 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   let panelEl = null;
 
+  function workspaceSurface() {
+    const fromShell = String(
+      global.document?.querySelector?.(".shell[data-surface]")?.getAttribute("data-surface") || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromShell) return fromShell;
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const surface = String(boot.parseViewContext(global.location.href)?.surface || "")
+          .trim()
+          .toLowerCase();
+        if (surface) return surface;
+      }
+    } catch (_) {}
+    const path = String(global.location.pathname || "");
+    const match = path.match(/^\/apps\/[^/]+\/(layout|prototype)(?:\/|$)/);
+    return match ? match[1] : "layout";
+  }
+
+  function isLayoutWorkspaceRoute() {
+    return workspaceSurface() === "layout";
+  }
+
+  function isPrototypeWorkspaceRoute() {
+    return workspaceSurface() === "prototype";
+  }
+
   function isWorkspaceRoute() {
-    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
-      String(global.location.pathname || ""),
-    );
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path)) return true;
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const surface = String(boot.parseViewContext(global.location.href)?.surface || "")
+          .trim()
+          .toLowerCase();
+        return surface === "layout" || surface === "prototype";
+      }
+    } catch (_) {}
+    return false;
   }
 
   function ensurePanel() {
@@ -30201,6 +31150,28 @@
           scopeNode.dataset.layoutTuningContentGap ||
           String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
       }
+      const formApi = global.MeiLayoutTuningForm;
+      const appId = appIdFromPath();
+      if (formApi?.resolveLayoutTuningEntry && meta.preview_scope) {
+        const entry = formApi.resolveLayoutTuningEntry(meta.preview_scope, { appId });
+        const gapVal = entry?.contentBudget?.gap ?? entry?.content_budget?.gap;
+        if (gapVal != null && gapVal !== "") gap.value = String(gapVal);
+      }
+      gap.addEventListener("input", () => {
+        const gapVal = gap.value.trim();
+        if (!meta.preview_scope || !appId) return;
+        const layout = {};
+        if (gapVal) {
+          const numeric = Number(gapVal);
+          layout.contentBudget = {
+            gap: Number.isFinite(numeric) ? numeric : gapVal,
+          };
+        }
+        const patch = buildLayoutPatch(meta.preview_scope, meta.ui_role, layout);
+        if (formApi?.scheduleSessionHot && patch?.layout) {
+          formApi.scheduleSessionHot(appId, meta.preview_scope, patch.layout, { debounceMs: 150 });
+        }
+      });
       body.appendChild(gap);
       const btn = global.document.createElement("button");
       btn.type = "button";
@@ -30241,12 +31212,15 @@
   function openPanelForSelection(meta) {
     if (!isWorkspaceRoute() || !meta) return;
     const role = String(meta.ui_role || "").toLowerCase();
-    if (role === "region" || role === "section") {
+    if (
+      isLayoutWorkspaceRoute() &&
+      (role === "region" || role === "section" || role === "slot")
+    ) {
       boot.wysiwygPanel = { kind: "layout", meta };
       renderPanel("layout", meta);
       return;
     }
-    if (role === "content" || role === "slot") {
+    if (isPrototypeWorkspaceRoute() && (role === "content" || role === "slot")) {
       boot.wysiwygPanel = { kind: "theme", meta };
       renderPanel("theme", meta);
     }
@@ -32893,7 +33867,10 @@
   function focusSelectorForAnchor(anchor) {
     if (!anchor || typeof anchor !== "object") return "";
     const scope = String(anchor.preview_scope || "").trim();
-    if (scope) return `[data-preview-scope="${CSS.escape(scope)}"]`;
+    if (scope) {
+      const escaped = CSS.escape(scope);
+      return `[data-mei-ui-scope="${escaped}"], [data-preview-scope="${escaped}"]`;
+    }
     const nodeId = String(anchor.node_id || "").trim();
     if (nodeId) return `[data-build-node="${CSS.escape(nodeId)}"]`;
     return "";
@@ -32936,6 +33913,7 @@
     plane: 0,
     plane_region: 1,
     plane_region_section: 2,
+    plane_region_section_slot: 3,
     static_full: 99,
     live_full: 99,
     static: 99,
@@ -32967,7 +33945,7 @@
     const role = String(el.getAttribute("data-mei-ui-role") || "")
       .trim()
       .toLowerCase();
-    const roleDepth = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    const roleDepth = { plane: 0, region: 1, section: 2, slot: 3, content: 4 };
     if (role && Object.prototype.hasOwnProperty.call(roleDepth, role)) {
       return roleDepth[role];
     }
@@ -32980,6 +33958,23 @@
   function applyReviewProjectionChrome(root, options) {
     if (!(root instanceof HTMLElement)) return;
     const opts = options || {};
+    const surface = String(
+      global.document?.body?.getAttribute("data-surface") ||
+        global.document?.body?.getAttribute("data-mei-view") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (surface === "layout") {
+      root.removeAttribute("data-review-projection-active");
+      root
+        .querySelectorAll(".build-review-projection-dim, .mei-review-projection-dim")
+        .forEach((el) => {
+          el.classList.remove("build-review-projection-dim", "mei-review-projection-dim");
+          if (el instanceof HTMLElement) el.style.removeProperty("pointer-events");
+        });
+      return;
+    }
     const projection = normalizeReviewProjection(
       opts.reviewProjection ||
         root.getAttribute("data-review-projection") ||

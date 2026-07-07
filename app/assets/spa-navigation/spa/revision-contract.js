@@ -243,7 +243,7 @@
 
   function defaultReviewProjectionForSurface(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section";
+    if (slug === "layout") return "plane_region_section_slot";
     if (slug === "prototype") return "static_full";
     return "live_full";
   }

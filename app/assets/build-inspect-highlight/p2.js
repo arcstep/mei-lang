@@ -27,11 +27,12 @@
     }
   }
 
-  const REVIEW_ROLE_DEPTH = { plane: 0, region: 1, section: 2, slot: 3 };
+  const REVIEW_ROLE_DEPTH = { plane: 0, region: 1, section: 2, slot: 3, content: 4 };
   const REVIEW_PROJECTION_MAX_DEPTH = {
     plane: 0,
     plane_region: 1,
     plane_region_section: 2,
+    plane_region_section_slot: 3,
     static_full: 99,
     live_full: 99,
     static: 99,
@@ -225,10 +226,47 @@
       }
       selected.forEach((el) => el.classList.add("build-inspect-selected"));
       applyInspectFocusChrome(root, meta, node);
+      finalizeInspectHighlight(root, selected);
       if (!focusEl) {
         scrollIntoViewIfOne(selected, root);
       }
-      updateInspectBar(node, focus, focusEl || selected[0] || null);
+      if (selected.length === 0) {
+        const scope = String(meta?.preview_scope || "").trim();
+        const role = String(meta?.ui_role || "").trim().toLowerCase();
+        if (role === "content" && isLayoutWorkspaceSurface()) {
+          updateInspectBar(
+            node,
+            focus,
+            null,
+            "布局预览不渲染 content；请选 section/slot 节点，或切换到原型视图。",
+          );
+        } else if (role === "budget" && isLayoutWorkspaceSurface()) {
+          updateInspectBar(
+            node,
+            focus,
+            null,
+            "Budget 为 gap/padding 元数据节点，无独立 DOM；请选其父 slot 试调布局。",
+          );
+        } else {
+          updateInspectBar(
+            node,
+            focus,
+            null,
+            scope
+              ? `预览区无 scope 锚点「${scope}」（需先 compose 或检查 scene）`
+              : "预览区无对应锚点",
+          );
+        }
+      } else {
+        const layoutMsg = isLayoutWorkspaceSurface()
+          ? layoutHighlightScopeMessage(meta, selected[0])
+          : "";
+        if (layoutMsg) {
+          updateInspectBar(node, focus, focusEl || selected[0] || null, layoutMsg);
+        } else {
+          updateInspectBar(node, focus, focusEl || selected[0] || null);
+        }
+      }
       return;
     }
 
@@ -247,6 +285,7 @@
         selected = [selected[0]];
       }
       selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      finalizeInspectHighlight(root, selected);
       if (!focusEl) {
         scrollIntoViewIfOne(selected, root);
       }
@@ -259,6 +298,7 @@
       const meta = resolveBoardSlotMeta(node, slotId);
       const selected = resolveBoardSlotHighlightTargets(root, meta);
       selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      finalizeInspectHighlight(root, selected);
       scrollIntoViewIfOne(selected, root);
       updateInspectBar(node, focus, selected[0] || null);
       return;
@@ -360,6 +400,20 @@
       applyReviewProjectionChrome(root);
       applyHighlight(root);
     }
+    const meta = node.startsWith("ui-scope:") ? readUiScopeMetaFromNode(node) : null;
+    try {
+      global.dispatchEvent(
+        new CustomEvent("mei:build-node-selected", {
+          bubbles: true,
+          detail: {
+            nodeId: node,
+            preview_scope: String(meta?.preview_scope || "").trim(),
+            ui_role: String(meta?.ui_role || "").trim(),
+            focus,
+          },
+        }),
+      );
+    } catch (_) {}
   }
 
   function pushBuildUrl(mutator) {
@@ -577,10 +631,40 @@
     bind();
   }
 
+  function debugInspectAnchor(node) {
+    const nodeId = String(node || activeBuildNode() || "").trim();
+    const meta = readUiScopeMetaFromNode(nodeId);
+    const root = previewRoot() || document;
+    const selected = resolveUiScopeHighlightTargets(root, nodeId, meta);
+    const el = selected[0] || null;
+    const targetScope = String(meta?.preview_scope || "").trim();
+    const panelPath = el?.getAttribute("data-mei-panel-id") || "";
+    const uiScope = el?.getAttribute("data-mei-ui-scope") || "";
+    return {
+      node: nodeId,
+      preview_scope: targetScope,
+      ui_role: String(meta?.ui_role || "").trim(),
+      matched: el ? readStructureDomScope(el) : "",
+      matched_panel: panelPath,
+      matched_ui_scope: uiScope,
+      affinity_depth: el
+        ? previewScopeAffinityDepth(panelPath, uiScope, targetScope)
+        : -1,
+      panel_id: panelPath,
+      rect: el?.getBoundingClientRect?.() || null,
+      element: el,
+    };
+  }
+
   global.MeiBuildInspectHighlight = {
     refresh,
     navigateToBuildNode,
     navigateToBuildFocus,
     selectBuildNodeClient,
+    readUiScopeMetaFromNode,
+    readStructureDomScope,
+    scopeAlignScore,
+    previewScopeAffinityDepth,
+    debugInspectAnchor,
   };
 })(window);

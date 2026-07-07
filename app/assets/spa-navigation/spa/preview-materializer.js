@@ -412,14 +412,26 @@
   }
 
   function preferComposePreview() {
-    return global.__mei?.prefer_compose_preview !== false;
+    return global.__mei?.prefer_compose_preview === true;
   }
 
-  async function storeSurfaceHtmlCache(ctx, root, options) {
-    if (!(root instanceof HTMLElement) || !boot.previewSurfaceCache?.storeCachedSurface) return;
-    const html = String(root.innerHTML || "").trim();
-    if (!html) return;
-    void boot.previewSurfaceCache.storeCachedSurface(ctx, html, options);
+  function composePreviewMaterialized(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    if (typeof boot.hasMaterializedPreview === "function" && !boot.hasMaterializedPreview(root)) {
+      return false;
+    }
+    return !!root.querySelector(
+      "[data-mei-frame-viewport], [data-preview-scope], [data-mei-use-key], .preview-viewport",
+    );
+  }
+
+  async function storeSurfaceHtmlCache(ctx, surfaceHtml, options) {
+    const html = String(surfaceHtml || "").trim();
+    if (!html || !boot.previewSurfaceCache?.storeCachedSurface) return;
+    void boot.previewSurfaceCache.storeCachedSurface(ctx, html, {
+      ...(options || {}),
+      source: "fragment",
+    });
   }
 
   async function fetchAndInjectFragment(ctx, root, options) {
@@ -427,7 +439,7 @@
     if (!fragment?.surfaceHtml) return false;
     const ok = injectPreviewSurfaceHtml(root, fragment.surfaceHtml);
     if (ok) {
-      void boot.previewSurfaceCache?.storeCachedSurface?.(ctx, fragment.surfaceHtml, options);
+      void storeSurfaceHtmlCache(ctx, fragment.surfaceHtml, options);
       if (typeof boot.renderPipelineMark === "function") {
         boot.renderPipelineMark("preview_fragment:end", {
           bytes: fragment.surfaceHtml.length,
@@ -483,8 +495,7 @@
           forceRematerialize: opts.forceRematerialize === true,
         };
         const composed = boot.viewCompositor.composeFromLayers(root, layers, composeAxes);
-        if (composed) {
-          await storeSurfaceHtmlCache(ctx, root, opts);
+        if (composed && composePreviewMaterialized(root)) {
           return { ok: true, source: "compose" };
         }
       }

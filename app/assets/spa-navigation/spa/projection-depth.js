@@ -8,6 +8,7 @@
     plane: 0,
     plane_region: 1,
     plane_region_section: 2,
+    plane_region_section_slot: 3,
     static_full: 99,
     live_full: 99,
     static: 99,
@@ -39,7 +40,7 @@
     const role = String(el.getAttribute("data-mei-ui-role") || "")
       .trim()
       .toLowerCase();
-    const roleDepth = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    const roleDepth = { plane: 0, region: 1, section: 2, slot: 3, content: 4 };
     if (role && Object.prototype.hasOwnProperty.call(roleDepth, role)) {
       return roleDepth[role];
     }
@@ -52,6 +53,23 @@
   function applyReviewProjectionChrome(root, options) {
     if (!(root instanceof HTMLElement)) return;
     const opts = options || {};
+    const surface = String(
+      global.document?.body?.getAttribute("data-surface") ||
+        global.document?.body?.getAttribute("data-mei-view") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (surface === "layout") {
+      root.removeAttribute("data-review-projection-active");
+      root
+        .querySelectorAll(".build-review-projection-dim, .mei-review-projection-dim")
+        .forEach((el) => {
+          el.classList.remove("build-review-projection-dim", "mei-review-projection-dim");
+          if (el instanceof HTMLElement) el.style.removeProperty("pointer-events");
+        });
+      return;
+    }
     const projection = normalizeReviewProjection(
       opts.reviewProjection ||
         root.getAttribute("data-review-projection") ||

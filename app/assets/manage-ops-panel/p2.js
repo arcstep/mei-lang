@@ -92,6 +92,11 @@
     } catch (_) {
       snapshot.themes = normalizeOps(state.ops).themes;
     }
+    try {
+      snapshot.layoutTuning = parseJsonObject(state.layoutTuningText, "布局调优");
+    } catch (_) {
+      snapshot.layoutTuning = normalizeOps(state.ops).layoutTuning;
+    }
     return snapshot;
   }
 
@@ -148,6 +153,26 @@
         state.themesText,
       );
     }
+    if (state.selectedPanel === "layoutTuning") {
+      const scopeHint = state.deepLinkScope
+        ? `<div class="manage-config-detail-desc">深链 scope：<code>${escapeHtml(state.deepLinkScope)}</code></div>`
+        : "";
+      if (!state.rawOpsDirty) {
+        state.layoutTuningText = stringifyJson(state.ops.layoutTuning || {});
+      }
+      return `
+        <div class="manage-config-detail-head">
+          <div>
+            <div class="manage-config-detail-title">布局调优</div>
+            <div class="manage-config-detail-desc">对应 <code>ops.layoutTuning</code>；布局工作区 session draft 确认后写入此处。</div>
+            ${scopeHint}
+          </div>
+        </div>
+        <textarea class="manage-ops-editor-textarea manage-config-code" data-ops-json="layoutTuning" spellcheck="false">${escapeHtml(
+          state.layoutTuningText,
+        )}</textarea>
+      `;
+    }
     if (state.selectedPanel === "journal") {
       return renderJournalPanel();
     }
@@ -191,6 +216,19 @@
     if (saveBtn) saveBtn.addEventListener("click", saveOpsConfig);
     if (addSourceBtn) addSourceBtn.addEventListener("click", handleAddSource);
     if (addParamBtn) addParamBtn.addEventListener("click", handleAddParamRow);
+
+    if (state.selectedPanel === "layoutTuning" && state.deepLinkScope) {
+      const textarea = editorRoot.querySelector('[data-ops-json="layoutTuning"]');
+      if (textarea instanceof HTMLTextAreaElement) {
+        const needle = `"${state.deepLinkScope}"`;
+        const index = textarea.value.indexOf(needle);
+        if (index >= 0) {
+          textarea.focus();
+          textarea.setSelectionRange(index, index + needle.length);
+          textarea.scrollTop = Math.max(0, (textarea.scrollHeight * index) / Math.max(textarea.value.length, 1) - 80);
+        }
+      }
+    }
 
     editorRoot.querySelectorAll("[data-config-nav]").forEach((node) => {
       node.addEventListener("click", () => {

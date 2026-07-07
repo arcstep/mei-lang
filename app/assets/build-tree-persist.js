@@ -20,16 +20,38 @@
     }
   }
 
+  function workspaceSurfaceFromDom() {
+    const fromShell = String(
+      global.document?.querySelector?.(".shell[data-surface]")?.getAttribute("data-surface") || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromShell === "layout" || fromShell === "prototype") return fromShell;
+    const fromBody = String(global.document?.body?.getAttribute("data-surface") || "")
+      .trim()
+      .toLowerCase();
+    if (fromBody === "layout" || fromBody === "prototype") return fromBody;
+    try {
+      const parts = String(global.location.pathname || "").split("/").filter(Boolean);
+      if (parts[0] === "apps" && (parts[1] === "layout" || parts[1] === "prototype")) {
+        return parts[1];
+      }
+    } catch (_) {}
+    return "layout";
+  }
+
   function storageKey(suffix) {
     const appId = appIdFromPath() || String(global.document?.body?.getAttribute?.("data-app-id") || "").trim() || "_";
-    return `mei-workspace-tree:${appId}:${suffix}`;
+    const surface = workspaceSurfaceFromDom();
+    return `mei-workspace-tree:${appId}:${surface}:${suffix}`;
   }
 
   const UI_ROLE_RANK = {
     plane: 0,
     region: 1,
     section: 2,
-    content: 3,
+    slot: 3,
+    content: 4,
     micro_layout: 2,
   };
 

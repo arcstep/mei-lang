@@ -59,9 +59,34 @@
     return nodes.filter((node) => allowed.has(node.node_id));
   }
 
-  function childrenForParent(nodes, parentId) {
+  function isCompoundSlotWrapper(node, nodes) {
+    const role = String(node?.ui_role || "").trim().toLowerCase();
+    if (role !== "slot") return false;
+    const label = String(node?.label || "").trim().toLowerCase();
+    if (label !== "compound" && !label.endsWith("_compound")) return false;
+    const kids = childrenForParentRaw(nodes, node.node_id);
+    return (
+      kids.length > 0 &&
+      kids.every((child) => String(child?.ui_role || "").trim().toLowerCase() === "slot")
+    );
+  }
+
+  function childrenForParentRaw(nodes, parentId) {
     const pid = String(parentId || "").trim();
     return nodes.filter((node) => parentKey(node) === pid);
+  }
+
+  function childrenForParent(nodes, parentId) {
+    const direct = childrenForParentRaw(nodes, parentId);
+    const out = [];
+    for (const child of direct) {
+      if (isCompoundSlotWrapper(child, nodes)) {
+        out.push(...childrenForParentRaw(nodes, child.node_id));
+      } else {
+        out.push(child);
+      }
+    }
+    return out;
   }
 
   function resolveRoots(nodes, sceneRoots) {
@@ -247,11 +272,20 @@
       String(opts.treeMaxUiRole || "").trim() ||
       String(document.body?.getAttribute("data-build-tree-max-ui-role") || "").trim() ||
       String(
+        document.querySelector(".shell[data-build-tree-max-ui-role]")?.getAttribute(
+          "data-build-tree-max-ui-role",
+        ) || "",
+      ).trim() ||
+      String(
         document.querySelector(".build-reachability-tree")?.getAttribute(
           "data-build-tree-max-ui-role",
         ) || "",
       ).trim() ||
-      "section";
+      (String(opts.surface || global.location?.pathname || "")
+        .toLowerCase()
+        .includes("layout")
+        ? "content"
+        : "slot");
     const nodes = filteredNodes(structureDoc, maxRole);
     const roots = resolveRoots(nodes, structureDoc.scene_roots);
     const tree = ensureTreeMount(maxRole);

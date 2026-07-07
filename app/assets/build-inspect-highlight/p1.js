@@ -63,10 +63,24 @@
     return document.getElementById("build-inspect-bar-label");
   }
 
+  function readStructureDomScope(el) {
+    if (!(el instanceof HTMLElement)) return "";
+    return normalizePreviewScopePath(
+      el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
+    );
+  }
+
   function clearHighlights(root) {
     root.querySelectorAll(".build-inspect-selected, .build-inspect-focus-selected").forEach((el) => {
-      el.classList.remove("build-inspect-selected", "build-inspect-focus-selected");
+      el.classList.remove("build-inspect-selected", "build-inspect-focus-selected", "mei-structure-focus");
     });
+  }
+
+  function finalizeInspectHighlight(_root, selected) {
+    const target = Array.isArray(selected) ? selected[0] : null;
+    if (target instanceof HTMLElement) {
+      target.classList.add("mei-structure-focus");
+    }
   }
 
   function inferPlaneTierFromMeta(meta, nodeId) {
@@ -112,6 +126,14 @@
     try {
       const roots = JSON.parse(script.textContent || "[]");
       if (!Array.isArray(roots)) return null;
+      if (isFlatStructureNodes(roots)) {
+        const node = roots.find((entry) => String(entry?.node_id || "").trim() === id);
+        if (!node) return null;
+        const file = String(node.source_file || "").trim();
+        const symbol = String(node.source_symbol || "").trim();
+        if (file || symbol) return { file, symbol };
+        return null;
+      }
       const walk = (nodes) => {
         for (const node of nodes || []) {
           if (node?.node_id === id) {
@@ -327,9 +349,37 @@
     }
   }
 
+  function isFlatStructureNodes(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return false;
+    const first = nodes[0];
+    if (!first || typeof first !== "object" || typeof first.node_id !== "string") {
+      return false;
+    }
+    if (Array.isArray(first.children) && first.children.length > 0) {
+      return typeof first.children[0] === "string";
+    }
+    return nodes.some((node) =>
+      Object.prototype.hasOwnProperty.call(node, "parent_id"),
+    );
+  }
+
   function findReachabilityNodeEntry(nodeId) {
     const target = String(nodeId || "").trim();
     if (!target) return null;
+    const roots = readReachabilityTreeRoots();
+    if (!roots.length) return null;
+
+    if (isFlatStructureNodes(roots)) {
+      const byId = new Map(
+        roots.map((node) => [String(node?.node_id || "").trim(), node]).filter(([id]) => id),
+      );
+      const node = byId.get(target);
+      if (!node) return null;
+      const parentId = String(node.parent_id || "").trim();
+      const parent = parentId ? byId.get(parentId) || null : null;
+      return { node, parent };
+    }
+
     let found = null;
     const walk = (nodes, parent) => {
       for (const node of nodes || []) {
@@ -341,7 +391,7 @@
       }
       return false;
     };
-    for (const root of readReachabilityTreeRoots()) {
+    for (const root of roots) {
       if (walk(root?.children, root)) break;
     }
     return found;
@@ -407,10 +457,7 @@
     let best = pool[0];
     let bestScore = -1;
     for (const el of pool) {
-      let score = scopeAlignScore(
-        el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
-        target,
-      );
+      let score = scopeAlignScore(readStructureDomScope(el), target);
       if (isInspectTargetVisible(el)) score += 50;
       if (score > bestScore) {
         bestScore = score;
@@ -422,9 +469,7 @@
 
   function scopePathLength(el) {
     if (!(el instanceof HTMLElement)) return 0;
-    const path = String(
-      el.getAttribute("data-mei-ui-scope") || el.getAttribute("data-preview-scope") || "",
-    ).trim();
+    const path = readStructureDomScope(el);
     return path.length;
   }
 
@@ -451,6 +496,134 @@
     return keys;
   }
 
+  function isLayoutWorkspaceSurface() {
+    try {
+      const surface = String(
+        document.querySelector(".shell[data-surface]")?.getAttribute("data-surface") ||
+          new URL(global.location.href).searchParams.get("surface") ||
+          "",
+      )
+        .trim()
+        .toLowerCase();
+      return surface === "layout";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isLayoutInspectHighlightRejected(el) {
+    if (!(el instanceof HTMLElement)) return true;
+    if (el.classList.contains("build-tree-link")) return true;
+    return Boolean(
+      el.closest(".preview-stage, .preview-surface, .preview-stage-shell") === el ||
+        el.matches(".preview-pane-scroll, .preview-surface, .frame-stage-enabled"),
+    );
+  }
+
+  function previewScopeAffinityDepth(panelPath, uiScope, targetScope) {
+    const target = normalizePreviewScopePath(targetScope);
+    if (!target) return -1;
+    const panel = normalizePreviewScopePath(panelPath);
+    const scope = normalizePreviewScopePath(uiScope);
+    let best = -1;
+    const targetParts = target.split("/").filter(Boolean);
+    for (let len = targetParts.length; len >= 1; len -= 1) {
+      const prefix = targetParts.slice(0, len).join("/");
+      if (scope && scope === prefix) {
+        best = Math.max(best, len);
+        continue;
+      }
+      if (scopeAlignScore(scope, prefix) > 0) {
+        best = Math.max(best, len);
+      }
+      if (scopeAlignScore(panel, prefix) > 0) {
+        best = Math.max(best, len);
+      }
+    }
+    return best;
+  }
+
+  function isScopePathAncestor(ancestorScope, descendantScope) {
+    const ancestor = normalizePreviewScopePath(ancestorScope);
+    const descendant = normalizePreviewScopePath(descendantScope);
+    if (!ancestor || !descendant) return false;
+    if (ancestor === descendant) return true;
+    return descendant.startsWith(`${ancestor}/`);
+  }
+
+  function findClosestLayoutDomAnchor(root, targetScope) {
+    const target = normalizePreviewScopePath(targetScope);
+    if (!target) return null;
+
+    for (const attr of ["data-mei-ui-scope", "data-preview-scope"]) {
+      const exact = root.querySelector(`[${attr}="${CSS.escape(target)}"]`);
+      if (exact instanceof HTMLElement && !isLayoutInspectHighlightRejected(exact)) {
+        return exact;
+      }
+    }
+
+    let best = null;
+    let bestDepth = -1;
+    for (const el of root.querySelectorAll(
+      "[data-mei-panel-id], [data-preview-scope], [data-mei-ui-scope]",
+    )) {
+      if (!(el instanceof HTMLElement) || isLayoutInspectHighlightRejected(el)) continue;
+      const panelPath = String(el.getAttribute("data-mei-panel-id") || "").trim();
+      const uiScope = String(el.getAttribute("data-mei-ui-scope") || "").trim();
+      const previewScope = String(el.getAttribute("data-preview-scope") || "").trim();
+      const depth = previewScopeAffinityDepth(
+        panelPath || previewScope,
+        uiScope,
+        target,
+      );
+      if (depth > bestDepth) {
+        bestDepth = depth;
+        best = el;
+      }
+    }
+    return best;
+  }
+
+  function resolveLayoutScopeHighlightTargets(root, scope, role) {
+    const normalizedRole = String(role || "").trim().toLowerCase();
+    const normalizedScope = normalizePreviewScopePath(scope);
+    if (!normalizedScope) return [];
+
+    if (normalizedRole === "budget") {
+      const parentScope = normalizedScope.replace(/\/budget$/i, "");
+      if (parentScope && parentScope !== normalizedScope) {
+        return resolveLayoutScopeHighlightTargets(root, parentScope, "slot");
+      }
+      return [];
+    }
+
+    let scopeWalk = normalizedScope;
+    while (scopeWalk) {
+      const anchor = findClosestLayoutDomAnchor(root, scopeWalk);
+      if (anchor) return [anchor];
+      const parts = scopeWalk.split("/").filter(Boolean);
+      if (parts.length <= 1) break;
+      parts.pop();
+      scopeWalk = parts.join("/");
+    }
+    return [];
+  }
+
+  function layoutHighlightScopeMessage(meta, selectedEl) {
+    const targetScope = normalizePreviewScopePath(meta?.preview_scope || "");
+    if (!(selectedEl instanceof HTMLElement) || !targetScope) return "";
+    const role = String(meta?.ui_role || "").trim().toLowerCase();
+    const matchedScope = readStructureDomScope(selectedEl);
+    if (!matchedScope || matchedScope === targetScope) return "";
+    if (role === "budget") {
+      return `Budget 为布局元数据节点，已高亮所属 slot「${matchedScope}」`;
+    }
+    if (role === "content") {
+      return `布局预览不渲染 content，已高亮最近布局锚点「${matchedScope}」`;
+    }
+    return `Layout 面无独立锚点「${targetScope}」，已高亮最近父级「${matchedScope}」`;
+  }
+
   function resolveUiScopeHighlightTargets(root, node, meta) {
     const role = String(meta?.ui_role || "").trim().toLowerCase();
     const scope = String(meta?.preview_scope || "").trim();
@@ -467,6 +640,22 @@
     }
 
     if (scope) {
+      if (isLayoutWorkspaceSurface()) {
+        const layoutTargets = resolveLayoutScopeHighlightTargets(root, scope, role);
+        if (layoutTargets.length) return layoutTargets;
+        const exactPreview = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+        if (exactPreview instanceof HTMLElement) return [exactPreview];
+        const slotChrome = root.querySelector(
+          `[data-preview-scope="${CSS.escape(scope)}"] [data-mei-layout-slot-chrome], [data-preview-scope="${CSS.escape(scope)}"] .preview-layout-slot-chrome`,
+        );
+        if (slotChrome instanceof HTMLElement) {
+          const host =
+            slotChrome.closest("[data-preview-scope]") instanceof HTMLElement
+              ? slotChrome.closest("[data-preview-scope]")
+              : slotChrome;
+          return [host];
+        }
+      }
       const exactScope = root.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
       if (exactScope instanceof HTMLElement) return [exactScope];
       const normalizedScope = normalizePreviewScopePath(scope);

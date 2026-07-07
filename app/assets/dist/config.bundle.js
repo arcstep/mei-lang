@@ -1097,11 +1097,13 @@
     journal: { entries: [] },
     selectedPanel: "params",
     selectedSourceId: null,
+    deepLinkScope: "",
     paramRows: [],
     paramRowSeq: 0,
     summaryText: "",
     basemapsText: "{}",
     themesText: "{}",
+    layoutTuningText: "{}",
     rawOpsText: "{}",
     rawOpsDirty: false,
     isDirty: false,
@@ -1123,6 +1125,7 @@
       params: isPlainObject(ops?.params) ? { ...ops.params } : {},
       basemaps: isPlainObject(ops?.basemaps) ? { ...ops.basemaps } : {},
       themes: isPlainObject(ops?.themes) ? { ...ops.themes } : {},
+      layoutTuning: isPlainObject(ops?.layoutTuning) ? { ...ops.layoutTuning } : {},
       sources: isPlainObject(ops?.sources) ? { ...ops.sources } : {},
     };
   }
@@ -1229,7 +1232,7 @@
       state.selectedPanel = state.selectedSourceId ? sourcePanelKey(state.selectedSourceId) : "params";
       return;
     }
-    const validPanels = new Set(["params", "basemaps", "themes", "raw", "journal"]);
+    const validPanels = new Set(["params", "basemaps", "themes", "layoutTuning", "raw", "journal"]);
     if (!validPanels.has(state.selectedPanel)) {
       state.selectedPanel = state.selectedSourceId ? sourcePanelKey(state.selectedSourceId) : "params";
     }
@@ -1340,6 +1343,11 @@
             ${renderNavButton("params", "运行参数", formatCountLabel("项", Object.keys(state.ops.params).length))}
             ${renderNavButton("basemaps", "底图配置", formatCountLabel("项", Object.keys(state.ops.basemaps).length))}
             ${renderNavButton("themes", "主题配置", formatCountLabel("项", Object.keys(state.ops.themes).length))}
+            ${renderNavButton(
+              "layoutTuning",
+              "布局调优",
+              formatCountLabel("scope", Object.keys(state.ops.layoutTuning || {}).length),
+            )}
             ${renderNavButton("raw", "JSON（ops）", "直接改 JSON")}
             ${renderNavButton("journal", "审计记录", formatCountLabel("rev", state.journalRevision))}
           </div>
@@ -1526,6 +1534,11 @@
     } catch (_) {
       snapshot.themes = normalizeOps(state.ops).themes;
     }
+    try {
+      snapshot.layoutTuning = parseJsonObject(state.layoutTuningText, "布局调优");
+    } catch (_) {
+      snapshot.layoutTuning = normalizeOps(state.ops).layoutTuning;
+    }
     return snapshot;
   }
 
@@ -1582,6 +1595,26 @@
         state.themesText,
       );
     }
+    if (state.selectedPanel === "layoutTuning") {
+      const scopeHint = state.deepLinkScope
+        ? `<div class="manage-config-detail-desc">深链 scope：<code>${escapeHtml(state.deepLinkScope)}</code></div>`
+        : "";
+      if (!state.rawOpsDirty) {
+        state.layoutTuningText = stringifyJson(state.ops.layoutTuning || {});
+      }
+      return `
+        <div class="manage-config-detail-head">
+          <div>
+            <div class="manage-config-detail-title">布局调优</div>
+            <div class="manage-config-detail-desc">对应 <code>ops.layoutTuning</code>；布局工作区 session draft 确认后写入此处。</div>
+            ${scopeHint}
+          </div>
+        </div>
+        <textarea class="manage-ops-editor-textarea manage-config-code" data-ops-json="layoutTuning" spellcheck="false">${escapeHtml(
+          state.layoutTuningText,
+        )}</textarea>
+      `;
+    }
     if (state.selectedPanel === "journal") {
       return renderJournalPanel();
     }
@@ -1625,6 +1658,19 @@
     if (saveBtn) saveBtn.addEventListener("click", saveOpsConfig);
     if (addSourceBtn) addSourceBtn.addEventListener("click", handleAddSource);
     if (addParamBtn) addParamBtn.addEventListener("click", handleAddParamRow);
+
+    if (state.selectedPanel === "layoutTuning" && state.deepLinkScope) {
+      const textarea = editorRoot.querySelector('[data-ops-json="layoutTuning"]');
+      if (textarea instanceof HTMLTextAreaElement) {
+        const needle = `"${state.deepLinkScope}"`;
+        const index = textarea.value.indexOf(needle);
+        if (index >= 0) {
+          textarea.focus();
+          textarea.setSelectionRange(index, index + needle.length);
+          textarea.scrollTop = Math.max(0, (textarea.scrollHeight * index) / Math.max(textarea.value.length, 1) - 80);
+        }
+      }
+    }
 
     editorRoot.querySelectorAll("[data-config-nav]").forEach((node) => {
       node.addEventListener("click", () => {
@@ -1782,9 +1828,11 @@
 /* ===== manage-ops-panel/p3.js ===== */
     const basemapsEl = editorRoot.querySelector('[data-ops-json="basemaps"]');
     const themesEl = editorRoot.querySelector('[data-ops-json="themes"]');
+    const layoutTuningEl = editorRoot.querySelector('[data-ops-json="layoutTuning"]');
     const rawEl = editorRoot.querySelector('[data-ops-json="raw"]');
     if (basemapsEl) state.basemapsText = String(basemapsEl.value || "");
     if (themesEl) state.themesText = String(themesEl.value || "");
+    if (layoutTuningEl) state.layoutTuningText = String(layoutTuningEl.value || "");
     if (rawEl) state.rawOpsText = String(rawEl.value || "");
   }
 
@@ -2006,6 +2054,7 @@
       state.paramRows = hydrateParamRows(state.ops.params);
       state.basemapsText = stringifyJson(state.ops.basemaps);
       state.themesText = stringifyJson(state.ops.themes);
+      state.layoutTuningText = stringifyJson(state.ops.layoutTuning || {});
       state.rawOpsText = stringifyJson(state.ops);
       state.rawOpsDirty = false;
       state.isDirty = false;
@@ -2064,6 +2113,7 @@
     state.paramRows = hydrateParamRows(nextOps.params);
     state.basemapsText = stringifyJson(nextOps.basemaps);
     state.themesText = stringifyJson(nextOps.themes);
+    state.layoutTuningText = stringifyJson(nextOps.layoutTuning || {});
     state.rawOpsText = stringifyJson(nextOps);
     state.rawOpsDirty = false;
     ensureSelectedPanel();
@@ -2079,6 +2129,7 @@
       const params = buildParamsObject();
       const basemaps = parseJsonObject(state.basemapsText, "底图配置");
       const themes = parseJsonObject(state.themesText, "主题配置");
+      const layoutTuning = parseJsonObject(state.layoutTuningText, "布局调优");
       validateSources(state.ops.sources);
       setBusy(true);
       setEditorStatus("保存中…");
@@ -2096,6 +2147,7 @@
             params,
             basemaps,
             themes,
+            layout_tuning: layoutTuning,
             sources: state.ops.sources,
           },
         }),
@@ -2120,8 +2172,23 @@
     }
   }
 
+  function readConfigDeepLink() {
+    try {
+      const params = new URL(window.location.href).searchParams;
+      const section = String(params.get("section") || "").trim();
+      const scope = String(params.get("scope") || "").trim();
+      if (section === "layoutTuning") {
+        state.selectedPanel = "layoutTuning";
+        state.deepLinkScope = scope;
+      }
+    } catch (_error) {
+      /* ignore malformed URL */
+    }
+  }
+
   function mountIfPresent() {
     if (!resolveRoots()) return;
+    readConfigDeepLink();
     renderSummary();
     if (editorRoot) {
       editorRoot.innerHTML = '<div class="manage-config-editor"><div class="manage-ops-empty-state">加载中…</div></div>';
@@ -2234,18 +2301,26 @@
   async function applyLayoutTuningOverlayHot(appId, targetWindow) {
     const view = targetWindow || global;
     const payload = await fetchOverlay(appId);
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const sessionPatches = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.layoutOverlay,
+    );
+    const merged = { ...(payload.entries || {}), ...(sessionPatches || {}) };
     const root =
       view.document.querySelector(".preview-pane-scroll") ||
       view.document.querySelector(".preview-pane");
-    const boot = view.__meiLangBoot || global.__meiLangBoot || {};
-    if (boot.viewCompositor?.applyThemeAndOverlay) {
-      boot.viewCompositor.applyThemeAndOverlay(root, null, {
-        patches: payload.entries || {},
-      });
+    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
+    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
+      compositor.applyThemeAndOverlay(root, null, { patches: merged });
       notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
+      if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
+        try {
+          view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
       return;
     }
-    if (applyOverlayEntries(root, payload.entries || {})) {
+    if (applyOverlayEntries(root, merged)) {
       notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
       if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
         try {
@@ -2255,18 +2330,36 @@
     }
   }
 
-  async function putSessionDraft(appId, tuning) {
+  async function putSessionDraft(appId, tuning, options) {
     const store = global.MeiDraftLayerStore || boot.draftLayerStore;
     if (!store?.putLayoutOverlayPatches) {
       throw new Error("draft layer store unavailable");
     }
     store.putLayoutOverlayPatches(appId, tuning);
-    const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
-    if (boot.viewCompositor?.recomposeFromLayerStore) {
-      boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+    if (options?.forceRematerialize) {
+      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
+      if (boot.viewCompositor?.recomposeFromLayerStore) {
+        boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+      }
+    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
+      global.MeiLayoutTuningForm.applySessionHot(appId);
+    } else {
+      await applyLayoutTuningOverlayHot(appId);
     }
     notifyLayoutTuningOverlay("layout-tuning-draft");
     return { ok: true, local: true };
+  }
+
+  function activeSceneId() {
+    try {
+      const fromAxes = boot.sceneManifestLoader?.readShellAxes?.()?.scene;
+      if (fromAxes) return String(fromAxes).trim();
+      return (
+        String(new URL(global.location.href).searchParams.get("scene") || "home").trim() || "home"
+      );
+    } catch (_) {
+      return "home";
+    }
   }
 
   async function applyDraftToConfig(appId) {
@@ -2293,7 +2386,7 @@
     if (boot.sceneManifestLoader?.fetchManifest) {
       try {
         const axes = boot.sceneManifestLoader.readShellAxes?.() || {};
-        await boot.sceneManifestLoader.fetchManifest(appId, "home", axes);
+        await boot.sceneManifestLoader.fetchManifest(appId, activeSceneId(), axes);
       } catch (_) {}
     }
     notifyLayoutTuningOverlay("layout-tuning-persisted");

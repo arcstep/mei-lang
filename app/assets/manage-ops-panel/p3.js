@@ -1,8 +1,10 @@
     const basemapsEl = editorRoot.querySelector('[data-ops-json="basemaps"]');
     const themesEl = editorRoot.querySelector('[data-ops-json="themes"]');
+    const layoutTuningEl = editorRoot.querySelector('[data-ops-json="layoutTuning"]');
     const rawEl = editorRoot.querySelector('[data-ops-json="raw"]');
     if (basemapsEl) state.basemapsText = String(basemapsEl.value || "");
     if (themesEl) state.themesText = String(themesEl.value || "");
+    if (layoutTuningEl) state.layoutTuningText = String(layoutTuningEl.value || "");
     if (rawEl) state.rawOpsText = String(rawEl.value || "");
   }
 
@@ -224,6 +226,7 @@
       state.paramRows = hydrateParamRows(state.ops.params);
       state.basemapsText = stringifyJson(state.ops.basemaps);
       state.themesText = stringifyJson(state.ops.themes);
+      state.layoutTuningText = stringifyJson(state.ops.layoutTuning || {});
       state.rawOpsText = stringifyJson(state.ops);
       state.rawOpsDirty = false;
       state.isDirty = false;
@@ -282,6 +285,7 @@
     state.paramRows = hydrateParamRows(nextOps.params);
     state.basemapsText = stringifyJson(nextOps.basemaps);
     state.themesText = stringifyJson(nextOps.themes);
+    state.layoutTuningText = stringifyJson(nextOps.layoutTuning || {});
     state.rawOpsText = stringifyJson(nextOps);
     state.rawOpsDirty = false;
     ensureSelectedPanel();
@@ -297,6 +301,7 @@
       const params = buildParamsObject();
       const basemaps = parseJsonObject(state.basemapsText, "底图配置");
       const themes = parseJsonObject(state.themesText, "主题配置");
+      const layoutTuning = parseJsonObject(state.layoutTuningText, "布局调优");
       validateSources(state.ops.sources);
       setBusy(true);
       setEditorStatus("保存中…");
@@ -314,6 +319,7 @@
             params,
             basemaps,
             themes,
+            layout_tuning: layoutTuning,
             sources: state.ops.sources,
           },
         }),
@@ -338,8 +344,23 @@
     }
   }
 
+  function readConfigDeepLink() {
+    try {
+      const params = new URL(window.location.href).searchParams;
+      const section = String(params.get("section") || "").trim();
+      const scope = String(params.get("scope") || "").trim();
+      if (section === "layoutTuning") {
+        state.selectedPanel = "layoutTuning";
+        state.deepLinkScope = scope;
+      }
+    } catch (_error) {
+      /* ignore malformed URL */
+    }
+  }
+
   function mountIfPresent() {
     if (!resolveRoots()) return;
+    readConfigDeepLink();
     renderSummary();
     if (editorRoot) {
       editorRoot.innerHTML = '<div class="manage-config-editor"><div class="manage-ops-empty-state">加载中…</div></div>';

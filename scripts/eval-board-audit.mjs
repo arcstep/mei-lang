@@ -110,7 +110,7 @@ async function main() {
             )
             .find((scope) => scope && scope !== homeScope)
         : "";
-      const sceneId = neighbor || "home/t2/r-drilldown/s-inspection-dashboard";
+      const sceneId = neighbor || "penalty_total_analytics_page";
       if (typeof boot.dispatchScopeActivation === "function") {
         return boot.dispatchScopeActivation({
           appId: "data-demo",

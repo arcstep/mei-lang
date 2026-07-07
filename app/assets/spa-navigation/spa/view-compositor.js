@@ -9,13 +9,14 @@
   const PROJECTION_MAX_ROLE = {
     plane_region: "region",
     plane_region_section: "section",
+    plane_region_section_slot: "slot",
     content: "content",
     live_full: "content",
     static_full: "content",
   };
 
   function roleDepth(role) {
-    const map = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    const map = { plane: 0, region: 1, section: 2, slot: 3, content: 4 };
     return map[String(role || "").toLowerCase()] ?? 99;
   }
 
@@ -52,18 +53,36 @@
         if (!patch || typeof patch !== "object") return;
         const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
         if (!(node instanceof HTMLElement)) return;
+        const slotHeight =
+          patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
+        if (slotHeight != null && slotHeight !== "") {
+          const numeric = Number(String(slotHeight).replace(/px$/i, "").trim());
+          const px = Number.isFinite(numeric) ? `${numeric}px` : String(slotHeight);
+          node.style.setProperty("--mei-slot-height", px);
+          node.dataset.layoutTuningSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
+        }
+        const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
+        if (paddingProfile) {
+          node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
+        }
         const contentBudget = patch.contentBudget || patch.content_budget;
         if (contentBudget && typeof contentBudget === "object") {
           const rows = contentBudget.rows || contentBudget.content_rows;
           if (Array.isArray(rows) && rows.length > 0) {
             const total = rows.reduce((sum, row) => sum + Number(row), 0);
             if (total > 0) {
-              node.style.gridTemplateRows = rows.map((row) => `${(Number(row) / total) * 100}fr`).join(" ");
+              node.style.gridTemplateRows = rows
+                .map((row) => `${(Number(row) / total) * 100}fr`)
+                .join(" ");
+            } else {
+              node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
             }
+            node.dataset.layoutTuningContentRows = rows.join(",");
           }
           const gap = contentBudget.gap ?? contentBudget.content_gap;
           if (gap != null && gap !== "") {
             node.style.rowGap = `${gap}px`;
+            node.dataset.layoutTuningContentGap = String(gap);
           }
         }
       });

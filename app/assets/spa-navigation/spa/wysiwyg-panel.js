@@ -7,10 +7,48 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   let panelEl = null;
 
+  function workspaceSurface() {
+    const fromShell = String(
+      global.document?.querySelector?.(".shell[data-surface]")?.getAttribute("data-surface") || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromShell) return fromShell;
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const surface = String(boot.parseViewContext(global.location.href)?.surface || "")
+          .trim()
+          .toLowerCase();
+        if (surface) return surface;
+      }
+    } catch (_) {}
+    const path = String(global.location.pathname || "");
+    const match = path.match(/^\/apps\/[^/]+\/(layout|prototype)(?:\/|$)/);
+    return match ? match[1] : "layout";
+  }
+
+  function isLayoutWorkspaceRoute() {
+    return workspaceSurface() === "layout";
+  }
+
+  function isPrototypeWorkspaceRoute() {
+    return workspaceSurface() === "prototype";
+  }
+
   function isWorkspaceRoute() {
-    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
-      String(global.location.pathname || ""),
-    );
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path)) return true;
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const surface = String(boot.parseViewContext(global.location.href)?.surface || "")
+          .trim()
+          .toLowerCase();
+        return surface === "layout" || surface === "prototype";
+      }
+    } catch (_) {}
+    return false;
   }
 
   function ensurePanel() {
@@ -104,6 +142,28 @@
           scopeNode.dataset.layoutTuningContentGap ||
           String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
       }
+      const formApi = global.MeiLayoutTuningForm;
+      const appId = appIdFromPath();
+      if (formApi?.resolveLayoutTuningEntry && meta.preview_scope) {
+        const entry = formApi.resolveLayoutTuningEntry(meta.preview_scope, { appId });
+        const gapVal = entry?.contentBudget?.gap ?? entry?.content_budget?.gap;
+        if (gapVal != null && gapVal !== "") gap.value = String(gapVal);
+      }
+      gap.addEventListener("input", () => {
+        const gapVal = gap.value.trim();
+        if (!meta.preview_scope || !appId) return;
+        const layout = {};
+        if (gapVal) {
+          const numeric = Number(gapVal);
+          layout.contentBudget = {
+            gap: Number.isFinite(numeric) ? numeric : gapVal,
+          };
+        }
+        const patch = buildLayoutPatch(meta.preview_scope, meta.ui_role, layout);
+        if (formApi?.scheduleSessionHot && patch?.layout) {
+          formApi.scheduleSessionHot(appId, meta.preview_scope, patch.layout, { debounceMs: 150 });
+        }
+      });
       body.appendChild(gap);
       const btn = global.document.createElement("button");
       btn.type = "button";
@@ -144,12 +204,15 @@
   function openPanelForSelection(meta) {
     if (!isWorkspaceRoute() || !meta) return;
     const role = String(meta.ui_role || "").toLowerCase();
-    if (role === "region" || role === "section") {
+    if (
+      isLayoutWorkspaceRoute() &&
+      (role === "region" || role === "section" || role === "slot")
+    ) {
       boot.wysiwygPanel = { kind: "layout", meta };
       renderPanel("layout", meta);
       return;
     }
-    if (role === "content" || role === "slot") {
+    if (isPrototypeWorkspaceRoute() && (role === "content" || role === "slot")) {
       boot.wysiwygPanel = { kind: "theme", meta };
       renderPanel("theme", meta);
     }

@@ -94,18 +94,26 @@
   async function applyLayoutTuningOverlayHot(appId, targetWindow) {
     const view = targetWindow || global;
     const payload = await fetchOverlay(appId);
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const sessionPatches = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.layoutOverlay,
+    );
+    const merged = { ...(payload.entries || {}), ...(sessionPatches || {}) };
     const root =
       view.document.querySelector(".preview-pane-scroll") ||
       view.document.querySelector(".preview-pane");
-    const boot = view.__meiLangBoot || global.__meiLangBoot || {};
-    if (boot.viewCompositor?.applyThemeAndOverlay) {
-      boot.viewCompositor.applyThemeAndOverlay(root, null, {
-        patches: payload.entries || {},
-      });
+    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
+    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
+      compositor.applyThemeAndOverlay(root, null, { patches: merged });
       notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
+      if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
+        try {
+          view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
       return;
     }
-    if (applyOverlayEntries(root, payload.entries || {})) {
+    if (applyOverlayEntries(root, merged)) {
       notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
       if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
         try {
@@ -115,18 +123,36 @@
     }
   }
 
-  async function putSessionDraft(appId, tuning) {
+  async function putSessionDraft(appId, tuning, options) {
     const store = global.MeiDraftLayerStore || boot.draftLayerStore;
     if (!store?.putLayoutOverlayPatches) {
       throw new Error("draft layer store unavailable");
     }
     store.putLayoutOverlayPatches(appId, tuning);
-    const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
-    if (boot.viewCompositor?.recomposeFromLayerStore) {
-      boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+    if (options?.forceRematerialize) {
+      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
+      if (boot.viewCompositor?.recomposeFromLayerStore) {
+        boot.viewCompositor.recomposeFromLayerStore(appId, axes);
+      }
+    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
+      global.MeiLayoutTuningForm.applySessionHot(appId);
+    } else {
+      await applyLayoutTuningOverlayHot(appId);
     }
     notifyLayoutTuningOverlay("layout-tuning-draft");
     return { ok: true, local: true };
+  }
+
+  function activeSceneId() {
+    try {
+      const fromAxes = boot.sceneManifestLoader?.readShellAxes?.()?.scene;
+      if (fromAxes) return String(fromAxes).trim();
+      return (
+        String(new URL(global.location.href).searchParams.get("scene") || "home").trim() || "home"
+      );
+    } catch (_) {
+      return "home";
+    }
   }
 
   async function applyDraftToConfig(appId) {
@@ -153,7 +179,7 @@
     if (boot.sceneManifestLoader?.fetchManifest) {
       try {
         const axes = boot.sceneManifestLoader.readShellAxes?.() || {};
-        await boot.sceneManifestLoader.fetchManifest(appId, "home", axes);
+        await boot.sceneManifestLoader.fetchManifest(appId, activeSceneId(), axes);
       } catch (_) {}
     }
     notifyLayoutTuningOverlay("layout-tuning-persisted");

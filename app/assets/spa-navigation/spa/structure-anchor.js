@@ -106,7 +106,10 @@
   function focusSelectorForAnchor(anchor) {
     if (!anchor || typeof anchor !== "object") return "";
     const scope = String(anchor.preview_scope || "").trim();
-    if (scope) return `[data-preview-scope="${CSS.escape(scope)}"]`;
+    if (scope) {
+      const escaped = CSS.escape(scope);
+      return `[data-mei-ui-scope="${escaped}"], [data-preview-scope="${escaped}"]`;
+    }
     const nodeId = String(anchor.node_id || "").trim();
     if (nodeId) return `[data-build-node="${CSS.escape(nodeId)}"]`;
     return "";

@@ -68,7 +68,7 @@
     if (!appId || !sceneId || !surfaceDigest) return "";
     const composeHash = stableComposeHash(ctx);
     const dataGen = resolveDataGeneration();
-    return `${appId}:${sceneId}:${surfaceDigest}:${composeHash}:${dataGen}`;
+    return `${appId}:${sceneId}:${surfaceDigest}:${composeHash}:${dataGen}:fragment`;
   }
 
   function openDb() {

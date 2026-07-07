@@ -30,10 +30,16 @@
   }
 
   function copyButtonLabel(btn, intent) {
-    if (btn.id === "build-copy-agent-context-top") {
-      return "复制场景原型调试上下文";
+    const surface = String(
+      document.querySelector(".shell[data-surface]")?.getAttribute("data-surface") || "layout",
+    ).trim();
+    if (surface === "prototype") {
+      return intent === "full" ? "复制原型/content 上下文" : "复制原型 Markdown 简报";
     }
-    return intent === "full" ? "复制场景原型调试上下文" : "复制 Markdown 简报";
+    if (btn.id === "build-copy-agent-context-top") {
+      return "复制布局调试上下文";
+    }
+    return intent === "full" ? "复制布局调试上下文" : "复制布局 Markdown 简报";
   }
 
   function reviewAxesFromShell(shell) {
@@ -68,6 +74,7 @@
     btn.disabled = true;
     try {
       const shell = document.querySelector(".shell[data-build-node]");
+      const surface = String(shell?.getAttribute("data-surface") || "layout").trim();
       const axes = {
         ...reviewAxesFromShell(shell),
         ...reviewAxesFromButton(btn),
@@ -78,6 +85,7 @@
         tab,
         intent,
         include_readiness: "1",
+        surface,
       };
       if (axes.dataMode) params.data_mode = axes.dataMode;
       if (axes.reviewProjection) params.review_projection = axes.reviewProjection;
