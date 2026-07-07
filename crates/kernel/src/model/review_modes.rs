@@ -21,12 +21,44 @@ pub enum DataMode {
 /// Depth of scene contract projection for Build / review surfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ReviewProjection {
-  Plane,
-  PlaneRegion,
-  PlaneRegionSection,
-  #[default]
-  StaticFull,
-  LiveFull,
+    Plane,
+    PlaneRegion,
+    PlaneRegionSection,
+    PlaneRegionSectionSlot,
+    #[default]
+    StaticFull,
+    LiveFull,
+}
+
+/// Host surface preview fill policy (orthogonal to `review_projection` depth).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SurfacePreviewPolicy {
+    AppLive,
+    LayoutSlotSandbox,
+    PrototypeStaticFull,
+}
+
+impl SurfacePreviewPolicy {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+            "app_live" | "app" => Some(Self::AppLive),
+            "layout_slot_sandbox" | "layout_sandbox" | "layout" => Some(Self::LayoutSlotSandbox),
+            "prototype_static_full" | "prototype" => Some(Self::PrototypeStaticFull),
+            _ => None,
+        }
+    }
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::AppLive => "app_live",
+            Self::LayoutSlotSandbox => "layout_slot_sandbox",
+            Self::PrototypeStaticFull => "prototype_static_full",
+        }
+    }
+
+    pub fn omits_beyond_projection_depth(self) -> bool {
+        matches!(self, Self::LayoutSlotSandbox)
+    }
 }
 
 impl DataModeCeiling {
@@ -114,6 +146,7 @@ impl ReviewProjection {
             "plane" => Some(Self::Plane),
             "plane_region" => Some(Self::PlaneRegion),
             "plane_region_section" => Some(Self::PlaneRegionSection),
+            "plane_region_section_slot" => Some(Self::PlaneRegionSectionSlot),
             "static_full" | "static" => Some(Self::StaticFull),
             "live_full" | "live" => Some(Self::LiveFull),
             _ => None,
@@ -125,6 +158,7 @@ impl ReviewProjection {
             Self::Plane => "plane",
             Self::PlaneRegion => "plane_region",
             Self::PlaneRegionSection => "plane_region_section",
+            Self::PlaneRegionSectionSlot => "plane_region_section_slot",
             Self::StaticFull => "static_full",
             Self::LiveFull => "live_full",
         }
@@ -135,18 +169,20 @@ impl ReviewProjection {
             Self::Plane => Some("plane"),
             Self::PlaneRegion => Some("region"),
             Self::PlaneRegionSection => Some("section"),
+            Self::PlaneRegionSectionSlot => Some("slot"),
             Self::StaticFull | Self::LiveFull => None,
         }
     }
 }
 
-/// Ordinal depth for layout-debug projection (`plane` < `region` < `section` < `content`).
+/// Ordinal depth for layout-debug projection (`plane` < `region` < `section` < `slot` < `content`).
 pub fn ui_role_depth_rank(role: &str) -> Option<u8> {
     match role.trim().to_ascii_lowercase().as_str() {
         "plane" => Some(0),
         "region" => Some(1),
         "section" => Some(2),
-        "content" | "micro_layout" => Some(3),
+        "slot" => Some(3),
+        "content" | "micro_layout" => Some(4),
         _ => None,
     }
 }
@@ -183,6 +219,16 @@ mod tests {
         assert!(!ui_role_within_max_depth("section", Some("region")));
         assert!(ui_role_within_max_depth("section", Some("section")));
         assert!(!ui_role_within_max_depth("content", Some("section")));
+        assert!(ui_role_within_max_depth("slot", Some("slot")));
+        assert!(!ui_role_within_max_depth("content", Some("slot")));
         assert!(ui_role_within_max_depth("content", None));
+    }
+
+    #[test]
+    fn plane_region_section_slot_parses_and_caps_at_slot() {
+        let projection = ReviewProjection::parse("plane_region_section_slot").expect("parse");
+        assert_eq!(projection.max_ui_role_depth(), Some("slot"));
+        assert!(ui_role_within_max_depth("slot", projection.max_ui_role_depth()));
+        assert!(!ui_role_within_max_depth("content", projection.max_ui_role_depth()));
     }
 }

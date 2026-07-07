@@ -36,7 +36,7 @@ pub fn materialize_layout_budget_px(
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
-    let (derived_map, region_ids) = {
+    let (mut derived_map, region_ids) = {
         let mut flat = Vec::new();
         for panel in panels.iter() {
             collect_panels(panel, &mut flat);
@@ -48,6 +48,9 @@ pub fn materialize_layout_budget_px(
             std::collections::HashMap::new();
         for panel in flat.iter() {
             if ui_role(panel) != Some("section") {
+                continue;
+            }
+            if section_body_uses_fill(panel, &panel_map) {
                 continue;
             }
             if let Some(h) = compute_section_derived_height(panel, &panel_map) {
@@ -64,8 +67,16 @@ pub fn materialize_layout_budget_px(
         (derived_map, region_ids)
     };
 
+    let fill_section_ids = collect_fill_section_ids(panels);
+
+    materialize_regions_on_tree(
+        panels,
+        &mut derived_map,
+        &fill_section_ids,
+        diagnostics,
+        source_path,
+    );
     stamp_derived_on_tree(panels, &derived_map);
-    materialize_regions_on_tree(panels, &derived_map, diagnostics, source_path);
 
     for region_id in &region_ids {
         if let Some(region) = find_panel_by_id(panels, region_id.as_str()) {
@@ -132,29 +143,65 @@ fn stamp_derived_recursive(
     }
 }
 
+fn collect_fill_section_ids(
+    panels: &[PanelDecl],
+) -> std::collections::HashSet<String> {
+    let mut flat = Vec::new();
+    for panel in panels {
+        collect_panels(panel, &mut flat);
+    }
+    let panel_map: std::collections::HashMap<&str, &PanelDecl> =
+        flat.iter().map(|p| (p.id.as_str(), *p)).collect();
+    flat.iter()
+        .filter(|p| ui_role(p) == Some("section"))
+        .filter(|p| section_body_uses_fill(p, &panel_map))
+        .map(|p| p.id.clone())
+        .collect()
+}
+
 fn materialize_regions_on_tree(
     panels: &mut [PanelDecl],
-    derived: &std::collections::HashMap<String, f64>,
+    derived: &mut std::collections::HashMap<String, f64>,
+    fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
     for panel in panels.iter_mut() {
-        materialize_regions_recursive(panel, derived, diagnostics, source_path);
+        materialize_regions_recursive(
+            panel,
+            derived,
+            fill_section_ids,
+            diagnostics,
+            source_path,
+        );
     }
 }
 
 fn materialize_regions_recursive(
     panel: &mut PanelDecl,
-    derived: &std::collections::HashMap<String, f64>,
+    derived: &mut std::collections::HashMap<String, f64>,
+    fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
     if ui_role(panel) == Some("region") {
-        materialize_region_fr_rows(panel, derived, diagnostics, source_path);
+        materialize_region_fr_rows(
+            panel,
+            derived,
+            fill_section_ids,
+            diagnostics,
+            source_path,
+        );
     }
     for node in panel.blocks.iter_mut() {
         if let UiNodeDecl::Panel(child) = node {
-            materialize_regions_recursive(child, derived, diagnostics, source_path);
+            materialize_regions_recursive(
+                child,
+                derived,
+                fill_section_ids,
+                diagnostics,
+                source_path,
+            );
         }
     }
 }
@@ -326,12 +373,23 @@ fn validate_panel(
     }
 
     if is_content_panel(panel) {
+        if is_layout_fill_panel(panel) && content_budget_present(panel) {
+            push_error(
+                diagnostics,
+                "layout_policy_content_budget_px_forbidden",
+                format!(
+                    "content panel `{}`: __mei_layout_fill and __mei_content_budget are mutually exclusive (0327 fill-down)",
+                    panel.id
+                ),
+                source_path,
+            );
+        }
         if content_budget_missing(panel) {
             push_error(
                 diagnostics,
                 "layout_policy_content_budget_missing",
                 format!(
-                    "content panel `{}`: missing __mei_content_budget (use content_strip or semantic macro)",
+                    "content panel `{}`: missing __mei_content_budget (use content_strip or semantic macro) or __mei_layout_fill (use content_fill_props)",
                     panel.id
                 ),
                 source_path,
@@ -344,7 +402,7 @@ fn validate_panel(
                         diagnostics,
                         "layout_policy_content_auto_row_forbidden",
                         format!(
-                            "content panel `{}`: layout.rows must not use auto (use 1fr + row_budgets)",
+                            "content panel `{}`: layout.rows must not use auto (use 1fr + row_budgets or fill-down)",
                             panel.id
                         ),
                         source_path,
@@ -367,6 +425,9 @@ fn validate_panel(
 }
 
 fn is_content_panel(panel: &PanelDecl) -> bool {
+    if is_layout_fill_panel(panel) {
+        return true;
+    }
     panel
         .props
         .as_object()
@@ -378,7 +439,36 @@ fn is_content_panel(panel: &PanelDecl) -> bool {
         || panel.id.contains("typical-cases")
 }
 
+fn is_layout_fill_panel(panel: &PanelDecl) -> bool {
+    panel
+        .props
+        .as_object()
+        .and_then(|m| m.get("__mei_layout_fill"))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+fn content_budget_present(panel: &PanelDecl) -> bool {
+    panel
+        .props
+        .as_object()
+        .and_then(|m| m.get("__mei_content_budget"))
+        .is_some()
+}
+
+fn section_body_uses_fill(
+    section: &PanelDecl,
+    panel_map: &std::collections::HashMap<&str, &PanelDecl>,
+) -> bool {
+    find_body_content_panel(section, panel_map)
+        .map(is_layout_fill_panel)
+        .unwrap_or(false)
+}
+
 fn content_budget_missing(panel: &PanelDecl) -> bool {
+    if is_layout_fill_panel(panel) {
+        return false;
+    }
     panel
         .props
         .as_object()
@@ -423,6 +513,9 @@ fn validate_section_content_link(
     let Some(body_panel) = find_body_content_panel(section, panel_map) else {
         return;
     };
+    if is_layout_fill_panel(body_panel) {
+        return;
+    }
     let Some(content_sum) = content_budget_sum(body_panel) else {
         return;
     };
@@ -689,7 +782,8 @@ fn parse_fr_weight(track: &str) -> Option<f64> {
 
 fn materialize_region_fr_rows(
     region: &mut PanelDecl,
-    derived: &std::collections::HashMap<String, f64>,
+    derived: &mut std::collections::HashMap<String, f64>,
+    fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -736,6 +830,10 @@ fn materialize_region_fr_rows(
     for (i, sid) in section_ids.iter().enumerate() {
         let row_px = inner * fr_weights[i] / fr_sum;
         px_rows.push(format!("{}px", row_px.round() as i64));
+        if fill_section_ids.contains(sid) {
+            derived.insert(sid.clone(), row_px);
+            continue;
+        }
         if let Some(sec_h) = derived.get(sid) {
             if *sec_h > row_px + 0.5 {
                 push_error(

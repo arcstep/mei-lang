@@ -1083,11 +1083,119 @@ fn ui_scope_annotation_matches_compound_metric_cards() {
         "home",
         "left_rail/enforcement/panel/enforcement-stats/enforcement_strip_layout",
         None,
+    )
+    .expect("micro layout slot panel");
+    assert_eq!(micro_root.role, "slot");
+    assert_eq!(
+        micro_root.preview_scope,
+        "left_rail/enforcement/enforcement_strip_layout"
     );
-    assert!(
-        micro_root.is_none(),
-        "micro layout nodes are resolved in inspect JS, not panel SSR tags"
+}
+
+#[test]
+fn ui_scope_annotation_tags_inspection_micro_layout_slots() {
+    use crate::compile::build_ui_layout_index::ui_scope_annotation_for_preview_panel;
+    use crate::model::{UiLayoutIndex, UiScopeNode, UiScopeRole};
+
+    let mut nodes = std::collections::BTreeMap::new();
+    for (scope, label, role) in [
+        (
+            "left_rail/inspection",
+            "行政检查",
+            UiScopeRole::Section,
+        ),
+        (
+            "left_rail/inspection/inspection_counts_layout",
+            "inspection_counts_layout",
+            UiScopeRole::Slot,
+        ),
+        (
+            "left_rail/inspection/ai_compound_card",
+            "ai_compound_card",
+            UiScopeRole::Slot,
+        ),
+    ] {
+        let node_id = BuildNodeId::ui_scope("home", &format!("home/T1/left_rail/{label}")).encode();
+        nodes.insert(
+            node_id.clone(),
+            UiScopeNode {
+                node_id,
+                role,
+                label: label.to_string(),
+                scope_path: vec!["home".into(), "T1".into(), "left_rail".into()],
+                plane: Some("T1".to_string()),
+                parent_id: None,
+                children: vec![],
+                preview_scope: scope.to_string(),
+                budget: None,
+                source_anchors: vec![],
+                content_kind: None,
+                scene_id: Some("home".to_string()),
+            },
+        );
+    }
+    let compiled = CompiledApp {
+        app_id: "demo".to_string(),
+        title: "demo".to_string(),
+        app_root: "/tmp/demo".to_string(),
+        scene_routes: vec![],
+        active_scene: None,
+        active_target_file: String::new(),
+        file_tree: vec![],
+        scene_contract: None,
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: UiLayoutIndex {
+            nodes,
+            scene_roots: vec![],
+        },
+    };
+
+    let counts = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "left_rail/inspection/panel/inspection-stats/inspection_counts_layout",
+        Some("block_counts"),
+    )
+    .expect("inspection counts micro layout");
+    assert_eq!(counts.role, "slot");
+    assert_eq!(
+        counts.preview_scope,
+        "left_rail/inspection/inspection_counts_layout"
     );
+
+    let compound = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "left_rail/inspection/panel/inspection-stats/ai_compound_card",
+        Some("block_ai"),
+    )
+    .expect("ai compound micro layout");
+    assert_eq!(compound.role, "slot");
+    assert_eq!(
+        compound.preview_scope,
+        "left_rail/inspection/ai_compound_card"
+    );
+
+    let section = ui_scope_annotation_for_preview_panel(
+        &compiled,
+        "home",
+        "left_rail/inspection/panel/inspection-stats",
+        Some("body"),
+    )
+    .expect("inspection section panel");
+    assert_eq!(section.role, "section");
+    assert_eq!(section.preview_scope, "left_rail/inspection");
 }
 
 fn metric_card_panel_fixture(id: &str, area: &str, label: &str) -> PanelDecl {
@@ -1420,9 +1528,17 @@ fn ui_layout_index_contract_level_chart_blocks_surface_in_section() {
         .iter()
         .map(|node| node.label.as_str())
         .collect();
+    let party_bars_slot = section_tree
+        .children
+        .iter()
+        .find(|node| node.preview_scope.ends_with("/party_bars"));
+    assert!(
+        party_bars_slot.is_some(),
+        "contract-level chart grid area should surface as slot: {labels:?}"
+    );
     assert!(
         labels.iter().any(|label| label.contains("罚没居前") || label.contains("分组柱图")),
-        "contract-level chart block should appear as top-level content: {labels:?}"
+        "contract-level chart block should appear under section: {labels:?}"
     );
 }
 
@@ -1614,5 +1730,94 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
                 .any(|segment| segment == "map-tools-slot")
         }),
         "ui index should expose map-tools-slot under map_viewport section"
+    );
+}
+
+#[test]
+fn ui_layout_index_synthesizes_default_section_for_bare_region() {
+    let bare_region = PanelDecl {
+        kind: "panel".to_string(),
+        id: "stats_rail".to_string(),
+        title: Some("统计栏".to_string()),
+        head: None,
+        area: Some("body".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Block(metric_block("summary", "汇总"))],
+        slot: None,
+        props: json!({"__mei_tier": "t1"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let compiled = CompiledApp {
+        app_id: "pretty-panels".to_string(),
+        title: "Pretty Panels".to_string(),
+        app_root: "/tmp/pretty-panels".to_string(),
+        scene_routes: vec![CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "src/scene/home/assembly.mei".to_string(),
+            kind: "scene".to_string(),
+            title: Some("首页".to_string()),
+            is_default: true,
+            access_export: true,
+        }],
+        active_scene: Some("home".to_string()),
+        active_target_file: "src/scene/home/assembly.mei".to_string(),
+        file_tree: vec![],
+        scene_contract: Some(SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![bare_region],
+        }),
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
+    };
+    let result = build_ui_layout_index(&compiled);
+    let section_id = BuildNodeId::ui_scope("home", "home/T1/stats_rail/_default").encode();
+    let section = result
+        .index
+        .lookup_by_encoded(&section_id)
+        .expect("synthetic default section");
+    assert_eq!(section.role, UiScopeRole::Section);
+    assert_eq!(section.preview_scope, "stats_rail/_default");
+    let section_tree = find_tree_node(&result.tree_root.children, &section_id).expect("section tree");
+    assert!(
+        !section_tree.children.is_empty(),
+        "default section should expose slot/content children"
     );
 }

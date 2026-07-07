@@ -68,6 +68,27 @@ fn panel_in_build_preview_scope(panel_path: &str, scope: &str) -> bool {
         || panel_path.starts_with(&format!("{normalized_scope}/"))
 }
 
+fn panel_preview_scope_attr(ui_scope_attr: &Option<String>, panel_path: &str) -> String {
+    ui_scope_attr
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| panel_path.to_string())
+}
+
+fn layout_slot_chrome_body_view() -> AnyView {
+    view! {
+        <div
+            class="layout-slot-chrome-body preview-layout-slot-chrome"
+            data-mei-layout-slot-chrome="true"
+            style="min-height:var(--mei-slot-height,2.5rem);border:1px dashed color-mix(in srgb, var(--mei-border-muted,#64748b) 70%, transparent);border-radius:0.25rem;background:color-mix(in srgb, var(--mei-surface-muted,#1e293b) 35%, transparent);"
+            aria-hidden="true"
+        ></div>
+    }
+    .into_any()
+}
+
 fn projection_skeleton_view(
     label: &str,
     ui_role: &str,
@@ -83,7 +104,10 @@ fn projection_skeleton_view(
     view! {
         <section
             class="preview-card preview-projection-skeleton"
-            data-preview-scope=panel_path.to_string()
+            data-preview-scope=panel_preview_scope_attr(
+                &ui_scope_attr.map(str::to_string),
+                panel_path,
+            )
             data-mei-ui-scope=ui_scope_attr.unwrap_or("").to_string()
             data-mei-ui-role=ui_role_attr.unwrap_or(ui_role).to_string()
             data-mei-projection-skeleton="true"
@@ -170,6 +194,7 @@ pub(crate) fn panel_view(
     heading_cell_style.push_str(&container_visual_style(&head_props));
     let (head_nodes, body_nodes) = partition_panel_blocks(&panel.blocks, has_head);
     let has_body_slot = !body_nodes.is_empty();
+    let show_body_slot = has_body_slot || runtime_ctx.is_layout_slot_sandbox();
     let content_grid_on_body =
         !has_head && has_body_slot && panel_layout_content_on_body_slot(panel.layout.as_ref());
 
@@ -191,10 +216,16 @@ pub(crate) fn panel_view(
         card_style.push_str(&panel_card_layout_style(panel.layout.as_ref(), &head_props));
     }
 
-    let card_class = if chrome_bare {
-        "preview-card preview-card-bare"
+    let card_class = if runtime_ctx.is_layout_slot_sandbox() {
+        if chrome_bare {
+            "preview-card preview-card-bare preview-layout-slot-chrome".to_string()
+        } else {
+            "preview-card preview-layout-slot-chrome".to_string()
+        }
+    } else if chrome_bare {
+        "preview-card preview-card-bare".to_string()
     } else {
-        "preview-card"
+        "preview-card".to_string()
     };
 
     let slot_frame_bg_attr = card_props
@@ -293,9 +324,13 @@ pub(crate) fn panel_view(
     } else {
         None
     };
+    let preview_scope_attr = panel_preview_scope_attr(&ui_scope_attr, panel_path.as_str());
 
     let render_head_blocks = || {
-        head_nodes
+        if runtime_ctx.is_layout_slot_sandbox() {
+            view! { <></> }.into_any()
+        } else {
+            head_nodes
             .iter()
             .map(|node| {
                 node_view(
@@ -313,9 +348,14 @@ pub(crate) fn panel_view(
                 )
             })
             .collect_view()
+            .into_any()
+        }
     };
     let render_body_blocks = || {
-        body_nodes
+        if runtime_ctx.is_layout_slot_sandbox() {
+            layout_slot_chrome_body_view()
+        } else {
+            body_nodes
             .iter()
             .map(|node| {
                 node_view(
@@ -333,11 +373,13 @@ pub(crate) fn panel_view(
                 )
             })
             .collect_view()
+            .into_any()
+        }
     };
 
     let section = view! {
         <section
-            class=card_class
+            class=card_class.clone()
             style=card_style.clone()
             data-mei-panel-id=panel_path.clone()
             data-mei-panel-name=panel.id.clone()
@@ -351,7 +393,7 @@ pub(crate) fn panel_view(
             data-mei-group-id=panel_group_id
             data-mei-camera-preset=panel_camera_preset
             data-build-node=build_node_id.clone().unwrap_or_default()
-            data-preview-scope=panel_path.clone()
+            data-preview-scope=preview_scope_attr.clone()
             data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
             data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
             data-mei-t2-page=t2_page_attr.unwrap_or_default()
@@ -380,7 +422,7 @@ pub(crate) fn panel_view(
             } else {
                 view! { <></> }.into_any()
             }}
-            {if has_body_slot {
+            {if show_body_slot {
                 view! {
                     <div
                         class=body_slot_class
@@ -418,7 +460,7 @@ pub(crate) fn panel_view(
                     data-mei-group-id=panel_group_id
                     data-mei-camera-preset=panel_camera_preset
                     data-build-node=build_node_id.clone().unwrap_or_default()
-                    data-preview-scope=panel_path.clone()
+                    data-preview-scope=preview_scope_attr.clone()
                     data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
                     data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
                     data-mei-t2-page=t2_page_attr.unwrap_or_default()
@@ -447,7 +489,7 @@ pub(crate) fn panel_view(
                     } else {
                         view! { <></> }.into_any()
                     }}
-                    {if has_body_slot {
+                    {if show_body_slot {
                         view! {
                             <div
                                 class=body_slot_class

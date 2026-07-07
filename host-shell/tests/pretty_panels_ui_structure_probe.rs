@@ -208,6 +208,44 @@ fn pretty_panels_ui_structure_includes_left_rail_sections() {
 }
 
 #[test]
+fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
+    let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
+        .expect("assemble")
+        .expect("home");
+    let ui = build_ui_layout_index(&outcome.compiled);
+    let penalty_scopes: Vec<_> = ui
+        .index
+        .nodes
+        .values()
+        .filter(|node| node.preview_scope.starts_with("left_rail/penalty"))
+        .map(|node| {
+            format!(
+                "{} {:?} {}",
+                node.preview_scope,
+                node.role,
+                node.label
+            )
+        })
+        .collect();
+    eprintln!("penalty ui scopes:\n{}", penalty_scopes.join("\n"));
+    assert!(
+        ui.index.nodes.values().any(|node| {
+            node.preview_scope == "left_rail/penalty/party_bars"
+                && node.role == mei_lang_kernel::UiScopeRole::Slot
+        }),
+        "penalty party_bars grid slot should surface in ui index"
+    );
+    assert!(
+        ui.index.nodes.values().any(|node| {
+            node.preview_scope.starts_with("left_rail/penalty")
+                && node.role == mei_lang_kernel::UiScopeRole::Content
+                && (node.label.contains("罚没") || node.label.contains("分组柱图") || node.label.contains("排名图") || node.label.contains("高频"))
+        }),
+        "penalty contract-level charts should surface in ui index"
+    );
+}
+
+#[test]
 fn pretty_panels_assemble_accepts_legacy_assembly_scene_id() {
     let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "assembly")
         .expect("assemble")

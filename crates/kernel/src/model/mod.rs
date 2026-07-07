@@ -42,6 +42,7 @@ pub use panel::{PanelDecl, PanelSlotDecl};
 pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
 pub use review_modes::{
     ui_role_depth_rank, ui_role_within_max_depth, DataMode, DataModeCeiling, ReviewProjection,
+    SurfacePreviewPolicy,
 };
 pub use ui::{
     deserialize_ui_node_value, BlockDecl, ComponentExportDecl, FrameExportDecl, PanelExportDecl,

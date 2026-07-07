@@ -16,7 +16,9 @@ pub fn resolve_mei_config_path(app_root: &Path, _source_root: Option<&Path>) -> 
 
 pub fn load_mei_config_for_app(app_root: &Path, source_root: Option<&Path>) -> MeiConfig {
     let path = resolve_mei_config_path(app_root, source_root);
-    MeiConfig::load_or_default(&path)
+    let mut config = MeiConfig::load_or_default(&path);
+    config.apply_profile_runtime_defaults();
+    config
 }
 
 /// 读取 `{workspace}/workspace.json`。

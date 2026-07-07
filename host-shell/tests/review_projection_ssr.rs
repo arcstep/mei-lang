@@ -31,6 +31,18 @@ fn minimal_compiled() -> CompiledApp {
 }
 
 #[test]
+fn plane_region_section_slot_blocks_content_role() {
+    assert!(!ui_role_within_max_depth(
+        "content",
+        ReviewProjection::PlaneRegionSectionSlot.max_ui_role_depth()
+    ));
+    assert!(ui_role_within_max_depth(
+        "slot",
+        ReviewProjection::PlaneRegionSectionSlot.max_ui_role_depth()
+    ));
+}
+
+#[test]
 fn plane_region_section_blocks_content_role() {
     assert!(!ui_role_within_max_depth(
         "content",
@@ -105,5 +117,6 @@ fn prototype_runtime_context_enables_static_display() {
         Some("static_full"),
     );
     assert_eq!(ctx.data_mode.as_deref(), Some("static"));
-    assert!(ctx.host_ssr_slim_payload);
+    assert!(!ctx.host_ssr_slim_payload);
+    assert!(!ctx.omit_beyond_projection_depth);
 }

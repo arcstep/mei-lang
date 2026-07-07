@@ -37,6 +37,8 @@ pub struct BuildContextExportQuery {
     pub include_graph: Option<String>,
     #[serde(default)]
     pub include_readiness: Option<String>,
+    #[serde(default)]
+    pub surface: Option<String>,
 }
 
 pub async fn api_build_context_export(
@@ -98,9 +100,19 @@ pub async fn api_build_context_export(
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(true);
 
+    let surface = resolve_export_surface(
+        query.surface.as_deref(),
+        query.review_projection.as_deref(),
+    );
+
     let build_url = {
+        let route = if surface == "prototype" {
+            "prototype"
+        } else {
+            "layout"
+        };
         let mut url = format!(
-            "/apps/{app_id}/layout?node={}",
+            "/apps/{app_id}/{route}?node={}",
             percent_encode_component(node_raw)
         );
         if let Some(focus) = query
@@ -137,13 +149,19 @@ pub async fn api_build_context_export(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("eval");
+        .unwrap_or_else(|| {
+            if surface == "prototype" || surface == "layout" {
+                "static"
+            } else {
+                "eval"
+            }
+        });
     let review_projection = query
         .review_projection
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or("plane_region_section");
+        .unwrap_or("plane_region_section_slot");
     let gate = artifact_gate_status(
         app_id,
         ctx.scene_id.as_deref(),
@@ -151,7 +169,13 @@ pub async fn api_build_context_export(
     );
 
     let mut md = String::new();
-    md.push_str("## Mei Prototype Debug Context\n\n");
+    let title = if surface == "prototype" {
+        "## Mei Prototype Context\n\n"
+    } else {
+        "## Mei Layout Context\n\n"
+    };
+    md.push_str(title);
+    md.push_str(&format!("- **surface**: `{surface}`\n"));
     md.push_str(&format!("- **App**: `{app_id}`\n"));
     md.push_str(&format!("- **Node**: `{}`\n", resolved.node.encode()));
     md.push_str(&format!("- **Tab**: `{}`\n", tab.slug()));
@@ -177,6 +201,11 @@ pub async fn api_build_context_export(
         &resolved.node,
         query.focus.as_deref(),
     );
+    if surface == "layout" {
+        append_layout_surface_sections(&mut md, compiled, &resolved.node);
+    } else if surface == "prototype" {
+        append_prototype_surface_sections(&mut md, compiled, &resolved.node);
+    }
     append_board_template_sections(&mut md, compiled, &resolved.node);
     append_runtime_snapshot(&mut md, compiled, &ctx, &intent);
 
@@ -217,5 +246,66 @@ pub async fn api_build_context_export(
         .body(md)
         .unwrap()
         .into_response()
+}
+
+fn resolve_export_surface(surface: Option<&str>, review_projection: Option<&str>) -> &'static str {
+    if let Some(value) = surface.map(str::trim).filter(|s| !s.is_empty()) {
+        if value.eq_ignore_ascii_case("prototype") {
+            return "prototype";
+        }
+        if value.eq_ignore_ascii_case("layout") {
+            return "layout";
+        }
+    }
+    if review_projection
+        .map(str::trim)
+        .is_some_and(|value| value.eq_ignore_ascii_case("static_full"))
+    {
+        return "prototype";
+    }
+    "layout"
+}
+
+fn append_layout_surface_sections(
+    md: &mut String,
+    compiled: &mei_lang_kernel::CompiledApp,
+    node: &mei_lang_kernel::BuildNodeId,
+) {
+    md.push_str("### 布局工作区提示\n\n");
+    md.push_str("- 预览为 slot 沙盘：不渲染 content，仅验证 plane/region/section/slot 与 layoutTuning。\n");
+    md.push_str("- session draft：`layout.overlay.session`；确认后 `POST /api/ops/layout-tuning/apply`。\n");
+    if let Some(manifest) = (!compiled.ui_layout_index.nodes.is_empty()).then(|| {
+        compiled
+            .ui_layout_index
+            .layout_budget_manifest(compiled.app_id.as_str())
+    }) {
+        md.push_str("\n### layout_budget_manifest（摘要）\n\n");
+        for (scope, entry) in manifest.entries.iter().take(24) {
+            md.push_str(&format!("- `{scope}`: "));
+            if let Some(height) = entry.slot_height_px {
+                md.push_str(&format!("slot_height_px={height} "));
+            }
+            if let Some(profile) = entry.padding_profile.as_deref() {
+                md.push_str(&format!("padding_profile={profile} "));
+            }
+            md.push('\n');
+        }
+        md.push('\n');
+    }
+    let _ = node;
+}
+
+fn append_prototype_surface_sections(
+    md: &mut String,
+    compiled: &mei_lang_kernel::CompiledApp,
+    node: &mei_lang_kernel::BuildNodeId,
+) {
+    md.push_str("### 原型工作区提示\n\n");
+    md.push_str("- 预览拓扑与 App 一致，但 `data_mode=static`：数值为 `static_skeleton` 桩，禁止与 eval 真值混淆。\n");
+    md.push_str("- content/sources 变更须写 Config/Upload，不走 session draft。\n");
+    if let Some(scope_md) = mei_lang_kernel::format_ui_scope_agent_context(compiled, node) {
+        md.push_str(&scope_md);
+        md.push_str("\n");
+    }
 }
 

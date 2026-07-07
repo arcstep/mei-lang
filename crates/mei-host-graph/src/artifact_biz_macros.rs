@@ -378,6 +378,14 @@ fn rewrite_wide_metric_compound_body(args: &Map<String, Value>) -> Value {
     })
 }
 
+fn rewrite_content_fill_props(_args: &Map<String, Value>) -> Value {
+    let mut props = transparent_panel_props(json!("100%"));
+    if let Some(obj) = props.as_object_mut() {
+        obj.insert("__mei_layout_fill".to_string(), json!(true));
+    }
+    props
+}
+
 fn rewrite_content_strip_props(args: &Map<String, Value>) -> Value {
     let row_budgets = arg_value(args, "row_budgets", json!([]));
     let gap = arg_value(args, "gap", json!("0"));
@@ -397,6 +405,7 @@ pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
     let args = call_args(value)?;
     let rewritten = match method {
         "content_strip_props" => rewrite_content_strip_props(args),
+        "content_fill_props" => rewrite_content_fill_props(args),
         "story_opinion_block" => rewrite_story_opinion_block(args),
         "metric_triptych_compound_body" => rewrite_metric_triptych_compound_body(args),
         "wide_metric_compound_body" => rewrite_wide_metric_compound_body(args),
@@ -428,6 +437,23 @@ mod tests {
                 .and_then(|rows| rows.as_array())
                 .map(|rows| rows.len()),
             Some(2)
+        );
+    }
+
+    #[test]
+    fn rewrites_content_fill_props() {
+        let value = json!({
+            "__call": "shell.content_fill_props",
+            "__args": {}
+        });
+        let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
+        assert_eq!(
+            rewritten.get("__mei_layout_fill").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            rewritten.get("height").and_then(Value::as_str),
+            Some("100%")
         );
     }
 

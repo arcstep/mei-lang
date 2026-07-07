@@ -34,7 +34,10 @@ pub fn merge_surface_query_defaults(query: &mut AppQuery, route_mode: UiRouteMod
                 query.data_mode = Some("static".to_string());
             }
             if query.review_projection.is_none() {
-                query.review_projection = Some("plane_region_section".to_string());
+                query.review_projection = Some("plane_region_section_slot".to_string());
+            }
+            if query.tree_max.is_none() {
+                query.tree_max = Some("content".to_string());
             }
         }
         UiRouteMode::Prototype => {
@@ -43,6 +46,9 @@ pub fn merge_surface_query_defaults(query: &mut AppQuery, route_mode: UiRouteMod
             }
             if query.review_projection.is_none() {
                 query.review_projection = Some("static_full".to_string());
+            }
+            if query.tree_max.is_none() {
+                query.tree_max = Some("content".to_string());
             }
         }
         UiRouteMode::App => {

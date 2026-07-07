@@ -87,7 +87,7 @@ pub fn render_build_preview_fragment(
     let review_projection_resolved = review_projection
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("plane_region_section");
+        .unwrap_or("plane_region_section_slot");
     let data_mode_attr = data_mode
         .map(str::trim)
         .filter(|value| !value.is_empty())

@@ -70,7 +70,29 @@ fn run_route_applies_review_projection_depth() {
 }
 
 #[test]
-fn build_runtime_context_parses_review_projection_depth() {
+fn layout_route_omits_beyond_projection_and_caps_at_slot() {
+    let compiled = minimal_compiled();
+    let ctx = build_preview_runtime_context(
+        &compiled,
+        UiRouteMode::Layout,
+        None,
+        None,
+        None,
+        Some("static"),
+        Some("plane_region_section_slot"),
+    );
+    assert!(ctx.structure_anchors_enabled);
+    assert!(ctx.dev_inspect_chrome_enabled);
+    assert!(ctx.omit_beyond_projection_depth);
+    assert!(ctx.is_layout_slot_sandbox());
+    assert_eq!(ctx.review_projection_max_ui_role(), Some("slot"));
+    assert!(!ctx.ui_role_allowed_for_projection("content"));
+    assert!(ctx.ui_role_allowed_for_projection("slot"));
+    assert!(ctx.host_ssr_slim_payload);
+}
+
+#[test]
+fn layout_runtime_context_parses_review_projection_depth() {
     let compiled = minimal_compiled();
     let ctx = build_preview_runtime_context(
         &compiled,
@@ -89,7 +111,27 @@ fn build_runtime_context_parses_review_projection_depth() {
 }
 
 #[test]
-fn static_full_projection_allows_all_roles() {
+fn prototype_route_keeps_full_content_without_omit() {
+    let compiled = minimal_compiled();
+    let ctx = build_preview_runtime_context(
+        &compiled,
+        UiRouteMode::Prototype,
+        None,
+        None,
+        None,
+        Some("static"),
+        Some("static_full"),
+    );
+    assert!(ctx.structure_anchors_enabled);
+    assert!(!ctx.omit_beyond_projection_depth);
+    assert!(ctx.is_prototype_static_full());
+    assert_eq!(ctx.review_projection_max_ui_role(), None);
+    assert!(ctx.ui_role_allowed_for_projection("content"));
+    assert!(!ctx.host_ssr_slim_payload);
+}
+
+#[test]
+fn static_full_on_layout_route_allows_all_roles_but_still_omits() {
     let compiled = minimal_compiled();
     let ctx = build_preview_runtime_context(
         &compiled,
@@ -102,4 +144,5 @@ fn static_full_projection_allows_all_roles() {
     );
     assert_eq!(ctx.review_projection_max_ui_role(), None);
     assert!(ctx.ui_role_allowed_for_projection("content"));
+    assert!(ctx.omit_beyond_projection_depth);
 }

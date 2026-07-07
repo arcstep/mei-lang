@@ -319,7 +319,7 @@ fn display_children_for_tree<'a>(
     node: &UiScopeNode,
     index: &'a UiLayoutIndex,
 ) -> Vec<&'a UiScopeNode> {
-    match node.role {
+    let raw = match node.role {
         UiScopeRole::Content if content_has_content_children(node, index) => node
             .children
             .iter()
@@ -332,7 +332,54 @@ fn display_children_for_tree<'a>(
             .filter_map(|child_id| index.nodes.get(child_id))
             .filter(|child| child.role != UiScopeRole::Budget)
             .collect(),
+    };
+    if matches!(node.role, UiScopeRole::Section | UiScopeRole::Slot) {
+        flatten_compound_slot_wrappers(raw, index)
+    } else {
+        raw
     }
+}
+
+fn is_compound_slot_wrapper(node: &UiScopeNode, index: &UiLayoutIndex) -> bool {
+    if node.role != UiScopeRole::Slot {
+        return false;
+    }
+    let macro_hint = node
+        .content_kind
+        .as_deref()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !macro_hint.contains("compound") && !macro_hint.contains("triptych") {
+        return false;
+    }
+    let children = node
+        .children
+        .iter()
+        .filter_map(|child_id| index.nodes.get(child_id))
+        .filter(|child| child.role != UiScopeRole::Budget)
+        .collect::<Vec<_>>();
+    !children.is_empty() && children.iter().all(|child| child.role == UiScopeRole::Slot)
+}
+
+fn flatten_compound_slot_wrappers<'a>(
+    children: Vec<&'a UiScopeNode>,
+    index: &'a UiLayoutIndex,
+) -> Vec<&'a UiScopeNode> {
+    let mut out = Vec::new();
+    for child in children {
+        if is_compound_slot_wrapper(child, index) {
+            for grandchild_id in &child.children {
+                if let Some(grandchild) = index.nodes.get(grandchild_id) {
+                    if grandchild.role != UiScopeRole::Budget {
+                        out.push(grandchild);
+                    }
+                }
+            }
+        } else {
+            out.push(child);
+        }
+    }
+    out
 }
 
 fn content_has_content_children(node: &UiScopeNode, index: &UiLayoutIndex) -> bool {

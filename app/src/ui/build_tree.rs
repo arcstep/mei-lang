@@ -1,11 +1,34 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    is_stock_catalog_facet_root, BuildNodeId, BuildViewTab, ReachabilityTreeNode,
-    ReachabilityTreeRoot,
+    is_stock_catalog_facet_root, ui_role_within_max_depth, BuildNodeId, BuildViewTab,
+    ReachabilityTreeNode, ReachabilityTreeRoot,
 };
 
 use super::manage_routing::{build_node_href, BuildReviewAxes};
 use super::route::UiRouteMode;
+
+fn filter_tree_children<'a>(
+    children: &'a [ReachabilityTreeNode],
+    tree_max_ui_role: &str,
+) -> Vec<&'a ReachabilityTreeNode> {
+    children
+        .iter()
+        .filter(|child| {
+            let role = {
+                let direct = child.ui_role.as_str();
+                if direct.is_empty() {
+                    child.badges.first().map(String::as_str).unwrap_or("")
+                } else {
+                    direct
+                }
+            };
+            if role.is_empty() {
+                return true;
+            }
+            ui_role_within_max_depth(role, Some(tree_max_ui_role.trim()))
+        })
+        .collect()
+}
 
 pub(crate) fn reachability_tree_view(
     roots: &[ReachabilityTreeRoot],
@@ -31,6 +54,7 @@ pub(crate) fn reachability_tree_view(
                     catalog,
                     stock_pack,
                     review_axes,
+                    tree_max_ui_role,
                     workspace_surface,
                 ));
             }
@@ -43,6 +67,7 @@ pub(crate) fn reachability_tree_view(
                 catalog,
                 stock_pack,
                 review_axes,
+                tree_max_ui_role,
                 workspace_surface,
             ));
         }
@@ -71,13 +96,25 @@ fn root_branch(
     catalog: Option<&str>,
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
+    tree_max_ui_role: &str,
     workspace_surface: UiRouteMode,
 ) -> AnyView {
     let child_count = root.children.len();
-    let children = root
-        .children
-        .iter()
-        .map(|node| tree_node(node, app_path, active_node, active_tab, catalog, stock_pack, review_axes, workspace_surface))
+    let children = filter_tree_children(&root.children, tree_max_ui_role)
+        .into_iter()
+        .map(|node| {
+            tree_node(
+                node,
+                app_path,
+                active_node,
+                active_tab,
+                catalog,
+                stock_pack,
+                review_axes,
+                tree_max_ui_role,
+                workspace_surface,
+            )
+        })
         .collect_view();
     view! {
         <li class="build-tree-node build-tree-node--branch">
@@ -117,6 +154,7 @@ fn tree_node(
     catalog: Option<&str>,
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
+    tree_max_ui_role: &str,
     workspace_surface: UiRouteMode,
 ) -> AnyView {
     let child_count = node.children.len();
@@ -130,12 +168,12 @@ fn tree_node(
                 catalog,
                 stock_pack,
                 review_axes,
+                tree_max_ui_role,
                 workspace_surface,
             );
         }
-        let children = node
-            .children
-            .iter()
+        let children = filter_tree_children(&node.children, tree_max_ui_role)
+            .into_iter()
             .map(|child| {
                 tree_node(
                     child,
@@ -145,6 +183,7 @@ fn tree_node(
                     catalog,
                     stock_pack,
                     review_axes,
+                    tree_max_ui_role,
                     workspace_surface,
                 )
             })
@@ -253,9 +292,8 @@ fn tree_node(
                         </a>
                     </summary>
                     <ul class="build-tree-list build-tree-list--nested">
-                        {node
-                            .children
-                            .iter()
+                        {filter_tree_children(&node.children, tree_max_ui_role)
+                            .into_iter()
                             .map(|child| {
                                 tree_node(
                                     child,
@@ -265,6 +303,7 @@ fn tree_node(
                                     catalog,
                                     stock_pack,
                                     review_axes,
+                                    tree_max_ui_role,
                                     workspace_surface,
                                 )
                             })
@@ -285,12 +324,12 @@ fn template_category_section(
     catalog: Option<&str>,
     stock_pack: Option<&str>,
     review_axes: BuildReviewAxes<'_>,
+    tree_max_ui_role: &str,
     workspace_surface: UiRouteMode,
 ) -> AnyView {
     let child_count = node.children.len();
-    let children = node
-        .children
-        .iter()
+    let children = filter_tree_children(&node.children, tree_max_ui_role)
+        .into_iter()
         .map(|child| {
             tree_node(
                 child,
@@ -300,6 +339,7 @@ fn template_category_section(
                 catalog,
                 stock_pack,
                 review_axes,
+                tree_max_ui_role,
                 workspace_surface,
             )
         })

@@ -88,7 +88,7 @@ pub fn resolve_client_review_projection(
 pub fn ssr_review_projection(route_mode: UiRouteMode, data_mode: DataMode) -> ReviewProjection {
     match route_mode {
         UiRouteMode::App => canonical_full_projection_for_data_mode(data_mode),
-        UiRouteMode::Layout => ReviewProjection::PlaneRegionSection,
+        UiRouteMode::Layout => ReviewProjection::PlaneRegionSectionSlot,
         UiRouteMode::Prototype => ReviewProjection::StaticFull,
         _ => default_projection_for_route(route_mode, data_mode),
     }
@@ -133,7 +133,7 @@ fn default_data_mode_for_route(route_mode: UiRouteMode, _ceiling: DataModeCeilin
 
 fn default_projection_for_route(route_mode: UiRouteMode, data_mode: DataMode) -> ReviewProjection {
     match route_mode {
-        UiRouteMode::Layout => ReviewProjection::PlaneRegionSection,
+        UiRouteMode::Layout => ReviewProjection::PlaneRegionSectionSlot,
         UiRouteMode::Prototype => ReviewProjection::StaticFull,
         _ if data_mode == DataMode::Eval => ReviewProjection::LiveFull,
         _ => ReviewProjection::StaticFull,
@@ -185,9 +185,9 @@ mod tests {
     }
 
     #[test]
-    fn build_default_axes_use_plane_region_section() {
+    fn build_default_axes_use_plane_region_section_slot() {
         let axes = default_page_render_axes_for_route(UiRouteMode::Layout, DataModeCeiling::Eval);
-        assert_eq!(axes.review_projection, ReviewProjection::PlaneRegionSection);
+        assert_eq!(axes.review_projection, ReviewProjection::PlaneRegionSectionSlot);
     }
 
     #[test]
@@ -227,10 +227,10 @@ mod tests {
     }
 
     #[test]
-    fn layout_ssr_projection_is_plane_region_for_eval() {
+    fn layout_ssr_projection_is_plane_region_section_slot_for_eval() {
         assert_eq!(
             ssr_review_projection(UiRouteMode::Layout, DataMode::Eval),
-            ReviewProjection::PlaneRegionSection
+            ReviewProjection::PlaneRegionSectionSlot
         );
     }
 }

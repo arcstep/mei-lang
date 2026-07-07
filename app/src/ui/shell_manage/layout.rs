@@ -1,7 +1,8 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_reachability_tree, compile_coordinate_for_node, default_build_node_for_compiled,
-    filter_reachability_roots_for_stock_catalog, is_stock_catalog_app, resolve_build_node_context,
+    filter_reachability_roots_for_stock_catalog, filter_roots_for_tree_mode,
+    is_stock_catalog_app, resolve_build_node_context, resolve_build_preview_scope_for_ssr,
     resolve_build_view_query, BuildNodeKind, BuildViewTab, CompiledApp,
     LegacyBuildQuery, WorkspaceAppMeta,
 };
@@ -85,26 +86,21 @@ pub(crate) fn manage_shell(
     let show_inspector =
         should_show_world_semantic_inspector(&ctx.node, selected_target.as_str(), semantic);
     let source_panel = source.unwrap_or("").to_string();
-    let build_preview_scope = if matches!(route_mode, UiRouteMode::Layout | UiRouteMode::Prototype) {
-        None
-    } else {
-        mei_lang_kernel::resolve_build_preview_scope_for_ssr(compiled, &resolved.node)
-    };
-    let build_preview_component_use_key_owned = if matches!(
-        route_mode,
-        UiRouteMode::Layout | UiRouteMode::Prototype
-    ) {
-        None
-    } else {
-        super::preview_fragment::build_preview_component_use_key(&resolved.node)
-    };
-    let build_preview_component_use_key =
-        build_preview_component_use_key_owned.as_deref();
     let workspace_route_mode = match route_mode {
         UiRouteMode::Layout | UiRouteMode::Prototype => route_mode,
         other if other.is_build() => other,
         _ => UiRouteMode::Layout,
     };
+    let build_preview_scope = match workspace_route_mode {
+        UiRouteMode::Layout => resolve_build_preview_scope_for_ssr(compiled, &resolved.node),
+        _ => None,
+    };
+    let build_preview_component_use_key_owned = match workspace_route_mode {
+        UiRouteMode::Prototype => super::preview_fragment::build_preview_component_use_key(&resolved.node),
+        _ => None,
+    };
+    let build_preview_component_use_key =
+        build_preview_component_use_key_owned.as_deref();
     let active_data_mode = data_mode
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -134,11 +130,14 @@ pub(crate) fn manage_shell(
     );
     let active_scene = ctx.scene_id.as_deref().or(compiled.active_scene.as_deref());
     let scene_for_links = active_scene;
-    let reachability_roots = filter_reachability_roots_for_stock_catalog(
-        build_reachability_tree(compiled),
-        is_stock_catalog_app(app_path),
-        catalog,
-        stock_pack,
+    let reachability_roots = filter_roots_for_tree_mode(
+        &filter_reachability_roots_for_stock_catalog(
+            build_reachability_tree(compiled),
+            is_stock_catalog_app(app_path),
+            catalog,
+            stock_pack,
+        ),
+        "structure",
     );
     let review_axes = BuildReviewAxes {
         data_mode,
@@ -154,6 +153,7 @@ pub(crate) fn manage_shell(
         "false"
     };
     let active_tree_mode = "structure";
+    let workspace_surface_slug = workspace_route_mode.slug();
     let tree_max_ui_role = tree_max_ui_role
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -325,6 +325,13 @@ pub(crate) fn manage_shell(
         None
     };
 
+    let inspect_bar_hint = if workspace_route_mode == UiRouteMode::Layout {
+        "在左侧结构树选择 plane/region/section/slot，或在预览中点击布局锚点以调整 layoutTuning。"
+    } else if workspace_route_mode == UiRouteMode::Prototype {
+        "在左侧内容树选择组件/block，或在预览中点击以查看 props 与复制 AI 上下文。"
+    } else {
+        "在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。"
+    };
     let projection_attrs = ctx
         .projection_id
         .as_ref()
@@ -344,7 +351,7 @@ pub(crate) fn manage_shell(
         .unwrap_or_else(|| view! { <></> }.into_any());
 
     view! {
-        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug data-build-tree-mode=active_tree_mode data-build-tree-max-ui-role=tree_max_ui_role data-data-mode-clamped=data_mode_clamped_attr>
+        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string() data-surface=workspace_surface_slug data-compile-scene=compile_scene.clone() data-compile-target=compile_target.clone() data-data-mode=active_data_mode data-review-projection=review_projection_attr data-build-preset=active_preset.slug data-build-tree-mode=active_tree_mode data-build-tree-max-ui-role=tree_max_ui_role data-data-mode-clamped=data_mode_clamped_attr>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
             <script
                 id="mei-build-reachability-tree"
@@ -442,7 +449,7 @@ pub(crate) fn manage_shell(
                                 data-build-inspect-bar="true"
                                 hidden=active_tab_enum != BuildViewTab::Preview
                             >
-                                <span id="build-inspect-bar-label">"在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。"</span>
+                                <span id="build-inspect-bar-label">{inspect_bar_hint}</span>
                             </div>
                         </section>
                         <section

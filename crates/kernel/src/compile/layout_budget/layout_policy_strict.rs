@@ -1,6 +1,6 @@
 use crate::compile::layout_budget::resolve_layout_budgets;
 use crate::model::{LayoutDecl, PanelDecl, Severity, UiNodeDecl};
-use serde_json::json;
+use serde_json::{json, Value};
 
 fn empty_panel(id: &str) -> PanelDecl {
     PanelDecl {
@@ -45,6 +45,7 @@ fn region_with_px_rows(id: &str) -> PanelDecl {
     });
     panel.props = json!({
         "__mei_ui_role": "region",
+        "__mei_chrome_role": "rail",
         "viewport": {"design_height": 500},
     });
     panel
@@ -233,7 +234,111 @@ fn layout_policy_region_overflow_emits_error() {
 }
 
 #[test]
-fn layout_policy_compliant_tree_emits_no_errors() {
+fn layout_policy_fill_down_compliant_tree_emits_no_errors() {
+    let body = content_panel("content_strip", &[], &["1fr"]);
+    let mut body = body;
+    body.props = json!({
+        "__mei_layout_fill": true,
+        "height": "100%",
+    });
+    let section = section_with_body(
+        "enforcement",
+        body,
+        json!({
+            "__mei_ui_role": "section",
+            "__mei_padding_profile": "dense_strip_100",
+        }),
+    );
+    let mut region = empty_panel("left_rail");
+    region.layout = Some(LayoutDecl {
+        layout_type: "grid".to_string(),
+        direction: None,
+        columns: None,
+        rows: Some(vec!["1fr".to_string(), "2fr".to_string()]),
+        areas: None,
+        gap: Some("12px".to_string()),
+        padding: None,
+        align: None,
+        justify: None,
+    });
+    region.props = json!({
+        "__mei_ui_role": "region",
+        "viewport": {"design_height": 520},
+    });
+    region.blocks = vec![
+        UiNodeDecl::Panel(section),
+        UiNodeDecl::Panel(section_with_body(
+            "inspection",
+            content_panel("inspection_body", &[200], &["1fr"]),
+            json!({
+                "__mei_ui_role": "section",
+                "__mei_padding_profile": "compact_ai",
+            }),
+        )),
+    ];
+    let mut panels = vec![region];
+    let mut diagnostics = Vec::new();
+    resolve_layout_budgets(&mut panels, &mut diagnostics, "test.mei");
+    let layout_errors: Vec<_> = diagnostics
+        .iter()
+        .filter(|d| d.code.starts_with("layout_policy_") && d.severity == Severity::Error)
+        .collect();
+    assert!(
+        layout_errors.is_empty(),
+        "expected no layout_policy errors, got {layout_errors:?}"
+    );
+    let enforcement = find_panel_by_id_in_tree(&panels, "enforcement").expect("enforcement");
+    let derived = enforcement
+        .props
+        .as_object()
+        .and_then(|m: &serde_json::Map<String, Value>| {
+            m.get("__mei_section_derived_height_px")
+        })
+        .and_then(Value::as_f64)
+        .expect("fill section derived height");
+    assert!(
+        (derived - 169.0).abs() < 2.0,
+        "fill section should derive from fr row (~169px), got {derived}"
+    );
+}
+
+#[test]
+fn layout_policy_content_fill_with_budget_forbidden() {
+    let mut body = content_panel("strip", &[100], &["1fr"]);
+    if let Some(map) = body.props.as_object_mut() {
+        map.insert("__mei_layout_fill".to_string(), json!(true));
+    }
+    let mut panels = vec![body];
+    let mut diagnostics = Vec::new();
+    resolve_layout_budgets(&mut panels, &mut diagnostics, "test.mei");
+    assert_has_code(&diagnostics, "layout_policy_content_budget_px_forbidden");
+}
+
+fn find_panel_by_id_in_tree<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {
+    for panel in panels {
+        if let Some(found) = find_panel_by_id_recursive(panel, id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn find_panel_by_id_recursive<'a>(panel: &'a PanelDecl, id: &str) -> Option<&'a PanelDecl> {
+    if panel.id == id {
+        return Some(panel);
+    }
+    for node in &panel.blocks {
+        if let UiNodeDecl::Panel(child) = node {
+            if let Some(found) = find_panel_by_id_recursive(child, id) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+#[test]
+fn layout_policy_budget_compliant_tree_emits_no_errors() {
     let body = content_panel("content_strip", &[100, 80], &["1fr", "1fr"]);
     let section = section_with_body(
         "enforcement",

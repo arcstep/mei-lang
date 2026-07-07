@@ -108,8 +108,8 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
     );
     let body_cell = enforcement_body_cell_style(html.as_str());
     assert!(
-        body_cell.contains("padding:8px 6px 6px 6px"),
-        "layoutTuning compact should override enforcement section body padding, got `{body_cell}`"
+        body_cell.contains("padding:8px 4px 2px 4px"),
+        "layoutTuning dense_strip_100 should apply enforcement section body padding, got `{body_cell}`"
     );
     let layout_errors: Vec<_> = outcome
         .compiled

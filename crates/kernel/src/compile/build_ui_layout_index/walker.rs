@@ -160,7 +160,14 @@ fn walk_region(builder: &mut Builder<'_>, region: &PanelDecl, tier: &str, plane_
 
     let sections = sections_in_region(region);
     if sections.is_empty() {
-        walk_micro_and_content(builder, region, tier, &region_node_id, &region_segments, &region_id);
+        walk_default_section(
+            builder,
+            region,
+            tier,
+            &region_node_id,
+            &region_segments,
+            &region_id,
+        );
         return;
     }
 
@@ -175,6 +182,54 @@ fn walk_region(builder: &mut Builder<'_>, region: &PanelDecl, tier: &str, plane_
             section_key.as_str(),
         );
     }
+}
+
+const DEFAULT_SECTION_KEY: &str = "_default";
+
+fn default_section_label(region: &PanelDecl) -> String {
+    region
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("主体")
+        .to_string()
+}
+
+fn walk_default_section(
+    builder: &mut Builder<'_>,
+    region: &PanelDecl,
+    tier: &str,
+    region_node_id: &str,
+    region_segments: &[String],
+    region_id: &str,
+) {
+    let section_key = DEFAULT_SECTION_KEY;
+    let section_label = default_section_label(region);
+    let mut section_segments = region_segments.to_vec();
+    section_segments.push(section_key.to_string());
+    let preview_scope = format!("{region_id}/{section_key}");
+    let section_node = builder.make_node(
+        UiScopeRole::Section,
+        section_label,
+        &section_segments,
+        preview_scope.clone(),
+        Some(region_node_id.to_string()),
+        Some(tier.to_string()),
+        None,
+        source_anchor_for_panel(region),
+        None,
+    );
+    let section_node_id = builder.insert_node(section_node);
+    builder.link_child(region_node_id, &section_node_id);
+    walk_micro_and_content(
+        builder,
+        region,
+        tier,
+        &section_node_id,
+        &section_segments,
+        preview_scope.as_str(),
+    );
 }
 
 fn walk_section(
@@ -194,6 +249,7 @@ fn walk_section(
     let mut section_segments = region_segments.to_vec();
     section_segments.push(section_key.to_string());
     let preview_scope = format!("{region_id}/{section_key}");
+    let section_budget = merged_section_budget(section);
     let section_node = builder.make_node(
         UiScopeRole::Section,
         section_label,
@@ -201,7 +257,7 @@ fn walk_section(
         preview_scope.clone(),
         Some(region_node_id.to_string()),
         Some(tier.to_string()),
-        None,
+        section_budget,
         source_anchor_for_panel(section),
         None,
     );
@@ -275,18 +331,15 @@ fn walk_micro_and_content(
             file_hint,
         );
     }
-    for (block, content_label) in contract_level_content_blocks_in_deep(panel) {
-        walk_content_block(
-            builder,
-            block,
-            content_label.as_str(),
-            tier,
-            parent_id,
-            parent_segments,
-            preview_prefix,
-            file_hint,
-        );
-    }
+    walk_contract_level_content_in_panel(
+        builder,
+        panel,
+        tier,
+        parent_id,
+        parent_segments,
+        preview_prefix,
+        file_hint,
+    );
     for chrome_panel in viewport_chrome_panels_in_deep(panel) {
         let label = chrome_panel
             .props
@@ -521,6 +574,120 @@ fn scope_segments_from_preview(scene_id: &str, tier: &str, preview_scope: &str) 
         );
     }
     segments
+}
+
+fn walk_contract_level_content_in_panel(
+    builder: &mut Builder<'_>,
+    host_panel: &PanelDecl,
+    tier: &str,
+    parent_id: &str,
+    parent_segments: &[String],
+    preview_prefix: &str,
+    file_hint: Option<&str>,
+) {
+    for (block, content_label) in contract_level_content_blocks(host_panel) {
+        walk_contract_level_content_block(
+            builder,
+            block,
+            content_label.as_str(),
+            tier,
+            parent_id,
+            parent_segments,
+            preview_prefix,
+            file_hint,
+            host_panel,
+        );
+    }
+    for child in child_panels(host_panel) {
+        if !is_content_group_panel(child) && !is_micro_layout_panel(child) {
+            walk_contract_level_content_in_panel(
+                builder,
+                child,
+                tier,
+                parent_id,
+                parent_segments,
+                preview_prefix,
+                file_hint,
+            );
+        }
+    }
+}
+
+fn walk_contract_level_content_block(
+    builder: &mut Builder<'_>,
+    block: &BlockDecl,
+    label: &str,
+    tier: &str,
+    parent_id: &str,
+    parent_segments: &[String],
+    preview_prefix: &str,
+    file_hint: Option<&str>,
+    host_panel: &PanelDecl,
+) {
+    if is_slot_area_block(block, host_panel) {
+        let area = block
+            .area
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "auto")
+            .unwrap_or("slot");
+        let slot_preview = format!(
+            "{}/{}",
+            preview_prefix.trim().trim_end_matches('/'),
+            area
+        );
+        let slot_segments =
+            scope_segments_from_preview(builder.scene_id, tier, slot_preview.as_str());
+        let slot_label = contract_grid_slot_label(area, block);
+        let slot_budget = budget_from_chart_block(block);
+        let slot_node = builder.make_node(
+            UiScopeRole::Slot,
+            slot_label,
+            &slot_segments,
+            slot_preview.clone(),
+            Some(parent_id.to_string()),
+            Some(tier.to_string()),
+            slot_budget,
+            source_anchor_for_block(block, file_hint),
+            Some(block_content_use_key(block)),
+        );
+        let slot_node_id = builder.insert_node(slot_node);
+        builder.link_child(parent_id, &slot_node_id);
+        walk_content_block(
+            builder,
+            block,
+            label,
+            tier,
+            slot_node_id.as_str(),
+            parent_segments,
+            slot_preview.as_str(),
+            file_hint,
+        );
+        return;
+    }
+    walk_content_block(
+        builder,
+        block,
+        label,
+        tier,
+        parent_id,
+        parent_segments,
+        preview_prefix,
+        file_hint,
+    );
+}
+
+fn contract_grid_slot_label(area: &str, block: &BlockDecl) -> String {
+    if let Some(title) = block.title.as_deref().filter(|value| !value.trim().is_empty()) {
+        return title.to_string();
+    }
+    let content_label = content_label_from_block(block);
+    if block_content_use_key(block).starts_with("chart.")
+        && content_label != block_content_use_key(block)
+    {
+        return content_label;
+    }
+    area.to_string()
 }
 
 fn walk_content_block(
@@ -760,13 +927,31 @@ fn sections_in_region(region: &PanelDecl) -> Vec<(String, PanelDecl)> {
 }
 
 fn panel_is_section(panel: &PanelDecl) -> bool {
-    ui_role_from_props(&panel.props) == Some("section")
-        || panel
-            .props
-            .get("__mei_section_title")
-            .and_then(|value| value.as_str())
-            .is_some_and(|value| !value.trim().is_empty())
-        || panel.title.as_deref().is_some_and(|title| !title.trim().is_empty())
+    if ui_role_from_props(&panel.props) == Some("section") {
+        return true;
+    }
+    if panel
+        .props
+        .get("__mei_section_title")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return true;
+    }
+    if panel.title.as_deref().is_some_and(|title| !title.trim().is_empty()) {
+        return true;
+    }
+    if panel
+        .props
+        .get("__mei_shell")
+        .and_then(|value| value.as_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("titled_shell"))
+    {
+        return true;
+    }
+    layout_macro_hint(panel).is_some_and(|macro_name| {
+        macro_name.ends_with("_body") && !is_micro_layout_panel(panel)
+    })
 }
 
 fn find_nested_panel_by_area<'a>(region: &'a PanelDecl, area: &str) -> Option<&'a PanelDecl> {
@@ -1188,16 +1373,6 @@ fn contract_level_content_blocks(panel: &PanelDecl) -> Vec<(&BlockDecl, String)>
     blocks
 }
 
-fn contract_level_content_blocks_in_deep(panel: &PanelDecl) -> Vec<(&BlockDecl, String)> {
-    let mut blocks = contract_level_content_blocks(panel);
-    for child in child_panels(panel) {
-        if !is_content_group_panel(child) && !is_micro_layout_panel(child) {
-            blocks.extend(contract_level_content_blocks_in_deep(child));
-        }
-    }
-    blocks
-}
-
 fn is_slot_area_block(block: &BlockDecl, panel: &PanelDecl) -> bool {
     let Some(area) = block.area.as_deref().filter(|v| !v.is_empty() && *v != "auto") else {
         return false;
@@ -1375,6 +1550,76 @@ fn ui_role_from_props(props: &Value) -> Option<&str> {
     props
         .get("__mei_ui_role")
         .and_then(|v| v.as_str())
+}
+
+fn budget_from_chart_block(block: &BlockDecl) -> Option<UiBudgetSummary> {
+    let props = block.props.as_object()?;
+    let chart_height = props
+        .get("chartHeight")
+        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|n| n as i64)))
+        .filter(|value| *value > 0)?;
+    Some(UiBudgetSummary {
+        card_height: Some(chart_height),
+        ..UiBudgetSummary::default()
+    })
+}
+
+fn merged_section_budget(section: &PanelDecl) -> Option<UiBudgetSummary> {
+    let mut budget = budget_from_panel(section).unwrap_or_default();
+    if let Some(content_panel) = content_budget_panel_in_deep(section) {
+        if let Some(content_budget) = budget_from_panel(content_panel) {
+            budget = merge_budget_summaries(budget, content_budget);
+        }
+    }
+    if budget_is_empty(&budget) {
+        None
+    } else {
+        Some(budget)
+    }
+}
+
+fn merge_budget_summaries(mut base: UiBudgetSummary, overlay: UiBudgetSummary) -> UiBudgetSummary {
+    if overlay.gap.is_some() {
+        base.gap = overlay.gap;
+    }
+    if overlay.padding.is_some() {
+        base.padding = overlay.padding;
+    }
+    if overlay.card_height.is_some() {
+        base.card_height = overlay.card_height;
+    }
+    if overlay.content_rows.is_some() {
+        base.content_rows = overlay.content_rows;
+    }
+    if overlay.content_gap.is_some() {
+        base.content_gap = overlay.content_gap;
+    }
+    if overlay.section_derived_height_px.is_some() {
+        base.section_derived_height_px = overlay.section_derived_height_px;
+    }
+    if overlay.padding_profile.is_some() {
+        base.padding_profile = overlay.padding_profile;
+    }
+    for (key, value) in overlay.widths {
+        base.widths.insert(key, value);
+    }
+    base
+}
+
+fn content_budget_panel_in_deep(panel: &PanelDecl) -> Option<&PanelDecl> {
+    if panel
+        .props
+        .as_object()
+        .is_some_and(|map| map.contains_key("__mei_content_budget"))
+    {
+        return Some(panel);
+    }
+    for child in child_panels(panel) {
+        if let Some(found) = content_budget_panel_in_deep(child) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 fn budget_from_panel(panel: &PanelDecl) -> Option<UiBudgetSummary> {

@@ -67,6 +67,9 @@ pub(crate) fn block_view_for_decl(
     parent_panel_id: Option<&str>,
     parent_panel: Option<&PanelDecl>,
 ) -> AnyView {
+    if runtime_ctx.is_layout_slot_sandbox() {
+        return view! { <></> }.into_any();
+    }
     let scene_anchor = RuntimeSceneAnchor::for_preview(
         compiled,
         Some(preview_scene_path),
@@ -220,6 +223,7 @@ pub(crate) fn block_view_for_decl(
             data-mei-camera-preset=block_camera_preset
             data-build-node=build_node_id.clone().unwrap_or_default()
             data-build-focus=build_node_id.clone().unwrap_or_default()
+            data-preview-scope=ui_scope_attr.clone().unwrap_or_default()
             data-mei-ui-scope=ui_scope_attr.clone().unwrap_or_default()
             data-mei-ui-role=ui_role_attr.clone().unwrap_or_default()
         >

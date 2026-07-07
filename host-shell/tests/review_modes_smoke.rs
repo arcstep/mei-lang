@@ -1,7 +1,8 @@
 //! Review modes smoke: preset axes + tree depth contract.
 
 use mei_lang_app::prototype_preset::{
-    match_preset, preset_tree_max_ui_role, PROTOTYPE_PRESETS,
+    match_preset, preset_tree_max_ui_role, LAYOUT_PRESET, PROTOTYPE_PRESETS,
+    PROTOTYPE_SURFACE_PRESET,
 };
 use mei_lang_kernel::{DataMode, DataModeCeiling, ReviewProjection};
 
@@ -13,33 +14,36 @@ fn axes_for_build(data_mode: &str, review_projection: &str) -> (DataMode, Review
 }
 
 #[test]
-fn build_static_plane_region_section_preset() {
-    let (dm, rp) = axes_for_build("static", "plane_region_section");
+fn layout_static_plane_region_section_slot_preset() {
+    let (dm, rp) = axes_for_build("static", "plane_region_section_slot");
     assert_eq!(dm, DataMode::Static);
-    assert_eq!(rp, ReviewProjection::PlaneRegionSection);
-    let preset = match_preset("static", "plane_region_section").expect("preset");
-    assert_eq!(preset.slug, "section");
-    assert_eq!(preset_tree_max_ui_role("static", "plane_region_section"), "plane");
+    assert_eq!(rp, ReviewProjection::PlaneRegionSectionSlot);
+    let preset = match_preset("static", "plane_region_section_slot").expect("preset");
+    assert_eq!(preset.slug, "layout");
+    assert_eq!(preset.tree_max_ui_role, "content");
+    assert_eq!(
+        preset_tree_max_ui_role("static", "plane_region_section_slot"),
+        "content"
+    );
 }
 
 #[test]
-fn build_content_static_full_preset() {
+fn prototype_static_full_preset() {
     let (dm, rp) = axes_for_build("static", "static_full");
     assert_eq!(dm, DataMode::Static);
     assert_eq!(rp, ReviewProjection::StaticFull);
     let preset = match_preset("static", "static_full").expect("preset");
-    assert_eq!(preset.slug, "content");
-    assert_eq!(preset_tree_max_ui_role("static", "static_full"), "plane");
+    assert_eq!(preset.slug, "prototype");
+    assert_eq!(preset.tree_max_ui_role, "content");
+    assert_eq!(preset_tree_max_ui_role("static", "static_full"), "content");
 }
 
 #[test]
-fn app_eval_live_full_preset() {
+fn app_eval_live_full_has_no_workspace_preset() {
     let (dm, rp) = axes_for_build("eval", "live_full");
     assert_eq!(dm, DataMode::Eval);
     assert_eq!(rp, ReviewProjection::LiveFull);
-    let preset = match_preset("eval", "live_full").expect("preset");
-    assert_eq!(preset.slug, "eval");
-    assert_eq!(preset.tree_max_ui_role, "plane");
+    assert!(match_preset("eval", "live_full").is_none());
 }
 
 #[test]
@@ -56,32 +60,15 @@ fn static_ceiling_downgrades_eval_request() {
 }
 
 #[test]
-fn prototype_presets_cover_four_task_workflows() {
-    assert_eq!(PROTOTYPE_PRESETS.len(), 4);
+fn workspace_presets_cover_layout_and_prototype() {
+    assert_eq!(PROTOTYPE_PRESETS.len(), 2);
+    assert_eq!(LAYOUT_PRESET.slug, "layout");
+    assert_eq!(PROTOTYPE_SURFACE_PRESET.slug, "prototype");
     for preset in PROTOTYPE_PRESETS {
         assert!(
             !preset.tree_max_ui_role.is_empty(),
             "preset {} missing tree depth",
             preset.slug
         );
-    }
-}
-
-#[test]
-fn preset_tree_roles_match_0508_contract() {
-    let expectations: &[(&str, &str, &str)] = &[
-        ("eval", "plane", "plane"),
-        ("content", "plane", "plane"),
-        ("section", "plane", "plane"),
-        ("region", "plane", "plane"),
-    ];
-    for (slug, expected_role, _) in expectations {
-        let preset = PROTOTYPE_PRESETS
-            .iter()
-            .find(|item| item.slug == *slug)
-            .expect("preset");
-        assert_eq!(preset.tree_max_ui_role, *expected_role);
-        let role = preset_tree_max_ui_role(preset.data_mode, preset.review_projection);
-        assert_eq!(role, *expected_role);
     }
 }

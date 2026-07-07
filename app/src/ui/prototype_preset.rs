@@ -8,7 +8,7 @@ pub struct PrototypePreset {
     pub label: &'static str,
     pub data_mode: &'static str,
     pub review_projection: &'static str,
-    /// Default ui_structure tree expand depth.
+    /// Default ui_structure tree expand depth (layout needs content/chart leaves for tuning).
     pub tree_max_ui_role: &'static str,
 }
 
@@ -16,8 +16,8 @@ pub const LAYOUT_PRESET: PrototypePreset = PrototypePreset {
     slug: "layout",
     label: "布局",
     data_mode: "static",
-    review_projection: "plane_region_section",
-    tree_max_ui_role: "section",
+    review_projection: "plane_region_section_slot",
+    tree_max_ui_role: "content",
 };
 
 pub const PROTOTYPE_SURFACE_PRESET: PrototypePreset = PrototypePreset {
@@ -25,7 +25,7 @@ pub const PROTOTYPE_SURFACE_PRESET: PrototypePreset = PrototypePreset {
     label: "原型",
     data_mode: "static",
     review_projection: "static_full",
-    tree_max_ui_role: "plane",
+    tree_max_ui_role: "content",
 };
 
 pub const PROTOTYPE_PRESETS: &[PrototypePreset] = &[LAYOUT_PRESET, PROTOTYPE_SURFACE_PRESET];

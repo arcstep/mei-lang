@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, CompiledApp, LoadedResource,
-    RuntimeResourceIndex,
+    RuntimeResourceIndex, SurfacePreviewPolicy,
 };
 
 use super::route::UiRouteMode;
@@ -52,9 +52,18 @@ pub struct PreviewRuntimeContext {
     pub review_projection: Option<String>,
     /// Layout/Prototype：超出投影深度的节点直接省略（不用 skeleton 蒙板）。
     pub omit_beyond_projection_depth: bool,
+    /// Surface-specific preview fill policy.
+    pub surface_preview_policy: SurfacePreviewPolicy,
 }
 
 impl PreviewRuntimeContext {
+    pub fn is_layout_slot_sandbox(&self) -> bool {
+        self.surface_preview_policy == SurfacePreviewPolicy::LayoutSlotSandbox
+    }
+
+    pub fn is_prototype_static_full(&self) -> bool {
+        self.surface_preview_policy == SurfacePreviewPolicy::PrototypeStaticFull
+    }
     pub fn review_projection_max_ui_role(&self) -> Option<&'static str> {
         self.review_projection
             .as_deref()
@@ -67,6 +76,14 @@ impl PreviewRuntimeContext {
             return true;
         };
         mei_lang_kernel::ui_role_within_max_depth(ui_role, Some(max_role))
+    }
+}
+
+pub fn surface_preview_policy_for_route(route_mode: UiRouteMode) -> SurfacePreviewPolicy {
+    match route_mode {
+        UiRouteMode::Layout => SurfacePreviewPolicy::LayoutSlotSandbox,
+        UiRouteMode::Prototype => SurfacePreviewPolicy::PrototypeStaticFull,
+        _ => SurfacePreviewPolicy::AppLive,
     }
 }
 
@@ -87,14 +104,14 @@ pub fn build_preview_runtime_context(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
-    let host_ssr_slim_payload = match data_mode.as_deref() {
-        Some("static") => true,
-        _ => matches!(
-            route_mode,
-            UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Layout
-        ),
+    let surface_preview_policy = surface_preview_policy_for_route(route_mode);
+    let host_ssr_slim_payload = match (data_mode.as_deref(), route_mode) {
+        (Some("static"), UiRouteMode::Prototype) => false,
+        (Some("static"), _) => true,
+        (_, UiRouteMode::App | UiRouteMode::Run | UiRouteMode::Copilot | UiRouteMode::Layout) => true,
+        _ => false,
     };
-    let omit_beyond_projection_depth = matches!(route_mode, UiRouteMode::Layout | UiRouteMode::Prototype);
+    let omit_beyond_projection_depth = surface_preview_policy.omits_beyond_projection_depth();
     let structure_workspace = matches!(
         route_mode,
         UiRouteMode::Layout | UiRouteMode::Prototype
@@ -116,6 +133,7 @@ pub fn build_preview_runtime_context(
         data_mode,
         review_projection,
         omit_beyond_projection_depth,
+        surface_preview_policy,
     }
 }
 mod view;
