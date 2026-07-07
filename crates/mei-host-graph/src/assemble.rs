@@ -85,6 +85,94 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
     Ok(routes)
 }
 
+/// Board page scene ids (`board_assembly.scene`) under a T2 section scope path.
+pub fn board_page_scenes_for_section_scope(
+    source_root: &Path,
+    app_id: &str,
+    section_scope: &str,
+) -> Vec<String> {
+    let section_scope = section_scope.trim();
+    if section_scope.is_empty() {
+        return Vec::new();
+    }
+    let registry = McgRegistryWriter::load(source_root, app_id);
+    let app_root = resolve_app_root(source_root, app_id);
+    let section_keys = [
+        section_scope.to_string(),
+        format!("{app_id}/{section_scope}"),
+    ];
+    let mut assembly_refs = Vec::new();
+    for node in registry.nodes_of_kind(GraphNodeKind::SemanticGraph) {
+        if !section_keys.iter().any(|key| node.id.key == key.as_str()) {
+            continue;
+        }
+        let Some(pref) = node.payload_ref.as_ref() else {
+            continue;
+        };
+        let Ok(Some(artifact)) = load_block_artifact(app_root.as_path(), pref) else {
+            continue;
+        };
+        let payload = artifact.get("payload").cloned().unwrap_or(json!({}));
+        collect_assembly_refs_from_payload(&payload, &mut assembly_refs);
+    }
+    let mut scenes = BTreeSet::new();
+    for assembly_key in assembly_refs {
+        for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+            if node.id.key != assembly_key {
+                continue;
+            }
+            if let Some(scene_id) = board_scene_id_for_node(app_root.as_path(), node) {
+                scenes.insert(scene_id);
+            }
+        }
+    }
+    if !scenes.is_empty() {
+        return scenes.into_iter().collect();
+    }
+    let section_needles = section_keys;
+    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        if node.id.key.contains("home@") {
+            continue;
+        }
+        let in_section = section_needles
+            .iter()
+            .any(|needle| node.id.key.contains(needle.as_str()));
+        if !in_section {
+            continue;
+        }
+        if let Some(scene_id) = board_scene_id_for_node(app_root.as_path(), node) {
+            scenes.insert(scene_id);
+        }
+    }
+    scenes.into_iter().collect()
+}
+
+fn collect_assembly_refs_from_payload(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            if map.get("__ref").and_then(Value::as_str) == Some("assembly_ref") {
+                if let Some(arg0) = map
+                    .get("__args")
+                    .and_then(Value::as_object)
+                    .and_then(|args| args.get("arg0"))
+                    .and_then(Value::as_str)
+                {
+                    out.push(arg0.to_string());
+                }
+            }
+            for entry in map.values() {
+                collect_assembly_refs_from_payload(entry, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_assembly_refs_from_payload(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Collect scene ids for all T2 page assembly views (warmup / smoke tests).
 pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
     let registry = McgRegistryWriter::load(source_root, app_id);
@@ -452,7 +540,7 @@ fn resolve_assembly_key(
         .unwrap_or_else(|| format!("overlay/t2/{scene_id}"))
 }
 
-fn board_scene_id_for_node(
+pub fn board_scene_id_for_node(
     app_root: &Path,
     node: &crate::mcg::registry::McgNodeRecord,
 ) -> Option<String> {

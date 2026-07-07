@@ -136,42 +136,72 @@
     }
   }
 
-  function triggerScopeActivationWarmup(config) {
+  function resolveAppIdFromShell() {
+    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+    return shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+  }
+
+  function resolveClientBootstrapNeighborHops() {
+    const raw =
+      window.__mei?.runtime?.clientBootstrap?.neighborHops ??
+      window.__mei?.clientBootstrapNeighborHops ??
+      1;
+    const hops = Number(raw);
+    return Number.isFinite(hops) && hops > 0 ? Math.floor(hops) : 1;
+  }
+
+  async function activateProjectionScope(config) {
     const scope = nonEmptyString(config?.pageSceneId, config?.boardSceneId, config?.sceneId);
     if (!scope || typeof fetch !== "function") {
-      return;
+      return false;
     }
-    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
-    const appId = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+    const appId = resolveAppIdFromShell();
+    const hops = resolveClientBootstrapNeighborHops();
     const appQuery = appId ? `&appId=${encodeURIComponent(appId)}` : "";
-    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=1${appQuery}`;
-    void fetch(url, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((result) => {
-        const payload =
-          result?.payload && typeof result.payload === "object" ? result.payload : null;
-        if (payload && typeof boot.applyBootstrapPayload === "function") {
-          boot.applyBootstrapPayload(payload);
-        }
-        if (typeof boot.dispatchScopeActivation === "function") {
-          boot.dispatchScopeActivation({
-            scope,
-            sceneId: scope,
-            appId,
-            source: "mrg-activate",
-            projection: nonEmptyString(config?.projection, "overlay"),
-          });
-        }
-        if (payload && typeof seedFromBootstrap === "function") {
-          seedFromBootstrap(window.__mei || payload);
-        }
-      })
-      .catch(() => {
-        /* ignore activation warmup failures; runtime API path remains fallback */
+    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=${hops}${appQuery}`;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Accept: "application/json" },
       });
+      if (!response.ok) {
+        return false;
+      }
+      const result = await response.json();
+      const payload =
+        result?.payload && typeof result.payload === "object" ? result.payload : null;
+      if (payload && typeof boot.applyBootstrapPayload === "function") {
+        boot.applyBootstrapPayload(payload);
+      }
+      if (typeof boot.dispatchScopeActivation === "function") {
+        boot.dispatchScopeActivation({
+          scope,
+          sceneId: scope,
+          appId,
+          source: "mrg-activate",
+          projection: nonEmptyString(config?.projection, "overlay"),
+        });
+      } else {
+        document.dispatchEvent(
+          new CustomEvent("meilang:scope-activation", {
+            detail: { scope, sceneId: scope, appId, source: "mrg-activate" },
+          }),
+        );
+      }
+      if (typeof seedFromBootstrap === "function") {
+        seedFromBootstrap(window.__mei || payload);
+      }
+      if (typeof window !== "undefined") {
+        window.__meiLastScopeActivation = { scope, sceneId: scope, appId, at: Date.now() };
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function triggerScopeActivationWarmup(config) {
+    void activateProjectionScope(config);
   }
 
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
@@ -209,6 +239,7 @@
       ),
     };
     await prewarmProjectionScope(layer2Config);
+    await activateProjectionScope(layer2Config);
     const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
     if (useLayer2 && typeof boot.openLayer2Tab === "function") {
       closeSceneBoardOverlay();
@@ -216,7 +247,12 @@
       if (typeof boot.beginDrilldownLoadSession === "function") {
         boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
       }
-      triggerScopeActivationWarmup(layer2Config);
+      if (
+        root &&
+        typeof window.__meiDatasetRuntime?.prefetchVisiblePanelMetrics === "function"
+      ) {
+        window.__meiDatasetRuntime.prefetchVisiblePanelMetrics(root);
+      }
       if (config.boardFrameScene) {
         await renderFrameBoardSceneContent(root, detail, config);
         return;
@@ -241,7 +277,9 @@
       if (typeof boot.beginDrilldownLoadSession === "function") {
         boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
       }
-      triggerScopeActivationWarmup(layer2Config);
+      if (typeof window.__meiDatasetRuntime?.prefetchVisiblePanelMetrics === "function") {
+        window.__meiDatasetRuntime.prefetchVisiblePanelMetrics(root);
+      }
       await renderStructuredDrilldownContent(root, detail, config);
       return;
     }
@@ -254,7 +292,6 @@
     if (typeof boot.beginDrilldownLoadSession === "function") {
       boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
-    triggerScopeActivationWarmup(layer2Config);
     if (config.boardFrameScene) {
       if (!(await renderFrameBoardSceneContent(root, detail, config))) {
         return;

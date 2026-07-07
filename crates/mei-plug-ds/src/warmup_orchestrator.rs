@@ -4,9 +4,8 @@ use std::time::Instant;
 
 use mei_host_core::{dir_tree_bytes, CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{
-    collect_eval_frontier, collect_eval_frontier_with_hops, linked_board_scenes_for_scope,
-    record_slot_failed, record_slots_from_descriptors, write_client_bootstrap, MrgRegistryWriter,
-    WarmupTier,
+    client_bootstrap_scope_allowed, collect_eval_frontier, linked_board_pack_scopes, record_slot_failed, record_slots_from_descriptors,
+    write_client_bootstrap, MrgRegistryWriter, WarmupTier,
 };
 use mei_lang_kernel::{
     load_mei_config_for_app, resolve_app_eval_cache_root, resolve_app_var_root,
@@ -174,7 +173,9 @@ pub fn run_warmup_targets_with_tier(
     let mut client_manifest_scopes = Vec::new();
     let mut client_tier_ms = 0u64;
     let allowed_client_scopes = allowed_client_manifest_scopes(
+        ctx,
         &targets,
+        &all_slots,
         &client_scopes,
         client_cfg,
         primary_scope.as_str(),
@@ -266,39 +267,24 @@ fn expand_targets_for_client_neighbors(
         return Ok(targets.to_vec());
     }
     let root_scope = targets[0].scope_key.as_str();
-    let linked_scopes = linked_board_scenes_for_scope(ctx, root_scope, cfg.neighbor_hops)?
-        .into_iter()
-        .take(cfg.max_neighbor_scopes)
-        .collect::<Vec<_>>();
-    if linked_scopes.is_empty() {
-        return Ok(targets.to_vec());
-    }
-    let linked_scope_set: BTreeSet<String> = linked_scopes.into_iter().collect();
-    let frontier = collect_eval_frontier_with_hops(ctx, root_scope, cfg.neighbor_hops)?;
-    let neighbor_frontier = frontier
-        .into_iter()
-        .filter(|metric| metric.scope_key != root_scope)
-        .filter(|metric| linked_scope_set.contains(metric.scope_key.as_str()))
-        .collect::<Vec<_>>();
-    if neighbor_frontier.is_empty() {
-        if linked_scope_set.is_empty() {
-            return Ok(targets.to_vec());
-        }
-        let mut expanded = targets.to_vec();
-        for scope in &linked_scope_set {
-            let metrics = collect_eval_frontier(ctx, scope.as_str())?;
-            expanded.extend(frontier_targets_from_metrics(
-                root_scope,
-                &metrics,
-            ));
-        }
-        return Ok(expanded);
-    }
-    let mut expanded = targets.to_vec();
-    expanded.extend(frontier_targets_from_metrics(
+    let pack_scopes = linked_board_pack_scopes(
+        ctx,
         root_scope,
-        &neighbor_frontier,
-    ));
+        cfg.neighbor_hops,
+        cfg.max_neighbor_scopes,
+    )?;
+    let mut expanded = targets.to_vec();
+    let mut known: BTreeSet<String> = expanded.iter().map(|t| t.scope_key.clone()).collect();
+    for scope in pack_scopes {
+        if !known.insert(scope.clone()) {
+            continue;
+        }
+        let metrics = collect_eval_frontier(ctx, scope.as_str())?;
+        if metrics.is_empty() {
+            continue;
+        }
+        expanded.extend(frontier_targets_from_metrics(root_scope, &metrics));
+    }
     Ok(expanded)
 }
 
@@ -313,35 +299,51 @@ fn preferred_workset_by_scope(targets: &[WarmupTarget]) -> BTreeMap<String, Stri
 }
 
 fn allowed_client_manifest_scopes(
+    ctx: &HostContext,
     targets: &[WarmupTarget],
+    slots: &[EvalSlotDescriptor],
     client_scopes: &BTreeSet<String>,
     client_cfg: Option<&ClientBootstrapConfig>,
     primary_scope: &str,
 ) -> BTreeSet<String> {
-    if targets.is_empty() {
+    if targets.is_empty() && slots.is_empty() {
         return BTreeSet::new();
     }
-    if client_scopes.is_empty() {
-        return targets
-            .iter()
-            .map(|target| target.scope_key.clone())
-            .collect();
+    let configured: Vec<String> = client_scopes.iter().cloned().collect();
+    let pack_scopes = client_cfg
+        .filter(|cfg| cfg.neighbor_hops > 0)
+        .and_then(|cfg| {
+            linked_board_pack_scopes(
+                ctx,
+                primary_scope,
+                cfg.neighbor_hops,
+                cfg.max_neighbor_scopes,
+            )
+            .ok()
+        })
+        .unwrap_or_default();
+    let pack_scope_list = pack_scopes.clone();
+    let mut candidates = BTreeSet::new();
+    for target in targets {
+        candidates.insert(target.scope_key.clone());
     }
-    let mut allowed = client_scopes.clone();
-    if !primary_scope.is_empty() {
-        allowed.insert(primary_scope.to_string());
+    for scope in pack_scopes {
+        candidates.insert(scope);
     }
     if let Some(cfg) = client_cfg {
-        if cfg.neighbor_hops > 0 {
-            for target in targets {
-                allowed.insert(target.scope_key.clone());
-            }
+        for scope in &cfg.scopes {
+            candidates.insert(scope.clone());
         }
     }
-    targets
-        .iter()
-        .filter(|target| allowed.contains(target.scope_key.as_str()))
-        .map(|target| target.scope_key.clone())
+    if !primary_scope.is_empty() {
+        candidates.insert(primary_scope.to_string());
+    }
+    candidates
+        .into_iter()
+        .filter(|scope| {
+            client_bootstrap_scope_allowed(scope, configured.as_slice(), pack_scope_list.as_slice())
+                && slots.iter().any(|slot| slot.scope_key == *scope)
+        })
         .collect()
 }
 

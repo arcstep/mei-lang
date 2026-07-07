@@ -22013,6 +22013,31 @@
     });
   }
 
+  function resolveAppIdFromShell() {
+    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+    return shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+  }
+
+  function dispatchLayer2ScopeActivation(sceneId, source) {
+    const scope = nonEmptyString(sceneId);
+    if (!scope) return;
+    const appId = resolveAppIdFromShell();
+    if (typeof boot.dispatchScopeActivation === "function") {
+      boot.dispatchScopeActivation({
+        scope,
+        sceneId: scope,
+        appId,
+        source: source || "layer2",
+      });
+      return;
+    }
+    document.dispatchEvent(
+      new CustomEvent("meilang:scope-activation", {
+        detail: { scope, sceneId: scope, appId, source: source || "layer2" },
+      }),
+    );
+  }
+
   function activateLayer2Tab(tabId) {
     const root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
     if (!root) return;
@@ -22025,6 +22050,10 @@
       panel.classList.toggle("is-active", active);
     });
     syncLayer2TabBar(root);
+    const tab = session.tabs.find((entry) => entry.id === tabId);
+    if (tab?.sceneId) {
+      dispatchLayer2ScopeActivation(tab.sceneId, "layer2-tab");
+    }
   }
 
   function openLayer2Tab(config) {
@@ -22084,6 +22113,7 @@
       boot.dispatchScopeActivation({
         scope: sceneId,
         sceneId,
+        appId: resolveAppIdFromShell(),
         source: "layer2",
         overlaySize,
       });
@@ -22092,6 +22122,8 @@
         new CustomEvent("meilang:scope-activation", {
           detail: {
             scope: sceneId,
+            sceneId,
+            appId: resolveAppIdFromShell(),
             source: "layer2",
             overlaySize,
           },
@@ -22405,42 +22437,72 @@
     }
   }
 
-  function triggerScopeActivationWarmup(config) {
+  function resolveAppIdFromShell() {
+    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+    return shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+  }
+
+  function resolveClientBootstrapNeighborHops() {
+    const raw =
+      window.__mei?.runtime?.clientBootstrap?.neighborHops ??
+      window.__mei?.clientBootstrapNeighborHops ??
+      1;
+    const hops = Number(raw);
+    return Number.isFinite(hops) && hops > 0 ? Math.floor(hops) : 1;
+  }
+
+  async function activateProjectionScope(config) {
     const scope = nonEmptyString(config?.pageSceneId, config?.boardSceneId, config?.sceneId);
     if (!scope || typeof fetch !== "function") {
-      return;
+      return false;
     }
-    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
-    const appId = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+    const appId = resolveAppIdFromShell();
+    const hops = resolveClientBootstrapNeighborHops();
     const appQuery = appId ? `&appId=${encodeURIComponent(appId)}` : "";
-    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=1${appQuery}`;
-    void fetch(url, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((result) => {
-        const payload =
-          result?.payload && typeof result.payload === "object" ? result.payload : null;
-        if (payload && typeof boot.applyBootstrapPayload === "function") {
-          boot.applyBootstrapPayload(payload);
-        }
-        if (typeof boot.dispatchScopeActivation === "function") {
-          boot.dispatchScopeActivation({
-            scope,
-            sceneId: scope,
-            appId,
-            source: "mrg-activate",
-            projection: nonEmptyString(config?.projection, "overlay"),
-          });
-        }
-        if (payload && typeof seedFromBootstrap === "function") {
-          seedFromBootstrap(window.__mei || payload);
-        }
-      })
-      .catch(() => {
-        /* ignore activation warmup failures; runtime API path remains fallback */
+    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=${hops}${appQuery}`;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Accept: "application/json" },
       });
+      if (!response.ok) {
+        return false;
+      }
+      const result = await response.json();
+      const payload =
+        result?.payload && typeof result.payload === "object" ? result.payload : null;
+      if (payload && typeof boot.applyBootstrapPayload === "function") {
+        boot.applyBootstrapPayload(payload);
+      }
+      if (typeof boot.dispatchScopeActivation === "function") {
+        boot.dispatchScopeActivation({
+          scope,
+          sceneId: scope,
+          appId,
+          source: "mrg-activate",
+          projection: nonEmptyString(config?.projection, "overlay"),
+        });
+      } else {
+        document.dispatchEvent(
+          new CustomEvent("meilang:scope-activation", {
+            detail: { scope, sceneId: scope, appId, source: "mrg-activate" },
+          }),
+        );
+      }
+      if (typeof seedFromBootstrap === "function") {
+        seedFromBootstrap(window.__mei || payload);
+      }
+      if (typeof window !== "undefined") {
+        window.__meiLastScopeActivation = { scope, sceneId: scope, appId, at: Date.now() };
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function triggerScopeActivationWarmup(config) {
+    void activateProjectionScope(config);
   }
 
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
@@ -22478,6 +22540,7 @@
       ),
     };
     await prewarmProjectionScope(layer2Config);
+    await activateProjectionScope(layer2Config);
     const useLayer2 = typeof boot.useUnifiedLayer2 !== "function" || boot.useUnifiedLayer2();
     if (useLayer2 && typeof boot.openLayer2Tab === "function") {
       closeSceneBoardOverlay();
@@ -22485,7 +22548,12 @@
       if (typeof boot.beginDrilldownLoadSession === "function") {
         boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
       }
-      triggerScopeActivationWarmup(layer2Config);
+      if (
+        root &&
+        typeof window.__meiDatasetRuntime?.prefetchVisiblePanelMetrics === "function"
+      ) {
+        window.__meiDatasetRuntime.prefetchVisiblePanelMetrics(root);
+      }
       if (config.boardFrameScene) {
         await renderFrameBoardSceneContent(root, detail, config);
         return;
@@ -22510,7 +22578,9 @@
       if (typeof boot.beginDrilldownLoadSession === "function") {
         boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
       }
-      triggerScopeActivationWarmup(layer2Config);
+      if (typeof window.__meiDatasetRuntime?.prefetchVisiblePanelMetrics === "function") {
+        window.__meiDatasetRuntime.prefetchVisiblePanelMetrics(root);
+      }
       await renderStructuredDrilldownContent(root, detail, config);
       return;
     }
@@ -22523,7 +22593,6 @@
     if (typeof boot.beginDrilldownLoadSession === "function") {
       boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
-    triggerScopeActivationWarmup(layer2Config);
     if (config.boardFrameScene) {
       if (!(await renderFrameBoardSceneContent(root, detail, config))) {
         return;
@@ -22860,8 +22929,8 @@
   }
 
   function clearViewpointFocus() {
-    document.querySelectorAll(".mei-viewpoint-focus").forEach((node) => {
-      node.classList.remove("mei-viewpoint-focus");
+    document.querySelectorAll(".mei-viewpoint-focus, .mei-structure-focus").forEach((node) => {
+      node.classList.remove("mei-viewpoint-focus", "mei-structure-focus");
     });
     document.documentElement.classList.remove("mei-tier-dim");
   }
@@ -22918,6 +22987,31 @@
     });
   }
 
+  function resolveT2PanelSceneId(panel, panelId) {
+    const candidates = [
+      panel.getAttribute("data-mei-board-scene"),
+      panel.getAttribute("data-mei-scene-id"),
+      panel.querySelector("[data-mei-drilldown-scene]")?.getAttribute("data-mei-drilldown-scene"),
+    ];
+    for (const value of candidates) {
+      const trimmed = String(value || "").trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+    const assemblies = window.__mei?.scene_projection_assembly_by_id;
+    const panelName = String(panel.getAttribute("data-mei-panel-name") || panelId || "").trim();
+    if (panelName && assemblies && typeof assemblies === "object") {
+      for (const [sceneId, assembly] of Object.entries(assemblies)) {
+        const key = String(assembly?.key || "");
+        if (key.includes(panelName)) {
+          return sceneId;
+        }
+      }
+    }
+    return panelName;
+  }
+
   function openT2Panel(panelId) {
     const selector = t2PageSelector(panelId);
     if (!selector) return false;
@@ -22933,6 +23027,17 @@
       node.classList.toggle("mei-t2-page-active", active);
     });
     document.documentElement.setAttribute("data-mei-active-t2-panel", normalized);
+    const sceneId = resolveT2PanelSceneId(target, panelId);
+    if (sceneId && typeof boot.dispatchScopeActivation === "function") {
+      const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+      const appId = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+      boot.dispatchScopeActivation({
+        scope: sceneId,
+        sceneId,
+        appId,
+        source: "t2-inline",
+      });
+    }
     return true;
   }
 
@@ -22978,7 +23083,7 @@
       target = document.querySelector(selector);
     }
     if (!(target instanceof HTMLElement)) return false;
-    target.classList.add("mei-viewpoint-focus");
+    target.classList.add("mei-viewpoint-focus", "mei-structure-focus");
     if (entry.tier) {
       document.documentElement.classList.add("mei-tier-dim");
     }
@@ -28597,7 +28702,7 @@
 
   function defaultReviewProjectionForSurface(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section";
+    if (slug === "layout") return "plane_region_section_slot";
     if (slug === "prototype") return "static_full";
     return "live_full";
   }
@@ -29147,9 +29252,34 @@
     return nodes.filter((node) => allowed.has(node.node_id));
   }
 
-  function childrenForParent(nodes, parentId) {
+  function isCompoundSlotWrapper(node, nodes) {
+    const role = String(node?.ui_role || "").trim().toLowerCase();
+    if (role !== "slot") return false;
+    const label = String(node?.label || "").trim().toLowerCase();
+    if (label !== "compound" && !label.endsWith("_compound")) return false;
+    const kids = childrenForParentRaw(nodes, node.node_id);
+    return (
+      kids.length > 0 &&
+      kids.every((child) => String(child?.ui_role || "").trim().toLowerCase() === "slot")
+    );
+  }
+
+  function childrenForParentRaw(nodes, parentId) {
     const pid = String(parentId || "").trim();
     return nodes.filter((node) => parentKey(node) === pid);
+  }
+
+  function childrenForParent(nodes, parentId) {
+    const direct = childrenForParentRaw(nodes, parentId);
+    const out = [];
+    for (const child of direct) {
+      if (isCompoundSlotWrapper(child, nodes)) {
+        out.push(...childrenForParentRaw(nodes, child.node_id));
+      } else {
+        out.push(child);
+      }
+    }
+    return out;
   }
 
   function resolveRoots(nodes, sceneRoots) {
@@ -29335,11 +29465,20 @@
       String(opts.treeMaxUiRole || "").trim() ||
       String(document.body?.getAttribute("data-build-tree-max-ui-role") || "").trim() ||
       String(
+        document.querySelector(".shell[data-build-tree-max-ui-role]")?.getAttribute(
+          "data-build-tree-max-ui-role",
+        ) || "",
+      ).trim() ||
+      String(
         document.querySelector(".build-reachability-tree")?.getAttribute(
           "data-build-tree-max-ui-role",
         ) || "",
       ).trim() ||
-      "section";
+      (String(opts.surface || global.location?.pathname || "")
+        .toLowerCase()
+        .includes("layout")
+        ? "content"
+        : "slot");
     const nodes = filteredNodes(structureDoc, maxRole);
     const roots = resolveRoots(nodes, structureDoc.scene_roots);
     const tree = ensureTreeMount(maxRole);
@@ -30174,7 +30313,7 @@
     if (!appId || !sceneId || !surfaceDigest) return "";
     const composeHash = stableComposeHash(ctx);
     const dataGen = resolveDataGeneration();
-    return `${appId}:${sceneId}:${surfaceDigest}:${composeHash}:${dataGen}`;
+    return `${appId}:${sceneId}:${surfaceDigest}:${composeHash}:${dataGen}:fragment`;
   }
 
   function openDb() {
@@ -30618,7 +30757,7 @@
 
   function defaultReviewProjectionForSurface(surface) {
     const slug = String(surface || "app").trim().toLowerCase();
-    if (slug === "layout") return "plane_region_section";
+    if (slug === "layout") return "plane_region_section_slot";
     if (slug === "prototype") return "static_full";
     return "live_full";
   }
@@ -31543,13 +31682,14 @@
   const PROJECTION_MAX_ROLE = {
     plane_region: "region",
     plane_region_section: "section",
+    plane_region_section_slot: "slot",
     content: "content",
     live_full: "content",
     static_full: "content",
   };
 
   function roleDepth(role) {
-    const map = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    const map = { plane: 0, region: 1, section: 2, slot: 3, content: 4 };
     return map[String(role || "").toLowerCase()] ?? 99;
   }
 
@@ -31586,18 +31726,36 @@
         if (!patch || typeof patch !== "object") return;
         const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
         if (!(node instanceof HTMLElement)) return;
+        const slotHeight =
+          patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
+        if (slotHeight != null && slotHeight !== "") {
+          const numeric = Number(String(slotHeight).replace(/px$/i, "").trim());
+          const px = Number.isFinite(numeric) ? `${numeric}px` : String(slotHeight);
+          node.style.setProperty("--mei-slot-height", px);
+          node.dataset.layoutTuningSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
+        }
+        const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
+        if (paddingProfile) {
+          node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
+        }
         const contentBudget = patch.contentBudget || patch.content_budget;
         if (contentBudget && typeof contentBudget === "object") {
           const rows = contentBudget.rows || contentBudget.content_rows;
           if (Array.isArray(rows) && rows.length > 0) {
             const total = rows.reduce((sum, row) => sum + Number(row), 0);
             if (total > 0) {
-              node.style.gridTemplateRows = rows.map((row) => `${(Number(row) / total) * 100}fr`).join(" ");
+              node.style.gridTemplateRows = rows
+                .map((row) => `${(Number(row) / total) * 100}fr`)
+                .join(" ");
+            } else {
+              node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
             }
+            node.dataset.layoutTuningContentRows = rows.join(",");
           }
           const gap = contentBudget.gap ?? contentBudget.content_gap;
           if (gap != null && gap !== "") {
             node.style.rowGap = `${gap}px`;
+            node.dataset.layoutTuningContentGap = String(gap);
           }
         }
       });
@@ -32372,14 +32530,26 @@
   }
 
   function preferComposePreview() {
-    return global.__mei?.prefer_compose_preview !== false;
+    return global.__mei?.prefer_compose_preview === true;
   }
 
-  async function storeSurfaceHtmlCache(ctx, root, options) {
-    if (!(root instanceof HTMLElement) || !boot.previewSurfaceCache?.storeCachedSurface) return;
-    const html = String(root.innerHTML || "").trim();
-    if (!html) return;
-    void boot.previewSurfaceCache.storeCachedSurface(ctx, html, options);
+  function composePreviewMaterialized(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    if (typeof boot.hasMaterializedPreview === "function" && !boot.hasMaterializedPreview(root)) {
+      return false;
+    }
+    return !!root.querySelector(
+      "[data-mei-frame-viewport], [data-preview-scope], [data-mei-use-key], .preview-viewport",
+    );
+  }
+
+  async function storeSurfaceHtmlCache(ctx, surfaceHtml, options) {
+    const html = String(surfaceHtml || "").trim();
+    if (!html || !boot.previewSurfaceCache?.storeCachedSurface) return;
+    void boot.previewSurfaceCache.storeCachedSurface(ctx, html, {
+      ...(options || {}),
+      source: "fragment",
+    });
   }
 
   async function fetchAndInjectFragment(ctx, root, options) {
@@ -32387,7 +32557,7 @@
     if (!fragment?.surfaceHtml) return false;
     const ok = injectPreviewSurfaceHtml(root, fragment.surfaceHtml);
     if (ok) {
-      void boot.previewSurfaceCache?.storeCachedSurface?.(ctx, fragment.surfaceHtml, options);
+      void storeSurfaceHtmlCache(ctx, fragment.surfaceHtml, options);
       if (typeof boot.renderPipelineMark === "function") {
         boot.renderPipelineMark("preview_fragment:end", {
           bytes: fragment.surfaceHtml.length,
@@ -32443,8 +32613,7 @@
           forceRematerialize: opts.forceRematerialize === true,
         };
         const composed = boot.viewCompositor.composeFromLayers(root, layers, composeAxes);
-        if (composed) {
-          await storeSurfaceHtmlCache(ctx, root, opts);
+        if (composed && composePreviewMaterialized(root)) {
           return { ok: true, source: "compose" };
         }
       }
@@ -32529,10 +32698,48 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   let panelEl = null;
 
+  function workspaceSurface() {
+    const fromShell = String(
+      global.document?.querySelector?.(".shell[data-surface]")?.getAttribute("data-surface") || "",
+    )
+      .trim()
+      .toLowerCase();
+    if (fromShell) return fromShell;
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const surface = String(boot.parseViewContext(global.location.href)?.surface || "")
+          .trim()
+          .toLowerCase();
+        if (surface) return surface;
+      }
+    } catch (_) {}
+    const path = String(global.location.pathname || "");
+    const match = path.match(/^\/apps\/[^/]+\/(layout|prototype)(?:\/|$)/);
+    return match ? match[1] : "layout";
+  }
+
+  function isLayoutWorkspaceRoute() {
+    return workspaceSurface() === "layout";
+  }
+
+  function isPrototypeWorkspaceRoute() {
+    return workspaceSurface() === "prototype";
+  }
+
   function isWorkspaceRoute() {
-    return /^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(
-      String(global.location.pathname || ""),
-    );
+    const path = String(global.location.pathname || "");
+    if (/^\/apps\/[^/]+\/(?:layout|prototype)(?:\/|$)/.test(path)) return true;
+    try {
+      const boot = global.__meiLangBoot;
+      if (typeof boot?.parseViewContext === "function") {
+        const surface = String(boot.parseViewContext(global.location.href)?.surface || "")
+          .trim()
+          .toLowerCase();
+        return surface === "layout" || surface === "prototype";
+      }
+    } catch (_) {}
+    return false;
   }
 
   function ensurePanel() {
@@ -32626,6 +32833,28 @@
           scopeNode.dataset.layoutTuningContentGap ||
           String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
       }
+      const formApi = global.MeiLayoutTuningForm;
+      const appId = appIdFromPath();
+      if (formApi?.resolveLayoutTuningEntry && meta.preview_scope) {
+        const entry = formApi.resolveLayoutTuningEntry(meta.preview_scope, { appId });
+        const gapVal = entry?.contentBudget?.gap ?? entry?.content_budget?.gap;
+        if (gapVal != null && gapVal !== "") gap.value = String(gapVal);
+      }
+      gap.addEventListener("input", () => {
+        const gapVal = gap.value.trim();
+        if (!meta.preview_scope || !appId) return;
+        const layout = {};
+        if (gapVal) {
+          const numeric = Number(gapVal);
+          layout.contentBudget = {
+            gap: Number.isFinite(numeric) ? numeric : gapVal,
+          };
+        }
+        const patch = buildLayoutPatch(meta.preview_scope, meta.ui_role, layout);
+        if (formApi?.scheduleSessionHot && patch?.layout) {
+          formApi.scheduleSessionHot(appId, meta.preview_scope, patch.layout, { debounceMs: 150 });
+        }
+      });
       body.appendChild(gap);
       const btn = global.document.createElement("button");
       btn.type = "button";
@@ -32666,12 +32895,15 @@
   function openPanelForSelection(meta) {
     if (!isWorkspaceRoute() || !meta) return;
     const role = String(meta.ui_role || "").toLowerCase();
-    if (role === "region" || role === "section") {
+    if (
+      isLayoutWorkspaceRoute() &&
+      (role === "region" || role === "section" || role === "slot")
+    ) {
       boot.wysiwygPanel = { kind: "layout", meta };
       renderPanel("layout", meta);
       return;
     }
-    if (role === "content" || role === "slot") {
+    if (isPrototypeWorkspaceRoute() && (role === "content" || role === "slot")) {
       boot.wysiwygPanel = { kind: "theme", meta };
       renderPanel("theme", meta);
     }
@@ -32795,7 +33027,10 @@
   function focusSelectorForAnchor(anchor) {
     if (!anchor || typeof anchor !== "object") return "";
     const scope = String(anchor.preview_scope || "").trim();
-    if (scope) return `[data-preview-scope="${CSS.escape(scope)}"]`;
+    if (scope) {
+      const escaped = CSS.escape(scope);
+      return `[data-mei-ui-scope="${escaped}"], [data-preview-scope="${escaped}"]`;
+    }
     const nodeId = String(anchor.node_id || "").trim();
     if (nodeId) return `[data-build-node="${CSS.escape(nodeId)}"]`;
     return "";
@@ -32838,6 +33073,7 @@
     plane: 0,
     plane_region: 1,
     plane_region_section: 2,
+    plane_region_section_slot: 3,
     static_full: 99,
     live_full: 99,
     static: 99,
@@ -32869,7 +33105,7 @@
     const role = String(el.getAttribute("data-mei-ui-role") || "")
       .trim()
       .toLowerCase();
-    const roleDepth = { plane: 0, region: 1, section: 2, slot: 3, content: 3 };
+    const roleDepth = { plane: 0, region: 1, section: 2, slot: 3, content: 4 };
     if (role && Object.prototype.hasOwnProperty.call(roleDepth, role)) {
       return roleDepth[role];
     }
@@ -32882,6 +33118,23 @@
   function applyReviewProjectionChrome(root, options) {
     if (!(root instanceof HTMLElement)) return;
     const opts = options || {};
+    const surface = String(
+      global.document?.body?.getAttribute("data-surface") ||
+        global.document?.body?.getAttribute("data-mei-view") ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    if (surface === "layout") {
+      root.removeAttribute("data-review-projection-active");
+      root
+        .querySelectorAll(".build-review-projection-dim, .mei-review-projection-dim")
+        .forEach((el) => {
+          el.classList.remove("build-review-projection-dim", "mei-review-projection-dim");
+          if (el instanceof HTMLElement) el.style.removeProperty("pointer-events");
+        });
+      return;
+    }
     const projection = normalizeReviewProjection(
       opts.reviewProjection ||
         root.getAttribute("data-review-projection") ||

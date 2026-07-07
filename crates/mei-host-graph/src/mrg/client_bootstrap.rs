@@ -357,31 +357,67 @@ fn html_escape_attr(value: &str) -> String {
         .replace('<', "&lt;")
 }
 
+pub fn client_bootstrap_pack_candidate_scopes(
+    workspace_root: &Path,
+    app_id: &str,
+    scene_id: &str,
+) -> Vec<String> {
+    let app_root = resolve_app_root(workspace_root, app_id);
+    let config = load_mei_config_for_app(app_root.as_path(), None);
+    let client_cfg = config.runtime.client_bootstrap.unwrap_or_default();
+    let ctx = HostContext::new(workspace_root.to_path_buf(), app_id.to_string());
+    let mut candidates = vec![scene_id.to_string()];
+    if client_cfg.neighbor_hops > 0 {
+        if let Ok(linked) = crate::mrg::frontier::linked_board_pack_scopes(
+            &ctx,
+            scene_id,
+            client_cfg.neighbor_hops,
+            client_cfg.max_neighbor_scopes,
+        ) {
+            for scope in linked {
+                if !candidates.contains(&scope) {
+                    candidates.push(scope);
+                }
+            }
+        }
+    }
+    for scope in &client_cfg.scopes {
+        let normalized = scope.trim().to_string();
+        if !normalized.is_empty() && !candidates.contains(&normalized) {
+            candidates.push(normalized);
+        }
+    }
+    candidates
+}
+
+pub fn client_bootstrap_scope_allowed(
+    scene_id: &str,
+    configured_scopes: &[String],
+    pack_scopes: &[String],
+) -> bool {
+    let scene_id = scene_id.trim();
+    if scene_id.is_empty() {
+        return false;
+    }
+    if configured_scopes.is_empty() {
+        return true;
+    }
+    if configured_scopes.iter().any(|scope| scope == scene_id) {
+        return true;
+    }
+    pack_scopes.iter().any(|scope| scope == scene_id)
+}
+
 pub fn build_client_bootstrap_payload(
     workspace_root: &Path,
     app_id: &str,
     scene_id: &str,
 ) -> Option<ClientBootstrapPayload> {
     let app_root = resolve_app_root(workspace_root, app_id);
-    let config = load_mei_config_for_app(app_root.as_path(), None);
-    let client_cfg = config.runtime.client_bootstrap.unwrap_or_default();
+    let _config = load_mei_config_for_app(app_root.as_path(), None);
     let registry = crate::mrg::registry::MrgRegistryWriter::load(workspace_root, app_id);
     let data_generation = load_cache_generation(app_root.as_path(), app_id).data_generation;
-    let mut candidate_scopes = vec![scene_id.to_string()];
-    if client_cfg.neighbor_hops > 0 {
-        let ctx = HostContext::new(workspace_root.to_path_buf(), app_id.to_string());
-        let linked = crate::mrg::frontier::linked_board_scenes_for_scope(
-            &ctx,
-            scene_id,
-            client_cfg.neighbor_hops,
-        )
-        .unwrap_or_default();
-        for scope in linked.into_iter().take(client_cfg.max_neighbor_scopes) {
-            if !candidate_scopes.contains(&scope) {
-                candidate_scopes.push(scope);
-            }
-        }
-    }
+    let candidate_scopes = client_bootstrap_pack_candidate_scopes(workspace_root, app_id, scene_id);
     let mut scope_payloads = Vec::new();
     for scope in candidate_scopes {
         let Some(manifest) = read_client_bootstrap(workspace_root, app_id, scope.as_str()) else {
@@ -507,6 +543,7 @@ pub fn write_client_bootstrap(
     let client_revision =
         compute_scope_client_revision(scope, content_hashes.as_slice(), data_generation.as_str());
     let mut manifest_metrics = Vec::new();
+    let mut included_ids = BTreeSet::new();
     for descriptor in eligible {
         let metric_id = descriptor
             .slot_key
@@ -524,10 +561,36 @@ pub fn write_client_bootstrap(
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         });
+        included_ids.insert(metric_id.to_string());
         manifest_metrics.push(ClientBootstrapMetric {
             id: metric_id.to_string(),
             dataset_id,
             total_rows: metric_total_rows.get(metric_id).copied(),
+            contract: contract.clone(),
+        });
+    }
+    for scalar_id in included_ids.clone() {
+        if scalar_id.contains("::__scalar_rowset__") {
+            continue;
+        }
+        let rowset_id = format!("{scalar_id}::__scalar_rowset__");
+        if included_ids.contains(&rowset_id) {
+            continue;
+        }
+        let Some(contract) = metrics.get(rowset_id.as_str()) else {
+            continue;
+        };
+        let dataset_id = contract
+            .dataset
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        included_ids.insert(rowset_id.clone());
+        manifest_metrics.push(ClientBootstrapMetric {
+            id: rowset_id.clone(),
+            dataset_id,
+            total_rows: metric_total_rows.get(rowset_id.as_str()).copied(),
             contract: contract.clone(),
         });
     }

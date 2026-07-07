@@ -208,6 +208,20 @@ function runtimeCapabilityMap(props) {
 }
 
 export function isStaticSkeletonDisplay(props) {
+  if (typeof document !== "undefined") {
+    const body = document.body;
+    if (body instanceof HTMLElement) {
+      if (body.getAttribute("data-mei-prototype") === "true") {
+        return true;
+      }
+      const surface = String(body.getAttribute("data-surface") || body.dataset.surface || "")
+        .trim()
+        .toLowerCase();
+      if (surface === "prototype") {
+        return true;
+      }
+    }
+  }
   const caps = runtimeCapabilityMap(props);
   if (caps?.static_display?.enabled) {
     return true;
@@ -427,8 +441,59 @@ export function isDrilldownOverlayOpen() {
   }
   return (
     document.body?.classList?.contains("access-drilldown-open") === true ||
-    document.body?.classList?.contains("access-scene-board-open") === true
+    document.body?.classList?.contains("access-scene-board-open") === true ||
+    document.body?.classList?.contains("access-layer2-open") === true
   );
+}
+
+function drilldownOverlayViewportRoots() {
+  if (typeof document === "undefined") {
+    return [];
+  }
+  const roots = [];
+  if (document.body?.classList?.contains("access-layer2-open")) {
+    document
+      .querySelectorAll("[data-layer2-tab-panel]:not([hidden])")
+      .forEach((panel) => roots.push(panel));
+  }
+  if (document.body?.classList?.contains("access-scene-board-open")) {
+    const sceneBoard = document.getElementById("mei-access-scene-board-overlay");
+    if (sceneBoard instanceof Element && !sceneBoard.hasAttribute("hidden")) {
+      roots.push(sceneBoard);
+    }
+  }
+  if (document.body?.classList?.contains("access-drilldown-open")) {
+    const drilldown = document.getElementById("mei-access-drilldown-overlay");
+    if (drilldown instanceof Element && !drilldown.hasAttribute("hidden")) {
+      roots.push(drilldown);
+    }
+  }
+  return roots;
+}
+
+function recentScopeActivationMatches(props, windowMs = 15000) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const last = window.__meiLastScopeActivation;
+  if (!last || typeof last !== "object") {
+    return false;
+  }
+  const at = Number(last.at || 0);
+  if (!Number.isFinite(at) || Date.now() - at > windowMs) {
+    return false;
+  }
+  const scene = String(
+    props?._mei?.scene_id ?? props?._mei?.scene ?? props?.scene_id ?? "",
+  ).trim();
+  const scope = String(last.scope || last.sceneId || "").trim();
+  return !scene || !scope || scene === scope;
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function isHomeViewportRuntimeProps(props) {
@@ -1434,7 +1499,12 @@ export function prefetchPanelRuntimeMetrics(panel, anchor, props, options = {}) 
   if (!(panel instanceof Element) || !(anchor instanceof Element)) {
     return Promise.resolve(null);
   }
-  if (!elementIsDisplayed(panel) || isDrilldownOverlayOpen()) {
+  const overlayOpen = isDrilldownOverlayOpen();
+  const inOverlay = isRuntimeDrilldownOverlayElement(panel);
+  if (overlayOpen && !inOverlay) {
+    return Promise.resolve(null);
+  }
+  if (!elementIsDisplayed(panel)) {
     return Promise.resolve(null);
   }
   return schedulePanelMetricBatch(panel, anchor, props, {
@@ -1447,10 +1517,15 @@ export function prefetchPanelRuntimeMetrics(panel, anchor, props, options = {}) 
  * 按 viewport 内同一 scene + dataset + query_state 合并指标 id，减少首页多块指标的串行请求。
  */
 export function prefetchViewportRuntimeMetrics(root = document) {
-  if (typeof document === "undefined" || isDrilldownOverlayOpen()) {
+  if (typeof document === "undefined") {
     return;
   }
   const scopeRoot = root && root.querySelectorAll ? root : document;
+  const targetingOverlay =
+    scopeRoot !== document && isRuntimeDrilldownOverlayElement(scopeRoot);
+  if (isDrilldownOverlayOpen() && !targetingOverlay && scopeRoot === document) {
+    return;
+  }
   const viewportRoots =
     scopeRoot === document
       ? [...document.querySelectorAll('[data-mei-frame-viewport="true"]')]
@@ -1529,7 +1604,12 @@ export function prefetchViewportRuntimeMetrics(root = document) {
 }
 
 export function prefetchVisiblePanelMetrics(root = document) {
-  if (typeof document === "undefined" || isDrilldownOverlayOpen()) {
+  if (typeof document === "undefined") {
+    return;
+  }
+  const overlayRoots = drilldownOverlayViewportRoots();
+  if (overlayRoots.length > 0 && root === document) {
+    overlayRoots.forEach((overlayRoot) => prefetchVisiblePanelMetrics(overlayRoot));
     return;
   }
   const scopeRoot = root && root.querySelectorAll ? root : document;
@@ -1628,7 +1708,7 @@ function readHostMetricQueryApi() {
   return "";
 }
 
-const BOOTSTRAP_DATASET_PAGE_SIZES = [0, 3, 5, 10, 16, 20, 64];
+const BOOTSTRAP_DATASET_PAGE_SIZES = [0, 3, 5, 10, 16, 20, 25, 30, 50, 64, 100];
 
 function bootstrapDatasetPageSizesForMetric(contract) {
   const sizes = new Set(BOOTSTRAP_DATASET_PAGE_SIZES);
@@ -1725,6 +1805,55 @@ function datasetQueryPayloadVariants(payload = {}) {
   });
 }
 
+function bootstrapScopeSceneIds() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const fallbackPageCtx = readBootstrapSeedPageContext(window.__mei);
+  return bootstrapScopeEntries(window.__mei)
+    .map((scope) => bootstrapScopeName(scope, fallbackPageCtx))
+    .filter(Boolean);
+}
+
+function datasetQueryPayloadVariantsForBootstrapLookup(payload = {}) {
+  const requestScene = safeTrim(payload?.scene_id);
+  const sceneIds = new Set(bootstrapScopeSceneIds());
+  if (requestScene) {
+    sceneIds.add(requestScene);
+  }
+  const variants = [];
+  const seen = new Set();
+  const pushVariants = (candidate) => {
+    for (const variant of datasetQueryPayloadVariants(candidate)) {
+      const key = stableSerialize(normalizeDatasetQueryCachePayload(variant));
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      variants.push(variant);
+    }
+  };
+  for (const sceneId of sceneIds) {
+    pushVariants({ ...payload, scene_id: sceneId });
+  }
+  if (!requestScene) {
+    pushVariants(payload);
+  }
+  return variants;
+}
+
+function bootstrapDatasetLookupPageSizes(payload = {}) {
+  return [
+    ...new Set([
+      ...bootstrapDatasetPageSizesForMetric({
+        page_size: payload?.page_size,
+        pageSize: payload?.page_size,
+      }),
+      ...BOOTSTRAP_DATASET_PAGE_SIZES,
+    ]),
+  ].sort((left, right) => left - right);
+}
+
 function resolveBootstrapDatasetCacheEntry(api, payload, fingerprint, now = Date.now(), props = null) {
   const datasetId = safeTrim(payload?.dataset_id);
   const page = normalizePositiveInt(payload?.page, 1, { min: 1 });
@@ -1734,13 +1863,14 @@ function resolveBootstrapDatasetCacheEntry(api, payload, fingerprint, now = Date
   const fingerprints = props
     ? datasetQueryFingerprintCandidates(props, fingerprint)
     : [String(fingerprint || "").trim()].filter(Boolean);
-  const pageSizes = bootstrapDatasetPageSizesForMetric({
-    page_size: payload?.page_size,
-    pageSize: payload?.page_size,
-  });
+  const pageSizes = bootstrapDatasetLookupPageSizes(payload);
   for (const fp of fingerprints) {
     for (const pageSize of pageSizes) {
-      for (const variant of datasetQueryPayloadVariants({ ...payload, page: 1, page_size: pageSize })) {
+      for (const variant of datasetQueryPayloadVariantsForBootstrapLookup({
+        ...payload,
+        page: 1,
+        page_size: pageSize,
+      })) {
         const cacheKey = datasetQueryCacheKey(api, variant, fp);
         const cached = cacheStore().datasetResults.get(cacheKey);
         if (cached && cached.expiresAt > now) {
@@ -4560,6 +4690,46 @@ export async function fetchDatasetRows(
         return waitForSharedPromise(Promise.resolve(null), signal);
       }
       window.__meiEvalPackMissReason = window.__meiEvalPackMissReason || "dataset_cache_miss_after_seed";
+      if (recentScopeActivationMatches(props)) {
+        const sceneId = String(
+          props?._mei?.scene_id ?? props?._mei?.scene ?? props?.scene_id ?? "",
+        ).trim();
+        if (sceneId && typeof scheduleSceneMetricBatchFlush === "function") {
+          scheduleSceneMetricBatchFlush(sceneId);
+        }
+        let jitHit = null;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          await sleepMs(80);
+          const retryNow = Date.now();
+          const retryCached = cacheStore().datasetResults.get(cacheKey);
+          if (retryCached && retryCached.expiresAt > retryNow) {
+            jitHit = retryCached;
+            break;
+          }
+          const retryBootstrap = resolveBootstrapDatasetCacheEntry(
+            api,
+            payload,
+            queryFingerprint,
+            retryNow,
+            props,
+          );
+          if (retryBootstrap?.cached) {
+            cacheStore().datasetResults.set(cacheKey, retryBootstrap.cached);
+            jitHit = retryBootstrap.cached;
+            break;
+          }
+        }
+        if (jitHit?.data) {
+          window.__meiEvalPackMissReason = "jit_batch_hit";
+          delete window.__meiEvalPackFallbackNetwork;
+          notifyClientRuntimeQueryCacheHit("dataset_jit_batch");
+          return waitForSharedPromise(
+            Promise.resolve(withClientResultCachePerf(jitHit.data, "dataset_jit_batch")),
+            signal,
+          );
+        }
+        window.__meiEvalPackMissReason = "jit_batch_miss";
+      }
       if (typeof window !== "undefined") {
         window.__meiLastDatasetCacheMiss = {
           api,
@@ -4567,8 +4737,9 @@ export async function fetchDatasetRows(
           fingerprint: queryFingerprint,
           payload: normalizeDatasetQueryCachePayload(payload),
         };
+        window.__meiEvalPackFallbackNetwork = 1;
       }
-      return waitForSharedPromise(Promise.resolve(null), signal);
+      // Bootstrap seed ran but cache keys diverged (scene/page_size/fingerprint) — fall back to network.
     }
   }
   let shared = cacheStore().datasetInflight.get(cacheKey);

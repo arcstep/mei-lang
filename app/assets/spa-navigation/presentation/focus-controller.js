@@ -226,8 +226,8 @@
   }
 
   function clearViewpointFocus() {
-    document.querySelectorAll(".mei-viewpoint-focus").forEach((node) => {
-      node.classList.remove("mei-viewpoint-focus");
+    document.querySelectorAll(".mei-viewpoint-focus, .mei-structure-focus").forEach((node) => {
+      node.classList.remove("mei-viewpoint-focus", "mei-structure-focus");
     });
     document.documentElement.classList.remove("mei-tier-dim");
   }
@@ -284,6 +284,31 @@
     });
   }
 
+  function resolveT2PanelSceneId(panel, panelId) {
+    const candidates = [
+      panel.getAttribute("data-mei-board-scene"),
+      panel.getAttribute("data-mei-scene-id"),
+      panel.querySelector("[data-mei-drilldown-scene]")?.getAttribute("data-mei-drilldown-scene"),
+    ];
+    for (const value of candidates) {
+      const trimmed = String(value || "").trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+    const assemblies = window.__mei?.scene_projection_assembly_by_id;
+    const panelName = String(panel.getAttribute("data-mei-panel-name") || panelId || "").trim();
+    if (panelName && assemblies && typeof assemblies === "object") {
+      for (const [sceneId, assembly] of Object.entries(assemblies)) {
+        const key = String(assembly?.key || "");
+        if (key.includes(panelName)) {
+          return sceneId;
+        }
+      }
+    }
+    return panelName;
+  }
+
   function openT2Panel(panelId) {
     const selector = t2PageSelector(panelId);
     if (!selector) return false;
@@ -299,6 +324,17 @@
       node.classList.toggle("mei-t2-page-active", active);
     });
     document.documentElement.setAttribute("data-mei-active-t2-panel", normalized);
+    const sceneId = resolveT2PanelSceneId(target, panelId);
+    if (sceneId && typeof boot.dispatchScopeActivation === "function") {
+      const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+      const appId = shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+      boot.dispatchScopeActivation({
+        scope: sceneId,
+        sceneId,
+        appId,
+        source: "t2-inline",
+      });
+    }
     return true;
   }
 
@@ -344,7 +380,7 @@
       target = document.querySelector(selector);
     }
     if (!(target instanceof HTMLElement)) return false;
-    target.classList.add("mei-viewpoint-focus");
+    target.classList.add("mei-viewpoint-focus", "mei-structure-focus");
     if (entry.tier) {
       document.documentElement.classList.add("mei-tier-dim");
     }

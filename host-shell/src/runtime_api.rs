@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
-use mei_lang_kernel::{attach_build_generation, discover_apps};
+use mei_lang_kernel::{attach_build_generation, discover_apps, load_mei_config_for_app};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -117,7 +117,7 @@ pub async fn api_host_mrg_activate(
         (
             guard.ctx.workspace_root.clone(),
             app_id,
-            params.hops.unwrap_or(1).max(1),
+            resolve_activation_hops(&guard.ctx, params.hops),
             endpoint,
         )
     };
@@ -148,6 +148,23 @@ pub async fn api_host_mrg_activate(
         })),
     )
         .into_response()
+}
+
+fn resolve_activation_hops(ctx: &mei_host_core::HostContext, requested: Option<usize>) -> usize {
+    if let Some(hops) = requested {
+        return hops.max(1);
+    }
+    let config = load_mei_config_for_app(ctx.app_root().as_path(), Some(ctx.workspace_root.as_path()));
+    let hops = config
+        .runtime
+        .client_bootstrap
+        .map(|cfg| cfg.neighbor_hops)
+        .unwrap_or(0);
+    if hops > 0 {
+        hops
+    } else {
+        1
+    }
 }
 
 #[derive(Debug, Deserialize)]

@@ -26,6 +26,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "runtime-refresh.js",
     "build-inspect-highlight/p1.js",
     "build-inspect-highlight/p2.js",
+    "spa-navigation/spa/layout-tuning-form.js",
     "build-layout-tuning-draft/p1.js",
     "manage-ops-panel/p4.js",
     "build-exec-panel.js",

@@ -1,8 +1,10 @@
 use std::path::Path;
 
 use mei_host_core::HostContext;
-use mei_host_graph::{load_block_artifact, GraphNodeKind, McgRegistryWriter};
+use mei_host_graph::{collect_eval_frontier, load_block_artifact, GraphNodeKind, McgRegistryWriter};
+use mei_lang_kernel::{load_mei_config_for_app};
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone)]
 pub struct WarmupTarget {
@@ -20,6 +22,11 @@ pub fn collect_warmup_targets(
     let registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     let app_root = ctx.app_root();
     let policy_filter = policy.unwrap_or("home");
+    let configured_scopes: BTreeSet<String> = load_mei_config_for_app(app_root.as_path(), None)
+        .runtime
+        .client_bootstrap
+        .map(|cfg| cfg.scopes.into_iter().collect())
+        .unwrap_or_default();
     let mut targets = Vec::new();
 
     for node in registry
@@ -36,7 +43,11 @@ pub fn collect_warmup_targets(
         let payload: Value = artifact.get("payload").cloned().unwrap_or(Value::Null);
         let scope_key = extract_scope_key(&payload).unwrap_or_else(|| "home".to_string());
         if policy_filter != "all" && scope_key != policy_filter {
-            continue;
+            let allowed_by_config =
+                policy_filter == "home" && configured_scopes.contains(&scope_key);
+            if !allowed_by_config {
+                continue;
+            }
         }
         if let Some(slots) = payload.get("slots").and_then(Value::as_array) {
             for (idx, slot) in slots.iter().enumerate() {
@@ -46,7 +57,47 @@ pub fn collect_warmup_targets(
             }
         }
     }
+    expand_board_scope_frontier_targets(ctx, &mut targets, &configured_scopes)?;
     Ok(targets)
+}
+
+fn expand_board_scope_frontier_targets(
+    ctx: &HostContext,
+    targets: &mut Vec<WarmupTarget>,
+    configured_scopes: &BTreeSet<String>,
+) -> anyhow::Result<()> {
+    let mut known: BTreeSet<String> = targets
+        .iter()
+        .map(|target| {
+            format!(
+                "{}|{}|{}",
+                target.scope_key,
+                target.workset_id,
+                target.metric_ids.join(",")
+            )
+        })
+        .collect();
+    for scope in configured_scopes {
+        if scope == "home" {
+            continue;
+        }
+        let metrics = collect_eval_frontier(ctx, scope.as_str())?;
+        if metrics.is_empty() {
+            continue;
+        }
+        for target in frontier_targets_from_metrics(scope.as_str(), &metrics) {
+            let key = format!(
+                "{}|{}|{}",
+                target.scope_key,
+                target.workset_id,
+                target.metric_ids.join(",")
+            );
+            if known.insert(key) {
+                targets.push(target);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn extract_scope_key(payload: &Value) -> Option<String> {

@@ -38,8 +38,8 @@ mod warmup_last_run;
 mod world_plan;
 
 pub use assemble::{
-    assemble_scope_from_registry, collect_all_board_scenes, list_scope_routes, AssembleOutcome,
-    ScopeRoute,
+    assemble_scope_from_registry, board_page_scenes_for_section_scope, collect_all_board_scenes,
+    list_scope_routes, AssembleOutcome, ScopeRoute,
 };
 pub use assemble_cache::{
     assemble_cache_key, clear_assemble_cache_for_app, store_assemble_outcome, take_assemble_outcome,
@@ -106,7 +106,9 @@ pub use mrg::eval_cache_plan::{
 };
 pub use mrg::client_bootstrap::{
     bootstrap_embed_allowed, bootstrap_embed_status, bootstrap_embed_status_for_manifest,
-    build_client_bootstrap_head_fragment, build_client_bootstrap_payload, BootstrapEmbedStatus,
+    build_client_bootstrap_head_fragment, build_client_bootstrap_payload,
+    client_bootstrap_pack_candidate_scopes, client_bootstrap_scope_allowed,
+    BootstrapEmbedStatus,
     clear_client_bootstrap_for_scope, clear_client_bootstraps_for_stale_scopes,
     client_bootstrap_path, empty_client_bootstrap_payload, read_client_bootstrap,
     read_scene_bootstrap_artifact, scene_bootstrap_artifact_public_url,
@@ -115,8 +117,8 @@ pub use mrg::client_bootstrap::{
     NO_CLIENT_BOOTSTRAP_REVISION,
 };
 pub use mrg::frontier::{
-    collect_eval_frontier, collect_eval_frontier_with_hops, linked_board_scenes_for_scope,
-    record_navigation_edges_for_scope, FrontierMetric,
+    collect_eval_frontier, collect_eval_frontier_with_hops, linked_board_pack_scopes,
+    linked_board_scenes_for_scope, record_navigation_edges_for_scope, FrontierMetric,
 };
 pub use mrg::registry::{MrgRegistry, MrgRegistryWriter};
 pub use mrg::slots::{

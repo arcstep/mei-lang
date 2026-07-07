@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use mei_host_core::HostContext;
 use mei_lang_kernel::CompiledApp;
 use serde_json::Value;
 
+use crate::assemble::board_page_scenes_for_section_scope;
 use crate::assemble_scope_from_registry;
 use crate::load_block_artifact;
 use crate::mcg::registry::McgRegistryWriter;
@@ -26,9 +28,9 @@ pub fn collect_eval_frontier(
             .ok_or_else(|| anyhow::anyhow!("scene `{scope_key}` not assembled"))?;
     let metrics = collect_metrics_from_compiled(scope_key, &outcome.compiled);
     if !metrics.is_empty() {
-        return Ok(metrics);
+        return augment_scalar_rowset_frontier_metrics(metrics);
     }
-    collect_metrics_from_assembly_view(ctx, scope_key)
+    augment_scalar_rowset_frontier_metrics(collect_metrics_from_assembly_view(ctx, scope_key)?)
 }
 
 pub fn collect_eval_frontier_with_hops(
@@ -293,10 +295,92 @@ pub fn linked_board_scenes_for_scope(
         }
         frontier = next;
     }
-    if out.is_empty() {
-        out = home_neighbor_scope_fallback(scope_key, hops);
+    if scope_key == "home" && hops > 0 {
+        let sections: Vec<String> = out
+            .iter()
+            .filter(|scene| scene.contains("/s-"))
+            .cloned()
+            .collect();
+        if !sections.is_empty() {
+            out = sections;
+        } else {
+            out = home_neighbor_scope_fallback(scope_key, hops);
+        }
+    } else if out.is_empty() {
+        out = board_neighbor_scope_fallback(ctx, scope_key, hops);
     }
     Ok(out)
+}
+
+/// Linked section scopes plus their board page scenes (`board_assembly.scene`).
+pub fn linked_board_pack_scopes(
+    ctx: &HostContext,
+    scope_key: &str,
+    hops: usize,
+    max_scopes: usize,
+) -> anyhow::Result<Vec<String>> {
+    if hops == 0 {
+        return Ok(vec![scope_key.to_string()]);
+    }
+    let mut seen = BTreeSet::from([scope_key.to_string()]);
+    let mut out = vec![scope_key.to_string()];
+    let linked_sections = linked_board_scenes_for_scope(ctx, scope_key, hops)?;
+    for section in linked_sections.into_iter().take(max_scopes) {
+        if seen.insert(section.clone()) {
+            out.push(section.clone());
+        }
+        for page_scene in board_page_scenes_for_section_scope(
+            ctx.workspace_root.as_path(),
+            ctx.app_id.as_str(),
+            section.as_str(),
+        ) {
+            if seen.insert(page_scene.clone()) {
+                out.push(page_scene);
+            }
+        }
+    }
+    if scope_key == "home" {
+        for page_scene in direct_linked_board_scenes(ctx, scope_key)? {
+            let is_board_page = !page_scene.contains('/')
+                && (page_scene.ends_with("_page") || page_scene.ends_with("_board"));
+            if is_board_page && seen.insert(page_scene.clone()) {
+                out.push(page_scene);
+            }
+        }
+    }
+    Ok(out)
+}
+
+pub fn board_neighbor_scope_fallback(
+    ctx: &HostContext,
+    scope_key: &str,
+    hops: usize,
+) -> Vec<String> {
+    if hops == 0 {
+        return Vec::new();
+    }
+    if scope_key == "home" {
+        return home_neighbor_scope_fallback(scope_key, hops);
+    }
+    if scope_key.contains("/t2/r-drilldown/s-") {
+        let mut siblings = Vec::new();
+        for section in home_neighbor_scope_fallback("home", hops) {
+            if section != scope_key {
+                siblings.push(section.clone());
+            }
+            for page in board_page_scenes_for_section_scope(
+                ctx.workspace_root.as_path(),
+                ctx.app_id.as_str(),
+                section.as_str(),
+            ) {
+                siblings.push(page);
+            }
+        }
+        siblings.sort();
+        siblings.dedup();
+        return siblings;
+    }
+    Vec::new()
 }
 
 pub fn home_neighbor_scope_fallback(scope_key: &str, hops: usize) -> Vec<String> {
@@ -332,6 +416,28 @@ pub fn record_navigation_edges_for_scope(
         crate::mrg::registry::MrgRegistryWriter::save(ctx.workspace_root.as_path(), &registry)?;
     }
     Ok(added)
+}
+
+fn augment_scalar_rowset_frontier_metrics(
+    metrics: Vec<FrontierMetric>,
+) -> anyhow::Result<Vec<FrontierMetric>> {
+    let mut out = metrics;
+    for metric in out.clone() {
+        if metric.metric_id.contains("::__scalar_rowset__") {
+            continue;
+        }
+        let rowset_id = format!("{}::__scalar_rowset__", metric.metric_id);
+        if out.iter().any(|entry| entry.metric_id == rowset_id) {
+            continue;
+        }
+        out.push(FrontierMetric {
+            scope_key: metric.scope_key.clone(),
+            metric_id: rowset_id,
+            owner_resource_id: metric.owner_resource_id.clone(),
+            bundle_key: metric.bundle_key.clone(),
+        });
+    }
+    dedupe_frontier(out)
 }
 
 fn dedupe_frontier(metrics: Vec<FrontierMetric>) -> anyhow::Result<Vec<FrontierMetric>> {

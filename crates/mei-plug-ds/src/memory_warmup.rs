@@ -51,13 +51,19 @@ pub fn mark_descriptors_client_ready(
     descriptors: &mut [EvalSlotDescriptor],
     metric_ids: &BTreeSet<String>,
 ) {
+    let mut expanded = metric_ids.clone();
+    for metric_id in metric_ids.iter() {
+        if !metric_id.contains("::__scalar_rowset__") {
+            expanded.insert(format!("{metric_id}::__scalar_rowset__"));
+        }
+    }
     for descriptor in descriptors.iter_mut() {
         let metric_id = descriptor
             .slot_key
             .rsplit("::")
             .next()
             .unwrap_or(descriptor.slot_key.as_str());
-        if metric_ids.contains(metric_id) {
+        if expanded.contains(metric_id) {
             descriptor.cache_layers_ready.client = true;
             descriptor.client_eligible = true;
         }

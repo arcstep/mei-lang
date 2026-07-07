@@ -131,6 +131,31 @@
     });
   }
 
+  function resolveAppIdFromShell() {
+    const shell = document.querySelector("[data-runtime-node][data-app-path], .shell[data-app-path]");
+    return shell ? String(shell.getAttribute("data-app-path") || "").trim() : "";
+  }
+
+  function dispatchLayer2ScopeActivation(sceneId, source) {
+    const scope = nonEmptyString(sceneId);
+    if (!scope) return;
+    const appId = resolveAppIdFromShell();
+    if (typeof boot.dispatchScopeActivation === "function") {
+      boot.dispatchScopeActivation({
+        scope,
+        sceneId: scope,
+        appId,
+        source: source || "layer2",
+      });
+      return;
+    }
+    document.dispatchEvent(
+      new CustomEvent("meilang:scope-activation", {
+        detail: { scope, sceneId: scope, appId, source: source || "layer2" },
+      }),
+    );
+  }
+
   function activateLayer2Tab(tabId) {
     const root = document.getElementById(LAYER2_WORKSPACE_ROOT_ID);
     if (!root) return;
@@ -143,6 +168,10 @@
       panel.classList.toggle("is-active", active);
     });
     syncLayer2TabBar(root);
+    const tab = session.tabs.find((entry) => entry.id === tabId);
+    if (tab?.sceneId) {
+      dispatchLayer2ScopeActivation(tab.sceneId, "layer2-tab");
+    }
   }
 
   function openLayer2Tab(config) {
@@ -202,6 +231,7 @@
       boot.dispatchScopeActivation({
         scope: sceneId,
         sceneId,
+        appId: resolveAppIdFromShell(),
         source: "layer2",
         overlaySize,
       });
@@ -210,6 +240,8 @@
         new CustomEvent("meilang:scope-activation", {
           detail: {
             scope: sceneId,
+            sceneId,
+            appId: resolveAppIdFromShell(),
             source: "layer2",
             overlaySize,
           },

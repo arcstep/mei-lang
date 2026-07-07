@@ -440,4 +440,18 @@ impl MeiConfig {
             || self.runtime.file_cache.max_entries.is_some()
             || self.runtime.file_cache.max_total_mb.is_some()
     }
+
+    /// Cockpit 应用模板：未显式配置时默认开启 1-hop 邻域 Pack 产能。
+    pub fn apply_profile_runtime_defaults(&mut self) {
+        if !self.ops.themes.contains_key("cockpit") {
+            return;
+        }
+        let bootstrap = self
+            .runtime
+            .client_bootstrap
+            .get_or_insert_with(ClientBootstrapConfig::default);
+        if bootstrap.neighbor_hops == 0 {
+            bootstrap.neighbor_hops = 1;
+        }
+    }
 }

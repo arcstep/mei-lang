@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
 use mei_host_core::HostContext;
-use mei_host_graph::write_client_bootstrap;
+use mei_host_graph::{
+    client_bootstrap_pack_candidate_scopes, client_bootstrap_scope_allowed, write_client_bootstrap,
+};
 use mei_lang_datasets::default_result_artifact_scope;
 use mei_lang_kernel::{load_mei_config_for_app, FilterIntent, QueryState};
 
@@ -30,7 +32,16 @@ pub fn maybe_refresh_client_bootstrap_after_eval(
     if !client_cfg.enabled {
         return;
     }
-    if !client_cfg.scopes.is_empty() && !client_cfg.scopes.iter().any(|scope| scope == scene_id) {
+    let pack_scopes = client_bootstrap_pack_candidate_scopes(
+        ctx.workspace_root.as_path(),
+        ctx.app_id.as_str(),
+        scene_id,
+    );
+    if !client_bootstrap_scope_allowed(
+        scene_id,
+        client_cfg.scopes.as_slice(),
+        pack_scopes.as_slice(),
+    ) {
         return;
     }
     let mut metrics_map = BTreeMap::new();
