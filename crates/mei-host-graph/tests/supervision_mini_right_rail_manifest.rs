@@ -185,3 +185,31 @@ fn supervision_mini_supervision_stats_exports_panel_shell() {
         "expected resolved panel_glow_bg: {bg}"
     );
 }
+
+#[test]
+fn supervision_mini_screen_header_exports_bare_panel_shell() {
+    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let docs = supervision_mini_home_eval_docs(&outcome);
+    let header_shell = docs.iter().find_map(|doc| {
+        doc.slots.iter().find_map(|(scope, slot)| {
+            if !scope.contains("header") {
+                return None;
+            }
+            let shell = slot.get("panel_shell")?;
+            if shell["props"]["chrome"].as_str() == Some("bare") {
+                Some((scope.clone(), shell.clone()))
+            } else {
+                None
+            }
+        })
+    });
+    let (scope, shell) = header_shell.expect("bare panel_shell on header slot");
+    assert!(
+        scope.contains("header"),
+        "expected header scope, got {scope}"
+    );
+    assert_eq!(shell["props"]["padding"], "0");
+    assert_eq!(shell["props"]["border"], "none");
+}

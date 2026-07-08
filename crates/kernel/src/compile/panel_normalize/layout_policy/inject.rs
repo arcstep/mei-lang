@@ -32,7 +32,7 @@ pub(crate) fn default_layout_head_body(head_track: Option<String>) -> LayoutDecl
             vec![SLOT_HEAD.to_string()],
             vec![SLOT_BODY.to_string()],
         ]),
-        gap: Some("0".to_string()),
+        gap: Some("2px".to_string()),
         padding: Some("0".to_string()),
         align: None,
         justify: None,

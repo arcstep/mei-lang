@@ -225,6 +225,11 @@ fn is_ambiguous_mount_label(label: &str) -> bool {
 }
 
 fn panel_lookup_label(node: &StructureFullNode) -> String {
+    if let Some(hint) = metric_card_panel_hint_from_scope(&node.preview_scope) {
+        if !hint.is_empty() {
+            return hint;
+        }
+    }
     let label = node.label.trim();
     if !label.is_empty() && !is_ambiguous_mount_label(label) {
         return label.to_string();
@@ -315,11 +320,24 @@ fn metric_card_panel_hint_from_scope(scope: &str) -> Option<String> {
     for segment in scope.split('/') {
         if let Some(id) = segment.strip_suffix("_card_content") {
             if !id.is_empty() {
-                return Some(id.to_string());
+                return Some(format!("{id}_card"));
             }
+        }
+        if segment.ends_with("_card") && !segment.ends_with("_card_content") {
+            return Some(segment.to_string());
         }
     }
     None
+}
+
+fn metric_card_lookup_label(node: &StructureFullNode) -> String {
+    let label = panel_lookup_label(node);
+    if label.ends_with("_card_content") {
+        if let Some(hint) = metric_card_panel_hint_from_scope(&node.preview_scope) {
+            return hint;
+        }
+    }
+    label
 }
 
 fn find_panel_by_id<'a>(panel: &'a PanelDecl, target: &str) -> Option<&'a PanelDecl> {
@@ -359,15 +377,28 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
     };
     let panel_hint = metric_card_panel_hint_from_scope(&node.preview_scope);
     let mut mounts = Vec::new();
+    if let Some(panel_id) = panel_hint.as_deref() {
+        if let Some(panel) = find_panel_in_contract(contract, panel_id) {
+            collect_component_mounts_for_label(panel, panel_id, &mut mounts);
+            if !mounts.is_empty() {
+                return mounts;
+            }
+        }
+    }
+    let lookup_label = metric_card_lookup_label(node);
     if is_ambiguous_mount_label(label) {
         if let Some(panel_id) = panel_hint.as_deref() {
             if let Some(panel) = find_panel_in_contract(contract, panel_id) {
                 collect_component_mounts_for_label(panel, panel_id, &mut mounts);
             }
         }
-    } else if !label.is_empty() {
-        for panel in &contract.panels {
-            collect_component_mounts_for_label(panel, label, &mut mounts);
+    } else if !lookup_label.is_empty() {
+        if let Some(panel) = find_panel_in_contract(contract, lookup_label.as_str()) {
+            collect_component_mounts_for_label(panel, lookup_label.as_str(), &mut mounts);
+        } else {
+            for panel in &contract.panels {
+                collect_component_mounts_for_label(panel, lookup_label.as_str(), &mut mounts);
+            }
         }
     }
     if mounts.is_empty() {
@@ -433,18 +464,29 @@ pub fn build_eval_slot_group_document(
             }
         }
         if let (Some(ctx), Some(contract)) = (theme_ctx.as_ref(), compiled.scene_contract.as_ref()) {
-            let panel_lookup = panel_lookup_label(node);
-            if !panel_lookup.is_empty() {
-                if let Some(panel) = find_panel_in_contract(contract, panel_lookup.as_str()) {
-                    if should_export_panel_shell(panel) {
-                        let author_props = workspace_root
-                            .and_then(|root| author_panel_props_for_shell(root, compiled, panel_lookup.as_str()));
-                        let export_panel = panel_decl_for_shell_export(panel, author_props.as_ref());
-                        if let Some(obj) = entry.as_object_mut() {
-                            obj.insert(
-                                "panel_shell".to_string(),
-                                build_panel_shell(&export_panel, ctx),
-                            );
+            if matches!(node.ui_role.as_str(), "section" | "slot" | "content") {
+                let panel_lookup = {
+                    let resolved = metric_card_lookup_label(node);
+                    if resolved.is_empty() {
+                        panel_lookup_label(node)
+                    } else {
+                        resolved
+                    }
+                };
+                if !panel_lookup.is_empty() {
+                    if let Some(panel) = find_panel_in_contract(contract, panel_lookup.as_str()) {
+                        if should_export_panel_shell(panel) {
+                            let author_props = workspace_root.and_then(|root| {
+                                author_panel_props_for_shell(root, compiled, panel_lookup.as_str())
+                            });
+                            let export_panel =
+                                panel_decl_for_shell_export(panel, author_props.as_ref());
+                            if let Some(obj) = entry.as_object_mut() {
+                                obj.insert(
+                                    "panel_shell".to_string(),
+                                    build_panel_shell(&export_panel, ctx),
+                                );
+                            }
                         }
                     }
                 }
@@ -768,5 +810,23 @@ mod tests {
         };
         let mounts = component_mounts_for_content_node(&compiled, &node);
         assert!(mounts.is_empty(), "duplicate metric leaf scopes must not inherit mounts");
+    }
+
+    #[test]
+    fn metric_card_panel_hint_maps_card_content_scope_to_panel_id() {
+        assert_eq!(
+            metric_card_panel_hint_from_scope(
+                "t1/left_rail/enforcement/enforcement_strip_layout/first/enforcement_units_card_content"
+            )
+            .as_deref(),
+            Some("enforcement_units_card")
+        );
+        assert_eq!(
+            metric_card_panel_hint_from_scope(
+                "t1/right_rail/warning/supervision-stats/items/supervision_items_card"
+            )
+            .as_deref(),
+            Some("supervision_items_card")
+        );
     }
 }

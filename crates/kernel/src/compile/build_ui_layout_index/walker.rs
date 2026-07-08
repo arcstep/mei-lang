@@ -306,7 +306,7 @@ fn walk_default_section(
     );
     let section_node_id = builder.insert_node(section_node);
     builder.link_child(region_node_id, &section_node_id);
-    walk_micro_and_content(
+    walk_section_body(
         builder,
         region,
         tier,
@@ -347,7 +347,7 @@ fn walk_section(
     );
     let section_node_id = builder.insert_node(section_node);
     builder.link_child(region_node_id, &section_node_id);
-    walk_micro_and_content(
+    walk_section_body(
         builder,
         section,
         tier,
@@ -357,7 +357,7 @@ fn walk_section(
     );
 }
 
-fn walk_micro_and_content(
+fn walk_section_body(
     builder: &mut Builder<'_>,
     panel: &PanelDecl,
     tier: &str,
@@ -369,10 +369,10 @@ fn walk_micro_and_content(
         .import_scope
         .as_deref()
         .filter(|v| !v.is_empty());
-    for micro in micro_layout_panels_in_deep(panel) {
-        walk_micro_layout(
+    for layout_panel in slotted_layout_panels_in_deep(panel) {
+        walk_slotted_layout(
             builder,
-            micro,
+            layout_panel,
             tier,
             parent_id,
             parent_segments,
@@ -443,38 +443,38 @@ fn walk_micro_and_content(
     }
 }
 
-fn walk_micro_layout(
+fn walk_slotted_layout(
     builder: &mut Builder<'_>,
-    micro: &PanelDecl,
+    layout_panel: &PanelDecl,
     tier: &str,
     parent_id: &str,
     parent_segments: &[String],
     preview_prefix: &str,
 ) {
-    let micro_key = micro_layout_key(micro);
-    let micro_label = micro_layout_label(micro);
-    let mut micro_segments = parent_segments.to_vec();
-    micro_segments.push(micro_key.clone());
-    let preview_scope = format!("{preview_prefix}/{micro_key}");
-    let budget = budget_from_panel(micro);
-    let micro_node = builder.make_node(
+    let layout_key = slotted_layout_key(layout_panel);
+    let layout_label = slotted_layout_label(layout_panel);
+    let mut layout_segments = parent_segments.to_vec();
+    layout_segments.push(layout_key.clone());
+    let preview_scope = format!("{preview_prefix}/{layout_key}");
+    let budget = budget_from_panel(layout_panel);
+    let layout_node = builder.make_node(
         UiScopeRole::Slot,
-        micro_label,
-        &micro_segments,
+        layout_label,
+        &layout_segments,
         preview_scope.clone(),
         Some(parent_id.to_string()),
         Some(tier.to_string()),
         budget.clone(),
-        source_anchor_for_panel(micro),
-        Some(micro_macro_name(micro)),
+        source_anchor_for_panel(layout_panel),
+        layout_macro_hint(layout_panel).map(str::to_string),
     );
-    let micro_node_id = builder.insert_node(micro_node);
-    builder.link_child(parent_id, &micro_node_id);
+    let layout_node_id = builder.insert_node(layout_node);
+    builder.link_child(parent_id, &layout_node_id);
 
     if let Some(budget) = budget {
         if !budget_is_empty(&budget) {
             let budget_label = budget_label_from_summary(&budget);
-            let mut budget_segments = micro_segments.clone();
+            let mut budget_segments = layout_segments.clone();
             budget_segments.push("budget".to_string());
             let budget_preview = format!("{preview_scope}/budget");
             let budget_node = builder.make_node(
@@ -482,24 +482,24 @@ fn walk_micro_layout(
                 budget_label,
                 &budget_segments,
                 budget_preview,
-                Some(micro_node_id.clone()),
+                Some(layout_node_id.clone()),
                 Some(tier.to_string()),
                 Some(budget),
                 Vec::new(),
                 None,
             );
             let budget_id = builder.insert_node(budget_node);
-            builder.link_child(&micro_node_id, &budget_id);
+            builder.link_child(&layout_node_id, &budget_id);
         }
     }
 
-    for slot in slot_nodes_in_micro(micro) {
+    for slot in slot_nodes_in_layout(layout_panel) {
         walk_slot(
             builder,
             &slot,
             tier,
-            &micro_node_id,
-            &micro_segments,
+            &layout_node_id,
+            &layout_segments,
             preview_scope.as_str(),
         );
     }
@@ -509,13 +509,18 @@ fn walk_slot(
     builder: &mut Builder<'_>,
     slot: &SlotWalkItem,
     tier: &str,
-    micro_node_id: &str,
-    micro_segments: &[String],
+    parent_node_id: &str,
+    parent_segments: &[String],
     preview_prefix: &str,
 ) {
     let slot_key = slot.area.clone();
-    let slot_label = slot.label.clone();
-    let mut slot_segments = micro_segments.to_vec();
+    let slot_label = slot
+        .nested_panel
+        .as_ref()
+        .filter(|panel| is_slot_shell_panel(panel))
+        .map(|panel| panel.id.clone())
+        .unwrap_or_else(|| slot.label.clone());
+    let mut slot_segments = parent_segments.to_vec();
     slot_segments.push(slot_key.clone());
     let preview_scope = format!("{preview_prefix}/{slot_key}");
     let slot_node = builder.make_node(
@@ -523,14 +528,14 @@ fn walk_slot(
         slot_label,
         &slot_segments,
         preview_scope.clone(),
-        Some(micro_node_id.to_string()),
+        Some(parent_node_id.to_string()),
         Some(tier.to_string()),
         None,
         Vec::new(),
         None,
     );
     let slot_node_id = builder.insert_node(slot_node);
-    builder.link_child(micro_node_id, &slot_node_id);
+    builder.link_child(parent_node_id, &slot_node_id);
 
     if let Some(panel) = &slot.nested_panel {
         if let Some(kind) = content_group_kind(panel) {
@@ -553,8 +558,20 @@ fn walk_slot(
                 preview_scope.as_str(),
                 Some(slot.label.as_str()),
             );
-        } else if is_micro_layout_panel(panel) {
-            walk_micro_layout(
+        } else if is_slot_shell_panel(panel) {
+            for metric_panel in metric_card_panels_exclusive(panel) {
+                walk_content_panel(
+                    builder,
+                    metric_panel,
+                    tier,
+                    &slot_node_id,
+                    &slot_segments,
+                    preview_scope.as_str(),
+                    None,
+                );
+            }
+        } else if is_slotted_layout_panel(panel) {
+            walk_slotted_layout(
                 builder,
                 panel,
                 tier,
@@ -567,10 +584,10 @@ fn walk_slot(
                 .import_scope
                 .as_deref()
                 .filter(|v| !v.is_empty());
-            for micro in micro_layout_panels_in_deep(panel) {
-                walk_micro_layout(
+            for layout_panel in slotted_layout_panels_in_deep(panel) {
+                walk_slotted_layout(
                     builder,
-                    micro,
+                    layout_panel,
                     tier,
                     &slot_node_id,
                     &slot_segments,
@@ -630,12 +647,13 @@ fn walk_slot(
     }
 }
 
-/// Join slot/micro prefix with optional block/panel area and content key without duplicating area.
+/// Join slot prefix with optional block/panel area and content key without duplicating area.
+/// Grid cell names like `content` are layout plumbing, not logical preview scopes.
 fn join_content_preview_scope(preview_prefix: &str, area: Option<&str>, content_key: &str) -> String {
     let prefix = preview_prefix.trim().trim_end_matches('/');
     let area = area
         .map(str::trim)
-        .filter(|value| !value.is_empty() && *value != "auto");
+        .filter(|value| !value.is_empty() && *value != "auto" && *value != "content");
     match area {
         Some(area) if prefix.ends_with(&format!("/{area}")) || prefix == area => {
             format!("{prefix}/{content_key}")
@@ -688,7 +706,7 @@ fn walk_contract_level_content_in_panel(
         );
     }
     for child in child_panels(host_panel) {
-        if !is_content_group_panel(child) && !is_micro_layout_panel(child) {
+        if !is_content_group_panel(child) && !is_slotted_layout_panel(child) {
             walk_contract_level_content_in_panel(
                 builder,
                 child,
@@ -843,14 +861,18 @@ fn walk_content_panel(
     );
     let content_segments =
         scope_segments_from_preview(builder.scene_id, tier, preview_scope.as_str());
-    let content_kind = Some(
-        panel
-            .props
-            .get("__mei_metric_template")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| "metric-card".to_string()),
-    );
+    let content_kind = if is_viewport_chrome_panel(panel) {
+        None
+    } else {
+        Some(
+            panel
+                .props
+                .get("__mei_metric_template")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| "metric-card".to_string()),
+        )
+    };
     let content_node = builder.make_node(
         UiScopeRole::Content,
         content_label,
@@ -898,7 +920,7 @@ fn walk_layout_content_group(
     let group_id = builder.insert_node(group_node);
     builder.link_child(parent_id, &group_id);
 
-    for slot in slot_nodes_in_micro(panel) {
+    for slot in slot_nodes_in_layout(panel) {
         walk_slot(
             builder,
             &slot,
@@ -968,7 +990,7 @@ fn content_blocks_in_deep<'a>(panel: &'a PanelDecl) -> Vec<(&'a BlockDecl, Strin
     let mut blocks = content_blocks_in(panel);
     for ui_node in &panel.blocks {
         if let UiNodeDecl::Panel(child) = ui_node {
-            if is_micro_layout_panel(child)
+            if is_slotted_layout_panel(child)
                 || is_content_group_panel(child)
                 || is_metric_card_panel(child)
             {
@@ -1039,7 +1061,7 @@ fn panel_is_section(panel: &PanelDecl) -> bool {
         return true;
     }
     layout_macro_hint(panel).is_some_and(|macro_name| {
-        macro_name.ends_with("_body") && !is_micro_layout_panel(panel)
+        macro_name.ends_with("_body") && !is_slotted_layout_panel(panel)
     })
 }
 
@@ -1054,11 +1076,11 @@ fn find_nested_panel_by_area<'a>(region: &'a PanelDecl, area: &str) -> Option<&'
     None
 }
 
-fn micro_layout_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn slotted_layout_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
     let mut result = Vec::new();
     for ui_node in &panel.blocks {
         if let UiNodeDecl::Panel(nested) = ui_node {
-            if is_micro_layout_panel(nested) {
+            if is_slotted_layout_panel(nested) {
                 result.push(nested);
             }
         }
@@ -1066,11 +1088,11 @@ fn micro_layout_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
     result
 }
 
-fn micro_layout_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
-    let mut result = micro_layout_panels_in(panel);
+fn slotted_layout_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
+    let mut result = slotted_layout_panels_in(panel);
     for child in child_panels(panel) {
-        if !is_micro_layout_panel(child) && !is_content_group_panel(child) {
-            result.extend(micro_layout_panels_in_deep(child));
+        if !is_slotted_layout_panel(child) && !is_content_group_panel(child) {
+            result.extend(slotted_layout_panels_in_deep(child));
         }
     }
     result
@@ -1088,7 +1110,7 @@ fn collect_layout_content_group_panels<'a>(panel: &'a PanelDecl, out: &mut Vec<&
             out.push(child);
             continue;
         }
-        if !is_micro_layout_panel(child) && !is_metric_card_panel(child) {
+        if !is_slotted_layout_panel(child) && !is_metric_card_panel(child) {
             collect_layout_content_group_panels(child, out);
         }
     }
@@ -1143,7 +1165,7 @@ fn collect_viewport_chrome_panels<'a>(panel: &'a PanelDecl, out: &mut Vec<&'a Pa
         if is_viewport_chrome_panel(child) {
             out.push(child);
         }
-        if !is_micro_layout_panel(child) && !is_metric_card_panel(child) {
+        if !is_slotted_layout_panel(child) && !is_metric_card_panel(child) {
             collect_viewport_chrome_panels(child, out);
         }
     }
@@ -1171,7 +1193,7 @@ fn metric_card_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
 fn metric_card_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
     let mut result = metric_card_panels_in(panel);
     for child in child_panels(panel) {
-        if !is_micro_layout_panel(child) && !is_metric_card_panel(child) {
+        if !is_slotted_layout_panel(child) && !is_metric_card_panel(child) {
             result.extend(metric_card_panels_in_deep(child));
         }
     }
@@ -1185,7 +1207,7 @@ fn metric_card_panels_exclusive(panel: &PanelDecl) -> Vec<&PanelDecl> {
 }
 
 fn collect_metric_card_panels_exclusive<'a>(panel: &'a PanelDecl, out: &mut Vec<&'a PanelDecl>) {
-    if is_micro_layout_panel(panel) || is_content_group_panel(panel) {
+    if is_slotted_layout_panel(panel) || is_content_group_panel(panel) {
         return;
     }
     out.extend(metric_card_panels_in(panel));
@@ -1220,18 +1242,66 @@ fn metric_card_label(panel: &PanelDecl) -> String {
     panel.id.clone()
 }
 
-fn is_micro_layout_panel(panel: &PanelDecl) -> bool {
+fn is_slot_shell_panel(panel: &PanelDecl) -> bool {
+    if is_metric_card_panel(panel) || is_content_group_panel(panel) {
+        return false;
+    }
+    if panel
+        .layout
+        .as_ref()
+        .map(flat_areas)
+        .is_some_and(|areas| areas.len() >= 2)
+    {
+        return false;
+    }
+    if panel
+        .props
+        .get("__mei_slot_frame_bg")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    if metric_card_panels_in(panel).len() == 1 {
+        let areas = panel
+            .layout
+            .as_ref()
+            .map(flat_areas)
+            .unwrap_or_default();
+        if areas.is_empty() || areas == ["content"] {
+            return true;
+        }
+    }
+    false
+}
+
+fn is_slotted_layout_panel(panel: &PanelDecl) -> bool {
     if is_content_group_panel(panel) {
         return false;
     }
-    if ui_role_from_props(&panel.props) == Some("micro_layout") {
-        return true;
+    if panel
+        .props
+        .get("__mei_slot_frame_bg")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
     }
-    if layout_macro_hint(panel).is_some_and(macro_implies_micro_layout) {
+    if metric_card_panels_in(panel).len() == 1 {
+        let areas = panel
+            .layout
+            .as_ref()
+            .map(flat_areas)
+            .unwrap_or_default();
+        if areas.is_empty() || areas == ["content"] {
+            return false;
+        }
+    }
+    if layout_macro_hint(panel).is_some_and(macro_implies_slotted_layout) {
         return true;
     }
     let id = panel.id.as_str();
-    if KNOWN_MICRO_LAYOUT_IDS
+    if SLOTTED_LAYOUT_PANEL_ID_HINTS
         .iter()
         .any(|prefix| id.starts_with(prefix) || id.contains(prefix))
     {
@@ -1285,7 +1355,7 @@ fn is_compound_metric_panel(panel: &PanelDecl) -> bool {
     {
         return true;
     }
-    if micro_macro_hint(panel).is_some_and(|macro_name| {
+    if layout_macro_hint(panel).is_some_and(|macro_name| {
         macro_name.contains("wide_metric_compound") || macro_name.contains("long_metric_compound")
     }) {
         return true;
@@ -1361,11 +1431,7 @@ fn layout_macro_hint(panel: &PanelDecl) -> Option<&str> {
         .and_then(|value| value.as_str())
 }
 
-fn micro_macro_hint(panel: &PanelDecl) -> Option<&str> {
-    layout_macro_hint(panel)
-}
-
-fn macro_implies_micro_layout(macro_name: &str) -> bool {
+fn macro_implies_slotted_layout(macro_name: &str) -> bool {
     macro_name == "micro_panel" || macro_name.ends_with("_body")
 }
 
@@ -1380,7 +1446,7 @@ fn layout_has_areas(panel: &PanelDecl, required: &[&str]) -> bool {
         .all(|area| areas.iter().any(|value| value == area))
 }
 
-const KNOWN_MICRO_LAYOUT_IDS: &[&str] = &[
+const SLOTTED_LAYOUT_PANEL_ID_HINTS: &[&str] = &[
     "metric_triptych",
     "wide_metric_compound",
     "enforcement_strip_layout",
@@ -1391,35 +1457,30 @@ const KNOWN_MICRO_LAYOUT_IDS: &[&str] = &[
     "effectiveness_triptych",
     "chart_table_split",
     "semantic_layout",
+    "supervision-stats",
 ];
 
-fn micro_layout_key(panel: &PanelDecl) -> String {
+fn slotted_layout_key(panel: &PanelDecl) -> String {
     layout_macro_hint(panel)
         .map(str::to_string)
         .unwrap_or_else(|| panel.id.clone())
 }
 
-fn micro_layout_label(panel: &PanelDecl) -> String {
+fn slotted_layout_label(panel: &PanelDecl) -> String {
     layout_macro_hint(panel)
         .map(|macro_name| macro_name.replace("_body", ""))
         .unwrap_or_else(|| panel.id.clone())
 }
 
-fn micro_macro_name(panel: &PanelDecl) -> String {
-    layout_macro_hint(panel)
-        .unwrap_or("micro_layout")
-        .to_string()
-}
-
-fn slot_nodes_in_micro(micro: &PanelDecl) -> Vec<SlotWalkItem> {
+fn slot_nodes_in_layout(layout_panel: &PanelDecl) -> Vec<SlotWalkItem> {
     let mut slots = Vec::new();
-    let layout_areas = micro
+    let layout_areas = layout_panel
         .layout
         .as_ref()
         .map(flat_areas)
         .unwrap_or_default();
 
-    for ui_node in &micro.blocks {
+    for ui_node in &layout_panel.blocks {
         match ui_node {
             UiNodeDecl::Block(block) => {
                 let area = block

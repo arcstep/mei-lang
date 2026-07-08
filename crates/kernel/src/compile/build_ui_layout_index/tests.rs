@@ -137,7 +137,7 @@ fn metric_block(area: &str, label: &str) -> BlockDecl {
 }
 
 #[test]
-fn ui_layout_index_builds_section_micro_and_slots() {
+fn ui_layout_index_builds_section_slotted_layout_and_slots() {
     let compiled = CompiledApp {
         app_id: "pretty-panels".to_string(),
         title: "Pretty Panels".to_string(),
@@ -205,13 +205,13 @@ fn ui_layout_index_builds_section_micro_and_slots() {
     assert_eq!(section.role, UiScopeRole::Section);
     assert_eq!(section.label, "执法要素");
 
-    let micro_id = BuildNodeId::ui_scope(
+    let layout_id = BuildNodeId::ui_scope(
         "home",
         "home/T1/left_rail/enforcement/metric_triptych_compound_body",
     )
     .encode();
-    let micro = index.lookup_by_encoded(&micro_id).expect("micro node");
-    assert_eq!(micro.role, UiScopeRole::Slot);
+    let layout = index.lookup_by_encoded(&layout_id).expect("slotted layout node");
+    assert_eq!(layout.role, UiScopeRole::Slot);
 
     let compound_slot_id = BuildNodeId::ui_scope(
         "home",
@@ -1528,17 +1528,22 @@ fn ui_layout_index_contract_level_chart_blocks_surface_in_section() {
         .iter()
         .map(|node| node.label.as_str())
         .collect();
-    let party_bars_slot = section_tree
-        .children
-        .iter()
+    let party_bars_slot = result
+        .index
+        .nodes
+        .values()
         .find(|node| node.preview_scope.ends_with("/party_bars"));
     assert!(
         party_bars_slot.is_some(),
-        "contract-level chart grid area should surface as slot: {labels:?}"
+        "contract-level chart grid area should surface as slot under section body layout: {labels:?}"
     );
+    let chart_content = result.index.nodes.values().find(|node| {
+        node.role == UiScopeRole::Content
+            && (node.label.contains("罚没居前") || node.label.contains("分组柱图"))
+    });
     assert!(
-        labels.iter().any(|label| label.contains("罚没居前") || label.contains("分组柱图")),
-        "contract-level chart block should appear under section: {labels:?}"
+        chart_content.is_some(),
+        "contract-level chart block should appear under section body layout: {labels:?}"
     );
 }
 
@@ -1814,7 +1819,7 @@ fn ui_layout_index_synthesizes_default_section_for_bare_region() {
         .lookup_by_encoded(&section_id)
         .expect("synthetic default section");
     assert_eq!(section.role, UiScopeRole::Section);
-    assert_eq!(section.preview_scope, "stats_rail/_default");
+    assert_eq!(section.preview_scope, "t1/stats_rail/_default");
     let section_tree = find_tree_node(&result.tree_root.children, &section_id).expect("section tree");
     assert!(
         !section_tree.children.is_empty(),
@@ -2006,8 +2011,8 @@ fn supervision_stats_triptych_panel() -> PanelDecl {
                 "models".to_string(),
                 "warnings".to_string(),
             ]]),
-            gap: Some("6px".to_string()),
-            padding: Some("8px".to_string()),
+            gap: Some("2px".to_string()),
+            padding: Some("0".to_string()),
             align: Some("stretch".to_string()),
             justify: Some("stretch".to_string()),
         }),
@@ -2048,7 +2053,7 @@ fn triptych_metric_card_panel(id: &str, area: &str) -> PanelDecl {
 }
 
 #[test]
-fn panel_contract_triptych_projects_grid_manifest_and_micro_layout_slots() {
+fn panel_contract_triptych_projects_grid_manifest_and_slotted_layout_slots() {
     let warning_section = PanelDecl {
         kind: "panel".to_string(),
         id: "warning".to_string(),
@@ -2198,12 +2203,12 @@ fn panel_contract_triptych_projects_grid_manifest_and_micro_layout_slots() {
     let micro_entry = manifest
         .entries
         .get("t1/right_rail/warning/supervision-stats")
-        .expect("supervision-stats micro layout manifest");
+        .expect("supervision-stats slotted layout manifest");
     assert_eq!(
         micro_entry.grid_template_columns.as_deref(),
         Some("1fr 1fr 1fr")
     );
-    assert_eq!(micro_entry.gap.as_deref(), Some("6px"));
+    assert_eq!(micro_entry.gap.as_deref(), Some("2px"));
     assert_eq!(
         micro_entry.slot_areas.as_deref(),
         Some(&["items".to_string(), "models".to_string(), "warnings".to_string()][..])

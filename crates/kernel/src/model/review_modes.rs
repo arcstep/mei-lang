@@ -182,7 +182,7 @@ pub fn ui_role_depth_rank(role: &str) -> Option<u8> {
         "region" => Some(1),
         "section" => Some(2),
         "slot" => Some(3),
-        "content" | "micro_layout" => Some(4),
+        "content" => Some(4),
         _ => None,
     }
 }
