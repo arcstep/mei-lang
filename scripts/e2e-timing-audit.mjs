@@ -28,10 +28,9 @@ const HOST_API = [
   { kind: "document", test: (u) => /\/view(\?|$)/.test(u.pathname) && !u.pathname.includes("/api/") },
   { kind: "view-revision", test: (u) => u.pathname.includes("/api/host/view-revision") },
   { kind: "layer-batch", test: (u) => u.pathname.includes("/api/host/layer-batch") },
-  { kind: "scene-revision", test: (u) => u.pathname.includes("/api/host/scene-revision") },
+  { kind: "view-revision", test: (u) => u.pathname.includes("/api/host/view-revision") },
   { kind: "scene-manifest", test: (u) => u.pathname.includes("/api/host/scene-manifest") },
   { kind: "scene-bootstrap", test: (u) => u.pathname.includes("/api/host/scene-bootstrap") },
-  { kind: "scene-fragment", test: (u) => u.pathname.includes("/api/host/scene-fragment") },
 ];
 
 function classifyUrl(urlStr) {
@@ -376,6 +375,43 @@ async function main() {
 
   await browser.close();
 
+  const coldStartApps = [
+    { label: "data-demo", path: "/apps/data-demo/view?surface=app&scene=home" },
+    { label: "mini-park", path: "/apps/mini-park/view?surface=app&scene=home" },
+  ];
+  report.coldStartBenchmarks = [];
+  {
+    const benchBrowser = await chromium.launch({ headless: true });
+    const benchPage = await benchBrowser.newPage();
+    for (const entry of coldStartApps) {
+      const started = Date.now();
+      await benchPage.goto(`${base}${entry.path}`, {
+        waitUntil: "networkidle",
+        timeout: 120000,
+      });
+      const client = await benchPage.evaluate(() => {
+        const marks = window.__meiRenderPipeline?.last?.marks || [];
+        const coldEnd = marks.find((m) => m?.name === "cold_start:end");
+        const previewEnd = marks.find((m) => m?.name === "preview_compose:end");
+        return {
+          coldStartEndMs: coldEnd?.detail?.wallMs ?? coldEnd?.detail?.ms ?? null,
+          previewComposeEndMs: previewEnd?.detail?.wallMs ?? previewEnd?.detail?.ms ?? null,
+          materialized:
+            document
+              .querySelector("#mei-compose-root, .preview-pane-scroll, .shell")
+              ?.getAttribute("data-mei-compose-materialized") === "1",
+        };
+      });
+      report.coldStartBenchmarks.push({
+        app: entry.label,
+        wallMs: Date.now() - started,
+        ...client,
+        targetMs: 1500,
+      });
+    }
+    await benchBrowser.close();
+  }
+
   for (const phase of report.phases) {
     printPhase(phase);
   }
@@ -388,6 +424,15 @@ async function main() {
     console.log(
       `${p.label.padEnd(32)} | ${String(b.wall_total_ms).padStart(5)}ms | ${String(b.network_span_ms).padStart(5)}ms | ${String(b.client_after_last_response_ms).padStart(5)}ms | ${JSON.stringify(p.network.byKind)}`,
     );
+  }
+  if (report.coldStartBenchmarks?.length) {
+    console.log("\n冷启动墙钟（compose-only，目标 <1.5s，见 0525）");
+    for (const row of report.coldStartBenchmarks) {
+      const cold = row.coldStartEndMs ?? row.wallMs;
+      console.log(
+        `${row.app.padEnd(12)} | wall=${String(row.wallMs).padStart(5)}ms | cold_start:end=${cold != null ? `${cold}ms` : "n/a"} | materialized=${row.materialized}`,
+      );
+    }
   }
 
   if (jsonOut) {

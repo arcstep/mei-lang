@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Route A preview surfaceHtml IDB cache acceptance.
+ * Route A compose-only preview acceptance (no scene-fragment fallback).
  * Usage: MEI_E2E_BASE_URL=http://127.0.0.1:9527 node scripts/preview-surface-cache-audit.mjs [path]
  */
 import { chromium } from "@playwright/test";
@@ -12,10 +12,9 @@ const base = (process.env.MEI_E2E_BASE_URL || process.argv[2] || "http://127.0.0
 const viewPath = process.argv.find((a) => a.startsWith("/")) || "/apps/data-demo/view?surface=app";
 const appUrl = `${base}${viewPath.startsWith("/") ? viewPath : `/${viewPath}`}`;
 
-function isHtmlFragment(url) {
+function isSceneFragment(url) {
   try {
-    const u = new URL(url);
-    return u.pathname.includes("/api/host/scene-fragment") && u.searchParams.get("format") === "html";
+    return new URL(url).pathname.includes("/api/host/scene-fragment");
   } catch {
     return false;
   }
@@ -28,7 +27,7 @@ async function main() {
   let pass = "first";
 
   page.on("request", (req) => {
-    if (!isHtmlFragment(req.url())) return;
+    if (!isSceneFragment(req.url())) return;
     fragmentCalls[pass].push(req.url());
   });
 
@@ -49,7 +48,7 @@ async function main() {
   const clientState = await page.evaluate(() => {
     const pipeline = window.__meiRenderPipeline?.last || null;
     const marks = Array.isArray(pipeline?.marks) ? pipeline.marks : [];
-    const previewEnd = marks.find((m) => m?.name === "preview_fragment:end");
+    const previewEnd = marks.find((m) => m?.name === "preview_compose:end");
     return {
       evalPackSource: String(window.__meiEvalPackSource || ""),
       bootstrapFromLocal: !!window.__meiBootstrapFromLocalStorage,
@@ -61,19 +60,15 @@ async function main() {
   await browser.close();
 
   const failures = [];
-  if (fragmentCalls.second.length > 0) {
-    failures.push(
-      `expected 0 scene-fragment requests on second F5, got ${fragmentCalls.second.length}`,
-    );
+  const totalFragmentCalls = fragmentCalls.first.length + fragmentCalls.second.length;
+  if (totalFragmentCalls > 0) {
+    failures.push(`expected 0 scene-fragment requests, got ${totalFragmentCalls}`);
   }
-  if (
-    clientState.previewEndSource &&
-    clientState.previewEndSource !== "idb" &&
-    clientState.previewEndSource !== "compose"
-  ) {
-    failures.push(
-      `expected preview_fragment:end source idb|compose|absent, got ${clientState.previewEndSource}`,
-    );
+  if (clientState.previewEndSource === "miss" || clientState.previewEndSource === "error") {
+    failures.push(`preview_compose:end source=${clientState.previewEndSource}`);
+  }
+  if (clientState.previewEndSource === "ssr_preview") {
+    failures.push("thin shell must not use ssr_preview telemetry");
   }
 
   const report = {

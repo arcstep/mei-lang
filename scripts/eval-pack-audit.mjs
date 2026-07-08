@@ -26,14 +26,18 @@ async function auditPath(browser, appUrl) {
   const page = await browser.newPage();
   const evalApiCalls = [];
   const sceneBootstrapCalls = [];
+  const activateCalls = [];
 
   page.on("request", (req) => {
     const url = req.url();
     if (isEvalRuntimeApi(url)) {
       evalApiCalls.push({ method: req.method(), url });
     }
-    if (url.includes("/api/host/scene-bootstrap")) {
+    if (url.includes("/api/host/scene-bootstrap") || url.includes("/api/host/scene-eval-pack")) {
       sceneBootstrapCalls.push({ method: req.method(), url });
+    }
+    if (url.includes("/api/host/mrg/activate")) {
+      activateCalls.push({ method: req.method(), url, at: Date.now() });
     }
   });
 
@@ -86,13 +90,18 @@ async function auditPath(browser, appUrl) {
   }
   if (sceneBootstrapCalls.length > 1) {
     failures.push(
-      `expected <= 1 scene-bootstrap request, got ${sceneBootstrapCalls.length}`,
+      `expected <= 1 scene-bootstrap/scene-eval-pack request, got ${sceneBootstrapCalls.length}`,
+    );
+  }
+  if (activateCalls.length > 0) {
+    failures.push(
+      `expected 0 mrg/activate on cold load (strict ordering), got ${activateCalls.length}`,
     );
   }
   if (
     clientState.bootstrapRevisionOnly &&
     clientState.evalPackSource &&
-    !["scene_bootstrap_api", "scene_bootstrap_local", "bootstrap_inline", "eval_store"].includes(
+    !["scene_bootstrap_api", "scene_bootstrap_local", "bootstrap_inline", "eval_store", "eval_pack_api", "eval_pack_local", "eval_pack_inline"].includes(
       clientState.evalPackSource,
     )
   ) {

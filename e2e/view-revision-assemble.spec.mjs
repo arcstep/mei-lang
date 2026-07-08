@@ -106,7 +106,7 @@ test.describe("view-revision assemble", () => {
     expect(materialized.propsOrHost).toBeTruthy();
   });
 
-  test("data-demo second F5 avoids html fragment network", async ({ page }) => {
+  test("data-demo app surface materializes preview without html fragment", async ({ page }) => {
     test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
     const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
     const htmlFragmentRequests = [];
@@ -117,11 +117,114 @@ test.describe("view-revision assemble", () => {
       }
     });
     await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
     });
+    await page.waitForFunction(
+      () =>
+        document.querySelector("[data-mei-frame-viewport]") &&
+        (document.querySelector("[data-props]") ||
+          document.querySelector("[data-mei-use-key] .component-host *")),
+      { timeout: 60000 },
+    );
+    expect(htmlFragmentRequests).toEqual([]);
     htmlFragmentRequests.length = 0;
     await page.reload({ waitUntil: "networkidle" });
     expect(htmlFragmentRequests).toEqual([]);
+  });
+
+  test("data-demo cold start uses compose preview without scene-revision", async ({ page }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    const sceneRevisionCalls = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/api/host/scene-revision")) {
+        sceneRevisionCalls.push(request.url());
+      }
+    });
+    page.on("console", () => {});
+    await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForFunction(
+      () =>
+        document.querySelector("[data-mei-frame-viewport]") &&
+        (document.querySelector("[data-props]") ||
+          document.querySelector("[data-mei-use-key] .component-host *")),
+      { timeout: 60000 },
+    );
+    const pipeline = await page.evaluate(() => {
+      const marks = window.__meiRenderPipeline?.last?.marks || [];
+      const previewEnd = marks.find((m) => m?.name === "preview_compose:end");
+      return {
+        previewEndSource: String(previewEnd?.detail?.source || ""),
+        materialized:
+          document
+            .querySelector("#mei-compose-root, .preview-pane-scroll, .shell")
+            ?.getAttribute("data-mei-compose-materialized") === "1",
+      };
+    });
+    expect(sceneRevisionCalls).toEqual([]);
+    expect(pipeline.materialized).toBeTruthy();
+    if (pipeline.previewEndSource) {
+      expect(["compose", "assemble_local"]).toContain(pipeline.previewEndSource);
+      expect(pipeline.previewEndSource).not.toBe("ssr_preview");
+    }
+  });
+
+  test("cold start does not fetch whole-page scene html", async ({ page }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    const wholePageSceneFetches = [];
+    page.on("request", (request) => {
+      if (request.method() !== "GET") return;
+      try {
+        const path = new URL(request.url()).pathname;
+        if (
+          /\/apps\/(?:app|access|run|presentation|slides|copilot|data-demo|mini-park)\/[^/]+\/scene\//.test(
+            path,
+          )
+        ) {
+          wholePageSceneFetches.push(request.url());
+        }
+      } catch (_) {}
+    });
+    await page.goto(`${base}/apps/mini-park/view?surface=app&scene=home`, {
+      waitUntil: "networkidle",
+    });
+    await page.waitForFunction(
+      () =>
+        document.querySelector("[data-mei-frame-viewport]") ||
+        document.querySelector("[data-mei-use-key]"),
+      { timeout: 60000 },
+    );
+    expect(wholePageSceneFetches).toEqual([]);
+  });
+
+  test("compose applies runtime.plans layer_plan on thin shell", async ({ page }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
+      waitUntil: "networkidle",
+    });
+    await page.waitForFunction(
+      () => document.querySelector("[data-mei-frame-viewport], [data-mei-use-key]"),
+      { timeout: 60000 },
+    );
+    const plans = await page.evaluate(() => ({
+      layerPlan: !!window.__mei?.layer_plan,
+      composeProjection: String(
+        document
+          .querySelector("#mei-compose-root, .preview-pane-scroll")
+          ?.getAttribute("data-compose-projection") || "",
+      ),
+      materialized:
+        document
+          .querySelector("#mei-compose-root, .preview-pane-scroll")
+          ?.getAttribute("data-mei-compose-materialized") === "1",
+    }));
+    expect(plans.layerPlan).toBeTruthy();
+    expect(plans.materialized).toBeTruthy();
+    expect(plans.composeProjection.length).toBeGreaterThan(0);
   });
 
   test("app to layout switch reuses semantic layers via assemble_local", async ({ page }) => {
@@ -149,5 +252,52 @@ test.describe("view-revision assemble", () => {
       assembleLocal ||
         layoutCalls.some((url) => url.includes("manifest_revision_digest")),
     ).toBeTruthy();
+  });
+
+  test("scene-eval-pack returns pack_hit with metrics parity to scene-bootstrap", async ({
+    page,
+  }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    const bootstrap = await page.request.get(
+      `${base}/api/host/scene-bootstrap?app=data-demo&scene=home`,
+    );
+    const evalPack = await page.request.get(
+      `${base}/api/host/scene-eval-pack?app=data-demo&scene=home&pack=unified`,
+    );
+    expect(bootstrap.ok()).toBeTruthy();
+    expect(evalPack.ok()).toBeTruthy();
+    const bootJson = await bootstrap.json();
+    const packJson = await evalPack.json();
+    expect(packJson.status).toBe("pack_hit");
+    expect(packJson.clientRevision).toBe(bootJson.clientRevision);
+    expect(packJson.metrics?.length || 0).toBe(bootJson.metrics?.length || 0);
+  });
+
+  test("board drilldown path avoids whole-page scene fetch and mrg activate", async ({ page }) => {
+    test.skip(!process.env.MEI_E2E_BASE_URL, "set MEI_E2E_BASE_URL to run view-revision e2e");
+    const base = process.env.MEI_E2E_BASE_URL.replace(/\/+$/, "");
+    const wholePageSceneFetches = [];
+    const activateCalls = [];
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.includes("/api/host/mrg/activate")) activateCalls.push(url);
+      if (request.method() !== "GET") return;
+      try {
+        const path = new URL(url).pathname;
+        if (/\/apps\/[^/]+\/scene\//.test(path) && !path.includes("/api/")) {
+          wholePageSceneFetches.push(url);
+        }
+      } catch (_) {}
+    });
+    await page.goto(`${base}/apps/data-demo/view?surface=app&scene=home`, {
+      waitUntil: "networkidle",
+    });
+    await page.waitForFunction(
+      () => document.querySelector("[data-mei-frame-viewport], [data-mei-use-key]"),
+      { timeout: 60000 },
+    );
+    expect(wholePageSceneFetches).toEqual([]);
+    expect(activateCalls).toEqual([]);
   });
 });

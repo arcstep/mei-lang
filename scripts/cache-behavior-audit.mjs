@@ -19,7 +19,6 @@ function classify(url) {
     return `view-revision:${st}:digests=${md && sd}`;
   }
   if (p.includes("/api/host/scene-manifest")) return "scene-manifest";
-  if (p.includes("/api/host/scene-fragment")) return "scene-fragment";
   if (p.includes("/api/host/scene-bootstrap")) return "scene-bootstrap";
   if (p.includes("/api/datasets/metrics/")) return "plug-ds-metrics";
   if (p.includes("/api/datasets/") && p.includes("/query")) return "plug-ds-dataset-query";
