@@ -320,16 +320,25 @@
         ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
         : global.document?.querySelector?.(".shell, .preview-pane-scroll");
     const shell = composeRoot instanceof HTMLElement ? composeRoot : null;
-    const ssrPreviewReady =
+    const composeAxes = {
+      ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),
+      forceRematerialize: options.forceRematerialize === true,
+    };
+    const forceRematerialize = composeAxes.forceRematerialize === true;
+    const skipComposePreview =
       shell &&
-      boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(shell) === true;
-    const forceRematerialize = options.forceRematerialize === true;
+      shell.getAttribute("data-mei-compose-placeholder") !== "1" &&
+      typeof boot.previewMaterializer?.canSkipClientCompose === "function" &&
+      boot.previewMaterializer.canSkipClientCompose(shell, ctx);
     if (
       shell &&
-      ssrPreviewReady &&
+      skipComposePreview &&
       !forceRematerialize &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
+      if (typeof boot.previewMaterializer?.finalizeClientPreview === "function") {
+        boot.previewMaterializer.finalizeClientPreview(shell, layers, composeAxes);
+      }
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
         boot.applyHostChromeFromManifestRefs();
       }
@@ -348,15 +357,28 @@
       }
       return { ok: true, missing: [], layers, source: "ssr_preview", materialized: true };
     }
+    if (boot.viewCompositor?.composeFromLayers && shell) {
+      const composed = boot.viewCompositor.composeFromLayers(shell, layers, composeAxes);
+      if (composed) {
+        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
+        const materialized =
+          boot.previewMaterializer?.isClientLayerMaterialized?.(shell) === true;
+        return {
+          ok: true,
+          missing: [],
+          layers,
+          source: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+          materialized,
+        };
+      }
+    }
     if (
       shell &&
       shell.getAttribute("data-mei-compose-placeholder") === "1" &&
       typeof boot.previewMaterializer?.materializePlaceholderPreview === "function"
     ) {
-      const composeAxes = {
-        ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),
-        forceRematerialize,
-      };
       const materialized = await boot.previewMaterializer.materializePlaceholderPreview(
         ctx,
         shell,
@@ -378,50 +400,6 @@
               : "ssr_preview",
           materialized: true,
           preview_source: previewSource,
-        };
-      }
-    } else if (
-      shell &&
-      shell.getAttribute("data-mei-compose-placeholder") === "1" &&
-      typeof boot.previewMaterializer?.hydratePlaceholderFromFragment === "function"
-    ) {
-      const hydrated = await boot.previewMaterializer.hydratePlaceholderFromFragment(
-        ctx,
-        shell,
-        options,
-      );
-      if (hydrated) {
-        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
-          boot.applyHostChromeFromManifestRefs();
-        }
-        return {
-          ok: true,
-          missing: [],
-          layers,
-          source: "ssr_preview",
-          materialized: true,
-          preview_source: "fragment",
-        };
-      }
-    }
-    if (boot.viewCompositor?.composeFromLayers && shell) {
-      const composeAxes = {
-        ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),
-        forceRematerialize,
-      };
-      const composed = boot.viewCompositor.composeFromLayers(shell, layers, composeAxes);
-      if (composed) {
-        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
-          boot.applyHostChromeFromManifestRefs();
-        }
-        const materialized =
-          typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(shell);
-        return {
-          ok: true,
-          missing: [],
-          layers,
-          source: ViewRevisionOutcome.ASSEMBLE_LOCAL,
-          materialized,
         };
       }
     }

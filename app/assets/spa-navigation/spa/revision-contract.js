@@ -7,8 +7,6 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   const VIEW_REVISION_STORE_KEY = "mei-view-revisions";
   const VIEW_REVISION_LS_KEY = "mei:view-revisions:v1";
-  const LEGACY_SCENE_REVISION_STORE_KEY = "mei-scene-revisions";
-  const LEGACY_BUILD_REVISION_STORE_KEY = "mei-build-fragment-revisions";
 
   function normalizeRevision(revision) {
     if (!revision || typeof revision !== "object") return revision;
@@ -111,18 +109,7 @@
       const raw = global.localStorage.getItem(VIEW_REVISION_LS_KEY);
       if (raw) return JSON.parse(raw);
     } catch (_) {}
-    const merged = {};
-    try {
-      const sceneRaw =
-        global.sessionStorage.getItem(LEGACY_SCENE_REVISION_STORE_KEY) ||
-        global.localStorage.getItem("mei:scene-revisions:v1");
-      if (sceneRaw) Object.assign(merged, JSON.parse(sceneRaw));
-    } catch (_) {}
-    try {
-      const buildRaw = global.sessionStorage.getItem(LEGACY_BUILD_REVISION_STORE_KEY);
-      if (buildRaw) Object.assign(merged, JSON.parse(buildRaw));
-    } catch (_) {}
-    return merged;
+    return {};
   }
 
   function writeViewRevisionStore(store) {

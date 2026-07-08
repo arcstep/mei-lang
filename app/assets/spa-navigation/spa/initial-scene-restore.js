@@ -1,62 +1,3 @@
-  const SCENE_FRAGMENT_API = "/api/host/scene-fragment";
-
-  async function fetchSceneFragment(ctx, options) {
-    const opts = options || {};
-    const params = new URLSearchParams({
-      app: ctx.appId,
-      scene: ctx.sceneId,
-    });
-    if (ctx.dataMode) params.set("data_mode", ctx.dataMode);
-    if (ctx.reviewProjection) params.set("review_projection", ctx.reviewProjection);
-    if (ctx.chrome) params.set("chrome", ctx.chrome);
-    params.set("format", "manifest");
-    const controller = opts.signal ? null : new AbortController();
-    const signal = opts.signal || controller?.signal;
-    const response = await fetch(`${SCENE_FRAGMENT_API}?${params.toString()}`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(`scene fragment failed: ${response.status}`);
-    }
-    return await response.json();
-  }
-
-  async function tryRestoreSceneShellFromFragment(ctx, revision, url, replaceHistory) {
-    const fragment = await fetchSceneFragment(ctx);
-    if (fragment?.manifest && boot.sceneManifestLoader && boot.viewCompositor) {
-      const structure =
-        fragment.manifest?.layers?.["structure.full"]?.content_hash != null
-          ? (
-              await boot.sceneManifestLoader.fetchLayerBatch(
-                ctx.appId,
-                ctx.sceneId,
-                ["structure.full"],
-                boot.sceneManifestLoader.readShellAxes(),
-              )
-            )?.layers?.["structure.full"]
-          : null;
-      if (structure) {
-        const projection =
-          ctx.reviewProjection ||
-          fragment.compose_defaults?.review_projection ||
-          "live_full";
-        const root =
-          typeof boot.resolveComposeRoot === "function"
-            ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
-            : document.querySelector(".shell");
-        if (!root?.querySelector("[data-preview-scope], [data-mei-ui-role]")) {
-          return null;
-        }
-        boot.viewCompositor.composePreview(root, structure, projection, null, null);
-        window.__meiShellRestoredFromManifest = 1;
-        return document;
-      }
-    }
-    return null;
-  }
-
   async function ensureThinShellSceneRuntime() {
     const runtimeReady =
       window.__meiDatasetRuntime &&
@@ -378,11 +319,11 @@
       typeof boot.parseViewContext === "function"
         ? boot.parseViewContext(window.location.href)
         : ctx;
+    const resolved = outcome || { restored: false };
     if (boot.viewAssembly?.assemble && globalThis.__mei?.view_assembly_v2 !== false) {
-      const resolved = outcome || { restored: false };
       if (
         resolved?.restored &&
-        (resolved.source === "ssr_preview" || resolved.source === "client_cache" || resolved.source === "coordinator")
+        (resolved.source === "client_cache" || resolved.source === "coordinator")
       ) {
         return resolved;
       }
@@ -391,80 +332,32 @@
         { debounce: false },
       );
       if (result?.ok) {
-        return { ...resolved, restored: true, source: "coordinator" };
-      }
-    }
-    // Legacy fallback when view_assembly_v2 is disabled or coordinator assemble failed.
-    let resolved = outcome || { restored: false };
-    const surface = ctx?.surface || ctx?.mode || "app";
-    const composeRoot =
-      typeof boot.resolveComposeRoot === "function"
-        ? boot.resolveComposeRoot(surface)
-        : document.querySelector(".shell");
-    const ssrPreviewReady = isSsrInjectedPreviewRoot(composeRoot);
-    if (
-      resolved?.restored &&
-      (resolved.source === "ssr_preview" || resolved.source === "client_cache")
-    ) {
-      if (typeof boot.hideThinShellFallback === "function") {
-        boot.hideThinShellFallback();
-      }
-      return resolved;
-    }
-    if (ssrPreviewReady) {
-      if (typeof boot.hideThinShellFallback === "function") {
-        boot.hideThinShellFallback();
-      }
-      await completeMaterializedSurface(ctx, { ssrPreview: true });
-      return { ...resolved, restored: true, source: "ssr_preview" };
-    }
-    if (!resolved?.restored && boot.negotiateAndAssemble) {
-      const retry = await boot.negotiateAndAssemble(ctx, { silent: true });
-      if (retry?.assemble?.ok) {
-        resolved = {
-          restored: true,
-          doc: document,
-          revision: retry.response,
-          source: retry.outcome || "assemble_local",
-        };
-      }
-    }
-    if (resolved?.restored) {
-      if (typeof boot.hideThinShellFallback === "function") {
-        boot.hideThinShellFallback();
-      }
-      return resolved;
-    }
-    if (typeof boot.bootstrapThinShellComposition === "function") {
-      const ok = await boot.bootstrapThinShellComposition();
-      if (ok) {
         if (typeof boot.hideThinShellFallback === "function") {
           boot.hideThinShellFallback();
         }
-        await wakeRevisionFirstShellRuntime(ctx);
-        return { ...resolved, restored: true, source: "thin-bootstrap" };
+        return { ...resolved, restored: true, source: "coordinator" };
       }
+      const missing =
+        boot.lastViewRevisionOutcome === (boot.ViewRevisionOutcome?.LOCAL_MISS || "local_miss")
+          ? ["view-revision local_miss"]
+          : result?.missing || [];
+      const detail = missing.length ? ` 缺失层: ${missing.join(", ")}` : "";
+      if (typeof boot.showThinShellFallback === "function") {
+        boot.showThinShellFallback(`场景内容无法通过五层 compose 加载。${detail}`);
+      }
+      return { ...resolved, restored: false, source: "coordinator_miss" };
     }
     await wakeRevisionFirstShellRuntime(ctx);
     const scopeCount = document.querySelectorAll("[data-preview-scope]").length;
     if (scopeCount === 0 && typeof boot.showThinShellFallback === "function") {
-      const missing =
-        resolved?.viewRevision?.assemble?.missing ||
-        boot.lastViewRevisionOutcome === (boot.ViewRevisionOutcome?.LOCAL_MISS || "local_miss")
-          ? ["view-revision local_miss"]
-          : [];
-      const detail = missing.length ? ` 缺失层: ${missing.join(", ")}` : "";
-      boot.showThinShellFallback(`场景内容暂时无法加载，请检查 layer 组装。${detail}`);
+      boot.showThinShellFallback("场景内容暂时无法加载，请检查 layer 组装。");
     } else if (typeof boot.hideThinShellFallback === "function") {
       boot.hideThinShellFallback();
     }
     return resolved;
   }
 
-  /**
-   * @deprecated Prefer boot.viewAssembly.assemble; kept for __mei.view_assembly_v2 rollback.
-   */
-  async function negotiateAndAssemble(ctx, options) {
+  async function assembleViaViewRevision(ctx, options) {
     const opts = options || {};
     const viewCtx =
       typeof boot.parseViewContext === "function"
@@ -526,7 +419,7 @@
       if (!opts.skipComplete) {
         await completeMaterializedSurface(viewCtx, {
           layers: result.assemble?.layers,
-          ssrPreview: result.assemble?.source === "ssr_preview",
+          ssrPreview: false,
           warmOnly: (cachedOnly || assembleLocal) && !opts.surfaceSwitch,
           forceRuntimeWake: opts.surfaceSwitch === true,
           generation: opts.generation,
@@ -536,7 +429,7 @@
       return result;
     } catch (error) {
       if (!opts.silent) {
-        console.warn("[spa-navigation] negotiateAndAssemble skipped", error);
+        console.warn("[spa-navigation] view-revision assemble skipped", error);
       }
       return null;
     }
@@ -557,7 +450,10 @@
         typeof boot.resolveComposeRoot === "function"
           ? boot.resolveComposeRoot(surface)
           : document.querySelector(".shell");
-      if (isSsrInjectedPreviewRoot(composeRoot)) {
+      const thinShellPlaceholder =
+        composeRoot instanceof HTMLElement &&
+        composeRoot.getAttribute("data-mei-compose-placeholder") === "1";
+      if (!thinShellPlaceholder && isSsrInjectedPreviewRoot(composeRoot)) {
         if (boot.hostChromeReady?.()) {
           if (typeof boot.hideThinShellFallback === "function") {
             boot.hideThinShellFallback();
@@ -591,13 +487,13 @@
             source: "ssr_preview",
           };
         }
-        /* chrome not ready: fall through to negotiateAndAssemble */
+        /* chrome not ready: fall through to assembleViaViewRevision */
       }
     }
     if (!ctx) {
       return { restored: false, doc: null, revision: null, source: "none" };
     }
-    const negotiated = await negotiateAndAssemble(ctx, {
+    const negotiated = await assembleViaViewRevision(ctx, {
       ...opts,
       skipComplete,
       generation: opts.generation,
@@ -718,24 +614,12 @@
       return viewRevisionOutcome;
     }
 
-    if (typeof boot.fetchSceneRevision === "function") {
-      const revision = await boot.fetchSceneRevision(ctx, {
-        timeoutMs: opts.timeoutMs || 30000,
-        skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
-        preloadSnapshotRevision: false,
-      });
-      if (typeof boot.ensureSceneBootstrapPayload === "function") {
-        await boot.ensureSceneBootstrapPayload(ctx, revision);
-      }
-      return {
-        restored: false,
-        doc: null,
-        revision,
-        source: viewRevisionOutcome?.source || "miss",
-      };
-    }
-
-    return { restored: false, doc: null, revision: null, source: "none" };
+    return {
+      restored: false,
+      doc: null,
+      revision: viewRevisionOutcome?.revision || null,
+      source: viewRevisionOutcome?.source || "miss",
+    };
   }
 
   boot.finishRevisionFirstColdStart = finishRevisionFirstColdStart;
@@ -743,8 +627,6 @@
   boot.completeMaterializedSurface = completeMaterializedSurface;
   boot.clearSurfaceRuntimeWarmedForApp = clearSurfaceRuntimeWarmedForApp;
   boot.wakeRevisionFirstShellRuntime = wakeRevisionFirstShellRuntime;
-  boot.fetchSceneFragment = fetchSceneFragment;
-  boot.tryRestoreSceneShellFromFragment = tryRestoreSceneShellFromFragment;
-  boot.negotiateAndAssemble = negotiateAndAssemble;
+  boot.assembleViaViewRevision = assembleViaViewRevision;
   boot.tryCacheFirstViewRestore = tryCacheFirstViewRestore;
   boot.tryCacheFirstSceneAccess = tryCacheFirstSceneAccess;

@@ -301,7 +301,6 @@
       const params = buildParamsObject();
       const basemaps = parseJsonObject(state.basemapsText, "底图配置");
       const themes = parseJsonObject(state.themesText, "主题配置");
-      const layoutTuning = parseJsonObject(state.layoutTuningText, "布局调优");
       validateSources(state.ops.sources);
       setBusy(true);
       setEditorStatus("保存中…");
@@ -319,7 +318,6 @@
             params,
             basemaps,
             themes,
-            layout_tuning: layoutTuning,
             sources: state.ops.sources,
           },
         }),
@@ -349,8 +347,8 @@
       const params = new URL(window.location.href).searchParams;
       const section = String(params.get("section") || "").trim();
       const scope = String(params.get("scope") || "").trim();
-      if (section === "layoutTuning") {
-        state.selectedPanel = "layoutTuning";
+      if (section === "layoutTuning" || section === "themes") {
+        state.selectedPanel = section === "layoutTuning" ? "themes" : section;
         state.deepLinkScope = scope;
       }
     } catch (_error) {

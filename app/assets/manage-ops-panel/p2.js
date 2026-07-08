@@ -163,12 +163,15 @@
       return `
         <div class="manage-config-detail-head">
           <div>
-            <div class="manage-config-detail-title">布局调优</div>
-            <div class="manage-config-detail-desc">对应 <code>ops.layoutTuning</code>；布局工作区 session draft 确认后写入此处。</div>
+            <div class="manage-config-detail-title">布局调优 <span class="manage-config-deprecated-badge">已废弃</span></div>
+            <div class="manage-config-detail-desc">
+              <code>ops.layoutTuning</code> 已冻结，仅只读兼容存量。请改用
+              <code>ops.themes.*.layout</code> 与 <code>layout.overlay</code> layer（见 0533）。
+            </div>
             ${scopeHint}
           </div>
         </div>
-        <textarea class="manage-ops-editor-textarea manage-config-code" data-ops-json="layoutTuning" spellcheck="false">${escapeHtml(
+        <textarea class="manage-ops-editor-textarea manage-config-code" data-ops-json="layoutTuning" spellcheck="false" readonly>${escapeHtml(
           state.layoutTuningText,
         )}</textarea>
       `;

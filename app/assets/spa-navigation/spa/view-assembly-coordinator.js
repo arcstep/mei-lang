@@ -153,6 +153,30 @@
     );
   }
 
+  function viewRevisionCtx(ctx) {
+    const surface = ctx.surface || ctx.mode || "app";
+    return {
+      app_id: ctx.app_id || ctx.appId,
+      scene_id: ctx.scene_id || ctx.sceneId,
+      surface,
+      node: ctx.node || "",
+      data_mode: ctx.data_mode || ctx.dataMode || "",
+      review_projection: ctx.review_projection || ctx.reviewProjection || "",
+      chrome: ctx.chrome || "",
+      tab: ctx.tab || "",
+      focus: ctx.focus || "",
+      scope: ctx.scope || "",
+    };
+  }
+
+  async function assemblePreviewViaViewRevision(ctx, opts, signal) {
+    if (!boot.viewRevisionClient?.negotiateWithLocalMiss) return null;
+    return boot.viewRevisionClient.negotiateWithLocalMiss(viewRevisionCtx(ctx), {
+      ...(opts || {}),
+      signal,
+    });
+  }
+
   async function waitForSurfaceMaterialized(ctx, generation, signal) {
     if (typeof boot.isSurfaceMaterialized !== "function") return true;
     let ready = boot.isSurfaceMaterialized(ctx);
@@ -160,8 +184,8 @@
     const isWorkspace =
       typeof boot.isWorkspaceComposeSurface === "function" &&
       boot.isWorkspaceComposeSurface(surface);
-    if (!ready && isWorkspace) {
-      const deadline = performance.now() + 3000;
+    if (!ready) {
+      const deadline = performance.now() + (isWorkspace ? 3000 : 8000);
       while (!ready && performance.now() < deadline && !isStale(generation, signal)) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         ready = boot.isSurfaceMaterialized(ctx);
@@ -273,12 +297,11 @@
         negotiateOpts.omit_digests = true;
       }
     }
-    if (typeof boot.negotiateAndAssemble === "function") {
-      result = await boot.negotiateAndAssemble(
-        { ...ctx, url: ctx.url || global.location.href },
-        negotiateOpts,
-      );
+    if (!boot.viewRevisionClient?.negotiateWithLocalMiss) {
+      tracePhase("preview", generation, { ok: false, reason: "view_revision_unavailable" });
+      return null;
     }
+    result = await assemblePreviewViaViewRevision(ctx, negotiateOpts, signal);
     if (result?.assemble?.layers) {
       notifyLayerResident("structure.full", result.assemble.layers, generation);
       const manifest =
@@ -295,18 +318,18 @@
   }
 
   async function retryPreviewForSurfaceReady(ctx, generation, opts, signal) {
-    if (!boot.negotiateAndAssemble) return null;
-    return boot.negotiateAndAssemble(
-      { ...ctx, url: ctx.url || global.location.href },
+    if (!boot.viewRevisionClient?.negotiateWithLocalMiss) return null;
+    return assemblePreviewViaViewRevision(
+      ctx,
       {
         silent: true,
         surfaceSwitch: isSurfaceSwitch(opts),
         forceRematerialize: true,
         omit_digests: true,
         skipComplete: true,
-        signal,
         generation,
       },
+      signal,
     );
   }
 

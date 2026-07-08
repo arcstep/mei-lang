@@ -53,6 +53,9 @@
   function applyReviewProjectionChrome(root, options) {
     if (!(root instanceof HTMLElement)) return;
     const opts = options || {};
+    if (opts.verifyOnly === true) {
+      return verifyComposeProjection(root, opts);
+    }
     const surface = String(
       global.document?.body?.getAttribute("data-surface") ||
         global.document?.body?.getAttribute("data-mei-view") ||
@@ -142,15 +145,50 @@
     });
   }
 
+  function verifyComposeProjection(root, options) {
+    if (!(root instanceof HTMLElement)) return { ok: true, skipped: true };
+    const opts = options || {};
+    const expected = normalizeReviewProjection(
+      opts.reviewProjection || readReviewProjectionFromUrl() || "live_full",
+    );
+    const composed = normalizeReviewProjection(
+      root.getAttribute("data-compose-projection") || "",
+    );
+    const active = normalizeReviewProjection(
+      root.getAttribute("data-review-projection-active") || "",
+    );
+    if (!composed) {
+      return { ok: false, reason: "missing_data_compose_projection" };
+    }
+    const projectionOk = composed === expected;
+    const chromeOk = !active || active === composed;
+    return {
+      ok: projectionOk && chromeOk,
+      expected,
+      composed,
+      active: active || null,
+    };
+  }
+
   function applyProjectionDepth(root, options) {
-    applyReviewProjectionChrome(root, options);
+    const opts = options || {};
+    if (root instanceof HTMLElement && root.getAttribute("data-compose-projection")) {
+      const verified = verifyComposeProjection(root, opts);
+      if (verified.ok) {
+        applyLayoutBudgetManifest(root?.ownerDocument || document);
+        return verified;
+      }
+    }
+    applyReviewProjectionChrome(root, opts);
     applyLayoutBudgetManifest(root?.ownerDocument || document);
+    return verifyComposeProjection(root, opts);
   }
 
   global.MeiProjectionDepth = {
     applyReviewProjectionChrome,
     applyLayoutBudgetManifest,
     applyProjectionDepth,
+    verifyComposeProjection,
     normalizeReviewProjection,
     readReviewProjectionFromUrl,
     elementReviewDepth,

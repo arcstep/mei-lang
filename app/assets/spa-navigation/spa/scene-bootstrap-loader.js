@@ -1,117 +1,64 @@
-  const SCENE_BOOTSTRAP_API = "/api/host/scene-bootstrap";
-  const BOOTSTRAP_ARTIFACT_LS_PREFIX = "mei:scene-bootstrap:v1:";
-  const NO_CLIENT_BOOTSTRAP_REVISION = "__no_client_bootstrap__";
+/**
+ * Scene bootstrap loader — thin compatibility wrapper over eval-pack-loader (E9).
+ */
+(function initSceneBootstrapLoader(global) {
+  "use strict";
 
-  function bootstrapArtifactStorageKey(appId, sceneId, revision) {
-    return `${appId}:${sceneId}:${revision || ""}`;
-  }
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const loader = () => boot.evalPackLoader;
 
   function applyBootstrapPayload(payload) {
-    if (!payload || typeof payload !== "object") return false;
-    window.__mei = window.__mei || {};
-    if (payload.clientRevision) window.__mei.client_revision = payload.clientRevision;
-    if (payload.bootstrapScope) window.__mei.bootstrap_scope = payload.bootstrapScope;
-    if (payload.targetFile) window.__mei.bootstrap_target_file = payload.targetFile;
-    if (payload.compileEpoch) {
-      window.__mei.bootstrap_compile_epoch = payload.compileEpoch;
-      window.__mei.compile_epoch = payload.compileEpoch;
+    if (loader()?.applyEvalPackPayload) {
+      return loader().applyEvalPackPayload(payload, { source: payload?.__source });
     }
-    if (payload.dataGeneration) {
-      window.__mei.bootstrap_data_generation = payload.dataGeneration;
-      window.__mei.data_generation = payload.dataGeneration;
-    }
-    if (payload.appId) window.__mei.bootstrap_app_id = payload.appId;
-    if (Array.isArray(payload.metrics)) window.__mei.bootstrap_metrics = payload.metrics;
-    if (Array.isArray(payload.bootstrapScopes)) {
-      window.__mei.bootstrap_scopes = payload.bootstrapScopes;
-    }
-    if (payload.layoutBudgetManifest) {
-      window.__mei.layout_budget_manifest = payload.layoutBudgetManifest;
-      applyLayoutBudgetManifestProjection();
-    }
-    window.__meiBootstrapPayloadReady = 1;
-    try {
-      document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));
-    } catch (_) {}
-    return true;
-  }
-
-  function readLocalBootstrapArtifact(appId, sceneId, revision) {
-    try {
-      const raw = localStorage.getItem(
-        `${BOOTSTRAP_ARTIFACT_LS_PREFIX}${bootstrapArtifactStorageKey(appId, sceneId, revision)}`,
-      );
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch (_) {
-      return null;
-    }
+    return false;
   }
 
   function tryRestoreBootstrapFromLocalStorage(appId, sceneId, clientRevision) {
-    const revision = String(clientRevision || "").trim();
-    if (!appId || !sceneId || !revision) return null;
-    const cached = readLocalBootstrapArtifact(appId, sceneId, revision);
-    if (!cached) return null;
-    applyBootstrapPayload(cached);
-    window.__meiBootstrapFromLocalStorage = 1;
-    window.__meiEvalPackSource = "scene_bootstrap_local";
-    if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("bootstrap-local-hit", { appId, sceneId, clientRevision: revision });
-    }
-    return cached;
+    return loader()?.ensureEvalPackPayload?.(
+      { appId, sceneId },
+      { client_revision: clientRevision },
+    );
   }
 
-  function writeLocalBootstrapArtifact(appId, sceneId, revision, payload) {
-    try {
-      localStorage.setItem(
-        `${BOOTSTRAP_ARTIFACT_LS_PREFIX}${bootstrapArtifactStorageKey(appId, sceneId, revision)}`,
-        JSON.stringify(payload),
-      );
-      return true;
-    } catch (_) {
-      return false;
+  async function ensureSceneBootstrapPayload(ctx, revision) {
+    if (loader()?.ensureEvalPackPayload) {
+      return loader().ensureEvalPackPayload(ctx, revision || {});
     }
+    return null;
+  }
+
+  async function ensureBootstrapSeeded(ctx, revision) {
+    if (loader()?.ensureEvalPackSeeded) {
+      return loader().ensureEvalPackSeeded(ctx, revision || {});
+    }
+    return 0;
+  }
+
+  function seedBootstrapRuntimeCache() {
+    if (loader()?.seedEvalPackRuntimeCache) {
+      return loader().seedEvalPackRuntimeCache();
+    }
+    return 0;
+  }
+
+  async function fetchJitEvalPack(ctx, options) {
+    if (loader()?.fetchJitEvalPack) {
+      return loader().fetchJitEvalPack(ctx, options || {});
+    }
+    return 0;
   }
 
   function applyLayoutBudgetManifestProjection(doc) {
     if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
       global.MeiProjectionDepth.applyLayoutBudgetManifest(doc);
-      return;
     }
-    const root = doc || document;
-    const manifest = window.__mei?.layout_budget_manifest;
-    if (!manifest?.entries || typeof manifest.entries !== "object") return;
-    Object.entries(manifest.entries).forEach(([scope, entry]) => {
-      if (!entry || typeof entry !== "object") return;
-      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
-      if (!(node instanceof HTMLElement)) return;
-      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
-      if (slotHeight != null) {
-        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
-        node.dataset.manifestSlotHeight = String(slotHeight);
-      }
-      const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
-      if (paddingProfile) {
-        node.dataset.manifestPaddingProfile = String(paddingProfile);
-      }
-      const contentRows = entry.content_rows ?? entry.contentRows;
-      if (Array.isArray(contentRows) && contentRows.length > 0) {
-        node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
-        node.dataset.manifestContentRows = contentRows.join(",");
-      }
-      const contentGap = entry.content_gap ?? entry.contentGap;
-      if (contentGap != null && contentGap !== "") {
-        node.style.rowGap = `${contentGap}px`;
-        node.dataset.manifestContentGap = String(contentGap);
-      }
-    });
   }
 
   function resolveBootstrapAppId() {
-    const mei = window.__mei || {};
+    const mei = global.__mei || {};
     const direct = String(
-      window.__meiRuntimeAppId || mei.bootstrap_app_id || mei.app_id || "",
+      global.__meiRuntimeAppId || mei.bootstrap_app_id || mei.app_id || "",
     ).trim();
     if (direct) return direct;
     const host =
@@ -129,148 +76,8 @@
     return el ? String(el.content || "").trim() : "";
   }
 
-  function resolveBootstrapRevision(revision) {
-    const fromArg = String(revision?.client_revision || revision?.clientRevision || "").trim();
-    if (fromArg) return fromArg;
-    const fromMeta = readBootstrapMeta("mei-bootstrap-client-revision");
-    if (fromMeta) return fromMeta;
-    return String(window.__mei?.client_revision || "").trim();
-  }
-
   function isBootstrapRevisionOnly() {
     return readBootstrapMeta("mei-bootstrap-inlined") === "0";
-  }
-
-  async function ensureSceneBootstrapPayload(ctx, revision) {
-    const appId = ctx?.appId;
-    const sceneId = ctx?.sceneId;
-    const clientRevision = resolveBootstrapRevision(revision);
-    if (!appId || !sceneId) return null;
-    if (clientRevision === NO_CLIENT_BOOTSTRAP_REVISION) {
-      window.__meiBootstrapPayloadReady = 1;
-      return window.__mei || null;
-    }
-    const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
-    const currentAppId = String(window.__mei?.bootstrap_app_id || "").trim();
-    if (
-      window.__meiBootstrapPayloadReady &&
-      currentScope === sceneId &&
-      (!currentAppId || currentAppId === appId)
-    ) {
-      return window.__mei;
-    }
-    const inline = document.getElementById("mei-client-bootstrap");
-    if (inline && inline.textContent) {
-      try {
-        const payload = JSON.parse(inline.textContent || "{}");
-        applyBootstrapPayload(payload);
-        window.__meiEvalPackSource = "bootstrap_inline";
-        if (clientRevision) {
-          writeLocalBootstrapArtifact(appId, sceneId, clientRevision, payload);
-        }
-        return payload;
-      } catch (_) {}
-    }
-    if (clientRevision) {
-      const restored = tryRestoreBootstrapFromLocalStorage(appId, sceneId, clientRevision);
-      if (restored) {
-        return restored;
-      }
-    }
-    const params = new URLSearchParams({ app: appId, scene: sceneId });
-    const response = await fetch(`${SCENE_BOOTSTRAP_API}?${params.toString()}`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(`scene bootstrap failed: ${response.status}`);
-    }
-    const payload = await response.json();
-    applyBootstrapPayload(payload);
-    window.__meiEvalPackFromApi = 1;
-    window.__meiEvalPackSource = "scene_bootstrap_api";
-    if (clientRevision || payload?.clientRevision) {
-      writeLocalBootstrapArtifact(
-        appId,
-        sceneId,
-        clientRevision || payload.clientRevision,
-        payload,
-      );
-    }
-    return payload;
-  }
-
-  function seedBootstrapRuntimeCache() {
-    const sourceMeta = window.__meiBootstrapFromLocalStorage
-      ? "scene_bootstrap_local"
-      : window.__meiEvalPackFromApi
-        ? "scene_bootstrap_api"
-        : window.__meiEvalPackSource || "bootstrap_inline";
-    if (boot.evalStore?.seedPack) {
-      return boot.evalStore.seedPack(window.__mei, { source: sourceMeta });
-    }
-    if (typeof seedFromBootstrap !== "function") {
-      return 0;
-    }
-    const count = seedFromBootstrap(window.__mei);
-    if (count > 0) {
-      window.__meiBootstrapSeeded = true;
-      window.__meiBootstrapSeedCount = count;
-      delete window.__meiBootstrapSeedError;
-      window.__meiEvalPackSource = sourceMeta;
-    }
-    return count;
-  }
-
-  async function ensureBootstrapSeeded(ctx, revision) {
-    const payload = await ensureSceneBootstrapPayload(ctx, revision || {});
-    const count = seedBootstrapRuntimeCache();
-    void prefetchNeighborBootstrapScopes(ctx?.appId, payload);
-    return count;
-  }
-
-  async function prefetchNeighborBootstrapScopes(appId, payload) {
-    const scopes = Array.isArray(payload?.bootstrapScopes) ? payload.bootstrapScopes : [];
-    if (!appId || scopes.length === 0) {
-      return;
-    }
-    for (const entry of scopes) {
-      const neighborScope = String(entry?.bootstrapScope || entry?.bootstrap_scope || "").trim();
-      const neighborRevision = String(entry?.clientRevision || entry?.client_revision || "").trim();
-      if (!neighborScope) continue;
-      const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
-      if (neighborScope === currentScope) continue;
-      try {
-        await ensureBootstrapSeeded(
-          { appId, sceneId: neighborScope },
-          { client_revision: neighborRevision },
-        );
-      } catch (_) {
-        /* neighbor warmup is best-effort */
-      }
-    }
-  }
-
-  async function fetchJitEvalPack(ctx, { fingerprint = "" } = {}) {
-    const appId = ctx?.appId;
-    const sceneId = ctx?.sceneId || "home";
-    if (!appId) return 0;
-    const params = new URLSearchParams({ app: appId, scene: sceneId });
-    const fp = String(fingerprint || "").trim();
-    if (fp) {
-      params.set("fingerprint", fp);
-    }
-    const response = await fetch(`${SCENE_BOOTSTRAP_API}?${params.toString()}`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(`jit eval pack failed: ${response.status}`);
-    }
-    const payload = await response.json();
-    applyBootstrapPayload(payload);
-    window.__meiEvalPackSource = fp ? "jit_eval_pack" : "scene_bootstrap_fetch";
-    return seedBootstrapRuntimeCache();
   }
 
   function resolveActivationSceneId(detail) {
@@ -308,11 +115,11 @@
     const sceneId = resolveActivationSceneId(detail);
     const appId = String(detail.appId || resolveBootstrapAppId() || "").trim();
     if (!appId) return;
-    const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
-    const currentAppId = String(window.__mei?.bootstrap_app_id || "").trim();
+    const currentScope = String(global.__mei?.bootstrap_scope || "").trim();
+    const currentAppId = String(global.__mei?.bootstrap_app_id || "").trim();
     if (
       sceneId &&
-      window.__meiBootstrapPayloadReady &&
+      global.__meiBootstrapPayloadReady &&
       currentScope === sceneId &&
       (!currentAppId || currentAppId === appId)
     ) {
@@ -339,8 +146,10 @@
   boot.isBootstrapRevisionOnly = isBootstrapRevisionOnly;
   boot.readBootstrapMeta = readBootstrapMeta;
   boot.dispatchScopeActivation = dispatchScopeActivation;
-  window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
+  boot.applyLayoutBudgetManifestProjection = applyLayoutBudgetManifestProjection;
+  global.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
 
-  if (window.__meiBootstrapFromLocalStorage && window.__meiBootstrapPayloadReady) {
+  if (global.__meiBootstrapFromLocalStorage && global.__meiBootstrapPayloadReady) {
     seedBootstrapRuntimeCache();
   }
+})(typeof window !== "undefined" ? window : globalThis);

@@ -1,5 +1,7 @@
 /**
  * ViewCompositor: compose review_projection depth without refetching structure.full.
+ * layoutTuning dataset attrs are legacy author-model hints only — new surfaces must use
+ * manifest projection / layout_policy from composed layers, not ops.layoutTuning bypasses.
  */
 (function initViewCompositor(global) {
   "use strict";
@@ -59,11 +61,11 @@
           const numeric = Number(String(slotHeight).replace(/px$/i, "").trim());
           const px = Number.isFinite(numeric) ? `${numeric}px` : String(slotHeight);
           node.style.setProperty("--mei-slot-height", px);
-          node.dataset.layoutTuningSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
+          node.dataset.manifestSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
         }
         const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
         if (paddingProfile) {
-          node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
+          node.dataset.manifestPaddingProfile = String(paddingProfile);
         }
         const contentBudget = patch.contentBudget || patch.content_budget;
         if (contentBudget && typeof contentBudget === "object") {
@@ -77,18 +79,18 @@
             } else {
               node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
             }
-            node.dataset.layoutTuningContentRows = rows.join(",");
+            node.dataset.manifestContentRows = rows.join(",");
           }
           const gap = contentBudget.gap ?? contentBudget.content_gap;
           if (gap != null && gap !== "") {
             node.style.rowGap = `${gap}px`;
-            node.dataset.layoutTuningContentGap = String(gap);
+            node.dataset.manifestContentGap = String(gap);
           }
         }
         const sectionRows = patch.sectionRows || patch.section_rows;
         if (Array.isArray(sectionRows) && sectionRows.length > 0) {
           node.style.gridTemplateRows = sectionRows.map((row) => String(row)).join(" ");
-          node.dataset.layoutTuningSectionRows = sectionRows.join(",");
+          node.dataset.manifestSectionRows = sectionRows.join(",");
         }
         const gapFr = patch.gap ?? patch.stripGap;
         if (gapFr != null && gapFr !== "" && !contentBudget) {
@@ -343,12 +345,19 @@
     const materializer = boot.previewMaterializer;
     const forceRematerialize = composeAxes?.forceRematerialize === true;
     const workspacePreviewRoot = isWorkspacePreviewRoot(root, composeAxes);
+    const thinShellPlaceholder =
+      root instanceof HTMLElement && root.getAttribute("data-mei-compose-placeholder") === "1";
     const preserveWorkspaceDom =
       !forceRematerialize &&
       workspacePreviewRoot &&
       hasEstablishedWorkspacePreview(root);
     const keepSsrPreview =
-      !forceRematerialize && materializer?.isSsrInjectedPreviewRoot?.(root) === true;
+      !forceRematerialize &&
+      root.getAttribute("data-mei-compose-placeholder") !== "1" &&
+      typeof materializer?.canSkipClientCompose === "function" &&
+      materializer.canSkipClientCompose(root, {
+        surface: composeAxes?.route_mode || composeAxes?.routeMode || "app",
+      });
     const shouldMaterializePreview =
       !keepSsrPreview &&
       !preserveWorkspaceDom &&
@@ -362,25 +371,23 @@
     }
     if (shouldMaterializePreview) {
       materializer.materializePreview(root, layers, composeAxes);
-    } else if (!keepSsrPreview && !preserveWorkspaceDom) {
+    } else if (!keepSsrPreview && !preserveWorkspaceDom && !thinShellPlaceholder) {
       ensureStructureSkeleton(root, structure);
     }
-    if (workspacePreviewRoot) {
-      if (typeof materializer?.applyRuntimePlans === "function") {
-        materializer.applyRuntimePlans(layers["runtime.plans"]);
-      }
-      const projectionSlug = String(projection || "").trim().toLowerCase();
-      const bindEvalContent =
-        !projectionSlug ||
-        projectionSlug.includes("full") ||
-        roleDepth(PROJECTION_MAX_ROLE[projectionSlug] || "content") >= roleDepth("content");
-      if (bindEvalContent && typeof materializer?.bindEvalSlots === "function") {
-        const evalDocs =
-          typeof materializer.collectEvalDocs === "function"
-            ? materializer.collectEvalDocs(layers)
-            : [];
-        materializer.bindEvalSlots(root, evalDocs);
-      }
+    if (typeof materializer?.applyRuntimePlans === "function" && layers["runtime.plans"]) {
+      materializer.applyRuntimePlans(layers["runtime.plans"]);
+    }
+    const projectionSlug = String(projection || "").trim().toLowerCase();
+    const bindEvalContent =
+      !projectionSlug ||
+      projectionSlug.includes("full") ||
+      roleDepth(PROJECTION_MAX_ROLE[projectionSlug] || "content") >= roleDepth("content");
+    if (bindEvalContent && typeof materializer?.bindEvalSlots === "function") {
+      const evalDocs =
+        typeof materializer.collectEvalDocs === "function"
+          ? materializer.collectEvalDocs(layers)
+          : [];
+      materializer.bindEvalSlots(root, evalDocs);
     }
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);

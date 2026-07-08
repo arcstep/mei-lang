@@ -87,6 +87,13 @@
         typeof boot.resolveComposeRoot === "function"
           ? boot.resolveComposeRoot(surface)
           : doc?.getElementById?.("mei-compose-root");
+      if (root instanceof HTMLElement && root.getAttribute("data-mei-compose-placeholder") === "1") {
+        return boot.previewMaterializer?.isClientLayerMaterialized?.(root) === true;
+      }
+      if (boot.previewMaterializer?.isClientLayerMaterialized?.(root)) return true;
+      if (typeof boot.previewMaterializer?.canSkipClientCompose === "function") {
+        return boot.previewMaterializer.canSkipClientCompose(root, ctx);
+      }
       const markers = countAppPreviewMarkers(root);
       const materialized =
         typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);

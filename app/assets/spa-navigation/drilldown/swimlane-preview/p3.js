@@ -251,6 +251,156 @@
     return placeholder;
   }
 
+  const SUMMARY_IMAGE_ZOOM_MIN = 1;
+  const SUMMARY_IMAGE_ZOOM_MAX = 4;
+  const SUMMARY_IMAGE_ZOOM_STEP = 1.25;
+
+  function clampSummaryImageZoom(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return SUMMARY_IMAGE_ZOOM_MIN;
+    return Math.min(SUMMARY_IMAGE_ZOOM_MAX, Math.max(SUMMARY_IMAGE_ZOOM_MIN, n));
+  }
+
+  function mountSummaryImagePanZoomControls(viewport, stage, tools) {
+    let zoom = SUMMARY_IMAGE_ZOOM_MIN;
+    let panX = 0;
+    let panY = 0;
+    let panMode = false;
+    let dragState = null;
+    const panButton = tools.querySelector('[data-summary-image-action="pan"]');
+
+    const applyTransform = () => {
+      stage.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    };
+
+    const syncPanButton = () => {
+      if (!(panButton instanceof HTMLButtonElement)) return;
+      panButton.classList.toggle("is-active", panMode);
+      panButton.setAttribute("aria-pressed", panMode ? "true" : "false");
+    };
+
+    const resetView = () => {
+      zoom = SUMMARY_IMAGE_ZOOM_MIN;
+      panX = 0;
+      panY = 0;
+      panMode = false;
+      viewport.classList.remove("is-pan-active", "is-dragging");
+      syncPanButton();
+      applyTransform();
+    };
+
+    const setZoom = (nextZoom) => {
+      zoom = clampSummaryImageZoom(nextZoom);
+      applyTransform();
+    };
+
+    const canDrag = () => panMode || zoom > SUMMARY_IMAGE_ZOOM_MIN + 0.001;
+
+    tools.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("[data-summary-image-action]");
+      if (!(button instanceof HTMLButtonElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const action = button.getAttribute("data-summary-image-action");
+      if (action === "zoom-in") {
+        setZoom(zoom * SUMMARY_IMAGE_ZOOM_STEP);
+        return;
+      }
+      if (action === "zoom-out") {
+        setZoom(zoom / SUMMARY_IMAGE_ZOOM_STEP);
+        if (zoom <= SUMMARY_IMAGE_ZOOM_MIN + 0.001) {
+          panX = 0;
+          panY = 0;
+          applyTransform();
+        }
+        return;
+      }
+      if (action === "pan") {
+        panMode = !panMode;
+        viewport.classList.toggle("is-pan-active", panMode);
+        syncPanButton();
+        return;
+      }
+      if (action === "reset") {
+        resetView();
+      }
+    });
+
+    viewport.addEventListener("pointerdown", (event) => {
+      if (!canDrag()) return;
+      if (event.button !== 0) return;
+      if (event.target?.closest?.(".access-drilldown-video-cockpit-summary-image-tools")) return;
+      dragState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originPanX: panX,
+        originPanY: panY,
+      };
+      viewport.classList.add("is-dragging");
+      if (typeof viewport.setPointerCapture === "function") {
+        viewport.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+    });
+
+    const finishDrag = (event) => {
+      if (!dragState) return;
+      if (event.pointerId !== dragState.pointerId) return;
+      dragState = null;
+      viewport.classList.remove("is-dragging");
+      if (typeof viewport.releasePointerCapture === "function") {
+        try {
+          viewport.releasePointerCapture(event.pointerId);
+        } catch {
+          // ignore stale capture
+        }
+      }
+    };
+
+    viewport.addEventListener("pointermove", (event) => {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      panX = dragState.originPanX + (event.clientX - dragState.startX);
+      panY = dragState.originPanY + (event.clientY - dragState.startY);
+      applyTransform();
+      event.preventDefault();
+    });
+    viewport.addEventListener("pointerup", finishDrag);
+    viewport.addEventListener("pointercancel", finishDrag);
+    viewport.addEventListener("lostpointercapture", () => {
+      dragState = null;
+      viewport.classList.remove("is-dragging");
+    });
+
+    applyTransform();
+    return { resetView };
+  }
+
+  function createSummaryImageViewport(image) {
+    const viewport = document.createElement("div");
+    viewport.className = "access-drilldown-video-cockpit-summary-image-viewport";
+
+    const stage = document.createElement("div");
+    stage.className = "access-drilldown-video-cockpit-summary-image-stage";
+    stage.appendChild(image);
+
+    const tools = document.createElement("div");
+    tools.className = "access-drilldown-video-cockpit-summary-image-tools";
+    tools.setAttribute("role", "group");
+    tools.setAttribute("aria-label", "摘要图片缩放");
+    tools.innerHTML = `
+      <button type="button" data-summary-image-action="zoom-in" title="放大" aria-label="放大">+</button>
+      <button type="button" data-summary-image-action="zoom-out" title="缩小" aria-label="缩小">−</button>
+      <button type="button" data-summary-image-action="pan" title="拖拽平移" aria-label="拖拽平移" aria-pressed="false">✋</button>
+      <button type="button" data-summary-image-action="reset" title="复原视图" aria-label="复原视图">◎</button>
+    `;
+
+    viewport.appendChild(stage);
+    viewport.appendChild(tools);
+    mountSummaryImagePanZoomControls(viewport, stage, tools);
+    return viewport;
+  }
+
   function renderSummaryImagePreview(subtitleBody, row, mapping) {
     if (!(subtitleBody instanceof HTMLElement)) return;
     subtitleBody.replaceChildren();
@@ -264,12 +414,13 @@
     image.alt = "预警摘要图片";
     image.loading = "lazy";
     image.decoding = "async";
+    image.draggable = false;
     image.src = src;
     image.addEventListener("error", () => {
       subtitleBody.replaceChildren();
       appendVideoCockpitPlaceholder(subtitleBody, "未找到匹配的预警摘要图片，请确认已上传");
     });
-    subtitleBody.appendChild(image);
+    subtitleBody.appendChild(createSummaryImageViewport(image));
   }
 
   function renderVideoSubtitleCockpitPanel(host, row, config) {

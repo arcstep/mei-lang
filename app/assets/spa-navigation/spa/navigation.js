@@ -108,17 +108,18 @@
     if (typeof boot.markLoadingRenderSwapDone === "function") {
       boot.markLoadingRenderSwapDone(navigationId);
     }
-    if (ctx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+    if (ctx && typeof boot.rememberViewRevision === "function") {
       try {
-        const revision =
-          typeof boot.fetchSceneRevision === "function"
-            ? await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
-            : null;
-        if (revision) {
-          await boot.saveCurrentSceneShellSnapshot(ctx, revision, doc);
+        const vrCtx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(window.location.href)
+            : ctx;
+        const stored = boot.readViewRevision?.(vrCtx);
+        if (stored) {
+          boot.rememberViewRevision(vrCtx, stored);
         }
       } catch (error) {
-        console.warn("[spa-navigation] scene shell snapshot save skipped", error);
+        console.warn("[spa-navigation] view revision remember skipped", error);
       }
     }
     runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);

@@ -10,42 +10,46 @@
   async function tryHydratePlaceholderPreview(ctx, root, force, layers, options) {
     if (!(root instanceof HTMLElement)) return false;
     const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
-    const ssrReady = boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(root) === true;
     if (!placeholder && !force) return false;
-    if (ssrReady && !placeholder) return true;
-    if (typeof boot.previewMaterializer?.materializePlaceholderPreview === "function") {
-      try {
+    if (
+      !force &&
+      typeof boot.previewMaterializer?.canSkipClientCompose === "function" &&
+      boot.previewMaterializer.canSkipClientCompose(root, ctx)
+    ) {
+      if (layers && typeof boot.previewMaterializer?.finalizeClientPreview === "function") {
         const composeAxes =
           typeof boot.viewRevisionClient?.buildComposeRequest === "function"
             ? boot.viewRevisionClient.buildComposeRequest(ctx)
             : boot.composeDefaultsForSurface?.(ctx) || {};
-        const result = await boot.previewMaterializer.materializePlaceholderPreview(
-          ctx,
-          root,
-          layers,
-          {
-            ...(options || {}),
-            composeAxes,
-            forceRematerialize: force === true || placeholder,
-          },
-        );
-        if (result?.ok) {
-          return result.source === "fragment" ? "fragment" : result.source || true;
-        }
-      } catch (error) {
-        console.warn("[spa-navigation] preview materialize skipped", error);
+        boot.previewMaterializer.finalizeClientPreview(root, layers, composeAxes);
       }
+      return true;
     }
-    if (typeof boot.previewMaterializer?.hydratePlaceholderFromFragment !== "function") {
+    if (typeof boot.previewMaterializer?.materializePlaceholderPreview !== "function") {
       return false;
     }
     try {
-      const hydrated = await boot.previewMaterializer.hydratePlaceholderFromFragment(ctx, root);
-      return hydrated ? "fragment" : false;
+      const composeAxes =
+        typeof boot.viewRevisionClient?.buildComposeRequest === "function"
+          ? boot.viewRevisionClient.buildComposeRequest(ctx)
+          : boot.composeDefaultsForSurface?.(ctx) || {};
+      const result = await boot.previewMaterializer.materializePlaceholderPreview(
+        ctx,
+        root,
+        layers,
+        {
+          ...(options || {}),
+          composeAxes,
+          forceRematerialize: force === true || placeholder,
+        },
+      );
+      if (result?.ok) {
+        return result.source || true;
+      }
     } catch (error) {
-      console.warn("[spa-navigation] preview fragment hydrate skipped", error);
-      return false;
+      console.warn("[spa-navigation] preview materialize skipped", error);
     }
+    return false;
   }
 
   async function composeAppPreviewIfNeeded(ctx, layers, force) {
@@ -60,16 +64,23 @@
         : doc?.getElementById?.("mei-compose-root");
     if (!(root instanceof HTMLElement)) return false;
     const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
-    const materialized =
-      typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
-    if (materialized && !force && !placeholder) return true;
-    if (placeholder || force) {
-      const hydrated = await tryHydratePlaceholderPreview(ctx, root, force, layers);
+    const clientMaterialized =
+      boot.previewMaterializer?.isClientLayerMaterialized?.(root) === true;
+    const partialShell =
+      !clientMaterialized &&
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(root);
+    const forceFull = force === true || placeholder || partialShell;
+    if (clientMaterialized && !force) {
+      return true;
+    }
+    if (placeholder || forceFull) {
+      const hydrated = await tryHydratePlaceholderPreview(ctx, root, forceFull, layers);
       if (hydrated) {
         if (typeof boot.stashAppPreviewSnapshot === "function") {
           boot.stashAppPreviewSnapshot();
         }
-        return hydrated === "fragment" ? "fragment" : hydrated;
+        return hydrated;
       }
     }
     if (!boot.viewCompositor?.composeFromLayers || !layers) return false;
@@ -79,7 +90,7 @@
         : boot.composeDefaultsForSurface?.(ctx) || {};
     return boot.viewCompositor.composeFromLayers(root, layers, {
       ...composeAxes,
-      forceRematerialize: force === true || placeholder,
+      forceRematerialize: forceFull,
     });
   }
 
@@ -97,16 +108,23 @@
         : doc?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
     if (!(root instanceof HTMLElement)) return false;
     const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
-    const materialized =
-      typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
-    if (materialized && !force && !placeholder) return true;
-    if (placeholder || force) {
-      const hydrated = await tryHydratePlaceholderPreview(ctx, root, force, layers);
+    const clientMaterialized =
+      boot.previewMaterializer?.isClientLayerMaterialized?.(root) === true;
+    const partialShell =
+      !clientMaterialized &&
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(root);
+    const forceFull = force === true || placeholder || partialShell;
+    if (clientMaterialized && !force) {
+      return true;
+    }
+    if (placeholder || forceFull) {
+      const hydrated = await tryHydratePlaceholderPreview(ctx, root, forceFull, layers);
       if (hydrated) {
         if (typeof boot.stashWorkspacePreviewSnapshot === "function") {
           boot.stashWorkspacePreviewSnapshot();
         }
-        return hydrated === "fragment" ? "fragment" : hydrated;
+        return hydrated;
       }
     }
     if (!boot.viewCompositor?.composeFromLayers || !layers) return false;
@@ -116,7 +134,7 @@
         : boot.composeDefaultsForSurface?.(ctx) || {};
     return boot.viewCompositor.composeFromLayers(root, layers, {
       ...composeAxes,
-      forceRematerialize: force === true || placeholder,
+      forceRematerialize: forceFull,
     });
   }
 
@@ -125,22 +143,19 @@
     const force = opts.force === true || opts.forceRuntimeWake === true;
     const layers = opts.layers || null;
     const surface = ctx?.surface || ctx?.mode || "app";
-    let hydratedFromFragment = false;
 
     if (surface === "app") {
-      const composed = await composeAppPreviewIfNeeded(ctx, layers, force);
-      hydratedFromFragment = composed === "fragment";
+      await composeAppPreviewIfNeeded(ctx, layers, force);
     } else if (
       typeof boot.isWorkspaceComposeSurface === "function" &&
       boot.isWorkspaceComposeSurface(surface)
     ) {
-      const composed = await composeWorkspacePreviewIfNeeded(ctx, layers, force);
-      hydratedFromFragment = composed === "fragment";
+      await composeWorkspacePreviewIfNeeded(ctx, layers, force);
     }
 
     if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
       await boot.wakeRevisionFirstShellRuntime(ctx, {
-        ssrPreview: opts.ssrPreview === true || hydratedFromFragment,
+        ssrPreview: opts.ssrPreview === true,
         warmOnly: !force && opts.warmOnly === true,
         forceRuntimeWake: force,
       });

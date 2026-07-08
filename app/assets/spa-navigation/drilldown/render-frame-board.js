@@ -1,3 +1,34 @@
+  async function composeBoardSceneSurface(appId, sceneId) {
+    const ctx = {
+      app_id: appId,
+      appId,
+      scene_id: sceneId,
+      sceneId,
+      surface: "app",
+      mode: "app",
+    };
+    const result = await boot.viewRevisionClient?.negotiateWithLocalMiss?.(ctx, { silent: true });
+    const layers = result?.assemble?.layers;
+    if (!layers) {
+      throw new Error("board scene layer assembly failed");
+    }
+    const temp = document.createElement("div");
+    temp.setAttribute("data-mei-compose-placeholder", "1");
+    const composeAxes =
+      typeof boot.viewRevisionClient?.buildComposeRequest === "function"
+        ? boot.viewRevisionClient.buildComposeRequest(ctx)
+        : { review_projection: "live_full", data_mode: "eval", route_mode: "app" };
+    const composed = boot.viewCompositor?.composeFromLayers?.(temp, layers, composeAxes);
+    if (!composed) {
+      throw new Error("board scene compose failed");
+    }
+    return (
+      temp.querySelector("[data-mei-frame-viewport]") ||
+      temp.querySelector(".preview-surface.preview-stage") ||
+      temp.querySelector(".preview-surface")
+    );
+  }
+
   async function renderFrameBoardSceneContent(root, detail, config) {
     applyDrilldownOverlayMeta(root, config);
     setDrilldownOverlayStatus(root, "loading");
@@ -9,35 +40,11 @@
       return false;
     }
     const url = `/apps/app/${appId}/scene/${encodeURIComponent(sceneId)}`;
-    const fragmentUrl = `/api/host/scene-fragment?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
     try {
-      let surface = null;
-      const fragmentResponse = await fetch(fragmentUrl, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
-      });
-      if (fragmentResponse.ok) {
-        const fragment = await fragmentResponse.json();
-        if (fragment?.surfaceHtml) {
-          const mountFromFragment = document.createElement("div");
-          mountFromFragment.innerHTML = fragment.surfaceHtml;
-          surface = mountFromFragment.firstElementChild;
-        }
+      if (!boot.viewRevisionClient?.negotiateWithLocalMiss || !boot.viewCompositor?.composeFromLayers) {
+        throw new Error("board scene compose unavailable");
       }
-      if (!(surface instanceof HTMLElement)) {
-        const response = await fetch(url, {
-          credentials: "same-origin",
-          headers: { "x-mei-spa-nav": "1" },
-        });
-        if (!response.ok) {
-          throw new Error(`scene fetch failed: ${response.status}`);
-        }
-        const html = await response.text();
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        surface = doc.querySelector(
-          "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
-        );
-      }
+      const surface = await composeBoardSceneSurface(appId, sceneId);
       if (!(surface instanceof HTMLElement)) {
         throw new Error("board scene preview surface missing");
       }

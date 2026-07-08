@@ -242,7 +242,7 @@
       preview_render: previewRenderSummary(),
       boot_apis: {
         tryCacheFirstViewRestore: typeof boot.tryCacheFirstViewRestore === "function",
-        negotiateAndAssemble: typeof boot.negotiateAndAssemble === "function",
+        assembleViaViewRevision: typeof boot.assembleViaViewRevision === "function",
         viewRevisionClient: !!boot.viewRevisionClient?.negotiateWithLocalMiss,
         layerStore: !!boot.layerStore?.putLayerByRef,
         viewCompositor: !!boot.viewCompositor?.composeFromLayers,
@@ -282,9 +282,19 @@
       }
     }
 
-    if (ctx && boot.negotiateAndAssemble) {
+    if (ctx && boot.viewRevisionClient?.negotiateWithLocalMiss) {
       try {
-        const assembled = await boot.negotiateAndAssemble(ctx, { silent: true });
+        const vrCtx = {
+          app_id: ctx.app_id || ctx.appId,
+          scene_id: ctx.scene_id || ctx.sceneId,
+          surface: ctx.surface || ctx.mode || "app",
+          data_mode: ctx.data_mode || ctx.dataMode || "",
+          review_projection: ctx.review_projection || ctx.reviewProjection || "",
+          chrome: ctx.chrome || "",
+        };
+        const assembled = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx, {
+          silent: true,
+        });
         report.assemble = {
           ok: !!assembled?.assemble?.ok,
           outcome: assembled?.outcome,

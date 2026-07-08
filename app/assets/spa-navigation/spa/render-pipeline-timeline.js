@@ -12,7 +12,7 @@
   const PIPELINE_LS = "mei:render-pipeline";
   const PIPELINE_REPORT_API = "/api/host/client-trace";
   const HOST_API_RE =
-    /\/api\/host\/(view-revision|layer-batch|scene-revision|scene-manifest|scene-bootstrap|scene-fragment|scene-drilldown-context)/;
+    /\/api\/host\/(view-revision|layer-batch|scene-manifest|scene-bootstrap|scene-drilldown-context)/;
   const BUNDLE_RE = /\/(access|manage)\.bundle\.js(\?|$)/;
 
   const state = {
@@ -82,7 +82,6 @@
   function classifyFetchUrl(url) {
     const text = String(url || "");
     if (BUNDLE_RE.test(text)) return "bundle";
-    if (text.includes("/api/host/scene-fragment")) return "scene-fragment";
     if (text.includes("/api/host/view-revision")) return "view-revision";
     if (text.includes("/api/host/layer-batch")) return "layer-batch";
     if (text.includes("/api/host/scene-bootstrap")) return "scene-bootstrap";
@@ -147,7 +146,7 @@
     const surfaceReady = state.marks.find((row) => row.name === "surface_ready");
     const coldStart = phaseSpan("cold_start");
     const assembly = phaseSpan("assembly");
-    const fragment = phaseSpan("preview_fragment");
+    const compose = phaseSpan("preview_compose");
     const byKind = {};
     for (const row of state.fetches) {
       const bucket = byKind[row.kind] || {
@@ -178,7 +177,7 @@
       surfaceReadyMs: surfaceReady?.ms ?? null,
       coldStartMs: coldStart?.durationMs ?? null,
       assemblyMs: assembly?.durationMs ?? null,
-      previewFragmentMs: fragment?.durationMs ?? null,
+      previewComposeMs: compose?.durationMs ?? null,
       bodyPerf,
       fetchByKind: byKind,
       marks: state.marks.slice(-32),
@@ -208,8 +207,8 @@
       `  document≈${summary.documentMs}ms`,
       `  client_after_doc≈${summary.clientAfterDocumentMs}ms`,
     ];
-    if (summary.previewFragmentMs != null) {
-      lines.push(`  preview_fragment≈${summary.previewFragmentMs}ms`);
+    if (summary.previewComposeMs != null) {
+      lines.push(`  preview_compose≈${summary.previewComposeMs}ms`);
     }
     if (summary.assemblyMs != null) lines.push(`  assembly≈${summary.assemblyMs}ms`);
     if (summary.surfaceReadyMs != null) lines.push(`  surface_ready@${summary.surfaceReadyMs}ms`);

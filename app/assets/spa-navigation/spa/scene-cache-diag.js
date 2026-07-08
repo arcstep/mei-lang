@@ -73,12 +73,12 @@
     const shellKey =
       typeof boot.snapshotStorageKey === "function" && ctx ? boot.snapshotStorageKey(ctx) : null;
     const revisionKey =
-      typeof boot.sceneRevisionCacheKey === "function" && ctx
-        ? boot.sceneRevisionCacheKey(ctx)
+      typeof boot.viewRevisionStoreKey === "function" && ctx
+        ? boot.viewRevisionStoreKey(ctx)
         : null;
     const cachedRevision =
-      ctx && typeof boot.readCachedSceneRevision === "function"
-        ? boot.readCachedSceneRevision(ctx)
+      ctx && typeof boot.readViewRevision === "function"
+        ? boot.readViewRevision(ctx)
         : null;
     const ssrRevision =
       typeof boot.readSsrEmbeddedSceneRevision === "function"
@@ -170,10 +170,8 @@
     global.fetch = function meiCacheDiagFetch(input, init) {
       const url = String(input?.url || input || "");
       if (
-        url.includes("/api/host/scene-revision") ||
         url.includes("/api/host/view-revision") ||
         url.includes("/api/host/scene-bootstrap") ||
-        url.includes("/api/host/scene-fragment") ||
         url.includes("/api/host/layer-batch") ||
         url.includes("/api/host/scene-manifest")
       ) {

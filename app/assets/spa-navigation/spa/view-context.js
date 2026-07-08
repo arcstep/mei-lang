@@ -137,6 +137,7 @@
   }
 
   boot.parseViewContext = parseViewContext;
+  boot.parseAccessSceneContext = parseViewContext;
   boot.canonicalizeViewUrl = canonicalizeViewUrl;
   boot.isWorkspaceComposeSurface = isWorkspaceComposeSurface;
   boot.resolveComposeRoot = resolveComposeRoot;

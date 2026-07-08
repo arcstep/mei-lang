@@ -153,17 +153,18 @@
         if (typeof boot.fixTopbarHrefsFromPageContext === "function") {
           boot.fixTopbarHrefsFromPageContext();
         }
-        if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+        if (sceneCtx && typeof boot.rememberViewRevision === "function") {
           try {
-            const revision =
-              typeof boot.fetchSceneRevision === "function"
-                ? await boot.fetchSceneRevision(sceneCtx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
-                : null;
-            if (revision) {
-              await boot.saveCurrentSceneShellSnapshot(sceneCtx, revision, doc);
+            const vrCtx =
+              typeof boot.parseViewContext === "function"
+                ? boot.parseViewContext(window.location.href)
+                : sceneCtx;
+            const stored = boot.readViewRevision?.(vrCtx);
+            if (stored) {
+              boot.rememberViewRevision(vrCtx, stored);
             }
           } catch (error) {
-            console.warn("[spa-navigation] post-spa shell snapshot save skipped", error);
+            console.warn("[spa-navigation] post-spa revision remember skipped", error);
           }
         }
         if (typeof boot.markLoadingPostSpaDone === "function") {

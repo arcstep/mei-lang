@@ -155,36 +155,66 @@
     if (!scope || typeof fetch !== "function") {
       return false;
     }
-    const appId = resolveAppIdFromShell();
-    const hops = resolveClientBootstrapNeighborHops();
-    const appQuery = appId ? `&appId=${encodeURIComponent(appId)}` : "";
-    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=${hops}${appQuery}`;
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) {
+    if (!window.__meiBootstrapPayloadReady && !window.__meiBootstrapSeeded) {
+      const ctx =
+        typeof boot.parseViewContext === "function"
+          ? boot.parseViewContext(window.location.href)
+          : null;
+      if (typeof boot.ensureBootstrapSeeded === "function" && ctx) {
+        await boot.ensureBootstrapSeeded(ctx, {});
+      }
+      if (!window.__meiBootstrapPayloadReady && !window.__meiBootstrapSeeded) {
+        console.warn("[projection-host] eval pack blocked until bootstrap seeded");
         return false;
       }
-      const result = await response.json();
-      const payload =
-        result?.payload && typeof result.payload === "object" ? result.payload : null;
-      if (payload && typeof boot.applyBootstrapPayload === "function") {
-        boot.applyBootstrapPayload(payload);
+    }
+    const appId = resolveAppIdFromShell();
+    const hops = resolveClientBootstrapNeighborHops();
+    try {
+      const fetchPack =
+        typeof boot.fetchEvalPackFromApi === "function"
+          ? boot.fetchEvalPackFromApi
+          : typeof boot.evalPackLoader?.fetchEvalPackFromApi === "function"
+            ? (ctx, opts) => boot.evalPackLoader.fetchEvalPackFromApi(ctx, opts)
+            : null;
+      let payload = null;
+      if (fetchPack) {
+        payload = await fetchPack(
+          { appId, sceneId: scope },
+          { neighborHops: hops, fingerprint: config?.fingerprint || "" },
+        );
+      } else {
+        const params = new URLSearchParams({
+          app: appId,
+          scene: scope,
+          scope,
+          pack: "unified",
+          neighbor_hops: String(hops),
+        });
+        const response = await fetch(`/api/host/scene-eval-pack?${params.toString()}`, {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) return false;
+        const result = await response.json();
+        payload =
+          result?.payload && typeof result.payload === "object" ? result.payload : result;
+        if (payload && typeof boot.applyBootstrapPayload === "function") {
+          boot.applyBootstrapPayload(payload);
+        }
       }
       if (typeof boot.dispatchScopeActivation === "function") {
         boot.dispatchScopeActivation({
           scope,
           sceneId: scope,
           appId,
-          source: "mrg-activate",
+          source: "eval-pack",
           projection: nonEmptyString(config?.projection, "overlay"),
         });
       } else {
         document.dispatchEvent(
           new CustomEvent("meilang:scope-activation", {
-            detail: { scope, sceneId: scope, appId, source: "mrg-activate" },
+            detail: { scope, sceneId: scope, appId, source: "eval-pack" },
           }),
         );
       }
@@ -193,6 +223,7 @@
       }
       if (typeof window !== "undefined") {
         window.__meiLastScopeActivation = { scope, sceneId: scope, appId, at: Date.now() };
+        window.__meiEvalPackSource = "eval_pack_api";
       }
       return true;
     } catch (_) {
