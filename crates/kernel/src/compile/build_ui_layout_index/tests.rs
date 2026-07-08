@@ -1988,3 +1988,239 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
         "ui index should surface section_derived_height_px for fill section"
     );
 }
+
+fn supervision_stats_triptych_panel() -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: "supervision-stats".to_string(),
+        title: None,
+        head: None,
+        area: Some("auto".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string(), "1fr".to_string(), "1fr".to_string()]),
+            rows: Some(vec!["1fr".to_string()]),
+            areas: Some(vec![vec![
+                "items".to_string(),
+                "models".to_string(),
+                "warnings".to_string(),
+            ]]),
+            gap: Some("6px".to_string()),
+            padding: Some("8px".to_string()),
+            align: Some("stretch".to_string()),
+            justify: Some("stretch".to_string()),
+        }),
+        blocks: vec![
+            UiNodeDecl::Panel(triptych_metric_card_panel("supervision_items_card", "items")),
+            UiNodeDecl::Panel(triptych_metric_card_panel("supervision_models_card", "models")),
+            UiNodeDecl::Panel(triptych_metric_card_panel("warnings_count_card", "warnings")),
+        ],
+        slot: None,
+        props: json!({
+            "__mei_layout_fill": true,
+            "variant": "container",
+            "chrome": "bare",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn triptych_metric_card_panel(id: &str, area: &str) -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: id.to_string(),
+        title: None,
+        head: None,
+        area: Some(area.to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Block(metric_block("auto", id))],
+        slot: None,
+        props: json!({"__mei_metric_card": true}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+#[test]
+fn panel_contract_triptych_projects_grid_manifest_and_micro_layout_slots() {
+    let warning_section = PanelDecl {
+        kind: "panel".to_string(),
+        id: "warning".to_string(),
+        title: Some("监督预警".to_string()),
+        head: None,
+        area: Some("warning".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Panel(supervision_stats_triptych_panel())],
+        slot: None,
+        props: json!({
+            "__mei_padding_profile": "compact",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let region = PanelDecl {
+        kind: "panel".to_string(),
+        id: "right_rail".to_string(),
+        title: None,
+        head: None,
+        area: Some("right_rail".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: None,
+            rows: Some(vec![
+                "1fr".to_string(),
+                "1fr".to_string(),
+                "1fr".to_string(),
+                "1fr".to_string(),
+            ]),
+            areas: Some(vec![
+                vec!["warning".to_string()],
+                vec!["_".to_string()],
+                vec!["_".to_string()],
+                vec!["_".to_string()],
+            ]),
+            gap: Some("12px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![UiNodeDecl::Panel(warning_section)],
+        slot: None,
+        props: json!({"__mei_chrome_role": "rail", "__mei_tier": "t1"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    };
+    let compiled = CompiledApp {
+        app_id: "supervision-mini".to_string(),
+        title: "supervision-mini".to_string(),
+        app_root: "/tmp/supervision-mini".to_string(),
+        scene_routes: vec![CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "src/scene/home/assembly.mei".to_string(),
+            kind: "scene".to_string(),
+            title: None,
+            is_default: true,
+            access_export: true,
+        }],
+        active_scene: Some("home".to_string()),
+        active_target_file: "src/scene/home/assembly.mei".to_string(),
+        file_tree: vec![],
+        scene_contract: Some(SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![region],
+        }),
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
+    };
+
+    let ui = build_ui_layout_index(&compiled);
+    let manifest = ui.index.layout_budget_manifest("test-rev");
+    let region_entry = manifest
+        .entries
+        .get("t1/right_rail")
+        .expect("right_rail region manifest");
+    assert_eq!(
+        region_entry.grid_template_rows.as_deref(),
+        Some("1fr 1fr 1fr 1fr")
+    );
+    assert_eq!(
+        region_entry.grid_template_areas.as_deref(),
+        Some("'warning' '_' '_' '_'")
+    );
+    assert_eq!(
+        region_entry.slot_areas.as_deref(),
+        Some(
+            &[
+                "warning".to_string(),
+                "_".to_string(),
+                "_".to_string(),
+                "_".to_string()
+            ][..]
+        )
+    );
+
+    let section_entry = manifest
+        .entries
+        .get("t1/right_rail/warning")
+        .expect("warning section manifest");
+    assert_eq!(
+        section_entry.grid_template_rows.as_deref(),
+        Some("auto minmax(0, 1fr)")
+    );
+    assert_eq!(section_entry.padding_profile.as_deref(), Some("compact"));
+
+    let micro_entry = manifest
+        .entries
+        .get("t1/right_rail/warning/supervision-stats")
+        .expect("supervision-stats micro layout manifest");
+    assert_eq!(
+        micro_entry.grid_template_columns.as_deref(),
+        Some("1fr 1fr 1fr")
+    );
+    assert_eq!(micro_entry.gap.as_deref(), Some("6px"));
+    assert_eq!(
+        micro_entry.slot_areas.as_deref(),
+        Some(&["items".to_string(), "models".to_string(), "warnings".to_string()][..])
+    );
+
+    let leaked = ui
+        .index
+        .nodes
+        .values()
+        .any(|node| node.preview_scope == "t1/right_rail/warning/label");
+    assert!(
+        !leaked,
+        "metric role slots must not leak to section level: {:?}",
+        ui.index
+            .nodes
+            .values()
+            .map(|n| n.preview_scope.clone())
+            .collect::<Vec<_>>()
+    );
+}

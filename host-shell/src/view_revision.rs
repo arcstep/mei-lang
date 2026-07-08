@@ -146,27 +146,64 @@ pub(crate) fn resolve_view_revision_for_surface(
     });
     if response.status == mei_host_graph::ViewRevisionStatus::Refetch
         && !response.changed_layers.is_empty()
-        && response.changed_layers.len() <= 24
     {
-        let inline = materialize_layers_for_request(
-            workspace_root,
-            app_id,
-            scene_id,
-            route_mode,
-            data_mode,
-            compose,
-            draft_session,
-            draft_digest,
+        let inline_layer_names = bootstrap_inline_layer_names(
             &response.changed_layers,
-            hits,
-            chrome_host,
-        )?;
-        response.inline_layers = Some(inline);
-        if response.manifest.is_none() {
-            response.manifest = Some(manifest);
+            route_mode,
+        );
+        if !inline_layer_names.is_empty() {
+            let inline = materialize_layers_for_request(
+                workspace_root,
+                app_id,
+                scene_id,
+                route_mode,
+                data_mode,
+                compose,
+                draft_session,
+                draft_digest,
+                &inline_layer_names,
+                hits,
+                chrome_host,
+            )?;
+            response.inline_layers = Some(inline);
+            if response.manifest.is_none() {
+                response.manifest = Some(manifest);
+            }
         }
     }
     Ok(response)
+}
+
+fn bootstrap_inline_layer_names(
+    changed_layers: &[String],
+    route_mode: UiRouteMode,
+) -> Vec<String> {
+    const BOOTSTRAP_PREFIXES: &[&str] = &[
+        "structure.full",
+        "runtime.plans",
+        "eval.slot_group.scene:default",
+        "theme.tokens",
+        "layout.overlay",
+    ];
+    let shell_key = format!("shell.{}", route_mode.slug());
+    let mut names: Vec<String> = changed_layers
+        .iter()
+        .filter(|name| {
+            BOOTSTRAP_PREFIXES
+                .iter()
+                .any(|prefix| name.as_str() == *prefix || name.starts_with(&format!("{prefix}:")))
+                || name.as_str() == shell_key.as_str()
+        })
+        .cloned()
+        .collect();
+    if names.is_empty() {
+        names = changed_layers.to_vec();
+    } else if changed_layers.len() <= 24 {
+        names = changed_layers.to_vec();
+    }
+    names.sort();
+    names.dedup();
+    names
 }
 
 fn apply_view_revision_headers(response: &mut Response, revision: &mei_host_graph::ViewRevisionResponse) {

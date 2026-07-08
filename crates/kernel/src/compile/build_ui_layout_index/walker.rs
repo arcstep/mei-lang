@@ -135,6 +135,21 @@ pub fn build_scene_ui_structure(
     builder.finish()
 }
 
+fn tier_scoped_preview_scope(tier: &str, logical_path: &str) -> String {
+    let tier_slug = tier.trim().trim_matches('/').to_ascii_lowercase();
+    let path = logical_path.trim().trim_matches('/');
+    if path.is_empty() {
+        return tier_slug.to_string();
+    }
+    if tier_slug.is_empty() {
+        return path.to_string();
+    }
+    if path.starts_with(&format!("{tier_slug}/")) {
+        return path.to_string();
+    }
+    format!("{tier_slug}/{path}")
+}
+
 fn walk_region(builder: &mut Builder<'_>, region: &PanelDecl, tier: &str, plane_id: &str) {
     let region_id = region.id.clone();
     let region_label = region_label(region);
@@ -143,15 +158,16 @@ fn walk_region(builder: &mut Builder<'_>, region: &PanelDecl, tier: &str, plane_
         tier.to_string(),
         region_id.clone(),
     ];
-    let preview_scope = region_id.clone();
+    let preview_scope = tier_scoped_preview_scope(tier, region_id.as_str());
+    let region_budget = budget_from_panel(region);
     let region_node = builder.make_node(
         UiScopeRole::Region,
         region_label,
         &region_segments,
-        preview_scope,
+        preview_scope.clone(),
         Some(plane_id.to_string()),
         Some(tier.to_string()),
-        None,
+        region_budget,
         source_anchor_for_panel(region),
         None,
     );
@@ -166,20 +182,88 @@ fn walk_region(builder: &mut Builder<'_>, region: &PanelDecl, tier: &str, plane_
             tier,
             &region_node_id,
             &region_segments,
-            &region_id,
+            preview_scope.as_str(),
         );
         return;
     }
 
     for (section_key, section_panel) in sections {
+        if panel_is_nested_region(&section_panel) {
+            walk_nested_region_under_region(
+                builder,
+                &section_panel,
+                tier,
+                &region_node_id,
+                &region_segments,
+                preview_scope.as_str(),
+            );
+            continue;
+        }
         walk_section(
             builder,
             &section_panel,
             tier,
             &region_node_id,
             &region_segments,
-            &region_id,
+            preview_scope.as_str(),
             section_key.as_str(),
+        );
+    }
+}
+
+fn panel_is_nested_region(panel: &PanelDecl) -> bool {
+    ui_role_from_props(&panel.props) == Some("region")
+}
+
+fn walk_nested_region_under_region(
+    builder: &mut Builder<'_>,
+    nested_region: &PanelDecl,
+    tier: &str,
+    parent_region_node_id: &str,
+    parent_region_segments: &[String],
+    _parent_preview_prefix: &str,
+) {
+    let nested_id = nested_region.id.clone();
+    let nested_label = region_label(nested_region);
+    let mut nested_segments = parent_region_segments.to_vec();
+    nested_segments.push(nested_id.clone());
+    let nested_preview_scope = tier_scoped_preview_scope(tier, nested_id.as_str());
+    let nested_budget = budget_from_panel(nested_region);
+    let nested_node = builder.make_node(
+        UiScopeRole::Region,
+        nested_label,
+        &nested_segments,
+        nested_preview_scope.clone(),
+        Some(parent_region_node_id.to_string()),
+        Some(tier.to_string()),
+        nested_budget,
+        source_anchor_for_panel(nested_region),
+        None,
+    );
+    let nested_node_id = builder.insert_node(nested_node);
+    builder.link_child(parent_region_node_id, &nested_node_id);
+
+    let subsections = sections_in_region(nested_region);
+    if subsections.is_empty() {
+        walk_default_section(
+            builder,
+            nested_region,
+            tier,
+            &nested_node_id,
+            &nested_segments,
+            nested_preview_scope.as_str(),
+        );
+        return;
+    }
+    for (subsection_key, subsection_panel) in subsections {
+        walk_section(
+            builder,
+            &subsection_panel,
+            tier,
+            &nested_node_id,
+            &nested_segments,
+            nested_preview_scope.as_str(),
+            subsection_key.as_str(),
         );
     }
 }
@@ -585,6 +669,11 @@ fn walk_contract_level_content_in_panel(
     preview_prefix: &str,
     file_hint: Option<&str>,
 ) {
+    // Metric cards are surfaced as a single content node via `walk_content_panel`;
+    // emitting contract-level label/value/unit slots here duplicates client mounts.
+    if is_metric_card_panel(host_panel) {
+        return;
+    }
     for (block, content_label) in contract_level_content_blocks(host_panel) {
         walk_contract_level_content_block(
             builder,
@@ -1161,8 +1250,32 @@ fn is_micro_layout_panel(panel: &PanelDecl) -> bool {
         {
             return true;
         }
+        if areas.len() >= 2 && panel_has_slotted_layout_children(panel, &areas) {
+            return true;
+        }
     }
     false
+}
+
+fn panel_has_slotted_layout_children(panel: &PanelDecl, areas: &[String]) -> bool {
+    if areas.is_empty() {
+        return false;
+    }
+    panel.blocks.iter().any(|ui_node| match ui_node {
+        UiNodeDecl::Block(block) => block
+            .area
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "auto")
+            .is_some_and(|area| areas.iter().any(|slot| slot == area)),
+        UiNodeDecl::Panel(nested) => nested
+            .area
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some_and(|area| areas.iter().any(|slot| slot == area)),
+        _ => false,
+    })
 }
 
 fn is_compound_metric_panel(panel: &PanelDecl) -> bool {
@@ -1568,8 +1681,16 @@ fn merged_section_budget(section: &PanelDecl) -> Option<UiBudgetSummary> {
     let mut budget = budget_from_panel(section).unwrap_or_default();
     if let Some(content_panel) = content_budget_panel_in_deep(section) {
         if let Some(content_budget) = budget_from_panel(content_panel) {
-            budget = merge_budget_summaries(budget, content_budget);
+            budget = merge_section_shell_budget(budget, content_budget);
         }
+    }
+    if section
+        .title
+        .as_deref()
+        .is_some_and(|title| !title.trim().is_empty())
+        && budget.grid_template_rows.is_none()
+    {
+        budget.grid_template_rows = Some("auto minmax(0, 1fr)".to_string());
     }
     if budget_is_empty(&budget) {
         None
@@ -1578,18 +1699,9 @@ fn merged_section_budget(section: &PanelDecl) -> Option<UiBudgetSummary> {
     }
 }
 
-fn merge_budget_summaries(mut base: UiBudgetSummary, overlay: UiBudgetSummary) -> UiBudgetSummary {
-    if overlay.gap.is_some() {
-        base.gap = overlay.gap;
-    }
+fn merge_section_shell_budget(mut base: UiBudgetSummary, overlay: UiBudgetSummary) -> UiBudgetSummary {
     if overlay.padding.is_some() {
         base.padding = overlay.padding;
-    }
-    if overlay.card_height.is_some() {
-        base.card_height = overlay.card_height;
-    }
-    if overlay.content_rows.is_some() {
-        base.content_rows = overlay.content_rows;
     }
     if overlay.content_gap.is_some() {
         base.content_gap = overlay.content_gap;
@@ -1599,9 +1711,6 @@ fn merge_budget_summaries(mut base: UiBudgetSummary, overlay: UiBudgetSummary) -
     }
     if overlay.padding_profile.is_some() {
         base.padding_profile = overlay.padding_profile;
-    }
-    for (key, value) in overlay.widths {
-        base.widths.insert(key, value);
     }
     base
 }
@@ -1632,6 +1741,24 @@ fn content_budget_panel_in_deep(panel: &PanelDecl) -> Option<&PanelDecl> {
 fn budget_from_panel(panel: &PanelDecl) -> Option<UiBudgetSummary> {
     let mut budget = UiBudgetSummary::default();
     if let Some(layout) = &panel.layout {
+        if layout.layout_type != "flex" {
+            if let Some(columns) = layout.columns.as_ref().filter(|cols| !cols.is_empty()) {
+                budget.grid_template_columns = Some(columns.join(" "));
+            }
+            if let Some(rows) = layout.rows.as_ref().filter(|rows| !rows.is_empty()) {
+                budget.grid_template_rows = Some(rows.join(" "));
+            }
+            if let Some(areas) = grid_template_areas_css(layout) {
+                budget.grid_template_areas = Some(areas);
+            }
+            let slot_areas = flat_areas(layout)
+                .into_iter()
+                .filter(|area| !area.trim().is_empty() && area != ".")
+                .collect::<Vec<_>>();
+            if !slot_areas.is_empty() {
+                budget.slot_areas = Some(slot_areas);
+            }
+        }
         if let Some(gap) = layout.gap.as_deref().filter(|v| !v.is_empty()) {
             budget.gap = Some(gap.to_string());
         }
@@ -1718,6 +1845,34 @@ fn budget_is_empty(budget: &UiBudgetSummary) -> bool {
         && budget.content_gap.is_none()
         && budget.section_derived_height_px.is_none()
         && budget.padding_profile.is_none()
+        && budget.grid_template_columns.is_none()
+        && budget.grid_template_rows.is_none()
+        && budget.grid_template_areas.is_none()
+        && budget.slot_areas.is_none()
+}
+
+fn grid_template_areas_css(layout: &LayoutDecl) -> Option<String> {
+    let rows = layout.areas.as_ref()?;
+    let formatted = rows
+        .iter()
+        .filter(|row| !row.is_empty())
+        .map(|row| {
+            let template = row
+                .iter()
+                .map(|area| {
+                    let area = area.trim();
+                    if area.is_empty() { "." } else { area }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("'{template}'")
+        })
+        .collect::<Vec<_>>();
+    if formatted.is_empty() {
+        None
+    } else {
+        Some(formatted.join(" "))
+    }
 }
 
 fn budget_label_from_summary(budget: &UiBudgetSummary) -> String {

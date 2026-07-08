@@ -86,6 +86,18 @@ pub struct UiBudgetSummary {
     /// Section padding profile enum key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub padding_profile: Option<String>,
+    /// Grid track list from `panel.layout.columns` (space-joined CSS value).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_template_columns: Option<String>,
+    /// Grid track list from `panel.layout.rows` (space-joined CSS value).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_template_rows: Option<String>,
+    /// `grid-template-areas` value (quoted row tokens, space-joined).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_template_areas: Option<String>,
+    /// Named slot areas for direct-child `grid-area` assignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot_areas: Option<Vec<String>>,
 }
 
 /// One node in the UI structure tree.
@@ -150,7 +162,10 @@ impl UiLayoutIndex {
     pub fn layout_budget_manifest(&self, revision: &str) -> LayoutBudgetManifest {
         let mut entries = BTreeMap::new();
         for node in self.nodes.values() {
-            if node.role != UiScopeRole::Section && node.role != UiScopeRole::Slot {
+            if node.role != UiScopeRole::Section
+                && node.role != UiScopeRole::Slot
+                && node.role != UiScopeRole::Region
+            {
                 continue;
             }
             let Some(budget) = node.budget.as_ref() else {
@@ -164,6 +179,11 @@ impl UiLayoutIndex {
                     padding_profile: budget.padding_profile.clone(),
                     content_rows: budget.content_rows.clone(),
                     content_gap: budget.content_gap.clone(),
+                    grid_template_columns: budget.grid_template_columns.clone(),
+                    grid_template_rows: budget.grid_template_rows.clone(),
+                    grid_template_areas: budget.grid_template_areas.clone(),
+                    slot_areas: budget.slot_areas.clone(),
+                    gap: budget.gap.clone(),
                 },
             );
         }
@@ -193,4 +213,14 @@ pub struct LayoutBudgetManifestEntry {
     pub content_rows: Option<Vec<i64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content_gap: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_template_columns: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_template_rows: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_template_areas: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot_areas: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gap: Option<String>,
 }

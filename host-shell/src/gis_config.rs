@@ -62,27 +62,48 @@ impl GisTilesConfig {
     }
 
     fn apply_basemap_entry(&mut self, entry: &OpsBasemapEntry) {
-        if let Some(base_url) = entry
-            .tiles_base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            self.base_url = base_url.to_string();
+        if basemap_omits_vector_tiles(entry) {
+            self.base_url.clear();
+            self.json_path.clear();
+            return;
         }
-        if let Some(json_path) = entry
-            .tilejson_path
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            self.json_path = if json_path.starts_with('/') {
-                json_path.to_string()
+        let mut applied_base = false;
+        let mut applied_json = false;
+        if let Some(base_url) = entry.tiles_base_url.as_deref().map(str::trim) {
+            if base_url.is_empty() {
+                self.base_url.clear();
+                applied_base = true;
             } else {
-                format!("/{json_path}")
-            };
+                self.base_url = base_url.to_string();
+                applied_base = true;
+            }
+        }
+        if let Some(json_path) = entry.tilejson_path.as_deref().map(str::trim) {
+            if json_path.is_empty() {
+                self.json_path.clear();
+                applied_json = true;
+            } else {
+                self.json_path = if json_path.starts_with('/') {
+                    json_path.to_string()
+                } else {
+                    format!("/{json_path}")
+                };
+                applied_json = true;
+            }
+        }
+        if applied_base && applied_json && self.base_url.is_empty() && self.json_path.is_empty() {
+            return;
         }
     }
+}
+
+fn basemap_omits_vector_tiles(entry: &OpsBasemapEntry) -> bool {
+    entry.style.as_ref().is_some_and(|style| {
+        style.get("omitVectorBasemap").and_then(|v| v.as_bool()) == Some(true)
+            || style.get("omit_vector_basemap").and_then(|v| v.as_bool()) == Some(true)
+            || style.get("vectorBasemap").and_then(|v| v.as_bool()) == Some(false)
+            || style.get("vector_basemap").and_then(|v| v.as_bool()) == Some(false)
+    })
 }
 
 pub fn fill_gis_tiles_placeholders(mut html: String, cfg: &GisTilesConfig) -> String {

@@ -285,11 +285,11 @@ fn materialize_runtime_plans(
         }));
     }
     let document = if let Some(outcome) = ctx.assemble_outcome.as_ref() {
-        mei_host_graph::runtime_plans_from_outcome(outcome)
+        mei_host_graph::runtime_plans_from_outcome(outcome, ctx.workspace_root)
     } else {
         ensure_materialize_assembled(ctx)?;
         if let Some(outcome) = ctx.assemble_outcome.as_ref() {
-            mei_host_graph::runtime_plans_from_outcome(outcome)
+            mei_host_graph::runtime_plans_from_outcome(outcome, ctx.workspace_root)
         } else {
             mei_host_graph::empty_runtime_plans_document(ctx.app_id, ctx.scene_id)
         }

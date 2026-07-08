@@ -103,7 +103,7 @@ pub fn warm_manifest_index_for_scope(
         "document": overlay_doc,
     });
 
-    let runtime_doc = crate::runtime_plans::runtime_plans_from_outcome(&outcome);
+    let runtime_doc = crate::runtime_plans::runtime_plans_from_outcome(&outcome, workspace_root);
     let app_root = resolve_app_root(workspace_root, app_id);
     let runtime_pref = crate::runtime_plans::persist_runtime_plans(app_root.as_path(), &runtime_doc)?;
     let runtime_key = crate::runtime_plans::runtime_plans_cache_key(&semantic_core, layout_rev.as_str());

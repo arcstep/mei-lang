@@ -51,45 +51,66 @@ pub fn build_structure_full_document(
     document
 }
 
+fn read_viewport_u32(source: &serde_json::Value, keys: &[&str]) -> Option<u32> {
+    for key in keys {
+        if let Some(n) = source.get(*key).and_then(|v| v.as_u64()) {
+            return u32::try_from(n).ok();
+        }
+    }
+    None
+}
+
+fn read_viewport_str(source: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = source.get(*key).and_then(|v| v.as_str()) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn extract_frame_viewport_meta(compiled: &CompiledApp) -> Option<FrameViewportMeta> {
     let contract = compiled.scene_contract.as_ref()?;
     let frame = contract.frame.as_ref()?;
     let props = &frame.props;
-    let design_width = props
-        .get("design_width")
-        .or_else(|| props.get("designWidth"))
-        .and_then(|v| v.as_u64())
-        .and_then(|n| u32::try_from(n).ok());
-    let design_height = props
-        .get("design_height")
-        .or_else(|| props.get("designHeight"))
-        .and_then(|v| v.as_u64())
-        .and_then(|n| u32::try_from(n).ok());
-    let scale_mode = props
-        .get("scale_mode")
-        .or_else(|| props.get("scaleMode"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-    let overflow_mode = props
-        .get("overflow_mode")
-        .or_else(|| props.get("overflowMode"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
-    let aspect_ratio = props
-        .get("aspect_ratio")
-        .or_else(|| props.get("aspectRatio"))
-        .and_then(|v| v.as_str())
-        .map(str::to_string);
+    let viewport = props.get("viewport").filter(|value| value.is_object());
+    let source = viewport.unwrap_or(props);
+    let design_width = read_viewport_u32(source, &["design_width", "designWidth"]);
+    let design_height = read_viewport_u32(source, &["design_height", "designHeight"]);
+    let scale_mode = read_viewport_str(source, &["scale_mode", "scaleMode"]);
+    let overflow_mode = read_viewport_str(
+        source,
+        &["overflow_mode", "overflowMode", "overflow"],
+    );
+    let aspect_ratio = read_viewport_str(source, &["aspect_ratio", "aspectRatio"]);
     Some(FrameViewportMeta {
-        design_width,
-        design_height,
-        scale_mode,
-        overflow_mode,
-        aspect_ratio,
+        design_width: design_width.or(Some(1920)),
+        design_height: design_height.or(Some(1080)),
+        scale_mode: scale_mode.or_else(|| Some("contain".to_string())),
+        overflow_mode: overflow_mode.or_else(|| Some("clip".to_string())),
+        aspect_ratio: aspect_ratio.or_else(|| Some("16:9".to_string())),
         target_file: Some(compiled.active_target_file.clone()),
         scene_id: compiled.active_scene.clone(),
         route_mode: Some("app".to_string()),
     })
+}
+
+/// Map metric template / content_kind labels to component `use_key` for client compose.
+fn content_kind_to_use_key(kind: &str) -> String {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "stack"
+        | "solid_stack"
+        | "solid-stack"
+        | "narrow_stack"
+        | "stack_desc"
+        | "stack_progress"
+        | "icon_left"
+        | "solid_row" => "metric-card".to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn enrich_structure_bindings(document: &mut StructureFullDocument) {
@@ -112,7 +133,7 @@ fn enrich_structure_bindings(document: &mut StructureFullDocument) {
     for node in &mut document.nodes {
         if node.ui_role == UiScopeRole::Content.slug() {
             if let Some(kind) = node.content_kind.as_deref().filter(|v| !v.is_empty()) {
-                node.use_keys = vec![kind.to_string()];
+                node.use_keys = vec![content_kind_to_use_key(kind)];
             }
         }
         if matches!(node.ui_role.as_str(), "slot" | "section")
@@ -136,12 +157,11 @@ fn enrich_structure_bindings(document: &mut StructureFullDocument) {
 }
 
 fn is_viewport_structure_node(node: &StructureFullNode) -> bool {
-    let haystack = format!(
-        "{} {} {}",
-        node.node_id, node.preview_scope, node.label
-    )
-    .to_ascii_lowercase();
-    haystack.contains("viewport") || haystack.contains("world_viewport")
+    let scope = node.preview_scope.trim().to_ascii_lowercase();
+    if scope.ends_with("map-viewport") || scope.ends_with("world_viewport") {
+        return true;
+    }
+    scope.contains("/map-viewport/") || scope.contains("/world_viewport/")
 }
 
 fn collect_descendant_use_keys(
@@ -161,7 +181,7 @@ fn collect_descendant_use_keys(
         let child = &document.nodes[idx];
         if child.ui_role == UiScopeRole::Content.slug() {
             if let Some(kind) = child.content_kind.as_deref().filter(|v| !v.is_empty()) {
-                out.insert(kind.to_string());
+                out.insert(content_kind_to_use_key(kind));
             }
             if let Some(keys) = child
                 .use_keys
@@ -252,8 +272,9 @@ pub fn slot_group_id_for_node(node: &StructureFullNode) -> String {
 mod tests {
     use super::*;
     use mei_lang_kernel::{
-        CompiledApp, UiLayoutIndex, UiScopeNode, UiScopeRole,
+        CompiledApp, FrameDecl, SceneContract, SceneDecl, UiLayoutIndex, UiScopeNode, UiScopeRole,
     };
+    use serde_json::json;
 
     fn sample_compiled_with_content() -> CompiledApp {
         let mut index = UiLayoutIndex::default();
@@ -315,6 +336,115 @@ mod tests {
             build_template_index: Default::default(),
             ui_layout_index: index,
         }
+    }
+
+    #[test]
+    fn content_kind_stack_maps_to_metric_card_use_key() {
+        let mut index = sample_compiled_with_content().ui_layout_index.clone();
+        index.nodes.insert(
+            "ui-scope:home/home/T1/right_rail/items/supervision_items_card".to_string(),
+            UiScopeNode {
+                node_id: "ui-scope:home/home/T1/right_rail/items/supervision_items_card".to_string(),
+                role: UiScopeRole::Content,
+                label: "supervision_items_card".to_string(),
+                scope_path: vec![],
+                plane: Some("T1".to_string()),
+                parent_id: Some("ui-scope:home/home/T1/right_rail/items".to_string()),
+                children: vec![],
+                preview_scope: "t1/right_rail/items/supervision_items_card".to_string(),
+                budget: None,
+                source_anchors: vec![],
+                content_kind: Some("stack".to_string()),
+                scene_id: Some("home".to_string()),
+            },
+        );
+        let mut compiled = sample_compiled_with_content();
+        compiled.ui_layout_index = index;
+        let doc = build_structure_full_document(&compiled, "rev");
+        let content = doc
+            .nodes
+            .iter()
+            .find(|node| node.preview_scope.contains("supervision_items_card"))
+            .expect("stack content node");
+        assert_eq!(content.use_keys, vec!["metric-card".to_string()]);
+    }
+
+    #[test]
+    fn frame_viewport_reads_nested_canvas_viewport() {
+        let mut compiled = sample_compiled_with_content();
+        compiled.scene_contract = Some(SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: Some("cockpit".to_string()),
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: Some(FrameDecl {
+                kind: "frame".to_string(),
+                id: None,
+                title: None,
+                layout: None,
+                props: json!({
+                    "viewport": {
+                        "design_width": 1920,
+                        "design_height": 1080,
+                        "scale_mode": "contain",
+                        "overflow": "clip",
+                        "aspect_ratio": "16:9"
+                    }
+                }),
+                base: None,
+                panels: vec![],
+            }),
+            panels: vec![],
+        });
+        let doc = build_structure_full_document(&compiled, "rev");
+        let vp = doc.frame_viewport.expect("frame viewport");
+        assert_eq!(vp.design_width, Some(1920));
+        assert_eq!(vp.design_height, Some(1080));
+        assert_eq!(vp.scale_mode.as_deref(), Some("contain"));
+        assert_eq!(vp.overflow_mode.as_deref(), Some("clip"));
+    }
+
+    #[test]
+    fn viewport_structure_node_only_matches_map_viewport_anchor() {
+        let node = StructureFullNode {
+            node_id: "ui-scope:home/home/T1/t1/map_stage/aperture/map-interaction-surface".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope: "t1/map_stage/aperture/map-interaction-surface".to_string(),
+            label: "viewport:map_interaction_surface".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: Some("T1".to_string()),
+            content_kind: Some("metric-card".to_string()),
+            panel_id: None,
+            use_keys: vec!["metric-card".to_string()],
+            frame_viewport: None,
+        };
+        assert!(!is_viewport_structure_node(&node));
+        let anchor = StructureFullNode {
+            preview_scope: "t1/map_stage/map-viewport".to_string(),
+            label: "viewport:viewport".to_string(),
+            ..node.clone()
+        };
+        assert!(is_viewport_structure_node(&anchor));
     }
 
     #[test]

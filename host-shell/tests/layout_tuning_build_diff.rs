@@ -111,8 +111,15 @@ fn pretty_panels_enriched_assemble_has_theme_layout_padding() {
         ui.index.nodes.values().any(|node| {
             node.role == UiScopeRole::Section
                 && (node.preview_scope.ends_with("/left_rail")
-                    || node.preview_scope == "left_rail/enforcement")
+                    || node.preview_scope == "left_rail/enforcement"
+                    || node.preview_scope == "t1/left_rail/enforcement")
         }),
-        "rebuilt index should include left_rail section scope"
+        "rebuilt index should include left_rail enforcement subsection scope"
+    );
+    assert!(
+        ui.index.nodes.values().any(|node| {
+            node.role == UiScopeRole::Region && node.preview_scope == "t1/left_rail"
+        }),
+        "nested plane region should expose t1/left_rail as Region"
     );
 }

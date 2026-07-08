@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use mei_lang_kernel::{load_mei_config_for_app, resolve_app_root, LayoutBudgetManifest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -12,10 +13,11 @@ use crate::assemble::{assemble_scope_from_registry, AssembleOutcome};
 use crate::content_store::put_if_absent;
 use crate::layer_store::{store_layer, take_layer};
 use crate::semantic_cache::SemanticCacheCore;
+use crate::theme_layout_merge::theme_layout_client_patches;
 use crate::types::PayloadRef;
 
 pub const RUNTIME_PLANS_KIND: &str = "runtime_plans";
-pub const RUNTIME_PLANS_SCHEMA: &str = "runtime-plans-v1";
+pub const RUNTIME_PLANS_SCHEMA: &str = "runtime-plans-v2";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RuntimePlansDocument {
@@ -26,8 +28,14 @@ pub struct RuntimePlansDocument {
     pub world_plan: Value,
     pub map_projection: Value,
     pub overlay_defaults: Value,
+    #[serde(default)]
+    pub presentation_map: Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub component_assets: Vec<mei_lang_kernel::ComponentAsset>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub theme_layout: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_budget_manifest: Option<LayoutBudgetManifest>,
 }
 
 pub fn runtime_plans_cache_key(semantic_core: &SemanticCacheCore, layout_policy_revision: &str) -> String {
@@ -40,13 +48,31 @@ pub fn runtime_plans_cache_key(semantic_core: &SemanticCacheCore, layout_policy_
     .to_string()
 }
 
-pub fn runtime_plans_from_outcome(outcome: &AssembleOutcome) -> RuntimePlansDocument {
+pub fn runtime_plans_from_outcome(
+    outcome: &AssembleOutcome,
+    workspace_root: &Path,
+) -> RuntimePlansDocument {
     let overlay_defaults = Value::Object(
         outcome
             .overlay_defaults
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect(),
+    );
+    let app_root = resolve_app_root(workspace_root, outcome.compiled.app_id.as_str());
+    let mei_config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    let theme_id = outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .and_then(|contract| contract.scene.theme.clone())
+        .unwrap_or_else(|| "cockpit".to_string());
+    let theme_layout = theme_layout_client_patches(&mei_config.ops.themes, theme_id.as_str());
+    let layout_budget_manifest = Some(
+        outcome
+            .compiled
+            .ui_layout_index
+            .layout_budget_manifest(outcome.compile_revision.as_str()),
     );
     RuntimePlansDocument {
         schema_version: RUNTIME_PLANS_SCHEMA.to_string(),
@@ -60,7 +86,10 @@ pub fn runtime_plans_from_outcome(outcome: &AssembleOutcome) -> RuntimePlansDocu
         world_plan: outcome.world_plan.clone(),
         map_projection: outcome.map_projection.clone(),
         overlay_defaults,
+        presentation_map: outcome.presentation_map.clone(),
         component_assets: outcome.compiled.component_assets.clone(),
+        theme_layout,
+        layout_budget_manifest,
     }
 }
 
@@ -73,7 +102,10 @@ pub fn empty_runtime_plans_document(app_id: &str, scene_id: &str) -> RuntimePlan
         world_plan: Value::Object(Default::default()),
         map_projection: Value::Object(Default::default()),
         overlay_defaults: Value::Object(Default::default()),
+        presentation_map: Value::Object(Default::default()),
         component_assets: Vec::new(),
+        theme_layout: Value::Object(Default::default()),
+        layout_budget_manifest: None,
     }
 }
 
@@ -86,7 +118,7 @@ pub fn build_runtime_plans_document(
     let Some(outcome) = assemble_scope_from_registry(workspace_root, app_id, scene_id)? else {
         return Ok(empty_runtime_plans_document(app_id, scene_id));
     };
-    Ok(runtime_plans_from_outcome(&outcome))
+    Ok(runtime_plans_from_outcome(&outcome, workspace_root))
 }
 
 pub fn persist_runtime_plans(app_root: &Path, document: &RuntimePlansDocument) -> Result<PayloadRef> {

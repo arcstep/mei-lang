@@ -126,7 +126,17 @@ fn apply_theme_layout_patch(panel: &mut PanelDecl, patch: &Value) {
             .collect();
         if !fr_rows.is_empty() {
             if let Some(layout) = panel.layout.as_mut() {
-                layout.rows = Some(fr_rows);
+                let author_row_count = layout
+                    .areas
+                    .as_ref()
+                    .map(|areas| areas.len())
+                    .or_else(|| layout.rows.as_ref().map(|rows| rows.len()))
+                    .unwrap_or(0);
+                // Author grid with more rows than theme sectionRows (e.g. reserved
+                // empty rows with a single mounted section) must not be collapsed.
+                if author_row_count <= fr_rows.len() {
+                    layout.rows = Some(fr_rows);
+                }
             }
         }
     }
@@ -180,11 +190,76 @@ fn apply_theme_layout_patch(panel: &mut PanelDecl, patch: &Value) {
     }
 }
 
+/// Map `ops.themes.*.layout` keys (`home/T1/left_rail`) to client `preview_scope` (`t1/left_rail`).
+pub fn theme_layout_client_patches(
+    themes: &BTreeMap<String, Value>,
+    theme_id: &str,
+) -> Value {
+    let Some(layout) = themes
+        .get(theme_id)
+        .and_then(|theme| theme.get("layout"))
+        .and_then(Value::as_object)
+    else {
+        return Value::Object(Default::default());
+    };
+    let mut patches = serde_json::Map::new();
+    for (scope_path, patch) in layout {
+        let preview_scope = theme_layout_scope_to_preview_scope(scope_path.as_str());
+        if preview_scope.is_empty() {
+            continue;
+        }
+        patches.insert(preview_scope, patch.clone());
+    }
+    Value::Object(patches)
+}
+
+fn theme_layout_scope_to_preview_scope(scope_path: &str) -> String {
+    let normalized = scope_path.trim().trim_matches('/');
+    if normalized.eq_ignore_ascii_case("home/T1") || normalized.eq_ignore_ascii_case("home/t1") {
+        return "t1".to_string();
+    }
+    if let Some(tail) = normalized.strip_prefix("home/T1/") {
+        return format!("t1/{tail}");
+    }
+    if let Some(tail) = normalized.strip_prefix("home/t1/") {
+        return format!("t1/{tail}");
+    }
+    normalized.replace('/', "/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use mei_lang_kernel::{LayoutDecl, SceneContract, SceneDecl, UiScopeNode, UiScopeRole};
     use serde_json::json;
+
+    #[test]
+    fn theme_layout_client_patches_maps_home_t1_scope_to_preview_scope() {
+        let mut layout = serde_json::Map::new();
+        layout.insert(
+            "home/T1/left_rail".to_string(),
+            json!({"sectionRows": ["1fr", "2fr"]}),
+        );
+        layout.insert(
+            "home/T1".to_string(),
+            json!({"columns": {"left": "2fr", "center": "3fr", "right": "2fr"}}),
+        );
+        let mut themes = BTreeMap::new();
+        themes.insert(
+            "cockpit".to_string(),
+            json!({"layout": Value::Object(layout)}),
+        );
+        let patches = theme_layout_client_patches(&themes, "cockpit");
+        let obj = patches.as_object().expect("object");
+        assert_eq!(
+            obj.get("t1/left_rail")
+                .and_then(|v| v.get("sectionRows"))
+                .and_then(|v| v.as_array())
+                .map(|rows| rows.len()),
+            Some(2)
+        );
+        assert!(obj.get("t1").and_then(|v| v.get("columns")).is_some());
+    }
 
     #[test]
     fn apply_theme_layout_patch_updates_region_rows() {
@@ -231,6 +306,70 @@ mod tests {
         assert_eq!(
             region.layout.as_ref().unwrap().gap.as_deref(),
             Some("8px")
+        );
+    }
+
+    #[test]
+    fn apply_theme_layout_patch_preserves_author_grid_when_section_rows_shorter() {
+        let mut region = PanelDecl {
+            kind: "panel".to_string(),
+            id: "right_rail".to_string(),
+            title: None,
+            head: None,
+            area: Some("right_rail".to_string()),
+            layout: Some(LayoutDecl {
+                layout_type: "grid".to_string(),
+                direction: None,
+                columns: None,
+                rows: Some(vec![
+                    "1fr".to_string(),
+                    "1fr".to_string(),
+                    "1fr".to_string(),
+                    "1fr".to_string(),
+                ]),
+                areas: Some(vec![
+                    vec!["warning".to_string()],
+                    vec!["_".to_string()],
+                    vec!["_".to_string()],
+                    vec!["_".to_string()],
+                ]),
+                gap: Some("12px".to_string()),
+                padding: None,
+                align: None,
+                justify: None,
+            }),
+            blocks: vec![],
+            slot: None,
+            props: json!({"__mei_ui_role": "region"}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        apply_theme_layout_patch(
+            &mut region,
+            &json!({
+                "sectionRows": ["1fr"],
+                "gap": "12px",
+            }),
+        );
+        assert_eq!(
+            region.layout.as_ref().unwrap().rows,
+            Some(vec![
+                "1fr".to_string(),
+                "1fr".to_string(),
+                "1fr".to_string(),
+                "1fr".to_string(),
+            ])
+        );
+        assert_eq!(
+            region.layout.as_ref().unwrap().areas,
+            Some(vec![
+                vec!["warning".to_string()],
+                vec!["_".to_string()],
+                vec!["_".to_string()],
+                vec!["_".to_string()],
+            ])
         );
     }
 
