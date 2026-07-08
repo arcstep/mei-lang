@@ -47,12 +47,16 @@ async function main() {
       composeProjection: String(root?.getAttribute("data-compose-projection") || ""),
       previewEndSource: String(previewEnd?.detail?.source || ""),
       themeVar: getComputedStyle(document.documentElement).getPropertyValue("--mei-theme-id").trim(),
+      warningHeadCarets: !!document.querySelector(
+        '[data-preview-scope$="/warning/head"] [data-mei-head-carets]',
+      ),
     };
   });
 
   await browser.close();
 
   const failures = [];
+  const isSupervisionMini = appUrl.includes("supervision-mini");
   if (!state.structureViewport && !state.evalProps && !state.evalHost) {
     failures.push("missing structure viewport or eval mounts");
   }
@@ -67,6 +71,9 @@ async function main() {
   }
   if (state.thinShell && !state.composeProjection) {
     failures.push("data-compose-projection missing on thin shell root");
+  }
+  if (isSupervisionMini && !state.warningHeadCarets) {
+    failures.push("supervision-mini warning head missing data-mei-head-carets chrome");
   }
 
   const report = { ok: failures.length === 0, url: appUrl, state, failures };

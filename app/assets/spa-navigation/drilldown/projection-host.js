@@ -387,8 +387,6 @@
       }
       await openSceneProjection(detail, config);
     };
-    document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
-    document.addEventListener(ANALYSIS_OPEN_EVENT, openByEvent);
     document.addEventListener(POPUP_OPEN_EVENT, openByEvent);
     document.addEventListener(SCENE_OPEN_EVENT, openByEvent);
     document.addEventListener("keydown", (event) => {

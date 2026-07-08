@@ -474,7 +474,7 @@
     style.gridTemplateRows = `${ratioFrTrack(titleRatio, 1)} ${ratioFrTrack(contentRatio, 1)}`;
     style.gridTemplateAreas = '"label label" "value unit"';
     style.alignItems = "stretch";
-    style.justifyItems = "stretch";
+    style.justifyItems = "center";
     style.justifyContent = "center";
     style.gap = "0";
     style.boxSizing = "border-box";
@@ -556,8 +556,75 @@
     );
   }
 
+  function applyHeadChromeFromSlot(headEl, headChrome) {
+    if (!(headEl instanceof HTMLElement) || !headChrome || typeof headChrome !== "object") {
+      return false;
+    }
+    const title = String(headChrome.title || "").trim() || "板块标题";
+    const classes = Array.isArray(headChrome.heading_classes)
+      ? headChrome.heading_classes.filter(Boolean).join(" ")
+      : "panel-heading panel-heading-plain panel-heading-compact";
+    const cellStyle = String(headChrome.cell_style || "").trim();
+    const caret = headChrome.caret && typeof headChrome.caret === "object" ? headChrome.caret : {};
+    const caretEnabled = caret.enabled === true;
+    const caretStyle = String(caret.style || "").trim();
+    const typo =
+      headChrome.heading_typography && typeof headChrome.heading_typography === "object"
+        ? headChrome.heading_typography
+        : {};
+    let h3Style = "";
+    if (typo.font_size) h3Style += `font-size:${typo.font_size};`;
+    if (typo.color) h3Style += `color:${typo.color};`;
+    if (typo.font_family) h3Style += `font-family:${typo.font_family};`;
+    if (typo.font_weight != null && String(typo.font_weight).trim()) {
+      h3Style += `font-weight:${typo.font_weight};`;
+    }
+    if (typo.letter_spacing) h3Style += `letter-spacing:${typo.letter_spacing};`;
+    const cellAlignsCenter =
+      /justify-content\s*:\s*center/i.test(cellStyle) ||
+      String(headChrome.align || "").trim().toLowerCase() === "center";
+    if (cellAlignsCenter) {
+      h3Style += "text-align:center;width:100%;";
+    }
+    const caretAttrs = caretEnabled
+      ? ` data-mei-head-carets="true" data-mei-head-carets-mode="${escapeHtmlAttr(String(caret.mode || "slot"))}"`
+      : "";
+    const combinedStyle = [cellStyle, caretEnabled ? caretStyle : ""].filter(Boolean).join("");
+    headEl.className = "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
+    headEl.innerHTML =
+      `<div class="panel-head-cell ${escapeHtmlAttr(classes)}" data-mei-panel-head="true"${caretAttrs}` +
+      (combinedStyle ? ` style="${escapeHtmlAttr(combinedStyle)}"` : "") +
+      `><div class="panel-head-slot"><div class="panel-heading-copy"${
+      cellAlignsCenter ? ' style="width:100%;display:flex;justify-content:center;"' : ""
+    }><h3` +
+      (h3Style ? ` style="${escapeHtmlAttr(h3Style)}"` : "") +
+      `>${escapeHtmlText(title)}</h3></div></div></div>`;
+    headEl.setAttribute("data-mei-section-head-chrome", "1");
+    headEl.removeAttribute("data-mei-section-head-normalized");
+    return true;
+  }
+
+  function applyPanelShellFromSlot(container, panelShell) {
+    if (!(container instanceof HTMLElement) || !panelShell?.props) return false;
+    let target = container;
+    if (!target.hasAttribute("data-preview-scope")) {
+      const scoped = container.closest("[data-preview-scope]");
+      if (scoped instanceof HTMLElement) target = scoped;
+    }
+    if (target.classList.contains("mei-compose-content-group")) {
+      target = target;
+    } else if (!target.classList.contains("preview-card") && !target.classList.contains("mei-compose-block")) {
+      const content = target.closest('[data-mei-ui-role="content"]');
+      if (content instanceof HTMLElement) target = content;
+    }
+    applyContainerVisualStyle(target, panelShell.props);
+    target.setAttribute("data-mei-panel-shell-applied", "1");
+    return true;
+  }
+
   function normalizeSectionHeadSlot(headSlot) {
     if (!(headSlot instanceof HTMLElement)) return;
+    if (headSlot.getAttribute("data-mei-section-head-chrome") === "1") return;
     const scope = String(headSlot.getAttribute("data-preview-scope") || "");
     if (!scope.endsWith("/head") && !scope.endsWith("/head/mei.text")) return;
 
@@ -618,6 +685,9 @@
   function normalizeAllSectionHeadSlots(root) {
     if (!(root instanceof HTMLElement)) return;
     root.querySelectorAll('[data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]').forEach((headSlot) => {
+      if (headSlot instanceof HTMLElement && headSlot.getAttribute("data-mei-section-head-chrome") === "1") {
+        return;
+      }
       normalizeSectionHeadSlot(headSlot);
     });
   }
@@ -1077,11 +1147,13 @@
     for (const doc of evalDocs || []) {
       for (const [scopeKey, entry] of Object.entries(doc.slots || {})) {
         if (!String(scopeKey || "").endsWith("/head/mei.text")) continue;
+        if (entry?.head_chrome && typeof entry.head_chrome === "object") continue;
         const label = resolveEvalSlotLabel(entry);
         if (!label) continue;
         const headScope = String(scopeKey).replace(/\/mei\.text$/, "");
         const headEl = findScopeContainer(root, headScope);
         if (!(headEl instanceof HTMLElement)) continue;
+        if (headEl.getAttribute("data-mei-section-head-chrome") === "1") continue;
         applyHeadSlotLabel(headEl, label);
         normalizeSectionHeadSlot(headEl);
       }
@@ -1092,13 +1164,32 @@
     if (!style || background == null) return;
     if (typeof background === "string") {
       const value = String(background).trim();
-      if (value) style.background = value;
+      if (!value) return;
+      if (
+        value.startsWith("linear-gradient") ||
+        value.startsWith("radial-gradient") ||
+        value.startsWith("repeating-linear-gradient") ||
+        value.startsWith("repeating-radial-gradient")
+      ) {
+        style.backgroundImage = value;
+      } else {
+        style.background = value;
+      }
       return;
     }
     if (typeof background !== "object") return;
     const image = String(background.image || "").trim();
     if (image) {
-      style.backgroundImage = `url("${image.replace(/"/g, '\\"')}")`;
+      if (
+        image.startsWith("linear-gradient") ||
+        image.startsWith("radial-gradient") ||
+        image.startsWith("repeating-linear-gradient") ||
+        image.startsWith("repeating-radial-gradient")
+      ) {
+        style.backgroundImage = image;
+      } else {
+        style.backgroundImage = `url("${image.replace(/"/g, '\\"')}")`;
+      }
       const size = String(background.size || "").trim();
       if (size) style.backgroundSize = size;
       const position = String(background.position || "").trim();
@@ -1165,6 +1256,52 @@
     return nested instanceof HTMLElement ? nested : container.closest("[data-mei-metric-card]");
   }
 
+  function ensureMetricCardComponentHost(container) {
+    const section = resolveMetricCardSection(container);
+    if (!(section instanceof HTMLElement)) return null;
+    const bodyCell = resolveMetricCardBodyCell(section);
+    if (!(bodyCell instanceof HTMLElement)) return null;
+    let host = bodyCell.querySelector(":scope > .component-host");
+    if (!(host instanceof HTMLElement)) {
+      host = bodyCell.querySelector(".component-host");
+    }
+    if (!(host instanceof HTMLElement)) {
+      host = document.createElement("div");
+      host.className = "component-host metric-card";
+      bodyCell.appendChild(host);
+    }
+    return host;
+  }
+
+  function propagateMetricCardPopupFromMounts(container, mounts) {
+    const valueMount = (mounts || []).find((mount) => {
+      const props = mount?.props && typeof mount.props === "object" ? mount.props : {};
+      return (
+        String(mount?.use_key || "").trim() === "mei.text" &&
+        String(props.metric_role || props.metricRole || "").trim() === "value" &&
+        props.popup &&
+        typeof props.popup === "object"
+      );
+    });
+    const shellMount = (mounts || []).find(
+      (mount) =>
+        String(mount?.use_key || "").trim() === "metric-card" &&
+        String(mount?.mount_role || "").trim() === "shell",
+    );
+    const popup = valueMount?.props?.popup || shellMount?.props?.popup;
+    if (!popup || typeof popup !== "object") return;
+    const section = resolveMetricCardSection(container);
+    if (!(section instanceof HTMLElement)) return;
+    section.querySelectorAll('[data-metric-role="value"], mei-text[data-metric-role="value"]').forEach(
+      (node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const props = parseHostProps(node);
+        if (props.popup) return;
+        applyPropsToHost(node, { ...props, popup });
+      },
+    );
+  }
+
   function applyMetricCardShellFromMounts(container, mounts) {
     const shellMount = (mounts || []).find(
       (mount) =>
@@ -1192,6 +1329,7 @@
       }
       applyContainerVisualStyle(section, shellProps);
     }
+    propagateMetricCardPopupFromMounts(container, mounts);
   }
 
   function applyPropsToHost(host, props) {
@@ -1709,6 +1847,7 @@
       (section) => normalizeMapStageSection(section),
     );
     applyRailRegionSectionLayouts(root);
+    normalizeT1InteractivePointerEvents(tree);
     hideLayoutDebugRegions(tree);
   }
 
@@ -1777,6 +1916,41 @@
     }
   }
 
+  function applyWarningSupervisionComposeClasses(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll('[data-preview-scope$="/warning"][data-mei-ui-role="section"]').forEach(
+      (section) => {
+        if (section instanceof HTMLElement) {
+          section.classList.add("mei-compose-warning-panel");
+        }
+      },
+    );
+    root
+      .querySelectorAll('[data-preview-scope$="/warning/supervision-stats"]')
+      .forEach((content) => {
+        if (!(content instanceof HTMLElement)) return;
+        const role = String(content.getAttribute("data-mei-ui-role") || "").toLowerCase();
+        if (role !== "content" && role !== "slot") return;
+        content.classList.add("mei-compose-metric-triptych");
+      });
+  }
+
+  function rebindMetricCardHosts(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll('[data-mei-metric-card="true"] mei-text, [data-mei-metric-card="true"] MEI-TEXT').forEach(
+      (node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const props = parseHostProps(node);
+        if (!String(props.metric_role || "").trim()) return;
+        if (typeof node._bind === "function") {
+          try {
+            node._bind();
+          } catch (_) {}
+        }
+      },
+    );
+  }
+
   function bindEvalSlots(root, evalDocs) {
     if (!(root instanceof HTMLElement)) return false;
     let bound = 0;
@@ -1794,7 +1968,10 @@
           : [];
         const headScope = isSectionHeadScope(scopeKey);
         const slotLabel = resolveEvalSlotLabel(entry);
-        if (headScope && slotLabel) {
+        const headChrome = entry?.head_chrome;
+        if (headScope && headChrome && typeof headChrome === "object") {
+          applyHeadChromeFromSlot(container, headChrome);
+        } else if (headScope && slotLabel) {
           applyHeadSlotLabel(container, slotLabel);
         }
         const bindComponentMounts =
@@ -1804,16 +1981,16 @@
           const filteredMounts = filterComponentMountsForScope(scopeKey, componentMounts);
           let host = findComponentHostForScope(container, scopeKey, useKeys);
           if (!(host instanceof HTMLElement)) {
-            const metricSection = resolveMetricCardSection(container);
-            if (metricSection instanceof HTMLElement) {
-              host = metricSection.querySelector(".component-host");
-            }
+            host = ensureMetricCardComponentHost(container);
           }
-          bound += ensureComponentHostChildren(host, filteredMounts, sceneMountByMetric);
+          if (host instanceof HTMLElement) {
+            bound += ensureComponentHostChildren(host, filteredMounts, sceneMountByMetric);
+          }
           applyMetricCardShellFromMounts(container, filteredMounts);
         } else if (!componentMounts.length && isStackMetricEvalEntry(entry, container)) {
           const metricSection = resolveMetricCardSection(container);
           const host =
+            ensureMetricCardComponentHost(container) ||
             metricSection?.querySelector(".component-host") ||
             container.querySelector(".component-host");
           const structureLabel = String(
@@ -1826,8 +2003,13 @@
             entry?.content_kind,
             inferSceneMountForScope(scopeKey, sceneMountByMetric),
           );
-          bound += ensureComponentHostChildren(host, synthesized, sceneMountByMetric);
+          if (host instanceof HTMLElement) {
+            bound += ensureComponentHostChildren(host, synthesized, sceneMountByMetric);
+          }
           applyMetricCardShellFromMounts(container, synthesized);
+        }
+        if (!headScope && entry?.panel_shell && typeof entry.panel_shell === "object") {
+          applyPanelShellFromSlot(container, entry.panel_shell);
         }
         mounts.forEach((mount, index) => {
           const props = enrichRuntimeMetricRef(
@@ -1857,6 +2039,8 @@
     root.querySelectorAll('[data-mei-metric-card="true"]').forEach((card) => {
       normalizeMetricCardSection(card);
     });
+    rebindMetricCardHosts(root);
+    applyWarningSupervisionComposeClasses(root);
     promoteSectionHeadMeiTextNodes(root);
     applyRailHeadTitlesFromEval(root, evalDocs);
     root.querySelectorAll('[data-mei-section-head-normalized="1"]').forEach((head) => {
@@ -1869,6 +2053,7 @@
     normalizeAllSectionHeadSlots(root);
     suppressDuplicateMetricCardLeafSlots(root);
     normalizeMapStageHintPointerEvents(root);
+    normalizeT1InteractivePointerEvents(root);
     return bound > 0;
   }
 
@@ -1882,6 +2067,48 @@
         if (el instanceof HTMLElement) {
           el.style.pointerEvents = "none";
         }
+      });
+  }
+
+  function shouldT1UnitReceivePointerEvents(scope) {
+    const normalized = String(scope || "").trim().toLowerCase();
+    if (!normalized || normalized.includes("layout_debug")) return false;
+    if (
+      normalized.includes("stage_aperture") ||
+      normalized.includes("stage-aperture") ||
+      normalized.includes("viewport_frame") ||
+      normalized.includes("world_viewport")
+    ) {
+      return false;
+    }
+    if (normalized.endsWith("/map_stage") || normalized.includes("/map_stage/")) {
+      return false;
+    }
+    return (
+      normalized.includes("right_rail") ||
+      normalized.includes("left_rail") ||
+      normalized.includes("header") ||
+      normalized.includes("center_rail") ||
+      normalized.includes("center_top") ||
+      normalized.includes("realtime_center")
+    );
+  }
+
+  function normalizeT1InteractivePointerEvents(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root
+      .querySelectorAll(
+        '.mei-compose-plane[data-mei-plane="T1"], .mei-compose-plane[data-mei-plane="t1"]',
+      )
+      .forEach((plane) => {
+        if (!(plane instanceof HTMLElement)) return;
+        plane.querySelectorAll(".mei-compose-section, .mei-compose-slot").forEach((el) => {
+          if (!(el instanceof HTMLElement)) return;
+          const scope = el.getAttribute("data-preview-scope") || "";
+          if (shouldT1UnitReceivePointerEvents(scope)) {
+            el.style.pointerEvents = "auto";
+          }
+        });
       });
   }
 
@@ -2079,6 +2306,14 @@
     if (isThinShellComposePlaceholder(root)) return false;
     if (isClientLayerMaterialized(root)) return true;
     if (!hasMaterializedPreview(root)) return false;
+    const targetApp = String(
+      ctx?.app_id || ctx?.appId || global.document?.body?.getAttribute("data-app-id") || "",
+    ).trim();
+    let urlApp = "";
+    try {
+      urlApp = String(global.location.pathname.match(/^\/apps\/([^/]+)/)?.[1] || "").trim();
+    } catch (_) {}
+    if (targetApp && urlApp && targetApp !== urlApp) return false;
     const surface = String(ctx?.surface || ctx?.mode || "app")
       .trim()
       .toLowerCase();

@@ -213,7 +213,7 @@ fn eval_slot_group_layer_ref(
         .compiled
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("assemble unavailable"))?;
-    let (_doc, pref, cached) = mei_host_graph::ensure_eval_slot_group_cached(
+    let (_doc, pref, _cached) = mei_host_graph::ensure_eval_slot_group_cached(
         ctx.workspace_root,
         compiled,
         &ctx.semantic_core,
@@ -221,9 +221,7 @@ fn eval_slot_group_layer_ref(
         ctx.data_mode,
         ctx.layout_rev.as_str(),
     )?;
-    if cached {
-        hits.eval_hit = true;
-    }
+    hits.eval_hit = true;
     Ok(mei_host_graph::LayerRef {
         artifact_id: eval_key,
         content_hash: pref.content_hash,
@@ -251,7 +249,7 @@ fn materialize_eval_group(
         .compiled
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("assemble unavailable"))?;
-    let (doc, pref, cached) = mei_host_graph::ensure_eval_slot_group_cached(
+    let (doc, pref, _cached) = mei_host_graph::ensure_eval_slot_group_cached(
         ctx.workspace_root,
         compiled,
         &ctx.semantic_core,
@@ -259,9 +257,7 @@ fn materialize_eval_group(
         ctx.data_mode,
         ctx.layout_rev.as_str(),
     )?;
-    if cached {
-        hits.eval_hit = true;
-    }
+    hits.eval_hit = true;
     Ok(json!({
         "artifact_id": eval_key,
         "content_hash": pref.content_hash,

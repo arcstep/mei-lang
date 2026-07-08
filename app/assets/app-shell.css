@@ -4798,6 +4798,57 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region > .mei-compose-slot {
   pointer-events: auto;
 }
+/* T1 嵌套 region（如 t1/t1 > right_rail > warning）内的板块也需接收事件，避免点击穿透到 T0 地图 */
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="right_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="right_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="left_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="left_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="header"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="header"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-section[data-preview-scope*="center_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-section[data-preview-scope*="center_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-slot[data-preview-scope*="right_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-slot[data-preview-scope*="right_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-slot[data-preview-scope*="left_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-slot[data-preview-scope*="left_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-slot[data-preview-scope*="header"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-slot[data-preview-scope*="header"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  .mei-compose-slot[data-preview-scope*="center_rail"] {
+  pointer-events: auto;
+}
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="T1"]
   > .mei-compose-region
@@ -4939,6 +4990,10 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
 }
 .mei-compose-warning-panel > [data-preview-scope$="/head"] mei-cockpit-panel-title {
   display: block;
+  width: 100%;
+}
+.mei-compose-warning-panel > [data-preview-scope$="/head"] .panel-heading-copy h3 {
+  text-align: center;
   width: 100%;
 }
 .mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"] .component-host,

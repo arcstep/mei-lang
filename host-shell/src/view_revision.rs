@@ -174,6 +174,16 @@ pub(crate) fn resolve_view_revision_for_surface(
     Ok(response)
 }
 
+fn layer_matches_bootstrap_prefix(layer_name: &str, prefix: &str) -> bool {
+    if layer_name == prefix {
+        return true;
+    }
+    if prefix.ends_with('.') {
+        return layer_name.starts_with(prefix);
+    }
+    layer_name.starts_with(&format!("{prefix}:"))
+}
+
 fn bootstrap_inline_layer_names(
     changed_layers: &[String],
     route_mode: UiRouteMode,
@@ -181,7 +191,7 @@ fn bootstrap_inline_layer_names(
     const BOOTSTRAP_PREFIXES: &[&str] = &[
         "structure.full",
         "runtime.plans",
-        "eval.slot_group.scene:default",
+        "eval.slot_group.",
         "theme.tokens",
         "layout.overlay",
     ];
@@ -191,7 +201,7 @@ fn bootstrap_inline_layer_names(
         .filter(|name| {
             BOOTSTRAP_PREFIXES
                 .iter()
-                .any(|prefix| name.as_str() == *prefix || name.starts_with(&format!("{prefix}:")))
+                .any(|prefix| layer_matches_bootstrap_prefix(name, prefix))
                 || name.as_str() == shell_key.as_str()
         })
         .cloned()
@@ -200,10 +210,45 @@ fn bootstrap_inline_layer_names(
         names = changed_layers.to_vec();
     } else if changed_layers.len() <= 24 {
         names = changed_layers.to_vec();
+    } else {
+        for name in changed_layers {
+            if name.starts_with("eval.slot_group.") && !names.iter().any(|existing| existing == name)
+            {
+                names.push(name.clone());
+            }
+        }
     }
     names.sort();
     names.dedup();
     names
+}
+
+#[cfg(test)]
+mod bootstrap_inline_tests {
+    use super::*;
+    use mei_lang_app::UiRouteMode;
+
+    #[test]
+    fn bootstrap_inline_includes_scope_eval_slot_groups_when_many_layers_change() {
+        let mut changed_layers = vec![
+            "structure.full".to_string(),
+            "theme.tokens".to_string(),
+            "eval.slot_group.scene:default".to_string(),
+            "eval.slot_group.scope:t1/right_rail/warning/head".to_string(),
+            "eval.slot_group.scope:t1/right_rail/warning/supervision-stats".to_string(),
+        ];
+        for idx in 0..30 {
+            changed_layers.push(format!("shell.extra-{idx}"));
+        }
+        let names = bootstrap_inline_layer_names(&changed_layers, UiRouteMode::App);
+        assert!(names.iter().any(|name| name == "eval.slot_group.scene:default"));
+        assert!(names.iter().any(|name| name == "eval.slot_group.scope:t1/right_rail/warning/head"));
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "eval.slot_group.scope:t1/right_rail/warning/supervision-stats")
+        );
+    }
 }
 
 fn apply_view_revision_headers(response: &mut Response, revision: &mei_host_graph::ViewRevisionResponse) {

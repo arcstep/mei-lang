@@ -247,6 +247,19 @@
     )
       .trim()
       .toLowerCase();
+    const targetApp = String(ctx.app_id || ctx.appId || "").trim().toLowerCase();
+    const bodyApp = String(global.document?.body?.getAttribute("data-app-id") || "")
+      .trim()
+      .toLowerCase();
+    const previousApp = String(options.previousApp || options.previousAppId || "")
+      .trim()
+      .toLowerCase();
+    if (previousApp && targetApp && previousApp !== targetApp) {
+      return true;
+    }
+    if (targetApp && bodyApp && targetApp !== bodyApp) {
+      return true;
+    }
     const previousSurface = String(options.previousSurface || "")
       .trim()
       .toLowerCase();

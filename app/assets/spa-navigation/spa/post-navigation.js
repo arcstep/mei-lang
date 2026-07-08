@@ -150,6 +150,17 @@
         if (sceneCtx && typeof boot.syncAppTabActiveState === "function") {
           boot.syncAppTabActiveState(sceneCtx.appId || sceneCtx.app_id);
         }
+        if (sceneCtx) {
+          try {
+            if (typeof window.__meiSyncRuntimeQueryAppContext === "function") {
+              window.__meiSyncRuntimeQueryAppContext({ clearCaches: true });
+            } else if (
+              typeof window.__meiDatasetRuntime?.syncRuntimeQueryAppContextFromPage === "function"
+            ) {
+              window.__meiDatasetRuntime.syncRuntimeQueryAppContextFromPage({ clearCaches: true });
+            }
+          } catch (_) {}
+        }
         if (typeof boot.fixTopbarHrefsFromPageContext === "function") {
           boot.fixTopbarHrefsFromPageContext();
         }

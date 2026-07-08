@@ -187,6 +187,9 @@
   }
 
   function shouldMountDrilldownHost(pathname = global.location?.pathname) {
+    if (isUnifiedViewRoute(pathname)) {
+      return true;
+    }
     const slug = appRouteSlugFromPathname(pathname);
     return (
       ACCESS_LIKE_ROUTE_SLUGS.has(slug) ||

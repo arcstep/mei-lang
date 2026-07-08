@@ -230,7 +230,7 @@ fn theme_layout_scope_to_preview_scope(scope_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mei_lang_kernel::{LayoutDecl, SceneContract, SceneDecl, UiScopeNode, UiScopeRole};
+    use mei_lang_kernel::LayoutDecl;
     use serde_json::json;
 
     #[test]

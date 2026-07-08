@@ -381,6 +381,7 @@ fn rewrite_wide_metric_compound_body(args: &Map<String, Value>) -> Value {
 fn rewrite_content_fill_props(_args: &Map<String, Value>) -> Value {
     let mut props = transparent_panel_props(json!("100%"));
     if let Some(obj) = props.as_object_mut() {
+        obj.remove("background");
         obj.insert("__mei_layout_fill".to_string(), json!(true));
     }
     props
@@ -454,6 +455,10 @@ mod tests {
         assert_eq!(
             rewritten.get("height").and_then(Value::as_str),
             Some("100%")
+        );
+        assert!(
+            rewritten.get("background").is_none(),
+            "content_fill_props should not pin background; author merge owns it"
         );
     }
 

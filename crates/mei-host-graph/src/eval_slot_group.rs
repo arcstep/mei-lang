@@ -8,6 +8,10 @@ use mei_lang_kernel::{BlockDecl, CompiledApp, DataMode, MetricShape, PanelDecl, 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::compose_chrome::{
+    build_head_chrome, build_panel_shell, section_id_for_head_scope, should_export_panel_shell,
+    ThemeResolveContext,
+};
 use crate::content_store::{put_if_absent, EVAL_SLOT_GROUP_KIND};
 use crate::layer_store::{layer_entry_meta, store_layer, take_layer};
 use crate::mrg::registry::MrgRegistryWriter;
@@ -220,6 +224,93 @@ fn is_ambiguous_mount_label(label: &str) -> bool {
     )
 }
 
+fn panel_lookup_label(node: &StructureFullNode) -> String {
+    let label = node.label.trim();
+    if !label.is_empty() && !is_ambiguous_mount_label(label) {
+        return label.to_string();
+    }
+    let scope_label = node
+        .preview_scope
+        .rsplit('/')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if !scope_label.is_empty() && !is_ambiguous_mount_label(scope_label) {
+        return scope_label.to_string();
+    }
+    String::new()
+}
+
+fn author_panel_props_for_shell(
+    workspace_root: &Path,
+    compiled: &CompiledApp,
+    panel_id: &str,
+) -> Option<Value> {
+    let app_root = mei_lang_kernel::resolve_app_root(workspace_root, compiled.app_id.as_str());
+    let registry = crate::mcg::registry::McgRegistryWriter::load(workspace_root, compiled.app_id.as_str());
+    let scene_id = compiled
+        .active_scene
+        .as_deref()
+        .unwrap_or("home");
+    let ctx = crate::v2_lower::PanelLowerContext {
+        app_root: app_root.as_path(),
+        app_id: compiled.app_id.as_str(),
+        registry: &registry,
+        scene_id,
+        panel_constants: std::collections::BTreeMap::new(),
+        assembly_stack_order: None,
+    };
+    for ref_path in [
+        format!("content/{panel_id}"),
+        panel_id.to_string(),
+        format!("supervision-mini/home/t1/r-right-rail/s-warning/content/{panel_id}"),
+    ] {
+        if let Ok(payload) = crate::v2_lower::load_panel_contract_payload(&ctx, ref_path.as_str()) {
+            if let Some(props) = payload.get("props").filter(|value| value.is_object()) {
+                if props.get("background").is_some() {
+                    return Some(props.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn panel_decl_for_shell_export(
+    panel: &PanelDecl,
+    author_props: Option<&Value>,
+) -> PanelDecl {
+    let mut exported = panel.clone();
+    let Some(exported_props) = exported.props.as_object_mut() else {
+        return exported;
+    };
+    let current_bg = exported_props.get("background").and_then(Value::as_str);
+    let needs_author_bg = current_bg.is_none()
+        || current_bg.is_some_and(|bg| bg.eq_ignore_ascii_case("transparent"));
+    if !needs_author_bg {
+        return exported;
+    }
+    if let Some(author_props) = author_props {
+        if let Some(background) = author_props.get("background") {
+            exported_props.insert("background".to_string(), background.clone());
+            for key in ["padding", "margin", "width", "height", "min_height", "overflow"] {
+                if let Some(value) = author_props.get(key) {
+                    exported_props.insert(key.to_string(), value.clone());
+                }
+            }
+            return exported;
+        }
+    }
+    if exported_props
+        .get("__mei_layout_fill")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        exported_props.insert("background".to_string(), json!("panel_glow_bg"));
+    }
+    exported
+}
+
 fn metric_card_panel_hint_from_scope(scope: &str) -> Option<String> {
     for segment in scope.split('/') {
         if let Some(id) = segment.strip_suffix("_card_content") {
@@ -314,6 +405,7 @@ pub fn build_eval_slot_group_document(
         .clone()
         .unwrap_or_else(|| structure.scene_id.clone());
     let scene_mounts = scene_mounts(workspace_root, compiled.app_id.as_str(), scene_id.as_str(), mode_slug);
+    let theme_ctx = workspace_root.and_then(|root| ThemeResolveContext::from_compiled(root, compiled));
     let mut slots = BTreeMap::new();
     for node in &structure.nodes {
         if slot_group_id_for_node(node) != slot_group_id {
@@ -337,6 +429,36 @@ pub fn build_eval_slot_group_document(
             if !component_mounts.is_empty() {
                 if let Some(obj) = entry.as_object_mut() {
                     obj.insert("component_mounts".to_string(), Value::Array(component_mounts));
+                }
+            }
+        }
+        if let (Some(ctx), Some(contract)) = (theme_ctx.as_ref(), compiled.scene_contract.as_ref()) {
+            let panel_lookup = panel_lookup_label(node);
+            if !panel_lookup.is_empty() {
+                if let Some(panel) = find_panel_in_contract(contract, panel_lookup.as_str()) {
+                    if should_export_panel_shell(panel) {
+                        let author_props = workspace_root
+                            .and_then(|root| author_panel_props_for_shell(root, compiled, panel_lookup.as_str()));
+                        let export_panel = panel_decl_for_shell_export(panel, author_props.as_ref());
+                        if let Some(obj) = entry.as_object_mut() {
+                            obj.insert(
+                                "panel_shell".to_string(),
+                                build_panel_shell(&export_panel, ctx),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(section_id) = section_id_for_head_scope(scope_key.as_str()) {
+            if let (Some(ctx), Some(contract)) = (theme_ctx.as_ref(), compiled.scene_contract.as_ref()) {
+                if let Some(panel) = find_panel_in_contract(contract, section_id.as_str()) {
+                    let chrome = build_head_chrome(panel, ctx);
+                    if !chrome.is_null() {
+                        if let Some(obj) = entry.as_object_mut() {
+                            obj.insert("head_chrome".to_string(), chrome);
+                        }
+                    }
                 }
             }
         }

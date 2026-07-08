@@ -512,7 +512,7 @@ function metricHostLayoutCss(props, { descShell = false } = {}) {
     box-sizing: border-box;
     overflow: hidden;
     justify-content: ${vAlign};
-    align-items: stretch;
+    align-items: ${align ? justifyContentFromTextAlign(align) : "stretch"};
   `;
 }
 
@@ -807,27 +807,18 @@ class MeiText extends HTMLElement {
       unit: String(display.unit ?? ""),
       desc: String(display.desc ?? ""),
     };
-    this.dispatchEvent(
-      new CustomEvent(DRILLDOWN_EVENT_NAME, {
-        bubbles: true,
-        composed: true,
-        detail,
-      }),
-    );
-    this.dispatchEvent(
-      new CustomEvent(ANALYSIS_OPEN_EVENT_NAME, {
-        bubbles: true,
-        composed: true,
-        detail,
-      }),
-    );
-    this.dispatchEvent(
-      new CustomEvent(POPUP_OPEN_EVENT_NAME, {
-        bubbles: true,
-        composed: true,
-        detail,
-      }),
-    );
+    const dispatchDrilldown = (eventName) => {
+      this.dispatchEvent(
+        new CustomEvent(eventName, {
+          bubbles: true,
+          composed: true,
+          detail: { ...detail },
+        }),
+      );
+    };
+    dispatchDrilldown(DRILLDOWN_EVENT_NAME);
+    dispatchDrilldown(ANALYSIS_OPEN_EVENT_NAME);
+    dispatchDrilldown(POPUP_OPEN_EVENT_NAME);
   }
 
   _render(props, content, format) {
@@ -849,6 +840,10 @@ class MeiText extends HTMLElement {
       this.attachShadow({ mode: "open" });
     }
 
+    const drilldownBodyStyle = drilldownClickable
+      ? "cursor: pointer; width: fit-content; max-width: 100%; margin-inline: auto; text-decoration: underline; text-underline-offset: 0.15em;"
+      : "";
+
     const baseTypography = metricRole
       ? typography
       : `
@@ -862,7 +857,6 @@ class MeiText extends HTMLElement {
       <style>
         :host {
           ${metricRole ? hostLayout : "display: block; width: 100%; box-sizing: border-box;"}
-          ${drilldownClickable ? "cursor: pointer;" : ""}
         }
         :host([data-mei-drilldown-active="true"]:focus-visible) {
           outline: 1px solid rgba(125, 211, 252, 0.9);
@@ -875,6 +869,7 @@ class MeiText extends HTMLElement {
           word-break: break-word;
           ${baseTypography}
           ${descShell}
+          ${drilldownBodyStyle}
         }
         .mei-text-body :where(p, h1, h2, h3, ul, ol) {
           margin: 0 0 0.5em;

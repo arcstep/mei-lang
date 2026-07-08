@@ -104,9 +104,45 @@ pub fn build_manifest(
 
 pub fn default_bundle_path(workspace: &Path, app_id: &str) -> std::path::PathBuf {
     let app_root = resolve_v2_app_root(workspace, app_id);
-    resolve_v2_app_build_root(app_root.as_path())
+    let bundle_name = format!("{app_id}.meibundle");
+    let primary = resolve_v2_app_build_root(app_root.as_path())
         .join("exchange")
-        .join(format!("{app_id}.meibundle"))
+        .join(&bundle_name);
+    if primary.is_file() {
+        return primary;
+    }
+    let active = app_root
+        .join("build/active/exchange")
+        .join(&bundle_name);
+    if active.is_file() {
+        return active;
+    }
+    if let Some(fallback) = find_latest_env_bundle(app_root.as_path(), bundle_name.as_str()) {
+        return fallback;
+    }
+    primary
+}
+
+fn find_latest_env_bundle(app_root: &Path, bundle_name: &str) -> Option<PathBuf> {
+    let env_root = app_root.join("env");
+    let entries = std::fs::read_dir(env_root).ok()?;
+    let mut candidates = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let file_name = path.file_name()?.to_string_lossy();
+        if !file_name.starts_with("WS-") {
+            continue;
+        }
+        let candidate = path.join("build/exchange").join(bundle_name);
+        if candidate.is_file() {
+            candidates.push(candidate);
+        }
+    }
+    candidates.sort();
+    candidates.pop()
 }
 
 fn resolve_v2_app_root(workspace: &Path, app_id: &str) -> PathBuf {
@@ -164,5 +200,30 @@ mod tests {
             path,
             env_dir.join("build/exchange/demo.meibundle")
         );
+    }
+
+    #[test]
+    fn default_bundle_path_falls_back_to_latest_env_generation() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let workspace = tmp.path();
+        let app_root = workspace.join("apps/demo");
+        let older = app_root.join("env/WS-20260228.0");
+        let newer = app_root.join("env/WS-20260301.0");
+        fs::create_dir_all(older.join("build/exchange")).expect("older exchange");
+        fs::create_dir_all(newer.join("build")).expect("newer build");
+        fs::write(older.join("build/exchange/demo.meibundle"), b"bundle").expect("older bundle");
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink("WS-20260301.0", app_root.join("env/current"))
+                .expect("symlink current");
+        }
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir("WS-20260301.0", app_root.join("env/current"))
+                .expect("symlink current");
+        }
+
+        let path = default_bundle_path(workspace, "demo");
+        assert_eq!(path, older.join("build/exchange/demo.meibundle"));
     }
 }

@@ -3,8 +3,9 @@
 use std::path::Path;
 
 use anyhow::Result;
+use mei_lang_kernel::load_mei_config_for_app;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::content_store::{put_if_absent, LAYOUT_OVERLAY_KIND, THEME_TOKENS_KIND};
 use crate::layer_store::{store_layer, take_layer};
@@ -34,6 +35,47 @@ pub fn default_theme_tokens() -> ThemeTokensDocument {
         schema_version: THEME_TOKENS_SCHEMA.to_string(),
         colors: json!({}),
         fonts: json!({}),
+    }
+}
+
+pub fn theme_tokens_document_from_theme(theme: &Value) -> ThemeTokensDocument {
+    let mut colors = Map::new();
+    let mut fonts = Map::new();
+    if let Some(font_map) = theme.get("font").and_then(Value::as_object) {
+        for (key, value) in font_map {
+            if let Some(raw) = value.as_str() {
+                fonts.insert(key.clone(), Value::String(raw.to_string()));
+            }
+        }
+    }
+    if let Some(token_colors) = theme
+        .get("tokens")
+        .and_then(|v| v.get("color"))
+        .and_then(Value::as_object)
+    {
+        for (key, value) in token_colors {
+            if let Some(raw) = value.as_str() {
+                let css_key = format!("color-{}", key.replace('_', "-"));
+                colors.insert(css_key, Value::String(raw.to_string()));
+            }
+        }
+    }
+    if let Some(gradients) = theme
+        .get("tokens")
+        .and_then(|v| v.get("gradient"))
+        .and_then(Value::as_object)
+    {
+        for (key, value) in gradients {
+            if let Some(raw) = value.as_str() {
+                let css_key = format!("gradient-{}", key.replace('_', "-"));
+                colors.insert(css_key, Value::String(raw.to_string()));
+            }
+        }
+    }
+    ThemeTokensDocument {
+        schema_version: THEME_TOKENS_SCHEMA.to_string(),
+        colors: Value::Object(colors),
+        fonts: Value::Object(fonts),
     }
 }
 
@@ -74,8 +116,20 @@ pub fn ensure_theme_tokens_cached(
         let doc: ThemeTokensDocument = serde_json::from_slice(bytes.as_slice())?;
         return Ok((doc, true));
     }
-    let document = default_theme_tokens();
     let app_root = mei_lang_kernel::resolve_app_root(workspace_root, app_id);
+    let mei_config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+    let theme = mei_config
+        .ops
+        .themes
+        .get("cockpit")
+        .or_else(|| mei_config.ops.themes.values().next())
+        .cloned()
+        .unwrap_or(Value::Null);
+    let document = if theme.is_object() {
+        theme_tokens_document_from_theme(&theme)
+    } else {
+        default_theme_tokens()
+    };
     let pref = persist_theme_tokens(app_root.as_path(), &document)?;
     let bytes = serde_json::to_vec(&document)?;
     store_layer(

@@ -9,6 +9,7 @@ mod data_snapshot;
 mod enrich_compiled_scope;
 mod import;
 mod io;
+mod compose_chrome;
 mod eval_slot_group;
 mod layer_overlay;
 mod layer_plan;
