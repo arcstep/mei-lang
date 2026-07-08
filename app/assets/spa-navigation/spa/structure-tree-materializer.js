@@ -125,8 +125,6 @@
         return "R";
       case "section":
         return "§";
-      case "micro_layout":
-        return "M";
       case "slot":
         return "L";
       case "content":

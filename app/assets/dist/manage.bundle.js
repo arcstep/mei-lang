@@ -5761,7 +5761,6 @@
     section: 2,
     slot: 3,
     content: 4,
-    micro_layout: 2,
   };
 
   function isBuildRoute() {
@@ -27939,8 +27938,6 @@
         return "R";
       case "section":
         return "§";
-      case "micro_layout":
-        return "M";
       case "slot":
         return "L";
       case "content":
@@ -30596,9 +30593,11 @@
   function isViewportMetaContentNode(node) {
     const role = String(node?.ui_role || "").trim().toLowerCase();
     if (role !== "content") return false;
+    const scope = String(node?.preview_scope || "").trim().toLowerCase();
+    // T1 地图操作 chrome（center-rail / map-stage overlay）须保持可见。
+    if (scope.includes("/map_viewport/") || scope.includes("/map_stage_overlay/")) return false;
     const label = String(node?.label || "").trim().toLowerCase();
     if (label.startsWith("viewport:")) return true;
-    const scope = String(node?.preview_scope || "").trim().toLowerCase();
     return scope.endsWith("/map-viewport") || scope.endsWith("/world_viewport");
   }
 
@@ -30983,6 +30982,27 @@
     });
   }
 
+  function suppressDecomposedMetricCardDuplicateSlots(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root
+      .querySelectorAll('[data-preview-scope$="_card_content"]:not([data-mei-metric-card])')
+      .forEach((slot) => {
+        if (!(slot instanceof HTMLElement)) return;
+        const scope = String(slot.getAttribute("data-preview-scope") || "");
+        if (scope.includes("/content/")) return;
+        const cardId = scope.split("/").pop() || "";
+        if (!cardId.endsWith("_card_content")) return;
+        const metricCard = root.querySelector(
+          `[data-mei-metric-card][data-preview-scope*="/content/${cardId}"]`,
+        );
+        if (!(metricCard instanceof HTMLElement)) return;
+        slot.style.display = "none";
+        slot.setAttribute("aria-hidden", "true");
+        slot.style.pointerEvents = "none";
+        slot.style.overflow = "hidden";
+      });
+  }
+
   function suppressDuplicateMetricCardLeafSlots(root) {
     if (!(root instanceof HTMLElement)) return;
     root.querySelectorAll('[data-preview-scope*="card_content/"]').forEach((el) => {
@@ -31174,13 +31194,22 @@
       const scoped = container.closest("[data-preview-scope]");
       if (scoped instanceof HTMLElement) target = scoped;
     }
-    if (target.classList.contains("mei-compose-content-group")) {
-      target = target;
-    } else if (!target.classList.contains("preview-card") && !target.classList.contains("mei-compose-block")) {
-      const content = target.closest('[data-mei-ui-role="content"]');
-      if (content instanceof HTMLElement) target = content;
+    if (!target.classList.contains("mei-compose-content-group")) {
+      if (
+        !target.classList.contains("preview-card") &&
+        !target.classList.contains("mei-compose-block") &&
+        !target.hasAttribute("data-mei-metric-card")
+      ) {
+        const content = target.closest('[data-mei-ui-role="content"], [data-mei-ui-role="slot"]');
+        if (content instanceof HTMLElement) target = content;
+      }
     }
-    applyContainerVisualStyle(target, panelShell.props);
+    const shellProps = panelShell.props;
+    const chromeBare = String(shellProps.chrome || "").trim() === "bare";
+    if (chromeBare) {
+      target.classList.add("preview-card-bare");
+    }
+    applyContainerVisualStyle(target, shellProps);
     target.setAttribute("data-mei-panel-shell-applied", "1");
     return true;
   }
@@ -31287,8 +31316,11 @@
 
   function createBlockSection(useKey, scope, uiRole) {
     const section = document.createElement("section");
-    section.className = "preview-card mei-compose-block";
     const key = String(useKey || "").trim();
+    const bareChrome = key === "cockpit.header-brand";
+    section.className = bareChrome
+      ? "preview-card preview-card-bare mei-compose-block"
+      : "preview-card mei-compose-block";
     if (!key) return section;
     if (scope) section.setAttribute("data-preview-scope", scope);
     section.setAttribute("data-mei-use-key", key);
@@ -31351,14 +31383,20 @@
           : [];
       if (keys.length === 1) {
         const key = keys[0];
-        if (isMetricTemplateKind(key)) {
-          const scopeLower = scope.toLowerCase();
+        const scopeLower = scope.toLowerCase();
+        if (
+          isMetricTemplateKind(key) &&
+          !scopeLower.includes("/map_viewport/") &&
+          !scopeLower.endsWith("/map-viewport")
+        ) {
           if (scopeLower.includes("/hint/") || scopeLower.includes("stage-aperture-hint")) {
             return createBlockSection("mei.text", scope, node.ui_role);
           }
           return createMetricCardSection(scope, node.ui_role, node.label);
         }
-        return createBlockSection(key, scope, node.ui_role);
+        if (!isMetricTemplateKind(key)) {
+          return createBlockSection(key, scope, node.ui_role);
+        }
       }
       if (keys.length > 1) {
         const wrap = document.createElement("div");
@@ -31499,12 +31537,6 @@
     };
   }
 
-  const DEFAULT_COCKPIT_FOCUS_INSET = Object.freeze({
-    top: "84px",
-    left: "0px",
-    right: "532px",
-    bottom: "0px",
-  });
 
   function isUnresolvedMeiRef(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -31521,7 +31553,7 @@
     }
     const member = String(value.__member || "").trim();
     if (member === "FOCUS_INSET" || member === "focus_inset") {
-      return { ...DEFAULT_COCKPIT_FOCUS_INSET };
+      return null;
     }
     return value;
   }
@@ -31545,9 +31577,6 @@
     }
     if (next.mapViewport && typeof next.mapViewport === "object") {
       const viewport = enrichComposeComponentProps({ ...next.mapViewport });
-      if (isUnresolvedMeiRef(viewport.focusInset)) {
-        viewport.focusInset = { ...DEFAULT_COCKPIT_FOCUS_INSET };
-      }
       next.mapViewport = viewport;
       next.mapLayoutMode = next.mapLayoutMode || viewport.mode || "cockpitBleed";
     }
@@ -31723,6 +31752,23 @@
     }
   }
 
+  function normalizeBackgroundImageValue(raw) {
+    const image = String(raw || "").trim();
+    if (!image) return "";
+    if (
+      image.startsWith("linear-gradient") ||
+      image.startsWith("radial-gradient") ||
+      image.startsWith("repeating-linear-gradient") ||
+      image.startsWith("repeating-radial-gradient")
+    ) {
+      return image;
+    }
+    if (image.startsWith("url(")) {
+      return image;
+    }
+    return `url("${image.replace(/"/g, '\\"')}")`;
+  }
+
   function applyBackgroundInlineStyle(style, background) {
     if (!style || background == null) return;
     if (typeof background === "string") {
@@ -31735,6 +31781,8 @@
         value.startsWith("repeating-radial-gradient")
       ) {
         style.backgroundImage = value;
+      } else if (value.startsWith("url(")) {
+        style.backgroundImage = value;
       } else {
         style.background = value;
       }
@@ -31743,16 +31791,7 @@
     if (typeof background !== "object") return;
     const image = String(background.image || "").trim();
     if (image) {
-      if (
-        image.startsWith("linear-gradient") ||
-        image.startsWith("radial-gradient") ||
-        image.startsWith("repeating-linear-gradient") ||
-        image.startsWith("repeating-radial-gradient")
-      ) {
-        style.backgroundImage = image;
-      } else {
-        style.backgroundImage = `url("${image.replace(/"/g, '\\"')}")`;
-      }
+      style.backgroundImage = normalizeBackgroundImageValue(image);
       const size = String(background.size || "").trim();
       if (size) style.backgroundSize = size;
       const position = String(background.position || "").trim();
@@ -31809,6 +31848,13 @@
     }
     if (props.__mei_metric_density != null) {
       el.setAttribute("data-mei-metric-density", String(props.__mei_metric_density));
+    }
+    if (
+      props.__mei_slot_frame_bg === true ||
+      String(props.__mei_slot_frame_bg || "").trim() === "true" ||
+      String(props.__mei_slot_frame_bg || "").trim() === "1"
+    ) {
+      el.setAttribute("data-mei-slot-frame-bg", "true");
     }
   }
 
@@ -32355,6 +32401,101 @@
     }
   }
 
+  function normalizeMapOperationViewportSection(section) {
+    if (!(section instanceof HTMLElement)) return;
+    const scope = String(section.getAttribute("data-preview-scope") || "").toLowerCase();
+    const isCenterRailViewport = scope.endsWith("/map_viewport");
+    const isMapStageOverlay =
+      scope.includes("map_stage_overlay") || scope.endsWith("/map_stage");
+    if (!isCenterRailViewport && !isMapStageOverlay) return;
+
+    section.querySelectorAll(".mei-compose-viewport-meta[hidden]").forEach((meta) => {
+      if (!(meta instanceof HTMLElement)) return;
+      const parent = meta.parentElement;
+      if (!(parent instanceof HTMLElement)) return;
+      while (meta.firstChild) {
+        parent.insertBefore(meta.firstChild, meta);
+      }
+      meta.remove();
+    });
+
+    const viewportContent =
+      section.querySelector('[data-preview-scope$="/map-viewport"]') ||
+      section.querySelector('[data-preview-scope$="/map_viewport/map-viewport"]');
+    if (viewportContent instanceof HTMLElement) {
+      viewportContent
+        .querySelectorAll(":scope > .panel-body-cell, :scope > .preview-card.mei-compose-block > .panel-body-cell")
+        .forEach((el) => el.remove());
+    }
+    const layoutHost =
+      viewportContent instanceof HTMLElement ? viewportContent : section;
+    layoutHost.style.display = "grid";
+    layoutHost.style.gridTemplateRows = "1fr auto";
+    layoutHost.style.gridTemplateColumns = "1fr";
+    layoutHost.style.width = "100%";
+    layoutHost.style.height = "100%";
+    layoutHost.style.minHeight = "0";
+    layoutHost.style.gap = "8px";
+    layoutHost.style.pointerEvents = "none";
+    section.style.pointerEvents = "none";
+
+    section.querySelectorAll('[data-preview-scope*="map-interaction-surface"]').forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      el.setAttribute("data-mei-panel-name", "map-interaction-surface");
+      el.style.display = "grid";
+      el.style.gridTemplateRows = "auto 1fr";
+      el.style.gridTemplateColumns = "1fr auto";
+      el.style.gridTemplateAreas = '"_ tools" "frame frame"';
+      el.style.gap = "8px";
+      el.style.width = "100%";
+      el.style.height = "100%";
+      el.style.minHeight = "0";
+      el.style.pointerEvents = "none";
+    });
+    section
+      .querySelectorAll(
+        '[data-preview-scope*="stage-aperture-frame"], [data-preview-scope*="/frame"]',
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        if (!String(el.getAttribute("data-preview-scope") || "").includes("frame")) return;
+        el.setAttribute("data-mei-panel-name", "stage-aperture-frame");
+        el.style.width = "100%";
+        el.style.height = "100%";
+        el.style.minHeight = "0";
+        el.style.boxSizing = "border-box";
+        el.style.pointerEvents = "none";
+        if (!el.style.border) {
+          el.style.border = "2px dashed #facc15";
+          el.style.borderRadius = "6px";
+        }
+      });
+    section.querySelectorAll('[data-preview-scope*="map-tools-slot"]').forEach((el) => {
+      if (el instanceof HTMLElement) {
+        el.setAttribute("data-mei-panel-name", "map-tools-slot");
+        el.style.pointerEvents = "auto";
+      }
+    });
+    section.querySelectorAll('[data-preview-scope*="aperture"]').forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      el.style.minHeight = "0";
+      el.style.height = "100%";
+      el.style.width = "100%";
+    });
+    const hintSlot = section.querySelector('[data-preview-scope$="/hint"]');
+    if (hintSlot instanceof HTMLElement) {
+      hintSlot.setAttribute("data-mei-panel-name", "stage-aperture-hint");
+      if (!hintSlot.textContent?.trim()) {
+        const hint = document.createElement("div");
+        hint.className = "mei-map-viewport-hint";
+        hint.textContent = "拖动平移 · 滚轮缩放 · 地图工具仅出现在中心观察窗内";
+        hint.style.cssText =
+          "text-align:center;font-size:12px;color:#7dd3fc;padding:8px 16px;background:rgba(10,36,72,0.72);border:1px solid rgba(56,160,240,0.28);border-radius:4px;pointer-events:none;";
+        hintSlot.appendChild(hint);
+      }
+    }
+  }
+
   function applyRailRegionSectionLayouts(root) {
     if (!(root instanceof HTMLElement)) return;
     const tree = root.querySelector(".mei-structure-tree");
@@ -32396,6 +32537,8 @@
     if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
       global.MeiProjectionDepth.applyLayoutBudgetManifest(root.ownerDocument || document);
     }
+    normalizeMetricCompoundSections(root);
+    normalizeScreenHeaderBrandBlocks(root);
     return true;
   }
 
@@ -32409,8 +32552,12 @@
     tree.querySelectorAll('[data-preview-scope$="/map_stage"], [data-preview-scope$="map_stage"]').forEach(
       (section) => normalizeMapStageSection(section),
     );
+    tree.querySelectorAll(
+      '[data-preview-scope$="/map_viewport"], [data-preview-scope*="map_stage_overlay"], [data-preview-scope$="/map_stage"]',
+    ).forEach((section) => normalizeMapOperationViewportSection(section));
     applyRailRegionSectionLayouts(root);
     normalizeT1InteractivePointerEvents(tree);
+    normalizeMapViewportPointerEvents(tree);
     hideLayoutDebugRegions(tree);
   }
 
@@ -32435,6 +32582,8 @@
     if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
       global.MeiProjectionDepth.applyLayoutBudgetManifest(root.ownerDocument || document);
     }
+    normalizeMetricCompoundSections(root);
+    normalizeScreenHeaderBrandBlocks(root);
     return true;
   }
 
@@ -32477,6 +32626,66 @@
     } else {
       refreshComposeMaps(root);
     }
+  }
+
+  function normalizeScreenHeaderBrandBlocks(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root
+      .querySelectorAll(
+        '[data-preview-scope$="/screen_header_brand"], [data-mei-use-key="cockpit.header-brand"]',
+      )
+      .forEach((node) => {
+        const block =
+          node instanceof HTMLElement && node.classList.contains("mei-compose-block")
+            ? node
+            : node.closest?.(".mei-compose-block");
+        if (!(block instanceof HTMLElement)) return;
+        block.classList.add("preview-card-bare");
+        block.style.border = "none";
+        block.style.padding = "0";
+        block.style.gap = "0";
+        block.style.borderRadius = "0";
+        block.style.overflow = "hidden";
+        block.style.background = "transparent";
+      });
+  }
+
+  function normalizeMetricCompoundSections(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root
+      .querySelectorAll(".mei-compose-warning-panel, .mei-compose-compound-section")
+      .forEach((section) => {
+        if (!(section instanceof HTMLElement)) return;
+        section.style.padding = "0";
+        section.style.margin = "0";
+        section.style.gap = "2px";
+        section.style.borderRadius = "0";
+        section.style.gridTemplateAreas = '"head" "body"';
+        section.style.border = "1px solid rgba(56, 160, 240, 0.32)";
+        const head = section.querySelector('[data-preview-scope$="/head"]');
+        const content =
+          section.querySelector('[data-preview-scope$="/body"]') ||
+          section.querySelector('[data-preview-scope*="supervision-stats"]') ||
+          section.querySelector(".mei-compose-metric-triptych");
+        if (head instanceof HTMLElement) {
+          head.style.gridArea = "head";
+          head.style.margin = "0";
+          head.style.padding = "0";
+          head.style.border = "none";
+          head.style.borderRadius = "0";
+        }
+        if (content instanceof HTMLElement) {
+          content.style.gridArea = "body";
+          content.style.margin = "0";
+          content.style.padding = "0";
+          content.style.gap = "2px";
+          content.style.border = "none";
+          content.style.borderRadius = "0";
+          content.style.minHeight = "0";
+          content.style.height = "100%";
+          content.style.alignSelf = "stretch";
+        }
+      });
   }
 
   function applyWarningSupervisionComposeClasses(root) {
@@ -32604,6 +32813,8 @@
     });
     rebindMetricCardHosts(root);
     applyWarningSupervisionComposeClasses(root);
+    normalizeMetricCompoundSections(root);
+    normalizeScreenHeaderBrandBlocks(root);
     promoteSectionHeadMeiTextNodes(root);
     applyRailHeadTitlesFromEval(root, evalDocs);
     root.querySelectorAll('[data-mei-section-head-normalized="1"]').forEach((head) => {
@@ -32615,8 +32826,10 @@
     });
     normalizeAllSectionHeadSlots(root);
     suppressDuplicateMetricCardLeafSlots(root);
+    suppressDecomposedMetricCardDuplicateSlots(root);
     normalizeMapStageHintPointerEvents(root);
     normalizeT1InteractivePointerEvents(root);
+    normalizeMapViewportPointerEvents(root);
     return bound > 0;
   }
 
@@ -32633,20 +32846,69 @@
       });
   }
 
-  function shouldT1UnitReceivePointerEvents(scope) {
+  function normalizeMapViewportPointerEvents(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root
+      .querySelectorAll(
+        '[data-preview-scope$="/map_viewport"], [data-preview-scope*="/map_viewport/"], [data-preview-scope*="/map-viewport"], [data-preview-scope*="map_stage_overlay"], [data-preview-scope$="/map_stage"]',
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        const scope = el.getAttribute("data-preview-scope") || "";
+        if (isMapViewportPointerTransparentScope(scope)) {
+          el.style.pointerEvents = "none";
+        }
+      });
+    root
+      .querySelectorAll(
+        '[data-preview-scope*="map-tools"], [data-preview-scope*="map_tools"], [data-mei-panel-name="map-tools-slot"]',
+      )
+      .forEach((el) => {
+        if (el instanceof HTMLElement) {
+          el.style.pointerEvents = "auto";
+        }
+      });
+  }
+
+  function isMapViewportPointerTransparentScope(scope) {
     const normalized = String(scope || "").trim().toLowerCase();
-    if (!normalized || normalized.includes("layout_debug")) return false;
+    if (!normalized) return false;
+    if (
+      normalized.endsWith("/map_viewport") ||
+      normalized.includes("/map_viewport/") ||
+      normalized.includes("/map-viewport")
+    ) {
+      return !(
+        normalized.includes("map-tools") ||
+        normalized.includes("map_tools")
+      );
+    }
+    if (
+      normalized.includes("map-interaction-surface") ||
+      normalized.includes("map_stage_overlay") ||
+      normalized.endsWith("/map_stage") ||
+      normalized.includes("/map_stage/")
+    ) {
+      return !(
+        normalized.includes("map-tools") ||
+        normalized.includes("map_tools")
+      );
+    }
     if (
       normalized.includes("stage_aperture") ||
       normalized.includes("stage-aperture") ||
       normalized.includes("viewport_frame") ||
       normalized.includes("world_viewport")
     ) {
-      return false;
+      return true;
     }
-    if (normalized.endsWith("/map_stage") || normalized.includes("/map_stage/")) {
-      return false;
-    }
+    return false;
+  }
+
+  function shouldT1UnitReceivePointerEvents(scope) {
+    const normalized = String(scope || "").trim().toLowerCase();
+    if (!normalized || normalized.includes("layout_debug")) return false;
+    if (isMapViewportPointerTransparentScope(normalized)) return false;
     return (
       normalized.includes("right_rail") ||
       normalized.includes("left_rail") ||

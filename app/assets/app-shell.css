@@ -4819,10 +4819,10 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   .mei-compose-section[data-preview-scope*="header"],
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="T1"]
-  .mei-compose-section[data-preview-scope*="center_rail"],
+  .mei-compose-section[data-preview-scope*="center_rail"]:not([data-preview-scope$="/map_viewport"]):not([data-preview-scope*="/map_viewport/"]),
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="t1"]
-  .mei-compose-section[data-preview-scope*="center_rail"],
+  .mei-compose-section[data-preview-scope*="center_rail"]:not([data-preview-scope$="/map_viewport"]):not([data-preview-scope*="/map_viewport/"]),
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="T1"]
   .mei-compose-slot[data-preview-scope*="right_rail"],
@@ -4843,10 +4843,24 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   .mei-compose-slot[data-preview-scope*="header"],
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="T1"]
-  .mei-compose-slot[data-preview-scope*="center_rail"],
+  .mei-compose-slot[data-preview-scope*="center_rail"]:not([data-preview-scope$="/map_viewport"]):not([data-preview-scope*="/map_viewport/"]),
 .mei-compose-scene-root
   .mei-compose-plane[data-mei-plane="t1"]
-  .mei-compose-slot[data-preview-scope*="center_rail"] {
+  .mei-compose-slot[data-preview-scope*="center_rail"]:not([data-preview-scope$="/map_viewport"]):not([data-preview-scope*="/map_viewport/"]) {
+  pointer-events: auto;
+}
+/* T1 center-rail 地图观察窗：section 与 chrome 透传点击到 T0 底图，仅工具挂点接收事件 */
+.mei-compose-scene-root .mei-compose-section[data-preview-scope$="/map_viewport"],
+.mei-compose-scene-root .mei-compose-slot[data-preview-scope*="/map_viewport/"],
+.mei-compose-scene-root .mei-compose-content[data-preview-scope*="/map-viewport"] {
+  pointer-events: none;
+}
+.mei-compose-scene-root
+  [data-preview-scope*="/map_viewport/"] [data-mei-panel-name="map-tools-slot"],
+.mei-compose-scene-root
+  [data-preview-scope*="/map_viewport/"][data-preview-scope*="map-tools"],
+.mei-compose-scene-root
+  [data-preview-scope*="/map_viewport/"][data-preview-scope*="map_tools"] {
   pointer-events: auto;
 }
 .mei-compose-scene-root
@@ -4940,24 +4954,71 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 6px;
+  grid-template-areas: "head" "body";
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid rgba(56, 160, 240, 0.32);
+  border-radius: 0;
+  box-sizing: border-box;
   overflow: hidden;
+  background: transparent;
 }
-.mei-compose-warning-panel > [data-preview-scope$="/head"] {
-  flex: 0 0 auto;
+.mei-compose-warning-panel > [data-preview-scope$="/head"],
+.mei-compose-compound-section > [data-preview-scope$="/head"] {
+  grid-area: head;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  min-width: 0;
+}
+.mei-compose-warning-panel > [data-preview-scope*="supervision-stats"],
+.mei-compose-warning-panel > .mei-compose-metric-triptych,
+.mei-compose-compound-section > .mei-compose-metric-triptych,
+.mei-compose-compound-section > [data-mei-ui-role="content"],
+.mei-compose-compound-section > [data-mei-ui-role="slot"] {
+  grid-area: body;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  align-self: stretch;
 }
 .mei-compose-metric-triptych {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 2px;
   min-height: 0;
   height: 100%;
   align-items: stretch;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  box-sizing: border-box;
 }
 .mei-compose-metric-triptych > [data-mei-metric-card],
 .mei-compose-metric-triptych > .preview-card {
   min-height: 0;
   height: 100%;
+  margin: 0;
+  border-radius: 0;
+}
+.mei-compose-warning-panel > .mei-compose-metric-triptych[data-mei-panel-shell-applied="1"],
+.mei-compose-compound-section > .mei-compose-metric-triptych[data-mei-panel-shell-applied="1"] {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+}
+.mei-compose-warning-panel > [data-preview-scope$="/head"] .panel-head-cell,
+.mei-compose-compound-section > [data-preview-scope$="/head"] .panel-head-cell {
+  width: 100%;
+  min-width: 0;
 }
 .mei-compose-scene-root .preview-card-bare[data-mei-metric-card] > .panel-body-cell {
   display: grid;
@@ -4983,10 +5044,6 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   > .component-host {
   min-height: 0;
   width: 100%;
-}
-.mei-compose-warning-panel > [data-preview-scope$="/head"] .panel-head-cell {
-  width: 100%;
-  min-width: 0;
 }
 .mei-compose-warning-panel > [data-preview-scope$="/head"] mei-cockpit-panel-title {
   display: block;

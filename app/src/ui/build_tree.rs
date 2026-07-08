@@ -444,7 +444,6 @@ fn ui_scope_glyph(node: &ReachabilityTreeNode) -> &'static str {
         Some("plane") => "P",
         Some("region") => "R",
         Some("section") => "§",
-        Some("micro_layout") => "M",
         Some("slot") => "L",
         Some("content") => "C",
         Some("budget") => "B",

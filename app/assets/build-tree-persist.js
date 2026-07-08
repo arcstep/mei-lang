@@ -52,7 +52,6 @@
     section: 2,
     slot: 3,
     content: 4,
-    micro_layout: 2,
   };
 
   function isBuildRoute() {
