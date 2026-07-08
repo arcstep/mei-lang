@@ -11234,7 +11234,7 @@
   const PIPELINE_LS = "mei:render-pipeline";
   const PIPELINE_REPORT_API = "/api/host/client-trace";
   const HOST_API_RE =
-    /\/api\/host\/(view-revision|layer-batch|scene-revision|scene-manifest|scene-bootstrap|scene-fragment|scene-drilldown-context)/;
+    /\/api\/host\/(view-revision|layer-batch|scene-manifest|scene-bootstrap|scene-drilldown-context)/;
   const BUNDLE_RE = /\/(access|manage)\.bundle\.js(\?|$)/;
 
   const state = {
@@ -11304,7 +11304,6 @@
   function classifyFetchUrl(url) {
     const text = String(url || "");
     if (BUNDLE_RE.test(text)) return "bundle";
-    if (text.includes("/api/host/scene-fragment")) return "scene-fragment";
     if (text.includes("/api/host/view-revision")) return "view-revision";
     if (text.includes("/api/host/layer-batch")) return "layer-batch";
     if (text.includes("/api/host/scene-bootstrap")) return "scene-bootstrap";
@@ -11369,7 +11368,7 @@
     const surfaceReady = state.marks.find((row) => row.name === "surface_ready");
     const coldStart = phaseSpan("cold_start");
     const assembly = phaseSpan("assembly");
-    const fragment = phaseSpan("preview_fragment");
+    const compose = phaseSpan("preview_compose");
     const byKind = {};
     for (const row of state.fetches) {
       const bucket = byKind[row.kind] || {
@@ -11400,7 +11399,7 @@
       surfaceReadyMs: surfaceReady?.ms ?? null,
       coldStartMs: coldStart?.durationMs ?? null,
       assemblyMs: assembly?.durationMs ?? null,
-      previewFragmentMs: fragment?.durationMs ?? null,
+      previewComposeMs: compose?.durationMs ?? null,
       bodyPerf,
       fetchByKind: byKind,
       marks: state.marks.slice(-32),
@@ -11430,8 +11429,8 @@
       `  document≈${summary.documentMs}ms`,
       `  client_after_doc≈${summary.clientAfterDocumentMs}ms`,
     ];
-    if (summary.previewFragmentMs != null) {
-      lines.push(`  preview_fragment≈${summary.previewFragmentMs}ms`);
+    if (summary.previewComposeMs != null) {
+      lines.push(`  preview_compose≈${summary.previewComposeMs}ms`);
     }
     if (summary.assemblyMs != null) lines.push(`  assembly≈${summary.assemblyMs}ms`);
     if (summary.surfaceReadyMs != null) lines.push(`  surface_ready@${summary.surfaceReadyMs}ms`);
@@ -17239,6 +17238,156 @@
     return placeholder;
   }
 
+  const SUMMARY_IMAGE_ZOOM_MIN = 1;
+  const SUMMARY_IMAGE_ZOOM_MAX = 4;
+  const SUMMARY_IMAGE_ZOOM_STEP = 1.25;
+
+  function clampSummaryImageZoom(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return SUMMARY_IMAGE_ZOOM_MIN;
+    return Math.min(SUMMARY_IMAGE_ZOOM_MAX, Math.max(SUMMARY_IMAGE_ZOOM_MIN, n));
+  }
+
+  function mountSummaryImagePanZoomControls(viewport, stage, tools) {
+    let zoom = SUMMARY_IMAGE_ZOOM_MIN;
+    let panX = 0;
+    let panY = 0;
+    let panMode = false;
+    let dragState = null;
+    const panButton = tools.querySelector('[data-summary-image-action="pan"]');
+
+    const applyTransform = () => {
+      stage.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    };
+
+    const syncPanButton = () => {
+      if (!(panButton instanceof HTMLButtonElement)) return;
+      panButton.classList.toggle("is-active", panMode);
+      panButton.setAttribute("aria-pressed", panMode ? "true" : "false");
+    };
+
+    const resetView = () => {
+      zoom = SUMMARY_IMAGE_ZOOM_MIN;
+      panX = 0;
+      panY = 0;
+      panMode = false;
+      viewport.classList.remove("is-pan-active", "is-dragging");
+      syncPanButton();
+      applyTransform();
+    };
+
+    const setZoom = (nextZoom) => {
+      zoom = clampSummaryImageZoom(nextZoom);
+      applyTransform();
+    };
+
+    const canDrag = () => panMode || zoom > SUMMARY_IMAGE_ZOOM_MIN + 0.001;
+
+    tools.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("[data-summary-image-action]");
+      if (!(button instanceof HTMLButtonElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const action = button.getAttribute("data-summary-image-action");
+      if (action === "zoom-in") {
+        setZoom(zoom * SUMMARY_IMAGE_ZOOM_STEP);
+        return;
+      }
+      if (action === "zoom-out") {
+        setZoom(zoom / SUMMARY_IMAGE_ZOOM_STEP);
+        if (zoom <= SUMMARY_IMAGE_ZOOM_MIN + 0.001) {
+          panX = 0;
+          panY = 0;
+          applyTransform();
+        }
+        return;
+      }
+      if (action === "pan") {
+        panMode = !panMode;
+        viewport.classList.toggle("is-pan-active", panMode);
+        syncPanButton();
+        return;
+      }
+      if (action === "reset") {
+        resetView();
+      }
+    });
+
+    viewport.addEventListener("pointerdown", (event) => {
+      if (!canDrag()) return;
+      if (event.button !== 0) return;
+      if (event.target?.closest?.(".access-drilldown-video-cockpit-summary-image-tools")) return;
+      dragState = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originPanX: panX,
+        originPanY: panY,
+      };
+      viewport.classList.add("is-dragging");
+      if (typeof viewport.setPointerCapture === "function") {
+        viewport.setPointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+    });
+
+    const finishDrag = (event) => {
+      if (!dragState) return;
+      if (event.pointerId !== dragState.pointerId) return;
+      dragState = null;
+      viewport.classList.remove("is-dragging");
+      if (typeof viewport.releasePointerCapture === "function") {
+        try {
+          viewport.releasePointerCapture(event.pointerId);
+        } catch {
+          // ignore stale capture
+        }
+      }
+    };
+
+    viewport.addEventListener("pointermove", (event) => {
+      if (!dragState || event.pointerId !== dragState.pointerId) return;
+      panX = dragState.originPanX + (event.clientX - dragState.startX);
+      panY = dragState.originPanY + (event.clientY - dragState.startY);
+      applyTransform();
+      event.preventDefault();
+    });
+    viewport.addEventListener("pointerup", finishDrag);
+    viewport.addEventListener("pointercancel", finishDrag);
+    viewport.addEventListener("lostpointercapture", () => {
+      dragState = null;
+      viewport.classList.remove("is-dragging");
+    });
+
+    applyTransform();
+    return { resetView };
+  }
+
+  function createSummaryImageViewport(image) {
+    const viewport = document.createElement("div");
+    viewport.className = "access-drilldown-video-cockpit-summary-image-viewport";
+
+    const stage = document.createElement("div");
+    stage.className = "access-drilldown-video-cockpit-summary-image-stage";
+    stage.appendChild(image);
+
+    const tools = document.createElement("div");
+    tools.className = "access-drilldown-video-cockpit-summary-image-tools";
+    tools.setAttribute("role", "group");
+    tools.setAttribute("aria-label", "摘要图片缩放");
+    tools.innerHTML = `
+      <button type="button" data-summary-image-action="zoom-in" title="放大" aria-label="放大">+</button>
+      <button type="button" data-summary-image-action="zoom-out" title="缩小" aria-label="缩小">−</button>
+      <button type="button" data-summary-image-action="pan" title="拖拽平移" aria-label="拖拽平移" aria-pressed="false">✋</button>
+      <button type="button" data-summary-image-action="reset" title="复原视图" aria-label="复原视图">◎</button>
+    `;
+
+    viewport.appendChild(stage);
+    viewport.appendChild(tools);
+    mountSummaryImagePanZoomControls(viewport, stage, tools);
+    return viewport;
+  }
+
   function renderSummaryImagePreview(subtitleBody, row, mapping) {
     if (!(subtitleBody instanceof HTMLElement)) return;
     subtitleBody.replaceChildren();
@@ -17252,12 +17401,13 @@
     image.alt = "预警摘要图片";
     image.loading = "lazy";
     image.decoding = "async";
+    image.draggable = false;
     image.src = src;
     image.addEventListener("error", () => {
       subtitleBody.replaceChildren();
       appendVideoCockpitPlaceholder(subtitleBody, "未找到匹配的预警摘要图片，请确认已上传");
     });
-    subtitleBody.appendChild(image);
+    subtitleBody.appendChild(createSummaryImageViewport(image));
   }
 
   function renderVideoSubtitleCockpitPanel(host, row, config) {
@@ -18223,6 +18373,37 @@
 
 
 /* ===== spa-navigation/drilldown/render-frame-board.js ===== */
+  async function composeBoardSceneSurface(appId, sceneId) {
+    const ctx = {
+      app_id: appId,
+      appId,
+      scene_id: sceneId,
+      sceneId,
+      surface: "app",
+      mode: "app",
+    };
+    const result = await boot.viewRevisionClient?.negotiateWithLocalMiss?.(ctx, { silent: true });
+    const layers = result?.assemble?.layers;
+    if (!layers) {
+      throw new Error("board scene layer assembly failed");
+    }
+    const temp = document.createElement("div");
+    temp.setAttribute("data-mei-compose-placeholder", "1");
+    const composeAxes =
+      typeof boot.viewRevisionClient?.buildComposeRequest === "function"
+        ? boot.viewRevisionClient.buildComposeRequest(ctx)
+        : { review_projection: "live_full", data_mode: "eval", route_mode: "app" };
+    const composed = boot.viewCompositor?.composeFromLayers?.(temp, layers, composeAxes);
+    if (!composed) {
+      throw new Error("board scene compose failed");
+    }
+    return (
+      temp.querySelector("[data-mei-frame-viewport]") ||
+      temp.querySelector(".preview-surface.preview-stage") ||
+      temp.querySelector(".preview-surface")
+    );
+  }
+
   async function renderFrameBoardSceneContent(root, detail, config) {
     applyDrilldownOverlayMeta(root, config);
     setDrilldownOverlayStatus(root, "loading");
@@ -18234,35 +18415,11 @@
       return false;
     }
     const url = `/apps/app/${appId}/scene/${encodeURIComponent(sceneId)}`;
-    const fragmentUrl = `/api/host/scene-fragment?app=${encodeURIComponent(appId)}&scene=${encodeURIComponent(sceneId)}`;
     try {
-      let surface = null;
-      const fragmentResponse = await fetch(fragmentUrl, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
-      });
-      if (fragmentResponse.ok) {
-        const fragment = await fragmentResponse.json();
-        if (fragment?.surfaceHtml) {
-          const mountFromFragment = document.createElement("div");
-          mountFromFragment.innerHTML = fragment.surfaceHtml;
-          surface = mountFromFragment.firstElementChild;
-        }
+      if (!boot.viewRevisionClient?.negotiateWithLocalMiss || !boot.viewCompositor?.composeFromLayers) {
+        throw new Error("board scene compose unavailable");
       }
-      if (!(surface instanceof HTMLElement)) {
-        const response = await fetch(url, {
-          credentials: "same-origin",
-          headers: { "x-mei-spa-nav": "1" },
-        });
-        if (!response.ok) {
-          throw new Error(`scene fetch failed: ${response.status}`);
-        }
-        const html = await response.text();
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        surface = doc.querySelector(
-          "[data-mei-frame-viewport] .preview-surface, .preview-surface.preview-stage",
-        );
-      }
+      const surface = await composeBoardSceneSurface(appId, sceneId);
       if (!(surface instanceof HTMLElement)) {
         throw new Error("board scene preview surface missing");
       }
@@ -20834,36 +20991,66 @@
     if (!scope || typeof fetch !== "function") {
       return false;
     }
-    const appId = resolveAppIdFromShell();
-    const hops = resolveClientBootstrapNeighborHops();
-    const appQuery = appId ? `&appId=${encodeURIComponent(appId)}` : "";
-    const url = `/api/host/mrg/activate?scope=${encodeURIComponent(scope)}&hops=${hops}${appQuery}`;
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) {
+    if (!window.__meiBootstrapPayloadReady && !window.__meiBootstrapSeeded) {
+      const ctx =
+        typeof boot.parseViewContext === "function"
+          ? boot.parseViewContext(window.location.href)
+          : null;
+      if (typeof boot.ensureBootstrapSeeded === "function" && ctx) {
+        await boot.ensureBootstrapSeeded(ctx, {});
+      }
+      if (!window.__meiBootstrapPayloadReady && !window.__meiBootstrapSeeded) {
+        console.warn("[projection-host] eval pack blocked until bootstrap seeded");
         return false;
       }
-      const result = await response.json();
-      const payload =
-        result?.payload && typeof result.payload === "object" ? result.payload : null;
-      if (payload && typeof boot.applyBootstrapPayload === "function") {
-        boot.applyBootstrapPayload(payload);
+    }
+    const appId = resolveAppIdFromShell();
+    const hops = resolveClientBootstrapNeighborHops();
+    try {
+      const fetchPack =
+        typeof boot.fetchEvalPackFromApi === "function"
+          ? boot.fetchEvalPackFromApi
+          : typeof boot.evalPackLoader?.fetchEvalPackFromApi === "function"
+            ? (ctx, opts) => boot.evalPackLoader.fetchEvalPackFromApi(ctx, opts)
+            : null;
+      let payload = null;
+      if (fetchPack) {
+        payload = await fetchPack(
+          { appId, sceneId: scope },
+          { neighborHops: hops, fingerprint: config?.fingerprint || "" },
+        );
+      } else {
+        const params = new URLSearchParams({
+          app: appId,
+          scene: scope,
+          scope,
+          pack: "unified",
+          neighbor_hops: String(hops),
+        });
+        const response = await fetch(`/api/host/scene-eval-pack?${params.toString()}`, {
+          credentials: "same-origin",
+          headers: { Accept: "application/json" },
+        });
+        if (!response.ok) return false;
+        const result = await response.json();
+        payload =
+          result?.payload && typeof result.payload === "object" ? result.payload : result;
+        if (payload && typeof boot.applyBootstrapPayload === "function") {
+          boot.applyBootstrapPayload(payload);
+        }
       }
       if (typeof boot.dispatchScopeActivation === "function") {
         boot.dispatchScopeActivation({
           scope,
           sceneId: scope,
           appId,
-          source: "mrg-activate",
+          source: "eval-pack",
           projection: nonEmptyString(config?.projection, "overlay"),
         });
       } else {
         document.dispatchEvent(
           new CustomEvent("meilang:scope-activation", {
-            detail: { scope, sceneId: scope, appId, source: "mrg-activate" },
+            detail: { scope, sceneId: scope, appId, source: "eval-pack" },
           }),
         );
       }
@@ -20872,6 +21059,7 @@
       }
       if (typeof window !== "undefined") {
         window.__meiLastScopeActivation = { scope, sceneId: scope, appId, at: Date.now() };
+        window.__meiEvalPackSource = "eval_pack_api";
       }
       return true;
     } catch (_) {
@@ -26903,8 +27091,6 @@
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
   const VIEW_REVISION_STORE_KEY = "mei-view-revisions";
   const VIEW_REVISION_LS_KEY = "mei:view-revisions:v1";
-  const LEGACY_SCENE_REVISION_STORE_KEY = "mei-scene-revisions";
-  const LEGACY_BUILD_REVISION_STORE_KEY = "mei-build-fragment-revisions";
 
   function normalizeRevision(revision) {
     if (!revision || typeof revision !== "object") return revision;
@@ -27007,18 +27193,7 @@
       const raw = global.localStorage.getItem(VIEW_REVISION_LS_KEY);
       if (raw) return JSON.parse(raw);
     } catch (_) {}
-    const merged = {};
-    try {
-      const sceneRaw =
-        global.sessionStorage.getItem(LEGACY_SCENE_REVISION_STORE_KEY) ||
-        global.localStorage.getItem("mei:scene-revisions:v1");
-      if (sceneRaw) Object.assign(merged, JSON.parse(sceneRaw));
-    } catch (_) {}
-    try {
-      const buildRaw = global.sessionStorage.getItem(LEGACY_BUILD_REVISION_STORE_KEY);
-      if (buildRaw) Object.assign(merged, JSON.parse(buildRaw));
-    } catch (_) {}
-    return merged;
+    return {};
   }
 
   function writeViewRevisionStore(store) {
@@ -27478,6 +27653,7 @@
   }
 
   boot.parseViewContext = parseViewContext;
+  boot.parseAccessSceneContext = parseViewContext;
   boot.canonicalizeViewUrl = canonicalizeViewUrl;
   boot.isWorkspaceComposeSurface = isWorkspaceComposeSurface;
   boot.resolveComposeRoot = resolveComposeRoot;
@@ -27574,6 +27750,13 @@
         typeof boot.resolveComposeRoot === "function"
           ? boot.resolveComposeRoot(surface)
           : doc?.getElementById?.("mei-compose-root");
+      if (root instanceof HTMLElement && root.getAttribute("data-mei-compose-placeholder") === "1") {
+        return boot.previewMaterializer?.isClientLayerMaterialized?.(root) === true;
+      }
+      if (boot.previewMaterializer?.isClientLayerMaterialized?.(root)) return true;
+      if (typeof boot.previewMaterializer?.canSkipClientCompose === "function") {
+        return boot.previewMaterializer.canSkipClientCompose(root, ctx);
+      }
       const markers = countAppPreviewMarkers(root);
       const materialized =
         typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
@@ -28166,6 +28349,30 @@
     );
   }
 
+  function viewRevisionCtx(ctx) {
+    const surface = ctx.surface || ctx.mode || "app";
+    return {
+      app_id: ctx.app_id || ctx.appId,
+      scene_id: ctx.scene_id || ctx.sceneId,
+      surface,
+      node: ctx.node || "",
+      data_mode: ctx.data_mode || ctx.dataMode || "",
+      review_projection: ctx.review_projection || ctx.reviewProjection || "",
+      chrome: ctx.chrome || "",
+      tab: ctx.tab || "",
+      focus: ctx.focus || "",
+      scope: ctx.scope || "",
+    };
+  }
+
+  async function assemblePreviewViaViewRevision(ctx, opts, signal) {
+    if (!boot.viewRevisionClient?.negotiateWithLocalMiss) return null;
+    return boot.viewRevisionClient.negotiateWithLocalMiss(viewRevisionCtx(ctx), {
+      ...(opts || {}),
+      signal,
+    });
+  }
+
   async function waitForSurfaceMaterialized(ctx, generation, signal) {
     if (typeof boot.isSurfaceMaterialized !== "function") return true;
     let ready = boot.isSurfaceMaterialized(ctx);
@@ -28173,8 +28380,8 @@
     const isWorkspace =
       typeof boot.isWorkspaceComposeSurface === "function" &&
       boot.isWorkspaceComposeSurface(surface);
-    if (!ready && isWorkspace) {
-      const deadline = performance.now() + 3000;
+    if (!ready) {
+      const deadline = performance.now() + (isWorkspace ? 3000 : 8000);
       while (!ready && performance.now() < deadline && !isStale(generation, signal)) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         ready = boot.isSurfaceMaterialized(ctx);
@@ -28286,12 +28493,11 @@
         negotiateOpts.omit_digests = true;
       }
     }
-    if (typeof boot.negotiateAndAssemble === "function") {
-      result = await boot.negotiateAndAssemble(
-        { ...ctx, url: ctx.url || global.location.href },
-        negotiateOpts,
-      );
+    if (!boot.viewRevisionClient?.negotiateWithLocalMiss) {
+      tracePhase("preview", generation, { ok: false, reason: "view_revision_unavailable" });
+      return null;
     }
+    result = await assemblePreviewViaViewRevision(ctx, negotiateOpts, signal);
     if (result?.assemble?.layers) {
       notifyLayerResident("structure.full", result.assemble.layers, generation);
       const manifest =
@@ -28308,18 +28514,18 @@
   }
 
   async function retryPreviewForSurfaceReady(ctx, generation, opts, signal) {
-    if (!boot.negotiateAndAssemble) return null;
-    return boot.negotiateAndAssemble(
-      { ...ctx, url: ctx.url || global.location.href },
+    if (!boot.viewRevisionClient?.negotiateWithLocalMiss) return null;
+    return assemblePreviewViaViewRevision(
+      ctx,
       {
         silent: true,
         surfaceSwitch: isSurfaceSwitch(opts),
         forceRematerialize: true,
         omit_digests: true,
         skipComplete: true,
-        signal,
         generation,
       },
+      signal,
     );
   }
 
@@ -28675,305 +28881,6 @@
     deleteLayer,
     listHoldings,
     pruneStale,
-  };
-})(typeof window !== "undefined" ? window : globalThis);
-
-
-/* ===== spa-navigation/spa/preview-surface-cache.js ===== */
-/**
- * IndexedDB persistence for preview surfaceHtml (Route A thin-shell F5 cache).
- */
-(function initPreviewSurfaceCache(global) {
-  "use strict";
-
-  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
-  const DB_NAME = "mei-preview-surface-cache-v1";
-  const STORE_NAME = "surfaces";
-  const DB_VERSION = 1;
-  const MAX_ENTRIES_PER_APP = 16;
-  const DISABLE_LS = "mei:preview-surface-cache";
-
-  function cacheEnabled() {
-    try {
-      if (global.localStorage?.getItem(DISABLE_LS) === "0") return false;
-    } catch (_) {}
-    return true;
-  }
-
-  function stableComposeHash(ctx) {
-    const payload = {
-      data_mode: String(ctx?.data_mode || ctx?.dataMode || "").trim(),
-      review_projection: String(ctx?.review_projection || ctx?.reviewProjection || "").trim(),
-      chrome: String(ctx?.chrome || "").trim(),
-    };
-    return JSON.stringify(payload);
-  }
-
-  function resolveDigests(ctx, digestsIn) {
-    const fromArg = digestsIn && typeof digestsIn === "object" ? digestsIn : null;
-    if (fromArg?.surface_revision_digest) {
-      return {
-        manifest_revision_digest: String(fromArg.manifest_revision_digest || "").trim(),
-        surface_revision_digest: String(fromArg.surface_revision_digest || "").trim(),
-      };
-    }
-    if (typeof boot.readClientDigests === "function") {
-      const read = boot.readClientDigests(ctx) || {};
-      if (read.surface_revision_digest) {
-        return {
-          manifest_revision_digest: String(read.manifest_revision_digest || "").trim(),
-          surface_revision_digest: String(read.surface_revision_digest || "").trim(),
-        };
-      }
-    }
-    const refs = global.__mei?.scene_manifest_refs || {};
-    return {
-      manifest_revision_digest: String(
-        refs.revision_digest || refs.manifest_revision_digest || "",
-      ).trim(),
-      surface_revision_digest: String(refs.surface_revision_digest || "").trim(),
-    };
-  }
-
-  function resolveDataGeneration() {
-    const mei = global.__mei || {};
-    return String(
-      mei.bootstrap_data_generation || mei.data_generation || boot.readBootstrapMeta?.("mei-bootstrap-data-generation") || "",
-    ).trim();
-  }
-
-  function buildCacheKey(ctx, digestsIn) {
-    const appId = String(ctx?.app_id || ctx?.appId || "").trim();
-    const sceneId = String(ctx?.scene_id || ctx?.sceneId || "home").trim() || "home";
-    const digests = resolveDigests(ctx, digestsIn);
-    const surfaceDigest = digests.surface_revision_digest;
-    if (!appId || !sceneId || !surfaceDigest) return "";
-    const composeHash = stableComposeHash(ctx);
-    const dataGen = resolveDataGeneration();
-    return `${appId}:${sceneId}:${surfaceDigest}:${composeHash}:${dataGen}:fragment`;
-  }
-
-  function openDb() {
-    if (!cacheEnabled() || typeof indexedDB === "undefined") {
-      return Promise.resolve(null);
-    }
-    return new Promise((resolve) => {
-      try {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onupgradeneeded = () => {
-          const db = request.result;
-          if (!db.objectStoreNames.contains(STORE_NAME)) {
-            const store = db.createObjectStore(STORE_NAME, { keyPath: "cache_key" });
-            store.createIndex("app_scene", ["app_id", "scene_id"], { unique: false });
-          }
-        };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => resolve(null);
-      } catch (_) {
-        resolve(null);
-      }
-    });
-  }
-
-  async function getSurfaceHtml(cacheKey) {
-    const key = String(cacheKey || "").trim();
-    if (!key || !cacheEnabled()) return null;
-    const db = await openDb();
-    if (!db) return null;
-    return new Promise((resolve) => {
-      try {
-        const tx = db.transaction(STORE_NAME, "readonly");
-        const request = tx.objectStore(STORE_NAME).get(key);
-        request.onsuccess = () => {
-          const row = request.result;
-          if (!row?.surface_html) {
-            resolve(null);
-            return;
-          }
-          resolve({
-            surfaceHtml: row.surface_html,
-            bytes: row.bytes || row.surface_html.length,
-            stored_at: row.stored_at || 0,
-            cache_key: row.cache_key,
-          });
-        };
-        request.onerror = () => resolve(null);
-      } catch (_) {
-        resolve(null);
-      }
-    });
-  }
-
-  async function putSurfaceHtml(cacheKey, surfaceHtml, meta) {
-    const key = String(cacheKey || "").trim();
-    const html = String(surfaceHtml || "");
-    if (!key || !html || !cacheEnabled()) return false;
-    const db = await openDb();
-    if (!db) return false;
-    const info = meta && typeof meta === "object" ? meta : {};
-    const record = {
-      cache_key: key,
-      app_id: String(info.app_id || "").trim(),
-      scene_id: String(info.scene_id || "").trim(),
-      surface_revision_digest: String(info.surface_revision_digest || "").trim(),
-      data_generation: String(info.data_generation || resolveDataGeneration()).trim(),
-      surface_html: html,
-      bytes: html.length,
-      stored_at: Date.now(),
-    };
-    return new Promise((resolve) => {
-      try {
-        const tx = db.transaction(STORE_NAME, "readwrite");
-        tx.objectStore(STORE_NAME).put(record);
-        tx.oncomplete = () => {
-          if (typeof boot.cacheDiagTrace === "function") {
-            boot.cacheDiagTrace("preview-idb-write", {
-              cache_key: key,
-              bytes: record.bytes,
-            });
-          }
-          void pruneOverflow(record.app_id, record.scene_id, key);
-          resolve(true);
-        };
-        tx.onerror = () => resolve(false);
-      } catch (_) {
-        resolve(false);
-      }
-    });
-  }
-
-  async function deleteEntry(cacheKey) {
-    const key = String(cacheKey || "").trim();
-    if (!key) return false;
-    const db = await openDb();
-    if (!db) return false;
-    return new Promise((resolve) => {
-      try {
-        const tx = db.transaction(STORE_NAME, "readwrite");
-        tx.objectStore(STORE_NAME).delete(key);
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => resolve(false);
-      } catch (_) {
-        resolve(false);
-      }
-    });
-  }
-
-  async function listEntries(appId, sceneId) {
-    const db = await openDb();
-    if (!db) return [];
-    return new Promise((resolve) => {
-      try {
-        const tx = db.transaction(STORE_NAME, "readonly");
-        const index = tx.objectStore(STORE_NAME).index("app_scene");
-        const request = index.getAll([String(appId || ""), String(sceneId || "")]);
-        request.onsuccess = () => resolve(request.result || []);
-        request.onerror = () => resolve([]);
-      } catch (_) {
-        resolve([]);
-      }
-    });
-  }
-
-  async function pruneStale(appId, sceneId, validKeys) {
-    const valid = validKeys instanceof Set ? validKeys : new Set(validKeys || []);
-    const rows = await listEntries(appId, sceneId);
-    for (const row of rows) {
-      if (!valid.has(row.cache_key)) {
-        await deleteEntry(row.cache_key);
-      }
-    }
-  }
-
-  async function pruneOverflow(appId, sceneId, keepKey) {
-    const rows = await listEntries(appId, sceneId);
-    if (rows.length <= MAX_ENTRIES_PER_APP) return;
-    const sorted = rows
-      .slice()
-      .filter((row) => row.cache_key !== keepKey)
-      .sort((a, b) => (a.stored_at || 0) - (b.stored_at || 0));
-    const excess = sorted.length - MAX_ENTRIES_PER_APP + 1;
-    for (let i = 0; i < excess && i < sorted.length; i += 1) {
-      await deleteEntry(sorted[i].cache_key);
-    }
-  }
-
-  async function deleteAllForApp(appId) {
-    const db = await openDb();
-    if (!db) return;
-    return new Promise((resolve) => {
-      try {
-        const tx = db.transaction(STORE_NAME, "readwrite");
-        const store = tx.objectStore(STORE_NAME);
-        const request = store.openCursor();
-        request.onsuccess = () => {
-          const cursor = request.result;
-          if (!cursor) return;
-          if (String(cursor.value?.app_id || "") === String(appId || "")) {
-            cursor.delete();
-          }
-          cursor.continue();
-        };
-        tx.oncomplete = () => resolve(true);
-        tx.onerror = () => resolve(false);
-      } catch (_) {
-        resolve(false);
-      }
-    });
-  }
-
-  async function tryGetCachedSurface(ctx, options) {
-    if (!cacheEnabled() || options?.forceRematerialize === true) {
-      if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("preview-idb-miss", { reason: "disabled_or_force" });
-      }
-      return null;
-    }
-    const cacheKey = buildCacheKey(ctx, options?.digests);
-    if (!cacheKey) {
-      if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("preview-idb-miss", { reason: "no_cache_key" });
-      }
-      return null;
-    }
-    const cached = await getSurfaceHtml(cacheKey);
-    if (!cached?.surfaceHtml) {
-      if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("preview-idb-miss", { cache_key: cacheKey });
-      }
-      return null;
-    }
-    if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("preview-idb-hit", {
-        cache_key: cacheKey,
-        bytes: cached.bytes,
-      });
-    }
-    return { ...cached, cacheKey };
-  }
-
-  async function storeCachedSurface(ctx, surfaceHtml, options) {
-    const cacheKey = buildCacheKey(ctx, options?.digests);
-    if (!cacheKey) return false;
-    const digests = resolveDigests(ctx, options?.digests);
-    return putSurfaceHtml(cacheKey, surfaceHtml, {
-      app_id: ctx?.app_id || ctx?.appId,
-      scene_id: ctx?.scene_id || ctx?.sceneId,
-      surface_revision_digest: digests.surface_revision_digest,
-      data_generation: resolveDataGeneration(),
-    });
-  }
-
-  boot.previewSurfaceCache = {
-    cacheEnabled,
-    buildCacheKey,
-    getSurfaceHtml,
-    putSurfaceHtml,
-    tryGetCachedSurface,
-    storeCachedSurface,
-    pruneStale,
-    deleteAllForApp,
-    listEntries,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
@@ -29458,16 +29365,25 @@
         ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
         : global.document?.querySelector?.(".shell, .preview-pane-scroll");
     const shell = composeRoot instanceof HTMLElement ? composeRoot : null;
-    const ssrPreviewReady =
+    const composeAxes = {
+      ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),
+      forceRematerialize: options.forceRematerialize === true,
+    };
+    const forceRematerialize = composeAxes.forceRematerialize === true;
+    const skipComposePreview =
       shell &&
-      boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(shell) === true;
-    const forceRematerialize = options.forceRematerialize === true;
+      shell.getAttribute("data-mei-compose-placeholder") !== "1" &&
+      typeof boot.previewMaterializer?.canSkipClientCompose === "function" &&
+      boot.previewMaterializer.canSkipClientCompose(shell, ctx);
     if (
       shell &&
-      ssrPreviewReady &&
+      skipComposePreview &&
       !forceRematerialize &&
       !composeContextChanged(shell, ctx, assemblyPlan, options)
     ) {
+      if (typeof boot.previewMaterializer?.finalizeClientPreview === "function") {
+        boot.previewMaterializer.finalizeClientPreview(shell, layers, composeAxes);
+      }
       if (typeof boot.applyHostChromeFromManifestRefs === "function") {
         boot.applyHostChromeFromManifestRefs();
       }
@@ -29486,15 +29402,28 @@
       }
       return { ok: true, missing: [], layers, source: "ssr_preview", materialized: true };
     }
+    if (boot.viewCompositor?.composeFromLayers && shell) {
+      const composed = boot.viewCompositor.composeFromLayers(shell, layers, composeAxes);
+      if (composed) {
+        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
+          boot.applyHostChromeFromManifestRefs();
+        }
+        const materialized =
+          boot.previewMaterializer?.isClientLayerMaterialized?.(shell) === true;
+        return {
+          ok: true,
+          missing: [],
+          layers,
+          source: ViewRevisionOutcome.ASSEMBLE_LOCAL,
+          materialized,
+        };
+      }
+    }
     if (
       shell &&
       shell.getAttribute("data-mei-compose-placeholder") === "1" &&
       typeof boot.previewMaterializer?.materializePlaceholderPreview === "function"
     ) {
-      const composeAxes = {
-        ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),
-        forceRematerialize,
-      };
       const materialized = await boot.previewMaterializer.materializePlaceholderPreview(
         ctx,
         shell,
@@ -29516,50 +29445,6 @@
               : "ssr_preview",
           materialized: true,
           preview_source: previewSource,
-        };
-      }
-    } else if (
-      shell &&
-      shell.getAttribute("data-mei-compose-placeholder") === "1" &&
-      typeof boot.previewMaterializer?.hydratePlaceholderFromFragment === "function"
-    ) {
-      const hydrated = await boot.previewMaterializer.hydratePlaceholderFromFragment(
-        ctx,
-        shell,
-        options,
-      );
-      if (hydrated) {
-        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
-          boot.applyHostChromeFromManifestRefs();
-        }
-        return {
-          ok: true,
-          missing: [],
-          layers,
-          source: "ssr_preview",
-          materialized: true,
-          preview_source: "fragment",
-        };
-      }
-    }
-    if (boot.viewCompositor?.composeFromLayers && shell) {
-      const composeAxes = {
-        ...(assemblyPlan?.compose_defaults || composeDefaultsFromResponse(assemblyPlan, ctx)),
-        forceRematerialize,
-      };
-      const composed = boot.viewCompositor.composeFromLayers(shell, layers, composeAxes);
-      if (composed) {
-        if (typeof boot.applyHostChromeFromManifestRefs === "function") {
-          boot.applyHostChromeFromManifestRefs();
-        }
-        const materialized =
-          typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(shell);
-        return {
-          ok: true,
-          missing: [],
-          layers,
-          source: ViewRevisionOutcome.ASSEMBLE_LOCAL,
-          materialized,
         };
       }
     }
@@ -30129,6 +30014,8 @@
 /* ===== spa-navigation/spa/view-compositor.js ===== */
 /**
  * ViewCompositor: compose review_projection depth without refetching structure.full.
+ * layoutTuning dataset attrs are legacy author-model hints only — new surfaces must use
+ * manifest projection / layout_policy from composed layers, not ops.layoutTuning bypasses.
  */
 (function initViewCompositor(global) {
   "use strict";
@@ -30188,11 +30075,11 @@
           const numeric = Number(String(slotHeight).replace(/px$/i, "").trim());
           const px = Number.isFinite(numeric) ? `${numeric}px` : String(slotHeight);
           node.style.setProperty("--mei-slot-height", px);
-          node.dataset.layoutTuningSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
+          node.dataset.manifestSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
         }
         const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
         if (paddingProfile) {
-          node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
+          node.dataset.manifestPaddingProfile = String(paddingProfile);
         }
         const contentBudget = patch.contentBudget || patch.content_budget;
         if (contentBudget && typeof contentBudget === "object") {
@@ -30206,18 +30093,18 @@
             } else {
               node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
             }
-            node.dataset.layoutTuningContentRows = rows.join(",");
+            node.dataset.manifestContentRows = rows.join(",");
           }
           const gap = contentBudget.gap ?? contentBudget.content_gap;
           if (gap != null && gap !== "") {
             node.style.rowGap = `${gap}px`;
-            node.dataset.layoutTuningContentGap = String(gap);
+            node.dataset.manifestContentGap = String(gap);
           }
         }
         const sectionRows = patch.sectionRows || patch.section_rows;
         if (Array.isArray(sectionRows) && sectionRows.length > 0) {
           node.style.gridTemplateRows = sectionRows.map((row) => String(row)).join(" ");
-          node.dataset.layoutTuningSectionRows = sectionRows.join(",");
+          node.dataset.manifestSectionRows = sectionRows.join(",");
         }
         const gapFr = patch.gap ?? patch.stripGap;
         if (gapFr != null && gapFr !== "" && !contentBudget) {
@@ -30472,12 +30359,19 @@
     const materializer = boot.previewMaterializer;
     const forceRematerialize = composeAxes?.forceRematerialize === true;
     const workspacePreviewRoot = isWorkspacePreviewRoot(root, composeAxes);
+    const thinShellPlaceholder =
+      root instanceof HTMLElement && root.getAttribute("data-mei-compose-placeholder") === "1";
     const preserveWorkspaceDom =
       !forceRematerialize &&
       workspacePreviewRoot &&
       hasEstablishedWorkspacePreview(root);
     const keepSsrPreview =
-      !forceRematerialize && materializer?.isSsrInjectedPreviewRoot?.(root) === true;
+      !forceRematerialize &&
+      root.getAttribute("data-mei-compose-placeholder") !== "1" &&
+      typeof materializer?.canSkipClientCompose === "function" &&
+      materializer.canSkipClientCompose(root, {
+        surface: composeAxes?.route_mode || composeAxes?.routeMode || "app",
+      });
     const shouldMaterializePreview =
       !keepSsrPreview &&
       !preserveWorkspaceDom &&
@@ -30491,25 +30385,23 @@
     }
     if (shouldMaterializePreview) {
       materializer.materializePreview(root, layers, composeAxes);
-    } else if (!keepSsrPreview && !preserveWorkspaceDom) {
+    } else if (!keepSsrPreview && !preserveWorkspaceDom && !thinShellPlaceholder) {
       ensureStructureSkeleton(root, structure);
     }
-    if (workspacePreviewRoot) {
-      if (typeof materializer?.applyRuntimePlans === "function") {
-        materializer.applyRuntimePlans(layers["runtime.plans"]);
-      }
-      const projectionSlug = String(projection || "").trim().toLowerCase();
-      const bindEvalContent =
-        !projectionSlug ||
-        projectionSlug.includes("full") ||
-        roleDepth(PROJECTION_MAX_ROLE[projectionSlug] || "content") >= roleDepth("content");
-      if (bindEvalContent && typeof materializer?.bindEvalSlots === "function") {
-        const evalDocs =
-          typeof materializer.collectEvalDocs === "function"
-            ? materializer.collectEvalDocs(layers)
-            : [];
-        materializer.bindEvalSlots(root, evalDocs);
-      }
+    if (typeof materializer?.applyRuntimePlans === "function" && layers["runtime.plans"]) {
+      materializer.applyRuntimePlans(layers["runtime.plans"]);
+    }
+    const projectionSlug = String(projection || "").trim().toLowerCase();
+    const bindEvalContent =
+      !projectionSlug ||
+      projectionSlug.includes("full") ||
+      roleDepth(PROJECTION_MAX_ROLE[projectionSlug] || "content") >= roleDepth("content");
+    if (bindEvalContent && typeof materializer?.bindEvalSlots === "function") {
+      const evalDocs =
+        typeof materializer.collectEvalDocs === "function"
+          ? materializer.collectEvalDocs(layers)
+          : [];
+      materializer.bindEvalSlots(root, evalDocs);
     }
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);
@@ -30924,41 +30816,6 @@
     );
   }
 
-  function injectPreviewSurfaceHtml(root, surfaceHtml) {
-    const html = String(surfaceHtml || "").trim();
-    if (!(root instanceof HTMLElement) || !html) return false;
-    root.innerHTML = html;
-    root.removeAttribute("data-mei-compose-placeholder");
-    root.removeAttribute("aria-busy");
-    root.removeAttribute("data-mei-compose-materialized");
-    return true;
-  }
-
-  async function fetchScenePreviewFragment(ctx, options) {
-    const opts = options || {};
-    const appId = String(ctx?.appId || ctx?.app_id || "").trim();
-    const sceneId = String(ctx?.sceneId || ctx?.scene_id || "home").trim() || "home";
-    if (!appId) return null;
-    const params = new URLSearchParams({ app: appId, scene: sceneId, format: "html" });
-    const dataMode = String(ctx?.dataMode || ctx?.data_mode || "").trim();
-    const reviewProjection = String(ctx?.reviewProjection || ctx?.review_projection || "").trim();
-    const chrome = String(ctx?.chrome || "").trim();
-    if (dataMode) params.set("data_mode", dataMode);
-    if (reviewProjection) params.set("review_projection", reviewProjection);
-    if (chrome) params.set("chrome", chrome);
-    const controller = opts.signal ? null : new AbortController();
-    const signal = opts.signal || controller?.signal;
-    const response = await fetch(`/api/host/scene-fragment?${params.toString()}`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(`scene preview fragment failed: ${response.status}`);
-    }
-    return await response.json();
-  }
-
   async function ensureBootstrapBeforeInject(ctx) {
     if (typeof boot.ensureBootstrapSeeded !== "function") return;
     const appId = String(ctx?.appId || ctx?.app_id || "").trim();
@@ -30977,85 +30834,22 @@
     }
   }
 
-  async function tryInjectCachedSurface(ctx, root, options) {
-    if (!(root instanceof HTMLElement)) return false;
-    const cached = await boot.previewSurfaceCache?.tryGetCachedSurface?.(ctx, options);
-    if (!cached?.surfaceHtml) return false;
-    if (typeof boot.renderPipelineMark === "function") {
-      boot.renderPipelineMark("preview_fragment:begin");
+  function finalizeClientPreview(root, layers, composeAxes) {
+    if (!(root instanceof HTMLElement) || !layers) return false;
+    const projection = String(
+      composeAxes?.review_projection || composeAxes?.reviewProjection || "",
+    )
+      .trim()
+      .toLowerCase();
+    const bindEvalContent =
+      !projection || projection.includes("full") || projection === "live" || projection === "static";
+    if (bindEvalContent) {
+      bindEvalSlots(root, collectEvalDocs(layers));
     }
-    const ok = injectPreviewSurfaceHtml(root, cached.surfaceHtml);
-    if (ok && typeof boot.renderPipelineMark === "function") {
-      boot.renderPipelineMark("preview_fragment:end", {
-        bytes: cached.bytes || cached.surfaceHtml.length,
-        source: "idb",
-      });
-    }
-    return ok;
-  }
-
-  function preferComposePreview() {
-    return global.__mei?.prefer_compose_preview === true;
-  }
-
-  function composePreviewMaterialized(root) {
-    if (!(root instanceof HTMLElement)) return false;
-    if (typeof boot.hasMaterializedPreview === "function" && !boot.hasMaterializedPreview(root)) {
-      return false;
-    }
-    return !!root.querySelector(
-      "[data-mei-frame-viewport], [data-preview-scope], [data-mei-use-key], .preview-viewport",
-    );
-  }
-
-  async function storeSurfaceHtmlCache(ctx, surfaceHtml, options) {
-    const html = String(surfaceHtml || "").trim();
-    if (!html || !boot.previewSurfaceCache?.storeCachedSurface) return;
-    void boot.previewSurfaceCache.storeCachedSurface(ctx, html, {
-      ...(options || {}),
-      source: "fragment",
-    });
-  }
-
-  async function fetchAndInjectFragment(ctx, root, options) {
-    const fragment = await fetchScenePreviewFragment(ctx, options);
-    if (!fragment?.surfaceHtml) return false;
-    const ok = injectPreviewSurfaceHtml(root, fragment.surfaceHtml);
-    if (ok) {
-      void storeSurfaceHtmlCache(ctx, fragment.surfaceHtml, options);
-      if (typeof boot.renderPipelineMark === "function") {
-        boot.renderPipelineMark("preview_fragment:end", {
-          bytes: fragment.surfaceHtml.length,
-          source: "network",
-        });
-      }
-    }
-    return ok;
-  }
-
-  async function hydratePlaceholderFromFragment(ctx, root, options) {
-    if (!(root instanceof HTMLElement)) return false;
-    if (root.getAttribute("data-mei-compose-placeholder") !== "1") return false;
-    if (boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(root) === true) return true;
-    const opts = options || {};
-    try {
-      await ensureBootstrapBeforeInject(ctx);
-      if (opts.skipIdb !== true) {
-        const fromCache = await tryInjectCachedSurface(ctx, root, opts);
-        if (fromCache) return true;
-      }
-      if (typeof boot.renderPipelineMark === "function") {
-        boot.renderPipelineMark("preview_fragment:begin");
-      }
-      return await fetchAndInjectFragment(ctx, root, opts);
-    } catch (error) {
-      if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("preview-fragment-hydrate-miss", {
-          message: String(error?.message || error || "fragment hydrate failed"),
-        });
-      }
-      return false;
-    }
+    root.setAttribute("data-mei-compose-materialized", "1");
+    root.removeAttribute("data-mei-compose-placeholder");
+    root.removeAttribute("aria-busy");
+    return true;
   }
 
   async function materializePlaceholderPreview(ctx, root, layers, options) {
@@ -31063,34 +30857,43 @@
     if (root.getAttribute("data-mei-compose-placeholder") !== "1") {
       return { ok: false, source: null };
     }
-    if (isSsrInjectedPreviewRoot(root)) {
-      return { ok: true, source: "ssr_preview" };
-    }
     const opts = options || {};
+    const composeAxes = {
+      ...(opts.composeAxes || {}),
+      forceRematerialize: true,
+    };
     try {
       await ensureBootstrapBeforeInject(ctx);
-      const fromCache = await tryInjectCachedSurface(ctx, root, opts);
-      if (fromCache) return { ok: true, source: "idb" };
-
-      if (preferComposePreview() && layers && boot.viewCompositor?.composeFromLayers) {
-        const composeAxes = {
-          ...(opts.composeAxes || {}),
-          forceRematerialize: opts.forceRematerialize === true,
-        };
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("preview_compose:begin");
+      }
+      if (layers && boot.viewCompositor?.composeFromLayers) {
         const composed = boot.viewCompositor.composeFromLayers(root, layers, composeAxes);
-        if (composed && composePreviewMaterialized(root)) {
+        if (composed && isClientLayerMaterialized(root)) {
+          if (typeof boot.renderPipelineMark === "function") {
+            boot.renderPipelineMark("preview_compose:end", { source: "compose" });
+          }
           return { ok: true, source: "compose" };
         }
       }
-
-      const hydrated = await hydratePlaceholderFromFragment(ctx, root, {
-        ...opts,
-        skipIdb: true,
-      });
-      return { ok: hydrated, source: hydrated ? "fragment" : null };
-    } catch (error) {
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("preview_compose:end", { source: "miss" });
+      }
       if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("preview-materialize-miss", {
+        boot.cacheDiagTrace("preview-compose-miss", {
+          message: "composeFromLayers failed or layers missing",
+        });
+      }
+      return { ok: false, source: null };
+    } catch (error) {
+      if (typeof boot.renderPipelineMark === "function") {
+        boot.renderPipelineMark("preview_compose:end", {
+          source: "error",
+          message: String(error?.message || error || "materialize failed"),
+        });
+      }
+      if (typeof boot.cacheDiagTrace === "function") {
+        boot.cacheDiagTrace("preview-compose-miss", {
           message: String(error?.message || error || "materialize failed"),
         });
       }
@@ -31130,8 +30933,31 @@
   }
 
   function isSsrInjectedPreviewRoot(root) {
+    if (!(root instanceof HTMLElement)) return false;
+    if (isClientLayerMaterialized(root)) return false;
+    return canSkipClientCompose(root, { surface: "app" });
+  }
+
+  function isThinShellComposePlaceholder(root) {
+    return root instanceof HTMLElement && root.getAttribute("data-mei-compose-placeholder") === "1";
+  }
+
+  function canSkipClientCompose(root, ctx) {
+    if (!(root instanceof HTMLElement)) return false;
+    if (isThinShellComposePlaceholder(root)) return false;
+    if (isClientLayerMaterialized(root)) return true;
     if (!hasMaterializedPreview(root)) return false;
-    return !isClientLayerMaterialized(root);
+    const surface = String(ctx?.surface || ctx?.mode || "app")
+      .trim()
+      .toLowerCase();
+    if (surface === "app") {
+      return Array.from(root.querySelectorAll("[data-mei-plane], [data-mei-tier]")).some((el) =>
+        /^t1$/i.test(
+          String(el.getAttribute("data-mei-plane") || el.getAttribute("data-mei-tier") || ""),
+        ),
+      );
+    }
+    return true;
   }
 
   boot.previewMaterializer = {
@@ -31142,10 +30968,9 @@
     hasMaterializedPreview,
     isClientLayerMaterialized,
     isSsrInjectedPreviewRoot,
+    canSkipClientCompose,
     collectEvalDocs,
-    injectPreviewSurfaceHtml,
-    fetchScenePreviewFragment,
-    hydratePlaceholderFromFragment,
+    finalizeClientPreview,
     materializePlaceholderPreview,
     ensureBootstrapBeforeInject,
   };
@@ -31381,299 +31206,6 @@
     openPanelForSelection,
   };
 })(typeof window !== "undefined" ? window : globalThis);
-
-
-/* ===== spa-navigation/spa/scene-revision.js ===== */
-  const SCENE_REVISION_API = "/api/host/scene-revision";
-  const SCENE_REVISION_STORE_KEY = "mei-scene-revisions";
-  const SCENE_REVISION_LS_KEY = "mei:scene-revisions:v1";
-
-  function readSceneRevisionStore() {
-    try {
-      const raw = sessionStorage.getItem(SCENE_REVISION_STORE_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch (_) {}
-    try {
-      const raw = localStorage.getItem(SCENE_REVISION_LS_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch (_) {
-      return {};
-    }
-  }
-
-  function writeSceneRevisionStore(store) {
-    const payload = JSON.stringify(store || {});
-    try {
-      sessionStorage.setItem(SCENE_REVISION_STORE_KEY, payload);
-    } catch (_) {}
-    try {
-      localStorage.setItem(SCENE_REVISION_LS_KEY, payload);
-    } catch (_) {}
-  }
-
-  function parseAccessSceneContext(urlLike) {
-    if (typeof boot.parseViewContext === "function") {
-      const ctx = boot.parseViewContext(urlLike);
-      if (!ctx) return null;
-      return {
-        appId: ctx.appId,
-        sceneId: ctx.sceneId,
-        mode: ctx.surface || ctx.mode || "app",
-        chrome: ctx.chrome || "",
-        dataMode: ctx.dataMode || "",
-        reviewProjection: ctx.reviewProjection || "",
-        url: ctx.url,
-      };
-    }
-    try {
-      const url = new URL(urlLike, window.location.href);
-      const match = url.pathname.match(
-        /^\/apps\/(?:app|access|run|presentation|slides|copilot)\/([^/]+)(?:\/scene\/([^/]+))?/,
-      );
-      if (!match) return null;
-      const mode = url.pathname.split("/")[2] || "app";
-      const fallbackSceneId =
-        String(
-          document.body?.getAttribute("data-scene-id") ||
-            document.querySelector(".shell")?.getAttribute("data-scene") ||
-            "home",
-        ).trim() || "home";
-      return {
-        appId: decodeURIComponent(match[1]),
-        sceneId: decodeURIComponent(match[2] || fallbackSceneId),
-        mode,
-        chrome: String(url.searchParams.get("chrome") || "").trim().toLowerCase(),
-        dataMode: String(url.searchParams.get("data_mode") || "").trim().toLowerCase(),
-        reviewProjection: String(url.searchParams.get("review_projection") || "")
-          .trim()
-          .toLowerCase(),
-        url: url.href,
-      };
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function sceneRevisionCacheKey(ctx) {
-    if (typeof boot.semanticRevisionKey === "function") {
-      return boot.semanticRevisionKey(ctx);
-    }
-    return boot.surfaceRevisionKey({
-      surface: ctx.mode || "app",
-      app_id: ctx.appId,
-      scene_id: ctx.sceneId,
-      data_mode: (() => {
-        try {
-          return String(
-            new URL(ctx.url || window.location.href).searchParams.get("data_mode") || "",
-          )
-            .trim()
-            .toLowerCase();
-        } catch (_) {
-          return "";
-        }
-      })(),
-      review_projection: (() => {
-        try {
-          return String(
-            new URL(ctx.url || window.location.href).searchParams.get("review_projection") || "",
-          )
-            .trim()
-            .toLowerCase();
-        } catch (_) {
-          return "";
-        }
-      })(),
-      chrome: (() => {
-        try {
-          return String(new URL(ctx.url || window.location.href).searchParams.get("chrome") || "")
-            .trim()
-            .toLowerCase();
-        } catch (_) {
-          return "";
-        }
-      })(),
-    });
-  }
-
-  function readCachedSceneRevision(ctx) {
-    const key = sceneRevisionCacheKey(ctx);
-    if (!key) return null;
-    const store = readSceneRevisionStore();
-    const revision = store[key] || null;
-    return typeof boot.normalizeRevision === "function"
-      ? boot.normalizeRevision(revision)
-      : revision;
-  }
-
-  function rememberSceneRevision(ctx, revision) {
-    const key = sceneRevisionCacheKey(ctx);
-    if (!key || !revision) return;
-    const normalized =
-      typeof boot.normalizeRevision === "function"
-        ? boot.normalizeRevision(revision)
-        : revision;
-    const store = readSceneRevisionStore();
-    store[key] = normalized;
-    if (typeof boot.pruneRevisionStore === "function") {
-      boot.pruneRevisionStore(store, key, 48);
-    }
-    writeSceneRevisionStore(store);
-    if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("revision-remembered", {
-        key,
-        revision_digest: normalized.revision_digest,
-      });
-    }
-  }
-
-  function readSsrEmbeddedSceneRevision() {
-    const digest = String(
-      document.querySelector('meta[name="mei-scene-revision-digest"]')?.getAttribute("content") ||
-        "",
-    ).trim();
-    if (!digest) return null;
-    const cacheKey = String(
-      document.querySelector('meta[name="mei-scene-cache-key"]')?.getAttribute("content") || "",
-    ).trim();
-    const clientRevision = String(window.__mei?.client_revision || "").trim();
-    const revision = {
-      revision_digest: digest,
-      cache_key: cacheKey || undefined,
-    };
-    if (clientRevision) {
-      revision.client_revision = clientRevision;
-    }
-    return typeof boot.normalizeRevision === "function"
-      ? boot.normalizeRevision(revision)
-      : revision;
-  }
-
-  function resolveRevisionWithoutNetwork(ctx, snapshotRevision) {
-    const cached = readCachedSceneRevision(ctx);
-    const ssr = readSsrEmbeddedSceneRevision();
-    const candidates = [cached, snapshotRevision, ssr].filter(Boolean);
-    if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("revision-local-candidates", {
-        cached: !!cached,
-        snapshotRevision: !!snapshotRevision,
-        ssr: !!ssr,
-      });
-    }
-    if (ssr) {
-      for (const candidate of candidates) {
-        if (
-          candidate &&
-          typeof boot.revisionsMatch === "function" &&
-          boot.revisionsMatch(candidate, ssr)
-        ) {
-          window.__meiRevisionSkippedNetwork = 1;
-          if (typeof boot.cacheDiagTrace === "function") {
-            boot.cacheDiagTrace("revision-skip-network", {
-              reason: "ssr-digest-match",
-              revision_digest: ssr.revision_digest,
-            });
-          }
-          return typeof boot.normalizeRevision === "function"
-            ? boot.normalizeRevision(candidate)
-            : candidate;
-        }
-      }
-    }
-    if (cached?.revision_digest) {
-      window.__meiRevisionSkippedNetwork = 1;
-      if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("revision-skip-network", {
-          reason: "cached-revision",
-          revision_digest: cached.revision_digest,
-        });
-      }
-      return cached;
-    }
-    return null;
-  }
-
-  function isAccessLikeSceneRevisionMode(mode) {
-    const slug = String(mode || "app").trim().toLowerCase();
-    return (
-      slug === "app" ||
-      slug === "access" ||
-      slug === "run" ||
-      slug === "copilot" ||
-      slug === "presentation" ||
-      slug === "slides"
-    );
-  }
-
-  async function fetchSceneRevision(ctx, options) {
-    const opts = options || {};
-    if (!isAccessLikeSceneRevisionMode(ctx.mode)) {
-      if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("revision-skip-network", {
-          reason: "non-access-like-mode",
-          mode: ctx.mode || "app",
-        });
-      }
-      return readCachedSceneRevision(ctx) || resolveRevisionWithoutNetwork(ctx, null);
-    }
-    let snapshotRevision = null;
-    if (opts.preloadSnapshotRevision && typeof boot.loadSceneShellSnapshot === "function") {
-      const snapshot = await boot.loadSceneShellSnapshot(ctx);
-      snapshotRevision = snapshot?.revision || null;
-    }
-    if (opts.skipRemoteWhenValid) {
-      const local = resolveRevisionWithoutNetwork(ctx, snapshotRevision);
-      if (local) return local;
-    }
-    const params = new URLSearchParams({
-      app: ctx.appId,
-      scene: ctx.sceneId,
-      mode: ctx.mode || "app",
-    });
-    try {
-      const url = new URL(ctx.url || window.location.href);
-      const dataMode = String(url.searchParams.get("data_mode") || "").trim();
-      const reviewProjection = String(url.searchParams.get("review_projection") || "").trim();
-      const chrome = String(url.searchParams.get("chrome") || "").trim();
-      if (dataMode) params.set("data_mode", dataMode);
-      if (reviewProjection) params.set("review_projection", reviewProjection);
-      if (chrome) params.set("chrome", chrome);
-    } catch (_) {}
-    const controller = opts.signal ? null : new AbortController();
-    const signal = opts.signal || controller?.signal;
-    const timer =
-      controller && Number.isFinite(opts.timeoutMs)
-        ? setTimeout(() => controller.abort(), opts.timeoutMs)
-        : null;
-    try {
-      if (typeof boot.cacheDiagTrace === "function") {
-        boot.cacheDiagTrace("revision-fetch-network", { app: ctx.appId, scene: ctx.sceneId });
-      }
-      const response = await fetch(`${SCENE_REVISION_API}?${params.toString()}`, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-        signal,
-      });
-      if (!response.ok) {
-        throw new Error(`scene revision failed: ${response.status}`);
-      }
-      const revision = await response.json();
-      rememberSceneRevision(ctx, revision);
-      return typeof boot.normalizeRevision === "function"
-        ? boot.normalizeRevision(revision)
-        : revision;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
-
-  boot.parseAccessSceneContext = parseAccessSceneContext;
-  boot.fetchSceneRevision = fetchSceneRevision;
-  boot.sceneRevisionCacheKey = sceneRevisionCacheKey;
-  boot.readCachedSceneRevision = readCachedSceneRevision;
-  boot.rememberSceneRevision = rememberSceneRevision;
-  boot.readSsrEmbeddedSceneRevision = readSsrEmbeddedSceneRevision;
-  boot.resolveRevisionWithoutNetwork = resolveRevisionWithoutNetwork;
 
 
 /* ===== spa-navigation/spa/scene-shell-cache.js ===== */
@@ -31913,39 +31445,94 @@
 })(typeof window !== "undefined" ? window : globalThis);
 
 
-/* ===== spa-navigation/spa/scene-bootstrap-loader.js ===== */
-  const SCENE_BOOTSTRAP_API = "/api/host/scene-bootstrap";
+/* ===== spa-navigation/spa/eval-pack-loader.js ===== */
+/**
+ * Unified Scope Eval Pack loader (E9 v2 main contract).
+ * Sources: eval_pack_inline | eval_pack_api | eval_pack_local | jit
+ */
+(function initEvalPackLoader(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const SCENE_EVAL_PACK_API = "/api/host/scene-eval-pack";
+  const LEGACY_BOOTSTRAP_API = "/api/host/scene-bootstrap";
   const BOOTSTRAP_ARTIFACT_LS_PREFIX = "mei:scene-bootstrap:v1:";
   const NO_CLIENT_BOOTSTRAP_REVISION = "__no_client_bootstrap__";
+
+  function evalPackUnifiedEnabled() {
+    if (global.__mei?.eval_pack_unified === true) return true;
+    try {
+      return new URL(global.location.href).searchParams.get("eval_pack") === "unified";
+    } catch (_) {
+      return false;
+    }
+  }
 
   function bootstrapArtifactStorageKey(appId, sceneId, revision) {
     return `${appId}:${sceneId}:${revision || ""}`;
   }
 
-  function applyBootstrapPayload(payload) {
-    if (!payload || typeof payload !== "object") return false;
-    window.__mei = window.__mei || {};
-    if (payload.clientRevision) window.__mei.client_revision = payload.clientRevision;
-    if (payload.bootstrapScope) window.__mei.bootstrap_scope = payload.bootstrapScope;
-    if (payload.targetFile) window.__mei.bootstrap_target_file = payload.targetFile;
-    if (payload.compileEpoch) {
-      window.__mei.bootstrap_compile_epoch = payload.compileEpoch;
-      window.__mei.compile_epoch = payload.compileEpoch;
+  function normalizeEvalPackPayload(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    if (raw.status && (raw.clientRevision || raw.client_revision)) {
+      return {
+        clientRevision: raw.clientRevision || raw.client_revision,
+        bootstrapScope: raw.bootstrapScope || raw.bootstrap_scope || raw.scope,
+        targetFile: raw.targetFile || raw.target_file || "",
+        compileEpoch: raw.compileEpoch || raw.compile_epoch || "",
+        dataGeneration: raw.dataGeneration || raw.data_generation || "",
+        appId: raw.appId || raw.app_id || "",
+        metrics: Array.isArray(raw.metrics) ? raw.metrics : [],
+        bootstrapScopes: Array.isArray(raw.bootstrapScopes)
+          ? raw.bootstrapScopes
+          : Array.isArray(raw.bootstrap_scopes)
+            ? raw.bootstrap_scopes
+            : [],
+        layoutBudgetManifest: raw.layoutBudgetManifest || raw.layout_budget_manifest || null,
+        evalPackStatus: raw.status,
+        neighborHops: raw.neighborHops ?? raw.neighbor_hops ?? null,
+        evalLayerRefs: raw.evalLayerRefs || raw.eval_layer_refs || [],
+      };
     }
-    if (payload.dataGeneration) {
-      window.__mei.bootstrap_data_generation = payload.dataGeneration;
-      window.__mei.data_generation = payload.dataGeneration;
+    return raw;
+  }
+
+  function applyEvalPackPayload(payload, options) {
+    const opts = options || {};
+    const normalized = normalizeEvalPackPayload(payload);
+    if (!normalized) return false;
+    global.__mei = global.__mei || {};
+    if (normalized.clientRevision) global.__mei.client_revision = normalized.clientRevision;
+    if (normalized.bootstrapScope) global.__mei.bootstrap_scope = normalized.bootstrapScope;
+    if (normalized.targetFile) global.__mei.bootstrap_target_file = normalized.targetFile;
+    if (normalized.compileEpoch) {
+      global.__mei.bootstrap_compile_epoch = normalized.compileEpoch;
+      global.__mei.compile_epoch = normalized.compileEpoch;
     }
-    if (payload.appId) window.__mei.bootstrap_app_id = payload.appId;
-    if (Array.isArray(payload.metrics)) window.__mei.bootstrap_metrics = payload.metrics;
-    if (Array.isArray(payload.bootstrapScopes)) {
-      window.__mei.bootstrap_scopes = payload.bootstrapScopes;
+    if (normalized.dataGeneration) {
+      global.__mei.bootstrap_data_generation = normalized.dataGeneration;
+      global.__mei.data_generation = normalized.dataGeneration;
     }
-    if (payload.layoutBudgetManifest) {
-      window.__mei.layout_budget_manifest = payload.layoutBudgetManifest;
-      applyLayoutBudgetManifestProjection();
+    if (normalized.appId) global.__mei.bootstrap_app_id = normalized.appId;
+    if (Array.isArray(normalized.metrics)) global.__mei.bootstrap_metrics = normalized.metrics;
+    if (Array.isArray(normalized.bootstrapScopes)) {
+      global.__mei.bootstrap_scopes = normalized.bootstrapScopes;
     }
-    window.__meiBootstrapPayloadReady = 1;
+    if (normalized.layoutBudgetManifest) {
+      global.__mei.layout_budget_manifest = normalized.layoutBudgetManifest;
+      if (typeof boot.applyLayoutBudgetManifestProjection === "function") {
+        boot.applyLayoutBudgetManifestProjection();
+      } else if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
+        global.MeiProjectionDepth.applyLayoutBudgetManifest();
+      }
+    }
+    if (Array.isArray(normalized.evalLayerRefs) && normalized.evalLayerRefs.length > 0) {
+      global.__mei.eval_layer_refs = normalized.evalLayerRefs;
+    }
+    global.__meiBootstrapPayloadReady = 1;
+    if (opts.source) {
+      global.__meiEvalPackSource = opts.source;
+    }
     try {
       document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));
     } catch (_) {}
@@ -31964,20 +31551,6 @@
     }
   }
 
-  function tryRestoreBootstrapFromLocalStorage(appId, sceneId, clientRevision) {
-    const revision = String(clientRevision || "").trim();
-    if (!appId || !sceneId || !revision) return null;
-    const cached = readLocalBootstrapArtifact(appId, sceneId, revision);
-    if (!cached) return null;
-    applyBootstrapPayload(cached);
-    window.__meiBootstrapFromLocalStorage = 1;
-    window.__meiEvalPackSource = "scene_bootstrap_local";
-    if (typeof boot.cacheDiagTrace === "function") {
-      boot.cacheDiagTrace("bootstrap-local-hit", { appId, sceneId, clientRevision: revision });
-    }
-    return cached;
-  }
-
   function writeLocalBootstrapArtifact(appId, sceneId, revision, payload) {
     try {
       localStorage.setItem(
@@ -31990,44 +31563,233 @@
     }
   }
 
+  function resolveBootstrapRevision(revision) {
+    const fromArg = String(revision?.client_revision || revision?.clientRevision || "").trim();
+    if (fromArg) return fromArg;
+    const el = document.querySelector('meta[name="mei-bootstrap-client-revision"]');
+    const fromMeta = el ? String(el.content || "").trim() : "";
+    if (fromMeta) return fromMeta;
+    return String(global.__mei?.client_revision || "").trim();
+  }
+
+  async function fetchEvalPackFromApi(ctx, options) {
+    const opts = options || {};
+    const appId = ctx?.appId;
+    const sceneId = ctx?.sceneId || "home";
+    if (!appId) throw new Error("eval pack requires appId");
+    const params = new URLSearchParams({
+      app: appId,
+      scene: sceneId,
+      scope: sceneId,
+      pack: "unified",
+    });
+    const clientRevision = resolveBootstrapRevision(opts.revision || {});
+    if (clientRevision) params.set("client_revision", clientRevision);
+    if (opts.fingerprint) params.set("fingerprint", String(opts.fingerprint));
+    if (opts.neighborHops != null) params.set("neighbor_hops", String(opts.neighborHops));
+    const endpoint = evalPackUnifiedEnabled() ? SCENE_EVAL_PACK_API : LEGACY_BOOTSTRAP_API;
+    const response = await fetch(`${endpoint}?${params.toString()}`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`eval pack failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    const normalized = normalizeEvalPackPayload(payload) || payload;
+    applyEvalPackPayload(normalized, { source: "eval_pack_api" });
+    global.__meiEvalPackFromApi = 1;
+    if (clientRevision || normalized?.clientRevision) {
+      writeLocalBootstrapArtifact(
+        appId,
+        sceneId,
+        clientRevision || normalized.clientRevision,
+        normalized,
+      );
+    }
+    return normalized;
+  }
+
+  async function ensureEvalPackPayload(ctx, revision, options) {
+    const opts = options || {};
+    const appId = ctx?.appId;
+    const sceneId = ctx?.sceneId;
+    const clientRevision = resolveBootstrapRevision(revision);
+    if (!appId || !sceneId) return null;
+    if (clientRevision === NO_CLIENT_BOOTSTRAP_REVISION) {
+      global.__meiBootstrapPayloadReady = 1;
+      return global.__mei || null;
+    }
+    const currentScope = String(global.__mei?.bootstrap_scope || "").trim();
+    const currentAppId = String(global.__mei?.bootstrap_app_id || "").trim();
+    if (
+      global.__meiBootstrapPayloadReady &&
+      currentScope === sceneId &&
+      (!currentAppId || currentAppId === appId) &&
+      !opts.force
+    ) {
+      return global.__mei;
+    }
+    const inline = document.getElementById("mei-client-bootstrap");
+    if (inline && inline.textContent) {
+      try {
+        const payload = JSON.parse(inline.textContent || "{}");
+        applyEvalPackPayload(payload, { source: "eval_pack_inline" });
+        if (clientRevision) {
+          writeLocalBootstrapArtifact(appId, sceneId, clientRevision, payload);
+        }
+        return payload;
+      } catch (_) {}
+    }
+    if (clientRevision) {
+      const cached = readLocalBootstrapArtifact(appId, sceneId, clientRevision);
+      if (cached) {
+        applyEvalPackPayload(cached, { source: "eval_pack_local" });
+        global.__meiBootstrapFromLocalStorage = 1;
+        return cached;
+      }
+    }
+    return fetchEvalPackFromApi(ctx, { revision, fingerprint: opts.fingerprint, neighborHops: opts.neighborHops });
+  }
+
+  function seedEvalPackRuntimeCache() {
+    const sourceMeta = global.__meiBootstrapFromLocalStorage
+      ? "eval_pack_local"
+      : global.__meiEvalPackFromApi
+        ? "eval_pack_api"
+        : global.__meiEvalPackSource || "eval_pack_inline";
+    if (boot.evalStore?.seedPack) {
+      return boot.evalStore.seedPack(global.__mei, { source: sourceMeta });
+    }
+    if (typeof seedFromBootstrap !== "function") {
+      return 0;
+    }
+    const count = seedFromBootstrap(global.__mei);
+    if (count > 0) {
+      global.__meiBootstrapSeeded = true;
+      global.__meiBootstrapSeedCount = count;
+      delete global.__meiBootstrapSeedError;
+      global.__meiEvalPackSource = sourceMeta;
+    }
+    return count;
+  }
+
+  async function ensureEvalPackSeeded(ctx, revision, options) {
+    const payload = await ensureEvalPackPayload(ctx, revision || {}, options);
+    const count = seedEvalPackRuntimeCache();
+    void prefetchNeighborEvalPacks(ctx?.appId, payload);
+    return count;
+  }
+
+  async function prefetchNeighborEvalPacks(appId, payload) {
+    const scopes = Array.isArray(payload?.bootstrapScopes) ? payload.bootstrapScopes : [];
+    if (!appId || scopes.length === 0) return;
+    for (const entry of scopes) {
+      const neighborScope = String(entry?.bootstrapScope || entry?.bootstrap_scope || "").trim();
+      const neighborRevision = String(entry?.clientRevision || entry?.client_revision || "").trim();
+      if (!neighborScope) continue;
+      const currentScope = String(global.__mei?.bootstrap_scope || "").trim();
+      if (neighborScope === currentScope) continue;
+      try {
+        await ensureEvalPackSeeded(
+          { appId, sceneId: neighborScope },
+          { client_revision: neighborRevision },
+        );
+      } catch (_) {
+        /* neighbor warmup is best-effort */
+      }
+    }
+  }
+
+  async function fetchJitEvalPack(ctx, { fingerprint = "", neighborHops = null } = {}) {
+    const payload = await fetchEvalPackFromApi(ctx, {
+      fingerprint,
+      neighborHops,
+      revision: {},
+    });
+    global.__meiEvalPackSource = fingerprint ? "jit" : "eval_pack_api";
+    return seedEvalPackRuntimeCache();
+  }
+
+  boot.evalPackLoader = {
+    unifiedEnabled: evalPackUnifiedEnabled,
+    applyEvalPackPayload,
+    ensureEvalPackPayload,
+    ensureEvalPackSeeded,
+    seedEvalPackRuntimeCache,
+    fetchJitEvalPack,
+    fetchEvalPackFromApi,
+    normalizeEvalPackPayload,
+  };
+  boot.applyEvalPackPayload = applyEvalPackPayload;
+  boot.ensureEvalPackPayload = ensureEvalPackPayload;
+  boot.ensureEvalPackSeeded = ensureEvalPackSeeded;
+  boot.fetchEvalPackFromApi = fetchEvalPackFromApi;
+})(typeof window !== "undefined" ? window : globalThis);
+
+
+/* ===== spa-navigation/spa/scene-bootstrap-loader.js ===== */
+/**
+ * Scene bootstrap loader — thin compatibility wrapper over eval-pack-loader (E9).
+ */
+(function initSceneBootstrapLoader(global) {
+  "use strict";
+
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  const loader = () => boot.evalPackLoader;
+
+  function applyBootstrapPayload(payload) {
+    if (loader()?.applyEvalPackPayload) {
+      return loader().applyEvalPackPayload(payload, { source: payload?.__source });
+    }
+    return false;
+  }
+
+  function tryRestoreBootstrapFromLocalStorage(appId, sceneId, clientRevision) {
+    return loader()?.ensureEvalPackPayload?.(
+      { appId, sceneId },
+      { client_revision: clientRevision },
+    );
+  }
+
+  async function ensureSceneBootstrapPayload(ctx, revision) {
+    if (loader()?.ensureEvalPackPayload) {
+      return loader().ensureEvalPackPayload(ctx, revision || {});
+    }
+    return null;
+  }
+
+  async function ensureBootstrapSeeded(ctx, revision) {
+    if (loader()?.ensureEvalPackSeeded) {
+      return loader().ensureEvalPackSeeded(ctx, revision || {});
+    }
+    return 0;
+  }
+
+  function seedBootstrapRuntimeCache() {
+    if (loader()?.seedEvalPackRuntimeCache) {
+      return loader().seedEvalPackRuntimeCache();
+    }
+    return 0;
+  }
+
+  async function fetchJitEvalPack(ctx, options) {
+    if (loader()?.fetchJitEvalPack) {
+      return loader().fetchJitEvalPack(ctx, options || {});
+    }
+    return 0;
+  }
+
   function applyLayoutBudgetManifestProjection(doc) {
     if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {
       global.MeiProjectionDepth.applyLayoutBudgetManifest(doc);
-      return;
     }
-    const root = doc || document;
-    const manifest = window.__mei?.layout_budget_manifest;
-    if (!manifest?.entries || typeof manifest.entries !== "object") return;
-    Object.entries(manifest.entries).forEach(([scope, entry]) => {
-      if (!entry || typeof entry !== "object") return;
-      const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
-      if (!(node instanceof HTMLElement)) return;
-      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
-      if (slotHeight != null) {
-        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
-        node.dataset.manifestSlotHeight = String(slotHeight);
-      }
-      const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
-      if (paddingProfile) {
-        node.dataset.manifestPaddingProfile = String(paddingProfile);
-      }
-      const contentRows = entry.content_rows ?? entry.contentRows;
-      if (Array.isArray(contentRows) && contentRows.length > 0) {
-        node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
-        node.dataset.manifestContentRows = contentRows.join(",");
-      }
-      const contentGap = entry.content_gap ?? entry.contentGap;
-      if (contentGap != null && contentGap !== "") {
-        node.style.rowGap = `${contentGap}px`;
-        node.dataset.manifestContentGap = String(contentGap);
-      }
-    });
   }
 
   function resolveBootstrapAppId() {
-    const mei = window.__mei || {};
+    const mei = global.__mei || {};
     const direct = String(
-      window.__meiRuntimeAppId || mei.bootstrap_app_id || mei.app_id || "",
+      global.__meiRuntimeAppId || mei.bootstrap_app_id || mei.app_id || "",
     ).trim();
     if (direct) return direct;
     const host =
@@ -32045,148 +31807,8 @@
     return el ? String(el.content || "").trim() : "";
   }
 
-  function resolveBootstrapRevision(revision) {
-    const fromArg = String(revision?.client_revision || revision?.clientRevision || "").trim();
-    if (fromArg) return fromArg;
-    const fromMeta = readBootstrapMeta("mei-bootstrap-client-revision");
-    if (fromMeta) return fromMeta;
-    return String(window.__mei?.client_revision || "").trim();
-  }
-
   function isBootstrapRevisionOnly() {
     return readBootstrapMeta("mei-bootstrap-inlined") === "0";
-  }
-
-  async function ensureSceneBootstrapPayload(ctx, revision) {
-    const appId = ctx?.appId;
-    const sceneId = ctx?.sceneId;
-    const clientRevision = resolveBootstrapRevision(revision);
-    if (!appId || !sceneId) return null;
-    if (clientRevision === NO_CLIENT_BOOTSTRAP_REVISION) {
-      window.__meiBootstrapPayloadReady = 1;
-      return window.__mei || null;
-    }
-    const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
-    const currentAppId = String(window.__mei?.bootstrap_app_id || "").trim();
-    if (
-      window.__meiBootstrapPayloadReady &&
-      currentScope === sceneId &&
-      (!currentAppId || currentAppId === appId)
-    ) {
-      return window.__mei;
-    }
-    const inline = document.getElementById("mei-client-bootstrap");
-    if (inline && inline.textContent) {
-      try {
-        const payload = JSON.parse(inline.textContent || "{}");
-        applyBootstrapPayload(payload);
-        window.__meiEvalPackSource = "bootstrap_inline";
-        if (clientRevision) {
-          writeLocalBootstrapArtifact(appId, sceneId, clientRevision, payload);
-        }
-        return payload;
-      } catch (_) {}
-    }
-    if (clientRevision) {
-      const restored = tryRestoreBootstrapFromLocalStorage(appId, sceneId, clientRevision);
-      if (restored) {
-        return restored;
-      }
-    }
-    const params = new URLSearchParams({ app: appId, scene: sceneId });
-    const response = await fetch(`${SCENE_BOOTSTRAP_API}?${params.toString()}`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(`scene bootstrap failed: ${response.status}`);
-    }
-    const payload = await response.json();
-    applyBootstrapPayload(payload);
-    window.__meiEvalPackFromApi = 1;
-    window.__meiEvalPackSource = "scene_bootstrap_api";
-    if (clientRevision || payload?.clientRevision) {
-      writeLocalBootstrapArtifact(
-        appId,
-        sceneId,
-        clientRevision || payload.clientRevision,
-        payload,
-      );
-    }
-    return payload;
-  }
-
-  function seedBootstrapRuntimeCache() {
-    const sourceMeta = window.__meiBootstrapFromLocalStorage
-      ? "scene_bootstrap_local"
-      : window.__meiEvalPackFromApi
-        ? "scene_bootstrap_api"
-        : window.__meiEvalPackSource || "bootstrap_inline";
-    if (boot.evalStore?.seedPack) {
-      return boot.evalStore.seedPack(window.__mei, { source: sourceMeta });
-    }
-    if (typeof seedFromBootstrap !== "function") {
-      return 0;
-    }
-    const count = seedFromBootstrap(window.__mei);
-    if (count > 0) {
-      window.__meiBootstrapSeeded = true;
-      window.__meiBootstrapSeedCount = count;
-      delete window.__meiBootstrapSeedError;
-      window.__meiEvalPackSource = sourceMeta;
-    }
-    return count;
-  }
-
-  async function ensureBootstrapSeeded(ctx, revision) {
-    const payload = await ensureSceneBootstrapPayload(ctx, revision || {});
-    const count = seedBootstrapRuntimeCache();
-    void prefetchNeighborBootstrapScopes(ctx?.appId, payload);
-    return count;
-  }
-
-  async function prefetchNeighborBootstrapScopes(appId, payload) {
-    const scopes = Array.isArray(payload?.bootstrapScopes) ? payload.bootstrapScopes : [];
-    if (!appId || scopes.length === 0) {
-      return;
-    }
-    for (const entry of scopes) {
-      const neighborScope = String(entry?.bootstrapScope || entry?.bootstrap_scope || "").trim();
-      const neighborRevision = String(entry?.clientRevision || entry?.client_revision || "").trim();
-      if (!neighborScope) continue;
-      const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
-      if (neighborScope === currentScope) continue;
-      try {
-        await ensureBootstrapSeeded(
-          { appId, sceneId: neighborScope },
-          { client_revision: neighborRevision },
-        );
-      } catch (_) {
-        /* neighbor warmup is best-effort */
-      }
-    }
-  }
-
-  async function fetchJitEvalPack(ctx, { fingerprint = "" } = {}) {
-    const appId = ctx?.appId;
-    const sceneId = ctx?.sceneId || "home";
-    if (!appId) return 0;
-    const params = new URLSearchParams({ app: appId, scene: sceneId });
-    const fp = String(fingerprint || "").trim();
-    if (fp) {
-      params.set("fingerprint", fp);
-    }
-    const response = await fetch(`${SCENE_BOOTSTRAP_API}?${params.toString()}`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(`jit eval pack failed: ${response.status}`);
-    }
-    const payload = await response.json();
-    applyBootstrapPayload(payload);
-    window.__meiEvalPackSource = fp ? "jit_eval_pack" : "scene_bootstrap_fetch";
-    return seedBootstrapRuntimeCache();
   }
 
   function resolveActivationSceneId(detail) {
@@ -32224,11 +31846,11 @@
     const sceneId = resolveActivationSceneId(detail);
     const appId = String(detail.appId || resolveBootstrapAppId() || "").trim();
     if (!appId) return;
-    const currentScope = String(window.__mei?.bootstrap_scope || "").trim();
-    const currentAppId = String(window.__mei?.bootstrap_app_id || "").trim();
+    const currentScope = String(global.__mei?.bootstrap_scope || "").trim();
+    const currentAppId = String(global.__mei?.bootstrap_app_id || "").trim();
     if (
       sceneId &&
-      window.__meiBootstrapPayloadReady &&
+      global.__meiBootstrapPayloadReady &&
       currentScope === sceneId &&
       (!currentAppId || currentAppId === appId)
     ) {
@@ -32255,11 +31877,13 @@
   boot.isBootstrapRevisionOnly = isBootstrapRevisionOnly;
   boot.readBootstrapMeta = readBootstrapMeta;
   boot.dispatchScopeActivation = dispatchScopeActivation;
-  window.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
+  boot.applyLayoutBudgetManifestProjection = applyLayoutBudgetManifestProjection;
+  global.addEventListener("meilang:scope-activation", hydrateBootstrapForActivatedScope);
 
-  if (window.__meiBootstrapFromLocalStorage && window.__meiBootstrapPayloadReady) {
+  if (global.__meiBootstrapFromLocalStorage && global.__meiBootstrapPayloadReady) {
     seedBootstrapRuntimeCache();
   }
+})(typeof window !== "undefined" ? window : globalThis);
 
 
 /* ===== spa-navigation/spa/eval-store-cache.js ===== */
@@ -32491,65 +32115,6 @@
 
 
 /* ===== spa-navigation/spa/initial-scene-restore.js ===== */
-  const SCENE_FRAGMENT_API = "/api/host/scene-fragment";
-
-  async function fetchSceneFragment(ctx, options) {
-    const opts = options || {};
-    const params = new URLSearchParams({
-      app: ctx.appId,
-      scene: ctx.sceneId,
-    });
-    if (ctx.dataMode) params.set("data_mode", ctx.dataMode);
-    if (ctx.reviewProjection) params.set("review_projection", ctx.reviewProjection);
-    if (ctx.chrome) params.set("chrome", ctx.chrome);
-    params.set("format", "manifest");
-    const controller = opts.signal ? null : new AbortController();
-    const signal = opts.signal || controller?.signal;
-    const response = await fetch(`${SCENE_FRAGMENT_API}?${params.toString()}`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json", "x-mei-spa-nav": "1" },
-      signal,
-    });
-    if (!response.ok) {
-      throw new Error(`scene fragment failed: ${response.status}`);
-    }
-    return await response.json();
-  }
-
-  async function tryRestoreSceneShellFromFragment(ctx, revision, url, replaceHistory) {
-    const fragment = await fetchSceneFragment(ctx);
-    if (fragment?.manifest && boot.sceneManifestLoader && boot.viewCompositor) {
-      const structure =
-        fragment.manifest?.layers?.["structure.full"]?.content_hash != null
-          ? (
-              await boot.sceneManifestLoader.fetchLayerBatch(
-                ctx.appId,
-                ctx.sceneId,
-                ["structure.full"],
-                boot.sceneManifestLoader.readShellAxes(),
-              )
-            )?.layers?.["structure.full"]
-          : null;
-      if (structure) {
-        const projection =
-          ctx.reviewProjection ||
-          fragment.compose_defaults?.review_projection ||
-          "live_full";
-        const root =
-          typeof boot.resolveComposeRoot === "function"
-            ? boot.resolveComposeRoot(ctx.surface || ctx.mode || "app")
-            : document.querySelector(".shell");
-        if (!root?.querySelector("[data-preview-scope], [data-mei-ui-role]")) {
-          return null;
-        }
-        boot.viewCompositor.composePreview(root, structure, projection, null, null);
-        window.__meiShellRestoredFromManifest = 1;
-        return document;
-      }
-    }
-    return null;
-  }
-
   async function ensureThinShellSceneRuntime() {
     const runtimeReady =
       window.__meiDatasetRuntime &&
@@ -32871,11 +32436,11 @@
       typeof boot.parseViewContext === "function"
         ? boot.parseViewContext(window.location.href)
         : ctx;
+    const resolved = outcome || { restored: false };
     if (boot.viewAssembly?.assemble && globalThis.__mei?.view_assembly_v2 !== false) {
-      const resolved = outcome || { restored: false };
       if (
         resolved?.restored &&
-        (resolved.source === "ssr_preview" || resolved.source === "client_cache" || resolved.source === "coordinator")
+        (resolved.source === "client_cache" || resolved.source === "coordinator")
       ) {
         return resolved;
       }
@@ -32884,80 +32449,32 @@
         { debounce: false },
       );
       if (result?.ok) {
-        return { ...resolved, restored: true, source: "coordinator" };
-      }
-    }
-    // Legacy fallback when view_assembly_v2 is disabled or coordinator assemble failed.
-    let resolved = outcome || { restored: false };
-    const surface = ctx?.surface || ctx?.mode || "app";
-    const composeRoot =
-      typeof boot.resolveComposeRoot === "function"
-        ? boot.resolveComposeRoot(surface)
-        : document.querySelector(".shell");
-    const ssrPreviewReady = isSsrInjectedPreviewRoot(composeRoot);
-    if (
-      resolved?.restored &&
-      (resolved.source === "ssr_preview" || resolved.source === "client_cache")
-    ) {
-      if (typeof boot.hideThinShellFallback === "function") {
-        boot.hideThinShellFallback();
-      }
-      return resolved;
-    }
-    if (ssrPreviewReady) {
-      if (typeof boot.hideThinShellFallback === "function") {
-        boot.hideThinShellFallback();
-      }
-      await completeMaterializedSurface(ctx, { ssrPreview: true });
-      return { ...resolved, restored: true, source: "ssr_preview" };
-    }
-    if (!resolved?.restored && boot.negotiateAndAssemble) {
-      const retry = await boot.negotiateAndAssemble(ctx, { silent: true });
-      if (retry?.assemble?.ok) {
-        resolved = {
-          restored: true,
-          doc: document,
-          revision: retry.response,
-          source: retry.outcome || "assemble_local",
-        };
-      }
-    }
-    if (resolved?.restored) {
-      if (typeof boot.hideThinShellFallback === "function") {
-        boot.hideThinShellFallback();
-      }
-      return resolved;
-    }
-    if (typeof boot.bootstrapThinShellComposition === "function") {
-      const ok = await boot.bootstrapThinShellComposition();
-      if (ok) {
         if (typeof boot.hideThinShellFallback === "function") {
           boot.hideThinShellFallback();
         }
-        await wakeRevisionFirstShellRuntime(ctx);
-        return { ...resolved, restored: true, source: "thin-bootstrap" };
+        return { ...resolved, restored: true, source: "coordinator" };
       }
+      const missing =
+        boot.lastViewRevisionOutcome === (boot.ViewRevisionOutcome?.LOCAL_MISS || "local_miss")
+          ? ["view-revision local_miss"]
+          : result?.missing || [];
+      const detail = missing.length ? ` 缺失层: ${missing.join(", ")}` : "";
+      if (typeof boot.showThinShellFallback === "function") {
+        boot.showThinShellFallback(`场景内容无法通过五层 compose 加载。${detail}`);
+      }
+      return { ...resolved, restored: false, source: "coordinator_miss" };
     }
     await wakeRevisionFirstShellRuntime(ctx);
     const scopeCount = document.querySelectorAll("[data-preview-scope]").length;
     if (scopeCount === 0 && typeof boot.showThinShellFallback === "function") {
-      const missing =
-        resolved?.viewRevision?.assemble?.missing ||
-        boot.lastViewRevisionOutcome === (boot.ViewRevisionOutcome?.LOCAL_MISS || "local_miss")
-          ? ["view-revision local_miss"]
-          : [];
-      const detail = missing.length ? ` 缺失层: ${missing.join(", ")}` : "";
-      boot.showThinShellFallback(`场景内容暂时无法加载，请检查 layer 组装。${detail}`);
+      boot.showThinShellFallback("场景内容暂时无法加载，请检查 layer 组装。");
     } else if (typeof boot.hideThinShellFallback === "function") {
       boot.hideThinShellFallback();
     }
     return resolved;
   }
 
-  /**
-   * @deprecated Prefer boot.viewAssembly.assemble; kept for __mei.view_assembly_v2 rollback.
-   */
-  async function negotiateAndAssemble(ctx, options) {
+  async function assembleViaViewRevision(ctx, options) {
     const opts = options || {};
     const viewCtx =
       typeof boot.parseViewContext === "function"
@@ -33019,7 +32536,7 @@
       if (!opts.skipComplete) {
         await completeMaterializedSurface(viewCtx, {
           layers: result.assemble?.layers,
-          ssrPreview: result.assemble?.source === "ssr_preview",
+          ssrPreview: false,
           warmOnly: (cachedOnly || assembleLocal) && !opts.surfaceSwitch,
           forceRuntimeWake: opts.surfaceSwitch === true,
           generation: opts.generation,
@@ -33029,7 +32546,7 @@
       return result;
     } catch (error) {
       if (!opts.silent) {
-        console.warn("[spa-navigation] negotiateAndAssemble skipped", error);
+        console.warn("[spa-navigation] view-revision assemble skipped", error);
       }
       return null;
     }
@@ -33050,7 +32567,10 @@
         typeof boot.resolveComposeRoot === "function"
           ? boot.resolveComposeRoot(surface)
           : document.querySelector(".shell");
-      if (isSsrInjectedPreviewRoot(composeRoot)) {
+      const thinShellPlaceholder =
+        composeRoot instanceof HTMLElement &&
+        composeRoot.getAttribute("data-mei-compose-placeholder") === "1";
+      if (!thinShellPlaceholder && isSsrInjectedPreviewRoot(composeRoot)) {
         if (boot.hostChromeReady?.()) {
           if (typeof boot.hideThinShellFallback === "function") {
             boot.hideThinShellFallback();
@@ -33084,13 +32604,13 @@
             source: "ssr_preview",
           };
         }
-        /* chrome not ready: fall through to negotiateAndAssemble */
+        /* chrome not ready: fall through to assembleViaViewRevision */
       }
     }
     if (!ctx) {
       return { restored: false, doc: null, revision: null, source: "none" };
     }
-    const negotiated = await negotiateAndAssemble(ctx, {
+    const negotiated = await assembleViaViewRevision(ctx, {
       ...opts,
       skipComplete,
       generation: opts.generation,
@@ -33211,24 +32731,12 @@
       return viewRevisionOutcome;
     }
 
-    if (typeof boot.fetchSceneRevision === "function") {
-      const revision = await boot.fetchSceneRevision(ctx, {
-        timeoutMs: opts.timeoutMs || 30000,
-        skipRemoteWhenValid: opts.skipRemoteWhenValid === true,
-        preloadSnapshotRevision: false,
-      });
-      if (typeof boot.ensureSceneBootstrapPayload === "function") {
-        await boot.ensureSceneBootstrapPayload(ctx, revision);
-      }
-      return {
-        restored: false,
-        doc: null,
-        revision,
-        source: viewRevisionOutcome?.source || "miss",
-      };
-    }
-
-    return { restored: false, doc: null, revision: null, source: "none" };
+    return {
+      restored: false,
+      doc: null,
+      revision: viewRevisionOutcome?.revision || null,
+      source: viewRevisionOutcome?.source || "miss",
+    };
   }
 
   boot.finishRevisionFirstColdStart = finishRevisionFirstColdStart;
@@ -33236,9 +32744,7 @@
   boot.completeMaterializedSurface = completeMaterializedSurface;
   boot.clearSurfaceRuntimeWarmedForApp = clearSurfaceRuntimeWarmedForApp;
   boot.wakeRevisionFirstShellRuntime = wakeRevisionFirstShellRuntime;
-  boot.fetchSceneFragment = fetchSceneFragment;
-  boot.tryRestoreSceneShellFromFragment = tryRestoreSceneShellFromFragment;
-  boot.negotiateAndAssemble = negotiateAndAssemble;
+  boot.assembleViaViewRevision = assembleViaViewRevision;
   boot.tryCacheFirstViewRestore = tryCacheFirstViewRestore;
   boot.tryCacheFirstSceneAccess = tryCacheFirstSceneAccess;
 
@@ -33256,42 +32762,46 @@
   async function tryHydratePlaceholderPreview(ctx, root, force, layers, options) {
     if (!(root instanceof HTMLElement)) return false;
     const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
-    const ssrReady = boot.previewMaterializer?.isSsrInjectedPreviewRoot?.(root) === true;
     if (!placeholder && !force) return false;
-    if (ssrReady && !placeholder) return true;
-    if (typeof boot.previewMaterializer?.materializePlaceholderPreview === "function") {
-      try {
+    if (
+      !force &&
+      typeof boot.previewMaterializer?.canSkipClientCompose === "function" &&
+      boot.previewMaterializer.canSkipClientCompose(root, ctx)
+    ) {
+      if (layers && typeof boot.previewMaterializer?.finalizeClientPreview === "function") {
         const composeAxes =
           typeof boot.viewRevisionClient?.buildComposeRequest === "function"
             ? boot.viewRevisionClient.buildComposeRequest(ctx)
             : boot.composeDefaultsForSurface?.(ctx) || {};
-        const result = await boot.previewMaterializer.materializePlaceholderPreview(
-          ctx,
-          root,
-          layers,
-          {
-            ...(options || {}),
-            composeAxes,
-            forceRematerialize: force === true || placeholder,
-          },
-        );
-        if (result?.ok) {
-          return result.source === "fragment" ? "fragment" : result.source || true;
-        }
-      } catch (error) {
-        console.warn("[spa-navigation] preview materialize skipped", error);
+        boot.previewMaterializer.finalizeClientPreview(root, layers, composeAxes);
       }
+      return true;
     }
-    if (typeof boot.previewMaterializer?.hydratePlaceholderFromFragment !== "function") {
+    if (typeof boot.previewMaterializer?.materializePlaceholderPreview !== "function") {
       return false;
     }
     try {
-      const hydrated = await boot.previewMaterializer.hydratePlaceholderFromFragment(ctx, root);
-      return hydrated ? "fragment" : false;
+      const composeAxes =
+        typeof boot.viewRevisionClient?.buildComposeRequest === "function"
+          ? boot.viewRevisionClient.buildComposeRequest(ctx)
+          : boot.composeDefaultsForSurface?.(ctx) || {};
+      const result = await boot.previewMaterializer.materializePlaceholderPreview(
+        ctx,
+        root,
+        layers,
+        {
+          ...(options || {}),
+          composeAxes,
+          forceRematerialize: force === true || placeholder,
+        },
+      );
+      if (result?.ok) {
+        return result.source || true;
+      }
     } catch (error) {
-      console.warn("[spa-navigation] preview fragment hydrate skipped", error);
-      return false;
+      console.warn("[spa-navigation] preview materialize skipped", error);
     }
+    return false;
   }
 
   async function composeAppPreviewIfNeeded(ctx, layers, force) {
@@ -33306,16 +32816,23 @@
         : doc?.getElementById?.("mei-compose-root");
     if (!(root instanceof HTMLElement)) return false;
     const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
-    const materialized =
-      typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
-    if (materialized && !force && !placeholder) return true;
-    if (placeholder || force) {
-      const hydrated = await tryHydratePlaceholderPreview(ctx, root, force, layers);
+    const clientMaterialized =
+      boot.previewMaterializer?.isClientLayerMaterialized?.(root) === true;
+    const partialShell =
+      !clientMaterialized &&
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(root);
+    const forceFull = force === true || placeholder || partialShell;
+    if (clientMaterialized && !force) {
+      return true;
+    }
+    if (placeholder || forceFull) {
+      const hydrated = await tryHydratePlaceholderPreview(ctx, root, forceFull, layers);
       if (hydrated) {
         if (typeof boot.stashAppPreviewSnapshot === "function") {
           boot.stashAppPreviewSnapshot();
         }
-        return hydrated === "fragment" ? "fragment" : hydrated;
+        return hydrated;
       }
     }
     if (!boot.viewCompositor?.composeFromLayers || !layers) return false;
@@ -33325,7 +32842,7 @@
         : boot.composeDefaultsForSurface?.(ctx) || {};
     return boot.viewCompositor.composeFromLayers(root, layers, {
       ...composeAxes,
-      forceRematerialize: force === true || placeholder,
+      forceRematerialize: forceFull,
     });
   }
 
@@ -33343,16 +32860,23 @@
         : doc?.querySelector?.("#mei-surface-workspace .preview-pane-scroll");
     if (!(root instanceof HTMLElement)) return false;
     const placeholder = root.getAttribute("data-mei-compose-placeholder") === "1";
-    const materialized =
-      typeof boot.hasMaterializedPreview === "function" && boot.hasMaterializedPreview(root);
-    if (materialized && !force && !placeholder) return true;
-    if (placeholder || force) {
-      const hydrated = await tryHydratePlaceholderPreview(ctx, root, force, layers);
+    const clientMaterialized =
+      boot.previewMaterializer?.isClientLayerMaterialized?.(root) === true;
+    const partialShell =
+      !clientMaterialized &&
+      typeof boot.hasMaterializedPreview === "function" &&
+      boot.hasMaterializedPreview(root);
+    const forceFull = force === true || placeholder || partialShell;
+    if (clientMaterialized && !force) {
+      return true;
+    }
+    if (placeholder || forceFull) {
+      const hydrated = await tryHydratePlaceholderPreview(ctx, root, forceFull, layers);
       if (hydrated) {
         if (typeof boot.stashWorkspacePreviewSnapshot === "function") {
           boot.stashWorkspacePreviewSnapshot();
         }
-        return hydrated === "fragment" ? "fragment" : hydrated;
+        return hydrated;
       }
     }
     if (!boot.viewCompositor?.composeFromLayers || !layers) return false;
@@ -33362,7 +32886,7 @@
         : boot.composeDefaultsForSurface?.(ctx) || {};
     return boot.viewCompositor.composeFromLayers(root, layers, {
       ...composeAxes,
-      forceRematerialize: force === true || placeholder,
+      forceRematerialize: forceFull,
     });
   }
 
@@ -33371,22 +32895,19 @@
     const force = opts.force === true || opts.forceRuntimeWake === true;
     const layers = opts.layers || null;
     const surface = ctx?.surface || ctx?.mode || "app";
-    let hydratedFromFragment = false;
 
     if (surface === "app") {
-      const composed = await composeAppPreviewIfNeeded(ctx, layers, force);
-      hydratedFromFragment = composed === "fragment";
+      await composeAppPreviewIfNeeded(ctx, layers, force);
     } else if (
       typeof boot.isWorkspaceComposeSurface === "function" &&
       boot.isWorkspaceComposeSurface(surface)
     ) {
-      const composed = await composeWorkspacePreviewIfNeeded(ctx, layers, force);
-      hydratedFromFragment = composed === "fragment";
+      await composeWorkspacePreviewIfNeeded(ctx, layers, force);
     }
 
     if (typeof boot.wakeRevisionFirstShellRuntime === "function") {
       await boot.wakeRevisionFirstShellRuntime(ctx, {
-        ssrPreview: opts.ssrPreview === true || hydratedFromFragment,
+        ssrPreview: opts.ssrPreview === true,
         warmOnly: !force && opts.warmOnly === true,
         forceRuntimeWake: force,
       });
@@ -33674,7 +33195,7 @@
       preview_render: previewRenderSummary(),
       boot_apis: {
         tryCacheFirstViewRestore: typeof boot.tryCacheFirstViewRestore === "function",
-        negotiateAndAssemble: typeof boot.negotiateAndAssemble === "function",
+        assembleViaViewRevision: typeof boot.assembleViaViewRevision === "function",
         viewRevisionClient: !!boot.viewRevisionClient?.negotiateWithLocalMiss,
         layerStore: !!boot.layerStore?.putLayerByRef,
         viewCompositor: !!boot.viewCompositor?.composeFromLayers,
@@ -33714,9 +33235,19 @@
       }
     }
 
-    if (ctx && boot.negotiateAndAssemble) {
+    if (ctx && boot.viewRevisionClient?.negotiateWithLocalMiss) {
       try {
-        const assembled = await boot.negotiateAndAssemble(ctx, { silent: true });
+        const vrCtx = {
+          app_id: ctx.app_id || ctx.appId,
+          scene_id: ctx.scene_id || ctx.sceneId,
+          surface: ctx.surface || ctx.mode || "app",
+          data_mode: ctx.data_mode || ctx.dataMode || "",
+          review_projection: ctx.review_projection || ctx.reviewProjection || "",
+          chrome: ctx.chrome || "",
+        };
+        const assembled = await boot.viewRevisionClient.negotiateWithLocalMiss(vrCtx, {
+          silent: true,
+        });
         report.assemble = {
           ok: !!assembled?.assemble?.ok,
           outcome: assembled?.outcome,
@@ -34106,6 +33637,9 @@
   function applyReviewProjectionChrome(root, options) {
     if (!(root instanceof HTMLElement)) return;
     const opts = options || {};
+    if (opts.verifyOnly === true) {
+      return verifyComposeProjection(root, opts);
+    }
     const surface = String(
       global.document?.body?.getAttribute("data-surface") ||
         global.document?.body?.getAttribute("data-mei-view") ||
@@ -34195,15 +33729,50 @@
     });
   }
 
+  function verifyComposeProjection(root, options) {
+    if (!(root instanceof HTMLElement)) return { ok: true, skipped: true };
+    const opts = options || {};
+    const expected = normalizeReviewProjection(
+      opts.reviewProjection || readReviewProjectionFromUrl() || "live_full",
+    );
+    const composed = normalizeReviewProjection(
+      root.getAttribute("data-compose-projection") || "",
+    );
+    const active = normalizeReviewProjection(
+      root.getAttribute("data-review-projection-active") || "",
+    );
+    if (!composed) {
+      return { ok: false, reason: "missing_data_compose_projection" };
+    }
+    const projectionOk = composed === expected;
+    const chromeOk = !active || active === composed;
+    return {
+      ok: projectionOk && chromeOk,
+      expected,
+      composed,
+      active: active || null,
+    };
+  }
+
   function applyProjectionDepth(root, options) {
-    applyReviewProjectionChrome(root, options);
+    const opts = options || {};
+    if (root instanceof HTMLElement && root.getAttribute("data-compose-projection")) {
+      const verified = verifyComposeProjection(root, opts);
+      if (verified.ok) {
+        applyLayoutBudgetManifest(root?.ownerDocument || document);
+        return verified;
+      }
+    }
+    applyReviewProjectionChrome(root, opts);
     applyLayoutBudgetManifest(root?.ownerDocument || document);
+    return verifyComposeProjection(root, opts);
   }
 
   global.MeiProjectionDepth = {
     applyReviewProjectionChrome,
     applyLayoutBudgetManifest,
     applyProjectionDepth,
+    verifyComposeProjection,
     normalizeReviewProjection,
     readReviewProjectionFromUrl,
     elementReviewDepth,
@@ -35010,17 +34579,18 @@
         if (typeof boot.fixTopbarHrefsFromPageContext === "function") {
           boot.fixTopbarHrefsFromPageContext();
         }
-        if (sceneCtx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+        if (sceneCtx && typeof boot.rememberViewRevision === "function") {
           try {
-            const revision =
-              typeof boot.fetchSceneRevision === "function"
-                ? await boot.fetchSceneRevision(sceneCtx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
-                : null;
-            if (revision) {
-              await boot.saveCurrentSceneShellSnapshot(sceneCtx, revision, doc);
+            const vrCtx =
+              typeof boot.parseViewContext === "function"
+                ? boot.parseViewContext(window.location.href)
+                : sceneCtx;
+            const stored = boot.readViewRevision?.(vrCtx);
+            if (stored) {
+              boot.rememberViewRevision(vrCtx, stored);
             }
           } catch (error) {
-            console.warn("[spa-navigation] post-spa shell snapshot save skipped", error);
+            console.warn("[spa-navigation] post-spa revision remember skipped", error);
           }
         }
         if (typeof boot.markLoadingPostSpaDone === "function") {
@@ -35416,17 +34986,18 @@
     if (typeof boot.markLoadingRenderSwapDone === "function") {
       boot.markLoadingRenderSwapDone(navigationId);
     }
-    if (ctx && typeof boot.saveCurrentSceneShellSnapshot === "function") {
+    if (ctx && typeof boot.rememberViewRevision === "function") {
       try {
-        const revision =
-          typeof boot.fetchSceneRevision === "function"
-            ? await boot.fetchSceneRevision(ctx, { timeoutMs: SPA_FETCH_TIMEOUT_MS })
-            : null;
-        if (revision) {
-          await boot.saveCurrentSceneShellSnapshot(ctx, revision, doc);
+        const vrCtx =
+          typeof boot.parseViewContext === "function"
+            ? boot.parseViewContext(window.location.href)
+            : ctx;
+        const stored = boot.readViewRevision?.(vrCtx);
+        if (stored) {
+          boot.rememberViewRevision(vrCtx, stored);
         }
       } catch (error) {
-        console.warn("[spa-navigation] scene shell snapshot save skipped", error);
+        console.warn("[spa-navigation] view revision remember skipped", error);
       }
     }
     runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);
