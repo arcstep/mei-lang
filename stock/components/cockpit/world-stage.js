@@ -1,6 +1,4 @@
 import { escapeHtml, parseProps, resolveWorldRef } from "./shared.js";
-import * as THREE from "../vendor/three/three.module.min.js";
-import { OrbitControls } from "../vendor/three/OrbitControls.js";
 import {
   ensureWorldStageInputPlane,
   layoutWorldStageInputPlane,
@@ -10,6 +8,22 @@ import {
 import { resolveCockpitStageSurface } from "./map-focus-inset.js";
 import { createWorldPropScreenMesh } from "./world-prop-screen.js";
 import { normalizeImportedFootprint } from "../gis/layer-spec.js";
+
+let THREE = null;
+let OrbitControls = null;
+
+async function ensureThreeRuntime() {
+  if (THREE && OrbitControls) {
+    return { THREE, OrbitControls };
+  }
+  const [threeModule, controlsModule] = await Promise.all([
+    import("../vendor/three/three.module.min.js"),
+    import("../vendor/three/OrbitControls.js"),
+  ]);
+  THREE = threeModule;
+  OrbitControls = controlsModule.OrbitControls;
+  return { THREE, OrbitControls };
+}
 
 const TAG = "mei-world-stage";
 const WORLD_RUNTIME_INSTANCES = new Set();
@@ -346,7 +360,19 @@ class MeiWorldStage extends HTMLElement {
       });
     }
     if (!this._onPreviewUpdated) {
-      this._onPreviewUpdated = () => this.refreshFromProps();
+      this._previewUpdatedTimer = 0;
+      this._onPreviewUpdated = () => {
+        if (!isWorldStageActive() && !this._renderer) {
+          return;
+        }
+        if (this._previewUpdatedTimer) {
+          clearTimeout(this._previewUpdatedTimer);
+        }
+        this._previewUpdatedTimer = setTimeout(() => {
+          this._previewUpdatedTimer = 0;
+          this.refreshFromProps();
+        }, 120);
+      };
       window.addEventListener("meilang:preview-updated", this._onPreviewUpdated);
     }
   }
@@ -375,9 +401,16 @@ class MeiWorldStage extends HTMLElement {
       window.removeEventListener("meilang:preview-updated", this._onPreviewUpdated);
       this._onPreviewUpdated = null;
     }
+    if (this._previewUpdatedTimer) {
+      clearTimeout(this._previewUpdatedTimer);
+      this._previewUpdatedTimer = 0;
+    }
   }
 
   refreshFromProps(options = {}) {
+    if (!isWorldStageActive() && !this._renderer) {
+      return;
+    }
     this.props = parseProps(this);
     const nextSignature = String(this.getAttribute("data-props") || "");
     const propsChanged = nextSignature !== this._propsSignature;
@@ -581,11 +614,15 @@ class MeiWorldStage extends HTMLElement {
   }
 
   async bootstrapScene() {
+    if (!isWorldStageActive()) {
+      return;
+    }
     this.renderChrome();
     const errorEl = this.shadowRoot?.querySelector('[data-role="error"]');
     const viewport = this.shadowRoot?.querySelector(".viewport");
     if (!viewport) return;
     try {
+      await ensureThreeRuntime();
       this.disposeScene();
       const worldRef = resolveWorldRef(this.props, this) || "park_world";
       this._worldPlan = resolveInjectedWorldPlan(worldRef) || this.props?.worldPlan || null;

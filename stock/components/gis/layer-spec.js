@@ -781,14 +781,16 @@ export function readHostGisTilesDefaults() {
     };
   }
   const base =
-    document.querySelector('meta[name="mei-tiles-base-url"]')?.getAttribute("content")?.trim() ||
+    document.querySelector('meta[name="mei-tiles-base-url"]')?.getAttribute("content")?.trim() ??
     "";
   const path =
-    document.querySelector('meta[name="mei-tiles-json-path"]')?.getAttribute("content")?.trim() ||
+    document.querySelector('meta[name="mei-tiles-json-path"]')?.getAttribute("content")?.trim() ??
     "";
+  const tilesUrl = base ? resolveTilesBaseUrl(base) : "";
+  const tilesJsonPath = path || "";
   return {
-    tilesUrl: resolveTilesBaseUrl(base) || "/gis",
-    tilesJsonPath: path || "/demo-tiles",
+    tilesUrl: tilesUrl || "/gis",
+    tilesJsonPath,
   };
 }
 
@@ -1087,8 +1089,8 @@ export function basemapLabelLayers(basemap = {}) {
 
 export function buildBasemapStyle(basemap) {
   const hostDefaults = readHostGisTilesDefaults();
-  const tilesUrl = String(basemap.tilesUrl || hostDefaults.tilesUrl).replace(/\/$/, "");
-  const tilesJson = basemap.tilesJsonPath || hostDefaults.tilesJsonPath;
+  const tilesUrl = String(basemap.tilesUrl || hostDefaults.tilesUrl || "").replace(/\/$/, "");
+  const tilesJson = basemap.tilesJsonPath || hostDefaults.tilesJsonPath || "";
   const roadClasses = resolveBasemapRoadClasses(basemap);
   const roadClassFilter = filterByRoadClasses(roadClasses);
   const backgroundColor = basemapPaintColorLiteral(

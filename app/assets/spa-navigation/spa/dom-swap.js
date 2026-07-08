@@ -7,12 +7,27 @@
       ...Array.from(nextShell.childNodes).map((node) => node.cloneNode(true)),
     );
     syncBodyThemeFromDoc(doc);
+    syncRuntimeQueryAppAfterShellSwap();
     if (replaceHistory) {
       window.history.replaceState({}, "", url);
     } else {
       window.history.pushState({}, "", url);
     }
     return true;
+  }
+
+  function syncRuntimeQueryAppAfterShellSwap() {
+    try {
+      if (typeof window.__meiSyncRuntimeQueryAppContext === "function") {
+        window.__meiSyncRuntimeQueryAppContext({ clearCaches: true });
+        return;
+      }
+      if (typeof window.__meiDatasetRuntime?.syncRuntimeQueryAppContextFromPage === "function") {
+        window.__meiDatasetRuntime.syncRuntimeQueryAppContextFromPage({ clearCaches: true });
+      }
+    } catch (_) {
+      /* ignore */
+    }
   }
 
   async function syncMissingWorkspaceModulesOnly(doc, navigationId) {
@@ -24,6 +39,27 @@
       return isWorkspaceComponentModulePath(path);
     });
     return syncPreviewWorkspaceScripts(scripts, navigationId);
+  }
+
+  function shouldDeferWorldStageScript(path) {
+    const normalized = String(path || "").trim().toLowerCase();
+    return normalized.endsWith("/cockpit/world-stage.js");
+  }
+
+  function scheduleDeferredWorldStageScript(src, path) {
+    const loadWorldStage = () =>
+      loadScript(src, {
+        module: true,
+        persistentKey: path,
+        softFail: true,
+      });
+    if (document.documentElement.classList.contains("mei-world-stage-active")) {
+      return loadWorldStage();
+    }
+    window.addEventListener("mei:world-stage-entered", () => {
+      void loadWorldStage();
+    }, { once: true });
+    return Promise.resolve();
   }
 
   async function syncPreviewWorkspaceScripts(scriptUrls, navigationId) {
@@ -53,6 +89,10 @@
       if (
         document.querySelector('script[data-mei-persistent-script="' + path + '"]')
       ) {
+        continue;
+      }
+      if (shouldDeferWorldStageScript(path)) {
+        await scheduleDeferredWorldStageScript(src, path);
         continue;
       }
       await loadScript(src, { module: true, persistentKey: path, softFail: true });
@@ -147,6 +187,10 @@
         continue;
       }
       if (isWorkspaceComponentModulePath(path)) {
+        if (shouldDeferWorldStageScript(path)) {
+          await scheduleDeferredWorldStageScript(src, path);
+          continue;
+        }
         await loadScript(src, { module: true, persistentKey: path, softFail: true });
         continue;
       }

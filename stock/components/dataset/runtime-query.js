@@ -1953,11 +1953,16 @@ function readBootstrapSeedPageContext(bootstrap = window.__mei) {
       boot.bootstrap_data_generation ||
         boot.dataGeneration ||
         hostMeta.data_generation ||
-        window.__meiRuntimeDataGeneration ||
+        readShellRuntimeDataGeneration() ||
         "",
     ),
     app_id: safeTrim(
-      boot.bootstrap_app_id || boot.appId || hostMeta.app_id || window.__meiRuntimeAppId || "",
+      readShellRuntimeAppId() ||
+        readRouteRuntimeAppId() ||
+        boot.bootstrap_app_id ||
+        boot.appId ||
+        hostMeta.app_id ||
+        "",
     ),
   };
 }
@@ -2463,29 +2468,110 @@ if (typeof window !== "undefined") {
   boot.deliveryClassAllowsIndependentFetch = deliveryClassAllowsIndependentFetch;
 }
 
+function readRouteRuntimeAppId() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  try {
+    const match = String(window.location.pathname || "").match(/^\/apps\/([^/]+)\//);
+    return match ? safeTrim(match[1]) : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function readShellRuntimeAppId() {
+  if (typeof document === "undefined") {
+    return "";
+  }
+  const shell =
+    document.querySelector(".shell[data-app-path]") ||
+    document.querySelector("[data-runtime-node][data-app-path]") ||
+    document.querySelector("[data-app]");
+  if (!shell) {
+    return "";
+  }
+  return safeTrim(
+    shell.getAttribute("data-app-path") ||
+      shell.getAttribute("data-app") ||
+      shell.dataset?.appPath ||
+      shell.dataset?.app ||
+      "",
+  );
+}
+
+function readShellRuntimeDataGeneration() {
+  if (typeof document === "undefined") {
+    return "";
+  }
+  const shell = document.querySelector(
+    ".shell[data-data-generation], .shell[data-compile-epoch], [data-runtime-node][data-data-generation]",
+  );
+  if (!shell) {
+    return "";
+  }
+  return safeTrim(
+    shell.getAttribute("data-data-generation") ||
+      shell.getAttribute("data-compile-epoch") ||
+      "",
+  );
+}
+
+export function syncRuntimeQueryAppContextFromPage(options = {}) {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const opts = options && typeof options === "object" ? options : {};
+  const prevAppId = safeTrim(window.__meiRuntimeAppId);
+  const nextAppId = readRuntimeQueryAppId();
+  const pageCtx = readBootstrapSeedPageContext();
+  const nextDataGen =
+    readShellRuntimeDataGeneration() ||
+    safeTrim(pageCtx.data_generation) ||
+    safeTrim(window.__meiRuntimeDataGeneration);
+  if (nextDataGen) {
+    window.__meiRuntimeDataGeneration = nextDataGen;
+  }
+  const appChanged = Boolean(prevAppId && nextAppId && prevAppId !== nextAppId);
+  if (opts.clearCaches === true || appChanged) {
+    abortPendingPanelMetricBatches();
+    abortPendingSceneMetricBatchSchedules();
+    clearRuntimeQueryCaches();
+  }
+  return nextAppId;
+}
+
 function readRuntimeQueryAppId() {
   if (typeof window === "undefined") {
     return "";
   }
-  const fromWindow = String(window.__meiRuntimeAppId || "").trim();
-  if (fromWindow) {
-    return fromWindow;
-  }
-  const shell = document.querySelector("[data-app]");
-  const fromShell = shell ? String(shell.getAttribute("data-app") || shell.dataset?.app || "").trim() : "";
+  const fromShell = readShellRuntimeAppId();
   if (fromShell) {
     window.__meiRuntimeAppId = fromShell;
+    return fromShell;
   }
-  return fromShell;
+  const fromRoute = readRouteRuntimeAppId();
+  if (fromRoute) {
+    window.__meiRuntimeAppId = fromRoute;
+    return fromRoute;
+  }
+  const pageCtx = readBootstrapSeedPageContext();
+  const fromBootstrap = safeTrim(pageCtx.app_id);
+  if (fromBootstrap) {
+    window.__meiRuntimeAppId = fromBootstrap;
+    return fromBootstrap;
+  }
+  return safeTrim(window.__meiRuntimeAppId);
 }
 
 function readRuntimeQueryDataGeneration(bootstrap = window.__mei) {
   if (typeof window === "undefined") {
     return "";
   }
-  const fromWindow = String(window.__meiRuntimeDataGeneration || "").trim();
-  if (fromWindow) {
-    return fromWindow;
+  const fromShell = readShellRuntimeDataGeneration();
+  if (fromShell) {
+    window.__meiRuntimeDataGeneration = fromShell;
+    return fromShell;
   }
   const pageCtx = readBootstrapSeedPageContext(bootstrap);
   if (pageCtx.data_generation) {
@@ -2724,6 +2810,7 @@ if (typeof window !== "undefined") {
     }),
   );
   window.__meiAbortRuntimeQueries = abortRuntimeQueries;
+  window.__meiSyncRuntimeQueryAppContext = syncRuntimeQueryAppContextFromPage;
 }
 
 export function resolveDatasetLike(props) {
@@ -3669,7 +3756,7 @@ function waitMsWithAbort(ms, signal) {
 }
 
 function currentRuntimeAppId() {
-  return String(window.__meiRuntimeAppId || "").trim();
+  return readRuntimeQueryAppId();
 }
 
 function appAccessReadyFromHeartbeat(payload, appId) {
@@ -5422,6 +5509,7 @@ if (typeof window !== "undefined") {
     fetchDatasetRows,
     fetchPanelRuntimeMetrics,
     prefetchVisiblePanelMetrics,
+    syncRuntimeQueryAppContextFromPage,
     mergeFilters,
     resolveDatasetQueryCapability,
     sharedFiltersForQueryStateId,

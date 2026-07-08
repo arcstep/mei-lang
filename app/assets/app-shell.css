@@ -4715,6 +4715,285 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   overflow: hidden;
   background-color: var(--mei-frame-letterbox);
 }
+/* compose 薄壳：保留 plane → region → section → slot → content 树，按 tier 叠层 */
+.mei-compose-scene-root {
+  position: relative;
+  width: var(--mei-scene-design-width, 1920px);
+  height: var(--mei-scene-design-height, 1080px);
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.mei-compose-scene-viewport .preview-stage > .mei-structure-tree,
+.mei-compose-scene-viewport .preview-stage > .mei-compose-scene-root {
+  width: var(--mei-scene-design-width, 1920px);
+  height: var(--mei-scene-design-height, 1080px);
+  min-height: 0;
+  min-width: 0;
+}
+#mei-compose-root.frame-stage-enabled.mei-compose-frame-host,
+#mei-surface-workspace .preview-pane-scroll.frame-stage-enabled.mei-compose-frame-host {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+#mei-compose-root.frame-stage-enabled.mei-compose-frame-host > .mei-compose-scene-viewport,
+#mei-surface-workspace .preview-pane-scroll.frame-stage-enabled.mei-compose-frame-host
+  > .mei-compose-scene-viewport {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.mei-compose-scene-root > .mei-compose-scene,
+.mei-compose-scene-root > .mei-compose-node.mei-compose-scene,
+.mei-compose-scene-root .mei-compose-node.mei-compose-scene {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+.mei-compose-scene-root .mei-compose-node.mei-compose-plane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"],
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t0"] {
+  z-index: 1;
+}
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T1"],
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] {
+  z-index: 1000;
+}
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T2"],
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t2"] {
+  z-index: 2000;
+}
+/* T0/T1 可交互；T2 仅在 drilldown 打开后接收事件，避免空层挡住指标卡点击 */
+.mei-compose-scene-root .mei-compose-node.mei-compose-plane[data-mei-plane="T0"] > *,
+.mei-compose-scene-root .mei-compose-node.mei-compose-plane[data-mei-plane="t0"] > *,
+.mei-compose-scene-root .mei-compose-node.mei-compose-plane[data-mei-plane="T1"] > *,
+.mei-compose-scene-root .mei-compose-node.mei-compose-plane[data-mei-plane="t1"] > * {
+  pointer-events: auto;
+}
+/* T1 区域壳透传点击，仅 header/right_rail 等子区接收事件（map_stage 仍由下方规则保持 none） */
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T1"] > .mei-compose-region,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region {
+  pointer-events: none;
+}
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T1"] > .mei-compose-region > .mei-compose-section,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region > .mei-compose-section,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T1"] > .mei-compose-region > .mei-compose-slot,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t1"] > .mei-compose-region > .mei-compose-slot {
+  pointer-events: auto;
+}
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="T1"]
+  > .mei-compose-region
+  > .mei-compose-section[data-preview-scope$="/map_stage"],
+.mei-compose-scene-root
+  .mei-compose-plane[data-mei-plane="t1"]
+  > .mei-compose-region
+  > .mei-compose-section[data-preview-scope$="/map_stage"] {
+  pointer-events: none;
+}
+body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose-plane[data-mei-plane="T2"] > *,
+body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose-plane[data-mei-plane="t2"] > * {
+  pointer-events: auto;
+}
+.mei-compose-region {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 100%;
+}
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"] > .mei-compose-region,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t0"] > .mei-compose-region {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.mei-compose-scene-root .mei-compose-region[data-preview-scope*="map_stage"],
+.mei-compose-scene-root .mei-compose-section[data-preview-scope$="/map_stage"] {
+  position: relative;
+  overflow: hidden;
+  pointer-events: none;
+  min-height: 0;
+  display: grid;
+  grid-template: "stack" 1fr / 1fr;
+  align-items: stretch;
+  justify-items: stretch;
+}
+.mei-compose-scene-root .mei-compose-section[data-preview-scope$="/map_stage"] > * {
+  grid-area: stack;
+  min-height: 0;
+  min-width: 0;
+}
+.mei-compose-scene-root
+  .mei-compose-region[data-preview-scope*="map_stage"]
+  [data-preview-scope*="map_tools"],
+.mei-compose-scene-root
+  .mei-compose-region[data-preview-scope*="map_stage"]
+  [data-preview-scope*="map-tools"],
+.mei-compose-scene-root
+  .mei-compose-section[data-preview-scope$="/map_stage"]
+  [data-preview-scope*="map_tools"],
+.mei-compose-scene-root
+  .mei-compose-section[data-preview-scope$="/map_stage"]
+  [data-preview-scope*="map-tools"] {
+  pointer-events: auto;
+}
+.mei-compose-scene-root
+  [data-preview-scope*="stage-aperture-hint"],
+.mei-compose-scene-root
+  [data-preview-scope*="map_stage/hint"] {
+  pointer-events: none;
+}
+.mei-compose-scene-root .mei-compose-section[data-preview-scope$="/right_rail"],
+.mei-compose-scene-root .mei-compose-section[data-preview-scope$="right_rail"] {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.mei-compose-scene-root [data-preview-scope*="layout_debug"] {
+  display: none !important;
+}
+.mei-compose-section-head > .panel-head-cell {
+  min-height: 36px;
+}
+.mei-compose-section-head > .panel-head-cell h3 {
+  margin: 0;
+  line-height: 1.2;
+}
+.mei-compose-warning-panel,
+.mei-compose-compound-section {
+  grid-row: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  overflow: hidden;
+}
+.mei-compose-warning-panel > [data-preview-scope$="/head"] {
+  flex: 0 0 auto;
+}
+.mei-compose-metric-triptych {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
+}
+.mei-compose-metric-triptych > [data-mei-metric-card],
+.mei-compose-metric-triptych > .preview-card {
+  min-height: 0;
+  height: 100%;
+}
+.mei-compose-scene-root .preview-card-bare[data-mei-metric-card] > .panel-body-cell {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.mei-compose-scene-root .preview-card-bare[data-mei-metric-card] > .panel-body-cell > .component-card {
+  display: grid;
+  grid-template-rows: minmax(0, auto);
+  grid-template-columns: minmax(0, 1fr);
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+}
+.mei-compose-scene-root
+  .preview-card-bare[data-mei-metric-card]
+  > .panel-body-cell
+  > .component-card
+  > .component-host {
+  min-height: 0;
+  width: 100%;
+}
+.mei-compose-warning-panel > [data-preview-scope$="/head"] .panel-head-cell {
+  width: 100%;
+  min-width: 0;
+}
+.mei-compose-warning-panel > [data-preview-scope$="/head"] mei-cockpit-panel-title {
+  display: block;
+  width: 100%;
+}
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"] .component-host,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t0"] .component-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="T0"] mei-map-maplibre,
+.mei-compose-scene-root .mei-compose-plane[data-mei-plane="t0"] mei-map-maplibre {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.mei-compose-viewport-meta[hidden] {
+  display: none !important;
+}
+.mei-compose-section,
+.mei-compose-slot {
+  display: grid;
+  grid-auto-flow: row;
+  grid-template-rows: minmax(0, auto);
+  grid-template-columns: minmax(0, 1fr);
+  align-content: stretch;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.mei-compose-content-group,
+.mei-compose-block,
+.mei-compose-region > .mei-compose-block,
+.mei-compose-section > .mei-compose-block,
+.mei-compose-slot > .mei-compose-block {
+  min-height: 0;
+  min-width: 0;
+}
+.mei-compose-viewport {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+/* T1 map_stage 为透明叠层；子节点（光圈/工具/提示）在同一格内叠放 */
+.mei-compose-section[data-preview-scope$="/map_stage"] {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+.mei-compose-viewport .preview-stage-shell,
+.mei-compose-viewport .preview-stage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
 /* 视窗即物理屏幕隐喻：舞台矩形铺满，禁止 theme.frame.radius 圆角裁切 */
 .preview-viewport .preview-stage.preview-surface {
   border-radius: 0;
@@ -5092,6 +5371,23 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
 .preview-surface.preview-board-mounted.preview-stage,
 .preview-stage.preview-board-mounted.preview-surface {
   grid-template-rows: minmax(240px, auto) minmax(280px, 1fr) !important;
+}
+.mei-compose-scene-viewport > .preview-stage-shell > .preview-stage {
+  display: block !important;
+  grid-template-rows: none !important;
+  grid-template-columns: none !important;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background-color: #0c2848;
+}
+body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
+  background-image: none;
+  background-color: var(--mei-frame-letterbox, #070d14);
+}
+.mei-compose-scene-root,
+.mei-compose-scene-root .mei-compose-node.mei-compose-scene {
+  background-color: #0c2848;
 }
 .preview-surface.preview-board-mounted [data-mei-panel-id="chart"] .panel-body-cell,
 .preview-surface.preview-board-mounted [data-mei-panel-id="chart"] [data-mei-panel-body="true"],

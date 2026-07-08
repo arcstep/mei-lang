@@ -38,6 +38,30 @@
     });
   }
 
+  function themeLayoutScopeToPreview(scope) {
+    const normalized = String(scope || "")
+      .trim()
+      .replace(/^\/+|\/+$/g, "");
+    const t1 = normalized.match(/^home\/T1\/(.+)$/i);
+    if (t1) return `t1/${t1[1]}`;
+    const t1lower = normalized.match(/^home\/t1\/(.+)$/i);
+    if (t1lower) return `t1/${t1lower[1]}`;
+    return normalized;
+  }
+
+  function resolveLayoutOverlayNode(root, scope) {
+    if (!(root instanceof HTMLElement)) return null;
+    const candidates = [
+      String(scope || "").trim(),
+      themeLayoutScopeToPreview(scope),
+    ].filter(Boolean);
+    for (const key of candidates) {
+      const node = root.querySelector(`[data-preview-scope="${CSS.escape(key)}"]`);
+      if (node instanceof HTMLElement) return node;
+    }
+    return null;
+  }
+
   function applyThemeAndOverlay(root, themeTokens, layoutOverlay) {
     if (!(root instanceof HTMLElement)) return;
     const colors = themeTokens?.colors || {};
@@ -53,7 +77,7 @@
       root.setAttribute("data-layout-overlay", JSON.stringify(patches));
       Object.entries(patches).forEach(([scope, patch]) => {
         if (!patch || typeof patch !== "object") return;
-        const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+        const node = resolveLayoutOverlayNode(root, scope);
         if (!(node instanceof HTMLElement)) return;
         const slotHeight =
           patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
@@ -88,9 +112,36 @@
           }
         }
         const sectionRows = patch.sectionRows || patch.section_rows;
-        if (Array.isArray(sectionRows) && sectionRows.length > 0) {
+        const manifestEntry = globalThis.__mei?.layout_budget_manifest?.entries?.[scope];
+        const manifestGridRows =
+          manifestEntry?.grid_template_rows ?? manifestEntry?.gridTemplateRows;
+        if (
+          Array.isArray(sectionRows) &&
+          sectionRows.length > 0 &&
+          !manifestGridRows
+        ) {
+          node.style.display = "grid";
           node.style.gridTemplateRows = sectionRows.map((row) => String(row)).join(" ");
+          node.style.minHeight = "0";
+          node.style.height = "100%";
+          node.style.overflow = "hidden";
           node.dataset.manifestSectionRows = sectionRows.join(",");
+        }
+        const columns = patch.columns;
+        if (columns && typeof columns === "object") {
+          const left = columns.left || columns.left_rail;
+          const center = columns.center || columns.center_rail;
+          const right = columns.right || columns.right_rail;
+          if (left && center && right) {
+            node.style.display = "grid";
+            node.style.gridTemplateColumns = `${left} ${center} ${right}`;
+            node.style.minHeight = "0";
+            node.style.height = "100%";
+          }
+        }
+        const headerHeight = patch.headerHeight ?? patch.header_height;
+        if (headerHeight != null && headerHeight !== "") {
+          node.style.setProperty("--mei-t1-header-height", String(headerHeight));
         }
         const gapFr = patch.gap ?? patch.stripGap;
         if (gapFr != null && gapFr !== "" && !contentBudget) {
@@ -382,7 +433,15 @@
       !projectionSlug ||
       projectionSlug.includes("full") ||
       roleDepth(PROJECTION_MAX_ROLE[projectionSlug] || "content") >= roleDepth("content");
-    if (bindEvalContent && typeof materializer?.bindEvalSlots === "function") {
+    const evalAlreadyBound =
+      shouldMaterializePreview &&
+      root instanceof HTMLElement &&
+      root.getAttribute("data-mei-compose-materialized") === "1";
+    if (
+      bindEvalContent &&
+      !evalAlreadyBound &&
+      typeof materializer?.bindEvalSlots === "function"
+    ) {
       const evalDocs =
         typeof materializer.collectEvalDocs === "function"
           ? materializer.collectEvalDocs(layers)
@@ -392,11 +451,23 @@
     const themeDoc = extractLayerDocument(layers["theme.tokens"]);
     const overlayDoc = extractLayerDocument(layers["layout.overlay"]);
     const appId = resolveAppId(composeAxes);
-    const { themeEffective, overlayEffective } = mergePersistedAndSession(
+    const { themeEffective, overlayEffective: sessionOverlay } = mergePersistedAndSession(
       themeDoc,
       overlayDoc,
       appId,
     );
+    let overlayEffective = sessionOverlay;
+    const runtimeTheme = globalThis.__mei?.theme_layout;
+    if (runtimeTheme && typeof runtimeTheme === "object" && !Array.isArray(runtimeTheme)) {
+      const basePatches =
+        overlayEffective?.patches && typeof overlayEffective.patches === "object"
+          ? overlayEffective.patches
+          : {};
+      overlayEffective = {
+        ...(overlayEffective || {}),
+        patches: { ...basePatches, ...runtimeTheme },
+      };
+    }
     const evalRaw = layers["eval.slot_group.scene:default"] || null;
     const bootstrapSeed = resolveEvalBootstrapSeed(evalRaw);
     if (bootstrapSeed && globalThis.__mei) {
@@ -424,6 +495,9 @@
       }
     }
     composePreview(root, structure, projection, themeEffective, overlayEffective);
+    if (typeof materializer?.applyComposeThemeLayout === "function") {
+      materializer.applyComposeThemeLayout(root);
+    }
     return true;
   }
 

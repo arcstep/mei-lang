@@ -211,6 +211,14 @@ if (!customElements.get(TAG)) {
       installMapRuntimeHooks();
       this._untrackMapToolHost = trackCockpitMapToolHost(this);
       this._unbindStageLayoutSync = bindCockpitStageLayoutSync(this, () => {
+        const wrap = this.shadowRoot?.querySelector(".wrap");
+        if (wrap instanceof HTMLElement && this.clientHeight > 0) {
+          wrap.style.height = "100%";
+          wrap.style.minHeight = "0";
+        }
+        if (this.map && typeof this.map.resize === "function") {
+          this.map.resize();
+        }
         this.syncCockpitMapToolsLayer();
         this.scheduleLayerControlLayout();
       });
@@ -640,6 +648,30 @@ if (!customElements.get(TAG)) {
       });
     }
 
+    rebuildMapShellIfNeeded(domProps) {
+      if (!this.shadowRoot) return false;
+      const { basemap } = normalizeMapSpec(domProps, this);
+      const layout = resolveMapLayout(domProps, basemap, this);
+      const shellKey = layout.cockpitBleed ? "bleed" : layout.fill ? "fill" : "fixed";
+      if (this._layoutShellKey === shellKey) return false;
+      this._layoutShellKey = shellKey;
+      this.shadowRoot.innerHTML = shellHtml(domProps);
+      this.mapContainer = this.shadowRoot.querySelector(".map");
+      this.layerControlEl = this.shadowRoot.querySelector(".layer-control");
+      this.layerToggleEl = this.shadowRoot.querySelector(".layer-toggle");
+      this.statusEl =
+        this.shadowRoot.querySelector(".status-focal") ||
+        this.shadowRoot.querySelector(".status");
+      this.errorEl = this.shadowRoot.querySelector(".error");
+      this.bindLayerToggleEvents();
+      if (this.map) {
+        this.map.remove();
+        this.map = null;
+        this._mapStyleReady = false;
+      }
+      return true;
+    }
+
     async flushRefresh() {
       if (!this.isConnected) return;
       if (this._refreshInFlight) {
@@ -649,6 +681,7 @@ if (!customElements.get(TAG)) {
       this._refreshInFlight = true;
       try {
         const domProps = parseProps(this);
+        this.rebuildMapShellIfNeeded(domProps);
         const signature = stablePropsSignature(domProps);
         const contentSig = stableMapContentSignature(domProps, this);
         const contentUnchanged =

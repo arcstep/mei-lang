@@ -108,6 +108,65 @@
       });
   }
 
+  function applyGridBudgetToNode(node, entry) {
+    if (!(node instanceof HTMLElement) || !entry || typeof entry !== "object") return;
+    const cols = entry.grid_template_columns ?? entry.gridTemplateColumns;
+    const rows = entry.grid_template_rows ?? entry.gridTemplateRows;
+    const areas = entry.grid_template_areas ?? entry.gridTemplateAreas;
+    const gap = entry.gap ?? entry.content_gap ?? entry.contentGap;
+    const slotAreas = entry.slot_areas ?? entry.slotAreas;
+    const hasGrid =
+      cols ||
+      rows ||
+      areas ||
+      (Array.isArray(entry.content_rows ?? entry.contentRows) &&
+        (entry.content_rows ?? entry.contentRows).length > 0) ||
+      (Array.isArray(entry.section_rows ?? entry.sectionRows) &&
+        (entry.section_rows ?? entry.sectionRows).length > 0);
+    if (!hasGrid && !(Array.isArray(slotAreas) && slotAreas.length > 0)) return;
+    node.style.display = "grid";
+    node.style.minHeight = "0";
+    node.style.minWidth = "0";
+    if (cols) {
+      node.style.gridTemplateColumns = String(cols);
+      node.dataset.manifestGridColumns = String(cols);
+    }
+    if (rows) {
+      node.style.gridTemplateRows = String(rows);
+      node.dataset.manifestGridRows = String(rows);
+    }
+    if (areas) {
+      node.style.gridTemplateAreas = String(areas);
+      node.dataset.manifestGridAreas = String(areas);
+    }
+    if (gap != null && gap !== "") {
+      const gapText = String(gap).endsWith("px") ? String(gap) : `${gap}px`;
+      node.style.gap = gapText;
+      node.dataset.manifestGap = String(gap);
+    }
+    if (Array.isArray(slotAreas) && slotAreas.length > 0) {
+      const scope = String(node.getAttribute("data-preview-scope") || "").trim();
+      slotAreas.forEach((areaName) => {
+        const area = String(areaName || "").trim();
+        if (!area) return;
+        const child =
+          (scope
+            ? node.querySelector(`[data-preview-scope="${CSS.escape(`${scope}/${area}`)}"]`)
+            : null) ||
+          [...node.children].find((el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            const childScope = String(el.getAttribute("data-preview-scope") || "");
+            return childScope === `${scope}/${area}` || childScope.endsWith(`/${area}`);
+          });
+        if (child instanceof HTMLElement) {
+          child.style.gridArea = area;
+          child.dataset.manifestGridArea = area;
+        }
+      });
+      node.dataset.manifestSlotAreas = slotAreas.join(",");
+    }
+  }
+
   function applyLayoutBudgetManifest(doc) {
     const root = doc || document;
     const manifest = globalThis.__mei?.layout_budget_manifest;
@@ -127,6 +186,7 @@
       }
       const contentRows = entry.content_rows ?? entry.contentRows;
       if (Array.isArray(contentRows) && contentRows.length > 0) {
+        node.style.display = "grid";
         const total = contentRows.reduce((sum, row) => sum + Number(row), 0);
         if (total > 0) {
           node.style.gridTemplateRows = contentRows
@@ -142,6 +202,18 @@
         node.style.rowGap = `${contentGap}px`;
         node.dataset.manifestContentGap = String(contentGap);
       }
+      const sectionRows = entry.section_rows ?? entry.sectionRows;
+      const manifestGridRows = entry.grid_template_rows ?? entry.gridTemplateRows;
+      if (
+        Array.isArray(sectionRows) &&
+        sectionRows.length > 0 &&
+        !manifestGridRows
+      ) {
+        node.style.display = "grid";
+        node.style.gridTemplateRows = sectionRows.map((row) => String(row)).join(" ");
+        node.dataset.manifestSectionRows = sectionRows.join(",");
+      }
+      applyGridBudgetToNode(node, entry);
     });
   }
 
@@ -187,6 +259,7 @@
   global.MeiProjectionDepth = {
     applyReviewProjectionChrome,
     applyLayoutBudgetManifest,
+    applyGridBudgetToNode,
     applyProjectionDepth,
     verifyComposeProjection,
     normalizeReviewProjection,
