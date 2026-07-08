@@ -33,7 +33,6 @@ fn is_public_path(path: &str) -> bool {
         || path == "/api/host/heartbeat"
         || path == "/api/host/readiness"
         || path == "/api/host/access-readiness"
-        || path == "/api/host/scene-revision"
         || path == "/api/host/version"
         || path == "/host/starting"
         || path == "/host"

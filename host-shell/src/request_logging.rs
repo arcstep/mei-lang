@@ -33,7 +33,6 @@ fn is_noisy_success_request(method: &Method, path: &str) -> bool {
             | "/api/host/readiness"
             | "/api/host/heartbeat"
             | "/api/host/version"
-            | "/api/host/scene-revision"
             | "/host/starting"
             | "/favicon.ico"
             | "/login"
@@ -52,7 +51,6 @@ fn is_background_poll_request(method: &Method, path: &str) -> bool {
     }
     path.starts_with("/api/agent/")
         || path.starts_with("/api/runtime/snapshot")
-        || path.starts_with("/api/host/scene-revision")
         || path.starts_with("/api/host/heartbeat")
         || path.starts_with("/gis/")
 }

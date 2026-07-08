@@ -22,7 +22,6 @@ pub struct SceneComponentBundle {
 #[derive(Debug, Clone)]
 pub struct SceneBundleProbe {
     pub bundle: Option<SceneComponentBundle>,
-    pub cache_marker: String,
     pub build: Option<PendingSceneBundleBuild>,
 }
 
@@ -99,18 +98,6 @@ pub fn should_build_scene_bundle(
     scene_id: &str,
 ) -> bool {
     route_mode.is_access_like() && scene_bundle_enabled_for_app(app_root, scene_id)
-}
-
-pub fn scene_bundle_cache_marker(
-    app_root: &Path,
-    route_mode: UiRouteMode,
-    scene_id: &str,
-) -> String {
-    if should_build_scene_bundle(app_root, route_mode, scene_id) {
-        "scene-bundle:on".to_string()
-    } else {
-        "scene-bundle:off".to_string()
-    }
 }
 
 fn scene_bundle_cache_dir(app_root: &Path) -> PathBuf {
@@ -239,7 +226,6 @@ pub fn probe_scene_component_bundle(
     if entries.is_empty() {
         return SceneBundleProbe {
             bundle: None,
-            cache_marker: "scene-bundle:entries-empty".to_string(),
             build: None,
         };
     }
@@ -260,7 +246,6 @@ pub fn probe_scene_component_bundle(
             );
             return SceneBundleProbe {
                 bundle: None,
-                cache_marker: "scene-bundle:revision-error".to_string(),
                 build: None,
             };
         }
@@ -273,13 +258,11 @@ pub fn probe_scene_component_bundle(
                 url: scene_bundle_public_url(app_id, scene_id, revision.as_str()),
                 revision: revision.clone(),
             }),
-            cache_marker: format!("scene-bundle:ready:{revision}"),
             build: None,
         };
     }
     SceneBundleProbe {
         bundle: None,
-        cache_marker: format!("scene-bundle:missing:{revision}"),
         build: Some(PendingSceneBundleBuild {
             app_id: app_id.to_string(),
             scene_id: scene_id.to_string(),
@@ -348,20 +331,6 @@ pub fn schedule_scene_component_bundle_build(
             builds.remove(build_key.as_str());
         }
     });
-}
-
-pub fn scene_bundle_status(probe: &SceneBundleProbe) -> &'static str {
-    if probe.bundle.is_some() {
-        "ready"
-    } else if probe.build.is_some() {
-        "scheduled"
-    } else if probe.cache_marker.contains("off") {
-        "disabled"
-    } else if probe.cache_marker.contains("entries-empty") {
-        "empty"
-    } else {
-        "fallback"
-    }
 }
 
 fn build_scene_bundle_file(

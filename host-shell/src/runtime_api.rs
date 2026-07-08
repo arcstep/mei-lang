@@ -138,7 +138,7 @@ pub async fn api_host_mrg_activate(
         app_id.as_str(),
         scope.as_str(),
     );
-    (
+    let mut response = (
         StatusCode::OK,
         Json(json!({
             "scope": scope,
@@ -147,7 +147,18 @@ pub async fn api_host_mrg_activate(
             "payload": payload,
         })),
     )
-        .into_response()
+        .into_response();
+    response.headers_mut().insert(
+        axum::http::HeaderName::from_static("deprecation"),
+        axum::http::HeaderValue::from_static("true"),
+    );
+    response.headers_mut().insert(
+        axum::http::HeaderName::from_static("link"),
+        axum::http::HeaderValue::from_static(
+            "</api/host/scene-eval-pack>; rel=\"successor-version\"",
+        ),
+    );
+    response
 }
 
 fn resolve_activation_hops(ctx: &mei_host_core::HostContext, requested: Option<usize>) -> usize {

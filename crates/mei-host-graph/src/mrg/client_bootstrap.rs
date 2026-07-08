@@ -76,6 +76,44 @@ pub struct ClientBootstrapPayload {
     layout_budget_manifest: Option<mei_lang_kernel::LayoutBudgetManifest>,
 }
 
+impl ClientBootstrapPayload {
+    pub fn client_revision(&self) -> &str {
+        self.client_revision.as_str()
+    }
+
+    pub fn bootstrap_scope(&self) -> &str {
+        self.bootstrap_scope.as_str()
+    }
+
+    pub fn target_file(&self) -> &str {
+        self.target_file.as_str()
+    }
+
+    pub fn compile_epoch(&self) -> &str {
+        self.compile_epoch.as_str()
+    }
+
+    pub fn data_generation(&self) -> &str {
+        self.data_generation.as_str()
+    }
+
+    pub fn app_id(&self) -> &str {
+        self.app_id.as_str()
+    }
+
+    pub fn metrics(&self) -> &[ClientBootstrapMetric] {
+        self.metrics.as_slice()
+    }
+
+    pub fn bootstrap_scopes(&self) -> &[ClientBootstrapScopePayload] {
+        self.bootstrap_scopes.as_slice()
+    }
+
+    pub fn layout_budget_manifest(&self) -> Option<&mei_lang_kernel::LayoutBudgetManifest> {
+        self.layout_budget_manifest.as_ref()
+    }
+}
+
 /// Revision token used when the app/scene does not require client bootstrap artifacts.
 pub const NO_CLIENT_BOOTSTRAP_REVISION: &str = "__no_client_bootstrap__";
 

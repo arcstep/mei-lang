@@ -105,6 +105,10 @@ pub use mrg::eval_cache_plan::{
     build_eval_cache_invalidation_plan, build_eval_cache_invalidation_plan_from_registry,
     invalidate_app_eval_cache,
 };
+pub use mrg::scene_eval_pack::{
+    build_scene_eval_pack, SceneEvalPackBuildOptions, SceneEvalPackEvalLayerRef,
+    SceneEvalPackResponse, SceneEvalPackStatus,
+};
 pub use mrg::client_bootstrap::{
     bootstrap_embed_allowed, bootstrap_embed_status, bootstrap_embed_status_for_manifest,
     build_client_bootstrap_head_fragment, build_client_bootstrap_payload,

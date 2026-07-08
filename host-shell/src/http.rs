@@ -31,8 +31,8 @@ use crate::shell_redirects::{
 };
 use crate::pages::{
     api_host_access_readiness, api_presentation_map, api_scene_bootstrap, api_scene_drilldown_context,
-    api_scene_fragment,
-    api_scene_revision, app_page, app_view_page, host_starting_page,
+    api_scene_eval_pack,
+    app_page, app_view_page, host_starting_page,
 };
 use crate::presentation_compile::api_presentation_compile;
 use crate::presentation_scripts::{
@@ -110,16 +110,15 @@ pub fn router(state: HostHttpState) -> Router {
         )
         .route("/api/host/mrg/status", get(api_host_mrg_status))
         .route("/api/host/mrg/activate", post(api_host_mrg_activate))
-        .route("/api/host/scene-revision", get(api_scene_revision))
         .route("/api/host/view-revision", get(crate::view_revision::api_host_view_revision))
         .route("/api/host/scene-manifest", get(crate::scene_manifest::api_host_scene_manifest))
         .route("/api/host/layer-batch", post(crate::scene_manifest::api_host_layer_batch))
         .route("/api/host/scene-bootstrap", get(api_scene_bootstrap))
+        .route("/api/host/scene-eval-pack", get(api_scene_eval_pack))
         .route(
             "/api/host/scene-drilldown-context",
             get(api_scene_drilldown_context),
         )
-        .route("/api/host/scene-fragment", get(api_scene_fragment))
         .route(
             "/api/agent/context/preview",
             get(api_agent_context_preview_stub),

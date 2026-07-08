@@ -1,4 +1,5 @@
 pub mod client_bootstrap;
+pub mod scene_eval_pack;
 pub mod eval_cache_plan;
 pub mod frontier;
 pub mod registry;

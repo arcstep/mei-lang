@@ -8,7 +8,7 @@ use mei_host_auth::{
     AuthEnforcement, AuthPrincipal, AuthServeState,
 };
 use mei_lang_app::{
-    load_topbar_menu_context, page_body_theme_style, render_access_preview_surface_html,
+    load_topbar_menu_context, page_body_theme_style,
     render_host_ssr_bootstrap_head_revision_only, render_page,
     scene_drilldown_context_json_for_host_ssr, UiRouteMode,
 };
@@ -21,7 +21,6 @@ use std::time::Instant;
 
 use crate::build_info::fill_page_shell_placeholders;
 use crate::landing::{discover_workspace_apps, enrich_discovered_apps};
-use crate::access_page_cache::{build_scene_revision_payload, resolve_access_page_html};
 use crate::page_observability::{
     fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
     measure_page_html_payload,
@@ -928,191 +927,6 @@ pub async fn api_host_access_readiness(
 }
 
 #[derive(Debug, Deserialize, Default)]
-pub struct SceneRevisionQuery {
-    pub app: String,
-    pub scene: Option<String>,
-    pub mode: Option<String>,
-    pub chrome: Option<String>,
-    pub data_mode: Option<String>,
-    pub review_projection: Option<String>,
-}
-
-pub async fn api_scene_revision(
-    State(state): State<SharedState>,
-    State(auth): State<AuthServeState>,
-    principal: Option<Extension<AuthPrincipal>>,
-    Query(query): Query<SceneRevisionQuery>,
-) -> Response {
-    let app_id = query.app.trim();
-    if app_id.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "app is required"})),
-        )
-            .into_response();
-    }
-    let scene_id = query
-        .scene
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("home")
-        .to_string();
-    let route_mode = query
-        .mode
-        .as_deref()
-        .map(UiRouteMode::from_slug)
-        .unwrap_or(UiRouteMode::App);
-    {
-        let mut guard = state.write().expect("state lock");
-        crate::build_ops::refresh_materialization_flags(&mut guard);
-        if !guard.imported {
-            return Json(json!({
-                "ready": false,
-                "startup_phase": guard.startup_phase,
-                "startup_detail": guard.startup_detail,
-                "app_id": app_id,
-                "scene_id": scene_id,
-            }))
-            .into_response();
-        }
-    }
-    if !route_mode.is_access_like() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "mode must be access-like"})),
-        )
-            .into_response();
-    }
-    let bootstrap = mei_host_graph::bootstrap_embed_status(
-        state
-            .read()
-            .expect("state lock")
-            .ctx
-            .workspace_root
-            .as_path(),
-        app_id,
-        scene_id.as_str(),
-    );
-    if !bootstrap.allowed {
-        return Json(json!({
-            "ready": false,
-            "reason": bootstrap.reason,
-            "app_id": app_id,
-            "scene_id": scene_id,
-        }))
-        .into_response();
-    }
-    let guard = state.read().expect("state lock");
-    let workspace_root = guard.ctx.workspace_root.as_path();
-    let package_root = guard.package_root.as_path();
-    let axes = crate::review_axes::resolve_page_render_axes(
-        &guard,
-        &AppQuery {
-            data_mode: query.data_mode.clone(),
-            review_projection: query.review_projection.clone(),
-            ..Default::default()
-        },
-        route_mode,
-    );
-    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
-    let apps = filter_apps_for_principal(
-        discovered.as_slice(),
-        principal.as_ref().map(|Extension(p)| p),
-    );
-    if !apps.iter().any(|app| app.id == app_id) {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "app not found"})),
-        )
-            .into_response();
-    }
-    let app_ctx = guard.host_ctx_for_app(app_id);
-    let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
-        app_ctx.app_root().as_path(),
-        Some(workspace_root),
-        None,
-    );
-    let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
-    let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
-    let outcome = match mei_host_graph::assemble_scope_from_registry(
-        workspace_root,
-        app_id,
-        scene_id.as_str(),
-    ) {
-        Ok(Some(outcome)) => outcome,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "scene not assembled"})),
-            )
-                .into_response();
-        }
-        Err(error) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": format!("assemble failed: {error}")})),
-            )
-                .into_response();
-        }
-    };
-    let Some(payload) = build_scene_revision_payload(
-        workspace_root,
-        package_root,
-        app_id,
-        scene_id.as_str(),
-        route_mode,
-        axes,
-        query
-            .chrome
-            .as_deref()
-            .map(|value| value.eq_ignore_ascii_case("none"))
-            .unwrap_or(route_mode == UiRouteMode::Run || route_mode == UiRouteMode::Copilot),
-        auth_enabled,
-        account_view.as_ref(),
-        &gis,
-        outcome.compiled.component_assets.as_slice(),
-    ) else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "revision unavailable; warmup bootstrap first"})),
-        )
-            .into_response();
-    };
-    let mut response_value = serde_json::to_value(&payload).unwrap_or(json!({}));
-    let compose = mei_host_graph::ComposeRequest {
-        route_mode: Some(route_mode.slug().to_string()),
-        tab: Some("scene".to_string()),
-        chrome: query.chrome.clone(),
-        review_projection: query.review_projection.clone(),
-        data_mode: Some(axes.data_mode.slug().to_string()),
-        focus: None,
-        scope: None,
-    };
-    let mut hits = crate::artifact_observability::ArtifactHitMatrix::default();
-    if let Ok(manifest) = crate::scene_manifest::build_scene_view_manifest(
-        workspace_root,
-        app_id,
-        scene_id.as_str(),
-        route_mode,
-        axes.data_mode,
-        &compose,
-        "",
-        "",
-        &mut hits,
-        None,
-    ) {
-        if let Some(obj) = response_value.as_object_mut() {
-            obj.insert(
-                "manifest_revision_digest".to_string(),
-                json!(manifest.revision_digest),
-            );
-        }
-    }
-    Json(response_value).into_response()
-}
-
-#[derive(Debug, Deserialize, Default)]
 pub struct SceneBootstrapQuery {
     pub app: String,
     pub scene: Option<String>,
@@ -1174,9 +988,33 @@ pub async fn api_scene_bootstrap(
         ))
         .into_response();
     }
-    let Some(payload) =
-        mei_host_graph::build_client_bootstrap_payload(workspace_root, app_id, scene_id.as_str())
-    else {
+    let pack = mei_host_graph::build_scene_eval_pack(
+        workspace_root,
+        app_id,
+        scene_id.as_str(),
+        mei_host_graph::SceneEvalPackBuildOptions {
+            client_revision: None,
+            fingerprint: query
+                .fingerprint
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            neighbor_hops: None,
+        },
+    );
+    if pack.status == mei_host_graph::SceneEvalPackStatus::PackMiss {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "bootstrap unavailable"})),
+        )
+            .into_response();
+    }
+    let Some(payload) = mei_host_graph::build_client_bootstrap_payload(
+        workspace_root,
+        app_id,
+        scene_id.as_str(),
+    ) else {
         return (
             StatusCode::NOT_FOUND,
             Json(json!({"error": "bootstrap unavailable"})),
@@ -1190,6 +1028,139 @@ pub async fn api_scene_bootstrap(
         &payload,
     );
     let mut response = Json(payload).into_response();
+    response.headers_mut().insert(
+        axum::http::HeaderName::from_static("deprecation"),
+        axum::http::HeaderValue::from_static("true"),
+    );
+    response.headers_mut().insert(
+        axum::http::HeaderName::from_static("link"),
+        axum::http::HeaderValue::from_static(
+            "</api/host/scene-eval-pack>; rel=\"successor-version\"",
+        ),
+    );
+    if let Some(fingerprint) = query
+        .fingerprint
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Ok(value) = axum::http::HeaderValue::from_str(fingerprint) {
+            response.headers_mut().insert(
+                axum::http::HeaderName::from_static("x-mei-eval-fingerprint"),
+                value,
+            );
+        }
+    }
+    response
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct SceneEvalPackQuery {
+    pub app: String,
+    pub scene: Option<String>,
+    pub scope: Option<String>,
+    pub fingerprint: Option<String>,
+    #[serde(rename = "client_revision")]
+    pub client_revision: Option<String>,
+    #[serde(rename = "neighbor_hops")]
+    pub neighbor_hops: Option<usize>,
+    #[allow(dead_code)]
+    pub pack: Option<String>,
+}
+
+pub async fn api_scene_eval_pack(
+    State(state): State<SharedState>,
+    principal: Option<Extension<AuthPrincipal>>,
+    Query(query): Query<SceneEvalPackQuery>,
+) -> Response {
+    let app_id = query.app.trim();
+    if app_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "app is required"})),
+        )
+            .into_response();
+    }
+    let scene_id = query
+        .scope
+        .as_deref()
+        .or(query.scene.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("home")
+        .to_string();
+    let guard = state.read().expect("state lock");
+    if !guard.data_mode_ceiling.allows_eval_api() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": format!(
+                    "scene eval pack unavailable under data mode ceiling `{}`",
+                    guard.data_mode_ceiling.slug()
+                )
+            })),
+        )
+            .into_response();
+    }
+    let workspace_root = guard.ctx.workspace_root.clone();
+    let discovered = discover_workspace_apps(workspace_root.as_path()).unwrap_or_default();
+    let apps = filter_apps_for_principal(
+        discovered.as_slice(),
+        principal.as_ref().map(|Extension(p)| p),
+    );
+    if !apps.iter().any(|app| app.id == app_id) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
+    }
+    drop(guard);
+    let pack = mei_host_graph::build_scene_eval_pack(
+        workspace_root.as_path(),
+        app_id,
+        scene_id.as_str(),
+        mei_host_graph::SceneEvalPackBuildOptions {
+            client_revision: query
+                .client_revision
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            fingerprint: query
+                .fingerprint
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            neighbor_hops: query.neighbor_hops,
+        },
+    );
+    if pack.status == mei_host_graph::SceneEvalPackStatus::PackMiss {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "eval pack unavailable", "status": "pack_miss"})),
+        )
+            .into_response();
+    }
+    let _ = mei_host_graph::write_scene_bootstrap_artifact(
+        workspace_root.as_path(),
+        app_id,
+        scene_id.as_str(),
+        &mei_host_graph::build_client_bootstrap_payload(
+            workspace_root.as_path(),
+            app_id,
+            scene_id.as_str(),
+        )
+            .unwrap_or_else(|| {
+                mei_host_graph::empty_client_bootstrap_payload(
+                    workspace_root.as_path(),
+                    app_id,
+                    scene_id.as_str(),
+                )
+            }),
+    );
+    let mut response = Json(pack).into_response();
     if let Some(fingerprint) = query
         .fingerprint
         .as_deref()
@@ -1277,328 +1248,6 @@ pub async fn api_scene_drilldown_context(
     response
 }
 
-#[derive(Debug, Deserialize, Default)]
-pub struct SceneFragmentQuery {
-    pub app: String,
-    pub scene: Option<String>,
-    pub chrome: Option<String>,
-    pub data_mode: Option<String>,
-    pub review_projection: Option<String>,
-    #[serde(default)]
-    pub format: Option<String>,
-}
-
-pub async fn api_scene_fragment(
-    State(state): State<SharedState>,
-    State(auth): State<AuthServeState>,
-    principal: Option<Extension<AuthPrincipal>>,
-    Query(query): Query<SceneFragmentQuery>,
-) -> Response {
-    let app_id = query.app.trim();
-    if app_id.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "app is required"})),
-        )
-            .into_response();
-    }
-    let scene_id = query
-        .scene
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("home")
-        .to_string();
-    let guard = state.read().expect("state lock");
-    let workspace_root = guard.ctx.workspace_root.as_path();
-    let package_root = guard.package_root.as_path();
-    let axes = crate::review_axes::resolve_page_render_axes(
-        &guard,
-        &AppQuery {
-            data_mode: query.data_mode.clone(),
-            review_projection: query.review_projection.clone(),
-            ..Default::default()
-        },
-        UiRouteMode::App,
-    );
-    let discovered = discover_workspace_apps(workspace_root).unwrap_or_default();
-    let apps = filter_apps_for_principal(
-        discovered.as_slice(),
-        principal.as_ref().map(|Extension(p)| p),
-    );
-    if !apps.iter().any(|app| app.id == app_id) {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "app not found"})),
-        )
-            .into_response();
-    }
-    let topbar_menu = load_topbar_menu_context(workspace_root);
-    let apps = enrich_discovered_apps(apps.as_slice(), &topbar_menu);
-    let auth_enabled = auth.auth_enforcement == AuthEnforcement::Required;
-    let account_view = account_view_for_principal(principal.as_ref().map(|Extension(p)| p));
-    let app_ctx = guard.host_ctx_for_app(app_id);
-    let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
-        app_ctx.app_root().as_path(),
-        Some(workspace_root),
-        None,
-    );
-    let outcome = match mei_host_graph::assemble_scope_from_registry(
-        workspace_root,
-        app_id,
-        scene_id.as_str(),
-    ) {
-        Ok(Some(outcome)) => outcome,
-        Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "scene not assembled"})),
-            )
-                .into_response();
-        }
-        Err(error) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": format!("assemble failed: {error}")})),
-            )
-                .into_response();
-        }
-    };
-    let revision_payload = build_scene_revision_payload(
-        workspace_root,
-        package_root,
-        app_id,
-        scene_id.as_str(),
-        UiRouteMode::App,
-        axes,
-        query
-            .chrome
-            .as_deref()
-            .map(|value| value.eq_ignore_ascii_case("none"))
-            .unwrap_or(false),
-        auth_enabled,
-        account_view.as_ref(),
-        &gis,
-        outcome.compiled.component_assets.as_slice(),
-    );
-    let html_format = query
-        .format
-        .as_deref()
-        .map(str::trim)
-        .map(|s| s.eq_ignore_ascii_case("html"))
-        .unwrap_or(false);
-    if !html_format {
-        let mut hits = crate::artifact_observability::ArtifactHitMatrix::default();
-        let compose = mei_host_graph::ComposeRequest {
-            route_mode: Some(UiRouteMode::App.slug().to_string()),
-            tab: Some("scene".to_string()),
-            chrome: query.chrome.clone(),
-            review_projection: Some(
-                crate::review_axes::ssr_review_projection(UiRouteMode::App, axes.data_mode)
-                    .slug()
-                    .to_string(),
-            ),
-            data_mode: Some(axes.data_mode.slug().to_string()),
-            focus: None,
-            scope: None,
-        };
-        let manifest = crate::scene_manifest::build_scene_view_manifest(
-            workspace_root,
-            app_id,
-            scene_id.as_str(),
-            UiRouteMode::App,
-            axes.data_mode,
-            &compose,
-            "",
-            "",
-            &mut hits,
-            None,
-        );
-        let manifest = match manifest {
-            Ok(value) => value,
-            Err(err) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": err.to_string()})),
-                )
-                    .into_response();
-            }
-        };
-        let compose_defaults = manifest.compose_defaults.clone().unwrap_or_default();
-        let header_pairs =
-            crate::artifact_observability::LayerArtifactObservability { hits }.response_headers();
-        let mut response = Json(json!({
-            "appId": app_id,
-            "sceneId": scene_id,
-            "manifest": manifest,
-            "compose_defaults": compose_defaults,
-            "revisionDigest": revision_payload.as_ref().map(|payload| payload.revision_digest.clone()),
-            "artifactHits": hits,
-        }))
-        .into_response();
-        for (name, value) in header_pairs {
-            if let Ok(header_value) = axum::http::HeaderValue::from_str(value.as_str()) {
-                response.headers_mut().insert(
-                    axum::http::HeaderName::from_static(name),
-                    header_value,
-                );
-            }
-        }
-        return response;
-    }
-    let resolved = match resolve_access_page_html(
-        workspace_root,
-        package_root,
-        apps.as_slice(),
-        &topbar_menu,
-        app_id,
-        scene_id.as_str(),
-        UiRouteMode::App,
-        &AppQuery {
-            chrome: query.chrome.clone(),
-            data_mode: query.data_mode.clone(),
-            review_projection: query.review_projection.clone(),
-            ..Default::default()
-        },
-        axes,
-        auth_enabled,
-        account_view.as_ref(),
-        None,
-    ) {
-        Ok(value) => value,
-        Err(error) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": format!("render failed: {error}")})),
-            )
-                .into_response();
-        }
-    };
-    let html = resolved.html;
-    let surface_html = {
-        let direct = render_access_preview_surface_html(
-            &outcome.compiled,
-            app_id,
-            Some(outcome.compiled.active_target_file.as_str()),
-            UiRouteMode::App,
-            query
-                .data_mode
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .or(Some(axes.data_mode.slug())),
-            query
-                .review_projection
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .or(Some(
-                    crate::review_axes::ssr_review_projection_for_axes(UiRouteMode::App, axes)
-                        .slug(),
-                )),
-        );
-        if direct.trim().is_empty() {
-            extract_preview_surface_html(html.as_str()).unwrap_or_default()
-        } else {
-            direct
-        }
-    };
-    let shell_html = extract_shell_inner_html(html.as_str());
-    let title = extract_document_title(html.as_str());
-    let response = Json(json!({
-        "appId": app_id,
-        "sceneId": scene_id,
-        "title": title,
-        "shellHtml": shell_html,
-        "surfaceHtml": surface_html,
-        "revisionDigest": revision_payload.as_ref().map(|payload| payload.revision_digest.clone()),
-        "clientRevision": revision_payload.as_ref().map(|payload| payload.client_revision.clone()),
-    }))
-    .into_response();
-    response
-}
-
-fn extract_document_title(html: &str) -> String {
-    let start = match html.find("<title>") {
-        Some(value) => value + "<title>".len(),
-        None => return String::new(),
-    };
-    let end = match html[start..].find("</title>") {
-        Some(value) => start + value,
-        None => return String::new(),
-    };
-    html[start..end].trim().to_string()
-}
-
-fn extract_shell_inner_html(html: &str) -> Option<String> {
-    let bytes = html.as_bytes();
-    let mut start = None;
-    let mut cursor = 0usize;
-    while cursor + 4 <= bytes.len() {
-        if &bytes[cursor..cursor + 4] != b"<div" {
-            cursor += 1;
-            continue;
-        }
-        let open_start = cursor;
-        let open_end_rel = bytes[open_start..].iter().position(|&b| b == b'>')?;
-        let open_end = open_start + open_end_rel + 1;
-        let opening = &bytes[open_start..open_end];
-        let class_marker = b"class=\"";
-        let Some(class_pos) = opening
-            .windows(class_marker.len())
-            .position(|window| window == class_marker)
-        else {
-            cursor = open_end;
-            continue;
-        };
-        let class_start = class_pos + class_marker.len();
-        let class_end_rel = opening[class_start..]
-            .iter()
-            .position(|&b| b == b'"')?;
-        let class_end = class_start + class_end_rel;
-        let classes = std::str::from_utf8(&opening[class_start..class_end]).ok()?;
-        if classes.split_whitespace().any(|token| token == "shell") {
-            start = Some(open_start);
-            break;
-        }
-        cursor = open_end;
-    }
-    let start = start?;
-    let open_end = start + bytes[start..].iter().position(|&b| b == b'>')? + 1;
-    let mut depth = 1usize;
-    let mut cursor = open_end;
-    while cursor < bytes.len() {
-        if cursor + 4 <= bytes.len() && &bytes[cursor..cursor + 4] == b"<div" {
-            depth += 1;
-            cursor += 4;
-            continue;
-        }
-        if cursor + 6 <= bytes.len() && &bytes[cursor..cursor + 6] == b"</div>" {
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                return Some(html[open_end..cursor].to_string());
-            }
-            cursor += 6;
-            continue;
-        }
-        cursor += 1;
-    }
-    None
-}
-
-fn extract_preview_surface_html(html: &str) -> Option<String> {
-    for marker in [
-        r#"<section data-mei-frame-viewport"#,
-        r#"<section class="preview-surface preview-stage""#,
-        r#"<section class="preview-surface""#,
-    ] {
-        let start = html.find(marker)?;
-        if let Some(end) = find_element_close_index(html, start, "section") {
-            return Some(html[start..end].to_string());
-        }
-    }
-    None
-}
 
 fn parse_app_scene_path(
     app_tail: &str,
@@ -1833,7 +1482,6 @@ pub(crate) fn render_thin_view_shell(
             &outcome.compiled,
             scene_bundle_url.as_deref(),
         );
-        html = inject_layer_plane_scripts(html, outcome);
         html = inject_presentation_manifest_script(html, workspace_root, app_id, None);
     }
     inject_handler_html_ready_ms(html, handler_started)
@@ -1956,54 +1604,9 @@ pub(crate) fn render_thin_scene_shell(
             &outcome.compiled,
             scene_bundle_url.as_deref(),
         );
-        html = inject_layer_plane_scripts(html, outcome);
         html = inject_presentation_manifest_script(html, workspace_root, app_id, None);
     }
     inject_handler_html_ready_ms(html, handler_started)
-}
-
-fn find_element_close_index(html: &str, open_start: usize, tag: &str) -> Option<usize> {
-    let bytes = html.as_bytes();
-    let mut depth = 0usize;
-    let mut cursor = open_start;
-    while cursor < bytes.len() {
-        if bytes[cursor] != b'<' {
-            cursor += 1;
-            continue;
-        }
-        if bytes.get(cursor + 1) == Some(&b'/') {
-            let close_end = html[cursor..].find('>')? + cursor + 1;
-            let name_end = html[cursor + 2..]
-                .find(|c: char| c.is_whitespace() || c == '>')
-                .map(|offset| cursor + 2 + offset)
-                .unwrap_or(close_end - 1);
-            let name = html[cursor + 2..name_end].trim();
-            if name == tag {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return Some(cursor);
-                }
-            }
-            cursor = close_end;
-            continue;
-        }
-        if bytes.get(cursor + 1) == Some(&b'!') {
-            let close_end = html[cursor..].find('>').map(|offset| cursor + offset + 1)?;
-            cursor = close_end;
-            continue;
-        }
-        let open_end = html[cursor..].find('>')? + cursor + 1;
-        let name_end = html[cursor + 1..open_end - 1]
-            .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
-            .map(|offset| cursor + 1 + offset)
-            .unwrap_or(open_end - 1);
-        let name = html[cursor + 1..name_end].trim();
-        if name == tag {
-            depth += 1;
-        }
-        cursor = open_end;
-    }
-    None
 }
 
 fn resolve_thin_shell_scene_bundle_url(
@@ -2226,41 +1829,6 @@ fn inject_thin_shell_runtime_assets(html: String, route_mode: mei_lang_app::UiRo
 
 const DEFAULT_ACCESS_PRESENTATION_ID: &str = "intro";
 
-pub(crate) fn inject_scene_manifest_refs(
-    html: String,
-    workspace_root: &std::path::Path,
-    app_id: &str,
-    scene_id: &str,
-) -> String {
-    let compose = mei_host_graph::ComposeRequest {
-        route_mode: Some(mei_lang_app::UiRouteMode::App.slug().to_string()),
-        tab: Some("scene".to_string()),
-        chrome: Some("full".to_string()),
-        review_projection: Some(
-            crate::review_axes::ssr_review_projection(
-                mei_lang_app::UiRouteMode::App,
-                mei_lang_kernel::DataMode::Eval,
-            )
-            .slug()
-            .to_string(),
-        ),
-        data_mode: Some(mei_lang_kernel::DataMode::Eval.slug().to_string()),
-        focus: None,
-        scope: None,
-    };
-    inject_scene_manifest_refs_for_route(
-        html,
-        workspace_root,
-        app_id,
-        scene_id,
-        mei_lang_app::UiRouteMode::App,
-        &compose,
-        "",
-        "",
-        None,
-    )
-}
-
 pub(crate) fn inject_scene_manifest_refs_for_route(
     html: String,
     workspace_root: &std::path::Path,
@@ -2297,10 +1865,7 @@ pub(crate) fn inject_scene_manifest_refs_for_route(
         .unwrap_or_else(|| "{}".to_string());
     let hits_json = serde_json::to_string(&hits).unwrap_or_else(|_| "{}".to_string());
     let script = format!(
-        concat!(
-            r#"<script>window.__mei=window.__mei||{{}};window.__mei.scene_manifest_refs={manifest_json};window.__mei.thin_shell=true;window.__mei.artifact_hits={hits_json};window.__mei.view_revision_enabled=true;</script>"#,
-            r#"<script>(function(){{function injectChrome(){{try{{var m=window.__mei&&window.__mei.scene_manifest_refs;if(!m||!m.layers)return;var surface=String(document.body&&document.body.getAttribute("data-surface")||"app");var shell=m.layers["shell."+surface]||m.layers["shell.app"]||m.layers["shell.layout"]||m.layers["shell.prototype"]||m.layers["shell.build"];var doc=shell&&(shell.document||shell);if(!doc)return;var top=String(doc.topbar_html||"").trim();var bottom=String(doc.statusbar_html||"").trim();var ts=document.getElementById("mei-host-topbar-slot");var bs=document.getElementById("mei-host-statusbar-slot");if(top&&ts)ts.innerHTML=top;if(bottom&&bs)bs.innerHTML=bottom;}}catch(e){{}}}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",injectChrome);else injectChrome();}})();</script>"#,
-        ),
+        r#"<script>window.__mei=window.__mei||{{}};window.__mei.scene_manifest_refs={manifest_json};window.__mei.thin_shell=true;window.__mei.artifact_hits={hits_json};window.__mei.view_revision_enabled=true;</script>"#,
         manifest_json = manifest_json,
         hits_json = hits_json,
     );
@@ -2317,7 +1882,7 @@ pub(crate) fn inject_scene_manifest_refs_for_route(
 
 #[cfg(test)]
 mod inject_scene_manifest_tests {
-    use super::inject_scene_manifest_refs;
+    use super::inject_scene_manifest_refs_for_route;
 
     #[test]
     fn wants_revision_first_shell_defaults_on_app_surfaces() {
@@ -2349,8 +1914,34 @@ mod inject_scene_manifest_tests {
         std::os::unix::fs::symlink("v1", tmp.path().join("apps/demo/env/current")).expect("symlink");
         #[cfg(not(unix))]
         std::fs::create_dir_all(tmp.path().join("apps/demo/env/current/var")).expect("env current");
+        let compose = mei_host_graph::ComposeRequest {
+            route_mode: Some(mei_lang_app::UiRouteMode::App.slug().to_string()),
+            tab: Some("scene".to_string()),
+            chrome: Some("full".to_string()),
+            review_projection: Some(
+                crate::review_axes::ssr_review_projection(
+                    mei_lang_app::UiRouteMode::App,
+                    mei_lang_kernel::DataMode::Eval,
+                )
+                .slug()
+                .to_string(),
+            ),
+            data_mode: Some(mei_lang_kernel::DataMode::Eval.slug().to_string()),
+            focus: None,
+            scope: None,
+        };
         let html = "<html><head></head><body></body></html>".to_string();
-        let out = inject_scene_manifest_refs(html, tmp.path(), "demo", "home");
+        let out = inject_scene_manifest_refs_for_route(
+            html,
+            tmp.path(),
+            "demo",
+            "home",
+            mei_lang_app::UiRouteMode::App,
+            &compose,
+            "",
+            "",
+            None,
+        );
         assert!(out.contains("thin_shell"));
         assert!(out.contains("scene_manifest_refs"));
         assert!(out.contains("artifact_hits"));
