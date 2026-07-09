@@ -276,7 +276,9 @@ pub(crate) fn equivalent_dataframe_metric_scope_tokens(
     tokens.insert(metric_scope_cache_key(std::slice::from_ref(
         &resolved_metric_id.to_string(),
     )));
-    if let Some(short) = resolved_metric_id.rsplit("::").next() {
+    if let Some(short) = resolved_metric_id.rsplit("::").next().filter(|part| {
+        !part.is_empty() && *part != "__scalar_rowset__"
+    }) {
         tokens.insert(metric_scope_cache_key(std::slice::from_ref(
             &short.to_string(),
         )));
@@ -359,11 +361,11 @@ pub(crate) fn metric_dataframe_artifact_lookup_cache_keys(
     };
     let mut keys = Vec::new();
     let mut seen = BTreeSet::new();
-    for dataset_id in dataset_ids {
+    let mut push_dataset_keys = |dataset_id: &str| {
         let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
             app_root,
             compiled,
-            dataset_id.as_str(),
+            dataset_id,
             dependency_defs,
         );
         for metric_token in &metric_tokens {
@@ -372,7 +374,7 @@ pub(crate) fn metric_dataframe_artifact_lookup_cache_keys(
                     app_root,
                     scene_id,
                     target,
-                    dataset_id.as_str(),
+                    dataset_id,
                     metric_token,
                     &query_options,
                     compile_revision,
@@ -384,6 +386,15 @@ pub(crate) fn metric_dataframe_artifact_lookup_cache_keys(
                 }
             }
         }
+    };
+    if !primary_dataset_id.is_empty() {
+        push_dataset_keys(primary_dataset_id);
+    }
+    for dataset_id in dataset_ids {
+        if dataset_id == primary_dataset_id {
+            continue;
+        }
+        push_dataset_keys(dataset_id.as_str());
     }
     keys
 }

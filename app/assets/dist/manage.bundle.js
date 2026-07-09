@@ -13767,8 +13767,14 @@
               kind: "metric",
               metricId: slot.metricId,
               datasetId: slot.datasetId,
-              sceneId: hostSceneId,
-              scenePath: nonEmptyString(ownerScenePath, detail?.host_scene_file, detail?.scene_path),
+              sceneId: nonEmptyString(runtimeSceneId, boardSceneId, hostSceneId),
+              scenePath: nonEmptyString(
+                runtimeSceneFile,
+                boardSceneFile,
+                ownerScenePath,
+                detail?.host_scene_file,
+                detail?.scene_path,
+              ),
             },
           },
         ]),
@@ -15326,21 +15332,51 @@
     };
   }
 
-  function buildDrilldownTableProps(detail, config) {
-    const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
-    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
-    const preferredSceneId = config?.structuredBoard
-      ? nonEmptyString(config?.runtimeSceneId, runtimeRefConfig.sceneId)
-      : runtimeRefConfig.sceneId;
-    const sceneId = nonEmptyString(
-      preferredSceneId,
+  /** analytics board 明细表/翻页应绑定 board scene，而非 home host scene。 */
+  function resolveAnalyticsBoardQuerySceneId(config, detail, runtimeRefConfig = {}) {
+    const boardSceneId = nonEmptyString(
+      config?.boardSceneId,
+      config?.pageSceneId,
       config?.runtimeSceneId,
+    );
+    if (config?.structuredBoard && boardSceneId) {
+      return boardSceneId;
+    }
+    return nonEmptyString(
+      config?.runtimeSceneId,
+      runtimeRefConfig.sceneId,
+      runtimeRefConfig.scene_id,
       config?.hostSceneId,
       config?.sceneId,
       detail?.host_scene_id,
       detail?.scene_id,
       resolveDrilldownSceneId(detail, runtimeDrilldownConfig(detail)),
     );
+  }
+
+  function resolveAnalyticsBoardQueryScenePath(config, detail, runtimeRefConfig = {}) {
+    const boardSceneFile = nonEmptyString(
+      config?.boardSceneFile,
+      config?.pageSceneFile,
+      config?.runtimeSceneFile,
+    );
+    if (config?.structuredBoard && boardSceneFile) {
+      return boardSceneFile;
+    }
+    return nonEmptyString(
+      config?.runtimeSceneFile,
+      runtimeRefConfig.scenePath,
+      runtimeRefConfig.scene_path,
+      config?.hostSceneFile,
+      detail?.host_scene_file,
+      detail?.scene_path,
+    );
+  }
+
+  function buildDrilldownTableProps(detail, config) {
+    const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    const sceneId = resolveAnalyticsBoardQuerySceneId(config, detail, runtimeRefConfig);
     if (!sceneId) return null;
     const appPath = resolvePreviewAppId();
     if (!appPath) return null;
@@ -15353,9 +15389,7 @@
       normalizeMetricLocalId(metricId),
       metricId,
     );
-    const preferredScenePath = config?.structuredBoard
-      ? nonEmptyString(config?.runtimeSceneFile, runtimeRefConfig.scenePath)
-      : runtimeRefConfig.scenePath;
+    const preferredScenePath = resolveAnalyticsBoardQueryScenePath(config, detail, runtimeRefConfig);
     const ownerScenePath = nonEmptyString(
       preferredScenePath,
       config?.runtimeSceneFile,
@@ -15372,16 +15406,8 @@
       config?.hostSceneFile,
     );
     const previewAnchor = config?.previewCompileAnchor;
-    const resolvedSceneId = nonEmptyString(
-      previewAnchor?.sceneId,
-      config?.boardSceneId,
-      sceneId,
-    );
-    const resolvedScenePath = nonEmptyString(
-      previewAnchor?.scenePath,
-      config?.boardSceneFile,
-      ownerScenePath,
-    );
+    const resolvedSceneId = nonEmptyString(previewAnchor?.sceneId, sceneId);
+    const resolvedScenePath = nonEmptyString(previewAnchor?.scenePath, ownerScenePath);
     const runtimeRef = metricId
       ? {
           kind: "metric",
@@ -16198,9 +16224,12 @@
       const detailConfig = detailSlot
         ? {
             ...detailTabConfig,
+            structuredBoard: config.structuredBoard,
+            boardSceneId: config.boardSceneId,
+            boardSceneFile: config.boardSceneFile,
             detailSlot,
-            runtimeSceneId: config.runtimeSceneId,
-            runtimeSceneFile: config.runtimeSceneFile,
+            runtimeSceneId: nonEmptyString(config.runtimeSceneId, config.boardSceneId),
+            runtimeSceneFile: nonEmptyString(config.runtimeSceneFile, config.boardSceneFile),
             tableMetricId: nonEmptyString(
               detailSlot.metricId,
               detailTabConfig.tableMetricId,
@@ -16212,16 +16241,28 @@
               ...(detailTabConfig?.runtimeRef && typeof detailTabConfig.runtimeRef === "object"
                 ? detailTabConfig.runtimeRef
                 : {}),
-              sceneId: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
-              scene_id: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+              sceneId: nonEmptyString(
+                config.runtimeSceneId,
+                config.boardSceneId,
+                config.hostSceneId,
+                config.sceneId,
+              ),
+              scene_id: nonEmptyString(
+                config.runtimeSceneId,
+                config.boardSceneId,
+                config.hostSceneId,
+                config.sceneId,
+              ),
               scenePath: nonEmptyString(
                 config.runtimeSceneFile,
+                config.boardSceneFile,
                 config.hostSceneFile,
                 detail?.host_scene_file,
                 detail?.scene_path,
               ),
               scene_path: nonEmptyString(
                 config.runtimeSceneFile,
+                config.boardSceneFile,
                 config.hostSceneFile,
                 detail?.host_scene_file,
                 detail?.scene_path,
@@ -30709,6 +30750,8 @@
     return (
       normalized === "metric-card" ||
       normalized === "stack" ||
+      normalized === "stack_desc" ||
+      normalized === "row" ||
       normalized.endsWith("_stack") ||
       normalized === "icon_left" ||
       normalized === "solid_row"
@@ -31045,14 +31088,28 @@
         target.closest("[data-mei-metric-card]")?.getAttribute("data-mei-metric-template") ||
         "stack",
     ).trim();
-    if (template !== "stack" && template !== "stack_desc") return;
     const card = target.closest("[data-mei-metric-card]") || target;
+    const style = target.style;
+    style.display = "grid";
+    style.boxSizing = "border-box";
+    style.minHeight = "0";
+    style.minWidth = "0";
+    style.height = "100%";
+    if (template === "row") {
+      style.gridTemplateColumns = "auto auto auto";
+      style.gridTemplateRows = "1fr";
+      style.gridTemplateAreas = '"label value unit"';
+      style.alignItems = "center";
+      style.justifyItems = "center";
+      style.justifyContent = "center";
+      style.gap = "2px 3px";
+      return;
+    }
+    if (template !== "stack" && template !== "stack_desc") return;
     const titleRatio =
       card.getAttribute("data-mei-metric-title-ratio") || "2";
     const contentRatio =
       card.getAttribute("data-mei-metric-content-ratio") || "3";
-    const style = target.style;
-    style.display = "grid";
     style.gridTemplateColumns = "auto auto";
     style.gridTemplateRows = `${ratioFrTrack(titleRatio, 1)} ${ratioFrTrack(contentRatio, 1)}`;
     style.gridTemplateAreas = '"label label" "value unit"';
@@ -31060,10 +31117,6 @@
     style.justifyItems = "center";
     style.justifyContent = "center";
     style.gap = "0";
-    style.boxSizing = "border-box";
-    style.minHeight = "0";
-    style.minWidth = "0";
-    style.height = "100%";
   }
 
   function wrapMetricRoleNode(node, role) {
@@ -31375,6 +31428,18 @@
         placeholder.hidden = true;
         if (scope) placeholder.setAttribute("data-preview-scope", scope);
         return placeholder;
+      }
+      const contentKind = String(node.content_kind || "").trim().toLowerCase();
+      if (contentKind === "compound-metric") {
+        const compoundHost = document.createElement("section");
+        compoundHost.className = "mei-compose-node mei-compose-content";
+        if (scope) compoundHost.setAttribute("data-preview-scope", scope);
+        compoundHost.setAttribute("data-mei-ui-role", "content");
+        compoundHost.setAttribute("data-mei-content-kind", "compound-metric");
+        if (node.label) {
+          compoundHost.setAttribute("data-mei-structure-label", String(node.label));
+        }
+        return compoundHost;
       }
       const keys = Array.isArray(node.use_keys) && node.use_keys.length
         ? node.use_keys
@@ -31923,6 +31988,12 @@
       const shellProps = shellMount.props;
       if (String(shellProps.chrome || "").trim() === "bare") {
         section.classList.add("preview-card-bare");
+      }
+      if (shellProps.__mei_metric_template != null) {
+        section.setAttribute(
+          "data-mei-metric-template",
+          String(shellProps.__mei_metric_template),
+        );
       }
       if (shellProps.__mei_metric_title_ratio != null) {
         section.setAttribute(
@@ -32666,6 +32737,8 @@
         const content =
           section.querySelector('[data-preview-scope$="/body"]') ||
           section.querySelector('[data-preview-scope*="supervision-stats"]') ||
+          section.querySelector('[data-mei-content-kind="compound-metric"]') ||
+          section.querySelector(".mei-compose-metric-compound") ||
           section.querySelector(".mei-compose-metric-triptych");
         if (head instanceof HTMLElement) {
           head.style.gridArea = "head";
@@ -32705,6 +32778,32 @@
         if (role !== "content" && role !== "slot") return;
         content.classList.add("mei-compose-metric-triptych");
       });
+  }
+
+  const COMPOUND_METRIC_SLOT_AREAS = {
+    top: "top",
+    b0: "b0",
+    b1: "b1",
+    b2: "b2",
+  };
+
+  function applyCompoundMetricComposeClasses(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll('[data-mei-content-kind="compound-metric"]').forEach((content) => {
+      if (!(content instanceof HTMLElement)) return;
+      content.classList.add("mei-compose-metric-compound");
+      const section = content.closest('[data-mei-ui-role="section"]');
+      if (section instanceof HTMLElement) {
+        section.classList.add("mei-compose-compound-section");
+      }
+      content.querySelectorAll(':scope > [data-mei-ui-role="slot"]').forEach((slot) => {
+        if (!(slot instanceof HTMLElement)) return;
+        const scope = String(slot.getAttribute("data-preview-scope") || "");
+        const suffix = scope.split("/").filter(Boolean).pop() || "";
+        const area = COMPOUND_METRIC_SLOT_AREAS[suffix];
+        if (area) slot.style.gridArea = area;
+      });
+    });
   }
 
   function rebindMetricCardHosts(root) {
@@ -32813,6 +32912,7 @@
     });
     rebindMetricCardHosts(root);
     applyWarningSupervisionComposeClasses(root);
+    applyCompoundMetricComposeClasses(root);
     normalizeMetricCompoundSections(root);
     normalizeScreenHeaderBrandBlocks(root);
     promoteSectionHeadMeiTextNodes(root);

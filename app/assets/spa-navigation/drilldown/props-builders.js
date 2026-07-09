@@ -252,21 +252,51 @@
     };
   }
 
-  function buildDrilldownTableProps(detail, config) {
-    const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
-    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
-    const preferredSceneId = config?.structuredBoard
-      ? nonEmptyString(config?.runtimeSceneId, runtimeRefConfig.sceneId)
-      : runtimeRefConfig.sceneId;
-    const sceneId = nonEmptyString(
-      preferredSceneId,
+  /** analytics board 明细表/翻页应绑定 board scene，而非 home host scene。 */
+  function resolveAnalyticsBoardQuerySceneId(config, detail, runtimeRefConfig = {}) {
+    const boardSceneId = nonEmptyString(
+      config?.boardSceneId,
+      config?.pageSceneId,
       config?.runtimeSceneId,
+    );
+    if (config?.structuredBoard && boardSceneId) {
+      return boardSceneId;
+    }
+    return nonEmptyString(
+      config?.runtimeSceneId,
+      runtimeRefConfig.sceneId,
+      runtimeRefConfig.scene_id,
       config?.hostSceneId,
       config?.sceneId,
       detail?.host_scene_id,
       detail?.scene_id,
       resolveDrilldownSceneId(detail, runtimeDrilldownConfig(detail)),
     );
+  }
+
+  function resolveAnalyticsBoardQueryScenePath(config, detail, runtimeRefConfig = {}) {
+    const boardSceneFile = nonEmptyString(
+      config?.boardSceneFile,
+      config?.pageSceneFile,
+      config?.runtimeSceneFile,
+    );
+    if (config?.structuredBoard && boardSceneFile) {
+      return boardSceneFile;
+    }
+    return nonEmptyString(
+      config?.runtimeSceneFile,
+      runtimeRefConfig.scenePath,
+      runtimeRefConfig.scene_path,
+      config?.hostSceneFile,
+      detail?.host_scene_file,
+      detail?.scene_path,
+    );
+  }
+
+  function buildDrilldownTableProps(detail, config) {
+    const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    const sceneId = resolveAnalyticsBoardQuerySceneId(config, detail, runtimeRefConfig);
     if (!sceneId) return null;
     const appPath = resolvePreviewAppId();
     if (!appPath) return null;
@@ -279,9 +309,7 @@
       normalizeMetricLocalId(metricId),
       metricId,
     );
-    const preferredScenePath = config?.structuredBoard
-      ? nonEmptyString(config?.runtimeSceneFile, runtimeRefConfig.scenePath)
-      : runtimeRefConfig.scenePath;
+    const preferredScenePath = resolveAnalyticsBoardQueryScenePath(config, detail, runtimeRefConfig);
     const ownerScenePath = nonEmptyString(
       preferredScenePath,
       config?.runtimeSceneFile,
@@ -298,16 +326,8 @@
       config?.hostSceneFile,
     );
     const previewAnchor = config?.previewCompileAnchor;
-    const resolvedSceneId = nonEmptyString(
-      previewAnchor?.sceneId,
-      config?.boardSceneId,
-      sceneId,
-    );
-    const resolvedScenePath = nonEmptyString(
-      previewAnchor?.scenePath,
-      config?.boardSceneFile,
-      ownerScenePath,
-    );
+    const resolvedSceneId = nonEmptyString(previewAnchor?.sceneId, sceneId);
+    const resolvedScenePath = nonEmptyString(previewAnchor?.scenePath, ownerScenePath);
     const runtimeRef = metricId
       ? {
           kind: "metric",

@@ -127,9 +127,12 @@
       const detailConfig = detailSlot
         ? {
             ...detailTabConfig,
+            structuredBoard: config.structuredBoard,
+            boardSceneId: config.boardSceneId,
+            boardSceneFile: config.boardSceneFile,
             detailSlot,
-            runtimeSceneId: config.runtimeSceneId,
-            runtimeSceneFile: config.runtimeSceneFile,
+            runtimeSceneId: nonEmptyString(config.runtimeSceneId, config.boardSceneId),
+            runtimeSceneFile: nonEmptyString(config.runtimeSceneFile, config.boardSceneFile),
             tableMetricId: nonEmptyString(
               detailSlot.metricId,
               detailTabConfig.tableMetricId,
@@ -141,16 +144,28 @@
               ...(detailTabConfig?.runtimeRef && typeof detailTabConfig.runtimeRef === "object"
                 ? detailTabConfig.runtimeRef
                 : {}),
-              sceneId: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
-              scene_id: nonEmptyString(config.runtimeSceneId, config.hostSceneId, config.sceneId),
+              sceneId: nonEmptyString(
+                config.runtimeSceneId,
+                config.boardSceneId,
+                config.hostSceneId,
+                config.sceneId,
+              ),
+              scene_id: nonEmptyString(
+                config.runtimeSceneId,
+                config.boardSceneId,
+                config.hostSceneId,
+                config.sceneId,
+              ),
               scenePath: nonEmptyString(
                 config.runtimeSceneFile,
+                config.boardSceneFile,
                 config.hostSceneFile,
                 detail?.host_scene_file,
                 detail?.scene_path,
               ),
               scene_path: nonEmptyString(
                 config.runtimeSceneFile,
+                config.boardSceneFile,
                 config.hostSceneFile,
                 detail?.host_scene_file,
                 detail?.scene_path,
