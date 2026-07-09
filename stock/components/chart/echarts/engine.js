@@ -1165,11 +1165,17 @@ function compactAxisValueLabel(value) {
 function resolveCompactCartesianGrid(props, legacy, categoryAxisRotate = 0) {
   const containLabel = gridContainLabelEnabled(props, true);
   const showLegend = legacy.showLegend === true;
-  const bottomDefault = Math.abs(categoryAxisRotate) >= 30 ? 40 : 22;
+  const chartHeight = Number(legacy.chartHeight) > 0 ? Number(legacy.chartHeight) : 0;
+  // Tight cockpit slots (~70–90px): shrink legend/axis insets so x-axis stays visible.
+  const tight = chartHeight > 0 && chartHeight <= 96;
+  const bottomDefault = Math.abs(categoryAxisRotate) >= 30
+    ? tight ? 28 : 40
+    : tight ? 14 : 22;
+  const topDefault = showLegend ? (tight ? 10 : 16) : tight ? 2 : 4;
   return {
     left: readGridInset(props, "left", containLabel ? 2 : 24),
     right: readGridInset(props, "right", showLegend ? 2 : 6),
-    top: readGridInset(props, "top", showLegend ? 16 : 4),
+    top: readGridInset(props, "top", topDefault),
     bottom: readGridInset(props, "bottom", bottomDefault),
     containLabel,
     backgroundColor: COCKPIT_CARTESIAN_GRID_BG,

@@ -29995,11 +29995,25 @@
         }
       }
     }
-    const useKey = String(useKeys[index] || useKeys[0] || "").trim();
+    const useKey = String(useKeys[index] || useKeys[0] || mount?.use_key || "").trim();
     if (useKey && scopeKey !== "scene:default") {
       const scopeRoot =
         scopeKey === "scene:default" || !container ? root : container;
-      const block = scopeRoot.querySelector(`[data-mei-use-key="${CSS.escape(useKey)}"]`);
+      // Prefer the host under this exact preview scope — never the first
+      // matching use_key elsewhere in a parent layout (e.g. chart.column in
+      // inspection vs penalty, or a chart wrongly nested under a metric card).
+      const scopedBlock =
+        scopeRoot.querySelector(
+          `[data-preview-scope="${CSS.escape(scopeKey)}"] [data-mei-use-key="${CSS.escape(useKey)}"]`,
+        ) ||
+        (scopeRoot.getAttribute?.("data-preview-scope") === scopeKey
+          ? scopeRoot.querySelector(`[data-mei-use-key="${CSS.escape(useKey)}"]`)
+          : null);
+      const block =
+        scopedBlock ||
+        scopeRoot.querySelector(
+          `[data-preview-scope$="/${CSS.escape(useKey)}"] [data-mei-use-key="${CSS.escape(useKey)}"], [data-preview-scope$="/${CSS.escape(useKey)}"][data-mei-use-key="${CSS.escape(useKey)}"]`,
+        );
       const host = block?.querySelector?.(".component-host") || block;
       if (host instanceof HTMLElement) {
         return host;
@@ -30134,14 +30148,27 @@
     style.boxSizing = "border-box";
     style.minHeight = "0";
     style.minWidth = "0";
+    style.width = "100%";
     style.height = "100%";
+    // icon_left / strip_icon_left: shell (or card) reserves left padding for a
+    // background icon. auto+center collapses the text track → "待.." truncation
+    // and a huge gap on the summary strip. Match zhifa: fill width, start-align.
+    const padHost =
+      [card, card.parentElement].find((el) => {
+        if (!(el instanceof HTMLElement)) return false;
+        const padLeft = Number.parseFloat(global.getComputedStyle?.(el)?.paddingLeft || "0") || 0;
+        return padLeft >= 48;
+      }) || card;
+    const padLeft =
+      Number.parseFloat(global.getComputedStyle?.(padHost)?.paddingLeft || "0") || 0;
+    const iconReserved = padLeft >= 48;
     if (template === "row") {
       style.gridTemplateColumns = "auto auto auto";
       style.gridTemplateRows = "1fr";
       style.gridTemplateAreas = '"label value unit"';
       style.alignItems = "center";
-      style.justifyItems = "center";
-      style.justifyContent = "center";
+      style.justifyItems = iconReserved ? "start" : "center";
+      style.justifyContent = iconReserved ? "start" : "center";
       style.gap = "2px 3px";
       return;
     }
@@ -30150,12 +30177,18 @@
       card.getAttribute("data-mei-metric-title-ratio") || "2";
     const contentRatio =
       card.getAttribute("data-mei-metric-content-ratio") || "3";
-    style.gridTemplateColumns = "auto auto";
-    style.gridTemplateRows = `${ratioFrTrack(titleRatio, 1)} ${ratioFrTrack(contentRatio, 1)}`;
-    style.gridTemplateAreas = '"label label" "value unit"';
+    style.gridTemplateColumns = "minmax(0, 1fr) auto";
+    if (template === "stack_desc") {
+      // Keep desc on its own row so the badge does not overlap value/unit.
+      style.gridTemplateRows = `${ratioFrTrack(titleRatio, 1)} ${ratioFrTrack(contentRatio, 1)} auto`;
+      style.gridTemplateAreas = '"label label" "value unit" "desc desc"';
+    } else {
+      style.gridTemplateRows = `${ratioFrTrack(titleRatio, 1)} ${ratioFrTrack(contentRatio, 1)}`;
+      style.gridTemplateAreas = '"label label" "value unit"';
+    }
     style.alignItems = "stretch";
-    style.justifyItems = "center";
-    style.justifyContent = "center";
+    style.justifyItems = iconReserved ? "start" : "center";
+    style.justifyContent = "stretch";
     style.gap = "0";
   }
 
@@ -30185,14 +30218,16 @@
     const bodyCell = resolveMetricCardBodyCell(section);
     if (!(bodyCell instanceof HTMLElement)) return;
     const host = bodyCell.querySelector(".component-host");
+    const isMetricRole = (role) =>
+      role === "label" || role === "value" || role === "unit" || role === "desc";
     const roleNodes = host
       ? Array.from(host.querySelectorAll("mei-text, MEI-TEXT")).filter((node) => {
           const role = String(parseHostProps(node).metric_role || "").trim();
-          return role === "label" || role === "value" || role === "unit";
+          return isMetricRole(role);
         })
       : Array.from(bodyCell.querySelectorAll("mei-text, MEI-TEXT")).filter((node) => {
           const role = String(parseHostProps(node).metric_role || "").trim();
-          return role === "label" || role === "value" || role === "unit";
+          return isMetricRole(role);
         });
     if (!roleNodes.length && bodyCell.querySelector(":scope > .component-card")) {
       applyMetricStackGridLayout(bodyCell);
@@ -30297,6 +30332,16 @@
         if (content instanceof HTMLElement) target = content;
       }
     }
+    // Nested areas inside a compound-metric host must stay transparent — only the
+    // compound content node owns the shared slot-frame background.
+    const compoundHost = target.closest?.('[data-mei-content-kind="compound-metric"]');
+    if (
+      compoundHost instanceof HTMLElement &&
+      compoundHost !== target &&
+      target.getAttribute("data-mei-content-kind") !== "compound-metric"
+    ) {
+      return false;
+    }
     const shellProps = panelShell.props;
     const chromeBare = String(shellProps.chrome || "").trim() === "bare";
     if (chromeBare) {
@@ -30305,6 +30350,27 @@
     applyContainerVisualStyle(target, shellProps);
     target.setAttribute("data-mei-panel-shell-applied", "1");
     return true;
+  }
+
+  function clearNestedCompoundSlotFrames(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll('[data-mei-content-kind="compound-metric"]').forEach((host) => {
+      if (!(host instanceof HTMLElement)) return;
+      host
+        .querySelectorAll(
+          ':scope [data-mei-ui-role="slot"], :scope [data-mei-metric-card], :scope .preview-card',
+        )
+        .forEach((el) => {
+          if (!(el instanceof HTMLElement) || el === host) return;
+          if (el.getAttribute("data-mei-content-kind") === "compound-metric") return;
+          el.style.backgroundImage = "none";
+          el.style.backgroundColor = "transparent";
+          el.style.background = "transparent";
+          el.style.boxShadow = "none";
+          el.removeAttribute("data-mei-slot-frame-bg");
+          el.removeAttribute("data-mei-panel-shell-applied");
+        });
+    });
   }
 
   function normalizeSectionHeadSlot(headSlot) {
@@ -30414,7 +30480,11 @@
   function createBlockSection(useKey, scope, uiRole) {
     const section = document.createElement("section");
     const key = String(useKey || "").trim();
-    const bareChrome = key === "cockpit.header-brand";
+    const bareChrome =
+      key === "cockpit.header-brand" ||
+      key.startsWith("chart.") ||
+      key === "mei.chart" ||
+      key.startsWith("mei-chart");
     section.className = bareChrome
       ? "preview-card preview-card-bare mei-compose-block"
       : "preview-card mei-compose-block";
@@ -30485,35 +30555,41 @@
         }
         return compoundHost;
       }
-      const keys = Array.isArray(node.use_keys) && node.use_keys.length
-        ? node.use_keys
-        : node.content_kind
-          ? [node.content_kind]
-          : [];
-      if (keys.length === 1) {
-        const key = keys[0];
-        const scopeLower = scope.toLowerCase();
-        if (
-          isMetricTemplateKind(key) &&
-          !scopeLower.includes("/map_viewport/") &&
-          !scopeLower.endsWith("/map-viewport")
-        ) {
-          if (scopeLower.includes("/hint/") || scopeLower.includes("stage-aperture-hint")) {
-            return createBlockSection("mei.text", scope, node.ui_role);
+      // Container content (e.g. status-flow grid host) must keep children + layout;
+      // do not collapse into leaf metric-card / content-group mounts.
+      const hasStructureChildren =
+        Array.isArray(node.children) && node.children.length > 0;
+      if (!hasStructureChildren) {
+        const keys = Array.isArray(node.use_keys) && node.use_keys.length
+          ? node.use_keys
+          : node.content_kind
+            ? [node.content_kind]
+            : [];
+        if (keys.length === 1) {
+          const key = keys[0];
+          const scopeLower = scope.toLowerCase();
+          if (
+            isMetricTemplateKind(key) &&
+            !scopeLower.includes("/map_viewport/") &&
+            !scopeLower.endsWith("/map-viewport")
+          ) {
+            if (scopeLower.includes("/hint/") || scopeLower.includes("stage-aperture-hint")) {
+              return createBlockSection("mei.text", scope, node.ui_role);
+            }
+            return createMetricCardSection(scope, node.ui_role, node.label);
           }
-          return createMetricCardSection(scope, node.ui_role, node.label);
+          if (!isMetricTemplateKind(key)) {
+            return createBlockSection(key, scope, node.ui_role);
+          }
         }
-        if (!isMetricTemplateKind(key)) {
-          return createBlockSection(key, scope, node.ui_role);
+        if (keys.length > 1) {
+          const wrap = document.createElement("div");
+          wrap.className = "mei-compose-content-group";
+          if (scope) wrap.setAttribute("data-preview-scope", scope);
+          if (node.label) wrap.setAttribute("data-mei-structure-label", String(node.label));
+          keys.forEach((key) => wrap.appendChild(createBlockSection(key, scope, node.ui_role)));
+          return wrap;
         }
-      }
-      if (keys.length > 1) {
-        const wrap = document.createElement("div");
-        wrap.className = "mei-compose-content-group";
-        if (scope) wrap.setAttribute("data-preview-scope", scope);
-        if (node.label) wrap.setAttribute("data-mei-structure-label", String(node.label));
-        keys.forEach((key) => wrap.appendChild(createBlockSection(key, scope, node.ui_role)));
-        return wrap;
       }
     }
 
@@ -30898,6 +30974,16 @@
     return `url("${image.replace(/"/g, '\\"')}")`;
   }
 
+  function normalizeBackgroundLayerList(raw) {
+    if (Array.isArray(raw)) {
+      return raw
+        .map((item) => String(item || "").trim())
+        .filter(Boolean);
+    }
+    const text = String(raw || "").trim();
+    return text ? [text] : [];
+  }
+
   function applyBackgroundInlineStyle(style, background) {
     if (!style || background == null) return;
     if (typeof background === "string") {
@@ -30923,18 +31009,22 @@
       return;
     }
     if (typeof background !== "object") return;
-    const image = String(background.image || "").trim();
-    if (image) {
-      style.backgroundImage = normalizeBackgroundImageValue(image);
-      const size = String(background.size || "").trim();
-      if (size) style.backgroundSize = size;
-      const position = String(background.position || "").trim();
-      if (position) style.backgroundPosition = position;
-      const repeat = String(background.repeat || "").trim();
-      if (repeat) style.backgroundRepeat = repeat;
+    const images = normalizeBackgroundLayerList(background.image).map((image) =>
+      normalizeBackgroundImageValue(image),
+    );
+    const color = String(background.color || "").trim();
+    if (images.length > 0) {
+      // Keep fill color under icon / slot-fill layers (status-flow shells).
+      if (color) style.backgroundColor = color;
+      style.backgroundImage = images.join(", ");
+      const sizes = normalizeBackgroundLayerList(background.size);
+      if (sizes.length) style.backgroundSize = sizes.join(", ");
+      const positions = normalizeBackgroundLayerList(background.position);
+      if (positions.length) style.backgroundPosition = positions.join(", ");
+      const repeats = normalizeBackgroundLayerList(background.repeat);
+      if (repeats.length) style.backgroundRepeat = repeats.join(", ");
       return;
     }
-    const color = String(background.color || "").trim();
     if (color) style.background = color;
   }
 
@@ -30989,7 +31079,26 @@
       String(props.__mei_slot_frame_bg || "").trim() === "1"
     ) {
       el.setAttribute("data-mei-slot-frame-bg", "true");
+      if (slotFrameBackgroundNeedsStretch(props.background)) {
+        el.setAttribute("data-mei-slot-bg-stretch", "true");
+      } else {
+        el.removeAttribute("data-mei-slot-bg-stretch");
+      }
     }
+  }
+
+  /** SVG metric-bg skins stretch to the card; layered corner/icon stacks do not. */
+  function slotFrameBackgroundNeedsStretch(background) {
+    if (background == null) return false;
+    if (typeof background === "string") {
+      return /metric-bg-|url\(/i.test(background) && !/,/.test(background);
+    }
+    if (typeof background !== "object") return false;
+    const images = normalizeBackgroundLayerList(background.image);
+    if (images.length !== 1) return false;
+    const sizes = normalizeBackgroundLayerList(background.size);
+    if (sizes.length && sizes.some((size) => size !== "100% 100%")) return false;
+    return /metric-bg-|url\(/i.test(images[0]);
   }
 
   function resolveMetricCardSection(container) {
@@ -31054,7 +31163,21 @@
     if (!shellMount?.props) return;
     const section = resolveMetricCardSection(container);
     if (section instanceof HTMLElement) {
-      const shellProps = shellMount.props;
+      const shellProps = { ...shellMount.props };
+      // Nested metric cards inside a compound host share the compound frame.
+      const insideCompound =
+        section.closest?.('[data-mei-content-kind="compound-metric"]') &&
+        section.getAttribute("data-mei-content-kind") !== "compound-metric";
+      if (insideCompound) {
+        shellProps.background = "transparent";
+        delete shellProps.__mei_slot_frame_bg;
+      } else if (isTransparentBackgroundProp(shellProps.background)) {
+        // Inner metric() shells are authored transparent; the outer
+        // slot_metric_shell owns the visible frame via panel_shell. Do not
+        // paint transparent over that frame.
+        delete shellProps.background;
+        delete shellProps.__mei_slot_frame_bg;
+      }
       if (String(shellProps.chrome || "").trim() === "bare") {
         section.classList.add("preview-card-bare");
       }
@@ -31079,6 +31202,22 @@
       applyContainerVisualStyle(section, shellProps);
     }
     propagateMetricCardPopupFromMounts(container, mounts);
+  }
+
+  function isTransparentBackgroundProp(background) {
+    if (background == null) return true;
+    if (typeof background === "string") {
+      return background.trim().toLowerCase() === "transparent" || !background.trim();
+    }
+    if (typeof background === "object") {
+      const color = String(background.color || "").trim().toLowerCase();
+      const image = background.image;
+      const hasImage = Array.isArray(image)
+        ? image.some((item) => String(item || "").trim())
+        : Boolean(String(image || "").trim());
+      return !hasImage && (!color || color === "transparent");
+    }
+    return false;
   }
 
   function applyPropsToHost(host, props) {
@@ -31177,12 +31316,24 @@
     const scope = String(scopeKey || "").trim();
     if (scope) {
       const scoped =
-        container.querySelector(`[data-preview-scope="${CSS.escape(scope)}"] .component-host`) ||
-        container.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
+        container.matches?.(`[data-preview-scope="${CSS.escape(scope)}"]`)
+          ? container
+          : container.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
       if (scoped instanceof HTMLElement) {
-        return scoped.classList?.contains("component-host")
-          ? scoped
-          : scoped.querySelector(".component-host") || scoped;
+        // Prefer a direct component-host under this scope, not nested metric cards.
+        const direct =
+          scoped.querySelector(":scope > .component-host, :scope > .panel-body-cell > .component-host") ||
+          (scoped.classList?.contains("component-host") ? scoped : null);
+        if (direct instanceof HTMLElement) return direct;
+        const byUseKey = String((useKeys && useKeys[0]) || "").trim();
+        if (byUseKey) {
+          const keyed = scoped.querySelector(
+            `:scope [data-mei-use-key="${CSS.escape(byUseKey)}"]`,
+          );
+          if (keyed instanceof HTMLElement) {
+            return keyed.closest(".component-host") || keyed.parentElement || keyed;
+          }
+        }
       }
     }
     const useKey = String((useKeys && useKeys[0]) || "").trim();
@@ -31196,8 +31347,7 @@
           : byKey.querySelector(".component-host") || byKey;
       }
     }
-    const fallback = container.querySelector(".component-host");
-    return fallback instanceof HTMLElement ? fallback : null;
+    return container.querySelector(":scope > .component-host") || null;
   }
 
   function cleanupComposeStructureArtifacts(root) {
@@ -31678,6 +31828,7 @@
       global.MeiProjectionDepth.applyLayoutBudgetManifest(root.ownerDocument || document);
     }
     normalizeMetricCompoundSections(root);
+    clipChartSlotsToHost(root);
     normalizeScreenHeaderBrandBlocks(root);
     return true;
   }
@@ -31723,6 +31874,7 @@
       global.MeiProjectionDepth.applyLayoutBudgetManifest(root.ownerDocument || document);
     }
     normalizeMetricCompoundSections(root);
+    clipChartSlotsToHost(root);
     normalizeScreenHeaderBrandBlocks(root);
     return true;
   }
@@ -31813,7 +31965,13 @@
         const head = section.querySelector(
           '[data-preview-scope$="/title_zone"], [data-preview-scope$="/head"]',
         );
+        // Prefer section-level content hosts. Never promote a nested
+        // compound-metric (e.g. 行政检查 AI 底栏) to section body — that
+        // pulls it out of its grid slot and collapses the multi-block layout.
         const content =
+          section.querySelector(
+            ':scope > [data-preview-scope$="/content_zone"], :scope > [data-preview-scope$="/body"]',
+          ) ||
           section.querySelector(
             '[data-preview-scope$="/content_zone"], [data-preview-scope$="/body"]',
           ) ||
@@ -31821,8 +31979,6 @@
           section.querySelector('[data-preview-scope$="/enforcement_body"]') ||
           section.querySelector(".mei-compose-enforcement-strip") ||
           section.querySelector('[data-preview-scope*="supervision-stats"]') ||
-          section.querySelector('[data-mei-content-kind="compound-metric"]') ||
-          section.querySelector(".mei-compose-metric-compound") ||
           section.querySelector(".mei-compose-metric-triptych");
         if (head instanceof HTMLElement) {
           head.style.gridArea = "title";
@@ -31882,6 +32038,10 @@
     b0: "b0",
     b1: "b1",
     b2: "b2",
+    // long_metric_compound (行政检查 AI 底栏)
+    main: "main",
+    rtop: "rtop",
+    rbottom: "rbottom",
   };
 
   const ENFORCEMENT_STRIP_AREAS = {
@@ -31933,23 +32093,171 @@
       });
   }
 
+  function isSectionLevelCompoundHost(content, section) {
+    if (!(content instanceof HTMLElement) || !(section instanceof HTMLElement)) return false;
+    const parent = content.parentElement;
+    if (!(parent instanceof HTMLElement)) return false;
+    if (parent === section) return true;
+    const parentScope = String(parent.getAttribute("data-preview-scope") || "");
+    if (/\/(content_zone|body)$/.test(parentScope)) return true;
+    // Nested under multi-block hosts (inspection-stats / block_ai / strip compound
+    // slot) must not re-skin the whole section as a single compound panel.
+    return false;
+  }
+
   function applyCompoundMetricComposeClasses(root) {
     if (!(root instanceof HTMLElement)) return;
     root.querySelectorAll('[data-mei-content-kind="compound-metric"]').forEach((content) => {
       if (!(content instanceof HTMLElement)) return;
       content.classList.add("mei-compose-metric-compound");
       const section = content.closest('[data-mei-ui-role="section"]');
-      if (section instanceof HTMLElement) {
+      if (section instanceof HTMLElement && isSectionLevelCompoundHost(content, section)) {
         section.classList.add("mei-compose-compound-section");
       }
+      const slotSuffixes = [];
       content.querySelectorAll(':scope > [data-mei-ui-role="slot"]').forEach((slot) => {
         if (!(slot instanceof HTMLElement)) return;
         const scope = String(slot.getAttribute("data-preview-scope") || "");
         const suffix = scope.split("/").filter(Boolean).pop() || "";
         const area = COMPOUND_METRIC_SLOT_AREAS[suffix];
-        if (area) slot.style.gridArea = area;
+        if (area) {
+          slot.style.gridArea = area;
+          slotSuffixes.push(area);
+        }
       });
+      // long compound: main | rtop / rbottom — ensure host grid when budget not yet applied
+      const isLongCompound =
+        slotSuffixes.includes("main") &&
+        slotSuffixes.includes("rtop") &&
+        slotSuffixes.includes("rbottom");
+      if (isLongCompound) {
+        content.style.display = "grid";
+        content.style.gridTemplateColumns = "1.05fr 1.95fr";
+        content.style.gridTemplateRows = "minmax(0, 1fr) minmax(0, 1fr)";
+        content.style.gridTemplateAreas = '"main rtop" "main rbottom"';
+        // Zero gap so the shared slot-frame background reads as one card.
+        content.style.gap = "0";
+        content.style.minHeight = "0";
+        content.style.height = "100%";
+        content.style.width = "100%";
+        content.style.alignSelf = "stretch";
+        content.style.overflow = "hidden";
+      }
     });
+  }
+
+  function clipChartSlotsToHost(root) {
+    if (!(root instanceof HTMLElement)) return;
+    // Constrain chart slots and fit compact chart canvas to the slot box so
+    // fixed chartHeight cannot spill into the next grid row.
+    root
+      .querySelectorAll(
+        '[data-preview-scope$="/chart"][data-mei-ui-role="slot"], [data-preview-scope$="/chart.column"][data-mei-ui-role="content"]',
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        el.style.minHeight = "0";
+        el.style.overflow = "hidden";
+        el.style.maxHeight = "100%";
+        el.style.width = "100%";
+        el.style.height = "100%";
+        el.style.alignSelf = "stretch";
+        const host = el.querySelector(
+          ":scope > .component-host, :scope > .panel-body-cell > .component-host",
+        );
+        if (host instanceof HTMLElement) {
+          host.style.minHeight = "0";
+          host.style.overflow = "hidden";
+          host.style.width = "100%";
+          host.style.height = "100%";
+        }
+        const chart =
+          el.matches?.("mei-chart-column, mei-chart-bar, mei-chart-line, mei-chart-ranking")
+            ? el
+            : el.querySelector?.(
+                "mei-chart-column, mei-chart-bar, mei-chart-line, mei-chart-ranking",
+              );
+        if (!(chart instanceof HTMLElement)) return;
+        // Chart blocks must not keep default preview-card padding — it shrinks
+        // the host below chartHeight and clips the x-axis.
+        const chartCard = chart.closest(".preview-card");
+        if (chartCard instanceof HTMLElement) {
+          chartCard.classList.add("preview-card-bare");
+          chartCard.style.padding = "0";
+          chartCard.style.gap = "0";
+          chartCard.style.boxShadow = "none";
+        }
+        chart.style.minHeight = "0";
+        chart.style.maxHeight = "100%";
+        chart.style.height = "100%";
+        chart.style.width = "100%";
+        chart.style.overflow = "hidden";
+        chart.style.display = "block";
+        // Prefer the host box (design px) over visual rect — stage scale would
+        // otherwise under-report height via getBoundingClientRect.
+        const hostBox = host instanceof HTMLElement ? host : el;
+        const slotH = Math.max(
+          0,
+          Math.floor(
+            hostBox.clientHeight ||
+              el.clientHeight ||
+              el.getBoundingClientRect().height ||
+              0,
+          ),
+        );
+        if (slotH < 8) return;
+        // Fill the design-px host box. Stage CSS scale shrinks visual rect, but
+        // echarts must size to clientHeight so the canvas occupies the full slot.
+        const fitH = Math.max(40, slotH - 4);
+        try {
+          const props = parseHostProps(chart);
+          const next = { ...props, compact: true, chartHeight: fitH };
+          // Cockpit chart slots are typically ~70–160 design px; keep legend/axis
+          // insets tight so the x-axis is not clipped.
+          if (fitH <= 180) {
+            if (next.gridTop == null && next.grid_top == null) next.gridTop = 12;
+            if (next.gridBottom == null && next.grid_bottom == null) next.gridBottom = 16;
+          }
+          const changed =
+            Number(props.chartHeight) !== fitH ||
+            props.compact !== true ||
+            Number(props.gridTop ?? props.grid_top ?? NaN) !== Number(next.gridTop) ||
+            Number(props.gridBottom ?? props.grid_bottom ?? NaN) !== Number(next.gridBottom);
+          if (changed) {
+            applyPropsToHost(chart, next);
+          }
+        } catch (_) {}
+        const chartBox =
+          chart.shadowRoot?.querySelector?.(".chart") || chart.chartEl || null;
+        if (chartBox instanceof HTMLElement) {
+          chartBox.style.minHeight = `${fitH}px`;
+          chartBox.style.height = `${fitH}px`;
+          chartBox.style.maxHeight = `${fitH}px`;
+        }
+        const wrap = chart.shadowRoot?.querySelector?.(".wrap");
+        if (wrap instanceof HTMLElement) {
+          wrap.style.height = "100%";
+          wrap.style.maxHeight = "100%";
+          wrap.style.minHeight = "0";
+          wrap.style.overflow = "hidden";
+          wrap.style.boxSizing = "border-box";
+        }
+        try {
+          chart.chart?.resize?.({
+            width: Math.max(1, hostBox.clientWidth || chart.clientWidth || el.clientWidth),
+            height: fitH,
+          });
+        } catch (_) {}
+      });
+    root
+      .querySelectorAll(
+        '[data-mei-content-kind="chart-summary"], [data-preview-scope$="/block_counts"], [data-preview-scope$="/inspection-stats"]',
+      )
+      .forEach((el) => {
+        if (!(el instanceof HTMLElement)) return;
+        el.style.minHeight = "0";
+        el.style.overflow = "hidden";
+      });
   }
 
   function rebindMetricCardHosts(root) {
@@ -31994,7 +32302,9 @@
         const bindComponentMounts =
           componentMounts.length > 0 &&
           (!headScope || shouldBindHeadComponentMounts(componentMounts));
-        if (bindComponentMounts) {
+        const contentKind = String(entry?.content_kind || "").trim().toLowerCase();
+        // Compound hosts are layout shells; child cards bind their own mounts.
+        if (bindComponentMounts && contentKind !== "compound-metric") {
           const filteredMounts = filterComponentMountsForScope(scopeKey, componentMounts);
           let host = findComponentHostForScope(container, scopeKey, useKeys);
           if (!(host instanceof HTMLElement)) {
@@ -32060,7 +32370,28 @@
     applyWarningSupervisionComposeClasses(root);
     applyEnforcementStripComposeClasses(root);
     applyCompoundMetricComposeClasses(root);
+    clearNestedCompoundSlotFrames(root);
     normalizeMetricCompoundSections(root);
+    clipChartSlotsToHost(root);
+    // Charts bootstrap asynchronously; re-fit after layout + echarts init.
+    const scheduleClip = (delayMs) => {
+      global.setTimeout(() => {
+        try {
+          clipChartSlotsToHost(root);
+        } catch (_) {}
+      }, delayMs);
+    };
+    if (typeof global.requestAnimationFrame === "function") {
+      global.requestAnimationFrame(() => {
+        clipChartSlotsToHost(root);
+        scheduleClip(120);
+        scheduleClip(400);
+      });
+    } else {
+      scheduleClip(0);
+      scheduleClip(120);
+      scheduleClip(400);
+    }
     normalizeScreenHeaderBrandBlocks(root);
     promoteSectionHeadMeiTextNodes(root);
     applyRailHeadTitlesFromEval(root, evalDocs);
@@ -32204,7 +32535,11 @@
       global.__mei.theme_layout = doc.theme_layout;
     }
     if (doc.layout_budget_manifest != null) {
+      // runtime.plans is the compile-time authority for grid budgets (e.g. status-flow
+      // content hosts). Mark source so later bootstrap/eval-pack cannot clobber it
+      // with a stale localStorage artifact that omits Content-role entries.
       global.__mei.layout_budget_manifest = doc.layout_budget_manifest;
+      global.__mei.__layout_budget_source = "runtime.plans";
     }
     return true;
   }
@@ -32957,7 +33292,27 @@
       global.__mei.bootstrap_scopes = normalized.bootstrapScopes;
     }
     if (normalized.layoutBudgetManifest) {
-      global.__mei.layout_budget_manifest = normalized.layoutBudgetManifest;
+      const incoming = normalized.layoutBudgetManifest;
+      const existing = global.__mei.layout_budget_manifest;
+      // Prefer runtime.plans once applied: merge so bootstrap only fills gaps and
+      // never drops Content-host grids (issue_body) that older local caches omit.
+      if (
+        global.__mei.__layout_budget_source === "runtime.plans" &&
+        existing?.entries &&
+        typeof existing.entries === "object" &&
+        incoming?.entries &&
+        typeof incoming.entries === "object"
+      ) {
+        global.__mei.layout_budget_manifest = {
+          revision: existing.revision || incoming.revision,
+          entries: { ...incoming.entries, ...existing.entries },
+        };
+      } else {
+        global.__mei.layout_budget_manifest = incoming;
+        if (!global.__mei.__layout_budget_source) {
+          global.__mei.__layout_budget_source = "eval_pack";
+        }
+      }
       if (typeof boot.applyLayoutBudgetManifestProjection === "function") {
         boot.applyLayoutBudgetManifestProjection();
       } else if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {

@@ -405,11 +405,58 @@ fn panel_is_metric_card(panel: &UiNodeDecl) -> bool {
         .unwrap_or(false)
 }
 
+fn panel_props_background(props: &Value) -> Option<&Value> {
+    if let Some(background) = props.get("background") {
+        return Some(background);
+    }
+    // Unresolved `a | b` Merge keeps background under left until shell export.
+    if props.get("__binop").and_then(Value::as_str) == Some("Merge") {
+        return props.pointer("/left/background");
+    }
+    None
+}
+
+fn flatten_panel_props_merge(props: &Value) -> Value {
+    if props.get("__binop").and_then(Value::as_str) != Some("Merge") {
+        return props.clone();
+    }
+    let mut merged = props
+        .get("left")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if let Some(right) = props.get("right") {
+        if let (Some(base), Some(overlay)) = (merged.as_object_mut(), right.as_object()) {
+            for (key, value) in overlay {
+                base.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    merged
+}
+
 pub fn should_export_panel_shell(panel: &UiNodeDecl) -> bool {
     if panel_is_metric_card(panel) {
         return false;
     }
-    panel.props.get("background").is_some()
+    if panel
+        .props
+        .get("__mei_slot_frame_bg")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || panel
+            .props
+            .pointer("/right/__mei_slot_frame_bg")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        || panel
+            .props
+            .pointer("/left/__mei_slot_frame_bg")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        return true;
+    }
+    panel_props_background(&panel.props).is_some()
         || panel
             .props
             .get("__mei_layout_fill")
@@ -422,7 +469,8 @@ pub fn should_export_panel_shell(panel: &UiNodeDecl) -> bool {
 }
 
 pub fn build_panel_shell(panel: &UiNodeDecl, ctx: &ThemeResolveContext) -> Value {
-    let mut props = panel.props.as_object().cloned().unwrap_or_default();
+    let flattened = flatten_panel_props_merge(&panel.props);
+    let mut props = flattened.as_object().cloned().unwrap_or_default();
     if let Some(body) = panel.body_props.as_object() {
         for (key, value) in body {
             props.insert(key.clone(), value.clone());
@@ -529,6 +577,41 @@ mod tests {
         assert_eq!(chrome["caret"]["enabled"], true);
         assert_eq!(chrome["heading_typography"]["font_size"], "32px");
         assert_eq!(chrome["heading_typography"]["color"], "#ffffff");
+    }
+
+    #[test]
+    fn should_export_panel_shell_detects_merge_slot_frame_flag() {
+        let panel = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "supervision_triptych_first".to_string(),
+            title: None,
+            head: None,
+            area: Some("first".to_string()),
+            layout: None,
+            blocks: vec![],
+            slot: None,
+            props: json!({
+                "__binop": "Merge",
+                "left": {
+                    "background": "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat,rgba(98,190,235,0.10)",
+                    "padding": "0",
+                    "chrome": "bare"
+                },
+                "right": {
+                    "__mei_slot_frame_bg": true
+                }
+            }),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        assert!(should_export_panel_shell(&panel));
+        let ctx = ThemeResolveContext::new(cockpit_theme());
+        let shell = build_panel_shell(&panel, &ctx);
+        assert_eq!(shell["props"]["__mei_slot_frame_bg"], true);
+        let bg = shell["props"]["background"].as_str().unwrap_or("");
+        assert!(bg.contains("#71F1EA"), "expected corner decor, got {bg}");
     }
 
     #[test]

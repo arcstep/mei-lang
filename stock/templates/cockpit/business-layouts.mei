@@ -13,6 +13,7 @@ BG_MID = TPL_METRICS + "/metric-bg-mid@3x.svg"
 BG_NORMAL = TPL_METRICS + "/metric-bg-normal@3x.svg"
 BG_CLEAN = TPL_METRICS + "/metric-bg-clean@3x.svg"
 BG_TARGET = TPL_METRICS + "/metric-bg-target@3x.svg"
+BG_LONG = TPL_METRICS + "/metric-bg-long@3x.svg"
 
 SPACE_MICRO_TITLE = "32px"
 SPACE_MICRO_GAP = "6px"
@@ -32,6 +33,8 @@ SLOT_BG_STRETCH_SIZE = "100% 100%"
 SLOT_FRAME_BG_FLAG = {"__mei_slot_frame_bg": True}
 
 # zhifa card_solid_stack_corner：四角 #71F1EA L 形装饰 + 半透明底
+# Keep multi-layer shorthand (not structured object): slot-frame CSS forces
+# background-size 100% 100% for SVG skins, which would stretch 4px corner ticks.
 CORNER_DECOR_BG = "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat,"
     + "linear-gradient(#71F1EA,#71F1EA) right top / 4px 2px no-repeat,"
     + "linear-gradient(#71F1EA,#71F1EA) left bottom / 4px 2px no-repeat,"
@@ -1232,8 +1235,8 @@ template status_triptych_summary_fill_body(
                 area = "pending",
                 layout_role = "icon_left",
                 source = pending,
-                presentation = {"icon": pending_icon} if pending_icon != "" else None,
                 shell_height = "100%",
+                shell_padding = "10px 8px 10px 70px",
                 shell_background = CORNER_DECOR_BG,
             ),
             slot_metric_card(
@@ -1241,8 +1244,8 @@ template status_triptych_summary_fill_body(
                 area = "doing",
                 layout_role = "icon_left",
                 source = doing,
-                presentation = {"icon": doing_icon} if doing_icon != "" else None,
                 shell_height = "100%",
+                shell_padding = "10px 8px 10px 70px",
                 shell_background = CORNER_DECOR_BG,
             ),
             slot_metric_card(
@@ -1250,8 +1253,8 @@ template status_triptych_summary_fill_body(
                 area = "done",
                 layout_role = "icon_left",
                 source = done,
-                presentation = {"icon": done_icon} if done_icon != "" else None,
                 shell_height = "100%",
+                shell_padding = "10px 8px 10px 70px",
                 shell_background = CORNER_DECOR_BG,
             ),
             slot_metric_card(
@@ -1259,8 +1262,8 @@ template status_triptych_summary_fill_body(
                 area = "summary",
                 layout_role = "strip_icon_left",
                 source = summary,
-                presentation = {"icon": summary_icon} if summary_icon != "" else None,
                 shell_height = "100%",
+                shell_padding = "0 16px 0 92px",
                 shell_background = CORNER_DECOR_BG,
                 card_props = {"padding": summary_padding},
             ),

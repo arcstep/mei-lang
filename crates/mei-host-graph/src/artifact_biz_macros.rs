@@ -168,6 +168,10 @@ fn id_suffix(id: Value, suffix: &str) -> Value {
 }
 
 fn long_compound_template(width: Value, gap: &str) -> Value {
+    // Visual gap between main/rtop/rbottom must stay 0 so the shared
+    // metric-bg-long frame reads as one card (seams look like per-slot skins).
+    let _ = gap;
+    let layout_gap = "0";
     json!({
         "__call": "content_panel",
         "__args": {
@@ -191,14 +195,14 @@ fn long_compound_template(width: Value, gap: &str) -> Value {
                 "overflow": "hidden",
                 "box_shadow": "var(--mei-layout-debug-card-shadow, inset 0 0 0 0 transparent)",
                 "padding": "2px 6px",
-                "gap": gap,
+                "gap": layout_gap,
                 "__mei_slot_frame_bg": true
             },
             "layout": grid_layout(
                 json!(["minmax(0, 1fr)", "minmax(0, 1fr)"]),
                 json!(["1.05fr", "1.95fr"]),
                 json!([["main", "rtop"], ["main", "rbottom"]]),
-                gap,
+                layout_gap,
                 "center",
             ),
             "blocks": []
@@ -281,6 +285,83 @@ fn rewrite_long_metric_compound_body(args: &Map<String, Value>) -> Value {
                 arg_value(args, "main", Value::Null),
                 arg_value(args, "top", Value::Null),
                 arg_value(args, "bottom", Value::Null),
+            ]
+        }
+    })
+}
+
+/// Fill-down long compound used by pretty-panels 行政检查 bottom row.
+/// Must be rewritten in-host: template expand of nested `metric(...)` is not
+/// reliable for content_panel artifacts, and a failed expand silently drops the block.
+fn rewrite_long_metric_compound_fill_body(args: &Map<String, Value>) -> Value {
+    let id = arg_value(args, "id", json!("long_metric_compound"));
+    let width = arg_value(args, "width", json!("100%"));
+    let gap = "2px";
+    let template = long_compound_template(width, gap);
+    let main_id = id_suffix(id.clone(), "_main");
+    let top_id = id_suffix(id.clone(), "_top");
+    let bottom_id = id_suffix(id.clone(), "_bottom");
+    let mut top_metric = metric_atom(
+        id_suffix(top_id.clone(), "_content"),
+        "compound_top_row",
+        arg_value(
+            args,
+            "top_source",
+            json!({"label": "次指标A", "value": "0", "unit": "台"}),
+        ),
+        Some("sub"),
+    );
+    let mut bottom_metric = metric_atom(
+        id_suffix(bottom_id.clone(), "_content"),
+        "compound_top_row",
+        arg_value(
+            args,
+            "bottom_source",
+            json!({"label": "次指标B", "value": "0", "unit": "小时"}),
+        ),
+        Some("sub"),
+    );
+    for metric in [&mut top_metric, &mut bottom_metric] {
+        if let Some(metric_args) = metric
+            .get_mut("__args")
+            .and_then(Value::as_object_mut)
+        {
+            metric_args.insert("label_vertical_align".to_string(), json!("center"));
+            metric_args.insert("value_vertical_align".to_string(), json!("center"));
+            metric_args.insert("unit_vertical_align".to_string(), json!("center"));
+        }
+    }
+    json!({
+        "__call": "panel",
+        "__args": {
+            "id": id.clone(),
+            "area": arg_value(args, "area", json!("auto")),
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "template": template.clone(),
+            "props": template
+                .pointer("/__args/props")
+                .cloned()
+                .unwrap_or_else(|| transparent_panel_props(json!("100%"))),
+            "layout": template.pointer("/__args/layout").cloned().unwrap_or(Value::Null),
+            "blocks": [
+                compound_metric_slot_panel(
+                    main_id.clone(),
+                    "main",
+                    metric_atom(
+                        id_suffix(main_id, "_content"),
+                        "plain",
+                        arg_value(
+                            args,
+                            "main_source",
+                            json!({"label": "主指标", "value": "0", "unit": "次"}),
+                        ),
+                        None,
+                    ),
+                ),
+                compound_metric_slot_panel(top_id, "rtop", top_metric),
+                compound_metric_slot_panel(bottom_id, "rbottom", bottom_metric),
             ]
         }
     })
@@ -573,6 +654,51 @@ fn optional_icon_presentation(args: &Map<String, Value>, key: &str) -> Option<Va
     Some(json!({"icon": icon}))
 }
 
+fn status_card_shell_background(icon: Option<&Value>, strip: bool) -> Value {
+    // Structured multi-layer background so unresolved icon refs (ops_param_ref)
+    // survive rewrite, then resolve to: icon + metric slot fill + cyan L-corners.
+    let slot_fill = if strip {
+        "url(/workspace-app-assets/templates/cockpit/assets/metrics/metric-bg-long@3x.svg)"
+    } else {
+        "url(/workspace-app-assets/templates/cockpit/assets/metrics/metric-bg-normal@3x.svg)"
+    };
+    let mut images = Vec::new();
+    let mut sizes = Vec::new();
+    let mut positions = Vec::new();
+    let mut repeats = Vec::new();
+    if let Some(icon) = icon {
+        let empty = icon.as_str().is_some_and(str::is_empty);
+        if !empty {
+            images.push(icon.clone());
+            sizes.push(json!("48px 48px"));
+            positions.push(json!(if strip { "24px center" } else { "11px center" }));
+            repeats.push(json!("no-repeat"));
+        }
+    }
+    images.push(json!(slot_fill));
+    sizes.push(json!("100% 100%"));
+    positions.push(json!("center"));
+    repeats.push(json!("no-repeat"));
+    for (pos, _) in [
+        ("left top", ()),
+        ("right top", ()),
+        ("left bottom", ()),
+        ("right bottom", ()),
+    ] {
+        images.push(json!("linear-gradient(#71F1EA,#71F1EA)"));
+        sizes.push(json!("4px 2px"));
+        positions.push(json!(pos));
+        repeats.push(json!("no-repeat"));
+    }
+    json!({
+        "color": "rgba(98,190,235,0.10)",
+        "image": images,
+        "size": sizes,
+        "position": positions,
+        "repeat": repeats,
+    })
+}
+
 fn status_metric_card_panel(
     id: Value,
     area: &str,
@@ -582,6 +708,11 @@ fn status_metric_card_panel(
     icon_key: &str,
     card_props: Value,
 ) -> Value {
+    let icon = optional_icon_presentation(args, icon_key)
+        .and_then(|presentation| presentation.get("icon").cloned());
+    let strip = template == "strip_icon_left";
+    // Shell owns icon + left padding (zhifa icon_left / strip_icon_left geometry).
+    // Inner metric_card must not re-apply the same left pad or text collapses to ~12px.
     let mut metric_card_args = json!({
         "id": id_suffix(id.clone(), "_content"),
         "area": "content",
@@ -594,17 +725,12 @@ fn status_metric_card_panel(
             "width": "100%",
             "height": "100%",
             "min_height": "0",
+            "padding": "0",
             "background": "transparent",
             "border": "none",
             "box_shadow": "none",
         }
     });
-    if let Some(presentation) = optional_icon_presentation(args, icon_key) {
-        metric_card_args
-            .as_object_mut()
-            .expect("metric card args")
-            .insert("presentation".to_string(), presentation);
-    }
     if let Some(extra) = card_props.as_object() {
         if !extra.is_empty() {
             let props = metric_card_args
@@ -614,10 +740,19 @@ fn status_metric_card_panel(
                 .and_then(Value::as_object_mut)
                 .expect("metric card props");
             for (key, value) in extra {
+                // Never let callers reintroduce left icon padding on the inner card.
+                if key == "padding" {
+                    continue;
+                }
                 props.insert(key.clone(), value.clone());
             }
         }
     }
+    let shell_padding = if strip {
+        json!("0 16px 0 92px")
+    } else {
+        json!("10px 8px 10px 70px")
+    };
     json!({
         "__call": "panel",
         "__args": {
@@ -627,8 +762,8 @@ fn status_metric_card_panel(
             "show_heading": false,
             "chrome": "bare",
             "props": {
-                "padding": "0",
-                "background": {"color": "rgba(98,190,235,0.10)"},
+                "padding": shell_padding,
+                "background": status_card_shell_background(icon.as_ref(), strip),
                 "border": "none",
                 "radius": "4px",
                 "width": "100%",
@@ -637,6 +772,7 @@ fn status_metric_card_panel(
                 "box_sizing": "border-box",
                 "overflow": "hidden",
                 "box_shadow": "var(--mei-layout-debug-micro-shadow, inset 0 0 0 0 transparent)",
+                "__mei_slot_frame_bg": true
             },
             "layout": grid_layout(
                 json!(["1fr"]),
@@ -874,6 +1010,7 @@ pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
         "wide_metric_compound_body" => rewrite_wide_metric_compound_body(args),
         "primary_progress_triptych_body" => rewrite_primary_progress_triptych_body(args),
         "long_metric_compound_body" => rewrite_long_metric_compound_body(args),
+        "long_metric_compound_fill_body" => rewrite_long_metric_compound_fill_body(args),
         _ => return None,
     };
     Some(rewritten)
@@ -1031,6 +1168,56 @@ mod tests {
     }
 
     #[test]
+    fn rewrites_long_metric_compound_fill_body_to_three_slots() {
+        let value = json!({
+            "__call": "biz.long_metric_compound_fill_body",
+            "__args": {
+                "id": "ai_compound_card",
+                "area": "block_ai",
+                "main_source": {"__ref": "metric_ref", "__args": {"arg0": "ai_enforcement_recognition_count"}},
+                "top_source": {"__ref": "metric_ref", "__args": {"arg0": "law_enforcement_recorder_count"}},
+                "bottom_source": {"__ref": "metric_ref", "__args": {"arg0": "playback_duration_hours"}},
+            }
+        });
+        let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
+        assert_eq!(
+            rewritten.get("__call").and_then(|v| v.as_str()),
+            Some("panel")
+        );
+        assert_eq!(
+            rewritten.pointer("/__args/area").and_then(|v| v.as_str()),
+            Some("block_ai")
+        );
+        let blocks = rewritten
+            .pointer("/__args/blocks")
+            .and_then(|v| v.as_array())
+            .expect("blocks");
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(
+            blocks[0].pointer("/__args/area").and_then(|v| v.as_str()),
+            Some("main")
+        );
+        assert_eq!(
+            blocks[1].pointer("/__args/area").and_then(|v| v.as_str()),
+            Some("rtop")
+        );
+        assert_eq!(
+            blocks[2].pointer("/__args/area").and_then(|v| v.as_str()),
+            Some("rbottom")
+        );
+        let background = rewritten
+            .pointer("/__args/props/background")
+            .expect("background");
+        assert!(
+            background
+                .get("image")
+                .and_then(|v| v.as_str())
+                .is_some_and(|value| value.contains("metric-bg-long@3x.svg")),
+            "fill long compound should include metric-bg-long frame, got {background}"
+        );
+    }
+
+    #[test]
     fn rewrites_metric_triptych_compound_fill_body_to_four_slots() {
         let value = json!({
             "__call": "biz.metric_triptych_compound_fill_body",
@@ -1090,6 +1277,68 @@ mod tests {
                 .and_then(|v| v.as_str())
                 == Some("icon_left"),
             "pending card should use icon_left template"
+        );
+        let pending_bg = rewritten
+            .pointer("/__args/blocks/0/__args/props/background")
+            .cloned()
+            .unwrap_or(json!(null));
+        let pending_bg_s = serde_json::to_string(&pending_bg).unwrap_or_default();
+        assert!(
+            pending_bg_s.contains("issue_icon_pending_css") || pending_bg_s.contains("image"),
+            "pending shell should carry icon background image, got {pending_bg_s}"
+        );
+        assert!(
+            pending_bg_s.contains("metric-bg-normal@3x.svg"),
+            "pending shell should layer metric slot fill under icon, got {pending_bg_s}"
+        );
+        assert!(
+            pending_bg_s.contains("#71F1EA"),
+            "pending shell should keep cyan corner decor, got {pending_bg_s}"
+        );
+        let summary_bg = rewritten
+            .pointer("/__args/blocks/3/__args/props/background")
+            .cloned()
+            .unwrap_or(json!(null));
+        let summary_bg_s = serde_json::to_string(&summary_bg).unwrap_or_default();
+        assert!(
+            summary_bg_s.contains("metric-bg-long@3x.svg"),
+            "summary shell should use long metric slot fill, got {summary_bg_s}"
+        );
+        assert_eq!(
+            rewritten
+                .pointer("/__args/layout/__args/areas")
+                .and_then(|v| v.as_array())
+                .map(|rows| rows.len()),
+            Some(2),
+            "status triptych should keep 2-row grid areas"
+        );
+        assert_eq!(
+            rewritten
+                .pointer("/__args/blocks/0/__args/blocks/0/__args/props/padding")
+                .and_then(|v| v.as_str()),
+            Some("0"),
+            "inner metric_card must not re-apply icon-left padding (shell owns it)"
+        );
+        assert_eq!(
+            rewritten
+                .pointer("/__args/blocks/0/__args/props/padding")
+                .and_then(|v| v.as_str()),
+            Some("10px 8px 10px 70px"),
+            "pending shell should keep icon-left padding"
+        );
+        assert_eq!(
+            rewritten
+                .pointer("/__args/blocks/3/__args/props/padding")
+                .and_then(|v| v.as_str()),
+            Some("0 16px 0 92px"),
+            "summary shell should keep strip-icon-left padding"
+        );
+        assert_eq!(
+            rewritten
+                .pointer("/__args/blocks/3/__args/blocks/0/__args/props/padding")
+                .and_then(|v| v.as_str()),
+            Some("0"),
+            "summary inner card padding must stay zero"
         );
     }
 

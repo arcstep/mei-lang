@@ -71,7 +71,27 @@
       global.__mei.bootstrap_scopes = normalized.bootstrapScopes;
     }
     if (normalized.layoutBudgetManifest) {
-      global.__mei.layout_budget_manifest = normalized.layoutBudgetManifest;
+      const incoming = normalized.layoutBudgetManifest;
+      const existing = global.__mei.layout_budget_manifest;
+      // Prefer runtime.plans once applied: merge so bootstrap only fills gaps and
+      // never drops Content-host grids (issue_body) that older local caches omit.
+      if (
+        global.__mei.__layout_budget_source === "runtime.plans" &&
+        existing?.entries &&
+        typeof existing.entries === "object" &&
+        incoming?.entries &&
+        typeof incoming.entries === "object"
+      ) {
+        global.__mei.layout_budget_manifest = {
+          revision: existing.revision || incoming.revision,
+          entries: { ...incoming.entries, ...existing.entries },
+        };
+      } else {
+        global.__mei.layout_budget_manifest = incoming;
+        if (!global.__mei.__layout_budget_source) {
+          global.__mei.__layout_budget_source = "eval_pack";
+        }
+      }
       if (typeof boot.applyLayoutBudgetManifestProjection === "function") {
         boot.applyLayoutBudgetManifestProjection();
       } else if (global.MeiProjectionDepth?.applyLayoutBudgetManifest) {

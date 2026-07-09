@@ -154,15 +154,26 @@ impl UiLayoutIndex {
     pub fn layout_budget_manifest(&self, revision: &str) -> LayoutBudgetManifest {
         let mut entries = BTreeMap::new();
         for node in self.nodes.values() {
-            if node.role != UiScopeRole::Section
-                && node.role != UiScopeRole::Slot
-                && node.role != UiScopeRole::Region
-            {
+            // Include Content hosts that carry grid budgets (e.g. status-flow
+            // `issue_body`); otherwise client compose never receives the 2×N grid.
+            let role_ok = matches!(
+                node.role,
+                UiScopeRole::Section | UiScopeRole::Slot | UiScopeRole::Region | UiScopeRole::Content
+            );
+            if !role_ok {
                 continue;
             }
             let Some(budget) = node.budget.as_ref() else {
                 continue;
             };
+            if node.role == UiScopeRole::Content
+                && budget.grid_template_areas.is_none()
+                && budget.slot_areas.is_none()
+                && budget.grid_template_columns.is_none()
+                && budget.grid_template_rows.is_none()
+            {
+                continue;
+            }
             entries.insert(
                 node.preview_scope.clone(),
                 LayoutBudgetManifestEntry {

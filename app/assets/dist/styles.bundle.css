@@ -5082,6 +5082,16 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   margin: 0;
   border: none;
   border-radius: 0;
+  /* Areas inside a long/wide compound share the host frame — never re-skin. */
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+.mei-compose-metric-compound > [data-mei-ui-role="slot"] [data-mei-metric-card],
+.mei-compose-metric-compound > [data-mei-ui-role="slot"] .preview-card {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
 }
 .mei-compose-metric-triptych > [data-mei-metric-card],
 .mei-compose-metric-triptych > .preview-card,
@@ -5642,12 +5652,15 @@ body.app-view .mei-compose-scene-viewport.preview-viewport-access-clip {
   gap: 0;
   padding: 0;
   box-shadow: none;
-  /* slot 框条底图（BG_NORMAL 等）：强制随 slot 盒 100%×100% 拉伸；勿用 background 简写以免冲掉 inline 底图 */
-  background-size: 100% 100% !important;
+  /* Do not force background-size here: corner L-decor / status icon stacks
+     embed per-layer sizes. SVG skins opt in via data-mei-slot-bg-stretch. */
   background-repeat: no-repeat !important;
-  background-position: center center;
   background-origin: border-box;
   background-clip: border-box;
+}
+.preview-card.preview-card-bare[data-mei-slot-frame-bg="true"][data-mei-slot-bg-stretch="true"] {
+  background-size: 100% 100% !important;
+  background-position: center center;
 }
 .preview-card.preview-card-bare[data-mei-slot-frame-bg="true"] > .panel-body-cell {
   position: relative;

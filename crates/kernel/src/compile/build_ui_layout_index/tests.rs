@@ -1736,6 +1736,27 @@ fn ui_layout_index_status_flow_group_exposes_four_metric_cards() {
     let group = &section_tree.children[0];
     assert_eq!(group.label, "办理状态");
     assert_eq!(group.children.len(), 4, "status-flow group should expose four cards");
+    let group_scope = "t1/left_rail/issue/issue_status_flow";
+    let group_node = result
+        .index
+        .nodes
+        .values()
+        .find(|node| node.preview_scope == group_scope)
+        .expect("status-flow content group node");
+    let budget = group_node.budget.as_ref().expect("status-flow grid budget");
+    assert!(
+        budget
+            .grid_template_areas
+            .as_deref()
+            .is_some_and(|areas: &str| areas.contains("pending") && areas.contains("summary")),
+        "status-flow budget should keep 2-row areas, got {:?}",
+        budget.grid_template_areas
+    );
+    let manifest = result.index.layout_budget_manifest("test-rev");
+    assert!(
+        manifest.entries.contains_key(group_scope),
+        "layout_budget_manifest should include content-host status-flow grid"
+    );
 }
 
 #[test]

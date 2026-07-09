@@ -138,11 +138,12 @@ fn push_panel_blocks(panel: &UiNodeDecl, out: &mut Vec<Value>) {
             push_block_mount(block, out);
         }
     }
+    // Direct blocks only. Nested panels (e.g. compound-metric children) have their
+    // own structure content nodes and must not be re-exported on the parent.
     for child in &panel.blocks {
         match child {
             UiTreeNode::Block(block) => push_block_mount(block, out),
-            UiTreeNode::Panel(nested) => push_panel_blocks(nested, out),
-            UiTreeNode::PanelRefEmbed(_) => {}
+            UiTreeNode::Panel(_) | UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }
@@ -287,12 +288,34 @@ fn panel_decl_for_shell_export(
     author_props: Option<&Value>,
 ) -> UiNodeDecl {
     let mut exported = panel.clone();
+    // Flatten unresolved `props = base | shell_props` before shell export.
+    exported.props = flatten_merged_panel_props(&exported.props);
     let Some(exported_props) = exported.props.as_object_mut() else {
         return exported;
     };
-    let current_bg = exported_props.get("background").and_then(Value::as_str);
-    let needs_author_bg = current_bg.is_none()
-        || current_bg.is_some_and(|bg| bg.eq_ignore_ascii_case("transparent"));
+    let current_bg = exported_props.get("background");
+    let needs_author_bg = match current_bg {
+        None => true,
+        Some(Value::String(bg)) => bg.eq_ignore_ascii_case("transparent"),
+        Some(Value::Object(map)) => {
+            let color = map
+                .get("color")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            let image = map.get("image");
+            let has_image = match image {
+                Some(Value::Array(items)) => items.iter().any(|item| {
+                    item.as_str().is_some_and(|s| !s.trim().is_empty()) || item.is_object()
+                }),
+                Some(Value::String(s)) => !s.trim().is_empty(),
+                Some(_) => true,
+                None => false,
+            };
+            !has_image && (color.is_empty() || color.eq_ignore_ascii_case("transparent"))
+        }
+        Some(_) => false,
+    };
     if !needs_author_bg {
         return exported;
     }
@@ -327,11 +350,38 @@ fn panel_decl_for_shell_export(
     exported
 }
 
+fn flatten_merged_panel_props(props: &Value) -> Value {
+    if props.get("__binop").and_then(Value::as_str) != Some("Merge") {
+        return props.clone();
+    }
+    let mut merged = props
+        .get("left")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    if let Some(right) = props.get("right") {
+        if let (Some(base), Some(overlay)) = (merged.as_object_mut(), right.as_object()) {
+            for (key, value) in overlay {
+                base.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    merged
+}
+
 fn metric_card_panel_hint_from_scope(scope: &str) -> Option<String> {
-    for segment in scope.split('/') {
+    // Prefer the deepest segment so nested scopes under a compound card
+    // (e.g. …/ai_compound_card/main) do not resolve to the ancestor shell.
+    for segment in scope.split('/').rev() {
         if let Some(id) = segment.strip_suffix("_card_content") {
             if !id.is_empty() {
                 return Some(format!("{id}_card"));
+            }
+        }
+        // slot_metric_shell pattern: …/foo_content → outer shell panel id `foo`
+        // (background / __mei_slot_frame_bg live on the shell, not the inner metric).
+        if let Some(id) = segment.strip_suffix("_content") {
+            if !id.is_empty() && !matches!(id, "label" | "value" | "unit" | "desc" | "content") {
+                return Some(id.to_string());
             }
         }
         if segment.ends_with("_card") && !segment.ends_with("_card_content") {
@@ -341,9 +391,35 @@ fn metric_card_panel_hint_from_scope(scope: &str) -> Option<String> {
     None
 }
 
+/// Panel shell (slot-frame background) must bind only to the panel that owns
+/// the frame — not to nested compound areas (main/rtop/rbottom) or child cards.
+fn panel_shell_lookup_matches_node(node: &StructureFullNode, panel_id: &str) -> bool {
+    let panel_id = panel_id.trim();
+    if panel_id.is_empty() {
+        return false;
+    }
+    if node.content_kind.as_deref() == Some("compound-metric") {
+        return node
+            .preview_scope
+            .rsplit('/')
+            .map(str::trim)
+            .any(|segment| segment == panel_id);
+    }
+    let leaf = node
+        .preview_scope
+        .rsplit('/')
+        .next()
+        .map(str::trim)
+        .unwrap_or("");
+    leaf == panel_id
+        || leaf == format!("{panel_id}_content")
+        || leaf == format!("{panel_id}_card_content")
+        || leaf.strip_suffix("_content") == Some(panel_id)
+}
+
 fn metric_card_lookup_label(node: &StructureFullNode) -> String {
     let label = panel_lookup_label(node);
-    if label.ends_with("_card_content") {
+    if label.ends_with("_card_content") || label.ends_with("_content") {
         if let Some(hint) = metric_card_panel_hint_from_scope(&node.preview_scope) {
             return hint;
         }
@@ -474,6 +550,11 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
     if is_section_head_text_slot(node) {
         return Vec::new();
     }
+    // Compound hosts only provide layout + panel_shell. Child metric cards export
+    // their own mounts; aggregating here double-paints label/value/unit on the parent.
+    if node.content_kind.as_deref() == Some("compound-metric") {
+        return Vec::new();
+    }
     let label = node.label.trim();
     let Some(contract) = compiled.scene_contract.as_ref() else {
         return Vec::new();
@@ -519,13 +600,29 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
         }
     }
     if mounts.is_empty() {
-        if !lookup_label.is_empty() && !is_ambiguous_mount_label(label) {
+        // Only abort use_key fallback when a concrete panel was found but produced
+        // no mounts. Display labels like "分组柱图" are not panel ids — falling
+        // through lets chart.column / map.* keep their authored props.
+        let panel_found = !lookup_label.is_empty()
+            && !is_ambiguous_mount_label(label)
+            && find_panel_in_contract(contract, lookup_label.as_str()).is_some();
+        if panel_found {
             return mounts;
         }
         for use_key in &node.use_keys {
             let key = use_key.trim();
             if key.is_empty() || key == "metric-card" {
                 continue;
+            }
+            // Content-group parents (chart-summary / metric-summary / …) aggregate
+            // child use_keys. Only the leaf whose content_kind matches should export
+            // component mounts — otherwise chart.column mounts land on the layout
+            // host and get mounted into the first metric-card slot.
+            if let Some(kind) = node.content_kind.as_deref() {
+                let kind = kind.trim();
+                if !kind.is_empty() && kind != key {
+                    continue;
+                }
             }
             if is_ambiguous_mount_label(label) {
                 if let Some(panel_id) = panel_hint.as_deref() {
@@ -535,8 +632,40 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
                 }
                 continue;
             }
-            for panel in &contract.panels {
-                collect_component_mounts_for_use_key(panel, key, &mut mounts);
+            // Prefer panels whose id appears in preview_scope (deepest match first).
+            // A naive full-scene scan would bind penalty chart.column props onto
+            // the inspection chart slot.
+            let mut scope_panels: Vec<&UiNodeDecl> = Vec::new();
+            for segment in node.preview_scope.split('/') {
+                let segment = segment.trim();
+                if segment.is_empty() || segment.contains('.') {
+                    continue;
+                }
+                if let Some(panel) = find_panel_in_contract(contract, segment) {
+                    if !scope_panels.iter().any(|p| p.id == panel.id) {
+                        scope_panels.push(panel);
+                    }
+                }
+            }
+            let mut found = false;
+            for panel in scope_panels.iter().rev() {
+                let mut local = Vec::new();
+                collect_component_mounts_for_use_key(panel, key, &mut local);
+                if !local.is_empty() {
+                    mounts.extend(local);
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                // Last resort: unique use_key across the contract.
+                let mut all = Vec::new();
+                for panel in &contract.panels {
+                    collect_component_mounts_for_use_key(panel, key, &mut all);
+                }
+                if all.len() == 1 {
+                    mounts.extend(all);
+                }
             }
         }
     }
@@ -586,7 +715,9 @@ pub fn build_eval_slot_group_document(
         if let (Some(ctx), Some(contract)) = (theme_ctx.as_ref(), compiled.scene_contract.as_ref()) {
             if matches!(node.ui_role.as_str(), "section" | "slot" | "content") {
                 let panel_lookup = content_panel_lookup_label(node);
-                if !panel_lookup.is_empty() {
+                if !panel_lookup.is_empty()
+                    && panel_shell_lookup_matches_node(node, panel_lookup.as_str())
+                {
                     let panel = if node.content_kind.as_deref() == Some("compound-metric") {
                         compound_metric_shell_panel(contract, panel_lookup.as_str()).or_else(|| {
                             find_panel_in_contract(contract, panel_lookup.as_str())
@@ -817,6 +948,143 @@ mod tests {
     }
 
     #[test]
+    fn compound_metric_parent_does_not_export_child_component_mounts() {
+        let node = StructureFullNode {
+            node_id: "compound".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope: "t1/left_rail/inspection/inspection-stats/block_ai/ai_compound_card"
+                .to_string(),
+            label: "ai_compound_card".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: Some("compound-metric".to_string()),
+            panel_id: None,
+            use_keys: vec!["metric-card".to_string(), "row".to_string()],
+            frame_viewport: None,
+        };
+        let child = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "ai_compound_card_main".to_string(),
+            title: None,
+            head: None,
+            area: Some("main".to_string()),
+            layout: None,
+            blocks: vec![
+                UiTreeNode::Block(BlockDecl {
+                    kind: "block".to_string(),
+                    use_key: "mei.text".to_string(),
+                    id: None,
+                    title: None,
+                    area: Some("label".to_string()),
+                    props: json!({"metric_role": "label", "content": "AI执法识别"}),
+                    base: None,
+                    layout: None,
+                    blocks: Vec::new(),
+                    component: None,
+                    placement: None,
+                    interactions: Vec::new(),
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
+                }),
+                UiTreeNode::Block(BlockDecl {
+                    kind: "block".to_string(),
+                    use_key: "mei.text".to_string(),
+                    id: None,
+                    title: None,
+                    area: Some("value".to_string()),
+                    props: json!({"metric_role": "value", "content": "34"}),
+                    base: None,
+                    layout: None,
+                    blocks: Vec::new(),
+                    component: None,
+                    placement: None,
+                    interactions: Vec::new(),
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
+                }),
+            ],
+            slot: None,
+            props: json!({"__mei_metric_card": true}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let panel = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "ai_compound_card".to_string(),
+            title: None,
+            head: None,
+            area: None,
+            layout: None,
+            blocks: vec![UiTreeNode::Panel(child)],
+            slot: None,
+            props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let compiled = CompiledApp {
+            app_id: "pretty-panels".to_string(),
+            title: "pretty-panels".to_string(),
+            app_root: "/tmp/pretty-panels".to_string(),
+            scene_routes: vec![],
+            active_scene: Some("home".to_string()),
+            active_target_file: "src/scene/home/assembly.mei".to_string(),
+            file_tree: vec![],
+            scene_contract: Some(mei_lang_kernel::SceneContract {
+                scene: mei_lang_kernel::SceneDecl {
+                    kind: "scene".to_string(),
+                    id: "home".to_string(),
+                    world: None,
+                    flow: None,
+                    frame: None,
+                    profile: None,
+                    theme: None,
+                    summary: None,
+                    goal: None,
+                    state: json!({}),
+                    shared: json!({}),
+                    local_nav: json!({}),
+                    params: json!({}),
+                    capabilities: json!({}),
+                    bindings: json!({}),
+                    examples: json!({}),
+                    access_export: true,
+                },
+                themes: vec![],
+                shared: json!({}),
+                world: None,
+                flow: None,
+                frame: None,
+                panels: vec![panel],
+            }),
+            scene_local_nav_by_target: Default::default(),
+            scene_bindings_by_id: Default::default(),
+            scene_examples_by_id: Default::default(),
+            scene_projection_assembly_by_id: Default::default(),
+            resources: vec![],
+            world_metrics: Default::default(),
+            world_semantic_by_file: Default::default(),
+            component_assets: vec![],
+            diagnostics: vec![],
+            build_experience_index: Default::default(),
+            build_t2_page_index: Default::default(),
+            build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
+        };
+        let mounts = component_mounts_for_content_node(&compiled, &node);
+        assert!(
+            mounts.is_empty(),
+            "compound-metric parent must not aggregate child mei.text mounts"
+        );
+    }
+
+    #[test]
     fn slot_groups_include_scene_default() {
         let structure = crate::view_artifact::StructureFullDocument {
             schema_version: "structure-full-v1".to_string(),
@@ -1029,6 +1297,380 @@ mod tests {
     }
 
     #[test]
+    fn component_mounts_resolve_chart_column_by_use_key_when_label_is_display_name() {
+        let node = StructureFullNode {
+            node_id: "n-chart".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope: "t1/left_rail/inspection/inspection-stats/block_counts/inspection_counts_layout/chart/content_zone/chart.column".to_string(),
+            label: "分组柱图".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: Some("chart.column".to_string()),
+            panel_id: None,
+            use_keys: vec!["chart.column".to_string()],
+            frame_viewport: None,
+        };
+        let compiled = CompiledApp {
+            app_id: "pretty-panels".to_string(),
+            title: "pretty-panels".to_string(),
+            app_root: "/tmp/pretty-panels".to_string(),
+            scene_routes: vec![],
+            active_scene: Some("home".to_string()),
+            active_target_file: "src/scene/home/assembly.mei".to_string(),
+            file_tree: vec![],
+            scene_contract: Some(mei_lang_kernel::SceneContract {
+                scene: mei_lang_kernel::SceneDecl {
+                    kind: "scene".to_string(),
+                    id: "home".to_string(),
+                    world: None,
+                    flow: None,
+                    frame: None,
+                    profile: None,
+                    theme: None,
+                    summary: None,
+                    goal: None,
+                    state: json!({}),
+                    shared: json!({}),
+                    local_nav: json!({}),
+                    params: json!({}),
+                    capabilities: json!({}),
+                    bindings: json!({}),
+                    examples: json!({}),
+                    access_export: true,
+                },
+                themes: vec![],
+                shared: json!({}),
+                world: None,
+                flow: None,
+                frame: None,
+                panels: vec![UiNodeDecl {
+                    kind: "panel".to_string(),
+                    id: "inspection_counts_chart".to_string(),
+                    title: None,
+                    head: None,
+                    area: Some("chart".to_string()),
+                    layout: None,
+                    blocks: vec![UiTreeNode::Block(BlockDecl {
+                        kind: "block".to_string(),
+                        use_key: "chart.column".to_string(),
+                        id: None,
+                        title: None,
+                        area: Some("auto".to_string()),
+                        props: json!({
+                            "compact": true,
+                            "chartHeight": 140,
+                            "title": "",
+                            "showLegend": true,
+                        }),
+                        base: None,
+                        layout: None,
+                        blocks: Vec::new(),
+                        component: None,
+                        placement: None,
+                        interactions: Vec::new(),
+                        lifecycle: None,
+                        constraints: None,
+                        data: None,
+                    })],
+                    slot: None,
+                    props: json!({}),
+                    head_props: json!({}),
+                    body_props: json!({}),
+                    base: None,
+                    import_scope: None,
+                }],
+            }),
+            scene_local_nav_by_target: Default::default(),
+            scene_bindings_by_id: Default::default(),
+            scene_examples_by_id: Default::default(),
+            scene_projection_assembly_by_id: Default::default(),
+            resources: vec![],
+            world_metrics: Default::default(),
+            world_semantic_by_file: Default::default(),
+            component_assets: vec![],
+            diagnostics: vec![],
+            build_experience_index: Default::default(),
+            build_t2_page_index: Default::default(),
+            build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
+        };
+        let mounts = component_mounts_for_content_node(&compiled, &node);
+        assert_eq!(mounts.len(), 1, "chart.column must export mounts via use_key fallback");
+        assert_eq!(mounts[0]["use_key"], "chart.column");
+        assert_eq!(mounts[0]["props"]["compact"], true);
+        assert_eq!(mounts[0]["props"]["chartHeight"], 140);
+        assert_eq!(
+            mounts[0]["props"]["title"],
+            "",
+            "must bind inspection chart, not another chart.column in the scene"
+        );
+    }
+
+    #[test]
+    fn component_mounts_prefer_scope_ancestor_panel_for_duplicate_use_keys() {
+        let node = StructureFullNode {
+            node_id: "n-chart".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope: "t1/left_rail/inspection/inspection-stats/block_counts/inspection_counts_layout/chart/content_zone/chart.column".to_string(),
+            label: "分组柱图".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: Some("chart.column".to_string()),
+            panel_id: None,
+            use_keys: vec!["chart.column".to_string()],
+            frame_viewport: None,
+        };
+        let inspection_layout = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "inspection_counts_layout".to_string(),
+            title: None,
+            head: None,
+            area: Some("block_counts".to_string()),
+            layout: None,
+            blocks: vec![UiTreeNode::Panel(UiNodeDecl {
+                kind: "panel".to_string(),
+                id: "inspection_counts_chart".to_string(),
+                title: None,
+                head: None,
+                area: Some("chart".to_string()),
+                layout: None,
+                blocks: vec![UiTreeNode::Block(BlockDecl {
+                    kind: "block".to_string(),
+                    use_key: "chart.column".to_string(),
+                    id: None,
+                    title: None,
+                    area: Some("auto".to_string()),
+                    props: json!({
+                        "compact": true,
+                        "chartHeight": 100,
+                        "title": "",
+                        "barGradient": "cockpit-year-duo",
+                    }),
+                    base: None,
+                    layout: None,
+                    blocks: Vec::new(),
+                    component: None,
+                    placement: None,
+                    interactions: Vec::new(),
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
+                })],
+                slot: None,
+                props: json!({}),
+                head_props: json!({}),
+                body_props: json!({}),
+                base: None,
+                import_scope: None,
+            })],
+            slot: None,
+            props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let penalty_layout = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "penalty_counts_layout".to_string(),
+            title: None,
+            head: None,
+            area: Some("block_counts".to_string()),
+            layout: None,
+            blocks: vec![UiTreeNode::Block(BlockDecl {
+                kind: "block".to_string(),
+                use_key: "chart.column".to_string(),
+                id: None,
+                title: None,
+                area: Some("party_bars".to_string()),
+                props: json!({
+                    "compact": true,
+                    "chartHeight": 140,
+                    "title": "2025罚没居前当事人（元）",
+                }),
+                base: None,
+                layout: None,
+                blocks: Vec::new(),
+                component: None,
+                placement: None,
+                interactions: Vec::new(),
+                lifecycle: None,
+                constraints: None,
+                data: None,
+            })],
+            slot: None,
+            props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        // Put penalty first so a naive full-scan would pick the wrong props.
+        let compiled = CompiledApp {
+            app_id: "pretty-panels".to_string(),
+            title: "pretty-panels".to_string(),
+            app_root: "/tmp/pretty-panels".to_string(),
+            scene_routes: vec![],
+            active_scene: Some("home".to_string()),
+            active_target_file: "src/scene/home/assembly.mei".to_string(),
+            file_tree: vec![],
+            scene_contract: Some(mei_lang_kernel::SceneContract {
+                scene: mei_lang_kernel::SceneDecl {
+                    kind: "scene".to_string(),
+                    id: "home".to_string(),
+                    world: None,
+                    flow: None,
+                    frame: None,
+                    profile: None,
+                    theme: None,
+                    summary: None,
+                    goal: None,
+                    state: json!({}),
+                    shared: json!({}),
+                    local_nav: json!({}),
+                    params: json!({}),
+                    capabilities: json!({}),
+                    bindings: json!({}),
+                    examples: json!({}),
+                    access_export: true,
+                },
+                themes: vec![],
+                shared: json!({}),
+                world: None,
+                flow: None,
+                frame: None,
+                panels: vec![penalty_layout, inspection_layout],
+            }),
+            scene_local_nav_by_target: Default::default(),
+            scene_bindings_by_id: Default::default(),
+            scene_examples_by_id: Default::default(),
+            scene_projection_assembly_by_id: Default::default(),
+            resources: vec![],
+            world_metrics: Default::default(),
+            world_semantic_by_file: Default::default(),
+            component_assets: vec![],
+            diagnostics: vec![],
+            build_experience_index: Default::default(),
+            build_t2_page_index: Default::default(),
+            build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
+        };
+        let mounts = component_mounts_for_content_node(&compiled, &node);
+        assert_eq!(mounts.len(), 1);
+        assert_eq!(mounts[0]["props"]["chartHeight"], 100);
+        assert_eq!(mounts[0]["props"]["title"], "");
+        assert_eq!(mounts[0]["props"]["barGradient"], "cockpit-year-duo");
+    }
+
+    #[test]
+    fn component_mounts_skip_chart_on_chart_summary_parent_node() {
+        let node = StructureFullNode {
+            node_id: "n-layout".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope: "t1/left_rail/inspection/inspection-stats/block_counts/inspection_counts_layout".to_string(),
+            label: "检查统计".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: Some("chart-summary".to_string()),
+            panel_id: None,
+            use_keys: vec![
+                "chart.column".to_string(),
+                "metric-summary".to_string(),
+                "row".to_string(),
+            ],
+            frame_viewport: None,
+        };
+        let panel = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "inspection_counts_layout".to_string(),
+            title: None,
+            head: None,
+            area: Some("block_counts".to_string()),
+            layout: None,
+            blocks: vec![UiTreeNode::Block(BlockDecl {
+                kind: "block".to_string(),
+                use_key: "chart.column".to_string(),
+                id: None,
+                title: None,
+                area: Some("chart".to_string()),
+                props: json!({"compact": true, "chartHeight": 100, "title": ""}),
+                base: None,
+                layout: None,
+                blocks: Vec::new(),
+                component: None,
+                placement: None,
+                interactions: Vec::new(),
+                lifecycle: None,
+                constraints: None,
+                data: None,
+            })],
+            slot: None,
+            props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let compiled = CompiledApp {
+            app_id: "pretty-panels".to_string(),
+            title: "pretty-panels".to_string(),
+            app_root: "/tmp/pretty-panels".to_string(),
+            scene_routes: vec![],
+            active_scene: Some("home".to_string()),
+            active_target_file: "src/scene/home/assembly.mei".to_string(),
+            file_tree: vec![],
+            scene_contract: Some(mei_lang_kernel::SceneContract {
+                scene: mei_lang_kernel::SceneDecl {
+                    kind: "scene".to_string(),
+                    id: "home".to_string(),
+                    world: None,
+                    flow: None,
+                    frame: None,
+                    profile: None,
+                    theme: None,
+                    summary: None,
+                    goal: None,
+                    state: json!({}),
+                    shared: json!({}),
+                    local_nav: json!({}),
+                    params: json!({}),
+                    capabilities: json!({}),
+                    bindings: json!({}),
+                    examples: json!({}),
+                    access_export: true,
+                },
+                themes: vec![],
+                shared: json!({}),
+                world: None,
+                flow: None,
+                frame: None,
+                panels: vec![panel],
+            }),
+            scene_local_nav_by_target: Default::default(),
+            scene_bindings_by_id: Default::default(),
+            scene_examples_by_id: Default::default(),
+            scene_projection_assembly_by_id: Default::default(),
+            resources: vec![],
+            world_metrics: Default::default(),
+            world_semantic_by_file: Default::default(),
+            component_assets: vec![],
+            diagnostics: vec![],
+            build_experience_index: Default::default(),
+            build_t2_page_index: Default::default(),
+            build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
+        };
+        let mounts = component_mounts_for_content_node(&compiled, &node);
+        assert!(
+            mounts.is_empty(),
+            "chart-summary parent must not export chart.column mounts"
+        );
+    }
+
+    #[test]
     fn metric_card_panel_hint_maps_card_content_scope_to_panel_id() {
         assert_eq!(
             metric_card_panel_hint_from_scope(
@@ -1044,5 +1686,88 @@ mod tests {
             .as_deref(),
             Some("supervision_items_card")
         );
+        // Nested compound areas must resolve to the deepest card segment, not
+        // an ancestor compound shell id earlier in the path.
+        assert_eq!(
+            metric_card_panel_hint_from_scope(
+                "t1/left_rail/inspection/inspection-stats/block_ai/ai_compound_card/main"
+            )
+            .as_deref(),
+            Some("ai_compound_card")
+        );
+        // Leaf `*_main_content` maps to outer shell id `*_main`, not the
+        // compound ancestor — panel_shell_lookup_matches_node must still reject
+        // applying the compound frame onto the leaf.
+        assert_eq!(
+            metric_card_panel_hint_from_scope(
+                "t1/left_rail/inspection/inspection-stats/block_ai/ai_compound_card/main/ai_compound_card_main_content"
+            )
+            .as_deref(),
+            Some("ai_compound_card_main")
+        );
+        assert_eq!(
+            metric_card_panel_hint_from_scope(
+                "t1/right_rail/warning/supervision-stats/triptych/supervision_triptych/first/supervision_triptych_first_content"
+            )
+            .as_deref(),
+            Some("supervision_triptych_first")
+        );
+    }
+
+    #[test]
+    fn panel_shell_lookup_only_matches_compound_host_not_nested_slots() {
+        let host = StructureFullNode {
+            node_id: "compound".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope: "t1/left_rail/inspection/inspection-stats/block_ai/ai_compound_card"
+                .to_string(),
+            label: "ai_compound_card".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: Some("compound-metric".to_string()),
+            panel_id: None,
+            use_keys: vec![],
+            frame_viewport: None,
+        };
+        let nested_slot = StructureFullNode {
+            node_id: "main".to_string(),
+            ui_role: "slot".to_string(),
+            preview_scope:
+                "t1/left_rail/inspection/inspection-stats/block_ai/ai_compound_card/main"
+                    .to_string(),
+            label: "main".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: None,
+            panel_id: None,
+            use_keys: vec![],
+            frame_viewport: None,
+        };
+        assert!(panel_shell_lookup_matches_node(&host, "ai_compound_card"));
+        assert!(!panel_shell_lookup_matches_node(
+            &nested_slot,
+            "ai_compound_card"
+        ));
+        let nested_content = StructureFullNode {
+            node_id: "main_content".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope:
+                "t1/left_rail/inspection/inspection-stats/block_ai/ai_compound_card/main/ai_compound_card_main_content"
+                    .to_string(),
+            label: "AI执法识别".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: Some("stack".to_string()),
+            panel_id: None,
+            use_keys: vec!["metric-card".to_string()],
+            frame_viewport: None,
+        };
+        assert!(!panel_shell_lookup_matches_node(
+            &nested_content,
+            "ai_compound_card"
+        ));
     }
 }

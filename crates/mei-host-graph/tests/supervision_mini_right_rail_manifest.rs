@@ -332,6 +332,35 @@ fn supervision_mini_supervision_stats_exports_panel_shell() {
 }
 
 #[test]
+fn supervision_mini_triptych_metric_exports_slot_frame_panel_shell() {
+    let outcome = supervision_mini_home_outcome();
+    let docs = supervision_mini_home_eval_docs(&outcome);
+    let first_shell = docs.iter().find_map(|doc| {
+        doc.slots.iter().find_map(|(scope, slot)| {
+            if !scope.contains("supervision_triptych_first") {
+                return None;
+            }
+            slot.get("panel_shell").cloned().map(|shell| (scope.clone(), shell))
+        })
+    });
+    let (scope, shell) = first_shell.expect("panel_shell on supervision_triptych_first*");
+    assert!(
+        scope.contains("supervision_triptych_first"),
+        "unexpected scope {scope}"
+    );
+    assert_eq!(
+        shell["props"]["__mei_slot_frame_bg"].as_bool(),
+        Some(true),
+        "triptych metric shell must keep slot-frame flag: {shell}"
+    );
+    let bg = serde_json::to_string(&shell["props"]["background"]).unwrap_or_default();
+    assert!(
+        bg.contains("#71F1EA") || bg.contains("71F1EA") || bg.contains("rgba(98,190,235"),
+        "triptych metric shell must export corner decor background, got {bg}"
+    );
+}
+
+#[test]
 fn supervision_mini_screen_header_exports_bare_panel_shell() {
     let outcome = supervision_mini_home_outcome();
     let docs = supervision_mini_home_eval_docs(&outcome);

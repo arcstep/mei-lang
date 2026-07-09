@@ -924,6 +924,7 @@ fn walk_layout_content_group(
     );
     let group_segments =
         scope_segments_from_preview(builder.scene_id, tier, group_preview.as_str());
+    let budget = budget_from_panel(panel);
     let group_node = builder.make_node(
         UiScopeRole::Content,
         group_label,
@@ -931,7 +932,7 @@ fn walk_layout_content_group(
         group_preview.clone(),
         Some(parent_id.to_string()),
         Some(tier.to_string()),
-        None,
+        budget,
         source_anchor_for_panel(panel),
         Some(content_kind.to_string()),
     );
