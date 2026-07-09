@@ -4978,6 +4978,7 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
 .mei-compose-warning-panel > .mei-compose-metric-triptych,
 .mei-compose-compound-section > .mei-compose-metric-triptych,
 .mei-compose-compound-section > .mei-compose-metric-compound,
+.mei-compose-compound-section > .mei-compose-enforcement-strip,
 .mei-compose-compound-section > [data-mei-content-kind="compound-metric"],
 .mei-compose-compound-section > [data-mei-ui-role="content"],
 .mei-compose-compound-section > [data-mei-ui-role="slot"] {
@@ -5020,6 +5021,48 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   border: none;
   border-radius: 0;
   box-sizing: border-box;
+}
+.mei-compose-enforcement-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 88px) minmax(0, 88px) minmax(0, 88px) minmax(220px, 2.2fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "first second third compound";
+  gap: 2px;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  align-items: stretch;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  box-sizing: border-box;
+}
+.mei-compose-enforcement-strip > [data-mei-ui-role="slot"],
+.mei-compose-enforcement-strip > [data-preview-scope$="/first"],
+.mei-compose-enforcement-strip > [data-preview-scope$="/second"],
+.mei-compose-enforcement-strip > [data-preview-scope$="/third"],
+.mei-compose-enforcement-strip > [data-preview-scope$="/compound"] {
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+.mei-compose-enforcement-strip > [data-preview-scope$="/first"],
+.mei-compose-enforcement-strip > [data-mei-ui-role="slot"][style*="grid-area: first"] {
+  grid-area: first;
+}
+.mei-compose-enforcement-strip > [data-preview-scope$="/second"],
+.mei-compose-enforcement-strip > [data-mei-ui-role="slot"][style*="grid-area: second"] {
+  grid-area: second;
+}
+.mei-compose-enforcement-strip > [data-preview-scope$="/third"],
+.mei-compose-enforcement-strip > [data-mei-ui-role="slot"][style*="grid-area: third"] {
+  grid-area: third;
+}
+.mei-compose-enforcement-strip > [data-preview-scope$="/compound"],
+.mei-compose-enforcement-strip > [data-mei-content-kind="compound-metric"],
+.mei-compose-enforcement-strip > [data-mei-ui-role="slot"][style*="grid-area: compound"] {
+  grid-area: compound;
 }
 .mei-compose-metric-compound > [data-mei-ui-role="slot"] {
   min-height: 0;

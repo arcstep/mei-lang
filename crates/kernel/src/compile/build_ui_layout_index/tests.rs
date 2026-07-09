@@ -250,6 +250,148 @@ fn ui_layout_index_builds_section_slotted_layout_and_slots() {
     );
 }
 
+#[test]
+fn ui_layout_index_exports_compound_metric_cards_inside_slot_shell() {
+    let compiled = CompiledApp {
+        app_id: "pretty-panels".to_string(),
+        title: "Pretty Panels".to_string(),
+        app_root: "/tmp/pretty-panels".to_string(),
+        scene_routes: vec![CompiledSceneRoute {
+            scene_id: "home".to_string(),
+            frame_id: None,
+            target_file: "src/scene/home/assembly.mei".to_string(),
+            kind: "scene".to_string(),
+            title: Some("首页".to_string()),
+            is_default: true,
+            access_export: true,
+        }],
+        active_scene: Some("home".to_string()),
+        active_target_file: "src/scene/home/assembly.mei".to_string(),
+        file_tree: vec![],
+        scene_contract: Some(SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![PanelDecl {
+                kind: "panel".to_string(),
+                id: "left_rail".to_string(),
+                title: None,
+                head: None,
+                area: Some("body".to_string()),
+                layout: Some(LayoutDecl {
+                    layout_type: "grid".to_string(),
+                    direction: None,
+                    columns: None,
+                    rows: Some(vec!["1fr".to_string()]),
+                    areas: Some(vec![vec!["enforcement".to_string()]]),
+                    gap: Some("6px".to_string()),
+                    padding: None,
+                    align: None,
+                    justify: None,
+                }),
+                blocks: vec![UiNodeDecl::Panel(PanelDecl {
+                    kind: "panel".to_string(),
+                    id: "enforcement".to_string(),
+                    title: Some("执法要素".to_string()),
+                    head: None,
+                    area: Some("enforcement".to_string()),
+                    layout: None,
+                    blocks: vec![UiNodeDecl::Panel(PanelDecl {
+                        kind: "panel".to_string(),
+                        id: "enforcement-stats".to_string(),
+                        title: None,
+                        head: None,
+                        area: None,
+                        layout: None,
+                        blocks: vec![UiNodeDecl::Panel(compound_strip_with_wide_metric_shell())],
+                        slot: None,
+                        props: json!({}),
+                        head_props: json!({}),
+                        body_props: json!({}),
+                        base: None,
+                        import_scope: None,
+                    })],
+                    slot: None,
+                    props: json!({}),
+                    head_props: json!({}),
+                    body_props: json!({}),
+                    base: None,
+                    import_scope: None,
+                })],
+                slot: None,
+                props: json!({"__mei_tier": "t1", "__mei_chrome_role": "rail"}),
+                head_props: json!({}),
+                body_props: json!({}),
+                base: None,
+                import_scope: None,
+            }],
+        }),
+        scene_local_nav_by_target: Default::default(),
+        scene_bindings_by_id: Default::default(),
+        scene_examples_by_id: Default::default(),
+        scene_projection_assembly_by_id: Default::default(),
+        resources: vec![],
+        world_metrics: Default::default(),
+        world_semantic_by_file: Default::default(),
+        component_assets: vec![],
+        diagnostics: vec![],
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+        ui_layout_index: Default::default(),
+    };
+
+    let result = build_ui_layout_index(&compiled);
+    let scopes: Vec<_> = result
+        .index
+        .nodes
+        .values()
+        .map(|node| node.preview_scope.as_str())
+        .collect();
+    assert!(
+        scopes
+            .iter()
+            .any(|scope| scope.contains("/compound/enforcement_objects_card_body")),
+        "compound body should exist: {scopes:?}"
+    );
+    assert!(
+        scopes.iter().any(|scope| scope.contains("enforcement_objects_top")),
+        "compound shell should export top metric card scope, got: {scopes:?}"
+    );
+    assert!(
+        scopes.iter().any(|scope| scope.contains("enforcement_objects_b0")),
+        "compound shell should export sub metric cards, got: {scopes:?}"
+    );
+    let compound_content = result.index.nodes.values().find(|node| {
+        node.content_kind.as_deref() == Some("compound-metric")
+    });
+    assert!(
+        compound_content.is_some(),
+        "compound body should surface compound-metric content kind"
+    );
+}
+
 fn metric_card_panel(area: &str, id: &str, label: &str, source_file: &str) -> PanelDecl {
     PanelDecl {
         kind: "panel".to_string(),
@@ -346,6 +488,160 @@ fn compound_micro_panel_with_metric_cards() -> PanelDecl {
             "__mei_macro": "metric_triptych_compound_body",
             "compound_width": "220px"
         }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn wide_metric_compound_shell_panel() -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: "enforcement_objects_card".to_string(),
+        title: None,
+        head: None,
+        area: Some("compound".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string()]),
+            rows: Some(vec!["1fr".to_string()]),
+            areas: Some(vec![vec!["content".to_string()]]),
+            gap: Some("0".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![UiNodeDecl::Panel(wide_metric_compound_body_panel())],
+        slot: None,
+        props: json!({"__mei_slot_frame_bg": true}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn wide_metric_compound_body_panel() -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: "enforcement_objects_card_body".to_string(),
+        title: None,
+        head: None,
+        area: Some("content".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec![
+                "1fr".to_string(),
+                "1fr".to_string(),
+                "1fr".to_string(),
+            ]),
+            rows: Some(vec!["44%".to_string(), "1fr".to_string()]),
+            areas: Some(vec![
+                vec![
+                    "top".to_string(),
+                    "top".to_string(),
+                    "top".to_string(),
+                ],
+                vec![
+                    "b0".to_string(),
+                    "b1".to_string(),
+                    "b2".to_string(),
+                ],
+            ]),
+            gap: Some("2px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![
+            UiNodeDecl::Panel(metric_card_panel(
+                "top",
+                "enforcement_objects_top",
+                "执法对象",
+                "src/scene/home/content/enforcement-objects-top.panel.mei",
+            )),
+            UiNodeDecl::Panel(metric_card_panel(
+                "b0",
+                "enforcement_objects_b0",
+                "重点企业",
+                "src/scene/home/content/enforcement-objects-b0.panel.mei",
+            )),
+            UiNodeDecl::Panel(metric_card_panel(
+                "b1",
+                "enforcement_objects_b1",
+                "园区",
+                "src/scene/home/content/enforcement-objects-b1.panel.mei",
+            )),
+            UiNodeDecl::Panel(metric_card_panel(
+                "b2",
+                "enforcement_objects_b2",
+                "白名单",
+                "src/scene/home/content/enforcement-objects-b2.panel.mei",
+            )),
+        ],
+        slot: None,
+        props: json!({"__mei_compound_top_band_ratio": "44%"}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }
+}
+
+fn compound_strip_with_wide_metric_shell() -> PanelDecl {
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: "enforcement_strip_layout".to_string(),
+        title: None,
+        head: None,
+        area: Some("strip".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec![
+                "88px".to_string(),
+                "88px".to_string(),
+                "88px".to_string(),
+                "220px".to_string(),
+            ]),
+            rows: Some(vec!["1fr".to_string()]),
+            areas: Some(vec![vec![
+                "first".to_string(),
+                "second".to_string(),
+                "third".to_string(),
+                "compound".to_string(),
+            ]]),
+            gap: Some("2px".to_string()),
+            padding: None,
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![
+            UiNodeDecl::Panel(metric_card_panel(
+                "first",
+                "enforcement_units_card",
+                "执法单位",
+                "src/scene/home/content/enforcement-units.panel.mei",
+            )),
+            UiNodeDecl::Panel(metric_card_panel(
+                "second",
+                "enforcement_personnel_card",
+                "执法人员",
+                "src/scene/home/content/enforcement-staff.panel.mei",
+            )),
+            UiNodeDecl::Panel(metric_card_panel(
+                "third",
+                "enforcement_items_card",
+                "执法事项",
+                "src/scene/home/content/enforcement-items.panel.mei",
+            )),
+            UiNodeDecl::Panel(wide_metric_compound_shell_panel()),
+        ],
+        slot: None,
+        props: json!({"__mei_macro": "metric_triptych_compound_body"}),
         head_props: json!({}),
         body_props: json!({}),
         base: None,

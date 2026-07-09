@@ -559,6 +559,24 @@ fn walk_slot(
                 Some(slot.label.as_str()),
             );
         } else if is_slot_shell_panel(panel) {
+            let mut walked_compound_group = false;
+            for child in child_panels(panel) {
+                if let Some(kind) = content_group_kind(child) {
+                    walk_layout_content_group(
+                        builder,
+                        child,
+                        tier,
+                        &slot_node_id,
+                        &slot_segments,
+                        preview_scope.as_str(),
+                        kind,
+                    );
+                    walked_compound_group = true;
+                }
+            }
+            if walked_compound_group {
+                return;
+            }
             for metric_panel in metric_card_panels_exclusive(panel) {
                 walk_content_panel(
                     builder,

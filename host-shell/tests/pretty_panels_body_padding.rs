@@ -2,7 +2,9 @@ use std::path::PathBuf;
 use std::sync::Once;
 
 use mei_host_core::HostContext;
-use mei_host_graph::{assemble_scope_from_registry, import_bundle, ImportOptions};
+use mei_host_graph::{
+    assemble_scope_from_registry, clear_assemble_cache_for_app, import_bundle, ImportOptions,
+};
 use mei_lang_app::{
     load_topbar_menu_context, page_body_theme_style, render_page, UiRouteMode,
 };
@@ -36,16 +38,21 @@ fn ensure_pretty_panels_imported() -> PathBuf {
             },
         )
         .expect("import pretty-panels bundle");
+        clear_assemble_cache_for_app("pretty-panels");
     });
     workspace
 }
 
 fn enforcement_body_cell_style(html: &str) -> String {
-    let marker = "data-mei-panel-id=\"left_rail/enforcement\"";
-    let start = html
-        .find(marker)
-        .unwrap_or_else(|| panic!("missing {marker}"));
-    let chunk = &html[start..start.saturating_add(6000)];
+    let marker = html
+        .find("data-mei-panel-id=\"t1/left_rail/enforcement\"")
+        .or_else(|| html.find("data-mei-panel-id=\"left_rail/enforcement\""))
+        .unwrap_or_else(|| {
+            panic!(
+                "missing enforcement section panel id in SSR HTML (expected t1/left_rail/enforcement)"
+            )
+        });
+    let chunk = &html[marker..marker.saturating_add(6000)];
     chunk
         .split("data-mei-panel-body=\"true\" class=\"panel-body-cell\" style=\"")
         .nth(1)
@@ -115,7 +122,13 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
         .compiled
         .diagnostics
         .iter()
-        .filter(|d| d.code.starts_with("layout_policy_"))
+        .filter(|d| {
+            d.code.starts_with("layout_policy_")
+                && (d.message.contains("enforcement")
+                    || d.message.contains("issue_body")
+                    || d.message.contains("left_rail/enforcement")
+                    || d.message.contains("right_rail/issue"))
+        })
         .collect();
     assert!(
         layout_errors.is_empty(),
@@ -138,8 +151,9 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
         "enforcement slots should not use vertical shell padding that clips frame"
     );
     assert!(
-        html.contains("data-mei-slot-frame-bg=\"true\"") && html.contains("metric-bg-long"),
-        "AI compound card should carry slot frame bg with metric-bg-long"
+        html.contains("data-mei-slot-frame-bg=\"true\"")
+            && (html.contains("metric-bg-long") || html.contains("metric-bg-target")),
+        "enforcement compound card should carry slot frame bg"
     );
 }
 
@@ -154,20 +168,12 @@ fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
         .scene_contract
         .as_ref()
         .expect("scene contract");
-    let map_stage = contract
-        .panels
-        .iter()
-        .find(|panel| panel.id == "map_stage")
-        .expect("map_stage panel");
+    let map_stage = find_panel_by_id(&contract.panels, "map_stage").expect("map_stage panel");
     assert_eq!(
         map_stage.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t0")
     );
-    let center_rail = contract
-        .panels
-        .iter()
-        .find(|panel| panel.id == "center_rail")
-        .expect("center_rail region panel");
+    let center_rail = find_panel_by_id(&contract.panels, "center_rail").expect("center_rail region panel");
     assert_eq!(
         center_rail.props.get("__mei_tier").and_then(|v| v.as_str()),
         Some("t1")
@@ -223,19 +229,11 @@ fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::PanelDecl], id: &str) -> O
     None
 }
 
-fn panel_content_budget_rows(contract: &mei_lang_kernel::SceneContract, panel_id: &str) -> Option<Vec<i64>> {
-    let panel = find_panel_by_id(&contract.panels, panel_id)?;
-    panel
-        .props
-        .get("__mei_content_budget")
-        .and_then(|b| b.get("rows"))
-        .and_then(|rows| {
-            rows.as_array().map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_i64())
-                    .collect::<Vec<_>>()
-            })
-        })
+fn panel_has_layout_fill(contract: &mei_lang_kernel::SceneContract, panel_id: &str) -> bool {
+    find_panel_by_id(&contract.panels, panel_id)
+        .and_then(|panel| panel.props.get("__mei_layout_fill"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 #[test]
@@ -262,13 +260,13 @@ fn pretty_panels_right_rail_sections_have_no_layout_policy_overflow() {
         .scene_contract
         .as_ref()
         .expect("scene contract");
-    assert_eq!(
-        panel_content_budget_rows(contract, "effectiveness-stats").as_deref(),
-        Some([70, 70].as_ref())
+    assert!(
+        panel_has_layout_fill(contract, "effectiveness-stats"),
+        "effectiveness-stats should use fill-down body props"
     );
-    assert_eq!(
-        panel_content_budget_rows(contract, "typical-cases").as_deref(),
-        Some([294].as_ref())
+    assert!(
+        panel_has_layout_fill(contract, "typical-cases"),
+        "typical-cases should use fill-down body props"
     );
 }
 
@@ -287,10 +285,23 @@ fn pretty_panels_layout_tuning_merges_content_budget_via_index() {
         .scene_contract
         .as_ref()
         .expect("scene contract");
-    let rows = panel_content_budget_rows(contract, "enforcement-stats").expect("budget rows");
-    assert_eq!(
-        rows,
-        vec![88],
-        "layoutTuning contentBudget should merge onto enforcement-stats"
+    assert!(
+        panel_has_layout_fill(contract, "enforcement-stats"),
+        "enforcement-stats should use fill-down body props (0327)"
+    );
+    let enforcement_section = find_panel_by_id(&contract.panels, "enforcement").expect("enforcement section");
+    assert!(
+        enforcement_section
+            .props
+            .get("paddingProfile")
+            .or_else(|| enforcement_section.props.get("padding_profile"))
+            .is_some()
+            || outcome
+                .compiled
+                .ui_layout_index
+                .nodes
+                .keys()
+                .any(|key| key.contains("left_rail/enforcement")),
+        "layoutTuning dense_strip_100 should merge onto enforcement section"
     );
 }

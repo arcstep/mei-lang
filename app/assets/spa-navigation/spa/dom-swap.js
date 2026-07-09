@@ -19,11 +19,11 @@
   function syncRuntimeQueryAppAfterShellSwap() {
     try {
       if (typeof window.__meiSyncRuntimeQueryAppContext === "function") {
-        window.__meiSyncRuntimeQueryAppContext({ clearCaches: true });
+        window.__meiSyncRuntimeQueryAppContext({ clearCaches: false });
         return;
       }
       if (typeof window.__meiDatasetRuntime?.syncRuntimeQueryAppContextFromPage === "function") {
-        window.__meiDatasetRuntime.syncRuntimeQueryAppContextFromPage({ clearCaches: true });
+        window.__meiDatasetRuntime.syncRuntimeQueryAppContextFromPage({ clearCaches: false });
       }
     } catch (_) {
       /* ignore */

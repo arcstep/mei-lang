@@ -40,6 +40,7 @@ fn slot_stretch_background(image: &str) -> Value {
 }
 
 fn grid_layout(rows: Value, columns: Value, areas: Value, gap: &str, align: &str) -> Value {
+    let justify = if align == "stretch" { "stretch" } else { "center" };
     json!({
         "__call": "grid",
         "__args": {
@@ -48,7 +49,7 @@ fn grid_layout(rows: Value, columns: Value, areas: Value, gap: &str, align: &str
             "areas": areas,
             "gap": gap,
             "align": align,
-            "justify": "center"
+            "justify": justify
         }
     })
 }
@@ -103,7 +104,30 @@ fn rewrite_story_opinion_block(args: &Map<String, Value>) -> Value {
 }
 
 fn rewrite_metric_triptych_compound_body(args: &Map<String, Value>) -> Value {
-    let row_height = arg_value(args, "row_height", json!("auto"));
+    let fill_strip = args
+        .get("fill_strip")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let row_height = if fill_strip {
+        json!("1fr")
+    } else {
+        arg_value(args, "row_height", json!("auto"))
+    };
+    let row_align = if fill_strip {
+        json!("stretch")
+    } else {
+        arg_value(args, "row_align", json!("start"))
+    };
+    let mut props = transparent_panel_props(if fill_strip {
+        json!("100%")
+    } else {
+        json!("auto")
+    });
+    if fill_strip {
+        if let Some(obj) = props.as_object_mut() {
+            obj.insert("width".to_string(), json!("100%"));
+        }
+    }
     json!({
         "__call": "panel",
         "__args": {
@@ -112,7 +136,7 @@ fn rewrite_metric_triptych_compound_body(args: &Map<String, Value>) -> Value {
             "variant": "container",
             "show_heading": false,
             "chrome": "bare",
-            "props": transparent_panel_props(json!("auto")),
+            "props": props,
             "layout": grid_layout(
                 json!([row_height]),
                 json!([
@@ -123,7 +147,7 @@ fn rewrite_metric_triptych_compound_body(args: &Map<String, Value>) -> Value {
                 ]),
                 json!([["first", "second", "third", "compound"]]),
                 arg_value(args, "gap", json!("2px")).as_str().unwrap_or("2px"),
-                arg_value(args, "row_align", json!("start")).as_str().unwrap_or("start"),
+                row_align.as_str().unwrap_or("start"),
             ),
             "blocks": [
                 arg_value(args, "first", Value::Null),
@@ -400,29 +424,42 @@ fn rewrite_content_strip_props(args: &Map<String, Value>) -> Value {
     props
 }
 
-fn rewrite_compound_only_fill_body(args: &Map<String, Value>) -> Value {
-    let id = arg_value(args, "id", json!("compound_only"));
+fn metric_atom(id: Value, layout_role: &str, source: Value, variant: Option<&str>) -> Value {
+    let mut args = json!({
+        "id": id,
+        "area": "content",
+        "layout_role": layout_role,
+        "source": source,
+        "props": {
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "background": "transparent",
+            "border": "none",
+            "box_shadow": "none",
+        }
+    });
+    if let Some(variant) = variant {
+        args.as_object_mut()
+            .expect("metric args")
+            .insert("variant".to_string(), json!(variant));
+    }
+    json!({
+        "__call": "metric",
+        "__args": args
+    })
+}
+
+fn compound_inner_body_panel(id: Value, args: &Map<String, Value>) -> Value {
     let top_id = id_suffix(id.clone(), "_top");
     let b0_id = id_suffix(id.clone(), "_b0");
     let b1_id = id_suffix(id.clone(), "_b1");
     let b2_id = id_suffix(id.clone(), "_b2");
 
-    fn metric_atom(id: Value, layout_role: &str, source: Value) -> Value {
-        json!({
-            "__call": "metric",
-            "__args": {
-                "id": id,
-                "area": "content",
-                "layout_role": layout_role,
-                "source": source,
-            }
-        })
-    }
-
-    let inner_panel = json!({
+    json!({
         "__call": "panel",
         "__args": {
-            "id": id_suffix(id.clone(), "_body"),
+            "id": id,
             "area": "content",
             "variant": "container",
             "show_heading": false,
@@ -447,6 +484,7 @@ fn rewrite_compound_only_fill_body(args: &Map<String, Value>) -> Value {
                             "top_source",
                             json!({"label": "执法对象", "value": "--", "unit": "万"}),
                         ),
+                        None,
                     ),
                 ),
                 compound_metric_slot_panel(
@@ -460,6 +498,7 @@ fn rewrite_compound_only_fill_body(args: &Map<String, Value>) -> Value {
                             "sub_a_source",
                             json!({"label": "重点企业", "value": "--", "unit": "家"}),
                         ),
+                        Some("sub"),
                     ),
                 ),
                 compound_metric_slot_panel(
@@ -473,6 +512,7 @@ fn rewrite_compound_only_fill_body(args: &Map<String, Value>) -> Value {
                             "sub_b_source",
                             json!({"label": "园区", "value": "--", "unit": "个"}),
                         ),
+                        Some("sub"),
                     ),
                 ),
                 compound_metric_slot_panel(
@@ -486,11 +526,314 @@ fn rewrite_compound_only_fill_body(args: &Map<String, Value>) -> Value {
                             "sub_c_source",
                             json!({"label": "白名单", "value": "--", "unit": "家"}),
                         ),
+                        Some("sub"),
                     ),
                 ),
             ]
         }
+    })
+}
+
+fn narrow_metric_slot_panel(id: Value, area: &str, source: Value) -> Value {
+    json!({
+        "__call": "panel",
+        "__args": {
+            "id": id,
+            "area": area,
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "props": {
+                "padding": "0",
+                "background": slot_stretch_background("metric-bg-normal@3x.svg"),
+                "border": "none",
+                "radius": "4px",
+                "width": "100%",
+                "height": "100%",
+                "min_height": "0",
+                "box_sizing": "border-box",
+                "overflow": "hidden",
+                "box_shadow": "var(--mei-layout-debug-micro-shadow, inset 0 0 0 0 transparent)",
+                "__mei_slot_frame_bg": true
+            },
+            "layout": grid_layout(
+                json!(["1fr"]),
+                json!(["1fr"]),
+                json!([["content"]]),
+                "0",
+                "stretch",
+            ),
+            "blocks": [
+                metric_atom(id_suffix(id, "_content"), "plain", source, None)
+            ]
+        }
+    })
+}
+
+fn optional_icon_presentation(args: &Map<String, Value>, key: &str) -> Option<Value> {
+    let icon = args.get(key)?;
+    if icon.is_null() {
+        return None;
+    }
+    if icon.as_str().is_some_and(str::is_empty) {
+        return None;
+    }
+    Some(json!({"icon": icon}))
+}
+
+fn status_metric_card_panel(
+    id: Value,
+    area: &str,
+    template: &str,
+    source: Value,
+    args: &Map<String, Value>,
+    icon_key: &str,
+    card_props: Value,
+) -> Value {
+    let mut metric_card_args = json!({
+        "id": id_suffix(id.clone(), "_content"),
+        "area": "content",
+        "template": {
+            "__call": template,
+            "__args": {}
+        },
+        "source": source,
+        "props": {
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "background": "transparent",
+            "border": "none",
+            "box_shadow": "none",
+        }
     });
+    if let Some(presentation) = optional_icon_presentation(args, icon_key) {
+        metric_card_args
+            .as_object_mut()
+            .expect("metric card args")
+            .insert("presentation".to_string(), presentation);
+    }
+    if let Some(extra) = card_props.as_object() {
+        if !extra.is_empty() {
+            let props = metric_card_args
+                .as_object_mut()
+                .expect("metric card args")
+                .get_mut("props")
+                .and_then(Value::as_object_mut)
+                .expect("metric card props");
+            for (key, value) in extra {
+                props.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    json!({
+        "__call": "panel",
+        "__args": {
+            "id": id,
+            "area": area,
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "props": {
+                "padding": "0",
+                "background": {"color": "rgba(98,190,235,0.10)"},
+                "border": "none",
+                "radius": "4px",
+                "width": "100%",
+                "height": "100%",
+                "min_height": "0",
+                "box_sizing": "border-box",
+                "overflow": "hidden",
+                "box_shadow": "var(--mei-layout-debug-micro-shadow, inset 0 0 0 0 transparent)",
+            },
+            "layout": grid_layout(
+                json!(["1fr"]),
+                json!(["1fr"]),
+                json!([["content"]]),
+                "0",
+                "stretch",
+            ),
+            "blocks": [
+                json!({
+                    "__call": "metric_card",
+                    "__args": metric_card_args
+                })
+            ]
+        }
+    })
+}
+
+fn rewrite_metric_triptych_compound_fill_body(args: &Map<String, Value>) -> Value {
+    let id = arg_value(args, "id", json!("metric_triptych_compound"));
+    let gap = arg_value(args, "gap", json!("2px"));
+    let gap = gap.as_str().unwrap_or("2px");
+    let compound_id = id_suffix(id.clone(), "_compound");
+    let compound_body_id = id_suffix(id.clone(), "_compound_body");
+    let compound_inner = compound_inner_body_panel(compound_body_id, args);
+
+    json!({
+        "__call": "panel",
+        "__args": {
+            "id": id,
+            "area": arg_value(args, "area", json!("auto")),
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "props": transparent_panel_props(json!("100%")),
+            "layout": grid_layout(
+                json!(["1fr"]),
+                json!(["1fr", "1fr", "1fr", "2.2fr"]),
+                json!([["first", "second", "third", "compound"]]),
+                gap,
+                "stretch",
+            ),
+            "blocks": [
+                narrow_metric_slot_panel(
+                    id_suffix(id.clone(), "_first"),
+                    "first",
+                    arg_value(
+                        args,
+                        "first",
+                        json!({"label": "执法单位", "value": "--", "unit": "个"}),
+                    ),
+                ),
+                narrow_metric_slot_panel(
+                    id_suffix(id.clone(), "_second"),
+                    "second",
+                    arg_value(
+                        args,
+                        "second",
+                        json!({"label": "执法人员", "value": "--", "unit": "人"}),
+                    ),
+                ),
+                narrow_metric_slot_panel(
+                    id_suffix(id.clone(), "_third"),
+                    "third",
+                    arg_value(
+                        args,
+                        "third",
+                        json!({"label": "执法事项", "value": "--", "unit": "项"}),
+                    ),
+                ),
+                json!({
+                    "__call": "panel",
+                    "__args": {
+                        "id": compound_id,
+                        "area": "compound",
+                        "variant": "container",
+                        "show_heading": false,
+                        "chrome": "bare",
+                        "props": {
+                            "padding": "0 4px",
+                            "background": slot_stretch_background("metric-bg-target@3x.svg"),
+                            "border": "none",
+                            "radius": "4px",
+                            "width": "100%",
+                            "height": "100%",
+                            "min_height": "0",
+                            "box_sizing": "border-box",
+                            "overflow": "hidden",
+                            "box_shadow": "var(--mei-layout-debug-micro-shadow, inset 0 0 0 0 transparent)",
+                            "__mei_slot_frame_bg": true
+                        },
+                        "layout": grid_layout(
+                            json!(["1fr"]),
+                            json!(["1fr"]),
+                            json!([["content"]]),
+                            "0",
+                            "stretch",
+                        ),
+                        "blocks": [compound_inner]
+                    }
+                })
+            ]
+        }
+    })
+}
+
+fn rewrite_status_triptych_summary_fill_body(args: &Map<String, Value>) -> Value {
+    let id = arg_value(args, "id", json!("status_triptych_summary"));
+    let gap = arg_value(args, "gap", json!("2px"));
+    let gap = gap.as_str().unwrap_or("2px");
+    let summary_padding = arg_value(args, "summary_padding", json!("0 16px 0 72px"));
+
+    json!({
+        "__call": "panel",
+        "__args": {
+            "id": id,
+            "area": arg_value(args, "area", json!("auto")),
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "props": transparent_panel_props(json!("100%")),
+            "layout": grid_layout(
+                json!(["1fr", "1fr"]),
+                json!(["1fr", "1fr", "1fr"]),
+                json!([["pending", "doing", "done"], ["summary", "summary", "summary"]]),
+                gap,
+                "stretch",
+            ),
+            "blocks": [
+                status_metric_card_panel(
+                    id_suffix(id.clone(), "_pending"),
+                    "pending",
+                    "icon_left",
+                    arg_value(
+                        args,
+                        "pending",
+                        json!({"label": "待办", "value": "--", "unit": "件"}),
+                    ),
+                    args,
+                    "pending_icon",
+                    json!({}),
+                ),
+                status_metric_card_panel(
+                    id_suffix(id.clone(), "_doing"),
+                    "doing",
+                    "icon_left",
+                    arg_value(
+                        args,
+                        "doing",
+                        json!({"label": "在办", "value": "--", "unit": "件"}),
+                    ),
+                    args,
+                    "doing_icon",
+                    json!({}),
+                ),
+                status_metric_card_panel(
+                    id_suffix(id.clone(), "_done"),
+                    "done",
+                    "icon_left",
+                    arg_value(
+                        args,
+                        "done",
+                        json!({"label": "已办", "value": "--", "unit": "件"}),
+                    ),
+                    args,
+                    "done_icon",
+                    json!({}),
+                ),
+                status_metric_card_panel(
+                    id_suffix(id.clone(), "_summary"),
+                    "summary",
+                    "strip_icon_left",
+                    arg_value(
+                        args,
+                        "summary",
+                        json!({"label": "查实率", "value": "--", "unit": "%"}),
+                    ),
+                    args,
+                    "summary_icon",
+                    json!({"padding": summary_padding}),
+                ),
+            ]
+        }
+    })
+}
+
+fn rewrite_compound_only_fill_body(args: &Map<String, Value>) -> Value {
+    let id = arg_value(args, "id", json!("compound_only"));
+    let inner_panel = compound_inner_body_panel(id_suffix(id.clone(), "_body"), args);
 
     json!({
         "__call": "panel",
@@ -533,6 +876,8 @@ pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
         "content_fill_props" => rewrite_content_fill_props(args),
         "story_opinion_block" => rewrite_story_opinion_block(args),
         "compound_only_fill_body" => rewrite_compound_only_fill_body(args),
+        "metric_triptych_compound_fill_body" => rewrite_metric_triptych_compound_fill_body(args),
+        "status_triptych_summary_fill_body" => rewrite_status_triptych_summary_fill_body(args),
         "metric_triptych_compound_body" => rewrite_metric_triptych_compound_body(args),
         "wide_metric_compound_body" => rewrite_wide_metric_compound_body(args),
         "primary_progress_triptych_body" => rewrite_primary_progress_triptych_body(args),
@@ -693,6 +1038,69 @@ mod tests {
                 .pointer("/__args/props/__mei_slot_frame_bg")
                 .and_then(|v| v.as_bool()),
             Some(true)
+        );
+    }
+
+    #[test]
+    fn rewrites_metric_triptych_compound_fill_body_to_four_slots() {
+        let value = json!({
+            "__call": "biz.metric_triptych_compound_fill_body",
+            "__args": {
+                "id": "enforcement_body",
+                "area": "body",
+                "first": {"__ref": "metric_ref", "__args": {"arg0": "enforcement_units_count"}},
+                "top_source": {"__ref": "metric_ref", "__args": {"arg0": "enforcement_objects_count"}},
+            }
+        });
+        let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
+        assert_eq!(
+            rewritten.get("__call").and_then(|v| v.as_str()),
+            Some("panel")
+        );
+        let blocks = rewritten
+            .pointer("/__args/blocks")
+            .and_then(|v| v.as_array())
+            .expect("blocks");
+        assert_eq!(blocks.len(), 4);
+        assert!(
+            rewritten
+                .pointer("/__args/blocks/3/__args/props/__mei_slot_frame_bg")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            "compound slot should carry frame bg flag"
+        );
+    }
+
+    #[test]
+    fn rewrites_status_triptych_summary_fill_body_to_four_cards() {
+        let value = json!({
+            "__call": "biz.status_triptych_summary_fill_body",
+            "__args": {
+                "id": "issue_body",
+                "area": "body",
+                "pending": {"__ref": "metric_ref", "__args": {"arg0": "warnings_pending_count"}},
+                "pending_icon": {"__ref": "ops_param_ref", "__args": {"arg0": "issue_icon_pending_css"}},
+            }
+        });
+        let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
+        let blocks = rewritten
+            .pointer("/__args/blocks")
+            .and_then(|v| v.as_array())
+            .expect("blocks");
+        assert_eq!(blocks.len(), 4);
+        assert!(
+            rewritten
+                .pointer("/__args/blocks/0/__args/blocks/0/__call")
+                .and_then(|v| v.as_str())
+                == Some("metric_card"),
+            "pending card should lower via metric_card template"
+        );
+        assert!(
+            rewritten
+                .pointer("/__args/blocks/0/__args/blocks/0/__args/template/__call")
+                .and_then(|v| v.as_str())
+                == Some("icon_left"),
+            "pending card should use icon_left template"
         );
     }
 

@@ -78,13 +78,13 @@
         if (sceneCtx) {
           try {
             if (typeof window.__meiSyncRuntimeQueryAppContext === "function") {
-              window.__meiSyncRuntimeQueryAppContext({ clearCaches: true });
+              window.__meiSyncRuntimeQueryAppContext({ clearCaches: false });
             } else if (
               typeof window.__meiDatasetRuntime?.syncRuntimeQueryAppContextFromPage ===
               "function"
             ) {
               window.__meiDatasetRuntime.syncRuntimeQueryAppContextFromPage({
-                clearCaches: true,
+                clearCaches: false,
               });
             }
           } catch (_) {}
@@ -104,6 +104,15 @@
             { kind: "spa_nav", ...sceneCtx, url },
             { debounce: false },
           );
+          const composeRoot =
+            doc.querySelector("#mei-compose-root, .preview-pane-scroll") ||
+            document.querySelector("#mei-compose-root, .preview-pane-scroll");
+          if (
+            composeRoot instanceof HTMLElement &&
+            typeof boot.previewMaterializer?.refreshComposeMaps === "function"
+          ) {
+            boot.previewMaterializer.refreshComposeMaps(composeRoot);
+          }
         } else if (
           typeof boot.bootstrapThinShellComposition === "function" &&
           !ssrPreviewMaterialized(doc) &&

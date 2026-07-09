@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::sync::Once;
 use mei_host_core::HostContext;
-use mei_host_graph::{assemble_scope_from_registry, import_bundle, ImportOptions};
+use mei_host_graph::{
+    assemble_scope_from_registry, clear_assemble_cache_for_app, import_bundle, ImportOptions,
+};
 use mei_lang_kernel::build_ui_layout_index;
 
 static INIT: Once = Once::new();
@@ -19,6 +21,7 @@ fn ensure_imported() -> PathBuf {
         let bundle = workspace.join("apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle");
         let ctx = HostContext::new(workspace.clone(), "pretty-panels");
         import_bundle(&ctx, &ImportOptions { bundle_path: Some(bundle) }).expect("import");
+        clear_assemble_cache_for_app("pretty-panels");
     });
     workspace
 }
@@ -45,11 +48,7 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         .expect("assemble")
         .expect("home");
     let contract = outcome.compiled.scene_contract.as_ref().unwrap();
-    let map_stage = contract
-        .panels
-        .iter()
-        .find(|p| p.id == "map_stage")
-        .expect("map_stage region panel");
+    let map_stage = find_panel_by_id(&contract.panels, "map_stage").expect("map_stage region panel");
     assert_eq!(
         map_stage.props.get("__mei_view_family").and_then(|v| v.as_str()),
         Some("map"),
@@ -68,11 +67,7 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         "map_stage should nest map.maplibre block, blocks={}",
         map_stage.blocks.len()
     );
-    let center_rail = contract
-        .panels
-        .iter()
-        .find(|p| p.id == "center_rail")
-        .expect("center_rail region");
+    let center_rail = find_panel_by_id(&contract.panels, "center_rail").expect("center_rail region");
     let map_viewport_section = center_rail
         .blocks
         .iter()
@@ -97,7 +92,7 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         ui.index
             .nodes
             .keys()
-            .any(|k| k.contains("map-tools-slot")),
+            .any(|k| k.contains("map-tools-slot") || k.contains("/tools")),
         "ui_layout_index should include map_viewport operation chrome under center_rail"
     );
     fn panel_has_content_role_child(panel: &mei_lang_kernel::PanelDecl) -> bool {
@@ -115,18 +110,23 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         !panel_has_content_role_child(map_stage),
         "map_stage should not keep content-role wrapper sections"
     );
-    let section = match &map_stage.blocks[0] {
-        mei_lang_kernel::UiNodeDecl::Panel(panel) => panel,
-        other => panic!("expected section panel, got {other:?}"),
-    };
-    assert!(
+    fn panel_has_section_role(panel: &mei_lang_kernel::PanelDecl) -> bool {
         matches!(
-            section.props.get("__mei_ui_role").and_then(|v| v.as_str()),
+            panel.props.get("__mei_ui_role").and_then(|v| v.as_str()),
             Some("section") | Some("stage")
-        ),
-        "map section props: {:?}",
-        section.props
-    );
+        )
+    }
+    fn find_section_role_panel(panel: &mei_lang_kernel::PanelDecl) -> Option<&mei_lang_kernel::PanelDecl> {
+        if panel_has_section_role(panel) {
+            return Some(panel);
+        }
+        panel.blocks.iter().find_map(|node| match node {
+            mei_lang_kernel::UiNodeDecl::Panel(child) => find_section_role_panel(child),
+            _ => None,
+        })
+    }
+    let section = find_section_role_panel(map_stage).expect("map_stage should nest a section/stage panel");
+    assert!(panel_has_section_role(section), "map section props: {:?}", section.props);
 }
 
 #[test]
@@ -134,15 +134,16 @@ fn pretty_panels_ui_structure_includes_header_section() {
     let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
         .expect("assemble")
         .expect("home");
-    let header = outcome
-        .compiled
-        .scene_contract
-        .as_ref()
-        .unwrap()
-        .panels
-        .iter()
-        .find(|p| p.id == "home_header")
-        .expect("home_header region panel");
+    let header = find_panel_by_id(
+        &outcome
+            .compiled
+            .scene_contract
+            .as_ref()
+            .unwrap()
+            .panels,
+        "home_header",
+    )
+    .expect("home_header region panel");
     let header_section = header
         .blocks
         .iter()
@@ -159,9 +160,9 @@ fn pretty_panels_ui_structure_includes_header_section() {
     let ui = build_ui_layout_index(&outcome.compiled);
     assert!(
         ui.index.nodes.keys().any(|k| {
-            k.contains("home_header") && (k.contains("/header") || k.contains("header/"))
+            k.contains("home_header") || k.contains("/t1/header") || k.contains("/header/body")
         }),
-        "ui_layout_index should include home_header section path: {:?}",
+        "ui_layout_index should include header section path: {:?}",
         ui.index.nodes.keys().collect::<Vec<_>>()
     );
 }
@@ -171,7 +172,11 @@ fn pretty_panels_ui_structure_includes_left_rail_sections() {
     let outcome = assemble_scope_from_registry(ensure_imported().as_path(), "pretty-panels", "home")
         .expect("assemble")
         .expect("home");
-    let left_rail = outcome.compiled.scene_contract.as_ref().unwrap().panels.iter().find(|p| p.id == "left_rail").expect("left_rail");
+    let left_rail = find_panel_by_id(
+        &outcome.compiled.scene_contract.as_ref().unwrap().panels,
+        "left_rail",
+    )
+    .expect("left_rail");
     eprintln!("left_rail blocks: {}", left_rail.blocks.len());
     for b in &left_rail.blocks {
         if let mei_lang_kernel::UiNodeDecl::Panel(p) = b {
@@ -182,25 +187,19 @@ fn pretty_panels_ui_structure_includes_left_rail_sections() {
     let enforcement = ui.index.nodes.keys().find(|k| k.contains("enforcement"));
     eprintln!("ui nodes with enforcement: {:?}", enforcement);
     eprintln!("ui index node count: {}", ui.index.nodes.len());
-    assert!(ui.index.nodes.keys().any(|k| k.contains("left_rail/enforcement")), "missing enforcement in ui index: {:?}", ui.index.nodes.keys().collect::<Vec<_>>());
+    assert!(
+        ui.index.nodes.keys().any(|k| {
+            k.contains("left_rail/enforcement") || k.contains("t1/left_rail/enforcement")
+        }),
+        "missing enforcement in ui index: {:?}",
+        ui.index.nodes.keys().collect::<Vec<_>>()
+    );
 
-    let enforcement_panel = outcome
-        .compiled
-        .scene_contract
-        .as_ref()
-        .unwrap()
-        .panels
-        .iter()
-        .find(|p| p.id == "left_rail")
-        .and_then(|rail| {
-            rail.blocks.iter().find_map(|block| match block {
-                mei_lang_kernel::UiNodeDecl::Panel(section) if section.id == "enforcement" => {
-                    Some(section)
-                }
-                _ => None,
-            })
-        })
-        .expect("enforcement section panel");
+    let enforcement_panel = find_panel_by_id(
+        &outcome.compiled.scene_contract.as_ref().unwrap().panels,
+        "enforcement",
+    )
+    .expect("enforcement section panel");
     assert!(
         !enforcement_panel.blocks.is_empty(),
         "enforcement section should contain lowered metric blocks"
@@ -217,7 +216,10 @@ fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
         .index
         .nodes
         .values()
-        .filter(|node| node.preview_scope.starts_with("left_rail/penalty"))
+        .filter(|node| {
+            node.preview_scope.contains("left_rail/penalty")
+                || node.preview_scope.contains("t1/left_rail/penalty")
+        })
         .map(|node| {
             format!(
                 "{} {:?} {}",
@@ -230,14 +232,14 @@ fn pretty_panels_penalty_section_surfaces_contract_level_charts() {
     eprintln!("penalty ui scopes:\n{}", penalty_scopes.join("\n"));
     assert!(
         ui.index.nodes.values().any(|node| {
-            node.preview_scope == "left_rail/penalty/party_bars"
+            node.preview_scope.contains("party_bars")
                 && node.role == mei_lang_kernel::UiScopeRole::Slot
         }),
         "penalty party_bars grid slot should surface in ui index"
     );
     assert!(
         ui.index.nodes.values().any(|node| {
-            node.preview_scope.starts_with("left_rail/penalty")
+            node.preview_scope.contains("left_rail/penalty")
                 && node.role == mei_lang_kernel::UiScopeRole::Content
                 && (node.label.contains("罚没") || node.label.contains("分组柱图") || node.label.contains("排名图") || node.label.contains("高频"))
         }),

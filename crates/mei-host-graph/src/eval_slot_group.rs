@@ -456,11 +456,20 @@ fn find_panel_in_contract<'a>(
         .find_map(|panel| find_panel_by_id(panel, target))
 }
 
+fn is_section_head_text_slot(node: &StructureFullNode) -> bool {
+    let scope = node.preview_scope.to_ascii_lowercase();
+    scope.ends_with("/head/mei.text")
+        || (scope.ends_with("/head") && node.content_kind.as_deref() == Some("mei.text"))
+}
+
 fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFullNode) -> Vec<Value> {
     if node.ui_role != "content" {
         return Vec::new();
     }
     if is_duplicate_metric_card_leaf_scope(&node.preview_scope) {
+        return Vec::new();
+    }
+    if is_section_head_text_slot(node) {
         return Vec::new();
     }
     let label = node.label.trim();
@@ -508,6 +517,9 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
         }
     }
     if mounts.is_empty() {
+        if !lookup_label.is_empty() && !is_ambiguous_mount_label(label) {
+            return mounts;
+        }
         for use_key in &node.use_keys {
             let key = use_key.trim();
             if key.is_empty() || key == "metric-card" {

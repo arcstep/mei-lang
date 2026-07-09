@@ -1,10 +1,13 @@
 use std::path::PathBuf;
+use std::sync::Once;
 
+use mei_host_core::HostContext;
 use mei_host_graph::{
-    assemble_scope_from_registry, build_eval_slot_group_document, build_structure_full_document,
-    collect_slot_groups,
+    assemble_scope_from_registry, clear_assemble_cache_for_app, import_bundle, ImportOptions,
 };
-use mei_lang_kernel::DataMode;
+use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+
+static INIT: Once = Once::new();
 
 fn ws_demo_v2() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -13,63 +16,118 @@ fn ws_demo_v2() -> PathBuf {
         .expect("ws-demo-v2")
 }
 
-#[test]
-fn pretty_panels_enforcement_units_slot_exports_shell_and_mounts() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "pretty-panels", "home")
-        .expect("assemble")
-        .expect("home outcome");
-    let structure = build_structure_full_document(&outcome.compiled, "test");
-    let enforcement_nodes: Vec<_> = structure
-        .nodes
-        .iter()
-        .filter(|node| node.preview_scope.contains("enforcement_units"))
-        .map(|node| {
-            (
-                node.preview_scope.clone(),
-                node.ui_role.clone(),
-                node.label.clone(),
-                node.content_kind.clone(),
-            )
-        })
-        .collect();
-    eprintln!("enforcement_units structure nodes: {enforcement_nodes:#?}");
+fn ensure_pretty_panels_imported() {
+    INIT.call_once(|| {
+        let workspace = ws_demo_v2();
+        let bundle = workspace.join(
+            "apps/pretty-panels/env/current/build/exchange/pretty-panels.meibundle",
+        );
+        if !bundle.is_file() {
+            return;
+        }
+        let ctx = HostContext::new(workspace.clone(), "pretty-panels");
+        import_bundle(
+            &ctx,
+            &ImportOptions {
+                bundle_path: Some(bundle),
+            },
+        )
+        .expect("import pretty-panels bundle");
+        clear_assemble_cache_for_app("pretty-panels");
+    });
+}
 
-    let docs: Vec<_> = collect_slot_groups(&structure)
-        .into_iter()
-        .map(|group| {
-            build_eval_slot_group_document(
-                &outcome.compiled,
-                &structure,
-                group.as_str(),
-                DataMode::Eval,
-                Some(ws_demo_v2().as_path()),
-            )
-        })
-        .collect();
-    let mut eval_hits = Vec::new();
-    for doc in &docs {
-        for (scope, slot) in &doc.slots {
-            if scope.contains("enforcement_units") {
-                eval_hits.push((
-                    scope.clone(),
-                    slot.get("panel_shell").is_some(),
-                    slot.get("component_mounts")
-                        .and_then(|value| value.as_array())
-                        .map(|mounts| mounts.len())
-                        .unwrap_or(0),
-                ));
+fn find_panel<'a>(panel: &'a PanelDecl, id: &str) -> Option<&'a PanelDecl> {
+    if panel.id == id {
+        return Some(panel);
+    }
+    for block in &panel.blocks {
+        if let UiNodeDecl::Panel(nested) = block {
+            if let Some(found) = find_panel(nested, id) {
+                return Some(found);
             }
         }
     }
-    eprintln!("enforcement_units eval slots: {eval_hits:#?}");
+    None
+}
 
-    let shell_scope = eval_hits
+fn find_panel_in_tree<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {
+    panels
         .iter()
-        .find(|(scope, has_shell, mounts)| {
-            scope.contains("enforcement_units_card") && (*has_shell || *mounts > 0)
-        });
+        .find_map(|panel| find_panel(panel, id))
+}
+
+#[test]
+fn pretty_panels_enforcement_body_includes_triptych_and_compound_shell() {
+    ensure_pretty_panels_imported();
+    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "pretty-panels", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let panels = &outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract")
+        .panels;
+    let strip = find_panel_in_tree(panels, "enforcement_strip_layout").expect("enforcement_strip_layout");
+    let areas = strip
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("enforcement_strip_layout grid areas");
     assert!(
-        shell_scope.is_some(),
-        "expected metric slot shell/mounts on enforcement_units_card scope, got {eval_hits:#?}"
+        areas
+            .iter()
+            .flatten()
+            .any(|area| area == "first" || area == "compound"),
+        "enforcement_strip_layout should include triptych and compound areas, got {areas:?}"
+    );
+    let compound = find_panel_in_tree(panels, "enforcement_objects_card").expect("compound card");
+    let bg_json = serde_json::to_string(compound.props.get("background").expect("background"))
+        .unwrap_or_default();
+    assert!(
+        bg_json.contains("metric-bg-target"),
+        "compound slot should keep metric-bg-target frame, got {bg_json}"
+    );
+}
+
+#[test]
+fn pretty_panels_issue_body_exports_four_status_metric_cards() {
+    ensure_pretty_panels_imported();
+    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "pretty-panels", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let panels = &outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract")
+        .panels;
+    for suffix in ["_pending", "_doing", "_done", "_summary"] {
+        let card_id = format!("issue_body{suffix}_content");
+        let card = find_panel_in_tree(panels, card_id.as_str())
+            .unwrap_or_else(|| panic!("missing issue metric card {card_id}"));
+        assert_eq!(
+            card.props
+                .get("__mei_metric_template")
+                .and_then(|v| v.as_str()),
+            Some(if suffix == "_summary" {
+                "row"
+            } else {
+                "stack"
+            }),
+            "issue card {card_id} template mismatch: {:?}",
+            card.props
+        );
+    }
+    let summary = find_panel_in_tree(panels, "issue_body_summary_content").expect("summary card");
+    assert!(
+        summary
+            .props
+            .get("background")
+            .and_then(|bg| bg.get("image"))
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "summary card should preserve icon background shell"
     );
 }

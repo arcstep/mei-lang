@@ -2155,6 +2155,9 @@
         const head = section.querySelector('[data-preview-scope$="/head"]');
         const content =
           section.querySelector('[data-preview-scope$="/body"]') ||
+          section.querySelector('[data-preview-scope$="/enforcement_strip_layout"]') ||
+          section.querySelector('[data-preview-scope$="/enforcement_body"]') ||
+          section.querySelector(".mei-compose-enforcement-strip") ||
           section.querySelector('[data-preview-scope*="supervision-stats"]') ||
           section.querySelector('[data-mei-content-kind="compound-metric"]') ||
           section.querySelector(".mei-compose-metric-compound") ||
@@ -2168,6 +2171,7 @@
         }
         if (content instanceof HTMLElement) {
           content.style.gridArea = "body";
+          content.style.width = "100%";
           content.style.margin = "0";
           content.style.padding = "0";
           content.style.gap = "2px";
@@ -2205,6 +2209,55 @@
     b1: "b1",
     b2: "b2",
   };
+
+  const ENFORCEMENT_STRIP_AREAS = {
+    first: "first",
+    second: "second",
+    third: "third",
+    compound: "compound",
+    enforcement_units_card: "first",
+    enforcement_personnel_card: "second",
+    enforcement_items_card: "third",
+    enforcement_objects_card: "compound",
+  };
+
+  function applyEnforcementStripComposeClasses(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root
+      .querySelectorAll(
+        '[data-preview-scope$="/enforcement_strip_layout"], [data-preview-scope$="/enforcement_body"]',
+      )
+      .forEach((strip) => {
+        if (!(strip instanceof HTMLElement)) return;
+        const role = String(strip.getAttribute("data-mei-ui-role") || "").toLowerCase();
+        if (role && role !== "content" && role !== "slot" && role !== "section") return;
+        const scope = String(strip.getAttribute("data-preview-scope") || "").trim();
+        if (!/\/enforcement_(strip_layout|body)$/.test(scope)) return;
+        strip.classList.add("mei-compose-enforcement-strip");
+        strip.style.width = "100%";
+        strip.style.gridArea = "body";
+        strip.style.alignSelf = "stretch";
+        const section = strip.closest('[data-mei-ui-role="section"]');
+        if (section instanceof HTMLElement) {
+          section.classList.add("mei-compose-compound-section");
+        }
+        strip
+          .querySelectorAll(
+            ':scope > [data-mei-ui-role="slot"], :scope > [data-mei-ui-role="content"], :scope > section, :scope > div.mei-compose-node',
+          )
+          .forEach((child) => {
+            if (!(child instanceof HTMLElement)) return;
+            const scope = String(child.getAttribute("data-preview-scope") || "");
+            const suffix = scope.split("/").filter(Boolean).pop() || "";
+            const area =
+              ENFORCEMENT_STRIP_AREAS[suffix] ||
+              String(child.getAttribute("data-mei-panel-area") || "").trim();
+            if (area && ENFORCEMENT_STRIP_AREAS[area]) {
+              child.style.gridArea = ENFORCEMENT_STRIP_AREAS[area];
+            }
+          });
+      });
+  }
 
   function applyCompoundMetricComposeClasses(root) {
     if (!(root instanceof HTMLElement)) return;
@@ -2331,6 +2384,7 @@
     });
     rebindMetricCardHosts(root);
     applyWarningSupervisionComposeClasses(root);
+    applyEnforcementStripComposeClasses(root);
     applyCompoundMetricComposeClasses(root);
     normalizeMetricCompoundSections(root);
     normalizeScreenHeaderBrandBlocks(root);
@@ -2685,6 +2739,7 @@
     finalizeClientPreview,
     materializePlaceholderPreview,
     ensureBootstrapBeforeInject,
+    refreshComposeMaps,
   };
   boot.hasMaterializedPreview = hasMaterializedPreview;
 })(typeof window !== "undefined" ? window : globalThis);
