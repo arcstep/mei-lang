@@ -4,7 +4,7 @@ use super::{
 };
 
 #[test]
-fn compile_board_assembly_rejects_missing_data_table_zone() {
+fn compile_page_instance_rejects_missing_data_table_zone() {
     let source_root = temp_root("reject-scene-shell-zone");
     let app_root = source_root.join("demo");
     write_file(
@@ -147,7 +147,7 @@ frame.add_panel(
         matches!(
             d.code.as_str(),
             "scene_shell_zone_missing"
-                | "board_assembly_missing_detail"
+                | "page_instance_missing_detail"
                 | "analytics_projection_missing_detail"
                 | "layout_eval_degenerate_rows"
         )

@@ -43,7 +43,7 @@ pub struct BuildExperienceIndex {
 
 /// One slot inside a `*.board.mei` scene export.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct BoardSlotEntry {
+pub struct T2PageSlotEntry {
     pub slot_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
@@ -57,14 +57,14 @@ pub struct BoardSlotEntry {
 
 /// Compile-time catalog entry for one board scene export.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct BoardFileEntry {
-    pub board_file: String,
+pub struct T2PageFileEntry {
+    pub page_file: String,
     pub scene_id: String,
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub slots: Vec<BoardSlotEntry>,
+    pub slots: Vec<T2PageSlotEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub popup_consumers: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,9 +72,9 @@ pub struct BoardFileEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct BuildBoardIndex {
+pub struct BuildT2PageIndex {
     #[serde(default)]
-    pub boards: BTreeMap<String, BoardFileEntry>,
+    pub pages: BTreeMap<String, T2PageFileEntry>,
 }
 
 /// One in-app usage site for a component / template use_key.
@@ -112,23 +112,23 @@ pub struct BuildTemplateIndex {
     pub templates: BTreeMap<String, TemplateCatalogEntry>,
 }
 
-impl BuildBoardIndex {
-    pub fn lookup<'a>(&'a self, node: &'a BuildNodeId) -> Option<&'a BoardFileEntry> {
+impl BuildT2PageIndex {
+    pub fn lookup<'a>(&'a self, node: &'a BuildNodeId) -> Option<&'a T2PageFileEntry> {
         match node.kind {
-            super::build_node::BuildNodeKind::BoardFile => self.boards.get(&node.key),
+            super::build_node::BuildNodeKind::BoardFile => self.pages.get(&node.key),
             super::build_node::BuildNodeKind::BoardSlot => {
                 let (board_key, _) = node.key.rsplit_once('/')?;
-                self.boards.get(board_key)
+                self.pages.get(board_key)
             }
             _ => None,
         }
     }
 
     /// All board capsule exports declared in one `.board.mei` file.
-    pub fn exports_for_board_file<'a>(&'a self, board_file: &str) -> Vec<&'a BoardFileEntry> {
-        self.boards
+    pub fn exports_for_board_file<'a>(&'a self, board_file: &str) -> Vec<&'a T2PageFileEntry> {
+        self.pages
             .values()
-            .filter(|entry| entry.board_file == board_file)
+            .filter(|entry| entry.page_file == board_file)
             .collect()
     }
 

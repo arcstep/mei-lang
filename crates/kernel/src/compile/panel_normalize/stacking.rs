@@ -1,17 +1,17 @@
 use serde_json::{json, Value};
 
-use crate::model::{Diagnostic, PanelDecl, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
 
 const LAYOUT_STACK_MAX: u64 = 99;
 
 pub fn sanitize_panel_stacking(
-    panel: &mut PanelDecl,
+    panel: &mut UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
     sanitize_props_stacking(&mut panel.props, diagnostics, source_path);
     for block in &mut panel.blocks {
-        if let UiNodeDecl::Panel(nested) = block {
+        if let UiTreeNode::Panel(nested) = block {
             sanitize_panel_stacking(nested, diagnostics, source_path);
         }
     }
@@ -29,7 +29,7 @@ fn sanitize_props_stacking(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "forbidden_z_index".to_string(),
-            message: "props.z_index is forbidden; use stack_order on panel_contract (viewport tier) or layout_stack (local stacking within a parent panel)".to_string(),
+            message: "props.z_index is forbidden; use stack_order on content_panel (viewport tier) or layout_stack (local stacking within a parent panel)".to_string(),
             source_path: Some(source_path.to_string()),
         });
         return;

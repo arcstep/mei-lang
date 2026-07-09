@@ -1,7 +1,7 @@
 /**
  * ViewCompositor: compose review_projection depth without refetching structure.full.
- * layoutTuning dataset attrs are legacy author-model hints only — new surfaces must use
- * manifest projection / layout_policy from composed layers, not ops.layoutTuning bypasses.
+ * Layout overlays come from ops.themes.*.layout (+ theme.layout session draft) and
+ * manifest / layout_policy projection.
  */
 (function initViewCompositor(global) {
   "use strict";
@@ -79,37 +79,9 @@
         if (!patch || typeof patch !== "object") return;
         const node = resolveLayoutOverlayNode(root, scope);
         if (!(node instanceof HTMLElement)) return;
-        const slotHeight =
-          patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
-        if (slotHeight != null && slotHeight !== "") {
-          const numeric = Number(String(slotHeight).replace(/px$/i, "").trim());
-          const px = Number.isFinite(numeric) ? `${numeric}px` : String(slotHeight);
-          node.style.setProperty("--mei-slot-height", px);
-          node.dataset.manifestSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
-        }
         const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
         if (paddingProfile) {
           node.dataset.manifestPaddingProfile = String(paddingProfile);
-        }
-        const contentBudget = patch.contentBudget || patch.content_budget;
-        if (contentBudget && typeof contentBudget === "object") {
-          const rows = contentBudget.rows || contentBudget.content_rows;
-          if (Array.isArray(rows) && rows.length > 0) {
-            const total = rows.reduce((sum, row) => sum + Number(row), 0);
-            if (total > 0) {
-              node.style.gridTemplateRows = rows
-                .map((row) => `${(Number(row) / total) * 100}fr`)
-                .join(" ");
-            } else {
-              node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
-            }
-            node.dataset.manifestContentRows = rows.join(",");
-          }
-          const gap = contentBudget.gap ?? contentBudget.content_gap;
-          if (gap != null && gap !== "") {
-            node.style.rowGap = `${gap}px`;
-            node.dataset.manifestContentGap = String(gap);
-          }
         }
         const sectionRows = patch.sectionRows || patch.section_rows;
         const manifestEntry = globalThis.__mei?.layout_budget_manifest?.entries?.[scope];
@@ -144,7 +116,7 @@
           node.style.setProperty("--mei-t1-header-height", String(headerHeight));
         }
         const gapFr = patch.gap ?? patch.stripGap;
-        if (gapFr != null && gapFr !== "" && !contentBudget) {
+        if (gapFr != null && gapFr !== "") {
           node.style.gap = String(gapFr).endsWith("px") ? String(gapFr) : `${gapFr}px`;
         }
       });
@@ -269,7 +241,7 @@
       ? store.mergeThemeDocs(persistedTheme, session.themeTokens)
       : persistedTheme;
     const overlayEffective = store?.mergeOverlayDocs
-      ? store.mergeOverlayDocs(persistedOverlay, session.layoutOverlay)
+      ? store.mergeOverlayDocs(persistedOverlay, session.themeLayout)
       : persistedOverlay;
     return { themeEffective, overlayEffective };
   }

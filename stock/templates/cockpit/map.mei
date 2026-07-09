@@ -52,7 +52,7 @@ frame(
     layout = grid(
         columns = ["1fr"],
         rows = [GIS_BODY_H],
-        areas = [["body"]],
+        areas = [["content_zone"]],
         padding = "12px 16px 16px",
     ),
     props = {
@@ -67,11 +67,10 @@ frame(
         "min_height": str(GIS_DESIGN_H) + "px",
         "box_sizing": "border-box",
     },
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "gis_stage",
-    area = "body",
+    area = "content_zone",
     layout = stack_layout,
     variant = "container",
     show_heading = False,
@@ -141,4 +140,8 @@ frame.add_panel(
             ],
         ),
     ],
+),
+    ],
 )
+
+

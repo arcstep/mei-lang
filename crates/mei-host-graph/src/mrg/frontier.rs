@@ -5,7 +5,7 @@ use mei_host_core::HostContext;
 use mei_lang_kernel::CompiledApp;
 use serde_json::Value;
 
-use crate::assemble::board_page_scenes_for_section_scope;
+use crate::assemble::t2_page_scenes_for_section_scope;
 use crate::assemble_scope_from_registry;
 use crate::load_block_artifact;
 use crate::mcg::registry::McgRegistryWriter;
@@ -30,7 +30,7 @@ pub fn collect_eval_frontier(
     if !metrics.is_empty() {
         return augment_scalar_rowset_frontier_metrics(metrics);
     }
-    augment_scalar_rowset_frontier_metrics(collect_metrics_from_assembly_view(ctx, scope_key)?)
+    augment_scalar_rowset_frontier_metrics(collect_metrics_from_page_instance(ctx, scope_key)?)
 }
 
 pub fn collect_eval_frontier_with_hops(
@@ -42,7 +42,7 @@ pub fn collect_eval_frontier_with_hops(
     if hops == 0 {
         return Ok(metrics);
     }
-    let linked = linked_board_scenes_for_scope(ctx, scope_key, hops)?;
+    let linked = linked_t2_page_scenes_for_scope(ctx, scope_key, hops)?;
     for board_scene in linked {
         let mut board_metrics = collect_eval_frontier(ctx, board_scene.as_str())?;
         metrics.append(&mut board_metrics);
@@ -67,13 +67,13 @@ fn collect_metrics_from_compiled(scope_key: &str, compiled: &CompiledApp) -> Vec
     dedupe_frontier(out).unwrap_or_default()
 }
 
-fn collect_metrics_from_assembly_view(
+fn collect_metrics_from_page_instance(
     ctx: &HostContext,
     scope_key: &str,
 ) -> anyhow::Result<Vec<FrontierMetric>> {
     let registry = McgRegistryWriter::load(ctx.workspace_root.as_path(), ctx.app_id.as_str());
     let app_root = ctx.app_root();
-    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         let is_match = if scope_key == "home" {
             node.id.key.contains("home@")
         } else {
@@ -269,7 +269,7 @@ fn append_section_children_for_regions(
     Ok(())
 }
 
-pub fn linked_board_scenes_for_scope(
+pub fn linked_t2_page_scenes_for_scope(
     ctx: &HostContext,
     scope_key: &str,
     hops: usize,
@@ -312,8 +312,8 @@ pub fn linked_board_scenes_for_scope(
     Ok(out)
 }
 
-/// Linked section scopes plus their board page scenes (`board_assembly.scene`).
-pub fn linked_board_pack_scopes(
+/// Linked section scopes plus their board page scenes (`page_instance.scene`).
+pub fn linked_t2_page_pack_scopes(
     ctx: &HostContext,
     scope_key: &str,
     hops: usize,
@@ -324,12 +324,12 @@ pub fn linked_board_pack_scopes(
     }
     let mut seen = BTreeSet::from([scope_key.to_string()]);
     let mut out = vec![scope_key.to_string()];
-    let linked_sections = linked_board_scenes_for_scope(ctx, scope_key, hops)?;
+    let linked_sections = linked_t2_page_scenes_for_scope(ctx, scope_key, hops)?;
     for section in linked_sections.into_iter().take(max_scopes) {
         if seen.insert(section.clone()) {
             out.push(section.clone());
         }
-        for page_scene in board_page_scenes_for_section_scope(
+        for page_scene in t2_page_scenes_for_section_scope(
             ctx.workspace_root.as_path(),
             ctx.app_id.as_str(),
             section.as_str(),
@@ -368,7 +368,7 @@ pub fn board_neighbor_scope_fallback(
             if section != scope_key {
                 siblings.push(section.clone());
             }
-            for page in board_page_scenes_for_section_scope(
+            for page in t2_page_scenes_for_section_scope(
                 ctx.workspace_root.as_path(),
                 ctx.app_id.as_str(),
                 section.as_str(),

@@ -19,7 +19,7 @@ use super::viewport::{
     frame_viewport_style_for_route, viewport_overflow_is_debug,
 };
 use crate::ui::route::UiRouteMode;
-use mei_lang_kernel::PanelDecl;
+use mei_lang_kernel::UiNodeDecl;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
     CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
@@ -215,7 +215,7 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -322,7 +322,7 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -479,7 +479,7 @@ fn resolve_value_supports_shared_refs() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };

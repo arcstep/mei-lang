@@ -75,7 +75,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/api/build/panel-contract",
-            get(build_api::api_build_panel_contract),
+            get(build_api::api_build_content_panel),
         )
         .route(
             "/api/build/panel/render",
@@ -134,14 +134,6 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/ops/theme/style/*app_id",
             get(ops_api::ops_theme_style_get),
-        )
-        .route(
-            "/api/ops/layout-tuning/overlay/*app_id",
-            get(ops_api::ops_layout_tuning_overlay_get),
-        )
-        .route(
-            "/api/ops/layout-tuning/draft/*app_id",
-            put(ops_api::ops_layout_tuning_draft_put),
         )
         .route(
             "/api/ops/themes/layout/overlay/*app_id",

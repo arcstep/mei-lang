@@ -4,13 +4,11 @@ scene(id = "metric_card_solid_stack_tpl", profile = "cockpit", theme = "cockpit"
 
 world(resources = [])
 
-CORNER_DECOR_BG = (
-    "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat,"
+CORNER_DECOR_BG = "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat,"
     + "linear-gradient(#71F1EA,#71F1EA) right top / 4px 2px no-repeat,"
     + "linear-gradient(#71F1EA,#71F1EA) left bottom / 4px 2px no-repeat,"
     + "linear-gradient(#71F1EA,#71F1EA) right bottom / 4px 2px no-repeat,"
     + "rgba(98,190,235,0.10)"
-)
 
 SOLID_STACK_SHELL = {
     "chrome": "bare",
@@ -28,9 +26,9 @@ SOLID_STACK_SHELL = {
     "border": "1px solid rgba(98,190,235,0.35)",
 }
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "card_solid_stack_plain",
     area = "auto",
     show_heading = False,
@@ -45,9 +43,8 @@ frame.add_panel(
         value("200", area = "value", vertical_align = "center"),
         unit("次", area = "unit", vertical_align = "center"),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "card_solid_stack_corner",
     area = "auto",
     show_heading = False,
@@ -62,4 +59,8 @@ frame.add_panel(
         value("200", area = "value", vertical_align = "center"),
         unit("次", area = "unit", vertical_align = "center"),
     ],
+),
+    ],
 )
+
+

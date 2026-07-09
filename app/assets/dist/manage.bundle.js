@@ -8108,803 +8108,17 @@
 })(window);
 
 
-/* ===== spa-navigation/spa/layout-tuning-form.js ===== */
-/**
- * Layout tuning form: resolve preview_scope values and apply session overlay hot patches.
- */
-(function initLayoutTuningForm(global) {
-  "use strict";
-
-  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
-
-  function previewRoot() {
-    return (
-      document.querySelector("[data-manage-tab-panel='preview'] .preview-pane-scroll") ||
-      document.querySelector(".preview-pane-scroll") ||
-      document.querySelector(".preview-pane")
-    );
-  }
-
-  function normalizeScope(scope) {
-    return String(scope || "").trim();
-  }
-
-  function domEntryForScope(scope) {
-    const key = normalizeScope(scope);
-    if (!key) return null;
-    const inspect = global.MeiBuildInspectHighlight;
-    let node = document.querySelector(`[data-preview-scope="${CSS.escape(key)}"]`);
-    if (!(node instanceof HTMLElement) && inspect?.readStructureDomScope) {
-      const root = previewRoot();
-      const candidates = root
-        ? Array.from(
-            root.querySelectorAll(
-              "[data-preview-scope], [data-mei-ui-scope], [data-mei-panel-id]",
-            ),
-          )
-        : [];
-      let best = null;
-      let bestScore = -1;
-      for (const el of candidates) {
-        if (!(el instanceof HTMLElement)) continue;
-        const domScope = inspect.readStructureDomScope(el);
-        const score =
-          typeof inspect.scopeAlignScore === "function"
-            ? inspect.scopeAlignScore(domScope, key)
-            : domScope === key
-              ? 10_000
-              : 0;
-        if (score > bestScore) {
-          bestScore = score;
-          best = el;
-        }
-      }
-      node = best;
-    }
-    if (!(node instanceof HTMLElement)) return null;
-    const slotHeight =
-      node.dataset.layoutTuningSlotHeight ||
-      node.style.getPropertyValue("--mei-slot-height").replace(/px$/i, "").trim();
-    const paddingProfile = node.dataset.layoutTuningPaddingProfile || "";
-    const rowsRaw =
-      node.dataset.layoutTuningContentRows || node.dataset.manifestContentRows || "";
-    const gapRaw =
-      node.dataset.layoutTuningContentGap ||
-      node.dataset.manifestContentGap ||
-      node.style.rowGap?.replace(/px$/i, "").trim() ||
-      "";
-    const entry = {};
-    if (slotHeight) entry.slotHeight = slotHeight;
-    if (paddingProfile) entry.paddingProfile = paddingProfile;
-    const rows = rowsRaw
-      .split(",")
-      .map((part) => Number(part.trim()))
-      .filter((value) => Number.isFinite(value));
-    if (rows.length > 0 || gapRaw) {
-      entry.contentBudget = {};
-      if (rows.length > 0) entry.contentBudget.rows = rows;
-      if (gapRaw) entry.contentBudget.gap = Number(gapRaw);
-    }
-    return Object.keys(entry).length > 0 ? entry : null;
-  }
-
-  function manifestEntryForScope(scope) {
-    const key = normalizeScope(scope);
-    if (!key) return null;
-    const manifest = globalThis.__mei?.layout_budget_manifest?.entries;
-    if (!manifest || typeof manifest !== "object") return null;
-    const raw = manifest[key];
-    if (!raw || typeof raw !== "object") return null;
-    const entry = {};
-    const slotHeight = raw.slot_height_px ?? raw.slotHeightPx ?? raw.slotHeight;
-    if (slotHeight != null) entry.slotHeight = slotHeight;
-    const paddingProfile = raw.padding_profile ?? raw.paddingProfile;
-    if (paddingProfile) entry.paddingProfile = String(paddingProfile);
-    const rows = raw.content_rows ?? raw.contentRows;
-    const gap = raw.content_gap ?? raw.contentGap;
-    if ((Array.isArray(rows) && rows.length > 0) || gap != null) {
-      entry.contentBudget = {};
-      if (Array.isArray(rows) && rows.length > 0) {
-        entry.contentBudget.rows = rows.map((row) => Number(row));
-      }
-      if (gap != null && gap !== "") entry.contentBudget.gap = Number(gap);
-    }
-    return Object.keys(entry).length > 0 ? entry : null;
-  }
-
-  function mergeEntry(base, overlay) {
-    const out = { ...(base || {}) };
-    if (!overlay || typeof overlay !== "object") return out;
-    if (overlay.slotHeight != null || overlay.slot_height != null) {
-      out.slotHeight = overlay.slotHeight ?? overlay.slot_height;
-    }
-    if (overlay.paddingProfile || overlay.padding_profile) {
-      out.paddingProfile = overlay.paddingProfile ?? overlay.padding_profile;
-    }
-    const budget = overlay.contentBudget || overlay.content_budget;
-    if (budget && typeof budget === "object") {
-      out.contentBudget = { ...(out.contentBudget || {}), ...budget };
-    }
-    return out;
-  }
-
-  function ancestorScopes(scope) {
-    const parts = normalizeScope(scope).split("/").filter(Boolean);
-    const out = [];
-    while (parts.length > 0) {
-      out.push(parts.join("/"));
-      parts.pop();
-    }
-    return out;
-  }
-
-  function resolveLayoutTuningScope(previewScope) {
-    const key = normalizeScope(previewScope);
-    if (!key) return "";
-    const ancestors = ancestorScopes(key);
-    for (const candidate of ancestors) {
-      if (manifestEntryForScope(candidate)) return candidate;
-    }
-    return key;
-  }
-
-  function resolvePatchScopes(previewScope) {
-    const key = normalizeScope(previewScope);
-    const ancestors = ancestorScopes(key);
-    let rowsScope = "";
-    let slotScope = "";
-    let paddingScope = "";
-    for (const candidate of ancestors) {
-      const entry = manifestEntryForScope(candidate);
-      if (!entry) continue;
-      if (!rowsScope && entry.contentBudget?.rows?.length) rowsScope = candidate;
-      if (!paddingScope && entry.paddingProfile) paddingScope = candidate;
-      if (!slotScope && entry.slotHeight != null) slotScope = candidate;
-    }
-    const fallback = ancestors[ancestors.length - 1] || key;
-    return {
-      rows: rowsScope || fallback,
-      slot: slotScope || fallback,
-      padding: paddingScope || fallback,
-      primary: resolveLayoutTuningScope(key),
-    };
-  }
-
-  function resolveLayoutTuningEntry(scope, options) {
-    const opts = options || {};
-    const key = normalizeScope(scope);
-    if (!key) return null;
-    let entry = {};
-    for (const ancestor of ancestorScopes(key).reverse()) {
-      entry = mergeEntry(entry, manifestEntryForScope(ancestor) || {});
-    }
-    const primary = resolveLayoutTuningScope(key);
-    if (opts.overlayEntries?.[primary]) {
-      entry = mergeEntry(entry, opts.overlayEntries[primary]);
-    }
-    for (const ancestor of ancestorScopes(key)) {
-      if (opts.overlayEntries?.[ancestor]) {
-        entry = mergeEntry(entry, opts.overlayEntries[ancestor]);
-      }
-    }
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    const sessionPatches = store?.normalizeOverlayPatches?.(
-      store?.getSessionLayers?.(opts.appId)?.layoutOverlay,
-    );
-    for (const ancestor of ancestorScopes(key)) {
-      if (sessionPatches?.[ancestor]) {
-        entry = mergeEntry(entry, sessionPatches[ancestor]);
-      }
-    }
-    const domEntry = domEntryForScope(key);
-    if (domEntry) {
-      entry = mergeEntry(entry, domEntry);
-    }
-    return Object.keys(entry).length > 0 ? entry : null;
-  }
-
-  async function fetchOverlayEntries(appId) {
-    const overlayApi = global.MeiOpsLayoutTuningOverlay;
-    if (!overlayApi?.fetchOverlay || !appId) return {};
-    try {
-      const payload = await overlayApi.fetchOverlay(appId);
-      return payload?.entries && typeof payload.entries === "object" ? payload.entries : {};
-    } catch (_) {
-      return {};
-    }
-  }
-
-  function applyMergedOverlayPatches(patches, targetWindow) {
-    const view = targetWindow || global;
-    const root = previewRoot();
-    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
-    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
-      compositor.applyThemeAndOverlay(root, null, { patches: patches || {} });
-      return true;
-    }
-    const overlayApi = view.MeiOpsLayoutTuningOverlay || global.MeiOpsLayoutTuningOverlay;
-    if (overlayApi?.applyHot && patches) {
-      return false;
-    }
-    return false;
-  }
-
-  function resolveThemeLayoutScope(previewScope) {
-    const key = normalizeScope(previewScope);
-    const parts = key.split("/").filter(Boolean);
-    if (parts[0] === "home" && parts.length >= 3) {
-      return `home/${parts[1].toUpperCase()}/${parts[2]}`;
-    }
-    if (parts.length >= 1) {
-      return `home/T1/${parts[0]}`;
-    }
-    return key;
-  }
-
-  function mergedThemeLayoutPatches(appId) {
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    return (
-      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.themeLayout) || {}
-    );
-  }
-
-  function mergedSessionPatches(appId) {
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    const layoutOverlay =
-      store?.normalizeOverlayPatches?.(store?.getSessionLayers?.(appId)?.layoutOverlay) || {};
-    const themeLayout = mergedThemeLayoutPatches(appId);
-    return { ...layoutOverlay, ...themeLayout };
-  }
-
-  function applySessionHot(appId, targetWindow) {
-    const patches = mergedSessionPatches(appId);
-    const applied = applyMergedOverlayPatches(patches, targetWindow);
-    const view = targetWindow || global;
-    if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
-      try {
-        view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
-      } catch (_) {}
-    }
-    return applied;
-  }
-
-  function putSessionPatch(appId, scope, patch, options) {
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    if (!store?.putLayoutOverlayPatches) return false;
-    const key = normalizeScope(scope);
-    if (!key || !patch || typeof patch !== "object") return false;
-    store.putLayoutOverlayPatches(appId, { [key]: patch });
-    if (options?.forceRematerialize && boot.viewCompositor?.recomposeFromLayerStore) {
-      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
-      boot.viewCompositor.recomposeFromLayerStore(appId, axes);
-      return true;
-    }
-    return applySessionHot(appId, options?.targetWindow);
-  }
-
-  const debouncers = new Map();
-
-  function scheduleSessionHot(appId, scope, patch, options) {
-    const opts = options || {};
-    const delay = Number(opts.debounceMs ?? 150);
-    const token = `${appId}:${normalizeScope(scope)}`;
-    const prev = debouncers.get(token);
-    if (prev) global.clearTimeout(prev);
-    const handle = global.setTimeout(() => {
-      debouncers.delete(token);
-      putSessionPatch(appId, scope, patch, opts);
-      try {
-        global.dispatchEvent(
-          new CustomEvent("meilang:preview-updated", {
-            bubbles: true,
-            detail: {
-              scope: "layout-tuning-draft",
-              preview_scope: normalizeScope(scope),
-              resetRuntimeQueryCache: false,
-            },
-          }),
-        );
-      } catch (_) {}
-    }, delay);
-    debouncers.set(token, handle);
-  }
-
-  function applyEntryToControls(controls, entry) {
-    if (!controls || !entry || typeof entry !== "object") return;
-    const sectionRowsInput = controls.querySelector('[data-draft-field="sectionRows"]');
-    const gapInput = controls.querySelector('[data-draft-field="gap"]');
-    const compoundInput = controls.querySelector('[data-draft-field="compoundWidth"]');
-    const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-    const sectionRows = entry.sectionRows || entry.section_rows;
-    if (sectionRowsInput instanceof HTMLInputElement && Array.isArray(sectionRows)) {
-      sectionRowsInput.value = sectionRows.join(",");
-    }
-    const gap = entry.gap ?? entry.stripGap;
-    if (gapInput instanceof HTMLInputElement && gap != null) {
-      gapInput.value = String(gap);
-    }
-    const compoundWidth = entry.compoundWidth ?? entry.compound_width;
-    if (compoundInput instanceof HTMLInputElement && compoundWidth) {
-      compoundInput.value = String(compoundWidth);
-    }
-    const profile = entry.paddingProfile ?? entry.padding_profile;
-    if (paddingSelect instanceof HTMLSelectElement && profile) {
-      paddingSelect.value = String(profile);
-    }
-  }
-
-  global.MeiLayoutTuningForm = {
-    resolveLayoutTuningEntry,
-    resolveLayoutTuningScope,
-    resolveThemeLayoutScope,
-    resolvePatchScopes,
-    fetchOverlayEntries,
-    putSessionPatch,
-    scheduleSessionHot,
-    applySessionHot,
-    applyEntryToControls,
-    mergedSessionPatches,
-    domEntryForScope,
-    manifestEntryForScope,
-  };
-  boot.layoutTuningForm = global.MeiLayoutTuningForm;
-})(typeof window !== "undefined" ? window : globalThis);
-
-
-/* ===== build-layout-tuning-draft/p1.js ===== */
-/**
- * Build / 场景原型: layoutTuning session draft WYSIWYG bridge.
- * selectNode -> resolvePreviewScope -> buildDraftPatch -> putSessionDraft -> applyHot
- */
-(function initBuildLayoutTuningDraftBridge(global) {
-  "use strict";
-
-  function isLayoutWorkspaceRoute() {
-    const path = String(global.location.pathname || "");
-    if (/^\/apps\/[^/]+\/layout(?:\/|$)/.test(path)) {
-      const fromShell = String(
-        document.querySelector(".shell[data-surface]")?.getAttribute("data-surface") || "",
-      )
-        .trim()
-        .toLowerCase();
-      return !fromShell || fromShell === "layout";
-    }
-    try {
-      const boot = global.__meiLangBoot;
-      if (typeof boot?.parseViewContext === "function") {
-        const ctx = boot.parseViewContext(global.location.href);
-        return String(ctx?.surface || "").trim().toLowerCase() === "layout";
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  function isWorkspaceRoute() {
-    const path = String(global.location.pathname || "");
-    if (/^\/apps\/[^/]+\/layout(?:\/|$)/.test(path)) return isLayoutWorkspaceRoute();
-    try {
-      const boot = global.__meiLangBoot;
-      if (typeof boot?.parseViewContext === "function") {
-        const ctx = boot.parseViewContext(global.location.href);
-        const surface = String(ctx?.surface || "").trim().toLowerCase();
-        return surface === "layout";
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  function appIdFromPath() {
-    const parts = String(global.location.pathname || "")
-      .split("/")
-      .filter(Boolean);
-    const appsIdx = parts.indexOf("apps");
-    if (appsIdx >= 0 && parts[appsIdx + 1]) return parts[appsIdx + 1];
-    return String(document.querySelector(".shell[data-app-path]")?.getAttribute("data-app-path") || "")
-      .trim();
-  }
-
-  function activeBuildNode() {
-    try {
-      const fromUrl = String(new URL(global.location.href).searchParams.get("node") || "").trim();
-      if (fromUrl) return fromUrl;
-    } catch (_) {}
-    return String(document.querySelector(".shell[data-build-node]")?.getAttribute("data-build-node") || "")
-      .trim();
-  }
-
-  function readUiScopeMetaFromTree(nodeId) {
-    const inspect = global.MeiBuildInspectHighlight;
-    if (typeof inspect?.readUiScopeMetaFromNode === "function") {
-      return inspect.readUiScopeMetaFromNode(nodeId);
-    }
-    const id = String(nodeId || "").trim();
-    if (!id) return null;
-    const script = document.getElementById("mei-build-reachability-tree");
-    if (!script) return null;
-    try {
-      const roots = JSON.parse(script.textContent || "[]");
-      if (!Array.isArray(roots)) return null;
-      const flat =
-        roots.length > 0 &&
-        typeof roots[0]?.node_id === "string" &&
-        (Object.prototype.hasOwnProperty.call(roots[0], "parent_id") ||
-          (Array.isArray(roots[0]?.children) &&
-            roots[0].children.length > 0 &&
-            typeof roots[0].children[0] === "string") ||
-          (Array.isArray(roots[0]?.children) && roots[0].children.length === 0));
-      if (flat) {
-        const node = roots.find((entry) => String(entry?.node_id || "").trim() === id);
-        if (!node) return null;
-        return {
-          preview_scope: String(node.preview_scope || "").trim(),
-          ui_role: String(node.ui_role || node.badges?.[0] || "").trim(),
-        };
-      }
-      const walk = (nodes) => {
-        for (const node of nodes || []) {
-          if (node?.node_id === id) {
-            return {
-              preview_scope: String(node.preview_scope || "").trim(),
-              ui_role: String(node.ui_role || node.badges?.[0] || "").trim(),
-            };
-          }
-          const nested = walk(node.children);
-          if (nested) return nested;
-        }
-        return null;
-      };
-      for (const root of roots) {
-        const found = walk(root.children);
-        if (found) return found;
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  function resolvePreviewScopeFromSelection() {
-    const host = document.querySelector(
-      ".preview-pane-scroll[data-build-inspect-scope], .preview-pane-scroll[data-build-inspect-active]",
-    );
-    const scopeFromHost = String(host?.getAttribute("data-build-inspect-scope") || "").trim();
-    const rawScope = (() => {
-      if (scopeFromHost) return scopeFromHost;
-      const node = activeBuildNode();
-      if (node.startsWith("ui-scope:")) {
-        const meta = readUiScopeMetaFromTree(node);
-        if (meta?.preview_scope) return meta.preview_scope;
-      }
-      if (node.startsWith("scene-panel:") || node.startsWith("scene-block:")) {
-        const encoded = node.replace(/^scene-(?:panel|block):/i, "");
-        const slash = encoded.indexOf("/");
-        if (slash >= 0) return encoded.slice(slash + 1);
-      }
-      const selected = document.querySelector(
-        "[data-manage-tab-panel='preview'] .build-inspect-selected[data-preview-scope], [data-manage-tab-panel='preview'] .build-inspect-selected[data-mei-panel-id]",
-      );
-      if (selected instanceof HTMLElement) {
-        return String(
-          selected.getAttribute("data-preview-scope") ||
-            selected.getAttribute("data-mei-ui-scope") ||
-            selected.getAttribute("data-mei-panel-id") ||
-            "",
-        ).trim();
-      }
-      return "";
-    })();
-    const formApi = global.MeiLayoutTuningForm;
-    if (formApi?.resolveLayoutTuningScope) {
-      return formApi.resolveLayoutTuningScope(rawScope);
-    }
-    return rawScope;
-  }
-
-  function themeLayoutScopeForPreview(previewScope) {
-    const raw = String(previewScope || "").trim();
-    if (!raw) return "";
-    const parts = raw.split("/").filter(Boolean);
-    if (parts.length >= 2 && parts[0] === "home") {
-      const tier = parts[1].toUpperCase();
-      const tail = parts.slice(1).join("/");
-      return `home/${tier}/${tail.split("/")[0]}`;
-    }
-    return raw.split("/").slice(0, 2).join("/");
-  }
-
-  function buildDraftPatch(previewScope, fields) {
-    const rawScope = String(previewScope || "").trim();
-    if (!rawScope) return null;
-    const layoutScope =
-      global.MeiLayoutTuningForm?.resolveThemeLayoutScope?.(rawScope) ||
-      themeLayoutScopeForPreview(rawScope);
-    const layout = {};
-    const sectionRows = fields?.sectionRows;
-    if (Array.isArray(sectionRows) && sectionRows.length > 0) {
-      layout[layoutScope] = {
-        ...(layout[layoutScope] || {}),
-        sectionRows: sectionRows.map((row) => String(row).trim()).filter(Boolean),
-      };
-    }
-    const paddingProfile = String(fields?.paddingProfile || "").trim();
-    if (paddingProfile) {
-      const paddingScope =
-        global.MeiLayoutTuningForm?.resolveLayoutTuningScope?.(rawScope) || rawScope;
-      layout[paddingScope] = {
-        ...(layout[paddingScope] || {}),
-        paddingProfile,
-      };
-    }
-    const compoundWidth = String(fields?.compoundWidth || "").trim();
-    if (compoundWidth) {
-      layout[rawScope] = {
-        ...(layout[rawScope] || {}),
-        compoundWidth,
-      };
-    }
-    const gap = fields?.gap;
-    if (gap != null && gap !== "") {
-      layout[layoutScope] = {
-        ...(layout[layoutScope] || {}),
-        gap: String(gap).trim(),
-      };
-    }
-    if (Object.keys(layout).length === 0) return null;
-    return { layout, primaryScope: layoutScope };
-  }
-
-  function inspectBarRoot() {
-    return document.getElementById("build-inspect-bar");
-  }
-
-  function ensureDraftControls() {
-    const bar = inspectBarRoot();
-    if (!bar) return null;
-    let controls = bar.querySelector("#build-layout-tuning-draft-controls");
-    if (controls instanceof HTMLElement) return controls;
-    controls = document.createElement("div");
-    controls.id = "build-layout-tuning-draft-controls";
-    controls.className = "build-layout-tuning-draft-controls flex flex-wrap items-center gap-2 mt-2";
-    controls.hidden = true;
-    controls.innerHTML = [
-      '<label class="flex items-center gap-1 text-xs">',
-      "<span>sectionRows</span>",
-      '<input type="text" data-draft-field="sectionRows" placeholder="1fr,2fr,3fr" class="w-28 rounded border px-1 py-0.5 text-xs" />',
-      "</label>",
-      '<label class="flex items-center gap-1 text-xs">',
-      "<span>padding</span>",
-      '<select data-draft-field="paddingProfile" class="rounded border px-1 py-0.5 text-xs">',
-      '<option value="">—</option>',
-      '<option value="compact">compact</option>',
-      '<option value="comfortable">comfortable</option>',
-      '<option value="spacious">spacious</option>',
-      "</select>",
-      "</label>",
-      '<label class="flex items-center gap-1 text-xs">',
-      "<span>gap</span>",
-      '<input type="text" data-draft-field="gap" placeholder="12px" class="w-16 rounded border px-1 py-0.5 text-xs" />',
-      "</label>",
-      '<label class="flex items-center gap-1 text-xs">',
-      "<span>compoundW</span>",
-      '<input type="text" data-draft-field="compoundWidth" placeholder="220px" class="w-16 rounded border px-1 py-0.5 text-xs" />',
-      "</label>",
-      '<button type="button" data-draft-apply class="build-toolbar-btn text-xs">应用 draft 预览</button>',
-      '<button type="button" data-draft-persist class="build-toolbar-btn text-xs">应用到配置</button>',
-      '<span data-draft-scope class="text-xs opacity-70"></span>',
-    ].join("");
-    bar.appendChild(controls);
-    controls.querySelector("[data-draft-apply]")?.addEventListener("click", () => {
-      void applyDraftFromControls();
-    });
-    controls.querySelector("[data-draft-persist]")?.addEventListener("click", () => {
-      void applyDraftFromControls({ persist: true });
-    });
-    if (!controls.__layoutTuningLiveBound) {
-      controls.__layoutTuningLiveBound = true;
-      const onLiveChange = () => {
-        if (!isLayoutWorkspaceRoute()) return;
-        const appId = appIdFromPath();
-        const scope = resolvePreviewScopeFromSelection();
-        if (!appId || !scope) return;
-        const sectionRowsInput = controls.querySelector('[data-draft-field="sectionRows"]');
-        const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-        const gapInput = controls.querySelector('[data-draft-field="gap"]');
-        const compoundInput = controls.querySelector('[data-draft-field="compoundWidth"]');
-        const sectionRows =
-          sectionRowsInput instanceof HTMLInputElement && sectionRowsInput.value
-            ? sectionRowsInput.value
-                .split(",")
-                .map((part) => part.trim())
-                .filter(Boolean)
-            : null;
-        const built = buildDraftPatch(scope, {
-          sectionRows,
-          paddingProfile:
-            paddingSelect instanceof HTMLSelectElement ? paddingSelect.value : "",
-          gap: gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
-          compoundWidth:
-            compoundInput instanceof HTMLInputElement && compoundInput.value
-              ? compoundInput.value
-              : null,
-        });
-        if (!built?.layout || Object.keys(built.layout).length === 0) return;
-        void global.MeiOpsThemeLayoutOverlay?.putSessionDraft?.(appId, built.layout);
-        const formApi = global.MeiLayoutTuningForm;
-        if (formApi?.applySessionHot) {
-          formApi.applySessionHot(appId);
-        } else if (formApi?.scheduleSessionHot) {
-          for (const [patchScope, patch] of Object.entries(built.tuning)) {
-            formApi.scheduleSessionHot(appId, patchScope, patch, { debounceMs: 150 });
-          }
-        }
-      };
-      controls.addEventListener("input", onLiveChange);
-      controls.addEventListener("change", onLiveChange);
-    }
-    return controls;
-  }
-
-  async function applyDraftFromControls(options) {
-    if (!isWorkspaceRoute()) return;
-    const overlay = global.MeiOpsThemeLayoutOverlay || global.MeiOpsLayoutTuningOverlay;
-    if (!overlay?.putSessionDraft || !overlay?.applyHot) return;
-    const appId = appIdFromPath();
-    if (!appId) return;
-    const controls = ensureDraftControls();
-    if (!controls) return;
-    const scope = resolvePreviewScopeFromSelection();
-    if (!scope) return;
-    const sectionRowsInput = controls.querySelector('[data-draft-field="sectionRows"]');
-    const paddingSelect = controls.querySelector('[data-draft-field="paddingProfile"]');
-    const gapInput = controls.querySelector('[data-draft-field="gap"]');
-    const compoundInput = controls.querySelector('[data-draft-field="compoundWidth"]');
-    const sectionRows =
-      sectionRowsInput instanceof HTMLInputElement && sectionRowsInput.value
-        ? sectionRowsInput.value
-            .split(",")
-            .map((part) => part.trim())
-            .filter(Boolean)
-        : null;
-    const patch = buildDraftPatch(scope, {
-      sectionRows,
-      paddingProfile:
-        paddingSelect instanceof HTMLSelectElement ? paddingSelect.value : "",
-      gap: gapInput instanceof HTMLInputElement && gapInput.value ? gapInput.value : null,
-      compoundWidth:
-        compoundInput instanceof HTMLInputElement && compoundInput.value
-          ? compoundInput.value
-          : null,
-    });
-    if (!patch) return;
-    await overlay.putSessionDraft(appId, patch.layout);
-    if (options?.persist && typeof overlay.applyDraftToConfig === "function") {
-      await overlay.applyDraftToConfig(appId);
-    }
-    try {
-      global.dispatchEvent(
-        new CustomEvent("meilang:preview-updated", {
-          bubbles: true,
-          detail: {
-            scope: "theme-layout-draft",
-            preview_scope: scope,
-            resetRuntimeQueryCache: false,
-          },
-        }),
-      );
-    } catch (_) {}
-  }
-
-  function syncDraftControls() {
-    if (!isWorkspaceRoute()) return;
-    const controls = ensureDraftControls();
-    if (!controls) return;
-    const scope = resolvePreviewScopeFromSelection();
-    const scopeLabel = controls.querySelector("[data-draft-scope]");
-    if (!(scopeLabel instanceof HTMLElement)) return;
-    if (!scope) {
-      controls.hidden = true;
-      scopeLabel.textContent = "";
-      return;
-    }
-    controls.hidden = false;
-    const displayScope =
-      global.MeiLayoutTuningForm?.resolveLayoutTuningScope?.(scope) || scope;
-    scopeLabel.textContent = `scope: ${scope}${displayScope !== scope ? ` → ${displayScope}` : ""}`;
-    const formApi = global.MeiLayoutTuningForm;
-    const appId = appIdFromPath();
-    const fillFromEntry = (entry) => {
-      if (formApi?.applyEntryToControls) {
-        formApi.applyEntryToControls(controls, entry);
-      }
-    };
-    if (formApi?.resolveLayoutTuningEntry) {
-      const local = formApi.resolveLayoutTuningEntry(scope, { appId });
-      if (local) fillFromEntry(local);
-    }
-    const overlay = global.MeiOpsThemeLayoutOverlay || global.MeiOpsLayoutTuningOverlay;
-    if (appId && overlay?.fetchOverlay) {
-      void overlay
-        .fetchOverlay(appId)
-        .then((payload) => {
-          const layoutScope =
-            formApi?.resolveThemeLayoutScope?.(scope) || themeLayoutScopeForPreview(scope);
-          const entry =
-            payload?.entries?.[layoutScope] ||
-            payload?.entries?.[scope] ||
-            (formApi?.resolveLayoutTuningEntry
-              ? formApi.resolveLayoutTuningEntry(scope, {
-                  appId,
-                  overlayEntries: payload?.entries || {},
-                })
-              : null);
-          if (entry) fillFromEntry(entry);
-        })
-        .catch(() => {});
-    }
-  }
-
-  function selectionMetaFromActiveNode() {
-    const node = activeBuildNode();
-    if (!node.startsWith("ui-scope:")) return null;
-    return readUiScopeMetaFromTree(node);
-  }
-
-  function scheduleSync() {
-    global.requestAnimationFrame(() => {
-      syncDraftControls();
-      const meta = selectionMetaFromActiveNode();
-      if (meta?.preview_scope && global.__meiLangBoot?.wysiwygPanelApi?.openPanelForSelection) {
-        global.__meiLangBoot.wysiwygPanelApi.openPanelForSelection(meta);
-      }
-    });
-  }
-
-  global.addEventListener("mei:build-node-selected", () => {
-    scheduleSync();
-  });
-  global.addEventListener("popstate", scheduleSync);
-  global.addEventListener("meilang:preview-updated", scheduleSync);
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scheduleSync);
-  } else {
-    scheduleSync();
-  }
-  document.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return;
-    if (
-      target.closest("[data-build-node]") ||
-      target.closest("[data-preview-scope]") ||
-      target.closest(".build-reachability-tree")
-    ) {
-      scheduleSync();
-    }
-  });
-
-  global.MeiBuildLayoutTuningDraft = {
-    resolvePreviewScopeFromSelection,
-    buildDraftPatch,
-    applyDraftFromControls,
-    syncDraftControls,
-  };
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scheduleSync, { once: true });
-  } else {
-    scheduleSync();
-  }
-})(window);
-
-
 /* ===== manage-ops-panel/p4.js ===== */
-(function initManageOpsLayoutTuningOverlay() {
+(function initManageOpsThemeLayoutOverlay() {
   const global = window;
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
 
-  function notifyLayoutTuningOverlay(reason) {
+  function notifyThemeLayoutOverlay(reason) {
     try {
       global.dispatchEvent(
         new CustomEvent("meilang:preview-updated", {
           bubbles: true,
-          detail: { reason: reason || "layout-tuning-overlay", resetRuntimeQueryCache: false },
+          detail: { reason: reason || "theme-layout-overlay", resetRuntimeQueryCache: false },
         }),
       );
     } catch (_) {}
@@ -8923,174 +8137,6 @@
     return { "x-mei-draft-session": ensureDraftSessionId() };
   }
 
-  async function fetchOverlay(appId) {
-    const resp = await fetch(
-      `/api/ops/layout-tuning/overlay/${encodeURIComponent(appId)}`,
-      {
-        credentials: "same-origin",
-        headers: { Accept: "application/json", ...draftSessionHeaders() },
-      },
-    );
-    if (!resp.ok) throw new Error(`layoutTuning overlay failed: ${resp.status}`);
-    return resp.json();
-  }
-
-  function applyContentBudgetToNode(node, budget) {
-    if (!(node instanceof HTMLElement) || !budget || typeof budget !== "object") return false;
-    let patched = false;
-    const rows = budget.rows ?? budget.content_rows ?? budget.contentRows;
-    const gap = budget.gap ?? budget.content_gap ?? budget.contentGap;
-    if (Array.isArray(rows) && rows.length > 0) {
-      const total = rows.reduce((sum, row) => sum + Number(row), 0);
-      if (total > 0) {
-        node.style.gridTemplateRows = rows
-          .map((row) => `${(Number(row) / total) * 100}fr`)
-          .join(" ");
-      } else {
-        node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
-      }
-      node.dataset.layoutTuningContentRows = rows.join(",");
-      patched = true;
-    }
-    if (gap != null && gap !== "") {
-      node.style.rowGap = `${gap}px`;
-      node.dataset.layoutTuningContentGap = String(gap);
-      patched = true;
-    }
-    return patched;
-  }
-
-  function applyOverlayEntries(root, entries) {
-    if (!(root instanceof HTMLElement) || !entries || typeof entries !== "object") return false;
-    let patched = false;
-    Object.entries(entries).forEach(([scope, patch]) => {
-      if (!patch || typeof patch !== "object") return;
-      const selector = `[data-preview-scope="${CSS.escape(scope)}"]`;
-      const node = root.querySelector(selector);
-      if (!(node instanceof HTMLElement)) return;
-      const slotHeight =
-        patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
-      if (slotHeight != null) {
-        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
-        node.dataset.layoutTuningSlotHeight = String(slotHeight);
-        patched = true;
-      }
-      const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
-      if (paddingProfile) {
-        node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
-        patched = true;
-      }
-      const contentBudget = patch.content_budget ?? patch.contentBudget;
-      if (applyContentBudgetToNode(node, contentBudget)) {
-        patched = true;
-      }
-    });
-    return patched;
-  }
-
-  async function applyLayoutTuningOverlayHot(appId, targetWindow) {
-    const view = targetWindow || global;
-    const payload = await fetchOverlay(appId);
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    const sessionPatches = store?.normalizeOverlayPatches?.(
-      store?.getSessionLayers?.(appId)?.layoutOverlay,
-    );
-    const merged = { ...(payload.entries || {}), ...(sessionPatches || {}) };
-    const root =
-      view.document.querySelector(".preview-pane-scroll") ||
-      view.document.querySelector(".preview-pane");
-    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
-    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
-      compositor.applyThemeAndOverlay(root, null, { patches: merged });
-      notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
-      if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
-        try {
-          view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
-        } catch (_) {}
-      }
-      return;
-    }
-    if (applyOverlayEntries(root, merged)) {
-      notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
-      if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
-        try {
-          view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
-        } catch (_) {}
-      }
-    }
-  }
-
-  async function putSessionDraft(appId, tuning, options) {
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    if (!store?.putLayoutOverlayPatches) {
-      throw new Error("draft layer store unavailable");
-    }
-    store.putLayoutOverlayPatches(appId, tuning);
-    if (options?.forceRematerialize) {
-      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
-      if (boot.viewCompositor?.recomposeFromLayerStore) {
-        boot.viewCompositor.recomposeFromLayerStore(appId, axes);
-      }
-    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
-      global.MeiLayoutTuningForm.applySessionHot(appId);
-    } else {
-      await applyLayoutTuningOverlayHot(appId);
-    }
-    notifyLayoutTuningOverlay("layout-tuning-draft");
-    return { ok: true, local: true };
-  }
-
-  function activeSceneId() {
-    try {
-      const fromAxes = boot.sceneManifestLoader?.readShellAxes?.()?.scene;
-      if (fromAxes) return String(fromAxes).trim();
-      return (
-        String(new URL(global.location.href).searchParams.get("scene") || "home").trim() || "home"
-      );
-    } catch (_) {
-      return "home";
-    }
-  }
-
-  async function applyDraftToConfig(appId) {
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    const tuning = store?.normalizeOverlayPatches?.(
-      store?.getSessionLayers?.(appId)?.layoutOverlay,
-    );
-    const resp = await fetch(
-      `/api/ops/layout-tuning/apply/${encodeURIComponent(appId)}`,
-      {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...draftSessionHeaders(),
-        },
-        body: JSON.stringify({ tuning: tuning || {} }),
-      },
-    );
-    if (!resp.ok) throw new Error(`layoutTuning apply failed: ${resp.status}`);
-    const payload = await resp.json();
-    store?.clearSession?.(appId);
-    if (boot.sceneManifestLoader?.fetchManifest) {
-      try {
-        const axes = boot.sceneManifestLoader.readShellAxes?.() || {};
-        await boot.sceneManifestLoader.fetchManifest(appId, activeSceneId(), axes);
-      } catch (_) {}
-    }
-    notifyLayoutTuningOverlay("layout-tuning-persisted");
-    return payload;
-  }
-
-  global.MeiOpsLayoutTuningOverlay = {
-    applyHot: applyLayoutTuningOverlayHot,
-    putSessionDraft,
-    applyDraftToConfig,
-    fetchOverlay,
-    notify: notifyLayoutTuningOverlay,
-  };
-
   async function fetchThemeLayoutOverlay(appId) {
     const resp = await fetch(
       `/api/ops/themes/layout/overlay/${encodeURIComponent(appId)}`,
@@ -9101,6 +8147,31 @@
     );
     if (!resp.ok) throw new Error(`theme.layout overlay failed: ${resp.status}`);
     return resp.json();
+  }
+
+  function applyThemeLayoutPatches(root, entries) {
+    if (!(root instanceof HTMLElement) || !entries || typeof entries !== "object") return;
+    Object.entries(entries).forEach(([scope, patch]) => {
+      if (!patch || typeof patch !== "object") return;
+      const node =
+        root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`) ||
+        root.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
+      if (!(node instanceof HTMLElement)) return;
+      const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
+      if (paddingProfile) {
+        node.dataset.manifestPaddingProfile = String(paddingProfile);
+      }
+      const sectionRows = patch.sectionRows || patch.section_rows;
+      if (Array.isArray(sectionRows) && sectionRows.length > 0) {
+        node.style.display = "grid";
+        node.style.gridTemplateRows = sectionRows.map((row) => String(row)).join(" ");
+        node.dataset.manifestSectionRows = sectionRows.join(",");
+      }
+      const gap = patch.gap ?? patch.stripGap;
+      if (gap != null && gap !== "") {
+        node.style.gap = String(gap).endsWith("px") ? String(gap) : `${gap}px`;
+      }
+    });
   }
 
   async function applyThemeLayoutOverlayHot(appId, targetWindow) {
@@ -9117,11 +8188,12 @@
     const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
     if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
       compositor.applyThemeAndOverlay(root, null, { patches: merged });
-      notifyLayoutTuningOverlay("theme-layout-overlay");
-      return;
+      notifyThemeLayoutOverlay("theme-layout-overlay");
+      return payload;
     }
-    applyOverlayEntries(root, merged);
-    notifyLayoutTuningOverlay("theme-layout-overlay");
+    applyThemeLayoutPatches(root, merged);
+    notifyThemeLayoutOverlay("theme-layout-overlay");
+    return payload;
   }
 
   async function putThemeLayoutSessionDraft(appId, layout, options) {
@@ -9133,12 +8205,10 @@
     if (options?.forceRematerialize && boot.viewCompositor?.recomposeFromLayerStore) {
       const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
       boot.viewCompositor.recomposeFromLayerStore(appId, axes);
-    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
-      global.MeiLayoutTuningForm.applySessionHot(appId);
     } else {
       await applyThemeLayoutOverlayHot(appId);
     }
-    notifyLayoutTuningOverlay("theme-layout-draft");
+    notifyThemeLayoutOverlay("theme-layout-draft");
     return { ok: true, local: true };
   }
 
@@ -9163,17 +8233,25 @@
     if (!resp.ok) throw new Error(`theme.layout apply failed: ${resp.status}`);
     const payload = await resp.json();
     store?.clearSession?.(appId);
-    notifyLayoutTuningOverlay("theme-layout-persisted");
+    notifyThemeLayoutOverlay("theme-layout-persisted");
     return payload;
   }
 
-  global.MeiOpsThemeLayoutOverlay = {
+  async function refreshThemeLayoutOverlay(appId, root) {
+    if (!appId) return null;
+    return applyThemeLayoutOverlayHot(appId, root?.ownerDocument?.defaultView || global);
+  }
+
+  boot.MeiOpsThemeLayoutOverlay = {
+    refresh: refreshThemeLayoutOverlay,
+    applyPatches: applyThemeLayoutPatches,
     applyHot: applyThemeLayoutOverlayHot,
     putSessionDraft: putThemeLayoutSessionDraft,
     applyDraftToConfig: applyThemeLayoutDraftToConfig,
     fetchOverlay: fetchThemeLayoutOverlay,
-    notify: notifyLayoutTuningOverlay,
+    notify: notifyThemeLayoutOverlay,
   };
+  global.MeiOpsThemeLayoutOverlay = boot.MeiOpsThemeLayoutOverlay;
 })();
 
 
@@ -12026,7 +11104,7 @@
 
 
 
-/* ===== spa-navigation/drilldown/board-link.js ===== */
+/* ===== spa-navigation/drilldown/t2-page-link.js ===== */
   function normalizeSceneParams(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
     const normalized = {};
@@ -18415,7 +17493,7 @@
 
 
 
-/* ===== spa-navigation/drilldown/render-frame-board.js ===== */
+/* ===== spa-navigation/drilldown/render-frame-t2-page.js ===== */
   async function composeBoardSceneSurface(appId, sceneId) {
     const ctx = {
       app_id: appId,
@@ -26542,8 +25620,8 @@
     return pathMatch ? pathMatch[1] : "";
   }
 
-  function maybeApplyLayoutTuningOverlay(doc) {
-    const overlay = global.MeiOpsLayoutTuningOverlay;
+  function maybeApplyThemeLayoutOverlay(doc) {
+    const overlay = global.MeiOpsThemeLayoutOverlay || boot.MeiOpsThemeLayoutOverlay;
     if (!overlay?.applyHot) return;
     const appId = resolveBuildAppId(doc);
     if (!appId) return;
@@ -26579,7 +25657,7 @@
           if (typeof boot.mountManagePreviewBoard === "function") {
             void boot.mountManagePreviewBoard(document);
           }
-          maybeApplyLayoutTuningOverlay(document);
+          maybeApplyThemeLayoutOverlay(document);
         });
       });
     });
@@ -26594,7 +25672,7 @@
 
 
 
-/* ===== spa-navigation/spa/manage-preview-board.js ===== */
+/* ===== spa-navigation/spa/manage-preview-t2-page.js ===== */
   const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
   const MAX_BOARD_MOUNT_POOL = 6;
   const boardMountPool = new Map();
@@ -26852,10 +25930,10 @@
 
   function showManagePreviewBoardError(surface, message, detail = null) {
     if (!(surface instanceof HTMLElement)) return;
-    let banner = surface.querySelector("[data-manage-preview-board-error]");
+    let banner = surface.querySelector("[data-manage-preview-t2-page-error]");
     if (!(banner instanceof HTMLElement)) {
       banner = document.createElement("div");
-      banner.className = "access-drilldown-overlay-status manage-preview-board-error";
+      banner.className = "access-drilldown-overlay-status manage-preview-t2-page-error";
       banner.dataset.managePreviewBoardError = "true";
       banner.style.margin = "12px";
       surface.prepend(banner);
@@ -27012,7 +26090,7 @@
       mountStructuredRowPreviewZone(surface, zoneHosts, resolved);
     }
 
-    surface.querySelector("[data-manage-preview-board-error]")?.remove();
+    surface.querySelector("[data-manage-preview-t2-page-error]")?.remove();
 
     repairManagePreviewBoardGrid(surface, resolved.sceneShell);
     refreshManagePreviewBoardCharts(surface);
@@ -29890,7 +28968,7 @@
 
 /* ===== spa-navigation/spa/draft-layer-store.js ===== */
 /**
- * Client-only session draft layers (theme.tokens.session / layout.overlay.session).
+ * Client-only session draft layers (theme.tokens.session / theme.layout.session).
  * Not included in server manifest digest.
  */
 (function initDraftLayerStore(global) {
@@ -29943,8 +29021,6 @@
     if (doc.patches && typeof doc.patches === "object") return { ...doc.patches };
     const entries = doc.entries;
     if (entries && typeof entries === "object") return { ...entries };
-    const tuning = doc.tuning;
-    if (tuning && typeof tuning === "object") return { ...tuning };
     return {};
   }
 
@@ -29973,22 +29049,8 @@
     return overlayDocFromPatches({ ...basePatches, ...sessionPatches });
   }
 
-  function readLayoutOverlaySession(appId) {
-    return readJson(storageKey(appId, "layout.overlay.session"));
-  }
-
   function readThemeTokensSession(appId) {
     return readJson(storageKey(appId, "theme.tokens.session"));
-  }
-
-  function putLayoutOverlayPatches(appId, tuning) {
-    const app = String(appId || "").trim();
-    if (!app || !tuning || typeof tuning !== "object") return false;
-    const key = storageKey(app, "layout.overlay.session");
-    const current = normalizeOverlayPatches(readJson(key));
-    const next = overlayDocFromPatches({ ...current, ...tuning });
-    writeJson(key, next);
-    return true;
   }
 
   function putThemeTokensPatch(appId, tokens) {
@@ -30020,7 +29082,6 @@
 
   function getSessionLayers(appId) {
     return {
-      layoutOverlay: readLayoutOverlaySession(appId),
       themeLayout: readThemeLayoutSession(appId),
       themeTokens: readThemeTokensSession(appId),
     };
@@ -30029,18 +29090,15 @@
   function clearSession(appId) {
     const app = String(appId || "").trim();
     if (!app) return;
-    removeJson(storageKey(app, "layout.overlay.session"));
     removeJson(storageKey(app, "theme.layout.session"));
     removeJson(storageKey(app, "theme.tokens.session"));
   }
 
   function hasSessionDraft(appId) {
     const layers = getSessionLayers(appId);
-    const overlayPatches = normalizeOverlayPatches(layers.layoutOverlay);
     const themeLayoutPatches = normalizeOverlayPatches(layers.themeLayout);
     const theme = themeDocFromTokens(layers.themeTokens);
     return (
-      Object.keys(overlayPatches).length > 0 ||
       Object.keys(themeLayoutPatches).length > 0 ||
       Object.keys(theme.colors).length > 0 ||
       Object.keys(theme.fonts).length > 0
@@ -30049,7 +29107,6 @@
 
   global.MeiDraftLayerStore = {
     ensureDraftSessionId,
-    putLayoutOverlayPatches,
     putThemeLayoutPatches,
     putThemeTokensPatch,
     getSessionLayers,
@@ -30066,8 +29123,8 @@
 /* ===== spa-navigation/spa/view-compositor.js ===== */
 /**
  * ViewCompositor: compose review_projection depth without refetching structure.full.
- * layoutTuning dataset attrs are legacy author-model hints only — new surfaces must use
- * manifest projection / layout_policy from composed layers, not ops.layoutTuning bypasses.
+ * Layout overlays come from ops.themes.*.layout (+ theme.layout session draft) and
+ * manifest / layout_policy projection.
  */
 (function initViewCompositor(global) {
   "use strict";
@@ -30145,37 +29202,9 @@
         if (!patch || typeof patch !== "object") return;
         const node = resolveLayoutOverlayNode(root, scope);
         if (!(node instanceof HTMLElement)) return;
-        const slotHeight =
-          patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
-        if (slotHeight != null && slotHeight !== "") {
-          const numeric = Number(String(slotHeight).replace(/px$/i, "").trim());
-          const px = Number.isFinite(numeric) ? `${numeric}px` : String(slotHeight);
-          node.style.setProperty("--mei-slot-height", px);
-          node.dataset.manifestSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
-        }
         const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
         if (paddingProfile) {
           node.dataset.manifestPaddingProfile = String(paddingProfile);
-        }
-        const contentBudget = patch.contentBudget || patch.content_budget;
-        if (contentBudget && typeof contentBudget === "object") {
-          const rows = contentBudget.rows || contentBudget.content_rows;
-          if (Array.isArray(rows) && rows.length > 0) {
-            const total = rows.reduce((sum, row) => sum + Number(row), 0);
-            if (total > 0) {
-              node.style.gridTemplateRows = rows
-                .map((row) => `${(Number(row) / total) * 100}fr`)
-                .join(" ");
-            } else {
-              node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
-            }
-            node.dataset.manifestContentRows = rows.join(",");
-          }
-          const gap = contentBudget.gap ?? contentBudget.content_gap;
-          if (gap != null && gap !== "") {
-            node.style.rowGap = `${gap}px`;
-            node.dataset.manifestContentGap = String(gap);
-          }
         }
         const sectionRows = patch.sectionRows || patch.section_rows;
         const manifestEntry = globalThis.__mei?.layout_budget_manifest?.entries?.[scope];
@@ -30210,7 +29239,7 @@
           node.style.setProperty("--mei-t1-header-height", String(headerHeight));
         }
         const gapFr = patch.gap ?? patch.stripGap;
-        if (gapFr != null && gapFr !== "" && !contentBudget) {
+        if (gapFr != null && gapFr !== "") {
           node.style.gap = String(gapFr).endsWith("px") ? String(gapFr) : `${gapFr}px`;
         }
       });
@@ -30335,7 +29364,7 @@
       ? store.mergeThemeDocs(persistedTheme, session.themeTokens)
       : persistedTheme;
     const overlayEffective = store?.mergeOverlayDocs
-      ? store.mergeOverlayDocs(persistedOverlay, session.layoutOverlay)
+      ? store.mergeOverlayDocs(persistedOverlay, session.themeLayout)
       : persistedOverlay;
     return { themeEffective, overlayEffective };
   }
@@ -30784,12 +29813,27 @@
 
   function isSectionHeadScope(scopeKey) {
     const scope = String(scopeKey || "").trim().toLowerCase();
-    return scope.endsWith("/head") || scope.endsWith("/head/mei.text");
+    return (
+      scope.endsWith("/head") ||
+      scope.endsWith("/head/mei.text") ||
+      scope.endsWith("/title_zone") ||
+      scope.endsWith("/title_zone/mei.text")
+    );
+  }
+
+  function isSectionHeadMeiTextScope(scopeKey) {
+    const scope = String(scopeKey || "").trim().toLowerCase();
+    return scope.endsWith("/head/mei.text") || scope.endsWith("/title_zone/mei.text");
+  }
+
+  function isIgnoredSectionHeadLabel(label) {
+    const normalized = String(label || "").trim().toLowerCase();
+    return !normalized || normalized === "head" || normalized === "title_zone";
   }
 
   function resolveEvalSlotLabel(entry) {
     const label = String(entry?.label || "").trim();
-    if (!label || label.toLowerCase() === "head") return "";
+    if (isIgnoredSectionHeadLabel(label)) return "";
     return label;
   }
 
@@ -30902,14 +29946,11 @@
 
   function applyHeadSlotLabel(container, labelText) {
     const label = String(labelText || "").trim();
-    if (!label || label.toLowerCase() === "head") return false;
-    const isHead =
-      container.matches?.('[data-preview-scope$="/head"]') ||
-      container.matches?.('[data-preview-scope$="/head/mei.text"]');
-    const headSlot = isHead
-      ? container
-      : container.closest('[data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]') ||
-        container;
+    if (isIgnoredSectionHeadLabel(label)) return false;
+    const headScopeSelector =
+      '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], [data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]';
+    const isHead = container.matches?.(headScopeSelector);
+    const headSlot = isHead ? container : container.closest(headScopeSelector) || container;
     if (!(headSlot instanceof HTMLElement)) return false;
     headSlot.setAttribute("data-mei-eval-label", label);
     return true;
@@ -30994,8 +30035,7 @@
   }
 
   function filterMountsForScope(scopeKey, mounts) {
-    const scope = String(scopeKey || "").trim().toLowerCase();
-    if (!scope.endsWith("/head") && !scope.endsWith("/head/mei.text")) {
+    if (!isSectionHeadScope(scopeKey)) {
       return mounts || [];
     }
     return (mounts || []).filter((mount) => {
@@ -31271,7 +30311,7 @@
     if (!(headSlot instanceof HTMLElement)) return;
     if (headSlot.getAttribute("data-mei-section-head-chrome") === "1") return;
     const scope = String(headSlot.getAttribute("data-preview-scope") || "");
-    if (!scope.endsWith("/head") && !scope.endsWith("/head/mei.text")) return;
+    if (!isSectionHeadScope(scope)) return;
 
     let titleText = String(headSlot.getAttribute("data-mei-eval-label") || "").trim();
     if (!titleText) {
@@ -31303,7 +30343,7 @@
     const existingH3 = headSlot.querySelector("h3");
     if (!titleText && existingH3 instanceof HTMLElement) {
       const current = String(existingH3.textContent || "").trim();
-      if (current && current.toLowerCase() !== "head") {
+      if (current && !isIgnoredSectionHeadLabel(current)) {
         return;
       }
     }
@@ -31319,7 +30359,7 @@
         .split("/")
         .filter(Boolean)
         .pop();
-      titleText = label && label.toLowerCase() !== "head" ? label.replace(/_/g, " ") : "板块标题";
+      titleText = !isIgnoredSectionHeadLabel(label) ? label.replace(/_/g, " ") : "板块标题";
     }
 
     headSlot.className = "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
@@ -31329,12 +30369,16 @@
 
   function normalizeAllSectionHeadSlots(root) {
     if (!(root instanceof HTMLElement)) return;
-    root.querySelectorAll('[data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]').forEach((headSlot) => {
-      if (headSlot instanceof HTMLElement && headSlot.getAttribute("data-mei-section-head-chrome") === "1") {
-        return;
-      }
-      normalizeSectionHeadSlot(headSlot);
-    });
+    root
+      .querySelectorAll(
+        '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], [data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]',
+      )
+      .forEach((headSlot) => {
+        if (headSlot instanceof HTMLElement && headSlot.getAttribute("data-mei-section-head-chrome") === "1") {
+          return;
+        }
+        normalizeSectionHeadSlot(headSlot);
+      });
   }
 
   function hideLayoutDebugRegions(root) {
@@ -31786,7 +30830,7 @@
       return container;
     }
     const scope = String(scopeKey || "").trim();
-    if (scope.endsWith("/head/mei.text")) {
+    if (isSectionHeadMeiTextScope(scope)) {
       return findScopeContainer(root, scope.replace(/\/mei\.text$/, ""));
     }
     return null;
@@ -31794,32 +30838,36 @@
 
   function promoteSectionHeadMeiTextNodes(root) {
     if (!(root instanceof HTMLElement)) return;
-    root.querySelectorAll('[data-preview-scope*="/head/mei.text"]').forEach((node) => {
-      if (!(node instanceof HTMLElement)) return;
-      const scope = String(node.getAttribute("data-preview-scope") || "").trim();
-      if (!scope.endsWith("/head/mei.text")) return;
-      const title = String(
-        node.getAttribute("data-mei-eval-label") ||
-          node.getAttribute("data-mei-structure-label") ||
-          "",
-      ).trim();
-      if (!title || title.toLowerCase() === "head") return;
-      const headSection = document.createElement("section");
-      headSection.className =
-        "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
-      headSection.setAttribute("data-preview-scope", scope.replace(/\/mei\.text$/, ""));
-      headSection.setAttribute("data-mei-eval-label", title);
-      headSection.innerHTML = buildSectionHeadMarkup(title);
-      headSection.setAttribute("data-mei-section-head-normalized", "1");
-      node.replaceWith(headSection);
-    });
+    root
+      .querySelectorAll(
+        '[data-preview-scope*="/title_zone/mei.text"], [data-preview-scope*="/head/mei.text"]',
+      )
+      .forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const scope = String(node.getAttribute("data-preview-scope") || "").trim();
+        if (!isSectionHeadMeiTextScope(scope)) return;
+        const title = String(
+          node.getAttribute("data-mei-eval-label") ||
+            node.getAttribute("data-mei-structure-label") ||
+            "",
+        ).trim();
+        if (isIgnoredSectionHeadLabel(title)) return;
+        const headSection = document.createElement("section");
+        headSection.className =
+          "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
+        headSection.setAttribute("data-preview-scope", scope.replace(/\/mei\.text$/, ""));
+        headSection.setAttribute("data-mei-eval-label", title);
+        headSection.innerHTML = buildSectionHeadMarkup(title);
+        headSection.setAttribute("data-mei-section-head-normalized", "1");
+        node.replaceWith(headSection);
+      });
   }
 
   function applyRailHeadTitlesFromEval(root, evalDocs) {
     if (!(root instanceof HTMLElement)) return;
     for (const doc of evalDocs || []) {
       for (const [scopeKey, entry] of Object.entries(doc.slots || {})) {
-        if (!String(scopeKey || "").endsWith("/head/mei.text")) continue;
+        if (!isSectionHeadMeiTextScope(scopeKey)) continue;
         if (entry?.head_chrome && typeof entry.head_chrome === "object") continue;
         const label = resolveEvalSlotLabel(entry);
         if (!label) continue;
@@ -31855,6 +30903,11 @@
     if (typeof background === "string") {
       const value = String(background).trim();
       if (!value) return;
+      // Multi-layer shorthand (e.g. corner L-decor + fill color) must use `background`.
+      if (value.includes(",") && /linear-gradient|radial-gradient|url\(/i.test(value)) {
+        style.background = value;
+        return;
+      }
       if (
         value.startsWith("linear-gradient") ||
         value.startsWith("radial-gradient") ||
@@ -32747,15 +31800,23 @@
       .querySelectorAll(".mei-compose-warning-panel, .mei-compose-compound-section")
       .forEach((section) => {
         if (!(section instanceof HTMLElement)) return;
+        section.style.display = "grid";
         section.style.padding = "0";
         section.style.margin = "0";
         section.style.gap = "2px";
         section.style.borderRadius = "0";
-        section.style.gridTemplateAreas = '"head" "body"';
+        section.style.gridTemplateRows = "auto 1fr";
+        section.style.gridTemplateAreas = '"title" "body"';
         section.style.border = "1px solid rgba(56, 160, 240, 0.32)";
-        const head = section.querySelector('[data-preview-scope$="/head"]');
+        section.style.minHeight = "0";
+        section.style.height = "100%";
+        const head = section.querySelector(
+          '[data-preview-scope$="/title_zone"], [data-preview-scope$="/head"]',
+        );
         const content =
-          section.querySelector('[data-preview-scope$="/body"]') ||
+          section.querySelector(
+            '[data-preview-scope$="/content_zone"], [data-preview-scope$="/body"]',
+          ) ||
           section.querySelector('[data-preview-scope$="/enforcement_strip_layout"]') ||
           section.querySelector('[data-preview-scope$="/enforcement_body"]') ||
           section.querySelector(".mei-compose-enforcement-strip") ||
@@ -32764,7 +31825,7 @@
           section.querySelector(".mei-compose-metric-compound") ||
           section.querySelector(".mei-compose-metric-triptych");
         if (head instanceof HTMLElement) {
-          head.style.gridArea = "head";
+          head.style.gridArea = "title";
           head.style.margin = "0";
           head.style.padding = "0";
           head.style.border = "none";
@@ -32772,6 +31833,9 @@
         }
         if (content instanceof HTMLElement) {
           content.style.gridArea = "body";
+          content.style.display = content.classList.contains("mei-compose-metric-triptych")
+            ? "grid"
+            : content.style.display;
           content.style.width = "100%";
           content.style.margin = "0";
           content.style.padding = "0";
@@ -32781,6 +31845,15 @@
           content.style.minHeight = "0";
           content.style.height = "100%";
           content.style.alignSelf = "stretch";
+          if (content.classList.contains("mei-compose-metric-triptych")) {
+            content.style.gridTemplateRows = "1fr";
+            content.querySelectorAll(":scope > *").forEach((child) => {
+              if (!(child instanceof HTMLElement)) return;
+              child.style.height = "100%";
+              child.style.minHeight = "0";
+              child.style.alignSelf = "stretch";
+            });
+          }
         }
       });
   }
@@ -32994,7 +32067,7 @@
     root.querySelectorAll('[data-mei-section-head-normalized="1"]').forEach((head) => {
       const h3 = head.querySelector("h3");
       const text = String(h3?.textContent || "").trim().toLowerCase();
-      if (!text || text === "head" || text === "板块标题") {
+      if (!text || isIgnoredSectionHeadLabel(text) || text === "板块标题") {
         head.removeAttribute("data-mei-section-head-normalized");
       }
     });
@@ -33440,22 +32513,25 @@
       .trim();
   }
 
+  function themeLayoutOverlayApi() {
+    return boot.MeiOpsThemeLayoutOverlay || global.MeiOpsThemeLayoutOverlay;
+  }
+
   async function applySessionPatch(patch) {
     if (!patch) return;
     const appId = appIdFromPath();
-    const root = global.document.querySelector(".preview-pane-scroll, .shell");
-    const overlayApi = boot.MeiOpsLayoutTuningOverlay || global.MeiOpsLayoutTuningOverlay;
+    const overlayApi = themeLayoutOverlayApi();
     if (patch.layout && overlayApi?.putSessionDraft && appId) {
       const scope = String(patch.preview_scope || "").trim();
       if (scope) {
-        const tuning = { [scope]: patch.layout };
+        const layout = { [scope]: patch.layout };
         try {
-          await overlayApi.putSessionDraft(appId, tuning);
+          await overlayApi.putSessionDraft(appId, layout);
         } catch (error) {
-          console.warn("[wysiwyg-panel] session draft failed", error);
+          console.warn("[wysiwyg-panel] theme.layout session draft failed", error);
         }
       }
-    } else if (patch.theme && overlayApi?.putSessionDraft && appId) {
+    } else if (patch.theme && appId) {
       const store = global.MeiDraftLayerStore || boot.draftLayerStore;
       store?.putThemeTokensPatch?.(appId, patch.theme);
       boot.viewCompositor?.recomposeFromLayerStore?.(
@@ -33464,6 +32540,19 @@
       );
     }
     global.dispatchEvent(new CustomEvent("meilang:preview-updated", { detail: { patch } }));
+  }
+
+  function resolveThemeLayoutGap(previewScope, appId, scopeNode) {
+    if (scopeNode instanceof HTMLElement) {
+      const fromStyle = String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
+      if (fromStyle) return fromStyle;
+    }
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const entry = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.themeLayout,
+    )?.[previewScope];
+    const gapVal = entry?.gap ?? entry?.stripGap;
+    return gapVal != null && gapVal !== "" ? String(gapVal) : "";
   }
 
   function renderPanel(kind, meta) {
@@ -33486,31 +32575,17 @@
       gap.type = "text";
       gap.placeholder = "gap (e.g. 8px)";
       gap.dataset.field = "gap";
-      if (scopeNode instanceof HTMLElement) {
-        gap.value =
-          scopeNode.dataset.layoutTuningContentGap ||
-          String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
-      }
-      const formApi = global.MeiLayoutTuningForm;
       const appId = appIdFromPath();
-      if (formApi?.resolveLayoutTuningEntry && meta.preview_scope) {
-        const entry = formApi.resolveLayoutTuningEntry(meta.preview_scope, { appId });
-        const gapVal = entry?.contentBudget?.gap ?? entry?.content_budget?.gap;
-        if (gapVal != null && gapVal !== "") gap.value = String(gapVal);
-      }
+      gap.value = resolveThemeLayoutGap(meta.preview_scope, appId, scopeNode);
       gap.addEventListener("input", () => {
         const gapVal = gap.value.trim();
         if (!meta.preview_scope || !appId) return;
         const layout = {};
-        if (gapVal) {
-          const numeric = Number(gapVal);
-          layout.contentBudget = {
-            gap: Number.isFinite(numeric) ? numeric : gapVal,
-          };
-        }
+        if (gapVal) layout.gap = gapVal;
         const patch = buildLayoutPatch(meta.preview_scope, meta.ui_role, layout);
-        if (formApi?.scheduleSessionHot && patch?.layout) {
-          formApi.scheduleSessionHot(appId, meta.preview_scope, patch.layout, { debounceMs: 150 });
+        const overlayApi = themeLayoutOverlayApi();
+        if (overlayApi?.putSessionDraft && patch?.layout) {
+          void overlayApi.putSessionDraft(appId, { [meta.preview_scope]: patch.layout });
         }
       });
       body.appendChild(gap);
@@ -33520,12 +32595,7 @@
       btn.addEventListener("click", () => {
         const gapVal = gap.value.trim();
         const layout = {};
-        if (gapVal) {
-          const numeric = Number(gapVal);
-          layout.contentBudget = {
-            gap: Number.isFinite(numeric) ? numeric : gapVal,
-          };
-        }
+        if (gapVal) layout.gap = gapVal;
         void applySessionPatch(buildLayoutPatch(meta.preview_scope, meta.ui_role, layout));
       });
       body.appendChild(btn);
@@ -36127,32 +35197,9 @@
       if (!entry || typeof entry !== "object") return;
       const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
       if (!(node instanceof HTMLElement)) return;
-      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
-      if (slotHeight != null) {
-        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
-        node.dataset.manifestSlotHeight = String(slotHeight);
-      }
       const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
       if (paddingProfile) {
         node.dataset.manifestPaddingProfile = String(paddingProfile);
-      }
-      const contentRows = entry.content_rows ?? entry.contentRows;
-      if (Array.isArray(contentRows) && contentRows.length > 0) {
-        node.style.display = "grid";
-        const total = contentRows.reduce((sum, row) => sum + Number(row), 0);
-        if (total > 0) {
-          node.style.gridTemplateRows = contentRows
-            .map((row) => `${(Number(row) / total) * 100}fr`)
-            .join(" ");
-        } else {
-          node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
-        }
-        node.dataset.manifestContentRows = contentRows.join(",");
-      }
-      const contentGap = entry.content_gap ?? entry.contentGap;
-      if (contentGap != null && contentGap !== "") {
-        node.style.rowGap = `${contentGap}px`;
-        node.dataset.manifestContentGap = String(contentGap);
       }
       const sectionRows = entry.section_rows ?? entry.sectionRows;
       const manifestGridRows = entry.grid_template_rows ?? entry.gridTemplateRows;

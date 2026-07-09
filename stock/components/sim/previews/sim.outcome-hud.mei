@@ -1,8 +1,12 @@
 app(id="preview-sim-outcome-hud", title="Preview sim.outcome-hud", default_scene="home")
 scene(id="home", world="home_world", frame="home_frame", profile="page", summary="Pack preview")
 world(id="home_world", resources=[])
-frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"))
-frame.add_panel(id="main", area="auto", blocks=[
+frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"),
+    panels = [
+panel(id="main", area="auto", blocks=[
     component("sim.outcome-hud", area="auto", props={"title": "Outcome"}),
-])
+]),
+    ],
+)
+
 

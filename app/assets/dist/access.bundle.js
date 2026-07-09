@@ -13649,7 +13649,7 @@
 
 
 
-/* ===== spa-navigation/drilldown/board-link.js ===== */
+/* ===== spa-navigation/drilldown/t2-page-link.js ===== */
   function normalizeSceneParams(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
     const normalized = {};
@@ -20038,7 +20038,7 @@
 
 
 
-/* ===== spa-navigation/drilldown/render-frame-board.js ===== */
+/* ===== spa-navigation/drilldown/render-frame-t2-page.js ===== */
   async function composeBoardSceneSurface(appId, sceneId) {
     const ctx = {
       app_id: appId,
@@ -28165,8 +28165,8 @@
     return pathMatch ? pathMatch[1] : "";
   }
 
-  function maybeApplyLayoutTuningOverlay(doc) {
-    const overlay = global.MeiOpsLayoutTuningOverlay;
+  function maybeApplyThemeLayoutOverlay(doc) {
+    const overlay = global.MeiOpsThemeLayoutOverlay || boot.MeiOpsThemeLayoutOverlay;
     if (!overlay?.applyHot) return;
     const appId = resolveBuildAppId(doc);
     if (!appId) return;
@@ -28202,7 +28202,7 @@
           if (typeof boot.mountManagePreviewBoard === "function") {
             void boot.mountManagePreviewBoard(document);
           }
-          maybeApplyLayoutTuningOverlay(document);
+          maybeApplyThemeLayoutOverlay(document);
         });
       });
     });
@@ -28217,7 +28217,7 @@
 
 
 
-/* ===== spa-navigation/spa/manage-preview-board.js ===== */
+/* ===== spa-navigation/spa/manage-preview-t2-page.js ===== */
   const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
   const MAX_BOARD_MOUNT_POOL = 6;
   const boardMountPool = new Map();
@@ -28475,10 +28475,10 @@
 
   function showManagePreviewBoardError(surface, message, detail = null) {
     if (!(surface instanceof HTMLElement)) return;
-    let banner = surface.querySelector("[data-manage-preview-board-error]");
+    let banner = surface.querySelector("[data-manage-preview-t2-page-error]");
     if (!(banner instanceof HTMLElement)) {
       banner = document.createElement("div");
-      banner.className = "access-drilldown-overlay-status manage-preview-board-error";
+      banner.className = "access-drilldown-overlay-status manage-preview-t2-page-error";
       banner.dataset.managePreviewBoardError = "true";
       banner.style.margin = "12px";
       surface.prepend(banner);
@@ -28635,7 +28635,7 @@
       mountStructuredRowPreviewZone(surface, zoneHosts, resolved);
     }
 
-    surface.querySelector("[data-manage-preview-board-error]")?.remove();
+    surface.querySelector("[data-manage-preview-t2-page-error]")?.remove();
 
     repairManagePreviewBoardGrid(surface, resolved.sceneShell);
     refreshManagePreviewBoardCharts(surface);
@@ -31454,7 +31454,7 @@
 
 /* ===== spa-navigation/spa/draft-layer-store.js ===== */
 /**
- * Client-only session draft layers (theme.tokens.session / layout.overlay.session).
+ * Client-only session draft layers (theme.tokens.session / theme.layout.session).
  * Not included in server manifest digest.
  */
 (function initDraftLayerStore(global) {
@@ -31507,8 +31507,6 @@
     if (doc.patches && typeof doc.patches === "object") return { ...doc.patches };
     const entries = doc.entries;
     if (entries && typeof entries === "object") return { ...entries };
-    const tuning = doc.tuning;
-    if (tuning && typeof tuning === "object") return { ...tuning };
     return {};
   }
 
@@ -31537,22 +31535,8 @@
     return overlayDocFromPatches({ ...basePatches, ...sessionPatches });
   }
 
-  function readLayoutOverlaySession(appId) {
-    return readJson(storageKey(appId, "layout.overlay.session"));
-  }
-
   function readThemeTokensSession(appId) {
     return readJson(storageKey(appId, "theme.tokens.session"));
-  }
-
-  function putLayoutOverlayPatches(appId, tuning) {
-    const app = String(appId || "").trim();
-    if (!app || !tuning || typeof tuning !== "object") return false;
-    const key = storageKey(app, "layout.overlay.session");
-    const current = normalizeOverlayPatches(readJson(key));
-    const next = overlayDocFromPatches({ ...current, ...tuning });
-    writeJson(key, next);
-    return true;
   }
 
   function putThemeTokensPatch(appId, tokens) {
@@ -31584,7 +31568,6 @@
 
   function getSessionLayers(appId) {
     return {
-      layoutOverlay: readLayoutOverlaySession(appId),
       themeLayout: readThemeLayoutSession(appId),
       themeTokens: readThemeTokensSession(appId),
     };
@@ -31593,18 +31576,15 @@
   function clearSession(appId) {
     const app = String(appId || "").trim();
     if (!app) return;
-    removeJson(storageKey(app, "layout.overlay.session"));
     removeJson(storageKey(app, "theme.layout.session"));
     removeJson(storageKey(app, "theme.tokens.session"));
   }
 
   function hasSessionDraft(appId) {
     const layers = getSessionLayers(appId);
-    const overlayPatches = normalizeOverlayPatches(layers.layoutOverlay);
     const themeLayoutPatches = normalizeOverlayPatches(layers.themeLayout);
     const theme = themeDocFromTokens(layers.themeTokens);
     return (
-      Object.keys(overlayPatches).length > 0 ||
       Object.keys(themeLayoutPatches).length > 0 ||
       Object.keys(theme.colors).length > 0 ||
       Object.keys(theme.fonts).length > 0
@@ -31613,7 +31593,6 @@
 
   global.MeiDraftLayerStore = {
     ensureDraftSessionId,
-    putLayoutOverlayPatches,
     putThemeLayoutPatches,
     putThemeTokensPatch,
     getSessionLayers,
@@ -31630,8 +31609,8 @@
 /* ===== spa-navigation/spa/view-compositor.js ===== */
 /**
  * ViewCompositor: compose review_projection depth without refetching structure.full.
- * layoutTuning dataset attrs are legacy author-model hints only — new surfaces must use
- * manifest projection / layout_policy from composed layers, not ops.layoutTuning bypasses.
+ * Layout overlays come from ops.themes.*.layout (+ theme.layout session draft) and
+ * manifest / layout_policy projection.
  */
 (function initViewCompositor(global) {
   "use strict";
@@ -31709,37 +31688,9 @@
         if (!patch || typeof patch !== "object") return;
         const node = resolveLayoutOverlayNode(root, scope);
         if (!(node instanceof HTMLElement)) return;
-        const slotHeight =
-          patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
-        if (slotHeight != null && slotHeight !== "") {
-          const numeric = Number(String(slotHeight).replace(/px$/i, "").trim());
-          const px = Number.isFinite(numeric) ? `${numeric}px` : String(slotHeight);
-          node.style.setProperty("--mei-slot-height", px);
-          node.dataset.manifestSlotHeight = String(slotHeight).replace(/px$/i, "").trim();
-        }
         const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
         if (paddingProfile) {
           node.dataset.manifestPaddingProfile = String(paddingProfile);
-        }
-        const contentBudget = patch.contentBudget || patch.content_budget;
-        if (contentBudget && typeof contentBudget === "object") {
-          const rows = contentBudget.rows || contentBudget.content_rows;
-          if (Array.isArray(rows) && rows.length > 0) {
-            const total = rows.reduce((sum, row) => sum + Number(row), 0);
-            if (total > 0) {
-              node.style.gridTemplateRows = rows
-                .map((row) => `${(Number(row) / total) * 100}fr`)
-                .join(" ");
-            } else {
-              node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
-            }
-            node.dataset.manifestContentRows = rows.join(",");
-          }
-          const gap = contentBudget.gap ?? contentBudget.content_gap;
-          if (gap != null && gap !== "") {
-            node.style.rowGap = `${gap}px`;
-            node.dataset.manifestContentGap = String(gap);
-          }
         }
         const sectionRows = patch.sectionRows || patch.section_rows;
         const manifestEntry = globalThis.__mei?.layout_budget_manifest?.entries?.[scope];
@@ -31774,7 +31725,7 @@
           node.style.setProperty("--mei-t1-header-height", String(headerHeight));
         }
         const gapFr = patch.gap ?? patch.stripGap;
-        if (gapFr != null && gapFr !== "" && !contentBudget) {
+        if (gapFr != null && gapFr !== "") {
           node.style.gap = String(gapFr).endsWith("px") ? String(gapFr) : `${gapFr}px`;
         }
       });
@@ -31899,7 +31850,7 @@
       ? store.mergeThemeDocs(persistedTheme, session.themeTokens)
       : persistedTheme;
     const overlayEffective = store?.mergeOverlayDocs
-      ? store.mergeOverlayDocs(persistedOverlay, session.layoutOverlay)
+      ? store.mergeOverlayDocs(persistedOverlay, session.themeLayout)
       : persistedOverlay;
     return { themeEffective, overlayEffective };
   }
@@ -32348,12 +32299,27 @@
 
   function isSectionHeadScope(scopeKey) {
     const scope = String(scopeKey || "").trim().toLowerCase();
-    return scope.endsWith("/head") || scope.endsWith("/head/mei.text");
+    return (
+      scope.endsWith("/head") ||
+      scope.endsWith("/head/mei.text") ||
+      scope.endsWith("/title_zone") ||
+      scope.endsWith("/title_zone/mei.text")
+    );
+  }
+
+  function isSectionHeadMeiTextScope(scopeKey) {
+    const scope = String(scopeKey || "").trim().toLowerCase();
+    return scope.endsWith("/head/mei.text") || scope.endsWith("/title_zone/mei.text");
+  }
+
+  function isIgnoredSectionHeadLabel(label) {
+    const normalized = String(label || "").trim().toLowerCase();
+    return !normalized || normalized === "head" || normalized === "title_zone";
   }
 
   function resolveEvalSlotLabel(entry) {
     const label = String(entry?.label || "").trim();
-    if (!label || label.toLowerCase() === "head") return "";
+    if (isIgnoredSectionHeadLabel(label)) return "";
     return label;
   }
 
@@ -32466,14 +32432,11 @@
 
   function applyHeadSlotLabel(container, labelText) {
     const label = String(labelText || "").trim();
-    if (!label || label.toLowerCase() === "head") return false;
-    const isHead =
-      container.matches?.('[data-preview-scope$="/head"]') ||
-      container.matches?.('[data-preview-scope$="/head/mei.text"]');
-    const headSlot = isHead
-      ? container
-      : container.closest('[data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]') ||
-        container;
+    if (isIgnoredSectionHeadLabel(label)) return false;
+    const headScopeSelector =
+      '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], [data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]';
+    const isHead = container.matches?.(headScopeSelector);
+    const headSlot = isHead ? container : container.closest(headScopeSelector) || container;
     if (!(headSlot instanceof HTMLElement)) return false;
     headSlot.setAttribute("data-mei-eval-label", label);
     return true;
@@ -32558,8 +32521,7 @@
   }
 
   function filterMountsForScope(scopeKey, mounts) {
-    const scope = String(scopeKey || "").trim().toLowerCase();
-    if (!scope.endsWith("/head") && !scope.endsWith("/head/mei.text")) {
+    if (!isSectionHeadScope(scopeKey)) {
       return mounts || [];
     }
     return (mounts || []).filter((mount) => {
@@ -32835,7 +32797,7 @@
     if (!(headSlot instanceof HTMLElement)) return;
     if (headSlot.getAttribute("data-mei-section-head-chrome") === "1") return;
     const scope = String(headSlot.getAttribute("data-preview-scope") || "");
-    if (!scope.endsWith("/head") && !scope.endsWith("/head/mei.text")) return;
+    if (!isSectionHeadScope(scope)) return;
 
     let titleText = String(headSlot.getAttribute("data-mei-eval-label") || "").trim();
     if (!titleText) {
@@ -32867,7 +32829,7 @@
     const existingH3 = headSlot.querySelector("h3");
     if (!titleText && existingH3 instanceof HTMLElement) {
       const current = String(existingH3.textContent || "").trim();
-      if (current && current.toLowerCase() !== "head") {
+      if (current && !isIgnoredSectionHeadLabel(current)) {
         return;
       }
     }
@@ -32883,7 +32845,7 @@
         .split("/")
         .filter(Boolean)
         .pop();
-      titleText = label && label.toLowerCase() !== "head" ? label.replace(/_/g, " ") : "板块标题";
+      titleText = !isIgnoredSectionHeadLabel(label) ? label.replace(/_/g, " ") : "板块标题";
     }
 
     headSlot.className = "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
@@ -32893,12 +32855,16 @@
 
   function normalizeAllSectionHeadSlots(root) {
     if (!(root instanceof HTMLElement)) return;
-    root.querySelectorAll('[data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]').forEach((headSlot) => {
-      if (headSlot instanceof HTMLElement && headSlot.getAttribute("data-mei-section-head-chrome") === "1") {
-        return;
-      }
-      normalizeSectionHeadSlot(headSlot);
-    });
+    root
+      .querySelectorAll(
+        '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], [data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]',
+      )
+      .forEach((headSlot) => {
+        if (headSlot instanceof HTMLElement && headSlot.getAttribute("data-mei-section-head-chrome") === "1") {
+          return;
+        }
+        normalizeSectionHeadSlot(headSlot);
+      });
   }
 
   function hideLayoutDebugRegions(root) {
@@ -33350,7 +33316,7 @@
       return container;
     }
     const scope = String(scopeKey || "").trim();
-    if (scope.endsWith("/head/mei.text")) {
+    if (isSectionHeadMeiTextScope(scope)) {
       return findScopeContainer(root, scope.replace(/\/mei\.text$/, ""));
     }
     return null;
@@ -33358,32 +33324,36 @@
 
   function promoteSectionHeadMeiTextNodes(root) {
     if (!(root instanceof HTMLElement)) return;
-    root.querySelectorAll('[data-preview-scope*="/head/mei.text"]').forEach((node) => {
-      if (!(node instanceof HTMLElement)) return;
-      const scope = String(node.getAttribute("data-preview-scope") || "").trim();
-      if (!scope.endsWith("/head/mei.text")) return;
-      const title = String(
-        node.getAttribute("data-mei-eval-label") ||
-          node.getAttribute("data-mei-structure-label") ||
-          "",
-      ).trim();
-      if (!title || title.toLowerCase() === "head") return;
-      const headSection = document.createElement("section");
-      headSection.className =
-        "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
-      headSection.setAttribute("data-preview-scope", scope.replace(/\/mei\.text$/, ""));
-      headSection.setAttribute("data-mei-eval-label", title);
-      headSection.innerHTML = buildSectionHeadMarkup(title);
-      headSection.setAttribute("data-mei-section-head-normalized", "1");
-      node.replaceWith(headSection);
-    });
+    root
+      .querySelectorAll(
+        '[data-preview-scope*="/title_zone/mei.text"], [data-preview-scope*="/head/mei.text"]',
+      )
+      .forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const scope = String(node.getAttribute("data-preview-scope") || "").trim();
+        if (!isSectionHeadMeiTextScope(scope)) return;
+        const title = String(
+          node.getAttribute("data-mei-eval-label") ||
+            node.getAttribute("data-mei-structure-label") ||
+            "",
+        ).trim();
+        if (isIgnoredSectionHeadLabel(title)) return;
+        const headSection = document.createElement("section");
+        headSection.className =
+          "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
+        headSection.setAttribute("data-preview-scope", scope.replace(/\/mei\.text$/, ""));
+        headSection.setAttribute("data-mei-eval-label", title);
+        headSection.innerHTML = buildSectionHeadMarkup(title);
+        headSection.setAttribute("data-mei-section-head-normalized", "1");
+        node.replaceWith(headSection);
+      });
   }
 
   function applyRailHeadTitlesFromEval(root, evalDocs) {
     if (!(root instanceof HTMLElement)) return;
     for (const doc of evalDocs || []) {
       for (const [scopeKey, entry] of Object.entries(doc.slots || {})) {
-        if (!String(scopeKey || "").endsWith("/head/mei.text")) continue;
+        if (!isSectionHeadMeiTextScope(scopeKey)) continue;
         if (entry?.head_chrome && typeof entry.head_chrome === "object") continue;
         const label = resolveEvalSlotLabel(entry);
         if (!label) continue;
@@ -33419,6 +33389,11 @@
     if (typeof background === "string") {
       const value = String(background).trim();
       if (!value) return;
+      // Multi-layer shorthand (e.g. corner L-decor + fill color) must use `background`.
+      if (value.includes(",") && /linear-gradient|radial-gradient|url\(/i.test(value)) {
+        style.background = value;
+        return;
+      }
       if (
         value.startsWith("linear-gradient") ||
         value.startsWith("radial-gradient") ||
@@ -34311,15 +34286,23 @@
       .querySelectorAll(".mei-compose-warning-panel, .mei-compose-compound-section")
       .forEach((section) => {
         if (!(section instanceof HTMLElement)) return;
+        section.style.display = "grid";
         section.style.padding = "0";
         section.style.margin = "0";
         section.style.gap = "2px";
         section.style.borderRadius = "0";
-        section.style.gridTemplateAreas = '"head" "body"';
+        section.style.gridTemplateRows = "auto 1fr";
+        section.style.gridTemplateAreas = '"title" "body"';
         section.style.border = "1px solid rgba(56, 160, 240, 0.32)";
-        const head = section.querySelector('[data-preview-scope$="/head"]');
+        section.style.minHeight = "0";
+        section.style.height = "100%";
+        const head = section.querySelector(
+          '[data-preview-scope$="/title_zone"], [data-preview-scope$="/head"]',
+        );
         const content =
-          section.querySelector('[data-preview-scope$="/body"]') ||
+          section.querySelector(
+            '[data-preview-scope$="/content_zone"], [data-preview-scope$="/body"]',
+          ) ||
           section.querySelector('[data-preview-scope$="/enforcement_strip_layout"]') ||
           section.querySelector('[data-preview-scope$="/enforcement_body"]') ||
           section.querySelector(".mei-compose-enforcement-strip") ||
@@ -34328,7 +34311,7 @@
           section.querySelector(".mei-compose-metric-compound") ||
           section.querySelector(".mei-compose-metric-triptych");
         if (head instanceof HTMLElement) {
-          head.style.gridArea = "head";
+          head.style.gridArea = "title";
           head.style.margin = "0";
           head.style.padding = "0";
           head.style.border = "none";
@@ -34336,6 +34319,9 @@
         }
         if (content instanceof HTMLElement) {
           content.style.gridArea = "body";
+          content.style.display = content.classList.contains("mei-compose-metric-triptych")
+            ? "grid"
+            : content.style.display;
           content.style.width = "100%";
           content.style.margin = "0";
           content.style.padding = "0";
@@ -34345,6 +34331,15 @@
           content.style.minHeight = "0";
           content.style.height = "100%";
           content.style.alignSelf = "stretch";
+          if (content.classList.contains("mei-compose-metric-triptych")) {
+            content.style.gridTemplateRows = "1fr";
+            content.querySelectorAll(":scope > *").forEach((child) => {
+              if (!(child instanceof HTMLElement)) return;
+              child.style.height = "100%";
+              child.style.minHeight = "0";
+              child.style.alignSelf = "stretch";
+            });
+          }
         }
       });
   }
@@ -34558,7 +34553,7 @@
     root.querySelectorAll('[data-mei-section-head-normalized="1"]').forEach((head) => {
       const h3 = head.querySelector("h3");
       const text = String(h3?.textContent || "").trim().toLowerCase();
-      if (!text || text === "head" || text === "板块标题") {
+      if (!text || isIgnoredSectionHeadLabel(text) || text === "板块标题") {
         head.removeAttribute("data-mei-section-head-normalized");
       }
     });
@@ -35004,22 +34999,25 @@
       .trim();
   }
 
+  function themeLayoutOverlayApi() {
+    return boot.MeiOpsThemeLayoutOverlay || global.MeiOpsThemeLayoutOverlay;
+  }
+
   async function applySessionPatch(patch) {
     if (!patch) return;
     const appId = appIdFromPath();
-    const root = global.document.querySelector(".preview-pane-scroll, .shell");
-    const overlayApi = boot.MeiOpsLayoutTuningOverlay || global.MeiOpsLayoutTuningOverlay;
+    const overlayApi = themeLayoutOverlayApi();
     if (patch.layout && overlayApi?.putSessionDraft && appId) {
       const scope = String(patch.preview_scope || "").trim();
       if (scope) {
-        const tuning = { [scope]: patch.layout };
+        const layout = { [scope]: patch.layout };
         try {
-          await overlayApi.putSessionDraft(appId, tuning);
+          await overlayApi.putSessionDraft(appId, layout);
         } catch (error) {
-          console.warn("[wysiwyg-panel] session draft failed", error);
+          console.warn("[wysiwyg-panel] theme.layout session draft failed", error);
         }
       }
-    } else if (patch.theme && overlayApi?.putSessionDraft && appId) {
+    } else if (patch.theme && appId) {
       const store = global.MeiDraftLayerStore || boot.draftLayerStore;
       store?.putThemeTokensPatch?.(appId, patch.theme);
       boot.viewCompositor?.recomposeFromLayerStore?.(
@@ -35028,6 +35026,19 @@
       );
     }
     global.dispatchEvent(new CustomEvent("meilang:preview-updated", { detail: { patch } }));
+  }
+
+  function resolveThemeLayoutGap(previewScope, appId, scopeNode) {
+    if (scopeNode instanceof HTMLElement) {
+      const fromStyle = String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
+      if (fromStyle) return fromStyle;
+    }
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const entry = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.themeLayout,
+    )?.[previewScope];
+    const gapVal = entry?.gap ?? entry?.stripGap;
+    return gapVal != null && gapVal !== "" ? String(gapVal) : "";
   }
 
   function renderPanel(kind, meta) {
@@ -35050,31 +35061,17 @@
       gap.type = "text";
       gap.placeholder = "gap (e.g. 8px)";
       gap.dataset.field = "gap";
-      if (scopeNode instanceof HTMLElement) {
-        gap.value =
-          scopeNode.dataset.layoutTuningContentGap ||
-          String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
-      }
-      const formApi = global.MeiLayoutTuningForm;
       const appId = appIdFromPath();
-      if (formApi?.resolveLayoutTuningEntry && meta.preview_scope) {
-        const entry = formApi.resolveLayoutTuningEntry(meta.preview_scope, { appId });
-        const gapVal = entry?.contentBudget?.gap ?? entry?.content_budget?.gap;
-        if (gapVal != null && gapVal !== "") gap.value = String(gapVal);
-      }
+      gap.value = resolveThemeLayoutGap(meta.preview_scope, appId, scopeNode);
       gap.addEventListener("input", () => {
         const gapVal = gap.value.trim();
         if (!meta.preview_scope || !appId) return;
         const layout = {};
-        if (gapVal) {
-          const numeric = Number(gapVal);
-          layout.contentBudget = {
-            gap: Number.isFinite(numeric) ? numeric : gapVal,
-          };
-        }
+        if (gapVal) layout.gap = gapVal;
         const patch = buildLayoutPatch(meta.preview_scope, meta.ui_role, layout);
-        if (formApi?.scheduleSessionHot && patch?.layout) {
-          formApi.scheduleSessionHot(appId, meta.preview_scope, patch.layout, { debounceMs: 150 });
+        const overlayApi = themeLayoutOverlayApi();
+        if (overlayApi?.putSessionDraft && patch?.layout) {
+          void overlayApi.putSessionDraft(appId, { [meta.preview_scope]: patch.layout });
         }
       });
       body.appendChild(gap);
@@ -35084,12 +35081,7 @@
       btn.addEventListener("click", () => {
         const gapVal = gap.value.trim();
         const layout = {};
-        if (gapVal) {
-          const numeric = Number(gapVal);
-          layout.contentBudget = {
-            gap: Number.isFinite(numeric) ? numeric : gapVal,
-          };
-        }
+        if (gapVal) layout.gap = gapVal;
         void applySessionPatch(buildLayoutPatch(meta.preview_scope, meta.ui_role, layout));
       });
       body.appendChild(btn);
@@ -35462,32 +35454,9 @@
       if (!entry || typeof entry !== "object") return;
       const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
       if (!(node instanceof HTMLElement)) return;
-      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
-      if (slotHeight != null) {
-        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
-        node.dataset.manifestSlotHeight = String(slotHeight);
-      }
       const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
       if (paddingProfile) {
         node.dataset.manifestPaddingProfile = String(paddingProfile);
-      }
-      const contentRows = entry.content_rows ?? entry.contentRows;
-      if (Array.isArray(contentRows) && contentRows.length > 0) {
-        node.style.display = "grid";
-        const total = contentRows.reduce((sum, row) => sum + Number(row), 0);
-        if (total > 0) {
-          node.style.gridTemplateRows = contentRows
-            .map((row) => `${(Number(row) / total) * 100}fr`)
-            .join(" ");
-        } else {
-          node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
-        }
-        node.dataset.manifestContentRows = contentRows.join(",");
-      }
-      const contentGap = entry.content_gap ?? entry.contentGap;
-      if (contentGap != null && contentGap !== "") {
-        node.style.rowGap = `${contentGap}px`;
-        node.dataset.manifestContentGap = String(contentGap);
       }
       const sectionRows = entry.section_rows ?? entry.sectionRows;
       const manifestGridRows = entry.grid_template_rows ?? entry.gridTemplateRows;

@@ -49,13 +49,13 @@ impl McgNodeKindField {
 
 const MCG_KIND_ORDER: &[&str] = &[
     "semantic_graph",
-    "panel_contract",
+    "content_panel",
     "navigation",
     "metric_def_bundle",
     "app_skeleton",
     "warmup_policy",
     "world_model",
-    "assembly_view",
+    "page_instance",
     "scene_payload",
     "catalog_resource",
     "data_source",
@@ -67,13 +67,13 @@ const MCG_KIND_ORDER: &[&str] = &[
 fn mcg_kind_label(kind: &str) -> String {
     match kind {
         "semantic_graph" => "SemanticGraph",
-        "panel_contract" => "PanelContract",
+        "content_panel" => "ContentPanel",
         "navigation" => "Navigation",
         "metric_def_bundle" => "MetricDefBundle",
         "app_skeleton" => "AppSkeleton",
         "warmup_policy" => "WarmupPolicy",
         "world_model" => "WorldModel",
-        "assembly_view" => "AssemblyView (legacy)",
+        "page_instance" => "PageInstance (legacy)",
         "scene_payload" => "ScenePayload (legacy)",
         other => other,
     }

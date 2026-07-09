@@ -3,10 +3,10 @@ use serde_json::{Map, Value};
 use crate::model::{Diagnostic, LoadedResource, Severity};
 
 use super::params::synthesize_board_payload_from_bindings;
-use super::super::metric::{expand_board_assembly, parse_metric_ref_id};
+use super::super::metric::{expand_page_instance, parse_metric_ref_id};
 
 /// Host-graph runtime：用 `examples[0].params` + `bindings` 展开 `projection_slots`。
-pub fn enrich_runtime_board_assembly_projection_slots(
+pub fn enrich_runtime_page_instance_projection_slots(
     assembly: &mut Map<String, Value>,
     resources: &[LoadedResource],
     target_file: &str,
@@ -72,7 +72,7 @@ pub fn enrich_runtime_board_assembly_projection_slots(
         }];
     };
     let mut expand_diagnostics = Vec::new();
-    let Some(expanded) = expand_board_assembly(
+    let Some(expanded) = expand_page_instance(
         &board_payload,
         resources,
         None,
@@ -85,7 +85,7 @@ pub fn enrich_runtime_board_assembly_projection_slots(
                 severity: Severity::Warning,
                 code: "board_runtime_expand_failed".to_string(),
                 message: format!(
-                    "board assembly `{target_file}` skipped projection_slots: expand_board_assembly returned no slots"
+                    "board assembly `{target_file}` skipped projection_slots: expand_page_instance returned no slots"
                 ),
                 source_path: Some(target_file.to_string()),
             });

@@ -1,10 +1,8 @@
     const basemapsEl = editorRoot.querySelector('[data-ops-json="basemaps"]');
     const themesEl = editorRoot.querySelector('[data-ops-json="themes"]');
-    const layoutTuningEl = editorRoot.querySelector('[data-ops-json="layoutTuning"]');
     const rawEl = editorRoot.querySelector('[data-ops-json="raw"]');
     if (basemapsEl) state.basemapsText = String(basemapsEl.value || "");
     if (themesEl) state.themesText = String(themesEl.value || "");
-    if (layoutTuningEl) state.layoutTuningText = String(layoutTuningEl.value || "");
     if (rawEl) state.rawOpsText = String(rawEl.value || "");
   }
 
@@ -226,7 +224,6 @@
       state.paramRows = hydrateParamRows(state.ops.params);
       state.basemapsText = stringifyJson(state.ops.basemaps);
       state.themesText = stringifyJson(state.ops.themes);
-      state.layoutTuningText = stringifyJson(state.ops.layoutTuning || {});
       state.rawOpsText = stringifyJson(state.ops);
       state.rawOpsDirty = false;
       state.isDirty = false;
@@ -285,7 +282,6 @@
     state.paramRows = hydrateParamRows(nextOps.params);
     state.basemapsText = stringifyJson(nextOps.basemaps);
     state.themesText = stringifyJson(nextOps.themes);
-    state.layoutTuningText = stringifyJson(nextOps.layoutTuning || {});
     state.rawOpsText = stringifyJson(nextOps);
     state.rawOpsDirty = false;
     ensureSelectedPanel();
@@ -347,10 +343,11 @@
       const params = new URL(window.location.href).searchParams;
       const section = String(params.get("section") || "").trim();
       const scope = String(params.get("scope") || "").trim();
-      if (section === "layoutTuning" || section === "themes") {
-        state.selectedPanel = section === "layoutTuning" ? "themes" : section;
-        state.deepLinkScope = scope;
+      const validPanels = new Set(["params", "basemaps", "themes", "raw", "journal"]);
+      if (validPanels.has(section) || section.startsWith("source:")) {
+        state.selectedPanel = section;
       }
+      if (scope) state.deepLinkScope = scope;
     } catch (_error) {
       /* ignore malformed URL */
     }

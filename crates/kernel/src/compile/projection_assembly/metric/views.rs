@@ -33,7 +33,7 @@ pub(super) fn default_detail_view(
     let block_ref = default_detail_entry(contract).or_else(|| {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
-            code: "board_assembly_missing_detail".to_string(),
+            code: "page_instance_missing_detail".to_string(),
             message: format!(
                 "board assembly for metric `{root_metric_id}` requires detail=build_view(...) or an explain detail block"
             ),
@@ -74,7 +74,7 @@ pub(super) fn slot_from_board_view(
     if map.get("__kind").and_then(Value::as_str) != Some("board_view") {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
-            code: "board_assembly_invalid_view".to_string(),
+            code: "page_instance_invalid_view".to_string(),
             message: format!(
                 "board {zone} entry for metric `{root_metric_id}` must be build_view(...)"
             ),
@@ -97,7 +97,7 @@ pub(super) fn slot_from_board_view(
         if !has_chart_kind {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "board_assembly_chart_kind_required".to_string(),
+                code: "page_instance_chart_kind_required".to_string(),
                 message: format!(
                     "board chart view for metric `{root_metric_id}` requires explicit chart_kind"
                 ),
@@ -239,7 +239,7 @@ fn resolve_view_source_to_slot(
             let Some(block) = find_explain_block(contract, block_id.as_str()) else {
                 diagnostics.push(Diagnostic {
                     severity: Severity::Error,
-                    code: "board_assembly_unknown_explain_block".to_string(),
+                    code: "page_instance_unknown_explain_block".to_string(),
                     message: format!(
                         "board {zone} source `{block_id}` for metric `{root_metric_id}` does not match any explain block"
                     ),
@@ -279,7 +279,7 @@ fn resolve_view_source_to_slot(
         let Some(block) = find_explain_block(contract, block_ref) else {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "board_assembly_unknown_explain_block".to_string(),
+                code: "page_instance_unknown_explain_block".to_string(),
                 message: format!(
                     "board {zone} source `{block_ref}` for metric `{root_metric_id}` does not match any explain block"
                 ),
@@ -295,7 +295,7 @@ fn resolve_view_source_to_slot(
     }
     diagnostics.push(Diagnostic {
         severity: Severity::Error,
-        code: "board_assembly_invalid_source".to_string(),
+        code: "page_instance_invalid_source".to_string(),
         message: format!(
             "board {zone} view for metric `{root_metric_id}` requires source=explain_ref(...) or metric_ref(...)"
         ),

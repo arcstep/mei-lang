@@ -115,8 +115,8 @@ fn append_t2_board_structure(index: &mut UiLayoutIndex, compiled: &CompiledApp, 
         return;
     };
     let mut board_entries: Vec<_> = compiled
-        .build_board_index
-        .boards
+        .build_t2_page_index
+        .pages
         .values()
         .filter(|entry| {
             entry.popup_consumers.iter().any(|consumer| consumer == scene_id)
@@ -166,7 +166,7 @@ fn append_t2_board_structure(index: &mut UiLayoutIndex, compiled: &CompiledApp, 
             preview_scope: region_key.clone(),
             budget: None,
             source_anchors: vec![UiSourceAnchor {
-                file: board.board_file.clone(),
+                file: board.page_file.clone(),
                 symbol_id: board.scene_id.clone(),
             }],
             content_kind: Some("page_instance".to_string()),
@@ -394,14 +394,14 @@ fn content_has_content_children(node: &UiScopeNode, index: &UiLayoutIndex) -> bo
 fn scene_contracts_from_compiled(
     compiled: &CompiledApp,
 ) -> BTreeMap<String, crate::model::SceneContract> {
-    use crate::model::{PanelDecl, SceneContract, SceneDecl};
+    use crate::model::{UiNodeDecl, SceneContract, SceneDecl};
     use serde_json::Value;
 
     let mut map = BTreeMap::new();
     for (scene_id, assembly) in &compiled.scene_projection_assembly_by_id {
         let panels = assembly
             .get("panels")
-            .and_then(|value| serde_json::from_value::<Vec<PanelDecl>>(value.clone()).ok())
+            .and_then(|value| serde_json::from_value::<Vec<UiNodeDecl>>(value.clone()).ok())
             .unwrap_or_default();
         let local_nav = assembly
             .get("shell_contract")

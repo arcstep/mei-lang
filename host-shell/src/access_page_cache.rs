@@ -54,17 +54,8 @@ fn ops_themes_revision_digest(workspace_root: &Path, app_id: &str) -> String {
     format!("{digest:016x}")
 }
 
-fn ops_layout_tuning_revision_digest(workspace_root: &Path, app_id: &str) -> String {
-    // Legacy digest retained for cache key compatibility; prefer ops_themes_revision_digest for new keys.
-    let app_root = resolve_app_root(workspace_root, app_id);
-    let config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
-    mei_lang_kernel::ops_layout_tuning_revision_digest(&config.ops)
-}
-
 fn layout_policy_revision_digest(workspace_root: &Path, app_id: &str) -> String {
-    let theme = ops_themes_revision_digest(workspace_root, app_id);
-    let legacy = ops_layout_tuning_revision_digest(workspace_root, app_id);
-    format!("{theme}:{legacy}")
+    ops_themes_revision_digest(workspace_root, app_id)
 }
 
 /// Remove legacy on-disk page-render-cache directories (abolished; one-time hygiene).

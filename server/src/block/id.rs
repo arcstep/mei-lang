@@ -43,11 +43,11 @@ fn parse_kind_slug(slug: &str) -> Result<GraphNodeKind> {
     match slug.trim() {
         "app_skeleton" => Ok(GraphNodeKind::AppSkeleton),
         "scene_payload" => Ok(GraphNodeKind::ScenePayload),
-        "panel_contract" => Ok(GraphNodeKind::PanelContract),
+        "content_panel" => Ok(GraphNodeKind::ContentPanel),
         "catalog_resource" => Ok(GraphNodeKind::CatalogResource),
         "metric_def_bundle" => Ok(GraphNodeKind::MetricDefBundle),
         "semantic_graph" => Ok(GraphNodeKind::SemanticGraph),
-        "assembly_view" => Ok(GraphNodeKind::AssemblyView),
+        "page_instance" => Ok(GraphNodeKind::PageInstance),
         "data_source" => Ok(GraphNodeKind::DataSource),
         "eval_plan" => Ok(GraphNodeKind::EvalPlan),
         "workset" => Ok(GraphNodeKind::Workset),

@@ -5,9 +5,9 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::model::{DatasetView, Diagnostic, LoadedResource, PanelDecl, Severity, UiNodeDecl};
+use crate::model::{DatasetView, Diagnostic, LoadedResource, UiNodeDecl, Severity, UiTreeNode};
 
-fn collect_panel_import_scopes(panels: &[PanelDecl], out: &mut BTreeSet<String>) {
+fn collect_panel_import_scopes(panels: &[UiNodeDecl], out: &mut BTreeSet<String>) {
     for panel in panels {
         if let Some(scope) = panel
             .import_scope
@@ -18,7 +18,7 @@ fn collect_panel_import_scopes(panels: &[PanelDecl], out: &mut BTreeSet<String>)
             out.insert(scope.to_string());
         }
         for node in &panel.blocks {
-            if let UiNodeDecl::Panel(nested) = node {
+            if let UiTreeNode::Panel(nested) = node {
                 collect_panel_import_scopes(std::slice::from_ref(nested), out);
             }
         }
@@ -225,23 +225,23 @@ fn rewrite_value_refs(value: &mut Value, capsule_path: &str) {
     }
 }
 
-pub(crate) fn rewrite_panel_import_refs(panel: &mut PanelDecl, capsule_path: &str) {
+pub(crate) fn rewrite_panel_import_refs(panel: &mut UiNodeDecl, capsule_path: &str) {
     rewrite_value_refs(&mut panel.props, capsule_path);
     rewrite_value_refs(&mut panel.head_props, capsule_path);
     rewrite_value_refs(&mut panel.body_props, capsule_path);
     rewrite_panel_blocks_refs(&mut panel.blocks, capsule_path);
 }
 
-fn rewrite_panel_blocks_refs(blocks: &mut [UiNodeDecl], capsule_path: &str) {
+fn rewrite_panel_blocks_refs(blocks: &mut [UiTreeNode], capsule_path: &str) {
     for node in blocks {
         match node {
-            UiNodeDecl::Panel(panel) => {
+            UiTreeNode::Panel(panel) => {
                 rewrite_panel_import_refs(panel, capsule_path);
             }
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 rewrite_value_refs(&mut block.props, capsule_path);
             }
-            UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }
@@ -249,7 +249,7 @@ fn rewrite_panel_blocks_refs(blocks: &mut [UiNodeDecl], capsule_path: &str) {
 /// 为 panel 树中全部 imported scope 附加私有资源；返回待并入 runtime 的 namespaced 资源。
 pub(crate) fn finalize_private_import_world(
     app_root: &Path,
-    panels: &[PanelDecl],
+    panels: &[UiNodeDecl],
     host_resource_local_ids: &BTreeSet<String>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,

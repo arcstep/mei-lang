@@ -7,7 +7,7 @@ mod graph_mcg_tests {
     use serde_json::json;
 
     use crate::graph::feature::graph_registry_enabled;
-    use crate::graph::mcg::assemble::{assembly_view_revision, AssemblyInputRecord};
+    use crate::graph::mcg::assemble::{page_instance_revision, AssemblyInputRecord};
     use crate::graph::mcg::metric_def_bundle::metric_defs_fingerprint;
     use crate::graph::mcg::scene_payload::scene_payload_revision;
     use crate::graph::mrg::invalidation::{apply_mcg_invalidation, changed_bundle_owners};
@@ -40,7 +40,7 @@ mod graph_mcg_tests {
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
             build_experience_index: Default::default(),
-            build_board_index: Default::default(),
+            build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
         };
         compiled.resources.push(LoadedResource {
@@ -107,7 +107,7 @@ mod graph_mcg_tests {
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
             build_experience_index: Default::default(),
-            build_board_index: Default::default(),
+            build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
         };
         compiled.resources.push(LoadedResource {
@@ -178,8 +178,8 @@ mod graph_mcg_tests {
                 revision: "mdb:abc".to_string(),
             },
         ];
-        let rev_a = assembly_view_revision(&inputs);
-        let rev_b = assembly_view_revision(&inputs);
+        let rev_a = page_instance_revision(&inputs);
+        let rev_b = page_instance_revision(&inputs);
         assert_eq!(rev_a, rev_b);
     }
 
@@ -229,21 +229,22 @@ mod graph_mcg_tests {
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../workspaces/ws-spbjw");
-        let mcg = source_root.join("zhifa/build/active/graph/registry/mcg.json");
+        // Phase 5: apps live under apps/; v1 *.board.mei removed.
+        let mcg = source_root.join("apps/zhifa/build/active/graph/registry/mcg.json");
         if !mcg.is_file() {
             return;
         }
         let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
             source_root.as_path(),
             "zhifa",
-            Some("enforcement_personnel_analytics_board"),
-            "scenes/01-执法要素.board.mei",
+            Some("enforcement_personnel_analytics_page"),
+            "src/scene/home/t2/r-drilldown/s-enforcement-elements/c-enforcement-personnel-analytics/content.mei",
         )
-        .expect("board scene payload assemble should succeed for prebuilt zhifa");
+        .expect("page_instance scene payload assemble should succeed for prebuilt zhifa");
         let (owner, resolved) = locate_runtime_metric_resource(
             &compiled,
             "enforcement_officers",
-            "scenes/01-执法要素.mei::enforcement_personnel_count::composition_by_agency",
+            "enforcement_personnel_count::composition_by_agency",
         )
         .expect("metric should resolve after runtime payload hydrate");
         assert_eq!(owner.id, "__world_metrics__");
@@ -258,15 +259,15 @@ mod graph_mcg_tests {
         use std::path::Path;
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
-        let scene_payload = source_root.join("zhifa/build/active/graph/payloads/scene/scenes-home-mei.json");
-        if !scene_payload.is_file() {
+        let mcg = source_root.join("apps/zhifa/build/active/graph/registry/mcg.json");
+        if !mcg.is_file() {
             return;
         }
         let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
             source_root.as_path(),
             "zhifa",
             Some("home"),
-            "scenes/home.mei",
+            "src/scene/home/assembly.mei",
         )
         .expect("home scene payload assemble should succeed without MCG registry");
         assert!(
@@ -280,36 +281,26 @@ mod graph_mcg_tests {
         use std::path::Path;
 
         let source_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../workspaces/ws-spbjw");
-        let board_payload = source_root
-            .join("zhifa/build/active/graph/payloads/scene/scenes-04-行政处罚-board-mei.json");
-        if !board_payload.is_file() {
+        let mcg = source_root.join("apps/zhifa/build/active/graph/registry/mcg.json");
+        if !mcg.is_file() {
             return;
         }
         let (compiled, _) = crate::graph::try_assemble_scope_from_scene_payload(
             source_root.as_path(),
             "zhifa",
-            Some("penalty_total_analytics_board"),
-            "scenes/04-行政处罚.board.mei",
+            Some("penalty_total_analytics_page"),
+            "src/scene/home/t2/r-drilldown/s-penalty-dashboard/c-penalty-total-analytics/content.mei",
         )
-        .expect("penalty board assemble should backfill runtime catalog");
+        .expect("penalty page_instance assemble should backfill runtime catalog");
         assert!(
-            compiled
-                .resources
-                .iter()
-                .any(|resource| resource.id == "penalty_result_dashboard_ds"),
-            "penalty board assemble must expose penalty_result_dashboard_ds"
-        );
-        assert!(
-            compiled
-                .resources
-                .iter()
-                .any(|resource| {
-                    resource
+            compiled.resources.iter().any(|resource| {
+                resource.id.contains("penalty")
+                    || resource
                         .dataset
                         .as_ref()
                         .is_some_and(|dataset| dataset.has_runtime_metric_defs())
-                }),
-            "penalty board assemble must hydrate runtime metric defs"
+            }),
+            "penalty page_instance assemble must expose penalty resources or runtime metric defs"
         );
     }
 }

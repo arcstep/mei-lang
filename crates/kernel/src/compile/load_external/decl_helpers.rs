@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::model::{
-    FrameDecl, FrameExportDecl, PanelDecl,
+    FrameDecl, FrameExportDecl, UiNodeDecl,
     PanelExportDecl, SceneDecl, SceneExportDecl,
 };
 
@@ -73,13 +73,13 @@ pub(crate) fn load_frame_decl_values(decls: &Value) -> Result<Vec<FrameDecl>> {
     Ok(frames)
 }
 
-pub(crate) fn load_panel_decl_values(decls: &Value) -> Result<Vec<PanelDecl>> {
+pub(crate) fn load_panel_decl_values(decls: &Value) -> Result<Vec<UiNodeDecl>> {
     let mut panels = Vec::new();
     if let Some(values) = decls.as_array() {
         for value in values {
             match value.get("kind").and_then(Value::as_str) {
                 Some("panel") | Some("panel_decl") => {
-                    if let Ok(panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
+                    if let Ok(panel) = serde_json::from_value::<UiNodeDecl>(value.clone()) {
                         panels.push(panel);
                     }
                 }
@@ -87,7 +87,7 @@ pub(crate) fn load_panel_decl_values(decls: &Value) -> Result<Vec<PanelDecl>> {
                     let export = serde_json::from_value::<PanelExportDecl>(value.clone())?;
                     let mut panel_value = export.panel;
                     set_missing_id(&mut panel_value, export.id.as_str());
-                    if let Ok(panel) = serde_json::from_value::<PanelDecl>(panel_value) {
+                    if let Ok(panel) = serde_json::from_value::<UiNodeDecl>(panel_value) {
                         panels.push(panel);
                     }
                 }

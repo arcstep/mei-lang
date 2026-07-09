@@ -6,7 +6,7 @@ use std::sync::Once;
 use mei_host_core::HostContext;
 use mei_host_graph::{assemble_scope_from_registry, import_bundle, ImportOptions};
 use mei_lang_kernel::{
-    compile_app_from_root_with_options, CompileOptions, PanelDecl, UiNodeDecl,
+    compile_app_from_root_with_options, CompileOptions, UiNodeDecl, UiTreeNode,
 };
 
 static V2_INIT: Once = Once::new();
@@ -42,14 +42,14 @@ fn ensure_v2_imported() {
     });
 }
 
-fn collect_use_keys(panels: &[PanelDecl]) -> Vec<String> {
+fn collect_use_keys(panels: &[UiNodeDecl]) -> Vec<String> {
     let mut keys = Vec::new();
-    fn walk(panel: &PanelDecl, out: &mut Vec<String>) {
+    fn walk(panel: &UiNodeDecl, out: &mut Vec<String>) {
         for node in &panel.blocks {
             match node {
-                UiNodeDecl::Block(block) => out.push(block.use_key.clone()),
-                UiNodeDecl::Panel(nested) => walk(nested, out),
-                UiNodeDecl::PanelRefEmbed(_) => {}
+                UiTreeNode::Block(block) => out.push(block.use_key.clone()),
+                UiTreeNode::Panel(nested) => walk(nested, out),
+                UiTreeNode::PanelRefEmbed(_) => {}
             }
         }
     }
@@ -59,14 +59,14 @@ fn collect_use_keys(panels: &[PanelDecl]) -> Vec<String> {
     keys
 }
 
-fn panel_titles(panels: &[PanelDecl]) -> Vec<String> {
+fn panel_titles(panels: &[UiNodeDecl]) -> Vec<String> {
     let mut titles = Vec::new();
-    fn walk(panel: &PanelDecl, out: &mut Vec<String>) {
+    fn walk(panel: &UiNodeDecl, out: &mut Vec<String>) {
         if let Some(title) = panel.title.as_deref().filter(|t| !t.is_empty()) {
             out.push(title.to_string());
         }
         for node in &panel.blocks {
-            if let UiNodeDecl::Panel(nested) = node {
+            if let UiTreeNode::Panel(nested) = node {
                 walk(nested, out);
             }
         }
@@ -130,11 +130,11 @@ fn home_v2_matches_v1_component_shape() {
     }
 }
 
-fn walk_panels<'a>(panels: &'a [PanelDecl], f: &mut dyn FnMut(&'a PanelDecl)) {
+fn walk_panels<'a>(panels: &'a [UiNodeDecl], f: &mut dyn FnMut(&'a UiNodeDecl)) {
     for panel in panels {
         f(panel);
         for node in &panel.blocks {
-            if let UiNodeDecl::Panel(nested) = node {
+            if let UiTreeNode::Panel(nested) = node {
                 walk_panels(std::slice::from_ref(nested), f);
             }
         }
@@ -183,10 +183,10 @@ fn home_v2_resolves_metric_card_link_ref_popup() {
         .expect("home");
     let contract = v2.compiled.scene_contract.as_ref().expect("contract");
     let mut popup = None;
-    fn walk(panel: &PanelDecl, target: &str, out: &mut Option<serde_json::Value>) {
+    fn walk(panel: &UiNodeDecl, target: &str, out: &mut Option<serde_json::Value>) {
         if panel.id == target {
             for node in &panel.blocks {
-                if let UiNodeDecl::Block(block) = node {
+                if let UiTreeNode::Block(block) = node {
                     if block.props.get("metric_role").and_then(|v| v.as_str()) == Some("value") {
                         if let Some(p) = block.props.get("popup") {
                             *out = Some(p.clone());
@@ -196,7 +196,7 @@ fn home_v2_resolves_metric_card_link_ref_popup() {
             }
         }
         for node in &panel.blocks {
-            if let UiNodeDecl::Panel(nested) = node {
+            if let UiTreeNode::Panel(nested) = node {
                 walk(nested, target, out);
             }
         }
@@ -204,17 +204,17 @@ fn home_v2_resolves_metric_card_link_ref_popup() {
     walk(&contract.panels[0], "supervision_items_card", &mut popup);
     // search all panels if not found at top
     if popup.is_none() {
-        fn walk_all(panels: &[PanelDecl], out: &mut Option<serde_json::Value>) {
+        fn walk_all(panels: &[UiNodeDecl], out: &mut Option<serde_json::Value>) {
             for panel in panels {
                 for node in &panel.blocks {
-                    if let UiNodeDecl::Block(block) = node {
+                    if let UiTreeNode::Block(block) = node {
                         if block.props.get("metric_role").and_then(|v| v.as_str()) == Some("value")
                             && panel.id == "supervision_items_card"
                         {
                             *out = block.props.get("popup").cloned();
                         }
                     }
-                    if let UiNodeDecl::Panel(nested) = node {
+                    if let UiTreeNode::Panel(nested) = node {
                         walk_all(std::slice::from_ref(nested), out);
                     }
                 }

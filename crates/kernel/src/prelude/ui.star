@@ -238,19 +238,6 @@ def _merge_head_props(head_props = None, heading = None, heading_variant = None)
         merged["variant"] = heading_variant
     return merged
 
-def panel_slot(kind = None, role = None, accepts = None, required = None, max = None, source = None, active = None, selection_from = None):
-    resolved_kind = kind if kind != None else role
-    return _without_empty({
-        "__kind": "panel_slot",
-        "kind": resolved_kind,
-        "accepts": accepts,
-        "required": required,
-        "max": max,
-        "source": source,
-        "active": active,
-        "selection_from": selection_from,
-    })
-
 def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, slot = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
     if base != None:
         panel_id = id if id != None and str(id).strip() != "" else ""

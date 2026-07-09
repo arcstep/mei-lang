@@ -32,15 +32,15 @@ fn compile_cockpit_templates_preview() {
     );
     let sc = compiled.scene_contract.as_ref().expect("scene contract");
     fn find_panel_by_id<'a>(
-        panels: &'a [crate::PanelDecl],
+        panels: &'a [crate::UiNodeDecl],
         target: &str,
-    ) -> Option<&'a crate::PanelDecl> {
+    ) -> Option<&'a crate::UiNodeDecl> {
         for panel in panels {
             if panel.id == target {
                 return Some(panel);
             }
             for node in &panel.blocks {
-                if let crate::UiNodeDecl::Panel(nested) = node {
+                if let crate::UiTreeNode::Panel(nested) = node {
                     if let Some(found) = find_panel_by_id(std::slice::from_ref(nested), target) {
                         return Some(found);
                     }
@@ -123,7 +123,7 @@ fn compile_cockpit_templates_preview() {
     let progress_patch =
         find_panel_by_id(&sc.panels, "preview_progress_patch").expect("preview_progress_patch");
     let has_progress_block = progress_patch.blocks.iter().any(|node| {
-        let crate::UiNodeDecl::Block(block) = node else {
+        let crate::UiTreeNode::Block(block) = node else {
             return false;
         };
         block.use_key == "cockpit.metric-progress"
@@ -148,9 +148,9 @@ fn compile_cockpit_templates_preview() {
             .is_some_and(|rows| rows.iter().flatten().any(|cell| cell == "desc")),
         "cloned progress template + source must keep template stack_desc grid with desc area"
     );
-    fn block_v_align(panel: &crate::PanelDecl, role: &str) -> Option<String> {
+    fn block_v_align(panel: &crate::UiNodeDecl, role: &str) -> Option<String> {
         for node in &panel.blocks {
-            let crate::UiNodeDecl::Block(block) = node else {
+            let crate::UiTreeNode::Block(block) = node else {
                 continue;
             };
             if block.props.get("metric_role").and_then(|v| v.as_str()) != Some(role) {
@@ -266,7 +266,7 @@ fn compile_cockpit_panel_example() {
         .blocks
         .iter()
         .find_map(|node| match node {
-            crate::UiNodeDecl::Panel(panel) if panel.id == "metrics_body" => Some(panel),
+            crate::UiTreeNode::Panel(panel) if panel.id == "metrics_body" => Some(panel),
             _ => None,
         })
         .expect("block_title_metrics_bg should nest metrics_body_panel");
@@ -289,7 +289,7 @@ fn compile_cockpit_panel_example() {
         .filter(|node| {
             matches!(
                 node,
-                crate::UiNodeDecl::Panel(panel) if panel.id.starts_with("metric_")
+                crate::UiTreeNode::Panel(panel) if panel.id.starts_with("metric_")
             )
         })
         .collect();
@@ -298,7 +298,7 @@ fn compile_cockpit_panel_example() {
         .blocks
         .iter()
         .find_map(|node| match node {
-            crate::UiNodeDecl::Panel(panel) if panel.id == "metric_m2" => Some(panel),
+            crate::UiTreeNode::Panel(panel) if panel.id == "metric_m2" => Some(panel),
             _ => None,
         })
         .expect("metric_m2");
@@ -328,7 +328,7 @@ fn compile_cockpit_panel_example() {
         .find(|p| p.id == "block_title_metrics_grid")
         .and_then(|panel| {
             panel.blocks.iter().find_map(|node| match node {
-                crate::UiNodeDecl::Panel(nested) if nested.id == "metrics_grid_body" => {
+                crate::UiTreeNode::Panel(nested) if nested.id == "metrics_grid_body" => {
                     Some(nested)
                 }
                 _ => None,
@@ -348,7 +348,7 @@ fn compile_cockpit_panel_example() {
         .find(|p| p.id == "block_title_metrics_focus")
         .and_then(|panel| {
             panel.blocks.iter().find_map(|node| match node {
-                crate::UiNodeDecl::Panel(nested) if nested.id == "metrics_focus_body" => {
+                crate::UiTreeNode::Panel(nested) if nested.id == "metrics_focus_body" => {
                     Some(nested)
                 }
                 _ => None,

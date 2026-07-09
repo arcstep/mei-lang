@@ -57,8 +57,7 @@ fn lower_top_level(
             | "section_layout"
             | "map_spec"
             | "view_spec"
-            | "assembly_view"
-            | "board_assembly"
+            | "page_instance"
     ) {
         if let Some(obj) = payload.as_object_mut() {
             obj.entry("source_file".to_string())
@@ -98,8 +97,8 @@ fn schema_for_constructor(name: &str) -> &'static str {
         "plane_layout" | "region_layout" | "section_layout" => "mei-scene-layout-fragment-v1",
         "map_spec" => "mei-map-spec-v1",
         "view_spec" => "mei-view-spec-v1",
-        "assembly_view" | "board_assembly" => "mei-projection-assembly-v1",
-        "panel_contract" => "mei-panel-contract-artifact-v1",
+        "page_instance" => "mei-projection-assembly-v1",
+        "content_panel" => "mei-panel-contract-artifact-v1",
         "metric_def_bundle" => "mei-metric-def-bundle-artifact-v1",
         "navigation" | "link_decl" => "mei-navigation-artifact-v1",
         "warmup_policy" => "mei-warmup-policy-artifact-v1",
@@ -136,13 +135,13 @@ fn derive_block_id(
             Ok(format!("{name}:{key}"))
         }
         "navigation" | "link_decl" => kw_string(obj, "key").map(|key| format!("{name}:{key}")),
-        "assembly_view" | "board_assembly" => kw_string(obj, "key").map(|key| format!("assembly_view:{key}")),
-        "panel_contract" => {
+        "page_instance" => kw_string(obj, "key").map(|key| format!("page_instance:{key}")),
+        "content_panel" => {
             let id = kw_string(obj, "id")?;
             if let Some(scope) = obj.get("scope").and_then(|v| v.as_str()) {
-                Ok(format!("panel_contract:{scope}:{id}"))
+                Ok(format!("content_panel:{scope}:{id}"))
             } else {
-                Ok(format!("panel_contract:{id}"))
+                Ok(format!("content_panel:{id}"))
             }
         }
         "metric_def_bundle" => kw_string(obj, "key").map(|key| format!("metric_def_bundle:{key}")),

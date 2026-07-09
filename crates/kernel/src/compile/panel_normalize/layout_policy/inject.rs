@@ -1,6 +1,6 @@
-use crate::model::{LayoutDecl, PanelDecl};
+use crate::model::{LayoutDecl, UiNodeDecl};
 
-use super::super::constants::{PolicySpacing, METRIC_COMPOUND_BOTTOM_MAX, SLOT_BODY, SLOT_HEAD};
+use super::super::constants::{PolicySpacing, METRIC_COMPOUND_BOTTOM_MAX, CONTENT_ZONE, TITLE_ZONE};
 use super::super::nodes::{
     node_is_metric_card_like, node_is_metrics_2_1_item_like, panel_head_height_track, set_node_area,
 };
@@ -10,11 +10,11 @@ use super::metrics_grid::{
     metric_compound_bottom_count,
 };
 
-pub(crate) fn inject_default_layout(panel: &mut PanelDecl, has_head: bool, has_body: bool) {
+pub(crate) fn inject_default_layout(panel: &mut UiNodeDecl, has_head: bool, has_body: bool) {
     panel.layout = match (has_head, has_body) {
         (true, true) => Some(default_layout_head_body(panel_head_height_track(panel))),
-        (true, false) => Some(default_layout_single_slot(SLOT_HEAD)),
-        (false, true) => Some(default_layout_single_slot(SLOT_BODY)),
+        (true, false) => Some(default_layout_single_slot(TITLE_ZONE)),
+        (false, true) => Some(default_layout_single_slot(CONTENT_ZONE)),
         (false, false) => None,
     };
 }
@@ -29,8 +29,8 @@ pub(crate) fn default_layout_head_body(head_track: Option<String>) -> LayoutDecl
             "1fr".to_string(),
         ]),
         areas: Some(vec![
-            vec![SLOT_HEAD.to_string()],
-            vec![SLOT_BODY.to_string()],
+            vec![TITLE_ZONE.to_string()],
+            vec![CONTENT_ZONE.to_string()],
         ]),
         gap: Some("2px".to_string()),
         padding: Some("0".to_string()),
@@ -81,35 +81,35 @@ pub(crate) fn layout_has_slot(layout: Option<&LayoutDecl>, slot: &str) -> bool {
                 .any(|cell| cell == slot)
         })
 }
-pub(crate) fn should_inject_metrics_strip(panel: &PanelDecl, has_head: bool) -> bool {
+pub(crate) fn should_inject_metrics_strip(panel: &UiNodeDecl, has_head: bool) -> bool {
     if has_head || panel.blocks.len() < 2 {
         return false;
     }
     panel.blocks.iter().all(node_is_metric_card_like)
 }
 
-pub(crate) fn should_inject_metrics_2x2(panel: &PanelDecl, has_head: bool) -> bool {
+pub(crate) fn should_inject_metrics_2x2(panel: &UiNodeDecl, has_head: bool) -> bool {
     if has_head || panel.blocks.len() != 4 {
         return false;
     }
     panel.blocks.iter().all(node_is_metric_card_like)
 }
 
-pub(crate) fn should_inject_metrics_auto(panel: &PanelDecl, has_head: bool) -> bool {
+pub(crate) fn should_inject_metrics_auto(panel: &UiNodeDecl, has_head: bool) -> bool {
     if has_head || panel.blocks.len() < 2 {
         return false;
     }
     panel.blocks.iter().all(node_is_metrics_2_1_item_like)
 }
 
-pub(crate) fn should_inject_metrics_2_1(panel: &PanelDecl, has_head: bool) -> bool {
+pub(crate) fn should_inject_metrics_2_1(panel: &UiNodeDecl, has_head: bool) -> bool {
     if has_head || panel.blocks.len() != 3 {
         return false;
     }
     panel.blocks.iter().all(node_is_metrics_2_1_item_like)
 }
 
-pub(crate) fn should_inject_metric_compound_2_1(panel: &PanelDecl, has_head: bool) -> bool {
+pub(crate) fn should_inject_metric_compound_2_1(panel: &UiNodeDecl, has_head: bool) -> bool {
     if has_head {
         return false;
     }
@@ -120,35 +120,35 @@ pub(crate) fn should_inject_metric_compound_2_1(panel: &PanelDecl, has_head: boo
     panel.blocks.iter().all(node_is_metric_card_like)
 }
 
-pub(crate) fn inject_default_metrics_strip_layout(panel: &mut PanelDecl, spacing: &PolicySpacing) {
+pub(crate) fn inject_default_metrics_strip_layout(panel: &mut UiNodeDecl, spacing: &PolicySpacing) {
     for (idx, node) in panel.blocks.iter_mut().enumerate() {
         set_node_area(node, &format!("m{idx}"));
     }
     panel.layout = Some(default_metrics_strip_layout(panel.blocks.len(), spacing));
 }
 
-pub(crate) fn inject_default_metrics_2x2_layout(panel: &mut PanelDecl) {
+pub(crate) fn inject_default_metrics_2x2_layout(panel: &mut UiNodeDecl) {
     for (idx, node) in panel.blocks.iter_mut().enumerate() {
         set_node_area(node, &format!("m{idx}"));
     }
     panel.layout = Some(default_metrics_2x2_layout(panel));
 }
 
-pub(crate) fn inject_default_metrics_auto_layout(panel: &mut PanelDecl) {
+pub(crate) fn inject_default_metrics_auto_layout(panel: &mut UiNodeDecl) {
     for (idx, node) in panel.blocks.iter_mut().enumerate() {
         set_node_area(node, &format!("m{idx}"));
     }
     panel.layout = Some(default_metrics_auto_layout(panel));
 }
 
-pub(crate) fn inject_default_metrics_2_1_layout(panel: &mut PanelDecl) {
+pub(crate) fn inject_default_metrics_2_1_layout(panel: &mut UiNodeDecl) {
     for (idx, node) in panel.blocks.iter_mut().enumerate() {
         set_node_area(node, &format!("m{idx}"));
     }
     panel.layout = Some(default_metrics_2_1_layout(panel));
 }
 
-pub(crate) fn inject_default_metric_compound_2_1_layout(panel: &mut PanelDecl) {
+pub(crate) fn inject_default_metric_compound_2_1_layout(panel: &mut UiNodeDecl) {
     for (idx, node) in panel.blocks.iter_mut().enumerate() {
         let area = if idx == 0 {
             "top".to_string()

@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::model::{Diagnostic, EntityDecl, FlowDecl, ResourceDecl, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, EntityDecl, FlowDecl, ResourceDecl, Severity, UiTreeNode};
 use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 
 use super::refs::{
@@ -254,11 +254,11 @@ pub(super) fn normalize_entity_list(
 
 pub(super) fn normalize_ui_nodes(
     app_root: &Path,
-    nodes: &[UiNodeDecl],
+    nodes: &[UiTreeNode],
     scene_registry: &SceneRegistry,
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
-) -> Vec<UiNodeDecl> {
+) -> Vec<UiTreeNode> {
     nodes
         .iter()
         .filter_map(|node| {
@@ -269,13 +269,13 @@ pub(super) fn normalize_ui_nodes(
 
 pub(super) fn normalize_ui_node(
     app_root: &Path,
-    node: &UiNodeDecl,
+    node: &UiTreeNode,
     scene_registry: &SceneRegistry,
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
-) -> Option<UiNodeDecl> {
+) -> Option<UiTreeNode> {
     match node {
-        UiNodeDecl::Panel(panel) => {
+        UiTreeNode::Panel(panel) => {
             let value = serde_json::to_value(panel.clone()).ok()?;
             if panel.base.is_some() || value.get("base").is_some() {
                 return resolve_panel_slot(
@@ -285,7 +285,7 @@ pub(super) fn normalize_ui_node(
                     diagnostics,
                     target_file,
                 )
-                .map(UiNodeDecl::Panel);
+                .map(UiTreeNode::Panel);
             }
             let mut panel = panel.clone();
             panel.blocks = normalize_ui_nodes(
@@ -296,9 +296,9 @@ pub(super) fn normalize_ui_node(
                 target_file,
             );
             panel.base = None;
-            Some(UiNodeDecl::Panel(panel))
+            Some(UiTreeNode::Panel(panel))
         }
-        UiNodeDecl::Block(block) => {
+        UiTreeNode::Block(block) => {
             if block.base.is_none() {
                 return Some(node.clone());
             }
@@ -307,7 +307,7 @@ pub(super) fn normalize_ui_node(
                 resolve_block_slot(app_root, &value, scene_registry, diagnostics, target_file)?;
             deserialize_ui_node_value(normalized).ok()
         }
-        UiNodeDecl::PanelRefEmbed(embed) => {
+        UiTreeNode::PanelRefEmbed(embed) => {
             let (code, message) = match embed.compat_source.as_deref() {
                 Some("panel_capsule_ref") => (
                     "deprecated_panel_capsule_ref",
@@ -334,7 +334,7 @@ pub(super) fn normalize_ui_node(
     }
 }
 
-pub(super) fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
+pub(super) fn deserialize_ui_node_value(value: Value) -> Result<UiTreeNode, String> {
     crate::model::deserialize_ui_node_value(value)
 }
 

@@ -2,13 +2,13 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::model::{
-    EntityDecl, FlowDecl, FrameDecl, PanelDecl, ResourceDecl, SceneDecl, WorldDecl,
+    EntityDecl, FlowDecl, FrameDecl, UiNodeDecl, ResourceDecl, SceneDecl, WorldDecl,
 };
 
 use super::super::merge::{deep_merge_json, value_has_key};
 
-pub(crate) fn merge_panel_decl(base: PanelDecl, overlay_value: &Value) -> Result<PanelDecl> {
-    let overlay: PanelDecl = serde_json::from_value(overlay_value.clone())?;
+pub(crate) fn merge_panel_decl(base: UiNodeDecl, overlay_value: &Value) -> Result<UiNodeDecl> {
+    let overlay: UiNodeDecl = serde_json::from_value(overlay_value.clone())?;
     let mut merged = base;
     if value_has_key(overlay_value, "id") {
         let id = overlay.id.trim();

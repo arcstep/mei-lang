@@ -1,78 +1,184 @@
 # MeiLang DSL Reference
 
-## 当前最小单文件骨架
+布局 SSOT：
+
+```text
+scene → plane_layout → region_layout → section_layout + section_shell → content_panel
+```
+
+样板：`workspaces/ws-demo-v2/apps/pretty-panels`、`mini-park` 的 `src/scene/**`（`t*/r-*/s-*/content.mei`）。
+
+## 应用入口
 
 ```python
-app(
-    id = "demo",
-    title = "Demo",
+app_skeleton(
+    id = "pretty-panels",
+    title = "面板调试 · Pretty Panels",
     default_scene = "home",
 )
 
+navigation(
+    key = "access:home",
+    scene = "home",
+    url = "/apps/app/pretty-panels/scene/home",
+    assembly = assembly_ref("home@src/scene/home/assembly.mei"),
+)
+```
+
+入口文件通常是 `src/app.mei`。
+
+## Scene 入口（assembly.mei）
+
+```python
 scene(
     id = "home",
-    world = "home_world",
-    frame = "home_frame",
-    profile = "page",
-    summary = "示例场景。",
+    key = "home@src/scene/home/assembly.mei",
+    profile = "cockpit",
+    theme = theme_ref("cockpit"),
+    summary = "驾驶舱首页",
+    canvas = viewport(
+        design_width = 1920,
+        design_height = 1080,
+        aspect_ratio = "16:9",
+        scale_mode = "contain",
+        overflow = "clip",
+        align = "center",
+    ),
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["1080px"],
+        areas = [["body"]],
+        align = "stretch",
+    ),
+    planes = [
+        plane_ref("pretty-panels/home/t0"),
+        plane_ref("pretty-panels/home/t1"),
+    ],
 )
+```
 
-world(
-    id = "home_world",
-    resources = [],
+`assembly.mei` 只组织 `plane_ref(...)`；不在这里堆 panel。
+
+## Plane（t*/layout.mei）
+
+```python
+plane_layout(
+    id = "t1",
+    key = "pretty-panels/home/t1",
+    tier = "t1",
+    layout = grid(
+        rows = ["72px", "1fr"],
+        columns = ["2fr", "3fr", "2fr"],
+        areas = [
+            ["header", "header", "header"],
+            ["left_rail", "center_rail", "right_rail"],
+        ],
+        gap = rail_standard_gap(),
+    ),
+    regions = [
+        region_ref("pretty-panels/home/t1/r-header"),
+        region_ref("pretty-panels/home/t1/r-left-rail"),
+        region_ref("pretty-panels/home/t1/r-center-rail"),
+        region_ref("pretty-panels/home/t1/r-right-rail"),
+    ],
 )
+```
 
-frame(
-    id = "home_frame",
+业务栏位用 `Nfr`；固定标题行可用 theme 档位高度（如 `"72px"`），不要在 content 层再撑高。
+
+## Region（r-*/layout.mei）
+
+```python
+region_layout(
+    id = "left_rail",
+    key = "pretty-panels/home/t1/r-left-rail",
+    chrome_role = "rail",
+    area = "left_rail",
+    layout = grid(
+        rows = ["1fr", "2.52fr", "2.33fr"],
+        areas = [["enforcement"], ["inspection"], ["penalty"]],
+        gap = rail_standard_gap(),
+    ),
+    sections = [
+        section_ref("pretty-panels/home/t1/r-left-rail/s-enforcement"),
+        section_ref("pretty-panels/home/t1/r-left-rail/s-inspection"),
+        section_ref("pretty-panels/home/t1/r-left-rail/s-penalty"),
+    ],
+)
+```
+
+硬规则：`sections = [section_ref(...)]` 唯一子树入口；禁止直挂 `content(...)` / `blocks`。
+
+## Section（s-*/layout.mei）
+
+有标题壳：
+
+```python
+section_layout(
+    id = "enforcement",
+    key = "pretty-panels/home/t1/r-left-rail/s-enforcement",
+    area = "enforcement",
+    title = "执法要素",
+    budget = budget(width = "100%", padding_profile = "dense_strip_100"),
+    shell = section_shell(
+        title = "执法要素",
+        width = "100%",
+        padding_profile = "dense_strip_100",
+        body = panel_ref("content/enforcement-stats"),
+    ),
+)
+```
+
+裸 stage / map 透传（无标题壳）可用 `shell = content_panel(chrome = "bare", blocks = [panel_ref(...)])`——样板里常见写法仍是 `content_panel(...)`，语义相同。
+
+**禁止** `section_shell` / shell 上手写 `height`；section 高度来自 region 格子 stretch。
+
+## Content（content.mei）
+
+作者名：`content_panel`（`content.mei` 的内容构造器）。  
+当前编译器标识仍多为 `content_panel`——读样板时按 `content_panel` 写，guides 叙事用 `content_panel`。
+
+```python
+use template "cockpit/panel/shell-macros" as shell
+
+content_panel(
+    id = "enforcement-stats",
+    variant = "container",
+    chrome = "bare",
+    props = shell.content_fill_props() | {
+        "width": "100%",
+    },
     layout = grid(
         rows = ["1fr"],
         columns = ["1fr"],
-        areas = [["main"]],
-        gap = "16px",
-        padding = "20px",
+        areas = [["strip"]],
+        gap = "0",
+        align = "stretch",
+        justify = "stretch",
     ),
-)
-
-frame.add_panel(
-    id = "main",
-    area = "main",
-    blocks = [],
+    blocks = [
+        # metric / chart / 业务宏；slot fill，不设 px 行高撑 section
+    ],
 )
 ```
 
-## 当前多文件场景注册骨架
+Fill-down：`layout.rows = ["1fr", ...]` 填满父 body；**不要** `row_budgets`、不要 content 层 px 高度。
 
-```python
-app(
-    id = "demo",
-    title = "Demo",
-    default_scene = "home",
-)
+## T2 page_instance
 
-app_add_scene(
-    scene = scene_ref(
-        scene_file = "scenes/home.mei",
-        scene_id = "home",
-    ),
-)
-```
+T2 与 T1 同构：`t2/layout.mei` → `r-*/layout.mei` → `s-*/layout.mei` → `c-*/content.mei`。
 
-如需第二个 scene，继续追加：
+文档术语用 **page_instance**。实现侧叶子文件里仍可能见到 `page_instance(...)`（正在改名）；新稿按 page_instance 理解，不要再推荐 `page_instance`。
 
-```python
-app_add_scene(
-    scene = scene_ref(
-        scene_file = "scenes/insights.mei",
-        scene_id = "insights",
-    ),
-)
-```
+入口联动用 `link_decl`（常聚合在 `t2/links/*.mei`），`target = assembly_ref(...)`。
 
-## 当前 dataset 骨架
+## World / dataset
+
+重资源外置，在 content 层引用：
 
 ```python
 world(
-    id = "sales_world",
+    id = "home_world",
     resources = [
         resource(
             id = "sales_data",
@@ -82,37 +188,9 @@ world(
         ),
     ],
 )
-
-frame(
-    id = "sales_frame",
-    layout = grid(
-        columns = ["1fr", "2fr"],
-        rows = ["auto", "minmax(220px, 1fr)"],
-        areas = [
-            ["doc", "table"],
-            ["summary", "chart"],
-        ],
-        gap = "16px",
-        padding = "20px",
-    ),
-)
-
-frame.add_panel(
-    id = "table_panel",
-    area = "table",
-    blocks = [
-        component(
-            "dataset.table",
-            area = "auto",
-            props = {
-                "data": dataset_ref(id = "sales_data"),
-            },
-        ),
-    ],
-)
 ```
 
-## upload / ops source 骨架
+upload / ops source：
 
 ```python
 world.add_dataset(
@@ -121,100 +199,40 @@ world.add_dataset(
     schema = [
         ds.column("month", "string"),
         ds.column("amount", "number"),
-        ds.column("region", "string"),
     ],
 )
 ```
 
-`source_ref("uploaded_sales")` 的真值来自 app 根目录 `.mei-config.json -> ops.sources`。
-
-## theme 骨架
+## Theme
 
 ```python
 scene(
     id = "home",
-    world = "home_world",
-    frame = "home_frame",
-    profile = "page",
-    theme = theme_ref("cockpit_dark"),
+    theme = theme_ref("cockpit"),
+    # ...
 )
 ```
 
-若只需要内建预设，也可以直接用 `theme = "cockpit"`。
-
-## 当前 chart 骨架
-
-```python
-frame.add_panel(
-    id = "chart_panel",
-    area = "chart",
-    blocks = [
-        component(
-            "chart.bar-mini",
-            area = "auto",
-            props = {
-                "data": metric_ref(id = "sales_ranking"),
-                "labelField": "month",
-                "valueField": "revenue",
-            },
-        ),
-    ],
-)
-```
-
-## 当前模板克隆骨架
-
-```python
-panel(
-    base = panel_ref(
-        id = "titled_shell",
-        scene_file = ".stock/templates/cockpit/panel/panel-titled-shell.mei",
-    ),
-    id = "summary_panel",
-    title = "业务概览",
-)
-```
-
-## 当前推荐结构
-
-1. `app(...) + default_scene`
-2. `scene(id=..., world=..., flow=..., frame=...)`
-3. 单文件时 inline `scene(...)`
-4. 多文件时 `app_add_scene(scene = scene_ref(...))`
-5. `world(id=...)`
-6. `flow(id=...)`（按需）
-7. `frame(id=..., layout = grid(...))`
-8. `frame.add_panel(area = "...")`
-9. `panel(...)` 中继续使用 `grid + slot + content`
-10. `component(...)`
-11. `panel(base = panel_ref(...))` / `metric_card(base = metric_card_ref(...))`
+尺寸微调走 Theme Profile（字体 + 比例 + padding 同组），不在 content 手改字号/px 撑高。
 
 ## 布局冻结口径
 
-- MeiLang 作者 DSL 统一使用 `grid(...)`
-- `absolute(...)` 只用于 placement，不再作为与 `grid` 并列的布局范式
-- `slot` 负责占位、背景、皮肤、padding、gap 与 typography budget
-- `metric_card(...)` 保留 `label / value / unit / desc` 等内容语义，但不再承担背景壳
-- 历史上的 `micro-layout`、`flex(...)`、`panel_slot(...)`、`layout_policy` 都不再作为新脚本默认写法
+- 唯一布局原语：`grid(...)`
+- `absolute(...)` 只用于 placement，不是并列布局范式
+- slot 负责占位、背景、皮肤、padding、gap
+- content / metric 只负责语义，不撑布局
+- **已删除的作者路径**：`frame.add_panel`、默认 `flex`、`titled_shell`、`page_instance` / `page_instance` 推荐路径、micro-layout 结构层、`row_budgets`
 
-## 当前 typed ref 主线
+## typed ref 主线
 
-- owner 槽位：`scene_ref(...)`、`world_ref(...)`、`flow_ref(...)`、`frame_ref(...)`
-- 集合/模板：`panel_ref(...)`、`metric_card_ref(...)`
-- 数据绑定：`dataset_ref(...)`、`metric_ref(...)`、`resource_ref(...)`
-- config refs：`theme_ref(...)`、`source_ref(...)`、`basemap_ref(...)`、`ops_param_ref(...)`
+- 结构：`plane_ref` / `region_ref` / `section_ref` / `panel_ref` / `assembly_ref`
+- 数据：`dataset_ref` / `metric_ref` / `resource_ref`
+- 资源：`world_ref` / `map_ref` / `view_ref` / `link_ref`
+- config：`theme_ref` / `source_ref` / `basemap_ref` / `ops_param_ref`
 
-## 兼容层（不作新脚本默认）
+## 不要当作已实现主线
 
-- `scene_file_ref(...)`
-- `world_file_ref(...)`
-- `frame_file_ref(...)`
-- `app(..., scene = scene_file_ref(...))`
-
-## 当前不要套用为已实现
-
-- 完整 `dataset(...)` 作者态 DSL
-- `data_ref(...)`
-- 在组件 `props` 中直接跨文件消费外部 `dataset_ref(...)` / `metric_ref(...)`
+- `frame(...)` / `frame.add_panel(...)` / `app(...)` 旧入口（用 `app_skeleton`）
+- `entry(...)` / `entries=[entry(...)]`
+- 在组件 `props` 中直接跨文件消费外部 dataset/metric locator
 - `world_ref(...)` 作为资源 id 选择器
-- old cockpit-only 写法作为主规范

@@ -124,18 +124,18 @@ pub fn scene_contract_contains_use_key(contract: &crate::model::SceneContract, u
         .any(|panel| panel_contains_use_key(panel, use_key))
 }
 
-fn panel_contains_use_key(panel: &crate::model::PanelDecl, use_key: &str) -> bool {
+fn panel_contains_use_key(panel: &crate::model::UiNodeDecl, use_key: &str) -> bool {
     panel
         .blocks
         .iter()
         .any(|node| node_contains_use_key(node, use_key))
 }
 
-fn node_contains_use_key(node: &crate::model::UiNodeDecl, use_key: &str) -> bool {
+fn node_contains_use_key(node: &crate::model::UiTreeNode, use_key: &str) -> bool {
     match node {
-        crate::model::UiNodeDecl::Block(block) => block.use_key == use_key,
-        crate::model::UiNodeDecl::Panel(nested) => panel_contains_use_key(nested, use_key),
-        crate::model::UiNodeDecl::PanelRefEmbed(_) => false,
+        crate::model::UiTreeNode::Block(block) => block.use_key == use_key,
+        crate::model::UiTreeNode::Panel(nested) => panel_contains_use_key(nested, use_key),
+        crate::model::UiTreeNode::PanelRefEmbed(_) => false,
     }
 }
 

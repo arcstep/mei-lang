@@ -18,7 +18,7 @@ use crate::http::compile_cache::{
 };
 use crate::AppState;
 
-use super::panel_lookup::{find_panel_contract_node, panel_preview_target};
+use super::panel_lookup::{find_content_panel_node, panel_preview_target};
 
 #[derive(Debug, Deserialize)]
 pub struct PanelRenderQuery {
@@ -61,7 +61,7 @@ pub async fn api_build_panel_render(
         .unwrap_or("home");
 
     let mcg = McgRegistryWriter::load(state.source_root.as_path(), app_id);
-    let node = find_panel_contract_node(&mcg, panel_key, scene_id);
+    let node = find_content_panel_node(&mcg, panel_key, scene_id);
     let preview_target = panel_preview_target(panel_key);
     let app_root = resolve_app_root(state.source_root.as_path(), app_id);
     let preview_path = app_root.join(&preview_target);

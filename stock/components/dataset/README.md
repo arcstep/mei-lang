@@ -144,8 +144,8 @@ popup / drilldown 则通过宿主侧 [`mei-lang/app/assets/spa-navigation/`](../
 
 ## 文档索引
 
-- host contract：`docs/mei-lang-v1/implementation/host/44-host-datasets-query-api-and-compile-file-cache.md`
-- query_state 与宿主联动：`docs/mei-lang-v1/implementation/host/45-host-page-query-state-and-manage-shell-data-integration.md`
-- lazy/runtime 语义：`docs/mei-lang-v1/implementation/syntax/08-lazy-sources-and-runtime-query-semantics.md`
-- 页级 `query_state` 语义：`docs/mei-lang-v1/implementation/syntax/10-page-query-state-and-runtime-metric-semantics.md`
+- host contract：`docs/archive/mei-lang-v1/implementation/host/44-host-datasets-query-api-and-compile-file-cache.md`
+- query_state 与宿主联动：`docs/archive/mei-lang-v1/implementation/host/45-host-page-query-state-and-manage-shell-data-integration.md`
+- lazy/runtime 语义：`docs/archive/mei-lang-v1/implementation/syntax/08-lazy-sources-and-runtime-query-semantics.md`
+- 页级 `query_state` 语义：`docs/archive/mei-lang-v1/implementation/syntax/10-page-query-state-and-runtime-metric-semantics.md`
 - 场景示例：`workspaces/examples/ds/04-data-table-features/README.md`

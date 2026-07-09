@@ -1,6 +1,6 @@
 # Cockpit 公共模板库（唯一真源）
 
-驾驶舱 `metric_card` / `panel` 声明模板的公共目录。示例应用（如 `workspaces/examples/cockpit/05-panel`）**只引用**本目录，不再在 `examples/**/templates` 维护副本。
+驾驶舱 `metric_card` / section 壳 / 语义布局宏的公共目录。示例应用只引用本目录。
 
 ## 目录结构
 
@@ -10,18 +10,21 @@ templates/cockpit/
 ├── metric-card.mei       # 指标卡预览（scene: metric）
 ├── map.mei               # GIS 主图预览（scene: map）
 ├── map/README.md         # 地图模板包说明（资产 + mapSpec 分工）
+├── business-layouts.mei  # 业务语义布局宏（Fill-down）
 ├── assets/
 │   ├── metrics/ header/  # 指标卡、顶栏切图
 │   └── map/geo/          # 区划 GeoJSON（沙坪坝示例，可替换）
-├── panel/                # panel 壳与内容区模板
-└── metric-card/          # metric_card / compound 壳模板
+├── panel/                # section 壳与顶栏 / 地图模板
+│   └── shell-macros.mei  # section_shell / screen_header / content_fill_props
+├── metric-card/          # metric_card / compound 壳模板
+└── drilldown/            # T2 page 壳（*-page.mei + frame-macros）
 ```
 
 ## 与组件包分工
 
 | 层 | 路径 | 职责 |
 |----|------|------|
-| 模板 | `templates/cockpit/` | panel / metric_card 壳、**GIS mapSpec + GeoJSON**、默认 props |
+| 模板 | `templates/cockpit/` | section 壳、metric_card 壳、**GIS mapSpec + GeoJSON**、语义布局宏 |
 | 专题组件 | `_components/cockpit/` | `cockpit.header-brand`、`cockpit.data-table`、`cockpit.panel-title` 等 |
 | 图表 | `_components/chart/echarts/` | 渲染器（含 `chart.geo`），**无区域业务数据** |
 | 地图 | `_components/map/maplibre/` | `map.maplibre`，**无 MBTiles / 图层 URL** |
@@ -29,15 +32,32 @@ templates/cockpit/
 
 `panel/panel-screen-header.mei` 是**引用模板**；标题视觉逻辑在 `cockpit.header-brand`。
 
-### 表格组件边界
+`business-layouts.mei` 提供**业务语义布局宏**（不是结构树节点）：`content_block`、`metric_triptych_body`、`chart_with_summary_body`、`table_with_summary_body`、`story_evidence_frame` 等。展开为 panel + grid；content 用 `content_fill_props` / `1fr`，禁止 `row_budgets` 撑高。
 
-与本模板库相关的表格能力按“共享内核 + 多 renderer”维护：
+间距合同：
+
+- rail / shell：`rail_standard_gap()`、`shell_body_padding_compact()`、`shell_body_padding_dense()`、`padding_profile`
+- 语义宏内部 gap：`6px` 主 gap、`8px` table gap、`2px` compound gap
+
+当前已进入真实业务文件使用的宏包括：
+
+- `content_block`（原 `micro_panel`）
+- `metric_triptych_body`
+- `chart_with_summary_body`
+- `table_with_summary_body`
+- `story_opinion_block`
+- `story_evidence_frame`
+- `metric_quad_body`
+- `status_triptych_summary_body`
+- `wide_metric_compound_body`
+- `metric_list_body`
+- `evidence_pair_body`
+
+### 表格组件边界
 
 - `dataset.table`（`_components/dataset/table.js`）用于 manage 通用表格交互；
 - `cockpit.data-table`（`_components/cockpit/data-table.js`）用于驾驶舱皮肤、embedded、轮播等；
-- 两者共享 `dataset/runtime-query.js` 与 `dataset/table-runtime/*`，模板侧不自行维护私有 dataset POST 逻辑。
-
-因此模板库不提供“单组件 + theme”封装；是否单组件化属于后续内核收敛完成后的延后决策。
+- 两者共享 `dataset/runtime-query.js` 与 `dataset/table-runtime/*`。
 
 ## 资产
 
@@ -53,32 +73,32 @@ templates/cockpit/
 
 ### `panel/`
 
-| 文件 | panel id | 说明 |
+| 文件 | id / 宏 | 说明 |
 |------|----------|------|
-| `panel-titled-shell.mei` | `titled_shell` | 板块标题壳（内嵌 54px 标题栏 + 内容区，如 522×232 预览框） |
-| `panel-screen-header.mei` | `screen_header_shell` | 大屏顶栏（1920×72；`screen-title-bg` + `screen-title-center` + `cockpit.header-brand`） |
-| `panel-gis-map-fullscreen.mei` | `gis_map` | **GIS 地图**：`map.maplibre` + mapSpec（底图、GeoJSON 业务层、图层勾选） |
-| `panel-map-shell.mei` | — | 已弃用（旧三栏壳），请用 `panel-gis-map-fullscreen` |
-| `metrics-auto-body.mei` | `metrics_auto_body` | metrics_auto 内容区 |
+| `shell-macros.mei` | `section_shell` / `screen_header` / `content_fill_props` | Fill-down section 壳与 content fill |
+| `panel-screen-header.mei` | `screen_header_shell` | 大屏顶栏（1920×72；`cockpit.header-brand`） |
+| `panel-gis-map-fullscreen.mei` | `gis_map` | **GIS 地图**：`map.maplibre` + mapSpec |
+| `panel-map-shell.mei` | — | 已弃用，请用 `panel-gis-map-fullscreen` |
+| `metrics-auto-body.mei` | `metrics_auto_body` | 兼容 body；新写法请显式 `grid(...)` |
 
 ### `metric-card/`
 
 | 文件 | panel id | 说明 |
 |------|----------|------|
-| `metric-card-narrow-stack.mei` | `card_normal` / `card_selected` | 114×128 stack 窄卡，默认 / 强调皮肤 |
-| `metric-card-solid-row.mei` | `card_solid_row_accent` / `card_solid_row_compact` | 横排纯色：宽松 132×50 / 紧凑 132×32 |
-| `metric-card-solid-stack.mei` | `card_solid_stack_plain` / `card_solid_stack_corner` | 叠排纯色 152×54：纯底 / 四角装饰 |
-| `metric-card-stack-desc.mei` | `card_stack_desc_mid` | 150×128 stack_desc + mid 底图；desc 用 `desc_shell` 角标 |
-| `metric-card-stack-progress.mei` | `card_stack_progress_clean` | 132×80 进度卡；背景 `assets/metrics/metric-bg-clean@3x.svg`；比例走 `desc` 槽 + `metric_desc_mode=progress`（见文件头注释） |
-| `metric-card-plain.mei` | `card_plain` | compound 内层透明卡 |
-| `metric-card-icon-left.mei` | `card_icon_left` | 152×74 左图 + stack；消费方 `props.background.image` 换图 |
-| `metric-card-strip-icon-left.mei` | `card_strip_icon_left` | 472×74 左图 + 横排 |
-| `metric-wide-compound.mei` | `wide_compound_shell` | 宽卡 compound 壳（234×128，上横排 + 下多子卡） |
-| `metric-card-long-compound.mei` | `long_compound_shell` | 长卡 compound 壳（463×80，左 1/3 stack + 右 2/3 上下横排子卡；底图 `metric-bg-long@3x.svg`） |
+| `macros.mei` | — | 指标内容模板真源 |
+| `metric-card-*.mei` / `metric-*-compound.mei` | 各 preset | legacy 预设；新样板优先 `business-layouts.mei` + macros |
+
+### `drilldown/`
+
+| 文件 | 说明 |
+|------|------|
+| `*-page.mei` | T2 page scene 壳（filter / chart / table / tabs） |
+| `frame-macros.mei` | `analytics_frame` 等 frame_export 宏 |
+| `drilldown-kit.mei` | 多 scene_export 资源容器 |
+
+> 构造器名：本阶段仍写 `content_panel` / `page_instance`；后续将更名为 `content_panel` / `page_instance`。
 
 ## 预览应用
-
-本目录 `app_id` 为 `templates/cockpit`，在管理端 **「模板库 → Cockpit 模板预览」** 打开。
 
 | 文件 | 场景 | 说明 |
 |------|------|------|
@@ -86,17 +106,17 @@ templates/cockpit/
 | `metric-card.mei` | `metric` | 指标卡模板画廊（`?scene=metric`） |
 | `map.mei` | `map` | GIS 地图模板预览（`?scene=map`） |
 
-大屏顶栏请单独对照 `panel/panel-screen-header.mei`（1920×72，不宜与窄栏指标卡同页预览）。
-
 ## 从其它应用引用
 
 ```mei
-COCKPIT_TPL = "../../../templates/cockpit"
-SHELL = COCKPIT_TPL + "/panel/panel-titled-shell.mei"
-CARD = COCKPIT_TPL + "/metric-card/metric-card-narrow-stack.mei"
-GIS_MAP = COCKPIT_TPL + "/panel/panel-gis-map-fullscreen.mei"
+use template "cockpit/panel/shell-macros"
+use template "cockpit/business-layouts" as biz
+
+# section 壳
+shell = section_shell(title = "板块", body = panel_ref("content/..."))
+
+# content fill（禁止 row_budgets）
+props = content_fill_props()
 ```
 
-`scene_file` 路径相对**消费方应用根目录**（含该应用 `main.mei` 的目录）解析，可含子目录（如 `panel/`、`metric-card/`）。`metric-wide-compound.mei` 仅提供壳（空 `blocks`），子卡由消费方 `panel(blocks=[...])` 注入。
-
-GIS 地图模板只管 **底图 + GeoJSON 图层**（`map/README.md`）；`chart.*` 由业务应用自行编排，不纳入模板库。
+GIS 地图模板只管 **底图 + GeoJSON 图层**（`map/README.md`）；`chart.*` 由业务应用自行编排。

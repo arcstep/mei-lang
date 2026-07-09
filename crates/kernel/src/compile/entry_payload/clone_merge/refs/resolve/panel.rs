@@ -7,7 +7,7 @@ use crate::compile::panel_normalize::{
     seed_metric_block_vertical_align_from_base, seed_metric_desc_runtime_from_shell,
     seed_metric_slot_vertical_align_defaults_from_base,
 };
-use crate::model::{Diagnostic, PanelDecl, Severity};
+use crate::model::{Diagnostic, UiNodeDecl, Severity};
 use crate::typed_refs::{decode_ref_value, RefExpr, RefKind, SceneRegistry};
 
 use super::super::super::normalize::normalize_ui_nodes;
@@ -22,7 +22,7 @@ pub(crate) fn resolve_panel_ref(
     scene_registry: &SceneRegistry,
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
-) -> Option<PanelDecl> {
+) -> Option<UiNodeDecl> {
     if expr.kind != RefKind::Panel {
         push_invalid_base_kind(diagnostics, target_file, "panel", RefKind::Panel, expr.kind);
         return None;
@@ -85,7 +85,7 @@ pub(crate) fn resolve_panel_ref(
             }
             obj.remove("base");
         }
-        if let Ok(mut overlay_panel) = serde_json::from_value::<PanelDecl>(overlay.clone()) {
+        if let Ok(mut overlay_panel) = serde_json::from_value::<UiNodeDecl>(overlay.clone()) {
             rewrite_panel_import_refs(&mut overlay_panel, &path);
             if let Ok(rewritten) = serde_json::to_value(&overlay_panel) {
                 if let Ok(mut merged) = merge_panel_decl(base_panel.clone(), &rewritten) {

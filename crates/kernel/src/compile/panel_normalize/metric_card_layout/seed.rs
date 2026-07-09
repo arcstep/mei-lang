@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::model::{BlockDecl, PanelDecl, UiNodeDecl};
+use crate::model::{BlockDecl, UiNodeDecl, UiTreeNode};
 
 use super::super::constants::PROP_METRIC_CARD;
 use super::{
@@ -22,9 +22,9 @@ fn overlay_props_has_slot_v_align(overlay_value: &Value, role: &str) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
-fn metric_v_align_from_base_block(base: &PanelDecl, role: &str) -> Option<String> {
+fn metric_v_align_from_base_block(base: &UiNodeDecl, role: &str) -> Option<String> {
     for node in &base.blocks {
-        let UiNodeDecl::Block(block) = node else {
+        let UiTreeNode::Block(block) = node else {
             continue;
         };
         if block_metric_role(block) != Some(role) {
@@ -35,10 +35,10 @@ fn metric_v_align_from_base_block(base: &PanelDecl, role: &str) -> Option<String
     None
 }
 
-fn metric_v_align_defaults_from_base_blocks(base: &PanelDecl) -> BTreeMap<String, String> {
+fn metric_v_align_defaults_from_base_blocks(base: &UiNodeDecl) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for node in &base.blocks {
-        let UiNodeDecl::Block(block) = node else {
+        let UiTreeNode::Block(block) = node else {
             continue;
         };
         let Some(role) = block_metric_role(block) else {
@@ -51,7 +51,7 @@ fn metric_v_align_defaults_from_base_blocks(base: &PanelDecl) -> BTreeMap<String
     out
 }
 
-fn metric_v_align_defaults_from_shell_props(card: &PanelDecl) -> BTreeMap<String, String> {
+fn metric_v_align_defaults_from_shell_props(card: &UiNodeDecl) -> BTreeMap<String, String> {
     let Some(shell) = card.props.as_object() else {
         return BTreeMap::new();
     };
@@ -72,7 +72,7 @@ fn metric_v_align_defaults_from_shell_props(card: &PanelDecl) -> BTreeMap<String
 
 /// `metric_card(base=..., source=...)` 覆写 blocks 时写入各槽 `metric_v_align`。
 /// 优先级：槽位显式 `vertical_align` > shell `__mei_metric_*_v_align`（来自 label_vertical_align 等）> 模板 base blocks。
-pub(crate) fn seed_metric_block_vertical_align_from_base(base: &PanelDecl, merged: &mut PanelDecl) {
+pub(crate) fn seed_metric_block_vertical_align_from_base(base: &UiNodeDecl, merged: &mut UiNodeDecl) {
     if !merged
         .props
         .as_object()
@@ -88,7 +88,7 @@ pub(crate) fn seed_metric_block_vertical_align_from_base(base: &PanelDecl, merge
         return;
     }
     for node in &mut merged.blocks {
-        let UiNodeDecl::Block(block) = node else {
+        let UiTreeNode::Block(block) = node else {
             continue;
         };
         let Some(role) = block_metric_role(block) else {
@@ -240,7 +240,7 @@ fn promote_desc_text_to_progress(block: &mut BlockDecl, shell: &Value) {
 }
 
 /// 克隆进度模板并覆写 blocks（静态 source / metric_ref tile）时，从 shell props 继承 desc 进度语义。
-pub(crate) fn seed_metric_desc_runtime_from_shell(merged: &mut PanelDecl) {
+pub(crate) fn seed_metric_desc_runtime_from_shell(merged: &mut UiNodeDecl) {
     let Some(mode) = metric_desc_mode_from_props(&merged.props) else {
         return;
     };
@@ -254,7 +254,7 @@ pub(crate) fn seed_metric_desc_runtime_from_shell(merged: &mut PanelDecl) {
         .cloned()
         .unwrap_or(Value::Object(Default::default()));
     for node in &mut merged.blocks {
-        let UiNodeDecl::Block(block) = node else {
+        let UiTreeNode::Block(block) = node else {
             continue;
         };
         seed_tile_metric_desc_props(block, &mode, &shell);
@@ -263,8 +263,8 @@ pub(crate) fn seed_metric_desc_runtime_from_shell(merged: &mut PanelDecl) {
 }
 
 pub(crate) fn seed_metric_slot_vertical_align_defaults_from_base(
-    base: &PanelDecl,
-    merged: &mut PanelDecl,
+    base: &UiNodeDecl,
+    merged: &mut UiNodeDecl,
     overlay_value: &Value,
 ) {
     if !merged

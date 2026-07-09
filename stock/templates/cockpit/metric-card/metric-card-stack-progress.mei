@@ -31,9 +31,9 @@ PROGRESS_SHELL = {
     "fill": "#C9E9F8",
 }
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "card_stack_progress_clean",
     area = "auto",
     show_heading = False,
@@ -90,4 +90,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

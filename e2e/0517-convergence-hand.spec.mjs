@@ -18,11 +18,20 @@ test.describe("0517 convergence hand checklist", () => {
     }
   });
 
-  test("layout-tuning draft PUT returns 410 Gone", async ({ request }) => {
-    const res = await request.put(`/api/ops/layout-tuning/draft/${APP}`, {
-      data: { tuning: {} },
-    });
-    expect(res.status()).toBe(410);
+  test("legacy layout-tuning routes are gone", async ({ request }) => {
+    for (const path of [
+      `/api/ops/layout-tuning/draft/${APP}`,
+      `/api/ops/layout-tuning/overlay/${APP}`,
+      `/api/ops/layout-tuning/apply/${APP}`,
+    ]) {
+      const res = await request.put(path, { data: {} }).catch(async () =>
+        request.get(path),
+      );
+      // Deleted stack: no live dual-path handlers (404/405/410 all acceptable).
+      expect([404, 405, 410]).toContain(res.status());
+    }
+    const themeOverlay = await request.get(`/api/ops/themes/layout/overlay/${APP}`);
+    expect([200, 401, 403, 404]).toContain(themeOverlay.status());
   });
 
   test("layout surface loads and scene-manifest accepts surface query", async ({

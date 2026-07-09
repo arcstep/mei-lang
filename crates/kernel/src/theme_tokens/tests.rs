@@ -5,7 +5,7 @@ use super::super::*;
 
     #[test]
     fn rejects_literal_color_in_panel_props() {
-        let panel = PanelDecl {
+        let panel = UiNodeDecl {
             kind: "panel".to_string(),
             id: "p1".to_string(),
             title: None,

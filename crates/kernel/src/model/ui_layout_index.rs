@@ -70,16 +70,8 @@ pub struct UiBudgetSummary {
     pub gap: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub padding: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub card_height: Option<i64>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub widths: BTreeMap<String, String>,
-    /// Row px budgets from `__mei_content_budget.rows`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_rows: Option<Vec<i64>>,
-    /// Gap from `__mei_content_budget.gap`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_gap: Option<String>,
     /// Compiler-derived section height in px.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub section_derived_height_px: Option<f64>,
@@ -175,10 +167,8 @@ impl UiLayoutIndex {
                 node.preview_scope.clone(),
                 LayoutBudgetManifestEntry {
                     preview_scope: node.preview_scope.clone(),
-                    slot_height_px: budget.card_height.map(|v| v as f64),
+                    slot_height_px: None,
                     padding_profile: budget.padding_profile.clone(),
-                    content_rows: budget.content_rows.clone(),
-                    content_gap: budget.content_gap.clone(),
                     grid_template_columns: budget.grid_template_columns.clone(),
                     grid_template_rows: budget.grid_template_rows.clone(),
                     grid_template_areas: budget.grid_template_areas.clone(),
@@ -209,10 +199,6 @@ pub struct LayoutBudgetManifestEntry {
     pub slot_height_px: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub padding_profile: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_rows: Option<Vec<i64>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content_gap: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid_template_columns: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

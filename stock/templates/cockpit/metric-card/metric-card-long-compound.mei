@@ -9,9 +9,9 @@ world(resources = [])
 METRIC_ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets/metrics"
 BG_LONG = METRIC_ASSET_BASE + "/metric-bg-long@3x.svg"
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "long_compound_shell",
     area = "auto",
     show_heading = False,
@@ -44,4 +44,8 @@ frame.add_panel(
         justify = "center",
     ),
     blocks = [],
+),
+    ],
 )
+
+

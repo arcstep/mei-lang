@@ -6,8 +6,8 @@ use std::path::Path;
 
 use crate::compile::block_instance_id;
 use crate::model::{
-    BlockDecl, CompiledApp, ComponentAsset, PanelDecl, TemplateCatalogEntry, TemplateConsumerAnchor,
-    UiNodeDecl,
+    BlockDecl, CompiledApp, ComponentAsset, UiNodeDecl, TemplateCatalogEntry, TemplateConsumerAnchor,
+    UiTreeNode,
 };
 
 fn normalize_template_file_key(raw: &str) -> String {
@@ -141,16 +141,16 @@ pub fn preview_scene_id_for_template_file_consumer(
         .map(|anchor| anchor.scene_id.clone())
 }
 
-pub(super) fn collect_panel_use_keys(panel: &PanelDecl, out: &mut BTreeMap<String, BTreeSet<String>>) {
+pub(super) fn collect_panel_use_keys(panel: &UiNodeDecl, out: &mut BTreeMap<String, BTreeSet<String>>) {
     for ui_node in &panel.blocks {
         match ui_node {
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 let consumer = block_consumer_label(block);
                 out.entry(block.use_key.clone())
                     .or_default()
                     .insert(consumer);
             }
-            UiNodeDecl::Panel(nested) => collect_panel_use_keys(nested, out),
+            UiTreeNode::Panel(nested) => collect_panel_use_keys(nested, out),
             _ => {}
         }
     }
@@ -158,13 +158,13 @@ pub(super) fn collect_panel_use_keys(panel: &PanelDecl, out: &mut BTreeMap<Strin
 
 pub(super) fn collect_panel_template_usage(
     scene_id: &str,
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     panel_path: &str,
     out: &mut BTreeMap<String, Vec<TemplateConsumerAnchor>>,
 ) {
     for (ordinal, ui_node) in panel.blocks.iter().enumerate() {
         match ui_node {
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 out.entry(block.use_key.clone())
                     .or_default()
                     .push(TemplateConsumerAnchor {
@@ -174,7 +174,7 @@ pub(super) fn collect_panel_template_usage(
                         label: block_consumer_label(block),
                     });
             }
-            UiNodeDecl::Panel(nested) => {
+            UiTreeNode::Panel(nested) => {
                 let nested_path = format!("{panel_path}/{}", nested.id);
                 collect_panel_template_usage(scene_id, nested, nested_path.as_str(), out);
             }

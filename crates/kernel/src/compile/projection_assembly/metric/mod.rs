@@ -11,6 +11,6 @@ use views::*;
 use explain::*;
 use slots::*;
 
-pub(crate) use expand_core::expand_board_assembly;
+pub(crate) use expand_core::expand_page_instance;
 pub(crate) use drilldown::expand_drilldown_tabs;
 pub(crate) use slots::{build_generic_rowset_filter_schema, parse_metric_ref_id};

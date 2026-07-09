@@ -5,7 +5,7 @@ use mei_host_core::HostContext;
 use mei_host_graph::{
     assemble_scope_from_registry, clear_assemble_cache_for_app, import_bundle, ImportOptions,
 };
-use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 
 static INIT: Once = Once::new();
 
@@ -37,12 +37,12 @@ fn ensure_pretty_panels_imported() {
     });
 }
 
-fn find_panel<'a>(panel: &'a PanelDecl, id: &str) -> Option<&'a PanelDecl> {
+fn find_panel<'a>(panel: &'a UiNodeDecl, id: &str) -> Option<&'a UiNodeDecl> {
     if panel.id == id {
         return Some(panel);
     }
     for block in &panel.blocks {
-        if let UiNodeDecl::Panel(nested) = block {
+        if let UiTreeNode::Panel(nested) = block {
             if let Some(found) = find_panel(nested, id) {
                 return Some(found);
             }
@@ -51,7 +51,7 @@ fn find_panel<'a>(panel: &'a PanelDecl, id: &str) -> Option<&'a PanelDecl> {
     None
 }
 
-fn find_panel_in_tree<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {
+fn find_panel_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNodeDecl> {
     panels
         .iter()
         .find_map(|panel| find_panel(panel, id))

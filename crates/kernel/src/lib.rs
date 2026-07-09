@@ -16,7 +16,7 @@ mod runtime_resource_index;
 mod source_version;
 mod theme_tokens;
 mod typed_refs;
-mod warmup_board_autogen;
+mod warmup_t2_page_autogen;
 mod warmup_manifest;
 mod workspace;
 
@@ -47,7 +47,7 @@ pub use compile::{
     component_authoring_example_workspace_path, scene_contract_contains_use_key,
     build_reachability_tree, build_runtime_analysis_contracts, build_runtime_analysis_graph,
     build_runtime_metric_artifacts,
-    enrich_runtime_board_assembly_projection_slots,
+    enrich_runtime_page_instance_projection_slots,
     filter_reachability_roots_for_stock_catalog, is_stock_catalog_facet_root,
     build_runtime_eval_plan, cached_load_xlsx_table_snapshot,
     capsule_path_from_namespaced_resource_id, clear_runtime_compile_caches,
@@ -115,7 +115,6 @@ pub use mei_config::{
     app_mei_config_path, app_source_rel_path_lookup_keys, canonical_app_source_rel_path,
     load_mei_config_for_app, load_workspace_auth_bundle,
     load_workspace_config, mei_config_compile_revision_digest, merge_ops_section,
-    ops_layout_tuning_revision_digest, format_layout_tuning_diff, layout_tuning_overlay_keys,
     ops_theme_layout_revision_digest, merge_theme_layout_overlay, merge_theme_layout_draft_into_theme,
     theme_layout_overlay_keys,
     ops_themes_revision_digest,
@@ -193,18 +192,18 @@ pub use mei_config::{
 };
 pub use model::{
     resolve_build_view_query, tab_visible_for_node, tabs_for_node_kind, AnalysisEdge,
-    AnalysisGraph, AnalysisNode, BlockDecl, BoardFileEntry, BuildExecScope, BuildNodeId, BuildNodeKind,
+    AnalysisGraph, AnalysisNode, BlockDecl, T2PageFileEntry, BuildExecScope, BuildNodeId, BuildNodeKind,
     BuildViewTab, ColumnSchema, CompiledApp, CompiledSceneRoute, ComponentAsset, DataRef,
     DataTransform, DatasetSourceRef, DatasetView, Diagnostic, DimensionBinding, FilterIntent,
     FilterIntentSource, FilterOperator, FlowDecl, FrameDecl, LayoutDecl, LegacyBuildQuery,
-    LoadedResource, MetricContract, MetricPackContract, MetricRef, MetricShape, PanelDecl,
+    LoadedResource, MetricContract, MetricPackContract, MetricRef, MetricShape, UiNodeDecl,
     PanelRefEmbedDecl, ProvenanceAnchor, QueryState, QueryTimeRange, ResolvedBuildViewQuery,
     ResourceDecl, DataMode, DataModeCeiling, ReviewProjection, SurfacePreviewPolicy,
     ui_role_depth_rank,
     ui_role_within_max_depth, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl,
     RuleStartDecl,
     RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, SemanticEdgeKind,
-    SemanticNodeKind, Severity, SourceDecl, ThemeDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode,
+    SemanticNodeKind, Severity, SourceDecl, ThemeDecl, UiTreeNode, WorkspaceAppMeta, WorkspaceNode,
     WorldCellDecl, WorldMetricLedgerEntry, WorldSemanticDataset, WorldSemanticExplainBlock,
     WorldSemanticFileIndex, WorldSemanticMetric, UiBudgetSummary, UiLayoutIndex, LayoutBudgetManifest,
     LayoutBudgetManifestEntry, UiScopeNode,
@@ -237,7 +236,7 @@ pub use typed_refs::{
     decode_binding_value, decode_ref_value, ref_to_json, BindingValue, RefExpr, RefKind,
     SceneLocator, SceneRegistry,
 };
-pub use warmup_board_autogen::{
+pub use warmup_t2_page_autogen::{
     discover_board_warmup_suggestions, merge_workspace_and_board_warmup_requests,
     SuggestedWarmupDatasetRequest,
 };

@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::compile::decl_file_cache::evaluate_mei_file_cached;
 use crate::model::{
-    BlockDecl, Diagnostic, LoadedResource, PanelDecl, PanelRefEmbedDecl, Severity, UiNodeDecl,
+    BlockDecl, Diagnostic, LoadedResource, UiNodeDecl, PanelRefEmbedDecl, Severity, UiTreeNode,
 };
 
 use super::resource_refs::collect_resource_ref_issues;
@@ -41,7 +41,7 @@ pub(super) fn validate_embed_capsule_ui_bindings(
     };
     for value in values {
         if value.get("kind").and_then(Value::as_str) == Some("panel") {
-            if let Ok(mut panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
+            if let Ok(mut panel) = serde_json::from_value::<UiNodeDecl>(value.clone()) {
                 rewrite_panel_import_refs(&mut panel, path);
                 scan_panel_props(
                     &panel,
@@ -83,17 +83,17 @@ pub(super) fn validate_embed_capsule_ui_bindings(
 }
 
 pub(super) fn scan_deprecated_embed_nodes(
-    node: &UiNodeDecl,
+    node: &UiTreeNode,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match node {
-        UiNodeDecl::Panel(panel) => {
+        UiTreeNode::Panel(panel) => {
             for child in &panel.blocks {
                 scan_deprecated_embed_nodes(child, target_file, diagnostics);
             }
         }
-        UiNodeDecl::PanelRefEmbed(embed) => {
+        UiTreeNode::PanelRefEmbed(embed) => {
             if let Some(legacy) = embed.compat_source.as_deref() {
                 let code = match legacy {
                     "frame_ref" => "deprecated_frame_ref_block_embed",
@@ -111,12 +111,12 @@ pub(super) fn scan_deprecated_embed_nodes(
                 });
             }
         }
-        UiNodeDecl::Block(_) => {}
+        UiTreeNode::Block(_) => {}
     }
 }
 
 pub(super) fn scan_panel_props(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     host_resource_ids: &BTreeSet<String>,
     host_metric_ids: &BTreeSet<String>,
     merged_resource_ids: &BTreeSet<String>,
@@ -137,7 +137,7 @@ pub(super) fn scan_panel_props(
 }
 
 pub(super) fn scan_ui_node(
-    node: &UiNodeDecl,
+    node: &UiTreeNode,
     host_resource_ids: &BTreeSet<String>,
     host_metric_ids: &BTreeSet<String>,
     merged_resource_ids: &BTreeSet<String>,
@@ -146,7 +146,7 @@ pub(super) fn scan_ui_node(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match node {
-        UiNodeDecl::Panel(panel) => {
+        UiTreeNode::Panel(panel) => {
             scan_panel_props(
                 panel,
                 host_resource_ids,
@@ -168,7 +168,7 @@ pub(super) fn scan_ui_node(
                 );
             }
         }
-        UiNodeDecl::Block(block) => {
+        UiTreeNode::Block(block) => {
             push_violations(
                 &block.props,
                 host_resource_ids,
@@ -184,7 +184,7 @@ pub(super) fn scan_ui_node(
                 diagnostics,
             );
         }
-        UiNodeDecl::PanelRefEmbed(_) => {}
+        UiTreeNode::PanelRefEmbed(_) => {}
     }
 }
 

@@ -326,7 +326,7 @@ pub(crate) fn manage_shell(
     };
 
     let inspect_bar_hint = if workspace_route_mode == UiRouteMode::Layout {
-        "在左侧结构树选择 plane/region/section/slot，或在预览中点击布局锚点以调整 layoutTuning。"
+        "在左侧结构树选择 plane/region/section/slot，或在预览中点击布局锚点以调整 theme.layout。"
     } else if workspace_route_mode == UiRouteMode::Prototype {
         "在左侧内容树选择组件/block，或在预览中点击以查看 props 与复制 AI 上下文。"
     } else {

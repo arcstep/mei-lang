@@ -18,7 +18,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::model::{Diagnostic, LoadedResource, SceneContract, UiNodeDecl};
+use crate::model::{Diagnostic, LoadedResource, SceneContract, UiTreeNode};
 
 use binding_scan::{
     scan_deprecated_embed_nodes, scan_panel_props, scan_ui_node, validate_embed_capsule_ui_bindings,
@@ -26,7 +26,7 @@ use binding_scan::{
 use imported_refs::{scan_panel_imported_refs, scan_ui_node_imported_refs};
 
 pub(crate) const IMPORTED_RESOURCE_DOC: &str =
-    "see docs/mei-lang-v1/implementation/syntax/12-public-scene-capsule-migration-and-diagnostics.md";
+    "see docs/archive/mei-lang-v1/implementation/syntax/12-public-scene-capsule-migration-and-diagnostics.md";
 
 pub(super) fn validate_imported_catalog_world_refs(
     contract: &SceneContract,
@@ -123,7 +123,7 @@ pub(super) fn validate_scene_ui_data_bindings(
                 diagnostics,
             );
             scan_deprecated_embed_nodes(node, target_file, diagnostics);
-            if let UiNodeDecl::PanelRefEmbed(embed) = node {
+            if let UiTreeNode::PanelRefEmbed(embed) = node {
                 validate_embed_capsule_ui_bindings(
                     app_root,
                     embed,

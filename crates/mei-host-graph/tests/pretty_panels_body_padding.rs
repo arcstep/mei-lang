@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use mei_host_graph::assemble_scope_from_registry;
-use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 
 fn ws_demo_v2() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -10,12 +10,12 @@ fn ws_demo_v2() -> PathBuf {
         .expect("ws-demo-v2")
 }
 
-fn find_panel<'a>(panel: &'a PanelDecl, id: &str) -> Option<&'a PanelDecl> {
+fn find_panel<'a>(panel: &'a UiNodeDecl, id: &str) -> Option<&'a UiNodeDecl> {
     if panel.id == id {
         return Some(panel);
     }
     for block in &panel.blocks {
-        if let UiNodeDecl::Panel(nested) = block {
+        if let UiTreeNode::Panel(nested) = block {
             if let Some(found) = find_panel(nested, id) {
                 return Some(found);
             }
@@ -24,7 +24,7 @@ fn find_panel<'a>(panel: &'a PanelDecl, id: &str) -> Option<&'a PanelDecl> {
     None
 }
 
-fn find_panel_in_tree<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {
+fn find_panel_in_tree<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNodeDecl> {
     panels
         .iter()
         .find_map(|panel| find_panel(panel, id))

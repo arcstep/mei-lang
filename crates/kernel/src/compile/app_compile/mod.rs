@@ -335,7 +335,7 @@ fn hydrate_scene_links(
     hydrated
 }
 
-fn collect_scene_first_target_refs(panels: &[crate::model::PanelDecl]) -> BTreeMap<String, String> {
+fn collect_scene_first_target_refs(panels: &[crate::model::UiNodeDecl]) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     for panel in panels {
         collect_scene_first_target_refs_from_value(&panel.props, &mut out);
@@ -345,16 +345,16 @@ fn collect_scene_first_target_refs(panels: &[crate::model::PanelDecl]) -> BTreeM
 }
 
 fn collect_scene_first_target_refs_from_nodes(
-    nodes: &[crate::model::UiNodeDecl],
+    nodes: &[crate::model::UiTreeNode],
     out: &mut BTreeMap<String, String>,
 ) {
     for node in nodes {
         match node {
-            crate::model::UiNodeDecl::Panel(panel) => {
+            crate::model::UiTreeNode::Panel(panel) => {
                 collect_scene_first_target_refs_from_value(&panel.props, out);
                 collect_scene_first_target_refs_from_nodes(&panel.blocks, out);
             }
-            crate::model::UiNodeDecl::Block(block) => {
+            crate::model::UiTreeNode::Block(block) => {
                 collect_scene_first_target_refs_from_value(&block.props, out);
                 if let Some(component) = block.component.as_ref() {
                     collect_scene_first_target_refs_from_value(component, out);
@@ -363,7 +363,7 @@ fn collect_scene_first_target_refs_from_nodes(
                     collect_scene_first_target_refs_from_value(child, out);
                 }
             }
-            crate::model::UiNodeDecl::PanelRefEmbed(_) => {}
+            crate::model::UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }

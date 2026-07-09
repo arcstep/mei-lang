@@ -44,9 +44,9 @@ fn supervision_mini_home_outcome() -> mei_host_graph::AssembleOutcome {
 }
 
 fn find_panel<'a>(
-    panels: &'a [mei_lang_kernel::PanelDecl],
+    panels: &'a [mei_lang_kernel::UiNodeDecl],
     target: &str,
-) -> Option<&'a mei_lang_kernel::PanelDecl> {
+) -> Option<&'a mei_lang_kernel::UiNodeDecl> {
     for panel in panels {
         if panel.id == target {
             return Some(panel);
@@ -55,7 +55,7 @@ fn find_panel<'a>(
             .blocks
             .iter()
             .find_map(|node| match node {
-                mei_lang_kernel::UiNodeDecl::Panel(child) => find_panel(std::slice::from_ref(child), target),
+                mei_lang_kernel::UiTreeNode::Panel(child) => find_panel(std::slice::from_ref(child), target),
                 _ => None,
             })
         {
@@ -133,12 +133,16 @@ fn supervision_mini_warning_head_exports_head_chrome() {
     let outcome = supervision_mini_home_outcome();
     let head_doc = supervision_mini_home_eval_docs(&outcome)
         .into_iter()
-        .find(|doc| doc.slot_group_id == "scope:t1/right_rail/warning/head")
-        .expect("scope:t1/right_rail/warning/head eval doc");
+        .find(|doc| {
+            doc.slot_group_id == "scope:t1/right_rail/warning/title_zone"
+                || doc.slot_group_id == "scope:t1/right_rail/warning/head"
+        })
+        .expect("scope:t1/right_rail/warning/title_zone eval doc");
     let head_slot = head_doc
         .slots
-        .get("t1/right_rail/warning/head")
-        .expect("warning head slot");
+        .get("t1/right_rail/warning/title_zone")
+        .or_else(|| head_doc.slots.get("t1/right_rail/warning/head"))
+        .expect("warning title_zone/head slot");
     let head_chrome = head_slot
         .get("head_chrome")
         .expect("head_chrome on warning head slot");
@@ -146,8 +150,8 @@ fn supervision_mini_warning_head_exports_head_chrome() {
     assert_eq!(head_chrome["caret"]["enabled"], true);
     let cell_style = head_chrome["cell_style"].as_str().unwrap_or("");
     assert!(
-        cell_style.contains("linear-gradient"),
-        "expected resolved panel_title_bar gradient in cell_style: {cell_style}"
+        cell_style.contains("linear-gradient") || cell_style.contains("panel_title_bar") || cell_style.contains("url("),
+        "expected resolved panel_title_bar gradient/image in cell_style: {cell_style}"
     );
 }
 

@@ -7,9 +7,9 @@ world(resources = [])
 ASSETS = "/workspace-app-assets/templates/cockpit/assets/metrics"
 ICON = ASSETS + "/待办@3x.png"
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "card_strip_icon_left",
     area = "auto",
     show_heading = False,
@@ -50,4 +50,8 @@ frame.add_panel(
         value("22", area = "value", align = "left", vertical_align = "center"),
         unit("件", area = "unit", align = "left", vertical_align = "center"),
     ],
+),
+    ],
 )
+
+

@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use serde_json::Value;
 
 use crate::model::{
-    FlowDecl, FrameDecl, PanelDecl, SceneDecl,
+    FlowDecl, FrameDecl, UiNodeDecl, SceneDecl,
 };
 
 use super::super::decl_file_cache::evaluate_mei_file_cached;
@@ -125,7 +125,7 @@ pub(crate) fn load_panel_from_scene_file(
     app_root: &Path,
     relative_path: &str,
     panel_id: &str,
-) -> Result<PanelDecl> {
+) -> Result<UiNodeDecl> {
     let source_path = crate::mei_config::resolve_app_mei_file_path(app_root, relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
     load_panel_decl_values(&decls)?

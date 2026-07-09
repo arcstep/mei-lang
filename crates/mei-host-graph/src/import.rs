@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::bridge::export_bridge_from_mcg;
 use crate::content_store::{
-    self, APP_SKELETON, METRIC_DEF_BUNDLE, NAVIGATION, PANEL_CONTRACT, PROJECTION_ASSEMBLY,
+    self, APP_SKELETON, METRIC_DEF_BUNDLE, NAVIGATION, CONTENT_PANEL, PROJECTION_ASSEMBLY,
     SEMANTIC_SCENE, WARMUP_POLICY,
 };
 use crate::mcg::registry::{McgNodeRecord, McgRegistryWriter};
@@ -142,9 +142,9 @@ fn cas_kind_for_block(block: &GraphBlock) -> (&'static str, &'static str) {
         }
         "map_spec" => (SEMANTIC_SCENE, "mei-map-spec-v1"),
         "view_spec" => (SEMANTIC_SCENE, "mei-view-spec-v1"),
-        "panel_contract" => (PANEL_CONTRACT, "mei-panel-contract-artifact-v1"),
+        "content_panel" => (CONTENT_PANEL, "mei-panel-contract-artifact-v1"),
         "metric_def_bundle" => (METRIC_DEF_BUNDLE, "mei-metric-def-bundle-artifact-v1"),
-        "assembly_view" | "board_assembly" => (PROJECTION_ASSEMBLY, "mei-projection-assembly-v1"),
+        "page_instance" => (PROJECTION_ASSEMBLY, "mei-projection-assembly-v1"),
         "navigation" | "link_decl" => (NAVIGATION, "mei-navigation-artifact-v1"),
         "warmup_policy" => (WARMUP_POLICY, "mei-warmup-policy-artifact-v1"),
         _ => (PROJECTION_ASSEMBLY, "mei-graph-block-v2"),
@@ -190,8 +190,8 @@ mod tests {
     #[test]
     fn node_key_prefers_payload_key() {
         let block = GraphBlock {
-            kind: "assembly_view".to_string(),
-            block_id: "assembly_view:home@src/scene/home/assembly.mei".to_string(),
+            kind: "page_instance".to_string(),
+            block_id: "page_instance:home@src/scene/home/assembly.mei".to_string(),
             schema: "mei-projection-assembly-v1".to_string(),
             payload: json!({"key": "home@src/scene/home/assembly.mei", "scene": "home"}),
         };

@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::layout::LayoutDecl;
-use super::panel::PanelDecl;
+use super::ui_node::UiNodeDecl;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockDecl {
@@ -58,21 +58,21 @@ pub struct PanelRefEmbedDecl {
 }
 
 #[derive(Debug, Clone)]
-pub enum UiNodeDecl {
-    Panel(PanelDecl),
+pub enum UiTreeNode {
+    Panel(UiNodeDecl),
     Block(BlockDecl),
     PanelRefEmbed(PanelRefEmbedDecl),
 }
 
-impl Serialize for UiNodeDecl {
+impl Serialize for UiTreeNode {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         match self {
-            UiNodeDecl::Panel(panel) => panel.serialize(serializer),
-            UiNodeDecl::Block(block) => block.serialize(serializer),
-            UiNodeDecl::PanelRefEmbed(embed) => {
+            UiTreeNode::Panel(panel) => panel.serialize(serializer),
+            UiTreeNode::Block(block) => block.serialize(serializer),
+            UiTreeNode::PanelRefEmbed(embed) => {
                 let component = serde_json::json!({
                     "id": embed.id,
                     "title": embed.title,
@@ -88,7 +88,7 @@ impl Serialize for UiNodeDecl {
     }
 }
 
-impl<'de> Deserialize<'de> for UiNodeDecl {
+impl<'de> Deserialize<'de> for UiTreeNode {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -98,16 +98,16 @@ impl<'de> Deserialize<'de> for UiNodeDecl {
     }
 }
 
-pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
+pub fn deserialize_ui_node_value(value: Value) -> Result<UiTreeNode, String> {
     if value.get("kind").and_then(Value::as_str) == Some("panel") {
-        return serde_json::from_value::<PanelDecl>(value)
-            .map(UiNodeDecl::Panel)
+        return serde_json::from_value::<UiNodeDecl>(value)
+            .map(UiTreeNode::Panel)
             .map_err(|error| error.to_string());
     }
     if value.get("use_key").is_some() || value.get("kind").and_then(Value::as_str) == Some("block")
     {
         return serde_json::from_value::<BlockDecl>(value)
-            .map(UiNodeDecl::Block)
+            .map(UiTreeNode::Block)
             .map_err(|error| error.to_string());
     }
     if let Some(component) = value.get("component") {
@@ -134,7 +134,7 @@ pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
                 .ok_or_else(|| {
                     "legacy panel embed missing component.scene_file path".to_string()
                 })?;
-            return Ok(UiNodeDecl::PanelRefEmbed(PanelRefEmbedDecl {
+            return Ok(UiTreeNode::PanelRefEmbed(PanelRefEmbedDecl {
                 id: component
                     .get("id")
                     .and_then(Value::as_str)
@@ -157,7 +157,7 @@ pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
             }));
         }
     }
-    Err("data did not match any variant of untagged enum UiNodeDecl".to_string())
+    Err("data did not match any variant of untagged enum UiTreeNode".to_string())
 }
 
 fn default_block_kind() -> String {

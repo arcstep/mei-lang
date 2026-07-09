@@ -4,14 +4,14 @@ use serde_json::Value;
 
 use crate::compile::reachability_tree::ReachabilityTreeNode;
 use crate::model::{
-    BuildNodeId, BuildNodeKind, CompiledSceneRoute, PanelDecl, SceneContract,
+    BuildNodeId, BuildNodeKind, CompiledSceneRoute, UiNodeDecl, SceneContract,
 };
 
 pub fn panels_for_scene_from_maps(
     scene_id: &str,
     assembly_by_id: &BTreeMap<String, Value>,
     contracts_by_id: &BTreeMap<String, SceneContract>,
-) -> Option<Vec<PanelDecl>> {
+) -> Option<Vec<UiNodeDecl>> {
     if let Some(contract) = contracts_by_id.get(scene_id) {
         if !contract.panels.is_empty() {
             return Some(contract.panels.clone());
@@ -20,7 +20,7 @@ pub fn panels_for_scene_from_maps(
     assembly_by_id
         .get(scene_id)
         .and_then(|assembly| assembly.get("panels"))
-        .and_then(|value| serde_json::from_value::<Vec<PanelDecl>>(value.clone()).ok())
+        .and_then(|value| serde_json::from_value::<Vec<UiNodeDecl>>(value.clone()).ok())
 }
 
 pub(super) fn scene_route_label(route: &CompiledSceneRoute) -> String {

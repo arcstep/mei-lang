@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::model::{Diagnostic, FrameDecl, PanelDecl, Severity, WorldDecl};
+use crate::model::{Diagnostic, FrameDecl, UiNodeDecl, Severity, WorldDecl};
 use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 
 use super::super::normalize::{
@@ -22,7 +22,7 @@ pub(crate) fn resolve_panel_slot(
     scene_registry: &SceneRegistry,
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
-) -> Option<PanelDecl> {
+) -> Option<UiNodeDecl> {
     if let Some(expr) = decode_ref_value(slot) {
         if slot.get("kind").and_then(Value::as_str) != Some("panel") && expr.kind == RefKind::Panel
         {
@@ -72,7 +72,7 @@ pub(crate) fn resolve_panel_slot(
         return Some(merged);
     }
 
-    let mut panel: PanelDecl = match serde_json::from_value::<PanelDecl>(slot.clone()) {
+    let mut panel: UiNodeDecl = match serde_json::from_value::<UiNodeDecl>(slot.clone()) {
         Ok(panel) => panel,
         Err(error) => {
             let message = error.to_string();

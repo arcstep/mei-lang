@@ -1,7 +1,7 @@
 # 大屏顶栏 panel 模板（1920×72 设计稿逻辑尺寸）。
 # 图层：screen-title-bg（全宽底纹）+ screen-title-center（居中帽檐，随标题 ResizeObserver 加宽）+ 主标题。
-# 渲染由 cockpit.header-brand 负责；消费方 panel(base=panel_ref(...)) + component(base=component_ref(id=screen_header_brand)) 覆写 title 等即可。
-# 与 panel/panel-titled-shell（板块内 54px 标题栏 + 内容区）不同，勿混用。
+# 渲染由 cockpit.header-brand 负责；消费方可用 screen_header(...) 宏或 panel_ref 覆写 title。
+# 板块内标题壳请用 section_shell（shell-macros.mei），勿与本顶栏混用。
 
 scene(id = "panel_screen_header_tpl", profile = "cockpit", theme = "cockpit")
 
@@ -44,9 +44,8 @@ frame(
         "box_sizing": "border-box",
         "overflow": "hidden",
     },
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "screen_header_shell",
     area = "main",
     variant = "container",
@@ -77,4 +76,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

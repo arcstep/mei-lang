@@ -22,7 +22,7 @@ fn route_precompile_attempted(compiled: &crate::CompiledApp) -> Option<usize> {
 }
 
 #[test]
-fn board_preview_scope_compiles_single_export_when_scene_set() {
+fn t2_page_preview_scope_compiles_single_export_when_scene_set() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
@@ -67,7 +67,7 @@ fn board_preview_scope_compiles_single_export_when_scene_set() {
             .collect::<Vec<_>>()
     );
     assert!(
-        !compiled.build_board_index.boards.is_empty(),
+        !compiled.build_t2_page_index.pages.is_empty(),
         "board index should list all board capsules after finish hydrate"
     );
 }
@@ -121,7 +121,7 @@ fn board_build_node_compile_options_produce_board_resources() {
 }
 
 #[test]
-fn board_preview_scope_requires_scene_for_multi_export_file() {
+fn t2_page_preview_scope_requires_scene_for_multi_export_file() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
@@ -146,7 +146,7 @@ fn board_preview_scope_requires_scene_for_multi_export_file() {
 }
 
 #[test]
-fn board_preview_scope_single_scene_capsule_without_scene_still_works() {
+fn t2_page_preview_scope_single_scene_capsule_without_scene_still_works() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
@@ -401,7 +401,7 @@ fn zhifa_compile_includes_boards_group_with_slots() {
         warning_board
     );
     assert!(
-        !compiled.build_board_index.boards.is_empty(),
+        !compiled.build_t2_page_index.pages.is_empty(),
         "board index should not be empty"
     );
 }
@@ -416,12 +416,12 @@ fn single_export_board_mei_is_listed_in_boards_group() {
             .expect("compile zhifa");
     assert!(
         compiled
-            .build_board_index
+            .build_t2_page_index
             .boards
             .keys()
             .any(|key| key.starts_with("scenes/_shared/mechanism-documents.board.mei#")),
         "single-export board capsule should be indexed, keys: {:?}",
-        compiled.build_board_index.boards.keys().collect::<Vec<_>>()
+        compiled.build_t2_page_index.pages.keys().collect::<Vec<_>>()
     );
     let boards = crate::compile::build_reachability_tree(&compiled)
         .into_iter()

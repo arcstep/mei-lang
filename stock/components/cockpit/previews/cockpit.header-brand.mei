@@ -1,8 +1,12 @@
 app(id="preview-cockpit-header-brand", title="Preview cockpit.header-brand", default_scene="home")
 scene(id="home", world="home_world", frame="home_frame", profile="cockpit", theme="cockpit", summary="Pack preview")
 world(id="home_world", resources=[])
-frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"))
-frame.add_panel(id="main", area="auto", blocks=[
+frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"),
+    panels = [
+panel(id="main", area="auto", blocks=[
     component("cockpit.header-brand", area="auto", props={"title": "Preview Title", "assets": {"title_bg": "stock/templates/cockpit/assets/header/screen-title-bg@3x.svg", "title_mid": "stock/templates/cockpit/assets/header/screen-title-center@3x.svg"}}),
-])
+]),
+    ],
+)
+
 

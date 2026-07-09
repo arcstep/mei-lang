@@ -26,9 +26,8 @@ frame(
         gap = "12px",
         padding = "20px",
     ),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "board",
     area = "board",
     blocks = [
@@ -40,9 +39,8 @@ frame.add_panel(
             },
         ),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "notes",
     area = "notes",
     blocks = [
@@ -51,4 +49,8 @@ frame.add_panel(
             content = "## Sim baseline\n\nThis example proves the public `sim.scene` entry: pass the current scene contract with `scene_ref(\"self\")`.",
         ),
     ],
+),
+    ],
 )
+
+

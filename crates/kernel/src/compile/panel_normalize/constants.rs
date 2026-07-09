@@ -1,5 +1,5 @@
-pub(crate) const SLOT_HEAD: &str = "head";
-pub(crate) const SLOT_BODY: &str = "body";
+pub(crate) const TITLE_ZONE: &str = "title_zone";
+pub(crate) const CONTENT_ZONE: &str = "content_zone";
 pub(crate) const PROP_HAS_HEAD: &str = "__mei_has_head";
 pub(crate) const PROP_METRIC_CARD: &str = "__mei_metric_card";
 pub(crate) const PROP_LAYOUT_POLICY: &str = "__mei_layout_policy";

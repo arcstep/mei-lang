@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    block_instance_id, ui_scope_for_block, BlockDecl, BuildNodeId, CompiledApp, PanelDecl,
+    block_instance_id, ui_scope_for_block, BlockDecl, BuildNodeId, CompiledApp, UiNodeDecl,
     PanelRefEmbedDecl, SceneContract,
 };
 use serde_json::Value;
@@ -65,7 +65,7 @@ pub(crate) fn block_view_for_decl(
     theme: &ThemeResolved,
     preview_scene_path: &str,
     parent_panel_id: Option<&str>,
-    parent_panel: Option<&PanelDecl>,
+    parent_panel: Option<&UiNodeDecl>,
 ) -> AnyView {
     if runtime_ctx.is_layout_slot_sandbox() {
         return view! { <></> }.into_any();

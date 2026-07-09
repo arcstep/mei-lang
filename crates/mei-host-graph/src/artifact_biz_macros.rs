@@ -1,7 +1,7 @@
-//! Runtime rewrites for `biz.*` template macros left unexpanded in panel_contract artifacts.
+//! Runtime rewrites for `biz.*` template macros left unexpanded in content_panel artifacts.
 //!
 //! The mei-compiler expand pass should inline these at compile time; when they remain in
-//! stored JSON, `v2_lower` must expand them before lowering to `PanelDecl` / `BlockDecl`.
+//! stored JSON, `v2_lower` must expand them before lowering to `UiNodeDecl` / `BlockDecl`.
 
 use serde_json::{json, Map, Value};
 
@@ -169,7 +169,7 @@ fn id_suffix(id: Value, suffix: &str) -> Value {
 
 fn long_compound_template(width: Value, gap: &str) -> Value {
     json!({
-        "__call": "panel_contract",
+        "__call": "content_panel",
         "__args": {
             "show_heading": false,
             "chrome": "bare",
@@ -326,7 +326,7 @@ fn rewrite_wide_metric_compound_body(args: &Map<String, Value>) -> Value {
                 "gap": gap
             },
             "template": {
-                "__call": "panel_contract",
+                "__call": "content_panel",
                 "__args": {
                     "show_heading": false,
                     "chrome": "bare",
@@ -411,17 +411,9 @@ fn rewrite_content_fill_props(_args: &Map<String, Value>) -> Value {
     props
 }
 
-fn rewrite_content_strip_props(args: &Map<String, Value>) -> Value {
-    let row_budgets = arg_value(args, "row_budgets", json!([]));
-    let gap = arg_value(args, "gap", json!("0"));
-    let mut props = transparent_panel_props(json!("100%"));
-    if let Some(obj) = props.as_object_mut() {
-        obj.insert(
-            "__mei_content_budget".to_string(),
-            json!({ "rows": row_budgets, "gap": gap }),
-        );
-    }
-    props
+fn rewrite_content_strip_props(_args: &Map<String, Value>) -> Value {
+    // content_strip / row_budgets deleted; emit fill props only.
+    rewrite_content_fill_props(_args)
 }
 
 fn metric_atom(id: Value, layout_role: &str, source: Value, variant: Option<&str>) -> Value {
@@ -892,7 +884,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rewrites_content_strip_props_budget() {
+    fn rewrites_content_strip_props_as_fill() {
         let value = json!({
             "__call": "biz.content_strip_props",
             "__args": {
@@ -902,13 +894,10 @@ mod tests {
         });
         let rewritten = try_rewrite_biz_macro(&value).expect("rewrite");
         assert_eq!(
-            rewritten
-                .get("__mei_content_budget")
-                .and_then(|b| b.get("rows"))
-                .and_then(|rows| rows.as_array())
-                .map(|rows| rows.len()),
-            Some(2)
+            rewritten.get("__mei_layout_fill").and_then(Value::as_bool),
+            Some(true)
         );
+        assert!(rewritten.get("__mei_content_budget").is_none());
     }
 
     #[test]
@@ -1047,7 +1036,7 @@ mod tests {
             "__call": "biz.metric_triptych_compound_fill_body",
             "__args": {
                 "id": "enforcement_body",
-                "area": "body",
+                "area": "content_zone",
                 "first": {"__ref": "metric_ref", "__args": {"arg0": "enforcement_units_count"}},
                 "top_source": {"__ref": "metric_ref", "__args": {"arg0": "enforcement_objects_count"}},
             }
@@ -1077,7 +1066,7 @@ mod tests {
             "__call": "biz.status_triptych_summary_fill_body",
             "__args": {
                 "id": "issue_body",
-                "area": "body",
+                "area": "content_zone",
                 "pending": {"__ref": "metric_ref", "__args": {"arg0": "warnings_pending_count"}},
                 "pending_icon": {"__ref": "ops_param_ref", "__args": {"arg0": "issue_icon_pending_css"}},
             }

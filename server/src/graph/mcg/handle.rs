@@ -8,7 +8,7 @@ use crate::graph::mcg::registry::{McgRegistry, McgRegistryWriter};
 use crate::graph::types::GraphNodeKind;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct AssemblyViewHandle {
+pub struct PageInstanceHandle {
     pub app_id: String,
     pub active_scene: Option<String>,
     pub active_target_file: String,
@@ -19,7 +19,7 @@ pub struct AssemblyViewHandle {
     pub projection_keys: Vec<String>,
 }
 
-impl AssemblyViewHandle {
+impl PageInstanceHandle {
     pub fn from_compiled_outcome(
         app_id: &str,
         active_scene: Option<&str>,
@@ -75,14 +75,14 @@ impl AssemblyViewHandle {
         let panel_keys: Vec<String> = mcg
             .nodes
             .iter()
-            .filter(|node| node.id.kind == GraphNodeKind::PanelContract)
+            .filter(|node| node.id.kind == GraphNodeKind::ContentPanel)
             .filter(|node| node.id.key.starts_with(&format!("{scene_id}:")))
             .map(|node| node.id.key.clone())
             .collect();
         let projection_keys: Vec<String> = mcg
             .nodes
             .iter()
-            .filter(|node| node.id.kind == GraphNodeKind::AssemblyView)
+            .filter(|node| node.id.kind == GraphNodeKind::PageInstance)
             .filter(|node| node.id.key.starts_with(&format!("{canonical_target}#")))
             .map(|node| node.id.key.clone())
             .collect();
@@ -113,7 +113,7 @@ fn payload_hash_for_kind_key(
 
 pub fn hydrate_handle_for_eval(
     source_root: &Path,
-    handle: &AssemblyViewHandle,
+    handle: &PageInstanceHandle,
 ) -> anyhow::Result<CompiledApp> {
     let scene = handle.active_scene.as_deref();
     let target = handle.active_target_file.as_str();

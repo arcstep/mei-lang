@@ -5,15 +5,15 @@ use std::collections::BTreeMap;
 use serde_json::{json, Map, Value};
 
 use crate::model::{
-    Diagnostic, PanelDecl, SceneContract, Severity, UiNodeDecl,
+    Diagnostic, UiNodeDecl, SceneContract, Severity, UiTreeNode,
 };
 
 use super::super::metric::{
-    build_generic_rowset_filter_schema, expand_board_assembly,
+    build_generic_rowset_filter_schema, expand_page_instance,
 };
 
 pub(crate) fn lower_scene_links_in_panels(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     resources: &[crate::model::LoadedResource],
     target_file: &str,
     target_scene_contracts: &BTreeMap<String, SceneContract>,
@@ -48,7 +48,7 @@ pub(crate) fn lower_scene_links_in_panels(
 }
 
 fn walk_scene_ui_nodes_mut(
-    nodes: &mut [UiNodeDecl],
+    nodes: &mut [UiTreeNode],
     resources: &[crate::model::LoadedResource],
     target_file: &str,
     import_scope: Option<&str>,
@@ -58,7 +58,7 @@ fn walk_scene_ui_nodes_mut(
 ) {
     for node in nodes.iter_mut() {
         match node {
-            UiNodeDecl::Panel(panel) => {
+            UiTreeNode::Panel(panel) => {
                 let scope = panel
                     .import_scope
                     .as_deref()
@@ -84,7 +84,7 @@ fn walk_scene_ui_nodes_mut(
                     diagnostics,
                 );
             }
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 walk_scene_value_mut(
                     &mut block.props,
                     resources,
@@ -117,7 +117,7 @@ fn walk_scene_ui_nodes_mut(
                     );
                 }
             }
-            UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }
@@ -439,7 +439,7 @@ fn lower_scene_link(
         return;
     };
     let world_hint = resolve_world_hint(link.get("world"), import_scope, target_file);
-    let Some(expanded) = expand_board_assembly(
+    let Some(expanded) = expand_page_instance(
         &board_payload,
         resources,
         world_hint.as_ref(),

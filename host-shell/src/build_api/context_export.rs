@@ -303,8 +303,8 @@ fn append_layout_surface_sections(
     node: &mei_lang_kernel::BuildNodeId,
 ) {
     md.push_str("### 布局工作区提示\n\n");
-    md.push_str("- 预览为 slot 沙盘：不渲染 content，仅验证 plane/region/section/slot 与 layoutTuning。\n");
-    md.push_str("- session draft：`layout.overlay.session`；确认后 `POST /api/ops/layout-tuning/apply`。\n");
+    md.push_str("- 预览为 slot 沙盘：不渲染 content，仅验证 plane/region/section/slot 与 theme.layout。\n");
+    md.push_str("- session draft：`theme.layout.session`；确认后 `POST /api/ops/themes/layout/apply`。\n");
     if let Some(manifest) = (!compiled.ui_layout_index.nodes.is_empty()).then(|| {
         compiled
             .ui_layout_index

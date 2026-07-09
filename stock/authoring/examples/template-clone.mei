@@ -23,9 +23,8 @@ CARD = COCKPIT_TPL + "/metric-card/metric-card-narrow-stack.mei"
 frame(
     id = "home_frame",
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "metrics_panel",
     area = "auto",
     blocks = [
@@ -35,4 +34,8 @@ frame.add_panel(
             source = {"label": "Sales", "value": "120", "unit": "k"},
         ),
     ],
+),
+    ],
 )
+
+

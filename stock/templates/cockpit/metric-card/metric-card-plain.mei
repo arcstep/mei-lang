@@ -4,9 +4,9 @@ scene(id = "metric_card_plain_tpl", profile = "cockpit", theme = "cockpit")
 
 world(resources = [])
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "card_plain",
     area = "auto",
     show_heading = False,
@@ -31,4 +31,8 @@ frame.add_panel(
         value("--", area = "value", vertical_align = "center"),
         unit("", area = "unit", vertical_align = "center"),
     ],
+),
+    ],
 )
+
+

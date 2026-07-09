@@ -3,20 +3,20 @@ use super::helpers::*;
 
 #[test]
 fn normalize_metric_card_stack_applies_fractional_vertical_bands() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "wrap".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(PanelDecl {
+        blocks: vec![UiTreeNode::Panel(UiNodeDecl {
             slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
-            head: None::<Box<UiNodeDecl>>,
+            head: None::<Box<UiTreeNode>>,
             area: Some("auto".to_string()),
             layout: Some(LayoutDecl {
                 layout_type: "grid".to_string(),
@@ -52,7 +52,7 @@ fn normalize_metric_card_stack_applies_fractional_vertical_bands() {
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
     let card = match &panels[0].blocks[0] {
-        UiNodeDecl::Panel(panel) => panel,
+        UiTreeNode::Panel(panel) => panel,
         other => panic!("expected metric card panel, got {other:?}"),
     };
     let layout = card.layout.as_ref().expect("metric card layout");
@@ -72,23 +72,23 @@ fn normalize_metric_card_stack_applies_fractional_vertical_bands() {
 
 #[test]
 fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "wrap".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(PanelDecl {
+        blocks: vec![UiTreeNode::Panel(UiNodeDecl {
             slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
-            head: None::<Box<UiNodeDecl>>,
+            head: None::<Box<UiTreeNode>>,
             area: Some("auto".to_string()),
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
+            blocks: vec![UiTreeNode::Block(BlockDecl {
                 kind: "block".to_string(),
                 use_key: "mei.text".to_string(),
                 id: Some("value_slot".to_string()),
@@ -124,11 +124,11 @@ fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
     let card = match &panels[0].blocks[0] {
-        UiNodeDecl::Panel(panel) => panel,
+        UiTreeNode::Panel(panel) => panel,
         other => panic!("expected metric card panel, got {other:?}"),
     };
     let block = match &card.blocks[0] {
-        UiNodeDecl::Block(block) => block,
+        UiTreeNode::Block(block) => block,
         other => panic!("expected mei.text block, got {other:?}"),
     };
     assert_eq!(
@@ -139,15 +139,15 @@ fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
 
 #[test]
 fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
-    let base = PanelDecl {
+    let base = UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "card_plain".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Block(BlockDecl {
+        blocks: vec![UiTreeNode::Block(BlockDecl {
             kind: "block".to_string(),
             use_key: "mei.text".to_string(),
             id: Some("label".to_string()),
@@ -174,15 +174,15 @@ fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
         base: None,
         import_scope: None,
     };
-    let mut merged = PanelDecl {
+    let mut merged = UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "live".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Block(BlockDecl {
+        blocks: vec![UiTreeNode::Block(BlockDecl {
             kind: "block".to_string(),
             use_key: "mei.text".to_string(),
             id: Some("label".to_string()),
@@ -210,7 +210,7 @@ fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
     };
     seed_metric_block_vertical_align_from_base(&base, &mut merged);
     let block = match &merged.blocks[0] {
-        UiNodeDecl::Block(block) => block,
+        UiTreeNode::Block(block) => block,
         other => panic!("expected block, got {other:?}"),
     };
     assert_eq!(

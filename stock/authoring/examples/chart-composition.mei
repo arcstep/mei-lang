@@ -29,9 +29,8 @@ world(
 frame(
     id = "home_frame",
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "donut_panel",
     area = "auto",
     blocks = [
@@ -48,9 +47,8 @@ frame.add_panel(
             },
         ),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "pie_panel",
     area = "auto",
     blocks = [
@@ -67,9 +65,8 @@ frame.add_panel(
             },
         ),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "rose_panel",
     area = "auto",
     blocks = [
@@ -86,4 +83,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

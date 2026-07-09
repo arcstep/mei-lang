@@ -20,7 +20,7 @@ use super::viewport::{
     frame_viewport_style_for_route, viewport_overflow_is_debug,
 };
 use crate::ui::route::UiRouteMode;
-use mei_lang_kernel::PanelDecl;
+use mei_lang_kernel::UiNodeDecl;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
     CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
@@ -140,7 +140,7 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
     use std::path::Path;
 
     use mei_lang_kernel::{
-        compile_app_from_root_with_options, BlockDecl, CompileOptions, UiNodeDecl,
+        compile_app_from_root_with_options, BlockDecl, CompileOptions, UiTreeNode,
     };
 
     use super::{
@@ -151,12 +151,12 @@ fn zhifa_home_build_resolved_data_props_under_5mb() {
     };
     use crate::ui::route::UiRouteMode;
 
-    fn walk_blocks<'a>(nodes: &'a [UiNodeDecl], out: &mut Vec<&'a BlockDecl>) {
+    fn walk_blocks<'a>(nodes: &'a [UiTreeNode], out: &mut Vec<&'a BlockDecl>) {
         for node in nodes {
             match node {
-                UiNodeDecl::Block(block) => out.push(block),
-                UiNodeDecl::Panel(panel) => walk_blocks(&panel.blocks, out),
-                UiNodeDecl::PanelRefEmbed(_) => {}
+                UiTreeNode::Block(block) => out.push(block),
+                UiTreeNode::Panel(panel) => walk_blocks(&panel.blocks, out),
+                UiTreeNode::PanelRefEmbed(_) => {}
             }
         }
     }

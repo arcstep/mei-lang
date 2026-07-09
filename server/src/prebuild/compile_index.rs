@@ -154,7 +154,7 @@ pub(crate) struct PersistedPrebuildCompileIndexEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) scene_payload_revision: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) assembly_view_revision: Option<String>,
+    pub(crate) page_instance_revision: Option<String>,
     #[serde(default)]
     pub(crate) discovered_scopes: Vec<PersistedCompileScopeRef>,
     #[serde(default = "default_observed_count")]
@@ -295,10 +295,10 @@ pub(crate) fn build_prebuild_compile_index(
                     .as_ref()
                     .and_then(|registry| registry.node_revision("scene_payload", target))
             });
-        let assembly_view_revision = mcg_registry.as_ref().and_then(|registry| {
+        let page_instance_revision = mcg_registry.as_ref().and_then(|registry| {
             registry.node_revision(
-                "assembly_view",
-                &assembly_view_index_key(
+                "page_instance",
+                &page_instance_index_key(
                     canonical.scope.canonicalized().requested_scene_id.as_deref(),
                     canonical.scope.canonicalized().requested_target_file.as_deref(),
                     outcome.compile_revision.as_str(),
@@ -324,7 +324,7 @@ pub(crate) fn build_prebuild_compile_index(
             ),
             identity,
             scene_payload_revision,
-            assembly_view_revision,
+            page_instance_revision,
             discovered_scopes: discovered_compile_scopes(scope, &outcome.compiled)
                 .into_iter()
                 .map(|scope| PersistedCompileScopeRef {
@@ -380,7 +380,7 @@ pub(crate) fn patch_prebuild_compile_index_entry(
         ),
         identity,
         scene_payload_revision,
-        assembly_view_revision: None,
+        page_instance_revision: None,
         discovered_scopes: discovered_compile_scopes(scope, &outcome.compiled)
             .into_iter()
             .map(|scope| PersistedCompileScopeRef {
@@ -397,7 +397,7 @@ pub(crate) fn patch_prebuild_compile_index_entry(
     write_prebuild_compile_index(app_root.as_path(), &index)
 }
 
-pub(crate) fn assembly_view_index_key(
+pub(crate) fn page_instance_index_key(
     requested_scene_id: Option<&str>,
     requested_target_file: Option<&str>,
     compile_revision: &str,

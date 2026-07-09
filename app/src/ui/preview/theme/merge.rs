@@ -1,4 +1,4 @@
-use mei_lang_kernel::PanelDecl;
+use mei_lang_kernel::UiNodeDecl;
 use serde_json::Value;
 
 use super::ThemeResolved;
@@ -51,7 +51,7 @@ fn read_shared_path<'a>(shared: &'a Value, path: &str) -> Option<&'a Value> {
 }
 
 /// 整卡 panel：theme.panel + `props`（剥离槽位键）。
-pub(crate) fn resolve_panel_card_props(theme: &ThemeResolved, panel: &PanelDecl) -> Value {
+pub(crate) fn resolve_panel_card_props(theme: &ThemeResolved, panel: &UiNodeDecl) -> Value {
     let merged = resolve_panel_props(theme, &panel.props);
     strip_slot_keys_from_card_props(&merged)
 }
@@ -69,11 +69,11 @@ pub(crate) fn resolve_panel_props(theme: &ThemeResolved, props: &Value) -> Value
     }
 }
 
-pub(crate) fn resolve_panel_head_props(theme: &ThemeResolved, panel: &PanelDecl) -> Value {
+pub(crate) fn resolve_panel_head_props(theme: &ThemeResolved, panel: &UiNodeDecl) -> Value {
     deep_merge_value(&theme.panel_head, &panel.head_props)
 }
 
-pub(crate) fn resolve_panel_body_props(theme: &ThemeResolved, panel: &PanelDecl) -> Value {
+pub(crate) fn resolve_panel_body_props(theme: &ThemeResolved, panel: &UiNodeDecl) -> Value {
     deep_merge_value(&theme.panel_body, &panel.body_props)
 }
 

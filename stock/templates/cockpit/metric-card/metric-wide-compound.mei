@@ -7,17 +7,14 @@ world(resources = [])
 METRIC_ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets/metrics"
 BG = METRIC_ASSET_BASE + "/metric-bg-target@3x.svg"
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "wide_compound_shell",
     area = "auto",
     show_heading = False,
     chrome = "bare",
     variant = "container",
-    layout_policy = "metric_compound_2_1",
-    layout_padding = "2px 6px",
-    layout_gap = "2px",
     props = {
         "__mei_compound_top_band_ratio": "56/128",
         "background": {
@@ -33,6 +30,19 @@ frame.add_panel(
         "max_height": "100%",
         "box_sizing": "border-box",
         "overflow": "hidden",
+        "padding": "2px 6px",
     },
+    layout = grid(
+        columns = ["1fr", "1fr", "1fr"],
+        rows = ["56fr", "72fr"],
+        areas = [["top", "top", "top"], ["b0", "b1", "b2"]],
+        gap = "2px",
+        align = "stretch",
+        justify = "center",
+    ),
     blocks = [],
+),
+    ],
 )
+
+

@@ -42,11 +42,11 @@ fn compile_cockpit_metric_data_example() {
             .is_some_and(|value| value.contains("static object") || value.contains("map+patch")),
         "metric-data.mei summary should describe binding demo"
     );
-    fn collect_panel_ids(panels: &[crate::PanelDecl], out: &mut Vec<String>) {
+    fn collect_panel_ids(panels: &[crate::UiNodeDecl], out: &mut Vec<String>) {
         for panel in panels {
             out.push(panel.id.clone());
             for node in &panel.blocks {
-                if let crate::UiNodeDecl::Panel(nested) = node {
+                if let crate::UiTreeNode::Panel(nested) = node {
                     collect_panel_ids(&[nested.clone()], out);
                 }
             }
@@ -64,7 +64,7 @@ fn compile_cockpit_metric_data_example() {
         .iter()
         .find_map(|panel| match panel.id.as_str() {
             "binding_shell_grid" => panel.blocks.iter().find_map(|node| match node {
-                crate::UiNodeDecl::Panel(nested) if nested.id == "binding_demo_grid" => {
+                crate::UiTreeNode::Panel(nested) if nested.id == "binding_demo_grid" => {
                     Some(nested)
                 }
                 _ => None,
@@ -91,7 +91,7 @@ fn compile_cockpit_metric_data_example() {
         .iter()
         .find_map(|panel| match panel.id.as_str() {
             "binding_shell_wide" => panel.blocks.iter().find_map(|node| match node {
-                crate::UiNodeDecl::Panel(nested) if nested.id == "binding_demo_wide" => {
+                crate::UiTreeNode::Panel(nested) if nested.id == "binding_demo_wide" => {
                     Some(nested)
                 }
                 _ => None,
@@ -106,11 +106,11 @@ fn compile_cockpit_metric_data_example() {
         .expect("binding_demo_wide areas");
     assert_eq!(wide_areas[0], ["m0", "m1", "m2"]);
     assert_eq!(wide_areas[1], ["m3", "m3", "m3"]);
-    fn collect_use_keys(nodes: &[crate::UiNodeDecl], out: &mut Vec<String>) {
+    fn collect_use_keys(nodes: &[crate::UiTreeNode], out: &mut Vec<String>) {
         for node in nodes {
             match node {
-                crate::UiNodeDecl::Block(block) => out.push(block.use_key.clone()),
-                crate::UiNodeDecl::Panel(panel) => collect_use_keys(&panel.blocks, out),
+                crate::UiTreeNode::Block(block) => out.push(block.use_key.clone()),
+                crate::UiTreeNode::Panel(panel) => collect_use_keys(&panel.blocks, out),
                 _ => {}
             }
         }

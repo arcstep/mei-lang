@@ -82,7 +82,7 @@ fn compile_coordinate_board_exports_share_preview_target() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -131,7 +131,7 @@ fn compile_coordinate_groups_scene_panels_with_scene_route() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -200,7 +200,7 @@ fn compile_coordinate_for_template_file_uses_authoring_preview() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: BuildTemplateIndex { templates },
         ui_layout_index: Default::default(),
     };

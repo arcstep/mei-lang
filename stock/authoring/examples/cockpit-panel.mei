@@ -1,4 +1,6 @@
-# Proof: cockpit shell template reuse through `panel(base = panel_ref(...))`.
+# Proof: section_shell as titled section host (content_panel will become content_panel).
+
+use template "cockpit/panel/shell-macros"
 
 app(
     id = "author-example-cockpit-panel",
@@ -12,22 +14,36 @@ scene(
     frame = "home_frame",
     profile = "cockpit",
     theme = "cockpit",
-    summary = "Minimal cockpit shell example for the standalone author package.",
+    summary = "Minimal section_shell example for the standalone author package.",
 )
 
 world(id = "home_world", resources = [])
 
-COCKPIT_TPL = "../../templates/cockpit"
-SHELL = COCKPIT_TPL + "/panel/panel-titled-shell.mei"
-
 frame(
     id = "home_frame",
-    layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
-    base = panel_ref(id = "titled_shell", scene_file = SHELL),
-    id = "summary_panel",
-    area = "auto",
-    title = "Business Summary",
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["1fr"],
+        areas = [["main"]],
+        gap = "16px",
+        padding = "20px",
+    ),
+    panels = [
+        panel(
+            id = "summary_panel",
+            area = "main",
+            shell = section_shell(
+                title = "Business Summary",
+                width = "100%",
+                body = panel(
+                    id = "summary_body",
+                    variant = "container",
+                    show_heading = False,
+                    chrome = "bare",
+                    props = content_fill_props(),
+                    blocks = [],
+                ),
+            ),
+        ),
+    ],
 )

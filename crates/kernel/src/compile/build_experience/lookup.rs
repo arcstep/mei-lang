@@ -3,8 +3,8 @@ use super::{dedupe_preserve_order};
 use serde_json::Value;
 
 use crate::model::{
-    BlockDecl, CompiledApp, PanelDecl,
-    UiNodeDecl,
+    BlockDecl, CompiledApp, UiNodeDecl,
+    UiTreeNode,
 };
 
 pub fn backing_refs_from_block_props(props: &Value) -> Vec<String> {
@@ -29,7 +29,7 @@ pub(super) fn projection_label(projection_id: &str) -> String {
     format!("Board · {projection_id}")
 }
 
-pub(super) fn panel_label(panel: &PanelDecl) -> String {
+pub(super) fn panel_label(panel: &UiNodeDecl) -> String {
     panel
         .title
         .clone()
@@ -66,21 +66,21 @@ pub(super) fn find_panel_by_path(
     compiled: &CompiledApp,
     scene_id: &str,
     panel_path: &str,
-) -> Option<PanelDecl> {
+) -> Option<UiNodeDecl> {
     let top_level = panels_for_scene(compiled, scene_id)?;
     let mut segments = panel_path.split('/').filter(|s| !s.is_empty());
     let first = segments.next()?;
     let mut current = top_level.into_iter().find(|panel| panel.id == first)?;
     for segment in segments {
         current = current.blocks.iter().find_map(|node| match node {
-            UiNodeDecl::Panel(panel) if panel.id == segment => Some(panel.clone()),
+            UiTreeNode::Panel(panel) if panel.id == segment => Some(panel.clone()),
             _ => None,
         })?;
     }
     Some(current)
 }
 
-pub(super) fn find_block_in_panel(panel: &PanelDecl, block_id: &str) -> Option<BlockDecl> {
+pub(super) fn find_block_in_panel(panel: &UiNodeDecl, block_id: &str) -> Option<BlockDecl> {
     for (ordinal, block) in blocks_in_panel(panel).iter().enumerate() {
         if block_instance_id(block, ordinal) == block_id {
             return Some((*block).clone());
@@ -89,23 +89,23 @@ pub(super) fn find_block_in_panel(panel: &PanelDecl, block_id: &str) -> Option<B
     None
 }
 
-fn blocks_in_panel(panel: &PanelDecl) -> Vec<&BlockDecl> {
+fn blocks_in_panel(panel: &UiNodeDecl) -> Vec<&BlockDecl> {
     panel
         .blocks
         .iter()
         .filter_map(|node| match node {
-            UiNodeDecl::Block(block) => Some(block),
+            UiTreeNode::Block(block) => Some(block),
             _ => None,
         })
         .collect()
 }
 
-pub fn panels_for_scene(compiled: &CompiledApp, scene_id: &str) -> Option<Vec<PanelDecl>> {
+pub fn panels_for_scene(compiled: &CompiledApp, scene_id: &str) -> Option<Vec<UiNodeDecl>> {
     compiled
         .scene_projection_assembly_by_id
         .get(scene_id)
         .and_then(|assembly| assembly.get("panels"))
-        .and_then(|value| serde_json::from_value::<Vec<PanelDecl>>(value.clone()).ok())
+        .and_then(|value| serde_json::from_value::<Vec<UiNodeDecl>>(value.clone()).ok())
 }
 
 pub(super) fn split_panel_key(key: &str) -> (String, String) {

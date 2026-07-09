@@ -20,7 +20,7 @@ mod semantic_scene;
 mod structure_full;
 mod view_artifact;
 mod manifest_index;
-mod layout_tuning_merge;
+mod panel_scope_resolve;
 mod theme_layout_merge;
 mod mcg;
 mod metric_hydrate;
@@ -40,7 +40,7 @@ mod warmup_last_run;
 mod world_plan;
 
 pub use assemble::{
-    assemble_scope_from_registry, board_page_scenes_for_section_scope, collect_all_board_scenes,
+    assemble_scope_from_registry, t2_page_scenes_for_section_scope, collect_all_t2_page_scenes,
     list_scope_routes, AssembleOutcome, ScopeRoute,
 };
 pub use assemble_cache::{
@@ -100,7 +100,6 @@ pub use view_artifact::{
     WysiwygPanelPatch, EVAL_SLOT_GROUP_KIND, LAYOUT_OVERLAY_KIND, SCENE_VIEW_MANIFEST_SCHEMA,
     STRUCTURE_FULL_KIND, STRUCTURE_FULL_SCHEMA, THEME_TOKENS_KIND,
 };
-pub use layout_tuning_merge::merge_layout_tuning_into_compiled;
 pub use mcg::registry::{McgNodeRecord, McgRegistry, McgRegistryWriter};
 pub use mrg::eval_cache_plan::{
     build_eval_cache_invalidation_plan, build_eval_cache_invalidation_plan_from_registry,
@@ -123,8 +122,8 @@ pub use mrg::client_bootstrap::{
     NO_CLIENT_BOOTSTRAP_REVISION,
 };
 pub use mrg::frontier::{
-    collect_eval_frontier, collect_eval_frontier_with_hops, linked_board_pack_scopes,
-    linked_board_scenes_for_scope, record_navigation_edges_for_scope, FrontierMetric,
+    collect_eval_frontier, collect_eval_frontier_with_hops, linked_t2_page_pack_scopes,
+    linked_t2_page_scenes_for_scope, record_navigation_edges_for_scope, FrontierMetric,
 };
 pub use mrg::registry::{MrgRegistry, MrgRegistryWriter};
 pub use mrg::slots::{
@@ -155,7 +154,7 @@ pub use tier::{
 pub use content_store::{
     content_hash_bytes, get, put_if_absent, read_payload_bytes, read_payload_json,
     resolve_payload_ref, APP_SKELETON, METRIC_DEF_BUNDLE, METRIC_RESPONSE, NAVIGATION,
-    PANEL_CONTRACT, PROJECTION_ASSEMBLY, WARMUP_POLICY,
+    CONTENT_PANEL, PROJECTION_ASSEMBLY, WARMUP_POLICY,
 };
 pub use types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef};
 pub use view_layer_warmup::{warm_manifest_index_for_app, warm_manifest_index_for_scope};

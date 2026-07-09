@@ -20,7 +20,7 @@ use super::viewport::{
     frame_viewport_style_for_route, viewport_overflow_is_debug,
 };
 use crate::ui::route::UiRouteMode;
-use mei_lang_kernel::PanelDecl;
+use mei_lang_kernel::UiNodeDecl;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
     CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
@@ -116,7 +116,7 @@ fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };

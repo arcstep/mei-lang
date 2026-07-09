@@ -71,7 +71,7 @@ fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> 
         }
         BuildNodeKind::Dataset => vec!["Backing · Datasets".to_string(), node.key.clone()],
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
-            if let Some(entry) = compiled.build_board_index.lookup(node) {
+            if let Some(entry) = compiled.build_t2_page_index.lookup(node) {
                 vec![
                     "Board".to_string(),
                     entry.label.clone(),

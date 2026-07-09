@@ -7,7 +7,7 @@ mod analysis;
 mod app_compile;
 mod app_decl;
 mod authoring_eval;
-mod build_board_index;
+mod build_t2_page_index;
 mod build_experience;
 mod build_experience_index;
 mod build_ui_layout_index;
@@ -70,7 +70,7 @@ pub use app_compile::{
     compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
     CompileAppArtifacts,
 };
-pub use build_board_index::build_board_index;
+pub use build_t2_page_index::build_t2_page_index;
 pub use build_experience::{
     backing_refs_from_block_props, block_instance_id,
     build_experience_path, build_overview_backing, compile_coordinate_for_node,
@@ -235,7 +235,7 @@ pub use materialize::{
     EvalPlanEdgeKind, EvalPlanNode,
     EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
 };
-pub use projection_assembly::enrich_runtime_board_assembly_projection_slots;
+pub use projection_assembly::enrich_runtime_page_instance_projection_slots;
 
 #[cfg(test)]
 mod mcg_index_tests {

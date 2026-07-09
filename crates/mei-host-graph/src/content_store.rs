@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 use crate::types::PayloadRef;
 
-pub const PANEL_CONTRACT: &str = "panel_contract";
+pub const CONTENT_PANEL: &str = "content_panel";
 pub const APP_SKELETON: &str = "app_skeleton";
 pub const SEMANTIC_SCENE: &str = "semantic_scene";
 pub const METRIC_DEF_BUNDLE: &str = "metric_def_bundle";

@@ -132,7 +132,7 @@ pub(super) fn expand_board_zoned_slots(
             if slot.get("component").and_then(Value::as_str) != Some("chart") {
                 diagnostics.push(Diagnostic {
                     severity: Severity::Error,
-                    code: "board_assembly_chart_component".to_string(),
+                    code: "page_instance_chart_component".to_string(),
                     message: format!(
                         "board chart view #{index} for metric `{root_metric_id}` must use kind=chart"
                     ),
@@ -186,7 +186,7 @@ pub(super) fn expand_board_zoned_slots(
         if detail_slot.get("component").and_then(Value::as_str) != Some("data_table") {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "board_assembly_detail_component".to_string(),
+                code: "page_instance_detail_component".to_string(),
                 message: format!(
                     "board detail view for metric `{root_metric_id}` must use kind=table"
                 ),
@@ -227,7 +227,7 @@ pub(super) fn expand_board_zoned_slots(
         if preview_slot.get("component").and_then(Value::as_str) != Some("summary") {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "board_assembly_preview_component".to_string(),
+                code: "page_instance_preview_component".to_string(),
                 message: format!(
                     "board preview view for metric `{root_metric_id}` must use kind=summary"
                 ),

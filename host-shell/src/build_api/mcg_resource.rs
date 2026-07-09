@@ -160,7 +160,7 @@ fn resolve_mcg_node<'a>(
     }
 
     if node_id.contains('/') && !node_id.contains(':') {
-        return find_panel_contract_node_local(mcg, node_id, scene_id);
+        return find_content_panel_node_local(mcg, node_id, scene_id);
     }
 
     mcg.nodes.iter().find(|node| node.id.stable_key() == node_id)
@@ -173,34 +173,34 @@ fn find_node_by_kind_key<'a>(
     scene_id: &str,
 ) -> Option<&'a McgNodeRecord> {
     let kind = graph_node_kind_from_slug(kind_slug)?;
-    if kind == GraphNodeKind::PanelContract {
-        return find_panel_contract_node_local(mcg, key, scene_id);
+    if kind == GraphNodeKind::ContentPanel {
+        return find_content_panel_node_local(mcg, key, scene_id);
     }
     mcg.nodes
         .iter()
         .find(|node| node.id.kind == kind && node.id.key == key)
 }
 
-fn find_panel_contract_node_local<'a>(
+fn find_content_panel_node_local<'a>(
     mcg: &'a McgRegistry,
     panel_key: &str,
     scene_id: &str,
 ) -> Option<&'a McgNodeRecord> {
     let mut keys = vec![
-        format!("panel_contract:{panel_key}"),
+        format!("content_panel:{panel_key}"),
         panel_key.to_string(),
-        format!("panel_contract:{scene_id}:{panel_key}"),
+        format!("content_panel:{scene_id}:{panel_key}"),
         format!("{scene_id}:{panel_key}"),
     ];
     if let Some(basename) = panel_key.rsplit('/').next() {
         if basename != panel_key {
-            keys.push(format!("panel_contract:{basename}"));
+            keys.push(format!("content_panel:{basename}"));
             keys.push(basename.to_string());
         }
     }
     for key in keys {
         if let Some(node) = mcg.nodes.iter().find(|node| {
-            node.id.kind == GraphNodeKind::PanelContract && node.id.key == key
+            node.id.kind == GraphNodeKind::ContentPanel && node.id.key == key
         }) {
             return Some(node);
         }
@@ -212,11 +212,11 @@ fn graph_node_kind_from_slug(slug: &str) -> Option<GraphNodeKind> {
     match slug.trim() {
         "app_skeleton" => Some(GraphNodeKind::AppSkeleton),
         "scene_payload" => Some(GraphNodeKind::ScenePayload),
-        "panel_contract" => Some(GraphNodeKind::PanelContract),
+        "content_panel" => Some(GraphNodeKind::ContentPanel),
         "catalog_resource" => Some(GraphNodeKind::CatalogResource),
         "metric_def_bundle" => Some(GraphNodeKind::MetricDefBundle),
         "semantic_graph" => Some(GraphNodeKind::SemanticGraph),
-        "assembly_view" => Some(GraphNodeKind::AssemblyView),
+        "page_instance" => Some(GraphNodeKind::PageInstance),
         "data_source" => Some(GraphNodeKind::DataSource),
         "eval_plan" => Some(GraphNodeKind::EvalPlan),
         "workset" => Some(GraphNodeKind::Workset),

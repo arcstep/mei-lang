@@ -1,28 +1,28 @@
 use serde_json::Value;
 
-use crate::model::{PanelDecl, UiNodeDecl};
+use crate::model::{UiNodeDecl, UiTreeNode};
 
-use super::constants::{LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_METRIC_CARD, SLOT_BODY};
+use super::constants::{LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_METRIC_CARD, CONTENT_ZONE};
 use super::css_util::{px_track, value_as_px};
 use super::spacing::panel_layout_policy;
 
-pub(super) fn remap_block_areas_to_body(blocks: &mut [UiNodeDecl]) {
+pub(super) fn remap_block_areas_to_body(blocks: &mut [UiTreeNode]) {
     for node in blocks {
         match node {
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 let area = block.area.as_deref().map(str::trim).unwrap_or("");
                 if area.is_empty() || area.eq_ignore_ascii_case("auto") {
-                    block.area = Some(SLOT_BODY.to_string());
+                    block.area = Some(CONTENT_ZONE.to_string());
                 }
             }
-            UiNodeDecl::Panel(panel) => remap_block_areas_to_body(&mut panel.blocks),
-            UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::Panel(panel) => remap_block_areas_to_body(&mut panel.blocks),
+            UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }
-pub(super) fn node_is_metric_card_like(node: &UiNodeDecl) -> bool {
+pub(super) fn node_is_metric_card_like(node: &UiTreeNode) -> bool {
     match node {
-        UiNodeDecl::Panel(panel) => panel
+        UiTreeNode::Panel(panel) => panel
             .props
             .as_object()
             .and_then(|map| map.get(PROP_METRIC_CARD))
@@ -32,35 +32,35 @@ pub(super) fn node_is_metric_card_like(node: &UiNodeDecl) -> bool {
     }
 }
 
-pub(super) fn node_is_metrics_2_1_item_like(node: &UiNodeDecl) -> bool {
+pub(super) fn node_is_metrics_2_1_item_like(node: &UiTreeNode) -> bool {
     if node_is_metric_card_like(node) {
         return true;
     }
     match node {
-        UiNodeDecl::Panel(panel) => panel_layout_policy(panel)
+        UiTreeNode::Panel(panel) => panel_layout_policy(panel)
             .as_deref()
             .is_some_and(|policy| policy == LAYOUT_POLICY_METRIC_COMPOUND_2_1),
         _ => false,
     }
 }
 
-pub(super) fn blocks_touch_slot(blocks: &[UiNodeDecl], slot: &str) -> bool {
+pub(super) fn blocks_touch_slot(blocks: &[UiTreeNode], slot: &str) -> bool {
     blocks
         .iter()
         .any(|node| node_area(node).is_some_and(|area| area == slot))
 }
 
-pub(super) fn node_area(node: &UiNodeDecl) -> Option<&str> {
+pub(super) fn node_area(node: &UiTreeNode) -> Option<&str> {
     match node {
-        UiNodeDecl::Block(block) => block.area.as_deref(),
-        UiNodeDecl::Panel(panel) => panel.area.as_deref(),
-        UiNodeDecl::PanelRefEmbed(embed) => embed.area.as_deref(),
+        UiTreeNode::Block(block) => block.area.as_deref(),
+        UiTreeNode::Panel(panel) => panel.area.as_deref(),
+        UiTreeNode::PanelRefEmbed(embed) => embed.area.as_deref(),
     }
 }
 
-pub(super) fn ensure_node_area(node: &mut UiNodeDecl, slot: &str) {
+pub(super) fn ensure_node_area(node: &mut UiTreeNode, slot: &str) {
     match node {
-        UiNodeDecl::Block(block) => {
+        UiTreeNode::Block(block) => {
             if block
                 .area
                 .as_deref()
@@ -70,7 +70,7 @@ pub(super) fn ensure_node_area(node: &mut UiNodeDecl, slot: &str) {
                 block.area = Some(slot.to_string());
             }
         }
-        UiNodeDecl::Panel(panel) => {
+        UiTreeNode::Panel(panel) => {
             if panel
                 .area
                 .as_deref()
@@ -80,23 +80,23 @@ pub(super) fn ensure_node_area(node: &mut UiNodeDecl, slot: &str) {
                 panel.area = Some(slot.to_string());
             }
         }
-        UiNodeDecl::PanelRefEmbed(_) => {}
+        UiTreeNode::PanelRefEmbed(_) => {}
     }
 }
 
-pub(super) fn set_node_area(node: &mut UiNodeDecl, area: &str) {
+pub(super) fn set_node_area(node: &mut UiTreeNode, area: &str) {
     match node {
-        UiNodeDecl::Block(block) => block.area = Some(area.to_string()),
-        UiNodeDecl::Panel(panel) => panel.area = Some(area.to_string()),
-        UiNodeDecl::PanelRefEmbed(embed) => embed.area = Some(area.to_string()),
+        UiTreeNode::Block(block) => block.area = Some(area.to_string()),
+        UiTreeNode::Panel(panel) => panel.area = Some(area.to_string()),
+        UiTreeNode::PanelRefEmbed(embed) => embed.area = Some(area.to_string()),
     }
 }
-pub(super) fn node_has_explicit_area(node: &UiNodeDecl) -> bool {
+pub(super) fn node_has_explicit_area(node: &UiTreeNode) -> bool {
     node_area(node)
         .map(str::trim)
         .is_some_and(|area| !area.is_empty() && !area.eq_ignore_ascii_case("auto"))
 }
-pub(super) fn panel_px_prop(panel: &PanelDecl, key: &str) -> Option<f64> {
+pub(super) fn panel_px_prop(panel: &UiNodeDecl, key: &str) -> Option<f64> {
     panel
         .props
         .as_object()
@@ -104,7 +104,7 @@ pub(super) fn panel_px_prop(panel: &PanelDecl, key: &str) -> Option<f64> {
         .and_then(value_as_px)
 }
 
-pub(super) fn panel_head_height_track(panel: &PanelDecl) -> Option<String> {
+pub(super) fn panel_head_height_track(panel: &UiNodeDecl) -> Option<String> {
     panel
         .head_props
         .as_object()
@@ -113,16 +113,16 @@ pub(super) fn panel_head_height_track(panel: &PanelDecl) -> Option<String> {
         .map(px_track)
 }
 
-pub(super) fn node_height_track(node: &UiNodeDecl) -> Option<f64> {
+pub(super) fn node_height_track(node: &UiTreeNode) -> Option<f64> {
     match node {
-        UiNodeDecl::Panel(panel) => panel_px_prop(panel, "height"),
+        UiTreeNode::Panel(panel) => panel_px_prop(panel, "height"),
         _ => None,
     }
 }
 
-pub(super) fn node_width_track(node: &UiNodeDecl) -> Option<f64> {
+pub(super) fn node_width_track(node: &UiTreeNode) -> Option<f64> {
     match node {
-        UiNodeDecl::Panel(panel) => panel_px_prop(panel, "width"),
+        UiTreeNode::Panel(panel) => panel_px_prop(panel, "width"),
         _ => None,
     }
 }

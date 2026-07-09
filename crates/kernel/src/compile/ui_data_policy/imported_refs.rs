@@ -2,12 +2,12 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-use crate::model::{Diagnostic, PanelDecl, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
 
 use super::IMPORTED_RESOURCE_DOC;
 
 pub(super) fn scan_panel_imported_refs(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     authorized_ids: &BTreeSet<String>,
     merged_ids: &BTreeSet<String>,
     target_file: &str,
@@ -24,14 +24,14 @@ pub(super) fn scan_panel_imported_refs(
 }
 
 pub(super) fn scan_ui_node_imported_refs(
-    node: &UiNodeDecl,
+    node: &UiTreeNode,
     authorized_ids: &BTreeSet<String>,
     merged_ids: &BTreeSet<String>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match node {
-        UiNodeDecl::Panel(panel) => {
+        UiTreeNode::Panel(panel) => {
             scan_panel_imported_refs(panel, authorized_ids, merged_ids, target_file, diagnostics);
             for child in &panel.blocks {
                 scan_ui_node_imported_refs(
@@ -43,7 +43,7 @@ pub(super) fn scan_ui_node_imported_refs(
                 );
             }
         }
-        UiNodeDecl::Block(block) => {
+        UiTreeNode::Block(block) => {
             push_imported_violations(
                 &block.props,
                 authorized_ids,
@@ -57,7 +57,7 @@ pub(super) fn scan_ui_node_imported_refs(
                 diagnostics,
             );
         }
-        UiNodeDecl::PanelRefEmbed(_) => {}
+        UiTreeNode::PanelRefEmbed(_) => {}
     }
 }
 

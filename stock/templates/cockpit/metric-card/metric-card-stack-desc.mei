@@ -20,9 +20,9 @@ DESC_SHELL = {
     "font_weight": "400",
 }
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "card_stack_desc_mid",
     area = "auto",
     show_heading = False,
@@ -82,4 +82,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

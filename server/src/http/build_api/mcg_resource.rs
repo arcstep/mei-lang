@@ -17,13 +17,13 @@ use crate::graph::mcg::registry::{McgNodeRecord, McgRegistry, McgRegistryWriter}
 use crate::graph::types::{GraphNodeKind, PayloadRef};
 use crate::AppState;
 
-use super::panel_lookup::find_panel_contract_node;
+use super::panel_lookup::find_content_panel_node;
 
 #[derive(Debug, Deserialize)]
 pub struct McgNodeQuery {
     #[serde(rename = "appId")]
     pub app_id: String,
-    /// Full stable id, e.g. `panel_contract:inspection-stats` or block id `panel_contract:content/inspection-stats`.
+    /// Full stable id, e.g. `content_panel:inspection-stats` or block id `content_panel:content/inspection-stats`.
     #[serde(rename = "nodeId")]
     pub node_id: Option<String>,
     pub kind: Option<String>,
@@ -129,8 +129,8 @@ fn resolve_mcg_node<'a>(
     scene_id: &str,
 ) -> Option<&'a McgNodeRecord> {
     if let Ok(block_id) = parse_block_id(node_id) {
-        if block_id.kind == GraphNodeKind::PanelContract {
-            if let Some(node) = find_panel_contract_node(mcg, &block_id.key, scene_id) {
+        if block_id.kind == GraphNodeKind::ContentPanel {
+            if let Some(node) = find_content_panel_node(mcg, &block_id.key, scene_id) {
                 return Some(node);
             }
         }
@@ -148,7 +148,7 @@ fn resolve_mcg_node<'a>(
     }
 
     if node_id.contains('/') && !node_id.contains(':') {
-        return find_panel_contract_node(mcg, node_id, scene_id);
+        return find_content_panel_node(mcg, node_id, scene_id);
     }
 
     None
@@ -161,8 +161,8 @@ fn find_node_by_kind_key<'a>(
     scene_id: &str,
 ) -> Option<&'a McgNodeRecord> {
     let kind = graph_node_kind_from_slug(kind_slug)?;
-    let candidates = if kind == GraphNodeKind::PanelContract {
-        super::panel_lookup::panel_contract_lookup_keys(key, scene_id)
+    let candidates = if kind == GraphNodeKind::ContentPanel {
+        super::panel_lookup::content_panel_lookup_keys(key, scene_id)
     } else {
         vec![key.to_string(), format!("{kind_slug}:{key}")]
     };
@@ -180,11 +180,11 @@ fn graph_node_kind_from_slug(slug: &str) -> Option<GraphNodeKind> {
     match slug.trim() {
         "app_skeleton" => Some(GraphNodeKind::AppSkeleton),
         "scene_payload" => Some(GraphNodeKind::ScenePayload),
-        "panel_contract" => Some(GraphNodeKind::PanelContract),
+        "content_panel" => Some(GraphNodeKind::ContentPanel),
         "catalog_resource" => Some(GraphNodeKind::CatalogResource),
         "metric_def_bundle" => Some(GraphNodeKind::MetricDefBundle),
         "semantic_graph" => Some(GraphNodeKind::SemanticGraph),
-        "assembly_view" => Some(GraphNodeKind::AssemblyView),
+        "page_instance" => Some(GraphNodeKind::PageInstance),
         "data_source" => Some(GraphNodeKind::DataSource),
         "eval_plan" => Some(GraphNodeKind::EvalPlan),
         "workset" => Some(GraphNodeKind::Workset),
@@ -226,10 +226,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn graph_node_kind_from_slug_panel_contract() {
+    fn graph_node_kind_from_slug_content_panel() {
         assert_eq!(
-            graph_node_kind_from_slug("panel_contract"),
-            Some(GraphNodeKind::PanelContract)
+            graph_node_kind_from_slug("content_panel"),
+            Some(GraphNodeKind::ContentPanel)
         );
     }
 }

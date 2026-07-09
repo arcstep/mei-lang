@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::mei_config::MeiConfig;
 use crate::model::{
-    ComponentAsset, Diagnostic, EntityDecl, FlowDecl, FrameDecl, LayoutDecl, PanelDecl,
+    ComponentAsset, Diagnostic, EntityDecl, FlowDecl, FrameDecl, LayoutDecl, UiNodeDecl,
     ResourceDecl, SceneDecl, ThemeDecl, WorldDecl, WorldGridDecl,
 };
 
@@ -28,7 +28,7 @@ pub(super) struct CompileSceneCtx {
     pub pending_world_topology: Option<WorldGridDecl>,
     pub pending_frame_layout: Option<LayoutDecl>,
     pub themes: Vec<ThemeDecl>,
-    pub panels: Vec<PanelDecl>,
+    pub panels: Vec<UiNodeDecl>,
     pub top_level_legacy_dataset_count: usize,
     pub top_level_legacy_dataset_view_count: usize,
     pub top_level_legacy_metric_pack_count: usize,

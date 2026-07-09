@@ -511,11 +511,11 @@ template slot_metric_card(id = "y"):
     #[test]
     fn parses_v2_panel_with_refs() {
         let source = include_str!(
-            "../../../../../../workspaces/ws-demo-v2/apps/data-demo/src/scene/home/header.panel.mei"
+            "../../../../../../workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t1/r-left-rail/s-enforcement/content.mei"
         );
-        let file = parse_v2_source(source).expect("parse header.panel.mei");
+        let file = parse_v2_source(source).expect("parse enforcement content.mei");
         assert!(file.items.iter().any(|item| matches!(item, V2Item::UseTemplate { .. })));
-        assert!(file.items.iter().any(|item| matches!(item, V2Item::TopLevel { name, .. } if name == "panel_contract")));
+        assert!(file.items.iter().any(|item| matches!(item, V2Item::TopLevel { name, .. } if name == "content_panel")));
     }
 
     #[test]
@@ -536,5 +536,39 @@ template slot_metric_card(id = "y"):
         let file = parse_v2_source(source).expect("parse frame-layout-advanced.mei");
         assert!(file.items.iter().any(|item| matches!(item, V2Item::UseTemplate { .. })));
         assert!(!file.items.is_empty(), "authoring example should produce AST items");
+    }
+}
+
+#[cfg(test)]
+mod phase5_constructor_parse {
+    use super::*;
+
+    #[test]
+    fn parses_bare_content_panel() {
+        let source = r#"
+content_panel(
+    id = "map_stage",
+    chrome = "bare",
+    blocks = [],
+)
+"#;
+        let file = parse_v2_source(source).expect("bare content_panel should parse");
+        assert!(file.items.iter().any(|item| {
+            matches!(item, V2Item::TopLevel { name, .. } if name == "content_panel")
+        }));
+    }
+
+    #[test]
+    fn parses_bare_page_instance() {
+        let source = r#"
+page_instance(
+    key = "x",
+    scene = "y",
+)
+"#;
+        let file = parse_v2_source(source).expect("bare page_instance should parse");
+        assert!(file.items.iter().any(|item| {
+            matches!(item, V2Item::TopLevel { name, .. } if name == "page_instance")
+        }));
     }
 }

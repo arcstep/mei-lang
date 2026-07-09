@@ -1,9 +1,7 @@
 use serde_json::Value;
 
-use crate::model::{Diagnostic, PanelDecl, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
 use crate::theme_tokens::is_literal_font_size;
-
-use super::padding::{padding_profile_vertical_px, TITLE_BAR_HEIGHT_PX};
 
 #[derive(Debug, Clone, Default)]
 pub struct LayoutBudgetValidateOptions {
@@ -17,7 +15,7 @@ struct ValidateContext {
 }
 
 pub fn emit_layout_budget_policy_diagnostics(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -27,7 +25,7 @@ pub fn emit_layout_budget_policy_diagnostics(
 
 /// Compile-time policy validation only (no px materialization).
 pub fn validate_layout_budget_policy(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -35,12 +33,15 @@ pub fn validate_layout_budget_policy(
         panels,
         diagnostics,
         source_path,
-        &LayoutBudgetValidateOptions::default(),
+        &LayoutBudgetValidateOptions {
+            // Phase 3: T1 forbids __mei_content_budget / row_budgets px path.
+            strict_t1_fill_down: true,
+        },
     )
 }
 
 pub fn validate_layout_budget_policy_with_options(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
     options: &LayoutBudgetValidateOptions,
@@ -49,7 +50,7 @@ pub fn validate_layout_budget_policy_with_options(
     for panel in panels.iter() {
         collect_panels(panel, &mut flat);
     }
-    let panel_map: std::collections::HashMap<&str, &PanelDecl> =
+    let panel_map: std::collections::HashMap<&str, &UiNodeDecl> =
         flat.iter().map(|p| (p.id.as_str(), *p)).collect();
     let fill_descendants = collect_fill_down_descendant_ids(&flat);
     for panel in flat.iter() {
@@ -63,7 +64,7 @@ pub fn validate_layout_budget_policy_with_options(
     }
 }
 
-fn collect_fill_down_descendant_ids(flat: &[&PanelDecl]) -> std::collections::HashSet<String> {
+fn collect_fill_down_descendant_ids(flat: &[&UiNodeDecl]) -> std::collections::HashSet<String> {
     let mut ids = std::collections::HashSet::new();
     for panel in flat {
         if is_layout_fill_panel(panel) {
@@ -73,10 +74,10 @@ fn collect_fill_down_descendant_ids(flat: &[&PanelDecl]) -> std::collections::Ha
     ids
 }
 
-fn mark_panel_subtree_ids(panel: &PanelDecl, out: &mut std::collections::HashSet<String>) {
+fn mark_panel_subtree_ids(panel: &UiNodeDecl, out: &mut std::collections::HashSet<String>) {
     out.insert(panel.id.clone());
     for node in &panel.blocks {
-        if let UiNodeDecl::Panel(child) = node {
+        if let UiTreeNode::Panel(child) = node {
             mark_panel_subtree_ids(child, out);
         }
     }
@@ -85,7 +86,7 @@ fn mark_panel_subtree_ids(panel: &PanelDecl, out: &mut std::collections::HashSet
 /// Stamp `__mei_section_derived_height_px` on fill-down sections from region fr projection
 /// without materializing region row tracks to px (Build index / preview path).
 pub fn materialize_fill_section_derived_heights(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -94,7 +95,7 @@ pub fn materialize_fill_section_derived_heights(
         for panel in panels.iter() {
             collect_panels(panel, &mut flat);
         }
-        let panel_map: std::collections::HashMap<&str, &PanelDecl> =
+        let panel_map: std::collections::HashMap<&str, &UiNodeDecl> =
             flat.iter().map(|p| (p.id.as_str(), *p)).collect();
 
         let mut derived_map: std::collections::HashMap<String, f64> =
@@ -135,7 +136,7 @@ pub fn materialize_fill_section_derived_heights(
 }
 
 fn materialize_regions_on_tree_fill_only(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     derived: &mut std::collections::HashMap<String, f64>,
     fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -153,7 +154,7 @@ fn materialize_regions_on_tree_fill_only(
 }
 
 fn materialize_regions_fill_only_recursive(
-    panel: &mut PanelDecl,
+    panel: &mut UiNodeDecl,
     derived: &mut std::collections::HashMap<String, f64>,
     fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -169,7 +170,7 @@ fn materialize_regions_fill_only_recursive(
         );
     }
     for node in panel.blocks.iter_mut() {
-        if let UiNodeDecl::Panel(child) = node {
+        if let UiTreeNode::Panel(child) = node {
             materialize_regions_fill_only_recursive(
                 child,
                 derived,
@@ -182,7 +183,7 @@ fn materialize_regions_fill_only_recursive(
 }
 
 fn materialize_region_fr_rows_fill_only(
-    region: &mut PanelDecl,
+    region: &mut UiNodeDecl,
     derived: &mut std::collections::HashMap<String, f64>,
     fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -195,7 +196,7 @@ fn materialize_region_fr_rows_fill_only(
         .blocks
         .iter()
         .filter_map(|n| match n {
-            UiNodeDecl::Panel(p) => Some(p.id.clone()),
+            UiTreeNode::Panel(p) => Some(p.id.clone()),
             _ => None,
         })
         .collect();
@@ -240,7 +241,7 @@ fn materialize_region_fr_rows_fill_only(
 
 /// Optional px materialization for baseline SSR / transition paths.
 pub fn materialize_layout_budget_px(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -249,7 +250,7 @@ pub fn materialize_layout_budget_px(
         for panel in panels.iter() {
             collect_panels(panel, &mut flat);
         }
-        let panel_map: std::collections::HashMap<&str, &PanelDecl> =
+        let panel_map: std::collections::HashMap<&str, &UiNodeDecl> =
             flat.iter().map(|p| (p.id.as_str(), *p)).collect();
 
         let mut derived_map: std::collections::HashMap<String, f64> =
@@ -293,7 +294,7 @@ pub fn materialize_layout_budget_px(
     }
 }
 
-fn find_panel_by_id<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {
+fn find_panel_by_id<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNodeDecl> {
     for panel in panels {
         if panel.id == id {
             return Some(panel);
@@ -305,9 +306,9 @@ fn find_panel_by_id<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDe
     None
 }
 
-fn find_panel_by_id_in_blocks<'a>(blocks: &'a [UiNodeDecl], id: &str) -> Option<&'a PanelDecl> {
+fn find_panel_by_id_in_blocks<'a>(blocks: &'a [UiTreeNode], id: &str) -> Option<&'a UiNodeDecl> {
     for node in blocks {
-        if let UiNodeDecl::Panel(panel) = node {
+        if let UiTreeNode::Panel(panel) = node {
             if panel.id == id {
                 return Some(panel);
             }
@@ -319,17 +320,17 @@ fn find_panel_by_id_in_blocks<'a>(blocks: &'a [UiNodeDecl], id: &str) -> Option<
     None
 }
 
-fn collect_panels<'a>(panel: &'a PanelDecl, out: &mut Vec<&'a PanelDecl>) {
+fn collect_panels<'a>(panel: &'a UiNodeDecl, out: &mut Vec<&'a UiNodeDecl>) {
     out.push(panel);
     for node in &panel.blocks {
-        if let UiNodeDecl::Panel(child) = node {
+        if let UiTreeNode::Panel(child) = node {
             collect_panels(child, out);
         }
     }
 }
 
 fn stamp_derived_on_tree(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     derived: &std::collections::HashMap<String, f64>,
 ) {
     for panel in panels.iter_mut() {
@@ -338,27 +339,27 @@ fn stamp_derived_on_tree(
 }
 
 fn stamp_derived_recursive(
-    panel: &mut PanelDecl,
+    panel: &mut UiNodeDecl,
     derived: &std::collections::HashMap<String, f64>,
 ) {
     if let Some(h) = derived.get(&panel.id) {
         stamp_section_derived(panel, *h);
     }
     for node in panel.blocks.iter_mut() {
-        if let UiNodeDecl::Panel(child) = node {
+        if let UiTreeNode::Panel(child) = node {
             stamp_derived_recursive(child, derived);
         }
     }
 }
 
 fn collect_fill_section_ids(
-    panels: &[PanelDecl],
+    panels: &[UiNodeDecl],
 ) -> std::collections::HashSet<String> {
     let mut flat = Vec::new();
     for panel in panels {
         collect_panels(panel, &mut flat);
     }
-    let panel_map: std::collections::HashMap<&str, &PanelDecl> =
+    let panel_map: std::collections::HashMap<&str, &UiNodeDecl> =
         flat.iter().map(|p| (p.id.as_str(), *p)).collect();
     flat.iter()
         .filter(|p| ui_role(p) == Some("section"))
@@ -368,7 +369,7 @@ fn collect_fill_section_ids(
 }
 
 fn materialize_regions_on_tree(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     derived: &mut std::collections::HashMap<String, f64>,
     fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -386,7 +387,7 @@ fn materialize_regions_on_tree(
 }
 
 fn materialize_regions_recursive(
-    panel: &mut PanelDecl,
+    panel: &mut UiNodeDecl,
     derived: &mut std::collections::HashMap<String, f64>,
     fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -402,7 +403,7 @@ fn materialize_regions_recursive(
         );
     }
     for node in panel.blocks.iter_mut() {
-        if let UiNodeDecl::Panel(child) = node {
+        if let UiTreeNode::Panel(child) = node {
             materialize_regions_recursive(
                 child,
                 derived,
@@ -414,7 +415,7 @@ fn materialize_regions_recursive(
     }
 }
 
-fn ui_role(panel: &PanelDecl) -> Option<&str> {
+fn ui_role(panel: &UiNodeDecl) -> Option<&str> {
     panel
         .props
         .as_object()
@@ -422,7 +423,7 @@ fn ui_role(panel: &PanelDecl) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn chrome_role(panel: &PanelDecl) -> Option<&str> {
+fn chrome_role(panel: &UiNodeDecl) -> Option<&str> {
     panel
         .props
         .as_object()
@@ -430,7 +431,7 @@ fn chrome_role(panel: &PanelDecl) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn is_platform_placement(panel: &PanelDecl) -> bool {
+fn is_platform_placement(panel: &UiNodeDecl) -> bool {
     panel
         .props
         .as_object()
@@ -439,7 +440,7 @@ fn is_platform_placement(panel: &PanelDecl) -> bool {
         == Some(true)
 }
 
-fn is_parent_fill_absolute(panel: &PanelDecl) -> bool {
+fn is_parent_fill_absolute(panel: &UiNodeDecl) -> bool {
     let Some(map) = panel.props.as_object() else {
         return false;
     };
@@ -457,7 +458,7 @@ fn is_parent_fill_absolute(panel: &PanelDecl) -> bool {
         && map.get("height").and_then(Value::as_str) == Some("100%")
 }
 
-fn is_forbidden_author_absolute(panel: &PanelDecl) -> bool {
+fn is_forbidden_author_absolute(panel: &UiNodeDecl) -> bool {
     let Some(map) = panel.props.as_object() else {
         return false;
     };
@@ -470,14 +471,14 @@ fn is_forbidden_author_absolute(panel: &PanelDecl) -> bool {
     true
 }
 
-fn has_structural_children(panel: &PanelDecl) -> bool {
+fn has_structural_children(panel: &UiNodeDecl) -> bool {
     panel.blocks.iter().any(|node| match node {
-        UiNodeDecl::Panel(child) => matches!(ui_role(child), Some("region") | Some("section")),
+        UiTreeNode::Panel(child) => matches!(ui_role(child), Some("region") | Some("section")),
         _ => false,
     })
 }
 
-fn is_author_section_height(panel: &PanelDecl) -> bool {
+fn is_author_section_height(panel: &UiNodeDecl) -> bool {
     let Some(map) = panel.props.as_object() else {
         return false;
     };
@@ -529,7 +530,7 @@ fn push_error(
     });
 }
 
-fn panel_tier(panel: &PanelDecl) -> Option<String> {
+fn panel_tier(panel: &UiNodeDecl) -> Option<String> {
     panel
         .props
         .as_object()
@@ -554,8 +555,8 @@ fn is_author_px_height(height: &str) -> bool {
 }
 
 fn validate_panel(
-    panel: &PanelDecl,
-    panel_map: &std::collections::HashMap<&str, &PanelDecl>,
+    panel: &UiNodeDecl,
+    panel_map: &std::collections::HashMap<&str, &UiNodeDecl>,
     ctx: &ValidateContext,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -570,7 +571,7 @@ fn validate_panel(
             diagnostics,
             "layout_policy_section_height_forbidden",
             format!(
-                "section `{}`: remove manual height; use section_shell + content_budget derivation",
+                "section `{}`: remove manual height; use section_shell + fill-down (__mei_layout_fill)",
                 panel.id
             ),
             source_path,
@@ -619,38 +620,24 @@ fn validate_panel(
         );
     }
 
+    if content_budget_present(panel) {
+        push_error(
+            diagnostics,
+            "layout_policy_content_budget_px_forbidden",
+            format!(
+                "panel `{}`: __mei_content_budget / row_budgets px path is deleted; use __mei_layout_fill (content_fill_props)",
+                panel.id
+            ),
+            source_path,
+        );
+    }
     if is_content_panel(panel) {
-        if is_layout_fill_panel(panel) && content_budget_present(panel) {
+        if !is_layout_fill_panel(panel) {
             push_error(
                 diagnostics,
-                "layout_policy_content_budget_px_forbidden",
+                "layout_policy_body_not_fill",
                 format!(
-                    "content panel `{}`: __mei_layout_fill and __mei_content_budget are mutually exclusive (0327 fill-down)",
-                    panel.id
-                ),
-                source_path,
-            );
-        } else if content_budget_present(panel)
-            && !is_layout_fill_panel(panel)
-            && options.strict_t1_fill_down
-            && is_t1_tier(tier.as_deref())
-        {
-            push_error(
-                diagnostics,
-                "layout_policy_content_budget_px_forbidden",
-                format!(
-                    "content panel `{}`: T1 fill-down forbids __mei_content_budget px rows (use content_fill_props)",
-                    panel.id
-                ),
-                source_path,
-            );
-        }
-        if content_budget_missing(panel, tier.as_deref()) {
-            push_error(
-                diagnostics,
-                "layout_policy_content_budget_missing",
-                format!(
-                    "content panel `{}`: missing __mei_content_budget (use content_strip or semantic macro) or __mei_layout_fill (use content_fill_props)",
+                    "content panel `{}`: must use __mei_layout_fill (content_fill_props); content_budget path deleted",
                     panel.id
                 ),
                 source_path,
@@ -663,7 +650,7 @@ fn validate_panel(
                         diagnostics,
                         "layout_policy_content_auto_row_forbidden",
                         format!(
-                            "content panel `{}`: layout.rows must not use auto (use 1fr + row_budgets or fill-down)",
+                            "content panel `{}`: layout.rows must not use auto (use 1fr fill-down)",
                             panel.id
                         ),
                         source_path,
@@ -701,22 +688,18 @@ fn validate_panel(
     }
 }
 
-fn is_content_panel(panel: &PanelDecl) -> bool {
+fn is_content_panel(panel: &UiNodeDecl) -> bool {
     if is_layout_fill_panel(panel) {
         return true;
     }
-    panel
-        .props
-        .as_object()
-        .and_then(|m| m.get("__mei_content_budget"))
-        .is_some()
+    ui_role(panel) == Some("content")
         || panel.id.contains("-stats")
         || panel.id.contains("indicator-system")
         || panel.id.contains("realtime-table")
         || panel.id.contains("typical-cases")
 }
 
-fn is_layout_fill_panel(panel: &PanelDecl) -> bool {
+fn is_layout_fill_panel(panel: &UiNodeDecl) -> bool {
     panel
         .props
         .as_object()
@@ -725,7 +708,7 @@ fn is_layout_fill_panel(panel: &PanelDecl) -> bool {
         == Some(true)
 }
 
-fn content_budget_present(panel: &PanelDecl) -> bool {
+fn content_budget_present(panel: &UiNodeDecl) -> bool {
     panel
         .props
         .as_object()
@@ -734,47 +717,15 @@ fn content_budget_present(panel: &PanelDecl) -> bool {
 }
 
 fn section_body_uses_fill(
-    section: &PanelDecl,
-    panel_map: &std::collections::HashMap<&str, &PanelDecl>,
+    section: &UiNodeDecl,
+    panel_map: &std::collections::HashMap<&str, &UiNodeDecl>,
 ) -> bool {
     find_body_content_panel(section, panel_map)
         .map(is_layout_fill_panel)
         .unwrap_or(false)
 }
 
-fn content_budget_missing(panel: &PanelDecl, tier: Option<&str>) -> bool {
-    if is_layout_fill_panel(panel) {
-        return false;
-    }
-    if is_t1_tier(tier) {
-        return false;
-    }
-    panel
-        .props
-        .as_object()
-        .and_then(|m| m.get("__mei_content_budget"))
-        .is_none()
-}
 
-fn content_budget_sum(panel: &PanelDecl) -> Option<f64> {
-    let budget = panel.props.as_object()?.get("__mei_content_budget")?;
-    let rows = budget.get("rows")?.as_array()?;
-    let mut sum = 0.0;
-    for row in rows {
-        let px = row.as_f64().or_else(|| row.as_i64().map(|n| n as f64))?;
-        sum += px;
-    }
-    let gap = budget
-        .get("gap")
-        .and_then(Value::as_str)
-        .and_then(parse_px_str)
-        .unwrap_or(0.0);
-    let n = rows.len();
-    if n > 1 {
-        sum += gap * (n as f64 - 1.0);
-    }
-    Some(sum)
-}
 
 fn parse_px_str(s: &str) -> Option<f64> {
     let t = s.trim();
@@ -785,45 +736,16 @@ fn parse_px_str(s: &str) -> Option<f64> {
 }
 
 fn validate_section_content_link(
-    section: &PanelDecl,
-    panel_map: &std::collections::HashMap<&str, &PanelDecl>,
+    section: &UiNodeDecl,
+    panel_map: &std::collections::HashMap<&str, &UiNodeDecl>,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
-    let Some(body_panel) = find_body_content_panel(section, panel_map) else {
-        return;
-    };
-    if is_layout_fill_panel(body_panel) {
-        return;
-    }
-    let Some(content_sum) = content_budget_sum(body_panel) else {
-        return;
-    };
-    let profile = section
-        .props
-        .as_object()
-        .and_then(|m| m.get("__mei_padding_profile"))
-        .and_then(Value::as_str)
-        .unwrap_or("dense");
-    let (pad_top, pad_bottom) = padding_profile_vertical_px(profile).unwrap_or((8.0, 4.0));
-    let derived = TITLE_BAR_HEIGHT_PX + pad_top + pad_bottom + content_sum;
-
-    if let Some(viewport_h) = section_viewport_inner_height(section) {
-        if derived > viewport_h + 0.5 {
-            push_error(
-                diagnostics,
-                "layout_policy_budget_overflow",
-                format!(
-                    "section `{}`: derived height {derived}px exceeds region viewport inner {viewport_h}px",
-                    section.id
-                ),
-                source_path,
-            );
-        }
-    }
+    let _ = (section, panel_map, diagnostics, source_path);
+    // content-budget derived height path deleted; fill-down only.
 }
 
-fn section_viewport_inner_height(panel: &PanelDecl) -> Option<f64> {
+fn section_viewport_inner_height(panel: &UiNodeDecl) -> Option<f64> {
     let map = panel.props.as_object()?;
     let viewport = map.get("viewport")?.as_object()?;
     let design_h = viewport
@@ -839,11 +761,11 @@ fn section_viewport_inner_height(panel: &PanelDecl) -> Option<f64> {
 }
 
 fn find_body_content_panel<'a>(
-    section: &'a PanelDecl,
-    panel_map: &std::collections::HashMap<&str, &'a PanelDecl>,
-) -> Option<&'a PanelDecl> {
+    section: &'a UiNodeDecl,
+    panel_map: &std::collections::HashMap<&str, &'a UiNodeDecl>,
+) -> Option<&'a UiNodeDecl> {
     for node in &section.blocks {
-        if let UiNodeDecl::Panel(p) = node {
+        if let UiTreeNode::Panel(p) = node {
             if is_content_panel(p) {
                 return Some(p);
             }
@@ -856,7 +778,7 @@ fn find_body_content_panel<'a>(
                 return Some(nested);
             }
         }
-        if let UiNodeDecl::Block(block) = node {
+        if let UiTreeNode::Block(block) = node {
             if let Some(id) = block.id.as_ref() {
                 if let Some(found) = panel_map.get(id.as_str()) {
                     if is_content_panel(found) {
@@ -870,7 +792,7 @@ fn find_body_content_panel<'a>(
 }
 
 fn validate_slot_height_px(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     in_fill_down: bool,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -904,13 +826,13 @@ fn validate_slot_height_px(
 }
 
 fn walk_nodes_validate(
-    node: &UiNodeDecl,
+    node: &UiTreeNode,
     ctx: &ValidateContext,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
     match node {
-        UiNodeDecl::Panel(p) => {
+        UiTreeNode::Panel(p) => {
             validate_slot_background(p, diagnostics, source_path);
             validate_slot_height_px(p, ctx.in_fill_down, diagnostics, source_path);
             if ctx.in_fill_down {
@@ -920,7 +842,7 @@ fn walk_nodes_validate(
                 walk_nodes_validate(child, ctx, diagnostics, source_path);
             }
         }
-        UiNodeDecl::Block(block) => {
+        UiTreeNode::Block(block) => {
             if ctx.in_fill_down {
                 validate_inline_font_in_props(
                     &block.props,
@@ -930,7 +852,7 @@ fn walk_nodes_validate(
                 );
             }
         }
-        UiNodeDecl::PanelRefEmbed(_) => {}
+        UiTreeNode::PanelRefEmbed(_) => {}
     }
 }
 fn validate_inline_font_in_props(
@@ -957,7 +879,7 @@ fn validate_inline_font_in_props(
 }
 
 fn validate_duplicate_dimension(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -987,7 +909,7 @@ fn validate_duplicate_dimension(
 }
 
 fn validate_slot_background(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -1040,7 +962,7 @@ fn validate_slot_background(
 }
 
 fn validate_region_overflow(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -1057,11 +979,11 @@ fn validate_region_overflow(
         .and_then(parse_px_str)
         .unwrap_or(0.0);
 
-    let section_panels: Vec<&PanelDecl> = panel
+    let section_panels: Vec<&UiNodeDecl> = panel
         .blocks
         .iter()
         .filter_map(|n| match n {
-            UiNodeDecl::Panel(p) => Some(p),
+            UiTreeNode::Panel(p) => Some(p),
             _ => None,
         })
         .collect();
@@ -1088,7 +1010,7 @@ fn validate_region_overflow(
     }
 }
 
-fn section_derived_height_px(panel: &PanelDecl) -> Option<f64> {
+fn section_derived_height_px(panel: &UiNodeDecl) -> Option<f64> {
     panel
         .props
         .as_object()
@@ -1097,22 +1019,15 @@ fn section_derived_height_px(panel: &PanelDecl) -> Option<f64> {
 }
 
 fn compute_section_derived_height(
-    section: &PanelDecl,
-    panel_map: &std::collections::HashMap<&str, &PanelDecl>,
+    section: &UiNodeDecl,
+    panel_map: &std::collections::HashMap<&str, &UiNodeDecl>,
 ) -> Option<f64> {
-    let body = find_body_content_panel(section, panel_map)?;
-    let content_sum = content_budget_sum(body)?;
-    let profile = section
-        .props
-        .as_object()
-        .and_then(|m| m.get("__mei_padding_profile"))
-        .and_then(Value::as_str)
-        .unwrap_or("dense");
-    let (pad_top, pad_bottom) = padding_profile_vertical_px(profile).unwrap_or((8.0, 4.0));
-    Some(TITLE_BAR_HEIGHT_PX + pad_top + pad_bottom + content_sum)
+    let _ = (section, panel_map);
+    // content-budget px derivation deleted; fill-down sections get height from region fr projection.
+    None
 }
 
-fn stamp_section_derived(panel: &mut PanelDecl, height_px: f64) {
+fn stamp_section_derived(panel: &mut UiNodeDecl, height_px: f64) {
     let height_str = format!("{}px", height_px.round() as i64);
     if let Some(map) = panel.props.as_object_mut() {
         map.insert(
@@ -1136,7 +1051,7 @@ fn parse_fr_weight(track: &str) -> Option<f64> {
 }
 
 fn materialize_region_fr_rows(
-    region: &mut PanelDecl,
+    region: &mut UiNodeDecl,
     derived: &mut std::collections::HashMap<String, f64>,
     fill_section_ids: &std::collections::HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -1149,7 +1064,7 @@ fn materialize_region_fr_rows(
         .blocks
         .iter()
         .filter_map(|n| match n {
-            UiNodeDecl::Panel(p) => Some(p.id.clone()),
+            UiTreeNode::Panel(p) => Some(p.id.clone()),
             _ => None,
         })
         .collect();

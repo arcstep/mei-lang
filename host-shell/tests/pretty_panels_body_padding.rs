@@ -116,7 +116,7 @@ fn pretty_panels_home_ssr_applies_titled_shell_body_padding() {
     let body_cell = enforcement_body_cell_style(html.as_str());
     assert!(
         body_cell.contains("padding:8px 4px 2px 4px"),
-        "layoutTuning dense_strip_100 should apply enforcement section body padding, got `{body_cell}`"
+        "theme.layout dense_strip_100 should apply enforcement section body padding, got `{body_cell}`"
     );
     let layout_errors: Vec<_> = outcome
         .compiled
@@ -213,13 +213,13 @@ fn pretty_panels_home_layer_plan_includes_t1_viewport_chrome() {
     }
 }
 
-fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::PanelDecl], id: &str) -> Option<&'a mei_lang_kernel::PanelDecl> {
+fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::UiNodeDecl], id: &str) -> Option<&'a mei_lang_kernel::UiNodeDecl> {
     for panel in panels {
         if panel.id == id || panel.id.ends_with(&format!("/{id}")) {
             return Some(panel);
         }
         for node in &panel.blocks {
-            if let mei_lang_kernel::UiNodeDecl::Panel(child) = node {
+            if let mei_lang_kernel::UiTreeNode::Panel(child) = node {
                 if let Some(found) = find_panel_by_id(std::slice::from_ref(child), id) {
                     return Some(found);
                 }
@@ -271,7 +271,7 @@ fn pretty_panels_right_rail_sections_have_no_layout_policy_overflow() {
 }
 
 #[test]
-fn pretty_panels_layout_tuning_merges_content_budget_via_index() {
+fn pretty_panels_theme_layout_merges_via_index() {
     let workspace = ensure_pretty_panels_imported();
     let outcome = assemble_scope_from_registry(workspace.as_path(), "pretty-panels", "home")
         .expect("assemble")
@@ -302,6 +302,6 @@ fn pretty_panels_layout_tuning_merges_content_budget_via_index() {
                 .nodes
                 .keys()
                 .any(|key| key.contains("left_rail/enforcement")),
-        "layoutTuning dense_strip_100 should merge onto enforcement section"
+        "theme layout / ui_layout_index should cover enforcement section"
     );
 }

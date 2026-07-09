@@ -1,11 +1,11 @@
 # cockpit drilldown 资源容器：同文件多 scene_export，供 scene_ref(scene_file=..., scene_id=...) 引用。
-# 注意：文件名勿含 `ds.` 子串（eval 预处理 `.replace("ds.", "")` 会误伤如 `boards.mei` → `boarmei`）。
-# 旧单文件模板（generic-/analytics-/list-preview-/metric-explain-board.mei）保留兼容一轮。
+# 注意：文件名勿含 `ds.` 子串（eval 预处理 `.replace("ds.", "")` 会误伤路径片段）。
+# 单文件模板：generic-/analytics-/list-preview-/metric-explain-page.mei
 
 world(id = "cockpit_drilldown_world", resources = [])
 
 scene_export(
-    id = "generic_drilldown_board",
+    id = "generic_drilldown_page",
     profile = "cockpit",
     theme = "cockpit",
     summary = "通用指标下钻：动态 projection_slots",
@@ -17,7 +17,7 @@ scene_export(
     },
     local_nav = {
         "kind": "generic_drilldown",
-        "scene_id": "generic_drilldown_board",
+        "scene_id": "generic_drilldown_page",
     },
 )
 
@@ -34,20 +34,20 @@ frame_export(
         panel(
             id = "tabs",
             area = "tabs",
-            slot = panel_slot(kind = "tab_bar"),
+            slot = { "kind": "tab_bar" },
             blocks = [],
         ),
         panel(
             id = "content",
             area = "content",
-            slot = panel_slot(kind = "tab_content"),
+            slot = { "kind": "tab_content" },
             blocks = [],
         ),
     ],
 )
 
 scene_export(
-    id = "analytics_drilldown_board",
+    id = "analytics_drilldown_page",
     profile = "cockpit",
     theme = "cockpit",
     summary = "分析型二级看板：左过滤 + 右上图表 + 下明细",
@@ -59,8 +59,8 @@ scene_export(
         "entry": param(type = "string"),
     },
     local_nav = {
-        "kind": "analytics_drilldown_board",
-        "scene_id": "analytics_drilldown_board",
+        "kind": "analytics_drilldown_page",
+        "scene_id": "analytics_drilldown_page",
         "max_charts": 3,
         "overlay_size": "large",
     },
@@ -79,7 +79,7 @@ frame_export(
         panel(
             id = "filter",
             area = "filter",
-            slot = panel_slot(kind = "filter", source = "filter_schema"),
+            slot = { "kind": "filter", "source": "filter_schema" },
             blocks = [],
         ),
         panel(
@@ -91,18 +91,18 @@ frame_export(
                 areas = [["chart"], ["detail"]],
                 gap = "12px",
             ),
-            slot = panel_slot(kind = "container"),
+            slot = { "kind": "container" },
             blocks = [
                 panel(
                     id = "chart",
                     area = "chart",
-                    slot = panel_slot(kind = "slots", accepts = ["chart"], max = 3),
+                    slot = { "kind": "slots", "accepts": ["chart"], "max": 3 },
                     blocks = [],
                 ),
                 panel(
                     id = "detail",
                     area = "detail",
-                    slot = panel_slot(kind = "slots", accepts = ["data_table"], required = True),
+                    slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
                     blocks = [],
                 ),
             ],
@@ -111,7 +111,7 @@ frame_export(
 )
 
 scene_export(
-    id = "list_preview_drilldown_board",
+    id = "list_preview_drilldown_page",
     profile = "cockpit",
     theme = "cockpit",
     summary = "清单预览型二级看板：左过滤 + 中明细清单 + 右条目预览",
@@ -123,8 +123,8 @@ scene_export(
         "entry": param(type = "string"),
     },
     local_nav = {
-        "kind": "list_preview_drilldown_board",
-        "scene_id": "list_preview_drilldown_board",
+        "kind": "list_preview_drilldown_page",
+        "scene_id": "list_preview_drilldown_page",
         "overlay_size": "large",
     },
 )
@@ -142,26 +142,26 @@ frame_export(
         panel(
             id = "filter",
             area = "filter",
-            slot = panel_slot(kind = "filter", source = "filter_schema"),
+            slot = { "kind": "filter", "source": "filter_schema" },
             blocks = [],
         ),
         panel(
             id = "list",
             area = "list",
-            slot = panel_slot(kind = "slots", accepts = ["data_table"], required = True),
+            slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
             blocks = [],
         ),
         panel(
             id = "preview",
             area = "preview",
-            slot = panel_slot(kind = "row_preview", accepts = ["summary"], selection_from = "list"),
+            slot = { "kind": "row_preview", "accepts": ["summary"], "selection_from": "list" },
             blocks = [],
         ),
     ],
 )
 
 scene_export(
-    id = "metric_explain_board",
+    id = "metric_explain_page",
     profile = "cockpit",
     theme = "cockpit",
     summary = "指标解释二级看板：tabs 归属本 scene，入口 link 仅决定 overlay/route projection",
@@ -172,8 +172,8 @@ scene_export(
         "entry": param(type = "string"),
     },
     local_nav = {
-        "kind": "metric_explain_board",
-        "scene_id": "metric_explain_board",
+        "kind": "metric_explain_page",
+        "scene_id": "metric_explain_page",
         "default_entry": "definition",
         "include_hero": True,
         "order_by_kind": [

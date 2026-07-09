@@ -175,32 +175,9 @@
       if (!entry || typeof entry !== "object") return;
       const node = root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`);
       if (!(node instanceof HTMLElement)) return;
-      const slotHeight = entry.slot_height_px ?? entry.slotHeightPx;
-      if (slotHeight != null) {
-        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
-        node.dataset.manifestSlotHeight = String(slotHeight);
-      }
       const paddingProfile = entry.padding_profile ?? entry.paddingProfile;
       if (paddingProfile) {
         node.dataset.manifestPaddingProfile = String(paddingProfile);
-      }
-      const contentRows = entry.content_rows ?? entry.contentRows;
-      if (Array.isArray(contentRows) && contentRows.length > 0) {
-        node.style.display = "grid";
-        const total = contentRows.reduce((sum, row) => sum + Number(row), 0);
-        if (total > 0) {
-          node.style.gridTemplateRows = contentRows
-            .map((row) => `${(Number(row) / total) * 100}fr`)
-            .join(" ");
-        } else {
-          node.style.gridTemplateRows = contentRows.map((row) => `${row}px`).join(" ");
-        }
-        node.dataset.manifestContentRows = contentRows.join(",");
-      }
-      const contentGap = entry.content_gap ?? entry.contentGap;
-      if (contentGap != null && contentGap !== "") {
-        node.style.rowGap = `${contentGap}px`;
-        node.dataset.manifestContentGap = String(contentGap);
       }
       const sectionRows = entry.section_rows ?? entry.sectionRows;
       const manifestGridRows = entry.grid_template_rows ?? entry.gridTemplateRows;

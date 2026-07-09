@@ -1,4 +1,4 @@
-use crate::model::{Diagnostic, PanelDecl, Severity};
+use crate::model::{Diagnostic, UiNodeDecl, Severity};
 
 use super::constants::{
     LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO,
@@ -28,7 +28,7 @@ fn is_layout_eval_diag(diag: &Diagnostic) -> bool {
 }
 
 fn emit_panel_eval_summary(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
     start_idx: usize,
@@ -89,7 +89,7 @@ pub(super) fn is_metric_layout_policy(policy: &str) -> bool {
 }
 
 pub(super) fn emit_layout_audit_diagnostics(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {

@@ -1,7 +1,7 @@
 # 清单预览型二级看板壳：左过滤 + 中明细清单 + 右条目预览；布局由宿主 overlay 消费 projection_slots.layout_zone。
 
 scene(
-    id = "list_preview_drilldown_board",
+    id = "list_preview_drilldown_page",
     profile = "cockpit",
     theme = "cockpit",
     summary = "清单预览型二级看板：左过滤 + 中明细清单 + 右条目预览",
@@ -11,8 +11,8 @@ scene(
         "entry": param(type = "string"),
     },
     local_nav = {
-        "kind": "list_preview_drilldown_board",
-        "scene_id": "list_preview_drilldown_board",
+        "kind": "list_preview_drilldown_page",
+        "scene_id": "list_preview_drilldown_page",
         "overlay_size": "large",
     },
 )
@@ -27,25 +27,26 @@ frame(
         gap = "12px",
         padding = "12px",
     ),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "filter",
     area = "filter",
-    slot = panel_slot(kind = "filter", source = "filter_schema"),
+    slot = { "kind": "filter", "source": "filter_schema" },
     blocks = [],
-)
-
-frame.add_panel(
+),
+panel(
     id = "list",
     area = "list",
-    slot = panel_slot(kind = "slots", accepts = ["data_table"], required = True),
+    slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
     blocks = [],
-)
-
-frame.add_panel(
+),
+panel(
     id = "preview",
     area = "preview",
-    slot = panel_slot(kind = "row_preview", accepts = ["summary"], selection_from = "list"),
+    slot = { "kind": "row_preview", "accepts": ["summary"], "selection_from": "list" },
     blocks = [],
+),
+    ],
 )
+
+

@@ -148,18 +148,6 @@ pub fn router(state: HostHttpState) -> Router {
         )
         .route("/api/ops/theme/style/:app_id", get(api_ops_theme_style))
         .route(
-            "/api/ops/layout-tuning/overlay/:app_id",
-            get(crate::ops_layout_tuning_api::api_ops_layout_tuning_overlay_get),
-        )
-        .route(
-            "/api/ops/layout-tuning/draft/:app_id",
-            axum::routing::put(crate::ops_layout_tuning_api::api_ops_layout_tuning_draft_put),
-        )
-        .route(
-            "/api/ops/layout-tuning/apply/:app_id",
-            axum::routing::post(crate::ops_layout_tuning_api::api_ops_layout_tuning_apply_post),
-        )
-        .route(
             "/api/ops/themes/layout/overlay/:app_id",
             get(crate::ops_theme_layout_api::api_ops_theme_layout_overlay_get),
         )

@@ -306,13 +306,13 @@ fn split_projection_key(key: &str) -> (String, String) {
 fn board_entry_for_node<'a>(
     compiled: &'a CompiledApp,
     node: &'a BuildNodeId,
-) -> Option<&'a crate::model::BoardFileEntry> {
-    compiled.build_board_index.lookup(node)
+) -> Option<&'a crate::model::T2PageFileEntry> {
+    compiled.build_t2_page_index.lookup(node)
 }
 
 fn board_context_from_node(compiled: &CompiledApp, node: &BuildNodeId) -> (String, String) {
     if let Some(entry) = board_entry_for_node(compiled, node) {
-        return (entry.board_file.clone(), entry.scene_id.clone());
+        return (entry.page_file.clone(), entry.scene_id.clone());
     }
     let board_key = match node.kind {
         BuildNodeKind::BoardSlot => node
@@ -435,7 +435,7 @@ fn provenance_for_node(compiled: &CompiledApp, node: &BuildNodeId) -> Provenance
             ProvenanceAnchor {
                 file: entry
                     .as_ref()
-                    .map(|value| value.board_file.clone())
+                    .map(|value| value.page_file.clone())
                     .unwrap_or_default(),
                 symbol_id: entry
                     .as_ref()

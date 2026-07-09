@@ -3,12 +3,12 @@ use super::helpers::*;
 
 #[test]
 fn normalize_injects_metrics_strip_layout_for_metric_children() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "metrics".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![
@@ -65,12 +65,12 @@ fn normalize_injects_metrics_strip_layout_for_metric_children() {
 
 #[test]
 fn normalize_injects_metrics_2_1_layout_when_policy_matches() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "metrics_2_1".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![
@@ -111,12 +111,12 @@ fn normalize_injects_metrics_2_1_layout_when_policy_matches() {
 
 #[test]
 fn normalize_injects_metrics_2x2_layout_when_policy_matches() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "metrics_2x2".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![
@@ -161,12 +161,12 @@ fn normalize_injects_metrics_2x2_layout_when_policy_matches() {
 
 #[test]
 fn normalize_injects_metrics_auto_layout_for_six_cards() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "metrics_auto".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![
@@ -214,12 +214,12 @@ fn normalize_injects_metrics_auto_layout_for_six_cards() {
 
 #[test]
 fn normalize_warns_when_metrics_2_1_policy_shape_is_invalid() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "invalid".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![metric_card_panel("a"), metric_card_panel("b")],
@@ -244,12 +244,12 @@ fn normalize_warns_when_metrics_2_1_policy_shape_is_invalid() {
 
 #[test]
 fn normalize_warns_when_metrics_2x2_policy_shape_is_invalid() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "invalid_2x2".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![
@@ -274,12 +274,12 @@ fn normalize_warns_when_metrics_2x2_policy_shape_is_invalid() {
 
 #[test]
 fn normalize_warns_when_metrics_auto_policy_shape_is_invalid() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "invalid_auto".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![metric_card_panel("a")],
@@ -300,12 +300,12 @@ fn normalize_warns_when_metrics_auto_policy_shape_is_invalid() {
 
 #[test]
 fn normalize_injects_metrics_auto_layout_for_full_span_footer() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "metrics_auto_full".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![
@@ -365,12 +365,12 @@ fn normalize_injects_metrics_auto_layout_for_full_span_footer() {
 
 #[test]
 fn normalize_uses_fixed_metric_widths_and_centers_singleton_tail() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "metrics_auto_fixed".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![
@@ -428,12 +428,12 @@ fn normalize_uses_fixed_metric_widths_and_centers_singleton_tail() {
 
 #[test]
 fn normalize_clamps_metrics_strip_spacing_into_cockpit_budget() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "strip".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![
@@ -461,12 +461,12 @@ fn normalize_clamps_metrics_strip_spacing_into_cockpit_budget() {
 
 #[test]
 fn normalize_clamps_metrics_auto_spacing_into_cockpit_budget() {
-    let mut panels = vec![PanelDecl {
+    let mut panels = vec![UiNodeDecl {
         slot: None,
         kind: "panel".to_string(),
         id: "auto".to_string(),
         title: None,
-        head: None::<Box<UiNodeDecl>>,
+        head: None::<Box<UiTreeNode>>,
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![

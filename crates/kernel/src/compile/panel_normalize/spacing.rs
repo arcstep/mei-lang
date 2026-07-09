@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::PanelDecl;
+use crate::model::UiNodeDecl;
 
 use super::constants::{
     PolicySpacing, COCKPIT_CARD_GAP_MAX, COCKPIT_CARD_GAP_MIN, COCKPIT_PANEL_PADDING_MAX,
@@ -10,14 +10,14 @@ use super::constants::{
 };
 use super::css_util::{first_css_scalar_px, parse_px, px_track};
 
-pub(super) fn stamp_has_head_prop(panel: &mut PanelDecl, has_head: bool) {
+pub(super) fn stamp_has_head_prop(panel: &mut UiNodeDecl, has_head: bool) {
     let map = panel.props.as_object().cloned().unwrap_or_default();
     let mut map = map;
     map.insert(PROP_HAS_HEAD.to_string(), Value::Bool(has_head));
     panel.props = Value::Object(map);
 }
 
-pub(super) fn stamp_layout_policy(panel: &mut PanelDecl, policy: &str) {
+pub(super) fn stamp_layout_policy(panel: &mut UiNodeDecl, policy: &str) {
     let map = panel.props.as_object().cloned().unwrap_or_default();
     let mut map = map;
     map.insert(
@@ -27,7 +27,7 @@ pub(super) fn stamp_layout_policy(panel: &mut PanelDecl, policy: &str) {
     panel.props = Value::Object(map);
 }
 
-pub(super) fn panel_layout_policy(panel: &PanelDecl) -> Option<String> {
+pub(super) fn panel_layout_policy(panel: &UiNodeDecl) -> Option<String> {
     panel
         .props
         .as_object()
@@ -38,7 +38,7 @@ pub(super) fn panel_layout_policy(panel: &PanelDecl) -> Option<String> {
         .map(str::to_string)
 }
 pub(super) fn policy_spacing(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     default_gap: &str,
     default_padding: &str,
 ) -> PolicySpacing {

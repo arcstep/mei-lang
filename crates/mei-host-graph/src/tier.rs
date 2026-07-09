@@ -1,4 +1,4 @@
-//! Viewport stage tier (T0 / T1 / T2) and Z-band constants for panel_contract.
+//! Viewport stage tier (T0 / T1 / T2) and Z-band constants for content_panel.
 
 pub const TIER_T0: &str = "t0";
 pub const TIER_T1: &str = "t1";

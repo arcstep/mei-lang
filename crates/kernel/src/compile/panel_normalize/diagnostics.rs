@@ -1,9 +1,9 @@
 use serde_json::Value;
 
-use crate::model::{Diagnostic, PanelDecl, Severity};
+use crate::model::{Diagnostic, UiNodeDecl, Severity};
 
 pub(super) fn emit_panel_head_diagnostics(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     has_head: bool,
     had_title: bool,
     had_head_slot: bool,
@@ -34,7 +34,7 @@ pub(super) fn emit_panel_head_diagnostics(
             severity: Severity::Warning,
             code: "empty_panel_head".to_string(),
             message: format!(
-                "panel `{}`: show_heading=True but no title, head slot, or area=head block",
+                "panel `{}`: show_heading=True but no title, title_zone slot, or area=title_zone block",
                 panel.id
             ),
             source_path: Some(source_path.to_string()),
@@ -46,7 +46,7 @@ pub(super) fn emit_panel_head_diagnostics(
             severity: Severity::Info,
             code: "panel_head_block_overrides_title".to_string(),
             message: format!(
-                "panel `{}`: area=head block overrides title string for display",
+                "panel `{}`: area=title_zone block overrides title string for display",
                 panel.id
             ),
             source_path: Some(source_path.to_string()),

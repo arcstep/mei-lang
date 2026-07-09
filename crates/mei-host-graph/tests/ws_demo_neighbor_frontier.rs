@@ -3,8 +3,8 @@ use std::sync::Once;
 
 use mei_host_core::HostContext;
 use mei_host_graph::{
-    board_page_scenes_for_section_scope, import_bundle, linked_board_pack_scopes,
-    linked_board_scenes_for_scope, ImportOptions,
+    t2_page_scenes_for_section_scope, import_bundle, linked_t2_page_pack_scopes,
+    linked_t2_page_scenes_for_scope, ImportOptions,
 };
 
 static INIT: Once = Once::new();
@@ -37,7 +37,7 @@ fn ws_demo_home_neighbor_sections_are_linked() {
     ensure_imported();
     let workspace = ws_demo_v2_root();
     let ctx = HostContext::new(workspace, "data-demo".to_string());
-    let linked = linked_board_scenes_for_scope(&ctx, "home", 1).expect("linked scenes");
+    let linked = linked_t2_page_scenes_for_scope(&ctx, "home", 1).expect("linked scenes");
     assert!(
         linked.iter().any(|scope| scope.contains("s-inspection-dashboard")),
         "expected inspection dashboard neighbor, got {linked:?}"
@@ -52,10 +52,10 @@ fn ws_demo_home_neighbor_sections_are_linked() {
 fn ws_demo_collect_all_board_includes_penalty_total() {
     ensure_imported();
     let workspace = ws_demo_v2_root();
-    let all = mei_host_graph::collect_all_board_scenes(workspace.as_path(), "data-demo");
+    let all = mei_host_graph::collect_all_t2_page_scenes(workspace.as_path(), "data-demo");
     assert!(
         all.iter().any(|scene| scene == "penalty_total_analytics_page"),
-        "collect_all_board_scenes missing penalty_total, got {} scenes sample={:?}",
+        "collect_all_t2_page_scenes missing penalty_total, got {} scenes sample={:?}",
         all.len(),
         all.iter().take(10).collect::<Vec<_>>()
     );
@@ -66,7 +66,7 @@ fn ws_demo_penalty_section_maps_to_page_scenes() {
     ensure_imported();
     let workspace = ws_demo_v2_root();
     let ctx = HostContext::new(workspace.clone(), "data-demo".to_string());
-    let pages = board_page_scenes_for_section_scope(
+    let pages = t2_page_scenes_for_section_scope(
         workspace.as_path(),
         "data-demo",
         "home/t2/r-drilldown/s-penalty-dashboard",
@@ -75,7 +75,7 @@ fn ws_demo_penalty_section_maps_to_page_scenes() {
         pages.iter().any(|scene| scene == "penalty_total_analytics_page"),
         "expected penalty_total_analytics_page, got {pages:?}"
     );
-    let pack = linked_board_pack_scopes(&ctx, "home", 1, 8).expect("pack scopes");
+    let pack = linked_t2_page_pack_scopes(&ctx, "home", 1, 8).expect("pack scopes");
     assert!(
         pack.iter().any(|scope| scope == "penalty_total_analytics_page"),
         "expected page scene in pack scopes, got {pack:?}"

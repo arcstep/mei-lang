@@ -9,9 +9,9 @@ METRIC_ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets/metrics"
 BG_NORMAL = METRIC_ASSET_BASE + "/metric-bg-normal@3x.svg"
 BG_SELECTED = METRIC_ASSET_BASE + "/metric-bg-selected@3x.svg"
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "card_normal",
     area = "auto",
     show_heading = False,
@@ -46,9 +46,8 @@ frame.add_panel(
         value("--", area = "value", vertical_align = "center"),
         unit("", area = "unit", vertical_align = "center"),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "card_selected",
     area = "auto",
     show_heading = False,
@@ -83,4 +82,8 @@ frame.add_panel(
         value("--", area = "value", vertical_align = "center"),
         unit("", area = "unit", vertical_align = "center"),
     ],
+),
+    ],
 )
+
+

@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::{LayoutDecl, PanelDecl};
+use crate::model::{LayoutDecl, UiNodeDecl};
 
 use super::super::constants::{
     DEFAULT_METRICS_2X2_COLUMNS, DEFAULT_METRICS_2X2_GAP, DEFAULT_METRICS_2X2_PADDING,
@@ -15,7 +15,7 @@ use super::super::spacing::policy_spacing;
 /// `metric-bg-target@3x` 横向分割线在 viewBox 128 高中约 y=56（无 props 覆写时的默认值）。
 const DEFAULT_METRIC_COMPOUND_TOP_BAND_RATIO: f64 = 56.0 / 128.0;
 
-pub(super) fn default_metrics_2x2_layout(panel: &PanelDecl) -> LayoutDecl {
+pub(super) fn default_metrics_2x2_layout(panel: &UiNodeDecl) -> LayoutDecl {
     let spacing = policy_spacing(panel, DEFAULT_METRICS_2X2_GAP, DEFAULT_METRICS_2X2_PADDING);
     let top_row = panel
         .blocks
@@ -61,7 +61,7 @@ pub(super) fn default_metrics_2x2_layout(panel: &PanelDecl) -> LayoutDecl {
     }
 }
 
-pub(super) fn default_metrics_2_1_layout(panel: &PanelDecl) -> LayoutDecl {
+pub(super) fn default_metrics_2_1_layout(panel: &UiNodeDecl) -> LayoutDecl {
     let columns = panel
         .props
         .as_object()
@@ -101,7 +101,7 @@ pub(super) fn default_metrics_2_1_layout(panel: &PanelDecl) -> LayoutDecl {
     }
 }
 
-pub(super) fn metric_compound_bottom_count(panel: &PanelDecl) -> usize {
+pub(super) fn metric_compound_bottom_count(panel: &UiNodeDecl) -> usize {
     panel.blocks.len().saturating_sub(1)
 }
 
@@ -140,7 +140,7 @@ fn parse_compound_band_fraction(raw: &str) -> Option<f64> {
     })
 }
 
-fn metric_compound_top_band_fraction(panel: &PanelDecl) -> f64 {
+fn metric_compound_top_band_fraction(panel: &UiNodeDecl) -> f64 {
     let map = panel.props.as_object();
     if let Some(map) = map {
         if let Some(raw) = map
@@ -182,7 +182,7 @@ fn metric_ratio_weight(value: &Value) -> Option<f64> {
 }
 
 /// `32/99` → `(32, 99)fr`；百分比/小数 → 按 band 比例换算为 fr 权重。
-fn metric_compound_band_fr_weights(panel: &PanelDecl) -> (u32, u32) {
+fn metric_compound_band_fr_weights(panel: &UiNodeDecl) -> (u32, u32) {
     if let Some(map) = panel.props.as_object() {
         if let Some(raw) = map
             .get(PROP_COMPOUND_TOP_BAND_RATIO)
@@ -208,12 +208,12 @@ fn metric_compound_band_fr_weights(panel: &PanelDecl) -> (u32, u32) {
     (top, bottom)
 }
 
-fn metric_compound_row_fr_tracks(panel: &PanelDecl) -> (String, String) {
+fn metric_compound_row_fr_tracks(panel: &UiNodeDecl) -> (String, String) {
     let (top_w, bottom_w) = metric_compound_band_fr_weights(panel);
     (format!("{top_w}fr"), format!("{bottom_w}fr"))
 }
 
-pub(super) fn default_metric_compound_2_1_layout(panel: &PanelDecl) -> LayoutDecl {
+pub(super) fn default_metric_compound_2_1_layout(panel: &UiNodeDecl) -> LayoutDecl {
     let spacing = policy_spacing(panel, DEFAULT_METRIC_COMPOUND_2_1_GAP, "0");
     let bottom_cols = metric_compound_bottom_count(panel).max(1);
     let (top_row, bottom_row) = metric_compound_row_fr_tracks(panel);

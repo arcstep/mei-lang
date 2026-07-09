@@ -1,8 +1,8 @@
-use crate::model::{Diagnostic, PanelDecl};
+use crate::model::{Diagnostic, UiNodeDecl};
 
 /// Public entry: validate then resolve budgets on panel forest.
 pub fn resolve_layout_budgets(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {

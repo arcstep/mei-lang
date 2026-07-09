@@ -4,9 +4,9 @@ scene(id = "metric_card_solid_row_tpl", profile = "cockpit", theme = "cockpit")
 
 world(resources = [])
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "card_solid_row_accent",
     area = "auto",
     show_heading = False,
@@ -40,9 +40,8 @@ frame.add_panel(
         value("200", area = "value", align = "left", vertical_align = "center"),
         unit("次", area = "unit", align = "left", vertical_align = "center"),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "card_solid_row_compact",
     area = "auto",
     show_heading = False,
@@ -75,4 +74,8 @@ frame.add_panel(
         value("20", area = "value", align = "left", vertical_align = "center"),
         unit("次", area = "unit", align = "left", vertical_align = "center"),
     ],
+),
+    ],
 )
+
+

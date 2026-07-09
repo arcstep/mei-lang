@@ -7,15 +7,15 @@ use serde_json::Value;
 use crate::graph::bridge::export_bridge;
 use crate::graph::feature::graph_registry_dedup_enabled;
 use crate::graph::mcg::assemble::{
-    assemble_assembly_view, assembly_view_revision, AssemblyInputRecord, AssemblyViewInputs,
+    assemble_page_instance, page_instance_revision, AssemblyInputRecord, PageInstanceInputs,
 };
-use crate::graph::content_store::{APP_SKELETON, METRIC_DEF_BUNDLE, SCENE_PAYLOAD, PANEL_CONTRACT};
+use crate::graph::content_store::{APP_SKELETON, METRIC_DEF_BUNDLE, SCENE_PAYLOAD, CONTENT_PANEL};
 use crate::graph::mcg::metric_def_bundle::{
     extract_metric_def_bundles, persist_metric_def_bundle, DatasetRuntimePayloadView,
     MetricDefBundleRecord, METRIC_DEF_BUNDLE_ARTIFACT_SCHEMA,
 };
 use crate::graph::mcg::app_skeleton::{app_skeleton_revision, load_app_skeleton_artifact, persist_app_skeleton_artifact};
-use crate::graph::mcg::panel_contract::{extract_panel_contracts, partial_assemble_panel_merge, persist_panel_contracts};
+use crate::graph::mcg::content_panel::{extract_content_panels, partial_assemble_panel_merge, persist_content_panels};
 use crate::graph::mcg::registry::{AssemblyInputRef, McgEdgeRecord, McgNodeRecord, McgRegistryWriter};
 use crate::graph::mcg::scene_payload::{
     load_scene_payload_artifact, persist_scene_payload_artifact, scene_payload_revision,
@@ -27,7 +27,7 @@ use crate::graph::types::{GraphNodeId, GraphNodeKind, MaterialState, PayloadRef}
 #[derive(Debug, Clone, Default)]
 pub struct McgUpdateOutcome {
     pub scene_payload_revision: Option<String>,
-    pub assembly_view_revision: Option<String>,
+    pub page_instance_revision: Option<String>,
     pub bundle_revisions: BTreeMap<String, String>,
     pub bundles_unchanged: Vec<String>,
 }
@@ -162,7 +162,7 @@ pub fn update_mcg_after_compile(
                     component_assets: Vec::new(),
                     diagnostics: Vec::new(),
                     build_experience_index: Default::default(),
-                    build_board_index: Default::default(),
+                    build_t2_page_index: Default::default(),
                     build_template_index: Default::default(),
         ui_layout_index: Default::default(),
                 };
@@ -219,26 +219,26 @@ pub fn update_mcg_after_compile(
         });
     }
 
-    let mut panel_contracts = extract_panel_contracts(compiled);
+    let mut content_panels = extract_content_panels(compiled);
     let mut panel_persisted = BTreeMap::new();
     if graph_registry_dedup_enabled() {
-        if let Ok(paths) = persist_panel_contracts(app_root.as_path(), panel_contracts.as_slice()) {
-            for panel in &mut panel_contracts {
+        if let Ok(paths) = persist_content_panels(app_root.as_path(), content_panels.as_slice()) {
+            for panel in &mut content_panels {
                 if let Some(persisted) = paths.get(&panel.panel_key) {
                     panel_persisted.insert(panel.panel_key.clone(), persisted.content_hash.clone());
                 }
             }
         }
     }
-    for panel in &panel_contracts {
+    for panel in &content_panels {
         registry.upsert_node(McgNodeRecord {
-            id: GraphNodeId::new(GraphNodeKind::PanelContract, panel.panel_key.clone()),
+            id: GraphNodeId::new(GraphNodeKind::ContentPanel, panel.panel_key.clone()),
             revision: panel.revision.clone(),
             state: MaterialState::Ready,
             layer: "assembly".to_string(),
             payload_ref: panel_persisted.get(&panel.panel_key).map(|hash| {
                 PayloadRef::new(
-                    PANEL_CONTRACT,
+                    CONTENT_PANEL,
                     hash.clone(),
                     "mei-panel-contract-artifact-v1",
                 )
@@ -250,10 +250,10 @@ pub fn update_mcg_after_compile(
             stats: None,
         });
     }
-    let panel_inputs = panel_contracts
+    let panel_inputs = content_panels
         .iter()
         .map(|panel| AssemblyInputRecord {
-            kind: "panel_contract".to_string(),
+            kind: "content_panel".to_string(),
             key: panel.panel_key.clone(),
             revision: panel.revision.clone(),
         })
@@ -264,27 +264,27 @@ pub fn update_mcg_after_compile(
         key: target_file.clone(),
         revision: scene_revision.clone(),
     };
-    let (_, assembly_inputs) = assemble_assembly_view(
+    let (_, assembly_inputs) = assemble_page_instance(
         compiled.clone(),
-        AssemblyViewInputs {
+        PageInstanceInputs {
             scene_payload: Some(scene_input),
             metric_def_bundles: bundle_inputs,
-            panel_contracts: panel_inputs,
+            content_panels: panel_inputs,
         },
     );
-    let av_revision = assembly_view_revision(&assembly_inputs);
-    outcome.assembly_view_revision = Some(av_revision.clone());
+    let av_revision = page_instance_revision(&assembly_inputs);
+    outcome.page_instance_revision = Some(av_revision.clone());
 
     registry.upsert_node(McgNodeRecord {
         id: GraphNodeId::new(
-            GraphNodeKind::AssemblyView,
-            assembly_view_key(options, compile_revision),
+            GraphNodeKind::PageInstance,
+            page_instance_key(options, compile_revision),
         ),
         revision: av_revision.clone(),
         state: MaterialState::Ready,
         layer: "assembly".to_string(),
         payload_ref: Some(PayloadRef::new(
-            "assembly_view",
+            "page_instance",
             av_revision,
             "mei-assembly-view-v1",
         )),
@@ -367,7 +367,7 @@ fn bundle_node_record(app_root: &Path, bundle: &MetricDefBundleRecord) -> McgNod
     }
 }
 
-fn assembly_view_key(options: &mei_lang_kernel::CompileOptions, compile_revision: &str) -> String {
+fn page_instance_key(options: &mei_lang_kernel::CompileOptions, compile_revision: &str) -> String {
     let scene = options
         .scene
         .as_deref()

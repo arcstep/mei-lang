@@ -172,7 +172,7 @@ fn verify_mcg_layer(
         });
     }
     verify_bridge_exports(source_root, app_id, alerts);
-    verify_assembly_view_inputs(source_root, app_id, app_root.as_path(), alerts);
+    verify_page_instance_inputs(source_root, app_id, app_root.as_path(), alerts);
     Ok(())
 }
 
@@ -208,7 +208,7 @@ fn verify_bridge_exports(
     }
 }
 
-fn verify_assembly_view_inputs(
+fn verify_page_instance_inputs(
     source_root: &Path,
     app_id: &str,
     app_root: &Path,
@@ -216,7 +216,7 @@ fn verify_assembly_view_inputs(
 ) {
     let mcg = McgRegistryWriter::load(source_root, app_id);
     for node in &mcg.nodes {
-        if node.id.kind != GraphNodeKind::AssemblyView {
+        if node.id.kind != GraphNodeKind::PageInstance {
             continue;
         }
         for input in &node.assembly_inputs {
@@ -231,9 +231,9 @@ fn verify_assembly_view_inputs(
             if !input_present {
                 alerts.push(LayerVerifyAlert {
                     layer: "L3".to_string(),
-                    block_id: format!("assembly_view:{}:input", node.id.key),
+                    block_id: format!("page_instance:{}:input", node.id.key),
                     message: format!(
-                        "AssemblyView input unresolved kind={} key={}",
+                        "PageInstance input unresolved kind={} key={}",
                         input.kind, input.key
                     ),
                 });

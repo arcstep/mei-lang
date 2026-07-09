@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use mei_lang_kernel::{padding_profile_css, CompiledApp, PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{padding_profile_css, CompiledApp, UiNodeDecl, UiTreeNode};
 
-use crate::layout_tuning_merge::{
+use crate::panel_scope_resolve::{
     find_panel_mut_by_id, find_panel_mut_for_preview_scope, resolve_panel_id_for_tuning_scope,
     resolve_preview_scope_for_tuning_key,
 };
@@ -80,7 +80,7 @@ fn layout_scope_to_tuning_key(scope_path: &str) -> String {
 }
 
 fn resolve_region_panel_id_for_layout_scope(
-    panels: &[PanelDecl],
+    panels: &[UiNodeDecl],
     scope_path: &str,
 ) -> Option<String> {
     let tail = layout_scope_to_tuning_key(scope_path);
@@ -94,14 +94,14 @@ fn resolve_region_panel_id_for_layout_scope(
     None
 }
 
-fn find_region_panel_by_id(panel: &PanelDecl, region_id: &str, snake_id: &str) -> Option<String> {
+fn find_region_panel_by_id(panel: &UiNodeDecl, region_id: &str, snake_id: &str) -> Option<String> {
     if ui_role(panel) == Some("region")
         && (panel.id == region_id || panel.id == snake_id || panel.id.replace('_', "-") == region_id)
     {
         return Some(panel.id.clone());
     }
     for node in &panel.blocks {
-        if let UiNodeDecl::Panel(child) = node {
+        if let UiTreeNode::Panel(child) = node {
             if let Some(found) = find_region_panel_by_id(child, region_id, snake_id) {
                 return Some(found);
             }
@@ -110,7 +110,7 @@ fn find_region_panel_by_id(panel: &PanelDecl, region_id: &str, snake_id: &str) -
     None
 }
 
-fn ui_role(panel: &PanelDecl) -> Option<&str> {
+fn ui_role(panel: &UiNodeDecl) -> Option<&str> {
     panel
         .props
         .as_object()
@@ -118,7 +118,7 @@ fn ui_role(panel: &PanelDecl) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-fn apply_theme_layout_patch(panel: &mut PanelDecl, patch: &Value) {
+fn apply_theme_layout_patch(panel: &mut UiNodeDecl, patch: &Value) {
     if let Some(rows) = patch.get("sectionRows").and_then(Value::as_array) {
         let fr_rows: Vec<String> = rows
             .iter()
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn apply_theme_layout_patch_updates_region_rows() {
-        let mut region = PanelDecl {
+        let mut region = UiNodeDecl {
             kind: "panel".to_string(),
             id: "left_rail".to_string(),
             title: None,
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn apply_theme_layout_patch_preserves_author_grid_when_section_rows_shorter() {
-        let mut region = PanelDecl {
+        let mut region = UiNodeDecl {
             kind: "panel".to_string(),
             id: "right_rail".to_string(),
             title: None,
@@ -375,7 +375,7 @@ mod tests {
 
     #[test]
     fn apply_theme_layout_patch_sets_section_padding_profile() {
-        let mut section = PanelDecl {
+        let mut section = UiNodeDecl {
             kind: "panel".to_string(),
             id: "enforcement".to_string(),
             title: None,

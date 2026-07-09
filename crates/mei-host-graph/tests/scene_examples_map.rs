@@ -30,7 +30,7 @@ fn ensure_imported() {
 }
 
 #[test]
-fn data_demo_scene_examples_by_id_matches_board_assembly() {
+fn data_demo_scene_examples_by_id_matches_page_instance() {
     ensure_imported();
     let workspace = ws_demo_v2();
     let outcome = assemble_scope_from_registry(workspace.as_path(), "data-demo", "home")
@@ -57,7 +57,7 @@ fn data_demo_scene_examples_by_id_matches_board_assembly() {
         .unwrap_or_else(|| panic!("expected assembly examples for {scene_id}"));
     assert_eq!(
         examples, assembly_examples,
-        "scene_examples_by_id should mirror board_assembly.examples"
+        "scene_examples_by_id should mirror page_instance.examples"
     );
     assert!(
         !examples.is_null(),

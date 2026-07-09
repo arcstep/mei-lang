@@ -4,8 +4,12 @@ world(id="home_world", resources=[
     resource(id="sales_data", kind="dataset", title="Sales", source=ds.csv(path="../../stock/authoring/examples/data/sales.csv")),
 ])
 sales_rows = ds.data_ref("sales_data")
-frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"))
-frame.add_panel(id="main", area="auto", blocks=[
+frame(id="home_frame", layout=flex(direction="column", gap="16px", padding="20px"),
+    panels = [
+panel(id="main", area="auto", blocks=[
     component("dataset.summary-cards", area="auto", props={"value": sales_rows}),
-])
+]),
+    ],
+)
+
 

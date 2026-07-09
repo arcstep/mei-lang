@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -49,7 +49,7 @@ pub struct PresentationMapDocument {
     pub viewpoints: BTreeMap<String, ViewpointMapEntry>,
 }
 
-fn panel_tier(panel: &PanelDecl) -> String {
+fn panel_tier(panel: &UiNodeDecl) -> String {
     panel
         .props
         .get("__mei_tier")
@@ -138,7 +138,7 @@ fn read_string(obj: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<St
         .map(str::to_string)
 }
 
-fn panel_viewpoint_hints(panel: &PanelDecl) -> ViewpointHints {
+fn panel_viewpoint_hints(panel: &UiNodeDecl) -> ViewpointHints {
     ViewpointHints::from_value(&panel.props)
 }
 
@@ -229,8 +229,8 @@ fn upsert_viewpoint(
 }
 
 fn collect_block_viewpoints(
-    nodes: &[UiNodeDecl],
-    panel: &PanelDecl,
+    nodes: &[UiTreeNode],
+    panel: &UiNodeDecl,
     path_prefix: &str,
     inherited_hints: &ViewpointHints,
     panel_payloads: &BTreeMap<String, Value>,
@@ -243,7 +243,7 @@ fn collect_block_viewpoints(
             format!("{path_prefix}/{index}")
         };
         match node {
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 if let Some(vp) = block
                     .props
                     .get("viewpoint")
@@ -270,7 +270,7 @@ fn collect_block_viewpoints(
                     }
                 }
             }
-            UiNodeDecl::Panel(nested) => {
+            UiTreeNode::Panel(nested) => {
                 if let Some(vp) = nested
                     .props
                     .get("viewpoint")
@@ -293,7 +293,7 @@ fn collect_block_viewpoints(
                 }
                 let nested_hints = panel_viewpoint_hints(nested).with_fallbacks(inherited_hints);
                 if let Some(payload) = panel_payloads.get(nested.id.as_str()) {
-                    merge_panel_contract_viewpoints(
+                    merge_content_panel_viewpoints(
                         payload,
                         nested.id.as_str(),
                         panel_tier(nested).as_str(),
@@ -366,7 +366,7 @@ fn viewpoint_entry_args(entry: &Value) -> Option<&Value> {
     }
 }
 
-fn merge_panel_contract_viewpoints(
+fn merge_content_panel_viewpoints(
     payload: &Value,
     panel_id: &str,
     tier: &str,
@@ -414,7 +414,7 @@ fn merge_panel_contract_viewpoints(
 
 pub fn build_presentation_map(
     scene_id: &str,
-    panels: &[PanelDecl],
+    panels: &[UiNodeDecl],
     panel_payloads: &BTreeMap<String, Value>,
 ) -> PresentationMapDocument {
     let mut viewpoints = BTreeMap::new();
@@ -437,7 +437,7 @@ pub fn build_presentation_map(
             }
         }
         if let Some(payload) = panel_payloads.get(panel.id.as_str()) {
-            merge_panel_contract_viewpoints(
+            merge_content_panel_viewpoints(
                 payload,
                 panel.id.as_str(),
                 tier.as_str(),
@@ -468,7 +468,7 @@ pub fn presentation_map_to_value(map: &PresentationMapDocument) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+    use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 
     #[test]
     fn resolve_viewpoint_id_handles_compiler_viewpoint_ref_call() {
@@ -490,7 +490,7 @@ mod tests {
 
     #[test]
     fn collect_metric_card_viewpoint_from_nested_panel() {
-        let card = PanelDecl {
+        let card = UiNodeDecl {
             kind: "panel".to_string(),
             id: "warnings_total_card".to_string(),
             title: None,
@@ -510,14 +510,14 @@ mod tests {
             base: None,
             import_scope: None,
         };
-        let parent = PanelDecl {
+        let parent = UiNodeDecl {
             kind: "panel".to_string(),
             id: "supervision-stats".to_string(),
             title: None,
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Panel(card)],
+            blocks: vec![UiTreeNode::Panel(card)],
             slot: None,
             props: json!({}),
             head_props: json!({}),
@@ -542,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn merge_panel_contract_viewpoints_preserves_world_target_hints() {
+    fn merge_content_panel_viewpoints_preserves_world_target_hints() {
         let payload = json!({
             "viewpoints": [{
                 "__call": "viewpoint",
@@ -557,7 +557,7 @@ mod tests {
             }]
         });
         let mut out = BTreeMap::new();
-        merge_panel_contract_viewpoints(
+        merge_content_panel_viewpoints(
             &payload,
             "basemap",
             "t0",
@@ -577,14 +577,14 @@ mod tests {
 
     #[test]
     fn build_presentation_map_merges_panel_viewpoint_hints_with_block_focus_target() {
-        let panel = PanelDecl {
+        let panel = UiNodeDecl {
             kind: "panel".to_string(),
             id: "basemap".to_string(),
             title: Some("迷你公园总览".to_string()),
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(mei_lang_kernel::BlockDecl {
+            blocks: vec![UiTreeNode::Block(mei_lang_kernel::BlockDecl {
                 kind: "block".to_string(),
                 use_key: "cockpit.basemap-stage".to_string(),
                 id: Some("basemap_stage".to_string()),

@@ -22,7 +22,7 @@ world(
             id = "sales_data",
             kind = "dataset",
             title = "Sales sample",
-            source = ds.csv(path = "data/sales.csv"),
+            source = ds.csv(path = "stock/authoring/examples/data/sales.csv"),
         ),
     ],
 )
@@ -30,9 +30,8 @@ world(
 frame(
     id = "home_frame",
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "runtime_table",
     area = "auto",
     blocks = [
@@ -49,4 +48,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

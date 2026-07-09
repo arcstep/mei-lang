@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::layout::FrameDecl;
-use super::panel::PanelDecl;
+use super::ui_node::UiNodeDecl;
 use super::ui::{SceneDecl, ThemeDecl};
 use super::world::{FlowDecl, WorldDecl};
 
@@ -22,5 +22,5 @@ pub struct SceneContract {
     #[serde(default)]
     pub frame: Option<FrameDecl>,
     #[serde(default)]
-    pub panels: Vec<PanelDecl>,
+    pub panels: Vec<UiNodeDecl>,
 }

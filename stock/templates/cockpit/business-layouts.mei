@@ -1,0 +1,1510 @@
+use template "cockpit/metric-card/macros" as metric
+use template "cockpit/panel/shell-macros" as shell
+
+# 业务语义布局宏（Fill-down）
+#
+# 目的：
+# - 用 workspace 宏表达「内容块 / 指标组 / 图表摘要 / 证据分栏」等业务意图
+# - 不是结构树节点；展开为 panel + grid + metric/component
+# - content 用 content_fill_props / 1fr，禁止 row_budgets 撑高
+
+TPL_METRICS = "/workspace-app-assets/templates/cockpit/assets/metrics"
+BG_MID = TPL_METRICS + "/metric-bg-mid@3x.svg"
+BG_NORMAL = TPL_METRICS + "/metric-bg-normal@3x.svg"
+BG_CLEAN = TPL_METRICS + "/metric-bg-clean@3x.svg"
+BG_TARGET = TPL_METRICS + "/metric-bg-target@3x.svg"
+
+SPACE_MICRO_TITLE = "32px"
+SPACE_MICRO_GAP = "6px"
+SPACE_TABLE_GAP = "8px"
+SPACE_STORY_GAP = "16px"
+SPACE_METRIC_LIST_PAD = "4px 6px"
+SPACE_COMPOUND_GAP = "2px"
+DEBUG_MICRO_SHADOW = "var(--mei-layout-debug-micro-shadow, inset 0 0 0 0 transparent)"
+METRIC_COMPACT74_PADDING = "10px 8px 10px 11px"
+METRIC_SUMMARY100_PADDING = "2px 8px"
+METRIC_SUMMARY32_PADDING = "0 8px"
+METRIC_DESC128_PADDING = "0 8px"
+METRIC_STRIP_SLOT_PAD = "5px 0"
+# slot 背景：随 slot 盒拉伸铺满（非 contain / 非锁定 SVG 宽高比）
+SLOT_BG_STRETCH_SIZE = "100% 100%"
+
+SLOT_FRAME_BG_FLAG = {"__mei_slot_frame_bg": True}
+
+# zhifa card_solid_stack_corner：四角 #71F1EA L 形装饰 + 半透明底
+CORNER_DECOR_BG = "linear-gradient(#71F1EA,#71F1EA) left top / 4px 2px no-repeat,"
+    + "linear-gradient(#71F1EA,#71F1EA) right top / 4px 2px no-repeat,"
+    + "linear-gradient(#71F1EA,#71F1EA) left bottom / 4px 2px no-repeat,"
+    + "linear-gradient(#71F1EA,#71F1EA) right bottom / 4px 2px no-repeat,"
+    + "rgba(98,190,235,0.10)"
+
+template slot_stretch_fill_layer(
+    image,
+):
+    {
+        "image": "url(" + image + ")",
+        "size": SLOT_BG_STRETCH_SIZE,
+        "position": "center",
+        "repeat": "no-repeat",
+        "origin": "border-box",
+        "clip": "border-box",
+    }
+
+template metric_slot_background(
+    image = BG_NORMAL,
+):
+    slot_stretch_fill_layer(image = image)
+
+template compound_slot_background(
+    image = BG_TARGET,
+):
+    {
+        "color": "rgba(98,190,235,0.10)",
+    } | slot_stretch_fill_layer(image = image)
+
+template transparent_panel_props(
+    padding = "0",
+    background = "transparent",
+    height = "100%",
+):
+    {
+        "padding": padding,
+        "background": background,
+        "box_shadow": DEBUG_MICRO_SHADOW,
+        "height": height,
+        "min_height": "0",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    }
+
+template semantic_shell_props(
+    padding = "0",
+    background = "rgba(14, 52, 96, 0.32)",
+    border = "1px solid rgba(56, 160, 240, 0.20)",
+    radius = "4px",
+):
+    {
+        "padding": padding,
+        "background": background,
+        "border": border,
+        "box_shadow": DEBUG_MICRO_SHADOW,
+        "radius": radius,
+        "height": "100%",
+        "min_height": "0",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    }
+
+template slot_metric_shell(
+    id = "metric_slot",
+    area = "auto",
+    child = None,
+    padding = "0",
+    background = "transparent",
+    border = "none",
+    radius = "4px",
+    width = "100%",
+    height = "100%",
+    shell_props = {},
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = {
+            "padding": padding,
+            "background": background,
+            "border": border,
+            "radius": radius,
+            "width": width,
+            "height": height,
+            "min_height": "0",
+            "box_sizing": "border-box",
+            "overflow": "hidden",
+            "box_shadow": DEBUG_MICRO_SHADOW,
+        } | shell_props,
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["1fr"],
+            areas = [["content"]],
+            gap = "0",
+            align = "stretch",
+        ),
+        blocks = [child],
+    )
+
+template slot_metric_card(
+    id = "metric_slot_card",
+    area = "auto",
+    layout_role = "plain",
+    template = None,
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    desc = "",
+    variant = None,
+    height_px = None,
+    shell_padding = "0",
+    shell_height = "100%",
+    shell_background = "transparent",
+    shell_border = "none",
+    shell_radius = "4px",
+    shell_props = {},
+    card_props = {},
+    presentation = None,
+    popup = None,
+):
+    slot_metric_shell(
+        id = id,
+        area = area,
+        padding = shell_padding,
+        background = shell_background,
+        border = shell_border,
+        radius = shell_radius,
+        height = shell_height,
+        shell_props = shell_props,
+        child = metric(
+            id = id + "_content",
+            area = "content",
+            layout_role = layout_role,
+            variant = variant,
+            height_px = height_px,
+            source = source,
+            desc = desc,
+            presentation = presentation,
+            popup = popup,
+            props = {
+                "width": "100%",
+                "height": "100%",
+                "min_height": "0",
+                "background": "transparent",
+                "border": "none",
+                "box_shadow": "none",
+            } | card_props,
+        ),
+    )
+
+template solid_metric_fill_slot(
+    id = "solid_metric_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    popup = None,
+    presentation = None,
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "solid_stack",
+        source = source,
+        popup = popup,
+        presentation = presentation,
+        shell_height = "100%",
+        shell_background = CORNER_DECOR_BG,
+        shell_border = "1px solid rgba(98,190,235,0.35)",
+        shell_props = SLOT_FRAME_BG_FLAG,
+        card_props = {"label_vertical_align": "center"},
+    )
+
+template narrow_metric_slot(
+    id = "metric_narrow_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    variant = None,
+    shell_padding = "0",
+    shell_height = "100%",
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "plain",
+        source = source,
+        variant = variant,
+        shell_padding = shell_padding,
+        shell_height = shell_height,
+        shell_background = metric_slot_background(image = BG_NORMAL),
+        shell_props = SLOT_FRAME_BG_FLAG,
+    )
+
+template desc_metric_slot(
+    id = "metric_desc_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    desc = "",
+    height_px = 128,
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "stack_desc",
+        desc = desc,
+        source = source,
+        height_px = height_px,
+        shell_background = metric_slot_background(image = BG_MID),
+        shell_props = SLOT_FRAME_BG_FLAG,
+    )
+
+template desc_metric_fill_slot(
+    id = "metric_desc_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    desc = "",
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "stack_desc",
+        desc = desc,
+        source = source,
+        shell_height = "100%",
+        shell_background = metric_slot_background(image = BG_MID),
+        shell_props = SLOT_FRAME_BG_FLAG,
+    )
+
+template progress_metric_slot(
+    id = "metric_progress_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    desc = "",
+    variant = None,
+    height_px = 104,
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "stack_progress",
+        desc = desc,
+        source = source,
+        variant = variant,
+        height_px = height_px,
+        shell_height = str(height_px) + "px",
+        shell_background = metric_slot_background(image = BG_CLEAN),
+        shell_props = SLOT_FRAME_BG_FLAG,
+    )
+
+template progress_metric_fill_slot(
+    id = "metric_progress_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    desc = "",
+    variant = None,
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "stack_progress",
+        desc = desc,
+        source = source,
+        variant = variant,
+        shell_height = "100%",
+        shell_background = metric_slot_background(image = BG_CLEAN),
+        shell_props = SLOT_FRAME_BG_FLAG,
+    )
+
+template micro_title(title = "标题", area = "title"):
+    component(
+        "cockpit.panel-title",
+        area = area,
+        props = {"title": title},
+    )
+
+template metric_source(
+    label = "指标",
+    value = "--",
+    unit = "",
+    desc = "",
+    presentation = None,
+):
+    {
+        "label": label,
+        "value": value,
+        "unit": unit,
+        "desc": desc,
+        "presentation": presentation,
+    }
+
+# 语义内容块（原 micro_panel）：业务宏，不是结构树层级。
+template content_block(
+    id = "content_block",
+    area = "auto",
+    title = "内容块",
+    body = None,
+    title_height = SPACE_MICRO_TITLE,
+    gap = SPACE_MICRO_GAP,
+    background = "rgba(14, 52, 96, 0.32)",
+    border = "1px solid rgba(56, 160, 240, 0.20)",
+    body_padding = "0",
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = semantic_shell_props(background = background, border = border),
+        layout = grid(
+            rows = [title_height, "1fr"],
+            columns = ["1fr"],
+            areas = [["title"], ["content"]],
+            gap = gap,
+        ),
+        blocks = [
+            micro_title(title = title, area = "title"),
+            panel(
+                id = id + "_content",
+                area = "content",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = transparent_panel_props(padding = body_padding),
+                blocks = [body],
+            ),
+        ],
+    )
+
+template metric_triptych_body(
+    id = "metric_triptych",
+    area = "auto",
+    first = metric_source(label = "指标A", value = "0", unit = "项"),
+    second = metric_source(label = "指标B", value = "0", unit = "项"),
+    third = metric_source(label = "指标C", value = "0", unit = "项"),
+    gap = SPACE_MICRO_GAP,
+    card_height = 86,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["1fr", "1fr", "1fr"],
+            areas = [["first", "second", "third"]],
+            gap = gap,
+        ),
+        blocks = [
+            slot_metric_card(
+                id = id + "_first",
+                area = "first",
+                layout_role = "solid_stack",
+                height_px = card_height,
+                source = first,
+                card_props = {"label_vertical_align": "center"},
+                shell_background = CORNER_DECOR_BG,
+                shell_border = "1px solid rgba(98,190,235,0.35)",
+            ),
+            slot_metric_card(
+                id = id + "_second",
+                area = "second",
+                layout_role = "solid_stack",
+                height_px = card_height,
+                source = second,
+                card_props = {"label_vertical_align": "center"},
+                shell_background = CORNER_DECOR_BG,
+                shell_border = "1px solid rgba(98,190,235,0.35)",
+            ),
+            slot_metric_card(
+                id = id + "_third",
+                area = "third",
+                layout_role = "solid_stack",
+                height_px = card_height,
+                source = third,
+                card_props = {"label_vertical_align": "center"},
+                shell_background = CORNER_DECOR_BG,
+                shell_border = "1px solid rgba(98,190,235,0.35)",
+            ),
+        ],
+    )
+
+template metric_triptych_fill_body(
+    id = "metric_triptych",
+    area = "auto",
+    first = metric_source(label = "指标A", value = "0", unit = "项"),
+    second = metric_source(label = "指标B", value = "0", unit = "项"),
+    third = metric_source(label = "指标C", value = "0", unit = "项"),
+    popup_first = None,
+    popup_second = None,
+    popup_third = None,
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["1fr", "1fr", "1fr"],
+            areas = [["first", "second", "third"]],
+            gap = gap,
+            align = "stretch",
+        ),
+        blocks = [
+            solid_metric_fill_slot(
+                id = id + "_first",
+                area = "first",
+                source = first,
+                popup = popup_first,
+            ),
+            solid_metric_fill_slot(
+                id = id + "_second",
+                area = "second",
+                source = second,
+                popup = popup_second,
+            ),
+            solid_metric_fill_slot(
+                id = id + "_third",
+                area = "third",
+                source = third,
+                popup = popup_third,
+            ),
+        ],
+    )
+
+template metric_matrix_2x3_body(
+    id = "metric_matrix_2x3",
+    area = "auto",
+    first = None,
+    second = None,
+    third = None,
+    fourth = None,
+    fifth = None,
+    sixth = None,
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr", "1fr"],
+            columns = ["1fr", "1fr", "1fr"],
+            areas = [
+                ["first", "second", "third"],
+                ["fourth", "fifth", "sixth"],
+            ],
+            gap = gap,
+        ),
+        blocks = [first, second, third, fourth, fifth, sixth],
+    )
+
+template metric_matrix_2x3_fill_body(
+    id = "metric_matrix_2x3",
+    area = "auto",
+    first = metric_source(label = "指标1", value = "0", unit = "项"),
+    second = metric_source(label = "指标2", value = "0", unit = "项"),
+    third = metric_source(label = "指标3", value = "0", unit = "项"),
+    fourth = metric_source(label = "指标4", value = "0", unit = "项"),
+    fifth = metric_source(label = "指标5", value = "0", unit = "项"),
+    sixth = metric_source(label = "指标6", value = "0", unit = "项"),
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr", "1fr"],
+            columns = ["1fr", "1fr", "1fr"],
+            areas = [
+                ["first", "second", "third"],
+                ["fourth", "fifth", "sixth"],
+            ],
+            gap = gap,
+            align = "stretch",
+        ),
+        blocks = [
+            solid_metric_fill_slot(id = id + "_first", area = "first", source = first),
+            solid_metric_fill_slot(id = id + "_second", area = "second", source = second),
+            solid_metric_fill_slot(id = id + "_third", area = "third", source = third),
+            solid_metric_fill_slot(id = id + "_fourth", area = "fourth", source = fourth),
+            solid_metric_fill_slot(id = id + "_fifth", area = "fifth", source = fifth),
+            solid_metric_fill_slot(id = id + "_sixth", area = "sixth", source = sixth),
+        ],
+    )
+
+template metric_matrix_2x3_fill_slots_body(
+    id = "metric_matrix_2x3",
+    area = "auto",
+    first = None,
+    second = None,
+    third = None,
+    fourth = None,
+    fifth = None,
+    sixth = None,
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr", "1fr"],
+            columns = ["1fr", "1fr", "1fr"],
+            areas = [
+                ["first", "second", "third"],
+                ["fourth", "fifth", "sixth"],
+            ],
+            gap = gap,
+            align = "stretch",
+        ),
+        blocks = [first, second, third, fourth, fifth, sixth],
+    )
+
+template metric_quad_body(
+    id = "metric_quad",
+    area = "auto",
+    first = None,
+    second = None,
+    third = None,
+    fourth = None,
+    gap = SPACE_MICRO_GAP,
+    column_width = "150px",
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr"],
+            columns = [column_width, column_width, column_width, column_width],
+            areas = [["first", "second", "third", "fourth"]],
+            gap = gap,
+            align = "stretch",
+            justify = "center",
+        ),
+        blocks = [first, second, third, fourth],
+    )
+
+template summary_stack_body(
+    id = "summary_stack",
+    area = "auto",
+    primary = metric_source(label = "总数", value = "0", unit = "次"),
+    secondary_a = metric_source(label = "近7日", value = "0", unit = "次"),
+    secondary_b = metric_source(label = "子指标", value = "0", unit = "次"),
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["50px", "32px", "32px"],
+            columns = ["1fr"],
+            areas = [["primary"], ["secondary_a"], ["secondary_b"]],
+            gap = gap,
+        ),
+        blocks = [
+            slot_metric_card(
+                id = id + "_primary",
+                area = "primary",
+                layout_role = "solid_row_accent",
+                height_px = 50,
+                source = primary,
+                shell_background = CORNER_DECOR_BG,
+                shell_border = "1px solid rgba(98,190,235,1)",
+            ),
+            slot_metric_card(
+                id = id + "_secondary_a",
+                area = "secondary_a",
+                layout_role = "solid_row_compact",
+                variant = "sub",
+                height_px = 32,
+                source = secondary_a,
+                shell_border = "0.5px solid rgba(115,135,155,1)",
+            ),
+            slot_metric_card(
+                id = id + "_secondary_b",
+                area = "secondary_b",
+                layout_role = "solid_row_compact",
+                variant = "sub",
+                height_px = 32,
+                source = secondary_b,
+                shell_border = "0.5px solid rgba(115,135,155,1)",
+            ),
+        ],
+    )
+
+template evidence_pair_body(
+    id = "evidence_pair",
+    area = "auto",
+    first = None,
+    second = None,
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["1fr", "1fr"],
+            areas = [["first", "second"]],
+            gap = gap,
+        ),
+        blocks = [first, second],
+    )
+
+template chart_with_summary_body(
+    id = "chart_with_summary",
+    area = "auto",
+    primary = metric_source(label = "总数", value = "0", unit = "次"),
+    secondary_a = metric_source(label = "近7日", value = "0", unit = "次"),
+    secondary_b = metric_source(label = "子指标", value = "0", unit = "次"),
+    chart = None,
+    summary_width = "168px",
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr"],
+            columns = [summary_width, "1fr"],
+            areas = [["summary", "chart"]],
+            gap = gap,
+        ),
+        blocks = [
+            summary_stack_body(
+                id = id + "_summary",
+                area = "summary",
+                primary = primary,
+                secondary_a = secondary_a,
+                secondary_b = secondary_b,
+            ),
+            panel(
+                id = id + "_chart",
+                area = "chart",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = transparent_panel_props(),
+                blocks = [chart],
+            ),
+        ],
+    )
+
+template metric_list_body(
+    id = "metric_list",
+    area = "auto",
+    first = None,
+    second = None,
+    third = None,
+    gap = SPACE_MICRO_GAP,
+    padding = SPACE_METRIC_LIST_PAD,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(padding = padding),
+        layout = grid(
+            rows = ["1fr", "1fr", "1fr"],
+            columns = ["1fr"],
+            areas = [["first"], ["second"], ["third"]],
+            gap = gap,
+            align = "stretch",
+        ),
+        blocks = [
+            panel(
+                id = id + "_first",
+                area = "first",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = transparent_panel_props(),
+                blocks = [first],
+            ),
+            panel(
+                id = id + "_second",
+                area = "second",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = transparent_panel_props(),
+                blocks = [second],
+            ),
+            panel(
+                id = id + "_third",
+                area = "third",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = transparent_panel_props(),
+                blocks = [third],
+            ),
+        ],
+    )
+
+template table_with_summary_body(
+    id = "table_with_summary",
+    area = "auto",
+    first = metric_source(label = "待核实", value = "0", unit = "件"),
+    second = metric_source(label = "在办", value = "0", unit = "件"),
+    third = metric_source(label = "已办", value = "0", unit = "件"),
+    table = None,
+    gap = SPACE_TABLE_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["92px", "1fr"],
+            columns = ["1fr"],
+            areas = [["summary"], ["table"]],
+            gap = gap,
+        ),
+        blocks = [
+            metric_triptych_body(
+                id = id + "_summary",
+                area = "summary",
+                first = first,
+                second = second,
+                third = third,
+                card_height = 92,
+            ),
+            panel(
+                id = id + "_table",
+                area = "table",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = transparent_panel_props(),
+                blocks = [table],
+            ),
+        ],
+    )
+
+template status_triptych_summary_body(
+    id = "status_triptych_summary",
+    area = "auto",
+    pending = metric_source(label = "待办", value = "0", unit = "件"),
+    doing = metric_source(label = "在办", value = "0", unit = "件"),
+    done = metric_source(label = "已办", value = "0", unit = "件"),
+    summary = metric_source(label = "查实率", value = "0", unit = "%"),
+    pending_icon = "",
+    doing_icon = "",
+    done_icon = "",
+    summary_icon = "",
+    gap = SPACE_MICRO_GAP,
+    top_height = 74,
+    summary_height = 74,
+    summary_padding = "0 16px 0 24px",
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["74px", "74px"],
+            columns = ["1fr", "1fr", "1fr"],
+            areas = [["pending", "doing", "done"], ["summary", "summary", "summary"]],
+            gap = gap,
+        ),
+        blocks = [
+            slot_metric_card(
+                id = id + "_pending",
+                area = "pending",
+                layout_role = "icon_left",
+                height_px = top_height,
+                shell_height = str(top_height) + "px",
+                source = pending,
+                presentation = {"icon": pending_icon} if pending_icon != "" else None,
+                shell_background = CORNER_DECOR_BG,
+            ),
+            slot_metric_card(
+                id = id + "_doing",
+                area = "doing",
+                layout_role = "icon_left",
+                height_px = top_height,
+                shell_height = str(top_height) + "px",
+                source = doing,
+                presentation = {"icon": doing_icon} if doing_icon != "" else None,
+                shell_background = CORNER_DECOR_BG,
+            ),
+            slot_metric_card(
+                id = id + "_done",
+                area = "done",
+                layout_role = "icon_left",
+                height_px = top_height,
+                shell_height = str(top_height) + "px",
+                source = done,
+                presentation = {"icon": done_icon} if done_icon != "" else None,
+                shell_background = CORNER_DECOR_BG,
+            ),
+            slot_metric_card(
+                id = id + "_summary",
+                area = "summary",
+                layout_role = "strip_icon_left",
+                height_px = summary_height,
+                shell_height = str(summary_height) + "px",
+                source = summary,
+                presentation = {"icon": summary_icon} if summary_icon != "" else None,
+                shell_background = CORNER_DECOR_BG,
+                card_props = {"padding": summary_padding},
+            ),
+        ],
+    )
+
+template primary_progress_triptych_fill_body(
+    id = "primary_progress_triptych",
+    area = "auto",
+    primary = None,
+    first = None,
+    second = None,
+    third = None,
+    primary_width = "168px",
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr"],
+            columns = [primary_width, "1fr"],
+            areas = [["primary", "triptych"]],
+            gap = gap,
+            align = "stretch",
+        ),
+        blocks = [
+            primary,
+            panel(
+                id = id + "_triptych",
+                area = "triptych",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = transparent_panel_props(),
+                layout = grid(
+                    rows = ["1fr"],
+                    columns = ["1fr", "1fr", "1fr"],
+                    areas = [["first", "second", "third"]],
+                    gap = "4px",
+                    align = "stretch",
+                ),
+                blocks = [first, second, third],
+            ),
+        ],
+    )
+
+template primary_progress_triptych_body(
+    id = "primary_progress_triptych",
+    area = "auto",
+    primary = None,
+    first = None,
+    second = None,
+    third = None,
+    primary_width = "168px",
+    gap = SPACE_MICRO_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = content_fill_props() | transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr"],
+            columns = [primary_width, "1fr"],
+            areas = [["primary", "triptych"]],
+            gap = gap,
+            align = "start",
+        ),
+        blocks = [
+            primary,
+            panel(
+                id = id + "_triptych",
+                area = "triptych",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = content_fill_props() | transparent_panel_props(height = "auto"),
+                layout = grid(
+                    rows = ["1fr"],
+                    columns = ["1fr", "1fr", "1fr"],
+                    areas = [["first", "second", "third"]],
+                    gap = "4px",
+                    align = "start",
+                ),
+                blocks = [first, second, third],
+            ),
+        ],
+    )
+
+template metric_triptych_compound_body(
+    id = "metric_triptych_compound",
+    area = "auto",
+    first = None,
+    second = None,
+    third = None,
+    compound = None,
+    first_width = "88px",
+    second_width = "88px",
+    third_width = "88px",
+    compound_width = "220px",
+    gap = SPACE_COMPOUND_GAP,
+    row_height = "1fr",
+    row_align = "start",
+    fill_strip = false,
+):
+    strip_panel_props = transparent_panel_props(height = "100%") if fill_strip else transparent_panel_props(height = "auto")
+    strip_row_align = "stretch" if fill_strip else row_align
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = strip_panel_props,
+        layout = grid(
+            rows = [row_height],
+            columns = [first_width, second_width, third_width, compound_width],
+            areas = [["first", "second", "third", "compound"]],
+            gap = gap,
+            align = strip_row_align,
+            justify = "center",
+        ),
+        blocks = [first, second, third, compound],
+    )
+
+template compound_metric_slot(
+    id,
+    area,
+    child,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = {
+            "padding": "0",
+            "background": "transparent",
+            "width": "100%",
+            "height": "100%",
+            "min_height": "0",
+            "box_sizing": "border-box",
+            "overflow": "hidden",
+        },
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["1fr"],
+            areas = [["content"]],
+            gap = "0",
+            align = "stretch",
+        ),
+        blocks = [child],
+    )
+
+template wide_metric_compound_body(
+    id = "wide_metric_compound",
+    area = "auto",
+    width = "220px",
+    height = "100%",
+    shell_padding = "0",
+    main = None,
+    sub_a = None,
+    sub_b = None,
+    sub_c = None,
+    top_band_fr = 48,
+    bottom_band_fr = 52,
+):
+    slot_metric_shell(
+        id = id,
+        area = area,
+        padding = shell_padding,
+        background = compound_slot_background(image = BG_TARGET),
+        width = width,
+        height = height,
+        shell_props = SLOT_FRAME_BG_FLAG,
+        child = panel(
+            template = metric.wide_compound_skin(
+                width = "100%",
+                top_band_ratio = str(top_band_fr) + "%",
+                gap = SPACE_COMPOUND_GAP,
+            ),
+            id = id + "_body",
+            area = "content",
+            variant = "container",
+            show_heading = False,
+            chrome = "bare",
+            props = {
+                "width": "100%",
+                "height": "100%",
+                "min_height": "0",
+                "background": "transparent",
+                "box_shadow": "none",
+                "box_sizing": "border-box",
+                "overflow": "hidden",
+            },
+            blocks = [
+                compound_metric_slot(id = id + "_top", area = "top", child = main),
+                compound_metric_slot(id = id + "_b0", area = "b0", child = sub_a),
+                compound_metric_slot(id = id + "_b1", area = "b1", child = sub_b),
+                compound_metric_slot(id = id + "_b2", area = "b2", child = sub_c),
+            ],
+        ),
+    )
+
+template long_metric_compound_body(
+    id = "long_metric_compound",
+    area = "auto",
+    width = "100%",
+    main = None,
+    top = None,
+    bottom = None,
+):
+    panel(
+        template = metric.long_compound(width = width, gap = SPACE_COMPOUND_GAP),
+        id = id,
+        area = area,
+        blocks = [main, top, bottom],
+    )
+
+template story_opinion_block(
+    area = "auto",
+    point_id = "",
+    title = "说明板",
+    body = "<p>这里是一段说明。</p>",
+    action_text = "",
+    action_link = None,
+    emphasis = False,
+):
+    component(
+        "cockpit.opinion-panel",
+        area = area,
+        props = {
+            "point_id": point_id,
+            "title": title,
+            "body_format": "html",
+            "body": body,
+            "action_text": action_text,
+            "action_link": action_link,
+            "emphasis": emphasis,
+        },
+    )
+
+template story_evidence_frame(
+    frame_id = "story_evidence_frame",
+    title_text = "业务语义布局示例",
+    story = None,
+    evidence = None,
+    gap = SPACE_STORY_GAP,
+    story_width = "1.1fr",
+    evidence_width = "0.9fr",
+):
+    frame_export(
+        id = frame_id,
+        layout = grid(
+            columns = ["1fr"],
+            rows = ["1fr", "1fr"],
+            areas = [["title"], ["content"]],
+            gap = gap,
+            padding = "24px",
+        ),
+        panels = [
+            panel(
+                id = "title",
+                area = "title",
+                blocks = [
+                    component(
+                        "mei.text",
+                        area = "auto",
+                        props = {
+                            "content": title_text,
+                            "font_size": "24px",
+                            "color": "#e8f0ff",
+                        },
+                    ),
+                ],
+            ),
+            panel(
+                id = "content",
+                area = "content",
+                variant = "container",
+                show_heading = False,
+                chrome = "bare",
+                props = transparent_panel_props(),
+                layout = grid(
+                    rows = ["1fr"],
+                    columns = [story_width, evidence_width],
+                    areas = [["story", "evidence"]],
+                    gap = gap,
+                ),
+                blocks = [
+                    panel(
+                        id = "story",
+                        area = "story",
+                        variant = "container",
+                        show_heading = False,
+                        chrome = "bare",
+                        props = transparent_panel_props(),
+                        blocks = [story],
+                    ),
+                    panel(
+                        id = "evidence",
+                        area = "evidence",
+                        variant = "container",
+                        show_heading = False,
+                        chrome = "bare",
+                        props = transparent_panel_props(),
+                        blocks = [evidence],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+template content_fill_props():
+    shell.content_fill_props()
+
+template status_triptych_summary_fill_body(
+    id = "status_triptych_summary",
+    area = "auto",
+    pending = metric_source(label = "待办", value = "0", unit = "件"),
+    doing = metric_source(label = "在办", value = "0", unit = "件"),
+    done = metric_source(label = "已办", value = "0", unit = "件"),
+    summary = metric_source(label = "查实率", value = "0", unit = "%"),
+    pending_icon = "",
+    doing_icon = "",
+    done_icon = "",
+    summary_icon = "",
+    gap = SPACE_MICRO_GAP,
+    summary_padding = "0 16px 0 72px",
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr", "1fr"],
+            columns = ["1fr", "1fr", "1fr"],
+            areas = [["pending", "doing", "done"], ["summary", "summary", "summary"]],
+            gap = gap,
+            align = "stretch",
+        ),
+        blocks = [
+            slot_metric_card(
+                id = id + "_pending",
+                area = "pending",
+                layout_role = "icon_left",
+                source = pending,
+                presentation = {"icon": pending_icon} if pending_icon != "" else None,
+                shell_height = "100%",
+                shell_background = CORNER_DECOR_BG,
+            ),
+            slot_metric_card(
+                id = id + "_doing",
+                area = "doing",
+                layout_role = "icon_left",
+                source = doing,
+                presentation = {"icon": doing_icon} if doing_icon != "" else None,
+                shell_height = "100%",
+                shell_background = CORNER_DECOR_BG,
+            ),
+            slot_metric_card(
+                id = id + "_done",
+                area = "done",
+                layout_role = "icon_left",
+                source = done,
+                presentation = {"icon": done_icon} if done_icon != "" else None,
+                shell_height = "100%",
+                shell_background = CORNER_DECOR_BG,
+            ),
+            slot_metric_card(
+                id = id + "_summary",
+                area = "summary",
+                layout_role = "strip_icon_left",
+                source = summary,
+                presentation = {"icon": summary_icon} if summary_icon != "" else None,
+                shell_height = "100%",
+                shell_background = CORNER_DECOR_BG,
+                card_props = {"padding": summary_padding},
+            ),
+        ],
+    )
+
+template compound_only_fill_body(
+    id = "compound_only",
+    area = "auto",
+    top_source = metric_source(label = "执法对象", value = "--", unit = "万"),
+    sub_a_source = metric_source(label = "重点企业", value = "--", unit = "家"),
+    sub_b_source = metric_source(label = "园区", value = "--", unit = "个"),
+    sub_c_source = metric_source(label = "白名单", value = "--", unit = "家"),
+):
+    slot_metric_shell(
+        id = id,
+        area = area,
+        padding = "0 4px",
+        background = compound_slot_background(),
+        shell_props = SLOT_FRAME_BG_FLAG,
+        width = "100%",
+        height = "100%",
+        child = panel(
+            id = id + "_body",
+            area = "content",
+            variant = "container",
+            show_heading = False,
+            chrome = "bare",
+            props = transparent_panel_props(),
+            layout = grid(
+                columns = ["1fr", "1fr", "1fr"],
+                rows = ["44%", "1fr"],
+                areas = [["top", "top", "top"], ["b0", "b1", "b2"]],
+                gap = SPACE_COMPOUND_GAP,
+                align = "stretch",
+                justify = "center",
+            ),
+            blocks = [
+                compound_metric_slot(
+                    id = id + "_top",
+                    area = "top",
+                    child = metric(
+                        id = id + "_top_content",
+                        area = "content",
+                        layout_role = "compound_top_row",
+                        source = top_source,
+                    ),
+                ),
+                compound_metric_slot(
+                    id = id + "_b0",
+                    area = "b0",
+                    child = metric(
+                        id = id + "_b0_content",
+                        area = "content",
+                        layout_role = "compound_sub_stack",
+                        source = sub_a_source,
+                    ),
+                ),
+                compound_metric_slot(
+                    id = id + "_b1",
+                    area = "b1",
+                    child = metric(
+                        id = id + "_b1_content",
+                        area = "content",
+                        layout_role = "compound_sub_stack",
+                        source = sub_b_source,
+                    ),
+                ),
+                compound_metric_slot(
+                    id = id + "_b2",
+                    area = "b2",
+                    child = metric(
+                        id = id + "_b2_content",
+                        area = "content",
+                        layout_role = "compound_sub_stack",
+                        source = sub_c_source,
+                    ),
+                ),
+            ],
+        ),
+    )
+
+template metric_triptych_compound_fill_body(
+    id = "metric_triptych_compound",
+    area = "auto",
+    first = metric_source(label = "执法单位", value = "0", unit = "个"),
+    second = metric_source(label = "执法人员", value = "0", unit = "人"),
+    third = metric_source(label = "执法事项", value = "0", unit = "项"),
+    top_source = metric_source(label = "执法对象", value = "0", unit = "万"),
+    sub_a_source = metric_source(label = "重点企业", value = "0", unit = "家"),
+    sub_b_source = metric_source(label = "园区", value = "0", unit = "个"),
+    sub_c_source = metric_source(label = "白名单", value = "0", unit = "家"),
+    gap = SPACE_COMPOUND_GAP,
+):
+    panel(
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        layout = grid(
+            rows = ["1fr"],
+            columns = ["1fr", "1fr", "1fr", "2.2fr"],
+            areas = [["first", "second", "third", "compound"]],
+            gap = gap,
+            align = "stretch",
+            justify = "stretch",
+        ),
+        blocks = [
+            narrow_metric_slot(id = id + "_first", area = "first", source = first),
+            narrow_metric_slot(id = id + "_second", area = "second", source = second),
+            narrow_metric_slot(id = id + "_third", area = "third", source = third),
+            slot_metric_shell(
+                id = id + "_compound",
+                area = "compound",
+                padding = "0 4px",
+                background = compound_slot_background(),
+                shell_props = SLOT_FRAME_BG_FLAG,
+                width = "100%",
+                height = "100%",
+                child = panel(
+                    id = id + "_compound_body",
+                    area = "content",
+                    variant = "container",
+                    show_heading = False,
+                    chrome = "bare",
+                    props = transparent_panel_props(),
+                    layout = grid(
+                        columns = ["1fr", "1fr", "1fr"],
+                        rows = ["44%", "1fr"],
+                        areas = [["top", "top", "top"], ["b0", "b1", "b2"]],
+                        gap = SPACE_COMPOUND_GAP,
+                        align = "stretch",
+                        justify = "center",
+                    ),
+                    blocks = [
+                        compound_metric_slot(
+                            id = id + "_top",
+                            area = "top",
+                            child = metric(
+                                id = id + "_top_content",
+                                area = "content",
+                                layout_role = "compound_top_row",
+                                source = top_source,
+                            ),
+                        ),
+                        compound_metric_slot(
+                            id = id + "_b0",
+                            area = "b0",
+                            child = metric(
+                                id = id + "_b0_content",
+                                area = "content",
+                                layout_role = "compound_sub_stack",
+                                variant = "sub",
+                                source = sub_a_source,
+                            ),
+                        ),
+                        compound_metric_slot(
+                            id = id + "_b1",
+                            area = "b1",
+                            child = metric(
+                                id = id + "_b1_content",
+                                area = "content",
+                                layout_role = "compound_sub_stack",
+                                variant = "sub",
+                                source = sub_b_source,
+                            ),
+                        ),
+                        compound_metric_slot(
+                            id = id + "_b2",
+                            area = "b2",
+                            child = metric(
+                                id = id + "_b2_content",
+                                area = "content",
+                                layout_role = "compound_sub_stack",
+                                variant = "sub",
+                                source = sub_c_source,
+                            ),
+                        ),
+                    ],
+                ),
+            ),
+        ],
+    )
+
+template long_metric_compound_fill_body(
+    id = "long_metric_compound",
+    area = "auto",
+    width = "100%",
+    main_source = metric_source(label = "主指标", value = "0", unit = "次"),
+    top_source = metric_source(label = "次指标A", value = "0", unit = "台"),
+    bottom_source = metric_source(label = "次指标B", value = "0", unit = "小时"),
+):
+    panel(
+        template = metric.long_compound(width = width, gap = SPACE_COMPOUND_GAP),
+        id = id,
+        area = area,
+        variant = "container",
+        show_heading = False,
+        chrome = "bare",
+        props = transparent_panel_props(),
+        blocks = [
+            compound_metric_slot(
+                id = id + "_main",
+                area = "main",
+                child = metric(
+                    id = id + "_main_content",
+                    area = "content",
+                    layout_role = "plain",
+                    source = main_source,
+                ),
+            ),
+            compound_metric_slot(
+                id = id + "_top",
+                area = "rtop",
+                child = metric(
+                    id = id + "_top_content",
+                    area = "content",
+                    layout_role = "compound_top_row",
+                    variant = "sub",
+                    source = top_source,
+                    card_props = {
+                        "label_vertical_align": "center",
+                        "value_vertical_align": "center",
+                        "unit_vertical_align": "center",
+                    },
+                ),
+            ),
+            compound_metric_slot(
+                id = id + "_bottom",
+                area = "rbottom",
+                child = metric(
+                    id = id + "_bottom_content",
+                    area = "content",
+                    layout_role = "compound_top_row",
+                    variant = "sub",
+                    source = bottom_source,
+                    card_props = {
+                        "label_vertical_align": "center",
+                        "value_vertical_align": "center",
+                        "unit_vertical_align": "center",
+                    },
+                ),
+            ),
+        ],
+    )

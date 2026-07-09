@@ -2,13 +2,16 @@
 
 ## 组件使用原则
 
-- 组件必须来自当前 public contract、example pack 或 `.stock/components/**/manifest.json` 中已注册的 type key
-- 组件输入统一走 `props`
-- 优先传语义对象，不优先传宿主内部字段路径
-- 组件 props 优先消费当前 scene 可见的 `dataset_ref(...)`、`metric_ref(...)`、`resource_ref(...)`
-- 需要 pack 级规则时，先读 `.mei/knowledge/author/components/component-contracts.json` 与同目录 pack guide
-- 涉及模板壳时，先读 `.mei/knowledge/author/templates/template-contracts.json`
-- 若目标是“新增组件 / 新模板”，先切到 `.mei/knowledge/author/extension-authoring.md`
+- 组件必须来自 public contract、example pack 或 `.stock/components/**/manifest.json` 已注册 type key
+- 输入统一走 `props`
+- 优先传语义对象，不传宿主内部字段路径
+- props 优先消费当前 scene 可见的 `dataset_ref` / `metric_ref` / `resource_ref`
+- pack 规则：`.mei/knowledge/author/components/component-contracts.json`
+- 模板壳：`.mei/knowledge/author/templates/template-contracts.json`
+- 新增组件 / 模板：先读 `.mei/knowledge/author/extension-authoring.md`
+
+组件挂在 **content_panel**（`content.mei`）的 `blocks` 里，不挂在 `frame.add_panel` 上。  
+结构壳用 `section_shell`；不要用 `titled_shell`。
 
 ## 当前常见组件
 
@@ -16,8 +19,6 @@
 
 - `doc.markdown`
 - `mei.text`
-
-常见写法：
 
 ```python
 doc.markdown(
@@ -28,9 +29,7 @@ doc.markdown(
 component(
     "mei.text",
     area = "auto",
-    props = {
-        "content": "Standalone author package",
-    },
+    props = {"content": "Standalone author package"},
 )
 ```
 
@@ -40,15 +39,11 @@ component(
 - `dataset.filter-bar`
 - `dataset.summary-cards`
 
-常见写法：
-
 ```python
 component(
     "dataset.table",
     area = "auto",
-    props = {
-        "data": dataset_ref(id = "sales_data"),
-    },
+    props = {"data": dataset_ref(id = "sales_data")},
 )
 
 component(
@@ -65,21 +60,17 @@ component(
 component(
     "dataset.summary-cards",
     area = "auto",
-    props = {
-        "value": metric_ref(id = "sales_overview"),
-    },
+    props = {"value": metric_ref(id = "sales_overview")},
 )
 ```
 
-如果数据集来自 upload 目录或环境切换，不要把路径硬编码在 `.mei` 里；优先把 source 放进 `.mei-config.json -> ops.sources`，再在 world 里用 `source_ref(...)`。
+upload / 环境切换：source 放进 `.mei-config.json -> ops.sources`，world 用 `source_ref(...)`。
 
 ### Chart
 
 - `chart.line`
 - `chart.bar-mini`
 - `chart.ranking`
-
-常见写法：
 
 ```python
 component(
@@ -94,69 +85,62 @@ component(
         },
     },
 )
-
-component(
-    "chart.ranking",
-    area = "auto",
-    props = {
-        "title": "区域排名",
-        "data": dataset_ref(id = "monthly_data"),
-        "showBackground": True,
-        "rankingLayout": "side",
-        "mapping": {
-            "x": [{"field": "label", "name": "Region"}],
-            "y": [{"field": "value", "name": "Value"}],
-        },
-    },
-)
 ```
 
-### Cockpit / Template
+### Cockpit / 业务宏
 
-- `cockpit.data-table`
-- `cockpit.header-brand`
-- `cockpit.panel-title`
-- `cockpit.donut-trio`
+- `cockpit.data-table` / `cockpit.header-brand` / `cockpit.panel-title` / `cockpit.donut-trio`
+- stock 宏：`use template "cockpit/business-layouts"`、`cockpit/metric-card/macros`、`cockpit/panel/shell-macros`
 
-常见写法：
+典型 content 骨架（Fill-down）：
 
 ```python
-component(
-    "cockpit.data-table",
-    area = "auto",
-    props = {
-        "dataset": metric_ref(id = "alerts_table"),
-        "embedded": True,
-        "layoutPreset": "warnings",
-    },
-)
+use template "cockpit/panel/shell-macros" as shell
 
-panel(
-    base = panel_ref(
-        id = "titled_shell",
-        scene_file = ".stock/templates/cockpit/panel/panel-titled-shell.mei",
+content_panel(
+    id = "enforcement-stats",
+    variant = "container",
+    chrome = "bare",
+    props = shell.content_fill_props() | {"width": "100%"},
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["1fr"],
+        areas = [["strip"]],
+        align = "stretch",
+        justify = "stretch",
     ),
-    id = "summary_panel",
-    title = "业务概览",
+    blocks = [
+        # biz.metric_triptych_compound_body(...) 等；slot fill，无 row_budgets
+    ],
 )
 ```
 
-更复杂的 cockpit 壳、metric-card 壳、GIS 壳与 compound 壳，先查 `.mei/knowledge/author/templates/template-contracts.json`。
+样板真源：`pretty-panels/.../s-enforcement/content.mei`、`mini-park/.../s-lake-pavilion/content.mei`。  
+源码里构造器名可能是 `content_panel`——与 `content_panel` 同义。
+
+section 标题壳：
+
+```python
+shell = section_shell(
+    title = "执法要素",
+    width = "100%",
+    padding_profile = "dense_strip_100",
+    body = panel_ref("content/enforcement-stats"),
+)
+```
+
+不要：`titled_shell`、content 层 px 高度、`row_budgets`。
 
 ### Simulation / Map
 
 - `sim.scene`
 - `map.maplibre`
 
-常见写法：
-
 ```python
 component(
     "sim.scene",
     area = "auto",
-    props = {
-        "scene": scene_ref("self"),
-    },
+    props = {"scene": scene_ref("self")},
 )
 
 component(
@@ -176,18 +160,21 @@ component(
 )
 ```
 
+地图 / stage 常落在 T0 `content.mei`，经 section bare shell 透传（见 mini-park / pretty-panels `t0/**`）。
+
 ## 组件选择规则
 
-- 预览 dataset / query_state 联动：优先 `dataset.*`
-- 展示最小图表位：优先 `chart.*`
-- 驾驶舱表格与标题皮肤：优先 `cockpit.*` + `.stock/templates/cockpit`
-- 展示整份场景：优先 `sim.scene`
-- GIS 地图：优先 `map.maplibre` 或 cockpit GIS shell
-- 需要 upload / ops / basemap / theme config 时，转到 `.mei/knowledge/author/workspace-config-reference.md`
+- dataset / query_state：`dataset.*`
+- 最小图表位：`chart.*`
+- 驾驶舱指标与标题皮肤：`cockpit.*` + stock 宏 + `section_shell`
+- 整份场景：`sim.scene`
+- GIS：`map.maplibre` 或 cockpit GIS shell
+- upload / ops / basemap / theme：`.mei/knowledge/author/workspace-config-reference.md`
 
 ## 当前不要假定
 
-- 任意 `chart.*` 都已经存在
+- 任意 `chart.*` 都已存在
 - 组件会自动推断不存在的资源
-- 组件 props 可以直接跨文件消费外部 dataset/metric/resource locator
-- 未列进 public contract 的私有 renderer props 已经稳定承诺
+- props 可直接跨文件消费外部 dataset/metric locator
+- 未列入 public contract 的私有 renderer props 已稳定承诺
+- **不可**再用 `frame.add_panel` / `titled_shell` / `row_budgets` 组织 UI（已删除）

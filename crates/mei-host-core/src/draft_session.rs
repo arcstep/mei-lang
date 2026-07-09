@@ -1,4 +1,4 @@
-//! Session id for layoutTuning draft overlay (per browser tab / client).
+//! Session id for theme.layout / theme.tokens draft overlay (per browser tab / client).
 
 use http::HeaderMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -32,8 +32,4 @@ pub fn resolve_draft_session_id(headers: &HeaderMap) -> String {
         "host-{}",
         SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
     )
-}
-
-pub fn layout_tuning_draft_storage_key(app_id: &str, session_id: &str) -> String {
-    format!("{}:{}", app_id.trim(), session_id.trim())
 }

@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::model::{
-    BlockDecl, ComponentAsset, PanelDecl, SceneContract, TemplateConsumerAnchor,
+    BlockDecl, ComponentAsset, UiNodeDecl, SceneContract, TemplateConsumerAnchor,
 };
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -31,7 +31,7 @@ fn template_index_lists_metric_card_assets() {
 
 #[test]
 fn template_index_collects_consumer_anchors() {
-    use crate::model::{SceneDecl, UiNodeDecl};
+    use crate::model::{SceneDecl, UiTreeNode};
     let assets = vec![ComponentAsset {
         key: "cockpit.header-brand".to_string(),
         tag: "div".to_string(),
@@ -67,9 +67,9 @@ fn template_index_collects_consumer_anchors() {
             world: None,
             flow: None,
             frame: None,
-            panels: vec![PanelDecl {
+            panels: vec![UiNodeDecl {
                 id: "header".to_string(),
-                blocks: vec![UiNodeDecl::Block(BlockDecl {
+                blocks: vec![UiTreeNode::Block(BlockDecl {
                     kind: "block".to_string(),
                     use_key: "cockpit.header-brand".to_string(),
                     id: None,
@@ -339,7 +339,7 @@ fn template_file_authoring_preview_targets_template_mei() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: BuildTemplateIndex { templates },
         ui_layout_index: Default::default(),
     };

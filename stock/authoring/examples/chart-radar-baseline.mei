@@ -35,9 +35,8 @@ world(
 frame(
     id = "home_frame",
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "radar_panel",
     area = "auto",
     blocks = [
@@ -59,9 +58,8 @@ frame.add_panel(
             },
         ),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "scatter_panel",
     area = "auto",
     blocks = [
@@ -79,4 +77,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

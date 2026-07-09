@@ -4,12 +4,11 @@ on:
   push:
     paths:
       - 'crates/kernel/src/compile/layout_budget/**'
-      - 'crates/mei-host-graph/src/layout_tuning_merge.rs'
+      - 'crates/mei-host-graph/src/theme_layout_merge.rs'
       - 'crates/mei-host-graph/src/assemble.rs'
       - 'crates/mei-host-graph/src/artifact_biz_macros.rs'
       - 'host-shell/tests/layout_policy_apps.rs'
       - 'host-shell/tests/pretty_panels_body_padding.rs'
-      - 'host-shell/tests/layout_tuning_build_diff.rs'
       - 'host-shell/tests/pretty_panels_ui_structure_probe.rs'
       - 'app/src/ui/shell_manage/build_panels.rs'
       - '.github/workflows/layout-policy.yml'
@@ -19,7 +18,6 @@ on:
       - 'crates/mei-host-graph/**'
       - 'host-shell/tests/layout_policy_apps.rs'
       - 'host-shell/tests/pretty_panels_body_padding.rs'
-      - 'host-shell/tests/layout_tuning_build_diff.rs'
       - 'host-shell/tests/pretty_panels_ui_structure_probe.rs'
 
 jobs:
@@ -69,5 +67,4 @@ jobs:
         run: |
           cargo test -p mei-host-shell --test layout_policy_apps \
             --test pretty_panels_body_padding \
-            --test layout_tuning_build_diff \
             --test pretty_panels_ui_structure_probe

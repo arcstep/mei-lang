@@ -293,15 +293,15 @@ frame.add_panel(
         compile_app_from_root(&root, &app_root).expect("compile metric_card base v_align");
     let contract = compiled.scene_contract.expect("contract");
     fn find_panel_by_id<'a>(
-        panels: &'a [crate::PanelDecl],
+        panels: &'a [crate::UiNodeDecl],
         target: &str,
-    ) -> Option<&'a crate::PanelDecl> {
+    ) -> Option<&'a crate::UiNodeDecl> {
         for panel in panels {
             if panel.id == target {
                 return Some(panel);
             }
             for node in &panel.blocks {
-                if let crate::UiNodeDecl::Panel(nested) = node {
+                if let crate::UiTreeNode::Panel(nested) = node {
                     if let Some(found) = find_panel_by_id(std::slice::from_ref(nested), target) {
                         return Some(found);
                     }
@@ -310,9 +310,9 @@ frame.add_panel(
         }
         None
     }
-    fn value_slot_v_align(panel: &crate::PanelDecl) -> Option<&str> {
+    fn value_slot_v_align(panel: &crate::UiNodeDecl) -> Option<&str> {
         panel.blocks.iter().find_map(|node| {
-            let crate::UiNodeDecl::Block(block) = node else {
+            let crate::UiTreeNode::Block(block) = node else {
                 return None;
             };
             if block.props.get("metric_role").and_then(|v| v.as_str()) != Some("value") {

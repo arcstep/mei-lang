@@ -17,7 +17,6 @@
     summaryText: "",
     basemapsText: "{}",
     themesText: "{}",
-    layoutTuningText: "{}",
     rawOpsText: "{}",
     rawOpsDirty: false,
     isDirty: false,
@@ -39,7 +38,6 @@
       params: isPlainObject(ops?.params) ? { ...ops.params } : {},
       basemaps: isPlainObject(ops?.basemaps) ? { ...ops.basemaps } : {},
       themes: isPlainObject(ops?.themes) ? { ...ops.themes } : {},
-      layoutTuning: isPlainObject(ops?.layoutTuning) ? { ...ops.layoutTuning } : {},
       sources: isPlainObject(ops?.sources) ? { ...ops.sources } : {},
     };
   }
@@ -146,7 +144,7 @@
       state.selectedPanel = state.selectedSourceId ? sourcePanelKey(state.selectedSourceId) : "params";
       return;
     }
-    const validPanels = new Set(["params", "basemaps", "themes", "layoutTuning", "raw", "journal"]);
+    const validPanels = new Set(["params", "basemaps", "themes", "raw", "journal"]);
     if (!validPanels.has(state.selectedPanel)) {
       state.selectedPanel = state.selectedSourceId ? sourcePanelKey(state.selectedSourceId) : "params";
     }
@@ -258,9 +256,8 @@
             ${renderNavButton("basemaps", "底图配置", formatCountLabel("项", Object.keys(state.ops.basemaps).length))}
             ${renderNavButton("themes", "主题配置", formatCountLabel("项", Object.keys(state.ops.themes).length))}
             ${renderNavButton(
-              "layoutTuning",
+              
               "布局调优",
-              formatCountLabel("scope", Object.keys(state.ops.layoutTuning || {}).length),
             )}
             ${renderNavButton("raw", "JSON（ops）", "直接改 JSON")}
             ${renderNavButton("journal", "审计记录", formatCountLabel("rev", state.journalRevision))}

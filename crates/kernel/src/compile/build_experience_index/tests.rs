@@ -3,12 +3,12 @@ use super::*;
 use crate::model::{
     BuildExperienceIndex, CompiledApp, CompiledSceneRoute,
     ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, SceneContract, SceneDecl,
-    PanelDecl,
+    UiNodeDecl,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
 
-fn sample_scene_contract(panels: Vec<PanelDecl>) -> SceneContract {
+fn sample_scene_contract(panels: Vec<UiNodeDecl>) -> SceneContract {
     SceneContract {
         scene: SceneDecl {
             kind: "scene".to_string(),
@@ -43,7 +43,7 @@ fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
     let mut contracts = BTreeMap::new();
     contracts.insert(
         "home".to_string(),
-        sample_scene_contract(vec![PanelDecl {
+        sample_scene_contract(vec![UiNodeDecl {
             kind: "panel".to_string(),
             id: "header".to_string(),
             title: Some("Header".to_string()),
@@ -98,7 +98,7 @@ fn experience_index_dedupes_scenes_and_omits_panels_subtree() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: BuildExperienceIndex::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -181,7 +181,7 @@ fn stale_snapshot_rebuilds_boards_and_templates_groups() {
             .expect("compile hello");
     let mut stale = compiled;
     stale.build_experience_index = BuildExperienceIndex::default();
-    stale.build_board_index = Default::default();
+    stale.build_t2_page_index = Default::default();
     stale.build_template_index = Default::default();
 
     let roots = reachability_roots_from_compiled(&stale);

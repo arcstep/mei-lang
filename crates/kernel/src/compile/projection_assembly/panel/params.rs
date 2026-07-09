@@ -157,7 +157,7 @@ pub(super) fn synthesize_scene_first_board_payload(
     let mut payload = Map::new();
     payload.insert(
         "__kind".to_string(),
-        Value::String("board_assembly".to_string()),
+        Value::String("page_instance".to_string()),
     );
     if let Some(scene) = link.get("scene") {
         payload.insert("scene".to_string(), scene.clone());
@@ -280,7 +280,7 @@ pub(crate) fn synthesize_board_payload_from_bindings(
     let mut payload = Map::new();
     payload.insert(
         "__kind".to_string(),
-        Value::String("board_assembly".to_string()),
+        Value::String("page_instance".to_string()),
     );
     if let Some(scene) = scene.filter(|value| !value.is_empty()) {
         payload.insert("scene".to_string(), Value::String(scene.to_string()));

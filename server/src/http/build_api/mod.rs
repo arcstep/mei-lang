@@ -4,7 +4,7 @@ mod context_export;
 mod graph_markdown;
 mod graph_registry;
 mod mcg_resource;
-mod panel_contract;
+mod content_panel;
 mod panel_lookup;
 mod panel_render;
 mod runtime_snapshot;
@@ -14,6 +14,6 @@ pub use graph_registry::{
     api_build_graph_bridge, api_build_graph_mcg, api_build_graph_mrg,
 };
 pub use mcg_resource::{api_build_graph_mcg_artifact, api_build_graph_mcg_node};
-pub use panel_contract::api_build_panel_contract;
+pub use content_panel::api_build_content_panel;
 pub use panel_render::api_build_panel_render;
 pub use runtime_snapshot::api_runtime_snapshot;

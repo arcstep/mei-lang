@@ -46,7 +46,7 @@ pub fn projection_assembly_mcg_nodes(
         .map(|(projection_id, content_hash)| {
             let node_key = format!("{owner_target}#{projection_id}");
             McgNodeRecord {
-                id: GraphNodeId::new(GraphNodeKind::AssemblyView, node_key),
+                id: GraphNodeId::new(GraphNodeKind::PageInstance, node_key),
                 revision: format!("pa:{content_hash}"),
                 state: MaterialState::Ready,
                 layer: "assembly".to_string(),
@@ -76,7 +76,7 @@ pub fn hydrate_projection_assemblies_from_mcg(
     }
     let owner_keys = mei_lang_kernel::app_source_rel_path_lookup_keys(owner_target);
     for node in &mcg.nodes {
-        if node.id.kind != GraphNodeKind::AssemblyView {
+        if node.id.kind != GraphNodeKind::PageInstance {
             continue;
         }
         let key = node.id.key.as_str();

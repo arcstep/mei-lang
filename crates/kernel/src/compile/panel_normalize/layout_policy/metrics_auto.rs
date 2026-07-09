@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::{LayoutDecl, PanelDecl, UiNodeDecl};
+use crate::model::{LayoutDecl, UiNodeDecl, UiTreeNode};
 
 use super::super::constants::{
     PolicySpacing, DEFAULT_METRICS_AUTO_GAP, DEFAULT_METRICS_AUTO_PADDING,
@@ -57,9 +57,9 @@ fn value_as_usize(value: &Value) -> Option<usize> {
         .filter(|value| *value > 0)
 }
 
-fn metric_auto_item_span_hint(node: &UiNodeDecl) -> MetricSpanHint {
+fn metric_auto_item_span_hint(node: &UiTreeNode) -> MetricSpanHint {
     let explicit = match node {
-        UiNodeDecl::Panel(panel) => panel
+        UiTreeNode::Panel(panel) => panel
             .props
             .as_object()
             .and_then(|map| map.get(PROP_LAYOUT_SPAN))
@@ -79,7 +79,7 @@ fn metric_auto_item_span_hint(node: &UiNodeDecl) -> MetricSpanHint {
         return span;
     }
     match node {
-        UiNodeDecl::Panel(panel) => {
+        UiTreeNode::Panel(panel) => {
             if panel_px_prop(panel, "width").is_some() {
                 return MetricSpanHint::Units(1);
             }
@@ -98,7 +98,7 @@ fn metric_auto_item_span_hint(node: &UiNodeDecl) -> MetricSpanHint {
     }
 }
 
-fn metric_auto_items(panel: &PanelDecl) -> Vec<MetricAutoItem> {
+fn metric_auto_items(panel: &UiNodeDecl) -> Vec<MetricAutoItem> {
     panel
         .blocks
         .iter()
@@ -112,7 +112,7 @@ fn metric_auto_items(panel: &PanelDecl) -> Vec<MetricAutoItem> {
         .collect()
 }
 
-fn metric_auto_columns_prefer(panel: &PanelDecl) -> Option<usize> {
+fn metric_auto_columns_prefer(panel: &UiNodeDecl) -> Option<usize> {
     panel
         .props
         .as_object()
@@ -192,7 +192,7 @@ fn metric_auto_ideal_rows(items: &[MetricAutoItem]) -> usize {
 }
 
 fn metric_auto_candidate_score(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     items: &[MetricAutoItem],
     columns: usize,
     rows: &[MetricAutoRow],
@@ -328,7 +328,7 @@ fn metric_auto_padding_tb(padding: &str) -> (f64, f64) {
 }
 
 fn metric_auto_tuned_spacing(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     columns: usize,
     column_tracks: &[String],
     spacing: &PolicySpacing,
@@ -371,7 +371,7 @@ fn metric_auto_row_track(items: &[MetricAutoItem], row: &MetricAutoRow) -> Strin
         .unwrap_or_else(|| "auto".to_string())
 }
 
-pub(super) fn default_metrics_auto_layout(panel: &PanelDecl) -> LayoutDecl {
+pub(super) fn default_metrics_auto_layout(panel: &UiNodeDecl) -> LayoutDecl {
     let items = metric_auto_items(panel);
     let min_columns = items
         .iter()

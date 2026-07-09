@@ -78,7 +78,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
                 focuses.push(entry_main);
             }
         }
-        let merged_datasets = crate::warmup_board_autogen::merge_workspace_and_board_warmup_requests(
+        let merged_datasets = crate::warmup_t2_page_autogen::merge_workspace_and_board_warmup_requests(
             app_config
                 .map(|config| config.datasets.as_slice())
                 .unwrap_or(&[]),
@@ -120,19 +120,19 @@ pub fn enrich_runtime_warmup_app(
 ) -> Result<()> {
     let app_root = resolve_app_root(source_root, app.app_id.as_str());
     let manual_configs = runtime_dataset_requests_as_workspace_configs(&app.datasets);
-    let merged_datasets = crate::warmup_board_autogen::merge_workspace_and_board_warmup_requests(
+    let merged_datasets = crate::warmup_t2_page_autogen::merge_workspace_and_board_warmup_requests(
         manual_configs.as_slice(),
         app_root.as_path(),
     )?;
     app.datasets = normalize_warmup_dataset_requests(merged_datasets.as_slice());
-    if crate::warmup_board_autogen::board_warmup_autogen_enabled() {
+    if crate::warmup_t2_page_autogen::board_warmup_autogen_enabled() {
         let skip_board_focus = app
             .compile_scope
             .as_ref()
             .is_some_and(|scope| scope.should_skip_t2_page_autogen_focus());
         let mut focus_seen = app.focuses.iter().cloned().collect::<BTreeSet<_>>();
         for suggestion in
-            crate::warmup_board_autogen::discover_board_warmup_suggestions(app_root.as_path())?
+            crate::warmup_t2_page_autogen::discover_board_warmup_suggestions(app_root.as_path())?
         {
             if skip_board_focus {
                 continue;

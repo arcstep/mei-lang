@@ -1,13 +1,13 @@
-(function initManageOpsLayoutTuningOverlay() {
+(function initManageOpsThemeLayoutOverlay() {
   const global = window;
   const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
 
-  function notifyLayoutTuningOverlay(reason) {
+  function notifyThemeLayoutOverlay(reason) {
     try {
       global.dispatchEvent(
         new CustomEvent("meilang:preview-updated", {
           bubbles: true,
-          detail: { reason: reason || "layout-tuning-overlay", resetRuntimeQueryCache: false },
+          detail: { reason: reason || "theme-layout-overlay", resetRuntimeQueryCache: false },
         }),
       );
     } catch (_) {}
@@ -26,174 +26,6 @@
     return { "x-mei-draft-session": ensureDraftSessionId() };
   }
 
-  async function fetchOverlay(appId) {
-    const resp = await fetch(
-      `/api/ops/layout-tuning/overlay/${encodeURIComponent(appId)}`,
-      {
-        credentials: "same-origin",
-        headers: { Accept: "application/json", ...draftSessionHeaders() },
-      },
-    );
-    if (!resp.ok) throw new Error(`layoutTuning overlay failed: ${resp.status}`);
-    return resp.json();
-  }
-
-  function applyContentBudgetToNode(node, budget) {
-    if (!(node instanceof HTMLElement) || !budget || typeof budget !== "object") return false;
-    let patched = false;
-    const rows = budget.rows ?? budget.content_rows ?? budget.contentRows;
-    const gap = budget.gap ?? budget.content_gap ?? budget.contentGap;
-    if (Array.isArray(rows) && rows.length > 0) {
-      const total = rows.reduce((sum, row) => sum + Number(row), 0);
-      if (total > 0) {
-        node.style.gridTemplateRows = rows
-          .map((row) => `${(Number(row) / total) * 100}fr`)
-          .join(" ");
-      } else {
-        node.style.gridTemplateRows = rows.map((row) => `${row}px`).join(" ");
-      }
-      node.dataset.layoutTuningContentRows = rows.join(",");
-      patched = true;
-    }
-    if (gap != null && gap !== "") {
-      node.style.rowGap = `${gap}px`;
-      node.dataset.layoutTuningContentGap = String(gap);
-      patched = true;
-    }
-    return patched;
-  }
-
-  function applyOverlayEntries(root, entries) {
-    if (!(root instanceof HTMLElement) || !entries || typeof entries !== "object") return false;
-    let patched = false;
-    Object.entries(entries).forEach(([scope, patch]) => {
-      if (!patch || typeof patch !== "object") return;
-      const selector = `[data-preview-scope="${CSS.escape(scope)}"]`;
-      const node = root.querySelector(selector);
-      if (!(node instanceof HTMLElement)) return;
-      const slotHeight =
-        patch.slotHeight ?? patch.slot_height ?? patch.card_height ?? patch.cardHeight;
-      if (slotHeight != null) {
-        node.style.setProperty("--mei-slot-height", `${slotHeight}px`);
-        node.dataset.layoutTuningSlotHeight = String(slotHeight);
-        patched = true;
-      }
-      const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
-      if (paddingProfile) {
-        node.dataset.layoutTuningPaddingProfile = String(paddingProfile);
-        patched = true;
-      }
-      const contentBudget = patch.content_budget ?? patch.contentBudget;
-      if (applyContentBudgetToNode(node, contentBudget)) {
-        patched = true;
-      }
-    });
-    return patched;
-  }
-
-  async function applyLayoutTuningOverlayHot(appId, targetWindow) {
-    const view = targetWindow || global;
-    const payload = await fetchOverlay(appId);
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    const sessionPatches = store?.normalizeOverlayPatches?.(
-      store?.getSessionLayers?.(appId)?.layoutOverlay,
-    );
-    const merged = { ...(payload.entries || {}), ...(sessionPatches || {}) };
-    const root =
-      view.document.querySelector(".preview-pane-scroll") ||
-      view.document.querySelector(".preview-pane");
-    const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
-    if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
-      compositor.applyThemeAndOverlay(root, null, { patches: merged });
-      notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
-      if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
-        try {
-          view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
-        } catch (_) {}
-      }
-      return;
-    }
-    if (applyOverlayEntries(root, merged)) {
-      notifyLayoutTuningOverlay(payload.draft_active ? "layout-tuning-draft" : "layout-tuning-overlay");
-      if (typeof view.MeiFrameStageBoot?.scheduleFrameViewportRelayout === "function") {
-        try {
-          view.MeiFrameStageBoot.scheduleFrameViewportRelayout();
-        } catch (_) {}
-      }
-    }
-  }
-
-  async function putSessionDraft(appId, tuning, options) {
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    if (!store?.putLayoutOverlayPatches) {
-      throw new Error("draft layer store unavailable");
-    }
-    store.putLayoutOverlayPatches(appId, tuning);
-    if (options?.forceRematerialize) {
-      const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
-      if (boot.viewCompositor?.recomposeFromLayerStore) {
-        boot.viewCompositor.recomposeFromLayerStore(appId, axes);
-      }
-    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
-      global.MeiLayoutTuningForm.applySessionHot(appId);
-    } else {
-      await applyLayoutTuningOverlayHot(appId);
-    }
-    notifyLayoutTuningOverlay("layout-tuning-draft");
-    return { ok: true, local: true };
-  }
-
-  function activeSceneId() {
-    try {
-      const fromAxes = boot.sceneManifestLoader?.readShellAxes?.()?.scene;
-      if (fromAxes) return String(fromAxes).trim();
-      return (
-        String(new URL(global.location.href).searchParams.get("scene") || "home").trim() || "home"
-      );
-    } catch (_) {
-      return "home";
-    }
-  }
-
-  async function applyDraftToConfig(appId) {
-    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
-    const tuning = store?.normalizeOverlayPatches?.(
-      store?.getSessionLayers?.(appId)?.layoutOverlay,
-    );
-    const resp = await fetch(
-      `/api/ops/layout-tuning/apply/${encodeURIComponent(appId)}`,
-      {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          ...draftSessionHeaders(),
-        },
-        body: JSON.stringify({ tuning: tuning || {} }),
-      },
-    );
-    if (!resp.ok) throw new Error(`layoutTuning apply failed: ${resp.status}`);
-    const payload = await resp.json();
-    store?.clearSession?.(appId);
-    if (boot.sceneManifestLoader?.fetchManifest) {
-      try {
-        const axes = boot.sceneManifestLoader.readShellAxes?.() || {};
-        await boot.sceneManifestLoader.fetchManifest(appId, activeSceneId(), axes);
-      } catch (_) {}
-    }
-    notifyLayoutTuningOverlay("layout-tuning-persisted");
-    return payload;
-  }
-
-  global.MeiOpsLayoutTuningOverlay = {
-    applyHot: applyLayoutTuningOverlayHot,
-    putSessionDraft,
-    applyDraftToConfig,
-    fetchOverlay,
-    notify: notifyLayoutTuningOverlay,
-  };
-
   async function fetchThemeLayoutOverlay(appId) {
     const resp = await fetch(
       `/api/ops/themes/layout/overlay/${encodeURIComponent(appId)}`,
@@ -204,6 +36,31 @@
     );
     if (!resp.ok) throw new Error(`theme.layout overlay failed: ${resp.status}`);
     return resp.json();
+  }
+
+  function applyThemeLayoutPatches(root, entries) {
+    if (!(root instanceof HTMLElement) || !entries || typeof entries !== "object") return;
+    Object.entries(entries).forEach(([scope, patch]) => {
+      if (!patch || typeof patch !== "object") return;
+      const node =
+        root.querySelector(`[data-preview-scope="${CSS.escape(scope)}"]`) ||
+        root.querySelector(`[data-mei-ui-scope="${CSS.escape(scope)}"]`);
+      if (!(node instanceof HTMLElement)) return;
+      const paddingProfile = patch.paddingProfile ?? patch.padding_profile;
+      if (paddingProfile) {
+        node.dataset.manifestPaddingProfile = String(paddingProfile);
+      }
+      const sectionRows = patch.sectionRows || patch.section_rows;
+      if (Array.isArray(sectionRows) && sectionRows.length > 0) {
+        node.style.display = "grid";
+        node.style.gridTemplateRows = sectionRows.map((row) => String(row)).join(" ");
+        node.dataset.manifestSectionRows = sectionRows.join(",");
+      }
+      const gap = patch.gap ?? patch.stripGap;
+      if (gap != null && gap !== "") {
+        node.style.gap = String(gap).endsWith("px") ? String(gap) : `${gap}px`;
+      }
+    });
   }
 
   async function applyThemeLayoutOverlayHot(appId, targetWindow) {
@@ -220,11 +77,12 @@
     const compositor = boot.viewCompositor || view.__meiLangBoot?.viewCompositor;
     if (root instanceof HTMLElement && compositor?.applyThemeAndOverlay) {
       compositor.applyThemeAndOverlay(root, null, { patches: merged });
-      notifyLayoutTuningOverlay("theme-layout-overlay");
-      return;
+      notifyThemeLayoutOverlay("theme-layout-overlay");
+      return payload;
     }
-    applyOverlayEntries(root, merged);
-    notifyLayoutTuningOverlay("theme-layout-overlay");
+    applyThemeLayoutPatches(root, merged);
+    notifyThemeLayoutOverlay("theme-layout-overlay");
+    return payload;
   }
 
   async function putThemeLayoutSessionDraft(appId, layout, options) {
@@ -236,12 +94,10 @@
     if (options?.forceRematerialize && boot.viewCompositor?.recomposeFromLayerStore) {
       const axes = boot.sceneManifestLoader?.readShellAxes?.() || {};
       boot.viewCompositor.recomposeFromLayerStore(appId, axes);
-    } else if (global.MeiLayoutTuningForm?.applySessionHot) {
-      global.MeiLayoutTuningForm.applySessionHot(appId);
     } else {
       await applyThemeLayoutOverlayHot(appId);
     }
-    notifyLayoutTuningOverlay("theme-layout-draft");
+    notifyThemeLayoutOverlay("theme-layout-draft");
     return { ok: true, local: true };
   }
 
@@ -266,15 +122,23 @@
     if (!resp.ok) throw new Error(`theme.layout apply failed: ${resp.status}`);
     const payload = await resp.json();
     store?.clearSession?.(appId);
-    notifyLayoutTuningOverlay("theme-layout-persisted");
+    notifyThemeLayoutOverlay("theme-layout-persisted");
     return payload;
   }
 
-  global.MeiOpsThemeLayoutOverlay = {
+  async function refreshThemeLayoutOverlay(appId, root) {
+    if (!appId) return null;
+    return applyThemeLayoutOverlayHot(appId, root?.ownerDocument?.defaultView || global);
+  }
+
+  boot.MeiOpsThemeLayoutOverlay = {
+    refresh: refreshThemeLayoutOverlay,
+    applyPatches: applyThemeLayoutPatches,
     applyHot: applyThemeLayoutOverlayHot,
     putSessionDraft: putThemeLayoutSessionDraft,
     applyDraftToConfig: applyThemeLayoutDraftToConfig,
     fetchOverlay: fetchThemeLayoutOverlay,
-    notify: notifyLayoutTuningOverlay,
+    notify: notifyThemeLayoutOverlay,
   };
+  global.MeiOpsThemeLayoutOverlay = boot.MeiOpsThemeLayoutOverlay;
 })();

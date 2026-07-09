@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::layout::LayoutDecl;
-use super::ui::UiNodeDecl;
+use super::ui::UiTreeNode;
 
 /// Scene shell / projection zone declared on `panel(slot = panel_slot(...))`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -28,20 +28,20 @@ pub struct PanelSlotDecl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct PanelDecl {
+pub struct UiNodeDecl {
     pub kind: String,
     pub id: String,
     #[serde(default)]
     pub title: Option<String>,
     /// 可视化标题槽（`title=text(...)` / `title=component(...)`）；编译归一后并入 `blocks` 的 `head` 区。
     #[serde(default)]
-    pub head: Option<Box<UiNodeDecl>>,
+    pub head: Option<Box<UiTreeNode>>,
     #[serde(default)]
     pub area: Option<String>,
     #[serde(default)]
     pub layout: Option<LayoutDecl>,
     #[serde(default)]
-    pub blocks: Vec<UiNodeDecl>,
+    pub blocks: Vec<UiTreeNode>,
     /// Projection shell zone (`panel_slot`); primary source for compile/runtime shell inference.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<PanelSlotDecl>,

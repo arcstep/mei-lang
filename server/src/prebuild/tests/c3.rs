@@ -46,19 +46,19 @@ fn discovered_compile_scopes_expand_board_target_without_active_scene() {
     {
         let compiled = Arc::make_mut(&mut outcome.compiled);
         compiled.active_scene = None;
-        compiled.build_board_index.boards.insert(
+        compiled.build_t2_page_index.pages.insert(
             "scenes/01-elements.board.mei#key_enterprises_analytics_board".to_string(),
-            BoardFileEntry {
-                board_file: "scenes/01-elements.board.mei".to_string(),
+            T2PageFileEntry {
+                page_file: "scenes/01-elements.board.mei".to_string(),
                 scene_id: "key_enterprises_analytics_board".to_string(),
                 label: "Key enterprises".to_string(),
                 ..Default::default()
             },
         );
-        compiled.build_board_index.boards.insert(
+        compiled.build_t2_page_index.pages.insert(
             "scenes/01-elements.board.mei#enforcement_units_analytics_board".to_string(),
-            BoardFileEntry {
-                board_file: "scenes/01-elements.board.mei".to_string(),
+            T2PageFileEntry {
+                page_file: "scenes/01-elements.board.mei".to_string(),
                 scene_id: "enforcement_units_analytics_board".to_string(),
                 label: "Enforcement units".to_string(),
                 ..Default::default()

@@ -26,13 +26,13 @@ fn ensure_imported() -> PathBuf {
     workspace
 }
 
-fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::PanelDecl], id: &str) -> Option<&'a mei_lang_kernel::PanelDecl> {
+fn find_panel_by_id<'a>(panels: &'a [mei_lang_kernel::UiNodeDecl], id: &str) -> Option<&'a mei_lang_kernel::UiNodeDecl> {
     for panel in panels {
         if panel.id == id || panel.id.ends_with(&format!("/{id}")) {
             return Some(panel);
         }
         for node in &panel.blocks {
-            if let mei_lang_kernel::UiNodeDecl::Panel(child) = node {
+            if let mei_lang_kernel::UiTreeNode::Panel(child) = node {
                 if let Some(found) = find_panel_by_id(std::slice::from_ref(child), id) {
                     return Some(found);
                 }
@@ -55,11 +55,11 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         "map_stage props: {:?}",
         map_stage.props
     );
-    fn uses_maplibre(panel: &mei_lang_kernel::PanelDecl) -> bool {
+    fn uses_maplibre(panel: &mei_lang_kernel::UiNodeDecl) -> bool {
         panel.blocks.iter().any(|node| match node {
-            mei_lang_kernel::UiNodeDecl::Block(block) => block.use_key == "map.maplibre",
-            mei_lang_kernel::UiNodeDecl::Panel(child) => uses_maplibre(child),
-            mei_lang_kernel::UiNodeDecl::PanelRefEmbed(_) => false,
+            mei_lang_kernel::UiTreeNode::Block(block) => block.use_key == "map.maplibre",
+            mei_lang_kernel::UiTreeNode::Panel(child) => uses_maplibre(child),
+            mei_lang_kernel::UiTreeNode::PanelRefEmbed(_) => false,
         })
     }
     assert!(
@@ -72,7 +72,7 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         .blocks
         .iter()
         .find_map(|block| match block {
-            mei_lang_kernel::UiNodeDecl::Panel(section) if section.id == "map_viewport" => {
+            mei_lang_kernel::UiTreeNode::Panel(section) if section.id == "map_viewport" => {
                 Some(section)
             }
             _ => None,
@@ -95,13 +95,13 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
             .any(|k| k.contains("map-tools-slot") || k.contains("/tools")),
         "ui_layout_index should include map_viewport operation chrome under center_rail"
     );
-    fn panel_has_content_role_child(panel: &mei_lang_kernel::PanelDecl) -> bool {
+    fn panel_has_content_role_child(panel: &mei_lang_kernel::UiNodeDecl) -> bool {
         panel.blocks.iter().any(|node| match node {
-            mei_lang_kernel::UiNodeDecl::Panel(child) => {
+            mei_lang_kernel::UiTreeNode::Panel(child) => {
                 child.props.get("__mei_ui_role").and_then(|v| v.as_str()) == Some("content")
                     || panel_has_content_role_child(child)
             }
-            mei_lang_kernel::UiNodeDecl::Block(_) | mei_lang_kernel::UiNodeDecl::PanelRefEmbed(_) => {
+            mei_lang_kernel::UiTreeNode::Block(_) | mei_lang_kernel::UiTreeNode::PanelRefEmbed(_) => {
                 false
             }
         })
@@ -110,18 +110,18 @@ fn pretty_panels_map_stage_resolves_maplibre_in_region_tree() {
         !panel_has_content_role_child(map_stage),
         "map_stage should not keep content-role wrapper sections"
     );
-    fn panel_has_section_role(panel: &mei_lang_kernel::PanelDecl) -> bool {
+    fn panel_has_section_role(panel: &mei_lang_kernel::UiNodeDecl) -> bool {
         matches!(
             panel.props.get("__mei_ui_role").and_then(|v| v.as_str()),
             Some("section") | Some("stage")
         )
     }
-    fn find_section_role_panel(panel: &mei_lang_kernel::PanelDecl) -> Option<&mei_lang_kernel::PanelDecl> {
+    fn find_section_role_panel(panel: &mei_lang_kernel::UiNodeDecl) -> Option<&mei_lang_kernel::UiNodeDecl> {
         if panel_has_section_role(panel) {
             return Some(panel);
         }
         panel.blocks.iter().find_map(|node| match node {
-            mei_lang_kernel::UiNodeDecl::Panel(child) => find_section_role_panel(child),
+            mei_lang_kernel::UiTreeNode::Panel(child) => find_section_role_panel(child),
             _ => None,
         })
     }
@@ -148,7 +148,7 @@ fn pretty_panels_ui_structure_includes_header_section() {
         .blocks
         .iter()
         .find_map(|block| match block {
-            mei_lang_kernel::UiNodeDecl::Panel(section) if section.id == "header" => Some(section),
+            mei_lang_kernel::UiTreeNode::Panel(section) if section.id == "header" => Some(section),
             _ => None,
         })
         .expect("header section under home_header region");
@@ -179,7 +179,7 @@ fn pretty_panels_ui_structure_includes_left_rail_sections() {
     .expect("left_rail");
     eprintln!("left_rail blocks: {}", left_rail.blocks.len());
     for b in &left_rail.blocks {
-        if let mei_lang_kernel::UiNodeDecl::Panel(p) = b {
+        if let mei_lang_kernel::UiTreeNode::Panel(p) = b {
             eprintln!("  section panel id={} title={:?} blocks={}", p.id, p.title, p.blocks.len());
         }
     }

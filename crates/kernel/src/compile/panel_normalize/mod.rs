@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::{Diagnostic, PanelDecl, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
 
 mod audit;
 mod constants;
@@ -20,7 +20,7 @@ use audit::emit_layout_audit_diagnostics;
 use constants::{
     DEFAULT_METRICS_STRIP_GAP, DEFAULT_METRICS_STRIP_PADDING, LAYOUT_POLICY_METRICS_2X2,
     LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO, LAYOUT_POLICY_METRICS_STRIP,
-    LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_HAS_HEAD, SLOT_BODY, SLOT_HEAD,
+    LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_HAS_HEAD, CONTENT_ZONE, TITLE_ZONE,
 };
 use diagnostics::emit_panel_head_diagnostics;
 use layout_policy::{
@@ -45,7 +45,7 @@ use spacing::{panel_layout_policy, policy_spacing, stamp_has_head_prop, stamp_la
 use stacking::sanitize_panel_stacking;
 
 pub fn normalize_panel_slots(
-    panels: &mut [PanelDecl],
+    panels: &mut [UiNodeDecl],
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -56,7 +56,7 @@ pub fn normalize_panel_slots(
     crate::compile::layout_budget::resolve_layout_budgets(panels, diagnostics, source_path);
 }
 
-pub fn panel_resolved_has_head(panel: &PanelDecl) -> bool {
+pub fn panel_resolved_has_head(panel: &UiNodeDecl) -> bool {
     panel
         .props
         .as_object()
@@ -65,10 +65,10 @@ pub fn panel_resolved_has_head(panel: &PanelDecl) -> bool {
         .unwrap_or_else(|| resolve_has_head(panel, &[]))
 }
 
-fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, source_path: &str) {
+fn normalize_panel(panel: &mut UiNodeDecl, diagnostics: &mut Vec<Diagnostic>, source_path: &str) {
     merge_head_slot(panel);
     for block in &mut panel.blocks {
-        if let UiNodeDecl::Panel(nested) = block {
+        if let UiTreeNode::Panel(nested) = block {
             normalize_panel(nested, diagnostics, source_path);
         }
     }
@@ -79,7 +79,7 @@ fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, sou
         .map(str::trim)
         .is_some_and(|value| !value.is_empty());
     let had_head_slot = panel.head.is_some();
-    let had_head_block = blocks_touch_slot(&panel.blocks, SLOT_HEAD);
+    let had_head_block = blocks_touch_slot(&panel.blocks, TITLE_ZONE);
 
     let has_head = resolve_has_head(panel, &[]);
     emit_panel_head_diagnostics(
@@ -208,7 +208,7 @@ fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, sou
         }
     }
 
-    if layout_has_slot(panel.layout.as_ref(), SLOT_BODY)
+    if layout_has_slot(panel.layout.as_ref(), CONTENT_ZONE)
         || panel
             .layout
             .as_ref()
@@ -235,7 +235,7 @@ const LAYOUT_GROUP_LABEL_OVERRIDES: &[(&str, &str)] = &[
     ("park_penalty_amounts", "园区处罚"),
 ];
 
-fn stamp_layout_macro_metadata(panel: &mut PanelDecl) {
+fn stamp_layout_macro_metadata(panel: &mut UiNodeDecl) {
     let Some(map) = panel.props.as_object_mut() else {
         return;
     };

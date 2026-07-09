@@ -1,4 +1,4 @@
-//! Normalize v2 `board_assembly` payloads for frontend drilldown (`scene_projection_assembly_by_id`).
+//! Normalize v2 `page_instance` payloads for frontend drilldown (`scene_projection_assembly_by_id`).
 //!
 //! Compiled artifacts keep `frame_ref(template=frame_export(...))` and v2 `__call` panel AST.
 //! Access drilldown JS expects `shell_contract` with `layout_mode: analytics` and zone roles.
@@ -243,7 +243,7 @@ fn build_shell_contract(payload: &Map<String, Value>) -> Option<Value> {
     Some(contract)
 }
 
-pub fn normalize_board_assembly_payload(mut payload: Value) -> Value {
+pub fn normalize_page_instance_payload(mut payload: Value) -> Value {
     let Some(map) = payload.as_object_mut() else {
         return payload;
     };
@@ -272,7 +272,7 @@ mod tests {
         let raw = fs::read_to_string(path).expect("read fixture");
         let artifact: Value = serde_json::from_str(&raw).expect("parse fixture");
         let payload = artifact.get("payload").cloned().expect("payload");
-        let normalized = normalize_board_assembly_payload(payload);
+        let normalized = normalize_page_instance_payload(payload);
         let shell = normalized.get("shell_contract").expect("shell_contract");
         assert_eq!(
             shell.get("layout_mode").and_then(Value::as_str),

@@ -183,12 +183,27 @@
 
   function isSectionHeadScope(scopeKey) {
     const scope = String(scopeKey || "").trim().toLowerCase();
-    return scope.endsWith("/head") || scope.endsWith("/head/mei.text");
+    return (
+      scope.endsWith("/head") ||
+      scope.endsWith("/head/mei.text") ||
+      scope.endsWith("/title_zone") ||
+      scope.endsWith("/title_zone/mei.text")
+    );
+  }
+
+  function isSectionHeadMeiTextScope(scopeKey) {
+    const scope = String(scopeKey || "").trim().toLowerCase();
+    return scope.endsWith("/head/mei.text") || scope.endsWith("/title_zone/mei.text");
+  }
+
+  function isIgnoredSectionHeadLabel(label) {
+    const normalized = String(label || "").trim().toLowerCase();
+    return !normalized || normalized === "head" || normalized === "title_zone";
   }
 
   function resolveEvalSlotLabel(entry) {
     const label = String(entry?.label || "").trim();
-    if (!label || label.toLowerCase() === "head") return "";
+    if (isIgnoredSectionHeadLabel(label)) return "";
     return label;
   }
 
@@ -301,14 +316,11 @@
 
   function applyHeadSlotLabel(container, labelText) {
     const label = String(labelText || "").trim();
-    if (!label || label.toLowerCase() === "head") return false;
-    const isHead =
-      container.matches?.('[data-preview-scope$="/head"]') ||
-      container.matches?.('[data-preview-scope$="/head/mei.text"]');
-    const headSlot = isHead
-      ? container
-      : container.closest('[data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]') ||
-        container;
+    if (isIgnoredSectionHeadLabel(label)) return false;
+    const headScopeSelector =
+      '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], [data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]';
+    const isHead = container.matches?.(headScopeSelector);
+    const headSlot = isHead ? container : container.closest(headScopeSelector) || container;
     if (!(headSlot instanceof HTMLElement)) return false;
     headSlot.setAttribute("data-mei-eval-label", label);
     return true;
@@ -393,8 +405,7 @@
   }
 
   function filterMountsForScope(scopeKey, mounts) {
-    const scope = String(scopeKey || "").trim().toLowerCase();
-    if (!scope.endsWith("/head") && !scope.endsWith("/head/mei.text")) {
+    if (!isSectionHeadScope(scopeKey)) {
       return mounts || [];
     }
     return (mounts || []).filter((mount) => {
@@ -670,7 +681,7 @@
     if (!(headSlot instanceof HTMLElement)) return;
     if (headSlot.getAttribute("data-mei-section-head-chrome") === "1") return;
     const scope = String(headSlot.getAttribute("data-preview-scope") || "");
-    if (!scope.endsWith("/head") && !scope.endsWith("/head/mei.text")) return;
+    if (!isSectionHeadScope(scope)) return;
 
     let titleText = String(headSlot.getAttribute("data-mei-eval-label") || "").trim();
     if (!titleText) {
@@ -702,7 +713,7 @@
     const existingH3 = headSlot.querySelector("h3");
     if (!titleText && existingH3 instanceof HTMLElement) {
       const current = String(existingH3.textContent || "").trim();
-      if (current && current.toLowerCase() !== "head") {
+      if (current && !isIgnoredSectionHeadLabel(current)) {
         return;
       }
     }
@@ -718,7 +729,7 @@
         .split("/")
         .filter(Boolean)
         .pop();
-      titleText = label && label.toLowerCase() !== "head" ? label.replace(/_/g, " ") : "板块标题";
+      titleText = !isIgnoredSectionHeadLabel(label) ? label.replace(/_/g, " ") : "板块标题";
     }
 
     headSlot.className = "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
@@ -728,12 +739,16 @@
 
   function normalizeAllSectionHeadSlots(root) {
     if (!(root instanceof HTMLElement)) return;
-    root.querySelectorAll('[data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]').forEach((headSlot) => {
-      if (headSlot instanceof HTMLElement && headSlot.getAttribute("data-mei-section-head-chrome") === "1") {
-        return;
-      }
-      normalizeSectionHeadSlot(headSlot);
-    });
+    root
+      .querySelectorAll(
+        '[data-preview-scope$="/title_zone"], [data-preview-scope$="/title_zone/mei.text"], [data-preview-scope$="/head"], [data-preview-scope$="/head/mei.text"]',
+      )
+      .forEach((headSlot) => {
+        if (headSlot instanceof HTMLElement && headSlot.getAttribute("data-mei-section-head-chrome") === "1") {
+          return;
+        }
+        normalizeSectionHeadSlot(headSlot);
+      });
   }
 
   function hideLayoutDebugRegions(root) {
@@ -1185,7 +1200,7 @@
       return container;
     }
     const scope = String(scopeKey || "").trim();
-    if (scope.endsWith("/head/mei.text")) {
+    if (isSectionHeadMeiTextScope(scope)) {
       return findScopeContainer(root, scope.replace(/\/mei\.text$/, ""));
     }
     return null;
@@ -1193,32 +1208,36 @@
 
   function promoteSectionHeadMeiTextNodes(root) {
     if (!(root instanceof HTMLElement)) return;
-    root.querySelectorAll('[data-preview-scope*="/head/mei.text"]').forEach((node) => {
-      if (!(node instanceof HTMLElement)) return;
-      const scope = String(node.getAttribute("data-preview-scope") || "").trim();
-      if (!scope.endsWith("/head/mei.text")) return;
-      const title = String(
-        node.getAttribute("data-mei-eval-label") ||
-          node.getAttribute("data-mei-structure-label") ||
-          "",
-      ).trim();
-      if (!title || title.toLowerCase() === "head") return;
-      const headSection = document.createElement("section");
-      headSection.className =
-        "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
-      headSection.setAttribute("data-preview-scope", scope.replace(/\/mei\.text$/, ""));
-      headSection.setAttribute("data-mei-eval-label", title);
-      headSection.innerHTML = buildSectionHeadMarkup(title);
-      headSection.setAttribute("data-mei-section-head-normalized", "1");
-      node.replaceWith(headSection);
-    });
+    root
+      .querySelectorAll(
+        '[data-preview-scope*="/title_zone/mei.text"], [data-preview-scope*="/head/mei.text"]',
+      )
+      .forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const scope = String(node.getAttribute("data-preview-scope") || "").trim();
+        if (!isSectionHeadMeiTextScope(scope)) return;
+        const title = String(
+          node.getAttribute("data-mei-eval-label") ||
+            node.getAttribute("data-mei-structure-label") ||
+            "",
+        ).trim();
+        if (isIgnoredSectionHeadLabel(title)) return;
+        const headSection = document.createElement("section");
+        headSection.className =
+          "mei-compose-slot preview-card preview-card-bare mei-compose-section-head";
+        headSection.setAttribute("data-preview-scope", scope.replace(/\/mei\.text$/, ""));
+        headSection.setAttribute("data-mei-eval-label", title);
+        headSection.innerHTML = buildSectionHeadMarkup(title);
+        headSection.setAttribute("data-mei-section-head-normalized", "1");
+        node.replaceWith(headSection);
+      });
   }
 
   function applyRailHeadTitlesFromEval(root, evalDocs) {
     if (!(root instanceof HTMLElement)) return;
     for (const doc of evalDocs || []) {
       for (const [scopeKey, entry] of Object.entries(doc.slots || {})) {
-        if (!String(scopeKey || "").endsWith("/head/mei.text")) continue;
+        if (!isSectionHeadMeiTextScope(scopeKey)) continue;
         if (entry?.head_chrome && typeof entry.head_chrome === "object") continue;
         const label = resolveEvalSlotLabel(entry);
         if (!label) continue;
@@ -1254,6 +1273,11 @@
     if (typeof background === "string") {
       const value = String(background).trim();
       if (!value) return;
+      // Multi-layer shorthand (e.g. corner L-decor + fill color) must use `background`.
+      if (value.includes(",") && /linear-gradient|radial-gradient|url\(/i.test(value)) {
+        style.background = value;
+        return;
+      }
       if (
         value.startsWith("linear-gradient") ||
         value.startsWith("radial-gradient") ||
@@ -2146,15 +2170,23 @@
       .querySelectorAll(".mei-compose-warning-panel, .mei-compose-compound-section")
       .forEach((section) => {
         if (!(section instanceof HTMLElement)) return;
+        section.style.display = "grid";
         section.style.padding = "0";
         section.style.margin = "0";
         section.style.gap = "2px";
         section.style.borderRadius = "0";
-        section.style.gridTemplateAreas = '"head" "body"';
+        section.style.gridTemplateRows = "auto 1fr";
+        section.style.gridTemplateAreas = '"title" "body"';
         section.style.border = "1px solid rgba(56, 160, 240, 0.32)";
-        const head = section.querySelector('[data-preview-scope$="/head"]');
+        section.style.minHeight = "0";
+        section.style.height = "100%";
+        const head = section.querySelector(
+          '[data-preview-scope$="/title_zone"], [data-preview-scope$="/head"]',
+        );
         const content =
-          section.querySelector('[data-preview-scope$="/body"]') ||
+          section.querySelector(
+            '[data-preview-scope$="/content_zone"], [data-preview-scope$="/body"]',
+          ) ||
           section.querySelector('[data-preview-scope$="/enforcement_strip_layout"]') ||
           section.querySelector('[data-preview-scope$="/enforcement_body"]') ||
           section.querySelector(".mei-compose-enforcement-strip") ||
@@ -2163,7 +2195,7 @@
           section.querySelector(".mei-compose-metric-compound") ||
           section.querySelector(".mei-compose-metric-triptych");
         if (head instanceof HTMLElement) {
-          head.style.gridArea = "head";
+          head.style.gridArea = "title";
           head.style.margin = "0";
           head.style.padding = "0";
           head.style.border = "none";
@@ -2171,6 +2203,9 @@
         }
         if (content instanceof HTMLElement) {
           content.style.gridArea = "body";
+          content.style.display = content.classList.contains("mei-compose-metric-triptych")
+            ? "grid"
+            : content.style.display;
           content.style.width = "100%";
           content.style.margin = "0";
           content.style.padding = "0";
@@ -2180,6 +2215,15 @@
           content.style.minHeight = "0";
           content.style.height = "100%";
           content.style.alignSelf = "stretch";
+          if (content.classList.contains("mei-compose-metric-triptych")) {
+            content.style.gridTemplateRows = "1fr";
+            content.querySelectorAll(":scope > *").forEach((child) => {
+              if (!(child instanceof HTMLElement)) return;
+              child.style.height = "100%";
+              child.style.minHeight = "0";
+              child.style.alignSelf = "stretch";
+            });
+          }
         }
       });
   }
@@ -2393,7 +2437,7 @@
     root.querySelectorAll('[data-mei-section-head-normalized="1"]').forEach((head) => {
       const h3 = head.querySelector("h3");
       const text = String(h3?.textContent || "").trim().toLowerCase();
-      if (!text || text === "head" || text === "板块标题") {
+      if (!text || isIgnoredSectionHeadLabel(text) || text === "板块标题") {
         head.removeAttribute("data-mei-section-head-normalized");
       }
     });

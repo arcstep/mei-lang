@@ -1,21 +1,31 @@
-# metrics_auto 内容区 panel 模板。
+# 兼容旧引用的指标内容区模板；新写法应直接显式声明 grid。
 
 scene(id = "metrics_auto_body_tpl", profile = "cockpit", theme = "cockpit")
 
 world(resources = [])
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "metrics_auto_body",
-    area = "body",
+    area = "content_zone",
     show_heading = False,
     variant = "container",
-    layout_policy = "metrics_auto",
     props = {
         "width": "520px",
         "height": "100%",
         "box_sizing": "border-box",
     },
+    layout = grid(
+        rows = ["1fr", "1fr", "1fr"],
+        columns = ["1fr"],
+        areas = [["first"], ["second"], ["third"]],
+        gap = "6px",
+        align = "stretch",
+    ),
     blocks = [],
+),
+    ],
 )
+
+

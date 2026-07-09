@@ -162,7 +162,7 @@ fn compile_spbjw_typical_cases_popup_lowers_list_preview_projection_slots() {
         .iter()
         .flat_map(|panel| panel.blocks.iter())
         .find_map(|block| match block {
-            mei_lang_kernel::UiNodeDecl::Block(decl) if decl.use_key == "cockpit.data-table" => {
+            mei_lang_kernel::UiTreeNode::Block(decl) if decl.use_key == "cockpit.data-table" => {
                 decl.props.get("popup")
             }
             _ => None,

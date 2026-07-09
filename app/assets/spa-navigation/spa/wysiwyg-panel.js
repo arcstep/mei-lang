@@ -91,22 +91,25 @@
       .trim();
   }
 
+  function themeLayoutOverlayApi() {
+    return boot.MeiOpsThemeLayoutOverlay || global.MeiOpsThemeLayoutOverlay;
+  }
+
   async function applySessionPatch(patch) {
     if (!patch) return;
     const appId = appIdFromPath();
-    const root = global.document.querySelector(".preview-pane-scroll, .shell");
-    const overlayApi = boot.MeiOpsLayoutTuningOverlay || global.MeiOpsLayoutTuningOverlay;
+    const overlayApi = themeLayoutOverlayApi();
     if (patch.layout && overlayApi?.putSessionDraft && appId) {
       const scope = String(patch.preview_scope || "").trim();
       if (scope) {
-        const tuning = { [scope]: patch.layout };
+        const layout = { [scope]: patch.layout };
         try {
-          await overlayApi.putSessionDraft(appId, tuning);
+          await overlayApi.putSessionDraft(appId, layout);
         } catch (error) {
-          console.warn("[wysiwyg-panel] session draft failed", error);
+          console.warn("[wysiwyg-panel] theme.layout session draft failed", error);
         }
       }
-    } else if (patch.theme && overlayApi?.putSessionDraft && appId) {
+    } else if (patch.theme && appId) {
       const store = global.MeiDraftLayerStore || boot.draftLayerStore;
       store?.putThemeTokensPatch?.(appId, patch.theme);
       boot.viewCompositor?.recomposeFromLayerStore?.(
@@ -115,6 +118,19 @@
       );
     }
     global.dispatchEvent(new CustomEvent("meilang:preview-updated", { detail: { patch } }));
+  }
+
+  function resolveThemeLayoutGap(previewScope, appId, scopeNode) {
+    if (scopeNode instanceof HTMLElement) {
+      const fromStyle = String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
+      if (fromStyle) return fromStyle;
+    }
+    const store = global.MeiDraftLayerStore || boot.draftLayerStore;
+    const entry = store?.normalizeOverlayPatches?.(
+      store?.getSessionLayers?.(appId)?.themeLayout,
+    )?.[previewScope];
+    const gapVal = entry?.gap ?? entry?.stripGap;
+    return gapVal != null && gapVal !== "" ? String(gapVal) : "";
   }
 
   function renderPanel(kind, meta) {
@@ -137,31 +153,17 @@
       gap.type = "text";
       gap.placeholder = "gap (e.g. 8px)";
       gap.dataset.field = "gap";
-      if (scopeNode instanceof HTMLElement) {
-        gap.value =
-          scopeNode.dataset.layoutTuningContentGap ||
-          String(scopeNode.style.rowGap || scopeNode.style.gap || "").trim();
-      }
-      const formApi = global.MeiLayoutTuningForm;
       const appId = appIdFromPath();
-      if (formApi?.resolveLayoutTuningEntry && meta.preview_scope) {
-        const entry = formApi.resolveLayoutTuningEntry(meta.preview_scope, { appId });
-        const gapVal = entry?.contentBudget?.gap ?? entry?.content_budget?.gap;
-        if (gapVal != null && gapVal !== "") gap.value = String(gapVal);
-      }
+      gap.value = resolveThemeLayoutGap(meta.preview_scope, appId, scopeNode);
       gap.addEventListener("input", () => {
         const gapVal = gap.value.trim();
         if (!meta.preview_scope || !appId) return;
         const layout = {};
-        if (gapVal) {
-          const numeric = Number(gapVal);
-          layout.contentBudget = {
-            gap: Number.isFinite(numeric) ? numeric : gapVal,
-          };
-        }
+        if (gapVal) layout.gap = gapVal;
         const patch = buildLayoutPatch(meta.preview_scope, meta.ui_role, layout);
-        if (formApi?.scheduleSessionHot && patch?.layout) {
-          formApi.scheduleSessionHot(appId, meta.preview_scope, patch.layout, { debounceMs: 150 });
+        const overlayApi = themeLayoutOverlayApi();
+        if (overlayApi?.putSessionDraft && patch?.layout) {
+          void overlayApi.putSessionDraft(appId, { [meta.preview_scope]: patch.layout });
         }
       });
       body.appendChild(gap);
@@ -171,12 +173,7 @@
       btn.addEventListener("click", () => {
         const gapVal = gap.value.trim();
         const layout = {};
-        if (gapVal) {
-          const numeric = Number(gapVal);
-          layout.contentBudget = {
-            gap: Number.isFinite(numeric) ? numeric : gapVal,
-          };
-        }
+        if (gapVal) layout.gap = gapVal;
         void applySessionPatch(buildLayoutPatch(meta.preview_scope, meta.ui_role, layout));
       });
       body.appendChild(btn);

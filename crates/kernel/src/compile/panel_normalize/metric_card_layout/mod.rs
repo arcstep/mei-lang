@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::model::{BlockDecl, LayoutDecl, PanelDecl, UiNodeDecl};
+use crate::model::{BlockDecl, LayoutDecl, UiNodeDecl, UiTreeNode};
 
 use super::nodes::{node_is_metric_card_like, panel_px_prop};
 
@@ -13,7 +13,7 @@ pub(crate) use seed::{
 };
 
 pub(super) fn audit_metric_vertical_bands(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     diagnostics: &mut Vec<crate::model::Diagnostic>,
     source_path: &str,
 ) {
@@ -32,7 +32,7 @@ pub(super) const USE_METRIC_PROGRESS: &str = "cockpit.metric-progress";
 pub(super) const USE_MEI_TEXT: &str = "mei.text";
 pub(super) const METRIC_SLOT_ROLES: [&str; 4] = ["label", "value", "unit", "desc"];
 
-pub(super) fn metric_prop_str<'a>(card: &'a PanelDecl, key: &str) -> Option<&'a str> {
+pub(super) fn metric_prop_str<'a>(card: &'a UiNodeDecl, key: &str) -> Option<&'a str> {
     card.props
         .as_object()
         .and_then(|map| map.get(key))
@@ -54,7 +54,7 @@ fn ratio_fr_track(raw: Option<&str>, fallback: u32) -> String {
     format!("{normalized}fr")
 }
 
-fn metric_title_content_row_tracks(card: &PanelDecl) -> Vec<String> {
+fn metric_title_content_row_tracks(card: &UiNodeDecl) -> Vec<String> {
     vec![
         ratio_fr_track(metric_prop_str(card, PROP_METRIC_TITLE_RATIO), 1),
         ratio_fr_track(metric_prop_str(card, PROP_METRIC_CONTENT_RATIO), 1),
@@ -82,7 +82,7 @@ fn stack_desc_layout_is_author_defined(layout: &LayoutDecl) -> bool {
     has_desc && has_label && row_count >= 3
 }
 
-pub(super) fn card_has_background_image(card: &PanelDecl) -> bool {
+pub(super) fn card_has_background_image(card: &UiNodeDecl) -> bool {
     let Some(background) = card.props.as_object().and_then(|map| map.get("background")) else {
         return false;
     };
@@ -92,7 +92,7 @@ pub(super) fn card_has_background_image(card: &PanelDecl) -> bool {
     false
 }
 
-pub(super) fn normalize_metric_card_vertical_bands(card: &mut PanelDecl) {
+pub(super) fn normalize_metric_card_vertical_bands(card: &mut UiNodeDecl) {
     let template = metric_prop_str(card, PROP_METRIC_TEMPLATE)
         .unwrap_or("stack")
         .to_string();
@@ -187,12 +187,12 @@ pub(super) fn block_has_metric_v_align(block: &BlockDecl) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
-pub(super) fn apply_metric_slot_vertical_align_from_props(card: &mut PanelDecl) {
+pub(super) fn apply_metric_slot_vertical_align_from_props(card: &mut UiNodeDecl) {
     let Some(shell_props) = card.props.as_object() else {
         return;
     };
     for node in &mut card.blocks {
-        let UiNodeDecl::Block(block) = node else {
+        let UiTreeNode::Block(block) = node else {
             continue;
         };
         let Some(role) = block
@@ -228,15 +228,15 @@ pub(super) fn apply_metric_slot_vertical_align_from_props(card: &mut PanelDecl) 
     }
 }
 
-pub(super) fn normalize_panel_metric_cards(panel: &mut PanelDecl) {
+pub(super) fn normalize_panel_metric_cards(panel: &mut UiNodeDecl) {
     for block in &mut panel.blocks {
         if !node_is_metric_card_like(block) {
-            if let UiNodeDecl::Panel(nested) = block {
+            if let UiTreeNode::Panel(nested) = block {
                 normalize_panel_metric_cards(nested);
             }
             continue;
         }
-        let UiNodeDecl::Panel(card) = block else {
+        let UiTreeNode::Panel(card) = block else {
             continue;
         };
         normalize_metric_card_vertical_bands(card);

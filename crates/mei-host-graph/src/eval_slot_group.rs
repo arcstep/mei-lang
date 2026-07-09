@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::Result;
-use mei_lang_kernel::{BlockDecl, CompiledApp, DataMode, MetricShape, PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{BlockDecl, CompiledApp, DataMode, MetricShape, UiNodeDecl, UiTreeNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -132,22 +132,22 @@ fn push_block_mount(block: &BlockDecl, out: &mut Vec<Value>) {
     }));
 }
 
-fn push_panel_blocks(panel: &PanelDecl, out: &mut Vec<Value>) {
+fn push_panel_blocks(panel: &UiNodeDecl, out: &mut Vec<Value>) {
     if let Some(head) = panel.head.as_ref() {
-        if let UiNodeDecl::Block(block) = head.as_ref() {
+        if let UiTreeNode::Block(block) = head.as_ref() {
             push_block_mount(block, out);
         }
     }
     for child in &panel.blocks {
         match child {
-            UiNodeDecl::Block(block) => push_block_mount(block, out),
-            UiNodeDecl::Panel(nested) => push_panel_blocks(nested, out),
-            UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::Block(block) => push_block_mount(block, out),
+            UiTreeNode::Panel(nested) => push_panel_blocks(nested, out),
+            UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }
 
-fn panel_is_metric_card(panel: &PanelDecl) -> bool {
+fn panel_is_metric_card(panel: &UiNodeDecl) -> bool {
     panel
         .props
         .get("__mei_metric_card")
@@ -155,7 +155,7 @@ fn panel_is_metric_card(panel: &PanelDecl) -> bool {
         .unwrap_or(false)
 }
 
-fn push_metric_card_shell_mount(panel: &PanelDecl, out: &mut Vec<Value>) {
+fn push_metric_card_shell_mount(panel: &UiNodeDecl, out: &mut Vec<Value>) {
     if !panel_is_metric_card(panel) {
         return;
     }
@@ -170,30 +170,30 @@ fn block_use_key_matches(block: &BlockDecl, use_key: &str) -> bool {
     block.use_key.trim() == use_key.trim()
 }
 
-fn collect_component_mounts_for_use_key(panel: &PanelDecl, use_key: &str, out: &mut Vec<Value>) {
+fn collect_component_mounts_for_use_key(panel: &UiNodeDecl, use_key: &str, out: &mut Vec<Value>) {
     let use_key = use_key.trim();
     if use_key.is_empty() {
         return;
     }
     for child in &panel.blocks {
         match child {
-            UiNodeDecl::Block(block) if block_use_key_matches(block, use_key) => {
+            UiTreeNode::Block(block) if block_use_key_matches(block, use_key) => {
                 push_block_mount(block, out);
             }
-            UiNodeDecl::Panel(nested) => collect_component_mounts_for_use_key(nested, use_key, out),
-            UiNodeDecl::Block(_) | UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::Panel(nested) => collect_component_mounts_for_use_key(nested, use_key, out),
+            UiTreeNode::Block(_) | UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }
 
-fn collect_component_mounts_for_label(panel: &PanelDecl, label: &str, out: &mut Vec<Value>) {
+fn collect_component_mounts_for_label(panel: &UiNodeDecl, label: &str, out: &mut Vec<Value>) {
     if panel.id == label {
         push_metric_card_shell_mount(panel, out);
         push_panel_blocks(panel, out);
         return;
     }
     if let Some(head) = panel.head.as_ref() {
-        if let UiNodeDecl::Block(block) = head.as_ref() {
+        if let UiTreeNode::Block(block) = head.as_ref() {
             if block_id_matches(block, label) {
                 push_block_mount(block, out);
             }
@@ -201,11 +201,11 @@ fn collect_component_mounts_for_label(panel: &PanelDecl, label: &str, out: &mut 
     }
     for child in &panel.blocks {
         match child {
-            UiNodeDecl::Block(block) if block_id_matches(block, label) => {
+            UiTreeNode::Block(block) if block_id_matches(block, label) => {
                 push_block_mount(block, out);
             }
-            UiNodeDecl::Panel(nested) => collect_component_mounts_for_label(nested, label, out),
-            UiNodeDecl::Block(_) | UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::Panel(nested) => collect_component_mounts_for_label(nested, label, out),
+            UiTreeNode::Block(_) | UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }
@@ -270,7 +270,7 @@ fn author_panel_props_for_shell(
         panel_id.to_string(),
         format!("supervision-mini/home/t1/r-right-rail/s-warning/content/{panel_id}"),
     ] {
-        if let Ok(payload) = crate::v2_lower::load_panel_contract_payload(&ctx, ref_path.as_str()) {
+        if let Ok(payload) = crate::v2_lower::load_content_panel_payload(&ctx, ref_path.as_str()) {
             if let Some(raw_props) = payload.get("props") {
                 let props = crate::v2_lower::resolve_panel_props_for_shell(raw_props, &ctx);
                 if props.get("background").is_some() {
@@ -283,9 +283,9 @@ fn author_panel_props_for_shell(
 }
 
 fn panel_decl_for_shell_export(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     author_props: Option<&Value>,
-) -> PanelDecl {
+) -> UiNodeDecl {
     let mut exported = panel.clone();
     let Some(exported_props) = exported.props.as_object_mut() else {
         return exported;
@@ -367,7 +367,7 @@ fn metric_card_content_panel_lookup(node: &StructureFullNode) -> Option<String> 
         .map(|segment| segment.to_string())
 }
 
-fn panel_contract_lookup_label(node: &StructureFullNode) -> String {
+fn content_panel_lookup_label(node: &StructureFullNode) -> String {
     if node.content_kind.as_deref() == Some("compound-metric") {
         if let Some(id) = node
             .preview_scope
@@ -401,7 +401,7 @@ fn panel_background_is_transparent(background: &Value) -> bool {
     }
 }
 
-fn panel_has_slot_frame_shell(panel: &PanelDecl) -> bool {
+fn panel_has_slot_frame_shell(panel: &UiNodeDecl) -> bool {
     panel
         .props
         .get("__mei_slot_frame_bg")
@@ -416,7 +416,7 @@ fn panel_has_slot_frame_shell(panel: &PanelDecl) -> bool {
 fn compound_metric_shell_panel<'a>(
     contract: &'a mei_lang_kernel::SceneContract,
     content_panel_id: &str,
-) -> Option<&'a PanelDecl> {
+) -> Option<&'a UiNodeDecl> {
     if let Some(panel) = find_panel_in_contract(contract, content_panel_id) {
         if panel_has_slot_frame_shell(panel) {
             return Some(panel);
@@ -432,12 +432,12 @@ fn compound_metric_shell_panel<'a>(
     None
 }
 
-fn find_panel_by_id<'a>(panel: &'a PanelDecl, target: &str) -> Option<&'a PanelDecl> {
+fn find_panel_by_id<'a>(panel: &'a UiNodeDecl, target: &str) -> Option<&'a UiNodeDecl> {
     if panel.id == target {
         return Some(panel);
     }
     for child in &panel.blocks {
-        if let UiNodeDecl::Panel(nested) = child {
+        if let UiTreeNode::Panel(nested) = child {
             if let Some(found) = find_panel_by_id(nested, target) {
                 return Some(found);
             }
@@ -449,7 +449,7 @@ fn find_panel_by_id<'a>(panel: &'a PanelDecl, target: &str) -> Option<&'a PanelD
 fn find_panel_in_contract<'a>(
     contract: &'a mei_lang_kernel::SceneContract,
     target: &str,
-) -> Option<&'a PanelDecl> {
+) -> Option<&'a UiNodeDecl> {
     contract
         .panels
         .iter()
@@ -458,7 +458,9 @@ fn find_panel_in_contract<'a>(
 
 fn is_section_head_text_slot(node: &StructureFullNode) -> bool {
     let scope = node.preview_scope.to_ascii_lowercase();
-    scope.ends_with("/head/mei.text")
+    scope.ends_with("/title_zone/mei.text")
+        || scope.ends_with("/head/mei.text")
+        || (scope.ends_with("/title_zone") && node.content_kind.as_deref() == Some("mei.text"))
         || (scope.ends_with("/head") && node.content_kind.as_deref() == Some("mei.text"))
 }
 
@@ -583,7 +585,7 @@ pub fn build_eval_slot_group_document(
         }
         if let (Some(ctx), Some(contract)) = (theme_ctx.as_ref(), compiled.scene_contract.as_ref()) {
             if matches!(node.ui_role.as_str(), "section" | "slot" | "content") {
-                let panel_lookup = panel_contract_lookup_label(node);
+                let panel_lookup = content_panel_lookup_label(node);
                 if !panel_lookup.is_empty() {
                     let panel = if node.content_kind.as_deref() == Some("compound-metric") {
                         compound_metric_shell_panel(contract, panel_lookup.as_str()).or_else(|| {
@@ -715,19 +717,19 @@ pub fn ensure_eval_slot_group_cached(
 mod tests {
     use super::*;
     use crate::view_artifact::StructureFullNode;
-    use mei_lang_kernel::{BlockDecl, PanelDecl, UiNodeDecl};
+    use mei_lang_kernel::{BlockDecl, UiNodeDecl, UiTreeNode};
     use serde_json::json;
 
     #[test]
     fn compound_metric_shell_panel_prefers_slot_frame_parent() {
-        let shell = PanelDecl {
+        let shell = UiNodeDecl {
             kind: "panel".to_string(),
             id: "enforcement_objects".to_string(),
             title: None,
             head: None,
             area: Some("compound".to_string()),
             layout: None,
-            blocks: vec![UiNodeDecl::Panel(PanelDecl {
+            blocks: vec![UiTreeNode::Panel(UiNodeDecl {
                 kind: "panel".to_string(),
                 id: "enforcement_objects_body".to_string(),
                 title: None,
@@ -794,7 +796,7 @@ mod tests {
     }
 
     #[test]
-    fn panel_contract_lookup_prefers_scope_id_for_compound_metric() {
+    fn content_panel_lookup_prefers_scope_id_for_compound_metric() {
         let node = StructureFullNode {
             node_id: "compound".to_string(),
             ui_role: "content".to_string(),
@@ -809,7 +811,7 @@ mod tests {
             frame_viewport: None,
         };
         assert_eq!(
-            panel_contract_lookup_label(&node),
+            content_panel_lookup_label(&node),
             "enforcement-compound"
         );
     }
@@ -844,14 +846,14 @@ mod tests {
 
     #[test]
     fn component_mounts_resolve_map_block_by_use_key() {
-        let panel = PanelDecl {
+        let panel = UiNodeDecl {
             kind: "panel".to_string(),
             id: "gis-map".to_string(),
             title: None,
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
+            blocks: vec![UiTreeNode::Block(BlockDecl {
                 kind: "block".to_string(),
                 use_key: "map.maplibre".to_string(),
                 id: Some("map".to_string()),
@@ -884,14 +886,14 @@ mod tests {
 
     #[test]
     fn component_mounts_include_metric_card_shell_when_panel_matches() {
-        let panel = PanelDecl {
+        let panel = UiNodeDecl {
             kind: "panel".to_string(),
             id: "supervision_items_card".to_string(),
             title: None,
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
+            blocks: vec![UiTreeNode::Block(BlockDecl {
                 kind: "block".to_string(),
                 use_key: "mei.text".to_string(),
                 id: Some("label".to_string()),
@@ -976,14 +978,14 @@ mod tests {
                 world: None,
                 flow: None,
                 frame: None,
-                panels: vec![PanelDecl {
+                panels: vec![UiNodeDecl {
                     kind: "panel".to_string(),
                     id: "enforcement_units_card".to_string(),
                     title: None,
                     head: None,
                     area: None,
                     layout: None,
-                    blocks: vec![UiNodeDecl::Block(BlockDecl {
+                    blocks: vec![UiTreeNode::Block(BlockDecl {
                         kind: "block".to_string(),
                         use_key: "mei.text".to_string(),
                         id: Some("head".to_string()),
@@ -1018,7 +1020,7 @@ mod tests {
             component_assets: vec![],
             diagnostics: vec![],
             build_experience_index: Default::default(),
-            build_board_index: Default::default(),
+            build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
             ui_layout_index: Default::default(),
         };

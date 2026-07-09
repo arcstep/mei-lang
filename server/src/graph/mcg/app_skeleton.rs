@@ -37,7 +37,7 @@ pub fn app_skeleton_value_from_compiled(compiled: &CompiledApp) -> Value {
         "title": compiled.title,
         "fileTree": compiled.file_tree,
         "buildExperienceIndex": compiled.build_experience_index,
-        "buildBoardIndex": compiled.build_board_index,
+        "buildBoardIndex": compiled.build_t2_page_index,
         "buildTemplateIndex": compiled.build_template_index,
         "sceneRoutes": compiled.scene_routes,
         "resources": compiled.resources,
@@ -83,7 +83,7 @@ pub fn merge_app_skeleton_into_compiled(compiled: &mut CompiledApp, skeleton: &A
             .cloned()
             .unwrap_or(Value::Null),
     ) {
-        compiled.build_board_index = index;
+        compiled.build_t2_page_index = index;
     }
     if let Ok(index) = serde_json::from_value(
         payload
@@ -200,7 +200,7 @@ mod tests {
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
             build_experience_index: Default::default(),
-            build_board_index: Default::default(),
+            build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
         };
         let persisted =

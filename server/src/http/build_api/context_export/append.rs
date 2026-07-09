@@ -85,9 +85,9 @@ pub(super) fn append_board_template_sections(
     node: &mei_lang_kernel::BuildNodeId,
 ) {
     use mei_lang_kernel::BuildNodeKind;
-    if let Some(entry) = compiled.build_board_index.lookup(node) {
+    if let Some(entry) = compiled.build_t2_page_index.lookup(node) {
         md.push_str("### Board\n\n");
-        md.push_str(&format!("- board_file: `{}`\n", entry.board_file));
+        md.push_str(&format!("- page_file: `{}`\n", entry.page_file));
         md.push_str(&format!("- scene_id: `{}`\n", entry.scene_id));
         if let Some(mode) = entry.layout_mode.as_deref() {
             md.push_str(&format!("- layout_mode: `{mode}`\n"));

@@ -255,10 +255,10 @@
 
   function showManagePreviewBoardError(surface, message, detail = null) {
     if (!(surface instanceof HTMLElement)) return;
-    let banner = surface.querySelector("[data-manage-preview-board-error]");
+    let banner = surface.querySelector("[data-manage-preview-t2-page-error]");
     if (!(banner instanceof HTMLElement)) {
       banner = document.createElement("div");
-      banner.className = "access-drilldown-overlay-status manage-preview-board-error";
+      banner.className = "access-drilldown-overlay-status manage-preview-t2-page-error";
       banner.dataset.managePreviewBoardError = "true";
       banner.style.margin = "12px";
       surface.prepend(banner);
@@ -415,7 +415,7 @@
       mountStructuredRowPreviewZone(surface, zoneHosts, resolved);
     }
 
-    surface.querySelector("[data-manage-preview-board-error]")?.remove();
+    surface.querySelector("[data-manage-preview-t2-page-error]")?.remove();
 
     repairManagePreviewBoardGrid(surface, resolved.sceneShell);
     refreshManagePreviewBoardCharts(surface);

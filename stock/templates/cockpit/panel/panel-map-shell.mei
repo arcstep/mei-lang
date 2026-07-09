@@ -5,9 +5,9 @@ scene(id = "panel_map_shell_deprecated", profile = "cockpit", theme = "cockpit")
 
 world(resources = [])
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "map_shell_deprecated",
     variant = "container",
     title = "请使用 panel-gis-map-fullscreen.mei",
@@ -17,4 +17,8 @@ frame.add_panel(
             content = "本模板已弃用。请引用 `panel/panel-gis-map-fullscreen.mei`。",
         ),
     ],
+),
+    ],
 )
+
+

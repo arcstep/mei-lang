@@ -277,7 +277,7 @@ pub async fn app_page(
                     let outcome = compile_outcome_from_shared(resolution.outcome);
                     let exports = outcome
                         .compiled
-                        .build_board_index
+                        .build_t2_page_index
                         .exports_for_board_file(target.as_str());
                     if exports.len() == 1 {
                         compile_scene = Some(exports[0].scene_id.clone());

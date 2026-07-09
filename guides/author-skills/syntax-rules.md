@@ -2,89 +2,81 @@
 
 ## 当前可写主线
 
-当前应优先使用：
+优先使用：
 
-- `app(...)`
-- `app_add_scene(...)`
+- `app_skeleton(...)`
+- `navigation(...)`
 - `scene(...)`
-- `world(...)`
-- `resource(...)`
-- `flow(...)`
-- `frame(...)`
-- `frame.add_panel(...)`
-- `panel(...)`
-- `component(...)`
-- `metric_card(...)`
+- `plane_layout(...)` / `region_layout(...)` / `section_layout(...)`
+- `section_shell(...)`
+- `content_panel(...)`（`content.mei` 作者名；源码样板常写作 `content_panel(...)`）
+- `plane_ref(...)` / `region_ref(...)` / `section_ref(...)`
+- `panel_ref(...)` / `assembly_ref(...)`
 - `grid(...)`
-- `flex(...)`
-- `doc.markdown(...)`
-- `scene_ref(...)`
-- `world_ref(...)`
-- `flow_ref(...)`
-- `frame_ref(...)`
-- `panel_ref(...)`
+- `viewport(...)`
+- `budget(...)` / `padding_profile` 档位名
+- `world(...)` / `resource(...)`
+- `component(...)` / `metric_card(...)` / `doc.markdown(...)`
+- `link_decl(...)` / `link_ref(...)`
+- `metric_def_bundle(...)`（按样板）
+- `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)`
+- `world_ref(...)` / `map_ref(...)` / `view_ref(...)`
+- `theme_ref(...)` / `source_ref(...)` / `basemap_ref(...)` / `ops_param_ref(...)`
 - `metric_card_ref(...)`
-- `dataset_ref(...)`
-- `metric_ref(...)`
-- `resource_ref(...)`
-- `theme_ref(...)`
-- `source_ref(...)`
-- `basemap_ref(...)`
-- `ops_param_ref(...)`
 
-当前主线还应遵守：
+结构链（必须遵守）：
 
-- app 入口统一收口为 `default_scene` + inline `scene(...)` 或 `app_add_scene(scene = scene_ref(...))`
-- `scene` 当前优先只收敛一个主 `world / flow / frame`
-- 单例槽位优先使用 typed ref：`scene.world = world_ref(...)`、`scene.frame = frame_ref(...)`
-- `frame` 当前优先通过 `area` 组织多个 `panel`
-- `frame / panel` 的 `title` 默认可省略
-- `panel(base = panel_ref(...))` / `metric_card(base = metric_card_ref(...))` 是当前模板克隆主线
-- `*_ref(...)` 用来引用当前组合后作用域里的对象或 owner 槽位目标
+```text
+scene → plane_layout → region_layout → section_layout + section_shell → content_panel
+```
+
+硬规则：
+
+- `assembly.mei` 只挂 `planes = [plane_ref(...)]`
+- `region_layout` 只允许 `sections = [section_ref(...)]`；禁止直挂 `content` / `blocks`
+- section 有标题用 `section_shell`；裸 stage/map 用 bare `content_panel` shell + `panel_ref`
+- 布局原语只有 `grid(...)`；不要把 `flex` 当默认
+- Fill-down：region `Nfr` → section stretch → slot fill → content **不设 px 高度**
+- `key` 镜像目录：`{app}/{scene}/t*/r-*/s-*`
+- T2 文档术语：**page_instance**（实现叶子可能仍是 `page_instance`，勿当推荐新路径名）
 
 ## 组件绑定
 
-- 组件输入统一写入 `props`
-- `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)` 作为 `props` 的稳定值来源
-- `theme_ref(...)` / `source_ref(...)` / `basemap_ref(...)` / `ops_param_ref(...)` 作为 `.mei-config.json -> ops.*` 的稳定值来源
-- `scene_ref(...)` 可作为整份 scene contract 的值来源
-- 不再发明与 `props` 平行的第二套绑定语法
-- 不在组件 `props` 中直接写跨文件 locator；外部对象应先进入当前 world/scene 账本
-- `mapping`、`headers`、`columns` 等组件私有字段属于组件 contract，不是独立 DSL 函数
+- 输入统一写入 `props`
+- 稳定值来源：`dataset_ref` / `metric_ref` / `resource_ref` / `scene_ref`（整份 contract）/ config refs
+- 不在 `props` 里写跨文件 locator；外部对象先进入当前 world/scene 账本
+- `mapping` / `headers` / `columns` 等是组件 contract 字段，不是独立 DSL 函数
 
-## 当前已实现边界
+## 已实现边界
 
-- `scene_ref(...)`：可用，当前用于 `app_add_scene(...)` 与 scene contract 注入
-- `world_ref(...)`：可用，当前用于 scene owner 槽位绑定 world
-- `frame_ref(...)` / `panel_ref(...)`：可用，当前用于 frame/panel 模板与跨文件复用
-- `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)`：可用，当前作为组件 props 的主要对象引用
-- `grid / flex`：可用
-- `grid areas`：可用
+| 构造器 | 状态 |
+|--------|------|
+| `plane_layout` / `region_layout` / `section_layout` | 已实现 |
+| `section_shell` | 已实现 |
+| `plane_ref` / `region_ref` / `section_ref` | 已实现 |
+| `grid` + areas | 已实现 |
+| `content_panel` 作者名 | guides 用语；编译器当前多为 `content_panel` |
+| T2 page_instance | 语义已定；实现名迁移中 |
 
-## 当前不要误写成已实现
+## 不要误写成已实现 / 不要再写
 
-- `entry(...)`
-- `app(..., entries=[entry(...)])`
-- `scene_file_ref(...)` / `world_file_ref(...)` / `frame_file_ref(...)` 作为公开主语法
-- `world_file_ref(...)`
-- `flow_file_ref(...)`
-- `frame_file_ref(...)`
-- `entity_ref(...)`
-- `data_ref(...)`
-- richer `component` contract
-- capability registry
-- profile 包装层
+- `frame(...)` / `frame.add_panel(...)` / `frame_ref` 作为布局主路径
+- `flex(...)` 作为默认布局
+- `titled_shell` / `row_budgets` / micro-layout 结构层
+- `page_instance` / 把 `page_instance` 当推荐作者 API（用 page_instance 叙事）
+- `entry(...)` / `app(..., entries=...)`
+- `app(...)` 旧入口（用 `app_skeleton`）
+- `*_file_ref(...)` 作为公开主语法
+- `entity_ref` / `data_ref` / 未落地的 capability registry
 
 ## 扩展规则
 
-- dataset 当前是 `world.resource(kind = "dataset")`
-- upload / ops-backed dataset 当前优先通过 `source_ref(...)` + app-local `.mei-config.json -> ops.sources`
-- chart 当前优先通过外部组件接入
-- capability 当前先看 contract / registry 设计，不当作现成作者态语法
-- `world_ref(...)` 不再作为资源 id 选择器；资源绑定请用 `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)`
+- dataset：`world.resource(kind = "dataset")` 或 `world.add_dataset` + `source_ref`
+- chart / cockpit 组件：走已注册 type key + `props`
+- `world_ref` 不是资源 id 选择器
 
 ## 写作要求
 
-- 先主干，后细节
+- 先主干结构，后 content 细节
+- 能用 pretty-panels / mini-park 证明的，才写进脚本规范
 - 先 current syntax，再考虑设计中的未来能力
-- 能用现有 example 证明的，才写进脚本规范

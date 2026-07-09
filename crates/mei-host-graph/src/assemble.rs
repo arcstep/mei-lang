@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use mei_lang_kernel::{
     load_component_assets, load_mei_config_for_app, normalize_panel_slots,
     resolve_app_root, CompiledApp, CompiledSceneRoute, ComponentAsset,
-    LoadedResource, PanelDecl, SceneContract, SceneDecl, UiNodeDecl,
+    LoadedResource, UiNodeDecl, SceneContract, SceneDecl, UiTreeNode,
 };
 use serde_json::{json, Value};
 
@@ -13,14 +13,14 @@ use crate::import::load_block_artifact;
 use crate::layer_plan::{build_layer_plan, flatten_panel_tree, layer_plan_to_value};
 use crate::mcg::registry::McgRegistryWriter;
 use crate::presentation_map::{build_presentation_map, presentation_map_to_value};
-use crate::projection_normalize::normalize_board_assembly_payload;
+use crate::projection_normalize::normalize_page_instance_payload;
 use crate::semantic_scene::{
     assemble_semantic_scene, has_semantic_scene, load_semantic_scene_payload,
 };
 use crate::tier::canonical_tier;
 use crate::types::GraphNodeKind;
 use crate::v2_lower::{
-    find_panel_contract_node, lower_frame_from_assembly, lower_panel_payload,
+    find_content_panel_node, lower_frame_from_assembly, lower_panel_payload,
     lower_v2_inline_panels_from_assembly, PanelLowerContext,
 };
 use crate::world_plan::build_world_exchange;
@@ -85,8 +85,8 @@ pub fn list_scope_routes(source_root: &Path, app_id: &str) -> Result<Vec<ScopeRo
     Ok(routes)
 }
 
-/// Board page scene ids (`board_assembly.scene`) under a T2 section scope path.
-pub fn board_page_scenes_for_section_scope(
+/// Board page scene ids (`page_instance.scene`) under a T2 section scope path.
+pub fn t2_page_scenes_for_section_scope(
     source_root: &Path,
     app_id: &str,
     section_scope: &str,
@@ -117,7 +117,7 @@ pub fn board_page_scenes_for_section_scope(
     }
     let mut scenes = BTreeSet::new();
     for assembly_key in assembly_refs {
-        for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
             if node.id.key != assembly_key {
                 continue;
             }
@@ -130,7 +130,7 @@ pub fn board_page_scenes_for_section_scope(
         return scenes.into_iter().collect();
     }
     let section_needles = section_keys;
-    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         if node.id.key.contains("home@") {
             continue;
         }
@@ -174,11 +174,11 @@ fn collect_assembly_refs_from_payload(value: &Value, out: &mut Vec<String>) {
 }
 
 /// Collect scene ids for all T2 page assembly views (warmup / smoke tests).
-pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
+pub fn collect_all_t2_page_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
     let registry = McgRegistryWriter::load(source_root, app_id);
     let app_root = resolve_app_root(source_root, app_id);
     let mut scenes = BTreeSet::new();
-    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         if node.id.key.contains("home@") {
             scenes.insert("home".to_string());
             continue;
@@ -270,7 +270,7 @@ fn assemble_scope_from_registry_uncached(
                 Vec::new(),
             )
         } else {
-            let assembly_payload = normalize_board_assembly_payload(load_assembly_payload(
+            let assembly_payload = normalize_page_instance_payload(load_assembly_payload(
                 app_root.as_path(),
                 &registry,
                 &assembly_key,
@@ -384,7 +384,7 @@ fn assemble_scope_from_registry_uncached(
         component_assets,
         diagnostics: panel_diagnostics,
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -462,7 +462,7 @@ fn resolve_scene_id_for_assembly(
         .nodes
         .iter()
         .filter(|n| {
-            matches!(n.id.kind, GraphNodeKind::AssemblyView | GraphNodeKind::SemanticGraph)
+            matches!(n.id.kind, GraphNodeKind::PageInstance | GraphNodeKind::SemanticGraph)
                 && n.id.key.contains("/assembly.mei")
         })
         .filter_map(|n| {
@@ -515,7 +515,7 @@ fn resolve_assembly_key(
             .nodes
             .iter()
             .find(|n| {
-                matches!(n.id.kind, GraphNodeKind::AssemblyView | GraphNodeKind::SemanticGraph)
+                matches!(n.id.kind, GraphNodeKind::PageInstance | GraphNodeKind::SemanticGraph)
                     && n.id.key.contains("home@")
             })
             .map(|n| n.id.key.clone())
@@ -534,7 +534,7 @@ fn resolve_assembly_key(
         .nodes
         .iter()
         .find(|n| {
-            matches!(n.id.kind, GraphNodeKind::AssemblyView | GraphNodeKind::SemanticGraph)
+            matches!(n.id.kind, GraphNodeKind::PageInstance | GraphNodeKind::SemanticGraph)
                 && n.id.key.split('#').next_back() == Some(scene_id.as_str())
         })
         .map(|n| n.id.key.clone())
@@ -571,7 +571,7 @@ pub(crate) fn find_assembly_key_by_scene(
     registry: &crate::mcg::registry::McgRegistry,
     scene_id: &str,
 ) -> Option<String> {
-    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         if node.id.key.contains("home@") {
             continue;
         }
@@ -590,7 +590,7 @@ fn load_assembly_payload(
     let node = registry
         .nodes
         .iter()
-        .find(|n| n.id.kind == GraphNodeKind::AssemblyView && n.id.key == assembly_key)
+        .find(|n| n.id.kind == GraphNodeKind::PageInstance && n.id.key == assembly_key)
         .with_context(|| format!("assembly view not found: {assembly_key}"))?;
     let pref = node
         .payload_ref
@@ -640,7 +640,7 @@ pub(crate) fn assembly_target_for_key(
     if let Some(node) = registry
         .nodes
         .iter()
-        .find(|node| node.id.kind == GraphNodeKind::AssemblyView && node.id.key == assembly_key)
+        .find(|node| node.id.kind == GraphNodeKind::PageInstance && node.id.key == assembly_key)
     {
         return assembly_target_for_node(app_root, node);
     }
@@ -698,7 +698,7 @@ fn build_scene_routes(
             access_export: true,
         });
     }
-    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         if node.id.key.contains("home@") {
             continue;
         }
@@ -731,7 +731,7 @@ fn build_scene_routes(
         });
     }
     if routes.is_empty() {
-        for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+        for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
             let scene = node.id.key.split('#').next_back().unwrap_or("home");
             routes.push(CompiledSceneRoute {
                 scene_id: scene.to_string(),
@@ -783,7 +783,7 @@ fn load_projection_map(
     resources: &[mei_lang_kernel::LoadedResource],
 ) -> BTreeMap<String, Value> {
     let mut map = BTreeMap::new();
-    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         if node.id.key.contains("home@") {
             continue;
         }
@@ -798,9 +798,9 @@ fn load_projection_map(
                     .trim()
                     .to_string();
                 if !scene_id.is_empty() {
-                    let mut normalized = normalize_board_assembly_payload(payload);
+                    let mut normalized = normalize_page_instance_payload(payload);
                     if let Some(assembly) = normalized.as_object_mut() {
-                        let _ = mei_lang_kernel::enrich_runtime_board_assembly_projection_slots(
+                        let _ = mei_lang_kernel::enrich_runtime_page_instance_projection_slots(
                             assembly,
                             resources,
                             scene_id.as_str(),
@@ -819,7 +819,7 @@ fn load_scene_examples_by_id(
     registry: &crate::mcg::registry::McgRegistry,
 ) -> BTreeMap<String, Value> {
     let mut map = BTreeMap::new();
-    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         if node.id.key.contains("home@") {
             continue;
         }
@@ -858,7 +858,7 @@ fn load_scene_local_nav_by_target(
     registry: &crate::mcg::registry::McgRegistry,
 ) -> BTreeMap<String, Value> {
     let mut map = BTreeMap::new();
-    for node in registry.nodes_of_kind(GraphNodeKind::AssemblyView) {
+    for node in registry.nodes_of_kind(GraphNodeKind::PageInstance) {
         let Some(pref) = node.payload_ref.as_ref() else {
             continue;
         };
@@ -950,7 +950,7 @@ fn load_panels_for_assembly(
     registry: &crate::mcg::registry::McgRegistry,
     assembly_payload: &Value,
     scene_id: &str,
-) -> (Vec<mei_lang_kernel::PanelDecl>, BTreeMap<String, Value>) {
+) -> (Vec<mei_lang_kernel::UiNodeDecl>, BTreeMap<String, Value>) {
     let lower_ctx = PanelLowerContext {
         app_root,
         app_id,
@@ -973,8 +973,8 @@ fn load_panels_for_assembly(
         let Some(panel_key) = panel_key else {
             continue;
         };
-        let contract_key = normalize_panel_contract_key(&panel_key, assembly_payload);
-        let Some(node) = find_panel_contract_node(registry, contract_key.as_str(), scene_id) else {
+        let contract_key = normalize_content_panel_key(&panel_key, assembly_payload);
+        let Some(node) = find_content_panel_node(registry, contract_key.as_str(), scene_id) else {
             continue;
         };
         let Some(pref) = node.payload_ref.as_ref() else {
@@ -1045,7 +1045,7 @@ fn extract_panel_ref_key(value: &Value) -> Option<String> {
     value.get("id").and_then(|v| v.as_str()).map(str::to_string)
 }
 
-fn normalize_panel_contract_key(panel_key: &str, assembly_payload: &Value) -> String {
+fn normalize_content_panel_key(panel_key: &str, assembly_payload: &Value) -> String {
     if panel_key.contains(':') {
         return panel_key.to_string();
     }
@@ -1070,7 +1070,7 @@ fn extract_assembly_ref(payload: &Value) -> Option<String> {
 
 fn collect_component_assets_for_panels(
     source_root: &Path,
-    panels: &[PanelDecl],
+    panels: &[UiNodeDecl],
 ) -> Result<Vec<ComponentAsset>> {
     let asset_map = load_component_assets(source_root)?;
     let mut asset_keys = BTreeSet::new();
@@ -1083,21 +1083,21 @@ fn collect_component_assets_for_panels(
         .collect())
 }
 
-fn collect_asset_keys_from_panel(panel: &PanelDecl, asset_keys: &mut BTreeSet<String>) {
+fn collect_asset_keys_from_panel(panel: &UiNodeDecl, asset_keys: &mut BTreeSet<String>) {
     collect_asset_keys_from_nodes(&panel.blocks, asset_keys);
     if let Some(head) = panel.head.as_ref() {
         collect_asset_keys_from_nodes(std::slice::from_ref(head.as_ref()), asset_keys);
     }
 }
 
-fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &mut BTreeSet<String>) {
+fn collect_asset_keys_from_nodes(nodes: &[UiTreeNode], asset_keys: &mut BTreeSet<String>) {
     for node in nodes {
         match node {
-            UiNodeDecl::Panel(panel) => collect_asset_keys_from_panel(panel, asset_keys),
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Panel(panel) => collect_asset_keys_from_panel(panel, asset_keys),
+            UiTreeNode::Block(block) => {
                 asset_keys.insert(block.use_key.clone());
             }
-            UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }

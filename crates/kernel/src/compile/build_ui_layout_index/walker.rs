@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::model::{
-    BlockDecl, BuildNodeId, LayoutDecl, PanelDecl, UiBudgetSummary, UiScopeNode, UiScopeRole,
-    UiSourceAnchor, UiNodeDecl,
+    BlockDecl, BuildNodeId, LayoutDecl, UiNodeDecl, UiBudgetSummary, UiScopeNode, UiScopeRole,
+    UiSourceAnchor, UiTreeNode,
 };
 
 pub struct UiStructureBuildResult {
@@ -79,7 +79,7 @@ impl<'a> Builder<'a> {
 pub fn build_scene_ui_structure(
     scene_id: &str,
     scene_label: &str,
-    panels: &[PanelDecl],
+    panels: &[UiNodeDecl],
     app_id: &str,
 ) -> UiStructureBuildResult {
     let mut builder = Builder {
@@ -104,7 +104,7 @@ pub fn build_scene_ui_structure(
     );
     let scene_id_encoded = builder.insert_node(scene_node);
 
-    let mut planes: BTreeMap<String, Vec<&PanelDecl>> = BTreeMap::new();
+    let mut planes: BTreeMap<String, Vec<&UiNodeDecl>> = BTreeMap::new();
     for panel in panels {
         let tier = panel_tier(panel);
         planes.entry(tier).or_default().push(panel);
@@ -150,7 +150,7 @@ fn tier_scoped_preview_scope(tier: &str, logical_path: &str) -> String {
     format!("{tier_slug}/{path}")
 }
 
-fn walk_region(builder: &mut Builder<'_>, region: &PanelDecl, tier: &str, plane_id: &str) {
+fn walk_region(builder: &mut Builder<'_>, region: &UiNodeDecl, tier: &str, plane_id: &str) {
     let region_id = region.id.clone();
     let region_label = region_label(region);
     let region_segments = vec![
@@ -211,13 +211,13 @@ fn walk_region(builder: &mut Builder<'_>, region: &PanelDecl, tier: &str, plane_
     }
 }
 
-fn panel_is_nested_region(panel: &PanelDecl) -> bool {
+fn panel_is_nested_region(panel: &UiNodeDecl) -> bool {
     ui_role_from_props(&panel.props) == Some("region")
 }
 
 fn walk_nested_region_under_region(
     builder: &mut Builder<'_>,
-    nested_region: &PanelDecl,
+    nested_region: &UiNodeDecl,
     tier: &str,
     parent_region_node_id: &str,
     parent_region_segments: &[String],
@@ -270,7 +270,7 @@ fn walk_nested_region_under_region(
 
 const DEFAULT_SECTION_KEY: &str = "_default";
 
-fn default_section_label(region: &PanelDecl) -> String {
+fn default_section_label(region: &UiNodeDecl) -> String {
     region
         .title
         .as_deref()
@@ -282,7 +282,7 @@ fn default_section_label(region: &PanelDecl) -> String {
 
 fn walk_default_section(
     builder: &mut Builder<'_>,
-    region: &PanelDecl,
+    region: &UiNodeDecl,
     tier: &str,
     region_node_id: &str,
     region_segments: &[String],
@@ -318,7 +318,7 @@ fn walk_default_section(
 
 fn walk_section(
     builder: &mut Builder<'_>,
-    section: &PanelDecl,
+    section: &UiNodeDecl,
     tier: &str,
     region_node_id: &str,
     region_segments: &[String],
@@ -359,7 +359,7 @@ fn walk_section(
 
 fn walk_section_body(
     builder: &mut Builder<'_>,
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     tier: &str,
     parent_id: &str,
     parent_segments: &[String],
@@ -445,7 +445,7 @@ fn walk_section_body(
 
 fn walk_slotted_layout(
     builder: &mut Builder<'_>,
-    layout_panel: &PanelDecl,
+    layout_panel: &UiNodeDecl,
     tier: &str,
     parent_id: &str,
     parent_segments: &[String],
@@ -698,7 +698,7 @@ fn scope_segments_from_preview(scene_id: &str, tier: &str, preview_scope: &str) 
 
 fn walk_contract_level_content_in_panel(
     builder: &mut Builder<'_>,
-    host_panel: &PanelDecl,
+    host_panel: &UiNodeDecl,
     tier: &str,
     parent_id: &str,
     parent_segments: &[String],
@@ -747,7 +747,7 @@ fn walk_contract_level_content_block(
     parent_segments: &[String],
     preview_prefix: &str,
     file_hint: Option<&str>,
-    host_panel: &PanelDecl,
+    host_panel: &UiNodeDecl,
 ) {
     if is_slot_area_block(block, host_panel) {
         let area = block
@@ -860,7 +860,7 @@ fn walk_content_block(
 
 fn walk_content_panel(
     builder: &mut Builder<'_>,
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     tier: &str,
     parent_id: &str,
     _parent_segments: &[String],
@@ -908,7 +908,7 @@ fn walk_content_panel(
 
 fn walk_layout_content_group(
     builder: &mut Builder<'_>,
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     tier: &str,
     parent_id: &str,
     _parent_segments: &[String],
@@ -950,7 +950,7 @@ fn walk_layout_content_group(
     }
 }
 
-fn layout_content_group_label(panel: &PanelDecl) -> String {
+fn layout_content_group_label(panel: &UiNodeDecl) -> String {
     if let Some(label) = panel
         .props
         .get("__mei_content_group_label")
@@ -986,28 +986,28 @@ const GROUP_LABEL_OVERRIDES: &[(&str, &str)] = &[
     ("park_penalty_amounts", "园区处罚"),
 ];
 
-fn chart_blocks_in_deep<'a>(panel: &'a PanelDecl) -> Vec<(&'a BlockDecl, String)> {
+fn chart_blocks_in_deep<'a>(panel: &'a UiNodeDecl) -> Vec<(&'a BlockDecl, String)> {
     let mut blocks = Vec::new();
     collect_chart_blocks(panel, &mut blocks);
     blocks
 }
 
-fn collect_chart_blocks<'a>(panel: &'a PanelDecl, out: &mut Vec<(&'a BlockDecl, String)>) {
+fn collect_chart_blocks<'a>(panel: &'a UiNodeDecl, out: &mut Vec<(&'a BlockDecl, String)>) {
     for ui_node in &panel.blocks {
         match ui_node {
-            UiNodeDecl::Block(block) if block_content_use_key(block).starts_with("chart.") => {
+            UiTreeNode::Block(block) if block_content_use_key(block).starts_with("chart.") => {
                 out.push((block, content_label_from_block(block)));
             }
-            UiNodeDecl::Panel(child) => collect_chart_blocks(child, out),
+            UiTreeNode::Panel(child) => collect_chart_blocks(child, out),
             _ => {}
         }
     }
 }
 
-fn content_blocks_in_deep<'a>(panel: &'a PanelDecl) -> Vec<(&'a BlockDecl, String)> {
+fn content_blocks_in_deep<'a>(panel: &'a UiNodeDecl) -> Vec<(&'a BlockDecl, String)> {
     let mut blocks = content_blocks_in(panel);
     for ui_node in &panel.blocks {
-        if let UiNodeDecl::Panel(child) = ui_node {
+        if let UiTreeNode::Panel(child) = ui_node {
             if is_slotted_layout_panel(child)
                 || is_content_group_panel(child)
                 || is_metric_card_panel(child)
@@ -1023,11 +1023,11 @@ fn content_blocks_in_deep<'a>(panel: &'a PanelDecl) -> Vec<(&'a BlockDecl, Strin
 struct SlotWalkItem {
     area: String,
     label: String,
-    nested_panel: Option<PanelDecl>,
+    nested_panel: Option<UiNodeDecl>,
     block: Option<BlockDecl>,
 }
 
-fn sections_in_region(region: &PanelDecl) -> Vec<(String, PanelDecl)> {
+fn sections_in_region(region: &UiNodeDecl) -> Vec<(String, UiNodeDecl)> {
     let mut sections = Vec::new();
     if let Some(areas) = region.layout.as_ref().and_then(|layout| layout.areas.as_ref()) {
         for area_row in areas {
@@ -1039,7 +1039,7 @@ fn sections_in_region(region: &PanelDecl) -> Vec<(String, PanelDecl)> {
         }
     }
     for ui_node in &region.blocks {
-        if let UiNodeDecl::Panel(panel) = ui_node {
+        if let UiTreeNode::Panel(panel) = ui_node {
             if panel_is_section(panel) {
                 let key = panel
                     .area
@@ -1055,7 +1055,7 @@ fn sections_in_region(region: &PanelDecl) -> Vec<(String, PanelDecl)> {
     sections
 }
 
-fn panel_is_section(panel: &PanelDecl) -> bool {
+fn panel_is_section(panel: &UiNodeDecl) -> bool {
     if ui_role_from_props(&panel.props) == Some("section") {
         return true;
     }
@@ -1083,21 +1083,21 @@ fn panel_is_section(panel: &PanelDecl) -> bool {
     })
 }
 
-fn find_nested_panel_by_area<'a>(region: &'a PanelDecl, area: &str) -> Option<&'a PanelDecl> {
+fn find_nested_panel_by_area<'a>(region: &'a UiNodeDecl, area: &str) -> Option<&'a UiNodeDecl> {
     for ui_node in &region.blocks {
         match ui_node {
-            UiNodeDecl::Panel(panel) if panel.area.as_deref() == Some(area) => return Some(panel),
-            UiNodeDecl::Panel(panel) if panel.id == area => return Some(panel),
+            UiTreeNode::Panel(panel) if panel.area.as_deref() == Some(area) => return Some(panel),
+            UiTreeNode::Panel(panel) if panel.id == area => return Some(panel),
             _ => {}
         }
     }
     None
 }
 
-fn slotted_layout_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn slotted_layout_panels_in(panel: &UiNodeDecl) -> Vec<&UiNodeDecl> {
     let mut result = Vec::new();
     for ui_node in &panel.blocks {
-        if let UiNodeDecl::Panel(nested) = ui_node {
+        if let UiTreeNode::Panel(nested) = ui_node {
             if is_slotted_layout_panel(nested) {
                 result.push(nested);
             }
@@ -1106,7 +1106,7 @@ fn slotted_layout_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
     result
 }
 
-fn slotted_layout_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn slotted_layout_panels_in_deep(panel: &UiNodeDecl) -> Vec<&UiNodeDecl> {
     let mut result = slotted_layout_panels_in(panel);
     for child in child_panels(panel) {
         if !is_slotted_layout_panel(child) && !is_content_group_panel(child) {
@@ -1116,13 +1116,13 @@ fn slotted_layout_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
     result
 }
 
-fn layout_content_group_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn layout_content_group_panels_in_deep(panel: &UiNodeDecl) -> Vec<&UiNodeDecl> {
     let mut result = Vec::new();
     collect_layout_content_group_panels(panel, &mut result);
     result
 }
 
-fn collect_layout_content_group_panels<'a>(panel: &'a PanelDecl, out: &mut Vec<&'a PanelDecl>) {
+fn collect_layout_content_group_panels<'a>(panel: &'a UiNodeDecl, out: &mut Vec<&'a UiNodeDecl>) {
     for child in child_panels(panel) {
         if is_content_group_panel(child) {
             out.push(child);
@@ -1134,12 +1134,12 @@ fn collect_layout_content_group_panels<'a>(panel: &'a PanelDecl, out: &mut Vec<&
     }
 }
 
-fn child_panels(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn child_panels(panel: &UiNodeDecl) -> Vec<&UiNodeDecl> {
     panel
         .blocks
         .iter()
         .filter_map(|ui_node| match ui_node {
-            UiNodeDecl::Panel(nested) => Some(nested),
+            UiTreeNode::Panel(nested) => Some(nested),
             _ => None,
         })
         .collect()
@@ -1153,7 +1153,7 @@ const VIEWPORT_CHROME_ROLES: &[&str] = &[
     "stage_aperture",
 ];
 
-fn is_viewport_chrome_panel(panel: &PanelDecl) -> bool {
+fn is_viewport_chrome_panel(panel: &UiNodeDecl) -> bool {
     if panel
         .props
         .get("__mei_chrome_role")
@@ -1172,13 +1172,13 @@ fn is_viewport_chrome_panel(panel: &PanelDecl) -> bool {
     )
 }
 
-fn viewport_chrome_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn viewport_chrome_panels_in_deep(panel: &UiNodeDecl) -> Vec<&UiNodeDecl> {
     let mut result = Vec::new();
     collect_viewport_chrome_panels(panel, &mut result);
     result
 }
 
-fn collect_viewport_chrome_panels<'a>(panel: &'a PanelDecl, out: &mut Vec<&'a PanelDecl>) {
+fn collect_viewport_chrome_panels<'a>(panel: &'a UiNodeDecl, out: &mut Vec<&'a UiNodeDecl>) {
     for child in child_panels(panel) {
         if is_viewport_chrome_panel(child) {
             out.push(child);
@@ -1189,7 +1189,7 @@ fn collect_viewport_chrome_panels<'a>(panel: &'a PanelDecl, out: &mut Vec<&'a Pa
     }
 }
 
-fn is_metric_card_panel(panel: &PanelDecl) -> bool {
+fn is_metric_card_panel(panel: &UiNodeDecl) -> bool {
     panel
         .props
         .get("__mei_metric_card")
@@ -1201,14 +1201,14 @@ fn is_metric_card_panel(panel: &PanelDecl) -> bool {
         .unwrap_or(false)
 }
 
-fn metric_card_panels_in(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn metric_card_panels_in(panel: &UiNodeDecl) -> Vec<&UiNodeDecl> {
     child_panels(panel)
         .into_iter()
         .filter(|nested| is_metric_card_panel(nested))
         .collect()
 }
 
-fn metric_card_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn metric_card_panels_in_deep(panel: &UiNodeDecl) -> Vec<&UiNodeDecl> {
     let mut result = metric_card_panels_in(panel);
     for child in child_panels(panel) {
         if !is_slotted_layout_panel(child) && !is_metric_card_panel(child) {
@@ -1218,13 +1218,13 @@ fn metric_card_panels_in_deep(panel: &PanelDecl) -> Vec<&PanelDecl> {
     result
 }
 
-fn metric_card_panels_exclusive(panel: &PanelDecl) -> Vec<&PanelDecl> {
+fn metric_card_panels_exclusive(panel: &UiNodeDecl) -> Vec<&UiNodeDecl> {
     let mut result = Vec::new();
     collect_metric_card_panels_exclusive(panel, &mut result);
     result
 }
 
-fn collect_metric_card_panels_exclusive<'a>(panel: &'a PanelDecl, out: &mut Vec<&'a PanelDecl>) {
+fn collect_metric_card_panels_exclusive<'a>(panel: &'a UiNodeDecl, out: &mut Vec<&'a UiNodeDecl>) {
     if is_slotted_layout_panel(panel) || is_content_group_panel(panel) {
         return;
     }
@@ -1234,7 +1234,7 @@ fn collect_metric_card_panels_exclusive<'a>(panel: &'a PanelDecl, out: &mut Vec<
     }
 }
 
-fn metric_card_label(panel: &PanelDecl) -> String {
+fn metric_card_label(panel: &UiNodeDecl) -> String {
     if let Some(title) = panel.title.as_deref().filter(|v| !v.trim().is_empty()) {
         return title.to_string();
     }
@@ -1248,7 +1248,7 @@ fn metric_card_label(panel: &PanelDecl) -> String {
         return label.to_string();
     }
     for ui_node in &panel.blocks {
-        if let UiNodeDecl::Block(block) = ui_node {
+        if let UiTreeNode::Block(block) = ui_node {
             if matches!(block.use_key.as_str(), "mei.text" | "label") {
                 let label = content_label_from_block(block);
                 if !label.is_empty() && label != block.use_key {
@@ -1260,7 +1260,7 @@ fn metric_card_label(panel: &PanelDecl) -> String {
     panel.id.clone()
 }
 
-fn is_slot_shell_panel(panel: &PanelDecl) -> bool {
+fn is_slot_shell_panel(panel: &UiNodeDecl) -> bool {
     if is_metric_card_panel(panel) || is_content_group_panel(panel) {
         return false;
     }
@@ -1293,7 +1293,7 @@ fn is_slot_shell_panel(panel: &PanelDecl) -> bool {
     false
 }
 
-fn is_slotted_layout_panel(panel: &PanelDecl) -> bool {
+fn is_slotted_layout_panel(panel: &UiNodeDecl) -> bool {
     if is_content_group_panel(panel) {
         return false;
     }
@@ -1345,18 +1345,18 @@ fn is_slotted_layout_panel(panel: &PanelDecl) -> bool {
     false
 }
 
-fn panel_has_slotted_layout_children(panel: &PanelDecl, areas: &[String]) -> bool {
+fn panel_has_slotted_layout_children(panel: &UiNodeDecl, areas: &[String]) -> bool {
     if areas.is_empty() {
         return false;
     }
     panel.blocks.iter().any(|ui_node| match ui_node {
-        UiNodeDecl::Block(block) => block
+        UiTreeNode::Block(block) => block
             .area
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty() && *value != "auto")
             .is_some_and(|area| areas.iter().any(|slot| slot == area)),
-        UiNodeDecl::Panel(nested) => nested
+        UiTreeNode::Panel(nested) => nested
             .area
             .as_deref()
             .map(str::trim)
@@ -1366,7 +1366,7 @@ fn panel_has_slotted_layout_children(panel: &PanelDecl, areas: &[String]) -> boo
     })
 }
 
-fn is_compound_metric_panel(panel: &PanelDecl) -> bool {
+fn is_compound_metric_panel(panel: &UiNodeDecl) -> bool {
     if panel.props.get("__mei_compound_top_band_ratio").is_some()
         || panel.props.get("__mei_compound_top_ratio").is_some()
         || panel.props.get("__mei_compound_bottom_ratio").is_some()
@@ -1382,37 +1382,37 @@ fn is_compound_metric_panel(panel: &PanelDecl) -> bool {
         || layout_has_areas(panel, &["main", "rtop", "rbottom"])
 }
 
-fn is_chart_summary_panel(panel: &PanelDecl) -> bool {
+fn is_chart_summary_panel(panel: &UiNodeDecl) -> bool {
     layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("chart_with_summary"))
         || layout_has_areas(panel, &["summary", "chart"])
 }
 
-fn is_table_summary_panel(panel: &PanelDecl) -> bool {
+fn is_table_summary_panel(panel: &UiNodeDecl) -> bool {
     layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("table_with_summary"))
         || layout_has_areas(panel, &["summary", "table"])
 }
 
-fn is_metric_summary_panel(panel: &PanelDecl) -> bool {
+fn is_metric_summary_panel(panel: &UiNodeDecl) -> bool {
     layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("summary_stack"))
         || layout_has_areas(panel, &["primary", "secondary_a", "secondary_b"])
 }
 
-fn is_status_flow_panel(panel: &PanelDecl) -> bool {
+fn is_status_flow_panel(panel: &UiNodeDecl) -> bool {
     layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("status_triptych"))
         || layout_has_areas(panel, &["pending", "doing", "done", "summary"])
 }
 
-fn is_progress_triptych_panel(panel: &PanelDecl) -> bool {
+fn is_progress_triptych_panel(panel: &UiNodeDecl) -> bool {
     layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("primary_progress_triptych"))
         || layout_has_areas(panel, &["primary", "triptych"])
 }
 
-fn is_metric_list_panel(panel: &PanelDecl) -> bool {
+fn is_metric_list_panel(panel: &UiNodeDecl) -> bool {
     layout_macro_hint(panel).is_some_and(|macro_name| macro_name.contains("metric_list"))
         || panel.id.contains("metric_list")
 }
 
-fn content_group_kind(panel: &PanelDecl) -> Option<&'static str> {
+fn content_group_kind(panel: &UiNodeDecl) -> Option<&'static str> {
     if is_compound_metric_panel(panel) {
         return Some("compound-metric");
     }
@@ -1437,11 +1437,11 @@ fn content_group_kind(panel: &PanelDecl) -> Option<&'static str> {
     None
 }
 
-fn is_content_group_panel(panel: &PanelDecl) -> bool {
+fn is_content_group_panel(panel: &UiNodeDecl) -> bool {
     content_group_kind(panel).is_some()
 }
 
-fn layout_macro_hint(panel: &PanelDecl) -> Option<&str> {
+fn layout_macro_hint(panel: &UiNodeDecl) -> Option<&str> {
     panel
         .props
         .get("__mei_layout_macro")
@@ -1453,7 +1453,7 @@ fn macro_implies_slotted_layout(macro_name: &str) -> bool {
     macro_name == "micro_panel" || macro_name.ends_with("_body")
 }
 
-fn layout_has_areas(panel: &PanelDecl, required: &[&str]) -> bool {
+fn layout_has_areas(panel: &UiNodeDecl, required: &[&str]) -> bool {
     let areas = panel
         .layout
         .as_ref()
@@ -1478,19 +1478,19 @@ const SLOTTED_LAYOUT_PANEL_ID_HINTS: &[&str] = &[
     "supervision-stats",
 ];
 
-fn slotted_layout_key(panel: &PanelDecl) -> String {
+fn slotted_layout_key(panel: &UiNodeDecl) -> String {
     layout_macro_hint(panel)
         .map(str::to_string)
         .unwrap_or_else(|| panel.id.clone())
 }
 
-fn slotted_layout_label(panel: &PanelDecl) -> String {
+fn slotted_layout_label(panel: &UiNodeDecl) -> String {
     layout_macro_hint(panel)
         .map(|macro_name| macro_name.replace("_body", ""))
         .unwrap_or_else(|| panel.id.clone())
 }
 
-fn slot_nodes_in_layout(layout_panel: &PanelDecl) -> Vec<SlotWalkItem> {
+fn slot_nodes_in_layout(layout_panel: &UiNodeDecl) -> Vec<SlotWalkItem> {
     let mut slots = Vec::new();
     let layout_areas = layout_panel
         .layout
@@ -1500,7 +1500,7 @@ fn slot_nodes_in_layout(layout_panel: &PanelDecl) -> Vec<SlotWalkItem> {
 
     for ui_node in &layout_panel.blocks {
         match ui_node {
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 let area = block
                     .area
                     .clone()
@@ -1515,7 +1515,7 @@ fn slot_nodes_in_layout(layout_panel: &PanelDecl) -> Vec<SlotWalkItem> {
                     });
                 }
             }
-            UiNodeDecl::Panel(panel) => {
+            UiTreeNode::Panel(panel) => {
                 let area = panel
                     .area
                     .clone()
@@ -1541,10 +1541,10 @@ fn slot_nodes_in_layout(layout_panel: &PanelDecl) -> Vec<SlotWalkItem> {
     slots
 }
 
-fn content_blocks_in(panel: &PanelDecl) -> Vec<(&BlockDecl, String)> {
+fn content_blocks_in(panel: &UiNodeDecl) -> Vec<(&BlockDecl, String)> {
     let mut blocks = Vec::new();
     for ui_node in &panel.blocks {
-        if let UiNodeDecl::Block(block) = ui_node {
+        if let UiTreeNode::Block(block) = ui_node {
             if is_content_block(block) && !is_slot_area_block(block, panel) {
                 blocks.push((block, content_label_from_block(block)));
             }
@@ -1553,10 +1553,10 @@ fn content_blocks_in(panel: &PanelDecl) -> Vec<(&BlockDecl, String)> {
     blocks
 }
 
-fn contract_level_content_blocks(panel: &PanelDecl) -> Vec<(&BlockDecl, String)> {
+fn contract_level_content_blocks(panel: &UiNodeDecl) -> Vec<(&BlockDecl, String)> {
     let mut blocks = Vec::new();
     for ui_node in &panel.blocks {
-        if let UiNodeDecl::Block(block) = ui_node {
+        if let UiTreeNode::Block(block) = ui_node {
             if is_content_block(block) && is_slot_area_block(block, panel) {
                 blocks.push((block, content_label_from_block(block)));
             }
@@ -1565,7 +1565,7 @@ fn contract_level_content_blocks(panel: &PanelDecl) -> Vec<(&BlockDecl, String)>
     blocks
 }
 
-fn is_slot_area_block(block: &BlockDecl, panel: &PanelDecl) -> bool {
+fn is_slot_area_block(block: &BlockDecl, panel: &UiNodeDecl) -> bool {
     let Some(area) = block.area.as_deref().filter(|v| !v.is_empty() && *v != "auto") else {
         return false;
     };
@@ -1662,7 +1662,7 @@ fn slot_label_from_block(block: &BlockDecl, area: &str) -> String {
     }
 }
 
-fn slot_label_from_panel(panel: &PanelDecl, area: &str) -> String {
+fn slot_label_from_panel(panel: &UiNodeDecl, area: &str) -> String {
     if let Some(title) = panel.title.as_deref().filter(|v| !v.trim().is_empty()) {
         format!("{area} · {title}")
     } else {
@@ -1698,7 +1698,7 @@ fn flat_areas(layout: &LayoutDecl) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn panel_tier(panel: &PanelDecl) -> String {
+fn panel_tier(panel: &UiNodeDecl) -> String {
     panel
         .props
         .get("__mei_tier")
@@ -1723,7 +1723,7 @@ fn plane_label_for_tier(tier: &str) -> String {
     }
 }
 
-fn region_label(panel: &PanelDecl) -> String {
+fn region_label(panel: &UiNodeDecl) -> String {
     panel
         .title
         .clone()
@@ -1744,21 +1744,14 @@ fn ui_role_from_props(props: &Value) -> Option<&str> {
         .and_then(|v| v.as_str())
 }
 
-fn budget_from_chart_block(block: &BlockDecl) -> Option<UiBudgetSummary> {
-    let props = block.props.as_object()?;
-    let chart_height = props
-        .get("chartHeight")
-        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|n| n as i64)))
-        .filter(|value| *value > 0)?;
-    Some(UiBudgetSummary {
-        card_height: Some(chart_height),
-        ..UiBudgetSummary::default()
-    })
+fn budget_from_chart_block(_block: &BlockDecl) -> Option<UiBudgetSummary> {
+    // chartHeight no longer drives section/slot height (content-budget path deleted).
+    None
 }
 
-fn merged_section_budget(section: &PanelDecl) -> Option<UiBudgetSummary> {
+fn merged_section_budget(section: &UiNodeDecl) -> Option<UiBudgetSummary> {
     let mut budget = budget_from_panel(section).unwrap_or_default();
-    if let Some(content_panel) = content_budget_panel_in_deep(section) {
+    if let Some(content_panel) = fill_content_panel_in_deep(section) {
         if let Some(content_budget) = budget_from_panel(content_panel) {
             budget = merge_section_shell_budget(budget, content_budget);
         }
@@ -1782,9 +1775,6 @@ fn merge_section_shell_budget(mut base: UiBudgetSummary, overlay: UiBudgetSummar
     if overlay.padding.is_some() {
         base.padding = overlay.padding;
     }
-    if overlay.content_gap.is_some() {
-        base.content_gap = overlay.content_gap;
-    }
     if overlay.section_derived_height_px.is_some() {
         base.section_derived_height_px = overlay.section_derived_height_px;
     }
@@ -1794,7 +1784,7 @@ fn merge_section_shell_budget(mut base: UiBudgetSummary, overlay: UiBudgetSummar
     base
 }
 
-fn content_budget_panel_in_deep(panel: &PanelDecl) -> Option<&PanelDecl> {
+fn fill_content_panel_in_deep(panel: &UiNodeDecl) -> Option<&UiNodeDecl> {
     if panel
         .props
         .as_object()
@@ -1802,22 +1792,15 @@ fn content_budget_panel_in_deep(panel: &PanelDecl) -> Option<&PanelDecl> {
     {
         return Some(panel);
     }
-    if panel
-        .props
-        .as_object()
-        .is_some_and(|map| map.contains_key("__mei_content_budget"))
-    {
-        return Some(panel);
-    }
     for child in child_panels(panel) {
-        if let Some(found) = content_budget_panel_in_deep(child) {
+        if let Some(found) = fill_content_panel_in_deep(child) {
             return Some(found);
         }
     }
     None
 }
 
-fn budget_from_panel(panel: &PanelDecl) -> Option<UiBudgetSummary> {
+fn budget_from_panel(panel: &UiNodeDecl) -> Option<UiBudgetSummary> {
     let mut budget = UiBudgetSummary::default();
     if let Some(layout) = &panel.layout {
         if layout.layout_type != "flex" {
@@ -1843,24 +1826,6 @@ fn budget_from_panel(panel: &PanelDecl) -> Option<UiBudgetSummary> {
         }
     }
     if let Some(map) = panel.props.as_object() {
-        if let Some(content_budget) = map.get("__mei_content_budget") {
-            if let Some(rows) = content_budget.get("rows").and_then(Value::as_array) {
-                let parsed: Vec<i64> = rows
-                    .iter()
-                    .filter_map(|v| v.as_i64().or_else(|| v.as_f64().map(|n| n as i64)))
-                    .collect();
-                if !parsed.is_empty() {
-                    budget.content_rows = Some(parsed);
-                }
-            }
-            if let Some(gap) = content_budget
-                .get("gap")
-                .and_then(Value::as_str)
-                .filter(|v| !v.is_empty())
-            {
-                budget.content_gap = Some(gap.to_string());
-            }
-        }
         if let Some(h) = map
             .get("__mei_section_derived_height_px")
             .and_then(Value::as_f64)
@@ -1881,7 +1846,6 @@ fn budget_from_panel(panel: &PanelDecl) -> Option<UiBudgetSummary> {
         "third_width",
         "compound_width",
         "width",
-        "card_height",
     ] {
         if let Some(value) = panel.props.get(key) {
             let text = value
@@ -1889,9 +1853,7 @@ fn budget_from_panel(panel: &PanelDecl) -> Option<UiBudgetSummary> {
                 .map(str::to_string)
                 .or_else(|| value.as_i64().map(|n| n.to_string()));
             if let Some(text) = text.filter(|v| !v.is_empty()) {
-                if key == "card_height" {
-                    budget.card_height = text.parse().ok();
-                } else if key == "width" {
+                if key == "width" {
                     budget.widths.insert("width".to_string(), text);
                 } else {
                     budget.widths.insert(key.to_string(), text);
@@ -1918,11 +1880,8 @@ fn budget_from_panel(panel: &PanelDecl) -> Option<UiBudgetSummary> {
 fn budget_is_empty(budget: &UiBudgetSummary) -> bool {
     budget.gap.is_none()
         && budget.padding.is_none()
-        && budget.card_height.is_none()
-        && budget.widths.is_empty()
-        && budget.content_rows.is_none()
-        && budget.content_gap.is_none()
-        && budget.section_derived_height_px.is_none()
+                && budget.widths.is_empty()
+                        && budget.section_derived_height_px.is_none()
         && budget.padding_profile.is_none()
         && budget.grid_template_columns.is_none()
         && budget.grid_template_rows.is_none()
@@ -1962,20 +1921,6 @@ fn budget_label_from_summary(budget: &UiBudgetSummary) -> String {
     if let Some(padding) = budget.padding.as_deref() {
         parts.push(format!("padding={padding}"));
     }
-    if let Some(height) = budget.card_height {
-        parts.push(format!("card_height={height}"));
-    }
-    if let Some(rows) = budget.content_rows.as_ref() {
-        let row_text = rows
-            .iter()
-            .map(|n| n.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        parts.push(format!("content_rows=[{row_text}]"));
-    }
-    if let Some(gap) = budget.content_gap.as_deref() {
-        parts.push(format!("content_gap={gap}"));
-    }
     if let Some(h) = budget.section_derived_height_px {
         parts.push(format!("section_derived_height_px={h:.0}"));
     }
@@ -1992,7 +1937,7 @@ fn budget_label_from_summary(budget: &UiBudgetSummary) -> String {
     }
 }
 
-fn source_anchor_for_panel(panel: &PanelDecl) -> Vec<UiSourceAnchor> {
+fn source_anchor_for_panel(panel: &UiNodeDecl) -> Vec<UiSourceAnchor> {
     panel
         .import_scope
         .as_deref()

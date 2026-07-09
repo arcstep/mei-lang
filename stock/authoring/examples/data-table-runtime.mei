@@ -30,9 +30,8 @@ world(
 frame(
     id = "home_frame",
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "runtime_table",
     area = "auto",
     blocks = [
@@ -49,4 +48,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

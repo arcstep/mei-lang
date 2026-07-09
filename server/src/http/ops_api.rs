@@ -9,8 +9,8 @@ use axum::{
 use mei_lang_app::{scene_theme_style_for_theme_id, scene_viewport_theme_style};
 use mei_lang_kernel::{
     apply_ops_patch_with_journal, compile_app_from_root_with_options, decode_theme_ref_token,
-    journal_path, layout_tuning_overlay_keys, load_mei_config_for_app,
-    merge_theme_layout_draft_into_theme, ops_layout_tuning_revision_digest,
+    journal_path, load_mei_config_for_app,
+    merge_theme_layout_draft_into_theme,
     ops_theme_layout_revision_digest, ops_themes_revision_digest,
     resolve_app_root as kernel_resolve_app_root, resolve_components_root,
     resolve_default_scene_from_root, resolve_mei_config_path, theme_layout_overlay_keys,
@@ -297,82 +297,11 @@ pub async fn ops_theme_style_get(
     response
 }
 
-#[derive(Debug, Serialize)]
-struct LayoutTuningOverlayResponse {
-    app_id: String,
-    session_id: String,
-    revision: String,
-    draft_active: bool,
-    entries: std::collections::BTreeMap<String, Value>,
-}
 
-pub async fn ops_layout_tuning_overlay_get(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(app_id): Path<String>,
-) -> impl IntoResponse {
-    let app_id = app_id.trim();
-    if app_id.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "app_id is required"})),
-        )
-            .into_response();
-    }
-    let Some(app_root) = resolve_app_root(&state, app_id) else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "app not found"})),
-        )
-            .into_response();
-    };
-    let source_root = state.source_root.as_path();
-    let config = load_mei_config_for_app(&app_root, Some(source_root));
-    let session_id = mei_host_core::resolve_draft_session_id(&headers);
-    let merged = mei_host_core::merge_layout_tuning_overlay(
-        config.ops.layout_tuning.as_ref(),
-        None,
-    );
-    let revision = ops_layout_tuning_revision_digest(&config.ops);
-    let entries = merged
-        .as_ref()
-        .map(layout_tuning_overlay_keys)
-        .unwrap_or_default();
-    (
-        StatusCode::OK,
-        Json(LayoutTuningOverlayResponse {
-            app_id: app_id.to_string(),
-            session_id,
-            revision,
-            draft_active: false,
-            entries,
-        }),
-    )
-        .into_response()
-}
 
-pub async fn ops_layout_tuning_draft_put(
-    Path(app_id): Path<String>,
-    _headers: HeaderMap,
-) -> impl IntoResponse {
-    let app_id = app_id.trim();
-    if app_id.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"error": "app_id is required"})),
-        )
-            .into_response();
-    }
-    (
-        StatusCode::GONE,
-        Json(json!({
-            "error": "layoutTuning draft PUT retired",
-            "migration": "layoutTuning session draft is client-only; use MeiDraftLayerStore in the browser (0517 Phase B4)",
-            "app_id": app_id,
-        })),
-    )
-        .into_response()
-}
+
+
+
 
 fn theme_id_from_scene_contract(
     contract: &mei_lang_kernel::SceneContract,
@@ -405,7 +334,6 @@ struct ThemeLayoutOverlayResponse {
     revision: String,
     themes_revision: String,
     draft_active: bool,
-    deprecated_layout_tuning: bool,
     entries: std::collections::BTreeMap<String, Value>,
 }
 
@@ -450,7 +378,6 @@ pub async fn ops_theme_layout_overlay_get(
             revision,
             themes_revision: ops_themes_revision_digest(&config),
             draft_active: false,
-            deprecated_layout_tuning: config.ops.layout_tuning.is_some(),
             entries,
         }),
     )
@@ -541,7 +468,6 @@ pub async fn ops_theme_layout_apply_post(
                     "revision": entry.revision,
                     "theme_layout_revision": ops_theme_layout_revision_digest(&updated, theme_id.as_str()),
                     "themes_revision": ops_themes_revision_digest(&updated),
-                    "migration": "layoutTuning is deprecated; use ops.themes.*.layout",
                 })),
             )
                 .into_response()

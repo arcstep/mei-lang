@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use crate::model::{
     BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest,
-    UiNodeDecl,
+    UiTreeNode,
 };
 
 pub fn build_overview_backing(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
@@ -50,7 +50,7 @@ fn build_overview_backing_runtime(compiled: &CompiledApp, node: &BuildNodeId) ->
             };
             let mut refs = Vec::new();
             for ui_node in &panel.blocks {
-                if let UiNodeDecl::Block(block) = ui_node {
+                if let UiTreeNode::Block(block) = ui_node {
                     refs.extend(backing_refs_from_block_props(&block.props));
                 }
             }

@@ -55,9 +55,8 @@ frame(
         gap = "16px",
         padding = "20px",
     ),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "summary_panel",
     area = "summary",
     blocks = [
@@ -69,9 +68,8 @@ frame.add_panel(
             },
         ),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "table_panel",
     area = "table",
     blocks = [
@@ -83,9 +81,8 @@ frame.add_panel(
             },
         ),
     ],
-)
-
-frame.add_panel(
+),
+panel(
     id = "chart_panel",
     area = "chart",
     blocks = [
@@ -102,4 +99,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

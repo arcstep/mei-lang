@@ -102,9 +102,9 @@ MAP_SPEC = {
     ],
 }
 
-frame()
-
-frame.add_panel(
+frame(
+    panels = [
+panel(
     id = "gis_map",
     variant = "container",
     show_heading = False,
@@ -135,4 +135,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

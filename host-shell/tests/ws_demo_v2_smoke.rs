@@ -5,18 +5,18 @@ use std::sync::Once;
 
 use mei_host_core::HostContext;
 use mei_host_graph::{
-    assemble_scope_from_registry, collect_all_board_scenes, import_bundle, list_scope_routes,
+    assemble_scope_from_registry, collect_all_t2_page_scenes, import_bundle, list_scope_routes,
     GraphNodeKind, ImportOptions, McgRegistryWriter,
 };
-use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 
-fn find_panel_by_id<'a>(panels: &'a [PanelDecl], id: &str) -> Option<&'a PanelDecl> {
+fn find_panel_by_id<'a>(panels: &'a [UiNodeDecl], id: &str) -> Option<&'a UiNodeDecl> {
     for panel in panels {
         if panel.id == id {
             return Some(panel);
         }
         for block in &panel.blocks {
-            if let UiNodeDecl::Panel(child) = block {
+            if let UiTreeNode::Panel(child) = block {
                 if let Some(found) = find_panel_by_id(std::slice::from_ref(child), id) {
                     return Some(found);
                 }
@@ -153,7 +153,7 @@ fn ws_demo_v2_home_contract_expands_rail_metric_panels() {
         .scene_contract
         .as_ref()
         .expect("scene contract");
-    fn panel_paths(panel: &mei_lang_kernel::PanelDecl, prefix: &str, out: &mut Vec<String>) {
+    fn panel_paths(panel: &mei_lang_kernel::UiNodeDecl, prefix: &str, out: &mut Vec<String>) {
         let path = if prefix.is_empty() {
             panel.id.clone()
         } else {
@@ -161,7 +161,7 @@ fn ws_demo_v2_home_contract_expands_rail_metric_panels() {
         };
         out.push(path.clone());
         for node in &panel.blocks {
-            if let mei_lang_kernel::UiNodeDecl::Panel(nested) = node {
+            if let mei_lang_kernel::UiTreeNode::Panel(nested) = node {
                 panel_paths(nested, path.as_str(), out);
             }
         }
@@ -188,13 +188,13 @@ fn ws_demo_v2_home_gis_map_spec_resolves_config_refs() {
         .as_ref()
         .expect("scene contract");
 
-    fn find_map_spec_in_panel(panel: &mei_lang_kernel::PanelDecl) -> Option<serde_json::Value> {
+    fn find_map_spec_in_panel(panel: &mei_lang_kernel::UiNodeDecl) -> Option<serde_json::Value> {
         for node in &panel.blocks {
             match node {
-                mei_lang_kernel::UiNodeDecl::Block(block) if block.use_key == "map.maplibre" => {
+                mei_lang_kernel::UiTreeNode::Block(block) if block.use_key == "map.maplibre" => {
                     return block.props.get("mapSpec").cloned();
                 }
-                mei_lang_kernel::UiNodeDecl::Panel(nested) => {
+                mei_lang_kernel::UiTreeNode::Panel(nested) => {
                     if let Some(spec) = find_map_spec_in_panel(nested) {
                         return Some(spec);
                     }
@@ -397,13 +397,13 @@ fn ws_demo_v2_board_semantic_ids_present() {
     let assembly_keys: Vec<_> = registry
         .nodes
         .iter()
-        .filter(|n| n.id.kind == GraphNodeKind::AssemblyView)
+        .filter(|n| n.id.kind == GraphNodeKind::PageInstance)
         .map(|n| n.id.key.clone())
         .collect();
     assert_eq!(
         assembly_keys.len(),
         85,
-        "expected 85 assembly_view/board keys after semantic scene migration"
+        "expected 85 page_instance/board keys after semantic scene migration"
     );
     assert!(assembly_keys.iter().any(|k| k.contains("home@")));
 }
@@ -411,7 +411,7 @@ fn ws_demo_v2_board_semantic_ids_present() {
 #[test]
 fn ws_demo_v2_all_board_scenes_assemble() {
     let workspace = ensure_imported();
-    let scenes = collect_all_board_scenes(workspace.as_path(), "data-demo");
+    let scenes = collect_all_t2_page_scenes(workspace.as_path(), "data-demo");
     assert!(scenes.len() >= 43);
     for scene in scenes {
         let outcome =
@@ -659,19 +659,19 @@ fn ws_demo_v2_serve_html_emits_data_mei_tier() {
     );
 }
 
-fn collect_lowered_viewpoint_ids(panels: &[mei_lang_kernel::PanelDecl]) -> Vec<String> {
+fn collect_lowered_viewpoint_ids(panels: &[mei_lang_kernel::UiNodeDecl]) -> Vec<String> {
     let mut found = Vec::new();
-    fn walk(nodes: &[mei_lang_kernel::UiNodeDecl], found: &mut Vec<String>) {
+    fn walk(nodes: &[mei_lang_kernel::UiTreeNode], found: &mut Vec<String>) {
         for node in nodes {
             match node {
-                mei_lang_kernel::UiNodeDecl::Panel(panel) => {
+                mei_lang_kernel::UiTreeNode::Panel(panel) => {
                     if let Some(vp) = panel.props.get("__mei_viewpoint").and_then(|v| v.as_str()) {
                         found.push(vp.to_string());
                     }
                     walk(&panel.blocks, found);
                 }
-                mei_lang_kernel::UiNodeDecl::Block(_) => {}
-                mei_lang_kernel::UiNodeDecl::PanelRefEmbed(_) => {}
+                mei_lang_kernel::UiTreeNode::Block(_) => {}
+                mei_lang_kernel::UiTreeNode::PanelRefEmbed(_) => {}
             }
         }
     }
@@ -1458,7 +1458,7 @@ fn ws_demo_v2_mini_park_world_stage_contract_compiles() {
     );
     let mut world_targets_found = false;
     for node in &world_panel.blocks {
-        if let mei_lang_kernel::UiNodeDecl::Block(block) = node {
+        if let mei_lang_kernel::UiTreeNode::Block(block) = node {
             if block.use_key == "cockpit.world-stage" {
                 world_targets_found = block.props.get("worldTargets").is_some();
             }

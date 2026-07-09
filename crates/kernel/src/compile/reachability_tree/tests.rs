@@ -1,7 +1,7 @@
 use super::*;
 
 use crate::model::{
-    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, PanelDecl, UiNodeDecl,
+    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, UiNodeDecl, UiTreeNode,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -35,7 +35,7 @@ fn reachability_tree_includes_routes_and_world() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -67,14 +67,14 @@ fn reachability_tree_includes_routes_and_world() {
 
 #[test]
 fn reachability_tree_expands_scene_panels_from_assembly() {
-    let panel = PanelDecl {
+    let panel = UiNodeDecl {
         kind: "panel".to_string(),
         id: "kpi_row".to_string(),
         title: Some("KPI 行".to_string()),
         head: None,
         area: None,
         layout: None,
-        blocks: vec![UiNodeDecl::Block(BlockDecl {
+        blocks: vec![UiTreeNode::Block(BlockDecl {
             kind: "component".to_string(),
             use_key: "cockpit.metric-card".to_string(),
             id: Some("pending_card".to_string()),
@@ -135,7 +135,7 @@ fn reachability_tree_expands_scene_panels_from_assembly() {
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };

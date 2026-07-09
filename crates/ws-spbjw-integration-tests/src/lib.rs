@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 pub use mei_lang_kernel::{
     coerce_rows_to_schema, compile_app_from_root, compile_app_from_root_with_options,
     evaluate_runtime_metric_defs, load_xlsx_table_snapshot, resolve_runtime_metric_def_key,
-    CompileOptions, MetricShape, PanelDecl, Severity, UiNodeDecl,
+    CompileOptions, MetricShape, UiNodeDecl, Severity, UiTreeNode,
 };
 
 /// `ws-spbjw` workspace root (sibling repo under mei-projects).

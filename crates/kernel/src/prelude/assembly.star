@@ -196,7 +196,7 @@ def filter_schema(rowset_dataset_id = None, fields = None, default_collapsed = F
         payload["title"] = str(title).strip()
     return _without_empty(payload)
 
-def build_board_assembly(scene, context, charts = None, detail = None, filters = None, include_hero = False, preview = None, shell_contract = None):
+def build_page_instance(scene, context, charts = None, detail = None, filters = None, include_hero = False, preview = None, shell_contract = None):
     """Build a board instance independent of link/route/popup.
 
     scene: target board shell (scene_ref).
@@ -208,11 +208,11 @@ def build_board_assembly(scene, context, charts = None, detail = None, filters =
     filters: e.g. {"rowset_dataset_id": "sales_metrics", "fields": [filter_field(...), ...]}.
     """
     if scene == None or type(scene) != "dict" or scene.get("__ref") != "scene":
-        fail("build_board_assembly requires scene=scene_ref(...)")
+        fail("build_page_instance requires scene=scene_ref(...)")
     _metric_ref_id(context)
     resolved_shell = shell_contract if shell_contract != None else _builtin_scene_shell_contract(scene)
     payload = {
-        "__kind": "board_assembly",
+        "__kind": "page_instance",
         "scene": scene,
         "context": context,
         "include_hero": include_hero,

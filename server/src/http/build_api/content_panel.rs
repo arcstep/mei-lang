@@ -9,16 +9,16 @@ use axum::Json;
 use mei_lang_kernel::resolve_app_root;
 use serde_json::{json, Value};
 
-use crate::graph::content_store::{self, PANEL_CONTRACT};
+use crate::graph::content_store::{self, CONTENT_PANEL};
 use crate::graph::feature::graph_registry_enabled;
 use crate::graph::mcg::registry::McgRegistryWriter;
-use crate::graph::mcg::panel_contract::PanelContractRecord;
+use crate::graph::mcg::content_panel::ContentPanelRecord;
 use crate::AppState;
 
-use super::panel_lookup::find_panel_contract_node;
+use super::panel_lookup::find_content_panel_node;
 
 #[derive(Debug, serde::Deserialize)]
-pub struct PanelContractQuery {
+pub struct ContentPanelQuery {
     #[serde(rename = "appId")]
     pub app_id: String,
     #[serde(rename = "sceneId", default)]
@@ -30,9 +30,9 @@ pub struct PanelContractQuery {
     pub panel_key: Option<String>,
 }
 
-pub async fn api_build_panel_contract(
+pub async fn api_build_content_panel(
     State(state): State<AppState>,
-    Query(query): Query<PanelContractQuery>,
+    Query(query): Query<ContentPanelQuery>,
 ) -> impl IntoResponse {
     if !graph_registry_enabled() {
         return (
@@ -68,7 +68,7 @@ pub async fn api_build_panel_contract(
 
     let source_root = state.source_root.as_path();
     let mcg = McgRegistryWriter::load(source_root, app_id);
-    let node = find_panel_contract_node(&mcg, lookup_key.as_str(), scene_id);
+    let node = find_content_panel_node(&mcg, lookup_key.as_str(), scene_id);
     let Some(node) = node else {
         return (
             StatusCode::NOT_FOUND,
@@ -93,7 +93,7 @@ pub async fn api_build_panel_contract(
             .into_response();
     };
     let app_root = resolve_app_root(source_root, app_id);
-    let path = content_store::get(app_root.as_path(), PANEL_CONTRACT, hash);
+    let path = content_store::get(app_root.as_path(), CONTENT_PANEL, hash);
     let Some(path) = path else {
         return (
             StatusCode::NOT_FOUND,
@@ -121,7 +121,7 @@ pub async fn api_build_panel_contract(
     }
 }
 
-fn resolve_lookup_key(query: &PanelContractQuery, scene_id: &str) -> Option<String> {
+fn resolve_lookup_key(query: &ContentPanelQuery, scene_id: &str) -> Option<String> {
     if let Some(panel_key) = query
         .panel_key
         .as_deref()
@@ -136,7 +136,7 @@ fn resolve_lookup_key(query: &PanelContractQuery, scene_id: &str) -> Option<Stri
 
 fn load_panel_payload(path: &Path) -> anyhow::Result<Value> {
     let raw = std::fs::read_to_string(path)?;
-    if let Ok(record) = serde_json::from_str::<PanelContractRecord>(&raw) {
+    if let Ok(record) = serde_json::from_str::<ContentPanelRecord>(&raw) {
         if let Some(panel) = record.panel {
             return Ok(panel);
         }

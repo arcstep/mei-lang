@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::compile::load_external::load_flow_from_file;
 use crate::compile::scene_binding::{parse_flow_binding, SceneBinding};
-use crate::model::{Diagnostic, FlowDecl, FrameDecl, PanelDecl, Severity};
+use crate::model::{Diagnostic, FlowDecl, FrameDecl, UiNodeDecl, Severity};
 use crate::typed_refs::SceneRegistry;
 
 use super::super::clone_merge::{normalize_flow_decl, resolve_panel_slot};
@@ -97,7 +97,7 @@ pub(super) fn merge_frame_panel_slots(
     app_root: &Path,
     frames: &BTreeMap<String, FrameDecl>,
     frame_default: Option<&FrameDecl>,
-    panels: &mut Vec<PanelDecl>,
+    panels: &mut Vec<UiNodeDecl>,
     scene_registry: &SceneRegistry,
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
@@ -117,7 +117,7 @@ pub(super) fn merge_frame_panel_slots(
     }
 }
 
-fn upsert_panel(panels: &mut Vec<PanelDecl>, panel: PanelDecl) {
+fn upsert_panel(panels: &mut Vec<UiNodeDecl>, panel: UiNodeDecl) {
     if let Some(existing) = panels.iter_mut().find(|item| item.id == panel.id) {
         *existing = panel;
         return;

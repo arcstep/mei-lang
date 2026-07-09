@@ -163,7 +163,7 @@ MAP_SPEC = {
         },
     ],
 }
-panel_contract(id = "gis-map")
+content_panel(id = "gis-map")
 "#;
         let constants = parse_panel_constants_from_source(src);
         assert_eq!(

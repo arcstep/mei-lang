@@ -23,12 +23,15 @@ world(
 frame(
     id = "home_frame",
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "home_panel",
     area = "auto",
     blocks = [
         doc.markdown(area = "auto", resource = resource_ref(id = "home_doc")),
     ],
+),
+    ],
 )
+
+

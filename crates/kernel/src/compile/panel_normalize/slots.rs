@@ -1,13 +1,13 @@
 use serde_json::{json, Value};
 
 use crate::compile::entry_payload::clone_merge::deep_merge_json;
-use crate::model::{BlockDecl, Diagnostic, PanelDecl, Severity, UiNodeDecl};
+use crate::model::{BlockDecl, Diagnostic, UiNodeDecl, Severity, UiTreeNode};
 
-use super::constants::SLOT_HEAD;
+use super::constants::TITLE_ZONE;
 use super::nodes::{blocks_touch_slot, ensure_node_area, node_area};
 
 pub(super) fn hoist_heading_to_head_props(
-    panel: &mut PanelDecl,
+    panel: &mut UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -38,17 +38,17 @@ pub(super) fn hoist_heading_to_head_props(
     map.remove("heading");
     panel.props = Value::Object(map);
 }
-pub(super) fn merge_head_slot(panel: &mut PanelDecl) {
+pub(super) fn merge_head_slot(panel: &mut UiNodeDecl) {
     let Some(head) = panel.head.take() else {
         return;
     };
     let mut node = *head;
-    ensure_node_area(&mut node, SLOT_HEAD);
-    if !blocks_touch_slot(&panel.blocks, SLOT_HEAD) {
+    ensure_node_area(&mut node, TITLE_ZONE);
+    if !blocks_touch_slot(&panel.blocks, TITLE_ZONE) {
         panel.blocks.insert(0, node);
     }
 }
-pub(super) fn resolve_has_head(panel: &PanelDecl, _extra: &[()]) -> bool {
+pub(super) fn resolve_has_head(panel: &UiNodeDecl, _extra: &[()]) -> bool {
     if let Some(show) = panel
         .props
         .as_object()
@@ -68,16 +68,16 @@ pub(super) fn resolve_has_head(panel: &PanelDecl, _extra: &[()]) -> bool {
     if panel.head.as_ref().is_some() {
         return true;
     }
-    blocks_touch_slot(&panel.blocks, SLOT_HEAD)
+    blocks_touch_slot(&panel.blocks, TITLE_ZONE)
 }
 
-pub(super) fn panel_has_body_blocks(blocks: &[UiNodeDecl], has_head: bool) -> bool {
+pub(super) fn panel_has_body_blocks(blocks: &[UiTreeNode], has_head: bool) -> bool {
     if !has_head {
         return !blocks.is_empty();
     }
     blocks.iter().any(|node| {
         node_area(node)
-            .map(|area| area != SLOT_HEAD)
+            .map(|area| area != TITLE_ZONE)
             .unwrap_or(true)
     })
 }
@@ -118,8 +118,8 @@ fn title_block_typography_from_head_props(head_props: &Value) -> Value {
     Value::Object(out)
 }
 
-pub(super) fn materialize_title_head_block(panel: &mut PanelDecl) {
-    if blocks_touch_slot(&panel.blocks, SLOT_HEAD) {
+pub(super) fn materialize_title_head_block(panel: &mut UiNodeDecl) {
+    if blocks_touch_slot(&panel.blocks, TITLE_ZONE) {
         return;
     }
     let Some(title) = panel
@@ -140,12 +140,12 @@ pub(super) fn materialize_title_head_block(panel: &mut PanelDecl) {
     }
     panel.blocks.insert(
         0,
-        UiNodeDecl::Block(BlockDecl {
+        UiTreeNode::Block(BlockDecl {
             kind: "block".to_string(),
             use_key: "mei.text".to_string(),
             id: None,
             title: None,
-            area: Some(SLOT_HEAD.to_string()),
+            area: Some(TITLE_ZONE.to_string()),
             props: Value::Object(props),
             base: None,
             layout: None,

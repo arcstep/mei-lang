@@ -213,9 +213,9 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
                 "mei-config".to_string(),
                 crate::mei_config::mei_config_compile_revision_digest(&config),
             );
-            let layout_tuning = crate::mei_config::ops_layout_tuning_revision_digest(&config.ops);
-            if !layout_tuning.is_empty() {
-                token_parts.insert("ops-layout-tuning".to_string(), layout_tuning);
+            let themes_rev = crate::mei_config::ops_themes_revision_digest(&config);
+            if !themes_rev.is_empty() {
+                token_parts.insert("ops-themes".to_string(), themes_rev);
             }
         }
         append_ops_source_revision_tokens(app_root, &mut token_parts, &mut watched_paths);

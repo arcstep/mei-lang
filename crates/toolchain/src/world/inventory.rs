@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use mei_lang_kernel::{decode_ref_value, PanelDecl, RefKind, UiNodeDecl};
+use mei_lang_kernel::{decode_ref_value, UiNodeDecl, RefKind, UiTreeNode};
 use serde_json::Value;
 
 use crate::types::{
@@ -134,19 +134,19 @@ pub(crate) fn extract_ref_tokens_from_source(source: &str) -> Vec<String> {
     refs
 }
 
-fn collect_panel_references(panel: &PanelDecl) -> Vec<String> {
+fn collect_panel_references(panel: &UiNodeDecl) -> Vec<String> {
     let mut refs = Vec::new();
     for node in &panel.blocks {
         match node {
-            UiNodeDecl::Panel(child) => {
+            UiTreeNode::Panel(child) => {
                 refs.push(format!("panel:{}", child.id));
                 refs.extend(collect_panel_references(child));
             }
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 refs.push(format!("use_key:{}", block.use_key));
                 collect_refs_from_value(&block.props, &mut refs, 0);
             }
-            UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
     refs.sort();

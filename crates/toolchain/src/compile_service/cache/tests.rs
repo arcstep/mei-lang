@@ -23,7 +23,7 @@ mod tests {
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
             build_experience_index: Default::default(),
-            build_board_index: Default::default(),
+            build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
         }
     }

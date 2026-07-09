@@ -406,7 +406,7 @@ pub fn client_bootstrap_pack_candidate_scopes(
     let ctx = HostContext::new(workspace_root.to_path_buf(), app_id.to_string());
     let mut candidates = vec![scene_id.to_string()];
     if client_cfg.neighbor_hops > 0 {
-        if let Ok(linked) = crate::mrg::frontier::linked_board_pack_scopes(
+        if let Ok(linked) = crate::mrg::frontier::linked_t2_page_pack_scopes(
             &ctx,
             scene_id,
             client_cfg.neighbor_hops,
@@ -503,13 +503,10 @@ fn layout_budget_manifest_for_scope(
     let revision = format!(
         "{}:{}",
         outcome.compile_revision,
-        mei_lang_kernel::ops_layout_tuning_revision_digest(
-            &load_mei_config_for_app(
-                resolve_app_root(workspace_root, app_id).as_path(),
-                Some(workspace_root),
-            )
-            .ops,
-        )
+        mei_lang_kernel::ops_themes_revision_digest(&load_mei_config_for_app(
+            resolve_app_root(workspace_root, app_id).as_path(),
+            Some(workspace_root),
+        ))
     );
     Some(
         outcome
@@ -743,7 +740,7 @@ fn resolve_target_file_for_scope(workspace_root: &Path, app_id: &str, scope: &st
         }
     }
     if let Some(node) = registry
-        .nodes_of_kind(crate::types::GraphNodeKind::AssemblyView)
+        .nodes_of_kind(crate::types::GraphNodeKind::PageInstance)
         .into_iter()
         .find(|node| {
             node.id.key.contains(&format!("#{scope}")) || node.id.key.contains(&format!("{scope}@"))
@@ -968,11 +965,28 @@ mod tests {
         ));
     }
 
+    fn ensure_app_env_current(app_root: &Path) {
+        let env_dir = app_root.join("env/WS-20260101.0");
+        let current = app_root.join("env/current");
+        std::fs::create_dir_all(env_dir.join("var")).expect("env var");
+        std::fs::create_dir_all(env_dir.join("build")).expect("env build");
+        std::fs::create_dir_all(current.parent().expect("env parent")).expect("env root");
+        #[cfg(unix)]
+        {
+            if current.exists() || current.is_symlink() {
+                let _ = std::fs::remove_file(&current);
+            }
+            std::os::unix::fs::symlink(&env_dir, &current).expect("symlink env/current");
+        }
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(&current).expect("mkdir env/current");
+    }
+
     #[test]
     fn write_client_bootstrap_roundtrip_allows_embed() {
         let temp = tempfile::tempdir().expect("tempdir");
         let app_root = temp.path().join("apps").join("demo");
-        std::fs::create_dir_all(app_root.join("var/active")).expect("var");
+        ensure_app_env_current(app_root.as_path());
         let mut metrics = BTreeMap::new();
         metrics.insert(
             "metric_a".to_string(),
@@ -1041,7 +1055,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let workspace = temp.path();
         let app_root = workspace.join("apps").join("demo");
-        std::fs::create_dir_all(app_root.join("var/active")).expect("var");
+        ensure_app_env_current(app_root.as_path());
         let mut metrics = BTreeMap::new();
         metrics.insert(
             "metric_a".to_string(),
@@ -1088,7 +1102,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let workspace = temp.path();
         let app_root = workspace.join("apps").join("demo");
-        std::fs::create_dir_all(app_root.join("var/active")).expect("var");
+        ensure_app_env_current(app_root.as_path());
         std::fs::write(
             app_root.join("app.config.json"),
             r#"{"runtime":{"clientBootstrap":{"enabled":true,"embedMode":"inline"}}}"#,

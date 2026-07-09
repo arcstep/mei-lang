@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{validate_imported_catalog_world_refs, validate_scene_ui_data_bindings};
 use crate::model::{
-    BlockDecl, LoadedResource, PanelDecl, SceneContract, SceneDecl, Severity, UiNodeDecl,
+    BlockDecl, LoadedResource, UiNodeDecl, SceneContract, SceneDecl, Severity, UiTreeNode,
 };
 use serde_json::Value;
 
@@ -24,7 +24,7 @@ fn flags_analysis_expr_rows_in_block_props() {
         world: None,
         flow: None,
         frame: None,
-        panels: vec![PanelDecl {
+        panels: vec![UiNodeDecl {
             slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
@@ -32,7 +32,7 @@ fn flags_analysis_expr_rows_in_block_props() {
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
+            blocks: vec![UiTreeNode::Block(BlockDecl {
                 kind: "block".to_string(),
                 use_key: "dataset.table".to_string(),
                 id: Some("t1".to_string()),
@@ -79,7 +79,7 @@ fn flags_imported_catalog_resource_ref_as_warning() {
         world: None,
         flow: None,
         frame: None,
-        panels: vec![PanelDecl {
+        panels: vec![UiNodeDecl {
             slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
@@ -87,7 +87,7 @@ fn flags_imported_catalog_resource_ref_as_warning() {
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
+            blocks: vec![UiTreeNode::Block(BlockDecl {
                 kind: "block".to_string(),
                 use_key: "dataset.table".to_string(),
                 id: None,
@@ -152,7 +152,7 @@ fn flags_misused_world_ref_in_props() {
         world: None,
         flow: None,
         frame: None,
-        panels: vec![PanelDecl {
+        panels: vec![UiNodeDecl {
             slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
@@ -160,7 +160,7 @@ fn flags_misused_world_ref_in_props() {
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
+            blocks: vec![UiTreeNode::Block(BlockDecl {
                 kind: "block".to_string(),
                 use_key: "dataset.table".to_string(),
                 id: None,
@@ -214,7 +214,7 @@ fn allows_resource_ref_in_props_when_authorized() {
         world: None,
         flow: None,
         frame: None,
-        panels: vec![PanelDecl {
+        panels: vec![UiNodeDecl {
             slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
@@ -222,7 +222,7 @@ fn allows_resource_ref_in_props_when_authorized() {
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
+            blocks: vec![UiTreeNode::Block(BlockDecl {
                 kind: "block".to_string(),
                 use_key: "dataset.table".to_string(),
                 id: None,
@@ -275,7 +275,7 @@ fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
         world: None,
         flow: None,
         frame: None,
-        panels: vec![PanelDecl {
+        panels: vec![UiNodeDecl {
             slot: None,
             kind: "panel".to_string(),
             id: "p1".to_string(),
@@ -283,7 +283,7 @@ fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
             head: None,
             area: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
+            blocks: vec![UiTreeNode::Block(BlockDecl {
                 kind: "block".to_string(),
                 use_key: "chart.kpi".to_string(),
                 id: None,

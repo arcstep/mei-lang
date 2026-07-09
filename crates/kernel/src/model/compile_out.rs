@@ -64,7 +64,7 @@ pub struct CompiledApp {
     #[serde(default)]
     pub build_experience_index: super::build_view_index::BuildExperienceIndex,
     #[serde(default)]
-    pub build_board_index: super::build_view_index::BuildBoardIndex,
+    pub build_t2_page_index: super::build_view_index::BuildT2PageIndex,
     #[serde(default)]
     pub build_template_index: super::build_view_index::BuildTemplateIndex,
     /// UI structure tree for build-view (scene → plane → region → section → micro → slot → content).

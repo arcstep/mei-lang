@@ -60,7 +60,7 @@ pub fn slim_compiled_app_for_access(compiled: &CompiledApp) -> CompiledApp {
         }
     }
     slim.build_experience_index = Default::default();
-    slim.build_board_index = Default::default();
+    slim.build_t2_page_index = Default::default();
     slim.build_template_index = Default::default();
     slim
 }
@@ -185,7 +185,7 @@ mod tests {
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
             build_experience_index: Default::default(),
-            build_board_index: Default::default(),
+            build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
         };
         let slim = slim_compiled_app_for_access(&compiled);

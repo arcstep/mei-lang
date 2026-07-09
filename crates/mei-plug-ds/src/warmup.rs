@@ -142,8 +142,8 @@ fn parse_workset_slot(scope_key: &str, idx: usize, slot: &Value) -> Option<Warmu
     })
 }
 
-pub fn collect_all_board_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
-    mei_host_graph::collect_all_board_scenes(source_root, app_id)
+pub fn collect_all_t2_page_scenes(source_root: &Path, app_id: &str) -> Vec<String> {
+    mei_host_graph::collect_all_t2_page_scenes(source_root, app_id)
 }
 
 pub fn frontier_targets_from_metrics(

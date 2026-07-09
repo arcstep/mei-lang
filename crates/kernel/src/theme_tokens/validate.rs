@@ -7,7 +7,7 @@ use super::{
 
 use serde_json::Value;
 
-use crate::model::{Diagnostic, FrameDecl, PanelDecl, ThemeDecl};
+use crate::model::{Diagnostic, FrameDecl, UiNodeDecl, ThemeDecl};
 
 pub fn validate_theme_decl(
     theme: &ThemeDecl,
@@ -83,7 +83,7 @@ pub fn validate_frame_token_refs(
 }
 
 pub fn validate_panel_token_refs(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {

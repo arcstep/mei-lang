@@ -48,9 +48,9 @@ world(
 |-------------|------|
 | `panel/panel-screen-header.mei` | 大屏顶栏 1920×72（`cockpit.header-brand` + `assets/header/`） |
 | `panel/panel-gis-map-fullscreen.mei` | GIS 地图（`map.maplibre` + mapSpec + `assets/map/geo`） |
-| `panel/panel-titled-shell.mei` | 板块标题壳（54px 标题栏 + 内容区） |
-| `panel/metrics-auto-body.mei` | 指标卡自动排列内容区 |
-| `metric-card/*.mei` | 各类指标卡 / compound 壳 |
+| `panel/shell-macros.mei` | `section_shell` / `content_fill_props`（Fill-down） |
+| `business-layouts.mei` | 业务语义布局宏（`content_block` 等，非结构层） |
+| `metric-card/macros.mei` | 指标内容模板真源（row / stack / progress / compound shell） |
 
 资产目录：`assets/metrics/`、`assets/header/`。
 
@@ -71,18 +71,23 @@ world(
 
 frame(
     id = "index_frame",
-    layout = flex(direction = "column", gap = "16px", padding = "24px"),
+    layout = grid(
+        rows = ["auto"],
+        columns = ["1fr"],
+        areas = [["index_panel"]],
+        gap = "16px",
+        padding = "24px",
+    ),
     props = {
         "width": "720px",
         "max_width": "100%",
         "margin": "0 auto",
         "box_sizing": "border-box",
     },
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "index_panel",
-    area = "auto",
+    area = "index_panel",
     variant = "container",
     show_heading = False,
     props = {
@@ -96,4 +101,8 @@ frame.add_panel(
             resource = dataset_ref("index_doc"),
         ),
     ],
+),
+    ],
 )
+
+

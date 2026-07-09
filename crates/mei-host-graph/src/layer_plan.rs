@@ -1,4 +1,4 @@
-use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{UiNodeDecl, UiTreeNode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -42,12 +42,12 @@ pub struct LayerPlanDocument {
     pub tiers: std::collections::BTreeMap<String, Vec<LayerPlanPanelEntry>>,
 }
 
-pub fn flatten_panel_tree(panels: &[PanelDecl]) -> Vec<PanelDecl> {
+pub fn flatten_panel_tree(panels: &[UiNodeDecl]) -> Vec<UiNodeDecl> {
     let mut out = Vec::new();
-    fn walk(panel: &PanelDecl, out: &mut Vec<PanelDecl>) {
+    fn walk(panel: &UiNodeDecl, out: &mut Vec<UiNodeDecl>) {
         out.push(panel.clone());
         for block in &panel.blocks {
-            if let UiNodeDecl::Panel(child) = block {
+            if let UiTreeNode::Panel(child) = block {
                 walk(child, out);
             }
         }
@@ -58,7 +58,7 @@ pub fn flatten_panel_tree(panels: &[PanelDecl]) -> Vec<PanelDecl> {
     out
 }
 
-pub fn build_layer_plan(scene_id: &str, panels: &[PanelDecl]) -> LayerPlanDocument {
+pub fn build_layer_plan(scene_id: &str, panels: &[UiNodeDecl]) -> LayerPlanDocument {
     let mut tiers: std::collections::BTreeMap<String, Vec<LayerPlanPanelEntry>> =
         std::collections::BTreeMap::new();
     for panel in panels {

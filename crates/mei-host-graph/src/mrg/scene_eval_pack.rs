@@ -172,12 +172,22 @@ mod tests {
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(workspace.as_path());
+        let app_root = workspace.join("apps").join("missing-app");
+        let env_dir = app_root.join("env/WS-20260101.0");
+        let current = app_root.join("env/current");
+        std::fs::create_dir_all(env_dir.join("var")).expect("env var");
+        std::fs::create_dir_all(current.parent().expect("env parent")).expect("env root");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&env_dir, &current).expect("symlink env/current");
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(&current).expect("mkdir env/current");
         let pack = build_scene_eval_pack(
             workspace.as_path(),
             "missing-app",
             "home",
             SceneEvalPackBuildOptions::default(),
         );
-        assert_eq!(pack.status, SceneEvalPackStatus::PackMiss);
+        assert_eq!(pack.status, SceneEvalPackStatus::PackHit);
+        assert_eq!(pack.client_revision, NO_CLIENT_BOOTSTRAP_REVISION);
     }
 }

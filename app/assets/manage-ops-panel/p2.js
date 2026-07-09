@@ -92,12 +92,7 @@
     } catch (_) {
       snapshot.themes = normalizeOps(state.ops).themes;
     }
-    try {
-      snapshot.layoutTuning = parseJsonObject(state.layoutTuningText, "布局调优");
-    } catch (_) {
-      snapshot.layoutTuning = normalizeOps(state.ops).layoutTuning;
-    }
-    return snapshot;
+return snapshot;
   }
 
   function renderRawPanel() {
@@ -153,29 +148,6 @@
         state.themesText,
       );
     }
-    if (state.selectedPanel === "layoutTuning") {
-      const scopeHint = state.deepLinkScope
-        ? `<div class="manage-config-detail-desc">深链 scope：<code>${escapeHtml(state.deepLinkScope)}</code></div>`
-        : "";
-      if (!state.rawOpsDirty) {
-        state.layoutTuningText = stringifyJson(state.ops.layoutTuning || {});
-      }
-      return `
-        <div class="manage-config-detail-head">
-          <div>
-            <div class="manage-config-detail-title">布局调优 <span class="manage-config-deprecated-badge">已废弃</span></div>
-            <div class="manage-config-detail-desc">
-              <code>ops.layoutTuning</code> 已冻结，仅只读兼容存量。请改用
-              <code>ops.themes.*.layout</code> 与 <code>layout.overlay</code> layer（见 0533）。
-            </div>
-            ${scopeHint}
-          </div>
-        </div>
-        <textarea class="manage-ops-editor-textarea manage-config-code" data-ops-json="layoutTuning" spellcheck="false" readonly>${escapeHtml(
-          state.layoutTuningText,
-        )}</textarea>
-      `;
-    }
     if (state.selectedPanel === "journal") {
       return renderJournalPanel();
     }
@@ -219,19 +191,6 @@
     if (saveBtn) saveBtn.addEventListener("click", saveOpsConfig);
     if (addSourceBtn) addSourceBtn.addEventListener("click", handleAddSource);
     if (addParamBtn) addParamBtn.addEventListener("click", handleAddParamRow);
-
-    if (state.selectedPanel === "layoutTuning" && state.deepLinkScope) {
-      const textarea = editorRoot.querySelector('[data-ops-json="layoutTuning"]');
-      if (textarea instanceof HTMLTextAreaElement) {
-        const needle = `"${state.deepLinkScope}"`;
-        const index = textarea.value.indexOf(needle);
-        if (index >= 0) {
-          textarea.focus();
-          textarea.setSelectionRange(index, index + needle.length);
-          textarea.scrollTop = Math.max(0, (textarea.scrollHeight * index) / Math.max(textarea.value.length, 1) - 80);
-        }
-      }
-    }
 
     editorRoot.querySelectorAll("[data-config-nav]").forEach((node) => {
       node.addEventListener("click", () => {

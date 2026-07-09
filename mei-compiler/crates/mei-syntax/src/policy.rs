@@ -9,12 +9,18 @@ const GRID_ONLY_POLICY_ROOTS: &[&str] = &[
     "/workspaces/ws-demo-v2/apps/pretty-panels/",
     "/workspaces/ws-demo-v2/stock/templates/cockpit/",
 ];
-const GRID_ONLY_POLICY_EXCLUDE_ROOTS: &[&str] = &[
-    "/workspaces/ws-demo-v2/stock/templates/cockpit/drilldown/",
+/// Author DSL patterns rejected on all paths (Phase 3 layout purge).
+const GLOBAL_DEPRECATED_PATTERNS: &[(&str, &str)] = &[
+    ("frame.add_panel(", "frame.add_panel(...)"),
+    ("titled_shell(", "titled_shell(...)"),
+    ("panel_slot(", "panel_slot(...)"),
+    ("row_budgets", "row_budgets"),
+    ("assembly_view(", "assembly_view(...)"),
+    ("board_assembly(", "board_assembly(...)"),
+    ("panel_contract(", "panel_contract(...)"),
 ];
 const GRID_ONLY_DEPRECATED_PATTERNS: &[(&str, &str)] = &[
     ("flex(", "flex(...)"),
-    ("panel_slot(", "panel_slot(...)"),
     ("layout_policy", "layout_policy"),
 ];
 
@@ -22,7 +28,17 @@ fn sanitize_for_policy(source: &str) -> String {
     let mut out = String::with_capacity(source.len());
     let mut in_string: Option<char> = None;
     let mut escaped = false;
+    let mut in_line_comment = false;
     for ch in source.chars() {
+        if in_line_comment {
+            if ch == '\n' {
+                in_line_comment = false;
+                out.push('\n');
+            } else {
+                out.push(' ');
+            }
+            continue;
+        }
         if let Some(quote) = in_string {
             if ch == '\n' {
                 out.push('\n');
@@ -44,7 +60,10 @@ fn sanitize_for_policy(source: &str) -> String {
             continue;
         }
         match ch {
-            '#' => out.push(' '),
+            '#' => {
+                in_line_comment = true;
+                out.push(' ');
+            }
             '"' | '\'' => {
                 in_string = Some(ch);
                 out.push(' ');
@@ -74,7 +93,7 @@ impl ForbiddenTokenError {
         Self {
             token: pattern.to_string(),
             message: format!(
-                "authoring source uses deprecated layout authoring `{pattern}`; use `grid + slot + content` instead"
+                "authoring source uses deleted layout authoring `{pattern}`; use `scene` + `section_shell` + `content_panel` / `page_instance` instead"
             ),
         }
     }
@@ -118,10 +137,15 @@ pub fn validate_authoring_policy_for_path(
     validate_authoring_policy_with_world_override(source, is_world_mei)?;
     validate_region_layout_policy(path, source)?;
     validate_section_layout_policy(path, source)?;
+    let sanitized = sanitize_for_policy(source);
+    for (needle, label) in GLOBAL_DEPRECATED_PATTERNS {
+        if sanitized.contains(needle) {
+            return Err(ForbiddenTokenError::deprecated_pattern(label));
+        }
+    }
     if !should_enforce_grid_only(path) {
         return Ok(());
     }
-    let sanitized = sanitize_for_policy(source);
     for (needle, label) in GRID_ONLY_DEPRECATED_PATTERNS {
         if sanitized.contains(needle) {
             return Err(ForbiddenTokenError::deprecated_pattern(label));
@@ -190,7 +214,7 @@ fn validate_section_layout_policy(path: &Path, source: &str) -> Result<(), Forbi
             "section_layout must mount body via shell, not contents = [content(..., source = panel_ref(...))]. \
              The content wrapper hides map/viewport under build preview (PlaneRegionSection). \
              Use section_shell(title = \"...\", body = panel_ref(\"content/...\")) for titled panels, \
-             or shell = panel_contract(chrome = \"bare\", show_heading = False, blocks = [panel_ref(\"home:...\")]) \
+             or shell = content_panel(chrome = \"bare\", show_heading = False, blocks = [panel_ref(\"home:...\")]) \
              for bare stage/map pass-through. See r-left-rail/s-enforcement/layout.mei.",
         ));
     }
@@ -230,12 +254,6 @@ pub fn forbidden_authoring_tokens() -> &'static [&'static str] {
 
 fn should_enforce_grid_only(path: &Path) -> bool {
     let raw = path.to_string_lossy().replace('\\', "/");
-    if GRID_ONLY_POLICY_EXCLUDE_ROOTS
-        .iter()
-        .any(|segment| raw.contains(segment))
-    {
-        return false;
-    }
     GRID_ONLY_POLICY_ROOTS
         .iter()
         .any(|segment| raw.contains(segment))
@@ -255,7 +273,7 @@ mod tests {
             r#"frame(id = "home_frame", layout = flex(direction = "column"))"#,
         )
         .expect_err("flex should be rejected in cockpit templates");
-        assert!(err.to_string().contains("grid + slot + content"));
+        assert!(err.to_string().contains("content_panel") || err.to_string().contains("deleted"));
     }
 
     #[test]
@@ -267,7 +285,36 @@ mod tests {
             path,
             r#"frame(id = "home_frame", layout = flex(direction = "column"))"#,
         )
-        .expect("legacy preview path remains compatible");
+        .expect("legacy preview path remains compatible for flex");
+    }
+
+    #[test]
+    fn global_policy_rejects_frame_add_panel() {
+        let path = Path::new("/tmp/workspaces/ws-demo-v2/apps/x/src/scene/home.mei");
+        let err = validate_authoring_policy_for_path(
+            path,
+            r#"frame.add_panel(id = "child_panel", area = "auto", blocks = [])"#,
+        )
+        .expect_err("frame.add_panel should be rejected");
+        assert!(err.to_string().contains("frame.add_panel"));
+    }
+
+    #[test]
+    fn global_policy_rejects_titled_shell_and_panel_slot() {
+        let path = Path::new("/tmp/any.mei");
+        assert!(validate_authoring_policy_for_path(path, "shell = titled_shell(title = \"x\")")
+            .is_err());
+        assert!(validate_authoring_policy_for_path(path, "slot = panel_slot(kind = \"filter\")")
+            .is_err());
+        assert!(validate_authoring_policy_for_path(path, "row_budgets = [70, 70]").is_err());
+    }
+
+    #[test]
+    fn global_policy_rejects_deleted_constructors() {
+        let path = Path::new("/tmp/any.mei");
+        assert!(validate_authoring_policy_for_path(path, "board_assembly(key = \"x\")").is_err());
+        assert!(validate_authoring_policy_for_path(path, "panel_contract(id = \"x\")").is_err());
+        assert!(validate_authoring_policy_for_path(path, "assembly_view(key = \"x\")").is_err());
     }
 
     #[test]
@@ -376,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn section_layout_allows_bare_panel_contract_shell() {
+    fn section_layout_allows_bare_content_panel_shell() {
         let path = Path::new(
             "/tmp/workspaces/ws-demo-v2/apps/pretty-panels/src/scene/home/t0/r-map-stage/s-map-stage/layout.mei",
         );
@@ -384,14 +431,14 @@ mod tests {
             path,
             r#"section_layout(
                 id = "map_stage_body",
-                shell = panel_contract(
+                shell = content_panel(
                     chrome = "bare",
                     show_heading = False,
                     blocks = [panel_ref("home:map_stage")],
                 ),
             )"#,
         )
-        .expect("bare panel_contract shell should be allowed");
+        .expect("bare content_panel shell should be allowed");
     }
 
     #[test]

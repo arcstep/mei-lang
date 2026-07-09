@@ -5,50 +5,50 @@ use serde_json::Value;
 use crate::compile::backing_refs_from_block_props;
 use crate::compile::reachability_tree::{ReachabilityTreeNode, ReachabilityTreeRoot};
 use crate::model::{
-    BoardFileEntry, BoardSlotEntry, BuildBoardIndex, BuildNodeId, SceneContract, WorkspaceNode,
+    T2PageFileEntry, T2PageSlotEntry, BuildT2PageIndex, BuildNodeId, SceneContract, WorkspaceNode,
 };
 
-pub struct BuildBoardIndexResult {
-    pub index: BuildBoardIndex,
+pub struct BuildT2PageIndexResult {
+    pub index: BuildT2PageIndex,
     pub tree_root: ReachabilityTreeRoot,
 }
 
-pub fn build_board_index(
+pub fn build_t2_page_index(
     file_tree: &[WorkspaceNode],
     scene_contracts_by_id: &BTreeMap<String, SceneContract>,
     scene_projection_assembly_by_id: &BTreeMap<String, Value>,
-) -> BuildBoardIndexResult {
-    let mut boards = BTreeMap::new();
+) -> BuildT2PageIndexResult {
+    let mut pages = BTreeMap::new();
     let mut tree_children = Vec::new();
-    collect_board_files(
+    collect_page_files(
         file_tree,
-        &mut boards,
+        &mut pages,
         &mut tree_children,
         scene_contracts_by_id,
         scene_projection_assembly_by_id,
     );
-    let index = BuildBoardIndex { boards };
+    let index = BuildT2PageIndex { pages };
     let tree_root = ReachabilityTreeRoot {
-        group: "boards".to_string(),
+        group: "t2_pages".to_string(),
         label: "T2 Pages".to_string(),
         default_open: false,
         children: tree_children,
     };
-    BuildBoardIndexResult { index, tree_root }
+    BuildT2PageIndexResult { index, tree_root }
 }
 
-fn collect_board_files(
+fn collect_page_files(
     nodes: &[WorkspaceNode],
-    boards: &mut BTreeMap<String, BoardFileEntry>,
+    pages: &mut BTreeMap<String, T2PageFileEntry>,
     tree_children: &mut Vec<ReachabilityTreeNode>,
     scene_contracts_by_id: &BTreeMap<String, SceneContract>,
     scene_projection_assembly_by_id: &BTreeMap<String, Value>,
 ) {
     for node in nodes {
         if node.kind == "dir" {
-            collect_board_files(
+            collect_page_files(
                 &node.children,
-                boards,
+                pages,
                 tree_children,
                 scene_contracts_by_id,
                 scene_projection_assembly_by_id,
@@ -58,7 +58,7 @@ fn collect_board_files(
         if node.kind != "file" || !is_t2_page_capsule(node.path.as_str()) {
             continue;
         }
-        let board_file = node.path.clone();
+        let page_file = node.path.clone();
         for export in &node.children {
             if export.kind != "scene_export" {
                 continue;
@@ -77,9 +77,9 @@ fn collect_board_files(
             let layout_mode = layout_mode_from_sources(contract, assembly);
             let slots = slots_from_sources(contract, assembly);
             let params_summary = params_summary_from_contract(contract);
-            let board_key = format!("{board_file}#{scene_id}");
-            let entry = BoardFileEntry {
-                board_file: board_file.clone(),
+            let board_key = format!("{page_file}#{scene_id}");
+            let entry = T2PageFileEntry {
+                page_file: page_file.clone(),
                 scene_id: scene_id.to_string(),
                 label: label.clone(),
                 layout_mode,
@@ -87,19 +87,19 @@ fn collect_board_files(
                 popup_consumers: Vec::new(),
                 params_summary,
             };
-            boards.insert(board_key.clone(), entry.clone());
+            pages.insert(board_key.clone(), entry.clone());
 
-            push_board_file_tree_node(tree_children, board_key.as_str(), &entry);
+            push_page_file_tree_node(tree_children, board_key.as_str(), &entry);
         }
     }
 }
 
-fn push_board_file_tree_node(
+fn push_page_file_tree_node(
     tree_children: &mut Vec<ReachabilityTreeNode>,
     board_key: &str,
-    entry: &BoardFileEntry,
+    entry: &T2PageFileEntry,
 ) {
-    let board_file = entry.board_file.as_str();
+    let page_file = entry.page_file.as_str();
     let scene_id = entry.scene_id.as_str();
     let label = entry.label.clone();
     let slots = &entry.slots;
@@ -109,7 +109,7 @@ fn push_board_file_tree_node(
         .map(|slot| {
             let node = BuildNodeId::board_slot(board_key, slot.slot_id.as_str());
             ReachabilityTreeNode {
-                id: format!("board-slot-{}-{}", board_file, slot.slot_id),
+                id: format!("board-slot-{}-{}", page_file, slot.slot_id),
                 node_id: node.encode(),
                 kind: "board_slot".to_string(),
                 label: slot.label.clone().unwrap_or_else(|| slot.slot_id.clone()),
@@ -120,10 +120,10 @@ fn push_board_file_tree_node(
             }
         })
         .collect();
-    let file_name = board_file
+    let file_name = page_file
         .rsplit('/')
         .next()
-        .unwrap_or(board_file)
+        .unwrap_or(page_file)
         .trim_end_matches(".board.mei")
         .trim_end_matches(".page.mei");
     let display_label = if label.trim().is_empty() {
@@ -132,9 +132,9 @@ fn push_board_file_tree_node(
         label
     };
     tree_children.push(ReachabilityTreeNode {
-        id: format!("board-file-{board_file}-{scene_id}"),
+        id: format!("board-file-{page_file}-{scene_id}"),
         node_id: file_node_id,
-        kind: "board_file".to_string(),
+        kind: "page_file".to_string(),
         label: display_label,
         badges: vec![file_name.to_string(), scene_id.to_string()],
         children: slot_nodes,
@@ -143,13 +143,13 @@ fn push_board_file_tree_node(
 }
 
 /// Rebuild Boards reachability group from compile-time index (e.g. stale snapshot fallback).
-pub fn board_tree_root_from_index(index: &BuildBoardIndex) -> ReachabilityTreeRoot {
+pub fn board_tree_root_from_index(index: &BuildT2PageIndex) -> ReachabilityTreeRoot {
     let mut tree_children = Vec::new();
-    for (board_key, entry) in &index.boards {
-        push_board_file_tree_node(&mut tree_children, board_key.as_str(), entry);
+    for (board_key, entry) in &index.pages {
+        push_page_file_tree_node(&mut tree_children, board_key.as_str(), entry);
     }
     ReachabilityTreeRoot {
-        group: "boards".to_string(),
+        group: "t2_pages".to_string(),
         label: "T2 Pages".to_string(),
         default_open: false,
         children: tree_children,
@@ -195,7 +195,7 @@ fn params_summary_from_contract(contract: Option<&SceneContract>) -> Option<Stri
 fn slots_from_sources(
     contract: Option<&SceneContract>,
     assembly: Option<&Value>,
-) -> Vec<BoardSlotEntry> {
+) -> Vec<T2PageSlotEntry> {
     let mut slots = if let Some(slots) = assembly
         .and_then(|value| value.get("projection_slots"))
         .and_then(Value::as_array)
@@ -215,7 +215,7 @@ fn slots_from_sources(
         {
             slots.insert(
                 0,
-                BoardSlotEntry {
+                T2PageSlotEntry {
                     slot_id: "filter".to_string(),
                     component: Some("filter".to_string()),
                     label: Some("过滤面板".to_string()),
@@ -237,7 +237,7 @@ fn assembly_has_filter_schema(assembly: &Value) -> bool {
         .unwrap_or(false)
 }
 
-fn parse_projection_slot(value: &Value) -> Option<BoardSlotEntry> {
+fn parse_projection_slot(value: &Value) -> Option<T2PageSlotEntry> {
     let object = value.as_object()?;
     let slot_id = object
         .get("id")
@@ -264,7 +264,7 @@ fn parse_projection_slot(value: &Value) -> Option<BoardSlotEntry> {
         .map(str::to_string);
     let mut backing_refs = Vec::new();
     collect_backing_refs(value, &mut backing_refs);
-    Some(BoardSlotEntry {
+    Some(T2PageSlotEntry {
         slot_id,
         component,
         label,
@@ -275,8 +275,8 @@ fn parse_projection_slot(value: &Value) -> Option<BoardSlotEntry> {
 
 fn zones_from_shell_contract(
     _local_nav: &Value,
-    _panels: &[crate::model::PanelDecl],
-) -> Vec<BoardSlotEntry> {
+    _panels: &[crate::model::UiNodeDecl],
+) -> Vec<T2PageSlotEntry> {
     Vec::new()
 }
 
@@ -337,11 +337,11 @@ mod tests {
                 ]
             }),
         );
-        let result = build_board_index(&tree, &BTreeMap::new(), &assembly);
-        assert_eq!(result.index.boards.len(), 1);
+        let result = build_t2_page_index(&tree, &BTreeMap::new(), &assembly);
+        assert_eq!(result.index.pages.len(), 1);
         let entry = result
             .index
-            .boards
+            .pages
             .get("scenes/05-监督预警.board.mei#supervision_items_analytics_board")
             .expect("board entry");
         assert_eq!(entry.scene_id, "supervision_items_analytics_board");

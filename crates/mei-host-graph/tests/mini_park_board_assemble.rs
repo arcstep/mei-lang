@@ -29,12 +29,12 @@ fn ensure_imported() {
     });
 }
 
-fn has_panel_id(panel: &mei_lang_kernel::PanelDecl, target: &str) -> bool {
+fn has_panel_id(panel: &mei_lang_kernel::UiNodeDecl, target: &str) -> bool {
     if panel.id == target {
         return true;
     }
     panel.blocks.iter().any(|node| match node {
-        mei_lang_kernel::UiNodeDecl::Panel(child) => has_panel_id(child, target),
+        mei_lang_kernel::UiTreeNode::Panel(child) => has_panel_id(child, target),
         _ => false,
     })
 }

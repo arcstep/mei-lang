@@ -46,11 +46,11 @@ impl BlockId {
             GraphNodeKind::Navigation => BlockLayer::L2,
             GraphNodeKind::AppSkeleton
             | GraphNodeKind::ScenePayload
-            | GraphNodeKind::PanelContract
+            | GraphNodeKind::ContentPanel
             | GraphNodeKind::CatalogResource
             | GraphNodeKind::MetricDefBundle
             | GraphNodeKind::SemanticGraph
-            | GraphNodeKind::AssemblyView => BlockLayer::L3,
+            | GraphNodeKind::PageInstance => BlockLayer::L3,
             GraphNodeKind::DataSource
             | GraphNodeKind::EvalPlan
             | GraphNodeKind::Workset

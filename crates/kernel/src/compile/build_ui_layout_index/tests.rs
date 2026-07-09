@@ -1,11 +1,11 @@
 use crate::{
     build_ui_layout_index, BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, CompiledSceneRoute,
-    LayoutDecl, PanelDecl, SceneContract, SceneDecl, UiNodeDecl, UiScopeRole,
+    LayoutDecl, UiNodeDecl, SceneContract, SceneDecl, UiTreeNode, UiScopeRole,
 };
 use serde_json::json;
 
-fn sample_left_rail_panel() -> PanelDecl {
-    PanelDecl {
+fn sample_left_rail_panel() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "left_rail".to_string(),
         title: None,
@@ -31,14 +31,14 @@ fn sample_left_rail_panel() -> PanelDecl {
             justify: None,
         }),
         blocks: vec![
-            UiNodeDecl::Panel(PanelDecl {
+            UiTreeNode::Panel(UiNodeDecl {
                 kind: "panel".to_string(),
                 id: "enforcement".to_string(),
                 title: Some("执法要素".to_string()),
                 head: None,
                 area: Some("enforcement".to_string()),
                 layout: None,
-                blocks: vec![UiNodeDecl::Panel(compound_micro_panel())],
+                blocks: vec![UiTreeNode::Panel(compound_micro_panel())],
                 slot: None,
                 props: json!({}),
                 head_props: json!({}),
@@ -56,8 +56,8 @@ fn sample_left_rail_panel() -> PanelDecl {
     }
 }
 
-fn compound_micro_panel() -> PanelDecl {
-    PanelDecl {
+fn compound_micro_panel() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "enforcement_strip_layout".to_string(),
         title: None,
@@ -85,17 +85,17 @@ fn compound_micro_panel() -> PanelDecl {
             justify: None,
         }),
         blocks: vec![
-            UiNodeDecl::Block(metric_block("first", "执法单位")),
-            UiNodeDecl::Block(metric_block("second", "执法人员")),
-            UiNodeDecl::Block(metric_block("third", "执法事项")),
-            UiNodeDecl::Panel(PanelDecl {
+            UiTreeNode::Block(metric_block("first", "执法单位")),
+            UiTreeNode::Block(metric_block("second", "执法人员")),
+            UiTreeNode::Block(metric_block("third", "执法事项")),
+            UiTreeNode::Panel(UiNodeDecl {
                 kind: "panel".to_string(),
                 id: "enforcement_objects_card".to_string(),
                 title: None,
                 head: None,
                 area: Some("compound".to_string()),
                 layout: None,
-                blocks: vec![UiNodeDecl::Block(metric_block("auto", "执法对象"))],
+                blocks: vec![UiTreeNode::Block(metric_block("auto", "执法对象"))],
                 slot: None,
                 props: json!({}),
                 head_props: json!({}),
@@ -191,7 +191,7 @@ fn ui_layout_index_builds_section_slotted_layout_and_slots() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -293,7 +293,7 @@ fn ui_layout_index_exports_compound_metric_cards_inside_slot_shell() {
             world: None,
             flow: None,
             frame: None,
-            panels: vec![PanelDecl {
+            panels: vec![UiNodeDecl {
                 kind: "panel".to_string(),
                 id: "left_rail".to_string(),
                 title: None,
@@ -310,21 +310,21 @@ fn ui_layout_index_exports_compound_metric_cards_inside_slot_shell() {
                     align: None,
                     justify: None,
                 }),
-                blocks: vec![UiNodeDecl::Panel(PanelDecl {
+                blocks: vec![UiTreeNode::Panel(UiNodeDecl {
                     kind: "panel".to_string(),
                     id: "enforcement".to_string(),
                     title: Some("执法要素".to_string()),
                     head: None,
                     area: Some("enforcement".to_string()),
                     layout: None,
-                    blocks: vec![UiNodeDecl::Panel(PanelDecl {
+                    blocks: vec![UiTreeNode::Panel(UiNodeDecl {
                         kind: "panel".to_string(),
                         id: "enforcement-stats".to_string(),
                         title: None,
                         head: None,
                         area: None,
                         layout: None,
-                        blocks: vec![UiNodeDecl::Panel(compound_strip_with_wide_metric_shell())],
+                        blocks: vec![UiTreeNode::Panel(compound_strip_with_wide_metric_shell())],
                         slot: None,
                         props: json!({}),
                         head_props: json!({}),
@@ -357,7 +357,7 @@ fn ui_layout_index_exports_compound_metric_cards_inside_slot_shell() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -392,15 +392,15 @@ fn ui_layout_index_exports_compound_metric_cards_inside_slot_shell() {
     );
 }
 
-fn metric_card_panel(area: &str, id: &str, label: &str, source_file: &str) -> PanelDecl {
-    PanelDecl {
+fn metric_card_panel(area: &str, id: &str, label: &str, source_file: &str) -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: id.to_string(),
         title: None,
         head: None,
         area: Some(area.to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Block(BlockDecl {
+        blocks: vec![UiTreeNode::Block(BlockDecl {
             kind: "block".to_string(),
             use_key: "mei.text".to_string(),
             id: Some(format!("{id}_label")),
@@ -429,8 +429,8 @@ fn metric_card_panel(area: &str, id: &str, label: &str, source_file: &str) -> Pa
     }
 }
 
-fn compound_micro_panel_with_metric_cards() -> PanelDecl {
-    PanelDecl {
+fn compound_micro_panel_with_metric_cards() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "enforcement_strip_layout".to_string(),
         title: None,
@@ -458,25 +458,25 @@ fn compound_micro_panel_with_metric_cards() -> PanelDecl {
             justify: None,
         }),
         blocks: vec![
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "first",
                 "enforcement_units_card",
                 "执法单位",
                 "src/scene/home/content/enforcement-units.panel.mei",
             )),
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "second",
                 "enforcement_staff_card",
                 "执法人员",
                 "src/scene/home/content/enforcement-staff.panel.mei",
             )),
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "third",
                 "enforcement_items_card",
                 "执法事项",
                 "src/scene/home/content/enforcement-items.panel.mei",
             )),
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "compound",
                 "enforcement_objects_card",
                 "执法对象",
@@ -495,8 +495,8 @@ fn compound_micro_panel_with_metric_cards() -> PanelDecl {
     }
 }
 
-fn wide_metric_compound_shell_panel() -> PanelDecl {
-    PanelDecl {
+fn wide_metric_compound_shell_panel() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "enforcement_objects_card".to_string(),
         title: None,
@@ -513,7 +513,7 @@ fn wide_metric_compound_shell_panel() -> PanelDecl {
             align: None,
             justify: None,
         }),
-        blocks: vec![UiNodeDecl::Panel(wide_metric_compound_body_panel())],
+        blocks: vec![UiTreeNode::Panel(wide_metric_compound_body_panel())],
         slot: None,
         props: json!({"__mei_slot_frame_bg": true}),
         head_props: json!({}),
@@ -523,8 +523,8 @@ fn wide_metric_compound_shell_panel() -> PanelDecl {
     }
 }
 
-fn wide_metric_compound_body_panel() -> PanelDecl {
-    PanelDecl {
+fn wide_metric_compound_body_panel() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "enforcement_objects_card_body".to_string(),
         title: None,
@@ -557,25 +557,25 @@ fn wide_metric_compound_body_panel() -> PanelDecl {
             justify: None,
         }),
         blocks: vec![
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "top",
                 "enforcement_objects_top",
                 "执法对象",
                 "src/scene/home/content/enforcement-objects-top.panel.mei",
             )),
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "b0",
                 "enforcement_objects_b0",
                 "重点企业",
                 "src/scene/home/content/enforcement-objects-b0.panel.mei",
             )),
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "b1",
                 "enforcement_objects_b1",
                 "园区",
                 "src/scene/home/content/enforcement-objects-b1.panel.mei",
             )),
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "b2",
                 "enforcement_objects_b2",
                 "白名单",
@@ -591,8 +591,8 @@ fn wide_metric_compound_body_panel() -> PanelDecl {
     }
 }
 
-fn compound_strip_with_wide_metric_shell() -> PanelDecl {
-    PanelDecl {
+fn compound_strip_with_wide_metric_shell() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "enforcement_strip_layout".to_string(),
         title: None,
@@ -620,25 +620,25 @@ fn compound_strip_with_wide_metric_shell() -> PanelDecl {
             justify: None,
         }),
         blocks: vec![
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "first",
                 "enforcement_units_card",
                 "执法单位",
                 "src/scene/home/content/enforcement-units.panel.mei",
             )),
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "second",
                 "enforcement_personnel_card",
                 "执法人员",
                 "src/scene/home/content/enforcement-staff.panel.mei",
             )),
-            UiNodeDecl::Panel(metric_card_panel(
+            UiTreeNode::Panel(metric_card_panel(
                 "third",
                 "enforcement_items_card",
                 "执法事项",
                 "src/scene/home/content/enforcement-items.panel.mei",
             )),
-            UiNodeDecl::Panel(wide_metric_compound_shell_panel()),
+            UiTreeNode::Panel(wide_metric_compound_shell_panel()),
         ],
         slot: None,
         props: json!({"__mei_macro": "metric_triptych_compound_body"}),
@@ -649,8 +649,8 @@ fn compound_strip_with_wide_metric_shell() -> PanelDecl {
     }
 }
 
-fn sample_section_with_panel_ref_wrapper() -> PanelDecl {
-    PanelDecl {
+fn sample_section_with_panel_ref_wrapper() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "left_rail".to_string(),
         title: None,
@@ -667,21 +667,21 @@ fn sample_section_with_panel_ref_wrapper() -> PanelDecl {
             align: None,
             justify: None,
         }),
-        blocks: vec![UiNodeDecl::Panel(PanelDecl {
+        blocks: vec![UiTreeNode::Panel(UiNodeDecl {
             kind: "panel".to_string(),
             id: "enforcement".to_string(),
             title: Some("执法要素".to_string()),
             head: None,
             area: Some("enforcement".to_string()),
             layout: None,
-            blocks: vec![UiNodeDecl::Panel(PanelDecl {
+            blocks: vec![UiTreeNode::Panel(UiNodeDecl {
                 kind: "panel".to_string(),
                 id: "enforcement-stats".to_string(),
                 title: None,
                 head: None,
                 area: None,
                 layout: None,
-                blocks: vec![UiNodeDecl::Panel(compound_micro_panel_with_metric_cards())],
+                blocks: vec![UiTreeNode::Panel(compound_micro_panel_with_metric_cards())],
                 slot: None,
                 props: json!({}),
                 head_props: json!({}),
@@ -762,7 +762,7 @@ fn ui_layout_index_penetrates_panel_ref_wrapper_for_metric_card_content() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -912,7 +912,7 @@ fn ui_layout_index_dedupes_duplicate_scene_routes() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -945,7 +945,7 @@ fn resolve_build_preview_scope_for_ssr_skips_ui_scope() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -976,7 +976,7 @@ fn resolve_build_preview_scope_for_ssr_skips_scene_panel_for_full_scene() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -1043,7 +1043,7 @@ fn ui_scope_for_block_matches_instance_id_stem() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: UiLayoutIndex {
             nodes,
@@ -1112,7 +1112,7 @@ fn ui_scope_annotation_for_preview_panel_matches_content_and_section_paths() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: UiLayoutIndex {
             nodes,
@@ -1197,7 +1197,7 @@ fn ui_scope_annotation_distinguishes_metric_cards_by_panel_area() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: UiLayoutIndex {
             nodes,
@@ -1273,7 +1273,7 @@ fn ui_scope_annotation_section_does_not_tag_deep_content_panels() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: UiLayoutIndex {
             nodes,
@@ -1353,7 +1353,7 @@ fn ui_scope_annotation_matches_compound_metric_cards() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: UiLayoutIndex {
             nodes,
@@ -1449,7 +1449,7 @@ fn ui_scope_annotation_tags_inspection_micro_layout_slots() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: UiLayoutIndex {
             nodes,
@@ -1494,8 +1494,8 @@ fn ui_scope_annotation_tags_inspection_micro_layout_slots() {
     assert_eq!(section.preview_scope, "left_rail/inspection");
 }
 
-fn metric_card_panel_fixture(id: &str, area: &str, label: &str) -> PanelDecl {
-    PanelDecl {
+fn metric_card_panel_fixture(id: &str, area: &str, label: &str) -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: id.to_string(),
         title: None,
@@ -1515,8 +1515,8 @@ fn metric_card_panel_fixture(id: &str, area: &str, label: &str) -> PanelDecl {
     }
 }
 
-fn status_flow_panel() -> PanelDecl {
-    PanelDecl {
+fn status_flow_panel() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "issue_status_flow".to_string(),
         title: None,
@@ -1545,10 +1545,10 @@ fn status_flow_panel() -> PanelDecl {
             justify: None,
         }),
         blocks: vec![
-            UiNodeDecl::Panel(metric_card_panel_fixture("metric_card", "pending", "待办")),
-            UiNodeDecl::Panel(metric_card_panel_fixture("metric_card", "doing", "在办")),
-            UiNodeDecl::Panel(metric_card_panel_fixture("metric_card", "done", "已办")),
-            UiNodeDecl::Panel(metric_card_panel_fixture("metric_card", "summary", "查实率")),
+            UiTreeNode::Panel(metric_card_panel_fixture("metric_card", "pending", "待办")),
+            UiTreeNode::Panel(metric_card_panel_fixture("metric_card", "doing", "在办")),
+            UiTreeNode::Panel(metric_card_panel_fixture("metric_card", "done", "已办")),
+            UiTreeNode::Panel(metric_card_panel_fixture("metric_card", "summary", "查实率")),
         ],
         slot: None,
         props: json!({}),
@@ -1559,8 +1559,8 @@ fn status_flow_panel() -> PanelDecl {
     }
 }
 
-fn summary_stack_panel() -> PanelDecl {
-    PanelDecl {
+fn summary_stack_panel() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "penalty_count_summary".to_string(),
         title: None,
@@ -1582,17 +1582,17 @@ fn summary_stack_panel() -> PanelDecl {
             justify: None,
         }),
         blocks: vec![
-            UiNodeDecl::Panel(metric_card_panel_fixture(
+            UiTreeNode::Panel(metric_card_panel_fixture(
                 "penalty_count_summary_primary",
                 "primary",
                 "总数",
             )),
-            UiNodeDecl::Panel(metric_card_panel_fixture(
+            UiTreeNode::Panel(metric_card_panel_fixture(
                 "penalty_count_summary_secondary_a",
                 "secondary_a",
                 "近7日",
             )),
-            UiNodeDecl::Panel(metric_card_panel_fixture(
+            UiTreeNode::Panel(metric_card_panel_fixture(
                 "penalty_count_summary_secondary_b",
                 "secondary_b",
                 "行政复议",
@@ -1607,15 +1607,15 @@ fn summary_stack_panel() -> PanelDecl {
     }
 }
 
-fn section_panel(id: &str, title: &str, body: PanelDecl) -> PanelDecl {
-    PanelDecl {
+fn section_panel(id: &str, title: &str, body: UiNodeDecl) -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: id.to_string(),
         title: Some(title.to_string()),
         head: None,
         area: Some(id.to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(body)],
+        blocks: vec![UiTreeNode::Panel(body)],
         slot: None,
         props: json!({}),
         head_props: json!({}),
@@ -1625,8 +1625,8 @@ fn section_panel(id: &str, title: &str, body: PanelDecl) -> PanelDecl {
     }
 }
 
-fn sample_rail_with_sections(sections: Vec<PanelDecl>) -> PanelDecl {
-    PanelDecl {
+fn sample_rail_with_sections(sections: Vec<UiNodeDecl>) -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "left_rail".to_string(),
         title: None,
@@ -1648,7 +1648,7 @@ fn sample_rail_with_sections(sections: Vec<PanelDecl>) -> PanelDecl {
             align: None,
             justify: None,
         }),
-        blocks: sections.into_iter().map(UiNodeDecl::Panel).collect(),
+        blocks: sections.into_iter().map(UiTreeNode::Panel).collect(),
         slot: None,
         props: json!({"__mei_tier": "t1", "__mei_chrome_role": "rail"}),
         head_props: json!({}),
@@ -1658,7 +1658,7 @@ fn sample_rail_with_sections(sections: Vec<PanelDecl>) -> PanelDecl {
     }
 }
 
-fn compiled_with_panels(panels: Vec<PanelDecl>) -> CompiledApp {
+fn compiled_with_panels(panels: Vec<UiNodeDecl>) -> CompiledApp {
     CompiledApp {
         app_id: "pretty-panels".to_string(),
         title: "Pretty Panels".to_string(),
@@ -1712,7 +1712,7 @@ fn compiled_with_panels(panels: Vec<PanelDecl>) -> CompiledApp {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     }
@@ -1772,7 +1772,7 @@ fn ui_layout_index_contract_level_chart_blocks_surface_in_section() {
         constraints: None,
         data: None,
     };
-    let penalty_stats = PanelDecl {
+    let penalty_stats = UiNodeDecl {
         kind: "panel".to_string(),
         id: "penalty-stats".to_string(),
         title: None,
@@ -1790,8 +1790,8 @@ fn ui_layout_index_contract_level_chart_blocks_surface_in_section() {
             justify: None,
         }),
         blocks: vec![
-            UiNodeDecl::Panel(summary_stack_panel()),
-            UiNodeDecl::Block(chart_block),
+            UiTreeNode::Panel(summary_stack_panel()),
+            UiTreeNode::Block(chart_block),
         ],
         slot: None,
         props: json!({}),
@@ -1800,14 +1800,14 @@ fn ui_layout_index_contract_level_chart_blocks_surface_in_section() {
         base: None,
         import_scope: None,
     };
-    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![PanelDecl {
+    let compiled = compiled_with_panels(vec![sample_rail_with_sections(vec![UiNodeDecl {
         kind: "panel".to_string(),
         id: "penalty".to_string(),
         title: Some("行政处罚".to_string()),
         head: None,
         area: Some("penalty".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(penalty_stats)],
+        blocks: vec![UiTreeNode::Panel(penalty_stats)],
         slot: None,
         props: json!({}),
         head_props: json!({}),
@@ -1877,7 +1877,7 @@ fn ui_layout_index_cross_section_duplicate_labels_disambiguate_in_tree() {
 
 #[test]
 fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
-    let map_tools_slot = PanelDecl {
+    let map_tools_slot = UiNodeDecl {
         kind: "panel".to_string(),
         id: "map-tools-slot".to_string(),
         title: None,
@@ -1892,14 +1892,14 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
         base: None,
         import_scope: None,
     };
-    let interaction_surface = PanelDecl {
+    let interaction_surface = UiNodeDecl {
         kind: "panel".to_string(),
         id: "map-interaction-surface".to_string(),
         title: None,
         head: None,
         area: Some("aperture".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(map_tools_slot)],
+        blocks: vec![UiTreeNode::Panel(map_tools_slot)],
         slot: None,
         props: json!({"__mei_chrome_role": "map_interaction_surface", "__mei_tier": "t1"}),
         head_props: json!({}),
@@ -1907,14 +1907,14 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
         base: None,
         import_scope: None,
     };
-    let map_viewport_content = PanelDecl {
+    let map_viewport_content = UiNodeDecl {
         kind: "panel".to_string(),
         id: "map-viewport".to_string(),
         title: None,
         head: None,
         area: None,
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(interaction_surface)],
+        blocks: vec![UiTreeNode::Panel(interaction_surface)],
         slot: None,
         props: json!({"__mei_chrome_role": "viewport", "__mei_tier": "t1"}),
         head_props: json!({}),
@@ -1922,14 +1922,14 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
         base: None,
         import_scope: None,
     };
-    let map_viewport_section = PanelDecl {
+    let map_viewport_section = UiNodeDecl {
         kind: "panel".to_string(),
         id: "map_viewport".to_string(),
         title: None,
         head: None,
         area: Some("map_viewport".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(map_viewport_content)],
+        blocks: vec![UiTreeNode::Panel(map_viewport_content)],
         slot: None,
         props: json!({"__mei_ui_role": "section", "__mei_tier": "t1"}),
         head_props: json!({}),
@@ -1937,7 +1937,7 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
         base: None,
         import_scope: None,
     };
-    let center_rail = PanelDecl {
+    let center_rail = UiNodeDecl {
         kind: "panel".to_string(),
         id: "center_rail".to_string(),
         title: None,
@@ -1958,7 +1958,7 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
             align: None,
             justify: None,
         }),
-        blocks: vec![UiNodeDecl::Panel(map_viewport_section)],
+        blocks: vec![UiTreeNode::Panel(map_viewport_section)],
         slot: None,
         props: json!({"__mei_tier": "t1", "__mei_chrome_role": "center_panel"}),
         head_props: json!({}),
@@ -2019,7 +2019,7 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -2036,14 +2036,14 @@ fn ui_layout_index_surfaces_map_viewport_operation_chrome() {
 
 #[test]
 fn ui_layout_index_synthesizes_default_section_for_bare_region() {
-    let bare_region = PanelDecl {
+    let bare_region = UiNodeDecl {
         kind: "panel".to_string(),
         id: "stats_rail".to_string(),
         title: Some("统计栏".to_string()),
         head: None,
         area: Some("body".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Block(metric_block("summary", "汇总"))],
+        blocks: vec![UiTreeNode::Block(metric_block("summary", "汇总"))],
         slot: None,
         props: json!({"__mei_tier": "t1"}),
         head_props: json!({}),
@@ -2104,7 +2104,7 @@ fn ui_layout_index_synthesizes_default_section_for_bare_region() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -2127,7 +2127,7 @@ fn ui_layout_index_synthesizes_default_section_for_bare_region() {
 fn ui_layout_index_exposes_fill_section_derived_height() {
     use crate::materialize_fill_section_derived_heights;
 
-    let fill_body = PanelDecl {
+    let fill_body = UiNodeDecl {
         kind: "panel".to_string(),
         id: "enforcement-stats".to_string(),
         title: None,
@@ -2152,14 +2152,14 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
         base: None,
         import_scope: None,
     };
-    let section = PanelDecl {
+    let section = UiNodeDecl {
         kind: "panel".to_string(),
         id: "enforcement".to_string(),
         title: Some("执法要素".to_string()),
         head: None,
         area: Some("enforcement".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(fill_body)],
+        blocks: vec![UiTreeNode::Panel(fill_body)],
         slot: None,
         props: json!({
             "__mei_ui_role": "section",
@@ -2171,7 +2171,7 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
         base: None,
         import_scope: None,
     };
-    let mut region = PanelDecl {
+    let mut region = UiNodeDecl {
         kind: "panel".to_string(),
         id: "left_rail".to_string(),
         title: None,
@@ -2188,7 +2188,7 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
             align: None,
             justify: None,
         }),
-        blocks: vec![UiNodeDecl::Panel(section)],
+        blocks: vec![UiTreeNode::Panel(section)],
         slot: None,
         props: json!({
             "__mei_ui_role": "region",
@@ -2207,7 +2207,7 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
         .blocks
         .iter()
         .filter_map(|n| match n {
-            UiNodeDecl::Panel(p) if p.id == "enforcement" => Some(p),
+            UiTreeNode::Panel(p) if p.id == "enforcement" => Some(p),
             _ => None,
         })
         .next()
@@ -2275,7 +2275,7 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
         component_assets: vec![],
         diagnostics,
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -2290,8 +2290,8 @@ fn ui_layout_index_exposes_fill_section_derived_height() {
     );
 }
 
-fn supervision_stats_triptych_panel() -> PanelDecl {
-    PanelDecl {
+fn supervision_stats_triptych_panel() -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: "supervision-stats".to_string(),
         title: None,
@@ -2313,9 +2313,9 @@ fn supervision_stats_triptych_panel() -> PanelDecl {
             justify: Some("stretch".to_string()),
         }),
         blocks: vec![
-            UiNodeDecl::Panel(triptych_metric_card_panel("supervision_items_card", "items")),
-            UiNodeDecl::Panel(triptych_metric_card_panel("supervision_models_card", "models")),
-            UiNodeDecl::Panel(triptych_metric_card_panel("warnings_count_card", "warnings")),
+            UiTreeNode::Panel(triptych_metric_card_panel("supervision_items_card", "items")),
+            UiTreeNode::Panel(triptych_metric_card_panel("supervision_models_card", "models")),
+            UiTreeNode::Panel(triptych_metric_card_panel("warnings_count_card", "warnings")),
         ],
         slot: None,
         props: json!({
@@ -2330,15 +2330,15 @@ fn supervision_stats_triptych_panel() -> PanelDecl {
     }
 }
 
-fn triptych_metric_card_panel(id: &str, area: &str) -> PanelDecl {
-    PanelDecl {
+fn triptych_metric_card_panel(id: &str, area: &str) -> UiNodeDecl {
+    UiNodeDecl {
         kind: "panel".to_string(),
         id: id.to_string(),
         title: None,
         head: None,
         area: Some(area.to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Block(metric_block("auto", id))],
+        blocks: vec![UiTreeNode::Block(metric_block("auto", id))],
         slot: None,
         props: json!({"__mei_metric_card": true}),
         head_props: json!({}),
@@ -2349,15 +2349,15 @@ fn triptych_metric_card_panel(id: &str, area: &str) -> PanelDecl {
 }
 
 #[test]
-fn panel_contract_triptych_projects_grid_manifest_and_slotted_layout_slots() {
-    let warning_section = PanelDecl {
+fn content_panel_triptych_projects_grid_manifest_and_slotted_layout_slots() {
+    let warning_section = UiNodeDecl {
         kind: "panel".to_string(),
         id: "warning".to_string(),
         title: Some("监督预警".to_string()),
         head: None,
         area: Some("warning".to_string()),
         layout: None,
-        blocks: vec![UiNodeDecl::Panel(supervision_stats_triptych_panel())],
+        blocks: vec![UiTreeNode::Panel(supervision_stats_triptych_panel())],
         slot: None,
         props: json!({
             "__mei_padding_profile": "compact",
@@ -2367,7 +2367,7 @@ fn panel_contract_triptych_projects_grid_manifest_and_slotted_layout_slots() {
         base: None,
         import_scope: None,
     };
-    let region = PanelDecl {
+    let region = UiNodeDecl {
         kind: "panel".to_string(),
         id: "right_rail".to_string(),
         title: None,
@@ -2394,7 +2394,7 @@ fn panel_contract_triptych_projects_grid_manifest_and_slotted_layout_slots() {
             align: None,
             justify: None,
         }),
-        blocks: vec![UiNodeDecl::Panel(warning_section)],
+        blocks: vec![UiTreeNode::Panel(warning_section)],
         slot: None,
         props: json!({"__mei_chrome_role": "rail", "__mei_tier": "t1"}),
         head_props: json!({}),
@@ -2455,7 +2455,7 @@ fn panel_contract_triptych_projects_grid_manifest_and_slotted_layout_slots() {
         component_assets: vec![],
         diagnostics: vec![],
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };

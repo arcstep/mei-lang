@@ -1,4 +1,4 @@
-use crate::model::{Diagnostic, PanelDecl, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, UiNodeDecl, Severity, UiTreeNode};
 
 use super::super::nodes::{node_is_metric_card_like, panel_px_prop};
 use super::{
@@ -7,7 +7,7 @@ use super::{
 };
 
 fn audit_one_metric_card_vertical_bands(
-    card: &PanelDecl,
+    card: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -66,12 +66,12 @@ fn audit_one_metric_card_vertical_bands(
 }
 
 pub(super) fn audit_metric_vertical_bands(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
     for node in &panel.blocks {
-        let UiNodeDecl::Panel(card) = node else {
+        let UiTreeNode::Panel(card) = node else {
             continue;
         };
         if node_is_metric_card_like(node) {

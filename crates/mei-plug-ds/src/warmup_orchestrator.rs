@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use mei_host_core::{dir_tree_bytes, CacheLayersReady, EvalSlotDescriptor, HostContext};
 use mei_host_graph::{
-    client_bootstrap_scope_allowed, collect_eval_frontier, linked_board_pack_scopes, record_slot_failed, record_slots_from_descriptors,
+    client_bootstrap_scope_allowed, collect_eval_frontier, linked_t2_page_pack_scopes, record_slot_failed, record_slots_from_descriptors,
     write_client_bootstrap, MrgRegistryWriter, WarmupTier,
 };
 use mei_lang_kernel::{
@@ -267,7 +267,7 @@ fn expand_targets_for_client_neighbors(
         return Ok(targets.to_vec());
     }
     let root_scope = targets[0].scope_key.as_str();
-    let pack_scopes = linked_board_pack_scopes(
+    let pack_scopes = linked_t2_page_pack_scopes(
         ctx,
         root_scope,
         cfg.neighbor_hops,
@@ -313,7 +313,7 @@ fn allowed_client_manifest_scopes(
     let pack_scopes = client_cfg
         .filter(|cfg| cfg.neighbor_hops > 0)
         .and_then(|cfg| {
-            linked_board_pack_scopes(
+            linked_t2_page_pack_scopes(
                 ctx,
                 primary_scope,
                 cfg.neighbor_hops,

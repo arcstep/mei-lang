@@ -379,13 +379,13 @@ frame.add_panel(
         .is_some_and(|rows| rows.iter().flatten().any(|cell| cell == "head")));
     assert!(panel.blocks.iter().any(|node| matches!(
         node,
-        crate::UiNodeDecl::Block(block)
+        crate::UiTreeNode::Block(block)
             if block.area.as_deref() == Some("head")
                 && block.props.get("content").and_then(|v| v.as_str()) == Some("标题")
     )));
     assert!(panel.blocks.iter().any(|node| matches!(
         node,
-        crate::UiNodeDecl::Block(block) if block.area.as_deref() == Some("body")
+        crate::UiTreeNode::Block(block) if block.area.as_deref() == Some("body")
     )));
     let _ = fs::remove_dir_all(&root);
 }

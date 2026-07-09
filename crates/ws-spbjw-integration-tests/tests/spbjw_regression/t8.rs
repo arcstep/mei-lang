@@ -48,11 +48,11 @@ fn compile_spbjw_access_home_scene_materializes_ops_theme() {
         .find(|p| p.id == "left_rail_float")
         .expect("home access route should include left_rail_float");
     fn find_panel_in_nodes<'a>(
-        nodes: &'a [mei_lang_kernel::UiNodeDecl],
+        nodes: &'a [mei_lang_kernel::UiTreeNode],
         id: &str,
-    ) -> Option<&'a mei_lang_kernel::PanelDecl> {
+    ) -> Option<&'a mei_lang_kernel::UiNodeDecl> {
         for node in nodes {
-            let mei_lang_kernel::UiNodeDecl::Panel(panel) = node else {
+            let mei_lang_kernel::UiTreeNode::Panel(panel) = node else {
                 continue;
             };
             if panel.id == id {
@@ -146,7 +146,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
                 || panel.blocks.iter().any(|node| {
                     matches!(
                         node,
-                        mei_lang_kernel::UiNodeDecl::Panel(nested)
+                        mei_lang_kernel::UiTreeNode::Panel(nested)
                             if nested.import_scope.as_deref() == Some("scenes/10-地图.mei")
                     )
                 })

@@ -20,9 +20,8 @@ world(id = "home_world", resources = [])
 frame(
     id = "home_frame",
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
-)
-
-frame.add_panel(
+    panels = [
+panel(
     id = "map_panel",
     area = "auto",
     blocks = [
@@ -46,4 +45,8 @@ frame.add_panel(
             },
         ),
     ],
+),
+    ],
 )
+
+

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::model::{
-    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, PanelDecl, UiNodeDecl,
+    BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, UiNodeDecl, UiTreeNode,
 };
 
 pub fn preview_target_from_build_node(node: &BuildNodeId) -> Option<String> {
@@ -10,7 +10,7 @@ pub fn preview_target_from_build_node(node: &BuildNodeId) -> Option<String> {
 }
 
 fn panel_path_for_use_key(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     parent_path: Option<&str>,
     use_key: &str,
 ) -> Option<String> {
@@ -20,10 +20,10 @@ fn panel_path_for_use_key(
     };
     for node in &panel.blocks {
         match node {
-            UiNodeDecl::Block(BlockDecl { use_key: key, .. }) if key.as_str() == use_key => {
+            UiTreeNode::Block(BlockDecl { use_key: key, .. }) if key.as_str() == use_key => {
                 return Some(panel_path);
             }
-            UiNodeDecl::Panel(nested) => {
+            UiTreeNode::Panel(nested) => {
                 if let Some(found) =
                     panel_path_for_use_key(nested, Some(panel_path.as_str()), use_key)
                 {
@@ -117,7 +117,7 @@ pub fn catalog_preview_target_for_build_node(
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };

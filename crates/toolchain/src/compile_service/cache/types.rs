@@ -44,7 +44,7 @@ pub(crate) struct CompiledAppDiskArtifact {
     /// stored alongside the compiled app for artifact reload to support runtime metric eval.
     #[serde(default)]
     pub(crate) dataset_runtime_payloads: BTreeMap<String, DatasetRuntimePayload>,
-    /// MCG input node revisions for AssemblyView derivation (see doc 80).
+    /// MCG input node revisions for PageInstance derivation (see doc 80).
     #[serde(default, rename = "assemblyInputs")]
     pub(crate) assembly_inputs: Vec<AssemblyInputDiskRecord>,
     /// When true, `compiled` omits inline dataset rows and compile-time metric snapshots.

@@ -4,7 +4,7 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::model::{
-    Diagnostic, LoadedResource, MetricContract, MetricShape, ResourceDecl, Severity, UiNodeDecl,
+    Diagnostic, LoadedResource, MetricContract, MetricShape, ResourceDecl, Severity, UiTreeNode,
     WorldMetricLedgerEntry,
 };
 
@@ -419,16 +419,16 @@ fn load_resources_from_capsule_file_recursive(
 }
 
 pub(super) fn collect_asset_keys_from_nodes(
-    nodes: &[UiNodeDecl],
+    nodes: &[UiTreeNode],
     asset_keys: &mut BTreeSet<String>,
 ) {
     for node in nodes {
         match node {
-            UiNodeDecl::Panel(panel) => collect_asset_keys_from_nodes(&panel.blocks, asset_keys),
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Panel(panel) => collect_asset_keys_from_nodes(&panel.blocks, asset_keys),
+            UiTreeNode::Block(block) => {
                 asset_keys.insert(block.use_key.clone());
             }
-            UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
 }

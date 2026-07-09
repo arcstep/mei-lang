@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 use crate::model::{
     Diagnostic, SceneContract, Severity,
 };
-use super::super::metric::expand_board_assembly;
+use super::super::metric::expand_page_instance;
 use super::super::metric::parse_metric_ref_id;
 
 /// Manage/build 预览：用 scene `examples[0].params` 展开 projection_slots，供无 caller 时装配 filter/chart/detail。
@@ -55,7 +55,7 @@ pub(crate) fn enrich_scene_projection_assembly_preview(
     };
     let world_hint = contract.scene.world.clone();
     let mut expand_diagnostics = Vec::new();
-    let Some(expanded) = expand_board_assembly(
+    let Some(expanded) = expand_page_instance(
         &board_payload,
         resources,
         world_hint.as_ref(),
@@ -69,7 +69,7 @@ pub(crate) fn enrich_scene_projection_assembly_preview(
                 severity: Severity::Warning,
                 code: "board_preview_expand_failed".to_string(),
                 message: format!(
-                    "scene `{scene_id}` analytics preview assembly skipped: expand_board_assembly returned no slots"
+                    "scene `{scene_id}` analytics preview assembly skipped: expand_page_instance returned no slots"
                 ),
                 source_path: Some(target_file.to_string()),
             });

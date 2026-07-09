@@ -8,8 +8,6 @@ use mei_lang_kernel::{
     CompiledApp, LayoutBudgetValidateOptions,
 };
 
-use crate::layout_tuning_merge::merge_layout_tuning_into_compiled;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EnrichCompiledScopeOptions {
     pub materialize_px: bool,
@@ -37,10 +35,6 @@ pub fn enrich_compiled_scope(
         .as_ref()
         .and_then(|c| c.scene.theme.clone())
         .unwrap_or_else(|| "cockpit".to_string());
-    merge_layout_tuning_into_compiled(
-        &mut compiled,
-        mei_config.ops.layout_tuning.as_ref(),
-    );
     crate::theme_layout_merge::merge_theme_layout_into_compiled(
         &mut compiled,
         theme_id.as_str(),

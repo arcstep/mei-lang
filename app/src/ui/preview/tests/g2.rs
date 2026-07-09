@@ -19,7 +19,7 @@ use super::viewport::{
     frame_viewport_style_for_route, viewport_overflow_is_debug,
 };
 use crate::ui::route::UiRouteMode;
-use mei_lang_kernel::PanelDecl;
+use mei_lang_kernel::UiNodeDecl;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
     CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,

@@ -1,0 +1,161 @@
+# 分析型 / 详情 T2 page frame 模板宏（原 cockpit/frames/*，迁入 drilldown）。
+
+template filter_panel():
+    panel(
+        id = "filter",
+        area = "filter",
+        slot = { "kind": "filter", "source": "filter_schema" },
+        blocks = [],
+    )
+
+template chart_panel():
+    panel(
+        id = "chart",
+        area = "chart",
+        slot = { "kind": "slots", "accepts": ["chart"], "max": 3 },
+        blocks = [],
+    )
+
+template detail_panel():
+    panel(
+        id = "detail",
+        area = "detail",
+        slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
+        blocks = [],
+    )
+
+template chart_detail_stack():
+    panel(
+        id = "main",
+        area = "main",
+        layout = grid(
+            columns = ["1fr"],
+            rows = ["auto", "minmax(0, 1fr)"],
+            areas = [["chart"], ["detail"]],
+            gap = "12px",
+        ),
+        slot = { "kind": "container" },
+        blocks = [chart_panel(), detail_panel()],
+    )
+
+template row_preview_panel(
+    id = "preview",
+    area = "preview",
+):
+    panel(
+        id = id,
+        area = area,
+        slot = { "kind": "row_preview", "accepts": ["summary"] },
+        blocks = [],
+    )
+
+template analytics_frame():
+    frame_export(
+        layout = grid(
+            columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["filter", "main"]],
+            gap = "12px",
+            padding = "12px",
+        ),
+        panels = [filter_panel(), chart_detail_stack()],
+    )
+
+template case_detail_card_frame(
+    frame_id = "case_detail_card_frame",
+):
+    frame_export(
+        id = frame_id,
+        layout = grid(
+            columns = ["1fr"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["preview"]],
+            gap = "12px",
+            padding = "16px",
+        ),
+        panels = [row_preview_panel()],
+    )
+
+template mechanism_documents_frame():
+    frame_export(
+        id = "mechanism_documents_frame",
+        layout = grid(
+            columns = ["minmax(240px, 1fr)", "minmax(0, 2.4fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["list", "preview"]],
+            gap = "12px",
+            padding = "12px",
+        ),
+        panels = [
+            panel(
+                id = "list",
+                area = "list",
+                slot = { "kind": "slots", "accepts": ["data_table"], "required": True },
+                blocks = [],
+            ),
+            panel(
+                id = "preview",
+                area = "preview",
+                slot = { "kind": "row_preview", "accepts": ["summary"], "selection_from": "list" },
+                blocks = [],
+            ),
+        ],
+    )
+
+template filter_detail_frame():
+    frame_export(
+        layout = grid(
+            columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["filter", "detail"]],
+            gap = "12px",
+            padding = "12px",
+        ),
+        panels = [filter_panel(), detail_panel()],
+    )
+
+template ai_warning_cockpit_frame():
+    frame_export(
+        layout = grid(
+            columns = ["minmax(0, 1fr)", "minmax(0, 1fr)"],
+            rows = ["minmax(0, 1fr)"],
+            areas = [["left", "preview"]],
+            gap = "12px",
+            padding = "12px",
+        ),
+        panels = [
+            panel(
+                id = "left",
+                area = "left",
+                layout = grid(
+                    columns = ["1fr"],
+                    rows = ["auto", "minmax(0, 1fr)"],
+                    areas = [["chart"], ["detail"]],
+                    gap = "12px",
+                ),
+                slot = { "kind": "container" },
+                blocks = [chart_panel(), detail_panel()],
+            ),
+            panel(
+                id = "preview",
+                area = "preview",
+                slot = { "kind": "row_preview", "accepts": ["summary"], "selection_from": "detail" },
+                blocks = [],
+            ),
+        ],
+    )
+
+template generic_drilldown_frame():
+    frame_export(
+        layout = grid(
+            columns = ["1fr"],
+            rows = ["auto", "minmax(0, 1fr)"],
+            areas = [["tabs"], ["content"]],
+            gap = "12px",
+            padding = "12px",
+        ),
+        panels = [
+            panel(id = "tabs", area = "tabs", slot = { "kind": "tab_bar" }, blocks = []),
+            panel(id = "content", area = "content", slot = { "kind": "tab_content" }, blocks = []),
+        ],
+    )

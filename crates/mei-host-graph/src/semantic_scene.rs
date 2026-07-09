@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use mei_lang_kernel::{padding_profile_css, FrameDecl, PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{padding_profile_css, FrameDecl, UiNodeDecl, UiTreeNode};
 use serde_json::{json, Map, Value};
 
 use crate::assemble::assembly_key_to_target;
@@ -10,7 +10,7 @@ use crate::import::load_block_artifact;
 use crate::mcg::registry::McgRegistry;
 use crate::types::GraphNodeKind;
 use crate::v2_lower::{
-    load_panel_contract_payload, lower_frame_from_assembly, lower_layout, lower_panel_payload,
+    load_content_panel_payload, lower_frame_from_assembly, lower_layout, lower_panel_payload,
     PanelLowerContext,
 };
 
@@ -21,7 +21,7 @@ pub struct SemanticSceneAssembly {
     pub profile: Option<String>,
     pub theme: Option<Value>,
     pub frame: FrameDecl,
-    pub panels: Vec<PanelDecl>,
+    pub panels: Vec<UiNodeDecl>,
     pub panel_payloads: BTreeMap<String, Value>,
     pub shared: Value,
     pub local_nav: Value,
@@ -506,26 +506,11 @@ fn config_value(config: &Map<String, Value>, key: &str) -> Value {
 }
 
 fn insert_budget_props(props: &mut Map<String, Value>, budget: &Map<String, Value>) {
-    let mut content_budget = Map::new();
-    if let Some(rows) = budget.get("rows") {
-        content_budget.insert("rows".to_string(), rows.clone());
-    }
-    if let Some(gap) = budget.get("gap") {
-        content_budget.insert("gap".to_string(), gap.clone());
-    }
-    if !content_budget.is_empty() {
-        props.insert(
-            "__mei_content_budget".to_string(),
-            Value::Object(content_budget),
-        );
-    }
+    // content-budget / card_height height path deleted; keep non-height presentation knobs only.
     if let Some(value) = budget.get("padding_profile") {
         props.insert("__mei_padding_profile".to_string(), value.clone());
     }
-    if let Some(value) = budget.get("section_derived_height_px") {
-        props.insert("__mei_section_derived_height_px".to_string(), value.clone());
-    }
-    for key in ["padding", "width", "min_width", "max_width", "card_height"] {
+    for key in ["padding", "width", "min_width", "max_width"] {
         if let Some(value) = budget.get(key) {
             props.insert(key.to_string(), value.clone());
         }
@@ -533,7 +518,7 @@ fn insert_budget_props(props: &mut Map<String, Value>, budget: &Map<String, Valu
 }
 
 fn enrich_panel_payloads_from_tree(
-    panels: &[PanelDecl],
+    panels: &[UiNodeDecl],
     out: &mut BTreeMap<String, Value>,
     ctx: &PanelLowerContext<'_>,
 ) {
@@ -543,7 +528,7 @@ fn enrich_panel_payloads_from_tree(
             format!("content/{}", panel.id),
             panel.id.clone(),
         ] {
-            if let Ok(payload) = load_panel_contract_payload(ctx, ref_key.as_str()) {
+            if let Ok(payload) = load_content_panel_payload(ctx, ref_key.as_str()) {
                 out.insert(panel.id.clone(), payload);
                 break;
             }
@@ -556,7 +541,7 @@ fn collect_payload_index(
     out: &mut BTreeMap<String, Value>,
     ctx: &PanelLowerContext<'_>,
 ) {
-    let payload = if payload.get("__call").and_then(Value::as_str) == Some("panel_contract") {
+    let payload = if payload.get("__call").and_then(Value::as_str) == Some("content_panel") {
         payload
             .get("__args")
             .unwrap_or(payload)
@@ -595,7 +580,7 @@ fn collect_payload_index(
             }
             if v2_ref_name(block) == Some("panel_ref") {
                 if let Some(ref_key) = v2_ref_arg0(block) {
-                    if let Ok(payload) = load_panel_contract_payload(ctx, ref_key.as_str()) {
+                    if let Ok(payload) = load_content_panel_payload(ctx, ref_key.as_str()) {
                         collect_payload_index(&payload, out, ctx);
                     }
                 }
@@ -630,7 +615,7 @@ fn collect_world_payloads(value: &Value, out: &mut BTreeMap<String, Value>) {
     }
 }
 
-fn apply_padding_profile_body_props(panel: &mut PanelDecl) {
+fn apply_padding_profile_body_props(panel: &mut UiNodeDecl) {
     if let Some(profile) = panel
         .props
         .get("__mei_padding_profile")
@@ -653,7 +638,7 @@ fn apply_padding_profile_body_props(panel: &mut PanelDecl) {
         }
     }
     for block in &mut panel.blocks {
-        if let UiNodeDecl::Panel(nested) = block {
+        if let UiTreeNode::Panel(nested) = block {
             apply_padding_profile_body_props(nested);
         }
     }
@@ -675,7 +660,7 @@ fn is_plane_grid_overlay_region(args: Option<&serde_json::Map<String, Value>>) -
 fn grid_area_name_for_region(args: Option<&serde_json::Map<String, Value>>) -> Option<String> {
     let id = string_field_map(args, &["id"])?;
     if let Some(area) = string_field_map(args, &["area"]) {
-        if area != "body" {
+        if area != "content_zone" {
             return Some(area.to_string());
         }
     }
@@ -706,9 +691,9 @@ fn build_plane_grid_panel(
     plane_id: &str,
     tier: &str,
     plane_grid: Option<&Value>,
-    children: Vec<PanelDecl>,
-) -> Result<PanelDecl> {
-    Ok(PanelDecl {
+    children: Vec<UiNodeDecl>,
+) -> Result<UiNodeDecl> {
+    Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id: plane_id.to_string(),
         title: None,
@@ -717,7 +702,7 @@ fn build_plane_grid_panel(
         layout: plane_grid.and_then(lower_layout),
         blocks: children
             .into_iter()
-            .map(UiNodeDecl::Panel)
+            .map(UiTreeNode::Panel)
             .collect(),
         slot: None,
         props: json!({

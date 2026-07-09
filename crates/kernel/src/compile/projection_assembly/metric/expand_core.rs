@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use crate::model::{Diagnostic, Severity};
 
-pub(crate) fn expand_board_assembly(
+pub(crate) fn expand_page_instance(
     payload: &Map<String, Value>,
     resources: &[crate::model::LoadedResource],
     world_hint: Option<&Value>,
@@ -50,7 +50,7 @@ pub(crate) fn expand_board_assembly(
         Some("generic_tabs") => {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "board_assembly_unsupported_shell".to_string(),
+                code: "page_instance_unsupported_shell".to_string(),
                 message: format!(
                     "board assembly for context metric `{metric_id}` does not support generic_tabs shell; use scene.params + scene.bindings + link(scene=..., params=...)"
                 ),
@@ -101,7 +101,7 @@ pub(crate) fn expand_board_assembly(
         _ => {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "board_assembly_unsupported_shell".to_string(),
+                code: "page_instance_unsupported_shell".to_string(),
                 message: format!(
                     "board assembly for context metric `{metric_id}` requires shell.layout_mode"
                 ),

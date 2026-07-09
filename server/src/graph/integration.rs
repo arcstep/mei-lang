@@ -17,7 +17,7 @@ use crate::graph::mcg::assemble::assemble_scope_view;
 use crate::graph::mcg::metric_def_bundle::{
     load_metric_def_bundle, DatasetRuntimePayloadView, MetricDefBundleArtifact,
 };
-use crate::graph::mcg::panel_contract::{load_panel_contracts_from_store, partial_assemble_panel_merge};
+use crate::graph::mcg::content_panel::{load_content_panels_from_store, partial_assemble_panel_merge};
 use crate::graph::mcg::registry::McgRegistryWriter;
 use crate::graph::mcg::app_skeleton::load_app_skeleton_artifact;
 use crate::graph::content_store::{self, SCENE_PAYLOAD};
@@ -800,7 +800,7 @@ pub fn try_assemble_scope_from_scene_payload(
     let compile_revision = mcg
         .nodes
         .iter()
-        .filter(|node| node.id.kind == GraphNodeKind::AssemblyView)
+        .filter(|node| node.id.kind == GraphNodeKind::PageInstance)
         .find_map(|node| {
             node.payload_ref
                 .as_ref()
@@ -874,7 +874,7 @@ pub fn try_assemble_scope_from_scene_payload(
         let _ = hydrate_compiled_for_embedded_capsules(source_root, app_id, &mut compiled);
         hydrate_metric_defs_from_mcg_cas(app_root.as_path(), &mcg, &mut compiled);
     }
-    if let Ok(changed_panels) = load_panel_contracts_from_store(app_root.as_path(), &mcg) {
+    if let Ok(changed_panels) = load_content_panels_from_store(app_root.as_path(), &mcg) {
         if !changed_panels.is_empty() {
             compiled = partial_assemble_panel_merge(&compiled, &changed_panels);
         }

@@ -12,8 +12,8 @@ use axum::{
 };
 use mei_host_auth::AuthPrincipal;
 use mei_lang_kernel::{
-    catalog_scene_routes_from_app_root, compile_app_from_root, resolve_app_root, PanelDecl,
-    UiNodeDecl,
+    catalog_scene_routes_from_app_root, compile_app_from_root, resolve_app_root, UiNodeDecl,
+    UiTreeNode,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -634,15 +634,15 @@ fn validate_world_targets_config(
 }
 
 fn collect_world_stage_contracts_from_nodes(
-    panel: &PanelDecl,
-    nodes: &[UiNodeDecl],
+    panel: &UiNodeDecl,
+    nodes: &[UiTreeNode],
     out: &mut Vec<WorldStageContract>,
     diagnostics: &mut Vec<PresentationCompileDiagnostic>,
     warnings: &mut Vec<PresentationCompileDiagnostic>,
 ) {
     for node in nodes {
         match node {
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 let target_config = block
                     .props
                     .get("worldTargets")
@@ -748,7 +748,7 @@ fn collect_world_stage_contracts_from_nodes(
                     out.push(stage);
                 }
             }
-            UiNodeDecl::Panel(nested) => {
+            UiTreeNode::Panel(nested) => {
                 collect_world_stage_contracts_from_nodes(
                     nested,
                     &nested.blocks,
@@ -763,7 +763,7 @@ fn collect_world_stage_contracts_from_nodes(
 }
 
 fn collect_world_stage_contracts(
-    panels: &[PanelDecl],
+    panels: &[UiNodeDecl],
 ) -> (
     Vec<WorldStageContract>,
     Vec<PresentationCompileDiagnostic>,

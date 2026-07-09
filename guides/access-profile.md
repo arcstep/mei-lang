@@ -216,7 +216,7 @@ viewpoint: warnings_total
 | R4–R5 | 声明式演示脚本、TTS 与讲解同步 |
 | R6 | access eval 语料迁到口径 / 血缘主线 |
 
-细节与边界见 `docs/mei-lang-v1/implementation/agent/62-access-agent-world-model-and-presentation-runtime.md`。
+细节与边界见 `docs/archive/mei-lang-v1/implementation/agent/62-access-agent-world-model-and-presentation-runtime.md`。
 
 ## 一句话总结
 

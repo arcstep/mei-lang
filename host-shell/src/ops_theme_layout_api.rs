@@ -26,7 +26,6 @@ struct ThemeLayoutOverlayResponse {
     revision: String,
     themes_revision: String,
     draft_active: bool,
-    deprecated_layout_tuning: bool,
     entries: BTreeMap<String, Value>,
 }
 
@@ -81,7 +80,6 @@ pub async fn api_ops_theme_layout_overlay_get(
             revision,
             themes_revision,
             draft_active: false,
-            deprecated_layout_tuning: config.ops.layout_tuning.is_some(),
             entries,
         }),
     )
@@ -165,8 +163,7 @@ pub async fn api_ops_theme_layout_apply_post(
                     "revision": entry.revision,
                     "theme_layout_revision": ops_theme_layout_revision_digest(&updated, theme_id.as_str()),
                     "themes_revision": mei_lang_kernel::ops_themes_revision_digest(&updated),
-                    "migration": "layoutTuning is deprecated for sectionRows; use ops.themes.*.layout",
-                })),
+                                    })),
             )
                 .into_response()
         }
@@ -183,7 +180,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn theme_layout_overlay_response_fields_include_migration_hint_flag() {
+    fn theme_layout_overlay_response_fields_serialize() {
         let resp = ThemeLayoutOverlayResponse {
             app_id: "pretty-panels".to_string(),
             theme_id: "cockpit".to_string(),
@@ -191,9 +188,8 @@ mod tests {
             revision: "r".to_string(),
             themes_revision: "t".to_string(),
             draft_active: false,
-            deprecated_layout_tuning: true,
             entries: BTreeMap::new(),
         };
-        assert!(resp.deprecated_layout_tuning);
+        assert_eq!(resp.theme_id, "cockpit");
     }
 }

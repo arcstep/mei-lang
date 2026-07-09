@@ -19,7 +19,7 @@ use super::viewport::{
     frame_viewport_style_for_route, viewport_overflow_is_debug,
 };
 use crate::ui::route::UiRouteMode;
-use mei_lang_kernel::PanelDecl;
+use mei_lang_kernel::UiNodeDecl;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
     CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
@@ -70,7 +70,7 @@ fn resolve_panel_card_props_strips_heading_from_card() {
         components: json!({}),
         css_vars: Vec::new(),
     };
-    let panel = PanelDecl {
+    let panel = UiNodeDecl {
         kind: "panel".to_string(),
         id: "p".to_string(),
         title: None,
@@ -124,7 +124,7 @@ fn resolve_panel_head_props_merges_theme_and_panel() {
         components: json!({}),
         css_vars: Vec::new(),
     };
-    let panel = PanelDecl {
+    let panel = UiNodeDecl {
         kind: "panel".to_string(),
         id: "p".to_string(),
         title: None,

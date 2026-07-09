@@ -114,7 +114,7 @@ frame.add_panel(
     assert_eq!(panel.blocks.len(), 2);
     for (idx, expected) in ["mei.text", "mei.text"].iter().enumerate() {
         match &panel.blocks[idx] {
-            crate::UiNodeDecl::Block(block) => assert_eq!(block.use_key, *expected),
+            crate::UiTreeNode::Block(block) => assert_eq!(block.use_key, *expected),
             other => panic!("block {idx} should be Block, got {other:?}"),
         }
     }

@@ -670,16 +670,6 @@ async fn run_serve_blocking_init(args: ServeArgs) -> anyhow::Result<()> {
         workspace.as_path(),
         app_ids.as_slice(),
     );
-    let draft_files_cleared = crate::layout_tuning_draft_store::purge_legacy_layout_tuning_draft_dirs(
-        workspace.as_path(),
-        app_ids.as_slice(),
-    );
-    if draft_files_cleared > 0 {
-        tracing::info!(
-            files = draft_files_cleared,
-            "cleared legacy layout-tuning-drafts directories"
-        );
-    }
     let addr = format!("{}:{}", args.host, args.port);
     let listen_url = format!("http://{addr}");
     let guard = shell.read().expect("state lock");

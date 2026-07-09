@@ -15,8 +15,8 @@
     return pathMatch ? pathMatch[1] : "";
   }
 
-  function maybeApplyLayoutTuningOverlay(doc) {
-    const overlay = global.MeiOpsLayoutTuningOverlay;
+  function maybeApplyThemeLayoutOverlay(doc) {
+    const overlay = global.MeiOpsThemeLayoutOverlay || boot.MeiOpsThemeLayoutOverlay;
     if (!overlay?.applyHot) return;
     const appId = resolveBuildAppId(doc);
     if (!appId) return;
@@ -52,7 +52,7 @@
           if (typeof boot.mountManagePreviewBoard === "function") {
             void boot.mountManagePreviewBoard(document);
           }
-          maybeApplyLayoutTuningOverlay(document);
+          maybeApplyThemeLayoutOverlay(document);
         });
       });
     });

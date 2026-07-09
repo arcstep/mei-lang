@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use mei_graph::{collect_template_imports, try_expand_artifact_macro_call, MacroRegistry};
 use mei_lang_kernel::{
     decode_config_ref_value, load_mei_config_for_app, BlockDecl, ConfigRefKind, FrameDecl,
-    LayoutDecl, PanelDecl, UiNodeDecl,
+    LayoutDecl, UiNodeDecl, UiTreeNode,
 };
 use serde_json::{json, Map, Value};
 
@@ -57,7 +57,7 @@ impl<'a> PanelLowerContext<'a> {
 
 fn panel_key_segments(panel_key: &str) -> (Option<&str>, String) {
     let key = panel_key
-        .strip_prefix("panel_contract:")
+        .strip_prefix("content_panel:")
         .unwrap_or(panel_key);
     if let Some((scope, id)) = key.split_once(':') {
         return (Some(scope), id.to_string());
@@ -217,7 +217,7 @@ pub fn lower_panel_payload(
     payload: &Value,
     panel_key: &str,
     ctx: &PanelLowerContext<'_>,
-) -> Result<PanelDecl> {
+) -> Result<UiNodeDecl> {
     let id = payload
         .get("id")
         .and_then(|v| v.as_str())
@@ -252,7 +252,7 @@ pub fn lower_panel_payload(
     let blocks = lower_blocks(payload.get("blocks"), ctx)?;
     apply_view_family_hints(payload, &blocks, &mut props);
 
-    Ok(PanelDecl {
+    Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id,
         title: payload
@@ -277,7 +277,7 @@ fn lower_panel_with_slots(
     id: String,
     area: Option<String>,
     ctx: &PanelLowerContext<'_>,
-) -> Result<PanelDecl> {
+) -> Result<UiNodeDecl> {
     let mut props = json!({});
     merge_card_fields(&mut props, payload);
     if let Some(extra) = payload.get("props").filter(|value| value.is_object()) {
@@ -298,26 +298,30 @@ fn lower_panel_with_slots(
                 .map(str::to_string);
             let slot_id = slot_area.clone().unwrap_or_else(|| "slot".to_string());
             if let Some(shell) = slot_args.get("shell") {
-                let slot_panel = if shell_is_titled_panel_contract(shell)
-                    || v2_call_name(shell) == Some("titled_shell")
+                if v2_call_name(shell) == Some("titled_shell") {
+                    anyhow::bail!(
+                        "titled_shell is deleted; use section_shell for panel `{slot_id}`"
+                    );
+                }
+                let slot_panel = if shell_is_titled_content_panel(shell)
                     || v2_call_name(shell) == Some("section_shell")
                 {
                     if v2_call_name(shell) == Some("section_shell") {
                         lower_section_shell_panel(shell, slot_id, slot_area, ctx, None)?
                     } else {
-                        lower_titled_shell_panel(shell, slot_id, slot_area, ctx, None)?
+                        lower_section_like_shell_panel(shell, slot_id, slot_area, ctx, None)?
                     }
                 } else {
                     lower_panel_from_generic_shell(payload, shell, slot_id, slot_area, ctx)?
                 };
-                blocks.push(UiNodeDecl::Panel(slot_panel));
+                blocks.push(UiTreeNode::Panel(slot_panel));
             }
         }
     }
 
     apply_view_family_hints(payload, &blocks, &mut props);
 
-    Ok(PanelDecl {
+    Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id,
         title: None,
@@ -340,20 +344,22 @@ fn lower_panel_from_shell(
     id: String,
     area: Option<String>,
     ctx: &PanelLowerContext<'_>,
-) -> Result<PanelDecl> {
-    if shell_is_titled_panel_contract(shell) {
-        return lower_titled_shell_panel(shell, id, area, ctx, Some(payload));
+) -> Result<UiNodeDecl> {
+    if shell_is_titled_content_panel(shell) {
+        return lower_section_like_shell_panel(shell, id, area, ctx, Some(payload));
     }
     match v2_call_name(shell) {
         Some("screen_header") => lower_screen_header_panel(payload, shell, id, area, ctx),
         Some("section_shell") => lower_section_shell_panel(shell, id, area, ctx, Some(payload)),
-        Some("titled_shell") => lower_titled_shell_panel(shell, id, area, ctx, Some(payload)),
+        Some("titled_shell") => anyhow::bail!(
+            "titled_shell is deleted; use section_shell for panel `{id}`"
+        ),
         _ => lower_panel_from_generic_shell(payload, shell, id, area, ctx),
     }
 }
 
-fn shell_is_titled_panel_contract(shell: &Value) -> bool {
-    if v2_call_name(shell) != Some("panel_contract") {
+fn shell_is_titled_content_panel(shell: &Value) -> bool {
+    if v2_call_name(shell) != Some("content_panel") {
         return false;
     }
     let Some(args) = v2_call_args(shell) else {
@@ -370,7 +376,7 @@ fn lower_screen_header_panel(
     id: String,
     area: Option<String>,
     ctx: &PanelLowerContext<'_>,
-) -> Result<PanelDecl> {
+) -> Result<UiNodeDecl> {
     let args = v2_call_args(shell).context("screen_header missing __args")?;
     let title = args
         .get("title")
@@ -422,16 +428,16 @@ fn lower_screen_header_panel(
         data: None,
     };
 
-    apply_view_family_hints(payload, &[UiNodeDecl::Block(block.clone())], &mut props);
+    apply_view_family_hints(payload, &[UiTreeNode::Block(block.clone())], &mut props);
 
-    Ok(PanelDecl {
+    Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id,
         title: None,
         head: None,
         area,
         layout: None,
-        blocks: vec![UiNodeDecl::Block(block)],
+        blocks: vec![UiTreeNode::Block(block)],
         slot: None,
         props,
         head_props: json!({}),
@@ -450,11 +456,11 @@ fn body_props_has_padding(body_props: &Value) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
-fn hoist_titled_shell_body_padding(blocks: &mut [UiNodeDecl], body_props: &mut Value) {
+fn hoist_titled_shell_body_padding(blocks: &mut [UiTreeNode], body_props: &mut Value) {
     if body_props_has_padding(body_props) {
         return;
     }
-    let Some(UiNodeDecl::Panel(wrapper)) = blocks.first_mut() else {
+    let Some(UiTreeNode::Panel(wrapper)) = blocks.first_mut() else {
         return;
     };
     let Some(padding) = wrapper
@@ -509,8 +515,8 @@ fn lower_section_shell_panel(
     area: Option<String>,
     ctx: &PanelLowerContext<'_>,
     outer_payload: Option<&Value>,
-) -> Result<PanelDecl> {
-    let mut panel = lower_titled_shell_panel(shell, id, area, ctx, outer_payload)?;
+) -> Result<UiNodeDecl> {
+    let mut panel = lower_section_like_shell_panel(shell, id, area, ctx, outer_payload)?;
     let args = v2_call_args(shell).context("section shell missing __args")?;
     if let Some(map) = panel.props.as_object_mut() {
         map.remove("height");
@@ -540,24 +546,16 @@ fn lower_section_shell_panel(
     Ok(panel)
 }
 
-fn lower_titled_shell_panel(
+fn lower_section_like_shell_panel(
     shell: &Value,
     id: String,
     area: Option<String>,
     ctx: &PanelLowerContext<'_>,
     outer_payload: Option<&Value>,
-) -> Result<PanelDecl> {
-    let args = v2_call_args(shell).context("titled shell missing __args")?;
+) -> Result<UiNodeDecl> {
+    let args = v2_call_args(shell).context("section-like shell missing __args")?;
     if v2_call_name(shell) == Some("titled_shell") {
-        if args
-            .get("height")
-            .and_then(|v| v.as_str())
-            .is_some_and(|h| !h.trim().is_empty() && h != "auto" && h != "100%")
-        {
-            anyhow::bail!(
-                "titled_shell(height=...) is forbidden for panel `{id}`; use section_shell + content_budget"
-            );
-        }
+        anyhow::bail!("titled_shell is deleted; use section_shell for panel `{id}`");
     }
     let mut props = titled_shell_template_props(args);
     merge_card_fields(&mut props, args);
@@ -591,7 +589,7 @@ fn lower_titled_shell_panel(
     let family_source = outer_payload.unwrap_or(args);
     apply_view_family_hints(family_source, &blocks, &mut props);
 
-    Ok(PanelDecl {
+    Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id,
         title: args
@@ -617,7 +615,7 @@ fn lower_panel_from_generic_shell(
     id: String,
     area: Option<String>,
     ctx: &PanelLowerContext<'_>,
-) -> Result<PanelDecl> {
+) -> Result<UiNodeDecl> {
     let args = v2_call_args(shell).context("panel shell missing __args")?;
     let mut props = args.get("props").cloned().unwrap_or(json!({}));
     merge_card_fields(&mut props, args);
@@ -635,7 +633,7 @@ fn lower_panel_from_generic_shell(
     let blocks = lower_blocks(args.get("blocks"), ctx)?;
     apply_view_family_hints(payload, &blocks, &mut props);
 
-    Ok(PanelDecl {
+    Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id,
         title: args
@@ -884,16 +882,16 @@ fn infer_view_family_from_block(block: &BlockDecl) -> ViewFamilyHints {
     hints
 }
 
-fn infer_view_family_from_nodes(nodes: &[UiNodeDecl]) -> ViewFamilyHints {
+fn infer_view_family_from_nodes(nodes: &[UiTreeNode]) -> ViewFamilyHints {
     for node in nodes {
         match node {
-            UiNodeDecl::Block(block) => {
+            UiTreeNode::Block(block) => {
                 let hints = infer_view_family_from_block(block);
                 if !hints.is_empty() {
                     return hints;
                 }
             }
-            UiNodeDecl::Panel(panel) => {
+            UiTreeNode::Panel(panel) => {
                 let mut hints = view_family_hints_from_value(&panel.props);
                 if hints.is_empty() {
                     hints = infer_view_family_from_nodes(&panel.blocks);
@@ -902,13 +900,13 @@ fn infer_view_family_from_nodes(nodes: &[UiNodeDecl]) -> ViewFamilyHints {
                     return hints;
                 }
             }
-            UiNodeDecl::PanelRefEmbed(_) => {}
+            UiTreeNode::PanelRefEmbed(_) => {}
         }
     }
     ViewFamilyHints::default()
 }
 
-fn apply_view_family_hints(payload: &Value, blocks: &[UiNodeDecl], props: &mut Value) {
+fn apply_view_family_hints(payload: &Value, blocks: &[UiTreeNode], props: &mut Value) {
     let tier = props
         .get("__mei_tier")
         .and_then(|v| v.as_str())
@@ -1114,7 +1112,7 @@ fn lower_viewport_props(args: &Value) -> Value {
     Value::Object(viewport)
 }
 
-fn lower_blocks(value: Option<&Value>, ctx: &PanelLowerContext<'_>) -> Result<Vec<UiNodeDecl>> {
+fn lower_blocks(value: Option<&Value>, ctx: &PanelLowerContext<'_>) -> Result<Vec<UiTreeNode>> {
     let Some(array) = value.and_then(|v| v.as_array()) else {
         return Ok(Vec::new());
     };
@@ -1176,16 +1174,16 @@ fn try_expand_unlowered_block(value: &Value, ctx: &PanelLowerContext<'_>) -> Opt
     try_expand_artifact_macro_call(value, &cache.registry, &cache.imports)
 }
 
-fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<UiNodeDecl>> {
+fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<UiTreeNode>> {
     if v2_ref_name(value) == Some("panel_ref") {
         let ref_path = v2_ref_arg0(value).context("panel_ref missing arg0")?;
-        let payload = load_panel_contract_payload(ctx, ref_path.as_str())?;
+        let payload = load_content_panel_payload(ctx, ref_path.as_str())?;
         let panel_ctx = ctx.with_panel_constants(ref_path.as_str());
         let panel = lower_panel_payload(&payload, ref_path.as_str(), &panel_ctx)?;
-        return Ok(vec![UiNodeDecl::Panel(panel)]);
+        return Ok(vec![UiTreeNode::Panel(panel)]);
     }
     if v2_call_name(value).as_deref() == Some("component") {
-        return Ok(vec![UiNodeDecl::Block(lower_component(value, ctx)?)]);
+        return Ok(vec![UiTreeNode::Block(lower_component(value, ctx)?)]);
     }
     if v2_call_name(value).as_deref() == Some("metric") {
         return Ok(vec![lower_metric(value, ctx)?]);
@@ -1194,14 +1192,14 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
         return Ok(vec![lower_metric_card(value, ctx)?]);
     }
     if v2_call_name(value).as_deref() == Some("panel") {
-        return Ok(vec![UiNodeDecl::Panel(lower_inline_panel(value, ctx)?)]);
+        return Ok(vec![UiTreeNode::Panel(lower_inline_panel(value, ctx)?)]);
     }
     if let Some(expanded) = try_expand_unlowered_block(value, ctx) {
         return lower_block_node(&expanded, ctx);
     }
     if value.get("use_key").is_some() || value.get("kind").and_then(|v| v.as_str()) == Some("block")
     {
-        return Ok(vec![UiNodeDecl::Block(
+        return Ok(vec![UiTreeNode::Block(
             serde_json::from_value(value.clone()).context("decode legacy block")?,
         )]);
     }
@@ -1211,7 +1209,7 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
 pub(crate) fn lower_v2_inline_panels_from_assembly(
     payload: &Value,
     ctx: &PanelLowerContext<'_>,
-) -> Result<Vec<PanelDecl>> {
+) -> Result<Vec<UiNodeDecl>> {
     let panels_value = payload
         .get("panels")
         .or_else(|| payload.get("frame").and_then(|frame| frame.get("panels")));
@@ -1227,7 +1225,7 @@ pub(crate) fn lower_v2_inline_panels_from_assembly(
     Ok(panels)
 }
 
-fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<PanelDecl> {
+fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
     let args = v2_call_args(value).context("panel missing __args")?;
     let expanded_template = metric_expanded_template_args(args.get("template"));
     let id = resolve_panel_id_value(args.get("id"), ctx, "panel");
@@ -1283,7 +1281,7 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
     let blocks = lower_blocks(args.get("blocks"), ctx)?;
     apply_view_family_hints(args, &blocks, &mut props);
 
-    Ok(PanelDecl {
+    Ok(UiNodeDecl {
         kind: "panel".to_string(),
         id,
         title: args
@@ -1305,7 +1303,7 @@ fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Pane
 
 fn metric_expanded_template_args(template: Option<&Value>) -> Option<&Value> {
     let template = template?;
-    if v2_call_name(template) == Some("panel_contract") {
+    if v2_call_name(template) == Some("content_panel") {
         v2_call_args(template)
     } else {
         None
@@ -1378,7 +1376,7 @@ fn strip_metric_atom_shell_chrome(props: &mut Value) {
     }
 }
 
-fn lower_metric(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
+fn lower_metric(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiTreeNode> {
     let args = v2_call_args(value).context("metric missing __args")?;
     let layout_role = args
         .get("layout_role")
@@ -1405,7 +1403,7 @@ fn lower_metric(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl
     )
 }
 
-fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
+fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiTreeNode> {
     let args = v2_call_args(value).context("metric_card missing __args")?;
     let expanded_template = metric_expanded_template_args(args.get("template"));
     let template_name = if let Some(expanded) = expanded_template {
@@ -1441,7 +1439,7 @@ fn lower_metric_inner(
     expanded_template: Option<&Value>,
     template_desc: Option<String>,
     transparent_shell: bool,
-) -> Result<UiNodeDecl> {
+) -> Result<UiTreeNode> {
     let preset = metric_template_preset(template_name);
     let layout_template = preset.layout_template;
     let height_px = args.get("height_px").and_then(Value::as_i64);
@@ -1495,7 +1493,7 @@ fn lower_metric_inner(
             .as_deref()
             .or(template_desc_from_macro.as_deref());
         if let Some(desc) = desc {
-            blocks.push(UiNodeDecl::Block(metric_desc_slot_block(desc)));
+            blocks.push(UiTreeNode::Block(metric_desc_slot_block(desc)));
         }
     }
     let layout = if let Some(expanded) = expanded_template {
@@ -1550,7 +1548,7 @@ fn lower_metric_inner(
         "metric_card"
     };
 
-    Ok(UiNodeDecl::Panel(PanelDecl {
+    Ok(UiTreeNode::Panel(UiNodeDecl {
         kind: "panel".to_string(),
         id: resolve_panel_id_value(args.get("id"), ctx, default_id),
         title: None,
@@ -1671,13 +1669,13 @@ fn metric_runtime_blocks(
     popup: Option<&Value>,
     args: &Value,
     ctx: &PanelLowerContext<'_>,
-) -> Vec<UiNodeDecl> {
+) -> Vec<UiTreeNode> {
     let constants = combined_panel_constants(ctx);
     let roles = ["label", "value", "unit"];
     roles
         .into_iter()
         .map(|role| {
-            UiNodeDecl::Block(metric_runtime_slot_block(
+            UiTreeNode::Block(metric_runtime_slot_block(
                 source, role, role, template, map, patch, popup, args, &constants,
             ))
         })
@@ -2068,9 +2066,9 @@ fn apply_presentation_icon_to_shell(props: &mut Value, presentation: &Value) {
     }
 }
 
-fn stamp_metric_presentation_on_value_slot(blocks: &mut [UiNodeDecl], presentation: &Value) {
+fn stamp_metric_presentation_on_value_slot(blocks: &mut [UiTreeNode], presentation: &Value) {
     for node in blocks.iter_mut() {
-        let UiNodeDecl::Block(block) = node else {
+        let UiTreeNode::Block(block) = node else {
             continue;
         };
         if block.props.get("metric_role").and_then(Value::as_str) != Some("value") {
@@ -2194,7 +2192,7 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
     let overlay_workspace = payload.get("overlay_workspace").cloned();
     if v2_ref_name(target_ref) == Some("panel_ref") {
         let panel_ref = v2_ref_arg0(target_ref)?;
-        let panel_payload = load_panel_contract_payload(ctx, panel_ref.as_str()).ok()?;
+        let panel_payload = load_content_panel_payload(ctx, panel_ref.as_str()).ok()?;
         let panel_id = panel_payload
             .get("id")
             .and_then(Value::as_str)
@@ -2233,7 +2231,7 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
         return Some(popup);
     }
     let board_key = v2_ref_arg0(target_ref)?;
-    let target = resolve_board_assembly_target(ctx, board_key.as_str())?;
+    let target = resolve_page_instance_target(ctx, board_key.as_str())?;
     let target_scene_id = target.scene_id.clone();
     let target_scene_file = target.scene_file.clone();
     let mut target_json = json!({
@@ -2341,7 +2339,7 @@ fn load_link_decl_payload(ctx: &PanelLowerContext<'_>, link_key: &str) -> Option
     artifact.get("payload").cloned()
 }
 
-fn resolve_board_assembly_target(
+fn resolve_page_instance_target(
     ctx: &PanelLowerContext<'_>,
     board_key: &str,
 ) -> Option<BoardSceneTarget> {
@@ -2349,7 +2347,7 @@ fn resolve_board_assembly_target(
         .registry
         .nodes
         .iter()
-        .find(|node| node.id.kind == GraphNodeKind::AssemblyView && node.id.key == board_key)?;
+        .find(|node| node.id.kind == GraphNodeKind::PageInstance && node.id.key == board_key)?;
     let pref = node.payload_ref.as_ref()?;
     let artifact = load_block_artifact(ctx.app_root, pref).ok()??;
     let payload = artifact.get("payload")?;
@@ -2798,7 +2796,7 @@ fn lower_component(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<BlockDe
     })
 }
 
-pub fn panel_contract_lookup_keys(panel_key: &str, scene_id: &str) -> Vec<String> {
+pub fn content_panel_lookup_keys(panel_key: &str, scene_id: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let mut push = |key: &str| {
         if !keys.iter().any(|existing| existing == key) {
@@ -2806,39 +2804,39 @@ pub fn panel_contract_lookup_keys(panel_key: &str, scene_id: &str) -> Vec<String
         }
     };
 
-    if panel_key.starts_with("panel_contract:") {
+    if panel_key.starts_with("content_panel:") {
         push(panel_key);
-        if let Some(stripped) = panel_key.strip_prefix("panel_contract:") {
+        if let Some(stripped) = panel_key.strip_prefix("content_panel:") {
             push(stripped);
         }
         return keys;
     }
 
-    push(&format!("panel_contract:{panel_key}"));
+    push(&format!("content_panel:{panel_key}"));
     push(panel_key);
     if !panel_key.contains(':') {
-        push(&format!("panel_contract:{scene_id}:{panel_key}"));
+        push(&format!("content_panel:{scene_id}:{panel_key}"));
         push(&format!("{scene_id}:{panel_key}"));
     }
     if let Some(basename) = panel_key.rsplit('/').next() {
         if basename != panel_key {
-            push(&format!("panel_contract:{basename}"));
+            push(&format!("content_panel:{basename}"));
             push(basename);
         }
     }
     keys
 }
 
-pub fn find_panel_contract_node<'a>(
+pub fn find_content_panel_node<'a>(
     registry: &'a McgRegistry,
     panel_key: &str,
     scene_id: &str,
 ) -> Option<&'a crate::mcg::registry::McgNodeRecord> {
-    for key in panel_contract_lookup_keys(panel_key, scene_id) {
+    for key in content_panel_lookup_keys(panel_key, scene_id) {
         if let Some(node) = registry
             .nodes
             .iter()
-            .find(|node| node.id.kind == GraphNodeKind::PanelContract && node.id.key == key)
+            .find(|node| node.id.kind == GraphNodeKind::ContentPanel && node.id.key == key)
         {
             return Some(node);
         }
@@ -2846,11 +2844,11 @@ pub fn find_panel_contract_node<'a>(
     None
 }
 
-pub(crate) fn load_panel_contract_payload(
+pub(crate) fn load_content_panel_payload(
     ctx: &PanelLowerContext<'_>,
     ref_path: &str,
 ) -> Result<Value> {
-    let node = find_panel_contract_node(ctx.registry, ref_path, ctx.scene_id)
+    let node = find_content_panel_node(ctx.registry, ref_path, ctx.scene_id)
         .with_context(|| format!("panel contract not found for ref `{ref_path}`"))?;
     let pref = node
         .payload_ref
@@ -2918,7 +2916,7 @@ mod tests {
                 "__args": {
                     "columns": ["1fr"],
                     "rows": ["1064px"],
-                    "areas": [["body"]]
+                    "areas": [["content_zone"]]
                 }
             }
         });
@@ -2967,11 +2965,11 @@ mod tests {
     }
 
     #[test]
-    fn panel_contract_lookup_resolves_content_ref_basename() {
-        let keys = panel_contract_lookup_keys("content/realtime-table", "home");
+    fn content_panel_lookup_resolves_content_ref_basename() {
+        let keys = content_panel_lookup_keys("content/realtime-table", "home");
         assert!(keys
             .iter()
-            .any(|key| key == "panel_contract:realtime-table"));
+            .any(|key| key == "content_panel:realtime-table"));
     }
 
     #[test]
@@ -3013,7 +3011,7 @@ mod tests {
         let panel = lower_panel_payload(&payload, "home:home_header", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 1);
         let block = match &panel.blocks[0] {
-            UiNodeDecl::Block(block) => block,
+            UiTreeNode::Block(block) => block,
             other => panic!("expected block, got {other:?}"),
         };
         assert_eq!(block.use_key, "cockpit.header-brand");
@@ -3060,7 +3058,7 @@ mod tests {
             .into_iter()
             .next()
             .expect("one block");
-        let UiNodeDecl::Block(block) = block else {
+        let UiTreeNode::Block(block) = block else {
             panic!("expected block");
         };
         assert_eq!(
@@ -3197,7 +3195,7 @@ mod tests {
         let payload = json!({
             "id": "warning",
             "shell": {
-                "__call": "panel_contract",
+                "__call": "content_panel",
                 "__args": {
                     "title": "监督预警",
                     "title_background": {"image": "panel_title_bar"},
@@ -3251,7 +3249,7 @@ mod tests {
                     "title": "执法要素",
                     "padding_profile": "dense_strip_100",
                     "body": {
-                        "__call": "panel_contract",
+                        "__call": "content_panel",
                         "__args": {
                             "id": "enforcement-stats",
                             "blocks": []
@@ -3284,7 +3282,7 @@ mod tests {
         let payload = json!({
             "id": "enforcement",
             "shell": {
-                "__call": "panel_contract",
+                "__call": "content_panel",
                 "__args": {
                     "title": "执法要素",
                     "title_height": "54px",
@@ -3301,7 +3299,7 @@ mod tests {
                                 "height": "100%"
                             },
                             "blocks": [{
-                                "__call": "panel_contract",
+                                "__call": "content_panel",
                                 "__args": {"id": "enforcement-stats", "blocks": []}
                             }]
                         }
@@ -3325,7 +3323,7 @@ mod tests {
         };
         let panel = lower_panel_payload(&payload, "enforcement", &ctx).expect("panel");
         assert_eq!(panel.body_props["padding"], json!("8px 4px 4px 4px"));
-        let UiNodeDecl::Panel(wrapper) = &panel.blocks[0] else {
+        let UiTreeNode::Panel(wrapper) = &panel.blocks[0] else {
             panic!("expected wrapper panel");
         };
         assert!(wrapper.props.get("padding").is_none());
@@ -3340,7 +3338,7 @@ mod tests {
                 "__args": {
                     "area": "warning",
                     "shell": {
-                        "__call": "panel_contract",
+                        "__call": "content_panel",
                         "__args": {
                             "title": "监督预警",
                             "title_background": {"image": "panel_title_bar"},
@@ -3362,8 +3360,8 @@ mod tests {
             updated_at_ms: 0,
             nodes: vec![crate::mcg::registry::McgNodeRecord {
                 id: GraphNodeId::new(
-                    GraphNodeKind::PanelContract,
-                    "panel_contract:supervision-stats".to_string(),
+                    GraphNodeKind::ContentPanel,
+                    "content_panel:supervision-stats".to_string(),
                 ),
                 revision: String::new(),
                 state: MaterialState::Ready,
@@ -3378,7 +3376,7 @@ mod tests {
         let app_root = tmp.path().join("apps/data-demo");
         let env_dir = app_root.join("env/WS-20260101.0");
         let current = app_root.join("env/current");
-        let store = env_dir.join("build/store/content/panel_contract");
+        let store = env_dir.join("build/store/content/content_panel");
         std::fs::create_dir_all(&store).expect("mkdir");
         std::fs::create_dir_all(current.parent().expect("env parent")).expect("env root");
         #[cfg(unix)]
@@ -3411,7 +3409,7 @@ mod tests {
         )
         .expect("write");
         registry.nodes[0].payload_ref = Some(PayloadRef::new(
-            "panel_contract",
+            "content_panel",
             hash,
             "mei-panel-contract-artifact-v1",
         ));
@@ -3432,7 +3430,7 @@ mod tests {
             "expanded titled_shell should lower blocks"
         );
         let nested = match &panel.blocks[0] {
-            UiNodeDecl::Panel(nested) => nested,
+            UiTreeNode::Panel(nested) => nested,
             other => panic!("expected nested panel, got {other:?}"),
         };
         assert_eq!(nested.title.as_deref(), Some("监督预警"));
@@ -3519,7 +3517,7 @@ mod tests {
                         "id": "block_ai",
                         "area": "block_ai",
                         "template": {
-                            "__call": "panel_contract",
+                            "__call": "content_panel",
                             "__args": {
                                 "variant": "container",
                                 "show_heading": false,
@@ -3563,7 +3561,7 @@ mod tests {
         let panel = lower_panel_payload(&payload, "inspection-stats", &ctx).expect("panel");
         assert_eq!(panel.blocks.len(), 2, "top-level inline panels");
         let upper = match &panel.blocks[0] {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel block_upper, got {other:?}"),
         };
         assert_eq!(upper.id, "block_upper");
@@ -3572,7 +3570,7 @@ mod tests {
             "block_upper should contain lowered metric_card blocks"
         );
         let ai = match &panel.blocks[1] {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel block_ai, got {other:?}"),
         };
         assert_eq!(ai.id, "block_ai");
@@ -3613,14 +3611,14 @@ mod tests {
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         assert_eq!(panel.blocks.len(), 3);
         assert!(panel
             .blocks
             .iter()
-            .all(|node| matches!(node, UiNodeDecl::Block(b) if b.use_key == "mei.text")));
+            .all(|node| matches!(node, UiTreeNode::Block(b) if b.use_key == "mei.text")));
         assert_eq!(
             panel.props["__mei_metric_title_ratio"],
             json!("2"),
@@ -3635,7 +3633,7 @@ mod tests {
             "solid_stack should inherit cockpit card border"
         );
         let value_block = match &panel.blocks[1] {
-            UiNodeDecl::Block(block) => block,
+            UiTreeNode::Block(block) => block,
             other => panic!("expected value slot block, got {other:?}"),
         };
         assert_eq!(
@@ -3657,7 +3655,7 @@ mod tests {
                 "area": "items",
                 "height_px": 86,
                 "template": {
-                    "__call": "panel_contract",
+                    "__call": "content_panel",
                     "__args": {
                         "layout": {
                             "__call": "layout_metric_stack",
@@ -3697,7 +3695,7 @@ mod tests {
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         assert!(
@@ -3775,11 +3773,11 @@ mod tests {
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         let value_block = match &panel.blocks[1] {
-            UiNodeDecl::Block(block) => block,
+            UiTreeNode::Block(block) => block,
             other => panic!("expected value slot block, got {other:?}"),
         };
         assert_eq!(
@@ -3821,7 +3819,7 @@ mod tests {
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         assert_eq!(panel.id, "demo_metric");
@@ -3874,11 +3872,11 @@ mod tests {
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         let value_block = match &panel.blocks[1] {
-            UiNodeDecl::Block(block) => block,
+            UiTreeNode::Block(block) => block,
             other => panic!("expected value slot block, got {other:?}"),
         };
         assert!(value_block.props.get("popup").is_some());
@@ -3911,7 +3909,7 @@ mod tests {
         };
         let card = lower_metric(&value, &ctx).expect("metric");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         assert_eq!(panel.props["__mei_metric_template"], json!("row"));
@@ -3970,7 +3968,7 @@ mod tests {
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         assert_eq!(
@@ -3982,7 +3980,7 @@ mod tests {
             json!("url(/workspace-app-assets/pretty-panels/assets/待办@3x.png)")
         );
         let value_block = match &panel.blocks[1] {
-            UiNodeDecl::Block(block) => block,
+            UiTreeNode::Block(block) => block,
             other => panic!("expected value slot block, got {other:?}"),
         };
         assert_eq!(
@@ -4023,7 +4021,7 @@ mod tests {
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         assert_eq!(panel.props["background"]["image"], json!("url(/new.png)"));
@@ -4055,7 +4053,7 @@ mod tests {
         };
         let card = lower_metric_card(&value, &ctx).expect("metric card");
         let panel = match card {
-            UiNodeDecl::Panel(panel) => panel,
+            UiTreeNode::Panel(panel) => panel,
             other => panic!("expected panel, got {other:?}"),
         };
         assert_eq!(panel.props["background"]["image"], json!("url(/rate.png)"));

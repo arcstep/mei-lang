@@ -120,8 +120,8 @@ pub fn preview_target_from_build_node_with_app(
             compiled.and_then(|app| preview_target_for_scene_id(app, scene_id))
         }
         BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
-            if let Some(entry) = compiled.and_then(|app| app.build_board_index.lookup(node)) {
-                return Some(entry.board_file.clone());
+            if let Some(entry) = compiled.and_then(|app| app.build_t2_page_index.lookup(node)) {
+                return Some(entry.page_file.clone());
             }
             let (file, _) = board_capsule_from_node_key(&node.key);
             non_empty_path(file)
@@ -227,7 +227,7 @@ pub fn compile_scene_from_build_node_with_app(
         if board_file.ends_with(".board.mei") || board_file.ends_with(".page.mei") {
             if let Some(app) = compiled {
                 return app
-                    .build_board_index
+                    .build_t2_page_index
                     .default_export_scene_for_board_file(board_file);
             }
         }

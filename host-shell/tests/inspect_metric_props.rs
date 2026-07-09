@@ -1,5 +1,5 @@
 use mei_host_graph::assemble_scope_from_registry;
-use mei_lang_kernel::{UiNodeDecl, PanelDecl};
+use mei_lang_kernel::{UiTreeNode, UiNodeDecl};
 
 #[test]
 fn home_inspection_total_card_has_metric_source() {
@@ -34,7 +34,7 @@ fn home_inspection_total_card_has_metric_source() {
     );
 }
 
-fn collect_paths(panel: &PanelDecl, prefix: &str, out: &mut Vec<String>) {
+fn collect_paths(panel: &UiNodeDecl, prefix: &str, out: &mut Vec<String>) {
     let path = if prefix.is_empty() {
         panel.id.clone()
     } else {
@@ -42,18 +42,18 @@ fn collect_paths(panel: &PanelDecl, prefix: &str, out: &mut Vec<String>) {
     };
     out.push(path.clone());
     for child in &panel.blocks {
-        if let UiNodeDecl::Panel(nested) = child {
+        if let UiTreeNode::Panel(nested) = child {
             collect_paths(nested, path.as_str(), out);
         }
     }
 }
 
-fn walk_panel(panel: &PanelDecl, out: &mut Option<String>) {
+fn walk_panel(panel: &UiNodeDecl, out: &mut Option<String>) {
     if panel.id == "inspection_total_card" {
         eprintln!("inspection_total_card blocks: {}", panel.blocks.len());
         for child in &panel.blocks {
             match child {
-                UiNodeDecl::Block(block) => {
+                UiTreeNode::Block(block) => {
                     eprintln!("  block use_key={} props_keys={:?}", block.use_key, block.props.as_object().map(|m| m.keys().collect::<Vec<_>>()));
                     if block.use_key == "mei.text" || block.use_key == "mei-text" {
                         let content = block.props.get("content");
@@ -63,8 +63,8 @@ fn walk_panel(panel: &PanelDecl, out: &mut Option<String>) {
                         }
                     }
                 }
-                UiNodeDecl::Panel(nested) => eprintln!("  nested panel {}", nested.id),
-                UiNodeDecl::PanelRefEmbed(_) => eprintln!("  panel ref embed"),
+                UiTreeNode::Panel(nested) => eprintln!("  nested panel {}", nested.id),
+                UiTreeNode::PanelRefEmbed(_) => eprintln!("  panel ref embed"),
             }
         }
     }
@@ -73,9 +73,9 @@ fn walk_panel(panel: &PanelDecl, out: &mut Option<String>) {
     }
 }
 
-fn walk(node: &UiNodeDecl, out: &mut Option<String>) {
+fn walk(node: &UiTreeNode, out: &mut Option<String>) {
     match node {
-        UiNodeDecl::Panel(panel) => walk_panel(panel, out),
-        UiNodeDecl::Block(_) | UiNodeDecl::PanelRefEmbed(_) => {}
+        UiTreeNode::Panel(panel) => walk_panel(panel, out),
+        UiTreeNode::Block(_) | UiTreeNode::PanelRefEmbed(_) => {}
     }
 }

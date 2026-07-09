@@ -361,7 +361,7 @@ pub struct FileCacheSettings {
     pub max_total_bytes: usize,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpsConfig {
     #[serde(default)]
     pub themes: BTreeMap<String, Value>,
@@ -372,11 +372,26 @@ pub struct OpsConfig {
     #[serde(default)]
     pub params: BTreeMap<String, Value>,
     /// P1–P2: layout budget overlay (see docs/mei-lang-v2/03-ui/0325-layout-budget-contract.md §8).
-    #[serde(default, rename = "layoutTuning")]
-    pub layout_tuning: Option<Value>,
     /// When true, T1 cockpit sections must use Fill-down (`__mei_layout_fill`).
-    #[serde(default, rename = "strictFillDown")]
+    /// Defaults to true (Phase 3 layout purge).
+    #[serde(default = "default_strict_fill_down", rename = "strictFillDown")]
     pub strict_fill_down: bool,
+}
+
+impl Default for OpsConfig {
+    fn default() -> Self {
+        Self {
+            themes: BTreeMap::new(),
+            sources: BTreeMap::new(),
+            basemaps: BTreeMap::new(),
+            params: BTreeMap::new(),
+            strict_fill_down: true,
+        }
+    }
+}
+
+fn default_strict_fill_down() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

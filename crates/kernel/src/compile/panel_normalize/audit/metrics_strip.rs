@@ -1,4 +1,4 @@
-use crate::model::{Diagnostic, LayoutDecl, PanelDecl, Severity};
+use crate::model::{Diagnostic, LayoutDecl, UiNodeDecl, Severity};
 
 use super::super::constants::{
     COCKPIT_CARD_GAP_MAX, COCKPIT_CARD_GAP_MIN, COCKPIT_CARD_GAP_TARGET, COCKPIT_PANEL_PADDING_MAX,
@@ -20,7 +20,7 @@ const METRIC_COMPOUND_PADDING_MIN: f64 = 2.0;
 const METRIC_COMPOUND_PADDING_MAX: f64 = 12.0;
 
 pub(super) fn audit_policy_spacing_budget(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -110,7 +110,7 @@ pub(super) fn audit_policy_spacing_budget(
 }
 
 pub(super) fn audit_metric_compound_row_budget(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -170,7 +170,7 @@ pub(super) fn audit_metric_compound_row_budget(
 }
 
 pub(super) fn audit_metric_group_balance(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,

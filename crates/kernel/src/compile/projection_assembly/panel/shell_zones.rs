@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Map, Value};
 
 use crate::model::{
-    LayoutDecl, PanelDecl, PanelSlotDecl, UiNodeDecl,
+    LayoutDecl, UiNodeDecl, PanelSlotDecl, UiTreeNode,
 };
 
 pub(super) fn collect_top_level_layout_areas(layout: &Value) -> BTreeSet<String> {
@@ -167,7 +167,7 @@ fn zone_implies_analytics_content(zone: &Value) -> bool {
         })
 }
 
-pub(super) fn collect_scene_shell_zones(panels: &[PanelDecl], parent: &str, out: &mut Vec<Value>) {
+pub(super) fn collect_scene_shell_zones(panels: &[UiNodeDecl], parent: &str, out: &mut Vec<Value>) {
     for panel in panels {
         if let Some(zone) = panel_zone_to_value(panel, parent) {
             out.push(Value::Object(zone));
@@ -176,7 +176,7 @@ pub(super) fn collect_scene_shell_zones(panels: &[PanelDecl], parent: &str, out:
             .blocks
             .iter()
             .filter_map(|node| match node {
-                UiNodeDecl::Panel(child) => Some(child.clone()),
+                UiTreeNode::Panel(child) => Some(child.clone()),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -185,7 +185,7 @@ pub(super) fn collect_scene_shell_zones(panels: &[PanelDecl], parent: &str, out:
     }
 }
 
-fn panel_zone_to_value(panel: &PanelDecl, parent: &str) -> Option<Map<String, Value>> {
+fn panel_zone_to_value(panel: &UiNodeDecl, parent: &str) -> Option<Map<String, Value>> {
     let slot_map = panel_slot_as_map(panel)?;
     let role = slot_map
         .get("kind")
@@ -245,7 +245,7 @@ fn panel_zone_to_value(panel: &PanelDecl, parent: &str) -> Option<Map<String, Va
     Some(zone)
 }
 
-fn panel_slot_as_map(panel: &PanelDecl) -> Option<Map<String, Value>> {
+fn panel_slot_as_map(panel: &UiNodeDecl) -> Option<Map<String, Value>> {
     if let Some(slot) = panel
         .slot
         .as_ref()

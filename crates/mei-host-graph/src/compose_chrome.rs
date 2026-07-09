@@ -4,7 +4,7 @@ use std::path::Path;
 
 use mei_lang_kernel::{
     is_font_scale_key, is_literal_color, is_literal_gradient, load_mei_config_for_app,
-    resolve_app_root, CompiledApp, PanelDecl,
+    resolve_app_root, CompiledApp, UiNodeDecl,
 };
 use serde_json::{json, Map, Value};
 
@@ -268,7 +268,7 @@ fn heading_classes(variant: &str, compact: bool) -> Vec<String> {
     classes
 }
 
-fn panel_title(panel: &PanelDecl) -> String {
+fn panel_title(panel: &UiNodeDecl) -> String {
     panel
         .title
         .as_deref()
@@ -286,7 +286,10 @@ fn panel_title(panel: &PanelDecl) -> String {
 
 pub fn section_id_for_head_scope(preview_scope: &str) -> Option<String> {
     let normalized = preview_scope.trim().trim_end_matches("/mei.text");
-    let without_head = normalized.strip_suffix("/head")?;
+    // Prefer title_zone (current IR); keep /head for legacy structure scopes.
+    let without_head = normalized
+        .strip_suffix("/title_zone")
+        .or_else(|| normalized.strip_suffix("/head"))?;
     let section_id = without_head.rsplit('/').next()?.trim();
     if section_id.is_empty() {
         None
@@ -295,7 +298,7 @@ pub fn section_id_for_head_scope(preview_scope: &str) -> Option<String> {
     }
 }
 
-pub fn build_head_chrome(panel: &PanelDecl, ctx: &ThemeResolveContext) -> Value {
+pub fn build_head_chrome(panel: &UiNodeDecl, ctx: &ThemeResolveContext) -> Value {
     let head_props = &panel.head_props;
     if head_props.as_object().is_none_or(|map| map.is_empty()) {
         return Value::Null;
@@ -394,7 +397,7 @@ pub fn build_head_chrome(panel: &PanelDecl, ctx: &ThemeResolveContext) -> Value 
     })
 }
 
-fn panel_is_metric_card(panel: &PanelDecl) -> bool {
+fn panel_is_metric_card(panel: &UiNodeDecl) -> bool {
     panel
         .props
         .get("__mei_metric_card")
@@ -402,7 +405,7 @@ fn panel_is_metric_card(panel: &PanelDecl) -> bool {
         .unwrap_or(false)
 }
 
-pub fn should_export_panel_shell(panel: &PanelDecl) -> bool {
+pub fn should_export_panel_shell(panel: &UiNodeDecl) -> bool {
     if panel_is_metric_card(panel) {
         return false;
     }
@@ -418,7 +421,7 @@ pub fn should_export_panel_shell(panel: &PanelDecl) -> bool {
             .is_some_and(|map| !map.is_empty())
 }
 
-pub fn build_panel_shell(panel: &PanelDecl, ctx: &ThemeResolveContext) -> Value {
+pub fn build_panel_shell(panel: &UiNodeDecl, ctx: &ThemeResolveContext) -> Value {
     let mut props = panel.props.as_object().cloned().unwrap_or_default();
     if let Some(body) = panel.body_props.as_object() {
         for (key, value) in body {
@@ -472,8 +475,8 @@ mod tests {
         })
     }
 
-    fn warning_section_panel() -> PanelDecl {
-        PanelDecl {
+    fn warning_section_panel() -> UiNodeDecl {
+        UiNodeDecl {
             kind: "panel".to_string(),
             id: "warning".to_string(),
             title: Some("监督预警".to_string()),
@@ -531,7 +534,7 @@ mod tests {
     #[test]
     fn build_panel_shell_resolves_panel_glow_bg() {
         let ctx = ThemeResolveContext::new(cockpit_theme());
-        let panel = PanelDecl {
+        let panel = UiNodeDecl {
             kind: "panel".to_string(),
             id: "supervision-stats".to_string(),
             title: None,
@@ -559,6 +562,14 @@ mod tests {
     fn section_id_for_head_scope_parses_warning() {
         assert_eq!(
             section_id_for_head_scope("t1/right_rail/warning/head").as_deref(),
+            Some("warning")
+        );
+        assert_eq!(
+            section_id_for_head_scope("t1/right_rail/warning/title_zone").as_deref(),
+            Some("warning")
+        );
+        assert_eq!(
+            section_id_for_head_scope("t1/right_rail/warning/title_zone/mei.text").as_deref(),
             Some("warning")
         );
     }

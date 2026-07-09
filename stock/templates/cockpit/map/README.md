@@ -27,15 +27,14 @@ MapLibre 会对画布 `setPadding`，默认中心/缩放以观察区为准。漂
 ## 引用
 
 ```mei
-COCKPIT_TPL = "../../../templates/cockpit"
-GIS_MAP = COCKPIT_TPL + "/panel/panel-gis-map-fullscreen.mei"
-
-frame.add_panel(
-    base = panel_ref(id = "gis_map", scene_file = GIS_MAP),
+# 在 content.mei / content_panel 中引用 GIS 模板
+content_panel(
     id = "gis_map",
-    area = "body",
+    base = panel_ref(id = "gis_map", scene_file = GIS_MAP),
 )
 ```
+
+或在 T1 content 中直接编排 `map.maplibre`（见 pretty-panels `gis-map/content.mei`）。
 
 ## GeoJSON
 

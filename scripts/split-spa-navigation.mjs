@@ -22,7 +22,7 @@ const MODULES = [
   { rel: "nav-state.js", start: 137, end: 141 },
   { rel: "route-predicates.js", start: 143, end: 207 },
   { rel: "drilldown/scene-shell-normalize.js", start: 209, end: 453 },
-  { rel: "drilldown/board-link.js", start: 455, end: 543 },
+  { rel: "drilldown/t2-page-link.js", start: 455, end: 543 },
   { rel: "primitives.js", start: 545, end: 619 },
   { rel: "drilldown/tab-model-runtime.js", start: 621, end: 949 },
   { rel: "drilldown/tab-model-overrides.js", start: 950, end: 1133 },

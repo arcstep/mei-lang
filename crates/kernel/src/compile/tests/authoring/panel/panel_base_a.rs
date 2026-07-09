@@ -77,15 +77,15 @@ frame.add_panel(
     );
     let contract = compiled.scene_contract.expect("contract");
     fn find_panel_by_id<'a>(
-        panels: &'a [crate::PanelDecl],
+        panels: &'a [crate::UiNodeDecl],
         target: &str,
-    ) -> Option<&'a crate::PanelDecl> {
+    ) -> Option<&'a crate::UiNodeDecl> {
         for panel in panels {
             if panel.id == target {
                 return Some(panel);
             }
             for node in &panel.blocks {
-                if let crate::UiNodeDecl::Panel(nested) = node {
+                if let crate::UiTreeNode::Panel(nested) = node {
                     if let Some(found) = find_panel_by_id(std::slice::from_ref(nested), target) {
                         return Some(found);
                     }
@@ -168,15 +168,15 @@ frame(
     );
     let contract = compiled.scene_contract.expect("contract");
     fn find_panel_by_id<'a>(
-        panels: &'a [crate::PanelDecl],
+        panels: &'a [crate::UiNodeDecl],
         target: &str,
-    ) -> Option<&'a crate::PanelDecl> {
+    ) -> Option<&'a crate::UiNodeDecl> {
         for panel in panels {
             if panel.id == target {
                 return Some(panel);
             }
             for node in &panel.blocks {
-                if let crate::UiNodeDecl::Panel(nested) = node {
+                if let crate::UiTreeNode::Panel(nested) = node {
                     if let Some(found) = find_panel_by_id(std::slice::from_ref(nested), target) {
                         return Some(found);
                     }
@@ -190,7 +190,7 @@ frame(
         .blocks
         .iter()
         .filter_map(|node| match node {
-            crate::UiNodeDecl::Block(block) => Some(block),
+            crate::UiTreeNode::Block(block) => Some(block),
             _ => None,
         })
         .collect::<Vec<_>>();

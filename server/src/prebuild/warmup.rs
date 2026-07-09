@@ -76,8 +76,8 @@ pub(crate) fn discovered_compile_scopes(
                 .then_some(active_target)
         })
     {
-        for entry in compiled.build_board_index.boards.values() {
-            if entry.board_file.trim() != board_file {
+        for entry in compiled.build_t2_page_index.pages.values() {
+            if entry.page_file.trim() != board_file {
                 continue;
             }
             push_scope(CompileScope {
@@ -102,7 +102,7 @@ pub(crate) struct SharedCompileOutcome {
     /// Heavy `CompiledApp` dropped after MCG persist; hydrate before artifact eval.
     pub(crate) handle_only: bool,
     /// MCG assembly metadata when `handle_only`.
-    pub(crate) assembly_handle: Option<crate::graph::mcg::handle::AssemblyViewHandle>,
+    pub(crate) assembly_handle: Option<crate::graph::mcg::handle::PageInstanceHandle>,
 }
 
 impl SharedCompileOutcome {
@@ -152,7 +152,7 @@ pub(crate) fn projection_handle_outcome(
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -191,7 +191,7 @@ pub(crate) fn shrink_outcome_to_handle(
     let assembly_handle = source_root
         .zip(app_id)
         .map(|(root, id)| {
-            crate::graph::mcg::handle::AssemblyViewHandle::from_mcg_registry(
+            crate::graph::mcg::handle::PageInstanceHandle::from_mcg_registry(
                 root,
                 id,
                 outcome.compiled.as_ref(),
@@ -217,7 +217,7 @@ pub(crate) fn shrink_outcome_to_handle(
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };

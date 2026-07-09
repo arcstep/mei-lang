@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    ui_scope_annotation_for_preview_panel, BlockDecl, BuildNodeId, CompiledApp, PanelDecl,
-    SceneContract, UiNodeDecl,
+    ui_scope_annotation_for_preview_panel, BlockDecl, BuildNodeId, CompiledApp, UiNodeDecl,
+    SceneContract, UiTreeNode,
 };
 
 use crate::ui::preview::style::container_visual_style;
@@ -20,14 +20,14 @@ use crate::ui::preview::PreviewRuntimeContext;
 
 use super::component::{block_view_for_decl, panel_ref_embed_removed_view};
 
-const SLOT_HEAD: &str = "head";
-const SLOT_BODY: &str = "body";
+const TITLE_ZONE: &str = "title_zone";
+const CONTENT_ZONE: &str = "content_zone";
 
-fn structure_workspace_runtime_panel_always_visible(panel: &PanelDecl) -> bool {
+fn structure_workspace_runtime_panel_always_visible(panel: &UiNodeDecl) -> bool {
     matches!(panel.id.as_str(), "gis-map" | "gis_map_layer" | "map_stage")
 }
 
-fn viewport_chrome_panel_always_visible(panel: &PanelDecl) -> bool {
+fn viewport_chrome_panel_always_visible(panel: &UiNodeDecl) -> bool {
     const CHROME_ROLES: &[&str] = &[
         "viewport",
         "viewport_frame",
@@ -125,7 +125,7 @@ fn projection_skeleton_view(
 }
 
 pub(crate) fn panel_view(
-    panel: &mei_lang_kernel::PanelDecl,
+    panel: &mei_lang_kernel::UiNodeDecl,
     frame_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,
     app_path: &str,
@@ -135,7 +135,7 @@ pub(crate) fn panel_view(
     embed_depth: u8,
     preview_scene_path: &str,
     parent_panel_path: Option<&str>,
-    parent_panel: Option<&PanelDecl>,
+    parent_panel: Option<&UiNodeDecl>,
 ) -> AnyView {
     let card_props = resolve_shared_refs(&resolve_panel_card_props(theme, panel), &theme.shared);
     let head_props = resolve_shared_refs(&resolve_panel_head_props(theme, panel), &theme.shared);
@@ -201,7 +201,7 @@ pub(crate) fn panel_view(
     let mut body_cell_style = if content_grid_on_body {
         String::new()
     } else {
-        panel_slot_area_style(SLOT_BODY)
+        panel_slot_area_style(CONTENT_ZONE)
     };
     body_cell_style.push_str(&panel_slot_typography_style(&body_props));
     body_cell_style.push_str(&container_visual_style(&body_props));
@@ -406,7 +406,7 @@ pub(crate) fn panel_view(
                 view! {
                     <div
                         class=format!("panel-head-cell {heading_class}")
-                        style=format!("{}{}", panel_slot_area_style(SLOT_HEAD), heading_cell_style)
+                        style=format!("{}{}", panel_slot_area_style(TITLE_ZONE), heading_cell_style)
                         data-mei-panel-head="true"
                         data-mei-head-carets=head_carets_attr
                         data-mei-head-carets-mode=head_carets_mode_attr
@@ -473,7 +473,7 @@ pub(crate) fn panel_view(
                         view! {
                             <div
                                 class=format!("panel-head-cell {heading_class}")
-                                style=format!("{}{}", panel_slot_area_style(SLOT_HEAD), heading_cell_style)
+                                style=format!("{}{}", panel_slot_area_style(TITLE_ZONE), heading_cell_style)
                                 data-mei-panel-head="true"
                                 data-mei-head-carets=head_carets_attr
                                 data-mei-head-carets-mode=head_carets_mode_attr
@@ -512,14 +512,14 @@ pub(crate) fn panel_view(
 }
 
 fn partition_panel_blocks(
-    blocks: &[UiNodeDecl],
+    blocks: &[UiTreeNode],
     has_head: bool,
-) -> (Vec<&UiNodeDecl>, Vec<&UiNodeDecl>) {
+) -> (Vec<&UiTreeNode>, Vec<&UiTreeNode>) {
     let mut head = Vec::new();
     let mut body = Vec::new();
     for node in blocks {
         let area = node_area(node).unwrap_or("");
-        if has_head && area == SLOT_HEAD {
+        if has_head && area == TITLE_ZONE {
             head.push(node);
         } else {
             body.push(node);
@@ -528,11 +528,11 @@ fn partition_panel_blocks(
     (head, body)
 }
 
-fn node_area(node: &UiNodeDecl) -> Option<&str> {
+fn node_area(node: &UiTreeNode) -> Option<&str> {
     match node {
-        UiNodeDecl::Block(block) => block.area.as_deref(),
-        UiNodeDecl::Panel(panel) => panel.area.as_deref(),
-        UiNodeDecl::PanelRefEmbed(embed) => embed.area.as_deref(),
+        UiTreeNode::Block(block) => block.area.as_deref(),
+        UiTreeNode::Panel(panel) => panel.area.as_deref(),
+        UiTreeNode::PanelRefEmbed(embed) => embed.area.as_deref(),
     }
 }
 
@@ -575,10 +575,10 @@ fn heading_chrome_decorations(heading: &crate::ui::preview::style::PanelHeadingC
     .into_any()
 }
 
-pub(super) fn block_ordinal_in_panel(panel: &PanelDecl, block: &BlockDecl) -> usize {
+pub(super) fn block_ordinal_in_panel(panel: &UiNodeDecl, block: &BlockDecl) -> usize {
     let mut ord = 0usize;
     for node in &panel.blocks {
-        if let UiNodeDecl::Block(candidate) = node {
+        if let UiTreeNode::Block(candidate) = node {
             if std::ptr::eq(candidate, block) {
                 return ord;
             }
@@ -589,7 +589,7 @@ pub(super) fn block_ordinal_in_panel(panel: &PanelDecl, block: &BlockDecl) -> us
 }
 
 fn node_view(
-    node: &UiNodeDecl,
+    node: &UiTreeNode,
     parent_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,
     app_path: &str,
@@ -599,10 +599,10 @@ fn node_view(
     embed_depth: u8,
     preview_scene_path: &str,
     parent_panel_id: Option<&str>,
-    parent_panel: Option<&PanelDecl>,
+    parent_panel: Option<&UiNodeDecl>,
 ) -> AnyView {
     match node {
-        UiNodeDecl::Panel(panel) => panel_view(
+        UiTreeNode::Panel(panel) => panel_view(
             panel,
             parent_layout,
             compiled,
@@ -615,7 +615,7 @@ fn node_view(
             parent_panel_id,
             parent_panel,
         ),
-        UiNodeDecl::Block(block) => {
+        UiTreeNode::Block(block) => {
             if let Some(use_key) = runtime_ctx.build_preview_component_use_key.as_deref() {
                 if block.use_key.as_str() != use_key {
                     return ().into_any();
@@ -634,7 +634,7 @@ fn node_view(
                 parent_panel,
             )
         }
-        UiNodeDecl::PanelRefEmbed(embed) => panel_ref_embed_removed_view(embed, parent_layout),
+        UiTreeNode::PanelRefEmbed(embed) => panel_ref_embed_removed_view(embed, parent_layout),
     }
 }
 

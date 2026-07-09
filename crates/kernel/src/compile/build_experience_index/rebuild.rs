@@ -11,7 +11,7 @@ use crate::compile::reachability_tree::{
     };
 use crate::model::{
     CompiledApp,
-    ComponentAsset, PanelDecl,
+    ComponentAsset, UiNodeDecl,
     ReachabilityTreeNodeSnapshot, ReachabilityTreeRootSnapshot, SceneContract, SceneDecl,
 };
 
@@ -33,7 +33,7 @@ pub(super) fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
     }
     let has_boards = snapshot.iter().any(|root| root.group == "boards");
     let expects_boards = file_tree_has_board_capsules(&compiled.file_tree)
-        || !compiled.build_board_index.boards.is_empty();
+        || !compiled.build_t2_page_index.pages.is_empty();
     if expects_boards && !has_boards {
         return true;
     }
@@ -67,7 +67,7 @@ pub(super) fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) ->
         &contracts,
         compiled,
     );
-    let board = crate::compile::build_board_index(
+    let board = crate::compile::build_t2_page_index(
         &file_tree,
         &contracts,
         &compiled.scene_projection_assembly_by_id,
@@ -114,7 +114,7 @@ fn scene_contracts_from_compiled(compiled: &CompiledApp) -> BTreeMap<String, Sce
     for (scene_id, assembly) in &compiled.scene_projection_assembly_by_id {
         let panels = assembly
             .get("panels")
-            .and_then(|value| serde_json::from_value::<Vec<PanelDecl>>(value.clone()).ok())
+            .and_then(|value| serde_json::from_value::<Vec<UiNodeDecl>>(value.clone()).ok())
             .unwrap_or_default();
         let local_nav = assembly
             .get("shell_contract")
@@ -167,16 +167,16 @@ fn scene_contracts_from_compiled(compiled: &CompiledApp) -> BTreeMap<String, Sce
 
 pub(super) fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp) {
     if !roots.iter().any(|root| root.group == "boards") {
-        let board_root = if !compiled.build_board_index.boards.is_empty() {
+        let board_root = if !compiled.build_t2_page_index.pages.is_empty() {
             Some(
-                crate::compile::build_board_index::board_tree_root_from_index(
-                    &compiled.build_board_index,
+                crate::compile::build_t2_page_index::board_tree_root_from_index(
+                    &compiled.build_t2_page_index,
                 ),
             )
         } else if file_tree_has_board_capsules(&compiled.file_tree) {
             let contracts = scene_contracts_from_compiled(compiled);
             Some(
-                crate::compile::build_board_index::build_board_index(
+                crate::compile::build_t2_page_index::build_t2_page_index(
                     &compiled.file_tree,
                     &contracts,
                     &compiled.scene_projection_assembly_by_id,

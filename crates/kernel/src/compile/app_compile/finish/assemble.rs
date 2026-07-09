@@ -229,7 +229,7 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
         component_assets: std::mem::take(&mut active_payload.component_assets),
         diagnostics: std::mem::take(diagnostics),
         build_experience_index: Default::default(),
-        build_board_index: Default::default(),
+        build_t2_page_index: Default::default(),
         build_template_index: Default::default(),
         ui_layout_index: Default::default(),
     };
@@ -240,12 +240,12 @@ pub(in crate::compile::app_compile) fn finish_compiled_app(
             &target_scene_contracts,
             &compiled,
         );
-    let board = crate::compile::build_board_index(
+    let board = crate::compile::build_t2_page_index(
         &compiled.file_tree,
         &target_scene_contracts,
         &compiled.scene_projection_assembly_by_id,
     );
-    compiled.build_board_index = board.index;
+    compiled.build_t2_page_index = board.index;
     ensure_world_capsule_preview_components(&mut compiled.component_assets, asset_map);
     let workspace_source_root =
         crate::mei_config::resolve_workspace_source_root_from_app_root(app_root);

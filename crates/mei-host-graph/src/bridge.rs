@@ -69,7 +69,7 @@ pub fn export_bridge_from_mcg(
                 mrg_propagate: true,
             },
             InvalidationPolicy {
-                mcg_kind: "assembly_view".to_string(),
+                mcg_kind: "page_instance".to_string(),
                 mrg_propagate: false,
             },
         ],

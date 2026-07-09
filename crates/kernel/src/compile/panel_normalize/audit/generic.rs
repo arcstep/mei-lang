@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
-use crate::model::{Diagnostic, LayoutDecl, PanelDecl, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, LayoutDecl, UiNodeDecl, Severity, UiTreeNode};
 
 use super::super::constants::{
     LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO,
-    LAYOUT_POLICY_METRICS_STRIP, LAYOUT_POLICY_METRIC_COMPOUND_2_1, SLOT_BODY, SLOT_HEAD,
+    LAYOUT_POLICY_METRICS_STRIP, LAYOUT_POLICY_METRIC_COMPOUND_2_1, CONTENT_ZONE, TITLE_ZONE,
 };
 use super::super::css_util::{
     css_scalar_numbers, is_degenerate_track, layout_gap_y_px, layout_padding_horizontal_px,
@@ -18,7 +18,7 @@ use super::super::nodes::{
 use super::super::spacing::panel_layout_policy;
 
 pub(super) fn audit_layout_matrix(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -105,7 +105,7 @@ pub(super) fn audit_layout_matrix(
 }
 
 pub(super) fn audit_layout_area_mapping(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -150,7 +150,7 @@ pub(super) fn audit_layout_area_mapping(
 
 pub(super) fn audit_layout_spacing(
     layout: &LayoutDecl,
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
@@ -211,7 +211,7 @@ pub(super) fn audit_layout_spacing(
 }
 
 pub(super) fn audit_fixed_track_budget(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -259,12 +259,12 @@ pub(super) fn audit_fixed_track_budget(
 }
 
 pub(super) fn audit_head_body_balance(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
-    if !layout_has_slot(Some(layout), SLOT_HEAD) || !layout_has_slot(Some(layout), SLOT_BODY) {
+    if !layout_has_slot(Some(layout), TITLE_ZONE) || !layout_has_slot(Some(layout), CONTENT_ZONE) {
         return;
     }
     let Some(panel_height) = panel_px_prop(panel, "height") else {
@@ -322,7 +322,7 @@ pub(super) fn audit_head_body_balance(
 }
 
 pub(super) fn audit_panel_whitespace_budget(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -356,7 +356,7 @@ pub(super) fn audit_panel_whitespace_budget(
 }
 
 pub(super) fn audit_strategy_bypass_risk(
-    panel: &PanelDecl,
+    panel: &UiNodeDecl,
     layout: &LayoutDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
@@ -364,7 +364,7 @@ pub(super) fn audit_strategy_bypass_risk(
     if panel_layout_policy(panel).is_some() || panel.blocks.is_empty() {
         return;
     }
-    let metric_cards: Vec<&UiNodeDecl> = panel
+    let metric_cards: Vec<&UiTreeNode> = panel
         .blocks
         .iter()
         .filter(|node| node_is_metric_card_like(node))
@@ -396,9 +396,9 @@ pub(super) fn audit_strategy_bypass_risk(
     });
 }
 
-pub(super) fn estimate_body_required_height(panel: &PanelDecl) -> Option<f64> {
+pub(super) fn estimate_body_required_height(panel: &UiNodeDecl) -> Option<f64> {
     let body_panel = panel.blocks.iter().find_map(|node| match node {
-        UiNodeDecl::Panel(value) if node_area(node) == Some(SLOT_BODY) => Some(value),
+        UiTreeNode::Panel(value) if node_area(node) == Some(CONTENT_ZONE) => Some(value),
         _ => None,
     })?;
     let body_layout = body_panel.layout.as_ref()?;

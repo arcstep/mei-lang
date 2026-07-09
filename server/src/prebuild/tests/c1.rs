@@ -3,7 +3,7 @@ use super::*;
 use super::*;
 
 use super::*;
-use mei_lang_kernel::{BoardFileEntry, CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl};
+use mei_lang_kernel::{T2PageFileEntry, CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl};
 use serde_json::json;
 
 pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> SharedCompileOutcome {
@@ -35,7 +35,7 @@ pub(crate) fn test_outcome(active_scene: &str, active_target_file: &str) -> Shar
             scene_examples_by_id: BTreeMap::new(),
             scene_projection_assembly_by_id: BTreeMap::new(),
             build_experience_index: Default::default(),
-            build_board_index: Default::default(),
+            build_t2_page_index: Default::default(),
             build_template_index: Default::default(),
         }),
         cache_hit: true,

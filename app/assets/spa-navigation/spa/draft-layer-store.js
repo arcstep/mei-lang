@@ -1,5 +1,5 @@
 /**
- * Client-only session draft layers (theme.tokens.session / layout.overlay.session).
+ * Client-only session draft layers (theme.tokens.session / theme.layout.session).
  * Not included in server manifest digest.
  */
 (function initDraftLayerStore(global) {
@@ -52,8 +52,6 @@
     if (doc.patches && typeof doc.patches === "object") return { ...doc.patches };
     const entries = doc.entries;
     if (entries && typeof entries === "object") return { ...entries };
-    const tuning = doc.tuning;
-    if (tuning && typeof tuning === "object") return { ...tuning };
     return {};
   }
 
@@ -82,22 +80,8 @@
     return overlayDocFromPatches({ ...basePatches, ...sessionPatches });
   }
 
-  function readLayoutOverlaySession(appId) {
-    return readJson(storageKey(appId, "layout.overlay.session"));
-  }
-
   function readThemeTokensSession(appId) {
     return readJson(storageKey(appId, "theme.tokens.session"));
-  }
-
-  function putLayoutOverlayPatches(appId, tuning) {
-    const app = String(appId || "").trim();
-    if (!app || !tuning || typeof tuning !== "object") return false;
-    const key = storageKey(app, "layout.overlay.session");
-    const current = normalizeOverlayPatches(readJson(key));
-    const next = overlayDocFromPatches({ ...current, ...tuning });
-    writeJson(key, next);
-    return true;
   }
 
   function putThemeTokensPatch(appId, tokens) {
@@ -129,7 +113,6 @@
 
   function getSessionLayers(appId) {
     return {
-      layoutOverlay: readLayoutOverlaySession(appId),
       themeLayout: readThemeLayoutSession(appId),
       themeTokens: readThemeTokensSession(appId),
     };
@@ -138,18 +121,15 @@
   function clearSession(appId) {
     const app = String(appId || "").trim();
     if (!app) return;
-    removeJson(storageKey(app, "layout.overlay.session"));
     removeJson(storageKey(app, "theme.layout.session"));
     removeJson(storageKey(app, "theme.tokens.session"));
   }
 
   function hasSessionDraft(appId) {
     const layers = getSessionLayers(appId);
-    const overlayPatches = normalizeOverlayPatches(layers.layoutOverlay);
     const themeLayoutPatches = normalizeOverlayPatches(layers.themeLayout);
     const theme = themeDocFromTokens(layers.themeTokens);
     return (
-      Object.keys(overlayPatches).length > 0 ||
       Object.keys(themeLayoutPatches).length > 0 ||
       Object.keys(theme.colors).length > 0 ||
       Object.keys(theme.fonts).length > 0
@@ -158,7 +138,6 @@
 
   global.MeiDraftLayerStore = {
     ensureDraftSessionId,
-    putLayoutOverlayPatches,
     putThemeLayoutPatches,
     putThemeTokensPatch,
     getSessionLayers,

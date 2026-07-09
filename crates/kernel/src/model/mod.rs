@@ -6,7 +6,7 @@ mod contract;
 mod dataset;
 mod diagnostic;
 mod layout;
-mod panel;
+mod ui_node;
 mod resource;
 mod review_modes;
 mod ui;
@@ -20,7 +20,7 @@ pub use build_node::{
     ResolvedBuildViewQuery,
 };
 pub use build_view_index::{
-    BoardFileEntry, BoardSlotEntry, BuildBoardIndex, BuildExperienceIndex, BuildTemplateIndex,
+    T2PageFileEntry, T2PageSlotEntry, BuildT2PageIndex, BuildExperienceIndex, BuildTemplateIndex,
     ExperienceNodeManifest, MountChainEntry, ReachabilityTreeNodeSnapshot,
     ReachabilityTreeRootSnapshot, TemplateCatalogEntry, TemplateConsumerAnchor,
 };
@@ -38,7 +38,7 @@ pub use dataset::{
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};
-pub use panel::{PanelDecl, PanelSlotDecl};
+pub use ui_node::{UiNodeDecl, PanelSlotDecl};
 pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
 pub use review_modes::{
     ui_role_depth_rank, ui_role_within_max_depth, DataMode, DataModeCeiling, ReviewProjection,
@@ -46,7 +46,7 @@ pub use review_modes::{
 };
 pub use ui::{
     deserialize_ui_node_value, BlockDecl, ComponentExportDecl, FrameExportDecl, PanelExportDecl,
-    PanelRefEmbedDecl, SceneExportDecl, ThemeDecl, UiNodeDecl,
+    PanelRefEmbedDecl, SceneExportDecl, ThemeDecl, UiTreeNode,
 };
 pub use workspace::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
 pub use world::{
