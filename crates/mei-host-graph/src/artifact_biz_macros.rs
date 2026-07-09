@@ -400,6 +400,130 @@ fn rewrite_content_strip_props(args: &Map<String, Value>) -> Value {
     props
 }
 
+fn rewrite_compound_only_fill_body(args: &Map<String, Value>) -> Value {
+    let id = arg_value(args, "id", json!("compound_only"));
+    let top_id = id_suffix(id.clone(), "_top");
+    let b0_id = id_suffix(id.clone(), "_b0");
+    let b1_id = id_suffix(id.clone(), "_b1");
+    let b2_id = id_suffix(id.clone(), "_b2");
+
+    fn metric_atom(id: Value, layout_role: &str, source: Value) -> Value {
+        json!({
+            "__call": "metric",
+            "__args": {
+                "id": id,
+                "area": "content",
+                "layout_role": layout_role,
+                "source": source,
+            }
+        })
+    }
+
+    let inner_panel = json!({
+        "__call": "panel",
+        "__args": {
+            "id": id_suffix(id.clone(), "_body"),
+            "area": "content",
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "props": transparent_panel_props(json!("100%")),
+            "layout": grid_layout(
+                json!(["44%", "1fr"]),
+                json!(["1fr", "1fr", "1fr"]),
+                json!([["top", "top", "top"], ["b0", "b1", "b2"]]),
+                "2px",
+                "stretch",
+            ),
+            "blocks": [
+                compound_metric_slot_panel(
+                    top_id.clone(),
+                    "top",
+                    metric_atom(
+                        id_suffix(top_id, "_content"),
+                        "compound_top_row",
+                        arg_value(
+                            args,
+                            "top_source",
+                            json!({"label": "执法对象", "value": "--", "unit": "万"}),
+                        ),
+                    ),
+                ),
+                compound_metric_slot_panel(
+                    b0_id.clone(),
+                    "b0",
+                    metric_atom(
+                        id_suffix(b0_id, "_content"),
+                        "compound_sub_stack",
+                        arg_value(
+                            args,
+                            "sub_a_source",
+                            json!({"label": "重点企业", "value": "--", "unit": "家"}),
+                        ),
+                    ),
+                ),
+                compound_metric_slot_panel(
+                    b1_id.clone(),
+                    "b1",
+                    metric_atom(
+                        id_suffix(b1_id, "_content"),
+                        "compound_sub_stack",
+                        arg_value(
+                            args,
+                            "sub_b_source",
+                            json!({"label": "园区", "value": "--", "unit": "个"}),
+                        ),
+                    ),
+                ),
+                compound_metric_slot_panel(
+                    b2_id.clone(),
+                    "b2",
+                    metric_atom(
+                        id_suffix(b2_id, "_content"),
+                        "compound_sub_stack",
+                        arg_value(
+                            args,
+                            "sub_c_source",
+                            json!({"label": "白名单", "value": "--", "unit": "家"}),
+                        ),
+                    ),
+                ),
+            ]
+        }
+    });
+
+    json!({
+        "__call": "panel",
+        "__args": {
+            "id": id,
+            "area": arg_value(args, "area", json!("auto")),
+            "variant": "container",
+            "show_heading": false,
+            "chrome": "bare",
+            "props": {
+                "padding": "0 4px",
+                "background": slot_stretch_background("metric-bg-target@3x.svg"),
+                "border": "none",
+                "radius": "4px",
+                "width": "100%",
+                "height": "100%",
+                "min_height": "0",
+                "box_sizing": "border-box",
+                "overflow": "hidden",
+                "__mei_slot_frame_bg": true
+            },
+            "layout": grid_layout(
+                json!(["1fr"]),
+                json!(["1fr"]),
+                json!([["content"]]),
+                "0",
+                "stretch",
+            ),
+            "blocks": [inner_panel]
+        }
+    })
+}
+
 pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
     let call = value.as_object()?.get("__call")?.as_str()?;
     let method = call.rsplit('.').next()?;
@@ -408,6 +532,7 @@ pub fn try_rewrite_biz_macro(value: &Value) -> Option<Value> {
         "content_strip_props" => rewrite_content_strip_props(args),
         "content_fill_props" => rewrite_content_fill_props(args),
         "story_opinion_block" => rewrite_story_opinion_block(args),
+        "compound_only_fill_body" => rewrite_compound_only_fill_body(args),
         "metric_triptych_compound_body" => rewrite_metric_triptych_compound_body(args),
         "wide_metric_compound_body" => rewrite_wide_metric_compound_body(args),
         "primary_progress_triptych_body" => rewrite_primary_progress_triptych_body(args),

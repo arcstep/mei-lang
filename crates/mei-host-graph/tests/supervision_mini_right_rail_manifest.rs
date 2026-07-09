@@ -1,12 +1,46 @@
 use std::path::PathBuf;
+use std::sync::Once;
 
-use mei_host_graph::assemble_scope_from_registry;
+use mei_host_core::HostContext;
+use mei_host_graph::{
+    assemble_scope_from_registry, clear_assemble_cache_for_app, import_bundle, ImportOptions,
+};
+
+static INIT: Once = Once::new();
 
 fn ws_demo_v2() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../workspaces/ws-demo-v2")
         .canonicalize()
         .expect("ws-demo-v2")
+}
+
+fn ensure_supervision_mini_imported() {
+    INIT.call_once(|| {
+        let workspace = ws_demo_v2();
+        let bundle = workspace
+            .join("apps/supervision-mini/env/current/build/exchange/supervision-mini.meibundle");
+        assert!(
+            bundle.is_file(),
+            "run `mei-compiler compile --workspace ws-demo-v2 --app supervision-mini` first"
+        );
+        let ctx = HostContext::new(workspace, "supervision-mini");
+        import_bundle(
+            &ctx,
+            &ImportOptions {
+                bundle_path: Some(bundle),
+            },
+        )
+        .expect("import supervision-mini bundle");
+    });
+}
+
+fn supervision_mini_home_outcome() -> mei_host_graph::AssembleOutcome {
+    ensure_supervision_mini_imported();
+    clear_assemble_cache_for_app("supervision-mini");
+    assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
+        .expect("assemble")
+        .expect("home outcome")
 }
 
 fn find_panel<'a>(
@@ -31,11 +65,30 @@ fn find_panel<'a>(
     None
 }
 
+fn supervision_mini_home_eval_docs(
+    outcome: &mei_host_graph::AssembleOutcome,
+) -> Vec<mei_host_graph::EvalSlotGroupDocument> {
+    use mei_host_graph::{build_eval_slot_group_document, collect_slot_groups};
+    use mei_lang_kernel::DataMode;
+
+    let structure = mei_host_graph::build_structure_full_document(&outcome.compiled, "test");
+    collect_slot_groups(&structure)
+        .into_iter()
+        .map(|group| {
+            build_eval_slot_group_document(
+                &outcome.compiled,
+                &structure,
+                group.as_str(),
+                DataMode::Eval,
+                Some(ws_demo_v2().as_path()),
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn supervision_mini_right_rail_region_manifest_includes_four_row_grid() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
-        .expect("assemble")
-        .expect("home outcome");
+    let outcome = supervision_mini_home_outcome();
     let panels = &outcome
         .compiled
         .scene_contract
@@ -67,40 +120,17 @@ fn supervision_mini_right_rail_region_manifest_includes_four_row_grid() {
         .expect("t1/right_rail region manifest entry");
     assert_eq!(
         region_entry.grid_template_rows.as_deref(),
-        Some("1fr 1fr 1fr 1fr")
+        Some("1fr 1.15fr 1fr 1fr")
     );
     assert_eq!(
         region_entry.grid_template_areas.as_deref(),
-        Some("'warning' '_' '_' '_'")
+        Some("'warning' 'enforcement' '_' '_'")
     );
-}
-
-fn supervision_mini_home_eval_docs(
-    outcome: &mei_host_graph::AssembleOutcome,
-) -> Vec<mei_host_graph::EvalSlotGroupDocument> {
-    use mei_host_graph::{build_eval_slot_group_document, collect_slot_groups};
-    use mei_lang_kernel::DataMode;
-
-    let structure = mei_host_graph::build_structure_full_document(&outcome.compiled, "test");
-    collect_slot_groups(&structure)
-        .into_iter()
-        .map(|group| {
-            build_eval_slot_group_document(
-                &outcome.compiled,
-                &structure,
-                group.as_str(),
-                DataMode::Eval,
-                Some(ws_demo_v2().as_path()),
-            )
-        })
-        .collect()
 }
 
 #[test]
 fn supervision_mini_warning_head_exports_head_chrome() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
-        .expect("assemble")
-        .expect("home outcome");
+    let outcome = supervision_mini_home_outcome();
     let head_doc = supervision_mini_home_eval_docs(&outcome)
         .into_iter()
         .find(|doc| doc.slot_group_id == "scope:t1/right_rail/warning/head")
@@ -123,14 +153,12 @@ fn supervision_mini_warning_head_exports_head_chrome() {
 
 #[test]
 fn supervision_mini_metric_card_value_mount_includes_resolved_popup() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
-        .expect("assemble")
-        .expect("home outcome");
+    let outcome = supervision_mini_home_outcome();
     let docs = supervision_mini_home_eval_docs(&outcome);
     let mut value_popup = None;
     for doc in &docs {
         for (scope, slot) in &doc.slots {
-            if !scope.contains("supervision_items_card") {
+            if !scope.contains("supervision_triptych_first") {
                 continue;
             }
             let mounts = slot
@@ -138,7 +166,6 @@ fn supervision_mini_metric_card_value_mount_includes_resolved_popup() {
                 .and_then(|value| value.as_array())
                 .cloned()
                 .unwrap_or_default();
-            eprintln!("scope={scope} mounts={}", mounts.len());
             for mount in &mounts {
                 let props = mount.get("props").and_then(|value| value.as_object());
                 let role = props
@@ -150,7 +177,7 @@ fn supervision_mini_metric_card_value_mount_includes_resolved_popup() {
             }
         }
     }
-    let popup = value_popup.expect("supervision_items_card value popup in component_mounts");
+    let popup = value_popup.expect("supervision_triptych_first value popup in component_mounts");
     assert!(
         popup.get("__ref").and_then(|value| value.as_str()) != Some("link_ref"),
         "popup should be resolved: {popup}"
@@ -163,23 +190,93 @@ fn supervision_mini_metric_card_value_mount_includes_resolved_popup() {
 }
 
 #[test]
-fn supervision_mini_enforcement_compound_metric_exports_static_mounts() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
-        .expect("assemble")
-        .expect("home outcome");
-    let docs = supervision_mini_home_eval_docs(&outcome);
-    let slot = docs
+fn supervision_mini_enforcement_objects_panel_has_slot_frame_background() {
+    let outcome = supervision_mini_home_outcome();
+    let panels = &outcome
+        .compiled
+        .scene_contract
+        .as_ref()
+        .expect("scene contract")
+        .panels;
+    let objects = find_panel(panels, "enforcement_objects").expect("enforcement_objects panel");
+    let bg = objects.props.get("background").expect("background on shell");
+    let bg_json = serde_json::to_string(bg).unwrap_or_default();
+    assert!(
+        bg_json.contains("metric-bg-target"),
+        "expected metric-bg-target on enforcement_objects shell, got {bg_json}"
+    );
+    assert_eq!(
+        objects
+            .props
+            .get("__mei_slot_frame_bg")
+            .and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    let body = find_panel(panels, "enforcement_objects_body").expect("enforcement_objects_body");
+    assert!(
+        body.layout
+            .as_ref()
+            .and_then(|layout| layout.areas.as_ref())
+            .is_some_and(|rows| rows.iter().flatten().any(|area| area == "top")),
+        "compound grid body should keep named slot areas"
+    );
+}
+
+#[test]
+fn supervision_mini_enforcement_compound_metric_exports_panel_shell_background() {
+    let outcome = supervision_mini_home_outcome();
+    let compound_doc = supervision_mini_home_eval_docs(&outcome)
         .into_iter()
         .find(|doc| {
-            doc.slot_group_id
-                == "content:t1/right_rail/enforcement/enforcement-compound/top/enforcement_objects_top"
+            doc.slots.values().any(|slot| {
+                slot.get("content_kind")
+                    .and_then(|value| value.as_str())
+                    == Some("compound-metric")
+            })
         })
+        .expect("compound-metric eval slot group");
+    let compound_slot = compound_doc
+        .slots
+        .values()
+        .find(|slot| {
+            slot.get("content_kind")
+                .and_then(|value| value.as_str())
+                == Some("compound-metric")
+        })
+        .expect("compound-metric slot");
+    let panel_shell = compound_slot
+        .get("panel_shell")
+        .expect("panel_shell on compound-metric slot");
+    let bg = serde_json::to_string(&panel_shell["props"]["background"]).unwrap_or_default();
+    assert!(
+        bg.contains("metric-bg-target"),
+        "compound-metric slot should export metric-bg-target panel_shell, got {bg}"
+    );
+    assert_eq!(
+        panel_shell["props"]["__mei_slot_frame_bg"].as_bool(),
+        Some(true)
+    );
+}
+
+#[test]
+fn supervision_mini_enforcement_compound_metric_exports_static_mounts() {
+    let outcome = supervision_mini_home_outcome();
+    let docs = supervision_mini_home_eval_docs(&outcome);
+    let enforcement_groups: Vec<_> = docs
+        .iter()
+        .filter(|doc| doc.slot_group_id.contains("enforcement"))
+        .map(|doc| doc.slot_group_id.clone())
+        .collect();
+    let slot = docs
+        .into_iter()
+        .find(|doc| doc.slot_group_id.contains("/top") && doc.slot_group_id.contains("enforcement"))
         .and_then(|doc| {
             doc.slots
-                .get("t1/right_rail/enforcement/enforcement-compound/top/enforcement_objects_top")
-                .cloned()
+                .iter()
+                .find(|(scope, _)| scope.contains("/top"))
+                .map(|(_, slot)| slot.clone())
         })
-        .expect("enforcement_objects_top eval slot");
+        .unwrap_or_else(|| panic!("enforcement top eval slot; groups={enforcement_groups:#?}"));
     let mounts = slot
         .get("component_mounts")
         .and_then(|value| value.as_array())
@@ -210,9 +307,7 @@ fn supervision_mini_enforcement_compound_metric_exports_static_mounts() {
 
 #[test]
 fn supervision_mini_supervision_stats_exports_panel_shell() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
-        .expect("assemble")
-        .expect("home outcome");
+    let outcome = supervision_mini_home_outcome();
     let stats_doc = supervision_mini_home_eval_docs(&outcome)
         .into_iter()
         .find(|doc| doc.slot_group_id == "scope:t1/right_rail/warning/supervision-stats")
@@ -234,9 +329,7 @@ fn supervision_mini_supervision_stats_exports_panel_shell() {
 
 #[test]
 fn supervision_mini_screen_header_exports_bare_panel_shell() {
-    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
-        .expect("assemble")
-        .expect("home outcome");
+    let outcome = supervision_mini_home_outcome();
     let docs = supervision_mini_home_eval_docs(&outcome);
     let header_shell = docs.iter().find_map(|doc| {
         doc.slots.iter().find_map(|(scope, slot)| {

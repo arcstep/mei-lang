@@ -224,7 +224,7 @@ pub fn try_expand_artifact_macro_call(
     imports: &BTreeMap<String, String>,
 ) -> Option<JsonValue> {
     let call = value.as_object()?.get("__call")?.as_str()?;
-    if matches!(call, "panel" | "component" | "metric_card") {
+    if matches!(call, "panel" | "component" | "metric_card" | "metric") {
         return None;
     }
     let expanded = expand_artifact_value(value, registry, imports).ok()?;

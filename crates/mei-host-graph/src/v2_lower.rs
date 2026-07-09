@@ -129,10 +129,24 @@ fn combined_panel_constants(ctx: &PanelLowerContext<'_>) -> BTreeMap<String, Val
 
 fn resolve_panel_constant_exprs(value: &Value, ctx: &PanelLowerContext<'_>) -> Value {
     let constants = combined_panel_constants(ctx);
-    if constants.is_empty() {
-        return value.clone();
-    }
     crate::v2_bundle_constants::resolve_v2_constants(value, &constants)
+}
+
+fn resolve_panel_id_value(
+    value: Option<&Value>,
+    ctx: &PanelLowerContext<'_>,
+    default: &str,
+) -> String {
+    let Some(raw) = value else {
+        return default.to_string();
+    };
+    let resolved = resolve_panel_constant_exprs(raw, ctx);
+    resolved
+        .as_str()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| default.to_string())
 }
 
 fn resolve_panel_props_value(value: &Value, ctx: &PanelLowerContext<'_>) -> Value {
@@ -1173,6 +1187,9 @@ fn lower_block_node(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<Vec<Ui
     if v2_call_name(value).as_deref() == Some("component") {
         return Ok(vec![UiNodeDecl::Block(lower_component(value, ctx)?)]);
     }
+    if v2_call_name(value).as_deref() == Some("metric") {
+        return Ok(vec![lower_metric(value, ctx)?]);
+    }
     if v2_call_name(value).as_deref() == Some("metric_card") {
         return Ok(vec![lower_metric_card(value, ctx)?]);
     }
@@ -1213,11 +1230,7 @@ pub(crate) fn lower_v2_inline_panels_from_assembly(
 fn lower_inline_panel(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<PanelDecl> {
     let args = v2_call_args(value).context("panel missing __args")?;
     let expanded_template = metric_expanded_template_args(args.get("template"));
-    let id = args
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("panel")
-        .to_string();
+    let id = resolve_panel_id_value(args.get("id"), ctx, "panel");
     let area = args
         .get("area")
         .and_then(|v| v.as_str())
@@ -1311,6 +1324,87 @@ fn metric_ratio_from_props(props: &Value, key: &str, fallback: u32) -> u32 {
         .unwrap_or(fallback)
 }
 
+fn metric_layout_role_to_preset(role: &str) -> &str {
+    match role.trim() {
+        "plain" => "plain",
+        "solid_stack" => "solid_stack",
+        "stack_desc" => "stack_desc",
+        "stack_progress" => "stack_desc",
+        "compound_top_row" => "compound_top_row",
+        "compound_sub_stack" => "compound_sub_stack",
+        "icon_left" => "icon_left",
+        "strip_icon_left" => "strip_icon_left",
+        "solid_row_accent" => "solid_row_accent",
+        "solid_row_compact" => "solid_row_compact",
+        _ => "plain",
+    }
+}
+
+fn resolve_metric_atom_source(args: &Value, ctx: &PanelLowerContext<'_>) -> Value {
+    if let Some(source) = args.get("source") {
+        return resolve_config_refs_in_value(source, ctx);
+    }
+    if let (Some(label), value, unit) = (
+        args.get("arg0").or_else(|| args.get("label")),
+        args.get("arg1")
+            .or_else(|| args.get("value"))
+            .cloned()
+            .unwrap_or(json!("--")),
+        args.get("arg2")
+            .or_else(|| args.get("unit"))
+            .cloned()
+            .unwrap_or(json!("")),
+    ) {
+        let mut out = Map::new();
+        out.insert(
+            "label".to_string(),
+            label.clone(),
+        );
+        out.insert("value".to_string(), value);
+        out.insert("unit".to_string(), unit);
+        if let Some(desc) = args.get("desc") {
+            out.insert("desc".to_string(), desc.clone());
+        }
+        return Value::Object(out);
+    }
+    json!({})
+}
+
+fn strip_metric_atom_shell_chrome(props: &mut Value) {
+    if let Some(map) = props.as_object_mut() {
+        map.insert("background".to_string(), json!("transparent"));
+        map.insert("border".to_string(), json!("none"));
+        map.insert("box_shadow".to_string(), json!("none"));
+    }
+}
+
+fn lower_metric(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
+    let args = v2_call_args(value).context("metric missing __args")?;
+    let layout_role = args
+        .get("layout_role")
+        .and_then(Value::as_str)
+        .unwrap_or("plain");
+    let template_name = metric_layout_role_to_preset(layout_role).to_string();
+    let mut args_with_source = args.clone();
+    if let Some(obj) = args_with_source.as_object_mut() {
+        obj.insert(
+            "source".to_string(),
+            resolve_metric_atom_source(args, ctx),
+        );
+    }
+    lower_metric_inner(
+        value,
+        &args_with_source,
+        ctx,
+        &template_name,
+        None,
+        args.get("desc")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        true,
+    )
+}
+
 fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNodeDecl> {
     let args = v2_call_args(value).context("metric_card missing __args")?;
     let expanded_template = metric_expanded_template_args(args.get("template"));
@@ -1324,7 +1418,31 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
     } else {
         metric_template_name(args.get("template"))
     };
-    let preset = metric_template_preset(template_name.as_str());
+    lower_metric_inner(
+        value,
+        args,
+        ctx,
+        &template_name,
+        expanded_template,
+        args.get("template")
+            .and_then(v2_call_args)
+            .and_then(|template| template.get("desc"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        false,
+    )
+}
+
+fn lower_metric_inner(
+    value: &Value,
+    args: &Value,
+    ctx: &PanelLowerContext<'_>,
+    template_name: &str,
+    expanded_template: Option<&Value>,
+    template_desc: Option<String>,
+    transparent_shell: bool,
+) -> Result<UiNodeDecl> {
+    let preset = metric_template_preset(template_name);
     let layout_template = preset.layout_template;
     let height_px = args.get("height_px").and_then(Value::as_i64);
     let density = metric_density(height_px, layout_template);
@@ -1357,12 +1475,11 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
     let popup = args
         .get("popup")
         .map(|popup| resolve_popup_config(popup, ctx, Some(&source)));
-    let template_desc = args
-        .get("template")
-        .and_then(v2_call_args)
-        .and_then(|template| template.get("desc"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    let desc_text = template_desc.or_else(|| {
+        args.get("desc")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    });
     let mut blocks = metric_runtime_blocks(
         &source,
         layout_template,
@@ -1373,8 +1490,11 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
         ctx,
     );
     if layout_template == "stack_desc" {
-        let desc_text = template_desc.or_else(|| metric_template_desc_text(args.get("template")));
-        if let Some(desc) = desc_text.as_deref() {
+        let template_desc_from_macro = metric_template_desc_text(args.get("template"));
+        let desc = desc_text
+            .as_deref()
+            .or(template_desc_from_macro.as_deref());
+        if let Some(desc) = desc {
             blocks.push(UiNodeDecl::Block(metric_desc_slot_block(desc)));
         }
     }
@@ -1420,14 +1540,19 @@ fn lower_metric_card(value: &Value, ctx: &PanelLowerContext<'_>) -> Result<UiNod
         apply_presentation_icon_to_shell(&mut panel_props, presentation);
         stamp_metric_presentation_on_value_slot(&mut blocks, presentation);
     }
+    if transparent_shell {
+        strip_metric_atom_shell_chrome(&mut panel_props);
+    }
+
+    let default_id = if v2_call_name(value) == Some("metric") {
+        "metric"
+    } else {
+        "metric_card"
+    };
 
     Ok(UiNodeDecl::Panel(PanelDecl {
         kind: "panel".to_string(),
-        id: args
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("metric_card")
-            .to_string(),
+        id: resolve_panel_id_value(args.get("id"), ctx, default_id),
         title: None,
         head: None,
         area: args
@@ -1826,6 +1951,28 @@ fn metric_template_preset(name: &str) -> MetricTemplatePreset {
             title_ratio: 1,
             content_ratio: 1,
             shell: json!({}),
+            layout: None,
+        },
+        "plain" | "compound_sub_stack" => MetricTemplatePreset {
+            layout_template: "stack",
+            title_ratio: 1,
+            content_ratio: 1,
+            shell: json!({
+                "__mei_metric_density": "normal",
+                "__mei_metric_template": "stack",
+                "__mei_metric_inline_align": "compact",
+            }),
+            layout: None,
+        },
+        "compound_top_row" | "solid_row_accent" | "solid_row_compact" => MetricTemplatePreset {
+            layout_template: "row",
+            title_ratio: 1,
+            content_ratio: 1,
+            shell: json!({
+                "__mei_metric_density": "normal",
+                "__mei_metric_template": "row",
+                "__mei_metric_inline_align": "compact",
+            }),
             layout: None,
         },
         _ => MetricTemplatePreset {
@@ -3296,6 +3443,38 @@ mod tests {
     }
 
     #[test]
+    fn lower_inline_panel_resolves_string_concat_panel_ids() {
+        let payload = json!({
+            "__call": "panel",
+            "__args": {
+                "id": {
+                    "__binop": "Add",
+                    "left": "enforcement_objects",
+                    "right": "_body"
+                },
+                "variant": "container",
+                "blocks": []
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "supervision-mini",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "supervision-mini".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let panel = lower_inline_panel(&payload, &ctx).expect("panel");
+        assert_eq!(panel.id, "enforcement_objects_body");
+    }
+
+    #[test]
     fn lower_inline_panel_expands_nested_blocks() {
         let payload = json!({
             "id": "inspection-stats",
@@ -3611,6 +3790,131 @@ mod tests {
                 "from_dataset": "__world_metrics__::metrics/inspection-dashboard.bundle.mei",
             })
         );
+    }
+
+    #[test]
+    fn lower_metric_static_positional_emits_transparent_shell() {
+        let value = json!({
+            "__call": "metric",
+            "__args": {
+                "id": "demo_metric",
+                "area": "first",
+                "arg0": "监督事项",
+                "arg1": "23",
+                "arg2": "项",
+                "layout_role": "solid_stack",
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "pretty-panels",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "pretty-panels".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let card = lower_metric(&value, &ctx).expect("metric");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        assert_eq!(panel.id, "demo_metric");
+        assert_eq!(panel.props["background"], json!("transparent"));
+        assert!(
+            panel
+                .props
+                .get("border")
+                .and_then(Value::as_str)
+                .is_none_or(|border| border == "none"),
+            "metric atom should not carry card border"
+        );
+        assert_eq!(panel.blocks.len(), 3);
+    }
+
+    #[test]
+    fn lower_metric_with_metric_ref_and_popup() {
+        let value = json!({
+            "__call": "metric",
+            "__args": {
+                "id": "supervision_items_card",
+                "area": "items",
+                "layout_role": "solid_stack",
+                "source": {
+                    "__ref": "metric_ref",
+                    "__args": {
+                        "arg0": "supervision_items_count",
+                        "bundle": "metrics/supervision-warning.bundle.mei"
+                    }
+                },
+                "popup": {
+                    "__ref": "link_ref",
+                    "__args": { "arg0": "supervision-mini/home/t2/links/supervision-items-analytics" }
+                }
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "supervision-mini",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "supervision-mini".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let card = lower_metric(&value, &ctx).expect("metric");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        let value_block = match &panel.blocks[1] {
+            UiNodeDecl::Block(block) => block,
+            other => panic!("expected value slot block, got {other:?}"),
+        };
+        assert!(value_block.props.get("popup").is_some());
+    }
+
+    #[test]
+    fn lower_metric_compound_top_row_layout_role() {
+        let value = json!({
+            "__call": "metric",
+            "__args": {
+                "id": "enforcement_objects_top",
+                "area": "top",
+                "layout_role": "compound_top_row",
+                "source": {"label": "执法对象", "value": "16.4", "unit": "万"},
+            }
+        });
+        let ctx = PanelLowerContext {
+            app_root: Path::new("/tmp"),
+            app_id: "supervision-mini",
+            registry: &McgRegistry {
+                schema_version: String::new(),
+                app_id: "supervision-mini".to_string(),
+                registry_revision: String::new(),
+                updated_at_ms: 0,
+                nodes: Vec::new(),
+            },
+            scene_id: "home",
+            panel_constants: BTreeMap::new(),
+            assembly_stack_order: None,
+        };
+        let card = lower_metric(&value, &ctx).expect("metric");
+        let panel = match card {
+            UiNodeDecl::Panel(panel) => panel,
+            other => panic!("expected panel, got {other:?}"),
+        };
+        assert_eq!(panel.props["__mei_metric_template"], json!("row"));
     }
 
     #[test]

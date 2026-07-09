@@ -220,7 +220,7 @@ fn is_duplicate_metric_card_leaf_scope(scope: &str) -> bool {
 fn is_ambiguous_mount_label(label: &str) -> bool {
     matches!(
         label.trim().to_ascii_lowercase().as_str(),
-        "label" | "value" | "unit" | "icon" | "head" | "mei.text" | ""
+        "label" | "value" | "unit" | "icon" | "head" | "mei.text" | "panel" | ""
     )
 }
 
@@ -372,9 +372,8 @@ fn panel_contract_lookup_label(node: &StructureFullNode) -> String {
         if let Some(id) = node
             .preview_scope
             .rsplit('/')
-            .next()
             .map(str::trim)
-            .filter(|segment| !segment.is_empty())
+            .find(|segment| !segment.is_empty() && !is_ambiguous_mount_label(segment))
         {
             return id.to_string();
         }
@@ -385,6 +384,52 @@ fn panel_contract_lookup_label(node: &StructureFullNode) -> String {
     } else {
         resolved
     }
+}
+
+fn panel_background_is_transparent(background: &Value) -> bool {
+    match background {
+        Value::String(raw) => raw.eq_ignore_ascii_case("transparent"),
+        Value::Object(map) => {
+            let color = map
+                .get("color")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            color.is_empty() || color.eq_ignore_ascii_case("transparent")
+        }
+        _ => false,
+    }
+}
+
+fn panel_has_slot_frame_shell(panel: &PanelDecl) -> bool {
+    panel
+        .props
+        .get("__mei_slot_frame_bg")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || panel
+            .props
+            .get("background")
+            .is_some_and(|background| !panel_background_is_transparent(background))
+}
+
+fn compound_metric_shell_panel<'a>(
+    contract: &'a mei_lang_kernel::SceneContract,
+    content_panel_id: &str,
+) -> Option<&'a PanelDecl> {
+    if let Some(panel) = find_panel_in_contract(contract, content_panel_id) {
+        if panel_has_slot_frame_shell(panel) {
+            return Some(panel);
+        }
+    }
+    if let Some(shell_id) = content_panel_id.strip_suffix("_body") {
+        if let Some(shell) = find_panel_in_contract(contract, shell_id) {
+            if panel_has_slot_frame_shell(shell) {
+                return Some(shell);
+            }
+        }
+    }
+    None
 }
 
 fn find_panel_by_id<'a>(panel: &'a PanelDecl, target: &str) -> Option<&'a PanelDecl> {
@@ -528,7 +573,14 @@ pub fn build_eval_slot_group_document(
             if matches!(node.ui_role.as_str(), "section" | "slot" | "content") {
                 let panel_lookup = panel_contract_lookup_label(node);
                 if !panel_lookup.is_empty() {
-                    if let Some(panel) = find_panel_in_contract(contract, panel_lookup.as_str()) {
+                    let panel = if node.content_kind.as_deref() == Some("compound-metric") {
+                        compound_metric_shell_panel(contract, panel_lookup.as_str()).or_else(|| {
+                            find_panel_in_contract(contract, panel_lookup.as_str())
+                        })
+                    } else {
+                        find_panel_in_contract(contract, panel_lookup.as_str())
+                    };
+                    if let Some(panel) = panel {
                         if should_export_panel_shell(panel) {
                             let author_props = workspace_root.and_then(|root| {
                                 author_panel_props_for_shell(root, compiled, panel_lookup.as_str())
@@ -653,6 +705,81 @@ mod tests {
     use crate::view_artifact::StructureFullNode;
     use mei_lang_kernel::{BlockDecl, PanelDecl, UiNodeDecl};
     use serde_json::json;
+
+    #[test]
+    fn compound_metric_shell_panel_prefers_slot_frame_parent() {
+        let shell = PanelDecl {
+            kind: "panel".to_string(),
+            id: "enforcement_objects".to_string(),
+            title: None,
+            head: None,
+            area: Some("compound".to_string()),
+            layout: None,
+            blocks: vec![UiNodeDecl::Panel(PanelDecl {
+                kind: "panel".to_string(),
+                id: "enforcement_objects_body".to_string(),
+                title: None,
+                head: None,
+                area: Some("content".to_string()),
+                layout: None,
+                blocks: vec![],
+                slot: None,
+                props: json!({"background": "transparent"}),
+                head_props: json!({}),
+                body_props: json!({}),
+                base: None,
+                import_scope: None,
+            })],
+            slot: None,
+            props: json!({
+                "__mei_slot_frame_bg": true,
+                "background": {
+                    "image": "url(/workspace-app-assets/templates/cockpit/assets/metrics/metric-bg-target@3x.svg)"
+                }
+            }),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let contract = mei_lang_kernel::SceneContract {
+            scene: mei_lang_kernel::SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                shared: json!({}),
+                local_nav: json!({}),
+                params: json!({}),
+                capabilities: json!({}),
+                bindings: json!({}),
+                examples: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            shared: json!({}),
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![shell],
+        };
+        let resolved = compound_metric_shell_panel(&contract, "enforcement_objects_body")
+            .expect("shell panel");
+        assert_eq!(resolved.id, "enforcement_objects");
+        assert_eq!(
+            resolved
+                .props
+                .get("__mei_slot_frame_bg")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+    }
 
     #[test]
     fn panel_contract_lookup_prefers_scope_id_for_compound_metric() {
