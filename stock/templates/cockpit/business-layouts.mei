@@ -208,6 +208,52 @@ template solid_metric_fill_slot(
         card_props = {"label_vertical_align": "center"},
     )
 
+template solid_row_accent_fill_slot(
+    id = "metric_row_accent_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    popup = None,
+    presentation = None,
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "solid_row_accent",
+        source = source,
+        popup = popup,
+        presentation = presentation,
+        shell_height = "100%",
+        shell_background = {"color": "rgba(98,190,235,0.10)"},
+        shell_border = "1px solid rgba(98,190,235,1)",
+        shell_props = SLOT_FRAME_BG_FLAG,
+        card_props = {
+            "label_vertical_align": "center",
+            "value_vertical_align": "center",
+            "unit_vertical_align": "center",
+        },
+    )
+
+template solid_row_compact_fill_slot(
+    id = "metric_row_compact_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    variant = None,
+    popup = None,
+    presentation = None,
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "solid_row_compact",
+        source = source,
+        variant = variant,
+        popup = popup,
+        presentation = presentation,
+        shell_height = "100%",
+        shell_border = "0.5px solid rgba(115,135,155,1)",
+        shell_props = SLOT_FRAME_BG_FLAG,
+    )
+
 template narrow_metric_slot(
     id = "metric_narrow_slot",
     area = "auto",
@@ -226,6 +272,25 @@ template narrow_metric_slot(
         shell_height = shell_height,
         shell_background = metric_slot_background(image = BG_NORMAL),
         shell_props = SLOT_FRAME_BG_FLAG,
+    )
+
+template plain_metric_fill_slot(
+    id = "metric_plain_fill_slot",
+    area = "auto",
+    source = {"label": "指标", "value": "--", "unit": "", "desc": ""},
+    variant = None,
+    popup = None,
+    presentation = None,
+):
+    slot_metric_card(
+        id = id,
+        area = area,
+        layout_role = "plain",
+        source = source,
+        variant = variant,
+        popup = popup,
+        presentation = presentation,
+        shell_height = "100%",
     )
 
 template desc_metric_slot(
