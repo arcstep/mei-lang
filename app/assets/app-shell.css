@@ -4977,6 +4977,8 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
 .mei-compose-warning-panel > [data-preview-scope*="supervision-stats"],
 .mei-compose-warning-panel > .mei-compose-metric-triptych,
 .mei-compose-compound-section > .mei-compose-metric-triptych,
+.mei-compose-compound-section > .mei-compose-metric-compound,
+.mei-compose-compound-section > [data-mei-content-kind="compound-metric"],
 .mei-compose-compound-section > [data-mei-ui-role="content"],
 .mei-compose-compound-section > [data-mei-ui-role="slot"] {
   grid-area: body;
@@ -5001,6 +5003,31 @@ body.access-drilldown-open .mei-compose-scene-root .mei-compose-node.mei-compose
   border: none;
   border-radius: 0;
   box-sizing: border-box;
+}
+.mei-compose-metric-compound {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 44%) minmax(0, 1fr);
+  grid-template-areas:
+    "top top top"
+    "b0 b1 b2";
+  gap: 2px;
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  box-sizing: border-box;
+}
+.mei-compose-metric-compound > [data-mei-ui-role="slot"] {
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  margin: 0;
+  border: none;
+  border-radius: 0;
 }
 .mei-compose-metric-triptych > [data-mei-metric-card],
 .mei-compose-metric-triptych > .preview-card {

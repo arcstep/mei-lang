@@ -49,7 +49,7 @@ fn supervision_mini_right_rail_region_manifest_includes_four_row_grid() {
         Some(
             &[
                 "1fr".to_string(),
-                "1fr".to_string(),
+                "1.15fr".to_string(),
                 "1fr".to_string(),
                 "1fr".to_string()
             ][..]
@@ -159,6 +159,52 @@ fn supervision_mini_metric_card_value_mount_includes_resolved_popup() {
         popup.get("mode").and_then(|value| value.as_str()) == Some("popup")
             || popup.get("mode").and_then(|value| value.as_str()) == Some("board_link"),
         "unexpected popup mode: {popup}"
+    );
+}
+
+#[test]
+fn supervision_mini_enforcement_compound_metric_exports_static_mounts() {
+    let outcome = assemble_scope_from_registry(ws_demo_v2().as_path(), "supervision-mini", "home")
+        .expect("assemble")
+        .expect("home outcome");
+    let docs = supervision_mini_home_eval_docs(&outcome);
+    let slot = docs
+        .into_iter()
+        .find(|doc| {
+            doc.slot_group_id
+                == "content:t1/right_rail/enforcement/enforcement-compound/top/enforcement_objects_top"
+        })
+        .and_then(|doc| {
+            doc.slots
+                .get("t1/right_rail/enforcement/enforcement-compound/top/enforcement_objects_top")
+                .cloned()
+        })
+        .expect("enforcement_objects_top eval slot");
+    let mounts = slot
+        .get("component_mounts")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        mounts.len() >= 4,
+        "expected metric shell + label/value/unit mounts, got {mounts:#?}"
+    );
+    let value_mount = mounts.iter().find(|mount| {
+        mount
+            .get("props")
+            .and_then(|props| props.get("metric_role"))
+            .and_then(|role| role.as_str())
+            == Some("value")
+    });
+    let value_content = value_mount
+        .and_then(|mount| mount.get("props"))
+        .and_then(|props| props.get("content"))
+        .and_then(|content| content.get("value"))
+        .and_then(|value| value.as_str());
+    assert_eq!(
+        value_content,
+        Some("16.4"),
+        "static source value should export in component_mounts"
     );
 }
 

@@ -271,9 +271,10 @@ fn author_panel_props_for_shell(
         format!("supervision-mini/home/t1/r-right-rail/s-warning/content/{panel_id}"),
     ] {
         if let Ok(payload) = crate::v2_lower::load_panel_contract_payload(&ctx, ref_path.as_str()) {
-            if let Some(props) = payload.get("props").filter(|value| value.is_object()) {
+            if let Some(raw_props) = payload.get("props") {
+                let props = crate::v2_lower::resolve_panel_props_for_shell(raw_props, &ctx);
                 if props.get("background").is_some() {
-                    return Some(props.clone());
+                    return Some(props);
                 }
             }
         }
@@ -298,7 +299,17 @@ fn panel_decl_for_shell_export(
     if let Some(author_props) = author_props {
         if let Some(background) = author_props.get("background") {
             exported_props.insert("background".to_string(), background.clone());
-            for key in ["padding", "margin", "width", "height", "min_height", "overflow"] {
+            for key in [
+                "padding",
+                "margin",
+                "width",
+                "height",
+                "min_height",
+                "overflow",
+                "border",
+                "radius",
+                "__mei_slot_frame_bg",
+            ] {
                 if let Some(value) = author_props.get(key) {
                     exported_props.insert(key.to_string(), value.clone());
                 }
@@ -340,6 +351,42 @@ fn metric_card_lookup_label(node: &StructureFullNode) -> String {
     label
 }
 
+fn metric_card_content_panel_lookup(node: &StructureFullNode) -> Option<String> {
+    if node.ui_role != "content" {
+        return None;
+    }
+    let kind = node.content_kind.as_deref()?.to_ascii_lowercase();
+    if !matches!(kind.as_str(), "stack" | "stack_desc" | "row") {
+        return None;
+    }
+    node.preview_scope
+        .rsplit('/')
+        .next()
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty() && !is_ambiguous_mount_label(segment))
+        .map(|segment| segment.to_string())
+}
+
+fn panel_contract_lookup_label(node: &StructureFullNode) -> String {
+    if node.content_kind.as_deref() == Some("compound-metric") {
+        if let Some(id) = node
+            .preview_scope
+            .rsplit('/')
+            .next()
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty())
+        {
+            return id.to_string();
+        }
+    }
+    let resolved = metric_card_lookup_label(node);
+    if resolved.is_empty() {
+        panel_lookup_label(node)
+    } else {
+        resolved
+    }
+}
+
 fn find_panel_by_id<'a>(panel: &'a PanelDecl, target: &str) -> Option<&'a PanelDecl> {
     if panel.id == target {
         return Some(panel);
@@ -377,6 +424,20 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
     };
     let panel_hint = metric_card_panel_hint_from_scope(&node.preview_scope);
     let mut mounts = Vec::new();
+    if let Some(panel_id) = metric_card_content_panel_lookup(node) {
+        if let Some(panel) = find_panel_in_contract(contract, panel_id.as_str()) {
+            collect_component_mounts_for_label(panel, panel_id.as_str(), &mut mounts);
+            if !mounts.is_empty() {
+                return mounts;
+            }
+        }
+        for panel in &contract.panels {
+            collect_component_mounts_for_label(panel, panel_id.as_str(), &mut mounts);
+            if !mounts.is_empty() {
+                return mounts;
+            }
+        }
+    }
     if let Some(panel_id) = panel_hint.as_deref() {
         if let Some(panel) = find_panel_in_contract(contract, panel_id) {
             collect_component_mounts_for_label(panel, panel_id, &mut mounts);
@@ -465,14 +526,7 @@ pub fn build_eval_slot_group_document(
         }
         if let (Some(ctx), Some(contract)) = (theme_ctx.as_ref(), compiled.scene_contract.as_ref()) {
             if matches!(node.ui_role.as_str(), "section" | "slot" | "content") {
-                let panel_lookup = {
-                    let resolved = metric_card_lookup_label(node);
-                    if resolved.is_empty() {
-                        panel_lookup_label(node)
-                    } else {
-                        resolved
-                    }
-                };
+                let panel_lookup = panel_contract_lookup_label(node);
                 if !panel_lookup.is_empty() {
                     if let Some(panel) = find_panel_in_contract(contract, panel_lookup.as_str()) {
                         if should_export_panel_shell(panel) {
@@ -599,6 +653,27 @@ mod tests {
     use crate::view_artifact::StructureFullNode;
     use mei_lang_kernel::{BlockDecl, PanelDecl, UiNodeDecl};
     use serde_json::json;
+
+    #[test]
+    fn panel_contract_lookup_prefers_scope_id_for_compound_metric() {
+        let node = StructureFullNode {
+            node_id: "compound".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope: "t1/right_rail/enforcement/enforcement-compound".to_string(),
+            label: "执法对象".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: Some("compound-metric".to_string()),
+            panel_id: None,
+            use_keys: vec!["metric-card".to_string()],
+            frame_viewport: None,
+        };
+        assert_eq!(
+            panel_contract_lookup_label(&node),
+            "enforcement-compound"
+        );
+    }
 
     #[test]
     fn slot_groups_include_scene_default() {

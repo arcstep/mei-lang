@@ -149,6 +149,8 @@
     return (
       normalized === "metric-card" ||
       normalized === "stack" ||
+      normalized === "stack_desc" ||
+      normalized === "row" ||
       normalized.endsWith("_stack") ||
       normalized === "icon_left" ||
       normalized === "solid_row"
@@ -485,14 +487,28 @@
         target.closest("[data-mei-metric-card]")?.getAttribute("data-mei-metric-template") ||
         "stack",
     ).trim();
-    if (template !== "stack" && template !== "stack_desc") return;
     const card = target.closest("[data-mei-metric-card]") || target;
+    const style = target.style;
+    style.display = "grid";
+    style.boxSizing = "border-box";
+    style.minHeight = "0";
+    style.minWidth = "0";
+    style.height = "100%";
+    if (template === "row") {
+      style.gridTemplateColumns = "auto auto auto";
+      style.gridTemplateRows = "1fr";
+      style.gridTemplateAreas = '"label value unit"';
+      style.alignItems = "center";
+      style.justifyItems = "center";
+      style.justifyContent = "center";
+      style.gap = "2px 3px";
+      return;
+    }
+    if (template !== "stack" && template !== "stack_desc") return;
     const titleRatio =
       card.getAttribute("data-mei-metric-title-ratio") || "2";
     const contentRatio =
       card.getAttribute("data-mei-metric-content-ratio") || "3";
-    const style = target.style;
-    style.display = "grid";
     style.gridTemplateColumns = "auto auto";
     style.gridTemplateRows = `${ratioFrTrack(titleRatio, 1)} ${ratioFrTrack(contentRatio, 1)}`;
     style.gridTemplateAreas = '"label label" "value unit"';
@@ -500,10 +516,6 @@
     style.justifyItems = "center";
     style.justifyContent = "center";
     style.gap = "0";
-    style.boxSizing = "border-box";
-    style.minHeight = "0";
-    style.minWidth = "0";
-    style.height = "100%";
   }
 
   function wrapMetricRoleNode(node, role) {
@@ -815,6 +827,18 @@
         placeholder.hidden = true;
         if (scope) placeholder.setAttribute("data-preview-scope", scope);
         return placeholder;
+      }
+      const contentKind = String(node.content_kind || "").trim().toLowerCase();
+      if (contentKind === "compound-metric") {
+        const compoundHost = document.createElement("section");
+        compoundHost.className = "mei-compose-node mei-compose-content";
+        if (scope) compoundHost.setAttribute("data-preview-scope", scope);
+        compoundHost.setAttribute("data-mei-ui-role", "content");
+        compoundHost.setAttribute("data-mei-content-kind", "compound-metric");
+        if (node.label) {
+          compoundHost.setAttribute("data-mei-structure-label", String(node.label));
+        }
+        return compoundHost;
       }
       const keys = Array.isArray(node.use_keys) && node.use_keys.length
         ? node.use_keys
@@ -1363,6 +1387,12 @@
       const shellProps = shellMount.props;
       if (String(shellProps.chrome || "").trim() === "bare") {
         section.classList.add("preview-card-bare");
+      }
+      if (shellProps.__mei_metric_template != null) {
+        section.setAttribute(
+          "data-mei-metric-template",
+          String(shellProps.__mei_metric_template),
+        );
       }
       if (shellProps.__mei_metric_title_ratio != null) {
         section.setAttribute(
@@ -2106,6 +2136,8 @@
         const content =
           section.querySelector('[data-preview-scope$="/body"]') ||
           section.querySelector('[data-preview-scope*="supervision-stats"]') ||
+          section.querySelector('[data-mei-content-kind="compound-metric"]') ||
+          section.querySelector(".mei-compose-metric-compound") ||
           section.querySelector(".mei-compose-metric-triptych");
         if (head instanceof HTMLElement) {
           head.style.gridArea = "head";
@@ -2145,6 +2177,32 @@
         if (role !== "content" && role !== "slot") return;
         content.classList.add("mei-compose-metric-triptych");
       });
+  }
+
+  const COMPOUND_METRIC_SLOT_AREAS = {
+    top: "top",
+    b0: "b0",
+    b1: "b1",
+    b2: "b2",
+  };
+
+  function applyCompoundMetricComposeClasses(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll('[data-mei-content-kind="compound-metric"]').forEach((content) => {
+      if (!(content instanceof HTMLElement)) return;
+      content.classList.add("mei-compose-metric-compound");
+      const section = content.closest('[data-mei-ui-role="section"]');
+      if (section instanceof HTMLElement) {
+        section.classList.add("mei-compose-compound-section");
+      }
+      content.querySelectorAll(':scope > [data-mei-ui-role="slot"]').forEach((slot) => {
+        if (!(slot instanceof HTMLElement)) return;
+        const scope = String(slot.getAttribute("data-preview-scope") || "");
+        const suffix = scope.split("/").filter(Boolean).pop() || "";
+        const area = COMPOUND_METRIC_SLOT_AREAS[suffix];
+        if (area) slot.style.gridArea = area;
+      });
+    });
   }
 
   function rebindMetricCardHosts(root) {
@@ -2253,6 +2311,7 @@
     });
     rebindMetricCardHosts(root);
     applyWarningSupervisionComposeClasses(root);
+    applyCompoundMetricComposeClasses(root);
     normalizeMetricCompoundSections(root);
     normalizeScreenHeaderBrandBlocks(root);
     promoteSectionHeadMeiTextNodes(root);

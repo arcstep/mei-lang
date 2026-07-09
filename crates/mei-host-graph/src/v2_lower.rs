@@ -162,6 +162,13 @@ fn resolve_panel_props_value(value: &Value, ctx: &PanelLowerContext<'_>) -> Valu
     resolve_panel_constant_exprs(value, ctx)
 }
 
+pub(crate) fn resolve_panel_props_for_shell(
+    value: &Value,
+    ctx: &PanelLowerContext<'_>,
+) -> Value {
+    resolve_panel_props_value(value, ctx)
+}
+
 pub fn lower_frame_from_assembly(payload: &Value) -> FrameDecl {
     let layout = payload.get("layout").and_then(lower_layout);
     let mut props = json!({});
