@@ -1072,6 +1072,21 @@
     });
   }
 
+  function readHostRuntimeCapabilitiesForCompose() {
+    try {
+      const cached = global.__meiHostRuntimeCapabilities;
+      if (cached && typeof cached === "object" && !Array.isArray(cached)) {
+        return cached;
+      }
+      const el = document.getElementById("mei-host-runtime-capabilities");
+      if (!(el instanceof HTMLElement)) return {};
+      const parsed = JSON.parse(el.textContent || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
   function enrichRuntimeMetricRef(props, sceneMount) {
     const next = { ...(props || {}) };
     if (next.__mei_runtime_ref) return next;
@@ -1121,6 +1136,7 @@
     next._mei = {
       ...(typeof next._mei === "object" && !Array.isArray(next._mei) ? next._mei : {}),
       ...(shellAppId ? { app_id: shellAppId } : {}),
+      runtime_capabilities: readHostRuntimeCapabilitiesForCompose(),
       active_scene_id: runtimeRef.scene_id,
       active_target_file:
         viewport?.getAttribute("data-target-file") ||
@@ -2064,6 +2080,10 @@
     try {
       if (typeof global.__meiSyncRuntimeQueryAppContext === "function") {
         global.__meiSyncRuntimeQueryAppContext({ clearCaches: false });
+      } else if (
+        typeof global.__meiDatasetRuntime?.syncRuntimeQueryAppContextFromPage === "function"
+      ) {
+        global.__meiDatasetRuntime.syncRuntimeQueryAppContextFromPage({ clearCaches: false });
       }
     } catch (_) {}
     const prefetchRoot =

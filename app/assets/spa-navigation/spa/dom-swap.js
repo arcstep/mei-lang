@@ -672,6 +672,7 @@
     syncBodyThemeFromDoc(doc);
     syncSceneDrilldownContextFromDoc(doc);
     syncHostRuntimeCapabilitiesFromDoc(doc);
+    syncRuntimeQueryAppAfterShellSwap();
 
     if (replaceHistory) {
       window.history.replaceState({}, "", url);
