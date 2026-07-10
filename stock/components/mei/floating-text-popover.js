@@ -56,7 +56,6 @@ export function buildTextPopoverShellHtml(
         <div class="cell-pop-actions">
           <button type="button" class="cell-pop-close" aria-label="关闭">×</button>
           <button type="button" class="cell-pop-copy">复制</button>
-          <button type="button" class="cell-pop-done">关闭</button>
         </div>
       </aside>
     </div>
@@ -90,19 +89,22 @@ export function textPopoverStyleBlock(variant = "large") {
       padding: 0;
       overflow: hidden;
       border-radius: ${large ? "12px" : "10px"};
-      border: 1px solid rgba(56, 189, 248, 0.42);
-      background: linear-gradient(
-        165deg,
-        rgba(16, 58, 108, 0.98) 0%,
-        rgba(10, 40, 78, 0.99) 52%,
-        rgba(6, 28, 58, 1) 100%
-      );
+      border: 1px solid rgba(56, 189, 248, 0.55);
+      background:
+        linear-gradient(
+          165deg,
+          rgba(18, 62, 112, 1) 0%,
+          rgba(12, 44, 84, 1) 52%,
+          rgba(8, 32, 64, 1) 100%
+        );
       box-shadow:
-        0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-        0 0 28px rgba(0, 120, 220, 0.22),
-        0 20px 48px rgba(0, 0, 0, 0.55);
+        0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+        0 0 28px rgba(0, 120, 220, 0.28),
+        0 20px 48px rgba(0, 0, 0, 0.72);
       color: ${color("text_inverse")};
       font-family: var(--mei-font-family-ui, "Microsoft YaHei", "PingFang SC", sans-serif);
+      opacity: 1;
+      pointer-events: auto;
     }
     .cell-pop--modal {
       position: relative;
@@ -128,6 +130,7 @@ export function textPopoverStyleBlock(variant = "large") {
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      background: rgba(8, 32, 64, 1);
     }
     .cell-pop-chrome {
       position: relative;
@@ -139,11 +142,12 @@ export function textPopoverStyleBlock(variant = "large") {
       justify-content: space-between;
       align-items: flex-end;
       gap: ${large ? "10px" : "8px"};
-      width: ${large ? "88px" : "80px"};
+      width: ${large ? "96px" : "88px"};
       padding: ${large ? "10px 8px 10px 6px" : "8px 6px 8px 4px"};
-      border-left: 1px solid rgba(148, 163, 184, 0.18);
-      background: linear-gradient(180deg, rgba(2, 12, 32, 0.22) 0%, rgba(2, 12, 32, 0.08) 100%);
+      border-left: 1px solid rgba(148, 163, 184, 0.28);
+      background: linear-gradient(180deg, rgba(6, 28, 58, 1) 0%, rgba(8, 34, 68, 1) 100%);
       text-align: right;
+      pointer-events: auto;
     }
     .cell-pop-drag-handle {
       cursor: move;
@@ -158,9 +162,9 @@ export function textPopoverStyleBlock(variant = "large") {
       justify-items: end;
     }
     .cell-pop-title > span {
-      font-size: ${large ? "10px" : "9px"};
-      font-weight: 500;
-      color: rgba(148, 163, 184, 0.68);
+      font-size: ${large ? "11px" : "10px"};
+      font-weight: 600;
+      color: rgba(226, 232, 240, 0.92);
       letter-spacing: 0.04em;
       line-height: 1.3;
       white-space: nowrap;
@@ -189,28 +193,31 @@ export function textPopoverStyleBlock(variant = "large") {
       border-radius: 4px;
       border: 1px solid transparent;
       background: transparent;
-      color: rgba(148, 163, 184, 0.62);
-      font-size: ${large ? "10px" : "9px"};
+      color: rgba(226, 232, 240, 0.92);
+      font-size: ${large ? "11px" : "10px"};
       font-family: inherit;
-      font-weight: 400;
-      padding: ${large ? "3px 6px" : "2px 5px"};
+      font-weight: 500;
+      padding: ${large ? "4px 8px" : "3px 6px"};
       cursor: pointer;
-      transition: color 120ms ease, background 120ms ease;
+      transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
       white-space: nowrap;
+      pointer-events: auto;
     }
     .cell-pop-actions button:hover {
-      color: rgba(224, 242, 254, 0.92);
-      background: rgba(15, 45, 82, 0.35);
+      color: #f8fafc;
+      background: rgba(56, 189, 248, 0.18);
+      border-color: rgba(125, 211, 252, 0.35);
     }
     .cell-pop-close {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: ${large ? "22px" : "20px"};
-      height: ${large ? "22px" : "20px"};
+      width: ${large ? "24px" : "22px"};
+      height: ${large ? "24px" : "22px"};
       padding: 0 !important;
-      font-size: ${large ? "16px" : "14px"} !important;
+      font-size: ${large ? "18px" : "16px"} !important;
       line-height: 1;
+      color: rgba(248, 250, 252, 0.95) !important;
     }
     .cell-pop-scroll {
       position: relative;
@@ -221,6 +228,7 @@ export function textPopoverStyleBlock(variant = "large") {
       overflow: auto;
       margin: 0;
       padding: 20px;
+      background: rgba(8, 32, 64, 1);
       scrollbar-width: thin;
       scrollbar-color: rgba(125, 211, 252, 0.4) rgba(8, 32, 68, 0.3);
     }
@@ -248,27 +256,38 @@ export function textPopoverStyleBlock(variant = "large") {
   `;
 }
 
-const FLOATING_TEXT_POPOVER_STYLE_VERSION = "right-chrome-v5";
+const FLOATING_TEXT_POPOVER_STYLE_VERSION = "right-chrome-v11-backdrop";
 
-/** body 挂载飘窗：子元素须挂在根节点下，不能写成 body > .cell-pop-* */
+/** 飘窗可能挂 body 或 viewport stage（.mei-viewport-floating-in-stage），选择器须同时覆盖。 */
 export function scopeFloatingPopoverCss(css) {
-  const pop = "body > .mei-floating-text-pop";
-  const modal = "body > .cell-pop-backdrop";
+  const pops = [
+    "body > .mei-floating-text-pop",
+    ".mei-floating-text-pop.mei-viewport-floating-in-stage",
+    "[data-mei-overlay-role=\"text_popover\"].mei-floating-text-pop",
+  ];
+  const modals = [
+    "body > .cell-pop-backdrop",
+    ".cell-pop-backdrop.mei-viewport-floating-in-stage",
+  ];
+  const joinPop = (suffix = "") => pops.map((p) => `${p}${suffix}`).join(", ");
+  const joinModalChild = (suffix = "") => modals.map((m) => `${m} > .cell-pop${suffix}`).join(", ");
+  const joinDesc = (sel) =>
+    [...pops.map((p) => `${p} ${sel}`), ...modals.map((m) => `${m} ${sel}`)].join(", ");
   return css.replace(/(^|\n)(\s*)([^{}\n]+)\{/g, (_match, lead, indent, selectors) => {
     const scoped = selectors
       .split(",")
       .map((raw) => {
         const s = raw.trim();
         if (!s.startsWith(".cell-pop")) return s;
-        if (s === ".cell-pop-backdrop") return modal;
+        if (s === ".cell-pop-backdrop") return modals.join(", ");
         if (s === ".cell-pop") {
-          return `${pop}.cell-pop, body > .cell-pop.mei-floating-text-pop, ${modal} > .cell-pop`;
+          return `${joinPop(".cell-pop")}, ${joinPop("")}, ${joinModalChild("")}`;
         }
         if (/^\.cell-pop--(modal|large)\b/.test(s)) {
           const mod = s.slice(".cell-pop".length);
-          return `${pop}.cell-pop${mod}, body > .cell-pop.mei-floating-text-pop${mod}, ${modal} > .cell-pop${mod}`;
+          return `${joinPop(`.cell-pop${mod}`)}, ${joinModalChild(mod)}`;
         }
-        return `${pop} ${s}, ${modal} ${s}`;
+        return joinDesc(s);
       })
       .join(", ");
     return `${lead}${indent}${scoped} {`;
@@ -283,18 +302,24 @@ export function ensureFloatingTextPopoverStyles() {
   const style = document.createElement("style");
   style.dataset.meiFloatingTextPopover = FLOATING_TEXT_POPOVER_STYLE_VERSION;
   const shell = scopeFloatingPopoverCss(textPopoverStyleBlock("large"));
+  const popRoots = [
+    "body > .mei-floating-text-pop",
+    ".mei-floating-text-pop.mei-viewport-floating-in-stage",
+    '[data-mei-overlay-role="text_popover"].mei-floating-text-pop',
+  ];
+  const popRoot = popRoots.join(", ");
+  const popRootAfter = popRoots.map((s) => `${s}::after`).join(", ");
+  const popRootDrag = popRoots.map((s) => `${s} .cell-pop-drag-handle`).join(", ");
   style.textContent = `
     @keyframes mei-text-pop-in {
       from {
-        opacity: 0;
-        transform: translateY(10px) scale(0.96);
+        transform: translateY(8px) scale(0.98);
       }
       to {
-        opacity: 1;
         transform: translateY(0) scale(1);
       }
     }
-    body > .mei-floating-text-pop {
+    ${popRoot} {
       position: fixed;
       z-index: var(--mei-z-cockpit-text-popover, 2350);
       box-sizing: border-box;
@@ -305,9 +330,11 @@ export function ensureFloatingTextPopoverStyles() {
       height: auto;
       max-width: min(96vw, 960px);
       max-height: min(92vh, 860px);
-      animation: mei-text-pop-in 200ms ease-out;
+      opacity: 1 !important;
+      pointer-events: auto !important;
+      animation: mei-text-pop-in 140ms ease-out;
     }
-    body > .mei-floating-text-pop::after {
+    ${popRootAfter} {
       content: "";
       position: absolute;
       right: 4px;
@@ -320,7 +347,7 @@ export function ensureFloatingTextPopoverStyles() {
         linear-gradient(135deg, transparent 42%, #7dd3fc 42%, #7dd3fc 50%, transparent 50%),
         linear-gradient(135deg, transparent 58%, #38bdf8 58%, #38bdf8 66%, transparent 66%);
     }
-    body > .mei-floating-text-pop .cell-pop-drag-handle {
+    ${popRootDrag} {
       cursor: move;
       user-select: none;
       touch-action: none;
@@ -397,6 +424,10 @@ export function mountFloatingPopoverOnBody(pop, size = {}) {
   pop.setAttribute("data-mei-overlay-role", "text_popover");
   pop.style.position = "fixed";
   pop.style.removeProperty("z-index");
+  pop.style.setProperty("opacity", "1", "important");
+  pop.style.setProperty("pointer-events", "auto", "important");
+  pop.style.setProperty("background", "#071e40", "important");
+  pop.style.setProperty("isolation", "isolate");
   if (size.width) pop.style.width = `${Math.round(size.width)}px`;
   if (size.height) {
     pop.style.height = `${Math.round(size.height)}px`;
@@ -412,6 +443,37 @@ export function mountFloatingPopoverOnBody(pop, size = {}) {
   if (!size.height) {
     fitFloatingPopoverToContent(pop, size);
   }
+}
+
+/** 打开正文飘窗时加一层低透明度遮罩，避免看穿底层驾驶舱内容。 */
+export function mountTextPopoverBackdrop(owner) {
+  if (!owner || typeof document === "undefined") return null;
+  const existing = document.querySelector(".mei-floating-text-pop-backdrop[data-mei-text-pop-backdrop='true']");
+  if (existing) {
+    owner._textPopoverBackdrop = existing;
+    return existing;
+  }
+  const backdrop = document.createElement("div");
+  backdrop.className = "mei-floating-text-pop-backdrop cell-pop-backdrop";
+  backdrop.setAttribute("data-mei-overlay-role", "text_popover");
+  backdrop.setAttribute("data-mei-text-pop-backdrop", "true");
+  backdrop.style.cssText =
+    "position:fixed;inset:0;z-index:var(--mei-z-cockpit-text-popover, 2350);background:rgba(2,8,24,0.55);pointer-events:auto;";
+  document.body.appendChild(backdrop);
+  owner._textPopoverBackdrop = backdrop;
+  return backdrop;
+}
+
+export function removeTextPopoverBackdrop(owner) {
+  const backdrop = owner?._textPopoverBackdrop;
+  if (backdrop?.isConnected) {
+    try {
+      backdrop.remove();
+    } catch {
+      /* ignore */
+    }
+  }
+  if (owner) owner._textPopoverBackdrop = null;
 }
 
 export function bindFloatingPopoverDrag(pop, handle) {

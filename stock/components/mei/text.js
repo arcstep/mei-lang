@@ -19,6 +19,16 @@ import {
   tableDrilldownMeta,
 } from "../cockpit/drilldown-meta.js";
 import { formatMetricNumber } from "./metric-number-format.js";
+import {
+  bindFloatingPopoverDrag,
+  buildTextPopoverShellHtml,
+  copyTextToClipboard,
+  ensureFloatingTextPopoverStyles,
+  mountFloatingPopoverOnBody,
+  mountTextPopoverBackdrop,
+  positionFloatingPopoverNearAnchor,
+  removeTextPopoverBackdrop,
+} from "./floating-text-popover.js";
 
 /**
  * 内置 mei.text：plain 转义文本；format=html 或 props.html 渲染基本 HTML（作者态可信内容）。
@@ -598,6 +608,20 @@ function metricTypographyCss(props) {
   `;
 }
 
+function truthyProp(value) {
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0 || value == null) return false;
+  const raw = String(value).trim().toLowerCase();
+  return raw === "true" || raw === "1" || raw === "yes" || raw === "on";
+}
+
+function falsyProp(value) {
+  if (value === false || value === 0) return true;
+  if (value == null || value === true || value === 1) return false;
+  const raw = String(value).trim().toLowerCase();
+  return raw === "false" || raw === "0" || raw === "no" || raw === "off";
+}
+
 class MeiText extends HTMLElement {
   constructor() {
     super();
@@ -609,6 +633,15 @@ class MeiText extends HTMLElement {
     this._drilldownDisplay = null;
     this._drilldownClickHandler = (event) => this._emitDrilldown(event);
     this._drilldownKeyHandler = (event) => this._handleDrilldownKey(event);
+    this._fullText = "";
+    this._overflowExpand = false;
+    this._overflowRaf = null;
+    this._overflowObserver = null;
+    this._textPopoverEl = null;
+    this._textPopoverDocCleanup = null;
+    this._textPopoverKeydown = null;
+    this._textPopoverDragCleanup = null;
+    this._expandClickHandler = (event) => this._openTextPopover(event);
   }
 
   connectedCallback() {
@@ -616,6 +649,8 @@ class MeiText extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._cleanupOverflowPreview();
+    this._closeTextPopover();
     this._cleanupMetricBinding();
     this._setDrilldownState(null, null);
   }
@@ -844,19 +879,95 @@ class MeiText extends HTMLElement {
       ? "cursor: pointer; width: fit-content; max-width: 100%; margin-inline: auto; text-decoration: underline; text-underline-offset: 0.15em;"
       : "";
 
+    const plainColor = String(props.color || "").trim();
+    const plainPadding = String(props.padding || "").trim();
+    const plainBackground = String(props.background || "").trim();
+    const plainBorder = String(props.border || "").trim();
+    const plainRadius = String(props.radius || props.borderRadius || "").trim();
+    const overflowMode = String(props.overflow || props.text_overflow || "").trim().toLowerCase();
+    const lineClampRaw = props.line_clamp ?? props.lineClamp ?? props.max_lines ?? props.maxLines;
+    const lineClamp =
+      !metricRole && lineClampRaw != null && String(lineClampRaw).trim() !== ""
+        ? Math.max(1, Math.min(12, Number(lineClampRaw) || 0))
+        : 0;
+    const plainEllipsis =
+      !metricRole &&
+      lineClamp <= 0 &&
+      (overflowMode === "ellipsis" ||
+        props.ellipsis === true ||
+        props.truncate === true);
+    // 有背景/边框的芯片：chrome 画在 :host（铺满 slot），正文按内容高度居中，避免卡内大片空白。
+    const fillChip = Boolean(plainBackground || plainBorder);
+    const expandOptOut = falsyProp(props.expand ?? props.text_expand ?? props.textExpand);
+    const expandOptIn = truthyProp(props.expand ?? props.text_expand ?? props.textExpand);
+    const overflowExpand =
+      !metricRole &&
+      !drilldownClickable &&
+      format !== "html" &&
+      !expandOptOut &&
+      (plainEllipsis || lineClamp > 0 || expandOptIn);
+    const expandLabel =
+      String(props.expand_label ?? props.expandLabel ?? "查看全文").trim() || "查看全文";
+    const popoverTitle =
+      String(props.popover_title ?? props.popoverTitle ?? expandLabel).trim() || "详细内容";
+    const popoverVariant =
+      String(props.popover_variant ?? props.popoverVariant ?? "large").trim().toLowerCase() ||
+      "large";
+    this._fullText = String(content ?? "");
+    this._overflowExpand = overflowExpand;
+    this._popoverTitle = popoverTitle;
+    this._popoverVariant = popoverVariant;
+    const effectiveLineHeight = lineHeight || (plainEllipsis || lineClamp ? "1.35" : "1.5");
+    // 查看全文：与 table cell-shell 同构 —— 预览单行省略，… 固定在同行末尾，不换行另起一行。
+    const previewCss = overflowExpand
+      ? lineClamp > 1
+        ? `overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: ${lineClamp}; word-break: break-word; max-width: 100%; width: 100%; min-width: 0; max-height: calc(${effectiveLineHeight}em * ${lineClamp});`
+        : "overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; width: 100%; min-width: 0;"
+      : lineClamp
+        ? `overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: ${lineClamp}; word-break: break-word; max-width: 100%; width: 100%; flex: 0 1 auto; min-width: 0; min-height: 0;`
+        : plainEllipsis
+          ? "overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; width: 100%; flex: 0 1 auto; min-width: 0; min-height: 0;"
+          : fillChip
+            ? "word-break: break-word; width: 100%; flex: 0 1 auto; min-height: 0;"
+            : "word-break: break-word; width: 100%; flex: 1 1 auto; min-height: 0;";
+    const hostAlign = String(props.align_items || props.alignItems || "").trim().toLowerCase();
+    const hostJustify = String(props.justify_content || props.justifyContent || "").trim().toLowerCase();
+    const defaultChipJustify =
+      fillChip || plainEllipsis || lineClamp ? "center" : "";
+    const plainHostLayout = metricRole
+      ? ""
+      : `display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; min-width: 0; box-sizing: border-box; overflow: hidden;${
+          hostAlign ? ` align-items: ${hostAlign};` : " align-items: stretch;"
+        }${
+          hostJustify
+            ? ` justify-content: ${hostJustify};`
+            : defaultChipJustify
+              ? ` justify-content: ${defaultChipJustify};`
+              : ""
+        }${plainPadding && fillChip ? ` padding: ${plainPadding};` : ""}${
+          plainBackground && fillChip ? ` background: ${plainBackground};` : ""
+        }${plainBorder && fillChip ? ` border: ${plainBorder};` : ""}${
+          plainRadius && fillChip ? ` border-radius: ${plainRadius};` : ""
+        }`;
     const baseTypography = metricRole
       ? typography
       : `
-          line-height: ${lineHeight || "1.5"};
+          line-height: ${effectiveLineHeight};
           font-size: ${fontSize};
-          color: var(--mei-color-text-primary, #e2e8f0);
-          ${textAlign ? `text-align: ${textAlign}; width: 100%;` : ""}
+          color: ${plainColor || "var(--mei-color-text-primary, #e2e8f0)"};
+          ${textAlign ? `text-align: ${textAlign};` : ""}
+          ${plainPadding && !fillChip ? `padding: ${plainPadding};` : ""}
+          ${plainBackground && !fillChip ? `background: ${plainBackground};` : ""}
+          ${plainBorder && !fillChip ? `border: ${plainBorder};` : ""}
+          ${plainRadius && !fillChip ? `border-radius: ${plainRadius};` : ""}
+          ${overflowExpand ? "" : previewCss}
+          box-sizing: border-box;
         `;
 
     this.shadowRoot.innerHTML = `
       <style>
         :host {
-          ${metricRole ? hostLayout : "display: block; width: 100%; box-sizing: border-box;"}
+          ${metricRole ? hostLayout : plainHostLayout || "display: block; width: 100%; height: 100%; min-height: 0; min-width: 0; box-sizing: border-box; overflow: hidden;"}
         }
         :host([data-mei-drilldown-active="true"]:focus-visible) {
           outline: 1px solid rgba(125, 211, 252, 0.9);
@@ -866,7 +977,7 @@ class MeiText extends HTMLElement {
         .mei-text-body {
           margin: 0;
           padding: 0;
-          word-break: break-word;
+          ${metricRole ? "word-break: break-word;" : ""}
           ${baseTypography}
           ${descShell}
           ${drilldownBodyStyle}
@@ -877,11 +988,75 @@ class MeiText extends HTMLElement {
         .mei-text-body :where(p:last-child, h1:last-child, h2:last-child, h3:last-child) {
           margin-bottom: 0;
         }
+        .mei-text-shell {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: ${lineClamp > 1 ? "end" : "center"};
+          gap: 4px;
+          width: 100%;
+          max-width: 100%;
+          min-width: 0;
+          min-height: 0;
+        }
+        .mei-text-shell[data-expanded-hidden="true"] {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .mei-text-preview {
+          margin: 0;
+          padding: 0;
+          min-width: 0;
+          ${baseTypography}
+          ${previewCss}
+        }
+        button.mei-text-expand-btn {
+          flex: 0 0 auto;
+          display: none;
+          align-items: center;
+          justify-content: center;
+          margin: 0;
+          padding: 1px 7px;
+          min-width: 22px;
+          min-height: 20px;
+          border-radius: 4px;
+          border: 1px solid rgba(59, 130, 246, 0.55);
+          background: rgba(37, 99, 235, 0.2);
+          font: inherit;
+          font-size: 12px;
+          font-weight: 700;
+          line-height: 1;
+          letter-spacing: 0.02em;
+          color: var(--mei-color-text-unit, #7dd3fc);
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        button.mei-text-expand-btn[data-visible="true"] {
+          display: inline-flex;
+        }
+        button.mei-text-expand-btn:hover {
+          background: rgba(59, 130, 246, 0.38);
+          border-color: rgba(147, 197, 253, 0.85);
+          color: var(--mei-color-text-highlight, #e0f2fe);
+        }
+        button.mei-text-expand-btn:focus-visible {
+          outline: 2px solid rgba(147, 197, 253, 0.9);
+          outline-offset: 2px;
+        }
       </style>
-      <div class="mei-text-body"></div>
+      ${
+        overflowExpand
+          ? `<div class="mei-text-shell" data-expanded-hidden="true">
+              <div class="mei-text-preview"></div>
+              <button type="button" class="mei-text-expand-btn" aria-label="${escapeHtml(
+                expandLabel,
+              )}">…</button>
+            </div>`
+          : `<div class="mei-text-body"></div>`
+      }
     `;
 
-    const body = this.shadowRoot.querySelector(".mei-text-body");
+    const body = this.shadowRoot.querySelector(
+      overflowExpand ? ".mei-text-preview" : ".mei-text-body",
+    );
     if (!body) return;
 
     if (format === "html") {
@@ -889,6 +1064,172 @@ class MeiText extends HTMLElement {
     } else {
       body.textContent = content;
     }
+
+    this._bindOverflowPreview(overflowExpand);
+  }
+
+  _cleanupOverflowPreview() {
+    if (this._overflowRaf != null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(this._overflowRaf);
+    }
+    this._overflowRaf = null;
+    if (this._overflowObserver) {
+      try {
+        this._overflowObserver.disconnect();
+      } catch {
+        /* ignore */
+      }
+    }
+    this._overflowObserver = null;
+    const btn = this.shadowRoot?.querySelector?.(".mei-text-expand-btn");
+    if (btn) {
+      btn.removeEventListener("click", this._expandClickHandler);
+    }
+  }
+
+  _bindOverflowPreview(enabled) {
+    this._cleanupOverflowPreview();
+    if (!enabled || !this.shadowRoot) return;
+    const btn = this.shadowRoot.querySelector(".mei-text-expand-btn");
+    const body = this.shadowRoot.querySelector(".mei-text-preview");
+    if (!btn || !body) return;
+    btn.addEventListener("click", this._expandClickHandler);
+    const sync = () => this._syncOverflowExpandButton();
+    if (typeof ResizeObserver === "function") {
+      this._overflowObserver = new ResizeObserver(() => sync());
+      this._overflowObserver.observe(this);
+      this._overflowObserver.observe(body);
+    }
+    if (typeof requestAnimationFrame === "function") {
+      this._overflowRaf = requestAnimationFrame(() => {
+        this._overflowRaf = requestAnimationFrame(sync);
+      });
+    } else {
+      sync();
+    }
+  }
+
+  _isTextOverflowing(node) {
+    if (!(node instanceof HTMLElement) || node.clientWidth <= 0) return false;
+    if (node.scrollWidth - node.clientWidth > 1) return true;
+    if (node.scrollHeight - node.clientHeight > 1) return true;
+    return false;
+  }
+
+  _syncOverflowExpandButton() {
+    if (!this._overflowExpand || !this.shadowRoot) return;
+    const shell = this.shadowRoot.querySelector(".mei-text-shell");
+    const btn = this.shadowRoot.querySelector(".mei-text-expand-btn");
+    const body = this.shadowRoot.querySelector(".mei-text-preview");
+    if (!btn || !body) return;
+    const full = String(this._fullText || "").trim();
+    const show = full.length > 8 && this._isTextOverflowing(body);
+    btn.dataset.visible = show ? "true" : "false";
+    btn.setAttribute("aria-hidden", show ? "false" : "true");
+    if (shell) {
+      shell.dataset.expandedHidden = show ? "false" : "true";
+    }
+  }
+
+  _openTextPopover(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const fullText = String(this._fullText || "").trim();
+    if (!fullText) return;
+    this._closeTextPopover();
+    ensureFloatingTextPopoverStyles();
+    const large = String(this._popoverVariant || "large") !== "default";
+    const title = String(this._popoverTitle || "详细内容");
+    const backdrop = mountTextPopoverBackdrop(this);
+    const pop = document.createElement("div");
+    pop.className = `cell-pop${large ? " cell-pop--large" : ""}`;
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-modal", "true");
+    pop.setAttribute("aria-label", title);
+    pop.innerHTML = buildTextPopoverShellHtml({ title, subtitle: "", fullText }, escapeHtml);
+    const defaultWidth = large ? 480 : 420;
+    const anchor = event?.currentTarget || this;
+    mountFloatingPopoverOnBody(pop, { width: defaultWidth });
+    // 盖在同一角色层之上，避免被 backdrop 抢走命中。
+    pop.style.zIndex = "calc(var(--mei-z-cockpit-text-popover, 2350) + 2)";
+    this._textPopoverEl = pop;
+    positionFloatingPopoverNearAnchor(pop, anchor, {
+      topOffset: 8,
+      defaultWidth,
+    });
+    this._textPopoverDragCleanup = bindFloatingPopoverDrag(
+      pop,
+      pop.querySelector(".cell-pop-drag-handle"),
+    );
+
+    const close = (ev) => {
+      ev?.preventDefault?.();
+      ev?.stopPropagation?.();
+      this._closeTextPopover();
+    };
+    backdrop?.addEventListener("pointerdown", close);
+    const onDoc = (ev) => {
+      const path = ev.composedPath?.() || [];
+      if (path.includes(pop) || path.includes(anchor) || path.includes(this)) return;
+      this._closeTextPopover();
+    };
+    // 延后绑定，避免打开当下的同一次 pointerup/click 直接关闭。
+    setTimeout(() => document.addEventListener("pointerdown", onDoc, true), 0);
+    this._textPopoverDocCleanup = () => document.removeEventListener("pointerdown", onDoc, true);
+    this._textPopoverKeydown = (ev) => {
+      if (ev.key === "Escape") {
+        ev.stopPropagation();
+        this._closeTextPopover();
+      }
+    };
+    document.addEventListener("keydown", this._textPopoverKeydown, true);
+    pop.querySelector(".cell-pop-close")?.addEventListener("click", close);
+    pop.querySelector(".cell-pop-copy")?.addEventListener("click", (ev) => {
+      ev?.preventDefault?.();
+      ev?.stopPropagation?.();
+      copyTextToClipboard(fullText);
+    });
+    try {
+      pop.querySelector(".cell-pop-close")?.focus();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  _closeTextPopover() {
+    if (typeof this._textPopoverDragCleanup === "function") {
+      try {
+        this._textPopoverDragCleanup();
+      } catch {
+        /* ignore */
+      }
+      this._textPopoverDragCleanup = null;
+    }
+    if (typeof this._textPopoverDocCleanup === "function") {
+      try {
+        this._textPopoverDocCleanup();
+      } catch {
+        /* ignore */
+      }
+      this._textPopoverDocCleanup = null;
+    }
+    if (typeof this._textPopoverKeydown === "function") {
+      try {
+        document.removeEventListener("keydown", this._textPopoverKeydown, true);
+      } catch {
+        /* ignore */
+      }
+      this._textPopoverKeydown = null;
+    }
+    if (this._textPopoverEl?.isConnected) {
+      try {
+        this._textPopoverEl.remove();
+      } catch {
+        /* ignore */
+      }
+    }
+    this._textPopoverEl = null;
+    removeTextPopoverBackdrop(this);
   }
 }
 

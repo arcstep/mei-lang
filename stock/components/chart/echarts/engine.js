@@ -134,6 +134,39 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       });
       this.refresh = () => {
         this._props = parseProps(this);
+        const fillHeight =
+          this._props.fillHeight === true ||
+          this._props.fillHeight === "true" ||
+          this._props.fill_height === true ||
+          this._props.fill_height === "true";
+        // props 可能在 bootstrap 之后才带上 fillHeight；就地改 shell，避免仍按默认 64px 定高。
+        if (fillHeight && this.shadowRoot) {
+          this.style.display = "flex";
+          this.style.flexDirection = "column";
+          this.style.height = "100%";
+          this.style.minHeight = "0";
+          this.style.boxSizing = "border-box";
+          const wrap = this.shadowRoot.querySelector(".wrap");
+          if (wrap instanceof HTMLElement) {
+            wrap.style.display = "flex";
+            wrap.style.flexDirection = "column";
+            wrap.style.height = "100%";
+            wrap.style.minHeight = "0";
+            wrap.style.boxSizing = "border-box";
+            wrap.style.gridTemplateRows = "";
+          }
+          if (this.chartEl instanceof HTMLElement) {
+            this.chartEl.style.minHeight = "0";
+            this.chartEl.style.flex = "1 1 auto";
+            this.chartEl.style.height = "auto";
+            this.chartEl.style.maxHeight = "none";
+          }
+          const errorEl = this.shadowRoot.querySelector(".error");
+          if (errorEl instanceof HTMLElement && !String(errorEl.textContent || "").trim()) {
+            errorEl.style.display = "none";
+          }
+        }
+        syncChartShellTitle(this.shadowRoot, defaultTitle, this._props);
         const needsRuntime = chartPropsNeedRuntimeFetch(this._props);
         if (needsRuntime && !this._queryStateId) {
           void this.refreshRuntimeData();
@@ -358,7 +391,7 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       pop.querySelector(".cell-pop-copy")?.addEventListener("click", () => {
         copyTextToClipboard(fullText);
       });
-      pop.querySelector(".cell-pop-done")?.focus();
+      (pop.querySelector(".cell-pop-done") || pop.querySelector(".cell-pop-close"))?.focus();
     }
 
     closeLabelPopover() {
@@ -492,41 +525,66 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
   customElements.define(tagName, MeiChartElement);
 }
 
+function syncChartShellTitle(shadowRoot, defaultTitle, props = {}) {
+  if (!shadowRoot) return;
+  const titleEl = shadowRoot.querySelector(".title");
+  const headEl = shadowRoot.querySelector(".head");
+  if (!(titleEl instanceof HTMLElement) || !(headEl instanceof HTMLElement)) return;
+  const title = String(props.title ?? defaultTitle).trim();
+  titleEl.textContent = title || defaultTitle;
+  // Compact charts still show an authored title when present (eval may land after bootstrap).
+  headEl.style.display = title ? "flex" : "none";
+}
+
 function chartShellHtml(defaultTitle, props = {}) {
   const compact = props.compact === true || props.compact === "true";
+  const fillHeight =
+    props.fillHeight === true ||
+    props.fillHeight === "true" ||
+    props.fill_height === true ||
+    props.fill_height === "true" ||
+    (compact && !(Number(props.chartHeight) > 0));
   const chartHeight = Number(props.chartHeight) > 0 ? Number(props.chartHeight) : compact ? 64 : 260;
-  const showHead = !compact && String(props.title ?? defaultTitle).trim().length > 0;
+  const title = String(props.title ?? defaultTitle).trim();
+  const showHead = title.length > 0;
+  const chartSizeCss = fillHeight
+    ? "min-height: 0; flex: 1 1 auto; height: auto; max-height: none;"
+    : `min-height: ${chartHeight}px; height: ${compact ? chartHeight + "px" : "auto"}; max-height: ${compact ? chartHeight + "px" : "none"};`;
   return `
     <style>
       :host {
-        display: block;
+        display: ${fillHeight ? "flex" : "block"};
+        flex-direction: column;
         width: 100%;
+        ${fillHeight ? "height: 100%; min-height: 0;" : ""}
         min-width: 0;
         overflow: hidden;
+        box-sizing: border-box;
         ${cockpitCssVars()}
       }
       .wrap {
-        display: grid;
-        gap: ${compact ? "0" : "8px"};
+        display: ${fillHeight ? "flex" : "grid"};
+        ${fillHeight ? "flex-direction: column; height: 100%; min-height: 0;" : ""}
+        gap: ${compact ? (showHead ? "2px" : "0") : "8px"};
         padding: ${compact ? "0" : "14px"};
         border-radius: ${compact ? "0" : "14px"};
         border: ${compact ? "none" : "1px solid rgba(148,163,184,.2)"};
         background: ${compact ? "transparent" : "rgba(15,23,42,.64)"};
+        box-sizing: border-box;
       }
       .head {
         display: ${showHead ? "flex" : "none"};
+        flex: 0 0 auto;
         justify-content: space-between;
         gap: 8px;
         align-items: baseline;
         color: #e2e8f0;
       }
-      .title { margin: 0; font-size: var(--cockpit-font-chart-title); font-weight: 600; color: #f8fafc; }
+      .title { margin: 0; font-size: var(--cockpit-font-chart-title); font-weight: 600; color: ${compact ? "#94a3b8" : "#f8fafc"}; }
       .meta { font-size: var(--cockpit-font-unit); color: #94a3b8; }
       .chart {
         width: 100%;
-        min-height: ${chartHeight}px;
-        height: ${compact ? chartHeight + "px" : "auto"};
-        max-height: ${compact ? chartHeight + "px" : "none"};
+        ${chartSizeCss}
         overflow: hidden;
         box-sizing: border-box;
       }
@@ -610,7 +668,13 @@ function chartShellHtml(defaultTitle, props = {}) {
         z-index: 1;
         pointer-events: none;
       }
-      .error { min-height: ${compact ? "0" : "18px"}; font-size: var(--cockpit-font-unit); color: #fca5a5; }
+      .error {
+        flex: 0 0 auto;
+        min-height: 0;
+        font-size: var(--cockpit-font-unit);
+        color: #fca5a5;
+      }
+      .error:empty { display: none; }
     </style>
     <section class="wrap">
       <div class="head">

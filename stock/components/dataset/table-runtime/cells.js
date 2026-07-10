@@ -625,7 +625,7 @@ export function openCellPopover(
     copyTextToClipboard(fullText);
   });
 
-  const focusTarget = pop.querySelector(".cell-pop-done");
+  const focusTarget = pop.querySelector(".cell-pop-done") || pop.querySelector(".cell-pop-close");
   if (focusOnOpen || useModal) {
     try {
       focusTarget?.focus();

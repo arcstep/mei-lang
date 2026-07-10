@@ -286,10 +286,11 @@
     if (role === "map_tools" && typeof boot.mountCockpitFloatingControl === "function") {
       return boot.mountCockpitFloatingControl(node, anchor);
     }
-    if (role === "spa_loading") {
+    if (role === "spa_loading" || role === "text_popover") {
       if (node.parentElement !== document.body) {
         document.body.appendChild(node);
       }
+      node.classList.remove("mei-viewport-floating-in-stage");
       return document.body;
     }
     return mountViewportFloatingNode(node, anchor);
