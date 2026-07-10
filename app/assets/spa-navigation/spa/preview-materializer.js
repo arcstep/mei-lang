@@ -554,7 +554,7 @@
       card.getAttribute("data-mei-metric-title-ratio") || "2";
     const contentRatio =
       card.getAttribute("data-mei-metric-content-ratio") || "3";
-    style.gridTemplateColumns = "minmax(0, 1fr) auto";
+    style.gridTemplateColumns = "auto auto";
     if (template === "stack_desc") {
       // Keep desc on its own row so the badge does not overlap value/unit.
       style.gridTemplateRows = `${ratioFrTrack(titleRatio, 1)} ${ratioFrTrack(contentRatio, 1)} auto`;
@@ -565,8 +565,8 @@
     }
     style.alignItems = "stretch";
     style.justifyItems = iconReserved ? "start" : "center";
-    style.justifyContent = "stretch";
-    style.gap = "0";
+    style.justifyContent = iconReserved ? "start" : "center";
+    style.gap = "0 4px";
   }
 
   function wrapMetricRoleNode(node, role) {
