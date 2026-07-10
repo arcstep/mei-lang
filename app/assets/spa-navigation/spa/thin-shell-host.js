@@ -39,7 +39,24 @@
     return shell.document || shell;
   }
 
+  /** chrome=none / body.chrome-none：宿主顶栏底栏本就不渲染，不得当未就绪。 */
+  function isHostChromeSuppressed(ctx) {
+    const fromCtx = String(ctx?.chrome || "").trim().toLowerCase();
+    if (fromCtx === "none") return true;
+    try {
+      const urlChrome = String(
+        new URL(global.location.href).searchParams.get("chrome") || "",
+      )
+        .trim()
+        .toLowerCase();
+      if (urlChrome === "none") return true;
+    } catch (_) {}
+    const body = global.document?.body;
+    return body instanceof HTMLElement && body.classList.contains("chrome-none");
+  }
+
   function isSsrShellPlaceholder(ctx) {
+    if (isHostChromeSuppressed(ctx)) return false;
     const surface = ctx?.surface || ctx?.mode || "app";
     const doc = shellDocFromManifestRefs(surface);
     if (boot.viewCompositor?.isPlaceholderShellDoc) {
@@ -50,8 +67,10 @@
     return top.includes('class="mei-shell-topbar"') && top.length < 240;
   }
 
-  function hostChromeReady() {
-    return hostChromeSummary().topbar || hostChromeSummary().statusbar;
+  function hostChromeReady(ctx) {
+    if (isHostChromeSuppressed(ctx)) return true;
+    const summary = hostChromeSummary();
+    return summary.topbar || summary.statusbar;
   }
 
   function applyHostChromeFromManifestRefs() {
@@ -73,13 +92,17 @@
       null;
     if (!shell) return false;
     const shellDoc = shell.document || shell;
-    if (isSsrShellPlaceholder(ctx || { surface })) {
+    const chromeCtx = ctx || { surface };
+    if (isSsrShellPlaceholder(chromeCtx)) {
       if (typeof boot.cacheDiagTrace === "function") {
         boot.cacheDiagTrace("host-chrome-placeholder", {
           surface,
           topbar_len: String(shellDoc?.topbar_html || "").length,
         });
       }
+    }
+    if (isHostChromeSuppressed(chromeCtx)) {
+      return true;
     }
     const root =
       typeof boot.resolveComposeRoot === "function"
@@ -99,7 +122,7 @@
     if (typeof boot.refreshStatusBarChips === "function") {
       boot.refreshStatusBarChips();
     }
-    return hostChromeSummary().topbar || hostChromeSummary().statusbar;
+    return hostChromeReady(chromeCtx);
   }
 
   function ensureViewShellLayout() {
@@ -319,6 +342,7 @@
   boot.applyHostChromeFromManifestRefs = applyHostChromeFromManifestRefs;
   boot.ensureViewShellLayout = ensureViewShellLayout;
   boot.hostChromeReady = hostChromeReady;
+  boot.isHostChromeSuppressed = isHostChromeSuppressed;
   boot.isSsrShellPlaceholder = isSsrShellPlaceholder;
   boot.hasMaterializedPreview = hasMaterializedPreview;
   boot.hydrateManifestLayerHoldings = hydrateManifestLayerHoldings;

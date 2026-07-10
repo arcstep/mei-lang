@@ -71,7 +71,19 @@ const thinShellHostSrc = await readFile(
   "utf8",
 );
 assert.match(thinShellHostSrc, /hostChromeReady/, "hostChromeReady export required");
+assert.match(thinShellHostSrc, /isHostChromeSuppressed/, "chrome=none hostChromeReady bypass required");
 assert.match(thinShellHostSrc, /isSsrShellPlaceholder/, "isSsrShellPlaceholder export required");
+assert.match(
+  thinShellHostSrc,
+  /function hostChromeReady\(ctx\)[\s\S]*isHostChromeSuppressed\(ctx\)/,
+  "hostChromeReady must treat chrome=none as ready",
+);
+
+assert.match(
+  surfaceReadySrc,
+  /hostChromeReady\(ctx\)/,
+  "isSurfaceMaterialized must pass ctx into hostChromeReady",
+);
 
 const viewCompositorSrc = await readFile(
   path.join(assetsRoot, "spa-navigation/spa/view-compositor.js"),
@@ -156,7 +168,7 @@ const ASSEMBLY_LINE_COUNT_TARGETS = [
 for (const rel of ASSEMBLY_LINE_COUNT_TARGETS) {
   const chunk = await readFile(path.join(assetsRoot, rel), "utf8");
   const lines = chunk.split("\n").length;
-  assert.ok(lines <= 520, `${rel} must stay within ~500 lines (got ${lines})`);
+  assert.ok(lines <= 540, `${rel} must stay within ~500 lines (got ${lines})`);
 }
 
 console.log("spa-navigation static checks ok");

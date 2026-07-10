@@ -454,7 +454,7 @@
         composeRoot instanceof HTMLElement &&
         composeRoot.getAttribute("data-mei-compose-placeholder") === "1";
       if (!thinShellPlaceholder && isSsrInjectedPreviewRoot(composeRoot)) {
-        if (boot.hostChromeReady?.()) {
+        if (boot.hostChromeReady?.(ctx)) {
           if (typeof boot.hideThinShellFallback === "function") {
             boot.hideThinShellFallback();
           }

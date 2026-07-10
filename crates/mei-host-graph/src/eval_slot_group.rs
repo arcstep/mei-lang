@@ -126,10 +126,94 @@ fn block_id_matches(block: &BlockDecl, label: &str) -> bool {
 }
 
 fn push_block_mount(block: &BlockDecl, out: &mut Vec<Value>) {
-    out.push(json!({
+    let mut entry = json!({
         "use_key": block.use_key,
         "props": block.props,
-    }));
+    });
+    if let Some(obj) = entry.as_object_mut() {
+        if let Some(area) = block.area.as_ref().map(|a| a.trim()).filter(|a| !a.is_empty()) {
+            obj.insert("area".to_string(), Value::String(area.to_string()));
+        }
+        if let Some(id) = block.id.as_ref().map(|a| a.trim()).filter(|a| !a.is_empty()) {
+            obj.insert("block_id".to_string(), Value::String(id.to_string()));
+        }
+    }
+    out.push(entry);
+}
+
+/// Leaf content scopes end with `…/<area>/<use_key>` (e.g. `…/active/mei.text`).
+fn scope_component_area(preview_scope: &str) -> Option<String> {
+    let parts: Vec<&str> = preview_scope
+        .split('/')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
+    let last = *parts.last()?;
+    if !last.contains('.') {
+        return None;
+    }
+    if parts.len() < 2 {
+        return None;
+    }
+    let area = parts[parts.len() - 2].trim();
+    if area.is_empty() || area.contains('.') {
+        return None;
+    }
+    Some(area.to_string())
+}
+
+fn mount_area_str(mount: &Value) -> &str {
+    mount
+        .get("area")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
+}
+
+/// When a parent panel exports every sibling `mei.text` / `chart.*`, keep only the
+/// mount that belongs to this leaf's grid area (or nested panel id).
+fn narrow_mounts_for_content_scope(
+    node: &StructureFullNode,
+    contract: &mei_lang_kernel::SceneContract,
+    mounts: Vec<Value>,
+) -> Vec<Value> {
+    if mounts.len() <= 1 {
+        return mounts;
+    }
+    let Some(area) = scope_component_area(&node.preview_scope) else {
+        return mounts;
+    };
+    let by_area: Vec<Value> = mounts
+        .iter()
+        .filter(|m| {
+            let mount_area = mount_area_str(m);
+            mount_area == area
+        })
+        .cloned()
+        .collect();
+    if by_area.len() == 1 {
+        return by_area;
+    }
+    if !by_area.is_empty() {
+        return by_area;
+    }
+    // Nested panel(id|area = leaf area) with auto-area child block.
+    if let Some(panel) = find_panel_in_contract(contract, area.as_str()) {
+        let mut local = Vec::new();
+        let key = node
+            .content_kind
+            .as_deref()
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+            .or_else(|| node.use_keys.first().map(String::as_str));
+        if let Some(key) = key {
+            collect_component_mounts_for_use_key(panel, key, &mut local);
+        }
+        if !local.is_empty() {
+            return local;
+        }
+    }
+    mounts
 }
 
 fn push_panel_blocks(panel: &UiNodeDecl, out: &mut Vec<Value>) {
@@ -564,22 +648,24 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
     if let Some(panel_id) = metric_card_content_panel_lookup(node) {
         if let Some(panel) = find_panel_in_contract(contract, panel_id.as_str()) {
             collect_component_mounts_for_label(panel, panel_id.as_str(), &mut mounts);
-            if !mounts.is_empty() {
-                return mounts;
+        }
+        if mounts.is_empty() {
+            for panel in &contract.panels {
+                collect_component_mounts_for_label(panel, panel_id.as_str(), &mut mounts);
+                if !mounts.is_empty() {
+                    break;
+                }
             }
         }
-        for panel in &contract.panels {
-            collect_component_mounts_for_label(panel, panel_id.as_str(), &mut mounts);
-            if !mounts.is_empty() {
-                return mounts;
-            }
+        if !mounts.is_empty() {
+            return narrow_mounts_for_content_scope(node, contract, mounts);
         }
     }
     if let Some(panel_id) = panel_hint.as_deref() {
         if let Some(panel) = find_panel_in_contract(contract, panel_id) {
             collect_component_mounts_for_label(panel, panel_id, &mut mounts);
             if !mounts.is_empty() {
-                return mounts;
+                return narrow_mounts_for_content_scope(node, contract, mounts);
             }
         }
     }
@@ -607,7 +693,7 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
             && !is_ambiguous_mount_label(label)
             && find_panel_in_contract(contract, lookup_label.as_str()).is_some();
         if panel_found {
-            return mounts;
+            return narrow_mounts_for_content_scope(node, contract, mounts);
         }
         for use_key in &node.use_keys {
             let key = use_key.trim();
@@ -669,7 +755,7 @@ fn component_mounts_for_content_node(compiled: &CompiledApp, node: &StructureFul
             }
         }
     }
-    mounts
+    narrow_mounts_for_content_scope(node, contract, mounts)
 }
 
 pub fn build_eval_slot_group_document(
@@ -1668,6 +1754,126 @@ mod tests {
             mounts.is_empty(),
             "chart-summary parent must not export chart.column mounts"
         );
+    }
+
+    #[test]
+    fn component_mounts_narrow_sibling_mei_text_by_grid_area() {
+        let node = StructureFullNode {
+            node_id: "n-active".to_string(),
+            ui_role: "content".to_string(),
+            preview_scope: "t1/left_rail/list/event-list/active/mei.text".to_string(),
+            label: "active · EVT-1".to_string(),
+            parent_id: None,
+            children: vec![],
+            plane: None,
+            content_kind: Some("mei.text".to_string()),
+            panel_id: None,
+            use_keys: vec!["mei.text".to_string()],
+            frame_viewport: None,
+        };
+        let panel = UiNodeDecl {
+            kind: "panel".to_string(),
+            id: "event-list".to_string(),
+            title: None,
+            head: None,
+            area: None,
+            layout: None,
+            blocks: vec![
+                UiTreeNode::Block(BlockDecl {
+                    kind: "block".to_string(),
+                    use_key: "mei.text".to_string(),
+                    id: None,
+                    title: None,
+                    area: Some("active".to_string()),
+                    props: json!({"content": "进行中 · EVT-1"}),
+                    base: None,
+                    layout: None,
+                    blocks: Vec::new(),
+                    component: None,
+                    placement: None,
+                    interactions: Vec::new(),
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
+                }),
+                UiTreeNode::Block(BlockDecl {
+                    kind: "block".to_string(),
+                    use_key: "mei.text".to_string(),
+                    id: None,
+                    title: None,
+                    area: Some("archived_a".to_string()),
+                    props: json!({"content": "已归档 · EVT-2"}),
+                    base: None,
+                    layout: None,
+                    blocks: Vec::new(),
+                    component: None,
+                    placement: None,
+                    interactions: Vec::new(),
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
+                }),
+            ],
+            slot: None,
+            props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+            import_scope: None,
+        };
+        let compiled = CompiledApp {
+            app_id: "thunder".to_string(),
+            title: "thunder".to_string(),
+            app_root: "/tmp/thunder".to_string(),
+            scene_routes: vec![],
+            active_scene: Some("home".to_string()),
+            active_target_file: "src/scene/home/assembly.mei".to_string(),
+            file_tree: vec![],
+            scene_contract: Some(mei_lang_kernel::SceneContract {
+                scene: mei_lang_kernel::SceneDecl {
+                    kind: "scene".to_string(),
+                    id: "home".to_string(),
+                    world: None,
+                    flow: None,
+                    frame: None,
+                    profile: None,
+                    theme: None,
+                    summary: None,
+                    goal: None,
+                    state: json!({}),
+                    shared: json!({}),
+                    local_nav: json!({}),
+                    params: json!({}),
+                    capabilities: json!({}),
+                    bindings: json!({}),
+                    examples: json!({}),
+                    access_export: true,
+                },
+                themes: vec![],
+                shared: json!({}),
+                world: None,
+                flow: None,
+                frame: None,
+                panels: vec![panel],
+            }),
+            scene_local_nav_by_target: Default::default(),
+            scene_bindings_by_id: Default::default(),
+            scene_examples_by_id: Default::default(),
+            scene_projection_assembly_by_id: Default::default(),
+            resources: vec![],
+            world_metrics: Default::default(),
+            world_semantic_by_file: Default::default(),
+            component_assets: vec![],
+            diagnostics: vec![],
+            build_experience_index: Default::default(),
+            build_t2_page_index: Default::default(),
+            build_template_index: Default::default(),
+            ui_layout_index: Default::default(),
+        };
+        let mounts = component_mounts_for_content_node(&compiled, &node);
+        assert_eq!(mounts.len(), 1);
+        assert_eq!(mounts[0]["area"], "active");
+        assert_eq!(mounts[0]["props"]["content"], "进行中 · EVT-1");
     }
 
     #[test]

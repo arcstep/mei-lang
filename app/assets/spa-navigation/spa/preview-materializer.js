@@ -445,7 +445,14 @@
       const useKey = String(mount?.use_key || "").trim();
       if (useKey !== "mei.text") return true;
       const props = mount?.props && typeof mount.props === "object" ? mount.props : {};
-      return Boolean(String(props.metric_role || props.metricRole || "").trim());
+      if (String(props.metric_role || props.metricRole || "").trim()) return true;
+      // Authored plain-text leaves (`…/area/mei.text`) carry string content and
+      // must not be dropped — metric_role is only required inside metric cards.
+      const scope = String(scopeKey || "").trim().toLowerCase();
+      if (scope.endsWith("/mei.text") && !isDuplicateMetricCardLeafScope(scope)) {
+        return typeof props.content === "string" && props.content.trim().length > 0;
+      }
+      return false;
     });
   }
 
@@ -1645,13 +1652,15 @@
       );
       const metricRole = String(props.metric_role || props.metricRole || "").trim();
       const tag = resolveComponentTag(useKey);
-      if (
-        !metricRole &&
-        useKey === "mei.text" &&
-        host.closest?.('[data-mei-metric-card="true"]')
-      ) {
-        continue;
-      }
+    // Authored plain-text leaves (`…/area/mei.text`) carry string content and
+    // must not be dropped — metric_role is only required inside metric cards.
+    if (
+      !metricRole &&
+      useKey === "mei.text" &&
+      host.closest?.('[data-mei-metric-card="true"]')
+    ) {
+      continue;
+    }
       let selector = `[data-mei-use-key="${CSS.escape(useKey)}"]`;
       if (metricRole) {
         selector += `[data-metric-role="${CSS.escape(metricRole)}"]`;
@@ -2562,7 +2571,20 @@
         chart.style.height = "100%";
         chart.style.width = "100%";
         chart.style.overflow = "hidden";
-        chart.style.display = "block";
+        let wantsFill = false;
+        try {
+          const earlyProps = parseHostProps(chart);
+          wantsFill =
+            earlyProps.fillHeight === true ||
+            earlyProps.fillHeight === "true" ||
+            earlyProps.fill_height === true ||
+            earlyProps.fill_height === "true";
+        } catch (_) {}
+        chart.style.display = wantsFill ? "flex" : "block";
+        if (wantsFill) {
+          chart.style.flexDirection = "column";
+          chart.style.boxSizing = "border-box";
+        }
         // Prefer the host box (design px) over visual rect — stage scale would
         // otherwise under-report height via getBoundingClientRect.
         const hostBox = host instanceof HTMLElement ? host : el;
@@ -2581,29 +2603,31 @@
         const fitH = Math.max(40, slotH - 4);
         try {
           const props = parseHostProps(chart);
-          const next = { ...props, compact: true, chartHeight: fitH };
-          // Cockpit chart slots are typically ~70–160 design px; keep legend/axis
-          // insets tight so the x-axis is not clipped.
+          // fillHeight：由 slot 拉伸，不再注入固定 chartHeight（否则会在大格里留白或与 Fill-down 打架）。
+          wantsFill =
+            props.fillHeight === true ||
+            props.fillHeight === "true" ||
+            props.fill_height === true ||
+            props.fill_height === "true";
+          const next = wantsFill
+            ? { ...props, compact: true }
+            : { ...props, compact: true, chartHeight: fitH };
           if (fitH <= 180) {
             if (next.gridTop == null && next.grid_top == null) next.gridTop = 12;
             if (next.gridBottom == null && next.grid_bottom == null) next.gridBottom = 16;
           }
-          const changed =
-            Number(props.chartHeight) !== fitH ||
-            props.compact !== true ||
-            Number(props.gridTop ?? props.grid_top ?? NaN) !== Number(next.gridTop) ||
-            Number(props.gridBottom ?? props.grid_bottom ?? NaN) !== Number(next.gridBottom);
+          const changed = wantsFill
+            ? props.compact !== true ||
+              Number(props.gridTop ?? props.grid_top ?? NaN) !== Number(next.gridTop) ||
+              Number(props.gridBottom ?? props.grid_bottom ?? NaN) !== Number(next.gridBottom)
+            : Number(props.chartHeight) !== fitH ||
+              props.compact !== true ||
+              Number(props.gridTop ?? props.grid_top ?? NaN) !== Number(next.gridTop) ||
+              Number(props.gridBottom ?? props.grid_bottom ?? NaN) !== Number(next.gridBottom);
           if (changed) {
             applyPropsToHost(chart, next);
           }
         } catch (_) {}
-        const chartBox =
-          chart.shadowRoot?.querySelector?.(".chart") || chart.chartEl || null;
-        if (chartBox instanceof HTMLElement) {
-          chartBox.style.minHeight = `${fitH}px`;
-          chartBox.style.height = `${fitH}px`;
-          chartBox.style.maxHeight = `${fitH}px`;
-        }
         const wrap = chart.shadowRoot?.querySelector?.(".wrap");
         if (wrap instanceof HTMLElement) {
           wrap.style.height = "100%";
@@ -2611,13 +2635,62 @@
           wrap.style.minHeight = "0";
           wrap.style.overflow = "hidden";
           wrap.style.boxSizing = "border-box";
+          if (wantsFill) {
+            const headEl = wrap.querySelector(".head");
+            const hasHead =
+              headEl instanceof HTMLElement && getComputedStyle(headEl).display !== "none";
+            wrap.style.display = "flex";
+            wrap.style.flexDirection = "column";
+            wrap.style.gridTemplateRows = "";
+            void hasHead;
+          }
         }
+        const chartBox =
+          chart.shadowRoot?.querySelector?.(".chart") || chart.chartEl || null;
+        if (chartBox instanceof HTMLElement) {
+          if (wantsFill) {
+            chartBox.style.minHeight = "0";
+            chartBox.style.flex = "1 1 auto";
+            chartBox.style.height = "auto";
+            chartBox.style.maxHeight = "none";
+          } else {
+            chartBox.style.minHeight = `${fitH}px`;
+            chartBox.style.height = `${fitH}px`;
+            chartBox.style.maxHeight = `${fitH}px`;
+          }
+        }
+        const errorEl = chart.shadowRoot?.querySelector?.(".error");
+        if (errorEl instanceof HTMLElement && !String(errorEl.textContent || "").trim()) {
+          errorEl.style.display = "none";
+        }
+        const resizeH = wantsFill
+          ? Math.max(
+              40,
+              Math.floor(
+                (chartBox instanceof HTMLElement &&
+                  (chartBox.clientHeight || chartBox.getBoundingClientRect().height)) ||
+                  Math.max(40, slotH - 28),
+              ),
+            )
+          : fitH;
         try {
           chart.chart?.resize?.({
             width: Math.max(1, hostBox.clientWidth || chart.clientWidth || el.clientWidth),
-            height: fitH,
+            height: resizeH,
           });
         } catch (_) {}
+        if (wantsFill && chartBox instanceof HTMLElement) {
+          // echarts 可能把 canvas 写成固定 px；再对齐一次父盒。
+          const canvas = chartBox.querySelector("canvas");
+          if (canvas instanceof HTMLElement) {
+            try {
+              chart.chart?.resize?.({
+                width: Math.max(1, chartBox.clientWidth || hostBox.clientWidth),
+                height: Math.max(40, chartBox.clientHeight || resizeH),
+              });
+            } catch (_) {}
+          }
+        }
       });
     root
       .querySelectorAll(
@@ -2644,6 +2717,44 @@
         }
       },
     );
+  }
+
+  /** Plain mei.text / chart hosts may connect before eval props land; force a rebind. */
+  function rebindAuthoredComponentHosts(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll("mei-text, MEI-TEXT").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      const props = parseHostProps(node);
+      if (String(props.metric_role || props.metricRole || "").trim()) return;
+      if (typeof props.content !== "string" || !props.content.trim()) return;
+      if (typeof node._bind === "function") {
+        try {
+          node._bind();
+        } catch (_) {}
+      }
+    });
+    root
+      .querySelectorAll(
+        'mei-chart-column, MEI-CHART-COLUMN, [data-mei-use-key="chart.column"], [data-mei-use-key="chart.ranking"]',
+      )
+      .forEach((node) => {
+        if (!(node instanceof HTMLElement)) return;
+        const props = parseHostProps(node);
+        if (!props || typeof props !== "object") return;
+        if (typeof node.refresh === "function") {
+          try {
+            node.refresh();
+          } catch (_) {}
+        } else if (typeof node._bind === "function") {
+          try {
+            node._bind();
+          } catch (_) {}
+        } else if (typeof node.render === "function") {
+          try {
+            node.render();
+          } catch (_) {}
+        }
+      });
   }
 
   function bindEvalSlots(root, evalDocs) {
@@ -2737,6 +2848,7 @@
       normalizeMetricCardSection(card);
     });
     rebindMetricCardHosts(root);
+    rebindAuthoredComponentHosts(root);
     applyWarningSupervisionComposeClasses(root);
     applyEnforcementStripComposeClasses(root);
     applyCompoundMetricComposeClasses(root);

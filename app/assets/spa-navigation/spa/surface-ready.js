@@ -79,7 +79,7 @@
     if (!bodySurfaceMatches(ctx)) return false;
     if (!manifestRouteModeMatches(ctx)) return false;
     const chromeReady =
-      typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true;
+      typeof boot.hostChromeReady === "function" ? boot.hostChromeReady(ctx) : true;
     if (!chromeReady) return false;
 
     if (surface === "app") {
@@ -133,7 +133,11 @@
         surface === "app" ? countAppPreviewMarkers(root) : countWorkspacePreviewMarkers(root),
       treeNodes: workspaceTreeNodeCount(),
       chromeReady:
-        typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : null,
+        typeof boot.hostChromeReady === "function" ? boot.hostChromeReady(ctx) : null,
+      chromeSuppressed:
+        typeof boot.isHostChromeSuppressed === "function"
+          ? boot.isHostChromeSuppressed(ctx)
+          : null,
       ready:
         typeof boot.isSurfaceMaterialized === "function"
           ? boot.isSurfaceMaterialized(ctx, { relaxTree: true })

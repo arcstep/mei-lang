@@ -281,7 +281,7 @@
         const surfaceReady =
           typeof boot.isSurfaceMaterialized === "function"
             ? boot.isSurfaceMaterialized(ctx)
-            : (typeof boot.hostChromeReady === "function" ? boot.hostChromeReady() : true) &&
+            : (typeof boot.hostChromeReady === "function" ? boot.hostChromeReady(ctx) : true) &&
               (typeof boot.isSsrShellPlaceholder === "function"
                 ? !boot.isSsrShellPlaceholder(ctx)
                 : true);
