@@ -3109,9 +3109,46 @@ function datasetQueryFingerprintCandidates(props, primaryFingerprint = "") {
 }
 
 const BOOTSTRAP_SEED_WAIT_MS = 8000;
+const NO_CLIENT_BOOTSTRAP_REVISION = "__no_client_bootstrap__";
 
 function bootstrapSeedReady() {
   return !!(typeof window !== "undefined" && window.__meiBootstrapSeeded && (window.__meiBootstrapSeedCount || 0) > 0);
+}
+
+/**
+ * Pack-First 仅在「可 seed 的 Eval Pack」上等待。
+ * 空 pack / `__no_client_bootstrap__` 不得仅因 payloadReady 触发 8s 干等。
+ */
+export function isSeedableBootstrapPack({
+  metrics = null,
+  payloadReady: _payloadReady = false,
+  clientRevision = "",
+  bootstrapInlined = false,
+  metaClientRevision = "",
+  noClientPack = false,
+} = {}) {
+  const rev = String(clientRevision || "").trim();
+  const metaRev = String(metaClientRevision || "").trim();
+  if (
+    noClientPack === true ||
+    noClientPack === 1 ||
+    rev === NO_CLIENT_BOOTSTRAP_REVISION ||
+    metaRev === NO_CLIENT_BOOTSTRAP_REVISION
+  ) {
+    return false;
+  }
+  if (Array.isArray(metrics) && metrics.length > 0) {
+    return true;
+  }
+  if (bootstrapInlined) {
+    return true;
+  }
+  // payloadReady  alone 不够：空 metrics 的 ready 表示「无 client bootstrap」，不是可 seed pack
+  // revision_only：document 已声明真实 revision，pack 仍在加载 → 允许短暂 Pack-First 等待
+  if (metaRev) {
+    return true;
+  }
+  return false;
 }
 
 function bootstrapManifestMetricIds() {
@@ -3153,22 +3190,34 @@ function shouldDeferUncoveredBootstrapMetricFetch(props, metricIds = []) {
   return false;
 }
 
+function readBootstrapInlinedMeta() {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  const inlined = document.querySelector('meta[name="mei-bootstrap-inlined"]');
+  return !!(inlined && String(inlined.getAttribute("content") || "").trim() === "1");
+}
+
+function readBootstrapClientRevisionMeta() {
+  if (typeof document === "undefined") {
+    return "";
+  }
+  const el = document.querySelector('meta[name="mei-bootstrap-client-revision"]');
+  return el ? String(el.getAttribute("content") || "").trim() : "";
+}
+
 function bootstrapPackExpected() {
   if (typeof window === "undefined") {
     return false;
   }
-  const metrics = window.__mei?.bootstrap_metrics;
-  if (Array.isArray(metrics) && metrics.length > 0) {
-    return true;
-  }
-  const inlined = document.querySelector('meta[name="mei-bootstrap-inlined"]');
-  if (inlined && String(inlined.getAttribute("content") || "").trim() === "1") {
-    return true;
-  }
-  if (window.__meiBootstrapPayloadReady) {
-    return true;
-  }
-  return false;
+  return isSeedableBootstrapPack({
+    metrics: window.__mei?.bootstrap_metrics,
+    payloadReady: !!window.__meiBootstrapPayloadReady,
+    clientRevision: window.__mei?.client_revision || "",
+    bootstrapInlined: readBootstrapInlinedMeta(),
+    metaClientRevision: readBootstrapClientRevisionMeta(),
+    noClientPack: window.__meiBootstrapNoClientPack,
+  });
 }
 
 function isDefaultExplanatoryQuery(
@@ -3250,6 +3299,10 @@ export function isDefaultExplanatoryQueryForTest(props, options = {}) {
 
 export function bootstrapPackExpectedForTest() {
   return bootstrapPackExpected();
+}
+
+export function isSeedableBootstrapPackForTest(input) {
+  return isSeedableBootstrapPack(input);
 }
 
 function rememberHostRuntimeQueryMeta(props) {
@@ -5517,6 +5570,7 @@ if (typeof window !== "undefined") {
     sharedSearchForQueryStateId,
     resolveRuntimeDataRef,
     resolveRuntimeMetricRef,
+    isSeedableBootstrapPack,
     findRuntimeMetricInResults,
     isYearMonthMatrixMetricConfig,
   });

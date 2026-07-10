@@ -97,6 +97,67 @@ pub(crate) fn format_app_access_line(app_id: &str, probe: &AppAccessProbe) -> St
     }
 }
 
+/// Warn when app config asks for clientBootstrap but MRG has no client-eligible slots
+/// (empty Eval Pack → clients used to Pack-First-wait 8s). Call after access readiness settles.
+pub(crate) fn warn_empty_client_bootstrap_packs(
+    workspace_root: &Path,
+    app_ids: &[String],
+    scene_id: &str,
+) {
+    use mei_lang_kernel::{load_mei_config_for_app, resolve_app_root};
+
+    for app_id in app_ids {
+        let app_root = resolve_app_root(workspace_root, app_id.as_str());
+        let config = load_mei_config_for_app(app_root.as_path(), Some(workspace_root));
+        let Some(client_cfg) = config.runtime.client_bootstrap.as_ref() else {
+            continue;
+        };
+        if !client_cfg.enabled {
+            continue;
+        }
+        let scopes = if client_cfg.scopes.is_empty() {
+            vec!["home".to_string()]
+        } else {
+            client_cfg.scopes.clone()
+        };
+        if !scopes.iter().any(|scope| scope == scene_id) {
+            continue;
+        }
+
+        let status =
+            mei_host_graph::bootstrap_embed_status(workspace_root, app_id.as_str(), scene_id);
+        let registry = mei_host_graph::MrgRegistryWriter::load(workspace_root, app_id.as_str());
+        let scope_slots = registry
+            .slots
+            .iter()
+            .filter(|slot| slot.slot_id.scope_key == scene_id)
+            .count();
+        let client_eligible = registry
+            .slots
+            .iter()
+            .filter(|slot| slot.client_eligible && slot.slot_id.scope_key == scene_id)
+            .count();
+        let empty_pack = status.reason == "no_client_bootstrap_required"
+            || status.reason == "manifest_missing"
+            || (scope_slots > 0 && client_eligible == 0);
+
+        if !empty_pack {
+            continue;
+        }
+
+        tracing::warn!(
+            target: "mei.startup",
+            app_id = %app_id,
+            scene_id = %scene_id,
+            bootstrap_reason = %status.reason,
+            client_eligible,
+            scope_slots,
+            embed_mode = %client_cfg.embed_mode,
+            "clientBootstrap enabled but Eval Pack will be empty (no client-eligible MRG slots); first paint metrics fall back to API — check warmup client tier / MEI_SKIP_PREBUILD"
+        );
+    }
+}
+
 pub(crate) fn build_access_ready_banner_lines(
     shell: &ShellState,
     app_ids: &[String],
@@ -118,6 +179,11 @@ pub(crate) fn build_access_ready_banner_lines(
         );
         lines.push(format_app_access_line(app_id.as_str(), &probe));
     }
+    warn_empty_client_bootstrap_packs(
+        shell.ctx.workspace_root.as_path(),
+        app_ids,
+        scene_id,
+    );
     lines.push("all listed apps ready — access pages may be served".to_string());
     lines
 }
@@ -599,6 +665,11 @@ async fn wait_for_prebuild_warmup(
             );
             if all_apps_access_ready(&guard, wait_app_ids.as_slice(), "home") {
                 prime_view_layer_artifacts(&guard, wait_app_ids.as_slice(), "home");
+                warn_empty_client_bootstrap_packs(
+                    guard.ctx.workspace_root.as_path(),
+                    wait_app_ids.as_slice(),
+                    "home",
+                );
                 tracing::info!(
                     target: "mei.startup",
                     apps = %wait_app_ids.join(", "),
