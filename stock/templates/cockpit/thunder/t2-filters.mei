@@ -1,0 +1,40 @@
+# Thunder T2 analytics 左栏过滤字段（对齐 detail 列）。
+
+template lifecycle_filter_fields():
+    [
+        filter_field(key = "level_label", label = "级别", column = "level_label", control = "multi_select"),
+        filter_field(key = "at", label = "时刻", column = "at", control = "text"),
+    ]
+
+template efield_filter_fields():
+    [
+        filter_field(key = "site_id", label = "站点", column = "site_id", control = "multi_select"),
+        filter_field(key = "at", label = "时刻", column = "at", control = "text"),
+    ]
+
+template lightning_filter_fields():
+    [
+        filter_field(key = "type", label = "类型", column = "type", control = "multi_select"),
+        filter_field(key = "zone", label = "影响圈", column = "zone", control = "multi_select"),
+        filter_field(key = "at", label = "时刻", column = "at", control = "text"),
+    ]
+
+template collection_sites_filter_fields():
+    [
+        filter_field(key = "type", label = "设备类型", column = "type", control = "multi_select"),
+        filter_field(key = "status", label = "状态", column = "status", control = "multi_select"),
+        filter_field(key = "name", label = "站名", column = "name", control = "text"),
+    ]
+
+template collection_volume_filter_fields():
+    [
+        filter_field(key = "source", label = "来源", column = "source", control = "multi_select"),
+        filter_field(key = "site_name", label = "站点", column = "site_name", control = "multi_select"),
+    ]
+
+template optical_filter_fields():
+    [
+        filter_field(key = "site", label = "光学站", column = "site", control = "multi_select"),
+        filter_field(key = "at", label = "时刻", column = "at", control = "text"),
+        filter_field(key = "event_id", label = "事件", column = "event_id", control = "text"),
+    ]

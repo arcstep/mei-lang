@@ -14,6 +14,7 @@ import {
   scheduleOverflowTextSync,
 } from "../mei/overflow-text.js";
 import { getThunderStore, levelTone, subscribeThunderState } from "./event-bus.js";
+import { openThunderT2 } from "./t2-open.js";
 import { EFIELD_ABS_HINT, LIGHTNING_FREQ_HINT, eAbsPeak, levelLabelColor } from "./thresholds.js";
 
 function ePeakTone(absE) {
@@ -31,6 +32,7 @@ function card(label, value, unit = "", options = {}) {
   const overflow = options.overflow === true;
   const overflowKey = String(options.overflowKey || label || "").trim();
   const display = String(value ?? "—");
+  const board = String(options.board || "").trim();
   const valueHtml = overflow
     ? formatOverflowTextShellHtml(display, {
         key: overflowKey,
@@ -39,8 +41,10 @@ function card(label, value, unit = "", options = {}) {
       })
     : `<span class="value" style="${valueStyle}">${escapeHtml(display)}</span>`;
   const hostTitle = overflow ? "" : ` title="${escapeAttr(title)}"`;
+  const boardAttr = board ? ` data-t2-board="${escapeAttr(board)}"` : "";
+  const clickableClass = board ? " is-clickable" : "";
   return `
-    <div class="card"${hostTitle}>
+    <div class="card${clickableClass}"${hostTitle}${boardAttr}>
       <div class="label">${escapeHtml(label)}</div>
       <div class="value-row">
         ${valueHtml}
@@ -128,6 +132,13 @@ class MeiThunderEventSummary extends HTMLElement {
           text-align: center;
           overflow: hidden;
         }
+        .card.is-clickable {
+          cursor: pointer;
+        }
+        .card.is-clickable:hover {
+          border-color: rgba(56, 189, 248, 0.7);
+          background: rgba(14, 52, 96, 0.88);
+        }
         .label {
           flex: 0 0 auto;
           font-size: ${COCKPIT_TYPE.metricLabel};
@@ -188,20 +199,26 @@ class MeiThunderEventSummary extends HTMLElement {
           empty
             ? `<div class="empty">暂未发现进行中预警</div>`
             : [
-                card("预警级别", level, "", { tone, title: level }),
-                card("预计有效", event.valid_until || "—", "", { title: event.valid_until }),
+                card("预警级别", level, "", { tone, title: level, board: "lifecycle" }),
+                card("预计有效", event.valid_until || "—", "", {
+                  title: event.valid_until,
+                  board: "lifecycle",
+                }),
                 card("主要依据", event.basis || "—", "", {
                   overflow: true,
                   overflowKey: "主要依据",
                   title: event.basis,
+                  board: "lifecycle",
                 }),
                 card("建议措施", event.advice || "—", "", {
                   overflow: true,
                   overflowKey: "建议措施",
                   title: event.advice,
+                  board: "lifecycle",
                 }),
                 card("事件闪电", event.lightning_count ?? "—", "次", {
                   title: `事件累计闪电 ${event.lightning_count ?? "—"} 次（定位仪；${LIGHTNING_FREQ_HINT}）`,
+                  board: "lightning",
                 }),
                 (() => {
                   const peak = eAbsPeak(event);
@@ -211,6 +228,7 @@ class MeiThunderEventSummary extends HTMLElement {
                     title: peak == null
                       ? EFIELD_ABS_HINT
                       : `|E|峰值 ${peak} kV/m（${EFIELD_ABS_HINT}；原文 −3/−7/−9）`,
+                    board: "efield",
                   });
                 })(),
               ].join("")
@@ -221,6 +239,19 @@ class MeiThunderEventSummary extends HTMLElement {
       titleForKey: (key) => key || "详细内容",
     });
     scheduleOverflowTextSync(this, this.shadowRoot);
+    this.bindT2Clicks();
+  }
+
+  bindT2Clicks() {
+    if (!this.shadowRoot) return;
+    this.shadowRoot.querySelectorAll("[data-t2-board]").forEach((el) => {
+      el.addEventListener("click", (event) => {
+        if (event.target?.closest?.(".mei-overflow-expand")) return;
+        const board = el.getAttribute("data-t2-board");
+        if (!board) return;
+        openThunderT2(board, { host: this });
+      });
+    });
   }
 }
 

@@ -1,11 +1,11 @@
 /**
- * Thunder 时序三图（ECharts）：随选中事件换套。
- * - 级别阶梯：柱色 = 黄/橙/红
- * - Eabs / 闪频：markLine 产品阈值参考线（完整语义标签）
- * Fill-down + 主题字号；playbackAt 高亮当前切片。
+ * Thunder 右栏过程区：
+ * - 上：Eabs + 闪频（ECharts，均分）
+ * - 下：光学帧缩略图（4 列，溢出滚动）
+ * 级别变化改由回看条 / 指标依据表达，不再占时序图。
  */
 import { deferUntilDisplayed } from "../dataset/runtime-query.js";
-import { parseProps, escapeHtml } from "../cockpit/shared.js";
+import { parseProps, escapeHtml, escapeAttr } from "../cockpit/shared.js";
 import {
   COCKPIT_TYPE,
   cockpitCssVars,
@@ -16,10 +16,10 @@ import {
 import { color } from "../mei/theme-style.js";
 import { ensureEChartsGlobal } from "../vendor/runtime-libs.js";
 import { getThunderStore, subscribeThunderState } from "./event-bus.js";
+import { openThunderT2 } from "./t2-open.js";
 import {
   EFIELD_ABS_THRESHOLDS,
   LIGHTNING_FREQ_THRESHOLDS,
-  levelCodeColor,
 } from "./thresholds.js";
 
 const SPLIT_LINE = {
@@ -27,20 +27,7 @@ const SPLIT_LINE = {
   lineStyle: { color: "rgba(148, 163, 184, 0.18)", type: "dashed", width: 1 },
 };
 
-const LEVEL_LABEL = { 1: "黄", 2: "橙", 3: "红" };
-
 const PANELS = [
-  {
-    key: "lifecycle",
-    title: "预警级别（黄 / 橙 / 红）",
-    field: "级别",
-    unit: "",
-    /** 仅三档离散值：矮行 + 精简坐标 */
-    compactLevel: true,
-    yMaxFixed: 3,
-    colorMode: "level",
-    thresholds: null,
-  },
   {
     key: "efield",
     title: "Eabs 电场强度 · 参考 3/7/9 kV/m",
@@ -72,8 +59,7 @@ function maxOf(rows, field) {
   return max || 0;
 }
 
-function scaleMax(dataMax, thresholds, fixed) {
-  if (Number.isFinite(fixed) && fixed > 0) return fixed;
+function scaleMax(dataMax, thresholds) {
   let max = Math.max(1, Number(dataMax) || 1);
   for (const t of thresholds || []) {
     const v = Number(t?.value);
@@ -121,62 +107,43 @@ function buildBarOption({ host, rows, panel, playbackAt }) {
   const fontFamily = readThemeUiFontFamily(host) || "sans-serif";
   const categories = list.map((row) => String(row?.["时段"] ?? ""));
   const dataMax = maxOf(list, panel.field);
-  const yMax = scaleMax(dataMax, panel.thresholds, panel.yMaxFixed);
-  const compactLevel = panel.compactLevel === true;
+  const yMax = scaleMax(dataMax, panel.thresholds);
   const solid =
-    panel.colorMode === "solid"
-      ? readThemeColor(host, panel.solidColorToken) || panel.solidFallback
-      : panel.solidFallback;
-  const labelSize = Math.max(10, (typography.unit || 12) - (compactLevel ? 2 : 1));
+    readThemeColor(host, panel.solidColorToken) || panel.solidFallback;
+  const labelSize = Math.max(10, (typography.unit || 12) - 1);
 
   const data = list.map((row) => {
     const x = String(row?.["时段"] ?? "");
     const v = Number(row?.[panel.field] ?? 0);
     const active = x === playbackAt;
-    const barColor =
-      panel.colorMode === "level" ? levelCodeColor(row?.["级别"]) : solid;
-    const levelText = LEVEL_LABEL[v] || "";
     return {
       value: Number.isFinite(v) ? v : 0,
       itemStyle: {
-        color: barColor,
-        opacity: active ? 1 : 0.78,
+        color: solid,
+        opacity: active ? 1 : 0.72,
         borderColor: active ? "rgba(255,255,255,0.55)" : "transparent",
         borderWidth: active ? 1 : 0,
-        borderRadius: compactLevel ? [2, 2, 0, 0] : [2, 2, 0, 0],
+        borderRadius: [2, 2, 0, 0],
       },
-      label: compactLevel
-        ? {
-            show: true,
-            position: "top",
-            formatter: levelText,
-            color: barColor,
-            fontSize: labelSize,
-            fontWeight: active ? 700 : 600,
-            distance: 2,
-          }
-        : undefined,
     };
   });
 
-  const markLine = compactLevel ? undefined : markLineFromThresholds(panel.thresholds, typography);
+  const markLine = markLineFromThresholds(panel.thresholds, typography);
 
   return {
     backgroundColor: "transparent",
-    animationDuration: compactLevel ? 160 : 280,
+    animationDuration: 280,
     textStyle: { fontFamily, color: muted },
-    grid: compactLevel
-      ? { left: 6, right: 6, top: 16, bottom: 16, containLabel: false }
-      : {
-          left: 28,
-          right: 8,
-          top: markLine ? 18 : 10,
-          bottom: 22,
-          containLabel: false,
-        },
+    grid: {
+      left: 28,
+      right: 8,
+      top: markLine ? 18 : 10,
+      bottom: 22,
+      containLabel: false,
+    },
     tooltip: {
       trigger: "axis",
-      axisPointer: { type: compactLevel ? "line" : "shadow" },
+      axisPointer: { type: "shadow" },
       backgroundColor: "rgba(8, 24, 48, 0.92)",
       borderColor: "rgba(56, 189, 248, 0.45)",
       borderWidth: 1,
@@ -190,11 +157,6 @@ function buildBarOption({ host, rows, panel, playbackAt }) {
         const head = items[0];
         if (!head) return "";
         const name = String(head.axisValueLabel ?? head.name ?? "");
-        if (compactLevel) {
-          const code = Number(head.value);
-          const label = LEVEL_LABEL[code] || String(head.value ?? "");
-          return `<div>${escapeHtml(name)}</div><div>级别：<b style="color:${levelCodeColor(code)}">${escapeHtml(label)}</b></div>`;
-        }
         const lines = items
           .filter((p) => p.seriesType === "bar")
           .map((p) => `${p.marker}${panel.field}: <b>${p.value}${panel.unit || ""}</b>`);
@@ -210,58 +172,86 @@ function buildBarOption({ host, rows, panel, playbackAt }) {
       type: "category",
       data: categories,
       axisTick: { show: false },
-      axisLine: {
-        show: !compactLevel,
-        lineStyle: { color: "rgba(148,163,184,0.35)" },
-      },
+      axisLine: { lineStyle: { color: "rgba(148,163,184,0.35)" } },
       axisLabel: {
-        show: !compactLevel || categories.length <= 8,
         color: muted,
         fontSize: labelSize,
         fontFamily,
         hideOverlap: true,
-        interval: compactLevel ? "auto" : 0,
-        rotate: !compactLevel && categories.length > 8 ? 30 : 0,
+        interval: 0,
+        rotate: categories.length > 8 ? 30 : 0,
       },
     },
-    yAxis: compactLevel
-      ? {
-          type: "value",
-          min: 0,
-          max: 3,
-          interval: 1,
-          axisTick: { show: false },
-          axisLine: { show: false },
-          axisLabel: { show: false },
-          splitLine: { show: false },
-        }
-      : {
-          type: "value",
-          min: 0,
-          max: yMax,
-          splitNumber: 4,
-          axisTick: { show: false },
-          axisLine: { show: false },
-          axisLabel: {
-            color: muted,
-            fontSize: labelSize,
-            fontFamily,
-            formatter: (v) => String(v),
-          },
-          splitLine: SPLIT_LINE,
-        },
+    yAxis: {
+      type: "value",
+      min: 0,
+      max: yMax,
+      splitNumber: 4,
+      axisTick: { show: false },
+      axisLine: { show: false },
+      axisLabel: {
+        color: muted,
+        fontSize: labelSize,
+        fontFamily,
+        formatter: (v) => String(v),
+      },
+      splitLine: SPLIT_LINE,
+    },
     series: [
       {
         type: "bar",
         name: panel.field,
         data,
-        barMaxWidth: compactLevel ? 14 : 18,
-        barCategoryGap: compactLevel ? "36%" : "28%",
+        barMaxWidth: 18,
+        barCategoryGap: "28%",
         markLine,
         z: 2,
       },
     ],
   };
+}
+
+/** P0 无真实图库时用 SVG 占位，带时间戳可读 */
+function opticalThumbSrc(frame, index) {
+  const explicit = String(frame?.thumb || frame?.url || "").trim();
+  if (explicit) return explicit;
+  const at = escapeHtml(String(frame?.at || "").trim() || `F${index + 1}`);
+  const hue = 200 + (index % 5) * 12;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="hsl(${hue},55%,18%)"/>
+        <stop offset="100%" stop-color="hsl(${hue + 20},40%,8%)"/>
+      </linearGradient>
+    </defs>
+    <rect width="120" height="90" fill="url(#g)"/>
+    <path d="M62 12 L48 48 H58 L52 78 L78 40 H66 Z" fill="rgba(250,204,21,0.85)" stroke="rgba(255,255,255,0.35)" stroke-width="1"/>
+    <text x="8" y="82" fill="rgba(226,232,240,0.9)" font-size="11" font-family="sans-serif">${at}</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function renderOpticalGrid(frames, playbackAt) {
+  const list = Array.isArray(frames) ? frames : [];
+  if (!list.length) {
+    return `<div class="optical-empty">暂无光学帧</div>`;
+  }
+  return `<div class="optical-grid" role="list">
+    ${list
+      .map((frame, index) => {
+        const at = String(frame?.at || "").trim();
+        const site = String(frame?.site || frame?.site_id || "").trim();
+        const active = at && playbackAt && at.slice(0, 5) === playbackAt.slice(0, 5);
+        const title = [at, site, "光学帧"].filter(Boolean).join(" · ");
+        return `<button type="button" class="optical-tile${active ? " is-active" : ""}" role="listitem" title="${escapeAttr(
+          title,
+        )}" data-frame-id="${escapeAttr(frame?.id || `f-${index}`)}">
+          <img src="${escapeAttr(opticalThumbSrc(frame, index))}" alt="${escapeAttr(at || "光学帧")}" loading="lazy" />
+          <span class="optical-cap">${escapeHtml(at || "—")}</span>
+        </button>`;
+      })
+      .join("")}
+  </div>`;
 }
 
 class MeiThunderEventCharts extends HTMLElement {
@@ -330,16 +320,22 @@ class MeiThunderEventCharts extends HTMLElement {
           ${cockpitCssVars()}
           font-family: var(--cockpit-font-family-ui);
         }
-        .stack {
+        .root {
           display: grid;
-          /* 级别仅三档：约占半行；电场/闪频吃满剩余 */
-          grid-template-rows: minmax(0, 0.5fr) minmax(0, 1fr) minmax(0, 1fr);
+          /* 上：两图均分；下：光学帧（约四成高度，内部滚动） */
+          grid-template-rows: minmax(0, 1.15fr) minmax(0, 0.85fr);
           gap: 6px;
           width: 100%;
           height: 100%;
           min-height: 0;
-          max-height: 100%;
           box-sizing: border-box;
+        }
+        .charts {
+          display: grid;
+          grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+          gap: 6px;
+          min-height: 0;
+          overflow: hidden;
         }
         .panel {
           display: flex;
@@ -353,12 +349,6 @@ class MeiThunderEventCharts extends HTMLElement {
           border: 1px solid rgba(56, 160, 240, 0.28);
           box-sizing: border-box;
           overflow: hidden;
-        }
-        .panel[data-panel="lifecycle"] {
-          padding: 3px 6px 2px;
-        }
-        .panel[data-panel="lifecycle"] .title {
-          margin-bottom: 0;
         }
         .title {
           flex: 0 0 auto;
@@ -377,7 +367,8 @@ class MeiThunderEventCharts extends HTMLElement {
           min-width: 0;
           position: relative;
         }
-        .chart .empty {
+        .chart .empty,
+        .optical-empty {
           position: absolute;
           inset: 0;
           display: flex;
@@ -385,28 +376,111 @@ class MeiThunderEventCharts extends HTMLElement {
           justify-content: center;
           color: ${color("text_muted")};
           font-size: ${COCKPIT_TYPE.chartLabel};
+          text-align: center;
+          padding: 8px;
         }
-        .empty {
-          flex: 1;
+        .optical-empty {
+          position: static;
+          min-height: 64px;
+        }
+        .optical {
           display: flex;
-          align-items: center;
-          justify-content: center;
-          color: ${color("text_muted")};
-          font-size: ${COCKPIT_TYPE.chartLabel};
+          flex-direction: column;
           min-height: 0;
+          overflow: hidden;
+        }
+        .optical-scroll {
+          flex: 1 1 auto;
+          min-height: 0;
+          overflow-x: hidden;
+          overflow-y: auto;
+          padding-right: 2px;
+        }
+        .optical-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 6px;
+          align-content: start;
+        }
+        .optical-tile {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          margin: 0;
+          padding: 0;
+          border: 1px solid rgba(56, 160, 240, 0.28);
+          border-radius: 4px;
+          background: rgba(2, 12, 28, 0.55);
+          cursor: pointer;
+          overflow: hidden;
+          min-width: 0;
+        }
+        .panel[data-panel="efield"] .chart,
+        .panel[data-panel="frequency"] .chart {
+          cursor: pointer;
+        }
+        .optical-tile.is-active {
+          border-color: rgba(56, 189, 248, 0.85);
+          box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.35);
+        }
+        .optical-tile img {
+          display: block;
+          width: 100%;
+          aspect-ratio: 4 / 3;
+          object-fit: cover;
+          background: rgba(8, 24, 48, 0.9);
+        }
+        .optical-cap {
+          font-size: ${COCKPIT_TYPE.chartLabel};
+          line-height: 1.2;
+          color: ${color("text_muted")};
+          text-align: center;
+          padding: 0 2px 3px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
       </style>
-      <div class="stack">
-        ${PANELS.map(
-          (panel, idx) => `
-          <div class="panel" data-panel="${escapeHtml(panel.key)}">
-            <div class="title">${escapeHtml(panel.title)}</div>
-            <div class="chart" data-idx="${idx}"></div>
-          </div>`,
-        ).join("")}
+      <div class="root">
+        <div class="charts">
+          ${PANELS.map(
+            (panel, idx) => `
+            <div class="panel" data-panel="${escapeHtml(panel.key)}">
+              <div class="title">${escapeHtml(panel.title)}</div>
+              <div class="chart" data-idx="${idx}"></div>
+            </div>`,
+          ).join("")}
+        </div>
+        <div class="panel optical" data-panel="optical">
+          <div class="title">光学帧</div>
+          <div class="optical-scroll" data-optical></div>
+        </div>
       </div>
     `;
     this._chartEls = [...this.shadowRoot.querySelectorAll(".chart")];
+    this._opticalEl = this.shadowRoot.querySelector("[data-optical]");
+    this.bindT2Clicks();
+  }
+
+  bindT2Clicks() {
+    if (!this.shadowRoot || this._t2Bound) return;
+    this._t2Bound = true;
+    this.shadowRoot.addEventListener("click", (event) => {
+      const panel = event.target?.closest?.("[data-panel]");
+      if (!panel) return;
+      const key = panel.getAttribute("data-panel");
+      if (key === "efield") {
+        openThunderT2("efield", { host: this });
+        return;
+      }
+      if (key === "frequency") {
+        openThunderT2("lightning", { host: this });
+        return;
+      }
+      if (key === "optical") {
+        openThunderT2("optical", { host: this });
+      }
+    });
   }
 
   schedulePaint() {
@@ -425,7 +499,6 @@ class MeiThunderEventCharts extends HTMLElement {
     const playbackAt = String(this._state?.playbackAt || "").trim();
     const charts = event?.charts || {};
     const seriesByKey = {
-      lifecycle: charts.lifecycle,
       efield: charts.efield,
       frequency: charts.frequency,
     };
@@ -462,6 +535,10 @@ class MeiThunderEventCharts extends HTMLElement {
         true,
       );
       chart.resize();
+    }
+
+    if (this._opticalEl) {
+      this._opticalEl.innerHTML = renderOpticalGrid(event?.opticalFrames, playbackAt);
     }
   }
 }

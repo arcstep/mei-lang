@@ -129,3 +129,16 @@ export function listTitleOf(event) {
   if (!event) return "";
   return String(event.listTitle || `${event.id} · ${event.title || ""}`).trim();
 }
+
+/** catalog 事件 id → prototype/{lifecycle,efield,lightning}/ 文件键 */
+export function fixtureKeyForEventId(eventId) {
+  const id = String(eventId || "").trim();
+  const map = {
+    "260709-01": "EVT-20260709-01",
+    "260708-17": "EVT-20260709-01",
+    "260707-09": "EVT-20260709-01",
+    "EVT-20260709-01": "EVT-20260709-01",
+  };
+  return map[id] || "EVT-20260709-01";
+}
+
