@@ -104,6 +104,45 @@ const LAYER_TOGGLE_ICON_HTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill
   <path d="m4 16 8 4 8-4"></path>
 </svg>`;
 
+/** 内置点符号 id（MapLibre SDF，可用 icon-color 按类型上色） */
+const BUILTIN_POINT_ICONS = {
+  lightning: "mei-icon-lightning",
+};
+
+/** 绘制白色闪电螺栓 SDF 位图（透明底），供 icon-color 重着色。 */
+function createLightningIconImageData(size = 64) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, size, size);
+  const s = size / 64;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  // 经典闪电折线：上宽下尖
+  ctx.moveTo(36 * s, 4 * s);
+  ctx.lineTo(18 * s, 30 * s);
+  ctx.lineTo(28 * s, 30 * s);
+  ctx.lineTo(22 * s, 60 * s);
+  ctx.lineTo(46 * s, 26 * s);
+  ctx.lineTo(34 * s, 26 * s);
+  ctx.lineTo(44 * s, 4 * s);
+  ctx.closePath();
+  ctx.fill();
+  return ctx.getImageData(0, 0, size, size);
+}
+
+function resolvePointMarkerKind(style = {}) {
+  const raw = String(
+    style.marker || style.icon || style.pointMarker || style.point_marker || "",
+  )
+    .trim()
+    .toLowerCase();
+  if (raw === "lightning" || raw === "bolt" || raw === "flash") return "lightning";
+  return "";
+}
+
 function installMapRuntimeHooks() {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
   if (typeof boot.syncCockpitMapToolsOverlays !== "function") {
@@ -1251,6 +1290,22 @@ if (!customElements.get(TAG)) {
       }
     }
 
+    /** 注册内置点符号（闪电等）；SDF 以便按类型 icon-color 上色。 */
+    ensureBuiltinPointIcon(kind) {
+      if (!this.map || typeof this.map.addImage !== "function") return false;
+      const key = String(kind || "").trim().toLowerCase();
+      const imageId = BUILTIN_POINT_ICONS[key];
+      if (!imageId) return false;
+      if (this.map.hasImage?.(imageId) || this.map.getImage?.(imageId)) return true;
+      if (key === "lightning") {
+        const imageData = createLightningIconImageData(64);
+        if (!imageData) return false;
+        this.map.addImage(imageId, imageData, { sdf: true });
+        return true;
+      }
+      return false;
+    }
+
     /** 运行时按 MapLibre filter 表达式裁剪已注册业务层（Thunder 事件/切片）。 */
     setLayerFeatureFilter(layerId, filterExpr, registry = this._layerRegistry) {
       const entry = registry?.[layerId];
@@ -1322,16 +1377,19 @@ if (!customElements.get(TAG)) {
 
       if (type === "point") {
         const fillLayerId = `fill-${layerId}`;
-        const circleColorExpr =
+        const colorExpr =
           style.circleColorExpr ||
           style.circle_color_expr ||
           style.circleColor ||
           style.circle_color ||
+          style.iconColor ||
+          style.icon_color ||
           "#f472b6";
         const circleRadius = Number(style.circleRadius ?? style.circle_radius ?? 5);
         const circleStrokeColor = style.circleStrokeColor || style.circle_stroke_color || "#fce7f3";
         const circleStrokeWidth = Number(style.circleStrokeWidth ?? style.circle_stroke_width ?? 1);
         const layerFilter = layerSpec.filter || layerSpec.mapFilter || null;
+        const markerKind = resolvePointMarkerKind(style);
         const pointData = enrichGeoJsonWithLayerMetrics(geojson, {
           joinKey,
           valueMap,
@@ -1339,13 +1397,46 @@ if (!customElements.get(TAG)) {
           dataLabels,
         });
         this.map.getSource(sourceId).setData(pointData);
-        if (!this.map.getLayer(fillLayerId)) {
+        if (markerKind === "lightning") {
+          this.ensureBuiltinPointIcon("lightning");
+          const iconId = BUILTIN_POINT_ICONS.lightning;
+          const iconSize = Number(style.iconSize ?? style.icon_size ?? 0.85);
+          if (!this.map.getLayer(fillLayerId)) {
+            const layerDef = {
+              id: fillLayerId,
+              type: "symbol",
+              source: sourceId,
+              layout: {
+                "icon-image": iconId,
+                "icon-size": iconSize,
+                "icon-allow-overlap": true,
+                "icon-ignore-placement": true,
+                "icon-anchor": "center",
+              },
+              paint: {
+                "icon-color": colorExpr,
+                "icon-halo-color":
+                  style.iconHaloColor || style.icon_halo_color || "#0f172a",
+                "icon-halo-width": Number(
+                  style.iconHaloWidth ?? style.icon_halo_width ?? 1.2,
+                ),
+                "icon-opacity": Number(style.iconOpacity ?? style.icon_opacity ?? 1),
+              },
+            };
+            if (Array.isArray(layerFilter)) {
+              layerDef.filter = layerFilter;
+            }
+            this.map.addLayer(layerDef);
+          } else if (Array.isArray(layerFilter)) {
+            this.map.setFilter(fillLayerId, layerFilter);
+          }
+        } else if (!this.map.getLayer(fillLayerId)) {
           const layerDef = {
             id: fillLayerId,
             type: "circle",
             source: sourceId,
             paint: {
-              "circle-color": circleColorExpr,
+              "circle-color": colorExpr,
               "circle-radius": circleRadius,
               "circle-stroke-color": circleStrokeColor,
               "circle-stroke-width": circleStrokeWidth,
@@ -1359,7 +1450,9 @@ if (!customElements.get(TAG)) {
           this.map.setFilter(fillLayerId, layerFilter);
         }
         mapLayerIds.push(fillLayerId);
-        this.addDataLabelLayer(layerId, sourceId, dataLabels, mapLayerIds, style);
+        this.addDataLabelLayer(layerId, sourceId, dataLabels, mapLayerIds, style, {
+          layerFilter,
+        });
         this.bindLayerEvents(fillLayerId, layerId, joinKey, layerSpec);
         registry[layerId] = { mapLayerIds, sourceId };
         this._renderTrace?.mark("layer_ready", {
@@ -1562,6 +1655,15 @@ if (!customElements.get(TAG)) {
         mapLayerIds.push(labelLayerId);
         return;
       }
+      const textOffset = Array.isArray(dataLabels.textOffset)
+        ? dataLabels.textOffset
+        : [0, 0];
+      const textAnchor = String(dataLabels.textAnchor || "center").trim() || "center";
+      const layerFilter = options.layerFilter || null;
+      const hasLabel = ["has", "__mei_label_text"];
+      const labelFilter = Array.isArray(layerFilter)
+        ? ["all", hasLabel, layerFilter]
+        : hasLabel;
       this.map.addLayer({
         id: labelLayerId,
         type: "symbol",
@@ -1580,7 +1682,8 @@ if (!customElements.get(TAG)) {
             14,
             dataLabels.textSize + 1,
           ],
-          "text-anchor": "center",
+          "text-anchor": textAnchor,
+          "text-offset": textOffset,
           "text-line-height": 1.15,
           "text-allow-overlap": false,
           "text-ignore-placement": false,
@@ -1591,7 +1694,7 @@ if (!customElements.get(TAG)) {
           "text-halo-color": dataLabels.textHaloColor,
           "text-halo-width": dataLabels.textHaloWidth,
         },
-        filter: ["has", "__mei_label_text"],
+        filter: labelFilter,
       });
       mapLayerIds.push(labelLayerId);
     }
@@ -1980,22 +2083,34 @@ if (!customElements.get(TAG)) {
         popupFields && popupFields.length > 0
           ? popupFields
           : type === "point"
-            ? ["企业名称", "检查次数", "处罚次数", "处罚金额合计", "所属园区", "所属街道"]
+            ? [
+                { field: "name", label: "名称" },
+                { field: "type_label", label: "类型" },
+                { field: "type", label: "类型" },
+                { field: "status_label", label: "状态" },
+                { field: "status", label: "状态" },
+                { field: "model", label: "型号" },
+                { field: "location", label: "位置" },
+              ]
             : [
                 { field: "name", label: "名称" },
                 { field: "__mei_value", label: metricLabel },
               ];
       const rows = [];
+      const seenLabels = new Set();
       for (const fieldDef of defaults) {
         const field = typeof fieldDef === "string" ? fieldDef : String(fieldDef?.field || "").trim();
         if (!field) continue;
         const meta = popupFieldMeta(fieldDef, field);
+        // 同标签只取第一个有值的字段（如 type_label 优先于 type）
+        if (seenLabels.has(meta.label)) continue;
         let raw = feature?.properties?.[field];
         if ((raw == null || raw === "") && field === "__mei_value") {
           raw = feature?.properties?.value;
         }
         const formatted = formatPopupFieldValue(raw, meta);
         if (formatted == null) continue;
+        seenLabels.add(meta.label);
         rows.push(
           `<div class="popup-row"><span class="popup-label">${escapeHtml(meta.label)}</span><span class="popup-value">${escapeHtml(formatted)}</span></div>`,
         );

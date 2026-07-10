@@ -667,6 +667,23 @@ export function resolveLayerDataLabels(layerSpec = {}, options = {}) {
       "#0f172a",
     ),
     textHaloWidth: Number(style.labelHaloWidth ?? style.label_halo_width ?? 1.2),
+    /** 相对锚点偏移（em）；点层建议 [0, 1.1] + textAnchor top，避免压住圆点 */
+    textOffset: (() => {
+      const rawOffset =
+        style.labelTextOffset ??
+        style.label_text_offset ??
+        (raw && typeof raw === "object" ? raw.textOffset ?? raw.text_offset : null);
+      if (Array.isArray(rawOffset) && rawOffset.length >= 2) {
+        return [Number(rawOffset[0]) || 0, Number(rawOffset[1]) || 0];
+      }
+      return [0, 0];
+    })(),
+    textAnchor: String(
+      style.labelTextAnchor ||
+        style.label_text_anchor ||
+        (raw && typeof raw === "object" ? raw.textAnchor || raw.text_anchor : null) ||
+        "center",
+    ).trim() || "center",
     valueLabel: String(
       (raw && typeof raw === "object" ? raw.valueLabel || raw.value_label : null) ||
         inferLayerMetricLabel(layerSpec),
