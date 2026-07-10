@@ -2312,6 +2312,16 @@ fn resolve_link_decl_popup(ctx: &PanelLowerContext<'_>, link_key: &str) -> Optio
             map.insert("overlay_workspace".to_string(), workspace);
         }
     }
+    if let Some(title) = payload
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if let Some(map) = popup.as_object_mut() {
+            map.insert("title".to_string(), json!(title));
+        }
+    }
     Some(popup)
 }
 
