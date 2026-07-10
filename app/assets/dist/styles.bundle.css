@@ -2110,7 +2110,7 @@ body > .mei-floating-text-pop-backdrop {
 .access-drilldown-overlay-backdrop {
   position: absolute;
   inset: 0;
-  background: var(--mei-color-drilldown-backdrop);
+  background: var(--mei-color-drilldown-backdrop, rgba(2, 6, 23, 0.62));
   backdrop-filter: blur(2px);
 }
 .access-drilldown-overlay-panel {
@@ -2120,11 +2120,12 @@ body > .mei-floating-text-pop-backdrop {
   height: min(620px, 72vh);
   min-height: 360px;
   border-radius: 16px;
-  border: 1px solid var(--mei-color-drilldown-panel-border);
+  border: 1px solid var(--mei-color-drilldown-panel-border, rgba(56, 160, 240, 0.22));
+  /* 主题未注入 drilldown 色板时仍保持不透明，避免首页内容透出造成「空白看板」错觉 */
   background: linear-gradient(
     180deg,
-    var(--mei-color-drilldown-panel-top),
-    var(--mei-color-drilldown-panel-bottom)
+    var(--mei-color-drilldown-panel-top, rgba(12, 36, 68, 0.97)),
+    var(--mei-color-drilldown-panel-bottom, rgba(8, 24, 48, 0.99))
   );
   box-shadow: 0 24px 60px rgba(2, 6, 23, 0.72);
   overflow: hidden;
@@ -3321,8 +3322,8 @@ body.mei-copilot-slide-active:not(.mei-presentation-viewport-mounted):not(
   min-height: 0;
   min-width: 0;
   border-radius: 12px;
-  border: 1px solid var(--mei-color-drilldown-shell-border);
-  background: var(--mei-color-drilldown-shell-bg);
+  border: 1px solid var(--mei-color-drilldown-shell-border, rgba(56, 160, 240, 0.22));
+  background: var(--mei-color-drilldown-shell-bg, rgba(10, 32, 58, 0.92));
   overflow: hidden;
 }
 .access-drilldown-shell-slot {

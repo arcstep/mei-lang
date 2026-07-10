@@ -36311,6 +36311,16 @@
     return raw;
   }
 
+  function markNoClientBootstrapPack(reason) {
+    global.__meiBootstrapNoClientPack = 1;
+    global.__meiEvalPackMissReason =
+      global.__meiEvalPackMissReason || reason || "no_client_bootstrap";
+  }
+
+  function clearNoClientBootstrapPack() {
+    delete global.__meiBootstrapNoClientPack;
+  }
+
   function applyEvalPackPayload(payload, options) {
     const opts = options || {};
     const normalized = normalizeEvalPackPayload(payload);
@@ -36362,6 +36372,17 @@
     }
     if (Array.isArray(normalized.evalLayerRefs) && normalized.evalLayerRefs.length > 0) {
       global.__mei.eval_layer_refs = normalized.evalLayerRefs;
+    }
+    const revision = String(normalized.clientRevision || "").trim();
+    const metricCount = Array.isArray(normalized.metrics) ? normalized.metrics.length : 0;
+    if (revision === NO_CLIENT_BOOTSTRAP_REVISION || metricCount === 0) {
+      markNoClientBootstrapPack(
+        revision === NO_CLIENT_BOOTSTRAP_REVISION
+          ? "no_client_bootstrap"
+          : "empty_eval_pack_metrics",
+      );
+    } else {
+      clearNoClientBootstrapPack();
     }
     global.__meiBootstrapPayloadReady = 1;
     if (opts.source) {
@@ -36451,7 +36472,16 @@
     const clientRevision = resolveBootstrapRevision(revision);
     if (!appId || !sceneId) return null;
     if (clientRevision === NO_CLIENT_BOOTSTRAP_REVISION) {
+      markNoClientBootstrapPack("no_client_bootstrap");
+      global.__mei = global.__mei || {};
+      global.__mei.client_revision = NO_CLIENT_BOOTSTRAP_REVISION;
+      if (!Array.isArray(global.__mei.bootstrap_metrics)) {
+        global.__mei.bootstrap_metrics = [];
+      }
       global.__meiBootstrapPayloadReady = 1;
+      try {
+        document.dispatchEvent(new CustomEvent("mei-bootstrap-ready"));
+      } catch (_) {}
       return global.__mei || null;
     }
     const currentScope = String(global.__mei?.bootstrap_scope || "").trim();
