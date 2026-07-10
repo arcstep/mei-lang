@@ -89,9 +89,10 @@ function cellToneClass(layoutPreset, colKey, raw) {
   if (layoutPreset !== "warnings") {
     return "";
   }
-  if (colKey === "level" || colKey === "预警等级") {
+  if (colKey === "level" || colKey === "预警等级" || colKey === "级别") {
     if (text.includes("蓝")) return "tone-blue";
     if (text.includes("黄")) return "tone-yellow";
+    if (text.includes("橙")) return "tone-orange";
     if (text.includes("红")) return "tone-red";
   }
   if (colKey === "status" || colKey === "当前状态") {
@@ -109,6 +110,7 @@ function resolveTagToneClass(colKey, raw) {
   const text = String(raw ?? "").trim();
   if (!text) return "tone-slate";
   if (text.includes("红")) return "tone-red";
+  if (text.includes("橙")) return "tone-orange";
   if (text.includes("黄")) return "tone-yellow";
   if (text.includes("蓝")) return "tone-blue";
   if (/(在办|待办|处理中|核查中|整改中)/.test(text)) return "tone-orange";
@@ -500,6 +502,11 @@ export class MeiCockpitDataTable extends HTMLElement {
     this._carouselEpoch = 0;
     this._carouselPageTurn = false;
     this._queryStateId = queryStateIdOf(this._props);
+    if (tableRowSelectionMode(this._props) === "single") {
+      if (!Number.isFinite(this._selectedRowIndex) || this._selectedRowIndex < 0) {
+        this._selectedRowIndex = 0;
+      }
+    }
     this._sharedFilters = getQueryState(this._queryStateId).filters || {};
     this._sharedSearch = String(getQueryState(this._queryStateId).search || "").trim();
     this._state = {

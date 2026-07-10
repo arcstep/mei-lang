@@ -31769,10 +31769,7 @@
         el.style.minHeight = "0";
         el.style.boxSizing = "border-box";
         el.style.pointerEvents = "none";
-        if (!el.style.border) {
-          el.style.border = "2px dashed #facc15";
-          el.style.borderRadius = "6px";
-        }
+        // 不回填调试黄虚线；作者需要框线时在 viewport-chrome / props 显式声明。
       });
     section.querySelectorAll('[data-preview-scope*="map-tools-slot"]').forEach((el) => {
       if (el instanceof HTMLElement) {
